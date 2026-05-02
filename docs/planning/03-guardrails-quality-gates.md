@@ -37,10 +37,9 @@ A change is Done only when all items below are satisfied:
 ## Release Gates
 - All critical-path E2E scenarios pass.
 - Deterministic retry behavior validated:
-  - Exactly 3 retries for each LLM call.
-  - Retries can rotate providers only within the same model.
+  - Exactly 3 retries for each LLM call (same model and endpoint).
   - Clear terminal error after retry budget is exhausted.
-- Retrieval routing behavior validated for both intent classes.
+- Retrieval routing behavior validated for the default intent class (relation-centric deferred).
 - Transparent pricing behavior validated:
   - Base cost, markup, total visible and coherent.
 - No fallback paths or silent degradation introduced.

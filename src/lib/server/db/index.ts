@@ -1,22 +1,22 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
-import { env } from '$env/dynamic/private';
+import { getRuntimeDatabaseUrl } from './runtime-url';
+import type { AppDatabase } from './context';
 
-if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
+export { getDb, appDbAsyncLocal } from './context';
+export type { AppDatabase } from './context';
 
-const runtimeDatabaseUrl = (() => {
-	try {
-		const url = new URL(env.DATABASE_URL);
-		// `uselibpqcompat` is a pg-connection-string flag used by drizzle-kit's pg driver.
-		// postgres.js forwards unknown params to PostgreSQL, which causes a fatal error.
-		url.searchParams.delete('uselibpqcompat');
-		return url.toString();
-	} catch {
-		return env.DATABASE_URL;
-	}
-})();
+/** App-facing Postgres pool. Use `getDb()` inside request handlers (RLS session var is set in hooks). */
+export const appSql = postgres(getRuntimeDatabaseUrl(), { max: 15 });
 
-const client = postgres(runtimeDatabaseUrl);
-
-export const db = drizzle(client, { schema });
+/**
+ * `postgres.js` connections from `reserve()` are `Sql` handles without `options`.
+ * Drizzle's postgres-js driver expects `client.options` (see drizzle `construct`), so we attach the pool's options.
+ */
+export function createScopedDrizzle(reserved: postgres.Sql): AppDatabase {
+	Object.assign(reserved as postgres.Sql & { options: (typeof appSql)['options'] }, {
+		options: appSql.options
+	});
+	return drizzle(reserved, { schema });
+}

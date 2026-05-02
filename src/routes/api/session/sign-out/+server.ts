@@ -1,10 +1,11 @@
-import { redirect } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { auth } from '$lib/server/auth';
 
+/** Outside `/api/auth` so `svelteKitHandler` does not intercept; uses Better Auth server API + request cookies. */
 export const POST: RequestHandler = async (event) => {
 	await auth.api.signOut({
 		headers: event.request.headers
 	});
-	throw redirect(302, '/demo/better-auth/login');
+	return json({ ok: true as const });
 };

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Pathname } from "$app/types";
-  import { resolve } from "$app/paths";
+  import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
@@ -13,7 +13,24 @@
 
   let { children } = $props();
 
-  const hideBottomNav = $derived(page.url.pathname.includes("/demo/better-auth/login"));
+  function normalizePathname(pathname: string): string {
+    let p = pathname;
+    if (base && p.startsWith(base)) {
+      p = p.slice(base.length) || "/";
+    }
+    if (p.length > 1 && p.endsWith("/")) {
+      p = p.slice(0, -1);
+    }
+    return p || "/";
+  }
+
+  /** Hide header + bottom nav on auth screens (works with `paths.base` and trailing slashes). */
+  const hideAppChrome = $derived(
+    page.route.id === "/login" ||
+      page.route.id === "/register" ||
+      normalizePathname(page.url.pathname) === "/login" ||
+      normalizePathname(page.url.pathname) === "/register",
+  );
 
   let currentPath = $derived(page.url.pathname);
   let themePreference = "system";
@@ -76,14 +93,14 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="min-h-dvh bg-background pb-28">
-  {#if !hideBottomNav}
+<div class="min-h-dvh bg-background" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome}>
+  {#if !hideAppChrome}
     <AppHeader />
   {/if}
   {@render children()}
 </div>
 
-{#if !hideBottomNav}
+{#if !hideAppChrome}
   <nav
     class="fixed bottom-0 left-0 right-0 z-50 text-foreground dark:text-white"
     aria-label="Main navigation"

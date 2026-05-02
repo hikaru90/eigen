@@ -26,14 +26,14 @@ describe('runIngestWithRetries', () => {
 	it('returns RetryExhaustedError with lastCause (AC-016)', async () => {
 		try {
 			await runIngestWithRetries(async () => {
-				throw new Error('provider unavailable');
+				throw new Error('upstream unavailable');
 			});
 			expect.fail('expected throw');
 		} catch (e) {
 			expect(isRetryExhaustedError(e)).toBe(true);
 			if (isRetryExhaustedError(e)) {
 				expect(e.attempts).toBe(4);
-				expect((e.lastCause as Error).message).toBe('provider unavailable');
+				expect((e.lastCause as Error).message).toBe('upstream unavailable');
 			}
 		}
 	});

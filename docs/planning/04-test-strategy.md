@@ -31,7 +31,7 @@ Priority scope:
 - Capture flow endpoint orchestration:
   - submit -> persist -> stored-result summary.
   - submit edit request -> targeted update -> updated stored-result summary.
-- EUrouter failure path:
+- LLM gateway failure path:
   - retry exactly 3 times then terminal error.
 - browser `browser-whisper` failure path:
   - retry exactly 3 times then terminal error.
@@ -54,7 +54,7 @@ Priority scope:
   - transcription or ingest dependency failure -> retries exhausted -> clear user-readable error.
 - Retrieval journey:
   - default question path (vector-first + graph expansion).
-  - relation-centric path (graph-first + vector evidence).
+  - relation-centric path (deferred; do not implement until requirements are re-opened).
 - Transparency journey:
   - activity log shows call, base cost, markup, total.
 - Security journey:
@@ -68,7 +68,7 @@ Priority scope:
 - No server-side transcription invariant.
 - Ingest retry determinism (exactly 3) and terminal error behavior.
 - Tenant isolation enforcement (`user_id` + RLS).
-- Retrieval policy correctness for both route classes.
+- Retrieval policy correctness for the default route class.
 - Pricing transparency correctness (base/markup/total per call).
 
 ### P1
@@ -89,5 +89,5 @@ Priority scope:
 ## Test Data and Environment Notes
 - Use isolated test tenants (`user_id`) per test suite.
 - Seed representative thought/relationship fixtures for graph+vector paths.
-- Use deterministic mock/fake responses for model provider failure scenarios.
+- Use deterministic mock/fake responses for LLM gateway failure scenarios.
 - Track cost-log fixtures with explicit decimal assertions (base/markup/total).

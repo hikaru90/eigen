@@ -2,7 +2,6 @@
 	import { resolve } from '$app/paths';
 	import type { PageData } from './$types';
 	import * as Card from '$lib/components/ui/card';
-	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
 
 	let { data }: { data: PageData } = $props();
 </script>

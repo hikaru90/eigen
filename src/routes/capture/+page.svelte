@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import { BrowserWhisper, type ASRModel, type TranscribeProgress, type TranscriptSegment } from 'browser-whisper';
 	import { resolve } from '$app/paths';
 	import type { PageData } from './$types';
+	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
-	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
 
 	let { data }: { data: PageData } = $props();
+
+	const showOnboarding = $derived(!data.onboardingCompleted);
 
 	let raw = $state('');
 	let editRequest = $state('');
@@ -32,6 +35,8 @@
 	const transcriptUpdateIntervalMs = 300;
 	let preferredLanguage = 'en';
 	let recordingMimeType = '';
+	/** False when `navigator.mediaDevices` / `MediaRecorder` are missing (common on http:// or some in-app browsers). */
+	let micCaptureSupported = $state(false);
 
 	function createSilentWavFile(durationMs = 300): File {
 		const sampleRate = 16_000;
@@ -82,6 +87,14 @@
 	}
 
 	onMount(() => {
+		const hasMediaDevices =
+			browser &&
+			typeof navigator !== 'undefined' &&
+			navigator.mediaDevices != null &&
+			typeof navigator.mediaDevices.getUserMedia === 'function';
+		const hasMediaRecorder = typeof MediaRecorder !== 'undefined';
+		micCaptureSupported = Boolean(hasMediaDevices && hasMediaRecorder);
+
 		preferredLanguage = (data.preferredLanguage || navigator.language || 'en').slice(0, 2).toLowerCase();
 		const quality = data.preferredTranscriptionQuality ?? 'low';
 		if (quality === 'high') {
@@ -97,18 +110,29 @@
 			qualityLabel = 'Low';
 			modelSizeMb = 64;
 		}
-		recordingMimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-			? 'audio/webm;codecs=opus'
-			: MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-				? 'audio/ogg;codecs=opus'
-				: '';
+		if (hasMediaRecorder) {
+			recordingMimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+				? 'audio/webm;codecs=opus'
+				: MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+					? 'audio/ogg;codecs=opus'
+					: '';
+		} else {
+			recordingMimeType = '';
+		}
 
 		browserWhisper = new BrowserWhisper({
 			model: whisperModel,
 			language: preferredLanguage
 		});
-		whisperStatus = `Preparing ${qualityLabel.toLowerCase()} quality voice model in background (${whisperModel}, ~${modelSizeMb} MB)...`;
-		warmupWhisperModelInBackground();
+		if (micCaptureSupported) {
+			whisperStatus = `Preparing ${qualityLabel.toLowerCase()} quality voice model in background (${whisperModel}, ~${modelSizeMb} MB)...`;
+			warmupWhisperModelInBackground();
+		} else {
+			const secure = typeof window !== 'undefined' && window.isSecureContext;
+			whisperStatus = secure
+				? 'Voice recording is not supported in this browser. You can still type your thought above.'
+				: 'Voice recording needs HTTPS (a secure connection). Open the site over https:// or type your thought instead.';
+		}
 
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -145,10 +169,23 @@
 		whisperStatus = null;
 		raw = '';
 		try {
+			if (!micCaptureSupported) {
+				throw new Error(
+					typeof window !== 'undefined' && !window.isSecureContext
+						? 'Microphone needs a secure page (HTTPS). Type your thought instead, or open the app over https://.'
+						: 'Microphone is not available in this browser or context. Type your thought instead.'
+				);
+			}
+			const mediaDevices = navigator.mediaDevices;
+			if (!mediaDevices?.getUserMedia) {
+				throw new Error(
+					'Microphone API is unavailable (often fixed by using HTTPS). Type your thought instead.'
+				);
+			}
 			if (!browserWhisper) {
 				throw new Error('Voice transcription model is still initializing. Please try again.');
 			}
-			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const stream = await mediaDevices.getUserMedia({ audio: true });
 			allChunks = [];
 			mediaRecorder = recordingMimeType
 				? new MediaRecorder(stream, { mimeType: recordingMimeType })
@@ -314,7 +351,12 @@
 					{#if isRecording}
 						<Button type="button" variant="outline" onclick={stopRecording}>Stop recording</Button>
 					{:else}
-						<Button type="button" variant="outline" disabled={loading} onclick={startRecording}>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={loading || !micCaptureSupported}
+							onclick={startRecording}
+						>
 							<svg viewBox="0 0 24 24" class="mr-1 size-4" fill="currentColor" aria-hidden="true">
 								<path
 									d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h2a1 1 0 1 1 0 2H9a1 1 0 0 1 0-2h2v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 0 0 10 0Z"
@@ -376,3 +418,5 @@
 		<a class="underline" href={resolve('/')}>Home</a>
 	</p>
 </div>
+
+<CaptureOnboardingOverlay open={showOnboarding} />

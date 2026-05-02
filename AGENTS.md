@@ -4,6 +4,11 @@
 - **Package Manager**: npm
 - **Add-ons**: eslint, vitest, playwright, tailwindcss, sveltekit-adapter, drizzle, better-auth, paraglide, mdsvex
 
+## UI components (shadcn-svelte)
+
+- **Prefer the registry over hand-built UI.** Before implementing menus, overlays, popovers, dialogs, sheets, comboboxes, etc. with raw markup, native controls (`<details>`), or custom click-outside / focus logic, **check [shadcn-svelte components](https://www.shadcn-svelte.com/docs/components)** and existing primitives under `src/lib/components/ui/`.
+- **Install missing pieces** with the official CLI (e.g. `npx shadcn-svelte@latest add popover`) instead of reimplementing accessibility, focus trap, and dismiss-on-outside behavior by hand.
+
 ---
 
 # Project Guardrails: Test-First SvelteKit Open Brain
@@ -26,7 +31,7 @@
 
 ## Pricing Transparency Policy
 - Do not hide infrastructure costs behind opaque subscription-only pricing.
-- Maintain a transparent usage log of relevant actions/API calls (including EUrouter calls).
+- Maintain a transparent usage log of relevant actions/API calls (including LLM gateway calls).
 - Display per-call cost details to users in understandable terms.
 - Apply markup per call (initial default: 20%) and show markup explicitly.
 
@@ -54,14 +59,11 @@
   - Persistence in the thought store.
 - Post-capture interaction happens mainly through MCP tools (not dashboard-heavy manual CRUD flows).
 
-## Capture Review Loop
-- After ingest input, return a structured preview to the user before persistence:
-  - Captured type/category.
-  - Normalized thought text.
-  - Key metadata.
-- User can request revisions in a multi-turn loop until satisfied.
-- Thought is persisted only on explicit user acceptance.
-- After commit, edits are handled through explicit MCP edit tools (not implicit capture rewrites).
+## Capture flow (default)
+- **Persist on submit:** the thought is stored immediately; there is no separate “preview then explicit accept” gate as the default path.
+- **Feedback after write:** return a clear, natural-language summary of how the thought was stored (type/category, normalized text, key metadata as applicable).
+- **Corrections after persistence:** the user may submit natural-language edit requests from the UI (and later via MCP) to update the stored thought; do not rely on implicit re-capture to rewrite committed rows.
+- **MCP:** post-commit changes continue to go through explicit MCP edit tools where applicable.
 
 ## Ontology Policy
 - Do not run an onboarding interview at first-use for ontology setup.

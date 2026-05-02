@@ -3,6 +3,7 @@ import { building } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import type { Handle } from '@sveltejs/kit';
+import { appSql, appDbAsyncLocal, createScopedDrizzle } from '$lib/server/db';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 
@@ -22,7 +23,24 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 		event.locals.user = session.user;
 	}
 
-	return svelteKitHandler({ event, resolve, auth, building });
+	const resolveWithAppDb: typeof resolve = async (opts) => {
+		if (building) {
+			return resolve(opts);
+		}
+
+		const reserved = await appSql.reserve();
+		try {
+			const uid = event.locals.user?.id ?? '';
+			await reserved`select set_config('app.current_user_id', ${uid}, false)`;
+			const scopedDb = createScopedDrizzle(reserved);
+			return await appDbAsyncLocal.run(scopedDb, () => resolve(opts));
+		} finally {
+			await reserved`select set_config('app.current_user_id', '', false)`;
+			await reserved.release();
+		}
+	};
+
+	return svelteKitHandler({ event, resolve: resolveWithAppDb, auth, building });
 };
 
 const handleCrossOriginIsolation: Handle = async ({ event, resolve }) => {

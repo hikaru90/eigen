@@ -2,12 +2,13 @@
 
 ## Critical Paths
 1. Capture (text/voice) -> Persist -> Stored-result summary -> Optional natural-language edit.
-2. Retrieve (vector-first default) -> graph expansion -> LLM answer context selection.
-3. Retrieve (relation-centric) -> graph-first + vector evidence -> LLM answer context selection.
-4. MCP operations (`capture_thought`, `list_thoughts`, `search_thoughts`, `edit_thought`).
-5. Transparent activity/cost logging with per-call markup visibility.
-6. Deterministic LLM failure handling (3 retries then explicit error).
-7. Tenant isolation by `user_id` with RLS.
+2. Retrieve (single default mode: vector-first) -> graph expansion -> LLM answer context selection.
+3. MCP operations (`capture_thought`, `list_thoughts`, `search_thoughts`, `edit_thought`).
+4. Transparent activity/cost logging with per-call markup visibility.
+5. Deterministic LLM failure handling (3 retries then explicit error).
+6. Tenant isolation by `user_id` with RLS.
+
+> **Deferred:** relation-centric retrieval routing and its acceptance criteria are intentionally out of scope until re-opened as a requirement.
 
 ## Acceptance Criteria (Given/When/Then)
 
@@ -56,12 +57,12 @@
 - When it invokes `search_thoughts`
 - Then relevant thought candidates are returned using vector + graph context policy.
 
-### AC-010 Retrieval router default mode
+### AC-010 Retrieval router default mode (active)
 - Given a non-relation-centric query
 - When retrieval runs
 - Then vector-first retrieval path is used, followed by graph expansion/reranking.
 
-### AC-011 Retrieval router relation mode
+### AC-011 Retrieval router relation mode (deferred)
 - Given a relation-centric query intent
 - When retrieval runs
 - Then graph-first retrieval path is used while incorporating vector evidence.
@@ -71,13 +72,13 @@
 - When context is selected
 - Then ranking uses `0.7 vector + 0.3 graph` deterministically.
 
-### AC-013 Context selection policy (relation-centric)
+### AC-013 Context selection policy (relation-centric) (deferred)
 - Given relation-centric retrieval mode and candidate set
 - When context is selected
 - Then ranking uses `0.4 vector + 0.6 graph` deterministically.
 
 ### AC-014 Transparent pricing display
-- Given an LLM/API call is made (including EUrouter calls)
+- Given an LLM/API call is made (including gateway calls)
 - When call accounting is persisted
 - Then base cost, markup amount, and total cost are visible to the user in activity log.
 
@@ -87,9 +88,9 @@
 - Then a 20% markup is applied and displayed explicitly.
 
 ### AC-016 Deterministic LLM retry policy
-- Given an LLM call fails on the current EUrouter provider
+- Given an LLM call fails transiently on the gateway
 - When the call is retried
-- Then system retries up to exactly 3 times across configured providers for the same model and no more.
+- Then system retries up to exactly 3 times for the same model and endpoint and no more.
 
 ### AC-017 Final user-facing error after retries
 - Given all 3 LLM retries fail
@@ -97,7 +98,7 @@
 - Then user receives a clear, easy-to-understand error with no silent fallback.
 
 ### AC-023 No cross-model fallback on failure
-- Given all configured providers for a model fail
+- Given all 3 retry attempts for a model fail
 - When retry budget is exhausted
 - Then system returns an explicit error and does not switch to a different model family.
 

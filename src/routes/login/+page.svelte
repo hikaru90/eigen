@@ -12,7 +12,7 @@
 
 <div class="mx-auto max-w-md px-5 pt-10">
 	<header class="text-center">
-		<EigenWordmark heightClass="h-10" class="mt-1" />
+		<EigenWordmark heightClass="h-12" />
 		<p class="text-muted-foreground mt-2 text-xs">Sign in</p>
 	</header>
 
@@ -25,6 +25,8 @@
 						id="email"
 						type="email"
 						name="email"
+						autocomplete="email"
+						required
 						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
 					/>
 				</div>
@@ -34,23 +36,12 @@
 						id="password"
 						type="password"
 						name="password"
+						autocomplete="current-password"
+						required
 						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
 					/>
 				</div>
-				<div class="space-y-1">
-					<Label for="name">Name (for registration)</Label>
-					<input
-						id="name"
-						name="name"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
-					/>
-				</div>
-				<div class="flex flex-wrap gap-2">
-					<Button type="submit" class="rounded-[4px] px-6">Login</Button>
-					<Button type="submit" formaction="?/signUpEmail" variant="outline" class="rounded-[4px]">
-						Register
-					</Button>
-				</div>
+				<Button type="submit" class="w-full rounded-[4px]">Sign in</Button>
 				{#if form?.message}
 					<p class="text-destructive text-xs">{form.message}</p>
 				{/if}
@@ -58,7 +49,12 @@
 		</Card.Content>
 	</Card.Root>
 
-	<p class="text-muted-foreground mt-8 pb-6 text-center text-[11px]">
+	<p class="text-muted-foreground mt-6 text-center text-xs">
+		Don't have an account yet?
+		<a class="text-foreground underline" href={resolve('/register')}>Create one</a>
+	</p>
+
+	<p class="text-muted-foreground mt-4 pb-6 text-center text-[11px]">
 		<a class="underline" href={resolve('/')}>Home</a>
 	</p>
 </div>

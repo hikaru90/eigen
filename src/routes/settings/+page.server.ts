@@ -3,7 +3,9 @@ import type { Actions, PageServerLoad } from './$types';
 import { eq } from 'drizzle-orm';
 import { APIError } from 'better-auth/api';
 import { auth } from '$lib/server/auth';
-import { db } from '$lib/server/db';
+import { authDb } from '$lib/server/db/auth-db';
+import { user } from '$lib/server/db/auth.schema';
+import { getDb } from '$lib/server/db';
 import { userPreference } from '$lib/server/db/schema';
 
 const LANGUAGE_OPTIONS = [
@@ -60,10 +62,10 @@ const getSafeErrorMessage = (error: unknown, fallback: string) => {
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
-		throw redirect(302, '/demo/better-auth/login');
+		throw redirect(302, '/login');
 	}
 
-	const [pref] = await db
+	const [pref] = await getDb()
 		.select({
 			preferredLanguage: userPreference.preferredLanguage,
 			preferredTranscriptionQuality: userPreference.preferredTranscriptionQuality
@@ -91,7 +93,7 @@ export const actions: Actions = {
 		const preferredLanguage = normalizeLanguage(formData.get('preferredLanguage')?.toString() ?? '');
 
 		try {
-			await db
+			await getDb()
 				.insert(userPreference)
 				.values({ userId: event.locals.user.id, preferredLanguage })
 				.onConflictDoUpdate({
@@ -120,7 +122,7 @@ export const actions: Actions = {
 		);
 
 		try {
-			await db
+			await getDb()
 				.insert(userPreference)
 				.values({ userId: event.locals.user.id, preferredTranscriptionQuality })
 				.onConflictDoUpdate({
@@ -192,5 +194,24 @@ export const actions: Actions = {
 				passwordMessage: getSafeErrorMessage(error, 'Unable to change password.')
 			});
 		}
+	},
+
+	resetOnboarding: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { onboardingMessage: 'You must be signed in.' });
+		}
+
+		try {
+			await authDb
+				.update(user)
+				.set({ onboardingCompleted: false })
+				.where(eq(user.id, event.locals.user.id));
+		} catch (error) {
+			return fail(400, {
+				onboardingMessage: getSafeErrorMessage(error, 'Unable to reset onboarding.')
+			});
+		}
+
+		throw redirect(303, '/capture');
 	}
 };

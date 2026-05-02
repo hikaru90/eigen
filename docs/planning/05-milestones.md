@@ -52,7 +52,7 @@ Required decisions confirmed:
   - `user_id` + RLS
 - Failure policy:
   - exactly 3 retries per LLM call then clear error
-  - provider rotation inside same model only (no cross-model fallback)
+  - no cross-model fallback on retry exhaustion
 - Pricing:
   - per-call cost logging + 20% markup display
 

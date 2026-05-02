@@ -188,6 +188,25 @@
 		</Card.Content>
 	</Card.Root>
 
+	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
+		<Card.Header>
+			<Card.Title class="text-sm">Onboarding</Card.Title>
+			<Card.Description class="text-muted-foreground text-xs">
+				Show the welcome tour again. You will be taken to Capture and the tour will open until you finish it.
+			</Card.Description>
+		</Card.Header>
+		<Card.Content>
+			<form method="post" action="?/resetOnboarding" use:enhance class="space-y-2">
+				<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+					Restart onboarding
+				</Button>
+				{#if form?.onboardingMessage}
+					<p class="text-destructive text-xs">{form.onboardingMessage}</p>
+				{/if}
+			</form>
+		</Card.Content>
+	</Card.Root>
+
 	<p class="text-muted-foreground pb-6 text-center text-[11px]">
 		<a class="underline" href={resolve('/capture')}>Capture</a>
 		·

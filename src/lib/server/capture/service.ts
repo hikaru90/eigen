@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
-import { activityCallLog, captureSession, thought, type ThoughtCategory } from '$lib/server/db/schema';
-import { db } from '$lib/server/db';
-import { priceCall } from '$lib/server/pricing';
+import { captureSession, thought, type ThoughtCategory } from '$lib/server/db/schema';
+import { getDb } from '$lib/server/db';
+import { logActivityCall } from '$lib/server/activity/log-call';
 
-/** Explicit MVP pricing unit until model providers are wired. */
+/** Explicit MVP pricing unit until the LLM ingest path is wired. */
 const CAPTURE_BASE_COST_USD = 0.0005;
 
 export function deterministicNormalize(raw: string): {
@@ -24,15 +24,10 @@ export function deterministicNormalize(raw: string): {
 }
 
 async function logCaptureActivity(userId: string, operation: 'capture_submit' | 'capture_edit') {
-	const priced = priceCall(CAPTURE_BASE_COST_USD);
-	await db.insert(activityCallLog).values({
-		userId,
+	await logActivityCall(getDb(), userId, {
 		provider: 'mvp_stub',
 		operation,
-		baseCostUsd: priced.baseCostUsd,
-		markupUsd: priced.markupUsd,
-		totalCostUsd: priced.totalCostUsd,
-		markupRate: priced.markupRate
+		baseCostUsd: CAPTURE_BASE_COST_USD
 	});
 }
 
@@ -40,7 +35,7 @@ export async function captureThought(userId: string, rawInput: string) {
 	await logCaptureActivity(userId, 'capture_submit');
 	const { normalized, category, metadata } = deterministicNormalize(rawInput);
 
-	const [sessionRow] = await db
+	const [sessionRow] = await getDb()
 		.insert(captureSession)
 		.values({
 			userId,
@@ -55,7 +50,7 @@ export async function captureThought(userId: string, rawInput: string) {
 
 	const embedding = new Array<number>(1536).fill(0);
 
-	const [stored] = await db.transaction(async (tx) => {
+	const [stored] = await getDb().transaction(async (tx) => {
 		const [t] = await tx
 			.insert(thought)
 			.values({
@@ -83,7 +78,7 @@ export async function editStoredThought(
 ) {
 	await logCaptureActivity(userId, 'capture_edit');
 
-	const [existing] = await db
+	const [existing] = await getDb()
 		.select()
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -95,7 +90,7 @@ export async function editStoredThought(
 	const editedRaw = `${existing.rawText}\n\nEdit request: ${editRequest.trim()}`;
 	const { normalized, category, metadata } = deterministicNormalize(editedRaw);
 
-	const [updated] = await db
+	const [updated] = await getDb()
 		.update(thought)
 		.set({
 			rawText: editedRaw,

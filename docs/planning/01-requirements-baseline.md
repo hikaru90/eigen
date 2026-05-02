@@ -9,7 +9,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 - Provide transparent, usage-based pricing per infrastructure call.
 - Enable better retrieval quality with immediate graph + vector combination.
 - Keep behavior deterministic with no silent degradation paths.
-- Use deterministic model retries with provider failover inside EUrouter.
+- Use deterministic LLM retries (exactly 3 attempts) against the configured LLM gateway.
 
 ## Personas
 - Individual operator: captures ideas/tasks/notes and queries memory daily.
@@ -40,15 +40,14 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - `search_thoughts`
   - `edit_thought`
 - Activity/cost log:
-  - Per-call EUrouter usage log.
+  - Per-call LLM gateway usage log.
   - Per-call cost breakdown.
   - Explicit per-call markup (initial 20%).
-- LLM provider strategy:
-  - All LLM calls route through EUrouter.
-  - Primary target models: Qwen3 embeddings + Qwen3 coder 30B.
-  - Provider priority list is configured via environment variables.
-  - Retry up to exactly 3 times per LLM call across providers for the same model.
-  - No fallback to a different model family on failure.
+- LLM gateway strategy:
+  - All LLM calls route through the configured LLM base URL (gateway).
+  - Chat and embedding calls use gateway rule UUIDs (`LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING`); each rule carries model and routing configuration.
+  - Per-call base cost is computed from response token usage (no per-model env table).
+  - Retry up to exactly 3 times per LLM call (same model; no switching model family on failure).
 - Security and tenancy:
   - Better Auth.
   - `user_id` tenancy key.
@@ -76,12 +75,11 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 3. Persist on submit and return a natural-language "stored result" summary.
 4. Support natural-language post-submit edits from UI and MCP.
 5. Provide list/search/edit MCP operations.
-6. Route retrieval:
-   - Default: vector-first then graph expansion.
-   - Relation-centric: graph-first while combining vector evidence.
-7. Apply deterministic context selection weights:
+6. Route retrieval (MVP lock):
+   - Single default mode only: vector-first then graph expansion.
+   - Relation-centric routing, intent classification, and alternate weighting are deferred until explicitly re-scoped.
+7. Apply deterministic context selection weights for the default mode:
    - Default queries: `0.7 vector + 0.3 graph`
-   - Relation-centric queries: `0.4 vector + 0.6 graph`
 8. Log all relevant LLM/API calls with transparent pricing details.
 9. Log transcription calls (including `browser-whisper` runtime cost footprint) in activity log.
    - For browser transcription, log client runtime metadata (model id, latency, retry count, device class)
