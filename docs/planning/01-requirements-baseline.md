@@ -1,0 +1,112 @@
+# Eigen Requirements Baseline (MVP)
+
+## Problem Statement
+People capture thoughts across tools, but memory becomes fragmented and locked into vendor ecosystems. Users need a portable memory layer they own, where thoughts can be captured quickly, enriched by AI, and queried from any compatible client.
+
+## Product Goals
+- Make capture frictionless: raw thought in, structured memory out.
+- Preserve data sovereignty and portability across AI tools.
+- Provide transparent, usage-based pricing per infrastructure call.
+- Enable better retrieval quality with immediate graph + vector combination.
+- Keep behavior deterministic with no silent degradation paths.
+- Use deterministic model retries with provider failover inside EUrouter.
+
+## Personas
+- Individual operator: captures ideas/tasks/notes and queries memory daily.
+- Knowledge worker: uses AI clients and needs persistent shared memory context.
+- Power user: wants inspectable cost logs and control over data portability.
+
+## In Scope (MVP)
+- Universal SvelteKit application (frontend + backend routes).
+- Capture/ingest interface with single-submit loop:
+  - User submits raw thought (text or voice).
+  - System stores the thought immediately.
+  - System returns a natural-language description of how it was stored.
+  - User may submit a natural-language edit request to update storage.
+- Voice ingest:
+  - `browser-whisper` is mandatory in MVP for speech-to-text transcription.
+  - Transcription runs in the client browser (WASM/WebWorker), not on Eigen backend.
+  - No server-side transcription compute billing is allowed in MVP.
+  - Audio capture is transcribed before metadata extraction/classification/embedding.
+  - Transcription failures follow ingest retry policy (3 retries, then explicit error).
+- Thought storage and retrieval:
+  - PostgreSQL as system of record.
+  - `pgvector` semantic retrieval.
+  - Apache AGE graph traversal.
+  - Immediate graph + vector combination from day one.
+- MCP v1 tools:
+  - `capture_thought`
+  - `list_thoughts`
+  - `search_thoughts`
+  - `edit_thought`
+- Activity/cost log:
+  - Per-call EUrouter usage log.
+  - Per-call cost breakdown.
+  - Explicit per-call markup (initial 20%).
+- LLM provider strategy:
+  - All LLM calls route through EUrouter.
+  - Primary target models: Qwen3 embeddings + Qwen3 coder 30B.
+  - Provider priority list is configured via environment variables.
+  - Retry up to exactly 3 times per LLM call across providers for the same model.
+  - No fallback to a different model family on failure.
+- Security and tenancy:
+  - Better Auth.
+  - `user_id` tenancy key.
+  - Row Level Security (RLS).
+- Ontology:
+  - Baseline categories (`thought`, `task`, `idea`, `reference`, `date`, `person`).
+  - Re-evaluate after 10 captured thoughts.
+- UI:
+  - Capture/ingest page.
+  - Activity/cost log page.
+  - Knowledge graph visualization as high-priority MVP candidate.
+
+## Out of Scope (MVP)
+- Advanced analytics dashboards.
+- Sharing/collaboration features.
+- Complex workflow automations.
+- Fine-tuned reranking optimization.
+- Deep observability/audit tooling.
+
+## Functional Requirements
+1. Capture thoughts through a dedicated interface (text and voice).
+2. Use `browser-whisper` transcription for voice input before persistence.
+   - Transcription execution target: browser runtime.
+   - Backend accepts transcript text, never raw audio for transcription.
+3. Persist on submit and return a natural-language "stored result" summary.
+4. Support natural-language post-submit edits from UI and MCP.
+5. Provide list/search/edit MCP operations.
+6. Route retrieval:
+   - Default: vector-first then graph expansion.
+   - Relation-centric: graph-first while combining vector evidence.
+7. Apply deterministic context selection weights:
+   - Default queries: `0.7 vector + 0.3 graph`
+   - Relation-centric queries: `0.4 vector + 0.6 graph`
+8. Log all relevant LLM/API calls with transparent pricing details.
+9. Log transcription calls (including `browser-whisper` runtime cost footprint) in activity log.
+   - For browser transcription, log client runtime metadata (model id, latency, retry count, device class)
+     and set backend transcription cost to zero.
+10. Apply and display per-call markup policy.
+
+## Non-Functional Requirements
+- Reliability:
+  - Deterministic retry policy: exactly 3 retries for every LLM call.
+  - On final failure, return clear, easy-to-understand error.
+- Performance:
+  - MVP relaxed p95 target: capture (text submit) <= 8s, retrieval <= 8s.
+  - MVP relaxed p95 target: capture (voice + browser transcription) <= 12s on target devices.
+- Client capability:
+  - Must detect unsupported browsers/devices and fail with explicit actionable guidance.
+- Security:
+  - Better Auth + RLS isolation by `user_id`.
+- Portability:
+  - Export/import primitives for thoughts + metadata + embeddings.
+- Determinism:
+  - No silent fallback behavior.
+  - Stable retrieval routing criteria for the same intent class.
+
+## Architecture Constraints
+- ORM: Drizzle.
+- E2E testing: Playwright.
+- UI primitives: shadcn-svelte.
+- Mutation pattern: native client fetch to explicit `+server` endpoints by default.

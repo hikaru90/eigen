@@ -1,0 +1,16 @@
+# Local Postgres with pgvector for Drizzle + embeddings.
+# Apache AGE: install in the same instance when you need Cypher graph (see docs/planning).
+services:
+	db:
+		image: pgvector/pgvector:pg16
+		environment:
+			POSTGRES_USER: eigen
+			POSTGRES_PASSWORD: eigen
+			POSTGRES_DB: eigen
+		ports:
+			- '5432:5432'
+		volumes:
+			- eigen_pg:/var/lib/postgresql/data
+
+volumes:
+	eigen_pg:
