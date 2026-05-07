@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { BrowserWhisper, type ASRModel, type TranscribeProgress, type TranscriptSegment } from 'browser-whisper';
 	import { resolve } from '$app/paths';
 	import type { PageData } from './$types';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
@@ -23,125 +22,144 @@
 	} | null>(null);
 	let err = $state<string | null>(null);
 	let loading = $state(false);
-	let whisperStatus = $state<string | null>(null);
-	let isRecording = $state(false);
-	let mediaRecorder: MediaRecorder | null = null;
-	let allChunks: BlobPart[] = [];
-	let browserWhisper: BrowserWhisper | null = null;
-	let modelWarmupPromise: Promise<void> | null = null;
-	let whisperModel = $state<ASRModel>('whisper-tiny');
-	let qualityLabel = $state('Low');
-	let modelSizeMb = $state(64);
-	const transcriptUpdateIntervalMs = 300;
-	let preferredLanguage = 'en';
-	let recordingMimeType = '';
-	/** False when `navigator.mediaDevices` / `MediaRecorder` are missing (common on http:// or some in-app browsers). */
-	let micCaptureSupported = $state(false);
 
-	function createSilentWavFile(durationMs = 300): File {
-		const sampleRate = 16_000;
-		const channels = 1;
-		const bitsPerSample = 16;
-		const bytesPerSample = bitsPerSample / 8;
-		const sampleCount = Math.max(1, Math.floor((sampleRate * durationMs) / 1000));
-		const dataSize = sampleCount * channels * bytesPerSample;
-		const buffer = new ArrayBuffer(44 + dataSize);
-		const view = new DataView(buffer);
+	let dictating = $state(false);
+	let dictationStatus = $state<string | null>(null);
+	let speechSupported = $state(false);
 
-		const writeAscii = (offset: number, value: string) => {
-			for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+	let dictationPrefix = '';
+	let recognition: SpeechRecognition | null = null;
+
+	function speechLocale(lang: string): string {
+		const code = lang.trim().toLowerCase().slice(0, 2);
+		const map: Record<string, string> = {
+			en: 'en-US',
+			de: 'de-DE',
+			fr: 'fr-FR',
+			es: 'es-ES',
+			it: 'it-IT',
+			pt: 'pt-PT',
+			nl: 'nl-NL',
+			pl: 'pl-PL',
+			tr: 'tr-TR',
+			ru: 'ru-RU',
+			ja: 'ja-JP',
+			ko: 'ko-KR',
+			zh: 'zh-CN'
 		};
-
-		writeAscii(0, 'RIFF');
-		view.setUint32(4, 36 + dataSize, true);
-		writeAscii(8, 'WAVE');
-		writeAscii(12, 'fmt ');
-		view.setUint32(16, 16, true); // PCM chunk size
-		view.setUint16(20, 1, true); // PCM format
-		view.setUint16(22, channels, true);
-		view.setUint32(24, sampleRate, true);
-		view.setUint32(28, sampleRate * channels * bytesPerSample, true);
-		view.setUint16(32, channels * bytesPerSample, true);
-		view.setUint16(34, bitsPerSample, true);
-		writeAscii(36, 'data');
-		view.setUint32(40, dataSize, true);
-		// Audio payload is already zeroed by ArrayBuffer allocation (silence).
-
-		return new File([buffer], 'warmup-silence.wav', { type: 'audio/wav' });
+		if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith(code)) {
+			return navigator.language;
+		}
+		return map[code] ?? 'en-US';
 	}
 
-	function warmupWhisperModelInBackground() {
-		if (!browserWhisper || modelWarmupPromise) return;
-		modelWarmupPromise = browserWhisper
-			.transcribe(createSilentWavFile(), {
-				model: whisperModel,
-				language: preferredLanguage
-			})
-			.collect()
-			.then(() => {
-				if (!isRecording && !loading) whisperStatus = `Voice model ready (${whisperModel})`;
-			})
-			.catch(() => {
-				// Ignore warmup failures; foreground transcription path will still surface real errors.
-			});
+	function getRecognitionCtor(): SpeechRecognitionConstructor | null {
+		if (!browser || typeof window === 'undefined') return null;
+		return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
+	}
+
+	function stopDictation() {
+		if (recognition) {
+			try {
+				recognition.stop();
+			} catch {
+				try {
+					recognition.abort();
+				} catch {
+					/* noop */
+				}
+			}
+			recognition = null;
+		}
+		dictating = false;
+		dictationStatus = null;
+	}
+
+	function toggleDictation() {
+		if (dictating) {
+			stopDictation();
+			return;
+		}
+		const Ctor = getRecognitionCtor();
+		if (!Ctor) {
+			err =
+				'Speech recognition is not available in this browser. Try Chrome or Edge over HTTPS, or type instead.';
+			return;
+		}
+		if (typeof window !== 'undefined' && !window.isSecureContext) {
+			err = 'Speech recognition needs a secure connection (HTTPS).';
+			return;
+		}
+		err = null;
+		dictationPrefix = raw.length ? (/\s$/.test(raw) ? raw : `${raw} `) : '';
+		dictating = true;
+		dictationStatus = 'Listening…';
+
+		const r = new Ctor();
+		r.lang = speechLocale(data.preferredLanguage ?? 'en');
+		r.continuous = true;
+		r.interimResults = true;
+		r.maxAlternatives = 1;
+		r.onresult = (event: SpeechRecognitionEvent) => {
+			let spoken = '';
+			for (let i = 0; i < event.results.length; i++) {
+				spoken += event.results[i][0].transcript;
+			}
+			raw = dictationPrefix + spoken;
+		};
+		r.onerror = (event: SpeechRecognitionErrorEvent) => {
+			const code = event.error;
+			if (code === 'aborted') {
+				err = null;
+			} else if (code === 'no-speech') {
+				err = null;
+				dictationStatus = 'No speech detected; try again.';
+			} else if (code === 'not-allowed') {
+				err = 'Microphone permission was denied.';
+			} else {
+				err = `Speech recognition stopped (${code}).`;
+			}
+			recognition = null;
+			dictating = false;
+		};
+		r.onend = () => {
+			recognition = null;
+			dictating = false;
+			dictationStatus = null;
+		};
+
+		recognition = r;
+		try {
+			r.start();
+		} catch (e) {
+			err = e instanceof Error ? e.message : 'Could not start speech recognition.';
+			recognition = null;
+			dictating = false;
+			dictationStatus = null;
+		}
 	}
 
 	onMount(() => {
-		const hasMediaDevices =
-			browser &&
-			typeof navigator !== 'undefined' &&
-			navigator.mediaDevices != null &&
-			typeof navigator.mediaDevices.getUserMedia === 'function';
-		const hasMediaRecorder = typeof MediaRecorder !== 'undefined';
-		micCaptureSupported = Boolean(hasMediaDevices && hasMediaRecorder);
-
-		preferredLanguage = (data.preferredLanguage || navigator.language || 'en').slice(0, 2).toLowerCase();
-		const quality = data.preferredTranscriptionQuality ?? 'low';
-		if (quality === 'high') {
-			whisperModel = 'whisper-small';
-			qualityLabel = 'High';
-			modelSizeMb = 510;
-		} else if (quality === 'medium') {
-			whisperModel = 'whisper-base';
-			qualityLabel = 'Medium';
-			modelSizeMb = 136;
-		} else {
-			whisperModel = 'whisper-tiny';
-			qualityLabel = 'Low';
-			modelSizeMb = 64;
-		}
-		if (hasMediaRecorder) {
-			recordingMimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-				? 'audio/webm;codecs=opus'
-				: MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-					? 'audio/ogg;codecs=opus'
-					: '';
-		} else {
-			recordingMimeType = '';
-		}
-
-		browserWhisper = new BrowserWhisper({
-			model: whisperModel,
-			language: preferredLanguage
-		});
-		if (micCaptureSupported) {
-			whisperStatus = `Preparing ${qualityLabel.toLowerCase()} quality voice model in background (${whisperModel}, ~${modelSizeMb} MB)...`;
-			warmupWhisperModelInBackground();
-		} else {
-			const secure = typeof window !== 'undefined' && window.isSecureContext;
-			whisperStatus = secure
-				? 'Voice recording is not supported in this browser. You can still type your thought above.'
-				: 'Voice recording needs HTTPS (a secure connection). Open the site over https:// or type your thought instead.';
-		}
+		speechSupported = Boolean(getRecognitionCtor());
 
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
 				e.preventDefault();
-				if (!loading && raw.trim()) void capture();
+				if (!loading && !dictating && raw.trim()) void capture();
 			}
 		};
 		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
+		return () => {
+			window.removeEventListener('keydown', onKey);
+			if (recognition) {
+				try {
+					recognition.abort();
+				} catch {
+					/* noop */
+				}
+				recognition = null;
+			}
+		};
 	});
 
 	async function capture() {
@@ -157,128 +175,6 @@
 			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
 			stored = j.thought;
 			editRequest = '';
-		} catch (e) {
-			err = e instanceof Error ? e.message : String(e);
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function startRecording() {
-		err = null;
-		whisperStatus = null;
-		raw = '';
-		try {
-			if (!micCaptureSupported) {
-				throw new Error(
-					typeof window !== 'undefined' && !window.isSecureContext
-						? 'Microphone needs a secure page (HTTPS). Type your thought instead, or open the app over https://.'
-						: 'Microphone is not available in this browser or context. Type your thought instead.'
-				);
-			}
-			const mediaDevices = navigator.mediaDevices;
-			if (!mediaDevices?.getUserMedia) {
-				throw new Error(
-					'Microphone API is unavailable (often fixed by using HTTPS). Type your thought instead.'
-				);
-			}
-			if (!browserWhisper) {
-				throw new Error('Voice transcription model is still initializing. Please try again.');
-			}
-			const stream = await mediaDevices.getUserMedia({ audio: true });
-			allChunks = [];
-			mediaRecorder = recordingMimeType
-				? new MediaRecorder(stream, { mimeType: recordingMimeType })
-				: new MediaRecorder(stream);
-			mediaRecorder.ondataavailable = (event) => {
-				if (event.data.size > 0) {
-					allChunks.push(event.data);
-				}
-			};
-			mediaRecorder.onstop = async () => {
-				for (const track of stream.getTracks()) track.stop();
-				isRecording = false;
-				await transcribeRecordedAudio();
-			};
-			mediaRecorder.start();
-			isRecording = true;
-			whisperStatus = 'Recording...';
-		} catch (e) {
-			err =
-				e instanceof Error
-					? e.message
-					: 'Microphone recording is unavailable. Check browser permissions.';
-		}
-	}
-
-	function stopRecording() {
-		if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
-		whisperStatus = 'Stopping recording...';
-		mediaRecorder.stop();
-	}
-
-	async function transcribeRecordedAudio() {
-		if (allChunks.length === 0) {
-			whisperStatus = 'No audio captured';
-			return;
-		}
-		if (!browserWhisper) {
-			err = 'Voice transcription model is unavailable. Refresh and try again.';
-			return;
-		}
-		loading = true;
-		whisperStatus = 'Transcribing in browser...';
-		try {
-			const fileType = recordingMimeType || mediaRecorder?.mimeType || 'audio/webm';
-			const extension = fileType.includes('ogg') ? 'ogg' : 'webm';
-			const blob = new Blob(allChunks, { type: fileType });
-			const file = new File([blob], `voice-note.${extension}`, { type: fileType });
-
-			const callbackSegments: TranscriptSegment[] = [];
-			let lastTranscriptUiUpdate = 0;
-			const collectedSegments = await browserWhisper
-				.transcribe(file, {
-				model: whisperModel,
-				language: preferredLanguage,
-				onProgress: (event: TranscribeProgress) => {
-					if (event.stage === 'loading') {
-						whisperStatus = `Loading model... ${Math.round(event.progress * 100)}%`;
-						return;
-					}
-					if (event.stage === 'decoding') {
-						whisperStatus = `Decoding audio... ${Math.round(event.progress * 100)}%`;
-						return;
-					}
-					if (event.stage === 'transcribing') {
-						whisperStatus = `Transcribing... ${Math.round(event.progress * 100)}%`;
-						return;
-					}
-					whisperStatus = 'Finalizing transcription...';
-				},
-				onSegment: (segment: TranscriptSegment) => {
-					callbackSegments.push(segment);
-					const now = Date.now();
-					const shouldUpdateUi = now - lastTranscriptUiUpdate >= transcriptUpdateIntervalMs;
-					if (!shouldUpdateUi) return;
-					lastTranscriptUiUpdate = now;
-					raw = callbackSegments.map((item) => item.text.trim()).filter(Boolean).join(' ').trim();
-				}
-				})
-				.collect();
-			raw = callbackSegments.map((item) => item.text.trim()).filter(Boolean).join(' ').trim();
-			if (!raw.trim()) {
-				raw = collectedSegments
-					.map((item) => item.text.trim())
-					.filter(Boolean)
-					.join(' ')
-					.trim();
-			}
-			if (!raw.trim()) {
-				throw new Error(
-					'Transcription returned empty text. Try a longer recording, speak louder, or reduce background noise.'
-				);
-			}
-			whisperStatus = 'Voice transcription complete';
 		} catch (e) {
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -323,53 +219,40 @@
 				<Textarea
 					id="thought"
 					bind:value={raw}
-					placeholder="Enter your thought..."
+					placeholder="Enter your thought…"
 					class="min-h-[120px] border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0 md:text-sm"
 				/>
 			</Card.Content>
-			<Card.Footer class="h-[52px] justify-between gap-3 border-t border-border py-0">
+			<Card.Footer class="flex flex-col gap-3 border-t border-border py-3 sm:h-auto sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-2">
 				<span class="text-[#aaaaaa] text-xs">⌘ / Ctrl + Enter to capture</span>
-				<Button
-					type="button"
-					class="h-auto rounded-[4px] px-6 py-3 text-sm font-medium"
-					disabled={loading || !raw.trim()}
-					onclick={capture}
-				>
-					Capture
-				</Button>
-			</Card.Footer>
-		</Card.Root>
-
-		<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-			<Card.Content class="space-y-3 px-4 py-4">
-				<p class="text-sm font-medium text-foreground">Voice capture</p>
-				<p class="text-muted-foreground text-xs">
-					Quality: {qualityLabel} (~{modelSizeMb} MB) ·
-					<a class="text-foreground underline" href={resolve('/settings')}>Settings</a>
-				</p>
-				<div class="flex flex-wrap gap-2">
-					{#if isRecording}
-						<Button type="button" variant="outline" onclick={stopRecording}>Stop recording</Button>
-					{:else}
-						<Button
-							type="button"
-							variant="outline"
-							disabled={loading || !micCaptureSupported}
-							onclick={startRecording}
-						>
-							<svg viewBox="0 0 24 24" class="mr-1 size-4" fill="currentColor" aria-hidden="true">
-								<path
-									d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h2a1 1 0 1 1 0 2H9a1 1 0 0 1 0-2h2v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 0 0 10 0Z"
-								/>
-							</svg>
-							Start recording
-						</Button>
-					{/if}
+				<div class="flex flex-wrap items-center justify-end gap-2">
+					<Button
+						type="button"
+						variant="outline"
+						class="h-auto rounded-[4px] px-4 py-2 text-xs"
+						disabled={loading || !speechSupported}
+						title={speechSupported
+							? 'Uses the browser Web Speech API (may send audio to the browser vendor).'
+							: 'Not available in this browser or without HTTPS.'}
+						onclick={toggleDictation}
+					>
+						{dictating ? 'Stop dictating' : 'Dictate'}
+					</Button>
+					<Button
+						type="button"
+						class="h-auto rounded-[4px] px-6 py-3 text-sm font-medium"
+						disabled={loading || dictating || !raw.trim()}
+						onclick={capture}
+					>
+						Capture
+					</Button>
 				</div>
-				{#if whisperStatus}
-					<p class="text-muted-foreground text-xs">{whisperStatus}</p>
-				{/if}
-			</Card.Content>
+			</Card.Footer>
+			{#if dictationStatus}
+				<div class="border-t border-border px-4 py-2">
+					<p class="text-muted-foreground text-xs">{dictationStatus}</p>
+				</div>
+			{/if}
 		</Card.Root>
 
 		{#if err}

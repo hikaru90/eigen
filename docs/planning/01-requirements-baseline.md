@@ -24,8 +24,8 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - System returns a natural-language description of how it was stored.
   - User may submit a natural-language edit request to update storage.
 - Voice ingest:
-  - `browser-whisper` is mandatory in MVP for speech-to-text transcription.
-  - Transcription runs in the client browser (WASM/WebWorker), not on Eigen backend.
+  - Browser-side speech-to-text transcription is used in MVP.
+  - Transcription runs in the client browser, not on Eigen backend.
   - No server-side transcription compute billing is allowed in MVP.
   - Audio capture is transcribed before metadata extraction/classification/embedding.
   - Transcription failures follow ingest retry policy (3 retries, then explicit error).
@@ -34,6 +34,8 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - `pgvector` semantic retrieval.
   - Apache AGE graph traversal.
   - Immediate graph + vector combination from day one.
+  - Deterministic **lexical search surface** on stored thoughts (`lexical_text` derived from normalized text) for Postgres `tsvector` / keyword fusion with semantic search.
+  - **MCP and ingest validation:** strict entity IDs and numeric search bounds at the tool boundary; **redaction** of secret-shaped fields in logs and telemetry tied to pricing transparency.
 - MCP v1 tools:
   - `capture_thought`
   - `list_thoughts`
@@ -69,7 +71,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 
 ## Functional Requirements
 1. Capture thoughts through a dedicated interface (text and voice).
-2. Use `browser-whisper` transcription for voice input before persistence.
+2. Use browser-side transcription for voice input before persistence.
    - Transcription execution target: browser runtime.
    - Backend accepts transcript text, never raw audio for transcription.
 3. Persist on submit and return a natural-language "stored result" summary.
@@ -81,7 +83,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 7. Apply deterministic context selection weights for the default mode:
    - Default queries: `0.7 vector + 0.3 graph`
 8. Log all relevant LLM/API calls with transparent pricing details.
-9. Log transcription calls (including `browser-whisper` runtime cost footprint) in activity log.
+9. Log transcription calls (including client runtime cost footprint) in activity log.
    - For browser transcription, log client runtime metadata (model id, latency, retry count, device class)
      and set backend transcription cost to zero.
 10. Apply and display per-call markup policy.

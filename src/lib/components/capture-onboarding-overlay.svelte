@@ -55,8 +55,9 @@
 			<Card.Content class="space-y-3 text-sm text-card-foreground">
 				{#if step === 0}
 					<p class="text-xs leading-relaxed">
-						<strong>Capture</strong> is where you drop thoughts in raw form: type or use voice when you want
-						hands-free. You do not need to file, tag, or structure anything at capture time.
+						<strong>Capture</strong> is where you drop thoughts in raw form: type or use <strong>Dictate</strong>
+						(supported browsers use the built-in speech-to-text API). You do not need to file, tag, or
+						structure anything at capture time.
 					</p>
 				{:else if step === 1}
 					<p class="text-xs leading-relaxed">

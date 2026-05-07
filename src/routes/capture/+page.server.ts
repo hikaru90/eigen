@@ -12,8 +12,7 @@ export const load: PageServerLoad = async (event) => {
 	}
 	const [pref] = await getDb()
 		.select({
-			preferredLanguage: userPreference.preferredLanguage,
-			preferredTranscriptionQuality: userPreference.preferredTranscriptionQuality
+			preferredLanguage: userPreference.preferredLanguage
 		})
 		.from(userPreference)
 		.where(eq(userPreference.userId, event.locals.user.id))
@@ -28,8 +27,7 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		user: event.locals.user,
 		onboardingCompleted: authUser?.onboardingCompleted === true,
-		preferredLanguage: pref?.preferredLanguage ?? 'en',
-		preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low'
+		preferredLanguage: pref?.preferredLanguage ?? 'en'
 	};
 };
 

@@ -17,8 +17,7 @@ export const auth = betterAuth({
 				required: false,
 				defaultValue: false,
 				input: false,
-				returned: true,
-				fieldName: 'onboarding_completed'
+				returned: true
 			}
 		}
 	},

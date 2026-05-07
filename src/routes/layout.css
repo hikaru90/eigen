@@ -3,7 +3,16 @@
 @import "shadcn-svelte/tailwind.css";
 @import "@fontsource/inter/latin-400.css";
 @import "@fontsource/inter/latin-500.css";
+@import "@fontsource/geist-mono/latin-400.css";
 @import "@fontsource/unifrakturmaguntia/400.css";
+
+@font-face {
+	font-family: 'MontserratThin';
+	src: url('../lib/assets/fonts/Montserrat-Thin.woff2') format('woff2');
+	font-weight: 100;
+	font-style: normal;
+	font-display: swap;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -104,6 +113,8 @@
 @theme inline {
 	--font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
 	--font-display: 'UnifrakturMaguntia', ui-serif, Georgia, serif;
+	--font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+		'Courier New', monospace;
 	--color-sidebar-ring: var(--sidebar-ring);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

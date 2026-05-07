@@ -2,12 +2,14 @@
 	"name": "eigen",
 	"private": true,
 	"version": "0.0.1",
+	"license": "Apache-2.0",
 	"type": "module",
 	"engines": {
 		"node": "^22.13.0"
 	},
 	"scripts": {
 		"dev": "vite dev --host",
+		"dev:selfhost": "npm run db:up && npm run dev",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -17,8 +19,18 @@
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test",
-    "db:push": "drizzle-kit push",
-    "db:rls": "node scripts/apply-rls.mjs",
+		"db:up": "docker compose up -d db falkordb",
+		"app:up": "docker compose up -d --build app",
+		"stack:up": "docker compose up -d --build",
+		"stack:down": "docker compose down",
+		"db:down": "docker compose down",
+		"db:reset": "docker compose down -v",
+		"db:wait": "docker compose exec -T db pg_isready -U eigen -d eigen",
+		"graph:wait": "docker compose exec -T falkordb redis-cli ping",
+		"db:push:force": "drizzle-kit push --force",
+		"db:init": "npm run db:push:force && npm run db:rls",
+		"db:push": "drizzle-kit push",
+		"db:rls": "node scripts/apply-rls.mjs",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
@@ -39,6 +51,7 @@
 		"@tailwindcss/vite": "^4.2.2",
 		"@types/node": "^22",
 		"@vitest/browser-playwright": "^4.1.3",
+		"@vitest/coverage-v8": "^4.1.5",
 		"better-auth": "~1.4.21",
 		"bits-ui": "^2.18.0",
 		"clsx": "^2.1.1",
@@ -64,8 +77,9 @@
 		"vitest-browser-svelte": "^2.1.0"
 	},
 	"dependencies": {
+		"@fontsource/geist-mono": "^5.2.7",
 		"@fontsource/inter": "^5.2.8",
 		"@fontsource/unifrakturmaguntia": "^5.2.8",
-		"browser-whisper": "^1.0.1"
+		"falkordb": "^6.6.2"
 	}
 }

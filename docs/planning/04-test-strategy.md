@@ -19,7 +19,7 @@ Priority scope:
 - Pricing calculator:
   - base + 20% markup + total.
 - Capture state machine (submit persists once, edit updates target thought only).
-- browser `browser-whisper` adapter:
+- browser transcription adapter:
   - deterministic transcription pipeline handoff
   - device capability detection and unsupported-browser messaging
   - retry/error mapping for transcription failures
@@ -33,7 +33,7 @@ Priority scope:
   - submit edit request -> targeted update -> updated stored-result summary.
 - LLM gateway failure path:
   - retry exactly 3 times then terminal error.
-- browser `browser-whisper` failure path:
+- browser transcription failure path:
   - retry exactly 3 times then terminal error.
 - RLS isolation with `user_id`:
   - cross-user access denied for list/search/edit.
@@ -48,7 +48,7 @@ Owner: product/full-stack implementation
 Priority scope:
 - User capture journey:
   - enter text thought -> capture -> stored-result feedback.
-  - submit voice note -> browser transcription via `browser-whisper` -> stored-result feedback.
+  - submit voice note -> browser transcription -> stored-result feedback.
   - submit natural-language edit request -> updated stored-result feedback.
 - Error journey:
   - transcription or ingest dependency failure -> retries exhausted -> clear user-readable error.
@@ -64,7 +64,7 @@ Priority scope:
 
 ### P0 (Release Blocking)
 - Capture correctness (single-submit persist and deterministic update behavior).
-- Voice transcription correctness with browser `browser-whisper`.
+- Voice transcription correctness with browser-side transcription.
 - No server-side transcription invariant.
 - Ingest retry determinism (exactly 3) and terminal error behavior.
 - Tenant isolation enforcement (`user_id` + RLS).

@@ -12,7 +12,7 @@
 
 <div class="mx-auto max-w-md px-5 pt-10">
 	<header class="text-center">
-		<EigenWordmark heightClass="h-12" />
+		<EigenWordmark heightClass="h-10" />
 		<p class="text-muted-foreground mt-2 text-xs">Sign in</p>
 	</header>
 

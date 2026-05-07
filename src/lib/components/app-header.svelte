@@ -24,7 +24,7 @@
 <header class="w-full px-5 pt-6">
 	<div class="mx-auto flex w-full max-w-4xl items-center justify-between">
 		<div class="w-10"></div>
-		<EigenWordmark heightClass="h-12" />
+		<EigenWordmark heightClass="h-10" />
 		<Popover.Root bind:open={menuOpen}>
 			<Popover.Trigger
 				class="flex size-10 cursor-pointer items-center justify-center rounded-full text-foreground hover:bg-black/5"

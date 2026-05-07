@@ -53,6 +53,9 @@ A change is Done only when all items below are satisfied:
 - No cross-model fallback when retry budget is exhausted.
 - Tenant isolation by `user_id` enforced with RLS.
 - Immediate pgvector + AGE combination retained as core behavior.
+- **Lexical surface:** each committed thought maintains a deterministic `lexical_text` (or equivalent) for Postgres full-text / keyword fusion with vectors; stem or lemmatize only behind an explicit, tested pipeline.
+- **MCP and ingest boundaries:** validate IDs and search parameters at the tool/API edge; document contracts in the MCP spec.
+- **Logging and telemetry:** structured logs and cost traces must redact secret-shaped fields; never persist raw API keys in the activity log payload.
 
 ## Change Control for Core Policies
 Any change to these requires explicit requirement update before implementation:

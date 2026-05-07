@@ -42,8 +42,7 @@ Objective:
 - Confirm all pre-coding contracts and execution checklist are complete.
 
 Required decisions confirmed:
-- Core stack: SvelteKit, Drizzle, PostgreSQL, pgvector, AGE, Better Auth, Playwright, shadcn-svelte, browser-whisper.
-- Voice architecture: browser-side `browser-whisper` transcription (no server-side transcription).
+- Core stack: SvelteKit, Drizzle, PostgreSQL, pgvector, AGE, Better Auth, Playwright, shadcn-svelte.
 - Retrieval policies:
   - vector-first default
   - graph-first relation mode
@@ -65,9 +64,8 @@ Exit criteria:
 1. Bootstrap project and database foundation.
 2. Implement auth + tenancy + RLS.
 3. Implement capture submit + natural-language edit loop.
-4. Implement browser voice ingestion and `browser-whisper` transcription path.
-5. Implement MCP v1 tools.
-6. Implement retrieval router and graph+vector context selection.
-7. Implement activity/cost log and pricing transparency (including transcription calls).
-8. Implement knowledge graph view.
-9. Complete P0 tests and release gates.
+4. Implement MCP v1 tools.
+5. Implement retrieval router and graph+vector context selection.
+6. Implement activity/cost log and pricing transparency.
+7. Implement knowledge graph view.
+8. Complete P0 tests and release gates.

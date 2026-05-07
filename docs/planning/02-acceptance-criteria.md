@@ -17,10 +17,10 @@
 - When the user submits
 - Then the system persists the thought exactly once and returns a natural-language summary of the stored result.
 
-### AC-002 Voice capture uses browser-whisper
+### AC-002 Voice capture uses browser-side transcription
 - Given a signed-in user submits voice input
 - When ingest runs
-- Then browser-side `browser-whisper` transcribes audio to text before metadata extraction/classification/embedding.
+- Then browser-side transcription converts audio to text before metadata extraction/classification/embedding.
 
 ### AC-003 No server-side transcription
 - Given a voice capture request
@@ -33,7 +33,7 @@
 - Then only the targeted thought is updated and the updated stored-result summary is returned.
 
 ### AC-005 Deterministic no-fallback transcription failures
-- Given `browser-whisper` or transcription dependencies fail
+- Given browser transcription dependencies fail
 - When ingest runs
 - Then the system retries exactly 3 times and returns a clear terminal error with no silent fallback.
 
@@ -119,7 +119,7 @@
 
 ### AC-021 Performance target voice capture
 - Given typical system load
-- When voice capture is submitted and transcribed with browser-side `browser-whisper`
+- When voice capture is submitted and transcribed in the browser
 - Then p95 response time is <= 12 seconds.
 
 ### AC-022 Performance target retrieval

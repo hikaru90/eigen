@@ -52,6 +52,7 @@ export const captureSession = pgTable(
 /**
  * Committed thoughts only (post-accept, AC-003).
  * Embedding dimensions aligned with common OpenAI-size vectors; adjust if your model differs.
+ * `lexical_text`: deterministic pre-normalization for keyword / FTS recall (see AGENTS.md).
  */
 export const thought = pgTable(
 	'thought',
@@ -62,6 +63,8 @@ export const thought = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		rawText: text('raw_text').notNull(),
 		normalizedText: text('normalized_text').notNull(),
+		/** NFKC-folded, lowercased, whitespace-collapsed — feed for `tsvector` / BM25-style search. */
+		lexicalText: text('lexical_text').notNull().default(''),
 		category: text('category').$type<ThoughtCategory>().notNull(),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		embedding: vector('embedding', { dimensions: 1536 }),
