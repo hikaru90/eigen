@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { getDb } from '$lib/server/db';
 import { thought, thoughtRelation } from '$lib/server/db/schema';
-import { rankCandidates } from '$lib/server/retrieval';
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 
 type RetrievalResult = {
 	id: string;
@@ -13,6 +13,8 @@ type RetrievalResult = {
 	graphScore: number;
 	metadata: Record<string, unknown>;
 };
+
+type RetrievalWeights = { vector: number; graph: number };
 
 function clamp01(value: number): number {
 	if (value < 0) return 0;

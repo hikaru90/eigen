@@ -27,6 +27,18 @@ A change is Done only when all items below are satisfied:
 - `normal`:
   - Non-critical UI polish and low-risk refactors.
 
+## Coverage Thresholds
+- Coverage is enforced by risk tier with explicit thresholds:
+  - Critical tier: 95% lines/branches/functions/statements.
+  - High tier: 80% lines/branches/functions/statements.
+  - Normal tier: 80% lines/branches/functions/statements.
+- Tier glob mapping for CI thresholds:
+  - Critical: `src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity}/**`
+  - High: `src/lib/server/{graph,db}/**`, `src/lib/server/auth.ts`, `src/lib/server/auth-form-errors.ts`, `src/routes/**/+server.ts`, `src/routes/**/+page.server.ts`, `src/routes/+layout.server.ts`
+  - Normal: `src/lib/components/**/*.svelte`, `src/routes/**/*.svelte`
+- Exclusions: generated outputs and scaffolding (`src/lib/paraglide/**`, `src/lib/server/db/auth.schema.ts`, `src/routes/demo/**`, config files, and other non-runtime assets).
+- Coverage report path: `coverage/index.html`.
+
 ## Merge Gates (PR-Level)
 - All required tests pass for impacted risk level.
 - Lint/type checks pass.

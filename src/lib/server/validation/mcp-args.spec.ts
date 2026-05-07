@@ -24,7 +24,15 @@ describe('validateSearchParams', () => {
 		expect(() => validateSearchParams({ threshold: 1.1 })).toThrow(/threshold/);
 	});
 
+	it('rejects NaN threshold', () => {
+		expect(() => validateSearchParams({ threshold: Number.NaN })).toThrow(/threshold/);
+	});
+
 	it('rejects negative topK', () => {
 		expect(() => validateSearchParams({ topK: -1 })).toThrow(/top_k/);
+	});
+
+	it('rejects non-integer topK', () => {
+		expect(() => validateSearchParams({ topK: 1.5 })).toThrow(/top_k/);
 	});
 });

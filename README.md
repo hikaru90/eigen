@@ -81,6 +81,12 @@ Capture submit/edit writes are mirrored into Falkor graph `eigen_memory` as `Tho
 
 Eigen is licensed under Apache-2.0. See `LICENSE`.
 
+## Testing
+
+- Run all unit tests: `npm run test:unit -- --run`
+- Run coverage: `npm run test:coverage`
+- Coverage report output: `coverage/index.html`
+
 ## Troubleshooting
 
 - `connect timeout` to Postgres: verify `npm run db:up` and confirm with `docker compose ps`.

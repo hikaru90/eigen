@@ -93,7 +93,11 @@
 - Behavior and constraints are documented.
 
 ## Risk-Based Quality Gates
-- Coverage is enforced by risk, not by a single blanket threshold.
+- Coverage is enforced by risk tier with explicit thresholds:
+  - Critical tier: 95% (lines/branches/functions/statements)
+  - High tier: 80% (lines/branches/functions/statements)
+  - Normal tier: 80% (lines/branches/functions/statements)
+- Canonical glob mapping for tiers lives in `docs/planning/03-guardrails-quality-gates.md` and is the source of truth for CI enforcement.
 - Critical modules require:
   - Explicit critical-path regression tests.
   - Merge blocking if critical-path tests fail.
