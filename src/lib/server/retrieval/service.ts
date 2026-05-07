@@ -1,8 +1,11 @@
-import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { getDb } from '$lib/server/db';
-import { thought, thoughtRelation } from '$lib/server/db/schema';
+import { thought } from '$lib/server/db/schema';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
+import { lexicalSearch } from '$lib/server/retrieval/lexical';
+import { reciprocalRankFusion } from '$lib/server/retrieval/fusion';
+import { expandNeighborsByIds } from '$lib/server/graph/falkor';
 
 type RetrievalResult = {
 	id: string;
@@ -17,9 +20,7 @@ type RetrievalResult = {
 type RetrievalWeights = { vector: number; graph: number };
 
 function clamp01(value: number): number {
-	if (value < 0) return 0;
-	if (value > 1) return 1;
-	return value;
+	return Math.max(0, Math.min(1, value));
 }
 
 function toVectorLiteral(vector: number[]): string {
@@ -30,9 +31,11 @@ export async function searchThoughts(params: {
 	userId: string;
 	query: string;
 	topK?: number;
+	weights?: RetrievalWeights;
 }): Promise<RetrievalResult[]> {
 	const topK = params.topK ?? 20;
 	const limit = Math.max(1, Math.min(topK, 100));
+	const weights: RetrievalWeights = params.weights ?? CONTEXT_WEIGHTS.default;
 
 	const queryEmbedding = await createThoughtEmbedding(params.userId, params.query);
 	const vectorLiteral = toVectorLiteral(queryEmbedding);
@@ -51,38 +54,37 @@ export async function searchThoughts(params: {
 		.orderBy(vectorDistance)
 		.limit(Math.max(limit * 2, 20));
 
-	if (vectorRows.length === 0) return [];
+	const lexicalRows = await lexicalSearch({
+		userId: params.userId,
+		query: params.query,
+		limit: Math.max(limit * 2, 20)
+	});
 
-	const seedIds = vectorRows.map((row) => row.id);
-	const relationRows = await getDb()
-		.select({
-			sourceThoughtId: thoughtRelation.sourceThoughtId,
-			targetThoughtId: thoughtRelation.targetThoughtId
-		})
-		.from(thoughtRelation)
-		.where(
-			and(
-				eq(thoughtRelation.userId, params.userId),
-				or(
-					inArray(thoughtRelation.sourceThoughtId, seedIds),
-					inArray(thoughtRelation.targetThoughtId, seedIds)
-				)
-			)
-		);
+	if (vectorRows.length === 0 && lexicalRows.length === 0) return [];
+
+	const fusedSemantic = reciprocalRankFusion([
+		vectorRows.map((row, index) => ({ id: row.id, rank: index + 1 })),
+		lexicalRows.map((row, index) => ({ id: row.id, rank: index + 1 }))
+	]);
+	const maxSemantic = Math.max(1e-9, ...fusedSemantic.values());
+
+	const semanticSeedIds = [...fusedSemantic.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, Math.max(limit * 2, 20))
+		.map(([id]) => id);
+
+	const graphNeighbors = await expandNeighborsByIds({
+		userId: params.userId,
+		seedIds: semanticSeedIds,
+		limit: Math.max(limit * 2, 20)
+	});
 
 	const graphCounts = new Map<string, number>();
-	for (const row of relationRows) {
-		const sourceIsSeed = seedIds.includes(row.sourceThoughtId);
-		const targetIsSeed = seedIds.includes(row.targetThoughtId);
-		if (sourceIsSeed) {
-			graphCounts.set(row.targetThoughtId, (graphCounts.get(row.targetThoughtId) ?? 0) + 1);
-		}
-		if (targetIsSeed) {
-			graphCounts.set(row.sourceThoughtId, (graphCounts.get(row.sourceThoughtId) ?? 0) + 1);
-		}
+	for (const neighbor of graphNeighbors) {
+		graphCounts.set(neighbor.id, neighbor.hits);
 	}
 
-	const connectedIds = [...graphCounts.keys()].filter((id) => !seedIds.includes(id));
+	const connectedIds = [...graphCounts.keys()].filter((id) => !semanticSeedIds.includes(id));
 	const connectedRows =
 		connectedIds.length === 0
 			? []
@@ -110,7 +112,7 @@ export async function searchThoughts(params: {
 	>();
 
 	for (const row of vectorRows) {
-		const vectorScore = clamp01(1 - (row.distance ?? 1));
+		const vectorScore = clamp01((fusedSemantic.get(row.id) ?? 0) / maxSemantic);
 		const graphScore = clamp01((graphCounts.get(row.id) ?? 0) / maxGraphCount);
 		scoredById.set(row.id, {
 			id: row.id,
@@ -122,27 +124,43 @@ export async function searchThoughts(params: {
 		});
 	}
 
-	for (const row of connectedRows) {
+	for (const row of lexicalRows) {
 		if (scoredById.has(row.id)) continue;
+		const vectorScore = clamp01((fusedSemantic.get(row.id) ?? 0) / maxSemantic);
 		const graphScore = clamp01((graphCounts.get(row.id) ?? 0) / maxGraphCount);
 		scoredById.set(row.id, {
 			id: row.id,
 			normalizedText: row.normalizedText,
 			category: row.category,
-			metadata: (row.metadata as Record<string, unknown>) ?? {},
-			vectorScore: 0,
+			metadata: row.metadata,
+			vectorScore,
 			graphScore
 		});
 	}
 
-	const ranked = rankCandidates(
-		[...scoredById.values()].map((item) => ({
+	for (const row of connectedRows) {
+		if (scoredById.has(row.id)) continue;
+		const graphScore = clamp01((graphCounts.get(row.id) ?? 0) / maxGraphCount);
+		const vectorScore = clamp01((fusedSemantic.get(row.id) ?? 0) / maxSemantic);
+		scoredById.set(row.id, {
+			id: row.id,
+			normalizedText: row.normalizedText,
+			category: row.category,
+			metadata: (row.metadata as Record<string, unknown>) ?? {},
+			vectorScore,
+			graphScore
+		});
+	}
+
+	const ranked = [...scoredById.values()]
+		.map((item) => ({
 			id: item.id,
 			vectorScore: item.vectorScore,
-			graphScore: item.graphScore
-		})),
-		'default'
-	).slice(0, limit);
+			graphScore: item.graphScore,
+			score: weights.vector * item.vectorScore + weights.graph * item.graphScore
+		}))
+		.sort((a, b) => b.score - a.score)
+		.slice(0, limit);
 
 	return ranked.map((r) => {
 		const full = scoredById.get(r.id)!;
@@ -153,7 +171,7 @@ export async function searchThoughts(params: {
 			metadata: full.metadata,
 			vectorScore: full.vectorScore,
 			graphScore: full.graphScore,
-			score: 0.7 * full.vectorScore + 0.3 * full.graphScore
+			score: r.score
 		};
 	});
 }

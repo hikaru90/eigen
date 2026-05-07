@@ -1,10 +1,11 @@
-import { and, eq } from 'drizzle-orm';
-import { captureSession, thought, type ThoughtCategory } from '$lib/server/db/schema';
+import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { captureSession, thought, thoughtRelation, type ThoughtCategory } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { logActivityCall } from '$lib/server/activity/log-call';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
-import { upsertThoughtNode } from '$lib/server/graph/falkor';
+import { upsertThoughtNode, upsertThoughtRelation } from '$lib/server/graph/falkor';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
+import { extractRelations } from '$lib/server/memory/relation-extraction';
 
 /** Explicit MVP pricing unit until the LLM ingest path is wired. */
 const CAPTURE_BASE_COST_USD = 0.0005;
@@ -32,6 +33,41 @@ async function logCaptureActivity(userId: string, operation: 'capture_submit' | 
 		operation,
 		baseCostUsd: CAPTURE_BASE_COST_USD
 	});
+}
+
+async function syncThoughtRelations(input: {
+	userId: string;
+	thoughtId: string;
+	normalizedText: string;
+}) {
+	const relations = await extractRelations({
+		userId: input.userId,
+		thoughtId: input.thoughtId,
+		normalizedText: input.normalizedText
+	});
+
+	await getDb().transaction(async (tx) => {
+		await tx.delete(thoughtRelation).where(eq(thoughtRelation.sourceThoughtId, input.thoughtId));
+		if (relations.length > 0) {
+			await tx.insert(thoughtRelation).values(
+				relations.map((relation) => ({
+					userId: input.userId,
+					sourceThoughtId: input.thoughtId,
+					targetThoughtId: relation.targetId,
+					relationType: relation.relationType
+				}))
+			);
+		}
+	});
+
+	for (const relation of relations) {
+		await upsertThoughtRelation({
+			userId: input.userId,
+			sourceId: input.thoughtId,
+			targetId: relation.targetId,
+			relationType: relation.relationType
+		});
+	}
 }
 
 export async function captureThought(userId: string, rawInput: string) {
@@ -79,8 +115,14 @@ export async function captureThought(userId: string, rawInput: string) {
 		userId,
 		rawText: stored.rawText,
 		normalizedText: stored.normalizedText,
-		lexicalText: stored.lexicalText ?? lexicalText,
+		lexicalText: stored.lexicalText,
 		category: stored.category
+	});
+
+	await syncThoughtRelations({
+		userId,
+		thoughtId: stored.id,
+		normalizedText: stored.normalizedText
 	});
 
 	return stored;
@@ -130,9 +172,43 @@ export async function editStoredThought(
 		userId,
 		rawText: updated!.rawText,
 		normalizedText: updated!.normalizedText,
-		lexicalText: updated!.lexicalText ?? lexicalText,
+		lexicalText: updated!.lexicalText,
 		category: updated!.category
 	});
 
+	await syncThoughtRelations({
+		userId,
+		thoughtId: updated!.id,
+		normalizedText: updated!.normalizedText
+	});
+
 	return { ok: true as const, thought: updated! };
+}
+
+export async function listThoughts(
+	userId: string,
+	options?: {
+		limit?: number;
+		cursor?: { createdAt: Date; id: string };
+	}
+) {
+	const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
+	const cursor = options?.cursor;
+
+	return getDb()
+		.select()
+		.from(thought)
+		.where(
+			and(
+				eq(thought.userId, userId),
+				cursor
+					? or(
+							lt(thought.createdAt, cursor.createdAt),
+							and(eq(thought.createdAt, cursor.createdAt), lt(thought.id, cursor.id))
+						)
+					: undefined
+			)
+		)
+		.orderBy(desc(thought.createdAt), desc(thought.id))
+		.limit(limit);
 }

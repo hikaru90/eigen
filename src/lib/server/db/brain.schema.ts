@@ -1,4 +1,5 @@
 import {
+	customType,
 	index,
 	integer,
 	jsonb,
@@ -8,7 +9,14 @@ import {
 	uuid,
 	vector
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { user } from './auth.schema';
+
+const tsvector = customType<{ data: string }>({
+	dataType() {
+		return 'tsvector';
+	}
+});
 
 /** Baseline ontology categories from requirements */
 export const thoughtCategoryEnum = [
@@ -65,6 +73,9 @@ export const thought = pgTable(
 		normalizedText: text('normalized_text').notNull(),
 		/** NFKC-folded, lowercased, whitespace-collapsed — feed for `tsvector` / BM25-style search. */
 		lexicalText: text('lexical_text').notNull().default(''),
+		lexicalTsv: tsvector('lexical_tsv')
+			.notNull()
+			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
 		category: text('category').$type<ThoughtCategory>().notNull(),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		embedding: vector('embedding', { dimensions: 1536 }),
@@ -74,7 +85,11 @@ export const thought = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull()
 	},
-	(t) => [index('thought_user_idx').on(t.userId)]
+	(t) => [
+		index('thought_user_idx').on(t.userId),
+		index('thought_lexical_tsv_idx').using('gin', t.lexicalTsv),
+		index('thought_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))
+	]
 );
 
 /**

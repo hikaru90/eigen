@@ -30,3 +30,6 @@ coverage
 # Paraglide
 src/lib/paraglide
 project.inlang/cache/
+# Eval reports and embedding caches (datasets and baselines stay tracked)
+evals/reports/
+evals/datasets/retrieval/embeddings.cache.json

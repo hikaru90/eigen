@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { captureThought, deterministicNormalize, editStoredThought } from './service';
+import { captureThought, deterministicNormalize, editStoredThought, listThoughts } from './service';
 
 const {
 	getDbMock,
 	logActivityCallMock,
 	createThoughtEmbeddingMock,
-	upsertThoughtNodeMock
+	upsertThoughtNodeMock,
+	upsertThoughtRelationMock,
+	extractRelationsMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	logActivityCallMock: vi.fn(),
 	createThoughtEmbeddingMock: vi.fn(),
-	upsertThoughtNodeMock: vi.fn()
+	upsertThoughtNodeMock: vi.fn(),
+	upsertThoughtRelationMock: vi.fn(),
+	extractRelationsMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -26,7 +30,12 @@ vi.mock('$lib/server/llm/embedding', () => ({
 }));
 
 vi.mock('$lib/server/graph/falkor', () => ({
-	upsertThoughtNode: upsertThoughtNodeMock
+	upsertThoughtNode: upsertThoughtNodeMock,
+	upsertThoughtRelation: upsertThoughtRelationMock
+}));
+
+vi.mock('$lib/server/memory/relation-extraction', () => ({
+	extractRelations: extractRelationsMock
 }));
 
 describe('deterministicNormalize', () => {
@@ -55,6 +64,7 @@ describe('captureThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
+		extractRelationsMock.mockResolvedValue([]);
 	});
 
 	it('stores capture session, thought row, and graph node', async () => {
@@ -70,7 +80,15 @@ describe('captureThought', () => {
 		};
 		const insertCapture = makeInsertReturning(sessionRow);
 		const insertThought = makeInsertReturning(thoughtRow);
-		const tx = { insert: vi.fn(() => insertThought) };
+		const tx = {
+			insert: vi.fn((table: unknown) => {
+				if (table && typeof table === 'object' && 'sourceThoughtId' in (table as Record<string, unknown>)) {
+					return { values: vi.fn(async () => []) };
+				}
+				return insertThought;
+			}),
+			delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
+		};
 		const db = {
 			insert: vi.fn(() => insertCapture),
 			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx))
@@ -88,6 +106,42 @@ describe('captureThought', () => {
 				userId: 'u1'
 			})
 		);
+		expect(extractRelationsMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('persists extracted relations to sql and falkor', async () => {
+		const sessionRow = { id: 'session-1' };
+		const thoughtRow = {
+			id: 'thought-1',
+			userId: 'u1',
+			rawText: 'raw input',
+			normalizedText: 'raw input',
+			lexicalText: 'raw input',
+			category: 'thought',
+			metadata: {}
+		};
+		extractRelationsMock.mockResolvedValue([{ targetId: 'target-1', relationType: 'related_to' }]);
+		const insertCapture = makeInsertReturning(sessionRow);
+		const insertThought = makeInsertReturning(thoughtRow);
+		const tx = {
+			insert: vi.fn((table: unknown) => {
+				if (table && typeof table === 'object' && 'sourceThoughtId' in (table as Record<string, unknown>)) {
+					return { values: vi.fn(async () => []) };
+				}
+				return insertThought;
+			}),
+			delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
+		};
+		const db = {
+			insert: vi.fn(() => insertCapture),
+			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx))
+		};
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+		expect(upsertThoughtRelationMock).toHaveBeenCalledWith(
+			expect.objectContaining({ sourceId: 'thought-1', targetId: 'target-1' })
+		);
 	});
 });
 
@@ -95,6 +149,7 @@ describe('editStoredThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5]);
+		extractRelationsMock.mockResolvedValue([]);
 	});
 
 	it('returns not_found when thought does not exist', async () => {
@@ -143,7 +198,13 @@ describe('editStoredThought', () => {
 						returning: vi.fn(async () => [updated])
 					}))
 				}))
-			}))
+			})),
+			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) =>
+				cb({
+					delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
+					insert: vi.fn(() => ({ values: vi.fn(async () => []) }))
+				})
+			)
 		};
 		getDbMock.mockReturnValue(db);
 
@@ -154,5 +215,44 @@ describe('editStoredThought', () => {
 		}
 		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1);
 		expect(upsertThoughtNodeMock).toHaveBeenCalledTimes(1);
+		expect(extractRelationsMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('listThoughts', () => {
+	it('clamps limit and applies ordering', async () => {
+		const limitSpy = vi.fn(async () => []);
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: limitSpy
+						}))
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		await listThoughts('u1', { limit: 999 });
+		expect(limitSpy).toHaveBeenCalledWith(100);
+	});
+
+	it('applies cursor branch when cursor is provided', async () => {
+		const limitSpy = vi.fn(async () => []);
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: limitSpy
+						}))
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		await listThoughts('u1', { cursor: { createdAt: new Date('2026-01-01T00:00:00Z'), id: 't1' } });
+		expect(limitSpy).toHaveBeenCalledWith(20);
 	});
 });

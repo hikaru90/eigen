@@ -1,0 +1,84 @@
+# Explicit relation edges for the retrieval corpus.
+# Without these, graph expansion has no signal and the ablation degenerates.
+
+relations:
+  # ---------- Cluster A: sourdough / Marcus / Tartine ----------
+  - { source: t_001, target: t_002, type: related_to }
+  - { source: t_002, target: t_003, type: related_to }
+  - { source: t_003, target: t_004, type: related_to }
+  - { source: t_004, target: t_012, type: related_to }
+  - { source: t_002, target: t_006, type: mentions_person }
+  - { source: t_002, target: t_011, type: mentions_person }
+  - { source: t_002, target: t_015, type: mentions_person }
+  - { source: t_006, target: t_011, type: mentions_person }
+  - { source: t_006, target: t_007, type: related_to }
+  - { source: t_005, target: t_013, type: related_to }
+  - { source: t_008, target: t_013, type: caused_by }
+  - { source: t_011, target: t_015, type: mentions_person }
+  - { source: t_004, target: t_011, type: mentions_person }
+
+  # ---------- Cluster B: Eigen / Sarah ----------
+  - { source: t_019, target: t_026, type: related_to }
+  - { source: t_020, target: t_022, type: mentions_person }
+  - { source: t_020, target: t_024, type: mentions_person }
+  - { source: t_020, target: t_027, type: mentions_person }
+  - { source: t_022, target: t_024, type: mentions_person }
+  - { source: t_022, target: t_030, type: mentions_person }
+  - { source: t_022, target: t_033, type: mentions_person }
+  - { source: t_024, target: t_028, type: related_to }
+  - { source: t_024, target: t_032, type: related_to }
+  - { source: t_023, target: t_026, type: related_to }
+  - { source: t_026, target: t_031, type: related_to }
+  - { source: t_029, target: t_034, type: related_to }
+  - { source: t_020, target: t_021, type: related_to }
+  - { source: t_027, target: t_031, type: related_to }
+
+  # ---------- Cluster C: strength / Diego ----------
+  - { source: t_037, target: t_039, type: related_to }
+  - { source: t_038, target: t_040, type: mentions_person }
+  - { source: t_038, target: t_042, type: mentions_person }
+  - { source: t_038, target: t_045, type: mentions_person }
+  - { source: t_040, target: t_042, type: mentions_person }
+  - { source: t_038, target: t_044, type: caused_by }
+  - { source: t_041, target: t_043, type: related_to }
+  - { source: t_037, target: t_047, type: related_to }
+  - { source: t_046, target: t_037, type: related_to }
+  - { source: t_042, target: t_045, type: mentions_person }
+
+  # ---------- Cluster D: climbing / Tom ----------
+  - { source: t_051, target: t_052, type: mentions_person }
+  - { source: t_051, target: t_060, type: mentions_person }
+  - { source: t_052, target: t_057, type: related_to }
+  - { source: t_053, target: t_057, type: related_to }
+  - { source: t_053, target: t_060, type: mentions_person }
+  - { source: t_053, target: t_056, type: mentions_person }
+  - { source: t_055, target: t_059, type: related_to }
+  - { source: t_055, target: t_062, type: related_to }
+  - { source: t_054, target: t_058, type: related_to }
+  - { source: t_056, target: t_060, type: mentions_person }
+
+  # ---------- Cluster E: books / Priya ----------
+  - { source: t_065, target: t_066, type: caused_by }
+  - { source: t_065, target: t_067, type: mentions_person }
+  - { source: t_065, target: t_072, type: mentions_person }
+  - { source: t_065, target: t_075, type: related_to }
+  - { source: t_066, target: t_075, type: related_to }
+  - { source: t_067, target: t_068, type: related_to }
+  - { source: t_067, target: t_069, type: related_to }
+  - { source: t_067, target: t_073, type: related_to }
+  - { source: t_067, target: t_072, type: mentions_person }
+  - { source: t_069, target: t_071, type: related_to }
+  - { source: t_069, target: t_072, type: mentions_person }
+  - { source: t_070, target: t_073, type: related_to }
+  - { source: t_076, target: t_072, type: mentions_person }
+
+  # ---------- Cluster F: finance ----------
+  - { source: t_079, target: t_080, type: related_to }
+  - { source: t_079, target: t_083, type: related_to }
+  - { source: t_080, target: t_086, type: related_to }
+  - { source: t_080, target: t_084, type: related_to }
+  - { source: t_081, target: t_085, type: related_to }
+
+  # ---------- Cross-cluster ----------
+  - { source: t_071, target: t_087, type: related_to }    # Naval (E ↔ F)
+  - { source: t_087, target: t_069, type: related_to }    # Naval thread (F → E)

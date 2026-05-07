@@ -10,6 +10,10 @@ export type { AppDatabase } from './context';
 /** App-facing Postgres pool. Use `getDb()` inside request handlers (RLS session var is set in hooks). */
 export const appSql = postgres(getRuntimeDatabaseUrl(), { max: 15 });
 
+export async function closeAppDbPool(): Promise<void> {
+	await appSql.end({ timeout: 1 });
+}
+
 /**
  * `postgres.js` connections from `reserve()` are `Sql` handles without `options`.
  * Drizzle's postgres-js driver expects `client.options` (see drizzle `construct`), so we attach the pool's options.

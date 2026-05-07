@@ -1,0 +1,254 @@
+# Retrieval eval corpus.
+#
+# Stable string IDs (t_NNN) are mapped to UUIDs at seed time by the harness.
+# Six topical clusters with named entities so graph expansion has meaningful signal:
+#   A. Sourdough / cooking (Marcus, Tartine)
+#   B. Eigen engineering work (Sarah)
+#   C. Strength training (Diego)
+#   D. Climbing / outdoors (Tom)
+#   E. Books and ideas (Priya)
+#   F. Finance and admin
+
+thoughts:
+  # ---------- Cluster A: sourdough / cooking ----------
+  - id: t_001
+    rawText: "Started a new sourdough starter today, 50/50 rye and bread flour, 100% hydration."
+    category: reference
+  - id: t_002
+    rawText: "Marcus said his starter doubles in 4 hours at room temp. Mine takes 6. Probably my apartment is cooler."
+    category: thought
+  - id: t_003
+    rawText: "Tried Tartine's country loaf recipe. The autolyse step makes a real difference."
+    category: reference
+  - id: t_004
+    rawText: "Had brunch at Tartine with Marcus. We split the morning bun and the country loaf."
+    category: thought
+  - id: t_005
+    rawText: "Idea: cold ferment overnight in the fridge to deepen flavor without extra labor."
+    category: idea
+  - id: t_006
+    rawText: "Marcus suggested using a banneton with rice flour to prevent sticking. Worth trying."
+    category: idea
+  - id: t_007
+    rawText: "Bought a new lame for scoring loaves. The curved blade gives prettier ears."
+    category: reference
+  - id: t_008
+    rawText: "The crumb on yesterday's loaf was tighter than I wanted. Probably under-fermented."
+    category: thought
+  - id: t_009
+    rawText: "Need to buy more bread flour and a kitchen scale that goes to 0.1g resolution."
+    category: task
+  - id: t_010
+    rawText: "Made focaccia for the first time. Surprisingly forgiving compared to sourdough."
+    category: thought
+  - id: t_011
+    rawText: "Marcus is allergic to walnuts. Don't bring the walnut levain to next dinner."
+    category: person
+  - id: t_012
+    rawText: "Tartine sells day-old loaves for half price after 3pm. Worth a detour."
+    category: reference
+  - id: t_013
+    rawText: "Fermentation temperature matters more than time. 78F is the sweet spot for my flour."
+    category: idea
+  - id: t_014
+    rawText: "Made pasta from scratch. The rolling pin technique is harder than the recipe makes it sound."
+    category: thought
+  - id: t_015
+    rawText: "Marcus's birthday is March 14th. Plan a baking-themed dinner."
+    category: date
+
+  # ---------- Cluster B: Eigen engineering ----------
+  - id: t_019
+    rawText: "Decided on exactly 3 retries for every LLM call, no cross-model fallback."
+    category: reference
+  - id: t_020
+    rawText: "Sarah suggested using pgvector with the cosine distance operator instead of L2."
+    category: idea
+  - id: t_021
+    rawText: "Embedding dim 1536 matches OpenAI text-embedding-3-small. Lock that in."
+    category: reference
+  - id: t_022
+    rawText: "Pair-programmed with Sarah on the auth retry logic. Pinned the Better Auth version."
+    category: thought
+  - id: t_023
+    rawText: "Idea: a precomputed lexical_text column for tsvector keyword fusion alongside vector search."
+    category: idea
+  - id: t_024
+    rawText: "Sarah pointed out that RLS policies need to use the session-level user_id, not the connection role."
+    category: reference
+  - id: t_025
+    rawText: "TODO: add a markup_rate column to activity_call_log so 20% is auditable, not implicit."
+    category: task
+  - id: t_026
+    rawText: "Default retrieval weights are 0.7 vector + 0.3 graph for the non-relation path."
+    category: reference
+  - id: t_027
+    rawText: "Sarah and I disagreed on whether to use Apache AGE or FalkorDB for the graph layer. Went with FalkorDB."
+    category: thought
+  - id: t_028
+    rawText: "Don't store raw API keys in the activity log. Redact secret-shaped fields before persistence."
+    category: reference
+  - id: t_029
+    rawText: "Capture should persist on submit and return a natural-language summary, not preview-then-confirm."
+    category: idea
+  - id: t_030
+    rawText: "Sarah's onboarding is next Monday. Set up her dev DB and the Better Auth seed."
+    category: task
+  - id: t_031
+    rawText: "Thought: graph expansion is meaningless if no relations exist. Seed relations explicitly in tests."
+    category: idea
+  - id: t_032
+    rawText: "The MCP tool boundary must validate IDs and numeric search bounds before any DB or LLM work."
+    category: reference
+  - id: t_033
+    rawText: "Sarah got back from her offsite. We're shipping the activity log endpoint this week."
+    category: thought
+  - id: t_034
+    rawText: "Performance target: p95 capture <= 8s for text, retrieval <= 8s. Log if we drift."
+    category: reference
+
+  # ---------- Cluster C: strength training ----------
+  - id: t_037
+    rawText: "Squat hit 315 today for a single. Form felt clean."
+    category: thought
+  - id: t_038
+    rawText: "Diego said deload weeks every 4th week saved his lower back."
+    category: idea
+  - id: t_039
+    rawText: "Started 5/3/1 programming. Three days a week, big four lifts."
+    category: reference
+  - id: t_040
+    rawText: "Diego's deadlift form is way cleaner than mine. Need to film mine and compare."
+    category: thought
+  - id: t_041
+    rawText: "Sleep under 7 hours and my bench numbers crash the next day. Pattern is unmistakable."
+    category: idea
+  - id: t_042
+    rawText: "Diego recommended switching to low-bar squat. Hip drive feels stronger."
+    category: idea
+  - id: t_043
+    rawText: "Hydration matters more than I thought. Cramps on light days correlate with low water intake."
+    category: idea
+  - id: t_044
+    rawText: "TODO: re-bandage left wrist before bench. Old strain is flaring up."
+    category: task
+  - id: t_045
+    rawText: "Diego is moving to Austin in June. Need to find a new training partner."
+    category: person
+  - id: t_046
+    rawText: "Caffeine before training: 200mg works, 400mg makes me jittery."
+    category: idea
+  - id: t_047
+    rawText: "Goal: 405 deadlift by end of year. Currently at 365."
+    category: task
+  - id: t_048
+    rawText: "Protein around 1g per pound of bodyweight. Easier with cottage cheese in the morning."
+    category: reference
+
+  # ---------- Cluster D: climbing / outdoors ----------
+  - id: t_051
+    rawText: "Sent my first 5.11a today. Tom belayed."
+    category: thought
+  - id: t_052
+    rawText: "Tom suggested switching to La Sportiva Solutions for steeper routes."
+    category: idea
+  - id: t_053
+    rawText: "Yosemite trip planned for late September. Tom is driving."
+    category: date
+  - id: t_054
+    rawText: "Tahoe climbing in winter is brutal but the granite is incredible."
+    category: thought
+  - id: t_055
+    rawText: "Idea: hangboard 2x per week, max hangs only, on rest days from climbing."
+    category: idea
+  - id: t_056
+    rawText: "Tom broke his ankle bouldering. Out for at least 8 weeks."
+    category: thought
+  - id: t_057
+    rawText: "TODO: replace the worn quickdraws before Yosemite. Three of them are sketchy."
+    category: task
+  - id: t_058
+    rawText: "Big Sur camping is the best recovery I've found. No phone signal forces a real break."
+    category: thought
+  - id: t_059
+    rawText: "Crimps strain the A2 pulley. Open hand grip is safer for repeat sessions."
+    category: reference
+  - id: t_060
+    rawText: "Tom's birthday is October 12. He likes single-malt scotch."
+    category: date
+  - id: t_061
+    rawText: "Hiked Half Dome cables route in May. Brutal but worth it."
+    category: thought
+  - id: t_062
+    rawText: "Idea: build a home hangboard setup. Saves the gym trip on busy weeks."
+    category: idea
+
+  # ---------- Cluster E: books and ideas ----------
+  - id: t_065
+    rawText: "Started Thinking Fast and Slow by Kahneman. Priya recommended it years ago."
+    category: thought
+  - id: t_066
+    rawText: "Anchoring effect: the first number you hear shapes the negotiation. Used it on my last raise."
+    category: idea
+  - id: t_067
+    rawText: "Priya's reading list: Antifragile, Skin in the Game, Naval's Almanack, Seneca."
+    category: reference
+  - id: t_068
+    rawText: "Antifragile concept: things that gain from disorder. Applies to startups, biology, training."
+    category: idea
+  - id: t_069
+    rawText: "Priya said the Almanack of Naval is best read in small pieces over months, not binged."
+    category: idea
+  - id: t_070
+    rawText: "Stoicism note: distinguish what's in your control from what isn't. Most stress collapses."
+    category: idea
+  - id: t_071
+    rawText: "Naval: leverage = capital, labor, code, and media. Code and media scale without permission."
+    category: reference
+  - id: t_072
+    rawText: "Priya is now at Anthropic on alignment work. Should ping her about embedding evals."
+    category: person
+  - id: t_073
+    rawText: "Marcus Aurelius's Meditations: written for himself, not us. Reads like a private journal."
+    category: reference
+  - id: t_074
+    rawText: "Idea: replace social-media doomscroll with re-reading one chapter of a book I already loved."
+    category: idea
+  - id: t_075
+    rawText: "Loss aversion is roughly 2x: we feel a loss twice as much as an equal gain. Kahneman."
+    category: reference
+  - id: t_076
+    rawText: "Priya's career advice: optimize for slope, not y-intercept. Compounding wins."
+    category: idea
+
+  # ---------- Cluster F: finance and admin ----------
+  - id: t_079
+    rawText: "Backdoor Roth IRA: contribute to traditional, immediately convert to Roth. Same calendar year."
+    category: reference
+  - id: t_080
+    rawText: "Quarterly estimated taxes due April 15, June 15, Sept 15, Jan 15. Set calendar reminders."
+    category: date
+  - id: t_081
+    rawText: "Idea: automate brokerage transfers on the 1st of every month. Removes the timing temptation."
+    category: idea
+  - id: t_082
+    rawText: "TODO: switch the high-yield savings account to one with at least 4.5% APY."
+    category: task
+  - id: t_083
+    rawText: "401k match is free money. Always contribute at least up to the full match."
+    category: reference
+  - id: t_084
+    rawText: "Tax-loss harvesting in December lowers basis on losers, banks the loss for offsetting gains."
+    category: idea
+  - id: t_085
+    rawText: "Index funds: VTI plus VXUS plus BND covers everything. Don't overcomplicate."
+    category: reference
+  - id: t_086
+    rawText: "TODO: file the W-9 for the consulting work before the end of the month."
+    category: task
+  - id: t_087
+    rawText: "Naval point: long-term wealth comes from owning equity, not selling time."
+    category: idea
+  - id: t_088
+    rawText: "Insurance audit annually: term life, umbrella, disability. Skip whole life products."
+    category: reference
