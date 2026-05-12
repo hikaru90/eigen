@@ -1,0 +1,2 @@
+ALTER TABLE "capture_session" ADD CONSTRAINT "capture_session_user_category_ontology_fk" FOREIGN KEY ("user_id","category") REFERENCES "public"."ontology_entity_kind"("user_id","key") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "thought" ADD CONSTRAINT "thought_user_category_ontology_fk" FOREIGN KEY ("user_id","category") REFERENCES "public"."ontology_entity_kind"("user_id","key") ON DELETE restrict ON UPDATE no action;

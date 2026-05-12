@@ -2,13 +2,14 @@ import { isActionFailure } from '@sveltejs/kit';
 import { assert, describe, expect, it, vi } from 'vitest';
 import { actions, load } from './+page.server';
 
-const { fetchSnapshotMock, pruneMock, recomputeMock } = vi.hoisted(() => ({
+const { fetchSnapshotMock, pruneMock, recomputeMock, repairEntityTypesMock } = vi.hoisted(() => ({
 	fetchSnapshotMock: vi.fn(),
 	pruneMock: vi.fn().mockResolvedValue({
 		deletedEntityKindIds: [] as string[],
 		deletedRelationKindIds: [] as string[]
 	}),
-	recomputeMock: vi.fn().mockResolvedValue(undefined)
+	recomputeMock: vi.fn().mockResolvedValue(undefined),
+	repairEntityTypesMock: vi.fn().mockResolvedValue({ repaired: 0 })
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -34,6 +35,10 @@ vi.mock('$lib/server/ontology-db', () => ({
 
 vi.mock('$lib/server/ontology', () => ({
 	recomputeUserOntologyProfileForUser: recomputeMock
+}));
+
+vi.mock('$lib/server/memory/canonical-entity-admin', () => ({
+	repairCanonicalEntityTypesForUser: repairEntityTypesMock
 }));
 
 describe('graph page server', () => {
@@ -70,7 +75,8 @@ describe('graph page server', () => {
 		assert(!isActionFailure(result));
 		expect(pruneMock).toHaveBeenCalledTimes(1);
 		expect(recomputeMock).toHaveBeenCalledWith('u1');
+		expect(repairEntityTypesMock).toHaveBeenCalledWith('u1');
 		expect(result.ontologyMessage).toContain('Removed 1 unused ontology entity kind');
-		expect(result.ontologyMessage).toContain('Classifier ontology profile refreshed');
+		expect(result.ontologyMessage).toContain('Ontology labeling notes refreshed');
 	});
 });

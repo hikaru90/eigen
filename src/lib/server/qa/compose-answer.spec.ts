@@ -32,7 +32,7 @@ const sampleRetrieval = [
 	{
 		id: 't_002',
 		normalizedText: 'Tartine sells day-old loaves for half price after 3pm.',
-		category: 'reference',
+		category: 'memory',
 		score: 0.71,
 		vectorScore: 0.75,
 		graphScore: 0.6,

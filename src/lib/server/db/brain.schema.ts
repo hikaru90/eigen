@@ -2,6 +2,7 @@ import {
 	boolean,
 	customType,
 	doublePrecision,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -22,28 +23,9 @@ const tsvector = customType<{ data: string }>({
 	}
 });
 
-/** Legacy capture category slugs (runtime list only; category column is plain `string`). */
-export const LEGACY_CAPTURE_CATEGORY_KEYS = [
-	'thought',
-	'task',
-	'idea',
-	'reference',
-	'date',
-	'person'
-] as const;
-
-/** @deprecated use LEGACY_CAPTURE_CATEGORY_KEYS — kept for incremental refactors */
-export const thoughtCategoryEnum = LEGACY_CAPTURE_CATEGORY_KEYS;
-
-/** Open string at compile time; validate with `isLegacyCaptureCategory` where needed. */
-export type ThoughtCategory = string;
-
-export function isLegacyCaptureCategory(value: string): boolean {
-	return (LEGACY_CAPTURE_CATEGORY_KEYS as readonly string[]).includes(value);
-}
-
 /**
  * Per-user entity kind definitions (ontology catalog). No TS closed union — keys are data.
+ * Committed thought `category` stores the same string as `ontology_entity_kind.key` for the linked row.
  */
 export const ontologyEntityKind = pgTable(
 	'ontology_entity_kind',
@@ -117,7 +99,7 @@ export const captureSession = pgTable(
 		status: text('status').$type<CaptureSessionStatus>().notNull().default('open'),
 		rawInput: text('raw_input').notNull(),
 		normalizedPreview: text('normalized_preview').notNull().default(''),
-		category: text('category').notNull().default('thought'),
+		category: text('category').notNull().default('perception'),
 		metadataPreview: jsonb('metadata_preview').$type<Record<string, unknown>>().notNull().default({}),
 		revisionCount: integer('revision_count').notNull().default(0),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -126,7 +108,15 @@ export const captureSession = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull()
 	},
-	(t) => [index('capture_session_user_idx').on(t.userId), index('capture_session_status_idx').on(t.status)]
+	(t) => [
+		index('capture_session_user_idx').on(t.userId),
+		index('capture_session_status_idx').on(t.status),
+		foreignKey({
+			columns: [t.userId, t.category],
+			foreignColumns: [ontologyEntityKind.userId, ontologyEntityKind.key],
+			name: 'capture_session_user_category_ontology_fk'
+		}).onDelete('restrict')
+	]
 );
 
 /**
@@ -151,9 +141,9 @@ export const thought = pgTable(
 		category: text('category').notNull(),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		embedding: vector('embedding', { dimensions: 1536 }),
-		/** Optional link to user ontology entity kind (cognitive model); null for legacy rows. */
+		/** FK to the ontology row whose `key` matches `category` (set on capture / edit). */
 		ontologyEntityKindId: uuid('ontology_entity_kind_id').references(() => ontologyEntityKind.id, {
-			onDelete: 'set null'
+			onDelete: 'restrict'
 		}),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -165,7 +155,12 @@ export const thought = pgTable(
 		index('thought_user_idx').on(t.userId),
 		index('thought_ontology_entity_kind_idx').on(t.ontologyEntityKindId),
 		index('thought_lexical_tsv_idx').using('gin', t.lexicalTsv),
-		index('thought_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))
+		index('thought_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+		foreignKey({
+			columns: [t.userId, t.category],
+			foreignColumns: [ontologyEntityKind.userId, ontologyEntityKind.key],
+			name: 'thought_user_category_ontology_fk'
+		}).onDelete('restrict')
 	]
 );
 

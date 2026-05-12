@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-import type { ThoughtCategory } from '$lib/server/db/brain.schema';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -16,7 +15,7 @@ export const RETRIEVAL_EMBEDDING_CACHE_PATH = resolve(
 export type CorpusThought = {
 	id: string;
 	rawText: string;
-	category: ThoughtCategory;
+	category: string;
 };
 
 export type CorpusFile = {

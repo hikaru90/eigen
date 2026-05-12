@@ -7,14 +7,29 @@ const {
 	resolveOrCreateCanonicalEntityMock,
 	upsertEntityNodeMock,
 	upsertEntityRelationEdgeMock,
-	upsertMentionEdgeMock
+	upsertMentionEdgeMock,
+	getDbMock,
+	loadOntologyForUserMock,
+	ensureUserOntologySeededMock
 } = vi.hoisted(() => ({
 	extractEntityMentionsMock: vi.fn(),
 	extractEntityTriplesMock: vi.fn(),
 	resolveOrCreateCanonicalEntityMock: vi.fn(),
 	upsertEntityNodeMock: vi.fn(),
 	upsertEntityRelationEdgeMock: vi.fn(),
-	upsertMentionEdgeMock: vi.fn()
+	upsertMentionEdgeMock: vi.fn(),
+	getDbMock: vi.fn(),
+	loadOntologyForUserMock: vi.fn(),
+	ensureUserOntologySeededMock: vi.fn()
+}));
+
+vi.mock('$lib/server/db', () => ({
+	getDb: getDbMock
+}));
+
+vi.mock('$lib/server/ontology-db', () => ({
+	ensureUserOntologySeeded: ensureUserOntologySeededMock,
+	loadOntologyForUser: loadOntologyForUserMock
 }));
 
 vi.mock('$lib/server/memory/entity-extraction', () => ({
@@ -33,9 +48,24 @@ vi.mock('$lib/server/graph/falkor', () => ({
 }));
 
 describe('syncEntityGraphFromThought', () => {
+	const ontologyRows = [
+		{ id: 'e1', userId: 'u1', key: 'perception', name: 'Perception', definition: 'd', active: true },
+		{ id: 'e2', userId: 'u1', key: 'memory', name: 'Memory', definition: 'd', active: true }
+	];
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractEntityTriplesMock.mockResolvedValue([]);
+		getDbMock.mockReturnValue({});
+		ensureUserOntologySeededMock.mockResolvedValue(undefined);
+		loadOntologyForUserMock.mockResolvedValue({
+			entityKinds: ontologyRows,
+			relationKinds: [],
+			entityKindsById: new Map(),
+			entityKindsByKey: new Map(),
+			relationKindsById: new Map(),
+			relationKindsByKey: new Map()
+		});
 	});
 
 	it('returns early when no entity mentions are extracted', async () => {
@@ -45,6 +75,17 @@ describe('syncEntityGraphFromThought', () => {
 			thoughtId: 't1',
 			normalizedText: 'a quiet thought'
 		});
+		expect(ensureUserOntologySeededMock).toHaveBeenCalled();
+		expect(extractEntityMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				normalizedText: 'a quiet thought',
+				ontologyEntityKinds: [
+					{ key: 'perception', name: 'Perception', definition: 'd' },
+					{ key: 'memory', name: 'Memory', definition: 'd' }
+				]
+			})
+		);
 		expect(resolveOrCreateCanonicalEntityMock).not.toHaveBeenCalled();
 		expect(upsertEntityNodeMock).not.toHaveBeenCalled();
 		expect(upsertMentionEdgeMock).not.toHaveBeenCalled();
@@ -54,8 +95,8 @@ describe('syncEntityGraphFromThought', () => {
 
 	it('resolves each mention, upserts Entity and MENTIONS edges, and writes ENTITY_RELATES for valid triples', async () => {
 		extractEntityMentionsMock.mockResolvedValue([
-			{ surface: 'Sam', entityType: 'person', confidence: 0.9 },
-			{ surface: 'Berlin', entityType: 'place', confidence: 0.8 }
+			{ surface: 'Sam', entityType: 'perception', confidence: 0.9 },
+			{ surface: 'Berlin', entityType: 'memory', confidence: 0.8 }
 		]);
 		resolveOrCreateCanonicalEntityMock.mockImplementation(
 			async (input: { surface: string }) => ({
@@ -81,7 +122,7 @@ describe('syncEntityGraphFromThought', () => {
 				id: 'id-Sam',
 				canonicalKey: 'sam',
 				label: 'Sam',
-				entityType: 'person'
+				entityType: 'perception'
 			})
 		);
 		expect(upsertMentionEdgeMock).toHaveBeenCalledTimes(2);
@@ -101,7 +142,7 @@ describe('syncEntityGraphFromThought', () => {
 
 	it('skips triples whose endpoints are unknown or self-referential', async () => {
 		extractEntityMentionsMock.mockResolvedValue([
-			{ surface: 'Sam', entityType: 'person', confidence: 0.9 }
+			{ surface: 'Sam', entityType: 'emotion', confidence: 0.9 }
 		]);
 		resolveOrCreateCanonicalEntityMock.mockResolvedValue({
 			entityId: 'id-Sam',

@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { editStoredThought } from '$lib/server/capture/service';
+import { relinkThoughtGraph } from '$lib/server/capture/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 
 export const POST: RequestHandler = async (event) => {
@@ -15,21 +15,18 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const b =
-		typeof body === 'object' && body
-			? (body as { thoughtId?: unknown; editRequest?: unknown })
-			: {};
+		typeof body === 'object' && body ? (body as { thoughtId?: unknown }) : {};
 	const thoughtId = typeof b.thoughtId === 'string' ? b.thoughtId : '';
-	const editRequest = typeof b.editRequest === 'string' ? b.editRequest : '';
-	if (!thoughtId) error(400, 'thoughtId is required');
-	if (!editRequest.trim()) error(400, 'editRequest is required');
+	if (!thoughtId.trim()) error(400, 'thoughtId is required');
 
 	const accept = event.request.headers?.get('accept') ?? '';
 	const streamNdjson = accept.includes('application/x-ndjson');
 
 	if (!streamNdjson) {
-		const result = await runWithTrace(crypto.randomUUID(), () => editStoredThought(user.id, thoughtId, editRequest));
+		const result = await runWithTrace(crypto.randomUUID(), () =>
+			relinkThoughtGraph(user.id, thoughtId)
+		);
 		if (!result.ok) error(404, 'Thought not found');
-
 		return json({ thought: result.thought });
 	}
 
@@ -40,7 +37,7 @@ export const POST: RequestHandler = async (event) => {
 	};
 	try {
 		const result = await runWithTrace(crypto.randomUUID(), () =>
-			editStoredThought(user.id, thoughtId, editRequest, {
+			relinkThoughtGraph(user.id, thoughtId, {
 				onProgress: (phase) => line({ type: 'progress', phase })
 			})
 		);
@@ -50,8 +47,8 @@ export const POST: RequestHandler = async (event) => {
 			line({ type: 'done', thought: result.thought });
 		}
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Failed to update thought';
-		console.error('capture edit failed', { userId: user.id, thoughtId, message });
+		const message = err instanceof Error ? err.message : 'Failed to relink thought';
+		console.error('capture relink failed', { userId: user.id, thoughtId, message });
 		line({ type: 'error', error: message, details: [] });
 	}
 	const total = chunks.reduce((n, c) => n + c.length, 0);

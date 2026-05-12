@@ -13,14 +13,12 @@ export type ExtractedEntityTriple = {
 	confidence: number;
 };
 
-const ALLOWED_ENTITY_TYPES = new Set([
-	'person',
-	'org',
-	'place',
-	'topic',
-	'product',
-	'other'
-]);
+/** Active `ontology_entity_kind` rows — same keys as thought `category` / graph Thought subtype. */
+export type OntologyEntityKindForExtraction = {
+	key: string;
+	name: string;
+	definition: string;
+};
 
 const ALLOWED_ENTITY_PREDICATES = new Set([
 	'related_to',
@@ -55,7 +53,10 @@ function clampConfidence(value: unknown): number {
 	return Math.min(1, Math.max(0, value));
 }
 
-export function parseEntityMentions(content: string): ExtractedEntityMention[] {
+export function parseEntityMentions(
+	content: string,
+	allowedEntityKindKeys: Set<string>
+): ExtractedEntityMention[] {
 	const parsed = JSON.parse(content) as unknown;
 	if (!Array.isArray(parsed)) {
 		throw new Error('Entity extraction output must be a JSON array');
@@ -72,7 +73,7 @@ export function parseEntityMentions(content: string): ExtractedEntityMention[] {
 					? (entry as { entityType: string }).entityType.trim()
 					: '';
 			const confidence = clampConfidence((entry as { confidence?: unknown }).confidence);
-			if (!surface || !ALLOWED_ENTITY_TYPES.has(entityType)) return null;
+			if (!surface || !allowedEntityKindKeys.has(entityType)) return null;
 			return { surface, entityType, confidence };
 		})
 		.filter((v): v is ExtractedEntityMention => v !== null);
@@ -109,21 +110,38 @@ export function parseEntityTriples(
 		.filter((v): v is ExtractedEntityTriple => v !== null);
 }
 
-/** LLM step 1: surfaces + coarse types for canonicalization. */
+/** LLM step 1: surfaces + ontology entity kind (same catalog as thought categories). */
 export async function extractEntityMentions(input: {
 	userId: string;
 	normalizedText: string;
+	ontologyEntityKinds: OntologyEntityKindForExtraction[];
 }): Promise<ExtractedEntityMention[]> {
+	if (input.ontologyEntityKinds.length === 0) {
+		throw new Error('extractEntityMentions requires at least one ontology entity kind');
+	}
+	const allowed = new Set(input.ontologyEntityKinds.map((k) => k.key));
+	const catalog = input.ontologyEntityKinds
+		.map((k) => `- entityType must be exactly "${k.key}" (${k.name}): ${k.definition}`)
+		.join('\n');
+	const keyUnion = [...allowed].sort().join('|');
 	const prompt = [
 		'Return ONLY JSON.',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
-		'Schema: [{"surface":"<text as written>","entityType":"person|org|place|topic|product|other","confidence":0.0-1.0}]',
+		`For each item, entityType must be exactly one of these ontology keys (no other strings): ${keyUnion}`,
+		'Pick the single best-matching kind for how that surface functions in the utterance (same taxonomy as classifying thoughts).',
+		'Schema: [{"surface":"<text as written>","entityType":"<one of the keys above>","confidence":0.0-1.0}]',
+		'Catalog:',
+		catalog,
 		'Include 0–12 items. Omit generic pronouns and vague terms.',
 		`Text:\n${input.normalizedText}`
 	].join('\n');
 
 	const messages: ChatMessage[] = [
-		{ role: 'system', content: 'You extract structured entity mentions for a knowledge graph.' },
+		{
+			role: 'system',
+			content:
+				'You extract structured entity mentions. entityType must always be an exact key from the user ontology list in the user message, never a free-form category.'
+		},
 		{ role: 'user', content: prompt }
 	];
 
@@ -133,7 +151,7 @@ export async function extractEntityMentions(input: {
 		temperature: 0
 	});
 
-	return parseEntityMentions(extractChatContent(response));
+	return parseEntityMentions(extractChatContent(response), allowed);
 }
 
 /** LLM step 2: typed edges whose endpoints were mentioned in step 1. */

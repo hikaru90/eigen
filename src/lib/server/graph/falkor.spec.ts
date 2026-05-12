@@ -223,6 +223,20 @@ describe('upsertThoughtNode', () => {
 		);
 	});
 
+	it('deleteEntityVertexFromGraph deletes Entity vertex scoped to user', async () => {
+		const { deleteEntityVertexFromGraph } = await import('./falkor');
+		await deleteEntityVertexFromGraph({ userId: 'u1', entityId: 'e1' });
+		expect(queryMock).toHaveBeenCalledWith(
+			expect.stringContaining('DETACH DELETE e'),
+			expect.objectContaining({
+				params: expect.objectContaining({
+					entity_id: 'e1',
+					user_id: 'u1'
+				})
+			})
+		);
+	});
+
 	it('upsertMentionEdge merges MENTIONS edge between Thought and Entity', async () => {
 		const { upsertMentionEdge } = await import('./falkor');
 		await upsertMentionEdge({ userId: 'u1', thoughtId: 't1', entityId: 'e1' });

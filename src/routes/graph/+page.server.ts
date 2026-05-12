@@ -9,6 +9,7 @@ import {
 } from '$lib/server/ontology-db';
 import { recomputeUserOntologyProfileForUser } from '$lib/server/ontology';
 import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend';
+import { repairCanonicalEntityTypesForUser } from '$lib/server/memory/canonical-entity-admin';
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
@@ -52,14 +53,19 @@ export const actions = {
 		try {
 			const pruned = await pruneUnusedOntologyEntityKinds(getDb(), userId);
 			await recomputeUserOntologyProfileForUser(userId);
+			const repaired = await repairCanonicalEntityTypesForUser(userId);
 			const nEnt = pruned.deletedEntityKindIds.length;
 			const nRel = pruned.deletedRelationKindIds.length;
 			const prunePart =
 				nEnt === 0 && nRel === 0
 					? 'No unused custom ontology entity kinds to remove.'
 					: `Removed ${nEnt} unused ontology entity kind(s) and ${nRel} relation kind(s) tied to them.`;
+			const repairPart =
+				repaired.repaired > 0
+					? ` Realigned ${repaired.repaired} extracted entit${repaired.repaired === 1 ? 'y' : 'ies'} to active ontology kind keys.`
+					: '';
 			return {
-				ontologyMessage: `${prunePart} Classifier ontology profile refreshed.`
+				ontologyMessage: `${prunePart} Ontology labeling notes refreshed.${repairPart}`
 			};
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);

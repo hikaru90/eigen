@@ -61,32 +61,39 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
+	// Run capture in the request handler (not inside ReadableStream.start). Otherwise SvelteKit
+	// resolves the POST before the stream body finishes, hooks.server releases the reserved DB
+	// connection, and ingest can hang mid-pipeline waiting on postgres.js.
 	const encoder = new TextEncoder();
-	const bodyStream = new ReadableStream({
-		async start(controller) {
-			const line = (payload: unknown) =>
-				controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
-			try {
-				const thought = await runWithTrace(crypto.randomUUID(), () => captureThought(user.id, raw, {
-					onProgress: (phase) => line({ type: 'progress', phase })
-				}));
-				line({ type: 'done', thought });
-			} catch (err) {
-				const details = collectErrorMessages(err);
-				const message = details[0] ?? 'Failed to capture thought';
-				console.error('capture submit failed', {
-					userId: user.id,
-					message,
-					details
-				});
-				line({ type: 'error', error: message, details });
-			} finally {
-				controller.close();
-			}
-		}
-	});
-
-	return new Response(bodyStream, {
+	const chunks: Uint8Array[] = [];
+	const line = (payload: unknown) => {
+		chunks.push(encoder.encode(`${JSON.stringify(payload)}\n`));
+	};
+	try {
+		const thought = await runWithTrace(crypto.randomUUID(), () =>
+			captureThought(user.id, raw, {
+				onProgress: (phase) => line({ type: 'progress', phase })
+			})
+		);
+		line({ type: 'done', thought });
+	} catch (err) {
+		const details = collectErrorMessages(err);
+		const message = details[0] ?? 'Failed to capture thought';
+		console.error('capture submit failed', {
+			userId: user.id,
+			message,
+			details
+		});
+		line({ type: 'error', error: message, details });
+	}
+	const total = chunks.reduce((n, c) => n + c.length, 0);
+	const ndjsonBytes = new Uint8Array(total);
+	let offset = 0;
+	for (const c of chunks) {
+		ndjsonBytes.set(c, offset);
+		offset += c.length;
+	}
+	return new Response(ndjsonBytes, {
 		headers: { 'content-type': 'application/x-ndjson; charset=utf-8' }
 	});
 };

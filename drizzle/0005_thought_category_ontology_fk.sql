@@ -1,0 +1,1 @@
+ALTER TABLE "capture_session" ALTER COLUMN "category" SET DEFAULT 'perception';

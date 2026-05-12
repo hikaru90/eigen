@@ -1,24 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LEGACY_CAPTURE_CATEGORY_KEYS } from '$lib/server/db/schema';
 import {
 	emptyOntologyProfile,
 	baselineOntologyProfile,
 	mergeOntologyProfileWithBaseline,
-	isThoughtCategory,
 	parseOntologyProfileJson,
-	profileToPromptBlock
+	ontologyKindsPromptBlock,
+	ONTOLOGY_PROFILE_VERSION
 } from './types';
-
-describe('isThoughtCategory', () => {
-	it('accepts baseline categories', () => {
-		expect(isThoughtCategory('task')).toBe(true);
-		expect(isThoughtCategory('date')).toBe(true);
-	});
-	it('rejects unknown labels', () => {
-		expect(isThoughtCategory('meeting')).toBe(false);
-		expect(isThoughtCategory('')).toBe(false);
-	});
-});
 
 describe('parseOntologyProfileJson', () => {
 	it('returns empty profile for non-objects', () => {
@@ -26,80 +14,83 @@ describe('parseOntologyProfileJson', () => {
 		expect(parseOntologyProfileJson(3)).toEqual(emptyOntologyProfile());
 	});
 
-	it('returns empty when version mismatches', () => {
-		expect(parseOntologyProfileJson({ version: 2, categoryGuidance: { task: 'x' } })).toEqual(
+	it('returns empty when version is unknown', () => {
+		expect(parseOntologyProfileJson({ version: 99, kindGuidance: { perception: 'x' } })).toEqual(
 			emptyOntologyProfile()
 		);
 	});
 
-	it('parses guidance and summary with length caps', () => {
+	it('parses v2 kindGuidance and summary with length caps', () => {
 		const long = 'a'.repeat(5000);
 		const parsed = parseOntologyProfileJson({
-			version: 1,
-			categoryGuidance: { task: long, idea: '  brainstorm  ' },
+			version: ONTOLOGY_PROFILE_VERSION,
+			kindGuidance: { perception: long, memory: '  recall  ' },
 			summary: 'b'.repeat(5000)
 		});
-		expect(parsed.categoryGuidance.task?.length).toBe(2000);
-		expect(parsed.categoryGuidance.idea).toBe('brainstorm');
+		expect(parsed.kindGuidance?.perception?.length).toBe(2000);
+		expect(parsed.kindGuidance?.memory).toBe('recall');
 		expect(parsed.summary?.length).toBe(4000);
 	});
 
-	it('ignores invalid category keys in guidance object', () => {
+	it('migrates v1 profiles to v2 keeping summary only', () => {
 		const parsed = parseOntologyProfileJson({
 			version: 1,
-			categoryGuidance: { task: 'ok', meeting: 'ignored' }
+			categoryGuidance: { task: 'ignored' },
+			summary: 'kept'
 		});
-		expect(parsed.categoryGuidance.task).toBe('ok');
-		expect('meeting' in parsed.categoryGuidance).toBe(false);
+		expect(parsed.version).toBe(ONTOLOGY_PROFILE_VERSION);
+		expect(parsed.summary).toBe('kept');
+		expect(parsed.kindGuidance).toBeUndefined();
 	});
 });
 
 describe('baselineOntologyProfile', () => {
-	it('defines all six categories', () => {
+	it('defines a corpus summary', () => {
 		const b = baselineOntologyProfile();
-		for (const cat of LEGACY_CAPTURE_CATEGORY_KEYS) {
-			expect(b.categoryGuidance[cat]?.length).toBeGreaterThan(20);
-		}
-		expect(b.summary?.length).toBeGreaterThan(10);
+		expect(b.summary?.length).toBeGreaterThan(20);
+		expect(b.version).toBe(ONTOLOGY_PROFILE_VERSION);
 	});
 });
 
 describe('mergeOntologyProfileWithBaseline', () => {
-	it('fills empty stored profile from baseline', () => {
+	it('fills summary from baseline when stored is empty', () => {
 		const m = mergeOntologyProfileWithBaseline(emptyOntologyProfile());
-		expect(m.categoryGuidance.thought).toContain('General notes');
-		expect(m.summary).toContain('Default ontology');
+		expect(m.summary).toContain('ontology entity kinds');
 	});
 
-	it('lets stored guidance override baseline per key', () => {
+	it('keeps stored summary and kindGuidance', () => {
 		const m = mergeOntologyProfileWithBaseline({
-			version: 1,
-			categoryGuidance: { task: 'User uses REM' },
+			version: ONTOLOGY_PROFILE_VERSION,
+			kindGuidance: { perception: 'User note' },
 			summary: 'Custom summary'
 		});
-		expect(m.categoryGuidance.task).toBe('User uses REM');
-		expect(m.categoryGuidance.idea).toContain('Creative');
+		expect(m.kindGuidance?.perception).toBe('User note');
 		expect(m.summary).toBe('Custom summary');
 	});
 });
 
-describe('profileToPromptBlock', () => {
-	it('includes baseline when stored profile is empty', () => {
-		const block = profileToPromptBlock(emptyOntologyProfile());
-		expect(block).toContain('Corpus summary:');
-		expect(block).toContain('thought:');
-		expect(block).toContain('task:');
-		expect(block).toContain('person:');
+describe('ontologyKindsPromptBlock', () => {
+	it('includes summary and kind definitions', () => {
+		const block = ontologyKindsPromptBlock(
+			[
+				{ key: 'perception', name: 'Perception', definition: 'Sensory intake' },
+				{ key: 'memory', name: 'Memory', definition: 'Past experience' }
+			],
+			emptyOntologyProfile()
+		);
+		expect(block).toContain('perception');
+		expect(block).toContain('memory');
+		expect(block).toContain('Sensory intake');
 	});
 
-	it('renders stored summary and overrides alongside baseline-filled keys', () => {
-		const block = profileToPromptBlock({
-			version: 1,
-			categoryGuidance: { task: 'Uses REM for tasks' },
-			summary: 'Mostly tasks'
-		});
-		expect(block).toContain('Corpus summary: Mostly tasks');
-		expect(block).toContain('task: Uses REM for tasks');
-		expect(block).toContain('idea:');
+	it('includes labeling notes from profile', () => {
+		const block = ontologyKindsPromptBlock(
+			[{ key: 'perception', name: 'Perception', definition: 'Sensory intake' }],
+			{
+				version: ONTOLOGY_PROFILE_VERSION,
+				kindGuidance: { perception: 'Prefer literal senses' }
+			}
+		);
+		expect(block).toContain('[labeling note: Prefer literal senses]');
 	});
 });

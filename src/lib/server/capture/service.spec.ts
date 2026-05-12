@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { captureThought, normalizeThoughtText, editStoredThought, listThoughts } from './service';
+import {
+	captureThought,
+	normalizeThoughtText,
+	editStoredThought,
+	relinkThoughtGraph,
+	deleteThoughtForUser,
+	listThoughts
+} from './service';
 
 const {
 	getDbMock,
@@ -7,6 +14,8 @@ const {
 	createThoughtEmbeddingMock,
 	upsertThoughtNodeMock,
 	upsertThoughtRelationMock,
+	deleteThoughtOutgoingGraphEdgesMock,
+	deleteThoughtVertexFromGraphMock,
 	extractRelationsMock,
 	syncEntityGraphFromThoughtMock,
 	resolveThoughtCategoryMock,
@@ -17,6 +26,8 @@ const {
 	createThoughtEmbeddingMock: vi.fn(),
 	upsertThoughtNodeMock: vi.fn(),
 	upsertThoughtRelationMock: vi.fn(),
+	deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
+	deleteThoughtVertexFromGraphMock: vi.fn(),
 	extractRelationsMock: vi.fn(),
 	syncEntityGraphFromThoughtMock: vi.fn(),
 	resolveThoughtCategoryMock: vi.fn(),
@@ -41,7 +52,9 @@ vi.mock('$lib/server/llm/embedding', () => ({
 
 vi.mock('$lib/server/graph/falkor', () => ({
 	upsertThoughtNode: upsertThoughtNodeMock,
-	upsertThoughtRelation: upsertThoughtRelationMock
+	upsertThoughtRelation: upsertThoughtRelationMock,
+	deleteThoughtOutgoingGraphEdges: deleteThoughtOutgoingGraphEdgesMock,
+	deleteThoughtVertexFromGraph: deleteThoughtVertexFromGraphMock
 }));
 
 vi.mock('$lib/server/memory/relation-extraction', () => ({
@@ -82,7 +95,7 @@ function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
 		rawText: 'raw input',
 		normalizedText: 'raw input',
 		lexicalText: 'raw input',
-		category: 'thought',
+		category: 'perception',
 		metadata: {}
 	};
 	const insertCapture = makeInsertReturning(sessionRow);
@@ -119,7 +132,7 @@ describe('captureThought', () => {
 		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
 		extractRelationsMock.mockResolvedValue([]);
 		syncEntityGraphFromThoughtMock.mockResolvedValue(undefined);
-		resolveThoughtCategoryMock.mockResolvedValue('thought');
+		resolveThoughtCategoryMock.mockResolvedValue({ key: 'perception', ontologyEntityKindId: 'ek-1' });
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
 	});
 
@@ -215,7 +228,7 @@ describe('editStoredThought', () => {
 		vi.clearAllMocks();
 		createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5]);
 		extractRelationsMock.mockResolvedValue([]);
-		resolveThoughtCategoryMock.mockResolvedValue('thought');
+		resolveThoughtCategoryMock.mockResolvedValue({ key: 'perception', ontologyEntityKindId: 'ek-1' });
 	});
 
 	it('returns not_found when thought does not exist', async () => {
@@ -240,7 +253,7 @@ describe('editStoredThought', () => {
 			userId: 'u1',
 			rawText: 'hello',
 			metadata: {},
-			category: 'thought',
+			category: 'perception',
 			normalizedText: 'hello',
 			lexicalText: 'hello'
 		};
@@ -296,7 +309,7 @@ describe('editStoredThought', () => {
 			userId: 'u1',
 			rawText: 'hello',
 			metadata: {},
-			category: 'thought',
+			category: 'perception',
 			normalizedText: 'hello',
 			lexicalText: 'hello'
 		};
@@ -336,6 +349,143 @@ describe('editStoredThought', () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(phases).toEqual(['accounting', 'ontology', 'embedding', 'persist', 'graph', 'relations', 'entities']);
+	});
+});
+
+describe('relinkThoughtGraph', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		extractRelationsMock.mockResolvedValue([]);
+	});
+
+	it('returns not_found when thought does not exist', async () => {
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+
+		const result = await relinkThoughtGraph('u1', 'missing');
+		expect(result).toEqual({ ok: false, reason: 'not_found' });
+		expect(deleteThoughtOutgoingGraphEdgesMock).not.toHaveBeenCalled();
+	});
+
+	it('clears Falkor edges, upserts node, and re-syncs relations and entities', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'hello',
+			normalizedText: 'hello',
+			lexicalText: 'hello',
+			category: 'perception',
+			metadata: {}
+		};
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) =>
+				cb({
+					delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
+					insert: vi.fn(() => ({ values: vi.fn(async () => []) }))
+				})
+			)
+		};
+		getDbMock.mockReturnValue(db);
+
+		const result = await relinkThoughtGraph('u1', 't1');
+		expect(result.ok).toBe(true);
+		expect(deleteThoughtOutgoingGraphEdgesMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1'
+		});
+		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 't1', normalizedText: 'hello' })
+		);
+		expect(extractRelationsMock).toHaveBeenCalledTimes(1);
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('reports ingest phases when onProgress is provided', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'x',
+			normalizedText: 'x',
+			lexicalText: 'x',
+			category: 'perception',
+			metadata: {}
+		};
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) =>
+				cb({
+					delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
+					insert: vi.fn(() => ({ values: vi.fn(async () => []) }))
+				})
+			)
+		};
+		getDbMock.mockReturnValue(db);
+
+		const phases: string[] = [];
+		await relinkThoughtGraph('u1', 't1', { onProgress: (p) => phases.push(p) });
+		expect(phases).toEqual(['accounting', 'graph', 'relations', 'entities']);
+	});
+});
+
+describe('deleteThoughtForUser', () => {
+	it('returns not_found when thought does not exist', async () => {
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+
+		const result = await deleteThoughtForUser('u1', 'missing');
+		expect(result).toEqual({ ok: false, reason: 'not_found' });
+		expect(deleteThoughtVertexFromGraphMock).not.toHaveBeenCalled();
+	});
+
+	it('deletes Falkor vertex then Postgres row', async () => {
+		const deleteWhere = vi.fn(async () => undefined);
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [{ id: 't1' }])
+					}))
+				}))
+			})),
+			delete: vi.fn(() => ({
+				where: deleteWhere
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+
+		const result = await deleteThoughtForUser('u1', 't1');
+		expect(result).toEqual({ ok: true });
+		expect(deleteThoughtVertexFromGraphMock).toHaveBeenCalledWith({ userId: 'u1', thoughtId: 't1' });
+		expect(deleteWhere).toHaveBeenCalled();
 	});
 });
 

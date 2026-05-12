@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getDbMock, llmChatCompletionMock } = vi.hoisted(() => ({
+const { getDbMock, llmChatCompletionMock, loadOntologyForUserMock } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
-	llmChatCompletionMock: vi.fn()
+	llmChatCompletionMock: vi.fn(),
+	loadOntologyForUserMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
+}));
+
+vi.mock('$lib/server/ontology-db', () => ({
+	loadOntologyForUser: loadOntologyForUserMock
 }));
 
 vi.mock('$lib/server/llm/llm-client', () => ({
@@ -15,9 +20,30 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 
 import { maybeRefreshUserOntology, recomputeUserOntologyProfileForUser } from './evaluate-ontology';
 
+const perceptionRow = {
+	id: 'ek1',
+	userId: 'u1',
+	key: 'perception',
+	name: 'Perception',
+	definition: 'Sensory intake',
+	active: true
+};
+
+function mockLoadedOntology() {
+	return {
+		entityKinds: [perceptionRow],
+		relationKinds: [],
+		entityKindsById: new Map([[perceptionRow.id, perceptionRow]]),
+		entityKindsByKey: new Map([[perceptionRow.key, perceptionRow]]),
+		relationKindsById: new Map(),
+		relationKindsByKey: new Map()
+	};
+}
+
 describe('maybeRefreshUserOntology', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		loadOntologyForUserMock.mockResolvedValue(mockLoadedOntology());
 	});
 
 	it('no-ops when thought count is not a positive multiple of 10', async () => {
@@ -53,7 +79,7 @@ describe('maybeRefreshUserOntology', () => {
 			select: vi.fn(() => ({
 				from: vi.fn(() => {
 					fromN += 1;
-					if (fromN === 1 || fromN === 2) {
+					if (fromN <= 2) {
 						return {
 							where: vi.fn(() => ({
 								limit: vi.fn(async () => [])
@@ -63,7 +89,7 @@ describe('maybeRefreshUserOntology', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'hello', category: 'thought' }])
+								limit: vi.fn(async () => [{ normalizedText: 'hello', category: 'perception' }])
 							}))
 						}))
 					};
@@ -78,8 +104,8 @@ describe('maybeRefreshUserOntology', () => {
 				{
 					message: {
 						content: JSON.stringify({
-							version: 1,
-							categoryGuidance: { thought: 'general notes' },
+							version: 2,
+							kindGuidance: { perception: 'short sensory notes' },
 							summary: 'user writes short notes'
 						})
 					}
@@ -103,6 +129,7 @@ describe('maybeRefreshUserOntology', () => {
 describe('recomputeUserOntologyProfileForUser', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		loadOntologyForUserMock.mockResolvedValue(mockLoadedOntology());
 	});
 
 	it('calls LLM and upserts for any positive thought count (not multiple-of-10 gate)', async () => {
@@ -131,7 +158,7 @@ describe('recomputeUserOntologyProfileForUser', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'a', category: 'task' }])
+								limit: vi.fn(async () => [{ normalizedText: 'a', category: 'perception' }])
 							}))
 						}))
 					};
@@ -146,8 +173,8 @@ describe('recomputeUserOntologyProfileForUser', () => {
 				{
 					message: {
 						content: JSON.stringify({
-							version: 1,
-							categoryGuidance: { task: 'tasks' },
+							version: 2,
+							kindGuidance: { perception: 'tasks' },
 							summary: 's'
 						})
 					}
@@ -184,7 +211,7 @@ describe('recomputeUserOntologyProfileForUser', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'x', category: 'thought' }])
+								limit: vi.fn(async () => [{ normalizedText: 'x', category: 'perception' }])
 							}))
 						}))
 					};
@@ -237,8 +264,8 @@ describe('recomputeUserOntologyProfileForUser', () => {
 				{
 					message: {
 						content: JSON.stringify({
-							version: 1,
-							categoryGuidance: { thought: 'empty user' }
+							version: 2,
+							kindGuidance: { perception: 'empty user' }
 						})
 					}
 				}

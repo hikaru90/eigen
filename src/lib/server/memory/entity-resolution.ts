@@ -141,6 +141,10 @@ export async function resolveOrCreateCanonicalEntity(input: {
 		.limit(1);
 
 	if (byKey) {
+		await getDb()
+			.update(canonicalEntity)
+			.set({ entityType: input.entityType })
+			.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, byKey.id)));
 		await insertResolutionLog({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
@@ -164,6 +168,10 @@ export async function resolveOrCreateCanonicalEntity(input: {
 		.limit(1);
 
 	if (byAlias) {
+		await getDb()
+			.update(canonicalEntity)
+			.set({ entityType: input.entityType })
+			.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, byAlias.entityId)));
 		await insertResolutionLog({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
@@ -214,6 +222,10 @@ export async function resolveOrCreateCanonicalEntity(input: {
 				aliasText: key
 			});
 		}
+		await getDb()
+			.update(canonicalEntity)
+			.set({ entityType: input.entityType })
+			.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, best.id)));
 		await insertResolutionLog({
 			userId: input.userId,
 			thoughtId: input.thoughtId,

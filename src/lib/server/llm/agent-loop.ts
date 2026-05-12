@@ -91,10 +91,39 @@ function parseResponse(text: string): AgentResponse {
 		trimmed = fenceMatch[1].trim();
 	}
 
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(trimmed);
-	} catch {
+	// Strip trailing backticks and any content after them (LLM sometimes appends ``` after JSON)
+	trimmed = trimmed.replace(/```[\s\S]*$/, '').trim();
+
+	// Find the first complete JSON object by scanning for balanced braces
+	function tryParseJson(str: string): unknown {
+		try {
+			return JSON.parse(str);
+		} catch {
+			return undefined;
+		}
+	}
+
+	let parsed: unknown = tryParseJson(trimmed);
+
+	// If direct parse fails, try extracting the first JSON object by brace matching
+	if (!parsed) {
+		const firstBrace = trimmed.indexOf('{');
+		if (firstBrace >= 0) {
+			let depth = 0;
+			for (let i = firstBrace; i < trimmed.length; i++) {
+				if (trimmed[i] === '{') depth++;
+				else if (trimmed[i] === '}') {
+					depth--;
+					if (depth === 0) {
+						parsed = tryParseJson(trimmed.slice(firstBrace, i + 1));
+						if (parsed) break;
+					}
+				}
+			}
+		}
+	}
+
+	if (!parsed) {
 		console.error('[agent-loop] LLM response is not valid JSON — treating as final answer', {
 			preview: trimmed.slice(0, 300)
 		});
@@ -138,6 +167,7 @@ export async function agentChat(input: {
 	userId: string;
 	messages: ChatMessage[];
 	onEvent?: (event: ChatStreamEvent) => void;
+	db?: ReturnType<typeof getDb>;
 }): Promise<AgentChatResult> {
 	const ctx: McpToolContext = { userId: input.userId };
 	const messages: ChatMessage[] = [
@@ -193,11 +223,11 @@ export async function agentChat(input: {
 			const toolStart = Date.now();
 			try {
 				result = await handler(ctx, parsed.arguments);
-				const preview = JSON.stringify(result).slice(0, 200);
+				const preview = JSON.stringify(result).slice(0, 2000);
 				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview });
 				console.error('[agent-loop] tool result', { tool: parsed.tool, result: preview });
 				console.error('[agent-loop] logging activity');
-				await logActivityCall(getDb(), input.userId, {
+				await logActivityCall(input.db ?? getDb(), input.userId, {
 					provider: AGENT_TOOL_ACTIVITY_PROVIDER,
 					operation: `tool_call.${parsed.tool}`,
 					baseCostUsd: 0,
@@ -207,7 +237,7 @@ export async function agentChat(input: {
 			} catch (err) {
 				console.error('[agent-loop] tool error', { tool: parsed.tool, error: err instanceof Error ? err.message : String(err) });
 				result = { error: err instanceof Error ? err.message : String(err) };
-				await logActivityCall(getDb(), input.userId, {
+				await logActivityCall(input.db ?? getDb(), input.userId, {
 					provider: AGENT_TOOL_ACTIVITY_PROVIDER,
 					operation: `tool_error.${parsed.tool}`,
 					baseCostUsd: 0,

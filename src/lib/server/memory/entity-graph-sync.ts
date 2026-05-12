@@ -3,11 +3,14 @@ import {
 	upsertEntityRelationEdge,
 	upsertMentionEdge
 } from '$lib/server/graph/falkor';
+import { getDb } from '$lib/server/db';
 import { extractEntityMentions, extractEntityTriples } from '$lib/server/memory/entity-extraction';
 import { resolveOrCreateCanonicalEntity } from '$lib/server/memory/entity-resolution';
+import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 
 /**
  * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → Falkor.
+ * Mention `entityType` values are **ontology entity kind keys** (same catalog as thought `category`).
  * Invoked after thought-to-thought relation sync.
  */
 export async function syncEntityGraphFromThought(input: {
@@ -15,9 +18,19 @@ export async function syncEntityGraphFromThought(input: {
 	thoughtId: string;
 	normalizedText: string;
 }): Promise<void> {
+	await ensureUserOntologySeeded(getDb(), input.userId);
+	const loaded = await loadOntologyForUser(getDb(), input.userId);
+	const ontologyEntityKinds = loaded.entityKinds
+		.filter((k) => k.active)
+		.map((k) => ({ key: k.key, name: k.name, definition: k.definition }));
+	if (ontologyEntityKinds.length === 0) {
+		throw new Error('Entity graph sync requires at least one active ontology entity kind');
+	}
+
 	const mentions = await extractEntityMentions({
 		userId: input.userId,
-		normalizedText: input.normalizedText
+		normalizedText: input.normalizedText,
+		ontologyEntityKinds
 	});
 
 	if (mentions.length === 0) return;

@@ -1,36 +1,36 @@
 import { desc, eq, sql } from 'drizzle-orm';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { getDb } from '$lib/server/db';
-import { thought, userOntology, LEGACY_CAPTURE_CATEGORY_KEYS, type ThoughtCategory } from '$lib/server/db/schema';
+import { thought, userOntology } from '$lib/server/db/schema';
+import { loadOntologyForUser } from '$lib/server/ontology-db';
 import {
 	emptyOntologyProfile,
 	parseOntologyProfileJson,
-	isThoughtCategory,
 	ONTOLOGY_PROFILE_VERSION,
-	type OntologyProfileV1
+	type OntologyProfileV2
 } from './types';
 import { extractChatContent, userMessage } from './llm-json';
 
-function parseOntologyEvalOutput(content: string): OntologyProfileV1 {
+function parseOntologyEvalOutput(content: string, allowedKeys: Set<string>): OntologyProfileV2 {
 	const parsed = JSON.parse(content.trim()) as unknown;
 	if (!parsed || typeof parsed !== 'object') {
 		throw new Error('Ontology evaluation output must be a JSON object');
 	}
 	const o = parsed as Record<string, unknown>;
-	const categoryGuidance: Partial<Record<ThoughtCategory, string>> = {};
-	const rawCg = o.categoryGuidance;
-	if (rawCg && typeof rawCg === 'object') {
-		for (const key of LEGACY_CAPTURE_CATEGORY_KEYS) {
-			const v = (rawCg as Record<string, unknown>)[key];
+	const kindGuidance: Record<string, string> = {};
+	const rawKg = o.kindGuidance ?? o.categoryGuidance;
+	if (rawKg && typeof rawKg === 'object') {
+		for (const [key, v] of Object.entries(rawKg as Record<string, unknown>)) {
+			if (!allowedKeys.has(key)) continue;
 			if (typeof v === 'string' && v.trim().length > 0) {
-				categoryGuidance[key] = v.trim().slice(0, 2000);
+				kindGuidance[key] = v.trim().slice(0, 2000);
 			}
 		}
 	}
 	const summary = typeof o.summary === 'string' ? o.summary.trim().slice(0, 4000) : undefined;
 	return {
 		version: ONTOLOGY_PROFILE_VERSION,
-		categoryGuidance,
+		...(Object.keys(kindGuidance).length > 0 ? { kindGuidance } : {}),
 		...(summary ? { summary } : {})
 	};
 }
@@ -41,6 +41,13 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
 	onBeforeEval?: () => void;
 }): Promise<void> {
 	const { userId, evaluatedUpToThoughtCount, onBeforeEval } = input;
+
+	const loaded = await loadOntologyForUser(getDb(), userId);
+	const activeKeys = new Set(loaded.entityKinds.filter((k) => k.active).map((k) => k.key));
+	if (activeKeys.size === 0) {
+		return;
+	}
+	const fallbackKey = [...activeKeys].sort()[0] ?? 'unknown';
 
 	const [ontoRow] = await getDb()
 		.select({ profile: userOntology.profile })
@@ -59,7 +66,8 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
 		.limit(20);
 
 	const lines = recent.map((r, i) => {
-		const cat = typeof r.category === 'string' && isThoughtCategory(r.category) ? r.category : 'thought';
+		const cat =
+			typeof r.category === 'string' && activeKeys.has(r.category) ? r.category : fallbackKey;
 		return `${i + 1}. [${cat}] ${r.normalizedText}`;
 	});
 
@@ -69,14 +77,16 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
 
 	const priorJson = JSON.stringify({
 		version: priorProfile.version,
-		categoryGuidance: priorProfile.categoryGuidance,
+		kindGuidance: priorProfile.kindGuidance ?? {},
 		summary: priorProfile.summary ?? null
 	});
 
+	const keyList = [...activeKeys].sort().join(', ');
+
 	const prompt = [
-		'Return ONLY JSON with keys: version (number 1), categoryGuidance (object), summary (string, optional).',
-		'categoryGuidance must use only these keys (omit unused): thought, task, idea, reference, date, person.',
-		'Each value is a short string (<= 2000 chars) describing how this user tends to use that category.',
+		`Return ONLY JSON with keys: version (number ${ONTOLOGY_PROFILE_VERSION}), kindGuidance (object), summary (string, optional).`,
+		`kindGuidance may only use these ontology entity kind keys (omit unused): ${keyList}.`,
+		'Each value is a short string (<= 2000 chars) describing how this user tends to label captures with that kind.',
 		'summary is an optional <=4000 char overview of labeling habits.',
 		'Prior profile (refine, do not contradict obvious facts unless correcting drift):',
 		priorJson,
@@ -89,7 +99,8 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
 	const messages: ChatMessage[] = [
 		{
 			role: 'system',
-			content: 'You maintain a compact ontology guidance document for a thought classifier. JSON only.'
+			content:
+				'You maintain compact per-kind labeling notes for a personal memory ontology. JSON only.'
 		},
 		userMessage(prompt)
 	];
@@ -100,7 +111,7 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
 		temperature: 0
 	});
 
-	const profile = parseOntologyEvalOutput(extractChatContent(response));
+	const profile = parseOntologyEvalOutput(extractChatContent(response), activeKeys);
 
 	await getDb()
 		.insert(userOntology)

@@ -6,6 +6,10 @@ import { getDb } from '$lib/server/db';
 import { chatSession, chatMessage } from '$lib/server/db/brain.schema';
 import { eq, sql } from 'drizzle-orm';
 import { runWithTrace } from '$lib/server/activity/trace-context';
+import { getRuntimeDatabaseUrl } from '$lib/server/db/runtime-url';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schema from '$lib/server/db/schema';
 
 function collectErrorMessages(input: unknown): string[] {
 	const parts: string[] = [];
@@ -115,6 +119,8 @@ export const POST: RequestHandler = async (event) => {
 
 	if (streamNdjson) {
 		const encoder = new TextEncoder();
+		const streamPg = postgres(getRuntimeDatabaseUrl());
+		const streamDb = drizzle(streamPg, { schema });
 		const stream = new ReadableStream({
 			start(controller) {
 				const line = (payload: unknown) => {
@@ -125,14 +131,15 @@ export const POST: RequestHandler = async (event) => {
 					agentChat({
 						userId: user.id,
 						messages: [...history, { role: 'user', content: message }],
-						onEvent: (evt) => line(evt)
+						onEvent: (evt) => line(evt),
+						db: streamDb
 					})
 				)
 					.then(async (result) => {
-						const messageId = await persistAssistantMessage(db, sessionId, user.id, result.response);
+						const messageId = await persistAssistantMessage(streamDb, sessionId, user.id, result.response);
 						if (isFirstMessage) {
 							const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
-							await db
+							await streamDb
 								.update(chatSession)
 								.set({ title })
 								.where(eq(chatSession.id, sessionId));
@@ -147,6 +154,7 @@ export const POST: RequestHandler = async (event) => {
 					})
 					.finally(() => {
 						controller.close();
+						streamPg.end().catch(() => {});
 					});
 			}
 		});

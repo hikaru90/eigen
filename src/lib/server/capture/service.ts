@@ -4,7 +4,12 @@ import { captureSession, thought, thoughtRelation } from '$lib/server/db/schema'
 import { getDb } from '$lib/server/db';
 import { logActivityCall } from '$lib/server/activity/log-call';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
-import { upsertThoughtNode, upsertThoughtRelation } from '$lib/server/graph/falkor';
+import {
+	deleteThoughtOutgoingGraphEdges,
+	deleteThoughtVertexFromGraph,
+	upsertThoughtNode,
+	upsertThoughtRelation
+} from '$lib/server/graph/falkor';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
@@ -14,7 +19,7 @@ import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 /** Explicit MVP pricing unit until the LLM ingest path is wired. */
 const CAPTURE_BASE_COST_USD = 0.0005;
 
-/** Deterministic text shaping only; category comes from `resolveThoughtCategory`. */
+/** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
 	const normalized = raw.trim().replace(/\s+/g, ' ');
 	return {
@@ -23,7 +28,11 @@ export function normalizeThoughtText(raw: string): { normalized: string; metadat
 	};
 }
 
-async function logCaptureActivity(userId: string, operation: 'capture_submit' | 'capture_edit', durationMs?: number) {
+async function logCaptureActivity(
+	userId: string,
+	operation: 'capture_submit' | 'capture_edit' | 'capture_relink' | 'capture_delete',
+	durationMs?: number
+) {
 	await logActivityCall(getDb(), userId, {
 		provider: 'mvp_stub',
 		operation,
@@ -90,7 +99,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
 
 	emitProgress(onProgress, 'ontology');
-	const category = await resolveThoughtCategory({
+	const { key: category, ontologyEntityKindId } = await resolveThoughtCategory({
 		userId,
 		normalized,
 		rawText: rawInput
@@ -126,6 +135,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 				normalizedText: normalized,
 				lexicalText,
 				category,
+				ontologyEntityKindId,
 				metadata: {
 					...metadata,
 					captureSessionId: sessionRow.id
@@ -214,7 +224,7 @@ export async function editStoredThought(
 	const editedRaw = editRequest.trim();
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
 	emitProgress(onProgress, 'ontology');
-	const category = await resolveThoughtCategory({
+	const { key: category, ontologyEntityKindId } = await resolveThoughtCategory({
 		userId,
 		normalized,
 		rawText: editedRaw
@@ -233,6 +243,7 @@ export async function editStoredThought(
 			lexicalText,
 			embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 			category,
+			ontologyEntityKindId,
 			metadata: {
 				...(existing.metadata as Record<string, unknown>),
 				...metadata,
@@ -278,6 +289,104 @@ export async function editStoredThought(
 	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
 
 	return { ok: true as const, thought: updated! };
+}
+
+export type RelinkThoughtGraphOptions = {
+	onProgress?: (phase: CaptureIngestPhase) => void;
+};
+
+/**
+ * Re-runs relation + entity graph sync for an existing thought without changing stored text.
+ * Clears this thought's outgoing Falkor edges first so removed links do not linger.
+ */
+export async function relinkThoughtGraph(
+	userId: string,
+	thoughtId: string,
+	options?: RelinkThoughtGraphOptions
+) {
+	const started = Date.now();
+	const onProgress = options?.onProgress;
+	await ensureUserOntologySeeded(getDb(), userId);
+	emitProgress(onProgress, 'accounting');
+
+	const [existing] = await getDb()
+		.select()
+		.from(thought)
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+		.limit(1);
+
+	if (!existing) {
+		await logCaptureActivity(userId, 'capture_relink', Date.now() - started);
+		return { ok: false as const, reason: 'not_found' as const };
+	}
+
+	await deleteThoughtOutgoingGraphEdges({ userId, thoughtId });
+
+	emitProgress(onProgress, 'graph');
+	await upsertThoughtNode({
+		id: existing.id,
+		userId,
+		rawText: existing.rawText,
+		normalizedText: existing.normalizedText,
+		lexicalText: existing.lexicalText,
+		category: existing.category
+	});
+
+	emitProgress(onProgress, 'relations');
+	await syncThoughtRelations({
+		userId,
+		thoughtId: existing.id,
+		normalizedText: existing.normalizedText
+	});
+
+	emitProgress(onProgress, 'entities');
+	await syncEntityGraphFromThought({
+		userId,
+		thoughtId: existing.id,
+		normalizedText: existing.normalizedText
+	});
+
+	await logCaptureActivity(userId, 'capture_relink', Date.now() - started);
+
+	return {
+		ok: true as const,
+		thought: {
+			id: existing.id,
+			userId: existing.userId,
+			rawText: existing.rawText,
+			normalizedText: existing.normalizedText,
+			lexicalText: existing.lexicalText,
+			category: existing.category,
+			metadata: existing.metadata as Record<string, unknown>
+		}
+	};
+}
+
+/**
+ * Removes a thought from Falkor first (so a failed DB step can be repaired with relink),
+ * then deletes the Postgres row (cascades `thought_relation` and `entity_resolution_log`).
+ */
+export async function deleteThoughtForUser(userId: string, thoughtId: string) {
+	const started = Date.now();
+	await ensureUserOntologySeeded(getDb(), userId);
+
+	const [existing] = await getDb()
+		.select({ id: thought.id })
+		.from(thought)
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+		.limit(1);
+
+	if (!existing) {
+		await logCaptureActivity(userId, 'capture_delete', Date.now() - started);
+		return { ok: false as const, reason: 'not_found' as const };
+	}
+
+	await deleteThoughtVertexFromGraph({ userId, thoughtId: existing.id });
+
+	await getDb().delete(thought).where(and(eq(thought.id, existing.id), eq(thought.userId, userId)));
+
+	await logCaptureActivity(userId, 'capture_delete', Date.now() - started);
+	return { ok: true as const };
 }
 
 export async function listThoughts(

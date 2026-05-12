@@ -81,6 +81,11 @@ async function waitForLlmRateLimit(): Promise<void> {
 		const elapsed = now - lastLlmRequestAt;
 		const waitMs = Math.max(0, intervalMs - elapsed);
 		if (waitMs > 0) {
+			console.info('[llm] rate-limit spacing', {
+				waitMs,
+				intervalMs,
+				hint: 'LLM_MIN_REQUEST_INTERVAL_MS spaces successive gateway calls; capture uses chat then embedding back-to-back.'
+			});
 			await sleep(waitMs);
 		}
 		lastLlmRequestAt = Date.now();
@@ -160,6 +165,8 @@ export async function llmChatCompletion(input: {
 	userId: string;
 	messages: ChatMessage[];
 	temperature?: number;
+	/** Dev/server observability only; appears in logs to disambiguate parallel chat uses. */
+	logContext?: string;
 }): Promise<unknown> {
 	const url = `${baseUrl()}/chat/completions`;
 	const apiKey = env.LLM_API_KEY?.trim();
@@ -167,6 +174,7 @@ export async function llmChatCompletion(input: {
 		throw new Error('LLM_API_KEY is not set (required for LLM chat calls)');
 	}
 	const routing = await chatRoutingConfig(apiKey);
+	const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_');
 
 	const maxAttempts = 3;
 	let lastError: unknown;
@@ -175,7 +183,14 @@ export async function llmChatCompletion(input: {
 		const attemptStart = Date.now();
 		const db = getDb();
 		try {
+			console.info(`[llm.chat:${logCtx}] attempt ${attempt}/${maxAttempts}`, {
+				model: routing.model,
+				ruleId: routing.ruleId ?? null,
+				messageCount: input.messages.length,
+				totalChars: input.messages.reduce((n, m) => n + m.content.length, 0)
+			});
 			await waitForLlmRateLimit();
+			const fetchStart = Date.now();
 			const res = await fetch(url, {
 				method: 'POST',
 				headers: {
@@ -209,16 +224,32 @@ export async function llmChatCompletion(input: {
 
 			const usage = extractUsage(json);
 			const baseCost = computeTokenCostUsd(usage);
+			const attemptMs = Date.now() - attemptStart;
+			const fetchMs = Date.now() - fetchStart;
+			console.info(`[llm.chat:${logCtx}] gateway response ok`, {
+				attempt,
+				httpStatus: res.status,
+				attemptMs,
+				fetchMs,
+				prompt_tokens: usage?.prompt_tokens,
+				completion_tokens: usage?.completion_tokens,
+				total_tokens: usage?.total_tokens
+			});
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.chat.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
-				durationMs: Date.now() - attemptStart
+				durationMs: attemptMs
 			});
 
 			return json;
 		} catch (err) {
 			lastError = err;
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[llm.chat:${logCtx}] attempt ${attempt} failed`, {
+				afterMs: Date.now() - attemptStart,
+				message: msg.slice(0, 500)
+			});
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.chat.error(attempt=${attempt})`,

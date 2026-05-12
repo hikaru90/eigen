@@ -36,6 +36,27 @@
       "when": 1778591909558,
       "tag": "0004_tranquil_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778599621668,
+      "tag": "0005_thought_category_ontology_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778599637487,
+      "tag": "0006_thought_category_ontology_fk2",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778599677333,
+      "tag": "0007_thought_kind_fk_restrict",
+      "breakpoints": true
     }
   ]
 }

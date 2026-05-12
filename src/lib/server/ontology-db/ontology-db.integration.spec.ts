@@ -118,7 +118,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 					rawText: norm,
 					normalizedText: norm,
 					lexicalText: computeLexicalText(norm),
-					category: 'thought',
+					category: 'perception',
 					metadata: {}
 				},
 				{
@@ -127,7 +127,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 					rawText: norm + ' b',
 					normalizedText: norm + ' b',
 					lexicalText: computeLexicalText(norm + ' b'),
-					category: 'thought',
+					category: 'perception',
 					metadata: {}
 				}
 			]);
@@ -181,7 +181,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 					rawText: norm,
 					normalizedText: norm,
 					lexicalText: computeLexicalText(norm),
-					category: 'thought',
+					category: 'perception',
 					metadata: {},
 					ontologyEntityKindId: perception!.id
 				})

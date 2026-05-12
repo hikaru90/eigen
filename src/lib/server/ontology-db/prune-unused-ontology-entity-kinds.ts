@@ -30,8 +30,19 @@ export async function pruneUnusedOntologyEntityKinds(
 			.filter((id): id is string => typeof id === 'string' && id.length > 0)
 	);
 
+	const categoryRows = await db
+		.selectDistinct({ key: thought.category })
+		.from(thought)
+		.where(eq(thought.userId, userId));
+	const usedCategoryKeys = new Set(categoryRows.map((r) => r.key.trim()).filter((k) => k.length > 0));
+
 	const entityIdsToDelete = entities
-		.filter((e) => !protectedEntityKeys.has(e.key) && !usedIds.has(e.id))
+		.filter(
+			(e) =>
+				!protectedEntityKeys.has(e.key) &&
+				!usedIds.has(e.id) &&
+				!usedCategoryKeys.has(e.key)
+		)
 		.map((e) => e.id);
 
 	if (entityIdsToDelete.length === 0) {

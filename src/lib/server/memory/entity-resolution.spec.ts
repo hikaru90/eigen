@@ -87,6 +87,11 @@ function buildDb(config: {
 				};
 			})
 		})),
+		update: vi.fn(() => ({
+			set: vi.fn(() => ({
+				where: vi.fn(async () => ({ rowCount: 1 }))
+			}))
+		})),
 		execute: vi.fn(async () => {
 			const next = config.executes?.[executeIdx] ?? { rows: [] };
 			executeIdx += 1;

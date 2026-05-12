@@ -73,6 +73,7 @@
 	}
 	html {
 		@apply font-sans;
+		overflow-y: auto;
 	}
 }
 

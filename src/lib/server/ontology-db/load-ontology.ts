@@ -31,31 +31,31 @@ export type LoadedUserOntology = {
 };
 
 export async function loadOntologyForUser(db: AppDatabase, userId: string): Promise<LoadedUserOntology> {
-	const [entityRows, relationRows] = await Promise.all([
-		db
-			.select({
-				id: ontologyEntityKind.id,
-				userId: ontologyEntityKind.userId,
-				key: ontologyEntityKind.key,
-				name: ontologyEntityKind.name,
-				definition: ontologyEntityKind.definition,
-				active: ontologyEntityKind.active
-			})
-			.from(ontologyEntityKind)
-			.where(eq(ontologyEntityKind.userId, userId)),
-		db
-			.select({
-				id: ontologyRelationKind.id,
-				userId: ontologyRelationKind.userId,
-				key: ontologyRelationKind.key,
-				meaning: ontologyRelationKind.meaning,
-				fromOntologyEntityKindId: ontologyRelationKind.fromOntologyEntityKindId,
-				toOntologyEntityKindId: ontologyRelationKind.toOntologyEntityKindId,
-				active: ontologyRelationKind.active
-			})
-			.from(ontologyRelationKind)
-			.where(eq(ontologyRelationKind.userId, userId))
-	]);
+	// Sequential reads: the app pool uses a single reserved connection per request; parallel
+	// selects on the same postgres.js client have caused hard-to-debug stalls in practice.
+	const entityRows = await db
+		.select({
+			id: ontologyEntityKind.id,
+			userId: ontologyEntityKind.userId,
+			key: ontologyEntityKind.key,
+			name: ontologyEntityKind.name,
+			definition: ontologyEntityKind.definition,
+			active: ontologyEntityKind.active
+		})
+		.from(ontologyEntityKind)
+		.where(eq(ontologyEntityKind.userId, userId));
+	const relationRows = await db
+		.select({
+			id: ontologyRelationKind.id,
+			userId: ontologyRelationKind.userId,
+			key: ontologyRelationKind.key,
+			meaning: ontologyRelationKind.meaning,
+			fromOntologyEntityKindId: ontologyRelationKind.fromOntologyEntityKindId,
+			toOntologyEntityKindId: ontologyRelationKind.toOntologyEntityKindId,
+			active: ontologyRelationKind.active
+		})
+		.from(ontologyRelationKind)
+		.where(eq(ontologyRelationKind.userId, userId));
 
 	const entityKinds: OntologyEntityKindRow[] = entityRows.map((r) => ({
 		id: r.id,

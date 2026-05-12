@@ -8,7 +8,7 @@ describe('consumeCaptureNdjsonStream', () => {
 			start(controller) {
 				controller.enqueue(encoder.encode('{"type":"progress","phase":"embedding"}\n'));
 				controller.enqueue(
-					encoder.encode('{"type":"done","thought":{"id":"t1","category":"thought"}}\n')
+					encoder.encode('{"type":"done","thought":{"id":"t1","category":"perception"}}\n')
 				);
 				controller.close();
 			}
@@ -17,7 +17,7 @@ describe('consumeCaptureNdjsonStream', () => {
 		const phases: string[] = [];
 		const thought = await consumeCaptureNdjsonStream<{ id: string }>(res, (p) => phases.push(p));
 		expect(phases).toEqual(['embedding']);
-		expect(thought).toEqual({ id: 't1', category: 'thought' });
+		expect(thought).toEqual({ id: 't1', category: 'perception' });
 	});
 
 	it('throws on error line', async () => {

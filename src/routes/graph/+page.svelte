@@ -1,20 +1,33 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { Textarea } from '$lib/components/ui/textarea';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
-	import { nodeFillForGraph } from '$lib/graph/graph-ontology-legend';
+	import { nodeFillForGraph, customEntityFillsFromLegendSections } from '$lib/graph/graph-ontology-legend';
 	import Link2 from '@lucide/svelte/icons/link-2';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from '$lib/capture/ingest-phases';
+	import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const legendSections = $derived(data.graphLegendSections ?? []);
+	const ontologyEntityKindSelectOptions = $derived.by(() => {
+		const sec = legendSections.find((s) => s.title === 'Your ontology: entity kinds');
+		return (
+			sec?.items.map((i) => ({
+				value: i.key.replace(/^onto-entity-/, ''),
+				label: i.label
+			})) ?? []
+		);
+	});
 
 	let rootEl: HTMLDivElement | undefined;
 	let search = $state('');
@@ -31,6 +44,287 @@
 	let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
 	let scheduleRestorePreEntityZoom: (() => void) | null = null;
 	let selectedNode = $state<(typeof data.snapshot.nodes)[number] | null>(null);
+
+	type GraphThoughtEditorStored = { id: string; rawText: string; normalizedText: string; category: string };
+	let thoughtEditorLoadSeq = 0;
+	let thoughtEditorLoading = $state(false);
+	let thoughtEditorDraft = $state('');
+	let thoughtEditorErr = $state<string | null>(null);
+	let thoughtEditorBusy = $state(false);
+	let thoughtEditorRelinkBusy = $state(false);
+	let thoughtEditorDeleteBusy = $state(false);
+	let thoughtEditorPhase = $state<CaptureIngestPhase | null>(null);
+	let thoughtEditorStored = $state<GraphThoughtEditorStored | null>(null);
+
+	type GraphEntityEditorStored = { id: string; label: string; entityType: string; canonicalKey: string };
+	let entityEditorLoadSeq = 0;
+	let entityEditorLoading = $state(false);
+	let entityEditorDraft = $state('');
+	let entityEditorEntityType = $state('');
+	let entityEditorErr = $state<string | null>(null);
+	let entityEditorBusy = $state(false);
+	let entityEditorSyncBusy = $state(false);
+	let entityEditorDeleteBusy = $state(false);
+	let entityEditorStored = $state<GraphEntityEditorStored | null>(null);
+
+	const thoughtIngestStatus = $derived(
+		thoughtEditorPhase
+			? CAPTURE_INGEST_PHASE_COPY[thoughtEditorPhase]
+			: {
+					title: 'Working…',
+					description: 'Running the same ingest steps as on Capture.'
+				}
+	);
+
+	$effect(() => {
+		const n = selectedNode;
+		if (!n || n.kind !== 'Thought') {
+			thoughtEditorDraft = '';
+			thoughtEditorErr = null;
+			thoughtEditorStored = null;
+			thoughtEditorLoading = false;
+			return;
+		}
+		const id = n.id;
+		const seq = ++thoughtEditorLoadSeq;
+		thoughtEditorLoading = true;
+		thoughtEditorErr = null;
+		thoughtEditorDraft = '';
+		thoughtEditorStored = null;
+		void (async () => {
+			try {
+				const res = await fetch(`/api/thoughts/${encodeURIComponent(id)}`);
+				if (seq !== thoughtEditorLoadSeq) return;
+				if (!res.ok) {
+					const t = await res.text();
+					throw new Error(t || `Failed to load thought (${res.status})`);
+				}
+				const row = (await res.json()) as {
+					id: string;
+					rawText: string;
+					normalizedText: string;
+					category: string;
+				};
+				if (seq !== thoughtEditorLoadSeq) return;
+				thoughtEditorDraft = row.rawText;
+				thoughtEditorStored = {
+					id: row.id,
+					rawText: row.rawText,
+					normalizedText: row.normalizedText,
+					category: row.category
+				};
+			} catch (e) {
+				if (seq !== thoughtEditorLoadSeq) return;
+				thoughtEditorErr = e instanceof Error ? e.message : String(e);
+			} finally {
+				if (seq === thoughtEditorLoadSeq) thoughtEditorLoading = false;
+			}
+		})();
+	});
+
+	$effect(() => {
+		const n = selectedNode;
+		if (!n || n.kind !== 'Entity') {
+			entityEditorDraft = '';
+			entityEditorEntityType = '';
+			entityEditorErr = null;
+			entityEditorStored = null;
+			entityEditorLoading = false;
+			return;
+		}
+		const id = n.id;
+		const seq = ++entityEditorLoadSeq;
+		entityEditorLoading = true;
+		entityEditorErr = null;
+		entityEditorDraft = '';
+		entityEditorEntityType = '';
+		entityEditorStored = null;
+		void (async () => {
+			try {
+				const res = await fetch(`/api/entities/${encodeURIComponent(id)}`);
+				if (seq !== entityEditorLoadSeq) return;
+				if (!res.ok) {
+					const t = await res.text();
+					throw new Error(t || `Failed to load node (${res.status})`);
+				}
+				const row = (await res.json()) as GraphEntityEditorStored;
+				if (seq !== entityEditorLoadSeq) return;
+				entityEditorDraft = row.label;
+				entityEditorEntityType = row.entityType;
+				entityEditorStored = row;
+			} catch (e) {
+				if (seq !== entityEditorLoadSeq) return;
+				entityEditorErr = e instanceof Error ? e.message : String(e);
+			} finally {
+				if (seq === entityEditorLoadSeq) entityEditorLoading = false;
+			}
+		})();
+	});
+
+	async function submitThoughtUpdateFromGraph() {
+		const id = selectedNode?.kind === 'Thought' ? selectedNode.id : '';
+		if (!id || !thoughtEditorDraft.trim()) return;
+		thoughtEditorErr = null;
+		thoughtEditorPhase = null;
+		thoughtEditorBusy = true;
+		try {
+			const res = await fetch('/api/capture/edit', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					accept: 'application/x-ndjson, application/json'
+				},
+				body: JSON.stringify({ thoughtId: id, editRequest: thoughtEditorDraft })
+			});
+			const contentType = res.headers.get('content-type') ?? '';
+			let thought: GraphThoughtEditorStored;
+			if (contentType.includes('application/x-ndjson')) {
+				thought = await consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (phase) => {
+					thoughtEditorPhase = phase;
+				});
+			} else {
+				if (!res.ok) throw new Error(await res.text());
+				const j = (await res.json()) as { thought: GraphThoughtEditorStored };
+				thought = j.thought;
+			}
+			thoughtEditorStored = thought;
+			thoughtEditorDraft = thought.rawText;
+			await invalidateAll();
+		} catch (e) {
+			thoughtEditorErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			thoughtEditorBusy = false;
+			thoughtEditorPhase = null;
+		}
+	}
+
+	async function submitThoughtRelinkFromGraph() {
+		const id = selectedNode?.kind === 'Thought' ? selectedNode.id : '';
+		if (!id) return;
+		thoughtEditorErr = null;
+		thoughtEditorPhase = null;
+		thoughtEditorRelinkBusy = true;
+		try {
+			const res = await fetch('/api/capture/relink', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					accept: 'application/x-ndjson, application/json'
+				},
+				body: JSON.stringify({ thoughtId: id })
+			});
+			const contentType = res.headers.get('content-type') ?? '';
+			let thought: GraphThoughtEditorStored;
+			if (contentType.includes('application/x-ndjson')) {
+				thought = await consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (phase) => {
+					thoughtEditorPhase = phase;
+				});
+			} else {
+				if (!res.ok) throw new Error(await res.text());
+				const j = (await res.json()) as { thought: GraphThoughtEditorStored };
+				thought = j.thought;
+			}
+			thoughtEditorStored = thought;
+			thoughtEditorDraft = thought.rawText;
+			await invalidateAll();
+		} catch (e) {
+			thoughtEditorErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			thoughtEditorRelinkBusy = false;
+			thoughtEditorPhase = null;
+		}
+	}
+
+	async function submitThoughtDeleteFromGraph() {
+		const id = selectedNode?.kind === 'Thought' ? selectedNode.id : '';
+		if (!id) return;
+		if (
+			!confirm(
+				'Delete this node permanently? It will be removed from search and the graph. This cannot be undone.'
+			)
+		) {
+			return;
+		}
+		thoughtEditorErr = null;
+		thoughtEditorDeleteBusy = true;
+		try {
+			const res = await fetch(`/api/thoughts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+			if (!res.ok) throw new Error(await res.text());
+			selectedNode = null;
+			await invalidateAll();
+		} catch (e) {
+			thoughtEditorErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			thoughtEditorDeleteBusy = false;
+		}
+	}
+
+	async function submitEntityUpdateFromGraph() {
+		const id = selectedNode?.kind === 'Entity' ? selectedNode.id : '';
+		if (!id || !entityEditorDraft.trim()) return;
+		entityEditorErr = null;
+		entityEditorBusy = true;
+		try {
+			const res = await fetch(`/api/entities/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					label: entityEditorDraft,
+					entityType: entityEditorEntityType.trim() || undefined
+				})
+			});
+			if (!res.ok) throw new Error(await res.text());
+			const j = (await res.json()) as { entity: GraphEntityEditorStored };
+			entityEditorStored = j.entity;
+			entityEditorDraft = j.entity.label;
+			entityEditorEntityType = j.entity.entityType;
+			await invalidateAll();
+		} catch (e) {
+			entityEditorErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			entityEditorBusy = false;
+		}
+	}
+
+	async function submitEntitySyncFromGraph() {
+		const id = selectedNode?.kind === 'Entity' ? selectedNode.id : '';
+		if (!id) return;
+		entityEditorErr = null;
+		entityEditorSyncBusy = true;
+		try {
+			const res = await fetch(`/api/entities/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+			if (!res.ok) throw new Error(await res.text());
+			await invalidateAll();
+		} catch (e) {
+			entityEditorErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			entityEditorSyncBusy = false;
+		}
+	}
+
+	async function submitEntityDeleteFromGraph() {
+		const id = selectedNode?.kind === 'Entity' ? selectedNode.id : '';
+		if (!id) return;
+		if (
+			!confirm(
+				'Delete this node permanently? It will be removed from the graph and canonical store. This cannot be undone.'
+			)
+		) {
+			return;
+		}
+		entityEditorErr = null;
+		entityEditorDeleteBusy = true;
+		try {
+			const res = await fetch(`/api/entities/${encodeURIComponent(id)}`, { method: 'DELETE' });
+			if (!res.ok) throw new Error(await res.text());
+			selectedNode = null;
+			await invalidateAll();
+		} catch (e) {
+			entityEditorErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			entityEditorDeleteBusy = false;
+		}
+	}
 
 	let legendScrollEl: HTMLDivElement | undefined = $state();
 
@@ -57,6 +351,12 @@
 		const id = selectedNode.id;
 		return data.snapshot.edges.filter((e) => e.sourceId === id || e.targetId === id);
 	});
+
+	const legendCustomEntityFills = $derived(customEntityFillsFromLegendSections(data.graphLegendSections ?? []));
+
+	function selectedNodeFill(node: typeof data.snapshot.nodes[number]): string {
+		return nodeFillForGraph(node.kind, node.subtype, legendCustomEntityFills);
+	}
 
 	type SimNode = {
 		id: string;
@@ -105,6 +405,9 @@
 	});
 
 	onMount(() => {
+		const origHtmlOverflow = document.documentElement.style.overflow;
+		document.documentElement.style.overflow = 'hidden';
+
 		let cancelled = false;
 
 		(async () => {
@@ -307,12 +610,14 @@
 					d.fy = null;
 				});
 
-			function nodeRadius(d: SimNode) {
-				return d.kind === 'Entity' ? 9 : 7;
+			function nodeRadius(_d: SimNode) {
+				return 8;
 			}
 
+			let customEntityFills = new Map<string, string>();
+
 			function nodeFill(d: SimNode) {
-				return nodeFillForGraph(d.kind, d.subtype);
+				return nodeFillForGraph(d.kind, d.subtype, customEntityFills);
 			}
 
 			function labelText(d: SimNode) {
@@ -383,6 +688,8 @@
 			function updateGraph() {
 				const dims = resizeSvg();
 				if (!dims) return;
+
+				customEntityFills = customEntityFillsFromLegendSections(data.graphLegendSections ?? []);
 
 				prunePersistentToSnapshot(data.snapshot);
 
@@ -491,7 +798,7 @@
 							d3
 								.forceLink<SimNode, SimLink>(links)
 								.id((d) => d.id)
-								.distance((l) => (l.kind === 'entity_relation' ? 100 : 70))
+								.distance(82)
 						)
 						.force('charge', d3.forceManyBody<SimNode>().strength(-140))
 						.force('center', d3.forceCenter(dims.w / 2, dims.h / 2))
@@ -541,6 +848,7 @@
 
 			teardown = () => {
 				cancelled = true;
+				document.documentElement.style.overflow = origHtmlOverflow;
 				scheduleGraphUpdate = null;
 				scheduleGraphResize = null;
 				scheduleApplyHighlight = null;
@@ -599,16 +907,16 @@
 									{edgeKind === 'all'
 										? 'All edges'
 										: edgeKind === 'thought_link'
-											? 'Thought links'
+											? 'Node links'
 											: edgeKind === 'mention'
 												? 'Mentions'
-												: 'Entity relations'}
+												: 'Relations'}
 								</Select.Trigger>
 								<Select.Content>
 									<Select.Item value="all">All edges</Select.Item>
-									<Select.Item value="thought_link">Thought → Thought</Select.Item>
-									<Select.Item value="mention">Thought → Entity</Select.Item>
-									<Select.Item value="entity_relation">Entity → Entity</Select.Item>
+									<Select.Item value="thought_link">Node links</Select.Item>
+									<Select.Item value="mention">Mentions</Select.Item>
+									<Select.Item value="entity_relation">Relations</Select.Item>
 								</Select.Content>
 							</Select.Root>
 						</Popover.Content>
@@ -701,30 +1009,39 @@
 				></div>
 			</div>
 			{#if selectedNode}
-				<div
-					class="border-border bg-background/95 shrink-0 border-t px-4 py-3 backdrop-blur-sm"
-					role="region"
-					aria-label="Selected node details"
-				>
-					<div class="flex items-start justify-between gap-3">
-						<div class="min-w-0 flex-1 space-y-1">
-							<p class="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
-								{selectedNode.kind === 'Entity' ? 'Entity' : 'Thought'}
-							</p>
-							<p class="text-foreground truncate text-sm font-semibold">
-								{selectedNode.label || '—'}
-							</p>
-							<dl class="text-muted-foreground grid gap-x-4 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
-								<div class="contents">
-									<dt class="text-muted-foreground/80">Type</dt>
-									<dd class="text-foreground truncate">{selectedNode.subtype || '—'}</dd>
-								</div>
-								<div class="contents">
-									<dt class="text-muted-foreground/80">Id</dt>
-									<dd class="text-foreground truncate">{selectedNode.id}</dd>
-								</div>
-							</dl>
-						</div>
+			<div
+				class="border-border bg-background/95 shrink-0 border-t px-4 pt-3 pb-4 backdrop-blur-sm"
+				role="region"
+				aria-label="Selected node details"
+			>
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0 flex-1 space-y-1">
+						<p class="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+							Node
+						</p>
+						<p class="text-foreground truncate text-sm font-semibold">
+							{selectedNode.label || '—'}
+						</p>
+						<dl class="text-muted-foreground grid gap-x-4 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
+							<div class="contents">
+								<dt class="text-muted-foreground/80">Type</dt>
+								<dd class="text-foreground flex items-center gap-1.5 truncate">
+									{#if selectedNode.subtype}
+										<span
+											class="size-2 shrink-0 rounded-full ring-1 ring-border/60"
+											style="background-color: {selectedNodeFill(selectedNode)}"
+											aria-hidden="true"
+										></span>
+									{/if}
+									{selectedNode.subtype || '—'}
+								</dd>
+							</div>
+							<div class="contents">
+								<dt class="text-muted-foreground/80">Id</dt>
+								<dd class="text-foreground truncate">{selectedNode.id}</dd>
+							</div>
+						</dl>
+					</div>
 						<button
 							type="button"
 							class="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-2 py-1 text-xs"
@@ -734,7 +1051,7 @@
 						</button>
 					</div>
 					{#if selectedEdges.length > 0}
-						<div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
+						<div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10 pb-3">
 							<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
 								Connections ({selectedEdges.length})
 							</p>
@@ -748,12 +1065,248 @@
 										<span class="min-w-0 truncate">{e.relationType}</span>
 										<span class="text-muted-foreground shrink-0">→</span>
 										<span class="min-w-0 truncate" title={otherId}>
-											{other?.kind === 'Entity' ? 'Entity' : other?.kind === 'Thought' ? 'Thought' : '?'}:
+											{#if other?.subtype}
+												<span class="text-muted-foreground">{other.subtype}</span>
+												<span class="text-muted-foreground"> · </span>
+											{/if}
 											{other?.label || otherId}
 										</span>
 									</li>
 								{/each}
 							</ul>
+						</div>
+					{/if}
+					{#if selectedNode.kind === 'Thought'}
+						<div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
+							<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+								Edit
+							</p>
+							{#if thoughtEditorLoading}
+								<div class="text-muted-foreground flex items-center gap-2 text-xs">
+									<LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
+									Loading…
+								</div>
+							{:else}
+								{#if thoughtEditorErr}
+									<p class="text-destructive text-xs">{thoughtEditorErr}</p>
+								{/if}
+								<div class="space-y-2">
+									<Label for="graph-thought-body" class="text-xs">Text (same flow as Capture)</Label>
+									<Textarea
+										id="graph-thought-body"
+										bind:value={thoughtEditorDraft}
+										rows={4}
+										class="font-mono text-xs"
+										disabled={thoughtEditorBusy ||
+											thoughtEditorRelinkBusy ||
+											thoughtEditorDeleteBusy}
+									/>
+								</div>
+								<div class="mt-3 flex flex-wrap gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="default"
+										class="shrink-0"
+										disabled={thoughtEditorBusy ||
+											thoughtEditorRelinkBusy ||
+											thoughtEditorDeleteBusy ||
+											!thoughtEditorDraft.trim()}
+										onclick={() => void submitThoughtUpdateFromGraph()}
+									>
+										{#if thoughtEditorBusy}
+											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+										{/if}
+										Save
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										class="shrink-0"
+										disabled={thoughtEditorBusy ||
+											thoughtEditorRelinkBusy ||
+											thoughtEditorDeleteBusy}
+										onclick={() => void submitThoughtRelinkFromGraph()}
+									>
+										{#if thoughtEditorRelinkBusy}
+											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+										{/if}
+										Rearrange in graph
+									</Button>
+								</div>
+								<p class="text-muted-foreground mt-2 text-[10px] leading-relaxed">
+									Rearrange keeps this text in Postgres, clears this node’s outgoing graph links, then
+									re-runs link and mention extraction so it reattaches to the graph.
+								</p>
+								<div class="border-destructive/25 mt-4 border-t pt-3">
+									<Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										class="shrink-0"
+										disabled={thoughtEditorBusy ||
+											thoughtEditorRelinkBusy ||
+											thoughtEditorDeleteBusy ||
+											thoughtEditorLoading}
+										onclick={() => void submitThoughtDeleteFromGraph()}
+									>
+										{#if thoughtEditorDeleteBusy}
+											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+										{/if}
+										Delete
+									</Button>
+								</div>
+								{#if thoughtEditorBusy || thoughtEditorRelinkBusy}
+									<div
+										class="bg-muted/30 mt-3 rounded-md border border-black/5 p-3 dark:border-white/10"
+										role="status"
+										aria-live="polite"
+									>
+										<div class="flex gap-2">
+											<LoaderCircleIcon
+												class="text-muted-foreground size-4 shrink-0 animate-spin"
+												aria-hidden="true"
+											/>
+											<div class="min-w-0">
+												<p class="text-foreground text-xs font-medium">{thoughtIngestStatus.title}</p>
+												<p class="text-muted-foreground mt-0.5 text-[11px] leading-snug">
+													{thoughtIngestStatus.description}
+												</p>
+											</div>
+										</div>
+									</div>
+								{/if}
+								{#if thoughtEditorStored && !thoughtEditorBusy && !thoughtEditorRelinkBusy && !thoughtEditorDeleteBusy}
+									<div class="text-muted-foreground mt-2 space-y-0.5 font-mono text-[10px]">
+										<p>
+											<span class="text-muted-foreground/80">Stored</span>
+											<span class="text-foreground"> · {thoughtEditorStored.category}</span>
+										</p>
+										<p class="line-clamp-2 text-foreground/90">{thoughtEditorStored.normalizedText}</p>
+									</div>
+								{/if}
+							{/if}
+						</div>
+					{:else}
+						<div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
+							<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+								Edit
+							</p>
+							{#if entityEditorLoading}
+								<div class="text-muted-foreground flex items-center gap-2 text-xs">
+									<LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
+									Loading…
+								</div>
+							{:else}
+								{#if entityEditorErr}
+									<p class="text-destructive text-xs">{entityEditorErr}</p>
+								{/if}
+								<div class="space-y-2">
+									<Label for="graph-entity-label" class="text-xs">Label</Label>
+									<Input
+										id="graph-entity-label"
+										bind:value={entityEditorDraft}
+										class="font-mono text-xs"
+										disabled={entityEditorBusy ||
+											entityEditorSyncBusy ||
+											entityEditorDeleteBusy}
+									/>
+								</div>
+								<div class="mt-3 space-y-2">
+									<Label for="graph-entity-type" class="text-xs">Ontology kind key</Label>
+									{#if ontologyEntityKindSelectOptions.length > 0}
+										<Select.Root type="single" bind:value={entityEditorEntityType}>
+											<Select.Trigger
+												id="graph-entity-type"
+												class="w-full font-mono text-xs"
+												disabled={entityEditorBusy ||
+													entityEditorSyncBusy ||
+													entityEditorDeleteBusy}
+											>
+												{entityEditorEntityType || '—'}
+											</Select.Trigger>
+											<Select.Content>
+												{#each ontologyEntityKindSelectOptions as opt (opt.value)}
+													<Select.Item value={opt.value}>{opt.label}</Select.Item>
+												{/each}
+											</Select.Content>
+										</Select.Root>
+									{:else}
+										<Input
+											id="graph-entity-type"
+											bind:value={entityEditorEntityType}
+											class="font-mono text-xs"
+											disabled={entityEditorBusy ||
+												entityEditorSyncBusy ||
+												entityEditorDeleteBusy}
+										/>
+									{/if}
+								</div>
+								<div class="mt-3 flex flex-wrap gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="default"
+										class="shrink-0"
+										disabled={entityEditorBusy ||
+											entityEditorSyncBusy ||
+											entityEditorDeleteBusy ||
+											!entityEditorDraft.trim()}
+										onclick={() => void submitEntityUpdateFromGraph()}
+									>
+										{#if entityEditorBusy}
+											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+										{/if}
+										Save
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										class="shrink-0"
+										disabled={entityEditorBusy ||
+											entityEditorSyncBusy ||
+											entityEditorDeleteBusy}
+										onclick={() => void submitEntitySyncFromGraph()}
+									>
+										{#if entityEditorSyncBusy}
+											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+										{/if}
+										Rearrange in graph
+									</Button>
+								</div>
+								<p class="text-muted-foreground mt-2 text-[10px] leading-relaxed">
+									Rearrange writes the saved row for this node back to the graph store so layout and edges
+									stay consistent.
+								</p>
+								<div class="border-destructive/25 mt-4 border-t pt-3">
+									<Button
+										type="button"
+										size="sm"
+										variant="destructive"
+										class="shrink-0"
+										disabled={entityEditorBusy ||
+											entityEditorSyncBusy ||
+											entityEditorDeleteBusy ||
+											entityEditorLoading}
+										onclick={() => void submitEntityDeleteFromGraph()}
+									>
+										{#if entityEditorDeleteBusy}
+											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+										{/if}
+										Delete
+									</Button>
+								</div>
+								{#if entityEditorStored && !entityEditorBusy && !entityEditorSyncBusy && !entityEditorDeleteBusy}
+									<div class="text-muted-foreground mt-2 space-y-0.5 font-mono text-[10px]">
+										<p>
+											<span class="text-muted-foreground/80">Canonical key</span>
+											<span class="text-foreground"> · {entityEditorStored.canonicalKey}</span>
+										</p>
+									</div>
+								{/if}
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -762,9 +1315,3 @@
 	</Card.Root>
 </div>
 
-<style>
-	:global(html),
-	:global(body) {
-		overflow: hidden;
-	}
-</style>

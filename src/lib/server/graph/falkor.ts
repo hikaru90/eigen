@@ -136,6 +136,90 @@ export async function upsertThoughtNode(input: {
 	});
 }
 
+/** Removes outgoing thought→thought and thought→entity edges so ingest can reattach cleanly. */
+export async function deleteThoughtOutgoingGraphEdges(input: {
+	userId: string;
+	thoughtId: string;
+}): Promise<void> {
+	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_thought_outgoing_edges', async () => {
+		await graph.query(
+			`
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(:Thought {user_id: $user_id})
+			DELETE r
+			`,
+			{
+				params: {
+					thought_id: thoughtId,
+					user_id: input.userId
+				}
+			}
+		);
+		await graph.query(
+			`
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(:Entity {user_id: $user_id})
+			DELETE r
+			`,
+			{
+				params: {
+					thought_id: thoughtId,
+					user_id: input.userId
+				}
+			}
+		);
+	});
+}
+
+/** Removes the entity vertex and every attached edge (MENTIONS in/out, ENTITY_RELATES). */
+export async function deleteEntityVertexFromGraph(input: {
+	userId: string;
+	entityId: string;
+}): Promise<void> {
+	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_entity_vertex', async () => {
+		await graph.query(
+			`
+			MATCH (e:Entity {id: $entity_id, user_id: $user_id})
+			DETACH DELETE e
+			`,
+			{
+				params: {
+					entity_id: entityId,
+					user_id: input.userId
+				}
+			}
+		);
+	});
+}
+
+/** Removes the thought vertex and every attached edge (including incoming thought links). */
+export async function deleteThoughtVertexFromGraph(input: {
+	userId: string;
+	thoughtId: string;
+}): Promise<void> {
+	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_thought_vertex', async () => {
+		await graph.query(
+			`
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
+			DETACH DELETE t
+			`,
+			{
+				params: {
+					thought_id: thoughtId,
+					user_id: input.userId
+				}
+			}
+		);
+	});
+}
+
 export async function upsertThoughtRelation(input: {
 	userId: string;
 	sourceId: string;
@@ -306,7 +390,7 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			MATCH (t:Thought {user_id: $user_id})
 			RETURN t.id AS id,
 			       coalesce(t.lexical_text, t.normalized_text, '') AS label,
-			       coalesce(t.category, 'thought') AS subtype
+			       coalesce(t.category, 'perception') AS subtype
 			LIMIT $node_limit
 			`,
 			{ params: { user_id: input.userId, node_limit: nodeLimit } }
