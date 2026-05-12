@@ -41,10 +41,27 @@ describe('auth config', () => {
 		expect(sveltekitCookiesMock).toHaveBeenCalled();
 		expect(betterAuthMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				baseURL: env.ORIGIN,
+				baseURL: mod.normalizeAuthOrigin(env.ORIGIN),
 				secret: env.BETTER_AUTH_SECRET,
 				emailAndPassword: { enabled: true }
 			})
 		);
+	});
+});
+
+describe('normalizeAuthOrigin', () => {
+	it('prepends https for bare hostnames', async () => {
+		const { normalizeAuthOrigin } = await import('./auth');
+		expect(normalizeAuthOrigin('eigen.stackstack.de')).toBe('https://eigen.stackstack.de');
+	});
+
+	it('leaves full http URLs unchanged aside from trailing slash strip', async () => {
+		const { normalizeAuthOrigin } = await import('./auth');
+		expect(normalizeAuthOrigin('http://localhost:5173')).toBe('http://localhost:5173');
+	});
+
+	it('throws when missing', async () => {
+		const { normalizeAuthOrigin } = await import('./auth');
+		expect(() => normalizeAuthOrigin(undefined)).toThrow(/ORIGIN is not set/);
 	});
 });
