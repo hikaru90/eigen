@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { graphOntologyLegendSections, mergeGraphLegendWithUserOntology } from './graph-ontology-legend';
+import { mergeGraphLegendWithUserOntology } from './graph-ontology-legend';
 
 describe('mergeGraphLegendWithUserOntology', () => {
-	it('prepends user ontology sections before static graph legend', () => {
+	it('includes only active entity kinds and relations', () => {
 		const merged = mergeGraphLegendWithUserOntology({
 			entityKinds: [
 				{ key: 'k1', name: 'Kind One', definition: 'd1', active: true },
@@ -20,15 +20,14 @@ describe('mergeGraphLegendWithUserOntology', () => {
 		});
 		expect(merged[0]?.title).toBe('Your ontology: entity kinds');
 		expect(merged[1]?.title).toBe('Your ontology: relation kinds');
-		expect(merged[2]).toEqual(graphOntologyLegendSections[0]);
-		expect(merged.length).toBe(2 + graphOntologyLegendSections.length);
+		expect(merged.length).toBe(2);
 	});
 
-	it('omits empty ontology sections', () => {
+	it('omits empty ontology sections and returns empty array', () => {
 		const merged = mergeGraphLegendWithUserOntology({
 			entityKinds: [],
 			relationKinds: []
 		});
-		expect(merged).toEqual(graphOntologyLegendSections);
+		expect(merged).toEqual([]);
 	});
 });

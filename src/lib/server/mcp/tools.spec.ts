@@ -3,12 +3,14 @@ import {
 	runCaptureThoughtTool,
 	runEditThoughtTool,
 	runListThoughtsTool,
-	runSearchThoughtsTool
+	runRetrieveThoughtsTool,
+	runAnswerQuestionTool
 } from './tools';
 
-const { searchThoughtsMock, captureThoughtMock, listThoughtsMock, editStoredThoughtMock } =
+const { searchThoughtsMock, composeAnswerMock, captureThoughtMock, listThoughtsMock, editStoredThoughtMock } =
 	vi.hoisted(() => ({
 		searchThoughtsMock: vi.fn(),
+		composeAnswerMock: vi.fn(),
 		captureThoughtMock: vi.fn(),
 		listThoughtsMock: vi.fn(),
 		editStoredThoughtMock: vi.fn()
@@ -16,6 +18,10 @@ const { searchThoughtsMock, captureThoughtMock, listThoughtsMock, editStoredThou
 
 vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
+}));
+
+vi.mock('$lib/server/qa/compose-answer', () => ({
+	composeAnswer: composeAnswerMock
 }));
 
 vi.mock('$lib/server/capture/service', () => ({
@@ -31,7 +37,7 @@ describe('MCP tools', () => {
 
 	it('rejects invalid search threshold', async () => {
 		await expect(
-			runSearchThoughtsTool({ userId: 'u1' }, { query: 'x', threshold: 2 })
+			runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'x', threshold: 2 })
 		).rejects.toThrow(/Invalid threshold/);
 	});
 
@@ -87,18 +93,18 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', { limit: 20, cursor: undefined });
 	});
 
-	it('runSearchThoughtsTool rejects missing/whitespace query', async () => {
-		await expect(runSearchThoughtsTool({ userId: 'u1' }, { query: '   ' })).rejects.toThrow(
+	it('runRetrieveThoughtsTool rejects missing/whitespace query', async () => {
+		await expect(runRetrieveThoughtsTool({ userId: 'u1' }, { query: '   ' })).rejects.toThrow(
 			/query is required/
 		);
 	});
 
-	it('runSearchThoughtsTool filters by threshold when provided', async () => {
+	it('runRetrieveThoughtsTool filters by threshold when provided', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{ id: 'a', score: 0.9 },
 			{ id: 'b', score: 0.4 }
 		]);
-		const out = await runSearchThoughtsTool(
+		const out = await runRetrieveThoughtsTool(
 			{ userId: 'u1' },
 			{ query: 'hi', top_k: 5, threshold: 0.5 }
 		);
@@ -111,9 +117,9 @@ describe('MCP tools', () => {
 		expect(out).toEqual({ results: [{ id: 'a', score: 0.9 }] });
 	});
 
-	it('runSearchThoughtsTool returns all results when threshold is omitted', async () => {
+	it('runRetrieveThoughtsTool returns all results when threshold is omitted', async () => {
 		searchThoughtsMock.mockResolvedValue([{ id: 'a', score: 0.1 }]);
-		const out = await runSearchThoughtsTool({ userId: 'u1' }, { query: 'hi' });
+		const out = await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hi' });
 		expect(out.results).toHaveLength(1);
 	});
 
@@ -130,5 +136,33 @@ describe('MCP tools', () => {
 			{ thought_id: 't1', edit_request: 'fix typo' }
 		);
 		expect(out).toEqual({ thought: { id: 't1', rawText: 'new' } });
+	});
+
+	it('runAnswerQuestionTool rejects empty question', async () => {
+		await expect(
+			runAnswerQuestionTool({ userId: 'u1' }, { question: '   ' })
+		).rejects.toThrow(/question is required/);
+	});
+
+	it('runAnswerQuestionTool calls composeAnswer and returns result', async () => {
+		composeAnswerMock.mockResolvedValue({
+			answer: 'Some answer.',
+			citations: ['t1'],
+			retrieved: [{ id: 't1', normalizedText: 'text', category: 'idea', score: 0.9, vectorScore: 0.7, graphScore: 0.2 }]
+		});
+		const out = await runAnswerQuestionTool({ userId: 'u1' }, { question: 'what is X?' });
+		expect(composeAnswerMock).toHaveBeenCalledWith({ userId: 'u1', question: 'what is X?' });
+		expect(out.answer).toBe('Some answer.');
+		expect(out.citations).toEqual(['t1']);
+	});
+
+	it('runAnswerQuestionTool forwards top_k when provided', async () => {
+		composeAnswerMock.mockResolvedValue({
+			answer: 'Y.',
+			citations: [],
+			retrieved: []
+		});
+		await runAnswerQuestionTool({ userId: 'u1' }, { question: 'Y?', top_k: 5 });
+		expect(composeAnswerMock).toHaveBeenCalledWith({ userId: 'u1', question: 'Y?', topK: 5 });
 	});
 });

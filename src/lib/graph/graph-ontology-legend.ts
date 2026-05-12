@@ -64,71 +64,6 @@ export type GraphLegendSection = {
 	items: GraphLegendItem[];
 };
 
-const THOUGHT_LEGEND_ITEMS: GraphLegendItem[] = [
-	{ key: 'thought', label: 'Thought', hint: 'General notes & context', fill: THOUGHT_FILLS.thought },
-	{ key: 'task', label: 'Task', hint: 'Todos & follow-ups', fill: THOUGHT_FILLS.task },
-	{ key: 'idea', label: 'Idea', hint: 'Concepts & brainstorms', fill: THOUGHT_FILLS.idea },
-	{ key: 'reference', label: 'Reference', hint: 'Links & external pointers', fill: THOUGHT_FILLS.reference },
-	{ key: 'date', label: 'Date', hint: 'Schedule & time anchors', fill: THOUGHT_FILLS.date },
-	{ key: 'person', label: 'Person', hint: 'Capture about a specific human', fill: THOUGHT_FILLS.person }
-];
-
-const ENTITY_LEGEND_ITEMS: GraphLegendItem[] = [
-	{ key: 'person', label: 'Person', hint: 'Named people', fill: ENTITY_FILLS.person },
-	{ key: 'org', label: 'Org', hint: 'Companies & teams', fill: ENTITY_FILLS.org },
-	{ key: 'place', label: 'Place', hint: 'Locations', fill: ENTITY_FILLS.place },
-	{ key: 'topic', label: 'Topic', hint: 'Subjects & themes', fill: ENTITY_FILLS.topic },
-	{ key: 'product', label: 'Product', hint: 'Tools & offerings', fill: ENTITY_FILLS.product },
-	{ key: 'other', label: 'Other', hint: 'Misc entities', fill: ENTITY_FILLS.other }
-];
-
-/** Thought → thought (`RELATES_TO`); labels from relation extraction. */
-const THOUGHT_LINK_LABELS: GraphLegendItem[] = [
-	{ key: 'mentions', label: 'mentions', hint: 'Source points at or names the target thought' },
-	{ key: 'depends_on', label: 'depends_on', hint: 'Source relies on target' },
-	{ key: 'refines', label: 'refines', hint: 'Source narrows or improves target' },
-	{ key: 'contradicts', label: 'contradicts', hint: 'Source conflicts with target' },
-	{ key: 'related_to', label: 'related_to', hint: 'General association' }
-];
-
-/** Entity → entity (`ENTITY_RELATES`); predicates from entity extraction. */
-const ENTITY_LINK_LABELS: GraphLegendItem[] = [
-	{ key: 'er-related_to', label: 'related_to', hint: 'Loose association' },
-	{ key: 'er-depends_on', label: 'depends_on', hint: 'Dependency' },
-	{ key: 'part_of', label: 'part_of', hint: 'Containment / membership' },
-	{ key: 'located_in', label: 'located_in', hint: 'Spatial containment' },
-	{ key: 'knows', label: 'knows', hint: 'Social link' },
-	{ key: 'works_at', label: 'works_at', hint: 'Employment / affiliation' }
-];
-
-/** Graph edge kinds (how the line is drawn in the snapshot). */
-const EDGE_KIND_LABELS: GraphLegendItem[] = [
-	{
-		key: 'thought_link',
-		label: 'thought_link',
-		hint: 'Thought → thought (RELATES_TO)'
-	},
-	{
-		key: 'mention',
-		label: 'mention',
-		hint: 'Thought → entity (MENTIONS)'
-	},
-	{
-		key: 'entity_relation',
-		label: 'entity_relation',
-		hint: 'Entity → entity (ENTITY_RELATES)'
-	}
-];
-
-/** Sections: nodes first, then relation vocabulary (static graph snapshot vocabulary). */
-export const graphOntologyLegendSections: GraphLegendSection[] = [
-	{ title: 'Capture categories (thought nodes)', items: THOUGHT_LEGEND_ITEMS },
-	{ title: 'Entity types (entity nodes)', items: ENTITY_LEGEND_ITEMS },
-	{ title: 'Thought → thought labels', items: THOUGHT_LINK_LABELS },
-	{ title: 'Entity → entity predicates', items: ENTITY_LINK_LABELS },
-	{ title: 'Edge kinds', items: EDGE_KIND_LABELS }
-];
-
 /** Deterministic fill for a user ontology entity kind key (no TS closed union). */
 export function ontologyFillForKey(key: string): string {
 	let h = 0;
@@ -150,7 +85,6 @@ export type UserOntologyLegendInput = {
 	}[];
 };
 
-/** Prepends persisted user ontology sections ahead of the static graph legend. */
 export function mergeGraphLegendWithUserOntology(ontology: UserOntologyLegendInput): GraphLegendSection[] {
 	const entityByKey = new Map(ontology.entityKinds.map((e) => [e.key, e]));
 	const cognitiveEntities: GraphLegendItem[] = ontology.entityKinds
@@ -174,12 +108,12 @@ export function mergeGraphLegendWithUserOntology(ontology: UserOntologyLegendInp
 			};
 		});
 
-	const prefix: GraphLegendSection[] = [];
+	const sections: GraphLegendSection[] = [];
 	if (cognitiveEntities.length > 0) {
-		prefix.push({ title: 'Your ontology: entity kinds', items: cognitiveEntities });
+		sections.push({ title: 'Your ontology: entity kinds', items: cognitiveEntities });
 	}
 	if (cognitiveRelations.length > 0) {
-		prefix.push({ title: 'Your ontology: relation kinds', items: cognitiveRelations });
+		sections.push({ title: 'Your ontology: relation kinds', items: cognitiveRelations });
 	}
-	return [...prefix, ...graphOntologyLegendSections];
+	return sections;
 }

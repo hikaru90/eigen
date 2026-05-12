@@ -3,8 +3,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import {
 	runCaptureThoughtTool,
 	runEditThoughtTool,
-	runListThoughtsTool,
-	runSearchThoughtsTool,
+	runRetrieveThoughtsTool,
+	runAnswerQuestionTool,
 	type McpToolContext
 } from '$lib/server/mcp/tools';
 
@@ -24,21 +24,8 @@ const MCP_TOOLS = [
 		handler: runCaptureThoughtTool
 	},
 	{
-		name: 'list_thoughts',
-		description: 'List thoughts for the authenticated user.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				limit: { type: 'number' },
-				cursor_created_at: { type: 'string' },
-				cursor_id: { type: 'string' }
-			}
-		},
-		handler: runListThoughtsTool
-	},
-	{
-		name: 'search_thoughts',
-		description: 'Search thoughts with semantic and graph retrieval.',
+		name: 'retrieve_thoughts',
+		description: 'Retrieve thoughts using hybrid vector, lexical, and graph retrieval.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -48,7 +35,7 @@ const MCP_TOOLS = [
 			},
 			required: ['query']
 		},
-		handler: runSearchThoughtsTool
+		handler: runRetrieveThoughtsTool
 	},
 	{
 		name: 'edit_thought',
@@ -62,6 +49,19 @@ const MCP_TOOLS = [
 			required: ['thought_id', 'edit_request']
 		},
 		handler: runEditThoughtTool
+	},
+	{
+		name: 'answer_question',
+		description: 'Answer a question by retrieving relevant thoughts and composing a grounded answer.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				question: { type: 'string' },
+				top_k: { type: 'number' }
+			},
+			required: ['question']
+		},
+		handler: runAnswerQuestionTool
 	}
 ] as const;
 

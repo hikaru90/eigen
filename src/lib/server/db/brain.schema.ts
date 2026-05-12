@@ -12,6 +12,7 @@ import {
 	uuid,
 	vector
 } from 'drizzle-orm/pg-core';
+import { type InferSelectModel } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { user } from './auth.schema';
 
@@ -213,6 +214,8 @@ export const activityCallLog = pgTable(
 		markupUsd: text('markup_usd').notNull(),
 		totalCostUsd: text('total_cost_usd').notNull(),
 		markupRate: text('markup_rate').notNull().default('0.20'),
+		groupId: uuid('group_id'),
+		durationMs: integer('duration_ms'),
 		createdAt: timestamp('created_at').defaultNow().notNull()
 	},
 	(t) => [index('activity_call_log_user_idx').on(t.userId)]
@@ -334,6 +337,81 @@ export const entityAlias = pgTable(
 		uniqueIndex('entity_alias_user_surface_uidx').on(t.userId, t.aliasText)
 	]
 );
+
+/** User-facing API keys for MCP / external tool access. */
+export const userApiKey = pgTable(
+	'user_api_key',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		keyPrefix: text('key_prefix').notNull(),
+		keyHash: text('key_hash').notNull(),
+		isActive: boolean('is_active').notNull().default(true),
+		lastUsedAt: timestamp('last_used_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [index('user_api_key_user_idx').on(t.userId)]
+);
+
+export type UserApiKey = InferSelectModel<typeof userApiKey>;
+
+/**
+ * A single chat conversation session.
+ */
+export const chatSession = pgTable(
+	'chat_session',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull().default(''),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		index('chat_session_user_idx').on(t.userId),
+		index('chat_session_updated_idx').on(t.userId, t.updatedAt)
+	]
+);
+
+export type ChatSession = InferSelectModel<typeof chatSession>;
+
+/**
+ * Individual messages within a chat session.
+ */
+export const chatMessage = pgTable(
+	'chat_message',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		sessionId: uuid('session_id')
+			.notNull()
+			.references(() => chatSession.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
+		content: text('content').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('chat_message_session_idx').on(t.sessionId),
+		index('chat_message_user_idx').on(t.userId),
+		index('chat_message_created_idx').on(t.sessionId, t.createdAt)
+	]
+);
+
+export type ChatMessageRow = InferSelectModel<typeof chatMessage>;
 
 /** Audit trail for merge vs create decisions during ingestion. */
 export const entityResolutionLog = pgTable(

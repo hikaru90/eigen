@@ -1,5 +1,6 @@
 import { captureThought, editStoredThought, listThoughts } from '$lib/server/capture/service';
 import { searchThoughts } from '$lib/server/retrieval/service';
+import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
@@ -41,7 +42,7 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 	return { thoughts };
 }
 
-export async function runSearchThoughtsTool(context: McpToolContext, args: unknown) {
+export async function runRetrieveThoughtsTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const query = typeof body.query === 'string' ? body.query.trim() : '';
 	if (!query) {
@@ -83,4 +84,19 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 		throw new Error('Thought not found');
 	}
 	return { thought: updated.thought };
+}
+
+export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const question = typeof body.question === 'string' ? body.question.trim() : '';
+	if (!question) {
+		throw new Error('question is required');
+	}
+	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
+	const result = await composeAnswer({
+		userId: context.userId,
+		question,
+		...(topK != null ? { topK } : {})
+	});
+	return result;
 }

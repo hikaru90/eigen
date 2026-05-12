@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { captureThought } from '$lib/server/capture/service';
+import { runWithTrace } from '$lib/server/activity/trace-context';
 
 function collectErrorMessages(input: unknown): string[] {
 	const parts: string[] = [];
@@ -46,7 +47,7 @@ export const POST: RequestHandler = async (event) => {
 
 	if (!streamNdjson) {
 		try {
-			const thought = await captureThought(user.id, raw);
+			const thought = await runWithTrace(crypto.randomUUID(), () => captureThought(user.id, raw));
 			return json({ thought });
 		} catch (err) {
 			const details = collectErrorMessages(err);
@@ -66,9 +67,9 @@ export const POST: RequestHandler = async (event) => {
 			const line = (payload: unknown) =>
 				controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
 			try {
-				const thought = await captureThought(user.id, raw, {
+				const thought = await runWithTrace(crypto.randomUUID(), () => captureThought(user.id, raw, {
 					onProgress: (phase) => line({ type: 'progress', phase })
-				});
+				}));
 				line({ type: 'done', thought });
 			} catch (err) {
 				const details = collectErrorMessages(err);

@@ -96,3 +96,19 @@ CREATE POLICY retrieval_quality_event_isolation ON retrieval_quality_event
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE chat_session ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_session FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS chat_session_isolation ON chat_session;
+CREATE POLICY chat_session_isolation ON chat_session
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE chat_message ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_message FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS chat_message_isolation ON chat_message;
+CREATE POLICY chat_message_isolation ON chat_message
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));

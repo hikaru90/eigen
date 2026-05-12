@@ -1,109 +1,162 @@
 # Eigen
 
-Eigen is a SvelteKit memory infrastructure app with Better Auth, Drizzle, pgvector, Apache AGE, and FalkorDB.
-This repository is self-hostable: the default development setup runs Postgres inside this repo via Docker Compose.
+Eigen is a self-hostable SvelteKit memory infrastructure app with **Better Auth**, **Drizzle ORM**, **pgvector**, **Apache AGE**, and **FalkorDB**.
+
+This repository is a **fully self-contained Docker Compose stack** — no external services, no third-party databases, no cloud dependencies. Everything runs in containers.
+
+## Architecture
+
+| Service | Container | Role |
+|---------|-----------|------|
+| `app` | `eigen-app` | SvelteKit app with `@sveltejs/adapter-node` on port 3000 |
+| `db` | `eigen-db` | PostgreSQL 16 with pgvector + Apache AGE extensions on port 5432 |
+| `falkordb` | `eigen-falkordb` | FalkorDB graph database on port 6379 |
+
+All three are defined in [`compose.yaml`](./compose.yaml) and build from source in this repo.
 
 ## Prerequisites
 
-- Node.js `^22.13.0`
-- npm
-- Docker (Docker Desktop or equivalent with `docker compose`)
+- Docker with `docker compose` plugin (Docker Desktop, OrbStack, or a Linux host)
+- Git
 
-## Quick Start (Self-Hosted Local DB)
+That's it. No Node.js, no npm, no manual database setup needed at deployment time.
+
+## Quick Start (Production Stack)
+
+```sh
+git clone <your-repo-url> && cd eigen
+cp .env.example .env
+# Edit .env — at minimum set BETTER_AUTH_SECRET and ENCRYPTION_KEY (see below)
+docker compose up -d --build
+```
+
+The stack builds and starts all three containers. On **first deploy** you need to initialize the database schema:
+
+```sh
+# Install dependencies locally to run migration scripts
+npm install
+
+# Apply Drizzle schema and Row-Level Security
+npm run db:push:force
+npm run db:rls
+```
+
+The app is now available at `http://<your-host>:3000`.
+
+> **Pro tip:** for fully automated first-run setup, add an init container or override the app entrypoint to run `node node_modules/drizzle-kit/bin.cjs push --force && node scripts/apply-rls.mjs` before starting the app server. See [Production Hardening](#production-hardening) below.
+
+## Required Environment Variables
+
+### Non-Negotiable (app crashes without these)
+
+| Variable | Purpose | How to generate |
+|----------|---------|-----------------|
+| `BETTER_AUTH_SECRET` | Session encryption | `openssl rand -base64 32` |
+| `ENCRYPTION_KEY` | FalkorDB browser session encryption | `openssl rand -hex 32` (exactly 64 hex chars) |
+| `LLM_BASE_URL` | LLM gateway origin | Your gateway endpoint (e.g. OpenRouter, OpenAI, or a local one) |
+| `LLM_API_KEY` | LLM gateway API key | From your LLM provider |
+| `LLM_RULE_CHAT` | Chat model routing rule UUID | Your rule ID from the gateway |
+| `LLM_RULE_EMBEDDING` | Embedding model routing rule UUID | Your rule ID from the gateway |
+
+### Required with Defaults
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FALKOR_PASSWORD` | `eigen_falkor_dev` | Redis/FalkorDB auth; change in production |
+| `ORIGIN` | `http://localhost:3000` | Must match the public URL users/browsers will use |
+
+If you change `FALKOR_PASSWORD`, update it in **both** `.env` and the `FALKOR_PASSWORD` / `REDIS_ARGS` values in `compose.yaml`.
+
+Set these in your Coolify service dashboard or in an `.env` file at the project root. The compose stack passes `DATABASE_URL`, `FALKOR_*`, `ORIGIN`, `HOST`, and `PORT` to the app container automatically — you only need to supply the variables above.
+
+## Deploying to Coolify
+
+1. **Connect the repository** in Coolify.
+2. **Select "Docker Compose" as the Build Pack.** Coolify detects `compose.yaml` automatically.
+3. **Add environment variables** in the Coolify dashboard (the ones from [Required Environment Variables](#required-environment-variables) above). Coolify injects these into the compose context.
+4. **Deploy.** Coolify builds and starts all three containers.
+5. **First-run migration** — after the stack is green, either:
+   - Use Coolify's **Execute Command** feature on the `eigen-app` container to run:
+     ```sh
+     npx drizzle-kit push --force && node scripts/apply-rls.mjs
+     ```
+   - Or deploy once, run the migration commands locally against the exposed `db` port, and redeploy.
+
+### Why Docker Compose and not the Dockerfile build pack?
+
+The app requires PostgreSQL with pgvector + AGE and FalkorDB — those are separate services in `compose.yaml`. The standalone `Dockerfile` only builds the app image. **Docker Compose is the correct build pack for this project.**
+
+### Port Mapping
+
+By default `compose.yaml` maps:
+- `3000:3000` — app
+- `5432:5432` — Postgres
+- `6379:6379` — FalkorDB
+- `3001:3000` — FalkorDB browser UI (optional)
+
+Change these in `compose.yaml` if they conflict with existing services on your host.
+
+## First-Run Setup
+
+The compose stack does **not** auto-apply database migrations or RLS policies on startup. After the first `docker compose up`, connect and run:
+
+```sh
+# From a machine with node/npm and network access to the DB:
+DATABASE_URL="postgres://eigen:eigen@<your-host>:5432/eigen" npx drizzle-kit push --force
+DATABASE_URL="postgres://eigen:eigen@<your-host>:5432/eigen" node scripts/apply-rls.mjs
+```
+
+Or exec from inside the app container:
+
+```sh
+docker compose exec app npx drizzle-kit push --force
+docker compose exec app node scripts/apply-rls.mjs
+```
+
+## Production Hardening
+
+Before going live:
+
+1. **Change all default secrets:** `FALKOR_PASSWORD`, `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`
+2. **Set `ORIGIN`** to your actual domain (Coolify sets this automatically)
+3. **Restrict Postgres port** — remove `ports: ['5432:5432']` from `compose.yaml` so the database is only reachable on the internal Docker network
+4. **Restrict FalkorDB port** — same for `6379`
+5. **Use a real LLM gateway** — the app requires an OpenAI-compatible `/api/v1/chat/completions` and `/api/v1/embeddings` endpoint
+6. **Add a healthcheck to the app service** in `compose.yaml`:
+
+```yaml
+app:
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok?0:1))"]
+    interval: 30s
+    retries: 3
+```
+
+7. **Lock Node.js version** — the Dockerfile uses `node:22-bookworm-slim`. Pin a specific patch if needed.
+
+## Development (Local, Non-Containerized)
 
 ```sh
 npm install
 cp .env.example .env
-npm run db:up
-npm run db:init
-npm run dev
+npm run db:up      # start Postgres + FalkorDB containers only
+npm run dev        # run the SvelteKit dev server on :5173
 ```
-
-App URL: `http://localhost:5173`
-
-Default local database URL:
-
-`postgres://eigen:eigen@localhost:5432/eigen`
-
-## Containerized App + DB (Self-Hosted Stack)
-
-```sh
-npm install
-cp .env.example .env
-npm run stack:up
-npm run db:init
-```
-
-App URL (containerized): `http://localhost:3000`
 
 ## Database Lifecycle Commands
 
-- `npm run db:up` - start local Postgres (container: `eigen-db`)
-- `npm run db:down` - stop compose services
-- `npm run db:reset` - stop services and delete DB volume (destructive)
-- `npm run db:push` - apply Drizzle schema to DB
-- `npm run db:push:force` - apply Drizzle schema without interactive prompt
-- `npm run db:rls` - apply Row-Level Security policies
-- `npm run db:init` - run `db:push:force` then `db:rls`
-- `npm run app:up` - build and start app container (depends on DB health)
-- `npm run stack:up` - build and start DB + app containers
-- `npm run stack:down` - stop DB + app containers
-
-## Extension Baseline
-
-The local Postgres image enables:
-
-- `pgvector` (`CREATE EXTENSION vector`)
-- Apache AGE (`CREATE EXTENSION age`)
-
-Bootstrap SQL lives in `docker/postgres/init/01-extensions.sql` and runs automatically on first DB initialization.
-It creates AGE graph `eigen_graph` (kept separate from app schemas to avoid search-path collisions).
-
-## FalkorDB Baseline
-
-`compose.yaml` includes a FalkorDB service (`eigen-falkordb`) on port `6379` (optional Falkor browser UI on host port `3001` when you need it alongside the app on `3000`).
-
-Open the Falkor UI at **http://localhost:3001** (see `compose.yaml`: host `3001` → container `3000`). The stack sets **`NEXTAUTH_URL=http://localhost:3001`** on the Falkor service so the browser login matches that URL; if you still see "Invalid credentials" after changing ports, clear site data for that origin or use a private window, then retry.
-
-**FalkorDB Browser login** ([official login docs](https://docs.falkordb.com/browser/ui/login.html)): the documented URL example `falkor://Default:Default@localhost:6379` is for a **local server with no Redis password** (the `Default` strings are UI placeholders, not your `FALKOR_PASSWORD`). With **`REDIS_ARGS --requirepass`** ([Docker auth](https://docs.falkordb.com/operations/docker.html)), use **Manual configuration** (not the URL field): **Host** `localhost`, **Port** `6379`, **Username** leave empty or `default`, **Password** = your **`FALKOR_PASSWORD`**, **TLS** off. The URL tab can still show "Invalid credentials" even when the URL string is valid, because the app submits credentials from internal state that may not have flushed yet on the same click—manual fields avoid that.
-
-Redis authentication is enabled via `REDIS_ARGS=--requirepass …`. Set `FALKOR_PASSWORD` in `.env` to match compose (default `eigen_falkor_dev` in `.env.example`) or override both when you rotate credentials. `FALKOR_USERNAME` is required as well (use `default` unless you configured a custom ACL user).
-
-Capture submit/edit writes are mirrored into Falkor as `Thought` nodes, with **one Falkor graph per user**. Graph names are derived as:
-
-- `user_<normalized_user_id>`
-- example: `user_ot7zqmshwoi5ovlsrs5vjyhqzwchnpuk`
-
-This isolates seeded/eval/test data from normal user data even when sharing one Falkor instance.
-
-## Production Notes
-
-- For production, set `DATABASE_URL` to your operator-managed Postgres endpoint if desired.
-- If you want full self-hosting in production, deploy this repo's compose stack and point app runtime to the same Postgres service/network.
-- Keep `BETTER_AUTH_SECRET` high entropy and unique per environment.
-
-## Secret Hygiene
-
-- Never commit real `.env` values.
-- Rotate any previously exposed API keys or DB credentials.
-- Use `.env.example` as the committed template only.
+| Command | What it does |
+|---------|-------------|
+| `npm run db:up` | Start `db` and `falkordb` containers only |
+| `npm run db:down` | Stop all compose services |
+| `npm run db:reset` | Stop services and delete DB volume (destructive) |
+| `npm run db:push` | Apply Drizzle schema (interactive) |
+| `npm run db:push:force` | Apply Drizzle schema (non-interactive) |
+| `npm run db:rls` | Apply Row-Level Security policies |
+| `npm run db:init` | `db:push:force` + `db:rls` |
+| `npm run stack:up` | Build and start all containers (app + db + falkordb) |
+| `npm run stack:down` | Stop all containers |
 
 ## License
 
-Eigen is licensed under Apache-2.0. See `LICENSE`.
-
-## Testing
-
-- Run all unit tests: `npm run test:unit -- --run`
-- Run coverage: `npm run test:coverage`
-- Coverage report output: `coverage/index.html`
-
-## Troubleshooting
-
-- `connect timeout` to Postgres: verify `npm run db:up` and confirm with `docker compose ps`.
-- Port collision on `5432`: stop conflicting local Postgres or remap host port in `compose.yaml`.
-- Port collision on `3000`: remap app host port in `compose.yaml`.
-- FalkorDB `NOAUTH` / `WRONGPASS` from the app: ensure `.env` includes `FALKOR_PASSWORD` matching compose (default `eigen_falkor_dev`; see `.env.example`). After changing the password, recreate the container or align `REDIS_ARGS` / app env.
-- Extension verification:
-  - `docker compose exec -T db psql -U eigen -d eigen -c "\dx"`
-  - Confirm `vector` and `age` are installed.
+Apache-2.0. See [`LICENSE`](./LICENSE).

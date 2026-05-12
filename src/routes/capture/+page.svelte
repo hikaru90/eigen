@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { resolve } from '$app/paths';
 	import type { PageData } from './$types';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
 	import * as Card from '$lib/components/ui/card';
@@ -36,142 +34,16 @@
 				}
 	);
 
-	let dictating = $state(false);
-	let dictationStatus = $state<string | null>(null);
-	let speechSupported = $state(false);
-
-	let dictationPrefix = '';
-	let recognition: SpeechRecognition | null = null;
-
-	function speechLocale(lang: string): string {
-		const code = lang.trim().toLowerCase().slice(0, 2);
-		const map: Record<string, string> = {
-			en: 'en-US',
-			de: 'de-DE',
-			fr: 'fr-FR',
-			es: 'es-ES',
-			it: 'it-IT',
-			pt: 'pt-PT',
-			nl: 'nl-NL',
-			pl: 'pl-PL',
-			tr: 'tr-TR',
-			ru: 'ru-RU',
-			ja: 'ja-JP',
-			ko: 'ko-KR',
-			zh: 'zh-CN'
-		};
-		if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith(code)) {
-			return navigator.language;
-		}
-		return map[code] ?? 'en-US';
-	}
-
-	function getRecognitionCtor(): SpeechRecognitionConstructor | null {
-		if (!browser || typeof window === 'undefined') return null;
-		return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
-	}
-
-	function stopDictation() {
-		if (recognition) {
-			try {
-				recognition.stop();
-			} catch {
-				try {
-					recognition.abort();
-				} catch {
-					/* noop */
-				}
-			}
-			recognition = null;
-		}
-		dictating = false;
-		dictationStatus = null;
-	}
-
-	function toggleDictation() {
-		if (dictating) {
-			stopDictation();
-			return;
-		}
-		const Ctor = getRecognitionCtor();
-		if (!Ctor) {
-			err =
-				'Speech recognition is not available in this browser. Try Chrome or Edge over HTTPS, or type instead.';
-			return;
-		}
-		if (typeof window !== 'undefined' && !window.isSecureContext) {
-			err = 'Speech recognition needs a secure connection (HTTPS).';
-			return;
-		}
-		err = null;
-		dictationPrefix = raw.length ? (/\s$/.test(raw) ? raw : `${raw} `) : '';
-		dictating = true;
-		dictationStatus = 'Listening…';
-
-		const r = new Ctor();
-		r.lang = speechLocale(data.preferredLanguage ?? 'en');
-		r.continuous = true;
-		r.interimResults = true;
-		r.maxAlternatives = 1;
-		r.onresult = (event: SpeechRecognitionEvent) => {
-			let spoken = '';
-			for (let i = 0; i < event.results.length; i++) {
-				spoken += event.results[i][0].transcript;
-			}
-			raw = dictationPrefix + spoken;
-		};
-		r.onerror = (event: SpeechRecognitionErrorEvent) => {
-			const code = event.error;
-			if (code === 'aborted') {
-				err = null;
-			} else if (code === 'no-speech') {
-				err = null;
-				dictationStatus = 'No speech detected; try again.';
-			} else if (code === 'not-allowed') {
-				err = 'Microphone permission was denied.';
-			} else {
-				err = `Speech recognition stopped (${code}).`;
-			}
-			recognition = null;
-			dictating = false;
-		};
-		r.onend = () => {
-			recognition = null;
-			dictating = false;
-			dictationStatus = null;
-		};
-
-		recognition = r;
-		try {
-			r.start();
-		} catch (e) {
-			err = e instanceof Error ? e.message : 'Could not start speech recognition.';
-			recognition = null;
-			dictating = false;
-			dictationStatus = null;
-		}
-	}
-
 	onMount(() => {
-		speechSupported = Boolean(getRecognitionCtor());
-
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
 				e.preventDefault();
-				if (!loading && !dictating && raw.trim()) void capture();
+				if (!loading && raw.trim()) void capture();
 			}
 		};
 		window.addEventListener('keydown', onKey);
 		return () => {
 			window.removeEventListener('keydown', onKey);
-			if (recognition) {
-				try {
-					recognition.abort();
-				} catch {
-					/* noop */
-				}
-				recognition = null;
-			}
 		};
 	});
 
@@ -259,60 +131,39 @@
 	}
 </script>
 
-<div class="mx-auto flex max-w-xl flex-col px-5 pt-10">
+<div class="mx-auto flex max-w-xl flex-col px-5 pb-8 pt-10">
 	<header class="text-center">
 		<p class="text-muted-foreground mt-2 text-xs font-normal">Capture. Structure. Remember.</p>
 		<p class="text-muted-foreground mt-2 text-[11px]">{data.user.email}</p>
 	</header>
 
 	<section class="mt-8 flex-1 space-y-6">
-		<Card.Root
-			class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card"
-		>
-			<Card.Content class="px-4 pb-0 pt-4">
+		<Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-[2px] gap-[6px] items-start overflow-visible">
+			<Card.Content class="p-0 w-full">
 				<Label for="thought" class="sr-only">Thought</Label>
 				<Textarea
 					id="thought"
 					bind:value={raw}
 					placeholder="Enter your thought…"
-					class="min-h-[120px] border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0 md:text-sm"
+					class="min-h-[128px] p-6 text-base placeholder:text-[#A1A1A1] border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none"
 				/>
 			</Card.Content>
-			<Card.Footer class="flex flex-col gap-3 border-t border-border py-3 sm:h-auto sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-2">
-				<span class="text-[#aaaaaa] text-xs">⌘ / Ctrl + Enter to capture</span>
-				<div class="flex flex-wrap items-center justify-end gap-2">
-					<Button
-						type="button"
-						variant="outline"
-						class="h-auto rounded-[4px] px-4 py-2 text-xs"
-						disabled={loading || !speechSupported}
-						title={speechSupported
-							? 'Uses the browser Web Speech API (may send audio to the browser vendor).'
-							: 'Not available in this browser or without HTTPS.'}
-						onclick={toggleDictation}
-					>
-						{dictating ? 'Stop dictating' : 'Dictate'}
-					</Button>
-					<Button
-						type="button"
-						class="h-auto rounded-[4px] px-6 py-3 text-sm font-medium"
-						disabled={loading || dictating || !raw.trim()}
-						onclick={capture}
-					>
-						Capture
-					</Button>
-				</div>
+			<Card.Footer class="bg-[#FAFAFA] border-t-2 border-black p-4 flex flex-row items-center justify-between w-full">
+				<span class="text-[#737373] text-xs leading-4">⌘ / Ctrl + Enter to capture</span>
+				<Button
+					type="button"
+					class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
+					disabled={loading || !raw.trim()}
+					onclick={capture}
+				>
+					Capture
+				</Button>
 			</Card.Footer>
-			{#if dictationStatus}
-				<div class="border-t border-border px-4 py-2">
-					<p class="text-muted-foreground text-xs">{dictationStatus}</p>
-				</div>
-			{/if}
 		</Card.Root>
 
 		{#if loading}
 			<div
-				class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card rounded-lg px-4 py-3"
+				class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-4"
 				role="status"
 				aria-live="polite"
 			>
@@ -336,33 +187,33 @@
 		{/if}
 
 		{#if stored}
-			<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-				<Card.Header>
+			<Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-4 gap-3 items-start overflow-visible">
+				<Card.Header class="p-0">
 					<Card.Title class="text-sm">Stored thought</Card.Title>
 				</Card.Header>
-				<Card.Content class="space-y-2 text-sm">
+				<Card.Content class="p-0 space-y-2 text-sm">
 					<p class="text-card-foreground whitespace-pre-wrap">{stored.normalizedText}</p>
 					<p class="text-muted-foreground text-xs">Category: {stored.category}</p>
 					<p class="text-muted-foreground text-xs">
-						Id: <code class="bg-muted rounded px-1 py-0.5">{stored.id}</code>
+						Id: <code class="bg-muted px-1 py-0.5">{stored.id}</code>
 					</p>
 				</Card.Content>
 			</Card.Root>
 
-			<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-				<Card.Content class="space-y-2 px-4 py-4">
-					<Label for="edit">Want changes? Describe them in plain language</Label>
+			<Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0 items-start overflow-visible">
+				<Card.Content class="p-4 space-y-2 w-full">
+					<Label for="edit" class="text-sm">Want changes? Describe them in plain language</Label>
 					<Textarea
 						id="edit"
 						bind:value={editRequest}
 						placeholder="Example: Please make this shorter and categorize as task."
-						class="min-h-24 text-sm md:text-sm"
+						class="min-h-24 text-sm md:text-sm border-2 border-black p-3"
 					/>
 				</Card.Content>
-				<Card.Footer class="justify-end border-t">
+				<Card.Footer class="bg-[#FAFAFA] border-t-2 border-black p-4 flex flex-row items-center justify-end w-full">
 					<Button
 						type="button"
-						variant="outline"
+						class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"
 						disabled={loading || !editRequest.trim()}
 						onclick={submitEditRequest}
 					>
@@ -373,9 +224,7 @@
 		{/if}
 	</section>
 
-	<p class="text-muted-foreground mt-10 pb-4 text-center text-[11px]">
-		<a class="underline" href={resolve('/')}>Home</a>
-	</p>
+
 </div>
 
 <CaptureOnboardingOverlay open={showOnboarding} />

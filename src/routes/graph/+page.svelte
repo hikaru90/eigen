@@ -8,12 +8,13 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
-	import { graphOntologyLegendSections, nodeFillForGraph } from '$lib/graph/graph-ontology-legend';
+	import { nodeFillForGraph } from '$lib/graph/graph-ontology-legend';
 	import Link2 from '@lucide/svelte/icons/link-2';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import SearchIcon from '@lucide/svelte/icons/search';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-	const legendSections = $derived(data.graphLegendSections ?? graphOntologyLegendSections);
+	const legendSections = $derived(data.graphLegendSections ?? []);
 
 	let rootEl: HTMLDivElement | undefined;
 	let search = $state('');
@@ -24,6 +25,7 @@
 	const searchFilterActive = $derived(search.trim().length > 0);
 	const edgeFilterActive = $derived(edgeKind !== 'all');
 	let status = $state<string>('');
+	let recomputing = $state(false);
 	let scheduleGraphUpdate: (() => void) | null = null;
 	let scheduleGraphResize: (() => void) | null = null;
 	let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
@@ -285,7 +287,7 @@
 			}
 
 			let simulation: d3.Simulation<SimNode, SimLink> | null = null;
-			let linkSelection = gLinks.selectAll<SVGLineElement, SimLink>('line');
+			let linkSelection = gLinks.selectAll<SVGGElement, SimLink>('g');
 			let nodeSelection = gNodes.selectAll<SVGGElement, SimNode>('g.graph-node');
 
 			const dragBehavior = d3
@@ -332,12 +334,29 @@
 
 			function ticked() {
 				linkSelection
+					.select('line')
 					.attr('x1', (d) => (d.source as SimNode).x ?? 0)
 					.attr('y1', (d) => (d.source as SimNode).y ?? 0)
 					.attr('x2', (d) => (d.target as SimNode).x ?? 0)
 					.attr('y2', (d) => (d.target as SimNode).y ?? 0);
 
+				linkSelection.select('circle').attr('cx', midpointX).attr('cy', midpointY);
+
+				linkSelection.select('text').attr('x', midpointX).attr('y', midpointY);
+
 				nodeSelection.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+			}
+
+			function midpointX(d: SimLink) {
+				const sx = (d.source as SimNode).x ?? 0;
+				const tx = (d.target as SimNode).x ?? 0;
+				return (sx + tx) / 2;
+			}
+
+			function midpointY(d: SimLink) {
+				const sy = (d.source as SimNode).y ?? 0;
+				const ty = (d.target as SimNode).y ?? 0;
+				return (sy + ty) / 2;
 			}
 
 			function onNodeClick(event: MouseEvent, d: SimNode) {
@@ -401,10 +420,32 @@
 					}));
 
 				linkSelection = gLinks
-					.selectAll<SVGLineElement, SimLink>('line')
+					.selectAll<SVGGElement, SimLink>('g')
 					.data(links, (d) => d.id)
-					.join('line')
-					.attr('stroke-width', 1.2);
+					.join(
+						(enter) => {
+							const g = enter.append('g').attr('class', 'graph-link');
+							g.append('line').attr('stroke-width', 1.2);
+							g.append('circle')
+								.attr('r', 2)
+								.attr('fill', 'currentColor')
+								.attr('stroke', 'none');
+							g.append('text')
+								.attr('class', 'fill-muted-foreground text-[9px] font-mono')
+								.attr('text-anchor', 'middle')
+								.attr('dy', '1.4em')
+								.attr('stroke', 'var(--background)')
+								.attr('stroke-width', '2.5')
+								.attr('paint-order', 'stroke')
+								.text((d) => d.relationType || d.kind);
+							return g;
+						},
+						(update) => {
+							update.select('text').text((d) => d.relationType || d.kind);
+							return update;
+						},
+						(exit) => exit.remove()
+					);
 
 				nodeSelection = gNodes
 					.selectAll<SVGGElement, SimNode>('g.graph-node')
@@ -573,9 +614,23 @@
 						</Popover.Content>
 					</Popover.Root>
 				</div>
-				<form method="post" action="?/recomputeOntology" use:enhance class="contents">
-					<Button type="submit" variant="outline" size="xs" class="shrink-0">
-						Recompute ontology
+				<form
+					method="post"
+					action="?/recomputeOntology"
+					use:enhance={() => {
+						recomputing = true;
+						return async ({ update }) => {
+							await update();
+							recomputing = false;
+						};
+					}}
+					class="contents"
+				>
+					<Button type="submit" variant="outline" size="xs" class="shrink-0" disabled={recomputing}>
+						{#if recomputing}
+							<LoaderCircleIcon class="size-3 shrink-0 animate-spin" aria-hidden="true" />
+						{/if}
+						{recomputing ? 'Recomputing…' : 'Recompute ontology'}
 					</Button>
 				</form>
 				{#if status}

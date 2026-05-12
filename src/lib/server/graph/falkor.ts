@@ -74,12 +74,14 @@ async function runFalkorQueryWithRetry<T>(
 	const maxAttempts = 3;
 	let lastError: unknown;
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const attemptStart = Date.now();
 		try {
 			const result = await query();
 			await logActivityCall(getDb(), userId, {
 				provider: 'falkor',
 				operation: `${operation}.success(attempt=${attempt})`,
-				baseCostUsd: 0
+				baseCostUsd: 0,
+				durationMs: Date.now() - attemptStart
 			});
 			return result;
 		} catch (err) {
@@ -87,7 +89,8 @@ async function runFalkorQueryWithRetry<T>(
 			await logActivityCall(getDb(), userId, {
 				provider: 'falkor',
 				operation: `${operation}.error(attempt=${attempt})`,
-				baseCostUsd: 0
+				baseCostUsd: 0,
+				durationMs: Date.now() - attemptStart
 			});
 		}
 	}

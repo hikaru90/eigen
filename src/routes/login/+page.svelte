@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { resolve } from '$app/paths';
 	import type { ActionData } from './$types';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
@@ -49,12 +48,5 @@
 		</Card.Content>
 	</Card.Root>
 
-	<p class="text-muted-foreground mt-6 text-center text-xs">
-		Don't have an account yet?
-		<a class="text-foreground underline" href={resolve('/register')}>Create one</a>
-	</p>
 
-	<p class="text-muted-foreground mt-4 pb-6 text-center text-[11px]">
-		<a class="underline" href={resolve('/')}>Home</a>
-	</p>
 </div>

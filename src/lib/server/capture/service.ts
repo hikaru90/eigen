@@ -23,11 +23,12 @@ export function normalizeThoughtText(raw: string): { normalized: string; metadat
 	};
 }
 
-async function logCaptureActivity(userId: string, operation: 'capture_submit' | 'capture_edit') {
+async function logCaptureActivity(userId: string, operation: 'capture_submit' | 'capture_edit', durationMs?: number) {
 	await logActivityCall(getDb(), userId, {
 		provider: 'mvp_stub',
 		operation,
-		baseCostUsd: CAPTURE_BASE_COST_USD
+		baseCostUsd: CAPTURE_BASE_COST_USD,
+		durationMs
 	});
 }
 
@@ -82,10 +83,10 @@ export type CaptureThoughtOptions = {
 };
 
 export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
+	const captureStart = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	emitProgress(onProgress, 'accounting');
-	await logCaptureActivity(userId, 'capture_submit');
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
 
 	emitProgress(onProgress, 'ontology');
@@ -178,6 +179,8 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		onBeforeEval: () => emitProgress(onProgress, 'ontology_eval')
 	});
 
+	await logCaptureActivity(userId, 'capture_submit', Date.now() - captureStart);
+
 	return stored;
 }
 
@@ -191,10 +194,10 @@ export async function editStoredThought(
 	editRequest: string,
 	options?: EditStoredThoughtOptions
 ) {
+	const editStart = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	emitProgress(onProgress, 'accounting');
-	await logCaptureActivity(userId, 'capture_edit');
 
 	const [existing] = await getDb()
 		.select()
@@ -202,7 +205,10 @@ export async function editStoredThought(
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 		.limit(1);
 
-	if (!existing) return { ok: false as const, reason: 'not_found' as const };
+	if (!existing) {
+		await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
+		return { ok: false as const, reason: 'not_found' as const };
+	}
 
 	// Treat edits as direct replacements for the stored thought text.
 	const editedRaw = editRequest.trim();
@@ -268,6 +274,8 @@ export async function editStoredThought(
 		thoughtId: updated!.id,
 		normalizedText: updated!.normalizedText
 	});
+
+	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
 
 	return { ok: true as const, thought: updated! };
 }

@@ -3,9 +3,9 @@
   import type { Pathname } from "$app/types";
   import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
+  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
-  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import "./layout.css";
   import favicon from "$lib/assets/favicon.svg";
   import { cn } from "$lib/utils";
@@ -51,10 +51,10 @@
       variant: "primary",
     },
     {
-      label: "Settings",
-      href: "/settings",
-      icon: SlidersHorizontal,
-      active: currentPath.includes("/settings"),
+      label: "Chat",
+      href: "/chat",
+      icon: MessageSquareText,
+      active: currentPath.includes("/chat"),
       variant: "secondary",
     },
   ]);
@@ -102,7 +102,7 @@
 
 {#if !hideAppChrome}
   <nav
-    class="fixed bottom-0 left-0 right-0 z-50 text-foreground dark:text-white"
+    class="fixed bottom-0 left-0 right-0 z-30 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
     <div class="relative flex flex-row items-center gap-2 px-2 pb-6">

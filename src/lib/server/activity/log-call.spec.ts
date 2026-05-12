@@ -10,6 +10,10 @@ vi.mock('$lib/server/pricing', () => ({
 	}))
 }));
 
+vi.mock('./trace-context', () => ({
+	getCurrentTraceGroupId: vi.fn(() => undefined)
+}));
+
 describe('logActivityCall', () => {
 	it('persists priced activity fields', async () => {
 		const values = vi.fn();
@@ -30,7 +34,27 @@ describe('logActivityCall', () => {
 			baseCostUsd: '1.000000',
 			markupUsd: '0.200000',
 			totalCostUsd: '1.200000',
-			markupRate: '0.200000'
+			markupRate: '0.200000',
+			groupId: undefined,
+			durationMs: undefined
 		});
+	});
+
+	it('forwards groupId and durationMs when provided', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+
+		await logActivityCall(db, 'u1', {
+			provider: 'agent',
+			operation: 'tool_call.retrieve_thoughts',
+			baseCostUsd: 0,
+			groupId: 'g1',
+			durationMs: 342
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ groupId: 'g1', durationMs: 342 })
+		);
 	});
 });

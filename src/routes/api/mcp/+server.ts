@@ -3,15 +3,16 @@ import type { RequestHandler } from './$types';
 import {
 	runCaptureThoughtTool,
 	runEditThoughtTool,
-	runListThoughtsTool,
-	runSearchThoughtsTool
+	runRetrieveThoughtsTool,
+	runAnswerQuestionTool
 } from '$lib/server/mcp/tools';
+import { runWithTrace } from '$lib/server/activity/trace-context';
 
 const TOOL_MAP = {
 	capture_thought: runCaptureThoughtTool,
-	list_thoughts: runListThoughtsTool,
-	search_thoughts: runSearchThoughtsTool,
-	edit_thought: runEditThoughtTool
+	retrieve_thoughts: runRetrieveThoughtsTool,
+	edit_thought: runEditThoughtTool,
+	answer_question: runAnswerQuestionTool
 } as const;
 
 const TOOL_DEFINITIONS = [
@@ -20,16 +21,16 @@ const TOOL_DEFINITIONS = [
 		description: 'Capture and store a raw thought.'
 	},
 	{
-		name: 'list_thoughts',
-		description: 'List thoughts for the authenticated user.'
-	},
-	{
-		name: 'search_thoughts',
-		description: 'Search thoughts with semantic and graph retrieval.'
+		name: 'retrieve_thoughts',
+		description: 'Retrieve thoughts using hybrid vector, lexical, and graph retrieval.'
 	},
 	{
 		name: 'edit_thought',
 		description: 'Apply a natural-language edit request to a thought.'
+	},
+	{
+		name: 'answer_question',
+		description: 'Answer a question by retrieving relevant thoughts and composing a grounded answer.'
 	}
 ];
 
@@ -67,10 +68,10 @@ export const POST: RequestHandler = async (event) => {
 		error(400, `Unknown tool: ${toolName}`);
 	}
 
-	const result = await handler(
+	const result = await runWithTrace(crypto.randomUUID(), () => handler(
 		{ userId: user.id },
 		params.arguments && typeof params.arguments === 'object' ? params.arguments : {}
-	);
+	));
 
 	return json({
 		content: [{ type: 'text', text: JSON.stringify(result) }]

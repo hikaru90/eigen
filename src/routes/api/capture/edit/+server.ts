@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { editStoredThought } from '$lib/server/capture/service';
+import { runWithTrace } from '$lib/server/activity/trace-context';
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -26,7 +27,7 @@ export const POST: RequestHandler = async (event) => {
 	const streamNdjson = accept.includes('application/x-ndjson');
 
 	if (!streamNdjson) {
-		const result = await editStoredThought(user.id, thoughtId, editRequest);
+		const result = await runWithTrace(crypto.randomUUID(), () => editStoredThought(user.id, thoughtId, editRequest));
 		if (!result.ok) error(404, 'Thought not found');
 
 		return json({ thought: result.thought });
@@ -38,9 +39,9 @@ export const POST: RequestHandler = async (event) => {
 			const line = (payload: unknown) =>
 				controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
 			try {
-				const result = await editStoredThought(user.id, thoughtId, editRequest, {
+				const result = await runWithTrace(crypto.randomUUID(), () => editStoredThought(user.id, thoughtId, editRequest, {
 					onProgress: (phase) => line({ type: 'progress', phase })
-				});
+				}));
 				if (!result.ok) {
 					line({ type: 'error', error: 'Thought not found', details: [] });
 					return;

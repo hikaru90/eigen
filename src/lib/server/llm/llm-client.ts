@@ -172,6 +172,7 @@ export async function llmChatCompletion(input: {
 	let lastError: unknown;
 
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const attemptStart = Date.now();
 		const db = getDb();
 		try {
 			await waitForLlmRateLimit();
@@ -211,7 +212,8 @@ export async function llmChatCompletion(input: {
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.chat.success(attempt=${attempt})`,
-				baseCostUsd: baseCost
+				baseCostUsd: baseCost,
+				durationMs: Date.now() - attemptStart
 			});
 
 			return json;
@@ -220,7 +222,8 @@ export async function llmChatCompletion(input: {
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.chat.error(attempt=${attempt})`,
-				baseCostUsd: 0
+				baseCostUsd: 0,
+				durationMs: Date.now() - attemptStart
 			});
 			if (attempt === maxAttempts) break;
 		}
@@ -246,6 +249,7 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 	let lastError: unknown;
 
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const attemptStart = Date.now();
 		const db = getDb();
 		try {
 			await waitForLlmRateLimit();
@@ -285,7 +289,8 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.embedding.success(attempt=${attempt})`,
-				baseCostUsd: baseCost
+				baseCostUsd: baseCost,
+				durationMs: Date.now() - attemptStart
 			});
 
 			return json;
@@ -294,7 +299,8 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.embedding.error(attempt=${attempt})`,
-				baseCostUsd: 0
+				baseCostUsd: 0,
+				durationMs: Date.now() - attemptStart
 			});
 			if (attempt === maxAttempts) break;
 		}

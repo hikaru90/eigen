@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
-	import { resolve } from '$app/paths';
 	import type { ActionData, PageData } from './$types';
-	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
 
@@ -42,48 +40,33 @@
 	}
 </script>
 
-<div class="mx-auto max-w-xl space-y-6 px-5 pt-10">
-	<header class="text-center">
-		<p class="text-muted-foreground mt-2 text-xs">Settings · {data.user.email}</p>
-	</header>
-
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-		<Card.Header>
-			<Card.Title class="text-sm">Theme</Card.Title>
-			<Card.Description class="text-muted-foreground text-xs">
-				Default follows your browser/system theme. You can override to light or dark.
-			</Card.Description>
-		</Card.Header>
-		<Card.Content>
-			<div class="space-y-3">
-				<div class="space-y-1">
-					<Label for="theme-mode">Theme mode</Label>
-					<select
-						id="theme-mode"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
-						value={themePreference}
-						onchange={(event) => updateThemePreference((event.currentTarget as HTMLSelectElement).value)}
-					>
-						<option value="system">System default</option>
-						<option value="light">Light</option>
-						<option value="dark">Dark</option>
-					</select>
-				</div>
+<div class="mx-auto max-w-2xl space-y-4 px-4 pb-8 pt-4">
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">Theme</h3>
+			<p class="text-muted-foreground mt-0.5 text-xs">Default follows your browser/system theme.</p>
+			<div class="mt-2 space-y-1">
+				<Label for="theme-mode">Theme mode</Label>
+				<select
+					id="theme-mode"
+					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+					value={themePreference}
+					onchange={(event) => updateThemePreference((event.currentTarget as HTMLSelectElement).value)}
+				>
+					<option value="system">System default</option>
+					<option value="light">Light</option>
+					<option value="dark">Dark</option>
+				</select>
 			</div>
-		</Card.Content>
-	</Card.Root>
+		</div>
 
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-		<Card.Header>
-			<Card.Title class="text-sm">Language</Card.Title>
-		</Card.Header>
-		<Card.Content>
-			<form method="post" action="?/updateLanguage" use:enhance class="space-y-3">
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">Language</h3>
+			<form method="post" action="?/updateLanguage" use:enhance class="mt-2 space-y-2">
 				<div class="space-y-1">
 					<Label for="lang">Transcription language</Label>
 					<select
 						id="lang"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
 						name="preferredLanguage"
 					>
 						{#each data.languageOptions as option}
@@ -98,23 +81,17 @@
 					<p class="text-muted-foreground text-xs">{form.settingsMessage}</p>
 				{/if}
 			</form>
-		</Card.Content>
-	</Card.Root>
+		</div>
 
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-		<Card.Header>
-			<Card.Title class="text-sm">Speech recognition quality</Card.Title>
-			<Card.Description class="text-muted-foreground text-xs">
-				Low = faster/smaller, High = larger/better accuracy.
-			</Card.Description>
-		</Card.Header>
-		<Card.Content>
-			<form method="post" action="?/updateQuality" use:enhance onsubmit={confirmQualityChange} class="space-y-3">
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">Speech recognition quality</h3>
+			<p class="text-muted-foreground mt-0.5 text-xs">Low = faster/smaller, High = larger/better accuracy.</p>
+			<form method="post" action="?/updateQuality" use:enhance onsubmit={confirmQualityChange} class="mt-2 space-y-2">
 				<div class="space-y-1">
 					<Label for="quality">Quality level</Label>
 					<select
 						id="quality"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
 						name="preferredTranscriptionQuality"
 					>
 						{#each data.qualityOptions as option}
@@ -129,15 +106,11 @@
 					<p class="text-muted-foreground text-xs">{form.qualityMessage}</p>
 				{/if}
 			</form>
-		</Card.Content>
-	</Card.Root>
+		</div>
 
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-		<Card.Header>
-			<Card.Title class="text-sm">Change email</Card.Title>
-		</Card.Header>
-		<Card.Content>
-			<form method="post" action="?/changeEmail" use:enhance class="space-y-3">
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">Change email</h3>
+			<form method="post" action="?/changeEmail" use:enhance class="mt-2 space-y-2">
 				<div class="space-y-1">
 					<Label for="newEmail">New email</Label>
 					<input
@@ -145,7 +118,7 @@
 						type="email"
 						name="newEmail"
 						placeholder="you@example.com"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
 					/>
 				</div>
 				<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update email</Button>
@@ -153,22 +126,18 @@
 					<p class="text-muted-foreground text-xs">{form.emailMessage}</p>
 				{/if}
 			</form>
-		</Card.Content>
-	</Card.Root>
+		</div>
 
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-		<Card.Header>
-			<Card.Title class="text-sm">Change password</Card.Title>
-		</Card.Header>
-		<Card.Content>
-			<form method="post" action="?/changePassword" use:enhance class="space-y-3">
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">Change password</h3>
+			<form method="post" action="?/changePassword" use:enhance class="mt-2 space-y-2">
 				<div class="space-y-1">
 					<Label for="cur">Current password</Label>
 					<input
 						id="cur"
 						type="password"
 						name="currentPassword"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
 					/>
 				</div>
 				<div class="space-y-1">
@@ -177,7 +146,7 @@
 						id="newpw"
 						type="password"
 						name="newPassword"
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
 					/>
 				</div>
 				<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update password</Button>
@@ -185,18 +154,12 @@
 					<p class="text-muted-foreground text-xs">{form.passwordMessage}</p>
 				{/if}
 			</form>
-		</Card.Content>
-	</Card.Root>
+		</div>
 
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
-		<Card.Header>
-			<Card.Title class="text-sm">Onboarding</Card.Title>
-			<Card.Description class="text-muted-foreground text-xs">
-				Show the welcome tour again. You will be taken to Capture and the tour will open until you finish it.
-			</Card.Description>
-		</Card.Header>
-		<Card.Content>
-			<form method="post" action="?/resetOnboarding" use:enhance class="space-y-2">
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">Onboarding</h3>
+			<p class="text-muted-foreground mt-0.5 text-xs">Show the welcome tour again.</p>
+			<form method="post" action="?/resetOnboarding" use:enhance class="mt-2 space-y-2">
 				<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
 					Restart onboarding
 				</Button>
@@ -204,14 +167,6 @@
 					<p class="text-destructive text-xs">{form.onboardingMessage}</p>
 				{/if}
 			</form>
-		</Card.Content>
-	</Card.Root>
+		</div>
 
-	<p class="text-muted-foreground pb-6 text-center text-[11px]">
-		<a class="underline" href={resolve('/capture')}>Capture</a>
-		·
-		<a class="underline" href={resolve('/activity')}>Activity log</a>
-		·
-		<a class="underline" href={resolve('/')}>Home</a>
-	</p>
 </div>

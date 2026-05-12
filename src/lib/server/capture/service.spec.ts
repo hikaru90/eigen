@@ -27,6 +27,10 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
 
+vi.mock('$lib/server/ontology-db', () => ({
+	ensureUserOntologySeeded: vi.fn(async () => undefined)
+}));
+
 vi.mock('$lib/server/activity/log-call', () => ({
 	logActivityCall: logActivityCallMock
 }));
@@ -97,7 +101,13 @@ function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
 		transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx)),
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
-				where: vi.fn(async () => [{ n: thoughtCount }])
+				where: vi.fn(() => {
+					const result = [{ n: thoughtCount }];
+					return {
+						limit: vi.fn(async () => result),
+						then: (onfulfilled: (v: typeof result) => unknown) => Promise.resolve(result).then(onfulfilled)
+					};
+				})
 			}))
 		}))
 	};

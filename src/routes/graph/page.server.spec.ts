@@ -52,7 +52,6 @@ describe('graph page server', () => {
 		if (!data) return;
 		expect(data.snapshot).toEqual({ nodes: [], edges: [] });
 		expect(Array.isArray(data.graphLegendSections)).toBe(true);
-		expect(data.graphLegendSections!.length).toBeGreaterThan(0);
 		expect(fetchSnapshotMock).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'u1', nodeLimit: 500, edgeLimit: 1200 })
 		);

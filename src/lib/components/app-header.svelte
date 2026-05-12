@@ -4,9 +4,15 @@
   import { page } from "$app/state";
   import EigenWordmark from "$lib/components/eigen-wordmark.svelte";
   import * as Popover from "$lib/components/ui/popover";
+  import { chatSidebarOpen } from "$lib/stores/chat-sidebar";
   import ActivityIcon from "@lucide/svelte/icons/activity";
+  import Menu from "@lucide/svelte/icons/menu";
   import UserRound from "@lucide/svelte/icons/user-round";
-  import Network from "@lucide/svelte/icons/network";
+  import Settings from "@lucide/svelte/icons/settings";
+  import KeyRound from "@lucide/svelte/icons/key-round";
+  import LogOut from "@lucide/svelte/icons/log-out";
+
+  const isChatRoute = $derived(page.route.id === "/chat");
 
   let menuOpen = $state(false);
   const user = $derived(
@@ -69,7 +75,17 @@
 
 <header class="w-full px-5 pt-6">
   <div class="mx-auto flex w-full items-center justify-between">
-    <div class="w-10"></div>
+    {#if isChatRoute}
+      <button
+        class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+        onclick={() => chatSidebarOpen.update((v) => !v)}
+        aria-label="Toggle session list"
+      >
+        <Menu class="size-5" strokeWidth={1.75} />
+      </button>
+    {:else}
+      <div class="w-10"></div>
+    {/if}
     <EigenWordmark heightClass="h-10" />
     <Popover.Root bind:open={menuOpen}>
       <div>
@@ -97,23 +113,25 @@
           Activity
         </a>
         <a
-          href={resolve("/graph")}
+          href={resolve("/api-keys")}
           class="flex items-center gap-2 rounded-sm px-3 py-2 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
         >
-          <Network class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
-          Graph
+          <KeyRound class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          API Keys
         </a>
         <a
           href={resolve("/settings")}
-          class="block rounded-sm px-3 py-2 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-3 py-2 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
         >
+          <Settings class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Account settings
         </a>
         <button
           type="button"
-          class="block w-full rounded-sm px-3 py-2 text-left text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          class="flex w-full items-center gap-2 rounded-sm bg-red-600 px-3 py-2 text-left text-xs text-white hover:bg-red-700"
           onclick={() => void signOut()}
         >
+          <LogOut class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Log out
         </button>
       </Popover.Content>

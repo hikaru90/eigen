@@ -10,6 +10,21 @@
 		/>
 
 		<meta name="text-scale" content="scale" />
+		<script>
+			(function () {
+				var pref = localStorage.getItem("theme-preference");
+				var isDark =
+					pref === "dark" ||
+					(pref !== "light" &&
+						window.matchMedia("(prefers-color-scheme: dark)").matches);
+				if (isDark) {
+					document.documentElement.classList.add("dark");
+					document.documentElement.style.colorScheme = "dark";
+				} else {
+					document.documentElement.style.colorScheme = "light";
+				}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 

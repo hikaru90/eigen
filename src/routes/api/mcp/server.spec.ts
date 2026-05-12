@@ -3,21 +3,21 @@ import { POST } from './+server';
 
 const {
 	runCaptureThoughtToolMock,
-	runListThoughtsToolMock,
-	runSearchThoughtsToolMock,
-	runEditThoughtToolMock
+	runRetrieveThoughtsToolMock,
+	runEditThoughtToolMock,
+	runAnswerQuestionToolMock
 } = vi.hoisted(() => ({
 	runCaptureThoughtToolMock: vi.fn(),
-	runListThoughtsToolMock: vi.fn(),
-	runSearchThoughtsToolMock: vi.fn(),
-	runEditThoughtToolMock: vi.fn()
+	runRetrieveThoughtsToolMock: vi.fn(),
+	runEditThoughtToolMock: vi.fn(),
+	runAnswerQuestionToolMock: vi.fn()
 }));
 
 vi.mock('$lib/server/mcp/tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
-	runListThoughtsTool: runListThoughtsToolMock,
-	runSearchThoughtsTool: runSearchThoughtsToolMock,
-	runEditThoughtTool: runEditThoughtToolMock
+	runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
+	runEditThoughtTool: runEditThoughtToolMock,
+	runAnswerQuestionTool: runAnswerQuestionToolMock
 }));
 
 describe('POST /api/mcp', () => {
@@ -63,17 +63,17 @@ describe('POST /api/mcp', () => {
 	});
 
 	it('dispatches tool call', async () => {
-		runSearchThoughtsToolMock.mockResolvedValue({ results: [{ id: 't1' }] });
+		runRetrieveThoughtsToolMock.mockResolvedValue({ results: [{ id: 't1' }] });
 		const res = await POST({
 			locals: { user: { id: 'u1' } },
 			request: {
 				json: vi.fn(async () => ({
 					method: 'tools/call',
-					params: { name: 'search_thoughts', arguments: { query: 'hello' } }
+					params: { name: 'retrieve_thoughts', arguments: { query: 'hello' } }
 				}))
 			}
 		} as never);
-		expect(runSearchThoughtsToolMock).toHaveBeenCalledWith({ userId: 'u1' }, { query: 'hello' });
+		expect(runRetrieveThoughtsToolMock).toHaveBeenCalledWith({ userId: 'u1' }, { query: 'hello' });
 		expect(res.status).toBe(200);
 	});
 });

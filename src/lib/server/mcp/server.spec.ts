@@ -22,8 +22,8 @@ vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
 vi.mock('./tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
 	runEditThoughtTool: vi.fn(),
-	runListThoughtsTool: vi.fn(),
-	runSearchThoughtsTool: runSearchThoughtsToolMock
+	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
+	runAnswerQuestionTool: vi.fn()
 }));
 
 describe('createMcpServer', () => {
@@ -33,7 +33,7 @@ describe('createMcpServer', () => {
 		const listHandler = handlerMap.get(Symbol.for('list-tools')) as () => Promise<{ tools: Array<{ name: string }> }>;
 		const result = await listHandler();
 		expect(result.tools.map((t) => t.name)).toEqual(
-			expect.arrayContaining(['capture_thought', 'list_thoughts', 'search_thoughts', 'edit_thought'])
+			expect.arrayContaining(['capture_thought', 'retrieve_thoughts', 'edit_thought', 'answer_question'])
 		);
 	});
 
@@ -45,7 +45,7 @@ describe('createMcpServer', () => {
 			params: { name: string; arguments?: unknown };
 		}) => Promise<{ content: Array<{ text: string }> }>;
 		const result = await callHandler({
-			params: { name: 'search_thoughts', arguments: { query: 'hello' } }
+			params: { name: 'retrieve_thoughts', arguments: { query: 'hello' } }
 		});
 		expect(runSearchThoughtsToolMock).toHaveBeenCalledWith({ userId: 'u1' }, { query: 'hello' });
 		expect(result.content[0].text).toContain('results');

@@ -1,6 +1,7 @@
 import { activityCallLog } from '$lib/server/db/schema';
 import type { AppDatabase } from '$lib/server/db/context';
 import { priceCall } from '$lib/server/pricing';
+import { getCurrentTraceGroupId } from './trace-context';
 
 export async function logActivityCall(
 	db: AppDatabase,
@@ -9,6 +10,8 @@ export async function logActivityCall(
 		provider: string;
 		operation: string;
 		baseCostUsd: number;
+		groupId?: string;
+		durationMs?: number;
 	}
 ): Promise<void> {
 	const priced = priceCall(input.baseCostUsd);
@@ -19,6 +22,8 @@ export async function logActivityCall(
 		baseCostUsd: priced.baseCostUsd,
 		markupUsd: priced.markupUsd,
 		totalCostUsd: priced.totalCostUsd,
-		markupRate: priced.markupRate
+		markupRate: priced.markupRate,
+		groupId: input.groupId ?? getCurrentTraceGroupId(),
+		durationMs: input.durationMs
 	});
 }
