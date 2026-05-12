@@ -1,6 +1,11 @@
 /**
  * Retrieval routing and context selection weights (AC-009..012).
- * Relation-centric intent is determined outside this module (e.g. classifier).
+ *
+ * `selectRetrievalModeFromQuery` and `CONTEXT_WEIGHTS.relation_centric` support **deferred**
+ * AC-011/013 (relation-centric routing). They are **not** wired into `searchThoughts`, MCP
+ * `search_thoughts`, or HTTP retrieval until that scope is explicitly re-opened; production
+ * paths always use `CONTEXT_WEIGHTS.default` unless a caller passes explicit `weights`
+ * (e.g. `composeAnswer` input).
  */
 
 export type RetrievalMode = 'default' | 'relation_centric';

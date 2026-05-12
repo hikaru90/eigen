@@ -1,6 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { searchThoughts } from '$lib/server/retrieval/service';
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
+import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -22,10 +24,19 @@ export const POST: RequestHandler = async (event) => {
 		error(400, 'topK must be an integer between 1 and 100');
 	}
 
+	const weights = CONTEXT_WEIGHTS.default;
 	const results = await searchThoughts({
 		userId: user.id,
 		query,
-		topK
+		topK,
+		weights
+	});
+	void tryRecordRetrievalQualityEvent({
+		userId: user.id,
+		surface: 'api',
+		weights,
+		topKRequested: topK,
+		results: results.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
 
 	return json({ results });

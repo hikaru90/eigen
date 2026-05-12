@@ -1,29 +1,25 @@
-import { and, desc, eq, lt, or } from 'drizzle-orm';
-import { captureSession, thought, thoughtRelation, type ThoughtCategory } from '$lib/server/db/schema';
+import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
+import { captureSession, thought, thoughtRelation } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { logActivityCall } from '$lib/server/activity/log-call';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { upsertThoughtNode, upsertThoughtRelation } from '$lib/server/graph/falkor';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
+import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
+import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology';
+import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 
 /** Explicit MVP pricing unit until the LLM ingest path is wired. */
 const CAPTURE_BASE_COST_USD = 0.0005;
 
-export function deterministicNormalize(raw: string): {
-	normalized: string;
-	category: ThoughtCategory;
-	metadata: Record<string, unknown>;
-} {
+/** Deterministic text shaping only; category comes from `resolveThoughtCategory`. */
+export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
 	const normalized = raw.trim().replace(/\s+/g, ' ');
-	let category: ThoughtCategory = 'thought';
-	if (/\b(todo|task)\b/i.test(raw)) category = 'task';
-	else if (/\bidea\b/i.test(raw)) category = 'idea';
-	else if (/\b(reference|ref|link)\b/i.test(raw)) category = 'reference';
 	return {
 		normalized,
-		category,
-		metadata: { pipeline: 'deterministic_mvp' }
+		metadata: { pipeline: 'ontology_llm_v1' }
 	};
 }
 
@@ -70,10 +66,37 @@ async function syncThoughtRelations(input: {
 	}
 }
 
-export async function captureThought(userId: string, rawInput: string) {
-	await logCaptureActivity(userId, 'capture_submit');
-	const { normalized, category, metadata } = deterministicNormalize(rawInput);
+function toPgVectorLiteral(values: number[]): string {
+	return `[${values.join(',')}]`;
+}
 
+function emitProgress(
+	onProgress: ((phase: CaptureIngestPhase) => void) | undefined,
+	phase: CaptureIngestPhase
+) {
+	onProgress?.(phase);
+}
+
+export type CaptureThoughtOptions = {
+	onProgress?: (phase: CaptureIngestPhase) => void;
+};
+
+export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
+	const onProgress = options?.onProgress;
+	await ensureUserOntologySeeded(getDb(), userId);
+	emitProgress(onProgress, 'accounting');
+	await logCaptureActivity(userId, 'capture_submit');
+	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
+
+	emitProgress(onProgress, 'ontology');
+	const category = await resolveThoughtCategory({
+		userId,
+		normalized,
+		rawText: rawInput
+	});
+	const metadata = { ...baseMeta, categorySource: 'llm' };
+
+	emitProgress(onProgress, 'session');
 	const [sessionRow] = await getDb()
 		.insert(captureSession)
 		.values({
@@ -87,10 +110,12 @@ export async function captureThought(userId: string, rawInput: string) {
 		})
 		.returning();
 
+	emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
 
 	const lexicalText = computeLexicalText(normalized);
 
+	emitProgress(onProgress, 'persist');
 	const [stored] = await getDb().transaction(async (tx) => {
 		const [t] = await tx
 			.insert(thought)
@@ -104,12 +129,21 @@ export async function captureThought(userId: string, rawInput: string) {
 					...metadata,
 					captureSessionId: sessionRow.id
 				},
-				embedding
+				embedding: sql`${toPgVectorLiteral(embedding)}::vector`
 			})
-			.returning();
+			.returning({
+				id: thought.id,
+				userId: thought.userId,
+				rawText: thought.rawText,
+				normalizedText: thought.normalizedText,
+				lexicalText: thought.lexicalText,
+				category: thought.category,
+				metadata: thought.metadata
+			});
 		return [t];
 	});
 
+	emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: stored.id,
 		userId,
@@ -119,20 +153,47 @@ export async function captureThought(userId: string, rawInput: string) {
 		category: stored.category
 	});
 
+	emitProgress(onProgress, 'relations');
 	await syncThoughtRelations({
 		userId,
 		thoughtId: stored.id,
 		normalizedText: stored.normalizedText
 	});
 
+	emitProgress(onProgress, 'entities');
+	await syncEntityGraphFromThought({
+		userId,
+		thoughtId: stored.id,
+		normalizedText: stored.normalizedText
+	});
+
+	const [countRow] = await getDb()
+		.select({ n: sql<number>`count(*)::int` })
+		.from(thought)
+		.where(eq(thought.userId, userId));
+	const thoughtCountAfterInsert = Number(countRow?.n ?? 0);
+	await maybeRefreshUserOntology({
+		userId,
+		thoughtCountAfterInsert,
+		onBeforeEval: () => emitProgress(onProgress, 'ontology_eval')
+	});
+
 	return stored;
 }
+
+export type EditStoredThoughtOptions = {
+	onProgress?: (phase: CaptureIngestPhase) => void;
+};
 
 export async function editStoredThought(
 	userId: string,
 	thoughtId: string,
-	editRequest: string
+	editRequest: string,
+	options?: EditStoredThoughtOptions
 ) {
+	const onProgress = options?.onProgress;
+	await ensureUserOntologySeeded(getDb(), userId);
+	emitProgress(onProgress, 'accounting');
 	await logCaptureActivity(userId, 'capture_edit');
 
 	const [existing] = await getDb()
@@ -143,19 +204,28 @@ export async function editStoredThought(
 
 	if (!existing) return { ok: false as const, reason: 'not_found' as const };
 
-	// MVP deterministic "natural language edit": append instruction, then normalize.
-	const editedRaw = `${existing.rawText}\n\nEdit request: ${editRequest.trim()}`;
-	const { normalized, category, metadata } = deterministicNormalize(editedRaw);
+	// Treat edits as direct replacements for the stored thought text.
+	const editedRaw = editRequest.trim();
+	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
+	emitProgress(onProgress, 'ontology');
+	const category = await resolveThoughtCategory({
+		userId,
+		normalized,
+		rawText: editedRaw
+	});
+	const metadata = { ...baseMeta, categorySource: 'llm' };
 	const lexicalText = computeLexicalText(normalized);
+	emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
 
+	emitProgress(onProgress, 'persist');
 	const [updated] = await getDb()
 		.update(thought)
 		.set({
 			rawText: editedRaw,
 			normalizedText: normalized,
 			lexicalText,
-			embedding,
+			embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 			category,
 			metadata: {
 				...(existing.metadata as Record<string, unknown>),
@@ -165,8 +235,17 @@ export async function editStoredThought(
 			updatedAt: new Date()
 		})
 		.where(eq(thought.id, thoughtId))
-		.returning();
+		.returning({
+			id: thought.id,
+			userId: thought.userId,
+			rawText: thought.rawText,
+			normalizedText: thought.normalizedText,
+			lexicalText: thought.lexicalText,
+			category: thought.category,
+			metadata: thought.metadata
+		});
 
+	emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: updated!.id,
 		userId,
@@ -176,7 +255,15 @@ export async function editStoredThought(
 		category: updated!.category
 	});
 
+	emitProgress(onProgress, 'relations');
 	await syncThoughtRelations({
+		userId,
+		thoughtId: updated!.id,
+		normalizedText: updated!.normalizedText
+	});
+
+	emitProgress(onProgress, 'entities');
+	await syncEntityGraphFromThought({
 		userId,
 		thoughtId: updated!.id,
 		normalizedText: updated!.normalizedText

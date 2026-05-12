@@ -4,12 +4,14 @@ import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
 import { userPreference } from '$lib/server/db/schema';
+import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { eq } from 'drizzle-orm';
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
 		throw redirect(302, '/login');
 	}
+	await ensureUserOntologySeeded(getDb(), event.locals.user.id);
 	const [pref] = await getDb()
 		.select({
 			preferredLanguage: userPreference.preferredLanguage

@@ -44,6 +44,14 @@ describe('lexicalSearch', () => {
 		]);
 	});
 
+	it('short-circuits without touching the db when the query has no usable tokens', async () => {
+		getDbMock.mockClear();
+		getDbMock.mockReturnValue(null);
+		const out = await lexicalSearch({ userId: 'u1', query: '??  --', limit: 5 });
+		expect(out).toEqual([]);
+		expect(getDbMock).not.toHaveBeenCalled();
+	});
+
 	it('applies default metadata and lexicalScore fallback', async () => {
 		const db = {
 			select: vi.fn(() => ({

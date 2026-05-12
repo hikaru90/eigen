@@ -10,13 +10,39 @@ export type LexicalSearchResult = {
 	lexicalScore: number;
 };
 
+/**
+ * Build an OR-joined `to_tsquery` string from a free-form natural-language query.
+ *
+ * `plainto_tsquery` AND-joins every token, which means natural-language questions
+ * (e.g. "what did Marcus tell me about my starter") require every token in one
+ * document and almost never match. We instead tokenize the query the same way
+ * `lexical_text` is precomputed (NFKC + lowercase + alphanumeric split) and OR
+ * the tokens, so any single keyword can surface a candidate while ts_rank_cd
+ * still rewards documents that match more tokens.
+ */
+export function buildLexicalTsQuery(query: string): string {
+	const tokens = query
+		.normalize('NFKC')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/g)
+		.map((token) => token.trim())
+		.filter((token, index, arr) => token.length >= 3 && arr.indexOf(token) === index)
+		.slice(0, 32);
+	return tokens.join(' | ');
+}
+
 export async function lexicalSearch(params: {
 	userId: string;
 	query: string;
 	limit: number;
 }): Promise<LexicalSearchResult[]> {
-	const rankExpr = sql<number>`ts_rank_cd(${thought.lexicalTsv}, plainto_tsquery('simple', ${params.query}))`;
-	const matchExpr = sql<boolean>`${thought.lexicalTsv} @@ plainto_tsquery('simple', ${params.query})`;
+	const tsQueryString = buildLexicalTsQuery(params.query);
+	if (tsQueryString.length === 0) return [];
+
+	const lexicalVector = sql`to_tsvector('simple', coalesce(${thought.lexicalText}, ''))`;
+	const tsQueryExpr = sql`to_tsquery('simple', ${tsQueryString})`;
+	const rankExpr = sql<number>`ts_rank_cd(${lexicalVector}, ${tsQueryExpr})`;
+	const matchExpr = sql<boolean>`${lexicalVector} @@ ${tsQueryExpr}`;
 
 	const rows = await getDb()
 		.select({

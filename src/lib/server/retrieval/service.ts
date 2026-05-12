@@ -5,7 +5,9 @@ import { thought } from '$lib/server/db/schema';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { lexicalSearch } from '$lib/server/retrieval/lexical';
 import { reciprocalRankFusion } from '$lib/server/retrieval/fusion';
-import { expandNeighborsByIds } from '$lib/server/graph/falkor';
+import { expandNeighborsByIds, expandThoughtIdsFromEntitySeeds } from '$lib/server/graph/falkor';
+import type { EntityThoughtHit } from '$lib/server/graph/falkor';
+import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
 
 type RetrievalResult = {
 	id: string;
@@ -19,14 +21,54 @@ type RetrievalResult = {
 
 type RetrievalWeights = { vector: number; graph: number };
 
-function clamp01(value: number): number {
-	return Math.max(0, Math.min(1, value));
+const RRF_K = 60;
+
+/** Neighbor + entity-anchored graph expansion merged by hit count. */
+function mergeGraphHitMaps(
+	thoughtNeighbors: Array<{ id: string; hits: number }>,
+	entityHits: EntityThoughtHit[]
+): Array<{ id: string; hits: number; provenance?: string }> {
+	const map = new Map<string, { hits: number; provenance?: string }>();
+	for (const n of thoughtNeighbors) {
+		const cur = map.get(n.id);
+		if (!cur) map.set(n.id, { hits: n.hits });
+		else cur.hits += n.hits;
+	}
+	for (const e of entityHits) {
+		const cur = map.get(e.id);
+		if (!cur) {
+			map.set(e.id, { hits: e.hits, provenance: e.provenance });
+		} else {
+			cur.hits += e.hits;
+			if (e.provenance && !cur.provenance) cur.provenance = e.provenance;
+		}
+	}
+	return [...map.entries()].map(([id, v]) => ({ id, hits: v.hits, provenance: v.provenance }));
+}
+
+function rrfContribution(rank: number | undefined, weight: number): number {
+	if (rank === undefined || weight === 0) return 0;
+	return weight * (1 / (RRF_K + rank));
 }
 
 function toVectorLiteral(vector: number[]): string {
 	return `[${vector.join(',')}]`;
 }
 
+/**
+ * Hybrid retrieval over three channels:
+ *
+ *   - vector  (pgvector cosine distance)
+ *   - lexical (Postgres ts_rank_cd over precomputed lexical_text)
+ *   - graph   (FalkorDB neighbor expansion from semantic seeds)
+ *
+ * Channels are merged via weighted reciprocal rank fusion. Vector and lexical
+ * share the "semantic" weight (`weights.vector`) because lexical is the keyword
+ * complement of the embedding signal; graph contributes via `weights.graph`.
+ * `weights = {vector: 0, graph: 1}` therefore yields graph-only behavior, and
+ * `{vector: 1, graph: 0}` yields the semantic (vector + lexical) channel only,
+ * matching the eval harness's preset semantics.
+ */
 export async function searchThoughts(params: {
 	userId: string;
 	query: string;
@@ -36,6 +78,7 @@ export async function searchThoughts(params: {
 	const topK = params.topK ?? 20;
 	const limit = Math.max(1, Math.min(topK, 100));
 	const weights: RetrievalWeights = params.weights ?? CONTEXT_WEIGHTS.default;
+	const candidateLimit = Math.max(limit * 2, 20);
 
 	const queryEmbedding = await createThoughtEmbedding(params.userId, params.query);
 	const vectorLiteral = toVectorLiteral(queryEmbedding);
@@ -52,41 +95,77 @@ export async function searchThoughts(params: {
 		.from(thought)
 		.where(and(eq(thought.userId, params.userId), isNotNull(thought.embedding)))
 		.orderBy(vectorDistance)
-		.limit(Math.max(limit * 2, 20));
+		.limit(candidateLimit);
 
 	const lexicalRows = await lexicalSearch({
 		userId: params.userId,
 		query: params.query,
-		limit: Math.max(limit * 2, 20)
+		limit: candidateLimit
 	});
 
 	if (vectorRows.length === 0 && lexicalRows.length === 0) return [];
 
+	const vectorRanks = new Map<string, number>();
+	vectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));
+	const lexicalRanks = new Map<string, number>();
+	lexicalRows.forEach((row, index) => lexicalRanks.set(row.id, index + 1));
+
+	// Seed graph expansion from the RRF-fused semantic top so we expand from the
+	// best joint vector+lexical evidence rather than only the vector top.
 	const fusedSemantic = reciprocalRankFusion([
 		vectorRows.map((row, index) => ({ id: row.id, rank: index + 1 })),
 		lexicalRows.map((row, index) => ({ id: row.id, rank: index + 1 }))
 	]);
-	const maxSemantic = Math.max(1e-9, ...fusedSemantic.values());
-
 	const semanticSeedIds = [...fusedSemantic.entries()]
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, Math.max(limit * 2, 20))
+		.slice(0, candidateLimit)
 		.map(([id]) => id);
 
 	const graphNeighbors = await expandNeighborsByIds({
 		userId: params.userId,
 		seedIds: semanticSeedIds,
-		limit: Math.max(limit * 2, 20)
+		limit: candidateLimit
 	});
 
-	const graphCounts = new Map<string, number>();
-	for (const neighbor of graphNeighbors) {
-		graphCounts.set(neighbor.id, neighbor.hits);
+	const entityMatches = await matchCanonicalEntitiesByEmbedding({
+		userId: params.userId,
+		embedding: queryEmbedding,
+		limit: 12
+	});
+
+	const ENTITY_MATCH_MAX_DISTANCE = 0.48;
+	const entityIds = entityMatches
+		.filter((m) => m.distance < ENTITY_MATCH_MAX_DISTANCE)
+		.map((m) => m.id);
+
+	const entityThoughtHits =
+		entityIds.length > 0
+			? await expandThoughtIdsFromEntitySeeds({
+					userId: params.userId,
+					entityIds,
+					limit: candidateLimit
+				})
+			: [];
+
+	const mergedGraphHits = mergeGraphHitMaps(graphNeighbors, entityThoughtHits);
+	const graphProvenanceByThoughtId = new Map<string, string>();
+	for (const row of mergedGraphHits) {
+		if (row.provenance) {
+			graphProvenanceByThoughtId.set(row.id, row.provenance);
+		}
 	}
 
-	const connectedIds = [...graphCounts.keys()].filter((id) => !semanticSeedIds.includes(id));
+	// Convert neighbor hit-counts into a deterministic rank list (more shared
+	// seeds => higher rank) so graph contributes to RRF on equal footing.
+	const graphRanks = new Map<string, number>();
+	[...mergedGraphHits]
+		.sort((a, b) => b.hits - a.hits)
+		.forEach((neighbor, index) => graphRanks.set(neighbor.id, index + 1));
+
+	const semanticIds = new Set<string>([...vectorRanks.keys(), ...lexicalRanks.keys()]);
+	const connectedOnlyIds = [...graphRanks.keys()].filter((id) => !semanticIds.has(id));
 	const connectedRows =
-		connectedIds.length === 0
+		connectedOnlyIds.length === 0
 			? []
 			: await getDb()
 					.select({
@@ -96,82 +175,76 @@ export async function searchThoughts(params: {
 						metadata: thought.metadata
 					})
 					.from(thought)
-					.where(and(eq(thought.userId, params.userId), inArray(thought.id, connectedIds)));
+					.where(and(eq(thought.userId, params.userId), inArray(thought.id, connectedOnlyIds)));
 
-	const maxGraphCount = Math.max(1, ...graphCounts.values());
-	const scoredById = new Map<
-		string,
-		{
-			id: string;
-			normalizedText: string;
-			category: string;
-			metadata: Record<string, unknown>;
-			vectorScore: number;
-			graphScore: number;
+	type RowMeta = {
+		normalizedText: string;
+		category: string;
+		metadata: Record<string, unknown>;
+	};
+	const metaById = new Map<string, RowMeta>();
+	const recordMeta = (
+		id: string,
+		source: { normalizedText: string; category: string; metadata: unknown },
+		graphProvenance?: string
+	) => {
+		const prev = metaById.get(id);
+		const incomingMeta = (source.metadata as Record<string, unknown>) ?? {};
+		const mergedMeta: Record<string, unknown> = {
+			...(prev?.metadata ?? {}),
+			...incomingMeta,
+			...(graphProvenance ? { graphProvenance } : {})
+		};
+		metaById.set(id, {
+			normalizedText: prev?.normalizedText ?? source.normalizedText,
+			category: prev?.category ?? source.category,
+			metadata: mergedMeta
+		});
+	};
+	for (const row of vectorRows) recordMeta(row.id, row);
+	for (const row of lexicalRows) recordMeta(row.id, row);
+	for (const row of connectedRows)
+		recordMeta(row.id, row, graphProvenanceByThoughtId.get(row.id));
+
+	// Attach entity-graph provenance even when the thought was also a semantic hit.
+	for (const [thoughtId, prov] of graphProvenanceByThoughtId) {
+		if (!semanticIds.has(thoughtId)) continue;
+		const existing = metaById.get(thoughtId);
+		if (existing && typeof existing.metadata.graphProvenance !== 'string') {
+			metaById.set(thoughtId, {
+				...existing,
+				metadata: { ...existing.metadata, graphProvenance: prov }
+			});
 		}
-	>();
-
-	for (const row of vectorRows) {
-		const vectorScore = clamp01((fusedSemantic.get(row.id) ?? 0) / maxSemantic);
-		const graphScore = clamp01((graphCounts.get(row.id) ?? 0) / maxGraphCount);
-		scoredById.set(row.id, {
-			id: row.id,
-			normalizedText: row.normalizedText,
-			category: row.category,
-			metadata: (row.metadata as Record<string, unknown>) ?? {},
-			vectorScore,
-			graphScore
-		});
 	}
 
-	for (const row of lexicalRows) {
-		if (scoredById.has(row.id)) continue;
-		const vectorScore = clamp01((fusedSemantic.get(row.id) ?? 0) / maxSemantic);
-		const graphScore = clamp01((graphCounts.get(row.id) ?? 0) / maxGraphCount);
-		scoredById.set(row.id, {
-			id: row.id,
-			normalizedText: row.normalizedText,
-			category: row.category,
-			metadata: row.metadata,
-			vectorScore,
-			graphScore
-		});
-	}
+	const candidateIds = new Set<string>([
+		...vectorRanks.keys(),
+		...lexicalRanks.keys(),
+		...graphRanks.keys()
+	]);
 
-	for (const row of connectedRows) {
-		if (scoredById.has(row.id)) continue;
-		const graphScore = clamp01((graphCounts.get(row.id) ?? 0) / maxGraphCount);
-		const vectorScore = clamp01((fusedSemantic.get(row.id) ?? 0) / maxSemantic);
-		scoredById.set(row.id, {
-			id: row.id,
-			normalizedText: row.normalizedText,
-			category: row.category,
-			metadata: (row.metadata as Record<string, unknown>) ?? {},
-			vectorScore,
-			graphScore
-		});
-	}
-
-	const ranked = [...scoredById.values()]
-		.map((item) => ({
-			id: item.id,
-			vectorScore: item.vectorScore,
-			graphScore: item.graphScore,
-			score: weights.vector * item.vectorScore + weights.graph * item.graphScore
-		}))
+	const scored = [...candidateIds]
+		.map((id) => {
+			const meta = metaById.get(id);
+			if (!meta) return null;
+			const vectorScore =
+				rrfContribution(vectorRanks.get(id), weights.vector) +
+				rrfContribution(lexicalRanks.get(id), weights.vector);
+			const graphScore = rrfContribution(graphRanks.get(id), weights.graph);
+			return {
+				id,
+				normalizedText: meta.normalizedText,
+				category: meta.category,
+				metadata: meta.metadata,
+				vectorScore,
+				graphScore,
+				score: vectorScore + graphScore
+			};
+		})
+		.filter((entry): entry is NonNullable<typeof entry> => entry !== null && entry.score > 0)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, limit);
 
-	return ranked.map((r) => {
-		const full = scoredById.get(r.id)!;
-		return {
-			id: full.id,
-			normalizedText: full.normalizedText,
-			category: full.category,
-			metadata: full.metadata,
-			vectorScore: full.vectorScore,
-			graphScore: full.graphScore,
-			score: r.score
-		};
-	});
+	return scored;
 }

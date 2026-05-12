@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { searchThoughts } from './service';
 
-const { createThoughtEmbeddingMock, getDbMock, lexicalSearchMock, expandNeighborsByIdsMock } = vi.hoisted(() => ({
+const {
+	createThoughtEmbeddingMock,
+	getDbMock,
+	lexicalSearchMock,
+	expandNeighborsByIdsMock,
+	expandThoughtIdsFromEntitySeedsMock,
+	matchCanonicalEntitiesByEmbeddingMock
+} = vi.hoisted(() => ({
 	createThoughtEmbeddingMock: vi.fn(),
 	getDbMock: vi.fn(),
 	lexicalSearchMock: vi.fn(),
-	expandNeighborsByIdsMock: vi.fn()
+	expandNeighborsByIdsMock: vi.fn(),
+	expandThoughtIdsFromEntitySeedsMock: vi.fn(),
+	matchCanonicalEntitiesByEmbeddingMock: vi.fn()
 }));
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -21,13 +31,21 @@ vi.mock('$lib/server/retrieval/lexical', () => ({
 }));
 
 vi.mock('$lib/server/graph/falkor', () => ({
-	expandNeighborsByIds: expandNeighborsByIdsMock
+	expandNeighborsByIds: expandNeighborsByIdsMock,
+	expandThoughtIdsFromEntitySeeds: expandThoughtIdsFromEntitySeedsMock
+}));
+
+vi.mock('$lib/server/memory/entity-resolution', () => ({
+	matchCanonicalEntitiesByEmbedding: matchCanonicalEntitiesByEmbeddingMock
 }));
 
 function makeDb(selectResults: unknown[][]) {
 	let index = 0;
 	const limits: number[] = [];
 	const db = {
+		__resetSelectIndex: () => {
+			index = 0;
+		},
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				where: vi.fn(() => {
@@ -58,6 +76,8 @@ describe('searchThoughts', () => {
 		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2]);
 		lexicalSearchMock.mockResolvedValue([]);
 		expandNeighborsByIdsMock.mockResolvedValue([]);
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([]);
+		expandThoughtIdsFromEntitySeedsMock.mockResolvedValue([]);
 	});
 
 	it('returns empty array when no semantic candidates are found', async () => {
@@ -122,6 +142,43 @@ describe('searchThoughts', () => {
 		expect(result[0].id).toBe('l1');
 	});
 
+	it('uses CONTEXT_WEIGHTS.default when weights are omitted', async () => {
+		const vectorRows = [
+			{
+				id: 'a',
+				normalizedText: 'A',
+				category: 'thought',
+				metadata: {},
+				distance: 0.1
+			},
+			{
+				id: 'b',
+				normalizedText: 'B',
+				category: 'thought',
+				metadata: {},
+				distance: 0.4
+			}
+		];
+		const lexicalRows = [{ id: 'b', normalizedText: 'B', category: 'thought', metadata: {}, lexicalScore: 0.5 }];
+		const connectedRows = [{ id: 'c', normalizedText: 'C', category: 'idea', metadata: { from: 'graph' } }];
+		const db = makeDb([vectorRows, connectedRows]);
+		getDbMock.mockReturnValue(db);
+		lexicalSearchMock.mockResolvedValue(lexicalRows);
+		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 1 }]);
+
+		const explicit = await searchThoughts({
+			userId: 'u1',
+			query: 'query',
+			topK: 2,
+			weights: CONTEXT_WEIGHTS.default
+		});
+		db.__resetSelectIndex();
+		const implicit = await searchThoughts({ userId: 'u1', query: 'query', topK: 2 });
+		expect(implicit.map((r) => ({ id: r.id, score: r.score, vectorScore: r.vectorScore, graphScore: r.graphScore }))).toEqual(
+			explicit.map((r) => ({ id: r.id, score: r.score, vectorScore: r.vectorScore, graphScore: r.graphScore }))
+		);
+	});
+
 	it('adds connected rows not already scored', async () => {
 		const vectorRows = [{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.2 }];
 		const connectedRows = [{ id: 'c', normalizedText: 'C', category: 'idea', metadata: {} }];
@@ -144,5 +201,106 @@ describe('searchThoughts', () => {
 
 		const result = await searchThoughts({ userId: 'u1', query: 'query', topK: 5 });
 		expect(result[0].id).toBe('a');
+	});
+
+	it('expands entity-anchored hits and attaches graph provenance to a connected thought', async () => {
+		const vectorRows = [
+			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }
+		];
+		const connectedRows = [
+			{ id: 'b', normalizedText: 'B', category: 'thought', metadata: {} }
+		];
+		const db = makeDb([vectorRows, connectedRows]);
+		getDbMock.mockReturnValue(db);
+		expandNeighborsByIdsMock.mockResolvedValue([]);
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([
+			{ id: 'ent-1', label: 'Sam', distance: 0.1 },
+			{ id: 'ent-2', label: 'Drop', distance: 0.99 }
+		]);
+		expandThoughtIdsFromEntitySeedsMock.mockResolvedValue([
+			{ id: 'b', hits: 3, provenance: 'entity:Sam' }
+		]);
+
+		const result = await searchThoughts({ userId: 'u1', query: 'q', topK: 5 });
+		const connected = result.find((r) => r.id === 'b');
+		expect(connected?.metadata.graphProvenance).toBe('entity:Sam');
+		expect(expandThoughtIdsFromEntitySeedsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ entityIds: ['ent-1'] })
+		);
+	});
+
+	it('merges entity hits onto a semantic hit and back-fills its graph provenance', async () => {
+		const vectorRows = [
+			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }
+		];
+		const db = makeDb([vectorRows, []]);
+		getDbMock.mockReturnValue(db);
+		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'a', hits: 1 }]);
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([
+			{ id: 'ent-1', label: 'Sam', distance: 0.05 }
+		]);
+		expandThoughtIdsFromEntitySeedsMock.mockResolvedValue([
+			{ id: 'a', hits: 2, provenance: 'entity:Sam' }
+		]);
+
+		const result = await searchThoughts({ userId: 'u1', query: 'q', topK: 5 });
+		const semantic = result.find((r) => r.id === 'a');
+		expect(semantic?.metadata.graphProvenance).toBe('entity:Sam');
+	});
+
+	it('accumulates hits when the same neighbor id appears multiple times', async () => {
+		const vectorRows = [
+			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }
+		];
+		const connectedRows = [{ id: 'b', normalizedText: 'B', category: 'thought', metadata: {} }];
+		const db = makeDb([vectorRows, connectedRows]);
+		getDbMock.mockReturnValue(db);
+		expandNeighborsByIdsMock.mockResolvedValue([
+			{ id: 'b', hits: 1 },
+			{ id: 'b', hits: 2 }
+		]);
+
+		const result = await searchThoughts({ userId: 'u1', query: 'q', topK: 5 });
+		expect(result.map((r) => r.id)).toEqual(expect.arrayContaining(['a', 'b']));
+	});
+
+	it('ranks distinct neighbors by descending hit count', async () => {
+		const vectorRows = [
+			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }
+		];
+		const connectedRows = [
+			{ id: 'b', normalizedText: 'B', category: 'thought', metadata: {} },
+			{ id: 'c', normalizedText: 'C', category: 'thought', metadata: {} }
+		];
+		const db = makeDb([vectorRows, connectedRows]);
+		getDbMock.mockReturnValue(db);
+		expandNeighborsByIdsMock.mockResolvedValue([
+			{ id: 'b', hits: 1 },
+			{ id: 'c', hits: 5 }
+		]);
+
+		const result = await searchThoughts({
+			userId: 'u1',
+			query: 'q',
+			topK: 5,
+			weights: { vector: 0, graph: 1 }
+		});
+		const bIdx = result.findIndex((r) => r.id === 'b');
+		const cIdx = result.findIndex((r) => r.id === 'c');
+		expect(cIdx).toBeLessThan(bIdx);
+	});
+
+	it('skips entity expansion when all entity distances exceed the cutoff', async () => {
+		const vectorRows = [
+			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }
+		];
+		const db = makeDb([vectorRows, []]);
+		getDbMock.mockReturnValue(db);
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([
+			{ id: 'far', label: 'Far', distance: 0.95 }
+		]);
+
+		await searchThoughts({ userId: 'u1', query: 'q', topK: 5 });
+		expect(expandThoughtIdsFromEntitySeedsMock).not.toHaveBeenCalled();
 	});
 });

@@ -1,5 +1,7 @@
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { searchThoughts } from '$lib/server/retrieval/service';
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
+import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 
 export type RetrievalContextItem = {
 	id: string;
@@ -8,6 +10,8 @@ export type RetrievalContextItem = {
 	score: number;
 	vectorScore: number;
 	graphScore: number;
+	/** Optional Falkor/entity path hint from hybrid retrieval. */
+	graphProvenance?: string;
 };
 
 export type ComposedAnswer = {
@@ -24,22 +28,33 @@ export type ComposeAnswerInput = {
 };
 
 const SYSTEM_PROMPT = [
-	'You answer questions strictly from the provided thoughts.',
-	'Rules:',
-	'- Use only facts that appear in the provided thoughts.',
-	'- If the thoughts do not contain enough information to answer, say so explicitly and do not guess.',
-	'- Cite supporting thoughts inline using [t_id] markers (e.g. "Marcus suggested rice flour [t_006]").',
-	'- Keep the answer concise; one short paragraph unless a list is clearly more useful.',
-	'- Do not invent thought ids; only cite ids that appear in the provided thoughts list.'
+	'You answer the user question STRICTLY from the provided thoughts.',
+	'',
+	'Required output format (use these exact section headers in this order):',
+	'Answer: <one or two short sentences giving the most direct, decisive answer, using only cited facts>',
+	'Evidence:',
+	'- <fact> [<id>]',
+	'- <fact> [<id>]',
+	'Unknown:',
+	'- <facts the question asked for that are NOT in the thoughts, one per line, or "none">',
+	'',
+	'Hard rules:',
+	'- Cite every factual claim with [<id>] using the EXACT id string from the thoughts list (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
+	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
+	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought.',
+	'- If the thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
+	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses.',
+	'- Every line under Evidence MUST end with at least one [<id>] citation.',
+	'- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts.'
 ].join('\n');
 
 function formatThoughtsForPrompt(items: RetrievalContextItem[]): string {
 	if (items.length === 0) return '(no thoughts retrieved)';
 	return items
-		.map(
-			(t, i) =>
-				`#${i + 1} [id=${t.id}] (${t.category}, score=${t.score.toFixed(3)})\n${t.normalizedText}`
-		)
+		.map((t, i) => {
+			const graphLine = t.graphProvenance ? `\nGraph: ${t.graphProvenance}` : '';
+			return `#${i + 1} [id=${t.id}] (${t.category}, score=${t.score.toFixed(3)})${graphLine}\n${t.normalizedText}`;
+		})
 		.join('\n\n');
 }
 
@@ -87,11 +102,20 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	if (trimmedQuestion.length === 0) {
 		throw new Error('composeAnswer: question must be non-empty');
 	}
+	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
+	const topK = input.topK ?? 8;
 	const retrieved = await searchThoughts({
 		userId: input.userId,
 		query: trimmedQuestion,
-		topK: input.topK ?? 8,
-		weights: input.weights
+		topK,
+		weights
+	});
+	void tryRecordRetrievalQualityEvent({
+		userId: input.userId,
+		surface: 'compose_answer',
+		weights,
+		topKRequested: topK,
+		results: retrieved.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
 	const contextItems: RetrievalContextItem[] = retrieved.map((r) => ({
 		id: r.id,
@@ -99,13 +123,18 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		category: r.category,
 		score: r.score,
 		vectorScore: r.vectorScore,
-		graphScore: r.graphScore
+		graphScore: r.graphScore,
+		graphProvenance:
+			typeof r.metadata?.graphProvenance === 'string' ? r.metadata.graphProvenance : undefined
 	}));
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },
 		{
 			role: 'user',
-			content: `Question: ${trimmedQuestion}\n\nThoughts:\n${formatThoughtsForPrompt(contextItems)}`
+			content:
+				`Question: ${trimmedQuestion}\n\n` +
+				`Thoughts:\n${formatThoughtsForPrompt(contextItems)}\n\n` +
+				`Respond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
 		}
 	];
 	const response = await llmChatCompletion({

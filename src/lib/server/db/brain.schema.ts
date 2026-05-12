@@ -1,11 +1,14 @@
 import {
+	boolean,
 	customType,
+	doublePrecision,
 	index,
 	integer,
 	jsonb,
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 	vector
 } from 'drizzle-orm/pg-core';
@@ -18,8 +21,8 @@ const tsvector = customType<{ data: string }>({
 	}
 });
 
-/** Baseline ontology categories from requirements */
-export const thoughtCategoryEnum = [
+/** Legacy capture category slugs (runtime list only; category column is plain `string`). */
+export const LEGACY_CAPTURE_CATEGORY_KEYS = [
 	'thought',
 	'task',
 	'idea',
@@ -27,7 +30,75 @@ export const thoughtCategoryEnum = [
 	'date',
 	'person'
 ] as const;
-export type ThoughtCategory = (typeof thoughtCategoryEnum)[number];
+
+/** @deprecated use LEGACY_CAPTURE_CATEGORY_KEYS — kept for incremental refactors */
+export const thoughtCategoryEnum = LEGACY_CAPTURE_CATEGORY_KEYS;
+
+/** Open string at compile time; validate with `isLegacyCaptureCategory` where needed. */
+export type ThoughtCategory = string;
+
+export function isLegacyCaptureCategory(value: string): boolean {
+	return (LEGACY_CAPTURE_CATEGORY_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * Per-user entity kind definitions (ontology catalog). No TS closed union — keys are data.
+ */
+export const ontologyEntityKind = pgTable(
+	'ontology_entity_kind',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		key: text('key').notNull(),
+		name: text('name').notNull(),
+		definition: text('definition').notNull(),
+		active: boolean('active').notNull().default(true),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		uniqueIndex('ontology_entity_kind_user_key_uidx').on(t.userId, t.key),
+		index('ontology_entity_kind_user_idx').on(t.userId)
+	]
+);
+
+/**
+ * Per-user relation kind definitions; endpoints reference ontology_entity_kind ids.
+ */
+export const ontologyRelationKind = pgTable(
+	'ontology_relation_kind',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		key: text('key').notNull(),
+		meaning: text('meaning').notNull(),
+		fromOntologyEntityKindId: uuid('from_ontology_entity_kind_id')
+			.notNull()
+			.references(() => ontologyEntityKind.id, { onDelete: 'restrict' }),
+		toOntologyEntityKindId: uuid('to_ontology_entity_kind_id')
+			.notNull()
+			.references(() => ontologyEntityKind.id, { onDelete: 'restrict' }),
+		active: boolean('active').notNull().default(true),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		uniqueIndex('ontology_relation_kind_user_key_uidx').on(t.userId, t.key),
+		index('ontology_relation_kind_user_idx').on(t.userId),
+		index('ontology_relation_kind_from_idx').on(t.fromOntologyEntityKindId),
+		index('ontology_relation_kind_to_idx').on(t.toOntologyEntityKindId)
+	]
+);
 
 export const captureSessionStatusEnum = ['open', 'accepted', 'cancelled'] as const;
 export type CaptureSessionStatus = (typeof captureSessionStatusEnum)[number];
@@ -45,7 +116,7 @@ export const captureSession = pgTable(
 		status: text('status').$type<CaptureSessionStatus>().notNull().default('open'),
 		rawInput: text('raw_input').notNull(),
 		normalizedPreview: text('normalized_preview').notNull().default(''),
-		category: text('category').$type<ThoughtCategory>().notNull().default('thought'),
+		category: text('category').notNull().default('thought'),
 		metadataPreview: jsonb('metadata_preview').$type<Record<string, unknown>>().notNull().default({}),
 		revisionCount: integer('revision_count').notNull().default(0),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -76,9 +147,13 @@ export const thought = pgTable(
 		lexicalTsv: tsvector('lexical_tsv')
 			.notNull()
 			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
-		category: text('category').$type<ThoughtCategory>().notNull(),
+		category: text('category').notNull(),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 		embedding: vector('embedding', { dimensions: 1536 }),
+		/** Optional link to user ontology entity kind (cognitive model); null for legacy rows. */
+		ontologyEntityKindId: uuid('ontology_entity_kind_id').references(() => ontologyEntityKind.id, {
+			onDelete: 'set null'
+		}),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -87,6 +162,7 @@ export const thought = pgTable(
 	},
 	(t) => [
 		index('thought_user_idx').on(t.userId),
+		index('thought_ontology_entity_kind_idx').on(t.ontologyEntityKindId),
 		index('thought_lexical_tsv_idx').using('gin', t.lexicalTsv),
 		index('thought_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))
 	]
@@ -109,10 +185,15 @@ export const thoughtRelation = pgTable(
 			.notNull()
 			.references(() => thought.id, { onDelete: 'cascade' }),
 		relationType: text('relation_type').notNull(),
+		/** Optional link to user ontology relation kind row. */
+		ontologyRelationKindId: uuid('ontology_relation_kind_id').references(() => ontologyRelationKind.id, {
+			onDelete: 'set null'
+		}),
 		createdAt: timestamp('created_at').defaultNow().notNull()
 	},
 	(t) => [
 		index('thought_relation_user_idx').on(t.userId),
+		index('thought_relation_ontology_kind_idx').on(t.ontologyRelationKindId),
 		index('thought_relation_source_idx').on(t.sourceThoughtId),
 		index('thought_relation_target_idx').on(t.targetThoughtId)
 	]
@@ -137,6 +218,35 @@ export const activityCallLog = pgTable(
 	(t) => [index('activity_call_log_user_idx').on(t.userId)]
 );
 
+/**
+ * Metadata-only hybrid retrieval diagnostics (AC-024). No query text, thought ids, or bodies.
+ */
+export const retrievalQualityEvent = pgTable(
+	'retrieval_quality_event',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		/** Caller surface: `api` | `mcp` | `compose_answer`. */
+		surface: text('surface').notNull(),
+		retrievalVersion: text('retrieval_version').notNull().default('1'),
+		topK: integer('top_k').notNull(),
+		weightVector: doublePrecision('weight_vector').notNull(),
+		weightGraph: doublePrecision('weight_graph').notNull(),
+		resultCount: integer('result_count').notNull(),
+		top1SemanticShare: doublePrecision('top1_semantic_share').notNull(),
+		topkMeanSemanticShare: doublePrecision('topk_mean_semantic_share').notNull(),
+		top1PrimaryChannel: text('top1_primary_channel').notNull(),
+		graphOnlyInTopkCount: integer('graph_only_in_topk_count').notNull()
+	},
+	(t) => [
+		index('retrieval_quality_event_user_idx').on(t.userId),
+		index('retrieval_quality_event_user_created_idx').on(t.userId, t.createdAt)
+	]
+);
+
 /** Per-user app preferences (settings page). */
 export const userPreference = pgTable(
 	'user_preference',
@@ -156,5 +266,97 @@ export const userPreference = pgTable(
 	(t) => [
 		index('user_preference_language_idx').on(t.preferredLanguage),
 		index('user_preference_quality_idx').on(t.preferredTranscriptionQuality)
+	]
+);
+
+/**
+ * Per-user thought ontology profile: classifier guidance refreshed periodically (every 10 new thoughts).
+ */
+export const userOntology = pgTable(
+	'user_ontology',
+	{
+		userId: text('user_id')
+			.primaryKey()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		profile: jsonb('profile').$type<Record<string, unknown>>().notNull().default({}),
+		evaluatedUpToThoughtCount: integer('evaluated_up_to_thought_count').notNull().default(0),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [index('user_ontology_updated_idx').on(t.updatedAt)]
+);
+
+/** Canonical entities for Graphiti-style resolution (per-tenant). */
+export const canonicalEntity = pgTable(
+	'canonical_entity',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		/** NFKC-folded, lowercased key used for exact dedup (see `computeLexicalText`). */
+		canonicalKey: text('canonical_key').notNull(),
+		label: text('label').notNull(),
+		entityType: text('entity_type').notNull().default('other'),
+		embedding: vector('embedding', { dimensions: 1536 }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		index('canonical_entity_user_idx').on(t.userId),
+		uniqueIndex('canonical_entity_user_canonical_uidx').on(t.userId, t.canonicalKey),
+		index('canonical_entity_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))
+	]
+);
+
+/** Alternate surfaces mapped to a canonical entity. */
+export const entityAlias = pgTable(
+	'entity_alias',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		canonicalEntityId: uuid('canonical_entity_id')
+			.notNull()
+			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+		aliasText: text('alias_text').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('entity_alias_user_idx').on(t.userId),
+		index('entity_alias_canonical_idx').on(t.canonicalEntityId),
+		uniqueIndex('entity_alias_user_surface_uidx').on(t.userId, t.aliasText)
+	]
+);
+
+/** Audit trail for merge vs create decisions during ingestion. */
+export const entityResolutionLog = pgTable(
+	'entity_resolution_log',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		thoughtId: uuid('thought_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		mentionSurface: text('mention_surface').notNull(),
+		canonicalEntityId: uuid('canonical_entity_id').references(() => canonicalEntity.id, {
+			onDelete: 'set null'
+		}),
+		decision: text('decision').notNull(),
+		confidence: text('confidence').notNull(),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('entity_resolution_log_user_idx').on(t.userId),
+		index('entity_resolution_log_thought_idx').on(t.thoughtId)
 	]
 );

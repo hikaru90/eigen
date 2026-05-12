@@ -13,4 +13,13 @@ describe('priceCall', () => {
 	it('rejects negative base', () => {
 		expect(() => priceCall(-0.01)).toThrow();
 	});
+
+	it('rejects NaN base', () => {
+		expect(() => priceCall(Number.NaN)).toThrow(/non-negative/);
+	});
+
+	it('rejects NaN or negative markup rate', () => {
+		expect(() => priceCall(1, Number.NaN)).toThrow(/markupRate/);
+		expect(() => priceCall(1, -0.05)).toThrow(/markupRate/);
+	});
 });

@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createThoughtEmbedding, extractFirstEmbedding } from './embedding';
 
-const { llmCreateEmbeddingsMock } = vi.hoisted(() => ({
-	llmCreateEmbeddingsMock: vi.fn()
+const { llmCreateEmbeddingsMock, embeddingEnv } = vi.hoisted(() => ({
+	llmCreateEmbeddingsMock: vi.fn(),
+	embeddingEnv: { EMBEDDING_COMPRESS_INTENSITY: 'full' } as { EMBEDDING_COMPRESS_INTENSITY?: string }
+}));
+
+vi.mock('$env/dynamic/private', () => ({
+	env: embeddingEnv
 }));
 
 vi.mock('./llm-client', () => ({
@@ -43,15 +48,60 @@ describe('extractFirstEmbedding', () => {
 			})
 		).toThrow(/non-numeric/);
 	});
+
+	it('throws when embedding payload is not an array', () => {
+		expect(() => extractFirstEmbedding({ data: [{ embedding: 'oops' }] })).toThrow(
+			/missing an embedding array/
+		);
+	});
 });
 
 describe('createThoughtEmbedding', () => {
-	it('calls embedding client and parses first embedding', async () => {
+	beforeEach(() => {
+		embeddingEnv.EMBEDDING_COMPRESS_INTENSITY = 'full';
+		llmCreateEmbeddingsMock.mockReset();
+	});
+
+	it('calls embedding client with compressed input and parses first embedding', async () => {
 		llmCreateEmbeddingsMock.mockResolvedValue({
 			data: [{ embedding: Array.from({ length: 1536 }, () => 0.1) }]
 		});
 		const out = await createThoughtEmbedding('u1', 'hello');
 		expect(out).toHaveLength(1536);
-		expect(llmCreateEmbeddingsMock).toHaveBeenCalledWith({ userId: 'u1', input: 'hello' });
+		expect(llmCreateEmbeddingsMock).toHaveBeenCalledTimes(1);
+		const arg = llmCreateEmbeddingsMock.mock.calls[0][0] as { userId: string; input: string };
+		expect(arg.userId).toBe('u1');
+		expect(arg.input.length).toBeLessThanOrEqual('hello'.length);
+	});
+
+	it('sends shorter prose to the client for verbose input', async () => {
+		llmCreateEmbeddingsMock.mockResolvedValue({
+			data: [{ embedding: Array.from({ length: 1536 }, () => 0.1) }]
+		});
+		const verbose =
+			'I think that basically we should really just simply add a refresh path when the session token expires.';
+		await createThoughtEmbedding('u1', verbose);
+		const arg = llmCreateEmbeddingsMock.mock.calls[0][0] as { input: string };
+		expect(arg.input.length).toBeLessThan(verbose.length);
+	});
+
+	it('leaves a filesystem path segment intact inside the payload', async () => {
+		llmCreateEmbeddingsMock.mockResolvedValue({
+			data: [{ embedding: Array.from({ length: 1536 }, () => 0.1) }]
+		});
+		const text = 'Please look at the file /tmp/eigen/foo.txt for the configuration details.';
+		await createThoughtEmbedding('u1', text);
+		const arg = llmCreateEmbeddingsMock.mock.calls[0][0] as { input: string };
+		expect(arg.input).toContain('/tmp/eigen/foo.txt');
+	});
+
+	it('throws when EMBEDDING_COMPRESS_INTENSITY is missing', async () => {
+		delete embeddingEnv.EMBEDDING_COMPRESS_INTENSITY;
+		await expect(createThoughtEmbedding('u1', 'hello')).rejects.toThrow(/EMBEDDING_COMPRESS_INTENSITY/);
+	});
+
+	it('throws when EMBEDDING_COMPRESS_INTENSITY is invalid', async () => {
+		embeddingEnv.EMBEDDING_COMPRESS_INTENSITY = 'mega';
+		await expect(createThoughtEmbedding('u1', 'hello')).rejects.toThrow(/lite, full, or ultra/);
 	});
 });

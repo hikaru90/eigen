@@ -1,5 +1,7 @@
 import { captureThought, editStoredThought, listThoughts } from '$lib/server/capture/service';
 import { searchThoughts } from '$lib/server/retrieval/service';
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
+import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
 
 export type McpToolContext = {
@@ -48,10 +50,19 @@ export async function runSearchThoughtsTool(context: McpToolContext, args: unkno
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
 	const threshold = typeof body.threshold === 'number' ? body.threshold : undefined;
 	validateSearchParams({ topK, threshold });
+	const weights = CONTEXT_WEIGHTS.default;
 	const results = await searchThoughts({
 		userId: context.userId,
 		query,
-		topK: topK ?? 20
+		topK: topK ?? 20,
+		weights
+	});
+	void tryRecordRetrievalQualityEvent({
+		userId: context.userId,
+		surface: 'mcp',
+		weights,
+		topKRequested: topK ?? 20,
+		results: results.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
 	const filtered = threshold == null ? results : results.filter((result) => result.score >= threshold);
 	return { results: filtered };

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { captureThought, deterministicNormalize, editStoredThought, listThoughts } from './service';
+import { captureThought, normalizeThoughtText, editStoredThought, listThoughts } from './service';
 
 const {
 	getDbMock,
@@ -7,14 +7,20 @@ const {
 	createThoughtEmbeddingMock,
 	upsertThoughtNodeMock,
 	upsertThoughtRelationMock,
-	extractRelationsMock
+	extractRelationsMock,
+	syncEntityGraphFromThoughtMock,
+	resolveThoughtCategoryMock,
+	maybeRefreshUserOntologyMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	logActivityCallMock: vi.fn(),
 	createThoughtEmbeddingMock: vi.fn(),
 	upsertThoughtNodeMock: vi.fn(),
 	upsertThoughtRelationMock: vi.fn(),
-	extractRelationsMock: vi.fn()
+	extractRelationsMock: vi.fn(),
+	syncEntityGraphFromThoughtMock: vi.fn(),
+	resolveThoughtCategoryMock: vi.fn(),
+	maybeRefreshUserOntologyMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -38,17 +44,20 @@ vi.mock('$lib/server/memory/relation-extraction', () => ({
 	extractRelations: extractRelationsMock
 }));
 
-describe('deterministicNormalize', () => {
-	it('normalizes whitespace and defaults to thought', () => {
-		const result = deterministicNormalize('  hello   world  ');
-		expect(result.normalized).toBe('hello world');
-		expect(result.category).toBe('thought');
-	});
+vi.mock('$lib/server/memory/entity-graph-sync', () => ({
+	syncEntityGraphFromThought: syncEntityGraphFromThoughtMock
+}));
 
-	it('maps task/idea/reference categories', () => {
-		expect(deterministicNormalize('todo buy milk').category).toBe('task');
-		expect(deterministicNormalize('new idea for app').category).toBe('idea');
-		expect(deterministicNormalize('reference this link').category).toBe('reference');
+vi.mock('$lib/server/ontology', () => ({
+	resolveThoughtCategory: resolveThoughtCategoryMock,
+	maybeRefreshUserOntology: maybeRefreshUserOntologyMock
+}));
+
+describe('normalizeThoughtText', () => {
+	it('normalizes whitespace and sets pipeline metadata', () => {
+		const result = normalizeThoughtText('  hello   world  ');
+		expect(result.normalized).toBe('hello world');
+		expect(result.metadata.pipeline).toBe('ontology_llm_v1');
 	});
 });
 
@@ -60,45 +69,63 @@ function makeInsertReturning(value: unknown) {
 	};
 }
 
+function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
+	const thoughtCount = overrides.thoughtCountAfterInsert ?? 1;
+	const sessionRow = { id: 'session-1' };
+	const thoughtRow = {
+		id: 'thought-1',
+		userId: 'u1',
+		rawText: 'raw input',
+		normalizedText: 'raw input',
+		lexicalText: 'raw input',
+		category: 'thought',
+		metadata: {}
+	};
+	const insertCapture = makeInsertReturning(sessionRow);
+	const insertThought = makeInsertReturning(thoughtRow);
+	const tx = {
+		insert: vi.fn((table: unknown) => {
+			if (table && typeof table === 'object' && 'sourceThoughtId' in (table as Record<string, unknown>)) {
+				return { values: vi.fn(async () => []) };
+			}
+			return insertThought;
+		}),
+		delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
+	};
+	return {
+		insert: vi.fn(() => insertCapture),
+		transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx)),
+		select: vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(async () => [{ n: thoughtCount }])
+			}))
+		}))
+	};
+}
+
 describe('captureThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
 		extractRelationsMock.mockResolvedValue([]);
+		syncEntityGraphFromThoughtMock.mockResolvedValue(undefined);
+		resolveThoughtCategoryMock.mockResolvedValue('thought');
+		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
 	});
 
 	it('stores capture session, thought row, and graph node', async () => {
-		const sessionRow = { id: 'session-1' };
-		const thoughtRow = {
-			id: 'thought-1',
-			userId: 'u1',
-			rawText: 'raw input',
-			normalizedText: 'raw input',
-			lexicalText: 'raw input',
-			category: 'thought',
-			metadata: {}
-		};
-		const insertCapture = makeInsertReturning(sessionRow);
-		const insertThought = makeInsertReturning(thoughtRow);
-		const tx = {
-			insert: vi.fn((table: unknown) => {
-				if (table && typeof table === 'object' && 'sourceThoughtId' in (table as Record<string, unknown>)) {
-					return { values: vi.fn(async () => []) };
-				}
-				return insertThought;
-			}),
-			delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
-		};
-		const db = {
-			insert: vi.fn(() => insertCapture),
-			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx))
-		};
+		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
 
 		const stored = await captureThought('u1', 'raw input');
 
 		expect(stored.id).toBe('thought-1');
 		expect(logActivityCallMock).toHaveBeenCalledTimes(1);
+		expect(resolveThoughtCategoryMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			normalized: 'raw input',
+			rawText: 'raw input'
+		});
 		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'raw input');
 		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -107,41 +134,69 @@ describe('captureThought', () => {
 			})
 		);
 		expect(extractRelationsMock).toHaveBeenCalledTimes(1);
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledTimes(1);
+		expect(maybeRefreshUserOntologyMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				thoughtCountAfterInsert: 1
+			})
+		);
 	});
 
 	it('persists extracted relations to sql and falkor', async () => {
-		const sessionRow = { id: 'session-1' };
-		const thoughtRow = {
-			id: 'thought-1',
-			userId: 'u1',
-			rawText: 'raw input',
-			normalizedText: 'raw input',
-			lexicalText: 'raw input',
-			category: 'thought',
-			metadata: {}
-		};
-		extractRelationsMock.mockResolvedValue([{ targetId: 'target-1', relationType: 'related_to' }]);
-		const insertCapture = makeInsertReturning(sessionRow);
-		const insertThought = makeInsertReturning(thoughtRow);
-		const tx = {
-			insert: vi.fn((table: unknown) => {
-				if (table && typeof table === 'object' && 'sourceThoughtId' in (table as Record<string, unknown>)) {
-					return { values: vi.fn(async () => []) };
-				}
-				return insertThought;
-			}),
-			delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
-		};
-		const db = {
-			insert: vi.fn(() => insertCapture),
-			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx))
-		};
+		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
+		extractRelationsMock.mockResolvedValue([{ targetId: 'target-1', relationType: 'related_to' }]);
 
 		await captureThought('u1', 'raw input');
 		expect(upsertThoughtRelationMock).toHaveBeenCalledWith(
 			expect.objectContaining({ sourceId: 'thought-1', targetId: 'target-1' })
 		);
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled();
+	});
+
+	it('reports ingest phases in pipeline order when onProgress is provided', async () => {
+		const db = makeCaptureDb();
+		getDbMock.mockReturnValue(db);
+
+		const phases: string[] = [];
+		await captureThought('u1', 'raw input', {
+			onProgress: (p) => {
+				phases.push(p);
+			}
+		});
+
+		expect(phases).toEqual([
+			'accounting',
+			'ontology',
+			'session',
+			'embedding',
+			'persist',
+			'graph',
+			'relations',
+			'entities'
+		]);
+	});
+
+	it('runs ontology refresh on every 10th thought and emits ontology_eval phase', async () => {
+		const db = makeCaptureDb({ thoughtCountAfterInsert: 10 });
+		getDbMock.mockReturnValue(db);
+		maybeRefreshUserOntologyMock.mockImplementation(async (opts: { onBeforeEval?: () => void }) => {
+			opts.onBeforeEval?.();
+		});
+
+		const phases: string[] = [];
+		await captureThought('u1', 'raw input', {
+			onProgress: (p) => phases.push(p)
+		});
+
+		expect(maybeRefreshUserOntologyMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				thoughtCountAfterInsert: 10
+			})
+		);
+		expect(phases.at(-1)).toBe('ontology_eval');
 	});
 });
 
@@ -150,6 +205,7 @@ describe('editStoredThought', () => {
 		vi.clearAllMocks();
 		createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5]);
 		extractRelationsMock.mockResolvedValue([]);
+		resolveThoughtCategoryMock.mockResolvedValue('thought');
 	});
 
 	it('returns not_found when thought does not exist', async () => {
@@ -180,9 +236,9 @@ describe('editStoredThought', () => {
 		};
 		const updated = {
 			...existing,
-			rawText: 'hello\n\nEdit request: make shorter',
-			normalizedText: 'hello Edit request: make shorter',
-			lexicalText: 'hello edit request: make shorter'
+			rawText: 'make shorter',
+			normalizedText: 'make shorter',
+			lexicalText: 'make shorter'
 		};
 		const db = {
 			select: vi.fn(() => ({
@@ -213,9 +269,63 @@ describe('editStoredThought', () => {
 		if (result.ok) {
 			expect(result.thought.id).toBe('t1');
 		}
+		expect(resolveThoughtCategoryMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			normalized: 'make shorter',
+			rawText: 'make shorter'
+		});
 		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1);
 		expect(upsertThoughtNodeMock).toHaveBeenCalledTimes(1);
 		expect(extractRelationsMock).toHaveBeenCalledTimes(1);
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('reports ingest phases for edits when onProgress is provided', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'hello',
+			metadata: {},
+			category: 'thought',
+			normalizedText: 'hello',
+			lexicalText: 'hello'
+		};
+		const updated = {
+			...existing,
+			rawText: 'make shorter',
+			normalizedText: 'make shorter',
+			lexicalText: 'make shorter'
+		};
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			})),
+			transaction: vi.fn(async (cb: (txArg: unknown) => unknown) =>
+				cb({
+					delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
+					insert: vi.fn(() => ({ values: vi.fn(async () => []) }))
+				})
+			)
+		};
+		getDbMock.mockReturnValue(db);
+
+		const phases: string[] = [];
+		const result = await editStoredThought('u1', 't1', 'make shorter', {
+			onProgress: (p) => phases.push(p)
+		});
+		expect(result.ok).toBe(true);
+		expect(phases).toEqual(['accounting', 'ontology', 'embedding', 'persist', 'graph', 'relations', 'entities']);
 	});
 });
 

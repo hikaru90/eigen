@@ -1,6 +1,26 @@
+import { env } from '$env/dynamic/private';
+import { compress, type Intensity } from './embedding-compress';
 import { llmCreateEmbeddings } from './llm-client';
 
 const EMBEDDING_DIMENSIONS = 1536;
+
+const INTENSITY_VALUES = new Set<Intensity>(['lite', 'full', 'ultra']);
+
+function parseEmbeddingCompressIntensity(): Intensity {
+	const raw = env.EMBEDDING_COMPRESS_INTENSITY?.trim();
+	if (!raw) {
+		throw new Error(
+			'EMBEDDING_COMPRESS_INTENSITY is not set (required: lite | full | ultra). Vectors use deterministic compress before embedding.'
+		);
+	}
+	const key = raw.toLowerCase() as Intensity;
+	if (!INTENSITY_VALUES.has(key)) {
+		throw new Error(
+			`EMBEDDING_COMPRESS_INTENSITY must be lite, full, or ultra (got "${raw}")`
+		);
+	}
+	return key;
+}
 
 function toNumberArray(value: unknown): number[] {
 	if (!Array.isArray(value)) {
@@ -36,6 +56,8 @@ export function extractFirstEmbedding(body: unknown): number[] {
 }
 
 export async function createThoughtEmbedding(userId: string, input: string): Promise<number[]> {
-	const response = await llmCreateEmbeddings({ userId, input });
+	const intensity = parseEmbeddingCompressIntensity();
+	const payload = compress(input, { intensity });
+	const response = await llmCreateEmbeddings({ userId, input: payload });
 	return extractFirstEmbedding(response);
 }

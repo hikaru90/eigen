@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm';
 import { user } from '$lib/server/db/auth.schema';
 import { composeAnswer, type ComposedAnswer } from '$lib/server/qa/compose-answer';
 import type { AppDatabase } from '$lib/server/db';
-import { runEval, withEvalDb } from './eval-context';
+import { logEval, runEval, startEvalHeartbeat, withEvalDb } from './eval-context';
 import { loadAnswerCases, type AnswerCase } from './dataset';
 import { judgeAnswer, type JudgeVerdict } from './judge';
 import { writeReport } from './report';
@@ -30,7 +30,7 @@ async function ensureJudgeUser(db: AppDatabase): Promise<void> {
 		emailVerified: true,
 		onboardingCompleted: true
 	});
-	console.log(`[eval] created user row ${EVAL_JUDGE_USER_ID}`);
+	logEval(`created user row ${EVAL_JUDGE_USER_ID}`);
 }
 
 type CaseRecord = {
@@ -120,55 +120,60 @@ async function evaluateCase(c: AnswerCase): Promise<CaseRecord> {
 }
 
 async function main(): Promise<void> {
-	const cases = loadAnswerCases().cases;
-	console.log(`[eval] running ${cases.length} answer cases`);
+	const stopHeartbeat = startEvalHeartbeat('eval:answer');
+	try {
+		const cases = loadAnswerCases().cases;
+		logEval(`running ${cases.length} answer cases`);
 
-	const records = await withEvalDb(EVAL_JUDGE_USER_ID, async (db) => {
-		await ensureJudgeUser(db);
-		const out: CaseRecord[] = [];
-		for (const c of cases) {
-			try {
-				const rec = await evaluateCase(c);
-				out.push(rec);
-				const v = rec.verdict;
-				console.log(
-					`[eval] ${rec.caseId} faith=${v.faithfulness.score} rel=${v.relevance.score} use=${v.usefulness.score} ${rec.passed ? 'pass' : 'FAIL'}`
-				);
-			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
-				console.error(`[eval] ${c.id} ERROR: ${message}`);
-				throw err;
+		const records = await withEvalDb(EVAL_JUDGE_USER_ID, async (db) => {
+			await ensureJudgeUser(db);
+			const out: CaseRecord[] = [];
+			for (const c of cases) {
+				try {
+					const rec = await evaluateCase(c);
+					out.push(rec);
+					const v = rec.verdict;
+					logEval(
+						`${rec.caseId} faith=${v.faithfulness.score} rel=${v.relevance.score} use=${v.usefulness.score} ${rec.passed ? 'pass' : 'FAIL'}`
+					);
+				} catch (err) {
+					const message = err instanceof Error ? err.message : String(err);
+					logEval(`${c.id} ERROR: ${message}`);
+					throw err;
+				}
 			}
-		}
-		return out;
-	});
+			return out;
+		});
 
-	printSummary(records);
+		printSummary(records);
 
-	const { reportPath, latestPath } = writeReport('answer', {
-		generatedAt: new Date().toISOString(),
-		retrievalUserId: EVAL_RETRIEVAL_USER_ID,
-		judgeUserId: EVAL_JUDGE_USER_ID,
-		passThreshold: PASS_THRESHOLD,
-		caseCount: records.length,
-		passed: records.filter((r) => r.passed).length,
-		summary: {
-			faithfulness: {
-				mean: meanScore(records, (v) => v.faithfulness.score),
-				median: median(records.map((r) => r.verdict.faithfulness.score))
+		const { reportPath, latestPath } = writeReport('answer', {
+			generatedAt: new Date().toISOString(),
+			retrievalUserId: EVAL_RETRIEVAL_USER_ID,
+			judgeUserId: EVAL_JUDGE_USER_ID,
+			passThreshold: PASS_THRESHOLD,
+			caseCount: records.length,
+			passed: records.filter((r) => r.passed).length,
+			summary: {
+				faithfulness: {
+					mean: meanScore(records, (v) => v.faithfulness.score),
+					median: median(records.map((r) => r.verdict.faithfulness.score))
+				},
+				relevance: {
+					mean: meanScore(records, (v) => v.relevance.score),
+					median: median(records.map((r) => r.verdict.relevance.score))
+				},
+				usefulness: {
+					mean: meanScore(records, (v) => v.usefulness.score),
+					median: median(records.map((r) => r.verdict.usefulness.score))
+				}
 			},
-			relevance: {
-				mean: meanScore(records, (v) => v.relevance.score),
-				median: median(records.map((r) => r.verdict.relevance.score))
-			},
-			usefulness: {
-				mean: meanScore(records, (v) => v.usefulness.score),
-				median: median(records.map((r) => r.verdict.usefulness.score))
-			}
-		},
-		records
-	});
-	console.log(`\n[eval] wrote report:\n  ${reportPath}\n  ${latestPath}`);
+			records
+		});
+		logEval(`wrote report:\n  ${reportPath}\n  ${latestPath}`);
+	} finally {
+		stopHeartbeat();
+	}
 }
 
 void runEval(main);

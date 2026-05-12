@@ -82,3 +82,47 @@ relations:
   # ---------- Cross-cluster ----------
   - { source: t_071, target: t_087, type: related_to }    # Naval (E ↔ F)
   - { source: t_087, target: t_069, type: related_to }    # Naval thread (F → E)
+
+  # ---------- Densification: close gaps the queries traverse ----------
+  # Cluster A (Tartine + Marcus + bread project)
+  - { source: t_003, target: t_012, type: related_to }    # Tartine recipe ↔ Tartine day-old
+  - { source: t_004, target: t_012, type: related_to }    # Tartine brunch ↔ Tartine store
+  - { source: t_002, target: t_004, type: related_to }    # Marcus + starter ↔ Marcus + Tartine
+  - { source: t_011, target: t_004, type: mentions_person } # Marcus walnuts ↔ Marcus + Tartine
+  - { source: t_001, target: t_005, type: related_to }    # started starter ↔ cold-ferment idea
+  - { source: t_001, target: t_013, type: related_to }    # started starter ↔ fermentation temp
+  - { source: t_001, target: t_009, type: related_to }    # starter project ↔ buy flour/scale
+  - { source: t_010, target: t_001, type: related_to }    # focaccia ↔ sourdough comparison
+  - { source: t_007, target: t_003, type: related_to }    # lame for scoring ↔ Tartine country loaf
+
+  # Cluster B (Eigen retrieval policy + Sarah onboarding)
+  - { source: t_019, target: t_023, type: related_to }    # retry policy ↔ lexical_text idea
+  - { source: t_023, target: t_031, type: related_to }    # lexical_text idea ↔ graph relation seeding
+  - { source: t_019, target: t_034, type: related_to }    # retry policy ↔ perf target
+  - { source: t_028, target: t_032, type: related_to }    # redact secrets ↔ MCP validation
+  - { source: t_030, target: t_033, type: related_to }    # Sarah onboarding ↔ Sarah offsite/ship
+
+  # Cluster C (Diego recovery + deadlift)
+  - { source: t_038, target: t_041, type: related_to }    # deload weeks ↔ sleep affects bench
+  - { source: t_041, target: t_043, type: related_to }    # sleep ↔ hydration (recovery)
+  - { source: t_038, target: t_043, type: related_to }    # deload ↔ hydration
+  - { source: t_041, target: t_044, type: related_to }    # sleep ↔ wrist re-bandage
+  - { source: t_040, target: t_047, type: related_to }    # Diego deadlift form ↔ deadlift goal
+  - { source: t_037, target: t_039, type: related_to }    # squat 315 ↔ 5/3/1 program (already present? no — adding)
+
+  # Cluster D (Tom + Yosemite)
+  - { source: t_053, target: t_056, type: related_to }    # Yosemite trip ↔ Tom broke ankle
+  - { source: t_058, target: t_054, type: related_to }    # Big Sur recovery ↔ Tahoe winter climbing
+  - { source: t_058, target: t_070, type: related_to }    # Big Sur disconnect ↔ stoic control note
+
+  # Cluster E (Priya + Naval + Kahneman)
+  - { source: t_067, target: t_071, type: related_to }    # Priya reading list ↔ Naval leverage
+  - { source: t_069, target: t_071, type: related_to }    # Naval almanack ↔ Naval leverage
+  - { source: t_065, target: t_075, type: related_to }    # Kahneman intro ↔ Kahneman loss aversion (already? yes but redundant ok)
+
+  # Cluster F (retirement + investing playbook)
+  - { source: t_083, target: t_085, type: related_to }    # 401k match ↔ index funds
+  - { source: t_083, target: t_087, type: related_to }    # 401k match ↔ Naval equity
+  - { source: t_081, target: t_083, type: related_to }    # automate transfers ↔ 401k match
+  - { source: t_085, target: t_081, type: related_to }    # index funds ↔ automate transfers (already? yes — keep)
+  - { source: t_088, target: t_080, type: related_to }    # insurance audit ↔ quarterly taxes (admin cadence)

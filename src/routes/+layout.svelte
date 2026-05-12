@@ -37,10 +37,10 @@
 
   const bottomNavItems = $derived([
     {
-      label: "Activity",
-      href: "/activity",
+      label: "Graph",
+      href: "/graph",
       icon: Network,
-      active: currentPath.includes("/activity"),
+      active: currentPath.includes("/graph"),
       variant: "secondary",
     },
     {

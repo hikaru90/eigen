@@ -8,6 +8,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from '$lib/capture/ingest-phases';
+	import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
 
 	let { data }: { data: PageData } = $props();
 
@@ -22,6 +25,16 @@
 	} | null>(null);
 	let err = $state<string | null>(null);
 	let loading = $state(false);
+	let ingestPhase = $state<CaptureIngestPhase | null>(null);
+
+	const ingestStatus = $derived(
+		ingestPhase
+			? CAPTURE_INGEST_PHASE_COPY[ingestPhase]
+			: {
+					title: 'Preparing ingest',
+					description: 'Sending your thought to the ingest pipeline.'
+				}
+	);
 
 	let dictating = $state(false);
 	let dictationStatus = $state<string | null>(null);
@@ -164,14 +177,41 @@
 
 	async function capture() {
 		err = null;
+		ingestPhase = null;
 		loading = true;
 		try {
 			const res = await fetch('/api/capture/submit', {
 				method: 'POST',
-				headers: { 'content-type': 'application/json' },
+				headers: {
+					'content-type': 'application/json',
+					accept: 'application/x-ndjson, application/json'
+				},
 				body: JSON.stringify({ raw })
 			});
-			if (!res.ok) throw new Error(await res.text());
+			const contentType = res.headers.get('content-type') ?? '';
+			if (contentType.includes('application/x-ndjson')) {
+				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(res, (phase) => {
+					ingestPhase = phase;
+				});
+				stored = thought;
+				editRequest = '';
+				return;
+			}
+			if (!res.ok) {
+				let serverMessage = '';
+				try {
+					const payload = (await res.json()) as { error?: unknown; details?: unknown };
+					if (typeof payload.error === 'string' && payload.error.trim()) {
+						serverMessage = payload.error;
+					} else if (Array.isArray(payload.details)) {
+						const firstDetail = payload.details.find((v) => typeof v === 'string');
+						if (typeof firstDetail === 'string') serverMessage = firstDetail;
+					}
+				} catch {
+					serverMessage = await res.text();
+				}
+				throw new Error(serverMessage || `Capture failed (${res.status})`);
+			}
 			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
 			stored = j.thought;
 			editRequest = '';
@@ -179,19 +219,33 @@
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
 			loading = false;
+			ingestPhase = null;
 		}
 	}
 
 	async function submitEditRequest() {
 		if (!stored) return;
 		err = null;
+		ingestPhase = null;
 		loading = true;
 		try {
 			const res = await fetch('/api/capture/edit', {
 				method: 'POST',
-				headers: { 'content-type': 'application/json' },
+				headers: {
+					'content-type': 'application/json',
+					accept: 'application/x-ndjson, application/json'
+				},
 				body: JSON.stringify({ thoughtId: stored.id, editRequest })
 			});
+			const contentType = res.headers.get('content-type') ?? '';
+			if (contentType.includes('application/x-ndjson')) {
+				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(res, (phase) => {
+					ingestPhase = phase;
+				});
+				stored = thought;
+				editRequest = '';
+				return;
+			}
 			if (!res.ok) throw new Error(await res.text());
 			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
 			stored = j.thought;
@@ -200,6 +254,7 @@
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
 			loading = false;
+			ingestPhase = null;
 		}
 	}
 </script>
@@ -254,6 +309,27 @@
 				</div>
 			{/if}
 		</Card.Root>
+
+		{#if loading}
+			<div
+				class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card rounded-lg px-4 py-3"
+				role="status"
+				aria-live="polite"
+			>
+				<div class="flex gap-3">
+					<LoaderCircleIcon
+						class="text-muted-foreground size-5 shrink-0 animate-spin"
+						aria-hidden="true"
+					/>
+					<div class="min-w-0">
+						<p class="text-foreground text-sm font-medium">{ingestStatus.title}</p>
+						<p class="text-muted-foreground mt-1 text-xs leading-relaxed">
+							{ingestStatus.description}
+						</p>
+					</div>
+				</div>
+			</div>
+		{/if}
 
 		{#if err}
 			<p class="text-destructive text-sm">{err}</p>

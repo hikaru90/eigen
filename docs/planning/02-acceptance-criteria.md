@@ -8,7 +8,7 @@
 5. Deterministic LLM failure handling (3 retries then explicit error).
 6. Tenant isolation by `user_id` with RLS.
 
-> **Deferred:** relation-centric retrieval routing and its acceptance criteria are intentionally out of scope until re-opened as a requirement.
+> **Deferred:** relation-centric retrieval routing and its acceptance criteria are intentionally out of scope until re-opened as a requirement. The helper `selectRetrievalModeFromQuery` exists in code for a future router but is **not** invoked by production `search_thoughts` / HTTP retrieval paths until that deferral is lifted.
 
 ## Acceptance Criteria (Given/When/Then)
 
@@ -70,7 +70,12 @@
 ### AC-012 Context selection policy (default)
 - Given default retrieval mode and candidate set
 - When context is selected
-- Then ranking uses `0.7 vector + 0.3 graph` deterministically.
+- Then ranking applies weight **0.7** to the combined semantic reciprocal-rank contribution (pgvector + lexical fusion) and weight **0.3** to the graph reciprocal-rank contribution, deterministically (shorthand: `0.7 vector + 0.3 graph`).
+
+### AC-024 Retrieval quality telemetry (metadata-only)
+- Given a successful `search_thoughts` or equivalent hybrid search
+- When results are returned to the caller
+- Then the system may persist one **metadata-only** row (numeric channel diagnostics, weights, `top_k`, call surface) scoped by `user_id` with RLS, and **must not** store query text, normalized thought text, thought ids, or embeddings in that row.
 
 ### AC-013 Context selection policy (relation-centric) (deferred)
 - Given relation-centric retrieval mode and candidate set

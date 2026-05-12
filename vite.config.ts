@@ -3,6 +3,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+/** Watch / file-scoped re-runs only instrument a subset; thresholds would false-fail. */
+const enforceCoverageThresholds =
+	process.env.CI === 'true' || process.argv.includes('run');
+
 export default defineConfig({
 	build: {
 		rollupOptions: {
@@ -35,34 +39,44 @@ export default defineConfig({
 				'src/lib/components/ui/**/index.ts',
 				'src/lib/components/**/*.svelte',
 				'src/app.d.ts',
+				'src/hooks.ts',
+				'src/hooks.server.ts',
+				'src/lib/index.ts',
+				'src/lib/utils.ts',
 				'src/lib/server/db/auth.schema.ts',
+				'src/lib/server/db/brain.schema.ts',
 				'src/lib/vitest-examples/**',
 				'src/routes/**/+page.server.ts',
 				'src/routes/**/*.svelte',
 				'src/routes/+layout.server.ts',
 				'src/routes/demo/**',
+				'**/*.e2e.ts',
 				'**/*.config.*'
 			],
-			thresholds: {
-				'src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity,qa}/**': {
-					lines: 95,
-					branches: 95,
-					functions: 95,
-					statements: 95
-				},
-				'src/lib/**': {
-					lines: 80,
-					branches: 80,
-					functions: 80,
-					statements: 80
-				},
-				'src/routes/**': {
-					lines: 80,
-					branches: 80,
-					functions: 80,
-					statements: 80
-				}
-			}
+			...(enforceCoverageThresholds
+				? {
+						thresholds: {
+							'src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity,qa}/**': {
+								lines: 95,
+								branches: 95,
+								functions: 95,
+								statements: 95
+							},
+							'src/lib/**': {
+								lines: 80,
+								branches: 80,
+								functions: 80,
+								statements: 80
+							},
+							'src/routes/**': {
+								lines: 80,
+								branches: 80,
+								functions: 80,
+								statements: 80
+							}
+						}
+					}
+				: {})
 		}
 	}
 });

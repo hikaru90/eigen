@@ -33,7 +33,7 @@ describe('POST /api/retrieval/search', () => {
 			locals: { user: { id: 'u1' } },
 			request: { json: vi.fn(async () => ({ query: 'hi', topK: 5 })) }
 		} as never);
-		expect(searchThoughtsMock).toHaveBeenCalledWith({ userId: 'u1', query: 'hi', topK: 5 });
+		expect(searchThoughtsMock).toHaveBeenCalledWith({ userId: 'u1', query: 'hi', topK: 5, weights: { vector: 0.7, graph: 0.3 } });
 		expect(res.status).toBe(200);
 	});
 });

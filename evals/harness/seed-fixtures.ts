@@ -14,8 +14,9 @@ import { thought, thoughtRelation } from '$lib/server/db/brain.schema';
 import { user } from '$lib/server/db/auth.schema';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
+import { upsertThoughtNode, upsertThoughtRelation } from '$lib/server/graph/falkor';
 import type { AppDatabase } from '$lib/server/db';
-import { runEval, withEvalDb } from './eval-context';
+import { logEval, runEval, startEvalHeartbeat, withEvalDb } from './eval-context';
 import {
 	loadCorpus,
 	loadRelations,
@@ -44,7 +45,7 @@ async function ensureUser(db: AppDatabase): Promise<void> {
 		emailVerified: true,
 		onboardingCompleted: true
 	});
-	console.log(`[eval] created user row ${EVAL_RETRIEVAL_USER_ID}`);
+	logEval(`created user row ${EVAL_RETRIEVAL_USER_ID}`);
 }
 
 type StoredThoughtRow = {
@@ -157,10 +158,15 @@ async function upsertThoughts(
 			idMap.set(item.id, row.id);
 			inserted += 1;
 		}
+
+		const processed = inserted + updated + unchanged;
+		if (processed % 10 === 0 || processed === corpus.length) {
+			logEval(`seed thoughts progress ${processed}/${corpus.length}`);
+		}
 	}
 
-	console.log(
-		`[eval] thoughts: inserted=${inserted} updated=${updated} unchanged=${unchanged} embeddings_missed=${embeddingsMissed}`
+	logEval(
+		`thoughts: inserted=${inserted} updated=${updated} unchanged=${unchanged} embeddings_missed=${embeddingsMissed}`
 	);
 	return { idMap, embeddingsMissed };
 }
@@ -169,9 +175,9 @@ async function replaceRelations(
 	db: AppDatabase,
 	relations: RelationEdge[],
 	idMap: Map<string, string>
-): Promise<void> {
+): Promise<Array<{ sourceThoughtId: string; targetThoughtId: string; relationType: string }>> {
 	await db.delete(thoughtRelation).where(eq(thoughtRelation.userId, EVAL_RETRIEVAL_USER_ID));
-	if (relations.length === 0) return;
+	if (relations.length === 0) return [];
 
 	const rows = relations.map((r) => {
 		const sourceId = idMap.get(r.source);
@@ -189,25 +195,72 @@ async function replaceRelations(
 		};
 	});
 	await db.insert(thoughtRelation).values(rows);
-	console.log(`[eval] relations: inserted=${rows.length}`);
+	logEval(`relations: inserted=${rows.length}`);
+	return rows;
+}
+
+async function syncGraph(
+	corpus: CorpusThought[],
+	relations: Array<{ sourceThoughtId: string; targetThoughtId: string; relationType: string }>,
+	idMap: Map<string, string>
+): Promise<void> {
+	let syncedNodes = 0;
+	for (const item of corpus) {
+		const thoughtId = idMap.get(item.id);
+		if (!thoughtId) {
+			throw new Error(`[eval] graph sync missing mapped thought id for ${item.id}`);
+		}
+		const normalized = deterministicNormalize(item.rawText);
+		const lexical = computeLexicalText(normalized);
+		await upsertThoughtNode({
+			id: thoughtId,
+			userId: EVAL_RETRIEVAL_USER_ID,
+			rawText: item.rawText,
+			normalizedText: normalized,
+			lexicalText: lexical,
+			category: item.category
+		});
+		syncedNodes += 1;
+	}
+	logEval(`graph nodes: upserted=${syncedNodes}`);
+
+	let syncedEdges = 0;
+	for (const relation of relations) {
+		await upsertThoughtRelation({
+			userId: EVAL_RETRIEVAL_USER_ID,
+			sourceId: relation.sourceThoughtId,
+			targetId: relation.targetThoughtId,
+			relationType: relation.relationType
+		});
+		syncedEdges += 1;
+	}
+	logEval(`graph edges: upserted=${syncedEdges}`);
 }
 
 async function main(): Promise<void> {
-	const corpus = loadCorpus();
-	const relations = loadRelations();
-	const cache = loadEmbeddingCache();
+	const stopHeartbeat = startEvalHeartbeat('eval:seed');
+	try {
+		const corpus = loadCorpus();
+		const relations = loadRelations();
+		const cache = loadEmbeddingCache();
+		logEval(
+			`seed start: corpus=${corpus.thoughts.length} relations=${relations.relations.length} cache=${Object.keys(cache).length}`
+		);
 
-	await withEvalDb(EVAL_RETRIEVAL_USER_ID, async (db) => {
-		await ensureUser(db);
-		const { idMap, embeddingsMissed } = await upsertThoughts(db, corpus.thoughts, cache);
-		await replaceRelations(db, relations.relations, idMap);
-		if (embeddingsMissed > 0) {
-			saveEmbeddingCache(cache);
-			console.log(`[eval] saved ${Object.keys(cache).length} embeddings to cache`);
-		}
-	});
-
-	console.log('[eval] seed complete');
+		await withEvalDb(EVAL_RETRIEVAL_USER_ID, async (db) => {
+			await ensureUser(db);
+			const { idMap, embeddingsMissed } = await upsertThoughts(db, corpus.thoughts, cache);
+			const relationRows = await replaceRelations(db, relations.relations, idMap);
+			await syncGraph(corpus.thoughts, relationRows, idMap);
+			if (embeddingsMissed > 0) {
+				saveEmbeddingCache(cache);
+				logEval(`saved ${Object.keys(cache).length} embeddings to cache`);
+			}
+		});
+		logEval('seed complete');
+	} finally {
+		stopHeartbeat();
+	}
 }
 
 void runEval(main);

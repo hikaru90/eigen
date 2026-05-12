@@ -39,6 +39,7 @@
 - No fallbacks.
 - No silent degradation paths.
 - No temporary bypasses to "keep things working."
+- No implicit defaults for required runtime config (for example `|| 'localhost'`, default ports, default graph names, or fallback credentials).
 - Deterministic retry policy for ingest dependencies: retry up to exactly 3 times in background, then fail with an explicit, easy-to-understand error.
 - Prefer hard failure over hidden behavior changes.
 

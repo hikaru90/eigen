@@ -1,0 +1,21 @@
+# No Fallbacks (Hard Rule)
+
+This repository forbids fallback behavior.
+
+## Non-negotiable
+- Do not add default values that mask missing config (for example `|| 'localhost'`, `|| 6379`, implicit graph names, or silent default providers).
+- Do not add alternative execution branches that keep features "working" when a required dependency/config is unavailable.
+- Do not silently swallow errors and continue.
+- Do not degrade behavior without an explicit hard failure.
+
+## Required behavior
+- Validate required configuration at the boundary and fail fast with a clear error.
+- Emit actionable error messages that identify the missing/invalid requirement.
+- Keep deterministic retry policy only where explicitly required by project policy; after retries, hard fail.
+- Treat "fallback introduction" as a blocking defect.
+
+## Review checklist
+- If required env/config is missing: does the code throw immediately?
+- If dependency call fails: does it fail explicitly (after allowed retries), not silently continue?
+- Are there any `|| <default>` or similar implicit defaults for required runtime behavior?
+- Are tests present that enforce fail-fast behavior?

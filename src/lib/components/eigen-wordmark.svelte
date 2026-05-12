@@ -31,8 +31,8 @@
 	</div>
 	<span
 		aria-hidden="true"
-		class="pointer-events-none shrink-0 font-light tracking-[0.35em] text-black text-sm mt-[4px]"
-		style="font-family: 'MontserratThin', ui-sans-serif, system-ui, sans-serif; font-weight: 200;"
+		class="pointer-events-none shrink-0 font-light tracking-[0.35em] text-black text-xs mt-[5px]"
+		style="font-family: 'Geist Mono', ui-sans-serif, system-ui, sans-serif; font-weight: 300;"
 	>
 		MESH
 	</span>

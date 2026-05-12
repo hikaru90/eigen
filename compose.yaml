@@ -5,8 +5,20 @@ services:
     image: falkordb/falkordb:latest
     ports:
       - '6379:6379'
+      # FalkorDB image also serves a browser UI on 3000 inside the container; map to 3001
+      # so `app` can use host port 3000 when you run the full stack (`npm run stack:up`).
+      - '3001:3000'
+    environment:
+      # Same variable the app uses; compose substitutes from your shell or root `.env`.
+      FALKOR_PASSWORD: ${FALKOR_PASSWORD:-eigen_falkor_dev}
+      REDIS_ARGS: --requirepass ${FALKOR_PASSWORD:-eigen_falkor_dev}
+      # Browser UI is Next.js + NextAuth; must match the URL you open in the browser (host port 3001 above).
+      # If this is wrong, login often fails with a generic "Invalid credentials" even when Redis auth is correct.
+      NEXTAUTH_URL: http://localhost:3001
+      # Browser persists encrypted session credentials; must be exactly 64 hex chars (32 bytes). Required in `.env`.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     healthcheck:
-      test: ['CMD-SHELL', 'redis-cli ping | grep PONG']
+      test: ['CMD-SHELL', 'redis-cli -a "$$FALKOR_PASSWORD" ping | grep -q PONG']
       interval: 5s
       timeout: 5s
       retries: 20
@@ -48,6 +60,7 @@ services:
       FALKOR_HOST: falkordb
       FALKOR_PORT: 6379
       FALKOR_GRAPH: eigen_memory
+      FALKOR_PASSWORD: ${FALKOR_PASSWORD:-eigen_falkor_dev}
       ORIGIN: http://localhost:3000
       HOST: 0.0.0.0
       PORT: 3000

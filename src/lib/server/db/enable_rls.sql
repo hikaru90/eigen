@@ -40,3 +40,59 @@ CREATE POLICY user_preference_isolation ON user_preference
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE user_ontology ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_ontology FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_ontology_isolation ON user_ontology;
+CREATE POLICY user_ontology_isolation ON user_ontology
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE ontology_entity_kind ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ontology_entity_kind FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ontology_entity_kind_isolation ON ontology_entity_kind;
+CREATE POLICY ontology_entity_kind_isolation ON ontology_entity_kind
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE ontology_relation_kind ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ontology_relation_kind FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ontology_relation_kind_isolation ON ontology_relation_kind;
+CREATE POLICY ontology_relation_kind_isolation ON ontology_relation_kind
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE canonical_entity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE canonical_entity FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS canonical_entity_isolation ON canonical_entity;
+CREATE POLICY canonical_entity_isolation ON canonical_entity
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE entity_alias ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_alias FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS entity_alias_isolation ON entity_alias;
+CREATE POLICY entity_alias_isolation ON entity_alias
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE entity_resolution_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_resolution_log FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS entity_resolution_log_isolation ON entity_resolution_log;
+CREATE POLICY entity_resolution_log_isolation ON entity_resolution_log
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE retrieval_quality_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE retrieval_quality_event FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS retrieval_quality_event_isolation ON retrieval_quality_event;
+CREATE POLICY retrieval_quality_event_isolation ON retrieval_quality_event
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));

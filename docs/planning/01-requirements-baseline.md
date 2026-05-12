@@ -31,10 +31,11 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - Transcription failures follow ingest retry policy (3 retries, then explicit error).
 - Thought storage and retrieval:
   - PostgreSQL as system of record.
-  - `pgvector` semantic retrieval.
-  - Apache AGE graph traversal.
-  - Immediate graph + vector combination from day one.
+  - `pgvector` semantic retrieval (cosine kNN over stored embeddings).
+  - **FalkorDB** (OpenCypher) for memory graph edges and graph expansion during retrieval (per-tenant graph keys); relational `thought_relation` remains in Postgres for SoR.
+  - Immediate **hybrid** retrieval from day one: **semantic** channel = pgvector + lexical (`ts_rank_cd` over precomputed `lexical_text` / `tsvector`), fused with **graph** channel (neighbor expansion + entity-anchored paths), merged via weighted reciprocal rank fusion (default **0.7** on the combined semantic RRF contribution, **0.3** on graph RRF — see AC-012).
   - Deterministic **lexical search surface** on stored thoughts (`lexical_text` derived from normalized text) for Postgres `tsvector` / keyword fusion with semantic search.
+  - **Retrieval quality diagnostics (metadata-only):** each search may persist numeric channel diagnostics (e.g. semantic share for top results) in Postgres for effectiveness tracking; **no** query text, thought bodies, thought ids, or embeddings in that row (GDPR-aligned).
   - **MCP and ingest validation:** strict entity IDs and numeric search bounds at the tool boundary; **redaction** of secret-shaped fields in logs and telemetry tied to pricing transparency.
 - MCP v1 tools:
   - `capture_thought`
@@ -81,7 +82,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
    - Single default mode only: vector-first then graph expansion.
    - Relation-centric routing, intent classification, and alternate weighting are deferred until explicitly re-scoped.
 7. Apply deterministic context selection weights for the default mode:
-   - Default queries: `0.7 vector + 0.3 graph`
+   - Default queries: **0.7** on the combined semantic (vector + lexical) RRF score and **0.3** on the graph RRF score (product shorthand: `0.7 vector + 0.3 graph`; see AC-012).
 8. Log all relevant LLM/API calls with transparent pricing details.
 9. Log transcription calls (including client runtime cost footprint) in activity log.
    - For browser transcription, log client runtime metadata (model id, latency, retry count, device class)

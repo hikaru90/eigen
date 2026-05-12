@@ -36,3 +36,21 @@ export async function runEval(main: () => Promise<void>): Promise<void> {
 		process.exit(exitCode);
 	}
 }
+
+function nowStamp(): string {
+	return new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
+}
+
+export function logEval(message: string): void {
+	console.log(`[eval ${nowStamp()}] ${message}`);
+}
+
+export function startEvalHeartbeat(label: string, intervalMs = 15000): () => void {
+	const startedAt = Date.now();
+	const timer = setInterval(() => {
+		const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+		logEval(`${label}: still running (${elapsedSec}s elapsed)`);
+	}, intervalMs);
+	timer.unref?.();
+	return () => clearInterval(timer);
+}

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { composeAnswer } from './compose-answer';
 
 const { searchThoughtsMock, llmChatCompletionMock } = vi.hoisted(() => ({
@@ -82,7 +83,7 @@ describe('composeAnswer', () => {
 	it('uses default topK of 8 when not provided', async () => {
 		await composeAnswer({ userId: 'u1', question: 'x' });
 		expect(searchThoughtsMock).toHaveBeenCalledWith(
-			expect.objectContaining({ topK: 8, weights: undefined })
+			expect.objectContaining({ topK: 8, weights: CONTEXT_WEIGHTS.default })
 		);
 	});
 
@@ -157,5 +158,27 @@ describe('composeAnswer', () => {
 		await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(
 			'LLM chat response content is empty'
 		);
+	});
+
+	it('surfaces graphProvenance from retrieval metadata into the prompt and context items', async () => {
+		searchThoughtsMock.mockResolvedValueOnce([
+			{
+				id: 't_003',
+				normalizedText: 'Connected via Marcus.',
+				category: 'thought',
+				score: 0.5,
+				vectorScore: 0.4,
+				graphScore: 0.1,
+				metadata: { graphProvenance: 'entity:Marcus' }
+			}
+		]);
+		const result = await composeAnswer({ userId: 'u1', question: 'how is this connected?' });
+		expect(result.retrieved[0].graphProvenance).toBe('entity:Marcus');
+		const userMessage = (
+			llmChatCompletionMock.mock.calls[0][0] as {
+				messages: Array<{ role: string; content: string }>;
+			}
+		).messages[1].content;
+		expect(userMessage).toContain('Graph: entity:Marcus');
 	});
 });

@@ -2,6 +2,30 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { captureThought } from '$lib/server/capture/service';
 
+function collectErrorMessages(input: unknown): string[] {
+	const parts: string[] = [];
+	let current = input;
+	let guard = 0;
+	while (current && guard < 8) {
+		guard += 1;
+		if (current instanceof Error) {
+			parts.push(current.message);
+			current = current.cause;
+			continue;
+		}
+		if (typeof current === 'object' && current) {
+			const msg = 'message' in current ? (current as { message?: unknown }).message : undefined;
+			if (typeof msg === 'string' && msg.trim().length > 0) {
+				parts.push(msg);
+			}
+			current = 'cause' in current ? (current as { cause?: unknown }).cause : undefined;
+			continue;
+		}
+		break;
+	}
+	return parts.filter((v, i, arr) => v && arr.indexOf(v) === i);
+}
+
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	if (!user) error(401, 'Unauthorized');
@@ -17,6 +41,51 @@ export const POST: RequestHandler = async (event) => {
 		typeof body === 'object' && body && 'raw' in body ? String((body as { raw?: unknown }).raw) : '';
 	if (!raw.trim()) error(400, 'raw is required');
 
-	const thought = await captureThought(user.id, raw);
-	return json({ thought });
+	const accept = event.request.headers?.get('accept') ?? '';
+	const streamNdjson = accept.includes('application/x-ndjson');
+
+	if (!streamNdjson) {
+		try {
+			const thought = await captureThought(user.id, raw);
+			return json({ thought });
+		} catch (err) {
+			const details = collectErrorMessages(err);
+			const message = details[0] ?? 'Failed to capture thought';
+			console.error('capture submit failed', {
+				userId: user.id,
+				message,
+				details
+			});
+			return json({ error: message, details }, { status: 500 });
+		}
+	}
+
+	const encoder = new TextEncoder();
+	const bodyStream = new ReadableStream({
+		async start(controller) {
+			const line = (payload: unknown) =>
+				controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+			try {
+				const thought = await captureThought(user.id, raw, {
+					onProgress: (phase) => line({ type: 'progress', phase })
+				});
+				line({ type: 'done', thought });
+			} catch (err) {
+				const details = collectErrorMessages(err);
+				const message = details[0] ?? 'Failed to capture thought';
+				console.error('capture submit failed', {
+					userId: user.id,
+					message,
+					details
+				});
+				line({ type: 'error', error: message, details });
+			} finally {
+				controller.close();
+			}
+		}
+	});
+
+	return new Response(bodyStream, {
+		headers: { 'content-type': 'application/x-ndjson; charset=utf-8' }
+	});
 };

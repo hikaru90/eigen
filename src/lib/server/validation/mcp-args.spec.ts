@@ -13,6 +13,11 @@ describe('validateNonEmptyEntityId', () => {
 	it('rejects interior whitespace', () => {
 		expect(() => validateNonEmptyEntityId('a b', 'user_id')).toThrow(/whitespace/);
 	});
+
+	it('rejects null or undefined values explicitly', () => {
+		expect(() => validateNonEmptyEntityId(null, 'user_id')).toThrow(/value is required/);
+		expect(() => validateNonEmptyEntityId(undefined, 'user_id')).toThrow(/value is required/);
+	});
 });
 
 describe('validateSearchParams', () => {

@@ -16,6 +16,23 @@ vi.mock('drizzle-orm/postgres-js', () => ({
 	drizzle: drizzleMock
 }));
 
+type ReservedMock = ((...args: unknown[]) => Promise<unknown>) & {
+	unsafe: ReturnType<typeof vi.fn>;
+	tagCalls: unknown[][];
+};
+
+/** Mimic the callable `postgres.js` `Sql` handle: tag-template + identifier + `.unsafe()`. */
+function makeReservedMock(): ReservedMock {
+	const tagCalls: unknown[][] = [];
+	const reserved = ((...args: unknown[]) => {
+		tagCalls.push(args);
+		return Promise.resolve(undefined);
+	}) as ReservedMock;
+	reserved.unsafe = vi.fn(async () => undefined);
+	reserved.tagCalls = tagCalls;
+	return reserved;
+}
+
 describe('db/index', () => {
 	it('closeAppDbPool closes postgres pool', async () => {
 		const { closeAppDbPool } = await import('./index');
@@ -30,5 +47,129 @@ describe('db/index', () => {
 		expect((reserved as { options?: unknown }).options).toBeDefined();
 		expect(drizzleMock).toHaveBeenCalled();
 		expect(db).toEqual({ mocked: true });
+	});
+
+	it('createScopedDrizzle leaves an existing begin alone', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const existingBegin = vi.fn();
+		const reserved = Object.assign(makeReservedMock(), { begin: existingBegin });
+		createScopedDrizzle(reserved as never);
+		expect((reserved as { begin: unknown }).begin).toBe(existingBegin);
+	});
+
+	it('attached begin(fn) commits and returns the callback result', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (fn: (sql: unknown) => unknown) => Promise<unknown>;
+		};
+		const out = await extended.begin(async (sql) => {
+			expect(sql).toBe(reserved);
+			return 'ok';
+		});
+		expect(out).toBe('ok');
+		expect(reserved.unsafe).toHaveBeenCalledWith('begin');
+		expect(reserved.unsafe).toHaveBeenCalledWith('commit');
+	});
+
+	it('attached begin(options, fn) sanitizes options and commits', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (
+				options: string,
+				fn: (sql: unknown) => unknown
+			) => Promise<unknown>;
+		};
+		await extended.begin('read only; drop tables', async () => 42);
+		expect(reserved.unsafe).toHaveBeenCalledWith('begin read only drop tables');
+		expect(reserved.unsafe).toHaveBeenCalledWith('commit');
+	});
+
+	it('attached begin(options, fn) throws when callback is missing', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (options: string) => Promise<unknown>;
+		};
+		await expect(extended.begin('read only')).rejects.toThrow(/requires a callback/);
+	});
+
+	it('attached begin rolls back when the callback throws', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (fn: (sql: unknown) => unknown) => Promise<unknown>;
+		};
+		await expect(
+			extended.begin(async () => {
+				throw new Error('boom');
+			})
+		).rejects.toThrow('boom');
+		expect(reserved.unsafe).toHaveBeenCalledWith('rollback');
+	});
+
+	it('savepoint(fn) releases on success', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (fn: (sql: unknown) => unknown) => Promise<unknown>;
+			savepoint?: (fn: (sql: unknown) => unknown) => Promise<unknown>;
+		};
+
+		const captured: { savepoint?: (fn: (sql: unknown) => unknown) => Promise<unknown> } = {};
+		await extended.begin(async () => {
+			captured.savepoint = extended.savepoint;
+			return await extended.savepoint!(async () => 'inner');
+		});
+		expect(captured.savepoint).toBeTypeOf('function');
+		expect(extended.savepoint).toBeUndefined();
+		const tags = reserved.tagCalls.map((call) => (call[0] as string[])[0] ?? '').join(' | ');
+		expect(tags).toContain('savepoint ');
+		expect(tags).toContain('release savepoint ');
+	});
+
+	it('savepoint(name, fn) rolls back on error', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (fn: (sql: unknown) => unknown) => Promise<unknown>;
+			savepoint?: (
+				name: string,
+				fn: (sql: unknown) => unknown
+			) => Promise<unknown>;
+		};
+
+		await expect(
+			extended.begin(async () => {
+				await extended.savepoint!('s1', async () => {
+					throw new Error('nope');
+				});
+			})
+		).rejects.toThrow('nope');
+		const tags = reserved.tagCalls.map((call) => (call[0] as string[])[0] ?? '').join(' | ');
+		expect(tags).toContain('rollback to savepoint ');
+	});
+
+	it('savepoint throws when no callback is provided', async () => {
+		const { createScopedDrizzle } = await import('./index');
+		const reserved = makeReservedMock();
+		createScopedDrizzle(reserved as never);
+		const extended = reserved as ReservedMock & {
+			begin: (fn: (sql: unknown) => unknown) => Promise<unknown>;
+			savepoint?: (name?: unknown) => Promise<unknown>;
+		};
+
+		await expect(
+			extended.begin(async () => {
+				await extended.savepoint!('orphan');
+			})
+		).rejects.toThrow(/savepoint requires a callback/);
 	});
 });
