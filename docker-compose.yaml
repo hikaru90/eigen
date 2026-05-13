@@ -56,10 +56,10 @@ services:
       falkordb:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://eigen:eigen@db:5432/eigen
-      FALKOR_HOST: falkordb
-      FALKOR_PORT: 6379
-      FALKOR_GRAPH: eigen_memory
+      DATABASE_URL: ${DATABASE_URL:-postgres://eigen:eigen@db:5432/eigen}
+      FALKOR_HOST: ${FALKOR_HOST:-falkordb}
+      FALKOR_PORT: ${FALKOR_PORT:-6379}
+      FALKOR_GRAPH: ${FALKOR_GRAPH:-eigen_memory}
       FALKOR_PASSWORD: ${FALKOR_PASSWORD:-eigen_falkor_dev}
       HOST: 0.0.0.0
       PORT: 3000

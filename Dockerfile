@@ -60,7 +60,13 @@ ENV PORT=3000
 COPY package*.json ./
 RUN npm ci
 COPY --from=build /app/build ./build
+COPY --from=build /app/drizzle ./drizzle
+COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=build /app/src/lib/server/db ./src/lib/server/db
+COPY --from=build /app/scripts ./scripts
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
 ENV NODE_ENV=production
 
 EXPOSE 3000
-CMD ["node", "build/index.js"]
+CMD ["./entrypoint.sh"]
