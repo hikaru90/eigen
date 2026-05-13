@@ -4,6 +4,10 @@ Eigen is a self-hostable SvelteKit memory infrastructure app with **Better Auth*
 
 This repository is a **fully self-contained Docker Compose stack** — no external services, no third-party databases, no cloud dependencies. Everything runs in containers.
 
+## Repo map (quick orientation)
+
+For **scope, canonical files, and known overlaps** (ingestion, retrieval, auth, UI), read the layered map: start at [`docs/repo-map/index.md`](./docs/repo-map/index.md). That index links deeper domain docs and the [conflict ledger](./docs/repo-map/conflicts.md). Update the smallest affected layer when you change behavior (see [`docs/repo-map/maintenance.md`](./docs/repo-map/maintenance.md)).
+
 ## Architecture
 
 | Service | Container | Role |

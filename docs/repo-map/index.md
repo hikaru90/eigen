@@ -1,0 +1,15 @@
+# Repo map (L1)
+
+Scan-first index of domains. Read [README](../../README.md) for stack and ops, then open **one** domain file (L2) for implementation detail. Cross-cutting contradictions live in [conflicts.md](./conflicts.md) (L3).
+
+How to use this layer: pick a domain → read its L2 file → if it points to a conflict ID, read that row in `conflicts.md`.
+
+- **Ingestion** — Persist thoughts: normalize, classify, embed, lexical index, Postgres + Falkor graph sync, activity logging. L2: [ingestion.md](./ingestion.md).
+- **Retrieval** — Hybrid search (vector + lexical + Falkor graph RRF), API + MCP + QA compose. L2: [retrieval.md](./retrieval.md).
+- **Auth and tenancy** — Better Auth sessions, scoped Postgres via `app.current_user_id`, RLS policies. L2: [auth-and-tenancy.md](./auth-and-tenancy.md).
+- **UI surfaces** — SvelteKit routes and client fetch patterns for capture, graph, chat, settings, etc. L2: [ui-surfaces.md](./ui-surfaces.md).
+
+Supporting docs (not domain maps):
+
+- [answer-protocol.md](./answer-protocol.md) — how the coding assistant should answer when maps and code disagree.
+- [maintenance.md](./maintenance.md) — when to update which layer after a change.

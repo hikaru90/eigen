@@ -9,6 +9,10 @@
 - **Prefer the registry over hand-built UI.** Before implementing menus, overlays, popovers, dialogs, sheets, comboboxes, etc. with raw markup, native controls (`<details>`), or custom click-outside / focus logic, **check [shadcn-svelte components](https://www.shadcn-svelte.com/docs/components)** and existing primitives under `src/lib/components/ui/`.
 - **Install missing pieces** with the official CLI (e.g. `npx shadcn-svelte@latest add popover`) instead of reimplementing accessibility, focus trap, and dismiss-on-outside behavior by hand.
 
+## Repository map (orientation)
+
+- For **scoped ownership** of ingestion, retrieval, auth, and UI—and for **documented overlaps** between systems—read [`docs/repo-map/index.md`](docs/repo-map/index.md) before architecture-heavy answers or cross-cutting edits. Open contradictions are listed in [`docs/repo-map/conflicts.md`](docs/repo-map/conflicts.md). Update the smallest affected layer when behavior changes ([`docs/repo-map/maintenance.md`](docs/repo-map/maintenance.md)).
+
 ---
 
 # Project Guardrails: Test-First SvelteKit Open Brain
