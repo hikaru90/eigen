@@ -1,0 +1,68 @@
+import { describe, expect, it, vi } from 'vitest';
+import { actions } from './+page.server';
+
+const { signUpEmailMock } = vi.hoisted(() => ({ signUpEmailMock: vi.fn() }));
+vi.mock('$lib/server/auth', () => ({ auth: { api: { signUpEmail: signUpEmailMock } } }));
+vi.mock('$lib/server/auth-form-errors', () => ({ getSafeErrorMessage: (e: unknown) => `safe: ${e}` }));
+
+describe('signup page server', () => {
+	it('returns validation error for empty name', async () => {
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: '', email: 'test@example.com', password: 'pass1234' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({ status: 400, data: { message: 'Name is required' } });
+	});
+
+	it('returns validation error for empty email', async () => {
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: 'Test User', email: '', password: 'pass1234' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({ status: 400, data: { message: 'Invalid email address' } });
+	});
+
+	it('returns validation error for invalid email', async () => {
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: 'Test User', email: 'invalid-email', password: 'pass1234' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({ status: 400, data: { message: 'Invalid email address' } });
+	});
+
+	it('returns validation error for short password', async () => {
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: 'Test User', email: 'test@example.com', password: 'short' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({ status: 400, data: { message: 'Password must be at least 8 characters' } });
+	});
+
+	it('returns auth error on sign-up failure', async () => {
+		signUpEmailMock.mockRejectedValue(new Error('Email already in use'));
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: 'Test User', email: 'test@example.com', password: 'pass1234' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({ status: 400 });
+		expect(result.data.message).toContain('safe:');
+		expect(result.data.message).toContain('Email already in use');
+	});
+
+	it('returns safe error message on unknown error', async () => {
+		signUpEmailMock.mockRejectedValue(new Error('Database error'));
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: 'Test User', email: 'test@example.com', password: 'pass1234' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({ status: 400 });
+		expect(result.data.message).toContain('safe:');
+		expect(result.data.message).toContain('Database error');
+	});
+});

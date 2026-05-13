@@ -155,8 +155,8 @@ const DATE_FMT = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 
 export function formatDateRange(from?: string | null, to?: string | null): string {
 	if (!from && !to) return 'All time';
-	const fromStr = from ? DATE_FMT.format(new Date(from + 'T00:00:00Z')) : '';
-	const toStr = to ? DATE_FMT.format(new Date(to + 'T23:59:59Z')) : '';
+	const fromStr = from ? DATE_FMT.format(new Date(from)) : '';
+	const toStr = to ? DATE_FMT.format(new Date(to)) : '';
 	if (from && to) return `${fromStr} – ${toStr}`;
 	if (from) return `Since ${fromStr}`;
 	return `Until ${toStr}`;

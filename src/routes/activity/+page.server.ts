@@ -76,13 +76,13 @@ export const load: PageServerLoad = async (event) => {
 	const toParam = event.url.searchParams.get('to');
 
 	if (fromParam) {
-		const from = new Date(fromParam + 'T00:00:00Z');
+		const from = new Date(fromParam);
 		if (!Number.isNaN(from.getTime())) {
 			conditions.push(gte(activityCallLog.createdAt, from));
 		}
 	}
 	if (toParam) {
-		const to = new Date(toParam + 'T23:59:59.999Z');
+		const to = new Date(toParam);
 		if (!Number.isNaN(to.getTime())) {
 			conditions.push(lte(activityCallLog.createdAt, to));
 		}
@@ -113,11 +113,11 @@ export const load: PageServerLoad = async (event) => {
 						eq(activityCallLog.userId, event.locals.user.id),
 						or(eq(activityCallLog.provider, 'eurouter'), eq(activityCallLog.provider, 'llm')),
 						sql`${activityCallLog.totalCostUsd}::numeric > 0`,
-						...(fromParam && !Number.isNaN(new Date(fromParam + 'T00:00:00Z').getTime())
-							? [gte(activityCallLog.createdAt, new Date(fromParam + 'T00:00:00Z'))]
+						...(fromParam && !Number.isNaN(new Date(fromParam).getTime())
+							? [gte(activityCallLog.createdAt, new Date(fromParam))]
 							: []),
-						...(toParam && !Number.isNaN(new Date(toParam + 'T23:59:59.999Z').getTime())
-							? [lte(activityCallLog.createdAt, new Date(toParam + 'T23:59:59.999Z'))]
+						...(toParam && !Number.isNaN(new Date(toParam).getTime())
+							? [lte(activityCallLog.createdAt, new Date(toParam))]
 							: [])
 					)
 				)

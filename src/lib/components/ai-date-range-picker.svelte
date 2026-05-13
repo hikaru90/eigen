@@ -21,7 +21,6 @@
 		else url.searchParams.delete('from');
 		if (t) url.searchParams.set('to', t);
 		else url.searchParams.delete('to');
-		open = false;
 		parseError = '';
 		goto(url.pathname + url.search, { invalidateAll: true });
 	}

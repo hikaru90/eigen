@@ -33,7 +33,7 @@
 <div class="mx-auto max-w-md px-5 pt-10">
 	<header class="text-center">
 		<EigenWordmark heightClass="h-10" />
-		<p class="text-muted-foreground mt-2 text-xs">Create account</p>
+		<p class="text-muted-foreground mt-2 text-xs">Create an account</p>
 	</header>
 
 	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-8 border border-black/10 bg-card">
@@ -53,7 +53,7 @@
 						name="name"
 						autocomplete="name"
 						bind:value={name}
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 						aria-describedby={fieldErrors.name ? 'name-error' : undefined}
 					/>
 					{#if fieldErrors.name}
@@ -68,7 +68,7 @@
 						name="email"
 						autocomplete="email"
 						bind:value={email}
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 						aria-describedby={fieldErrors.email ? 'email-error' : undefined}
 					/>
 					{#if fieldErrors.email}
@@ -83,9 +83,10 @@
 						name="password"
 						autocomplete="new-password"
 						bind:value={password}
-						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs"
+						class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
 						aria-describedby={fieldErrors.password ? 'password-error' : undefined}
 					/>
+					<p class="text-muted-foreground text-[10px]">Minimum 8 characters</p>
 					{#if fieldErrors.password}
 						<p id="password-error" class="text-destructive text-xs">{fieldErrors.password}</p>
 					{/if}
@@ -95,6 +96,11 @@
 					<p class="text-destructive text-xs">{form.message}</p>
 				{/if}
 			</form>
+
+			<p class="text-muted-foreground text-center text-xs">
+				Already have an account?
+				<a href="/login" class="text-foreground underline-offset-2 hover:underline">Sign in</a>
+			</p>
 		</Card.Content>
 	</Card.Root>
 </div>

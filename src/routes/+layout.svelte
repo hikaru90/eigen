@@ -27,8 +27,10 @@
   /** Hide header + bottom nav on auth screens (works with `paths.base` and trailing slashes). */
   const hideAppChrome = $derived(
     page.route.id === "/login" ||
+      page.route.id === "/signup" ||
       page.route.id === "/register" ||
       normalizePathname(page.url.pathname) === "/login" ||
+      normalizePathname(page.url.pathname) === "/signup" ||
       normalizePathname(page.url.pathname) === "/register",
   );
 
