@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+echo "[eigen] Ensuring database extensions..."
+node scripts/ensure-extensions.mjs
+
 echo "[eigen] Running database migrations..."
 npx drizzle-kit push --force
 
