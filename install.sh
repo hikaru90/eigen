@@ -2,8 +2,8 @@
 # =============================================================================
 # Eigen — Install Script
 # =============================================================================
-# Interactively configures and boots a fresh Eigen deployment.
-# Run once on a fresh VPS after cloning the repository:
+# Interactively configures a fresh Eigen deployment.
+# Run once on your server after cloning the repository:
 #
 #   bash install.sh
 #
@@ -32,7 +32,6 @@ print_header() {
 print_success() { echo -e "${GREEN}✓ $1${RESET}"; }
 print_warn()    { echo -e "${YELLOW}⚠ $1${RESET}"; }
 print_error()   { echo -e "${RED}✗ $1${RESET}"; }
-print_step()    { echo -e "  ${BOLD}→${RESET} $1"; }
 
 die() {
   print_error "$1"
@@ -40,7 +39,6 @@ die() {
 }
 
 prompt() {
-  # prompt <var_name> <display_label> [default]
   local var="$1"
   local label="$2"
   local default="${3:-}"
@@ -58,7 +56,6 @@ prompt() {
 }
 
 prompt_secret() {
-  # prompt_secret <var_name> <display_label>
   local var="$1"
   local label="$2"
   local value=""
@@ -82,36 +79,11 @@ prompt_secret() {
 }
 
 generate() {
-  # generate <type: hex16|hex32|base64_32|hex64>
   case "$1" in
-    hex16)    openssl rand -hex 16 ;;
-    hex32)    openssl rand -hex 32 ;;
-    hex64)    openssl rand -hex 32 ;; # 32 bytes = 64 hex chars
+    hex16)     openssl rand -hex 16 ;;
+    hex64)     openssl rand -hex 32 ;;
     base64_32) openssl rand -base64 32 | tr -d '\n' ;;
   esac
-}
-
-wait_healthy() {
-  # wait_healthy <service> <max_seconds>
-  local service="$1"
-  local max="${2:-60}"
-  local elapsed=0
-  print_step "Waiting for $service to be healthy..."
-  while true; do
-    local status
-    status=$(docker compose ps --format json "$service" 2>/dev/null \
-      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Health',''))" 2>/dev/null \
-      || echo "")
-    if [[ "$status" == "healthy" ]]; then
-      print_success "$service is healthy."
-      return 0
-    fi
-    if [[ $elapsed -ge $max ]]; then
-      die "$service did not become healthy within ${max}s. Check: docker compose logs $service"
-    fi
-    sleep 3
-    elapsed=$((elapsed + 3))
-  done
 }
 
 # ---------------------------------------------------------------------------
@@ -119,19 +91,12 @@ wait_healthy() {
 # ---------------------------------------------------------------------------
 
 print_header "Eigen Installer"
-echo "  This script will configure and boot your Eigen deployment."
-echo "  It should take about 2–5 minutes."
+echo "  This script will configure your Eigen deployment."
 echo ""
 
 print_header "Checking prerequisites"
 
-command -v docker >/dev/null 2>&1 || die "docker is not installed. See https://docs.docker.com/engine/install/"
-docker compose version >/dev/null 2>&1 || die "docker compose v2 plugin not found. See https://docs.docker.com/compose/install/"
-command -v openssl >/dev/null 2>&1 || die "openssl is not installed. Install it with: apt install openssl"
-command -v python3 >/dev/null 2>&1 || die "python3 is not installed (required for JSON parsing). Install it with: apt install python3"
-
-print_success "docker $(docker --version | awk '{print $3}' | tr -d ',')"
-print_success "docker compose $(docker compose version --short)"
+command -v openssl >/dev/null 2>&1 || die "openssl is not installed. Install with: apt install openssl"
 print_success "openssl"
 
 # ---------------------------------------------------------------------------
@@ -141,21 +106,20 @@ print_success "openssl"
 print_header "Checking for existing installation"
 
 if [[ -f ".env" ]]; then
-  die ".env already exists. Eigen may already be installed.\nDelete .env and re-run this script to start fresh.\n${BOLD}Warning: this will reset your configuration.${RESET}"
+  die ".env already exists. Delete it and re-run this script to start fresh.\n${BOLD}Warning: this will reset your configuration.${RESET}"
 fi
 
-print_success "No existing .env found — proceeding with fresh install."
+print_success "No existing .env found — proceeding."
 
 # ---------------------------------------------------------------------------
-# Step 3 — Collect configuration
+# Step 3 — Public URL
 # ---------------------------------------------------------------------------
 
-print_header "Configuration"
-
+print_header "Public URL"
 echo ""
-echo "  Enter your deployment's public URL."
-echo "  This must match the domain your reverse proxy points at Eigen."
-echo "  Examples: https://eigen.example.com  or  http://123.45.67.89:3000"
+echo "  The URL your users will access Eigen at."
+echo "  Must match the domain your reverse proxy points at this server."
+echo "  Examples: https://eigen.example.com   http://123.45.67.89:3000"
 echo ""
 
 ORIGIN=""
@@ -178,9 +142,9 @@ FALKOR_PASSWORD=$(generate hex16)
 ENCRYPTION_KEY=$(generate hex64)
 BETTER_AUTH_SECRET=$(generate base64_32)
 
-print_success "POSTGRES_PASSWORD generated"
-print_success "FALKOR_PASSWORD generated"
-print_success "ENCRYPTION_KEY generated"
+print_success "POSTGRES_PASSWORD  generated"
+print_success "FALKOR_PASSWORD    generated"
+print_success "ENCRYPTION_KEY     generated"
 print_success "BETTER_AUTH_SECRET generated"
 
 # ---------------------------------------------------------------------------
@@ -188,32 +152,29 @@ print_success "BETTER_AUTH_SECRET generated"
 # ---------------------------------------------------------------------------
 
 print_header "Admin account"
-
-echo "  Create the initial administrator account."
+echo "  This will be the first user created on first boot."
 echo ""
 
-prompt ADMIN_NAME  "Name"
-prompt ADMIN_EMAIL "Email"
+prompt ADMIN_NAME "Name"
 
+ADMIN_EMAIL=""
 while true; do
+  prompt ADMIN_EMAIL "Email"
   if [[ "$ADMIN_EMAIL" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
     break
   fi
   print_warn "Please enter a valid email address."
-  prompt ADMIN_EMAIL "Email"
 done
 
 prompt_secret ADMIN_PASSWORD "Password"
 
 # ---------------------------------------------------------------------------
-# Step 6 — Print secrets (shown once)
+# Step 6 — Show generated secrets (once)
 # ---------------------------------------------------------------------------
 
 print_header "Generated secrets — save these now"
-
 echo ""
-echo -e "  ${BOLD}${YELLOW}Store these in a secure password manager."
-echo -e "  They will not be shown again.${RESET}"
+echo -e "  ${BOLD}${YELLOW}Store these in a secure password manager. They will not be shown again.${RESET}"
 echo ""
 echo -e "  ${BOLD}POSTGRES_PASSWORD${RESET}  = ${POSTGRES_PASSWORD}"
 echo -e "  ${BOLD}FALKOR_PASSWORD${RESET}    = ${FALKOR_PASSWORD}"
@@ -228,15 +189,13 @@ read -rp "  Press Enter once you have saved these secrets..."
 
 print_header "Writing .env"
 
-DATABASE_URL="postgres://eigen:${POSTGRES_PASSWORD}@db:5432/eigen"
-
 cat > .env <<EOF
-# Generated by install.sh — do not edit manually unless you know what you are doing.
+# Generated by install.sh
 
 # Postgres
 POSTGRES_USER=eigen
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-DATABASE_URL=${DATABASE_URL}
+DATABASE_URL=postgres://eigen:${POSTGRES_PASSWORD}@db:5432/eigen
 
 # FalkorDB
 FALKOR_HOST=falkordb
@@ -252,7 +211,12 @@ ORIGIN=${ORIGIN}
 # Better Auth
 BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
 
-# LLM (configure after first login via the app settings)
+# Admin — used on first boot to create the initial user, ignored afterwards
+ADMIN_NAME=${ADMIN_NAME}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PASSWORD=${ADMIN_PASSWORD}
+
+# LLM — configure after first login via the app settings
 LLM_BASE_URL=
 LLM_API_KEY=
 LLM_MIN_REQUEST_INTERVAL_MS=1000
@@ -264,75 +228,26 @@ EOF
 print_success ".env written."
 
 # ---------------------------------------------------------------------------
-# Step 8 — Build images
-# ---------------------------------------------------------------------------
-
-print_header "Building Docker images"
-echo "  This may take a few minutes on first run..."
-echo ""
-
-docker compose build
-
-print_success "Images built."
-
-# ---------------------------------------------------------------------------
-# Step 9 — Start databases and wait for healthy
-# ---------------------------------------------------------------------------
-
-print_header "Starting databases"
-
-docker compose up -d db falkordb
-
-wait_healthy "db"      60
-wait_healthy "falkordb" 90
-
-# ---------------------------------------------------------------------------
-# Step 10 — Run migrations
-# ---------------------------------------------------------------------------
-
-print_header "Running database migrations"
-
-docker compose --profile migrate run --rm migrate
-
-print_success "Schema and RLS policies applied."
-
-# ---------------------------------------------------------------------------
-# Step 11 — Create admin user
-# ---------------------------------------------------------------------------
-
-print_header "Creating admin user"
-
-docker compose run --rm \
-  -e ADMIN_NAME="${ADMIN_NAME}" \
-  -e ADMIN_EMAIL="${ADMIN_EMAIL}" \
-  -e ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
-  app node scripts/create-admin.mjs
-
-print_success "Admin user created: ${ADMIN_EMAIL}"
-
-# ---------------------------------------------------------------------------
-# Step 12 — Start full stack
-# ---------------------------------------------------------------------------
-
-print_header "Starting Eigen"
-
-docker compose up -d
-
-# ---------------------------------------------------------------------------
-# Step 13 — Done
+# Step 8 — Done
 # ---------------------------------------------------------------------------
 
 echo ""
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-echo -e "${GREEN}${BOLD}║        Eigen is ready!                   ║${RESET}"
+echo -e "${GREEN}${BOLD}║     Configuration complete!              ║${RESET}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
 echo ""
-echo -e "  ${BOLD}URL:${RESET}   ${ORIGIN}"
-echo -e "  ${BOLD}Admin:${RESET} ${ADMIN_EMAIL}"
+echo -e "  ${BOLD}.env has been written.${RESET} Now start the stack:"
 echo ""
-echo "  To follow logs:   docker compose logs -f app"
-echo "  To stop:          docker compose down"
-echo "  To update:        git pull && docker compose build && docker compose up -d"
+echo -e "  ${BOLD}docker compose up -d${RESET}"
+echo ""
+echo "  On first boot the app will automatically:"
+echo "    • Apply database migrations"
+echo "    • Create your admin account (${ADMIN_EMAIL})"
+echo "    • Start serving at ${ORIGIN}"
+echo ""
+echo "  Follow progress with:  docker compose logs -f app"
+echo "  To stop:               docker compose down"
+echo "  To update:             git pull && docker compose build && docker compose up -d"
 echo ""
 echo -e "  ${YELLOW}${BOLD}Next step:${RESET} Log in and configure your LLM provider in the app settings."
 echo ""

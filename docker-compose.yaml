@@ -63,6 +63,9 @@ services:
       FALKOR_PORT: ${FALKOR_PORT:-6379}
       FALKOR_GRAPH: ${FALKOR_GRAPH:-eigen_memory}
       FALKOR_PASSWORD: ${FALKOR_PASSWORD:-eigen_falkor_dev}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       HOST: 0.0.0.0
       PORT: 3000
     env_file:
@@ -70,21 +73,6 @@ services:
     ports:
       - '3000:3000'
     restart: unless-stopped
-  migrate:
-    container_name: eigen-migrate
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://eigen:eigen@db:5432/eigen}
-    env_file:
-      - .env
-    command: sh -c "npx drizzle-kit push --force && node scripts/apply-rls.mjs"
-    profiles:
-      - migrate
 
 volumes:
   eigen_pg:
