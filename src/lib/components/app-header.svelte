@@ -94,7 +94,7 @@
           aria-label="Account menu"
         >
           <UserRound
-            class="pointer-events-none relative z-10 size-5 shrink-0 text-black"
+            class="pointer-events-none relative z-10 size-5 shrink-0 text-black dark:text-white"
             aria-hidden="true"
           />
         </Popover.Trigger>
