@@ -25,3 +25,5 @@ RUN apt-get update \
     bison \
     postgresql-server-dev-16 \
   && rm -rf /var/lib/apt/lists/*
+
+COPY docker/postgres/init /docker-entrypoint-initdb.d/
