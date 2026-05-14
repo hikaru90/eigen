@@ -9,6 +9,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	unique,
 	uniqueIndex,
 	uuid,
 	vector
@@ -45,7 +46,7 @@ export const ontologyEntityKind = pgTable(
 			.notNull()
 	},
 	(t) => [
-		uniqueIndex('ontology_entity_kind_user_key_uidx').on(t.userId, t.key),
+		unique('ontology_entity_kind_user_key_uidx').on(t.userId, t.key),
 		index('ontology_entity_kind_user_idx').on(t.userId)
 	]
 );
