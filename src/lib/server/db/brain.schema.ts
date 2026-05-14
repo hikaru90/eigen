@@ -7,6 +7,7 @@ import {
 	integer,
 	jsonb,
 	pgTable,
+	primaryKey,
 	text,
 	timestamp,
 	unique,
@@ -438,17 +439,41 @@ export const entityResolutionLog = pgTable(
 );
 
 /**
- * Per-user LLM gateway configuration. Takes priority over environment variables.
- * Stores the EUrouter base URL, API key, and routing rule UUIDs for chat and embeddings.
+ * Per-user, per-provider LLM credentials. Each provider (eurouter, openrouter, …) gets its own
+ * independent row so base URL, API key, and provider-specific fields never bleed across providers.
+ *
+ * Composite PK: (user_id, provider).
  */
-export const llmConfig = pgTable('llm_config', {
+export const llmProviderConfig = pgTable('llm_provider_config', {
+	userId: text('user_id')
+		.notNull()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	provider: text('provider').notNull(), // 'eurouter' | 'openrouter'
+	baseUrl: text('base_url').notNull(),
+	apiKey: text('api_key').notNull(),
+	/** EUrouter only: routing rule UUID for chat completions. */
+	ruleChat: text('rule_chat'),
+	/** EUrouter only: routing rule UUID for embeddings. */
+	ruleEmbedding: text('rule_embedding'),
+	/** OpenRouter only: model name for chat completions (e.g. openai/gpt-4o). */
+	modelChat: text('model_chat'),
+	/** OpenRouter only: model name for embeddings (e.g. openai/text-embedding-3-small). */
+	modelEmbedding: text('model_embedding'),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull()
+}, (t) => [primaryKey({ columns: [t.userId, t.provider], name: 'llm_provider_config_pk' })]);
+
+/**
+ * Tracks which provider is currently active for a user.
+ * Separate from credentials so switching providers never overwrites saved credentials.
+ */
+export const llmActiveProvider = pgTable('llm_active_provider', {
 	userId: text('user_id')
 		.primaryKey()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	llmBaseUrl: text('llm_base_url').notNull(),
-	llmApiKey: text('llm_api_key').notNull(),
-	llmRuleChat: text('llm_rule_chat'),
-	llmRuleEmbedding: text('llm_rule_embedding'),
+	provider: text('provider').notNull().default('eurouter'),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
 		.$onUpdate(() => new Date())

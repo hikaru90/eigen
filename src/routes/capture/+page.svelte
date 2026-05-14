@@ -138,17 +138,17 @@
 	</header>
 
 	<section class="mt-8 flex-1 space-y-6">
-		<Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-[2px] gap-[6px] items-start overflow-visible">
+		<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
 			<Card.Content class="p-0 w-full">
 				<Label for="thought" class="sr-only">Thought</Label>
 				<Textarea
 					id="thought"
 					bind:value={raw}
 					placeholder="Enter your thought…"
-					class="min-h-[128px] p-6 text-base placeholder:text-[#A1A1A1] border-0 bg-transparent shadow-none focus-visible:ring-0 resize-none"
+					class="min-h-[128px] p-6 text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
 				/>
 			</Card.Content>
-			<Card.Footer class="bg-[#FAFAFA] border-t-2 border-black p-4 flex flex-row items-center justify-between w-full">
+			<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full">
 				<span class="text-[#737373] text-xs leading-4">⌘ / Ctrl + Enter to capture</span>
 				<Button
 					type="button"
@@ -163,7 +163,7 @@
 
 		{#if loading}
 			<div
-				class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-4"
+				class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4"
 				role="status"
 				aria-live="polite"
 			>
@@ -187,7 +187,7 @@
 		{/if}
 
 		{#if stored}
-			<Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-4 gap-3 items-start overflow-visible">
+			<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4 gap-3 items-start overflow-visible">
 				<Card.Header class="p-0">
 					<Card.Title class="text-sm">Stored thought</Card.Title>
 				</Card.Header>
@@ -200,17 +200,17 @@
 				</Card.Content>
 			</Card.Root>
 
-			<Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0 items-start overflow-visible">
+			<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible">
 				<Card.Content class="p-4 space-y-2 w-full">
 					<Label for="edit" class="text-sm">Want changes? Describe them in plain language</Label>
 					<Textarea
 						id="edit"
 						bind:value={editRequest}
 						placeholder="Example: Please make this shorter and categorize as task."
-						class="min-h-24 text-sm md:text-sm border-2 border-black p-3"
+						class="min-h-24 text-sm md:text-sm border-2 border-black dark:border-border p-3 bg-background dark:bg-input/30 text-foreground"
 					/>
 				</Card.Content>
-				<Card.Footer class="bg-[#FAFAFA] border-t-2 border-black p-4 flex flex-row items-center justify-end w-full">
+				<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-end w-full">
 					<Button
 						type="button"
 						class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"

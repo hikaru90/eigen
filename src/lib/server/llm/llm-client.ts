@@ -1,7 +1,7 @@
 import { env } from '$env/dynamic/private';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { llmConfig } from '$lib/server/db/schema';
+import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
 import { LLM_GATEWAY_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
 import { logActivityCall } from '$lib/server/activity/log-call';
 
@@ -19,11 +19,20 @@ type TokenUsage = {
 
 type RoutingConfig = { ruleId?: string; model: string; provider?: Record<string, unknown> };
 
+export type LlmProviderKind = 'eurouter' | 'openrouter';
+
 type ResolvedLlmConfig = {
+	provider: LlmProviderKind;
 	baseUrl: string;
 	apiKey: string;
+	/** EUrouter only */
 	ruleChat: string | null;
+	/** EUrouter only */
 	ruleEmbedding: string | null;
+	/** OpenRouter only */
+	modelChat: string | null;
+	/** OpenRouter only */
+	modelEmbedding: string | null;
 };
 
 const routingRuleCache = new Map<string, RoutingConfig>();
@@ -35,10 +44,13 @@ let llmRequestQueue: Promise<void> = Promise.resolve();
 
 /**
  * Computes base USD from OpenAI-style `usage` using a single token rate (no per-model env table).
+ * Returns 0 when usage is absent or contains no countable tokens — some providers omit the field
+ * on valid responses and a missing cost estimate must not abort a successful LLM call.
  */
 export function computeTokenCostUsd(usage: TokenUsage | undefined): number {
 	if (!usage || typeof usage !== 'object') {
-		throw new Error('LLM response missing usage; cannot compute cost for activity log');
+		console.warn('[llm] response missing usage field; logging cost as 0');
+		return 0;
 	}
 	const rates = TOKEN_USD_PER_1K;
 	const pi = usage.prompt_tokens;
@@ -52,9 +64,8 @@ export function computeTokenCostUsd(usage: TokenUsage | undefined): number {
 		const blendedPer1k = (rates.prompt + rates.completion) / 2;
 		return (total / 1000) * blendedPer1k;
 	}
-	throw new Error(
-		'LLM usage missing countable tokens (need prompt_tokens+completion_tokens or total_tokens) for cost calculation'
-	);
+	console.warn('[llm] usage present but no countable tokens; logging cost as 0', usage);
+	return 0;
 }
 
 function extractUsage(body: unknown): TokenUsage | undefined {
@@ -119,27 +130,41 @@ async function waitForLlmRateLimit(): Promise<void> {
 }
 
 /**
- * Loads LLM config for a user. DB row takes priority over environment variables.
- * Throws a hard error if neither source provides the required fields.
+ * Loads LLM config for a user. Reads the active provider then fetches that provider's credentials.
+ * DB rows take priority over environment variables. Throws a hard error if config is incomplete.
  */
 async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
 	const db = getDb();
-	const [row] = await db
+
+	// Determine active provider
+	const [activeRow] = await db
 		.select()
-		.from(llmConfig)
-		.where(eq(llmConfig.userId, userId))
+		.from(llmActiveProvider)
+		.where(eq(llmActiveProvider.userId, userId))
 		.limit(1);
 
-	if (row?.llmBaseUrl && row?.llmApiKey) {
+	const provider = (activeRow?.provider ?? 'eurouter') as LlmProviderKind;
+
+	// Load credentials for the active provider
+	const [row] = await db
+		.select()
+		.from(llmProviderConfig)
+		.where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)))
+		.limit(1);
+
+	if (row?.baseUrl && row?.apiKey) {
 		return {
-			baseUrl: row.llmBaseUrl.replace(/\/$/, ''),
-			apiKey: row.llmApiKey,
-			ruleChat: row.llmRuleChat ?? null,
-			ruleEmbedding: row.llmRuleEmbedding ?? null
+			provider,
+			baseUrl: row.baseUrl.replace(/\/$/, ''),
+			apiKey: row.apiKey,
+			ruleChat: row.ruleChat ?? null,
+			ruleEmbedding: row.ruleEmbedding ?? null,
+			modelChat: row.modelChat ?? null,
+			modelEmbedding: row.modelEmbedding ?? null
 		};
 	}
 
-	// Fall back to environment variables
+	// Fall back to environment variables (always treated as eurouter)
 	const baseUrl = env.LLM_BASE_URL?.trim();
 	const apiKey = env.LLM_API_KEY?.trim();
 
@@ -155,10 +180,13 @@ async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
 	}
 
 	return {
+		provider: 'eurouter',
 		baseUrl: baseUrl.replace(/\/$/, ''),
 		apiKey,
 		ruleChat: env.LLM_RULE_CHAT?.trim() || null,
-		ruleEmbedding: env.LLM_RULE_EMBEDDING?.trim() || null
+		ruleEmbedding: env.LLM_RULE_EMBEDDING?.trim() || null,
+		modelChat: null,
+		modelEmbedding: null
 	};
 }
 
@@ -209,6 +237,17 @@ async function resolveRoutingRuleById(ruleId: string, apiKey: string, baseUrl: s
 }
 
 async function chatRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
+	// OpenRouter: use direct model name, no routing rules
+	if (config.provider === 'openrouter') {
+		const model = config.modelChat?.trim() || env.LLM_MODEL_CHAT?.trim();
+		if (!model) {
+			throw new Error(
+				'OpenRouter chat model not configured: set a chat model name in Settings → LLM Provider'
+			);
+		}
+		return { model };
+	}
+	// EUrouter: resolve via routing rule or env model override
 	const ruleId = config.ruleChat;
 	const model = env.LLM_MODEL_CHAT?.trim();
 	if (model) return { ...(ruleId ? { ruleId } : {}), model };
@@ -219,6 +258,17 @@ async function chatRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConf
 }
 
 async function embeddingRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
+	// OpenRouter: use direct model name, no routing rules
+	if (config.provider === 'openrouter') {
+		const model = config.modelEmbedding?.trim() || env.LLM_MODEL_EMBEDDING?.trim();
+		if (!model) {
+			throw new Error(
+				'OpenRouter embedding model not configured: set an embedding model name in Settings → LLM Provider'
+			);
+		}
+		return { model };
+	}
+	// EUrouter: resolve via routing rule or env model override
 	const ruleId = config.ruleEmbedding;
 	const model = env.LLM_MODEL_EMBEDDING?.trim();
 	if (model) return { ...(ruleId ? { ruleId } : {}), model };

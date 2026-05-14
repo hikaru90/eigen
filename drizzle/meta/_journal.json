@@ -64,6 +64,13 @@
       "when": 1747242000000,
       "tag": "0008_chat_message_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1747422000000,
+      "tag": "0009_llm_provider_fields",
+      "breakpoints": true
     }
   ]
 }

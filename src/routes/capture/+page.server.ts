@@ -3,7 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
-import { userPreference, llmConfig } from '$lib/server/db/schema';
+import { userPreference, llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { eq } from 'drizzle-orm';
 
@@ -26,16 +26,17 @@ export const load: PageServerLoad = async (event) => {
 		.where(eq(user.id, event.locals.user.id))
 		.limit(1);
 
-	const [llmRow] = await getDb()
-		.select({ userId: llmConfig.userId })
-		.from(llmConfig)
-		.where(eq(llmConfig.userId, event.locals.user.id))
+	// llmConfigured: at least one provider row exists with credentials
+	const [anyProvider] = await getDb()
+		.select({ userId: llmProviderConfig.userId })
+		.from(llmProviderConfig)
+		.where(eq(llmProviderConfig.userId, event.locals.user.id))
 		.limit(1);
 
 	return {
 		user: event.locals.user,
 		onboardingCompleted: authUser?.onboardingCompleted === true,
-		llmConfigured: !!llmRow,
+		llmConfigured: !!anyProvider,
 		preferredLanguage: pref?.preferredLanguage ?? 'en'
 	};
 };
@@ -60,39 +61,60 @@ export const actions: Actions = {
 		}
 
 		const formData = await event.request.formData();
-		const llmBaseUrl = formData.get('llmBaseUrl')?.toString().trim() ?? '';
-		const llmApiKey = formData.get('llmApiKey')?.toString().trim() ?? '';
-		const llmRuleChat = formData.get('llmRuleChat')?.toString().trim() || null;
-		const llmRuleEmbedding = formData.get('llmRuleEmbedding')?.toString().trim() || null;
+		const provider = formData.get('provider')?.toString().trim() ?? 'eurouter';
+		const baseUrl = formData.get('baseUrl')?.toString().trim() ?? '';
+		const apiKey = formData.get('apiKey')?.toString().trim() ?? '';
+		const ruleChat = formData.get('ruleChat')?.toString().trim() || null;
+		const ruleEmbedding = formData.get('ruleEmbedding')?.toString().trim() || null;
+		const modelChat = formData.get('modelChat')?.toString().trim() || null;
+		const modelEmbedding = formData.get('modelEmbedding')?.toString().trim() || null;
 
-		if (!llmBaseUrl) {
+		if (provider !== 'eurouter' && provider !== 'openrouter') {
+			return fail(400, { llmMessage: 'Invalid provider.' });
+		}
+		if (!baseUrl) {
 			return fail(400, { llmMessage: 'Base URL is required.' });
 		}
-		if (!llmBaseUrl.startsWith('http://') && !llmBaseUrl.startsWith('https://')) {
+		if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
 			return fail(400, { llmMessage: 'Base URL must start with http:// or https://' });
 		}
-		if (!llmApiKey) {
+		if (!apiKey) {
 			return fail(400, { llmMessage: 'API key is required.' });
 		}
 
-		await getDb()
-			.insert(llmConfig)
+		const db = getDb();
+		await db
+			.insert(llmProviderConfig)
 			.values({
 				userId: event.locals.user.id,
-				llmBaseUrl: llmBaseUrl.replace(/\/$/, ''),
-				llmApiKey,
-				llmRuleChat,
-				llmRuleEmbedding
+				provider,
+				baseUrl: baseUrl.replace(/\/$/, ''),
+				apiKey,
+				ruleChat,
+				ruleEmbedding,
+				modelChat,
+				modelEmbedding
 			})
 			.onConflictDoUpdate({
-				target: llmConfig.userId,
+				target: [llmProviderConfig.userId, llmProviderConfig.provider],
 				set: {
-					llmBaseUrl: llmBaseUrl.replace(/\/$/, ''),
-					llmApiKey,
-					llmRuleChat,
-					llmRuleEmbedding,
+					baseUrl: baseUrl.replace(/\/$/, ''),
+					apiKey,
+					ruleChat,
+					ruleEmbedding,
+					modelChat,
+					modelEmbedding,
 					updatedAt: new Date()
 				}
+			});
+
+		// Also set this as the active provider
+		await db
+			.insert(llmActiveProvider)
+			.values({ userId: event.locals.user.id, provider })
+			.onConflictDoUpdate({
+				target: llmActiveProvider.userId,
+				set: { provider, updatedAt: new Date() }
 			});
 
 		return { llmConfigSaved: true as const };

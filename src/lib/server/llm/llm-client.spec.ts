@@ -40,12 +40,12 @@ describe('computeTokenCostUsd', () => {
 		expect(computeTokenCostUsd({ total_tokens: 1000 })).toBeCloseTo(0.000065);
 	});
 
-	it('throws when usage is missing', () => {
-		expect(() => computeTokenCostUsd(undefined)).toThrow(/missing usage/);
+	it('returns 0 when usage is missing', () => {
+		expect(computeTokenCostUsd(undefined)).toBe(0);
 	});
 
-	it('throws when usage has no countable tokens', () => {
-		expect(() => computeTokenCostUsd({})).toThrow(/missing countable tokens/);
+	it('returns 0 when usage has no countable tokens', () => {
+		expect(computeTokenCostUsd({})).toBe(0);
 	});
 });
 
@@ -67,6 +67,27 @@ describe('llm client retries', () => {
 		mockEnv.LLM_MODEL_EMBEDDING = 'text-embedding-3-small';
 		mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0';
 		mockEnv.LLM_API_KEY = 'key-1';
+	});
+
+	it('chat succeeds and logs cost as 0 when response has no usage field', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => response(true, 200, { choices: [] }))
+		);
+
+		await llmChatCompletion({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'hello' }]
+		});
+
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({
+				operation: 'llm.chat.success(attempt=1)',
+				baseCostUsd: 0
+			})
+		);
 	});
 
 	it('chat succeeds and logs activity', async () => {

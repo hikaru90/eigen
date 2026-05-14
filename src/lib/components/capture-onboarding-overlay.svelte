@@ -11,11 +11,21 @@
 	let step = $state(0);
 	const lastStep = 4;
 
-	// LLM config form state
-	let llmBaseUrl = $state('');
-	let llmApiKey = $state('');
-	let llmRuleChat = $state('');
-	let llmRuleEmbedding = $state('');
+	// Which provider the user is filling in during onboarding (does not affect other providers)
+	let llmProvider = $state<'eurouter' | 'openrouter'>('eurouter');
+
+	// EUrouter fields
+	let erBaseUrl = $state('');
+	let erApiKey = $state('');
+	let erRuleChat = $state('');
+	let erRuleEmbedding = $state('');
+
+	// OpenRouter fields
+	let orBaseUrl = $state('');
+	let orApiKey = $state('');
+	let orModelChat = $state('');
+	let orModelEmbedding = $state('');
+
 	let llmSaving = $state(false);
 	let llmError = $state<string | null>(null);
 	let llmSaved = $state(llmConfigured);
@@ -101,88 +111,161 @@
 					</p>
 				{:else if step === 3}
 					<p class="text-xs leading-relaxed">
-						Eigen routes all LLM calls through <strong>EUrouter</strong> — a gateway that gives you a
-						single API key, routing rules, and cost visibility across providers.
-					</p>
-					<p class="text-xs leading-relaxed">
-						You need to create an account at
-						<a
-							href="https://eurouter.ai"
-							target="_blank"
-							rel="noopener noreferrer"
-							class="text-primary underline underline-offset-2"
-						>eurouter.ai</a>,
-						then create two routing rules — one for chat completions and one for embeddings — and paste
-						their UUIDs below along with your API key.
+						Connect an LLM provider. Each provider has its own credentials — pick the one you want to
+						use first, fill it in, and save.
 					</p>
 					{#if llmSaved}
 						<p class="text-xs text-green-600 dark:text-green-400">LLM provider configured.</p>
 					{/if}
-					<form
-						method="post"
-						action="?/saveLlmConfig"
-						use:enhance={saveLlmConfigEnhance}
-						class="space-y-3 pt-1"
-					>
-						<div class="space-y-1">
-							<Label for="ob-llm-base-url" class="text-xs">Gateway base URL</Label>
-							<input
-								id="ob-llm-base-url"
-								type="url"
-								name="llmBaseUrl"
-								bind:value={llmBaseUrl}
-								placeholder="https://api.eurouter.ai/v1"
-								class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-								required
-							/>
-						</div>
-						<div class="space-y-1">
-							<Label for="ob-llm-api-key" class="text-xs">API key</Label>
-							<input
-								id="ob-llm-api-key"
-								type="password"
-								name="llmApiKey"
-								bind:value={llmApiKey}
-								placeholder="sk-..."
-								class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-								required
-							/>
-						</div>
-						<div class="space-y-1">
-							<Label for="ob-llm-rule-chat" class="text-xs">Chat rule UUID</Label>
-							<input
-								id="ob-llm-rule-chat"
-								type="text"
-								name="llmRuleChat"
-								bind:value={llmRuleChat}
-								placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-								class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
-							/>
-						</div>
-						<div class="space-y-1">
-							<Label for="ob-llm-rule-embedding" class="text-xs">Embedding rule UUID</Label>
-							<input
-								id="ob-llm-rule-embedding"
-								type="text"
-								name="llmRuleEmbedding"
-								bind:value={llmRuleEmbedding}
-								placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-								class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
-							/>
-						</div>
-						{#if llmError}
-							<p class="text-destructive text-xs">{llmError}</p>
-						{/if}
-						<Button
-							type="submit"
-							variant="outline"
-							size="sm"
-							class="rounded-[4px] text-xs"
-							disabled={llmSaving}
+
+					<!-- Provider picker -->
+					<div class="space-y-1">
+						<Label for="ob-provider" class="text-xs">Provider</Label>
+						<select
+							id="ob-provider"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+							bind:value={llmProvider}
 						>
-							{llmSaving ? 'Saving…' : 'Save & continue'}
-						</Button>
-					</form>
+							<option value="eurouter">EUrouter</option>
+							<option value="openrouter">OpenRouter</option>
+						</select>
+					</div>
+
+					{#if llmProvider === 'eurouter'}
+						<form
+							method="post"
+							action="?/saveLlmConfig"
+							use:enhance={saveLlmConfigEnhance}
+							class="space-y-3 pt-1"
+						>
+							<input type="hidden" name="provider" value="eurouter" />
+							<div class="space-y-1">
+								<Label for="ob-er-base-url" class="text-xs">Base URL</Label>
+								<input
+									id="ob-er-base-url"
+									type="url"
+									name="baseUrl"
+									bind:value={erBaseUrl}
+									placeholder="https://api.eurouter.ai/v1"
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+									required
+								/>
+							</div>
+							<div class="space-y-1">
+								<Label for="ob-er-api-key" class="text-xs">API key</Label>
+								<input
+									id="ob-er-api-key"
+									type="password"
+									name="apiKey"
+									bind:value={erApiKey}
+									placeholder="sk-..."
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+									required
+								/>
+							</div>
+							<div class="space-y-1">
+								<Label for="ob-er-rule-chat" class="text-xs">Chat rule UUID</Label>
+								<input
+									id="ob-er-rule-chat"
+									type="text"
+									name="ruleChat"
+									bind:value={erRuleChat}
+									placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
+								/>
+							</div>
+							<div class="space-y-1">
+								<Label for="ob-er-rule-embedding" class="text-xs">Embedding rule UUID</Label>
+								<input
+									id="ob-er-rule-embedding"
+									type="text"
+									name="ruleEmbedding"
+									bind:value={erRuleEmbedding}
+									placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
+								/>
+							</div>
+							{#if llmError}
+								<p class="text-destructive text-xs">{llmError}</p>
+							{/if}
+							<Button
+								type="submit"
+								variant="outline"
+								size="sm"
+								class="rounded-[4px] text-xs"
+								disabled={llmSaving}
+							>
+								{llmSaving ? 'Saving…' : 'Save & continue'}
+							</Button>
+						</form>
+					{:else}
+						<form
+							method="post"
+							action="?/saveLlmConfig"
+							use:enhance={saveLlmConfigEnhance}
+							class="space-y-3 pt-1"
+						>
+							<input type="hidden" name="provider" value="openrouter" />
+							<div class="space-y-1">
+								<Label for="ob-or-base-url" class="text-xs">Base URL</Label>
+								<input
+									id="ob-or-base-url"
+									type="url"
+									name="baseUrl"
+									bind:value={orBaseUrl}
+									placeholder="https://openrouter.ai/api/v1"
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+									required
+								/>
+							</div>
+							<div class="space-y-1">
+								<Label for="ob-or-api-key" class="text-xs">API key</Label>
+								<input
+									id="ob-or-api-key"
+									type="password"
+									name="apiKey"
+									bind:value={orApiKey}
+									placeholder="sk-or-..."
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+									required
+								/>
+							</div>
+							<div class="space-y-1">
+								<Label for="ob-or-model-chat" class="text-xs">Chat model</Label>
+								<input
+									id="ob-or-model-chat"
+									type="text"
+									name="modelChat"
+									bind:value={orModelChat}
+									placeholder="openai/gpt-4o"
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+								/>
+							</div>
+							<div class="space-y-1">
+								<Label for="ob-or-model-embedding" class="text-xs">Embedding model</Label>
+								<input
+									id="ob-or-model-embedding"
+									type="text"
+									name="modelEmbedding"
+									bind:value={orModelEmbedding}
+									placeholder="openai/text-embedding-3-small"
+									class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+								/>
+							</div>
+							{#if llmError}
+								<p class="text-destructive text-xs">{llmError}</p>
+							{/if}
+							<Button
+								type="submit"
+								variant="outline"
+								size="sm"
+								class="rounded-[4px] text-xs"
+								disabled={llmSaving}
+							>
+								{llmSaving ? 'Saving…' : 'Save & continue'}
+							</Button>
+						</form>
+					{/if}
 				{:else}
 					<p class="text-xs leading-relaxed">
 						You are set. New captures run through ingest and show up in activity so you can see what

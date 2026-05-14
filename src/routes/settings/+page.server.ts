@@ -1,12 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { APIError } from 'better-auth/api';
 import { auth } from '$lib/server/auth';
 import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
-import { userPreference, llmConfig } from '$lib/server/db/schema';
+import { userPreference, llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
 
 const LANGUAGE_OPTIONS = [
 	{ value: 'en', label: 'English' },
@@ -74,16 +74,23 @@ export const load: PageServerLoad = async (event) => {
 		.where(eq(userPreference.userId, event.locals.user.id))
 		.limit(1);
 
-	const [llmRow] = await getDb()
-		.select({
-			llmBaseUrl: llmConfig.llmBaseUrl,
-			llmApiKey: llmConfig.llmApiKey,
-			llmRuleChat: llmConfig.llmRuleChat,
-			llmRuleEmbedding: llmConfig.llmRuleEmbedding
-		})
-		.from(llmConfig)
-		.where(eq(llmConfig.userId, event.locals.user.id))
+	// Load the active provider selection
+	const [activeRow] = await getDb()
+		.select({ provider: llmActiveProvider.provider })
+		.from(llmActiveProvider)
+		.where(eq(llmActiveProvider.userId, event.locals.user.id))
 		.limit(1);
+
+	const activeProvider = (activeRow?.provider ?? 'eurouter') as 'eurouter' | 'openrouter';
+
+	// Load all saved provider configs so the UI can pre-fill each provider's form independently
+	const providerRows = await getDb()
+		.select()
+		.from(llmProviderConfig)
+		.where(eq(llmProviderConfig.userId, event.locals.user.id));
+
+	const eurouterRow = providerRows.find((r) => r.provider === 'eurouter');
+	const openrouterRow = providerRows.find((r) => r.provider === 'openrouter');
 
 	return {
 		user: event.locals.user,
@@ -91,10 +98,19 @@ export const load: PageServerLoad = async (event) => {
 		preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low',
 		languageOptions: LANGUAGE_OPTIONS,
 		qualityOptions: QUALITY_OPTIONS,
-		llmBaseUrl: llmRow?.llmBaseUrl ?? '',
-		llmApiKey: llmRow?.llmApiKey ?? '',
-		llmRuleChat: llmRow?.llmRuleChat ?? '',
-		llmRuleEmbedding: llmRow?.llmRuleEmbedding ?? ''
+		activeProvider,
+		eurouter: {
+			baseUrl: eurouterRow?.baseUrl ?? '',
+			apiKey: eurouterRow?.apiKey ?? '',
+			ruleChat: eurouterRow?.ruleChat ?? '',
+			ruleEmbedding: eurouterRow?.ruleEmbedding ?? ''
+		},
+		openrouter: {
+			baseUrl: openrouterRow?.baseUrl ?? '',
+			apiKey: openrouterRow?.apiKey ?? '',
+			modelChat: openrouterRow?.modelChat ?? '',
+			modelEmbedding: openrouterRow?.modelEmbedding ?? ''
+		}
 	};
 };
 
@@ -236,45 +252,97 @@ export const actions: Actions = {
 		}
 
 		const formData = await event.request.formData();
-		const llmBaseUrl = formData.get('llmBaseUrl')?.toString().trim() ?? '';
-		const llmApiKey = formData.get('llmApiKey')?.toString().trim() ?? '';
-		const llmRuleChat = formData.get('llmRuleChat')?.toString().trim() || null;
-		const llmRuleEmbedding = formData.get('llmRuleEmbedding')?.toString().trim() || null;
+		const provider = formData.get('provider')?.toString().trim() ?? '';
+		const baseUrl = formData.get('baseUrl')?.toString().trim() ?? '';
+		const apiKey = formData.get('apiKey')?.toString().trim() ?? '';
+		const ruleChat = formData.get('ruleChat')?.toString().trim() || null;
+		const ruleEmbedding = formData.get('ruleEmbedding')?.toString().trim() || null;
+		const modelChat = formData.get('modelChat')?.toString().trim() || null;
+		const modelEmbedding = formData.get('modelEmbedding')?.toString().trim() || null;
+		const setActive = formData.get('setActive') === 'true';
 
-		if (!llmBaseUrl) {
+		if (provider !== 'eurouter' && provider !== 'openrouter') {
+			return fail(400, { llmMessage: 'Invalid provider.' });
+		}
+		if (!baseUrl) {
 			return fail(400, { llmMessage: 'Base URL is required.' });
 		}
-		if (!llmBaseUrl.startsWith('http://') && !llmBaseUrl.startsWith('https://')) {
+		if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
 			return fail(400, { llmMessage: 'Base URL must start with http:// or https://' });
 		}
-		if (!llmApiKey) {
+		if (!apiKey) {
 			return fail(400, { llmMessage: 'API key is required.' });
 		}
 
 		try {
-			await getDb()
-				.insert(llmConfig)
+			const db = getDb();
+			// Upsert this provider's credentials
+			await db
+				.insert(llmProviderConfig)
 				.values({
 					userId: event.locals.user.id,
-					llmBaseUrl: llmBaseUrl.replace(/\/$/, ''),
-					llmApiKey,
-					llmRuleChat,
-					llmRuleEmbedding
+					provider,
+					baseUrl: baseUrl.replace(/\/$/, ''),
+					apiKey,
+					ruleChat,
+					ruleEmbedding,
+					modelChat,
+					modelEmbedding
 				})
 				.onConflictDoUpdate({
-					target: llmConfig.userId,
+					target: [llmProviderConfig.userId, llmProviderConfig.provider],
 					set: {
-						llmBaseUrl: llmBaseUrl.replace(/\/$/, ''),
-						llmApiKey,
-						llmRuleChat,
-						llmRuleEmbedding,
+						baseUrl: baseUrl.replace(/\/$/, ''),
+						apiKey,
+						ruleChat,
+						ruleEmbedding,
+						modelChat,
+						modelEmbedding,
 						updatedAt: new Date()
 					}
 				});
-			return { llmMessage: 'LLM provider configuration saved.' };
+			// Optionally mark this provider as active
+			if (setActive) {
+				await db
+					.insert(llmActiveProvider)
+					.values({ userId: event.locals.user.id, provider })
+					.onConflictDoUpdate({
+						target: llmActiveProvider.userId,
+						set: { provider, updatedAt: new Date() }
+					});
+			}
+			return { llmMessage: `${provider === 'eurouter' ? 'EUrouter' : 'OpenRouter'} configuration saved.` };
 		} catch (error) {
 			return fail(400, {
 				llmMessage: getSafeErrorMessage(error, 'Unable to save LLM configuration.')
+			});
+		}
+	},
+
+	setActiveProvider: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { llmMessage: 'You must be signed in.' });
+		}
+
+		const formData = await event.request.formData();
+		const provider = formData.get('provider')?.toString().trim() ?? '';
+
+		if (provider !== 'eurouter' && provider !== 'openrouter') {
+			return fail(400, { llmMessage: 'Invalid provider.' });
+		}
+
+		try {
+			await getDb()
+				.insert(llmActiveProvider)
+				.values({ userId: event.locals.user.id, provider })
+				.onConflictDoUpdate({
+					target: llmActiveProvider.userId,
+					set: { provider, updatedAt: new Date() }
+				});
+			return { llmMessage: `Active provider set to ${provider === 'eurouter' ? 'EUrouter' : 'OpenRouter'}.` };
+		} catch (error) {
+			return fail(400, {
+				llmMessage: getSafeErrorMessage(error, 'Unable to set active provider.')
 			});
 		}
 	}
