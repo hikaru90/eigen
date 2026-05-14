@@ -434,3 +434,21 @@ export const entityResolutionLog = pgTable(
 		index('entity_resolution_log_thought_idx').on(t.thoughtId)
 	]
 );
+
+/**
+ * Per-user LLM gateway configuration. Takes priority over environment variables.
+ * Stores the EUrouter base URL, API key, and routing rule UUIDs for chat and embeddings.
+ */
+export const llmConfig = pgTable('llm_config', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	llmBaseUrl: text('llm_base_url').notNull(),
+	llmApiKey: text('llm_api_key').notNull(),
+	llmRuleChat: text('llm_rule_chat'),
+	llmRuleEmbedding: text('llm_rule_embedding'),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull()
+});

@@ -227,4 +227,4 @@
 
 </div>
 
-<CaptureOnboardingOverlay open={showOnboarding} />
+<CaptureOnboardingOverlay open={showOnboarding} llmConfigured={data.llmConfigured} />

@@ -6,7 +6,7 @@ import { auth } from '$lib/server/auth';
 import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
-import { userPreference } from '$lib/server/db/schema';
+import { userPreference, llmConfig } from '$lib/server/db/schema';
 
 const LANGUAGE_OPTIONS = [
 	{ value: 'en', label: 'English' },
@@ -74,12 +74,27 @@ export const load: PageServerLoad = async (event) => {
 		.where(eq(userPreference.userId, event.locals.user.id))
 		.limit(1);
 
+	const [llmRow] = await getDb()
+		.select({
+			llmBaseUrl: llmConfig.llmBaseUrl,
+			llmApiKey: llmConfig.llmApiKey,
+			llmRuleChat: llmConfig.llmRuleChat,
+			llmRuleEmbedding: llmConfig.llmRuleEmbedding
+		})
+		.from(llmConfig)
+		.where(eq(llmConfig.userId, event.locals.user.id))
+		.limit(1);
+
 	return {
 		user: event.locals.user,
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
 		preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low',
 		languageOptions: LANGUAGE_OPTIONS,
-		qualityOptions: QUALITY_OPTIONS
+		qualityOptions: QUALITY_OPTIONS,
+		llmBaseUrl: llmRow?.llmBaseUrl ?? '',
+		llmApiKey: llmRow?.llmApiKey ?? '',
+		llmRuleChat: llmRow?.llmRuleChat ?? '',
+		llmRuleEmbedding: llmRow?.llmRuleEmbedding ?? ''
 	};
 };
 
@@ -213,5 +228,54 @@ export const actions: Actions = {
 		}
 
 		throw redirect(303, '/capture');
+	},
+
+	saveLlmConfig: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { llmMessage: 'You must be signed in.' });
+		}
+
+		const formData = await event.request.formData();
+		const llmBaseUrl = formData.get('llmBaseUrl')?.toString().trim() ?? '';
+		const llmApiKey = formData.get('llmApiKey')?.toString().trim() ?? '';
+		const llmRuleChat = formData.get('llmRuleChat')?.toString().trim() || null;
+		const llmRuleEmbedding = formData.get('llmRuleEmbedding')?.toString().trim() || null;
+
+		if (!llmBaseUrl) {
+			return fail(400, { llmMessage: 'Base URL is required.' });
+		}
+		if (!llmBaseUrl.startsWith('http://') && !llmBaseUrl.startsWith('https://')) {
+			return fail(400, { llmMessage: 'Base URL must start with http:// or https://' });
+		}
+		if (!llmApiKey) {
+			return fail(400, { llmMessage: 'API key is required.' });
+		}
+
+		try {
+			await getDb()
+				.insert(llmConfig)
+				.values({
+					userId: event.locals.user.id,
+					llmBaseUrl: llmBaseUrl.replace(/\/$/, ''),
+					llmApiKey,
+					llmRuleChat,
+					llmRuleEmbedding
+				})
+				.onConflictDoUpdate({
+					target: llmConfig.userId,
+					set: {
+						llmBaseUrl: llmBaseUrl.replace(/\/$/, ''),
+						llmApiKey,
+						llmRuleChat,
+						llmRuleEmbedding,
+						updatedAt: new Date()
+					}
+				});
+			return { llmMessage: 'LLM provider configuration saved.' };
+		} catch (error) {
+			return fail(400, {
+				llmMessage: getSafeErrorMessage(error, 'Unable to save LLM configuration.')
+			});
+		}
 	}
 };

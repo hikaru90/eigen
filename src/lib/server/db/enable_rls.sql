@@ -112,3 +112,11 @@ CREATE POLICY chat_message_isolation ON chat_message
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE llm_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE llm_config FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS llm_config_isolation ON llm_config;
+CREATE POLICY llm_config_isolation ON llm_config
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));

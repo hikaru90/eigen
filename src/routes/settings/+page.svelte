@@ -169,4 +169,61 @@
 			</form>
 		</div>
 
+		<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+			<h3 class="text-xs font-semibold">LLM Provider</h3>
+			<p class="text-muted-foreground mt-0.5 text-xs">
+				EUrouter gateway credentials and routing rule UUIDs. DB values take priority over environment variables.
+			</p>
+			<form method="post" action="?/saveLlmConfig" use:enhance class="mt-3 space-y-3">
+				<div class="space-y-1">
+					<Label for="llmBaseUrl">Gateway base URL</Label>
+					<input
+						id="llmBaseUrl"
+						type="url"
+						name="llmBaseUrl"
+						value={data.llmBaseUrl}
+						placeholder="https://api.eurouter.ai/v1"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+					/>
+				</div>
+				<div class="space-y-1">
+					<Label for="llmApiKey">API key</Label>
+					<input
+						id="llmApiKey"
+						type="password"
+						name="llmApiKey"
+						value={data.llmApiKey}
+						placeholder={data.llmApiKey ? '••••••••' : 'sk-...'}
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+					/>
+				</div>
+				<div class="space-y-1">
+					<Label for="llmRuleChat">Chat rule UUID</Label>
+					<input
+						id="llmRuleChat"
+						type="text"
+						name="llmRuleChat"
+						value={data.llmRuleChat}
+						placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
+					/>
+				</div>
+				<div class="space-y-1">
+					<Label for="llmRuleEmbedding">Embedding rule UUID</Label>
+					<input
+						id="llmRuleEmbedding"
+						type="text"
+						name="llmRuleEmbedding"
+						value={data.llmRuleEmbedding}
+						placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
+					/>
+				</div>
+				<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Save</Button>
+				{#if form?.llmMessage}
+					<p class="text-muted-foreground text-xs">{form.llmMessage}</p>
+				{/if}
+			</form>
+		</div>
+
 </div>

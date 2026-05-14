@@ -24,7 +24,7 @@ services:
       retries: 20
       start_period: 10s
     volumes:
-      - eigen_falkor:/data
+      - eigen_falkor:/var/lib/falkordb/data
     restart: unless-stopped
   db:
     container_name: eigen-db

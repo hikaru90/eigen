@@ -1,5 +1,7 @@
 import { env } from '$env/dynamic/private';
+import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { llmConfig } from '$lib/server/db/schema';
 import { LLM_GATEWAY_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
 import { logActivityCall } from '$lib/server/activity/log-call';
 
@@ -16,6 +18,13 @@ type TokenUsage = {
 };
 
 type RoutingConfig = { ruleId?: string; model: string; provider?: Record<string, unknown> };
+
+type ResolvedLlmConfig = {
+	baseUrl: string;
+	apiKey: string;
+	ruleChat: string | null;
+	ruleEmbedding: string | null;
+};
 
 const routingRuleCache = new Map<string, RoutingConfig>();
 let lastLlmRequestAt = 0;
@@ -43,14 +52,6 @@ export function computeTokenCostUsd(usage: TokenUsage | undefined): number {
 	throw new Error(
 		'LLM usage missing countable tokens (need prompt_tokens+completion_tokens or total_tokens) for cost calculation'
 	);
-}
-
-function baseUrl(): string {
-	const u = env.LLM_BASE_URL?.trim();
-	if (!u) {
-		throw new Error('LLM_BASE_URL is not set (required for LLM calls)');
-	}
-	return u.replace(/\/$/, '');
 }
 
 function extractUsage(body: unknown): TokenUsage | undefined {
@@ -93,11 +94,55 @@ async function waitForLlmRateLimit(): Promise<void> {
 	await llmRequestQueue;
 }
 
-async function resolveRoutingRuleById(ruleId: string, apiKey: string): Promise<RoutingConfig> {
+/**
+ * Loads LLM config for a user. DB row takes priority over environment variables.
+ * Throws a hard error if neither source provides the required fields.
+ */
+async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
+	const db = getDb();
+	const [row] = await db
+		.select()
+		.from(llmConfig)
+		.where(eq(llmConfig.userId, userId))
+		.limit(1);
+
+	if (row?.llmBaseUrl && row?.llmApiKey) {
+		return {
+			baseUrl: row.llmBaseUrl.replace(/\/$/, ''),
+			apiKey: row.llmApiKey,
+			ruleChat: row.llmRuleChat ?? null,
+			ruleEmbedding: row.llmRuleEmbedding ?? null
+		};
+	}
+
+	// Fall back to environment variables
+	const baseUrl = env.LLM_BASE_URL?.trim();
+	const apiKey = env.LLM_API_KEY?.trim();
+
+	if (!baseUrl) {
+		throw new Error(
+			'LLM not configured: set LLM_BASE_URL in environment or configure via Settings → LLM Provider'
+		);
+	}
+	if (!apiKey) {
+		throw new Error(
+			'LLM not configured: set LLM_API_KEY in environment or configure via Settings → LLM Provider'
+		);
+	}
+
+	return {
+		baseUrl: baseUrl.replace(/\/$/, ''),
+		apiKey,
+		ruleChat: env.LLM_RULE_CHAT?.trim() || null,
+		ruleEmbedding: env.LLM_RULE_EMBEDDING?.trim() || null
+	};
+}
+
+async function resolveRoutingRuleById(ruleId: string, apiKey: string, baseUrl: string): Promise<RoutingConfig> {
 	const cached = routingRuleCache.get(ruleId);
 	if (cached) return cached;
 
-	const res = await fetch(`${baseUrl()}/routing-rules/${ruleId}`, {
+	const res = await fetch(`${baseUrl}/routing-rules/${ruleId}`, {
 		method: 'GET',
 		headers: {
 			Authorization: `Bearer ${apiKey}`
@@ -139,27 +184,29 @@ async function resolveRoutingRuleById(ruleId: string, apiKey: string): Promise<R
 	return resolved;
 }
 
-async function chatRoutingConfig(apiKey: string): Promise<RoutingConfig> {
-	const ruleId = env.LLM_RULE_CHAT?.trim();
+async function chatRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
+	const ruleId = config.ruleChat;
 	const model = env.LLM_MODEL_CHAT?.trim();
 	if (model) return { ...(ruleId ? { ruleId } : {}), model };
-	if (ruleId) return resolveRoutingRuleById(ruleId, apiKey);
-	throw new Error('LLM_MODEL_CHAT or LLM_RULE_CHAT must be set (required for chat completions)');
+	if (ruleId) return resolveRoutingRuleById(ruleId, config.apiKey, config.baseUrl);
+	throw new Error(
+		'LLM chat rule not configured: set LLM_RULE_CHAT in environment or configure via Settings → LLM Provider'
+	);
 }
 
-async function embeddingRoutingConfig(apiKey: string): Promise<RoutingConfig> {
-	const ruleId = env.LLM_RULE_EMBEDDING?.trim();
+async function embeddingRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
+	const ruleId = config.ruleEmbedding;
 	const model = env.LLM_MODEL_EMBEDDING?.trim();
 	if (model) return { ...(ruleId ? { ruleId } : {}), model };
-	if (ruleId) return resolveRoutingRuleById(ruleId, apiKey);
+	if (ruleId) return resolveRoutingRuleById(ruleId, config.apiKey, config.baseUrl);
 	throw new Error(
-		'LLM_MODEL_EMBEDDING or LLM_RULE_EMBEDDING must be set (required for embedding calls)'
+		'LLM embedding rule not configured: set LLM_RULE_EMBEDDING in environment or configure via Settings → LLM Provider'
 	);
 }
 
 /**
- * Chat completions: `POST ${LLM_BASE_URL}/chat/completions`.
- * Body uses `rule_id` from `LLM_RULE_CHAT` (rule carries model/routing); no `model` field is sent.
+ * Chat completions: `POST ${baseUrl}/chat/completions`.
+ * Body uses `rule_id` from the user's LLM config (DB row) or LLM_RULE_CHAT env var.
  */
 export async function llmChatCompletion(input: {
 	userId: string;
@@ -168,12 +215,9 @@ export async function llmChatCompletion(input: {
 	/** Dev/server observability only; appears in logs to disambiguate parallel chat uses. */
 	logContext?: string;
 }): Promise<unknown> {
-	const url = `${baseUrl()}/chat/completions`;
-	const apiKey = env.LLM_API_KEY?.trim();
-	if (!apiKey) {
-		throw new Error('LLM_API_KEY is not set (required for LLM chat calls)');
-	}
-	const routing = await chatRoutingConfig(apiKey);
+	const config = await loadLlmConfig(input.userId);
+	const url = `${config.baseUrl}/chat/completions`;
+	const routing = await chatRoutingConfig(config);
 	const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_');
 
 	const maxAttempts = 3;
@@ -195,7 +239,7 @@ export async function llmChatCompletion(input: {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					Authorization: `Bearer ${apiKey}`
+					Authorization: `Bearer ${config.apiKey}`
 				},
 				body: JSON.stringify({
 					...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
@@ -266,15 +310,12 @@ export async function llmChatCompletion(input: {
 }
 
 /**
- * Embeddings: `POST ${LLM_BASE_URL}/embeddings` with `rule_id` from `LLM_RULE_EMBEDDING`.
+ * Embeddings: `POST ${baseUrl}/embeddings` with rule_id from the user's LLM config.
  */
 export async function llmCreateEmbeddings(input: { userId: string; input: string | string[] }): Promise<unknown> {
-	const url = `${baseUrl()}/embeddings`;
-	const apiKey = env.LLM_API_KEY?.trim();
-	if (!apiKey) {
-		throw new Error('LLM_API_KEY is not set (required for LLM embedding calls)');
-	}
-	const routing = await embeddingRoutingConfig(apiKey);
+	const config = await loadLlmConfig(input.userId);
+	const url = `${config.baseUrl}/embeddings`;
+	const routing = await embeddingRoutingConfig(config);
 
 	const maxAttempts = 3;
 	let lastError: unknown;
@@ -288,7 +329,7 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					Authorization: `Bearer ${apiKey}`
+					Authorization: `Bearer ${config.apiKey}`
 				},
 				body: JSON.stringify({
 					...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
