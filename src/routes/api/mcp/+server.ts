@@ -1,79 +1,32 @@
-import { error, json } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import {
-	runCaptureThoughtTool,
-	runEditThoughtTool,
-	runRetrieveThoughtsTool,
-	runAnswerQuestionTool
-} from '$lib/server/mcp/tools';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { createMcpServer } from '$lib/server/mcp/server';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 
-const TOOL_MAP = {
-	capture_thought: runCaptureThoughtTool,
-	retrieve_thoughts: runRetrieveThoughtsTool,
-	edit_thought: runEditThoughtTool,
-	answer_question: runAnswerQuestionTool
-} as const;
-
-const TOOL_DEFINITIONS = [
-	{
-		name: 'capture_thought',
-		description: 'Capture and store a raw thought.'
-	},
-	{
-		name: 'retrieve_thoughts',
-		description: 'Retrieve thoughts using hybrid vector, lexical, and graph retrieval.'
-	},
-	{
-		name: 'edit_thought',
-		description: 'Apply a natural-language edit request to a thought.'
-	},
-	{
-		name: 'answer_question',
-		description: 'Answer a question by retrieving relevant thoughts and composing a grounded answer.'
-	}
-];
-
-export const POST: RequestHandler = async (event) => {
+async function handleMcp(event: Parameters<RequestHandler>[0]): Promise<Response> {
 	const user = event.locals.user;
-	if (!user) error(401, 'Unauthorized');
-
-	let body: unknown;
-	try {
-		body = await event.request.json();
-	} catch {
-		error(400, 'Invalid JSON');
+	if (!user) {
+		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
 
-	const payload = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-	const method = typeof payload.method === 'string' ? payload.method : '';
-
-	if (method === 'tools/list') {
-		return json({
-			tools: TOOL_DEFINITIONS
-		});
-	}
-
-	if (method !== 'tools/call') {
-		error(400, 'Unsupported method');
-	}
-
-	const params =
-		payload.params && typeof payload.params === 'object'
-			? (payload.params as Record<string, unknown>)
-			: {};
-	const toolName = typeof params.name === 'string' ? params.name : '';
-	const handler = TOOL_MAP[toolName as keyof typeof TOOL_MAP];
-	if (!handler) {
-		error(400, `Unknown tool: ${toolName}`);
-	}
-
-	const result = await runWithTrace(crypto.randomUUID(), () => handler(
-		{ userId: user.id },
-		params.arguments && typeof params.arguments === 'object' ? params.arguments : {}
-	));
-
-	return json({
-		content: [{ type: 'text', text: JSON.stringify(result) }]
+	// enableJsonResponse: use Promise-based JSON responses instead of SSE streaming.
+	// This fits the stateless-per-request SvelteKit model — no persistent stream to manage.
+	const transport = new WebStandardStreamableHTTPServerTransport({
+		sessionIdGenerator: undefined,
+		enableJsonResponse: true
 	});
-};
+
+	const server = createMcpServer({ userId: user.id });
+	await server.connect(transport);
+
+	// Don't close the server — the transport stream lifecycle manages cleanup.
+	// Closing early tears down the server before responses are written.
+	return runWithTrace(crypto.randomUUID(), () =>
+		transport.handleRequest(event.request)
+	);
+}
+
+export const GET: RequestHandler = (event) => handleMcp(event);
+export const POST: RequestHandler = (event) => handleMcp(event);
+export const DELETE: RequestHandler = (event) => handleMcp(event);

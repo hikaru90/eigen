@@ -22,6 +22,20 @@
 	let error = $state<string | null>(null);
 	let keys = $state(data.keys);
 
+	function formatRelativeTime(date: Date | null): string {
+		if (!date) return 'Never used';
+		const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+		const diffMs = new Date(date).getTime() - Date.now();
+		const diffSec = Math.round(diffMs / 1000);
+		const diffMin = Math.round(diffSec / 60);
+		const diffHr = Math.round(diffMin / 60);
+		const diffDay = Math.round(diffHr / 24);
+		if (Math.abs(diffSec) < 60) return rtf.format(diffSec, 'second');
+		if (Math.abs(diffMin) < 60) return rtf.format(diffMin, 'minute');
+		if (Math.abs(diffHr) < 24) return rtf.format(diffHr, 'hour');
+		return rtf.format(diffDay, 'day');
+	}
+
 	function openDialog() {
 		keyName = '';
 		generatedKey = null;
@@ -155,6 +169,9 @@
 								<p class="text-muted-foreground truncate text-[11px] font-mono">{key.keyPrefix}</p>
 								<p class="text-muted-foreground text-[11px]">
 									Created {new Date(key.createdAt).toLocaleDateString()}
+								</p>
+								<p class="text-[11px] {key.lastUsedAt ? 'text-muted-foreground' : 'text-muted-foreground/50'}">
+									{key.lastUsedAt ? `Last used ${formatRelativeTime(key.lastUsedAt)}` : 'Never used'}
 								</p>
 							</div>
 							<button
