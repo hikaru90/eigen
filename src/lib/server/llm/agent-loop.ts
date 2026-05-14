@@ -5,7 +5,6 @@ import { getDb } from '$lib/server/db';
 import {
 	runEditThoughtTool,
 	runRetrieveThoughtsTool,
-	runAnswerQuestionTool,
 	type McpToolContext
 } from '$lib/server/mcp/tools';
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
@@ -26,11 +25,6 @@ const AGENT_TOOLS: AgentToolDef[] = [
 		name: 'edit_thought',
 		description: 'Edit an existing thought by ID with a natural-language edit request.',
 		schema: '{"thought_id": "string (required)", "edit_request": "string (required)"}'
-	},
-	{
-		name: 'answer_question',
-		description: 'Answer a question by retrieving relevant thoughts and composing a grounded answer with citations.',
-		schema: '{"question": "string (required)", "top_k": "number (optional, default 8)"}'
 	}
 ];
 
@@ -38,8 +32,7 @@ const MAX_ITERATIONS = 10;
 
 const TOOL_MAP: Record<string, (ctx: McpToolContext, args: unknown) => Promise<unknown>> = {
 	retrieve_thoughts: runRetrieveThoughtsTool,
-	edit_thought: runEditThoughtTool,
-	answer_question: runAnswerQuestionTool
+	edit_thought: runEditThoughtTool
 };
 
 const TOOL_DESCRIPTION_BLOCK = AGENT_TOOLS.map(
@@ -65,9 +58,9 @@ const SYSTEM_PROMPT = [
 	TOOL_DESCRIPTION_BLOCK,
 	'',
 	'=== BEHAVIOR RULES ===',
-	'- When the user asks about themselves, their memories, or anything they might have stored: ALWAYS call retrieve_thoughts first.',
-	'- For factual questions about stored knowledge: call answer_question — it retrieves relevant thoughts and composes a grounded answer with citations automatically.',
-	'- Call at most one tool per response. After the tool result comes back, you may call another tool or give the final answer.',
+	'- When the user asks about themselves, their memories, or anything they might have stored: call retrieve_thoughts ONCE with a broad query that covers the full intent, then give the final answer.',
+	'- Do NOT call retrieve_thoughts more than once per user message. One retrieval is enough — synthesize the answer from whatever is returned.',
+	'- After receiving a tool result, ALWAYS produce {"answer": "..."} immediately. Do not call another tool.',
 	'- If a tool errors, tell the user clearly what happened in your final answer.',
 	'- Do not invent tool names or argument keys.',
 	'- Output ONLY the JSON object. No greetings, no explanations, no markdown.'
@@ -77,13 +70,27 @@ type AgentResponse = {
 	type: 'tool_call';
 	tool: string;
 	arguments: Record<string, unknown>;
+	thinking: string;
 } | {
 	type: 'final';
 	content: string;
+	thinking: string;
 };
 
+/** Strips a leading <think>...</think> block from the raw LLM output.
+ *  Returns { thinking, rest } where `thinking` is the extracted text (empty string if absent)
+ *  and `rest` is the remaining content to parse as JSON. */
+function extractThinking(raw: string): { thinking: string; rest: string } {
+	const match = raw.match(/^<think>([\s\S]*?)<\/think>\s*/i);
+	if (match) {
+		return { thinking: match[1].trim(), rest: raw.slice(match[0].length).trim() };
+	}
+	return { thinking: '', rest: raw };
+}
+
 function parseResponse(text: string): AgentResponse {
-	let trimmed = text.trim();
+	const { thinking, rest } = extractThinking(text);
+	let trimmed = rest.trim();
 
 	// Strip markdown code fences (```json ... ```) if the LLM wraps the JSON.
 	const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)```\s*$/);
@@ -127,12 +134,12 @@ function parseResponse(text: string): AgentResponse {
 		console.error('[agent-loop] LLM response is not valid JSON — treating as final answer', {
 			preview: trimmed.slice(0, 300)
 		});
-		return { type: 'final', content: trimmed };
+		return { type: 'final', content: trimmed, thinking };
 	}
 
 	if (typeof parsed !== 'object' || !parsed) {
 		console.error('[agent-loop] LLM response is not a JSON object — treating as final', { parsed });
-		return { type: 'final', content: trimmed };
+		return { type: 'final', content: trimmed, thinking };
 	}
 
 	const obj = parsed as Record<string, unknown>;
@@ -142,20 +149,21 @@ function parseResponse(text: string): AgentResponse {
 		return {
 			type: 'tool_call',
 			tool: obj.tool,
-			arguments: obj.arguments as Record<string, unknown>
+			arguments: obj.arguments as Record<string, unknown>,
+			thinking
 		};
 	}
 
 	if (typeof obj.answer === 'string') {
 		console.error('[agent-loop] parsed final answer', { preview: obj.answer.slice(0, 80) });
-		return { type: 'final', content: obj.answer };
+		return { type: 'final', content: obj.answer, thinking };
 	}
 
 	console.error('[agent-loop] JSON object has neither "tool" nor "answer" key — treating as final', {
 		keys: Object.keys(obj),
 		preview: trimmed.slice(0, 300)
 	});
-	return { type: 'final', content: trimmed };
+	return { type: 'final', content: trimmed, thinking };
 }
 
 export type AgentChatResult = {
@@ -176,11 +184,10 @@ export async function agentChat(input: {
 	];
 
 	let formatCorrectionSent = false;
+	let toolResultReceived = false;
 
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		console.error('[agent-loop] iteration', { iteration, messageCount: messages.length });
-
-		input.onEvent?.({ type: 'thinking' });
 
 		console.error('[agent-loop] calling llmChatCompletion');
 		const raw = await llmChatCompletion({
@@ -201,7 +208,23 @@ export async function agentChat(input: {
 		console.error('[agent-loop] LLM raw response', { preview: content.slice(0, 300) });
 		const parsed = parseResponse(content);
 
+		// Emit thinking content whenever the model produced a <think> block.
+		if (parsed.thinking) {
+			input.onEvent?.({ type: 'thinking', content: parsed.thinking });
+		}
+
 		if (parsed.type === 'tool_call') {
+			// If we already have a tool result, the model is looping — force it to answer.
+			if (toolResultReceived) {
+				console.error('[agent-loop] model tried a second tool call after result — forcing final answer');
+				messages.push({ role: 'assistant', content });
+				messages.push({
+					role: 'user',
+					content: 'You already have the retrieval results. Do NOT call any more tools. Produce your final answer now using {"answer": "<your response>"}.'
+				});
+				continue;
+			}
+
 			input.onEvent?.({ type: 'tool_call', tool: parsed.tool, arguments: parsed.arguments });
 			formatCorrectionSent = true;
 			const handler = TOOL_MAP[parsed.tool];
@@ -245,11 +268,12 @@ export async function agentChat(input: {
 				});
 			}
 
+			toolResultReceived = true;
 			console.error('[agent-loop] pushing tool messages');
 			messages.push({ role: 'assistant', content });
 			messages.push({
 				role: 'user',
-				content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}`
+				content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}\n\nNow give your final answer using {"answer": "<your response>"}.`
 			});
 			console.error('[agent-loop] continuing after tool');
 			continue;
@@ -262,7 +286,7 @@ export async function agentChat(input: {
 			messages.push({ role: 'assistant', content });
 			messages.push({
 				role: 'user',
-				content: 'You answered without calling any tool. You MUST search the user\'s stored memories before answering. Call retrieve_thoughts or answer_question now using the JSON format: {"tool": "<tool_name>", "arguments": {...}}'
+				content: 'You answered without calling any tool. You MUST search the user\'s stored memories before answering. Call retrieve_thoughts now using the JSON format: {"tool": "retrieve_thoughts", "arguments": {"query": "<broad query>", "top_k": 10}}'
 			});
 			continue;
 		}

@@ -52,10 +52,10 @@ async function getOrCreateSession(db: ReturnType<typeof getDb>, userId: string, 
 	return sessionId;
 }
 
-async function persistAssistantMessage(db: ReturnType<typeof getDb>, sessionId: string, userId: string, content: string) {
+async function persistAssistantMessage(db: ReturnType<typeof getDb>, sessionId: string, userId: string, content: string, metadata?: Record<string, unknown> | null) {
 	const [msg] = await db
 		.insert(chatMessage)
-		.values({ sessionId, userId, role: 'assistant', content })
+		.values({ sessionId, userId, role: 'assistant', content, ...(metadata ? { metadata } : {}) })
 		.returning({ id: chatMessage.id });
 	return msg.id;
 }
@@ -127,15 +127,47 @@ export const POST: RequestHandler = async (event) => {
 						controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
 				};
 
+				// Buffer of intermediate steps to persist together after the run.
+				const intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }> = [];
+
 				runWithTrace(crypto.randomUUID(), () =>
 					agentChat({
 						userId: user.id,
 						messages: [...history, { role: 'user', content: message }],
-						onEvent: (evt) => line(evt),
+						onEvent: (evt) => {
+							line(evt);
+							// Capture intermediate steps for persistence.
+							if (evt.type === 'thinking' && evt.content) {
+								intermediateSteps.push({
+									content: evt.content,
+									metadata: { variant: 'thinking' }
+								});
+							} else if (evt.type === 'tool_call') {
+								intermediateSteps.push({
+									content: '',
+									metadata: { variant: 'tool_call', tool: evt.tool, arguments: evt.arguments ?? {} }
+								});
+							} else if (evt.type === 'tool_result') {
+								intermediateSteps.push({
+									content: evt.preview ?? '',
+									metadata: { variant: 'tool_result', tool: evt.tool }
+								});
+							}
+						},
 						db: streamDb
 					})
 				)
 					.then(async (result) => {
+						// Persist intermediate steps first (preserves display order on reload).
+						for (const step of intermediateSteps) {
+							await streamDb.insert(chatMessage).values({
+								sessionId,
+								userId: user.id,
+								role: 'assistant',
+								content: step.content,
+								metadata: step.metadata
+							});
+						}
 						const messageId = await persistAssistantMessage(streamDb, sessionId, user.id, result.response);
 						if (isFirstMessage) {
 							const title = message.length > 80 ? message.slice(0, 77) + '...' : message;

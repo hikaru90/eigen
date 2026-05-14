@@ -1,5 +1,5 @@
 export type ChatStreamEvent =
-	| { type: 'thinking' }
+	| { type: 'thinking'; content: string }
 	| { type: 'tool_call'; tool: string; arguments: Record<string, unknown> }
 	| { type: 'tool_result'; tool: string; preview: string }
 	| { type: 'done'; response: string; sessionId: string; messageId: string }

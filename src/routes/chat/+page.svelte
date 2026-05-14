@@ -27,7 +27,7 @@
   type ChatEntry =
     | { role: 'user'; content: string }
     | { role: 'assistant'; variant: 'text'; content: string }
-    | { role: 'assistant'; variant: 'thinking' }
+    | { role: 'assistant'; variant: 'thinking'; content: string }
     | { role: 'assistant'; variant: 'tool_call'; tool: string; arguments: Record<string, unknown> }
     | { role: 'assistant'; variant: 'tool_result'; content: string };
 
@@ -43,6 +43,12 @@
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
+    metadata?: {
+      variant?: string;
+      tool?: string;
+      arguments?: Record<string, unknown>;
+      preview?: string;
+    } | null;
     createdAt: string;
   };
 
@@ -115,11 +121,49 @@
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       if (!res.ok) throw new Error('Failed to load session');
       const json = await res.json();
-      messages = (json.messages ?? []).map((m: SessionMessage) =>
-        m.role === 'user'
-          ? { role: 'user' as const, content: m.content }
-          : { role: 'assistant' as const, variant: 'text' as const, content: m.content }
-      );
+      messages = (json.messages ?? []).flatMap((m: SessionMessage): ChatEntry[] => {
+        if (m.role === 'user') {
+          return [{ role: 'user' as const, content: m.content }];
+        }
+        if (m.role === 'assistant' && m.metadata?.variant) {
+          const v = m.metadata.variant;
+          if (v === 'thinking') {
+            return [{ role: 'assistant' as const, variant: 'thinking' as const, content: m.content }];
+          }
+          if (v === 'tool_call' && typeof m.metadata.tool === 'string') {
+            return [{
+              role: 'assistant' as const,
+              variant: 'tool_call' as const,
+              tool: m.metadata.tool,
+              arguments: (m.metadata.arguments as Record<string, unknown>) ?? {}
+            }];
+          }
+          if (v === 'tool_result') {
+            // Re-render tool_result content the same way as during streaming.
+            let displayText = '';
+            try {
+              const parsed = JSON.parse(m.content);
+              const results = parsed.results;
+              if (Array.isArray(results)) {
+                displayText = results.map((r: { normalizedText?: string }, i: number) =>
+                  `${i + 1}. ${r.normalizedText ?? '(no text)'}`
+                ).join('\n');
+              } else {
+                displayText = m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content;
+              }
+            } catch {
+              displayText = m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content;
+            }
+            return [{
+              role: 'assistant' as const,
+              variant: 'tool_result' as const,
+              content: `📎 **Retrieved from your memories:**\n${displayText}`
+            }];
+          }
+        }
+        // Default: plain assistant text message.
+        return [{ role: 'assistant' as const, variant: 'text' as const, content: m.content }];
+      });
     } catch {
       messages = [];
     } finally {
@@ -209,7 +253,7 @@
 
           if (event.type === 'thinking') {
             streamEventsReceived = true;
-            messages.push({ role: 'assistant', variant: 'thinking' });
+            messages.push({ role: 'assistant', variant: 'thinking', content: event.content });
           } else if (event.type === 'tool_call') {
             streamEventsReceived = true;
             messages.push({
@@ -435,11 +479,24 @@
           >
             <Bot class="size-3.5" strokeWidth={2} />
           </div>
-          <div
-            class="text-muted-foreground max-w-[80%] rounded-xl border-l-2 border-muted-foreground/25 bg-muted/40 px-3.5 py-2 text-sm italic leading-relaxed"
-          >
-            Thinking…
-          </div>
+          <details class="max-w-[80%] group">
+            <summary
+              class="text-muted-foreground cursor-pointer select-none rounded-xl border-l-2 border-muted-foreground/25 bg-muted/40 px-3.5 py-2 text-sm italic leading-relaxed list-none"
+            >
+              {#if msg.content}
+                Thinking… <span class="text-xs not-italic opacity-60 group-open:hidden">(expand)</span>
+              {:else}
+                Thinking…
+              {/if}
+            </summary>
+            {#if msg.content}
+              <div
+                class="text-muted-foreground mt-1 rounded-xl border-l-2 border-muted-foreground/25 bg-muted/40 px-3.5 py-2 text-xs leading-relaxed whitespace-pre-wrap"
+              >
+                {msg.content}
+              </div>
+            {/if}
+          </details>
         </div>
       {:else if msg.variant === 'tool_call'}
         <div class="flex flex-row items-start gap-2">

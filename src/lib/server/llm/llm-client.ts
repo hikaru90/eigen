@@ -28,6 +28,9 @@ type ResolvedLlmConfig = {
 
 const routingRuleCache = new Map<string, RoutingConfig>();
 let lastLlmRequestAt = 0;
+// Serializes the spacing *between* request starts only (not the full request duration).
+// Each call acquires a slot (waits for its turn), records the start time, then releases
+// so the next call can immediately begin its own wait calculation.
 let llmRequestQueue: Promise<void> = Promise.resolve();
 
 /**
@@ -69,6 +72,16 @@ function minRequestIntervalMs(): number {
 	return parsed;
 }
 
+function requestTimeoutMs(): number {
+	const raw = env.LLM_REQUEST_TIMEOUT_MS?.trim();
+	if (!raw) return 60_000; // 60 s default
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		throw new Error('LLM_REQUEST_TIMEOUT_MS must be a positive number');
+	}
+	return parsed;
+}
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -77,7 +90,16 @@ async function waitForLlmRateLimit(): Promise<void> {
 	const intervalMs = minRequestIntervalMs();
 	if (intervalMs === 0) return;
 
-	llmRequestQueue = llmRequestQueue.then(async () => {
+	// Each call appends a slot to the queue. The slot:
+	//   1. Waits for the previous slot to finish (i.e. previous request started).
+	//   2. Computes how long to wait based on when the last request started.
+	//   3. Sleeps only for that gap.
+	//   4. Records the new start time and resolves — releasing the queue for the next caller.
+	//
+	// Crucially the slot resolves *before* the HTTP request completes, so a nested
+	// llmChatCompletion call (e.g. from answer_question inside the agent loop) never
+	// deadlocks waiting on the outer call's in-flight HTTP request.
+	const slot = llmRequestQueue.then(async () => {
 		const now = Date.now();
 		const elapsed = now - lastLlmRequestAt;
 		const waitMs = Math.max(0, intervalMs - elapsed);
@@ -90,8 +112,10 @@ async function waitForLlmRateLimit(): Promise<void> {
 			await sleep(waitMs);
 		}
 		lastLlmRequestAt = Date.now();
+		// Slot resolves here — next queued call can now run its spacing check.
 	});
-	await llmRequestQueue;
+	llmRequestQueue = slot;
+	await slot;
 }
 
 /**
@@ -235,20 +259,29 @@ export async function llmChatCompletion(input: {
 			});
 			await waitForLlmRateLimit();
 			const fetchStart = Date.now();
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${config.apiKey}`
-				},
-				body: JSON.stringify({
-					...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
-					model: routing.model,
-					...(routing.provider ? { provider: routing.provider } : {}),
-					messages: input.messages,
-					...(input.temperature !== undefined ? { temperature: input.temperature } : {})
-				})
-			});
+			const timeoutMs = requestTimeoutMs();
+			const ac = new AbortController();
+			const timeoutHandle = setTimeout(() => ac.abort(new Error(`LLM request timed out after ${timeoutMs}ms`)), timeoutMs);
+			let res: Response;
+			try {
+				res = await fetch(url, {
+					signal: ac.signal,
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${config.apiKey}`
+					},
+					body: JSON.stringify({
+						...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
+						model: routing.model,
+						...(routing.provider ? { provider: routing.provider } : {}),
+						messages: input.messages,
+						...(input.temperature !== undefined ? { temperature: input.temperature } : {})
+					})
+				});
+			} finally {
+				clearTimeout(timeoutHandle);
+			}
 
 			const text = await res.text();
 			let json: unknown;
@@ -325,20 +358,29 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 		const db = getDb();
 		try {
 			await waitForLlmRateLimit();
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${config.apiKey}`
-				},
-				body: JSON.stringify({
-					...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
-					model: routing.model,
-					...(routing.provider ? { provider: routing.provider } : {}),
-					dimensions: EMBEDDING_DIMENSIONS,
-					input: input.input
-				})
-			});
+			const embAc = new AbortController();
+			const embTimeoutMs = requestTimeoutMs();
+			const embTimeoutHandle = setTimeout(() => embAc.abort(new Error(`LLM embedding request timed out after ${embTimeoutMs}ms`)), embTimeoutMs);
+			let res: Response;
+			try {
+				res = await fetch(url, {
+					signal: embAc.signal,
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${config.apiKey}`
+					},
+					body: JSON.stringify({
+						...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
+						model: routing.model,
+						...(routing.provider ? { provider: routing.provider } : {}),
+						dimensions: EMBEDDING_DIMENSIONS,
+						input: input.input
+					})
+				});
+			} finally {
+				clearTimeout(embTimeoutHandle);
+			}
 
 			const text = await res.text();
 			let json: unknown;

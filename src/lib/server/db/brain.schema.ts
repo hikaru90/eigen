@@ -398,6 +398,8 @@ export const chatMessage = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
 		content: text('content').notNull(),
+		/** Stores variant/tool metadata for intermediate agent steps (thinking, tool_call, tool_result). */
+		metadata: jsonb('metadata'),
 		createdAt: timestamp('created_at').defaultNow().notNull()
 	},
 	(t) => [

@@ -57,6 +57,13 @@
       "when": 1778599677333,
       "tag": "0007_thought_kind_fk_restrict",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1747242000000,
+      "tag": "0008_chat_message_metadata",
+      "breakpoints": true
     }
   ]
 }

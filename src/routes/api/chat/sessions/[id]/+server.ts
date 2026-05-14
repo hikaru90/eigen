@@ -24,6 +24,7 @@ export const GET: RequestHandler = async (event) => {
 			id: chatMessage.id,
 			role: chatMessage.role,
 			content: chatMessage.content,
+			metadata: chatMessage.metadata,
 			createdAt: chatMessage.createdAt
 		})
 		.from(chatMessage)
