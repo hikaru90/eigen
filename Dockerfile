@@ -62,6 +62,7 @@ RUN npm ci
 COPY --from=build /app/build ./build
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/src/lib/server/db/enable_rls.sql ./src/lib/server/db/enable_rls.sql
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x entrypoint.sh
 ENV NODE_ENV=production

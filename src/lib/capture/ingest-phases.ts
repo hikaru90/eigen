@@ -39,6 +39,14 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 	entities: {
 		title: 'Updating the entity graph',
 		description: 'Extracting and reconciling entities mentioned in this thought against your entity index.'
+	},
+	memory_type: {
+		title: 'Classifying memory type',
+		description: 'Determining whether this thought is an episode, decision, concern, open loop, or another memory type.'
+	},
+	cues: {
+		title: 'Generating search cues',
+		description: 'Creating alternate search phrases so you can find this thought even when you remember it differently.'
 	}
 } as const;
 

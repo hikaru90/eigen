@@ -15,6 +15,7 @@ import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
+import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
 
 /** Explicit MVP pricing unit until the LLM ingest path is wired. */
 const CAPTURE_BASE_COST_USD = 0.0005;
@@ -41,41 +42,6 @@ async function logCaptureActivity(
 	});
 }
 
-async function syncThoughtRelations(input: {
-	userId: string;
-	thoughtId: string;
-	normalizedText: string;
-}) {
-	const relations = await extractRelations({
-		userId: input.userId,
-		thoughtId: input.thoughtId,
-		normalizedText: input.normalizedText
-	});
-
-	await getDb().transaction(async (tx) => {
-		await tx.delete(thoughtRelation).where(eq(thoughtRelation.sourceThoughtId, input.thoughtId));
-		if (relations.length > 0) {
-			await tx.insert(thoughtRelation).values(
-				relations.map((relation) => ({
-					userId: input.userId,
-					sourceThoughtId: input.thoughtId,
-					targetThoughtId: relation.targetId,
-					relationType: relation.relationType
-				}))
-			);
-		}
-	});
-
-	for (const relation of relations) {
-		await upsertThoughtRelation({
-			userId: input.userId,
-			sourceId: input.thoughtId,
-			targetId: relation.targetId,
-			relationType: relation.relationType
-		});
-	}
-}
-
 function toPgVectorLiteral(values: number[]): string {
 	return `[${values.join(',')}]`;
 }
@@ -91,6 +57,18 @@ export type CaptureThoughtOptions = {
 	onProgress?: (phase: CaptureIngestPhase) => void;
 };
 
+/**
+ * Fast path: classify → embed → persist → FalkorDB node → return immediately.
+ *
+ * Heavy enrichment (relation extraction, entity graph sync, memory type
+ * classification, cue extraction, ontology eval) is fired asynchronously
+ * via `enrichThought` and does NOT block the response.
+ *
+ * If the caller provides an `onProgress` callback, it will receive progress
+ * events for the async enrichment phases only when running in the NDJSON
+ * streaming mode (where the handler keeps the connection open until the stream
+ * is fully flushed). For plain JSON mode, enrichment events are not visible.
+ */
 export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
 	const captureStart = Date.now();
 	const onProgress = options?.onProgress;
@@ -125,8 +103,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 
 	const lexicalText = computeLexicalText(normalized);
 
-	// Pre-persist duplicate detection: check if the nearest existing thought is near-identical.
-	// If cosine distance < 0.06, tag this capture as a near-duplicate in metadata (non-blocking).
+	// Pre-persist duplicate detection (non-blocking, non-fatal).
 	let nearDuplicateMeta: { id: string; distance: number; preview: string } | undefined;
 	try {
 		const vectorLiteral = toPgVectorLiteral(embedding);
@@ -149,7 +126,6 @@ export async function captureThought(userId: string, rawInput: string, options?:
 			});
 		}
 	} catch (err) {
-		// Non-fatal: dedup check failure must never block capture
 		console.warn('[capture.dedup] dedup check failed, proceeding', {
 			message: err instanceof Error ? err.message : String(err)
 		});
@@ -185,6 +161,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		return [t];
 	});
 
+	// Fast path: sync the FalkorDB node (lightweight, no LLM calls).
 	emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: stored.id,
@@ -195,33 +172,21 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		category: stored.category
 	});
 
-	emitProgress(onProgress, 'relations');
-	await syncThoughtRelations({
-		userId,
-		thoughtId: stored.id,
-		normalizedText: stored.normalizedText
-	});
+	await logCaptureActivity(userId, 'capture_submit', Date.now() - captureStart);
 
-	emitProgress(onProgress, 'entities');
-	await syncEntityGraphFromThought({
-		userId,
-		thoughtId: stored.id,
-		normalizedText: stored.normalizedText,
-		thoughtEmbedding: embedding
-	});
-
+	// Fire async enrichment — do NOT await. The thought is already durable.
+	// Enrichment covers: relations, entities, memory type, cues, ontology eval.
 	const [countRow] = await getDb()
 		.select({ n: sql<number>`count(*)::int` })
 		.from(thought)
 		.where(eq(thought.userId, userId));
 	const thoughtCountAfterInsert = Number(countRow?.n ?? 0);
-	await maybeRefreshUserOntology({
-		userId,
-		thoughtCountAfterInsert,
-		onBeforeEval: () => emitProgress(onProgress, 'ontology_eval')
-	});
 
-	await logCaptureActivity(userId, 'capture_submit', Date.now() - captureStart);
+	void enrichThought(userId, stored.id, stored.normalizedText, {
+		onProgress,
+		thoughtEmbedding: embedding,
+		thoughtCountAfterInsert
+	});
 
 	return stored;
 }
@@ -252,7 +217,6 @@ export async function editStoredThought(
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
-	// Treat edits as direct replacements for the stored thought text.
 	const editedRaw = editRequest.trim();
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
 	emitProgress(onProgress, 'ontology');
@@ -276,6 +240,8 @@ export async function editStoredThought(
 			embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 			category,
 			ontologyEntityKindId,
+			// Reset enrichment state so background job re-runs on the new text.
+			enrichedAt: null,
 			metadata: {
 				...(existing.metadata as Record<string, unknown>),
 				...metadata,
@@ -294,6 +260,7 @@ export async function editStoredThought(
 			metadata: thought.metadata
 		});
 
+	// Fast path: sync FalkorDB node with new text.
 	emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: updated!.id,
@@ -304,22 +271,13 @@ export async function editStoredThought(
 		category: updated!.category
 	});
 
-	emitProgress(onProgress, 'relations');
-	await syncThoughtRelations({
-		userId,
-		thoughtId: updated!.id,
-		normalizedText: updated!.normalizedText
-	});
+	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
 
-	emitProgress(onProgress, 'entities');
-	await syncEntityGraphFromThought({
-		userId,
-		thoughtId: updated!.id,
-		normalizedText: updated!.normalizedText,
+	// Fire async re-enrichment (clears old edges, then runs full enrichment).
+	void reenrichThought(userId, updated!.id, updated!.normalizedText, {
+		onProgress,
 		thoughtEmbedding: embedding
 	});
-
-	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
 
 	return { ok: true as const, thought: updated! };
 }
@@ -329,8 +287,8 @@ export type RelinkThoughtGraphOptions = {
 };
 
 /**
- * Re-runs relation + entity graph sync for an existing thought without changing stored text.
- * Clears this thought's outgoing Falkor edges first so removed links do not linger.
+ * Re-runs relation + entity graph sync for an existing thought without changing
+ * stored text. Clears outgoing Falkor edges first so removed links don't linger.
  */
 export async function relinkThoughtGraph(
 	userId: string,
@@ -353,8 +311,7 @@ export async function relinkThoughtGraph(
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
-	await deleteThoughtOutgoingGraphEdges({ userId, thoughtId });
-
+	// Sync the node first (fast, no LLM).
 	emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: existing.id,
@@ -365,21 +322,10 @@ export async function relinkThoughtGraph(
 		category: existing.category
 	});
 
-	emitProgress(onProgress, 'relations');
-	await syncThoughtRelations({
-		userId,
-		thoughtId: existing.id,
-		normalizedText: existing.normalizedText
-	});
-
-	emitProgress(onProgress, 'entities');
-	await syncEntityGraphFromThought({
-		userId,
-		thoughtId: existing.id,
-		normalizedText: existing.normalizedText
-	});
-
 	await logCaptureActivity(userId, 'capture_relink', Date.now() - started);
+
+	// Fire async full re-enrichment.
+	void reenrichThought(userId, existing.id, existing.normalizedText, { onProgress });
 
 	return {
 		ok: true as const,

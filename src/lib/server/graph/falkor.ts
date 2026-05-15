@@ -582,7 +582,8 @@ export async function upsertEntityRelationEdge(input: {
 			MATCH (a:Entity {id: $a_id, user_id: $user_id})
 			MATCH (b:Entity {id: $b_id, user_id: $user_id})
 			MERGE (a)-[r:ENTITY_RELATES {user_id: $user_id, predicate: $predicate}]->(b)
-			SET r.updated_at = timestamp()
+			SET r.updated_at = timestamp(),
+			    r.weight = coalesce(r.weight, 0) + 1
 			RETURN a.id, b.id
 			`,
 			{
@@ -594,6 +595,36 @@ export async function upsertEntityRelationEdge(input: {
 				}
 			}
 		);
+	});
+}
+
+/**
+ * Fetch all entity-entity edges with weights for community detection (Leiden algorithm).
+ * Returns edges as adjacency list: [{sourceId, targetId, weight}].
+ * Only returns edges where both endpoints exist; self-loops are excluded.
+ */
+export async function fetchEntityEdgesForUser(input: {
+	userId: string;
+}): Promise<Array<{ sourceId: string; targetId: string; weight: number }>> {
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.fetch_entity_edges', async () => {
+		const result = (await graph.query(
+			`
+			MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id})
+			WHERE a.id <> b.id
+			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.weight, 1) AS weight
+			`,
+			{ params: { user_id: input.userId } }
+		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; weight?: unknown }> };
+
+		return (result.data ?? [])
+			.map((row) => ({
+				sourceId: typeof row.source_id === 'string' ? row.source_id : '',
+				targetId: typeof row.target_id === 'string' ? row.target_id : '',
+				weight: typeof row.weight === 'number' ? row.weight : Number(row.weight ?? 1)
+			}))
+			.filter((r) => r.sourceId && r.targetId);
 	});
 }
 

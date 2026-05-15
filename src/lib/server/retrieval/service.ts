@@ -9,6 +9,38 @@ import { expandNeighborsByIds, expandThoughtIdsFromEntitySeeds } from '$lib/serv
 import type { EntityThoughtHit } from '$lib/server/graph/falkor';
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
 
+/** Salience cap — prevents unbounded growth from high-frequency retrieval. */
+const SALIENCE_MAX = 5.0;
+/** Per-retrieval salience boost. */
+const SALIENCE_BOOST = 0.05;
+
+/**
+ * Fire-and-forget: bump salience_score and access_count for thoughts that were
+ * returned in a retrieval result. This is the reconsolidation signal — the system
+ * learns what memories are actually useful from how often they surface.
+ *
+ * Never throws; failures are logged and ignored.
+ */
+async function bumpAccessAsync(userId: string, ids: string[]): Promise<void> {
+	if (ids.length === 0) return;
+	try {
+		await getDb()
+			.update(thought)
+			.set({
+				accessCount: sql`${thought.accessCount} + 1`,
+				lastAccessedAt: new Date(),
+				salienceScore: sql`LEAST(${thought.salienceScore} + ${SALIENCE_BOOST}, ${SALIENCE_MAX})`
+			})
+			.where(and(eq(thought.userId, userId), inArray(thought.id, ids)));
+	} catch (err) {
+		console.warn('[retrieval.reconsolidation] salience bump failed', {
+			userId,
+			count: ids.length,
+			message: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
 type RetrievalResult = {
 	id: string;
 	normalizedText: string;
@@ -245,6 +277,9 @@ export async function searchThoughts(params: {
 		.filter((entry): entry is NonNullable<typeof entry> => entry !== null && entry.score > 0)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, limit);
+
+	// Reconsolidation: bump salience for returned thoughts (fire-and-forget).
+	void bumpAccessAsync(params.userId, scored.map((r) => r.id));
 
 	return scored;
 }
