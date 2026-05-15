@@ -5,7 +5,7 @@ echo "[eigen] Ensuring database extensions..."
 node scripts/ensure-extensions.mjs
 
 echo "[eigen] Running database migrations..."
-npx drizzle-kit push --force
+node scripts/migrate.mjs
 
 echo "[eigen] Applying RLS policies..."
 node scripts/apply-rls.mjs

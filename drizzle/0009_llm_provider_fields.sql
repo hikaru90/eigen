@@ -1,8 +1,9 @@
 -- Drop the intermediate columns added in the previous (unapplied) migration attempt.
--- If those columns don't exist yet this is a no-op thanks to IF EXISTS.
-ALTER TABLE "llm_config" DROP COLUMN IF EXISTS "llm_provider";
-ALTER TABLE "llm_config" DROP COLUMN IF EXISTS "llm_model_chat";
-ALTER TABLE "llm_config" DROP COLUMN IF EXISTS "llm_model_embedding";
+-- Uses IF EXISTS on both the table and column so this is a no-op when llm_config
+-- was never created (e.g. on a fresh install or a DB bootstrapped without it).
+ALTER TABLE IF EXISTS "llm_config" DROP COLUMN IF EXISTS "llm_provider";
+ALTER TABLE IF EXISTS "llm_config" DROP COLUMN IF EXISTS "llm_model_chat";
+ALTER TABLE IF EXISTS "llm_config" DROP COLUMN IF EXISTS "llm_model_embedding";
 
 -- New table: one row per (user, provider) — each provider has its own credentials.
 CREATE TABLE IF NOT EXISTS "llm_provider_config" (
@@ -26,15 +27,24 @@ CREATE TABLE IF NOT EXISTS "llm_active_provider" (
 );
 
 -- Migrate existing llm_config rows into the new tables (EUrouter credentials).
-INSERT INTO "llm_provider_config" ("user_id", "provider", "base_url", "api_key", "rule_chat", "rule_embedding", "updated_at")
-SELECT "user_id", 'eurouter', "llm_base_url", "llm_api_key", "llm_rule_chat", "llm_rule_embedding", "updated_at"
-FROM "llm_config"
-ON CONFLICT ("user_id", "provider") DO NOTHING;
+-- Wrapped in a DO block so this is a no-op when llm_config never existed.
+DO $$
+BEGIN
+	IF EXISTS (
+		SELECT 1 FROM information_schema.tables
+		WHERE table_schema = 'public' AND table_name = 'llm_config'
+	) THEN
+		INSERT INTO "llm_provider_config" ("user_id", "provider", "base_url", "api_key", "rule_chat", "rule_embedding", "updated_at")
+		SELECT "user_id", 'eurouter', "llm_base_url", "llm_api_key", "llm_rule_chat", "llm_rule_embedding", "updated_at"
+		FROM "llm_config"
+		ON CONFLICT ("user_id", "provider") DO NOTHING;
 
-INSERT INTO "llm_active_provider" ("user_id", "provider", "updated_at")
-SELECT "user_id", 'eurouter', "updated_at"
-FROM "llm_config"
-ON CONFLICT ("user_id") DO NOTHING;
+		INSERT INTO "llm_active_provider" ("user_id", "provider", "updated_at")
+		SELECT "user_id", 'eurouter', "updated_at"
+		FROM "llm_config"
+		ON CONFLICT ("user_id") DO NOTHING;
+	END IF;
+END $$;
 
 -- Drop old table.
 DROP TABLE IF EXISTS "llm_config";

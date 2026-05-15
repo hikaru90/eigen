@@ -78,13 +78,6 @@
       "when": 1747508400000,
       "tag": "0010_practical_ontology",
       "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1778846185525,
-      "tag": "0011_llm_and_practical_ontology",
-      "breakpoints": true
     }
   ]
 }

@@ -113,10 +113,18 @@ CREATE POLICY chat_message_isolation ON chat_message
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
-ALTER TABLE llm_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE llm_config FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS llm_config_isolation ON llm_config;
-CREATE POLICY llm_config_isolation ON llm_config
+ALTER TABLE llm_active_provider ENABLE ROW LEVEL SECURITY;
+ALTER TABLE llm_active_provider FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS llm_active_provider_isolation ON llm_active_provider;
+CREATE POLICY llm_active_provider_isolation ON llm_active_provider
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE llm_provider_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE llm_provider_config FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS llm_provider_config_isolation ON llm_provider_config;
+CREATE POLICY llm_provider_config_isolation ON llm_provider_config
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));

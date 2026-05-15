@@ -26,6 +26,7 @@
 		"db:reset": "docker compose down -v",
 		"db:push:force": "drizzle-kit push --force",
 		"db:push": "drizzle-kit push",
+		"db:migrate": "node scripts/migrate.mjs",
 		"db:studio": "drizzle-kit studio",
 		"db:rls": "node scripts/apply-rls.mjs",
 		"eval:seed": "vite-node --config evals/vite.config.ts evals/harness/seed-fixtures.ts",
