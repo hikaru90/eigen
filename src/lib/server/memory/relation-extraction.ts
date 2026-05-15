@@ -129,21 +129,30 @@ export async function extractRelations(input: {
 		'Allowed relation types:',
 		'  mentions         — source explicitly references candidate',
 		'  depends_on       — source requires candidate to be true/done first',
-		'  refines          — source sharpens or elaborates candidate',
-		'  contradicts      — source conflicts with candidate',
-		'  related_to       — general topical connection',
+		'  refines          — source sharpens, elaborates, or adds detail to candidate',
+		'  contradicts      — source conflicts with or negates candidate',
+		'  related_to       — same topic, theme, or subject matter (use this liberally)',
 		'  follows_from     — source is a natural next step after candidate (temporal/sequential)',
-		'  continuation_of  — source directly continues candidate (same thread)',
+		'  continuation_of  — source directly continues candidate (same thread or context)',
 		'  caused_by        — source was caused by candidate',
+		'Guidelines:',
+		'  - Use related_to for any two thoughts that share the same topic, subject, or domain.',
+		'  - Use refines when the source adds more specificity to a more general candidate.',
+		'  - Use continuation_of when both thoughts are clearly part of the same ongoing context.',
+		'  - Do NOT require explicit cross-references; topical similarity is enough for related_to.',
 		'Use this schema exactly: [{"targetId":"<candidate-id>","relationType":"related_to"}].',
-		'Return an empty array if no relation is justified.',
+		'Return an empty array only when there is genuinely no meaningful connection.',
 		`Source thought (${input.thoughtId}): ${input.normalizedText}`,
 		'Candidates:',
 		...candidates.map((c) => `${c.id}: ${c.normalizedText}`)
 	].join('\n');
 
 	const messages: ChatMessage[] = [
-		{ role: 'system', content: 'You extract explicit thought-to-thought relations.' },
+		{
+			role: 'system',
+			content:
+				'You extract thought-to-thought relations including topical, semantic, and contextual connections — not only explicit cross-references. When two thoughts share the same subject, prefer related_to over returning an empty array.'
+		},
 		{ role: 'user', content: prompt }
 	];
 

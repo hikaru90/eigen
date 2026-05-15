@@ -174,19 +174,23 @@ export async function captureThought(userId: string, rawInput: string, options?:
 
 	await logCaptureActivity(userId, 'capture_submit', Date.now() - captureStart);
 
-	// Fire async enrichment — do NOT await. The thought is already durable.
-	// Enrichment covers: relations, entities, memory type, cues, ontology eval.
+	// Count thoughts for optional ontology eval trigger.
 	const [countRow] = await getDb()
 		.select({ n: sql<number>`count(*)::int` })
 		.from(thought)
 		.where(eq(thought.userId, userId));
 	const thoughtCountAfterInsert = Number(countRow?.n ?? 0);
 
-	void enrichThought(userId, stored.id, stored.normalizedText, {
-		onProgress,
-		thoughtEmbedding: embedding,
-		thoughtCountAfterInsert
-	});
+	const enrichOptions = { onProgress, thoughtEmbedding: embedding, thoughtCountAfterInsert };
+
+	if (onProgress) {
+		// UI / NDJSON path: the user is watching progress — run enrichment synchronously
+		// so the graph is fully connected before the "done" event is emitted.
+		await enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
+	} else {
+		// MCP / plain-JSON path: fire-and-forget for fast response.
+		void enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
+	}
 
 	return stored;
 }
@@ -273,11 +277,17 @@ export async function editStoredThought(
 
 	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
 
-	// Fire async re-enrichment (clears old edges, then runs full enrichment).
-	void reenrichThought(userId, updated!.id, updated!.normalizedText, {
-		onProgress,
-		thoughtEmbedding: embedding
-	});
+	// Same pattern as capture: await when user is watching (UI path), fire-and-forget otherwise.
+	if (onProgress) {
+		await reenrichThought(userId, updated!.id, updated!.normalizedText, {
+			onProgress,
+			thoughtEmbedding: embedding
+		});
+	} else {
+		void reenrichThought(userId, updated!.id, updated!.normalizedText, {
+			thoughtEmbedding: embedding
+		});
+	}
 
 	return { ok: true as const, thought: updated! };
 }
@@ -324,8 +334,11 @@ export async function relinkThoughtGraph(
 
 	await logCaptureActivity(userId, 'capture_relink', Date.now() - started);
 
-	// Fire async full re-enrichment.
-	void reenrichThought(userId, existing.id, existing.normalizedText, { onProgress });
+	if (onProgress) {
+		await reenrichThought(userId, existing.id, existing.normalizedText, { onProgress });
+	} else {
+		void reenrichThought(userId, existing.id, existing.normalizedText);
+	}
 
 	return {
 		ok: true as const,

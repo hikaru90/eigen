@@ -170,7 +170,7 @@ describe('captureThought', () => {
 		);
 	});
 
-	it('reports fast-path ingest phases when onProgress is provided', async () => {
+	it('awaits enrichment when onProgress is provided (UI path), emits fast-path phases', async () => {
 		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
 
@@ -181,6 +181,9 @@ describe('captureThought', () => {
 			}
 		});
 
+		// Fast-path phases only (enrichment mock does not emit phases).
+		// In production with onProgress, enrichThought is awaited and will add
+		// relations/entities/memory_type/cues phases too.
 		expect(phases).toEqual([
 			'accounting',
 			'ontology',
@@ -189,6 +192,13 @@ describe('captureThought', () => {
 			'persist',
 			'graph'
 		]);
+		// Verify enrichment was awaited (mock called synchronously before return).
+		expect(enrichThoughtMock).toHaveBeenCalledWith(
+			'u1',
+			'thought-1',
+			'raw input',
+			expect.objectContaining({ onProgress: expect.any(Function) })
+		);
 	});
 });
 
@@ -361,7 +371,7 @@ describe('relinkThoughtGraph', () => {
 		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 't1', normalizedText: 'hello' })
 		);
-		expect(reenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello', expect.any(Object));
+		expect(reenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello');
 	});
 
 	it('reports fast-path ingest phases when onProgress is provided', async () => {

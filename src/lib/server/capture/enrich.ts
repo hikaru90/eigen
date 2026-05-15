@@ -57,11 +57,20 @@ export async function enrichThought(
 	const { onProgress, thoughtEmbedding, thoughtCountAfterInsert } = options ?? {};
 	const db = getDb();
 
-	// Always bump the enrichment version so re-runs are distinguishable.
-	await db
-		.update(thought)
-		.set({ enrichmentVersion: sql`${thought.enrichmentVersion} + 1` })
-		.where(eq(thought.id, thoughtId));
+	// Bump enrichment version — wrapped in try/catch so a missing column
+	// (e.g. migration not yet applied) does not silently block all enrichment steps.
+	try {
+		await db
+			.update(thought)
+			.set({ enrichmentVersion: sql`${thought.enrichmentVersion} + 1` })
+			.where(eq(thought.id, thoughtId));
+	} catch (err) {
+		console.warn('[enrich] enrichment_version bump failed (migration pending?)', {
+			thoughtId,
+			message: err instanceof Error ? err.message : String(err)
+		});
+		// Continue — do not abort enrichment just because the version bump failed.
+	}
 
 	let allOk = true;
 
@@ -163,10 +172,17 @@ export async function enrichThought(
 
 	// ---- Mark enriched -------------------------------------------------------
 	if (allOk) {
-		await db
-			.update(thought)
-			.set({ enrichedAt: new Date() })
-			.where(eq(thought.id, thoughtId));
+		try {
+			await db
+				.update(thought)
+				.set({ enrichedAt: new Date() })
+				.where(eq(thought.id, thoughtId));
+		} catch (err) {
+			console.warn('[enrich] enriched_at write failed (migration pending?)', {
+				thoughtId,
+				message: err instanceof Error ? err.message : String(err)
+			});
+		}
 	}
 }
 

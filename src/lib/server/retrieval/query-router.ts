@@ -28,7 +28,7 @@ const GLOBAL_PATTERNS = [
 	/\bin general\b/i,
 	/\bsummary of\b/i,
 	/\bsummarize\b/i,
-	/\bwhat (kind of|type of) (person|situation|problem)\b/i,
+	/\bwhat (kind of|type of) (person|people|situation|situations|problem|problems)\b/i,
 	/\bhow (do|does) (my|i) (tend|usually|typically|generally)\b/i,
 	/\bwhat (keeps|has been) (happening|coming up|recurring)\b/i,
 	/\bmain (concern|worry|issue|theme|topic)\b/i,
