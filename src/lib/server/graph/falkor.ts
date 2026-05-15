@@ -69,7 +69,8 @@ async function getClient(): Promise<FalkorClient> {
 async function runFalkorQueryWithRetry<T>(
 	userId: string,
 	operation: string,
-	query: () => Promise<T>
+	query: () => Promise<T>,
+	context?: string
 ): Promise<T> {
 	const maxAttempts = 3;
 	let lastError: unknown;
@@ -81,6 +82,7 @@ async function runFalkorQueryWithRetry<T>(
 				provider: 'falkor',
 				operation: `${operation}.success(attempt=${attempt})`,
 				baseCostUsd: 0,
+				context,
 				durationMs: Date.now() - attemptStart
 			});
 			return result;
@@ -90,6 +92,7 @@ async function runFalkorQueryWithRetry<T>(
 				provider: 'falkor',
 				operation: `${operation}.error(attempt=${attempt})`,
 				baseCostUsd: 0,
+				context,
 				durationMs: Date.now() - attemptStart
 			});
 		}
@@ -110,6 +113,7 @@ export async function upsertThoughtNode(input: {
 }): Promise<void> {
 	const client = await getClient();
 	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	const contextPreview = input.normalizedText.slice(0, 60);
 	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_node', async () => {
 		await graph.query(
 			`
@@ -133,7 +137,7 @@ export async function upsertThoughtNode(input: {
 				}
 			}
 		);
-	});
+	}, contextPreview);
 }
 
 /** Removes outgoing thought→thought and thought→entity edges so ingest can reattach cleanly. */

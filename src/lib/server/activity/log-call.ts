@@ -10,15 +10,21 @@ export async function logActivityCall(
 		provider: string;
 		operation: string;
 		baseCostUsd: number;
+		context?: string;
 		groupId?: string;
 		durationMs?: number;
 	}
 ): Promise<void> {
 	const priced = priceCall(input.baseCostUsd);
+	// Truncate context to 100 chars max for storage
+	const context = input.context?.trim()
+		? (input.context.length > 100 ? input.context.slice(0, 97) + '...' : input.context)
+		: null;
 	await db.insert(activityCallLog).values({
 		userId,
 		provider: input.provider,
 		operation: input.operation,
+		context,
 		baseCostUsd: priced.baseCostUsd,
 		markupUsd: priced.markupUsd,
 		totalCostUsd: priced.totalCostUsd,

@@ -250,20 +250,28 @@ export async function agentChat(input: {
 				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview });
 				console.error('[agent-loop] tool result', { tool: parsed.tool, result: preview });
 				console.error('[agent-loop] logging activity');
+				const toolCallContext = parsed.arguments && typeof parsed.arguments === 'object'
+					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
+					: '';
 				await logActivityCall(input.db ?? getDb(), input.userId, {
 					provider: AGENT_TOOL_ACTIVITY_PROVIDER,
 					operation: `tool_call.${parsed.tool}`,
 					baseCostUsd: 0,
+					context: toolCallContext,
 					durationMs: Date.now() - toolStart
 				});
 				console.error('[agent-loop] activity logged');
 			} catch (err) {
 				console.error('[agent-loop] tool error', { tool: parsed.tool, error: err instanceof Error ? err.message : String(err) });
 				result = { error: err instanceof Error ? err.message : String(err) };
+				const toolErrorContext = parsed.arguments && typeof parsed.arguments === 'object'
+					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
+					: '';
 				await logActivityCall(input.db ?? getDb(), input.userId, {
 					provider: AGENT_TOOL_ACTIVITY_PROVIDER,
 					operation: `tool_error.${parsed.tool}`,
 					baseCostUsd: 0,
+					context: toolErrorContext,
 					durationMs: Date.now() - toolStart
 				});
 			}

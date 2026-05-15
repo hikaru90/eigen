@@ -260,6 +260,8 @@ export const activityCallLog = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		provider: text('provider').notNull(),
 		operation: text('operation').notNull(),
+		/** Brief preview of the content being processed (e.g., first 50 chars of user message) */
+		context: text('context'),
 		baseCostUsd: text('base_cost_usd').notNull(),
 		markupUsd: text('markup_usd').notNull(),
 		totalCostUsd: text('total_cost_usd').notNull(),

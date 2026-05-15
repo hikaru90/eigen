@@ -9,13 +9,29 @@ export const GET: RequestHandler = async (event) => {
 	if (!user) error(401, 'Unauthorized');
 
 	const db = getDb();
+
+	// Get first user message preview for sessions without titles
+	const firstMessages = db.$with('first_messages').as(
+		db
+			.select({
+				sessionId: chatMessage.sessionId,
+				content: chatMessage.content
+			})
+			.from(chatMessage)
+			.where(eq(chatMessage.role, 'user'))
+			.orderBy(chatMessage.createdAt)
+			.limit(1)
+	);
+
 	const rows = await db
+		.with(firstMessages)
 		.select({
 			id: chatSession.id,
 			title: chatSession.title,
 			createdAt: chatSession.createdAt,
 			updatedAt: chatSession.updatedAt,
-			messageCount: sql<number>`count(${chatMessage.id})::int`
+			messageCount: sql<number>`count(${chatMessage.id})::int`,
+			firstMessagePreview: sql<string>`max(case when ${chatMessage.role} = 'user' then ${chatMessage.content} end)`
 		})
 		.from(chatSession)
 		.leftJoin(chatMessage, eq(chatMessage.sessionId, chatSession.id))
@@ -24,7 +40,17 @@ export const GET: RequestHandler = async (event) => {
 		.orderBy(desc(chatSession.updatedAt))
 		.limit(50);
 
-	return json({ sessions: rows });
+	// Transform to include computed title if empty
+	const sessions = rows.map(row => ({
+		...row,
+		title: row.title?.trim() || (row.firstMessagePreview
+			? (row.firstMessagePreview.length > 50
+				? row.firstMessagePreview.slice(0, 47) + '...'
+				: row.firstMessagePreview)
+			: '')
+	}));
+
+	return json({ sessions });
 };
 
 export const POST: RequestHandler = async (event) => {

@@ -27,7 +27,7 @@ import { captureThought } from '$lib/server/capture/service';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { logEval, runEval, startEvalHeartbeat, withEvalDb } from './eval-context';
-import { newEvalAgentUserId } from './eval-config';
+import { newEvalAgentUserId, EVAL_JUDGE_USER_ID } from './eval-config';
 import { loadAgentThoughts, loadAgentProbes } from './dataset';
 import type { AgentThought, AgentRetrievalProbe, AgentQaProbe, AgentProbeCategory } from './dataset';
 import {
@@ -98,6 +98,19 @@ async function createEvalUser(db: AppDatabase, userId: string): Promise<void> {
 		onboardingCompleted: true
 	});
 	logEval(`created eval user ${userId}`);
+}
+
+async function ensureJudgeUser(db: AppDatabase): Promise<void> {
+	const existing = await db.select().from(user).where(eq(user.id, EVAL_JUDGE_USER_ID));
+	if (existing.length > 0) return;
+	await db.insert(user).values({
+		id: EVAL_JUDGE_USER_ID,
+		name: 'Eval Runner (Judge)',
+		email: 'eval-judge@local.eval',
+		emailVerified: true,
+		onboardingCompleted: true
+	});
+	logEval(`created user row ${EVAL_JUDGE_USER_ID}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +340,10 @@ function fmt(n: number): string {
 	return n.toFixed(3);
 }
 
+function pct(n: number): string {
+	return (n * 100).toFixed(1) + '%';
+}
+
 function printSummary(
 	ingestRecords: IngestRecord[],
 	retrievalRecords: RetrievalProbeRecord[],
@@ -343,10 +360,13 @@ function printSummary(
 
 	// Retrieval
 	const { overall, byCategory } = aggregateRetrievalByCategoryAndOverall(retrievalRecords);
-	console.log(`\n=== Retrieval (Recall@1/3/5, NDCG@5, MRR) ===`);
-	console.log(`overall  R@1=${fmt(overall.recallAt1)} R@3=${fmt(overall.recallAt3)} R@5=${fmt(overall.recallAt5)} NDCG@5=${fmt(overall.ndcgAt5)} MRR=${fmt(overall.mrr)}`);
+	console.log(`\n=== Retrieval Performance (Recall@1/3/5, NDCG@5, MRR) ===`);
+	console.log(`Overall: R@1=${pct(overall.recallAt1)} NDCG@5=${fmt(overall.ndcgAt5)} MRR=${fmt(overall.mrr)}`);
 	for (const [cat, metrics] of Object.entries(byCategory) as [AgentProbeCategory, AgentProbeMetrics][]) {
-		console.log(`${cat.padEnd(16)}  R@1=${fmt(metrics.recallAt1)} R@3=${fmt(metrics.recallAt3)} R@5=${fmt(metrics.recallAt5)} NDCG@5=${fmt(metrics.ndcgAt5)} MRR=${fmt(metrics.mrr)}`);
+		console.log(`${cat.padEnd(16)}  R@1=${pct(metrics.recallAt1)} NDCG@5=${fmt(metrics.ndcgAt5)} MRR=${fmt(metrics.mrr)}`);
+	}
+	if (ingestRecords.length === 1) {
+		console.log(`Only 1 thought in corpus → low recall (only 1 relevant item possible per query).`);
 	}
 
 	// Answer
@@ -354,10 +374,13 @@ function printSummary(
 	const meanFaith = answerRecords.reduce((a, r) => a + r.faithfulness, 0) / answerRecords.length;
 	const meanRel = answerRecords.reduce((a, r) => a + r.relevance, 0) / answerRecords.length;
 	const meanUse = answerRecords.reduce((a, r) => a + r.usefulness, 0) / answerRecords.length;
-	console.log(`\n=== Answer quality (${passed}/${answerRecords.length} passed) ===`);
-	console.log(`faithfulness=${meanFaith.toFixed(2)} relevance=${meanRel.toFixed(2)} usefulness=${meanUse.toFixed(2)}`);
-	const failures = answerRecords.filter((r) => !r.passed);
-	if (failures.length > 0) {
+	console.log(`\n=== Answer Quality (1-5 scale, pass≥3) ===`);
+	console.log(`Faithfulness: ${meanFaith.toFixed(1)} mean`);
+	console.log(`Relevance: ${meanRel.toFixed(1)} mean`);
+	console.log(`Usefulness: ${meanUse.toFixed(1)} mean`);
+	console.log(`${passed}/${answerRecords.length} passed`);
+	if (passed < answerRecords.length) {
+		const failures = answerRecords.filter((r) => !r.passed);
 		for (const f of failures) {
 			console.log(`  FAIL ${f.caseId}: faith=${f.faithfulness} rel=${f.relevance} use=${f.usefulness}`);
 		}
@@ -366,14 +389,8 @@ function printSummary(
 	// Fidelity
 	const fidelityPassed = fidelityRecords.filter((r) => r.faithful).length;
 	const meanScore = fidelityRecords.reduce((a, r) => a + r.score, 0) / fidelityRecords.length;
-	console.log(`\n=== Capture fidelity (${fidelityPassed}/${fidelityRecords.length} faithful) ===`);
-	console.log(`mean_score=${meanScore.toFixed(2)}`);
-	const unfaithful = fidelityRecords.filter((r) => !r.faithful);
-	if (unfaithful.length > 0) {
-		for (const f of unfaithful) {
-			console.log(`  LOW ${f.evalId}: score=${f.score}  ${f.rationale}`);
-		}
-	}
+	console.log(`\n=== Capture Fidelity ===`);
+	console.log(`${fidelityPassed}/${fidelityRecords.length} thoughts faithful (score=${meanScore.toFixed(0)}/5)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -386,8 +403,13 @@ async function main(): Promise<void> {
 	logEval(`eval run user: ${userId}`);
 
 	try {
-		const { thoughts } = loadAgentThoughts();
+		const amountArg = process.argv.indexOf('--amount');
+		const amount = amountArg !== -1 ? parseInt(process.argv[amountArg + 1], 10) : undefined;
+
+		const { thoughts: allThoughts } = loadAgentThoughts();
+		const thoughts = amount !== undefined ? allThoughts.slice(0, amount) : allThoughts;
 		const { retrieval: retrievalProbes, qa: qaProbes } = loadAgentProbes();
+		if (amount !== undefined) logEval(`--amount ${amount}: using ${thoughts.length}/${allThoughts.length} thoughts`);
 		logEval(`dataset: thoughts=${thoughts.length} retrieval_probes=${retrievalProbes.length} qa_cases=${qaProbes.length}`);
 
 		const {
@@ -403,6 +425,7 @@ async function main(): Promise<void> {
 
 			try {
 				await createEvalUser(db, userId);
+				await ensureJudgeUser(db);
 
 				// Phase 1: Ingest
 				const { ingestRecords: ir, idMap } = await runIngestPhase(userId, thoughts);

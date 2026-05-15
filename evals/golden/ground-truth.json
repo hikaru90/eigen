@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "generatedAt": "2026-05-15T19:47:05.794Z",
+  "thoughtCount": 10,
+  "thoughts": [
+    {
+      "id": "eval_001",
+      "rawText": "I want to build a system that captures my thoughts as I have them, without forcing me to categorize or structure them first. The capture should be frictionless.",
+      "expectedCategory": "idea",
+      "expectedEntities": [
+        {
+          "surface": "system",
+          "entity_type": "project"
+        },
+        {
+          "surface": "thoughts",
+          "entity_type": "concept"
+        }
+      ],
+      "expectedRelations": [],
+      "notes": "Core system concept - foundational idea"
+    },
+    {
+      "id": "eval_002",
+      "rawText": "Met with Sarah yesterday at the coffee shop on Main Street. She suggested we use FalkorDB for the graph layer instead of trying to force everything into Postgres.",
+      "expectedCategory": "decision",
+      "expectedEntities": [
+        {
+          "surface": "Sarah",
+          "entity_type": "person"
+        },
+        {
+          "surface": "Main Street",
+          "entity_type": "place"
+        },
+        {
+          "surface": "FalkorDB",
+          "entity_type": "technology"
+        },
+        {
+          "surface": "Postgres",
+          "entity_type": "technology"
+        }
+      ],
+      "expectedRelations": [],
+      "notes": "Technical decision with person and place"
+    },
+    {
+      "id": "eval_003",
+      "rawText": "The evaluation framework should show me not just that something is wrong, but let me dig into the data and see exactly what the system produced.",
+      "expectedCategory": "idea",
+      "expectedEntities": [
+        {
+          "surface": "evaluation framework",
+          "entity_type": "concept"
+        }
+      ],
+      "expectedRelations": [
+        {
+          "target_id": "eval_001",
+          "type": "refines"
+        }
+      ],
+      "notes": "Refines the core concept with eval focus"
+    },
+    {
+      "id": "eval_004",
+      "rawText": "Need to remember to call Mom this weekend. It's been three weeks since we last spoke.",
+      "expectedCategory": "task",
+      "expectedEntities": [
+        {
+          "surface": "Mom",
+          "entity_type": "person"
+        }
+      ],
+      "expectedRelations": [],
+      "notes": "Simple personal task with temporal context"
+    },
+    {
+      "id": "eval_005",
+      "rawText": "Berlin in March was cold but the architecture review went well. Alex wants to add community detection to group related entities visually.",
+      "expectedCategory": "observation",
+      "expectedEntities": [
+        {
+          "surface": "Berlin",
+          "entity_type": "place"
+        },
+        {
+          "surface": "Alex",
+          "entity_type": "person"
+        }
+      ],
+      "expectedRelations": [
+        {
+          "target_id": "eval_002",
+          "type": "mentions"
+        }
+      ],
+      "notes": "Continues thread from eval_002 (Alex, technical topic)"
+    },
+    {
+      "id": "eval_006",
+      "rawText": "I'm worried that if we don't get the embedding quality right, the whole retrieval system will feel random and users will lose trust.",
+      "expectedCategory": "concern",
+      "expectedEntities": [
+        {
+          "surface": "embedding quality",
+          "entity_type": "concept"
+        },
+        {
+          "surface": "retrieval system",
+          "entity_type": "system"
+        }
+      ],
+      "expectedRelations": [],
+      "notes": "Risk/concern about technical quality"
+    },
+    {
+      "id": "eval_007",
+      "rawText": "Reading 'Thinking Fast and Slow' by Kahneman is making me reconsider how we design the capture UI. Humans are not rational information processors.",
+      "expectedCategory": "insight",
+      "expectedEntities": [
+        {
+          "surface": "Thinking Fast and Slow",
+          "entity_type": "book"
+        },
+        {
+          "surface": "Kahneman",
+          "entity_type": "person"
+        },
+        {
+          "surface": "capture UI",
+          "entity_type": "system"
+        }
+      ],
+      "expectedRelations": [],
+      "notes": "Book insight with design implications"
+    },
+    {
+      "id": "eval_008",
+      "rawText": "The community detection should group entities like Sarah, Alex, and the Berlin trip together, while keeping technical concepts separate.",
+      "expectedCategory": "observation",
+      "expectedEntities": [
+        {
+          "surface": "community detection",
+          "entity_type": "concept"
+        },
+        {
+          "surface": "Sarah",
+          "entity_type": "person"
+        },
+        {
+          "surface": "Alex",
+          "entity_type": "person"
+        },
+        {
+          "surface": "Berlin",
+          "entity_type": "place"
+        }
+      ],
+      "expectedRelations": [
+        {
+          "target_id": "eval_002",
+          "type": "mentions"
+        },
+        {
+          "target_id": "eval_005",
+          "type": "mentions"
+        }
+      ],
+      "notes": "Meta-observation about expected clustering"
+    },
+    {
+      "id": "eval_009",
+      "rawText": "Goal: achieve 95% precision on entity extraction before we can call the system production-ready.",
+      "expectedCategory": "goal",
+      "expectedEntities": [
+        {
+          "surface": "entity extraction",
+          "entity_type": "concept"
+        }
+      ],
+      "expectedRelations": [],
+      "notes": "Quantified goal with metric"
+    },
+    {
+      "id": "eval_010",
+      "rawText": "Actually, maybe calling it a 'system' is too technical. What if we just call it a 'memory'? Something that feels more personal and less engineered.",
+      "expectedCategory": "reflection",
+      "expectedEntities": [
+        {
+          "surface": "system",
+          "entity_type": "concept"
+        },
+        {
+          "surface": "memory",
+          "entity_type": "concept"
+        }
+      ],
+      "expectedRelations": [
+        {
+          "target_id": "eval_001",
+          "type": "contradicts"
+        }
+      ],
+      "notes": "Reflective contradiction of earlier framing"
+    }
+  ],
+  "expectedRelations": [
+    {
+      "source": "eval_005",
+      "target": "eval_002",
+      "type": "mentions",
+      "rationale": "Both mention Alex and technical decisions"
+    },
+    {
+      "source": "eval_008",
+      "target": "eval_002",
+      "type": "mentions",
+      "rationale": "References Sarah from eval_002"
+    },
+    {
+      "source": "eval_008",
+      "target": "eval_005",
+      "type": "mentions",
+      "rationale": "References Berlin trip from eval_005"
+    },
+    {
+      "source": "eval_003",
+      "target": "eval_001",
+      "type": "refines",
+      "rationale": "Evaluation concept refines core system concept"
+    },
+    {
+      "source": "eval_010",
+      "target": "eval_001",
+      "type": "contradicts",
+      "rationale": "Questions the 'system' terminology from eval_001"
+    },
+    {
+      "source": "eval_007",
+      "target": "eval_006",
+      "type": "related_to",
+      "rationale": "Both about cognitive/technical design considerations"
+    },
+    {
+      "source": "eval_009",
+      "target": "eval_003",
+      "type": "related_to",
+      "rationale": "Goals about evaluation system"
+    }
+  ],
+  "stats": {
+    "totalExpectedEntities": 22,
+    "totalExpectedRelations": 5,
+    "categoriesUsed": [
+      "idea",
+      "decision",
+      "task",
+      "observation",
+      "concern",
+      "insight",
+      "goal",
+      "reflection"
+    ]
+  }
+}

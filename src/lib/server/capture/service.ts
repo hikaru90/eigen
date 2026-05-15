@@ -32,12 +32,14 @@ export function normalizeThoughtText(raw: string): { normalized: string; metadat
 async function logCaptureActivity(
 	userId: string,
 	operation: 'capture_submit' | 'capture_edit' | 'capture_relink' | 'capture_delete',
+	context?: string,
 	durationMs?: number
 ) {
 	await logActivityCall(getDb(), userId, {
 		provider: 'mvp_stub',
 		operation,
 		baseCostUsd: CAPTURE_BASE_COST_USD,
+		context,
 		durationMs
 	});
 }
@@ -184,7 +186,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		category: stored.category
 	});
 
-	await logCaptureActivity(userId, 'capture_submit', Date.now() - captureStart);
+	await logCaptureActivity(userId, 'capture_submit', rawInput.slice(0, 100), Date.now() - captureStart);
 
 	// Count thoughts for optional ontology eval trigger.
 	const [countRow] = await getDb()
@@ -229,7 +231,7 @@ export async function editStoredThought(
 		.limit(1);
 
 	if (!existing) {
-		await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
+		await logCaptureActivity(userId, 'capture_edit', editRequest.slice(0, 100), Date.now() - editStart);
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
@@ -287,7 +289,7 @@ export async function editStoredThought(
 		category: updated!.category
 	});
 
-	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);
+	await logCaptureActivity(userId, 'capture_edit', editRequest.slice(0, 100), Date.now() - editStart);
 
 	// Same pattern as capture: await when user is watching (UI path), fire-and-forget otherwise.
 	if (onProgress) {
@@ -329,7 +331,7 @@ export async function relinkThoughtGraph(
 		.limit(1);
 
 	if (!existing) {
-		await logCaptureActivity(userId, 'capture_relink', Date.now() - started);
+		await logCaptureActivity(userId, 'capture_relink', thoughtId, Date.now() - started);
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
@@ -344,7 +346,7 @@ export async function relinkThoughtGraph(
 		category: existing.category
 	});
 
-	await logCaptureActivity(userId, 'capture_relink', Date.now() - started);
+	await logCaptureActivity(userId, 'capture_relink', existing.normalizedText.slice(0, 100), Date.now() - started);
 
 	if (onProgress) {
 		await reenrichThought(userId, existing.id, existing.normalizedText, { onProgress });
@@ -381,7 +383,7 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 		.limit(1);
 
 	if (!existing) {
-		await logCaptureActivity(userId, 'capture_delete', Date.now() - started);
+		await logCaptureActivity(userId, 'capture_delete', thoughtId, Date.now() - started);
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
@@ -389,7 +391,7 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 
 	await getDb().delete(thought).where(and(eq(thought.id, existing.id), eq(thought.userId, userId)));
 
-	await logCaptureActivity(userId, 'capture_delete', Date.now() - started);
+	await logCaptureActivity(userId, 'capture_delete', `deleted: ${thoughtId.slice(0, 8)}...`, Date.now() - started);
 	return { ok: true as const };
 }
 

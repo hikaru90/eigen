@@ -366,21 +366,21 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-60 bg-[#191414]/20"
+    class="fixed inset-0 z-60 bg-black/20"
     onclick={() => ($chatSidebarOpen = false)}
   ></div>
 {/if}
 
 <!-- sidebar panel -->
 <div
-  class="fixed left-0 top-0 z-60 flex h-full w-64 flex-col bg-[#F6F0E6] pt-safe border-r border-[#C3C3B6]/60 transition-transform duration-200 {$chatSidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
+  class="fixed left-0 top-0 z-60 flex h-full w-64 flex-col bg-white dark:bg-card pt-safe border-r border-border transition-transform duration-200 {$chatSidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
   role="dialog"
   aria-label="Chat sessions"
 >
   <div class="flex items-center justify-between px-4 py-3">
-    <span class="text-xs font-medium tracking-widest uppercase text-[#808064]">History</span>
+    <span class="text-xs font-medium tracking-widest uppercase text-muted-foreground">History</span>
     <button
-      class="text-[#808064] hover:text-[#191414] rounded p-1 transition-colors"
+      class="text-muted-foreground hover:text-foreground rounded p-1 transition-colors"
       onclick={() => ($chatSidebarOpen = false)}
       aria-label="Close sidebar"
     >
@@ -390,7 +390,7 @@
 
   <div class="px-3 pb-3">
     <button
-      class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-[#191414] hover:bg-[#C3C3B6]/30 transition-colors border border-[#C3C3B6]/60"
+      class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-foreground hover:bg-muted transition-colors border border-border"
       onclick={newSession}
     >
       <Plus class="size-3" strokeWidth={1.75} />
@@ -398,25 +398,25 @@
     </button>
   </div>
 
-  <div class="mx-3 h-px bg-[#C3C3B6]/50"></div>
+  <div class="mx-3 h-px bg-border"></div>
 
   <div class="flex-1 overflow-y-auto px-2 py-2">
     {#if sessions.length === 0}
-      <p class="text-[#808064] px-2 py-8 text-center text-xs">No conversations yet</p>
+      <p class="text-muted-foreground px-2 py-8 text-center text-xs">No conversations yet</p>
     {/if}
     {#each sessions as s (s.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="group flex w-full items-start gap-2 rounded px-2.5 py-2 text-left cursor-pointer transition-colors {s.id === activeSessionId ? 'bg-[#C3C3B6]/40' : 'hover:bg-[#C3C3B6]/20'}"
+        class="group flex w-full items-start gap-2 rounded px-2.5 py-2 text-left cursor-pointer transition-colors {s.id === activeSessionId ? 'bg-muted' : 'hover:bg-muted/50'}"
         onclick={() => selectSession(s.id)}
       >
         <div class="min-w-0 flex-1">
-          <p class="truncate text-xs text-[#191414] leading-snug">{s.title || 'Untitled'}</p>
-          <p class="text-[#808064] mt-0.5 text-[10px]">{formatDate(s.updatedAt)}</p>
+          <p class="truncate text-xs text-foreground leading-snug">{s.title?.trim() || 'Untitled'}</p>
+          <p class="text-muted-foreground mt-0.5 text-[10px]">{formatDate(s.updatedAt)}</p>
         </div>
         <button
-          class="invisible group-hover:visible text-[#808064] hover:text-[#FF4632] shrink-0 rounded p-0.5 transition-colors"
+          class="invisible group-hover:visible text-muted-foreground hover:text-destructive shrink-0 rounded p-0.5 transition-colors"
           onclick={(e) => deleteSession(s.id, e)}
           aria-label="Delete session"
         >
@@ -427,21 +427,21 @@
   </div>
 </div>
 
-<div class="relative mx-auto flex max-w-2xl flex-col px-4 pt-4">
+<div class="relative mx-auto flex max-w-2xl flex-col px-4 pt-4 max-h-dvh">
   <!-- messages area -->
   <div
     bind:this={chatEl}
-    class="flex min-h-dvh flex-auto flex-col gap-1 px-1 pb-52"
+    class="flex h-dvh flex-auto flex-col gap-1 px-1 pb-52 overflow-hidden"
     role="log"
     aria-label="Chat messages"
   >
     {#if loadingSession}
       <div class="flex flex-1 items-center justify-center">
-        <LoaderCircleIcon class="text-[#C3C3B6] size-4 animate-spin" />
+        <LoaderCircleIcon class="text-muted-foreground size-4 animate-spin" />
       </div>
     {:else if messages.length === 0 && !loading}
       <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <p class="text-[#C3C3B6] max-w-xs text-sm tracking-wide">
+        <p class="text-muted-foreground max-w-xs text-sm tracking-wide">
           Ask me anything about your thoughts, or tell me to remember something new.
         </p>
       </div>
@@ -452,11 +452,11 @@
         <!-- User message: right-aligned, Klein Blue bg, clean pill -->
         <div class="group flex flex-row-reverse items-end gap-3 py-0.5">
           <div class="flex flex-col items-end gap-1 max-w-[72%]">
-            <div class="rounded-[16px] rounded-br-none bg-[#191414] px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap text-white">
+            <div class="rounded-[16px] rounded-br-none bg-foreground px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap text-background">
               {msg.content}
             </div>
             <button
-              class="text-[#C3C3B6] hover:text-[#808064] opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+              class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
               onclick={() => resend(msg.content)}
               aria-label="Send again"
             >
@@ -469,15 +469,15 @@
         <!-- Thinking: very reduced, borderless, italic inline label -->
         <div class="py-0.5">
           <details class="group/think">
-            <summary class="cursor-pointer select-none list-none text-xs text-[#808064] italic leading-relaxed py-1 flex items-center gap-1.5 w-fit">
-              <span class="inline-block size-1 rounded-full bg-[#9BF0E1] shrink-0"></span>
+            <summary class="cursor-pointer select-none list-none text-xs text-muted-foreground italic leading-relaxed py-1 flex items-center gap-1.5 w-fit">
+              <span class="inline-block size-1 rounded-full bg-accent shrink-0"></span>
               Thinking
               {#if msg.content}
                 <span class="text-[10px] not-italic opacity-50 group-open/think:hidden">(expand)</span>
               {/if}
             </summary>
             {#if msg.content}
-              <div class="mt-1 ml-3.5 text-xs text-[#808064] leading-relaxed whitespace-pre-wrap border-l border-[#C3C3B6]/60 pl-3 py-0.5">
+              <div class="mt-1 ml-3.5 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap border-l border-border pl-3 py-0.5">
                 {msg.content}
               </div>
             {/if}
@@ -487,8 +487,8 @@
       {:else if msg.variant === 'tool_call'}
         <!-- Tool call: compact inline label, no heavy bubble -->
         <div class="py-0.5">
-          <div class="flex items-center gap-2 text-xs text-[#808064] py-0.5">
-            <span class="inline-block size-1 rounded-full bg-[#C3C3B6] shrink-0"></span>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground py-0.5">
+            <span class="inline-block size-1 rounded-full bg-muted shrink-0"></span>
             {#if toolIcon(msg.tool) === 'search'}
               <Search class="size-3 shrink-0" strokeWidth={1.5} />
             {:else if toolIcon(msg.tool) === 'sparkles'}
@@ -505,9 +505,9 @@
       {:else if msg.variant === 'tool_result'}
         <!-- Tool result: borderless, muted, small — contextual, not primary -->
         <div class="group py-0.5">
-          <div class="ml-3.5 border-l border-[#C3C3B6]/60 pl-3 py-0.5">
-            <p class="text-[10px] uppercase tracking-widest text-[#808064] mb-1">Memory</p>
-            <p class="text-xs text-[#808064] leading-relaxed whitespace-pre-wrap">{msg.content.replace(/^Retrieved from memory:\n/, '')}</p>
+          <div class="ml-3.5 border-l border-border pl-3 py-0.5 overflow-x-hidden">
+            <p class="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Memory</p>
+            <p class="text-xs text-muted-foreground leading-relaxed whitespace-normal break-words">{msg.content.replace(/^Retrieved from memory:\n/, '')}</p>
           </div>
         </div>
 
@@ -515,11 +515,11 @@
         <!-- Assistant text: no bubble, plain text with subtle left gutter -->
         <div class="group flex flex-row items-start gap-0 py-1">
           <div class="flex flex-col items-start gap-1 max-w-[82%]">
-            <div class="text-sm leading-relaxed whitespace-pre-wrap text-[#191414]">
+            <div class="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
               {msg.content}
             </div>
             <button
-              class="text-[#C3C3B6] hover:text-[#808064] opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+              class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
               onclick={() => regenerate(i)}
               aria-label="Regenerate answer"
             >
@@ -532,7 +532,7 @@
 
     {#if loading && !streamEventsReceived}
       <div class="py-1">
-        <div class="flex items-center gap-1.5 text-xs text-[#C3C3B6]">
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <LoaderCircleIcon class="size-3.5 animate-spin" />
         </div>
       </div>
@@ -541,21 +541,21 @@
 
   <!-- input area -->
   <div class="fixed bottom-24 left-1/2 z-50 w-full max-w-2xl -translate-x-1/2 px-4">
-    <Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-[2px] gap-[6px] items-start overflow-visible">
+    <Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
       <Card.Content class="p-0 w-full">
         <Textarea
           bind:value={input}
           onkeydown={handleKeydown}
           placeholder="Ask about your memories..."
-          class="border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-[#191414] placeholder:text-[#C3C3B6]"
+          class="border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
           disabled={loading || loadingSession}
         />
       </Card.Content>
-      <Card.Footer class="bg-[#FAFAFA] p-4 flex flex-row items-center justify-end w-full">
+      <Card.Footer class="bg-muted/50 p-4 flex flex-row items-center justify-end w-full">
         <Button
           onclick={loading ? stop : send}
           disabled={!loading && (loadingSession || !input.trim())}
-          class="bg-black text-white rounded-none px-[22px] py-[12px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
+          class="bg-black text-white dark:bg-white dark:text-black rounded-none px-[22px] py-[12px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90 dark:hover:bg-white/90"
         >
           {#if loading}
             <Square class="size-4 shrink-0" strokeWidth={1.75} />

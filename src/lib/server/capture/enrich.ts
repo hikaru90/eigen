@@ -67,58 +67,61 @@ export async function enrichThought(
 		});
 	}
 
-	// Emit all enrichment progress phases before launching parallel work.
-	onProgress?.('relations');
-	onProgress?.('entities');
-	onProgress?.('memory_type');
-	onProgress?.('cues');
-
-	// Run all four enrichment jobs in parallel. Each is independent: they all
-	// read from normalizedText + thoughtEmbedding with no cross-dependencies.
+	// Emit progress as each enrichment job starts, then run all in parallel.
+	// Each is independent: they all read from normalizedText + thoughtEmbedding
+	// with no cross-dependencies.
 	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] =
 		await Promise.allSettled([
 			// ---- Relations -------------------------------------------------------
-			extractRelations({ userId, thoughtId, normalizedText, embedding: thoughtEmbedding })
-				.then(async (relations) => {
-					await db.transaction(async (tx) => {
-						await tx
-							.delete(thoughtRelation)
-							.where(eq(thoughtRelation.sourceThoughtId, thoughtId));
-						if (relations.length > 0) {
-							await tx.insert(thoughtRelation).values(
-								relations.map((r) => ({
-									userId,
-									sourceThoughtId: thoughtId,
-									targetThoughtId: r.targetId,
-									relationType: r.relationType
-								}))
-							);
-						}
-					});
-					for (const r of relations) {
-						await upsertThoughtRelation({
-							userId,
-							sourceId: thoughtId,
-							targetId: r.targetId,
-							relationType: r.relationType
-						});
+			(async () => {
+				onProgress?.('relations');
+				const relations = await extractRelations({ userId, thoughtId, normalizedText, embedding: thoughtEmbedding });
+				await db.transaction(async (tx) => {
+					await tx
+						.delete(thoughtRelation)
+						.where(eq(thoughtRelation.sourceThoughtId, thoughtId));
+					if (relations.length > 0) {
+						await tx.insert(thoughtRelation).values(
+							relations.map((r) => ({
+								userId,
+								sourceThoughtId: thoughtId,
+								targetThoughtId: r.targetId,
+								relationType: r.relationType
+							}))
+						);
 					}
-				}),
+				});
+				for (const r of relations) {
+					await upsertThoughtRelation({
+						userId,
+						sourceId: thoughtId,
+						targetId: r.targetId,
+						relationType: r.relationType
+					});
+				}
+			})(),
 
 			// ---- Entities --------------------------------------------------------
-			syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding }),
+			(async () => {
+				onProgress?.('entities');
+				return syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding });
+			})(),
 
 			// ---- Memory type -----------------------------------------------------
-			classifyMemoryType({ userId, normalizedText }).then(async (memoryType) => {
+			(async () => {
+				onProgress?.('memory_type');
+				const memoryType = await classifyMemoryType({ userId, normalizedText });
 				await db.update(thought).set({ memoryType }).where(eq(thought.id, thoughtId));
-			}),
+			})(),
 
 			// ---- Cues ------------------------------------------------------------
-			extractCues({ userId, normalizedText }).then(async (cues) => {
+			(async () => {
+				onProgress?.('cues');
+				const cues = await extractCues({ userId, normalizedText });
 				if (cues.length > 0) {
 					await db.update(thought).set({ cues }).where(eq(thought.id, thoughtId));
 				}
-			})
+			})()
 		]);
 
 	// Log failures individually so one bad step doesn't hide others.

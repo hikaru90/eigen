@@ -160,10 +160,16 @@
 					{#each grouped as group}
 						{#if group.groupId && grouped.length > 1}
 							{@const groupLabel = group.firstOp.replace(/\.(success|error)\(.*\)$/, '')}
+							{@const groupContext = group.calls.find(c => c.context)?.context}
 							<tr class="bg-muted/20 border-b border-border/40">
 								<td class="p-2 whitespace-nowrap text-[11px] text-muted-foreground" colspan="{isGateway ? 7 : 4}">
 									<span class="flex items-center justify-between">
-										<span class="truncate font-mono">{groupLabel}</span>
+										<span class="flex items-center gap-2 min-w-0">
+											<span class="truncate font-mono shrink-0">{groupLabel}</span>
+											{#if groupContext}
+												<span class="truncate text-muted-foreground/70 max-w-[300px]">{groupContext}</span>
+											{/if}
+										</span>
 										<span class="ml-2 shrink-0">
 											{group.calls.length > 1 ? `${group.calls.length} calls` : ''}
 											{#if isGateway}
@@ -188,11 +194,18 @@
 										{prov}
 									</span>
 								</td>
-								<td class="p-2 font-mono text-[11px]">
-									{#if group.groupId && group.calls.length > 1}
-										<span class="text-muted-foreground mr-1">&#x2514;</span>
-									{/if}
-									{c.operation}
+								<td class="p-2">
+									<div class="flex flex-col gap-0.5">
+										<div class="font-mono text-[11px]">
+											{#if group.groupId && group.calls.length > 1}
+												<span class="text-muted-foreground mr-1">&#x2514;</span>
+											{/if}
+											{c.operation}
+										</div>
+										{#if c.context}
+											<div class="text-[10px] text-muted-foreground truncate max-w-[250px]">{c.context}</div>
+										{/if}
+									</div>
 								</td>
 								<td class="p-2 font-mono text-[11px] text-muted-foreground">{formatDuration(c.durationMs)}</td>
 								{#if isGateway}

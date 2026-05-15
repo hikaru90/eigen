@@ -378,10 +378,13 @@ export async function llmChatCompletion(input: {
 				completion_tokens: usage?.completion_tokens,
 				total_tokens: usage?.total_tokens
 			});
+			// Extract first user message for context preview
+			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.chat.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
+				context: firstUserMessage,
 				durationMs: attemptMs
 			});
 
@@ -393,10 +396,13 @@ export async function llmChatCompletion(input: {
 				afterMs: Date.now() - attemptStart,
 				message: msg.slice(0, 500)
 			});
+			// Extract first user message for context preview
+			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.chat.error(attempt=${attempt})`,
 				baseCostUsd: 0,
+				context: firstUserMessage,
 				durationMs: Date.now() - attemptStart
 			});
 			if (attempt === maxAttempts) break;
@@ -466,20 +472,30 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 
 			const usage = extractUsage(json);
 			const baseCost = computeTokenCostUsd(usage);
+			// Extract preview from embedding input
+			const embeddingPreview = Array.isArray(input.input)
+				? input.input[0]
+				: input.input;
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.embedding.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
+				context: embeddingPreview,
 				durationMs: Date.now() - attemptStart
 			});
 
 			return json;
 		} catch (err) {
 			lastError = err;
+			// Extract preview from embedding input
+			const embeddingPreview = Array.isArray(input.input)
+				? input.input[0]
+				: input.input;
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				operation: `llm.embedding.error(attempt=${attempt})`,
 				baseCostUsd: 0,
+				context: embeddingPreview,
 				durationMs: Date.now() - attemptStart
 			});
 			if (attempt === maxAttempts) break;

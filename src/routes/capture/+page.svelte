@@ -2,12 +2,12 @@
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
+	import IngestPhaseIndicator from '$lib/components/ingest-phase-indicator.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
-	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from '$lib/capture/ingest-phases';
+	import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 	import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
 
 	let { data }: { data: PageData } = $props();
@@ -24,15 +24,23 @@
 	let err = $state<string | null>(null);
 	let loading = $state(false);
 	let ingestPhase = $state<CaptureIngestPhase | null>(null);
+	// Track all phases that have been reported for displaying progress
+	let phaseHistory = $state<CaptureIngestPhase[]>([]);
 
-	const ingestStatus = $derived(
-		ingestPhase
-			? CAPTURE_INGEST_PHASE_COPY[ingestPhase]
-			: {
-					title: 'Preparing ingest',
-					description: 'Sending your thought to the ingest pipeline.'
-				}
-	);
+	/** Ordered list of phases in the capture pipeline */
+	const CAPTURE_PHASE_ORDER: CaptureIngestPhase[] = [
+		'accounting',
+		'session',
+		'ontology',
+		'embedding',
+		'persist',
+		'graph',
+		'relations',
+		'entities',
+		'memory_type',
+		'cues',
+		'ontology_eval'
+	];
 
 	onMount(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -50,6 +58,7 @@
 	async function capture() {
 		err = null;
 		ingestPhase = null;
+		phaseHistory = [];
 		loading = true;
 		try {
 			const res = await fetch('/api/capture/submit', {
@@ -64,6 +73,7 @@
 			if (contentType.includes('application/x-ndjson')) {
 				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(res, (phase) => {
 					ingestPhase = phase;
+					phaseHistory = [...phaseHistory, phase];
 				});
 				stored = thought;
 				editRequest = '';
@@ -99,6 +109,7 @@
 		if (!stored) return;
 		err = null;
 		ingestPhase = null;
+		phaseHistory = [];
 		loading = true;
 		try {
 			const res = await fetch('/api/capture/edit', {
@@ -113,6 +124,7 @@
 			if (contentType.includes('application/x-ndjson')) {
 				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(res, (phase) => {
 					ingestPhase = phase;
+					phaseHistory = [...phaseHistory, phase];
 				});
 				stored = thought;
 				editRequest = '';
@@ -162,21 +174,8 @@
 		{#if loading}
 			<div
 				class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4"
-				role="status"
-				aria-live="polite"
 			>
-				<div class="flex gap-3">
-					<LoaderCircleIcon
-						class="text-muted-foreground size-5 shrink-0 animate-spin"
-						aria-hidden="true"
-					/>
-					<div class="min-w-0">
-						<p class="text-foreground text-sm font-medium">{ingestStatus.title}</p>
-						<p class="text-muted-foreground mt-1 text-xs leading-relaxed">
-							{ingestStatus.description}
-						</p>
-					</div>
-				</div>
+				<IngestPhaseIndicator phases={CAPTURE_PHASE_ORDER} currentPhase={ingestPhase} />
 			</div>
 		{/if}
 
