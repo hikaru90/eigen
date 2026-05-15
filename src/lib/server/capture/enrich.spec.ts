@@ -190,7 +190,10 @@ describe('enrichThought', () => {
 
 		const phases: string[] = [];
 		await enrichThought('u1', 't1', 'hello', {
-			onProgress: (p) => phases.push(p),
+			onProgress: (e) => {
+				if (e.parallel) phases.push(...e.phases);
+				else phases.push(e.phase);
+			},
 			thoughtCountAfterInsert: 10
 		});
 		maybeRefreshUserOntologyMock.mock.calls[0]?.[0]?.onBeforeEval?.();

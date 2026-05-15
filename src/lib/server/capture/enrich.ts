@@ -21,6 +21,7 @@
 
 import { eq, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
+import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { thought } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
@@ -32,7 +33,7 @@ import { upsertThoughtRelation, deleteThoughtOutgoingGraphEdges } from '$lib/ser
 import { thoughtRelation } from '$lib/server/db/schema';
 
 export type EnrichThoughtOptions = {
-	onProgress?: (phase: CaptureIngestPhase) => void;
+	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 	/** Pre-computed embedding from the fast path — avoids re-embedding the same text. */
 	thoughtEmbedding?: number[];
 	thoughtCountAfterInsert?: number;
@@ -67,14 +68,14 @@ export async function enrichThought(
 		});
 	}
 
-	// Emit progress as each enrichment job starts, then run all in parallel.
-	// Each is independent: they all read from normalizedText + thoughtEmbedding
-	// with no cross-dependencies.
+	// Emit a single parallel-group event so the UI shows all four enrichment
+	// phases as a concurrent cluster rather than four instantaneous sequential steps.
+	onProgress?.({ parallel: true, phases: ['relations', 'entities', 'memory_type', 'cues'] });
+
 	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] =
 		await Promise.allSettled([
 			// ---- Relations -------------------------------------------------------
 			(async () => {
-				onProgress?.('relations');
 				const relations = await extractRelations({ userId, thoughtId, normalizedText, embedding: thoughtEmbedding });
 				await db.transaction(async (tx) => {
 					await tx
@@ -102,21 +103,16 @@ export async function enrichThought(
 			})(),
 
 			// ---- Entities --------------------------------------------------------
-			(async () => {
-				onProgress?.('entities');
-				return syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding });
-			})(),
+			syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding }),
 
 			// ---- Memory type -----------------------------------------------------
 			(async () => {
-				onProgress?.('memory_type');
 				const memoryType = await classifyMemoryType({ userId, normalizedText });
 				await db.update(thought).set({ memoryType }).where(eq(thought.id, thoughtId));
 			})(),
 
 			// ---- Cues ------------------------------------------------------------
 			(async () => {
-				onProgress?.('cues');
 				const cues = await extractCues({ userId, normalizedText });
 				if (cues.length > 0) {
 					await db.update(thought).set({ cues }).where(eq(thought.id, thoughtId));
@@ -146,7 +142,7 @@ export async function enrichThought(
 			await maybeRefreshUserOntology({
 				userId,
 				thoughtCountAfterInsert,
-				onBeforeEval: () => onProgress?.('ontology_eval')
+				onBeforeEval: () => onProgress?.({ parallel: false, phase: 'ontology_eval' })
 			});
 		} catch (err) {
 			console.error('[enrich] ontology refresh failed', {

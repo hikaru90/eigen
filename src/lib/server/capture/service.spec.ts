@@ -176,8 +176,9 @@ describe('captureThought', () => {
 
 		const phases: string[] = [];
 		await captureThought('u1', 'raw input', {
-			onProgress: (p) => {
-				phases.push(p);
+			onProgress: (e) => {
+				if (e.parallel) phases.push(...e.phases);
+				else phases.push(e.phase);
 			}
 		});
 
@@ -187,7 +188,7 @@ describe('captureThought', () => {
 		expect(phases).toEqual([
 			'accounting',
 			'ontology',
-			'embedding',   // now emitted together with ontology (parallel classify+embed)
+			'embedding',
 			'session',
 			'persist',
 			'graph'
@@ -316,7 +317,10 @@ describe('editStoredThought', () => {
 
 		const phases: string[] = [];
 		const result = await editStoredThought('u1', 't1', 'make shorter', {
-			onProgress: (p) => phases.push(p)
+			onProgress: (e) => {
+				if (e.parallel) phases.push(...e.phases);
+				else phases.push(e.phase);
+			}
 		});
 		expect(result.ok).toBe(true);
 		expect(phases).toEqual(['accounting', 'ontology', 'embedding', 'persist', 'graph']);
@@ -396,7 +400,12 @@ describe('relinkThoughtGraph', () => {
 		getDbMock.mockReturnValue(db);
 
 		const phases: string[] = [];
-		await relinkThoughtGraph('u1', 't1', { onProgress: (p) => phases.push(p) });
+		await relinkThoughtGraph('u1', 't1', {
+			onProgress: (e) => {
+				if (e.parallel) phases.push(...e.phases);
+				else phases.push(e.phase);
+			}
+		});
 		expect(phases).toEqual(['accounting', 'graph']);
 	});
 });

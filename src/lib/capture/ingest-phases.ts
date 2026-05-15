@@ -1,6 +1,6 @@
 export const CAPTURE_INGEST_PHASE_COPY = {
 	accounting: {
-		title: 'Recording transparent usage',
+		title: 'Recording usage',
 		description:
 			'Logging this capture as a billable activity so usage and pricing stay visible in your history.'
 	},
@@ -9,7 +9,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 		description: 'Creating a capture record that ties this submission to the stored thought row.'
 	},
 	ontology: {
-		title: 'Classifying with ontology',
+		title: 'Classifying category',
 		description:
 			'Choosing the best baseline category for this thought using your stored ontology notes when available.'
 	},
@@ -19,7 +19,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 			'Periodically updating per-user category guidance so future captures stay aligned with how you write.'
 	},
 	embedding: {
-		title: 'Building semantic embedding',
+		title: 'Building embedding',
 		description:
 			'Calling the embedding model to turn your text into a vector so similarity search can recall this thought later.'
 	},
@@ -29,7 +29,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 			'Writing normalized text, category, lexical search surface, and the embedding into your isolated thought row.'
 	},
 	graph: {
-		title: 'Syncing the memory graph',
+		title: 'Syncing memory graph',
 		description: 'Upserting this thought as a node in FalkorDB so graph navigation stays aligned with Postgres.'
 	},
 	relations: {
@@ -37,7 +37,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 		description: 'Detecting references to other stored thoughts and persisting relation edges where matches exist.'
 	},
 	entities: {
-		title: 'Updating the entity graph',
+		title: 'Updating entity graph',
 		description: 'Extracting and reconciling entities mentioned in this thought against your entity index.'
 	},
 	memory_type: {
@@ -51,3 +51,23 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 } as const;
 
 export type CaptureIngestPhase = keyof typeof CAPTURE_INGEST_PHASE_COPY;
+
+/**
+ * The canonical pipeline shape used by the UI progress indicator.
+ *
+ * Each entry is either:
+ *  - a single phase key (sequential step)
+ *  - an array of phase keys (parallel group — all run concurrently)
+ *
+ * This drives both the step count and the visual layout in IngestPhaseIndicator.
+ */
+export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
+	'accounting',
+	'ontology',
+	'embedding',
+	'session',
+	'persist',
+	'graph',
+	['relations', 'entities', 'memory_type', 'cues'],
+	'ontology_eval'
+];

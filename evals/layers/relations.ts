@@ -55,7 +55,7 @@ async function cleanupEvalUser(db: AppDatabase, userId: string): Promise<void> {
   await db.delete(user).where(eq(user.id, userId));
 }
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   logEval('relations layer eval start');
   
   const userId = newEvalAgentUserId();
@@ -202,4 +202,4 @@ async function main(): Promise<void> {
   logEval(`P=${results.summary.precision.toFixed(3)}, R=${results.summary.recall.toFixed(3)}, F1=${results.summary.f1.toFixed(3)}`);
 }
 
-void runEval(main);
+

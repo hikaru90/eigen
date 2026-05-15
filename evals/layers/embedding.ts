@@ -63,7 +63,7 @@ function parseVector(vectorStr: string): number[] {
     .filter(n => !isNaN(n));
 }
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   logEval('embedding layer eval start');
   
   const userId = newEvalAgentUserId();
@@ -76,11 +76,9 @@ async function main(): Promise<void> {
     
     const embeddings: Array<{ evalId: string; thoughtId: string; embedding: number[] }> = [];
     
-    // Capture all thoughts
     for (const thoughtData of dataset.thoughts) {
       const stored = await captureThought(userId, thoughtData.raw_text);
       
-      // Get embedding from DB
       const [row] = await db.select({ 
         embedding: sql<string>`embedding::text` 
       })
@@ -98,7 +96,6 @@ async function main(): Promise<void> {
       logEval(`captured ${thoughtData.id} -> ${stored.id} (${embedding.length} dims)`);
     }
     
-    // Compute similarity matrix
     const matrix: { [k: string]: { [k: string]: number } } = {};
     for (const a of embeddings) {
       matrix[a.evalId] = {};
@@ -111,7 +108,6 @@ async function main(): Promise<void> {
       }
     }
     
-    // Get top-3 neighbors for each
     const neighbors: { [k: string]: Array<{ id: string; similarity: number }> } = {};
     for (const id of Object.keys(matrix)) {
       neighbors[id] = Object.entries(matrix[id])
@@ -121,7 +117,6 @@ async function main(): Promise<void> {
         .slice(0, 3);
     }
     
-    // Compute metrics
     const similarities: number[] = [];
     const ids = embeddings.map(e => e.evalId);
     for (let i = 0; i < ids.length; i++) {
@@ -154,4 +149,3 @@ async function main(): Promise<void> {
   logEval(`avg similarity: ${results.metrics.avgSimilarity.toFixed(3)}`);
 }
 
-void runEval(main);

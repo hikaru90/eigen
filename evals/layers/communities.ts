@@ -43,7 +43,7 @@ async function cleanupEvalUser(db: AppDatabase, userId: string): Promise<void> {
   await db.delete(user).where(eq(user.id, userId));
 }
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   logEval('communities layer eval start');
   
   const userId = newEvalAgentUserId();
@@ -152,4 +152,4 @@ async function main(): Promise<void> {
   logEval(`entities: ${results.entityCount}, communities: ${results.totalCommunities}`);
 }
 
-void runEval(main);
+

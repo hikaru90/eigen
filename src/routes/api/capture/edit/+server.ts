@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { editStoredThought } from '$lib/server/capture/service';
+import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 
 export const POST: RequestHandler = async (event) => {
@@ -29,39 +30,52 @@ export const POST: RequestHandler = async (event) => {
 	if (!streamNdjson) {
 		const result = await runWithTrace(crypto.randomUUID(), () => editStoredThought(user.id, thoughtId, editRequest));
 		if (!result.ok) error(404, 'Thought not found');
-
 		return json({ thought: result.thought });
 	}
 
+	// NDJSON streaming path — same pattern as the submit endpoint.
 	const encoder = new TextEncoder();
-	const chunks: Uint8Array[] = [];
-	const line = (payload: unknown) => {
-		chunks.push(encoder.encode(`${JSON.stringify(payload)}\n`));
+	const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+	const writer = writable.getWriter();
+
+	const writeRaw = (payload: unknown) => {
+		void writer.write(encoder.encode(`${JSON.stringify(payload)}\n`));
 	};
-	try {
-		const result = await runWithTrace(crypto.randomUUID(), () =>
-			editStoredThought(user.id, thoughtId, editRequest, {
-				onProgress: (phase) => line({ type: 'progress', phase })
-			})
-		);
-		if (!result.ok) {
-			line({ type: 'error', error: 'Thought not found', details: [] });
+
+	const onProgress = (event: CaptureProgressEvent) => {
+		if (event.parallel) {
+			writeRaw({ type: 'progress_parallel', phases: event.phases });
 		} else {
-			line({ type: 'done', thought: result.thought });
+			writeRaw({ type: 'progress', phase: event.phase });
 		}
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Failed to update thought';
-		console.error('capture edit failed', { userId: user.id, thoughtId, message });
-		line({ type: 'error', error: message, details: [] });
-	}
-	const total = chunks.reduce((n, c) => n + c.length, 0);
-	const ndjsonBytes = new Uint8Array(total);
-	let offset = 0;
-	for (const c of chunks) {
-		ndjsonBytes.set(c, offset);
-		offset += c.length;
-	}
-	return new Response(ndjsonBytes, {
+	};
+
+	const editWork = (async () => {
+		try {
+			const result = await runWithTrace(crypto.randomUUID(), () =>
+				editStoredThought(user.id, thoughtId, editRequest, { onProgress })
+			);
+			if (!result.ok) {
+				writeRaw({ type: 'error', error: 'Thought not found', details: [] });
+			} else {
+				writeRaw({ type: 'done', thought: result.thought });
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'Failed to update thought';
+			console.error('capture edit failed', { userId: user.id, thoughtId, message });
+			writeRaw({ type: 'error', error: message, details: [] });
+		} finally {
+			await writer.close();
+		}
+	})();
+
+	event.request.signal.addEventListener('abort', () => {
+		void writer.abort(new Error('client disconnected'));
+	});
+
+	void editWork;
+
+	return new Response(readable, {
 		headers: { 'content-type': 'application/x-ndjson; charset=utf-8' }
 	});
 };

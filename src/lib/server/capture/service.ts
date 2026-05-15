@@ -48,15 +48,20 @@ function toPgVectorLiteral(values: number[]): string {
 	return `[${values.join(',')}]`;
 }
 
-function emitProgress(
-	onProgress: ((phase: CaptureIngestPhase) => void) | undefined,
+/** A single sequential phase or a parallel group of phases running concurrently. */
+export type CaptureProgressEvent =
+	| { parallel: false; phase: CaptureIngestPhase }
+	| { parallel: true; phases: CaptureIngestPhase[] };
+
+async function emitProgress(
+	onProgress: ((event: CaptureProgressEvent) => Promise<void>) | undefined,
 	phase: CaptureIngestPhase
 ) {
-	onProgress?.(phase);
+	await onProgress?.({ parallel: false, phase });
 }
 
 export type CaptureThoughtOptions = {
-	onProgress?: (phase: CaptureIngestPhase) => void;
+	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
 
 /**
@@ -75,23 +80,23 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	const captureStart = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
-	emitProgress(onProgress, 'accounting');
+	await emitProgress(onProgress, 'accounting');
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
 
-	// Classify category and embed in parallel — both only need the raw text.
-	// This saves one full LLM round-trip vs the previous sequential approach.
-	emitProgress(onProgress, 'ontology');
-	emitProgress(onProgress, 'embedding');
-	const [categoryResult, embedding] = await Promise.all([
-		resolveThoughtCategory({ userId, normalized, rawText: rawInput }),
-		createThoughtEmbedding(userId, normalized)
-	]);
+	// Classify and embed sequentially — both hit the same per-user rate-limited
+	// LLM queue, so running them in parallel just makes one wait behind the other
+	// with no throughput gain. Sequential lets us show the user two distinct steps.
+	await emitProgress(onProgress, 'ontology');
+	const categoryResult = await resolveThoughtCategory({ userId, normalized, rawText: rawInput });
 	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = categoryResult;
 	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
 
+	await emitProgress(onProgress, 'embedding');
+	const embedding = await createThoughtEmbedding(userId, normalized);
+
 	// captureSession + dedup check in parallel — session needs category (just resolved),
 	// dedup needs embedding (just resolved). Both are DB-only, no LLM.
-	emitProgress(onProgress, 'session');
+	await emitProgress(onProgress, 'session');
 	const lexicalText = computeLexicalText(normalized);
 	const vectorLiteral = toPgVectorLiteral(embedding);
 
@@ -145,7 +150,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		});
 	}
 
-	emitProgress(onProgress, 'persist');
+	await emitProgress(onProgress, 'persist');
 	const [stored] = await getDb().transaction(async (tx) => {
 		const [t] = await tx
 			.insert(thought)
@@ -176,7 +181,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	});
 
 	// Fast path: sync the FalkorDB node (lightweight, no LLM calls).
-	emitProgress(onProgress, 'graph');
+	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: stored.id,
 		userId,
@@ -210,7 +215,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 }
 
 export type EditStoredThoughtOptions = {
-	onProgress?: (phase: CaptureIngestPhase) => void;
+	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
 
 export async function editStoredThought(
@@ -222,7 +227,7 @@ export async function editStoredThought(
 	const editStart = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
-	emitProgress(onProgress, 'accounting');
+	await emitProgress(onProgress, 'accounting');
 
 	const [existing] = await getDb()
 		.select()
@@ -237,7 +242,7 @@ export async function editStoredThought(
 
 	const editedRaw = editRequest.trim();
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
-	emitProgress(onProgress, 'ontology');
+	await emitProgress(onProgress, 'ontology');
 	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = await resolveThoughtCategory({
 		userId,
 		normalized,
@@ -245,10 +250,10 @@ export async function editStoredThought(
 	});
 	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
 	const lexicalText = computeLexicalText(normalized);
-	emitProgress(onProgress, 'embedding');
+	await emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
 
-	emitProgress(onProgress, 'persist');
+	await emitProgress(onProgress, 'persist');
 	const [updated] = await getDb()
 		.update(thought)
 		.set({
@@ -279,7 +284,7 @@ export async function editStoredThought(
 		});
 
 	// Fast path: sync FalkorDB node with new text.
-	emitProgress(onProgress, 'graph');
+	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: updated!.id,
 		userId,
@@ -307,7 +312,7 @@ export async function editStoredThought(
 }
 
 export type RelinkThoughtGraphOptions = {
-	onProgress?: (phase: CaptureIngestPhase) => void;
+	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
 
 /**
@@ -322,7 +327,7 @@ export async function relinkThoughtGraph(
 	const started = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
-	emitProgress(onProgress, 'accounting');
+	await emitProgress(onProgress, 'accounting');
 
 	const [existing] = await getDb()
 		.select()
@@ -336,7 +341,7 @@ export async function relinkThoughtGraph(
 	}
 
 	// Sync the node first (fast, no LLM).
-	emitProgress(onProgress, 'graph');
+	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: existing.id,
 		userId,

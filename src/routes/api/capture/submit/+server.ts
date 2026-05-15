@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { captureThought } from '$lib/server/capture/service';
+import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 
 function collectErrorMessages(input: unknown): string[] {
@@ -61,39 +62,63 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	// Run capture in the request handler (not inside ReadableStream.start). Otherwise SvelteKit
-	// resolves the POST before the stream body finishes, hooks.server releases the reserved DB
-	// connection, and ingest can hang mid-pipeline waiting on postgres.js.
+	// NDJSON streaming path.
+	//
+	// We run captureThought() directly in the request handler (not inside
+	// ReadableStream.start) so SvelteKit / postgres.js never releases the DB
+	// connection mid-pipeline. Progress lines are pushed to a TransformStream
+	// whose readable side is handed straight to the Response — so each line
+	// flushes to the client as soon as it is written, giving the user real-time
+	// phase feedback instead of a single bulk response at the end.
 	const encoder = new TextEncoder();
-	const chunks: Uint8Array[] = [];
-	const line = (payload: unknown) => {
-		chunks.push(encoder.encode(`${JSON.stringify(payload)}\n`));
+	const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+	const writer = writable.getWriter();
+
+	const writeRaw = (payload: unknown) => {
+		void writer.write(encoder.encode(`${JSON.stringify(payload)}\n`));
 	};
-	try {
-		const thought = await runWithTrace(crypto.randomUUID(), () =>
-			captureThought(user.id, raw, {
-				onProgress: (phase) => line({ type: 'progress', phase })
-			})
-		);
-		line({ type: 'done', thought });
-	} catch (err) {
-		const details = collectErrorMessages(err);
-		const message = details[0] ?? 'Failed to capture thought';
-		console.error('capture submit failed', {
-			userId: user.id,
-			message,
-			details
-		});
-		line({ type: 'error', error: message, details });
-	}
-	const total = chunks.reduce((n, c) => n + c.length, 0);
-	const ndjsonBytes = new Uint8Array(total);
-	let offset = 0;
-	for (const c of chunks) {
-		ndjsonBytes.set(c, offset);
-		offset += c.length;
-	}
-	return new Response(ndjsonBytes, {
+
+	const onProgress = (event: CaptureProgressEvent) => {
+		if (event.parallel) {
+			writeRaw({ type: 'progress_parallel', phases: event.phases });
+		} else {
+			writeRaw({ type: 'progress', phase: event.phase });
+		}
+	};
+
+	// Run capture work as a separate async task so we can return the Response
+	// immediately (giving the browser its readable stream) while the work
+	// continues writing progress lines into the TransformStream.
+	const captureWork = (async () => {
+		try {
+			const thought = await runWithTrace(crypto.randomUUID(), () =>
+				captureThought(user.id, raw, { onProgress })
+			);
+			writeRaw({ type: 'done', thought });
+		} catch (err) {
+			const details = collectErrorMessages(err);
+			const message = details[0] ?? 'Failed to capture thought';
+			console.error('capture submit failed', {
+				userId: user.id,
+				message,
+				details
+			});
+			writeRaw({ type: 'error', error: message, details });
+		} finally {
+			await writer.close();
+		}
+	})();
+
+	// Keep the request alive until the capture work finishes so the platform
+	// (Node / Cloudflare) does not cut the DB connection or GC the response.
+	event.request.signal.addEventListener('abort', () => {
+		// Client disconnected early — close the writer to free resources.
+		void writer.abort(new Error('client disconnected'));
+	});
+
+	void captureWork;
+
+	return new Response(readable, {
 		headers: { 'content-type': 'application/x-ndjson; charset=utf-8' }
 	});
 };

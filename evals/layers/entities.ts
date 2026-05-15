@@ -54,7 +54,7 @@ function normalize(str: string): string {
   return str.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-async function main(): Promise<void> {
+export async function run(): Promise<void> {
   logEval('entities layer eval start');
   
   const userId = newEvalAgentUserId();
@@ -208,4 +208,4 @@ async function main(): Promise<void> {
   logEval(`P=${results.summary.precision.toFixed(3)}, R=${results.summary.recall.toFixed(3)}, F1=${results.summary.f1.toFixed(3)}`);
 }
 
-void runEval(main);
+
