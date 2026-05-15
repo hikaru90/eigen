@@ -15,9 +15,9 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 }));
 
 const ONTOLOGY_KINDS_FOR_TESTS = [
-	{ key: 'perception', name: 'Perception', definition: 'Sensory intake' },
+	{ key: 'person', name: 'Person', definition: 'A human being' },
 	{ key: 'memory', name: 'Memory', definition: 'Past experience' },
-	{ key: 'emotion', name: 'Emotion', definition: 'Feeling' }
+	{ key: 'place', name: 'Place', definition: 'A location' }
 ];
 
 const ALLOWED_TEST_KEYS = new Set(ONTOLOGY_KINDS_FOR_TESTS.map((k) => k.key));
@@ -25,10 +25,10 @@ const ALLOWED_TEST_KEYS = new Set(ONTOLOGY_KINDS_FOR_TESTS.map((k) => k.key));
 describe('parseEntityMentions', () => {
 	it('parses and filters types not in the ontology key set', () => {
 		const out = parseEntityMentions(
-			'[{"surface":"  Sam  ","entityType":"perception","confidence":0.9},{"surface":"X","entityType":"person","confidence":1}]',
+			'[{"surface":"  Sam  ","entityType":"person","confidence":0.9},{"surface":"X","entityType":"unknown_type","confidence":1}]',
 			ALLOWED_TEST_KEYS
 		);
-		expect(out).toEqual([{ surface: 'Sam', entityType: 'perception', confidence: 0.9 }]);
+		expect(out).toEqual([{ surface: 'Sam', entityType: 'person', confidence: 0.9 }]);
 	});
 
 	it('drops entries that are not objects or are missing surface', () => {
@@ -41,7 +41,7 @@ describe('parseEntityMentions', () => {
 
 	it('drops entries where surface or entityType are not strings', () => {
 		const out = parseEntityMentions(
-			'[{"surface":42,"entityType":"perception","confidence":1},{"surface":"Alex","entityType":42,"confidence":1}]',
+			'[{"surface":42,"entityType":"person","confidence":1},{"surface":"Alex","entityType":42,"confidence":1}]',
 			ALLOWED_TEST_KEYS
 		);
 		expect(out).toEqual([]);
@@ -49,7 +49,7 @@ describe('parseEntityMentions', () => {
 
 	it('clamps numeric confidence outside [0,1] and treats non-numeric as 0', () => {
 		const out = parseEntityMentions(
-			'[{"surface":"A","entityType":"emotion","confidence":5},{"surface":"B","entityType":"emotion","confidence":-3},{"surface":"C","entityType":"emotion","confidence":"x"},{"surface":"D","entityType":"emotion","confidence":null}]',
+			'[{"surface":"A","entityType":"place","confidence":5},{"surface":"B","entityType":"place","confidence":-3},{"surface":"C","entityType":"place","confidence":"x"},{"surface":"D","entityType":"place","confidence":null}]',
 			ALLOWED_TEST_KEYS
 		);
 		expect(out.map((m) => m.confidence)).toEqual([1, 0, 0, 0]);
@@ -105,14 +105,14 @@ describe('extractEntityMentions', () => {
 
 	it('returns parsed mentions from the chat completion content', async () => {
 		llmChatCompletionMock.mockResolvedValue(
-			chatResponse('[{"surface":"Sam","entityType":"perception","confidence":0.9}]')
+			chatResponse('[{"surface":"Sam","entityType":"person","confidence":0.9}]')
 		);
 		const out = await extractEntityMentions({
 			userId: 'u1',
 			normalizedText: 'Sam was here',
 			ontologyEntityKinds: ONTOLOGY_KINDS_FOR_TESTS
 		});
-		expect(out).toEqual([{ surface: 'Sam', entityType: 'perception', confidence: 0.9 }]);
+		expect(out).toEqual([{ surface: 'Sam', entityType: 'person', confidence: 0.9 }]);
 		expect(llmChatCompletionMock).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'u1', temperature: 0 })
 		);
@@ -188,7 +188,7 @@ describe('extractEntityTriples', () => {
 		llmChatCompletionMock.mockResolvedValue(
 			chatResponse('[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.5}]')
 		);
-		const mentions = [{ surface: 'Sam', entityType: 'perception', confidence: 0.9 }];
+		const mentions = [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }];
 		const out = await extractEntityTriples({
 			userId: 'u1',
 			normalizedText: 'Sam in Berlin',
@@ -202,7 +202,7 @@ describe('extractEntityTriples', () => {
 			chatResponse('[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.5}]')
 		);
 		const mentions = [
-			{ surface: 'Sam', entityType: 'perception', confidence: 0.9 },
+			{ surface: 'Sam', entityType: 'person', confidence: 0.9 },
 			{ surface: 'Berlin', entityType: 'memory', confidence: 0.8 }
 		];
 		const out = await extractEntityTriples({

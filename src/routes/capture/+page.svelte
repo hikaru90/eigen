@@ -131,13 +131,11 @@
 	}
 </script>
 
-<div class="mx-auto flex max-w-xl flex-col px-5 pb-8 pt-10">
+<div class="mx-auto flex max-w-xl flex-col px-5 pb-8">
 	<header class="text-center">
-		<p class="text-muted-foreground mt-2 text-xs font-normal">Capture. Structure. Remember.</p>
-		<p class="text-muted-foreground mt-2 text-[11px]">{data.user.email}</p>
 	</header>
 
-	<section class="mt-8 flex-1 space-y-6">
+	<section class="flex-1 space-y-6">
 		<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
 			<Card.Content class="p-0 w-full">
 				<Label for="thought" class="sr-only">Thought</Label>

@@ -42,7 +42,7 @@ describe('POST /api/capture/relink', () => {
 	it('returns thought payload', async () => {
 		relinkThoughtGraphMock.mockResolvedValue({
 			ok: true,
-			thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'perception' }
+			thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
 		});
 		const res = await POST({
 			locals: { user: { id: 'u1' } },
@@ -57,7 +57,7 @@ describe('POST /api/capture/relink', () => {
 				opts?.onProgress?.('graph');
 				return {
 					ok: true as const,
-					thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'perception' }
+					thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
 				};
 			}
 		);

@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const RETRIEVAL_DATASET_DIR = resolve(__dirname, '../datasets/retrieval');
 export const ANSWER_DATASET_DIR = resolve(__dirname, '../datasets/answer');
+export const AGENT_DATASET_DIR = resolve(__dirname, '../datasets/agent');
 export const RETRIEVAL_EMBEDDING_CACHE_PATH = resolve(
 	RETRIEVAL_DATASET_DIR,
 	'embeddings.cache.json'
@@ -87,6 +88,68 @@ export function loadAnswerCases(): AnswerCasesFile {
 	);
 	return {
 		cases: file.cases.map((c) => ({
+			id: c.id,
+			question: c.question,
+			expectedFacts: c.expected_facts
+		}))
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Agent ingest eval dataset types
+// ---------------------------------------------------------------------------
+
+export type AgentThought = {
+	id: string;
+	rawText: string;
+	category: string;
+};
+
+export type AgentThoughtsFile = {
+	thoughts: AgentThought[];
+};
+
+export type AgentProbeCategory = 'direct_recall' | 'entity_relation';
+
+export type AgentRetrievalProbe = {
+	id: string;
+	category: AgentProbeCategory;
+	text: string;
+	relevant: Array<{ id: string; grade: 0 | 1 | 2 | 3 }>;
+};
+
+export type AgentQaProbe = {
+	id: string;
+	question: string;
+	expectedFacts: string[];
+};
+
+export type AgentProbesFile = {
+	retrieval: AgentRetrievalProbe[];
+	qa: AgentQaProbe[];
+};
+
+export function loadAgentThoughts(): AgentThoughtsFile {
+	return loadYaml<AgentThoughtsFile>(resolve(AGENT_DATASET_DIR, 'thoughts-10.yaml'));
+}
+
+export function loadAgentProbes(): AgentProbesFile {
+	const raw = loadYaml<{
+		retrieval: Array<{
+			id: string;
+			category: AgentProbeCategory;
+			text: string;
+			relevant: Array<{ id: string; grade: 0 | 1 | 2 | 3 }>;
+		}>;
+		qa: Array<{
+			id: string;
+			question: string;
+			expected_facts: string[];
+		}>;
+	}>(resolve(AGENT_DATASET_DIR, 'probes.yaml'));
+	return {
+		retrieval: raw.retrieval,
+		qa: raw.qa.map((c) => ({
 			id: c.id,
 			question: c.question,
 			expectedFacts: c.expected_facts

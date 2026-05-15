@@ -27,6 +27,8 @@ const tsvector = customType<{ data: string }>({
 
 /**
  * Per-user entity kind definitions (ontology catalog). No TS closed union — keys are data.
+ * `kind_type` discriminates between thought categories ('thought_category') and real-world
+ * entity types ('entity_type') so each can be loaded and validated independently.
  * Committed thought `category` stores the same string as `ontology_entity_kind.key` for the linked row.
  */
 export const ontologyEntityKind = pgTable(
@@ -40,6 +42,11 @@ export const ontologyEntityKind = pgTable(
 		name: text('name').notNull(),
 		definition: text('definition').notNull(),
 		active: boolean('active').notNull().default(true),
+		/**
+		 * 'thought_category' — used to classify thoughts (task, idea, observation, …)
+		 * 'entity_type'      — used to type real-world entity graph nodes (person, place, …)
+		 */
+		kindType: text('kind_type').notNull().default('thought_category'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -48,7 +55,8 @@ export const ontologyEntityKind = pgTable(
 	},
 	(t) => [
 		unique('ontology_entity_kind_user_key_uidx').on(t.userId, t.key),
-		index('ontology_entity_kind_user_idx').on(t.userId)
+		index('ontology_entity_kind_user_idx').on(t.userId),
+		index('ontology_entity_kind_kind_type_idx').on(t.userId, t.kindType)
 	]
 );
 

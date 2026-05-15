@@ -15,14 +15,44 @@
 export const graphOntologyLegendIntro =
 	'Graph nodes use the same ontology kind keys for typing and colors. Edge kind is the connector shape; chips below are semantic types.';
 
+/**
+ * Brand palette — canonical color set used for all graph node fills.
+ * Ordering alternates warm ↔ cool so consecutive legend chips contrast.
+ */
+const BRAND_PALETTE = [
+	'#4100F5', // Klein Blue
+	'#FF4632', // Tangerine
+	'#AFF005', // Supernal Green
+	'#F037A5', // Fushia
+	'#0062E6', // Electric Blue
+	'#FF5511', // Bright Orange
+	'#9BF0E1', // Aquamarine
+	'#FFC107', // Golden Yellow
+	'#A7B6FF', // Soft Lavender/Blue
+	'#007E33', // Deep Forest Green
+	'#FE86B1', // Vibrant Pink
+	'#CDF564', // Citric
+	'#1A1A4E', // Dark Indigo
+	'#E8FFA7', // Supernal Light Green
+	'#FFF4E0', // Cream/Off-White
+	'#A3D8F4', // Sky Blue
+	'#B8E9D0', // Pale Mint
+	'#808064', // Dark Warm Gray
+	'#C3C3B6', // Warm Gray
+	'#F6F0E6', // Off-White
+	'#0D1B1E', // Deep Charcoal
+	'#191414', // Black (off-black)
+	'#000000', // Black
+	'#FFFFFF', // White
+] as const;
+
 /** Deterministic fill for a user ontology entity kind key (no TS closed union). */
 export function ontologyFillForKey(key: string): string {
 	let h = 0;
 	for (let i = 0; i < key.length; i++) {
 		h = (h * 31 + key.charCodeAt(i)) >>> 0;
 	}
-	const hue = h % 360;
-	return `hsl(${hue} 52% 42%)`;
+	return BRAND_PALETTE[h % BRAND_PALETTE.length];
 }
 
 /** `kind` is graph snapshot kind: `Thought` | `Entity`. Both use ontology entity kind keys for `subtype`. */

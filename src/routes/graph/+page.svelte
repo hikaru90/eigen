@@ -716,15 +716,15 @@
 					if (edgeKind !== 'all' && e.kind !== edgeKind) return false;
 					return visibleIds.has(e.sourceId) && visibleIds.has(e.targetId);
 				};
-				const links: SimLink[] = data.snapshot.edges
-					.filter(edgeFilter)
-					.map((e) => ({
-						id: e.id,
-						source: e.sourceId,
-						target: e.targetId,
-						relationType: e.relationType,
-						kind: e.kind
-					}));
+			const links: SimLink[] = data.snapshot.edges
+				.filter(edgeFilter)
+				.map((e) => ({
+					id: e.id,
+					source: e.sourceId,
+					target: e.targetId,
+					relationType: e.relationType,
+					kind: e.kind
+				}));
 
 				linkSelection = gLinks
 					.selectAll<SVGGElement, SimLink>('g')
@@ -791,28 +791,35 @@
 					.on('click.details', onNodeClick);
 
 				if (!simulation) {
-					simulation = d3
-						.forceSimulation<SimNode>(nodes)
-						.force(
-							'link',
-							d3
-								.forceLink<SimNode, SimLink>(links)
-								.id((d) => d.id)
-								.distance(82)
-						)
-						.force('charge', d3.forceManyBody<SimNode>().strength(-140))
-						.force('center', d3.forceCenter(dims.w / 2, dims.h / 2))
-						.force('collision', d3.forceCollide<SimNode>().radius(22))
-						.on('tick', ticked);
+				simulation = d3
+					.forceSimulation<SimNode>(nodes)
+					.force(
+						'link',
+					d3
+						.forceLink<SimNode, SimLink>(links)
+						.id((d) => d.id)
+						.distance(40)
+					)
+					.force('charge', d3.forceManyBody<SimNode>().strength(-500))
+					.force('x', d3.forceX<SimNode>(dims.w / 2).strength(0.08))
+					.force('y', d3.forceY<SimNode>(dims.h / 2).strength(0.08))
+					.force('collision', d3.forceCollide<SimNode>().radius(40))
+					.on('tick', ticked);
+				// Run headless to present an already-relaxed layout on first paint
+				simulation.stop();
+				for (let i = 0; i < 80; i++) simulation.tick();
+				ticked();
+				simulation.restart();
 				} else {
 					simulation.nodes(nodes);
 					const linkForce = simulation.force('link') as ReturnType<typeof d3.forceLink<SimNode, SimLink>>;
 					linkForce.links(links);
-					simulation.force('center', d3.forceCenter(dims.w / 2, dims.h / 2));
-					simulation.force(
-						'collision',
-						d3.forceCollide<SimNode>().radius(22)
-					);
+					simulation.force('x', d3.forceX<SimNode>(dims.w / 2).strength(0.08));
+					simulation.force('y', d3.forceY<SimNode>(dims.h / 2).strength(0.08));
+				simulation.force(
+					'collision',
+					d3.forceCollide<SimNode>().radius(40)
+				);
 					simulation.alpha(0.35).restart();
 				}
 
@@ -823,7 +830,8 @@
 			function resizeGraph() {
 				const dims = resizeSvg();
 				if (!dims || !simulation) return;
-				simulation.force('center', d3.forceCenter(dims.w / 2, dims.h / 2));
+				simulation.force('x', d3.forceX<SimNode>(dims.w / 2).strength(0.08));
+				simulation.force('y', d3.forceY<SimNode>(dims.h / 2).strength(0.08));
 				simulation.alpha(0.08).restart();
 			}
 

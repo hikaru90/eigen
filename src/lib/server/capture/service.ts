@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import { captureSession, thought, thoughtRelation } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
@@ -99,12 +99,12 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
 
 	emitProgress(onProgress, 'ontology');
-	const { key: category, ontologyEntityKindId } = await resolveThoughtCategory({
+	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = await resolveThoughtCategory({
 		userId,
 		normalized,
 		rawText: rawInput
 	});
-	const metadata = { ...baseMeta, categorySource: 'llm' };
+	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
 
 	emitProgress(onProgress, 'session');
 	const [sessionRow] = await getDb()
@@ -125,6 +125,36 @@ export async function captureThought(userId: string, rawInput: string, options?:
 
 	const lexicalText = computeLexicalText(normalized);
 
+	// Pre-persist duplicate detection: check if the nearest existing thought is near-identical.
+	// If cosine distance < 0.06, tag this capture as a near-duplicate in metadata (non-blocking).
+	let nearDuplicateMeta: { id: string; distance: number; preview: string } | undefined;
+	try {
+		const vectorLiteral = toPgVectorLiteral(embedding);
+		const distanceExpr = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
+		const [nearest] = await getDb()
+			.select({ id: thought.id, normalizedText: thought.normalizedText, distance: distanceExpr })
+			.from(thought)
+			.where(and(eq(thought.userId, userId), isNotNull(thought.embedding)))
+			.orderBy(distanceExpr)
+			.limit(1);
+		if (nearest && typeof nearest.distance === 'number' && nearest.distance < 0.06) {
+			nearDuplicateMeta = {
+				id: nearest.id,
+				distance: nearest.distance,
+				preview: nearest.normalizedText.slice(0, 120)
+			};
+			console.info('[capture.dedup] near-duplicate detected', {
+				existingId: nearest.id,
+				distance: nearest.distance
+			});
+		}
+	} catch (err) {
+		// Non-fatal: dedup check failure must never block capture
+		console.warn('[capture.dedup] dedup check failed, proceeding', {
+			message: err instanceof Error ? err.message : String(err)
+		});
+	}
+
 	emitProgress(onProgress, 'persist');
 	const [stored] = await getDb().transaction(async (tx) => {
 		const [t] = await tx
@@ -138,7 +168,8 @@ export async function captureThought(userId: string, rawInput: string, options?:
 				ontologyEntityKindId,
 				metadata: {
 					...metadata,
-					captureSessionId: sessionRow.id
+					captureSessionId: sessionRow.id,
+					...(nearDuplicateMeta ? { nearDuplicate: nearDuplicateMeta } : {})
 				},
 				embedding: sql`${toPgVectorLiteral(embedding)}::vector`
 			})
@@ -175,7 +206,8 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	await syncEntityGraphFromThought({
 		userId,
 		thoughtId: stored.id,
-		normalizedText: stored.normalizedText
+		normalizedText: stored.normalizedText,
+		thoughtEmbedding: embedding
 	});
 
 	const [countRow] = await getDb()
@@ -224,12 +256,12 @@ export async function editStoredThought(
 	const editedRaw = editRequest.trim();
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
 	emitProgress(onProgress, 'ontology');
-	const { key: category, ontologyEntityKindId } = await resolveThoughtCategory({
+	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = await resolveThoughtCategory({
 		userId,
 		normalized,
 		rawText: editedRaw
 	});
-	const metadata = { ...baseMeta, categorySource: 'llm' };
+	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
 	const lexicalText = computeLexicalText(normalized);
 	emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
@@ -283,7 +315,8 @@ export async function editStoredThought(
 	await syncEntityGraphFromThought({
 		userId,
 		thoughtId: updated!.id,
-		normalizedText: updated!.normalizedText
+		normalizedText: updated!.normalizedText,
+		thoughtEmbedding: embedding
 	});
 
 	await logCaptureActivity(userId, 'capture_edit', Date.now() - editStart);

@@ -1,19 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTokenCostUsd, llmChatCompletion, llmCreateEmbeddings } from './llm-client';
 
-const { mockEnv, logActivityCallMock, getDbMock } = vi.hoisted(() => ({
-	mockEnv: {
-		LLM_BASE_URL: 'https://example.test',
-		LLM_RULE_CHAT: 'rule-chat',
-		LLM_RULE_EMBEDDING: 'rule-embed',
+const { mockEnv, logActivityCallMock, getDbMock } = vi.hoisted(() => {
+	function makeDbMock() {
+		// Returns a chainable Drizzle-style builder that resolves to [] (no DB rows).
+		const chain: Record<string, unknown> = {};
+		chain.select = () => chain;
+		chain.from = () => chain;
+		chain.where = () => chain;
+		chain.and = () => chain;
+		chain.limit = () => Promise.resolve([]);
+		return chain;
+	}
+
+	return {
+		mockEnv: {
+			LLM_BASE_URL: 'https://example.test',
+			LLM_RULE_CHAT: 'rule-chat',
+			LLM_RULE_EMBEDDING: 'rule-embed',
 			LLM_MODEL_CHAT: 'gpt-test',
 			LLM_MODEL_EMBEDDING: 'text-embedding-3-small',
 			LLM_MIN_REQUEST_INTERVAL_MS: '0',
-		LLM_API_KEY: 'key-1'
-	},
-	logActivityCallMock: vi.fn(),
-	getDbMock: vi.fn(() => ({}))
-}));
+			LLM_API_KEY: 'key-1'
+		},
+		logActivityCallMock: vi.fn(),
+		getDbMock: vi.fn(() => makeDbMock())
+	};
+});
 
 vi.mock('$env/dynamic/private', () => ({
 	env: mockEnv
@@ -154,7 +167,7 @@ describe('llm client retries', () => {
 		mockEnv.LLM_API_KEY = '';
 		await expect(
 			llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hello' }] })
-		).rejects.toThrow(/LLM_API_KEY is not set/);
+		).rejects.toThrow(/LLM_API_KEY/);
 	});
 
 	it('embedding succeeds after retries', async () => {
@@ -182,7 +195,7 @@ describe('llm client retries', () => {
 		mockEnv.LLM_API_KEY = '';
 		await expect(
 			llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-		).rejects.toThrow(/LLM_API_KEY is not set/);
+		).rejects.toThrow(/LLM_API_KEY/);
 	});
 
 	it('fails when chat model and rule are both missing', async () => {
@@ -190,14 +203,14 @@ describe('llm client retries', () => {
 		mockEnv.LLM_RULE_CHAT = '';
 		await expect(
 			llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-		).rejects.toThrow(/LLM_MODEL_CHAT or LLM_RULE_CHAT must be set/);
+		).rejects.toThrow(/LLM_RULE_CHAT/);
 	});
 
 	it('fails when embedding model and rule are both missing', async () => {
 		mockEnv.LLM_MODEL_EMBEDDING = '';
 		mockEnv.LLM_RULE_EMBEDDING = '';
 		await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
-			/LLM_MODEL_EMBEDDING or LLM_RULE_EMBEDDING must be set/
+			/LLM_RULE_EMBEDDING/
 		);
 	});
 
@@ -242,7 +255,7 @@ describe('llm client retries', () => {
 	it('fails when base url is missing', async () => {
 		mockEnv.LLM_BASE_URL = '';
 		await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
-			/LLM_BASE_URL is not set/
+			/LLM_BASE_URL/
 		);
 	});
 

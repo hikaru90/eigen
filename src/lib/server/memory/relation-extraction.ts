@@ -1,4 +1,7 @@
+import { desc, eq, ne } from 'drizzle-orm';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
+import { getDb } from '$lib/server/db';
+import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 
 const ALLOWED_RELATION_TYPES = new Set([
@@ -6,12 +9,23 @@ const ALLOWED_RELATION_TYPES = new Set([
 	'depends_on',
 	'refines',
 	'contradicts',
-	'related_to'
+	'related_to',
+	'follows_from',
+	'continuation_of',
+	'caused_by'
 ]);
 
 export type ExtractedRelation = {
 	targetId: string;
-	relationType: 'mentions' | 'depends_on' | 'refines' | 'contradicts' | 'related_to';
+	relationType:
+		| 'mentions'
+		| 'depends_on'
+		| 'refines'
+		| 'contradicts'
+		| 'related_to'
+		| 'follows_from'
+		| 'continuation_of'
+		| 'caused_by';
 };
 
 function extractChatContent(response: unknown): string {
@@ -42,7 +56,10 @@ function parseRelations(content: string): ExtractedRelation[] {
 	return parsed
 		.map((entry) => {
 			if (!entry || typeof entry !== 'object') return null;
-			const targetId = typeof (entry as { targetId?: unknown }).targetId === 'string' ? (entry as { targetId: string }).targetId.trim() : '';
+			const targetId =
+				typeof (entry as { targetId?: unknown }).targetId === 'string'
+					? (entry as { targetId: string }).targetId.trim()
+					: '';
 			const relationType =
 				typeof (entry as { relationType?: unknown }).relationType === 'string'
 					? (entry as { relationType: string }).relationType
@@ -56,28 +73,73 @@ function parseRelations(content: string): ExtractedRelation[] {
 		.filter((value): value is ExtractedRelation => value !== null);
 }
 
+/** Load the N most recently captured thoughts for this user (temporal session context). */
+async function loadTemporalNeighbors(
+	userId: string,
+	thoughtId: string,
+	limit: number
+): Promise<Array<{ id: string; normalizedText: string }>> {
+	return getDb()
+		.select({ id: thought.id, normalizedText: thought.normalizedText })
+		.from(thought)
+		.where(eq(thought.userId, userId))
+		.orderBy(desc(thought.createdAt), desc(thought.id))
+		.limit(limit + 1) // +1 to account for the current thought which we filter out
+		.then((rows) => rows.filter((r) => r.id !== thoughtId).slice(0, limit));
+}
+
 export async function extractRelations(input: {
 	userId: string;
 	thoughtId: string;
 	normalizedText: string;
 }): Promise<ExtractedRelation[]> {
-	const neighbors = await searchThoughts({
+	// Semantic neighbors (conceptually related)
+	const semanticNeighbors = await searchThoughts({
 		userId: input.userId,
 		query: input.normalizedText,
 		topK: 8
 	});
-	const candidateNeighbors = neighbors.filter((neighbor) => neighbor.id !== input.thoughtId);
-	if (candidateNeighbors.length === 0) return [];
+
+	// Temporal neighbors (recently captured — session continuity)
+	const temporalNeighbors = await loadTemporalNeighbors(input.userId, input.thoughtId, 5);
+
+	// Merge and deduplicate, excluding the current thought
+	const seen = new Set<string>([input.thoughtId]);
+	const candidates: Array<{ id: string; normalizedText: string }> = [];
+
+	// Semantic neighbors first (higher priority), then temporal
+	for (const n of semanticNeighbors) {
+		if (!seen.has(n.id)) {
+			seen.add(n.id);
+			candidates.push({ id: n.id, normalizedText: n.normalizedText });
+		}
+	}
+	for (const n of temporalNeighbors) {
+		if (!seen.has(n.id)) {
+			seen.add(n.id);
+			candidates.push({ id: n.id, normalizedText: n.normalizedText });
+		}
+	}
+
+	if (candidates.length === 0) return [];
 
 	const prompt = [
 		'Return ONLY JSON.',
 		'Given a source thought and candidate thought ids, return a JSON array of relations from source to candidates.',
-		'Allowed relation types: mentions, depends_on, refines, contradicts, related_to.',
+		'Allowed relation types:',
+		'  mentions         — source explicitly references candidate',
+		'  depends_on       — source requires candidate to be true/done first',
+		'  refines          — source sharpens or elaborates candidate',
+		'  contradicts      — source conflicts with candidate',
+		'  related_to       — general topical connection',
+		'  follows_from     — source is a natural next step after candidate (temporal/sequential)',
+		'  continuation_of  — source directly continues candidate (same thread)',
+		'  caused_by        — source was caused by candidate',
 		'Use this schema exactly: [{"targetId":"<candidate-id>","relationType":"related_to"}].',
 		'Return an empty array if no relation is justified.',
 		`Source thought (${input.thoughtId}): ${input.normalizedText}`,
 		'Candidates:',
-		...candidateNeighbors.map((neighbor) => `${neighbor.id}: ${neighbor.normalizedText}`)
+		...candidates.map((c) => `${c.id}: ${c.normalizedText}`)
 	].join('\n');
 
 	const messages: ChatMessage[] = [

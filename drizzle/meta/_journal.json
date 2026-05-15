@@ -71,6 +71,13 @@
       "when": 1747422000000,
       "tag": "0009_llm_provider_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1747508400000,
+      "tag": "0010_practical_ontology",
+      "breakpoints": true
     }
   ]
 }

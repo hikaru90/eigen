@@ -1,0 +1,44 @@
+thoughts:
+  # Cluster A: project context (3 thoughts) — tests intra-cluster recall
+  - id: a_001
+    rawText: "Building a memory eval framework for the eigen system using TypeScript and vitest"
+    category: task
+
+  - id: a_002
+    rawText: "The agent eval needs to cover three phases: ingest quality, retrieval precision, and answer fidelity"
+    category: thought
+
+  - id: a_003
+    rawText: "Decided to use fresh isolated eval users per run so tests reflect real agent cold-start behavior"
+    category: thought
+
+  # Cluster B: personal facts (3 thoughts) — tests entity extraction quality
+  - id: a_004
+    rawText: "Alex keeps a morning routine: 30 minutes of reading before any screens"
+    category: thought
+
+  - id: a_005
+    rawText: "Favorite book right now is Thinking Fast and Slow by Daniel Kahneman"
+    category: thought
+
+  - id: a_006
+    rawText: "Alex and the team met in Berlin in March to review the memory system architecture"
+    category: thought
+
+  # Bridge thoughts (2 thoughts) — cross-cluster, tests graph traversal
+  - id: a_007
+    rawText: "Alex is the primary user of the eigen memory system and uses it to track project decisions"
+    category: thought
+
+  - id: a_008
+    rawText: "The Berlin architecture review led to the decision to add graph-based retrieval to eigen"
+    category: thought
+
+  # Cluster C: goals / intentions (2 thoughts) — tests category classification
+  - id: a_009
+    rawText: "Goal: achieve Recall@3 of at least 0.8 on the agent memory eval before shipping"
+    category: task
+
+  - id: a_010
+    rawText: "Reminder: run eval:agent after every significant change to the capture pipeline"
+    category: task

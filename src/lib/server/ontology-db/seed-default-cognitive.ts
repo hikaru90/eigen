@@ -1,88 +1,151 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { AppDatabase } from '$lib/server/db/context';
 import { ontologyEntityKind, ontologyRelationKind } from '$lib/server/db/schema';
 
-/** Default cognitive ontology rows (data only; keys are plain strings). */
-const DEFAULT_ENTITY_KINDS: { key: string; name: string; definition: string }[] = [
+/** Default practical thought category kinds. These classify *what kind of mental content* a thought is. */
+const DEFAULT_THOUGHT_CATEGORY_KINDS: { key: string; name: string; definition: string }[] = [
 	{
-		key: 'perception',
-		name: 'Perception',
-		definition: 'Intake of sensory data from the world'
+		key: 'task',
+		name: 'Task',
+		definition: 'Something to do, an action item, or work in progress'
 	},
 	{
-		key: 'emotion',
-		name: 'Emotion',
-		definition: 'A felt bodily response to a situation'
+		key: 'idea',
+		name: 'Idea',
+		definition: 'A creative, generative, or speculative thought'
 	},
 	{
-		key: 'belief',
-		name: 'Belief',
-		definition: 'A proposition held to be true'
+		key: 'observation',
+		name: 'Observation',
+		definition: 'Something noticed or perceived in the world'
+	},
+	{
+		key: 'decision',
+		name: 'Decision',
+		definition: 'A choice made or actively being weighed'
+	},
+	{
+		key: 'goal',
+		name: 'Goal',
+		definition: 'A desired outcome, aspiration, or longer-term intention'
+	},
+	{
+		key: 'feeling',
+		name: 'Feeling',
+		definition: 'An emotional state or affective reaction'
+	},
+	{
+		key: 'question',
+		name: 'Question',
+		definition: 'Something to understand, research, or resolve'
+	},
+	{
+		key: 'reference',
+		name: 'Reference',
+		definition: 'A fact, link, resource, or piece of information to store'
 	},
 	{
 		key: 'memory',
 		name: 'Memory',
-		definition: 'A stored record of past experience'
+		definition: 'A record of past experience'
 	},
 	{
-		key: 'desire',
-		name: 'Desire',
-		definition: 'A motivational pull toward a wanted state'
-	},
-	{
-		key: 'intention',
-		name: 'Intention',
-		definition: 'A commitment or plan to perform an action'
-	},
-	{
-		key: 'attention',
-		name: 'Attention',
-		definition: 'The selective focusing of mental resources'
-	},
-	{
-		key: 'imagination',
-		name: 'Imagination',
-		definition: 'The mental simulation of non-present scenarios'
-	},
-	{
-		key: 'judgment',
-		name: 'Judgment',
-		definition: 'An evaluative stance (good/bad, likely/unlikely)'
-	},
-	{
-		key: 'worry',
-		name: 'Worry',
-		definition: 'Anticipatory thought about a potential threat'
+		key: 'reflection',
+		name: 'Reflection',
+		definition: "Introspection or meta-thinking about one's own patterns"
 	}
 ];
 
-/** Baseline cognitive entity kind keys (same rows as {@link seedDefaultCognitiveOntology}); never auto-pruned. */
-export const DEFAULT_COGNITIVE_ENTITY_KIND_KEYS: readonly string[] = DEFAULT_ENTITY_KINDS.map((e) => e.key);
-
-const DEFAULT_RELATION_KINDS: { key: string; meaning: string; fromKey: string; toKey: string }[] = [
-	{ key: 'triggers', meaning: 'What we sense provokes a feeling', fromKey: 'perception', toKey: 'emotion' },
-	{ key: 'shapes', meaning: 'Feelings color what we take to be true', fromKey: 'emotion', toKey: 'belief' },
-	{ key: 'reinforces', meaning: 'Past experiences confirm held views', fromKey: 'memory', toKey: 'belief' },
-	{ key: 'motivates', meaning: 'What we believe drives what we want', fromKey: 'belief', toKey: 'desire' },
-	{ key: 'leads_to', meaning: 'Wants crystallize into plans', fromKey: 'desire', toKey: 'intention' },
-	{ key: 'focuses', meaning: 'Where we look determines what we take in', fromKey: 'attention', toKey: 'perception' },
-	{ key: 'guides', meaning: 'Plans direct where we pay attention', fromKey: 'intention', toKey: 'attention' },
-	{ key: 'informs', meaning: 'Simulating outcomes shapes our evaluations', fromKey: 'imagination', toKey: 'judgment' },
-	{ key: 'amplifies', meaning: 'Negative evaluations fuel anxious thought', fromKey: 'judgment', toKey: 'worry' },
-	{ key: 'recalls', meaning: 'Anxious thought pulls up confirming memories', fromKey: 'worry', toKey: 'memory' }
+/** Default real-world entity type kinds. These type *what kind of thing* a graph entity is. */
+const DEFAULT_ENTITY_TYPE_KINDS: { key: string; name: string; definition: string }[] = [
+	{
+		key: 'person',
+		name: 'Person',
+		definition: 'A human being'
+	},
+	{
+		key: 'place',
+		name: 'Place',
+		definition: 'A physical or digital location'
+	},
+	{
+		key: 'organization',
+		name: 'Organization',
+		definition: 'A company, team, community, or institution'
+	},
+	{
+		key: 'project',
+		name: 'Project',
+		definition: 'A body of work or initiative'
+	},
+	{
+		key: 'technology',
+		name: 'Technology',
+		definition: 'A software tool, framework, hardware, or system'
+	},
+	{
+		key: 'event',
+		name: 'Event',
+		definition: 'A time-bounded occurrence'
+	},
+	{
+		key: 'concept',
+		name: 'Concept',
+		definition: 'An abstract idea, topic, domain, or framework'
+	},
+	{
+		key: 'artifact',
+		name: 'Artifact',
+		definition: 'A document, file, design, book, or other created object'
+	}
 ];
 
-export async function seedDefaultCognitiveOntology(db: AppDatabase, userId: string): Promise<void> {
+/** Directed relation kinds between thought category kinds. */
+const DEFAULT_RELATION_KINDS: { key: string; meaning: string; fromKey: string; toKey: string }[] = [
+	{ key: 'leads_to', meaning: 'An idea crystallizes into an action', fromKey: 'idea', toKey: 'task' },
+	{ key: 'motivates', meaning: 'A goal drives concrete tasks', fromKey: 'goal', toKey: 'task' },
+	{ key: 'informs', meaning: 'What you notice shapes choices', fromKey: 'observation', toKey: 'decision' },
+	{ key: 'supports', meaning: 'Facts or data back a decision', fromKey: 'reference', toKey: 'decision' },
+	{ key: 'triggered_by', meaning: 'A feeling arises from something noticed', fromKey: 'feeling', toKey: 'observation' },
+	{ key: 'recalls', meaning: 'A memory evokes an emotional response', fromKey: 'memory', toKey: 'feeling' },
+	{ key: 'refines', meaning: 'One idea sharpens another', fromKey: 'idea', toKey: 'idea' },
+	{ key: 'resolves', meaning: 'Completing work answers a question', fromKey: 'task', toKey: 'question' },
+	{ key: 'clarifies', meaning: 'Introspection resolves a question', fromKey: 'reflection', toKey: 'question' },
+	{ key: 'emerges_from', meaning: 'A decision crystallizes into a commitment', fromKey: 'decision', toKey: 'goal' }
+];
+
+/** Practical thought category kind keys; never auto-pruned. */
+export const DEFAULT_THOUGHT_CATEGORY_KIND_KEYS: readonly string[] = DEFAULT_THOUGHT_CATEGORY_KINDS.map(
+	(e) => e.key
+);
+
+/** Real-world entity type kind keys; never auto-pruned. */
+export const DEFAULT_ENTITY_TYPE_KIND_KEYS: readonly string[] = DEFAULT_ENTITY_TYPE_KINDS.map(
+	(e) => e.key
+);
+
+/**
+ * All protected ontology kind keys (thought categories + entity types).
+ * Used by prune logic to avoid deleting baseline rows.
+ */
+export const DEFAULT_ALL_ONTOLOGY_KIND_KEYS: readonly string[] = [
+	...DEFAULT_THOUGHT_CATEGORY_KIND_KEYS,
+	...DEFAULT_ENTITY_TYPE_KIND_KEYS
+];
+
+export async function seedDefaultPracticalOntology(db: AppDatabase, userId: string): Promise<void> {
 	await db.transaction(async (tx) => {
-		const inserted = await tx
+		// Insert thought category kinds
+		const insertedThoughtKinds = await tx
 			.insert(ontologyEntityKind)
 			.values(
-				DEFAULT_ENTITY_KINDS.map((row) => ({
+				DEFAULT_THOUGHT_CATEGORY_KINDS.map((row) => ({
 					userId,
 					key: row.key,
 					name: row.name,
 					definition: row.definition,
-					active: true
+					active: true,
+					kindType: 'thought_category'
 				}))
 			)
 			.returning({
@@ -90,12 +153,27 @@ export async function seedDefaultCognitiveOntology(db: AppDatabase, userId: stri
 				key: ontologyEntityKind.key
 			});
 
-		const byKey = new Map(inserted.map((r) => [r.key, r.id]));
+		// Insert entity type kinds
+		await tx
+			.insert(ontologyEntityKind)
+			.values(
+				DEFAULT_ENTITY_TYPE_KINDS.map((row) => ({
+					userId,
+					key: row.key,
+					name: row.name,
+					definition: row.definition,
+					active: true,
+					kindType: 'entity_type'
+				}))
+			);
+
+		// Insert relation kinds between thought category kinds
+		const byKey = new Map(insertedThoughtKinds.map((r) => [r.key, r.id]));
 		const relValues = DEFAULT_RELATION_KINDS.map((r) => {
 			const fromId = byKey.get(r.fromKey);
 			const toId = byKey.get(r.toKey);
 			if (!fromId || !toId) {
-				throw new Error(`seedDefaultCognitiveOntology: missing kind for ${r.fromKey} -> ${r.toKey}`);
+				throw new Error(`seedDefaultPracticalOntology: missing kind for ${r.fromKey} -> ${r.toKey}`);
 			}
 			return {
 				userId,
@@ -110,12 +188,67 @@ export async function seedDefaultCognitiveOntology(db: AppDatabase, userId: stri
 	});
 }
 
+/**
+ * @deprecated Use {@link seedDefaultPracticalOntology}.
+ * Kept as an alias so existing call sites don't break before updating.
+ */
+export const seedDefaultCognitiveOntology = seedDefaultPracticalOntology;
+
+/**
+ * Inserts the default entity_type kinds for a user if none exist yet.
+ * Safe to call on users who already have thought_category kinds from the old cognitive ontology.
+ * This is the upgrade path for existing users who were seeded before the practical ontology migration.
+ */
+export async function ensureEntityTypeKindsSeeded(db: AppDatabase, userId: string): Promise<void> {
+	const existing = await db
+		.select({ id: ontologyEntityKind.id })
+		.from(ontologyEntityKind)
+		.where(eq(ontologyEntityKind.userId, userId))
+		.limit(1);
+	// Only applies to users who already have *some* ontology rows
+	if (existing.length === 0) return;
+
+	// Check if any entity_type kinds exist
+	const hasEntityTypes = await db
+		.select({ id: ontologyEntityKind.id })
+		.from(ontologyEntityKind)
+		.where(
+			and(
+				eq(ontologyEntityKind.userId, userId),
+				eq(ontologyEntityKind.kindType, 'entity_type')
+			)
+		)
+		.limit(1);
+
+	if (hasEntityTypes.length > 0) return; // already have entity type kinds
+
+	// Insert entity type kinds (ON CONFLICT DO NOTHING to be safe)
+	await db
+		.insert(ontologyEntityKind)
+		.values(
+			DEFAULT_ENTITY_TYPE_KINDS.map((row) => ({
+				userId,
+				key: row.key,
+				name: row.name,
+				definition: row.definition,
+				active: true,
+				kindType: 'entity_type'
+			}))
+		)
+		.onConflictDoNothing();
+}
+
 export async function ensureUserOntologySeeded(db: AppDatabase, userId: string): Promise<void> {
 	const existing = await db
 		.select({ id: ontologyEntityKind.id })
 		.from(ontologyEntityKind)
 		.where(eq(ontologyEntityKind.userId, userId))
 		.limit(1);
-	if (existing.length > 0) return;
-	await seedDefaultCognitiveOntology(db, userId);
+	if (existing.length === 0) {
+		await seedDefaultPracticalOntology(db, userId);
+		return;
+	}
+	// Upgrade path: users seeded with the old cognitive ontology won't have entity_type kinds yet.
+	// Insert them now if missing — this is idempotent.
+	await ensureEntityTypeKindsSeeded(db, userId);
 }

@@ -4,8 +4,10 @@ import {
 	type OntologyEntityKindRow,
 	type OntologyRelationKindRow,
 	activeEntityKindKeys,
+	activeEntityTypeKindKeys,
 	activeRelationKindKeys,
 	validateEntityKindKeyForNewIngest,
+	validateEntityTypeKeyForExtraction,
 	validateRelationKindForNewIngest
 } from './load-ontology';
 
@@ -15,6 +17,18 @@ function rowEntity(p: Partial<OntologyEntityKindRow> & Pick<OntologyEntityKindRo
 		name: p.key,
 		definition: '',
 		active: true,
+		kindType: 'thought_category',
+		...p
+	};
+}
+
+function rowEntityType(p: Partial<OntologyEntityKindRow> & Pick<OntologyEntityKindRow, 'id' | 'key'>): OntologyEntityKindRow {
+	return {
+		userId: 'u1',
+		name: p.key,
+		definition: '',
+		active: true,
+		kindType: 'entity_type',
 		...p
 	};
 }
@@ -46,23 +60,57 @@ function buildLoaded(entityKinds: OntologyEntityKindRow[], relationKinds: Ontolo
 }
 
 describe('loadOntology validators', () => {
-	it('activeEntityKindKeys excludes inactive rows', () => {
+	it('activeEntityKindKeys returns only active thought_category rows', () => {
 		const loaded = buildLoaded(
 			[
-				rowEntity({ id: 'a', key: 'x', active: true }),
-				rowEntity({ id: 'b', key: 'y', active: false })
+				rowEntity({ id: 'a', key: 'task', active: true }),
+				rowEntity({ id: 'b', key: 'idea', active: false }),
+				rowEntityType({ id: 'c', key: 'person', active: true })
 			],
 			[]
 		);
-		expect(activeEntityKindKeys(loaded)).toEqual(new Set(['x']));
+		expect(activeEntityKindKeys(loaded)).toEqual(new Set(['task']));
 	});
 
-	it('validateEntityKindKeyForNewIngest rejects inactive or unknown', () => {
-		const loaded = buildLoaded([rowEntity({ id: 'a', key: 'perception', active: false })], []);
-		expect(validateEntityKindKeyForNewIngest(loaded, 'perception')).toBe(false);
+	it('activeEntityTypeKindKeys returns only active entity_type rows', () => {
+		const loaded = buildLoaded(
+			[
+				rowEntity({ id: 'a', key: 'task', active: true }),
+				rowEntityType({ id: 'b', key: 'person', active: true }),
+				rowEntityType({ id: 'c', key: 'place', active: false })
+			],
+			[]
+		);
+		expect(activeEntityTypeKindKeys(loaded)).toEqual(new Set(['person']));
+	});
+
+	it('validateEntityKindKeyForNewIngest rejects inactive, unknown, or entity_type keys', () => {
+		const loaded = buildLoaded(
+			[
+				rowEntity({ id: 'a', key: 'task', active: false }),
+				rowEntityType({ id: 'b', key: 'person', active: true })
+			],
+			[]
+		);
+		expect(validateEntityKindKeyForNewIngest(loaded, 'task')).toBe(false); // inactive
+		expect(validateEntityKindKeyForNewIngest(loaded, 'person')).toBe(false); // entity_type, not thought_category
 		expect(validateEntityKindKeyForNewIngest(loaded, 'missing')).toBe(false);
-		const active = buildLoaded([rowEntity({ id: 'a', key: 'perception', active: true })], []);
-		expect(validateEntityKindKeyForNewIngest(active, 'perception')).toBe(true);
+		const active = buildLoaded([rowEntity({ id: 'a', key: 'task', active: true })], []);
+		expect(validateEntityKindKeyForNewIngest(active, 'task')).toBe(true);
+	});
+
+	it('validateEntityTypeKeyForExtraction rejects thought_category keys', () => {
+		const loaded = buildLoaded(
+			[
+				rowEntity({ id: 'a', key: 'task', active: true }),
+				rowEntityType({ id: 'b', key: 'person', active: true }),
+				rowEntityType({ id: 'c', key: 'place', active: false })
+			],
+			[]
+		);
+		expect(validateEntityTypeKeyForExtraction(loaded, 'task')).toBe(false); // wrong kind_type
+		expect(validateEntityTypeKeyForExtraction(loaded, 'person')).toBe(true);
+		expect(validateEntityTypeKeyForExtraction(loaded, 'place')).toBe(false); // inactive
 	});
 
 	it('validateRelationKindForNewIngest checks active and endpoint ids', () => {

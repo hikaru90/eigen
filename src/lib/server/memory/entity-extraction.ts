@@ -13,11 +13,17 @@ export type ExtractedEntityTriple = {
 	confidence: number;
 };
 
-/** Active `ontology_entity_kind` rows — same keys as thought `category` / graph Thought subtype. */
+/** Active `ontology_entity_kind` rows with kind_type = 'entity_type'. */
 export type OntologyEntityKindForExtraction = {
 	key: string;
 	name: string;
 	definition: string;
+};
+
+/** A known canonical entity to surface to the LLM to reduce surface-form variance. */
+export type KnownEntityHint = {
+	label: string;
+	entityType: string;
 };
 
 const ALLOWED_ENTITY_PREDICATES = new Set([
@@ -110,11 +116,13 @@ export function parseEntityTriples(
 		.filter((v): v is ExtractedEntityTriple => v !== null);
 }
 
-/** LLM step 1: surfaces + ontology entity kind (same catalog as thought categories). */
+/** LLM step 1: surfaces + entity type (real-world entity type catalog, separate from thought categories). */
 export async function extractEntityMentions(input: {
 	userId: string;
 	normalizedText: string;
 	ontologyEntityKinds: OntologyEntityKindForExtraction[];
+	/** Existing canonical entities that may be referenced — helps LLM use consistent surface forms. */
+	knownEntities?: KnownEntityHint[];
 }): Promise<ExtractedEntityMention[]> {
 	if (input.ontologyEntityKinds.length === 0) {
 		throw new Error('extractEntityMentions requires at least one ontology entity kind');
@@ -124,23 +132,35 @@ export async function extractEntityMentions(input: {
 		.map((k) => `- entityType must be exactly "${k.key}" (${k.name}): ${k.definition}`)
 		.join('\n');
 	const keyUnion = [...allowed].sort().join('|');
+
+	// Build the known entities block if available
+	const knownEntitiesBlock =
+		input.knownEntities && input.knownEntities.length > 0
+			? `\nKnown entities already in memory (prefer these surface forms when referring to the same thing):\n${input.knownEntities
+					.map((e) => `- ${e.label} (${e.entityType})`)
+					.join('\n')}`
+			: '';
+
 	const prompt = [
 		'Return ONLY JSON.',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
-		`For each item, entityType must be exactly one of these ontology keys (no other strings): ${keyUnion}`,
-		'Pick the single best-matching kind for how that surface functions in the utterance (same taxonomy as classifying thoughts).',
+		`For each item, entityType must be exactly one of these entity type keys (no other strings): ${keyUnion}`,
+		'Pick the single best-matching real-world entity type for what this surface is (person, place, org, project, technology, event, concept, or artifact).',
 		'Schema: [{"surface":"<text as written>","entityType":"<one of the keys above>","confidence":0.0-1.0}]',
 		'Catalog:',
 		catalog,
+		knownEntitiesBlock,
 		'Include 0–12 items. Omit generic pronouns and vague terms.',
 		`Text:\n${input.normalizedText}`
-	].join('\n');
+	]
+		.filter(Boolean)
+		.join('\n');
 
 	const messages: ChatMessage[] = [
 		{
 			role: 'system',
 			content:
-				'You extract structured entity mentions. entityType must always be an exact key from the user ontology list in the user message, never a free-form category.'
+				'You extract structured entity mentions. entityType must always be an exact key from the entity type list in the user message, never a free-form category.'
 		},
 		{ role: 'user', content: prompt }
 	];

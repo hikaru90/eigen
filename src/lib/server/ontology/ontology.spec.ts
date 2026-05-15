@@ -15,7 +15,7 @@ describe('parseOntologyProfileJson', () => {
 	});
 
 	it('returns empty when version is unknown', () => {
-		expect(parseOntologyProfileJson({ version: 99, kindGuidance: { perception: 'x' } })).toEqual(
+		expect(parseOntologyProfileJson({ version: 99, kindGuidance: { task: 'x' } })).toEqual(
 			emptyOntologyProfile()
 		);
 	});
@@ -24,10 +24,10 @@ describe('parseOntologyProfileJson', () => {
 		const long = 'a'.repeat(5000);
 		const parsed = parseOntologyProfileJson({
 			version: ONTOLOGY_PROFILE_VERSION,
-			kindGuidance: { perception: long, memory: '  recall  ' },
+			kindGuidance: { task: long, memory: '  recall  ' },
 			summary: 'b'.repeat(5000)
 		});
-		expect(parsed.kindGuidance?.perception?.length).toBe(2000);
+		expect(parsed.kindGuidance?.task?.length).toBe(2000);
 		expect(parsed.kindGuidance?.memory).toBe('recall');
 		expect(parsed.summary?.length).toBe(4000);
 	});
@@ -61,10 +61,10 @@ describe('mergeOntologyProfileWithBaseline', () => {
 	it('keeps stored summary and kindGuidance', () => {
 		const m = mergeOntologyProfileWithBaseline({
 			version: ONTOLOGY_PROFILE_VERSION,
-			kindGuidance: { perception: 'User note' },
+			kindGuidance: { task: 'User note' },
 			summary: 'Custom summary'
 		});
-		expect(m.kindGuidance?.perception).toBe('User note');
+		expect(m.kindGuidance?.task).toBe('User note');
 		expect(m.summary).toBe('Custom summary');
 	});
 });
@@ -73,24 +73,24 @@ describe('ontologyKindsPromptBlock', () => {
 	it('includes summary and kind definitions', () => {
 		const block = ontologyKindsPromptBlock(
 			[
-				{ key: 'perception', name: 'Perception', definition: 'Sensory intake' },
+				{ key: 'task', name: 'Task', definition: 'Something to do' },
 				{ key: 'memory', name: 'Memory', definition: 'Past experience' }
 			],
 			emptyOntologyProfile()
 		);
-		expect(block).toContain('perception');
+		expect(block).toContain('task');
 		expect(block).toContain('memory');
-		expect(block).toContain('Sensory intake');
+		expect(block).toContain('Something to do');
 	});
 
 	it('includes labeling notes from profile', () => {
 		const block = ontologyKindsPromptBlock(
-			[{ key: 'perception', name: 'Perception', definition: 'Sensory intake' }],
+			[{ key: 'task', name: 'Task', definition: 'Something to do' }],
 			{
 				version: ONTOLOGY_PROFILE_VERSION,
-				kindGuidance: { perception: 'Prefer literal senses' }
+				kindGuidance: { task: 'Prefer actionable items' }
 			}
 		);
-		expect(block).toContain('[labeling note: Prefer literal senses]');
+		expect(block).toContain('[labeling note: Prefer actionable items]');
 	});
 });

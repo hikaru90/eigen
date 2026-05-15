@@ -73,7 +73,10 @@
   }
 </script>
 
-<header class="w-full px-5 pt-6">
+<header class="fixed top-0 right-0 left-0 z-40 w-full px-5 pt-3">
+  <div
+    class="bg-linear-to-b absolute top-0 right-0 left-0 -z-10 h-24 from-background to-transparent dark:from-black dark:to-black/0"
+  ></div>
   <div class="mx-auto flex w-full items-center justify-between">
     {#if isChatRoute}
       <button
@@ -88,47 +91,50 @@
     {/if}
     <EigenWordmark heightClass="h-10" />
     <Popover.Root bind:open={menuOpen}>
-      <div>
-        <Popover.Trigger
-          class="relative block flex size-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-white"
-          aria-label="Account menu"
-        >
-          <UserRound
-            class="pointer-events-none relative z-10 size-5 shrink-0 text-black dark:text-white"
-            aria-hidden="true"
-          />
-        </Popover.Trigger>
-      </div>
+      <Popover.Trigger
+        class="relative flex size-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-white"
+        aria-label="Account menu"
+      >
+        <UserRound
+          class="pointer-events-none relative z-10 size-5 shrink-0 text-black dark:text-white"
+          aria-hidden="true"
+        />
+      </Popover.Trigger>
       <Popover.Content
         align="end"
         side="bottom"
         sideOffset={8}
-        class="w-44 rounded-md border border-black/10 bg-card p-1 shadow-md dark:border-white/20"
+        class="w-44 rounded-none border-2 border-black bg-white px-1 pt-3 pb-2 shadow-[4px_4px_0px_0px_#000] dark:border-white dark:bg-card dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]"
       >
         <a
           href={resolve("/activity")}
-          class="flex items-center gap-2 rounded-sm px-3 py-2 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
         >
           <ActivityIcon class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
         </a>
         <a
           href={resolve("/api-keys")}
-          class="flex items-center gap-2 rounded-sm px-3 py-2 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
         >
           <KeyRound class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
         </a>
         <a
           href={resolve("/settings")}
-          class="flex items-center gap-2 rounded-sm px-3 py-2 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
         >
           <Settings class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Account settings
         </a>
+        {#if user?.email}
+          <div class="mt-1 truncate border-t border-black/10 px-3 pt-3 text-xs text-muted-foreground dark:border-white/10">
+            {user.email}
+          </div>
+        {/if}
         <button
           type="button"
-          class="flex w-full items-center gap-2 rounded-sm bg-red-600 px-3 py-2 text-left text-xs text-white hover:bg-red-700"
+          class="flex w-full items-center gap-2 px-3 py-1 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30 rounded-full"
           onclick={() => void signOut()}
         >
           <LogOut class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />

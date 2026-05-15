@@ -95,7 +95,7 @@ function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
 		rawText: 'raw input',
 		normalizedText: 'raw input',
 		lexicalText: 'raw input',
-		category: 'perception',
+		category: 'task',
 		metadata: {}
 	};
 	const insertCapture = makeInsertReturning(sessionRow);
@@ -132,7 +132,7 @@ describe('captureThought', () => {
 		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
 		extractRelationsMock.mockResolvedValue([]);
 		syncEntityGraphFromThoughtMock.mockResolvedValue(undefined);
-		resolveThoughtCategoryMock.mockResolvedValue({ key: 'perception', ontologyEntityKindId: 'ek-1' });
+		resolveThoughtCategoryMock.mockResolvedValue({ key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] });
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
 	});
 
@@ -228,7 +228,7 @@ describe('editStoredThought', () => {
 		vi.clearAllMocks();
 		createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5]);
 		extractRelationsMock.mockResolvedValue([]);
-		resolveThoughtCategoryMock.mockResolvedValue({ key: 'perception', ontologyEntityKindId: 'ek-1' });
+		resolveThoughtCategoryMock.mockResolvedValue({ key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] });
 	});
 
 	it('returns not_found when thought does not exist', async () => {
@@ -253,7 +253,7 @@ describe('editStoredThought', () => {
 			userId: 'u1',
 			rawText: 'hello',
 			metadata: {},
-			category: 'perception',
+			category: 'task',
 			normalizedText: 'hello',
 			lexicalText: 'hello'
 		};
@@ -309,7 +309,7 @@ describe('editStoredThought', () => {
 			userId: 'u1',
 			rawText: 'hello',
 			metadata: {},
-			category: 'perception',
+			category: 'task',
 			normalizedText: 'hello',
 			lexicalText: 'hello'
 		};
@@ -382,7 +382,7 @@ describe('relinkThoughtGraph', () => {
 			rawText: 'hello',
 			normalizedText: 'hello',
 			lexicalText: 'hello',
-			category: 'perception',
+			category: 'task',
 			metadata: {}
 		};
 		const db = {
@@ -422,7 +422,7 @@ describe('relinkThoughtGraph', () => {
 			rawText: 'x',
 			normalizedText: 'x',
 			lexicalText: 'x',
-			category: 'perception',
+			category: 'task',
 			metadata: {}
 		};
 		const db = {

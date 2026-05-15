@@ -28,7 +28,7 @@ describe('GET /api/thoughts/[thoughtId]', () => {
 			from: vi.fn(() => ({
 				where: vi.fn(() => ({
 					limit: vi.fn(async () => [
-						{ id: 't1', rawText: 'a', normalizedText: 'a', category: 'perception' }
+						{ id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
 					])
 				}))
 			}))

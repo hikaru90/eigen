@@ -14,7 +14,7 @@ import {
 	ensureUserOntologySeeded,
 	loadOntologyForUser,
 	pruneUnusedOntologyEntityKinds,
-	seedDefaultCognitiveOntology,
+	seedDefaultPracticalOntology,
 	validateEntityKindKeyForNewIngest
 } from '$lib/server/ontology-db';
 
@@ -44,7 +44,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 		}
 	});
 
-	it('seeds default cognitive ontology once per user and isolates tenants', async () => {
+	it('seeds default practical ontology once per user and isolates tenants', async () => {
 		await withEvalDb(ua, async (db) => {
 			await db.insert(user).values({
 				id: ua,
@@ -67,28 +67,29 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 		await withEvalDb(ua, async (db) => {
 			await ensureUserOntologySeeded(db, ua);
 			const a = await loadOntologyForUser(db, ua);
-			expect(a.entityKinds.length).toBe(10);
+			// 10 thought_category kinds + 8 entity_type kinds = 18
+			expect(a.entityKinds.length).toBe(18);
 			expect(a.relationKinds.length).toBe(10);
-			expect(validateEntityKindKeyForNewIngest(a, 'perception')).toBe(true);
+			expect(validateEntityKindKeyForNewIngest(a, 'task')).toBe(true);
 		});
 
 		await withEvalDb(ub, async (db) => {
-			await seedDefaultCognitiveOntology(db, ub);
+			await seedDefaultPracticalOntology(db, ub);
 			const b = await loadOntologyForUser(db, ub);
-			expect(b.entityKindsByKey.get('perception')?.id).toBeDefined();
+			expect(b.entityKindsByKey.get('task')?.id).toBeDefined();
 		});
 
-		let perceptionIdA = '';
-		let perceptionIdB = '';
+		let taskIdA = '';
+		let taskIdB = '';
 		await withEvalDb(ua, async (db) => {
 			const a = await loadOntologyForUser(db, ua);
-			perceptionIdA = a.entityKindsByKey.get('perception')!.id;
+			taskIdA = a.entityKindsByKey.get('task')!.id;
 		});
 		await withEvalDb(ub, async (db) => {
 			const b = await loadOntologyForUser(db, ub);
-			perceptionIdB = b.entityKindsByKey.get('perception')!.id;
+			taskIdB = b.entityKindsByKey.get('task')!.id;
 		});
-		expect(perceptionIdA).not.toBe(perceptionIdB);
+		expect(taskIdA).not.toBe(taskIdB);
 	});
 
 	it('deactivateRelationKindWithReconcile clears thought_relation ontology FK', async () => {
@@ -105,7 +106,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 		await withEvalDb(uidRel, async (db) => {
 			await ensureUserOntologySeeded(db, uidRel);
 			const loaded = await loadOntologyForUser(db, uidRel);
-			const relRow = loaded.relationKindsByKey.get('triggers');
+			const relRow = loaded.relationKindsByKey.get('leads_to');
 			expect(relRow).toBeDefined();
 
 			const t1 = crypto.randomUUID();
@@ -118,7 +119,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 					rawText: norm,
 					normalizedText: norm,
 					lexicalText: computeLexicalText(norm),
-					category: 'perception',
+					category: 'task',
 					metadata: {}
 				},
 				{
@@ -127,7 +128,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 					rawText: norm + ' b',
 					normalizedText: norm + ' b',
 					lexicalText: computeLexicalText(norm + ' b'),
-					category: 'perception',
+					category: 'task',
 					metadata: {}
 				}
 			]);
@@ -170,10 +171,10 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 		await withEvalDb(uidEnt, async (db) => {
 			await ensureUserOntologySeeded(db, uidEnt);
 			const loaded = await loadOntologyForUser(db, uidEnt);
-			const perception = loaded.entityKindsByKey.get('perception');
-			expect(perception).toBeDefined();
+			const taskKind = loaded.entityKindsByKey.get('task');
+			expect(taskKind).toBeDefined();
 
-			const norm = 'perception row';
+			const norm = 'task kind row';
 			const [th] = await db
 				.insert(thought)
 				.values({
@@ -181,13 +182,13 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 					rawText: norm,
 					normalizedText: norm,
 					lexicalText: computeLexicalText(norm),
-					category: 'perception',
+					category: 'task',
 					metadata: {},
-					ontologyEntityKindId: perception!.id
+					ontologyEntityKindId: taskKind!.id
 				})
 				.returning({ id: thought.id });
 
-			await deactivateEntityKindWithReconcile(db, uidEnt, perception!.id);
+			await deactivateEntityKindWithReconcile(db, uidEnt, taskKind!.id);
 
 			const [tRow] = await db.select({ oid: thought.ontologyEntityKindId }).from(thought).where(eq(thought.id, th!.id));
 			expect(tRow?.oid).toBeNull();
@@ -195,15 +196,16 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 			const [ek] = await db
 				.select({ active: ontologyEntityKind.active })
 				.from(ontologyEntityKind)
-				.where(eq(ontologyEntityKind.id, perception!.id));
+				.where(eq(ontologyEntityKind.id, taskKind!.id));
 			expect(ek?.active).toBe(false);
 
-			const triggers = loaded.relationKindsByKey.get('triggers');
-			expect(triggers).toBeDefined();
+			// 'leads_to' and 'motivates' both point to 'task' — both should be deactivated
+			const leadsTo = loaded.relationKindsByKey.get('leads_to');
+			expect(leadsTo).toBeDefined();
 			const [rk] = await db
 				.select({ active: ontologyRelationKind.active })
 				.from(ontologyRelationKind)
-				.where(eq(ontologyRelationKind.id, triggers!.id));
+				.where(eq(ontologyRelationKind.id, leadsTo!.id));
 			expect(rk?.active).toBe(false);
 		});
 	});
@@ -222,7 +224,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 		await withEvalDb(uidPrune, async (db) => {
 			await ensureUserOntologySeeded(db, uidPrune);
 			const loaded = await loadOntologyForUser(db, uidPrune);
-			const perceptionId = loaded.entityKindsByKey.get('perception')!.id;
+			const taskId = loaded.entityKindsByKey.get('task')!.id;
 
 			const [junk] = await db
 				.insert(ontologyEntityKind)
@@ -239,22 +241,24 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 				userId: uidPrune,
 				key: 'junk_link',
 				meaning: 'test',
-				fromOntologyEntityKindId: perceptionId,
+				fromOntologyEntityKindId: taskId,
 				toOntologyEntityKindId: junk!.id,
 				active: true
 			});
 
-			expect((await loadOntologyForUser(db, uidPrune)).entityKinds.length).toBe(11);
+			// 18 default kinds + 1 junk = 19
+			expect((await loadOntologyForUser(db, uidPrune)).entityKinds.length).toBe(19);
 
 			const pruned = await pruneUnusedOntologyEntityKinds(db, uidPrune);
 			expect(pruned.deletedEntityKindIds).toEqual([junk!.id]);
 			expect(pruned.deletedRelationKindIds.length).toBe(1);
 
 			const after = await loadOntologyForUser(db, uidPrune);
-			expect(after.entityKinds.length).toBe(10);
+			// 18 default kinds remain
+			expect(after.entityKinds.length).toBe(18);
 			expect(after.entityKindsByKey.get('junk_kind')).toBeUndefined();
 			expect(after.relationKindsByKey.get('junk_link')).toBeUndefined();
-			expect(after.entityKindsByKey.get('perception')).toBeDefined();
+			expect(after.entityKindsByKey.get('task')).toBeDefined();
 		});
 	});
 });

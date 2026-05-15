@@ -5,6 +5,8 @@ const {
 	extractEntityMentionsMock,
 	extractEntityTriplesMock,
 	resolveOrCreateCanonicalEntityMock,
+	matchCanonicalEntitiesByEmbeddingMock,
+	createThoughtEmbeddingMock,
 	upsertEntityNodeMock,
 	upsertEntityRelationEdgeMock,
 	upsertMentionEdgeMock,
@@ -15,6 +17,8 @@ const {
 	extractEntityMentionsMock: vi.fn(),
 	extractEntityTriplesMock: vi.fn(),
 	resolveOrCreateCanonicalEntityMock: vi.fn(),
+	matchCanonicalEntitiesByEmbeddingMock: vi.fn(),
+	createThoughtEmbeddingMock: vi.fn(),
 	upsertEntityNodeMock: vi.fn(),
 	upsertEntityRelationEdgeMock: vi.fn(),
 	upsertMentionEdgeMock: vi.fn(),
@@ -38,7 +42,12 @@ vi.mock('$lib/server/memory/entity-extraction', () => ({
 }));
 
 vi.mock('$lib/server/memory/entity-resolution', () => ({
-	resolveOrCreateCanonicalEntity: resolveOrCreateCanonicalEntityMock
+	resolveOrCreateCanonicalEntity: resolveOrCreateCanonicalEntityMock,
+	matchCanonicalEntitiesByEmbedding: matchCanonicalEntitiesByEmbeddingMock
+}));
+
+vi.mock('$lib/server/llm/embedding', () => ({
+	createThoughtEmbedding: createThoughtEmbeddingMock
 }));
 
 vi.mock('$lib/server/graph/falkor', () => ({
@@ -48,9 +57,10 @@ vi.mock('$lib/server/graph/falkor', () => ({
 }));
 
 describe('syncEntityGraphFromThought', () => {
-	const ontologyRows = [
-		{ id: 'e1', userId: 'u1', key: 'perception', name: 'Perception', definition: 'd', active: true },
-		{ id: 'e2', userId: 'u1', key: 'memory', name: 'Memory', definition: 'd', active: true }
+	// Mock entity_type kind rows (real-world entity types, not thought categories)
+	const entityTypeRows = [
+		{ id: 'et1', userId: 'u1', key: 'person', name: 'Person', definition: 'A human being', active: true, kindType: 'entity_type' },
+		{ id: 'et2', userId: 'u1', key: 'place', name: 'Place', definition: 'A location', active: true, kindType: 'entity_type' }
 	];
 
 	beforeEach(() => {
@@ -58,8 +68,10 @@ describe('syncEntityGraphFromThought', () => {
 		extractEntityTriplesMock.mockResolvedValue([]);
 		getDbMock.mockReturnValue({});
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
+		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([]);
 		loadOntologyForUserMock.mockResolvedValue({
-			entityKinds: ontologyRows,
+			entityKinds: entityTypeRows,
 			relationKinds: [],
 			entityKindsById: new Map(),
 			entityKindsByKey: new Map(),
@@ -81,8 +93,8 @@ describe('syncEntityGraphFromThought', () => {
 				userId: 'u1',
 				normalizedText: 'a quiet thought',
 				ontologyEntityKinds: [
-					{ key: 'perception', name: 'Perception', definition: 'd' },
-					{ key: 'memory', name: 'Memory', definition: 'd' }
+					{ key: 'person', name: 'Person', definition: 'A human being' },
+					{ key: 'place', name: 'Place', definition: 'A location' }
 				]
 			})
 		);
@@ -95,8 +107,8 @@ describe('syncEntityGraphFromThought', () => {
 
 	it('resolves each mention, upserts Entity and MENTIONS edges, and writes ENTITY_RELATES for valid triples', async () => {
 		extractEntityMentionsMock.mockResolvedValue([
-			{ surface: 'Sam', entityType: 'perception', confidence: 0.9 },
-			{ surface: 'Berlin', entityType: 'memory', confidence: 0.8 }
+			{ surface: 'Sam', entityType: 'person', confidence: 0.9 },
+			{ surface: 'Berlin', entityType: 'place', confidence: 0.8 }
 		]);
 		resolveOrCreateCanonicalEntityMock.mockImplementation(
 			async (input: { surface: string }) => ({
@@ -122,7 +134,7 @@ describe('syncEntityGraphFromThought', () => {
 				id: 'id-Sam',
 				canonicalKey: 'sam',
 				label: 'Sam',
-				entityType: 'perception'
+				entityType: 'person'
 			})
 		);
 		expect(upsertMentionEdgeMock).toHaveBeenCalledTimes(2);
@@ -142,7 +154,7 @@ describe('syncEntityGraphFromThought', () => {
 
 	it('skips triples whose endpoints are unknown or self-referential', async () => {
 		extractEntityMentionsMock.mockResolvedValue([
-			{ surface: 'Sam', entityType: 'emotion', confidence: 0.9 }
+			{ surface: 'Sam', entityType: 'person', confidence: 0.9 }
 		]);
 		resolveOrCreateCanonicalEntityMock.mockResolvedValue({
 			entityId: 'id-Sam',
@@ -161,5 +173,20 @@ describe('syncEntityGraphFromThought', () => {
 		});
 
 		expect(upsertEntityRelationEdgeMock).not.toHaveBeenCalled();
+	});
+
+	it('uses provided thoughtEmbedding instead of creating a new one', async () => {
+		extractEntityMentionsMock.mockResolvedValue([]);
+		await syncEntityGraphFromThought({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'some text',
+			thoughtEmbedding: [0.5, 0.6, 0.7]
+		});
+		// Should use the provided embedding for known entity lookup
+		expect(matchCanonicalEntitiesByEmbeddingMock).toHaveBeenCalledWith(
+			expect.objectContaining({ embedding: [0.5, 0.6, 0.7] })
+		);
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 	});
 });

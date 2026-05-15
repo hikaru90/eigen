@@ -284,16 +284,17 @@ export async function matchCanonicalEntitiesByEmbedding(input: {
 	userId: string;
 	embedding: number[];
 	limit: number;
-}): Promise<Array<{ id: string; label: string; distance: number }>> {
+}): Promise<Array<{ id: string; label: string; entityType: string; distance: number }>> {
 	const limit = Math.max(1, Math.min(input.limit, 32));
 	const vectorSql = toVectorSql(input.embedding);
 	const distanceExpr = sql<number>`${canonicalEntity.embedding} <=> ${vectorSql}`;
-	let rows: Array<{ id: string; label: string; distance: number | null }> = [];
+	let rows: Array<{ id: string; label: string; entityType: string; distance: number | null }> = [];
 	try {
 		rows = await getDb()
 			.select({
 				id: canonicalEntity.id,
 				label: canonicalEntity.label,
+				entityType: canonicalEntity.entityType,
 				distance: distanceExpr
 			})
 			.from(canonicalEntity)
@@ -335,6 +336,7 @@ export async function matchCanonicalEntitiesByEmbedding(input: {
 		.map((r) => ({
 			id: r.id,
 			label: r.label,
+			entityType: r.entityType,
 			distance: r.distance as number
 		}));
 }

@@ -82,9 +82,8 @@
   }
 
   function scrollToBottom() {
-    if (!chatEl) return;
     requestAnimationFrame(() => {
-      chatEl!.scrollTop = chatEl!.scrollHeight;
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
     });
   }
 
@@ -364,23 +363,22 @@
   });
 </script>
 
-<div class="relative mx-auto flex max-w-2xl flex-col px-4 pt-4">
-  <!-- sidebar backdrop -->
-  {#if $chatSidebarOpen}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="fixed inset-0 z-40 bg-black/30"
-      onclick={() => ($chatSidebarOpen = false)}
-    ></div>
-  {/if}
-
-  <!-- sidebar panel -->
+<!-- sidebar backdrop -->
+{#if $chatSidebarOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed left-0 top-0 z-50 flex h-full w-72 flex-col bg-background pt-safe shadow-lg transition-transform duration-200 {$chatSidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
-    role="dialog"
-    aria-label="Chat sessions"
-  >
+    class="fixed inset-0 z-60 bg-black/30"
+    onclick={() => ($chatSidebarOpen = false)}
+  ></div>
+{/if}
+
+<!-- sidebar panel -->
+<div
+  class="fixed left-0 top-0 z-60 flex h-full w-72 flex-col bg-background pt-safe shadow-lg transition-transform duration-200 {$chatSidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
+  role="dialog"
+  aria-label="Chat sessions"
+>
     <div class="flex items-center justify-between px-4 py-3">
       <h2 class="text-sm font-semibold">Chat History</h2>
       <button
@@ -429,6 +427,7 @@
     </div>
   </div>
 
+<div class="relative mx-auto flex max-w-2xl flex-col px-4 pt-4">
   <!-- messages area -->
   <div
     bind:this={chatEl}

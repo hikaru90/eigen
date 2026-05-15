@@ -20,21 +20,22 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 
 import { maybeRefreshUserOntology, recomputeUserOntologyProfileForUser } from './evaluate-ontology';
 
-const perceptionRow = {
+const taskRow = {
 	id: 'ek1',
 	userId: 'u1',
-	key: 'perception',
-	name: 'Perception',
-	definition: 'Sensory intake',
-	active: true
+	key: 'task',
+	name: 'Task',
+	definition: 'Something to do',
+	active: true,
+	kindType: 'thought_category'
 };
 
 function mockLoadedOntology() {
 	return {
-		entityKinds: [perceptionRow],
+		entityKinds: [taskRow],
 		relationKinds: [],
-		entityKindsById: new Map([[perceptionRow.id, perceptionRow]]),
-		entityKindsByKey: new Map([[perceptionRow.key, perceptionRow]]),
+		entityKindsById: new Map([[taskRow.id, taskRow]]),
+		entityKindsByKey: new Map([[taskRow.key, taskRow]]),
 		relationKindsById: new Map(),
 		relationKindsByKey: new Map()
 	};
@@ -89,7 +90,7 @@ describe('maybeRefreshUserOntology', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'hello', category: 'perception' }])
+								limit: vi.fn(async () => [{ normalizedText: 'hello', category: 'task' }])
 							}))
 						}))
 					};
@@ -105,7 +106,7 @@ describe('maybeRefreshUserOntology', () => {
 					message: {
 						content: JSON.stringify({
 							version: 2,
-							kindGuidance: { perception: 'short sensory notes' },
+							kindGuidance: { task: 'short sensory notes' },
 							summary: 'user writes short notes'
 						})
 					}
@@ -158,7 +159,7 @@ describe('recomputeUserOntologyProfileForUser', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'a', category: 'perception' }])
+								limit: vi.fn(async () => [{ normalizedText: 'a', category: 'task' }])
 							}))
 						}))
 					};
@@ -174,7 +175,7 @@ describe('recomputeUserOntologyProfileForUser', () => {
 					message: {
 						content: JSON.stringify({
 							version: 2,
-							kindGuidance: { perception: 'tasks' },
+							kindGuidance: { task: 'tasks' },
 							summary: 's'
 						})
 					}
@@ -211,7 +212,7 @@ describe('recomputeUserOntologyProfileForUser', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'x', category: 'perception' }])
+								limit: vi.fn(async () => [{ normalizedText: 'x', category: 'task' }])
 							}))
 						}))
 					};
@@ -265,7 +266,7 @@ describe('recomputeUserOntologyProfileForUser', () => {
 					message: {
 						content: JSON.stringify({
 							version: 2,
-							kindGuidance: { perception: 'empty user' }
+							kindGuidance: { task: 'empty user' }
 						})
 					}
 				}

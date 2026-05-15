@@ -1,9 +1,9 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { AppDatabase } from '$lib/server/db/context';
 import { ontologyEntityKind, ontologyRelationKind, thought } from '$lib/server/db/schema';
-import { DEFAULT_COGNITIVE_ENTITY_KIND_KEYS } from './seed-default-cognitive';
+import { DEFAULT_ALL_ONTOLOGY_KIND_KEYS } from './seed-default-cognitive';
 
-const protectedEntityKeys = new Set(DEFAULT_COGNITIVE_ENTITY_KIND_KEYS);
+const protectedEntityKeys = new Set(DEFAULT_ALL_ONTOLOGY_KIND_KEYS);
 
 /**
  * Deletes custom `ontology_entity_kind` rows that are not referenced by any thought and are not part

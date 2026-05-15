@@ -31,7 +31,8 @@
 		"eval:seed": "vite-node --config evals/vite.config.ts evals/harness/seed-fixtures.ts",
 		"eval:retrieval": "vite-node --config evals/vite.config.ts evals/harness/retrieval-eval.ts",
 		"eval:answer": "vite-node --config evals/vite.config.ts evals/harness/answer-eval.ts",
-		"eval:all": "npm run eval:seed && npm run eval:retrieval && npm run eval:answer",
+		"eval:agent": "vite-node --config evals/vite.config.ts evals/harness/agent-ingest-eval.ts",
+		"eval:all": "npm run eval:seed && npm run eval:retrieval && npm run eval:answer && npm run eval:agent",
 		"eval:baseline": "vite-node --config evals/vite.config.ts evals/harness/promote-baseline.ts --"
 	},
 	"devDependencies": {

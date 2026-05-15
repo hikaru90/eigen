@@ -23,6 +23,50 @@ type AnswerReport = {
 	};
 };
 
+type AgentProbeMetrics = {
+	recallAt1?: number;
+	recallAt3?: number;
+	recallAt5?: number;
+	ndcgAt5?: number;
+	mrr?: number;
+};
+
+type AgentReport = {
+	generatedAt?: string;
+	userId?: string;
+	thoughtCount?: number;
+	ingest?: {
+		totalDurationMs?: number;
+		perThought?: Array<{
+			evalId: string;
+			durationMs: number;
+			categoryAssigned: string;
+			phasesCompleted: string[];
+		}>;
+	};
+	retrieval?: {
+		probeCount?: number;
+		overall?: AgentProbeMetrics;
+		byCategory?: Record<string, AgentProbeMetrics>;
+	};
+	answer?: {
+		passed?: number;
+		total?: number;
+		passRate?: number;
+		summary?: {
+			faithfulness?: { mean?: number };
+			relevance?: { mean?: number };
+			usefulness?: { mean?: number };
+		};
+	};
+	captureFidelity?: {
+		rate?: number;
+		passed?: number;
+		total?: number;
+		meanScore?: number;
+	};
+};
+
 function readJsonIfExists<T>(path: string): T | null {
 	if (!existsSync(path)) return null;
 	return JSON.parse(readFileSync(path, 'utf-8')) as T;
@@ -35,9 +79,11 @@ export const load: PageServerLoad = async (event) => {
 
 	const retrievalPath = resolve(process.cwd(), 'evals/reports/retrieval-latest.json');
 	const answerPath = resolve(process.cwd(), 'evals/reports/answer-latest.json');
+	const agentPath = resolve(process.cwd(), 'evals/reports/agent-latest.json');
 
 	const retrieval = readJsonIfExists<RetrievalReport>(retrievalPath);
 	const answer = readJsonIfExists<AnswerReport>(answerPath);
+	const agent = readJsonIfExists<AgentReport>(agentPath);
 
 	const bestRetrieval =
 		retrieval?.weightSweep && retrieval.weightSweep.length > 0
@@ -48,7 +94,8 @@ export const load: PageServerLoad = async (event) => {
 		user: event.locals.user,
 		retrieval,
 		answer,
+		agent,
 		bestRetrieval,
-		paths: { retrievalPath, answerPath }
+		paths: { retrievalPath, answerPath, agentPath }
 	};
 };

@@ -95,7 +95,7 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="min-h-dvh bg-background" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome}>
+<div class="min-h-dvh bg-background" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome} class:pt-20={!hideAppChrome}>
   {#if !hideAppChrome}
     <AppHeader />
   {/if}
@@ -104,7 +104,7 @@
 
 {#if !hideAppChrome}
   <nav
-    class="fixed bottom-0 left-0 right-0 z-30 text-foreground dark:text-white"
+    class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
     <div class="relative flex flex-row items-center gap-2 px-2 pb-6">

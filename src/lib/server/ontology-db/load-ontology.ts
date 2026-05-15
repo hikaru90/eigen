@@ -9,6 +9,8 @@ export type OntologyEntityKindRow = {
 	name: string;
 	definition: string;
 	active: boolean;
+	/** 'thought_category' | 'entity_type' */
+	kindType: string;
 };
 
 export type OntologyRelationKindRow = {
@@ -40,7 +42,8 @@ export async function loadOntologyForUser(db: AppDatabase, userId: string): Prom
 			key: ontologyEntityKind.key,
 			name: ontologyEntityKind.name,
 			definition: ontologyEntityKind.definition,
-			active: ontologyEntityKind.active
+			active: ontologyEntityKind.active,
+			kindType: ontologyEntityKind.kindType
 		})
 		.from(ontologyEntityKind)
 		.where(eq(ontologyEntityKind.userId, userId));
@@ -63,7 +66,8 @@ export async function loadOntologyForUser(db: AppDatabase, userId: string): Prom
 		key: r.key,
 		name: r.name,
 		definition: r.definition,
-		active: r.active
+		active: r.active,
+		kindType: r.kindType ?? 'thought_category'
 	}));
 	const relationKinds: OntologyRelationKindRow[] = relationRows.map((r) => ({
 		id: r.id,
@@ -90,19 +94,36 @@ export async function loadOntologyForUser(db: AppDatabase, userId: string): Prom
 	};
 }
 
-/** Allowed keys for **new** ingest (active catalog entries only). */
+/** Allowed keys for **new** ingest (active thought_category entries only). */
 export function activeEntityKindKeys(loaded: LoadedUserOntology): Set<string> {
-	return new Set(loaded.entityKinds.filter((k) => k.active).map((k) => k.key));
+	return new Set(
+		loaded.entityKinds.filter((k) => k.active && k.kindType === 'thought_category').map((k) => k.key)
+	);
+}
+
+/** Allowed entity type keys for entity extraction (active entity_type entries only). */
+export function activeEntityTypeKindKeys(loaded: LoadedUserOntology): Set<string> {
+	return new Set(
+		loaded.entityKinds.filter((k) => k.active && k.kindType === 'entity_type').map((k) => k.key)
+	);
 }
 
 export function activeRelationKindKeys(loaded: LoadedUserOntology): Set<string> {
 	return new Set(loaded.relationKinds.filter((k) => k.active).map((k) => k.key));
 }
 
+/** Validates that a key is an active **thought_category** kind (used during capture classification). */
 export function validateEntityKindKeyForNewIngest(loaded: LoadedUserOntology, key: string): boolean {
 	const k = key.trim();
 	const row = loaded.entityKindsByKey.get(k);
-	return Boolean(row && row.active);
+	return Boolean(row && row.active && row.kindType === 'thought_category');
+}
+
+/** Validates that a key is an active **entity_type** kind (used during entity extraction). */
+export function validateEntityTypeKeyForExtraction(loaded: LoadedUserOntology, key: string): boolean {
+	const k = key.trim();
+	const row = loaded.entityKindsByKey.get(k);
+	return Boolean(row && row.active && row.kindType === 'entity_type');
 }
 
 export function validateRelationKindForNewIngest(
