@@ -4,6 +4,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import * as Card from '$lib/components/ui/card';
+	import * as Tabs from '$lib/components/ui/tabs';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -16,8 +17,14 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from '$lib/capture/ingest-phases';
 	import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
+	import EmbeddingMap from './EmbeddingMap.svelte';
+	import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	/** Which tab is visible: the FalkorDB force-graph or the UMAP embedding scatter. */
+	let activeTab = $state<'graph' | 'embeddings'>('graph');
+
 	const legendSections = $derived(data.graphLegendSections ?? []);
 	const ontologyEntityKindSelectOptions = $derived.by(() => {
 		const sec = legendSections.find((s) => s.title === 'Your ontology: entity kinds');
@@ -44,6 +51,15 @@
 	let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
 	let scheduleRestorePreEntityZoom: (() => void) | null = null;
 	let selectedNode = $state<(typeof data.snapshot.nodes)[number] | null>(null);
+
+	/** Convert an embedding-map dot click into the same selectedNode shape so the detail panel works for both tabs. */
+	function handleEmbeddingSelect(item: EmbeddingSnapshotItem | null) {
+		if (!item) {
+			selectedNode = null;
+			return;
+		}
+		selectedNode = { id: item.id, kind: item.kind, label: item.label, subtype: item.subtype };
+	}
 
 	type GraphThoughtEditorStored = { id: string; rawText: string; normalizedText: string; category: string };
 	let thoughtEditorLoadSeq = 0;
@@ -875,8 +891,14 @@
 
 <div class="h-screen overflow-hidden">
 	<Card.Root class="mt-4 flex h-[calc(100vh-7.5rem)] flex-col overflow-hidden bg-transparent shadow-none">
+		<Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col overflow-hidden">
 		<Card.Header class="min-w-0 gap-2 pb-2">
 			<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+				<Tabs.List variant="line" class="shrink-0">
+					<Tabs.Trigger value="graph">Graph</Tabs.Trigger>
+					<Tabs.Trigger value="embeddings">Embedding Map</Tabs.Trigger>
+				</Tabs.List>
+				{#if activeTab === 'graph'}
 				<div class="flex shrink-0 items-center gap-1">
 					<Popover.Root bind:open={searchPopoverOpen}>
 						<Popover.Trigger
@@ -961,6 +983,7 @@
 						{form.ontologyMessage}
 					</p>
 				{/if}
+				{/if}
 			</div>
 			<aside
 				class="border-border/80 bg-muted/10 w-full min-w-0 max-w-full rounded-md border px-2 py-1"
@@ -1008,14 +1031,23 @@
 			</aside>
 		</Card.Header>
 		<Card.Content class="flex min-h-0 flex-1 flex-col p-0">
-			<div class="relative min-h-0 w-full flex-1">
-				<div
-					bind:this={rootEl}
-					class="text-foreground h-full min-h-0 w-full"
-					role="img"
-					aria-label="Interactive graph visualization"
-				></div>
-			</div>
+			<Tabs.Content value="graph" class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col">
+				<div class="relative min-h-0 w-full flex-1">
+					<div
+						bind:this={rootEl}
+						class="text-foreground h-full min-h-0 w-full"
+						role="img"
+						aria-label="Interactive graph visualization"
+					></div>
+				</div>
+			</Tabs.Content>
+			<Tabs.Content value="embeddings" class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col">
+				<EmbeddingMap
+					graphLegendSections={data.graphLegendSections ?? []}
+					onSelectItem={handleEmbeddingSelect}
+					selectedItemId={selectedNode?.id ?? null}
+				/>
+			</Tabs.Content>
 			{#if selectedNode}
 			<div
 				class="border-border bg-background/95 shrink-0 border-t px-4 pt-3 pb-4 backdrop-blur-sm"
@@ -1320,6 +1352,7 @@
 				</div>
 			{/if}
 		</Card.Content>
+		</Tabs.Root>
 	</Card.Root>
 </div>
 

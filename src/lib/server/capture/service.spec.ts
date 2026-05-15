@@ -176,7 +176,7 @@ describe('captureThought', () => {
 
 		const phases: string[] = [];
 		await captureThought('u1', 'raw input', {
-			onProgress: (e) => {
+			onProgress: async (e) => {
 				if (e.parallel) phases.push(...e.phases);
 				else phases.push(e.phase);
 			}
@@ -317,7 +317,7 @@ describe('editStoredThought', () => {
 
 		const phases: string[] = [];
 		const result = await editStoredThought('u1', 't1', 'make shorter', {
-			onProgress: (e) => {
+			onProgress: async (e) => {
 				if (e.parallel) phases.push(...e.phases);
 				else phases.push(e.phase);
 			}
@@ -401,7 +401,7 @@ describe('relinkThoughtGraph', () => {
 
 		const phases: string[] = [];
 		await relinkThoughtGraph('u1', 't1', {
-			onProgress: (e) => {
+			onProgress: async (e) => {
 				if (e.parallel) phases.push(...e.phases);
 				else phases.push(e.phase);
 			}

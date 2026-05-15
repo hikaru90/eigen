@@ -70,7 +70,7 @@ export async function enrichThought(
 
 	// Emit a single parallel-group event so the UI shows all four enrichment
 	// phases as a concurrent cluster rather than four instantaneous sequential steps.
-	onProgress?.({ parallel: true, phases: ['relations', 'entities', 'memory_type', 'cues'] });
+	await onProgress?.({ parallel: true, phases: ['relations', 'entities', 'memory_type', 'cues'] });
 
 	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] =
 		await Promise.allSettled([
@@ -142,7 +142,7 @@ export async function enrichThought(
 			await maybeRefreshUserOntology({
 				userId,
 				thoughtCountAfterInsert,
-				onBeforeEval: () => onProgress?.({ parallel: false, phase: 'ontology_eval' })
+				onBeforeEval: async () => { await onProgress?.({ parallel: false, phase: 'ontology_eval' }); }
 			});
 		} catch (err) {
 			console.error('[enrich] ontology refresh failed', {

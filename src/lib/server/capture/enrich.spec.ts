@@ -190,7 +190,7 @@ describe('enrichThought', () => {
 
 		const phases: string[] = [];
 		await enrichThought('u1', 't1', 'hello', {
-			onProgress: (e) => {
+			onProgress: async (e) => {
 				if (e.parallel) phases.push(...e.phases);
 				else phases.push(e.phase);
 			},

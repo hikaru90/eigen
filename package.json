@@ -95,6 +95,7 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"d3": "^7.9.0",
 		"falkordb": "^6.6.2",
+		"umap-js": "^1.4.0",
 		"zod": "^4.4.3"
 	}
 }

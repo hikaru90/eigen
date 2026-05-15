@@ -31,6 +31,7 @@ describe('logActivityCall', () => {
 			userId: 'u1',
 			provider: 'llm',
 			operation: 'embedding',
+			context: null,
 			baseCostUsd: '1.000000',
 			markupUsd: '0.200000',
 			totalCostUsd: '1.200000',

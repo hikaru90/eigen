@@ -84,6 +84,13 @@
 		if (ms < 1000) return `${ms}ms`;
 		return `${(ms / 1000).toFixed(1)}s`;
 	});
+	// Per-step elapsed — how long the active step has been running.
+	const stepElapsed = $derived.by(() => {
+		if (!activeItem) return '';
+		const ms = nowMs - activeItem.arrivedAt;
+		if (ms < 1000) return `${ms}ms`;
+		return `${(ms / 1000).toFixed(1)}s`;
+	});
 </script>
 
 <div class="space-y-3" role="status" aria-live="polite">
@@ -127,7 +134,10 @@
 		<div class="flex items-start gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
 			<LoaderCircleIcon class="size-4 animate-spin text-primary shrink-0 mt-0.5" aria-hidden="true" />
 			<div class="min-w-0 flex-1">
-				<p class="text-sm font-medium text-foreground">{eventLabel(activeItem.event)}</p>
+				<div class="flex items-center justify-between gap-2">
+					<p class="text-sm font-medium text-foreground">{eventLabel(activeItem.event)}</p>
+					<span class="text-xs tabular-nums text-muted-foreground shrink-0">{stepElapsed}</span>
+				</div>
 				{#if !activeItem.event.parallel}
 					<p class="text-muted-foreground text-xs mt-0.5 leading-relaxed">
 						{CAPTURE_INGEST_PHASE_COPY[activeItem.event.phase].description}

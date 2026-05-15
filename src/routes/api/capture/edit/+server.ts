@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { editStoredThought } from '$lib/server/capture/service';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
+import { appSql, appDbAsyncLocal, createScopedDrizzle } from '$lib/server/db';
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -33,27 +34,35 @@ export const POST: RequestHandler = async (event) => {
 		return json({ thought: result.thought });
 	}
 
-	// NDJSON streaming path — same pattern as the submit endpoint.
 	const encoder = new TextEncoder();
-	const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+	const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>(
+		{},
+		{ highWaterMark: 64 }
+	);
 	const writer = writable.getWriter();
 
 	const writeRaw = (payload: unknown) => {
-		void writer.write(encoder.encode(`${JSON.stringify(payload)}\n`));
+		writer.write(encoder.encode(`${JSON.stringify(payload)}\n`)).catch(() => {});
 	};
 
-	const onProgress = (event: CaptureProgressEvent) => {
-		if (event.parallel) {
-			writeRaw({ type: 'progress_parallel', phases: event.phases });
+	const onProgress = async (ev: CaptureProgressEvent) => {
+		if (ev.parallel) {
+			writeRaw({ type: 'progress_parallel', phases: ev.phases });
 		} else {
-			writeRaw({ type: 'progress', phase: event.phase });
+			writeRaw({ type: 'progress', phase: ev.phase });
 		}
 	};
 
 	const editWork = (async () => {
+		let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null;
 		try {
-			const result = await runWithTrace(crypto.randomUUID(), () =>
-				editStoredThought(user.id, thoughtId, editRequest, { onProgress })
+			reserved = await appSql.reserve();
+			await reserved`select set_config('app.current_user_id', ${user.id}, false)`;
+			const scopedDb = createScopedDrizzle(reserved);
+			const result = await appDbAsyncLocal.run(scopedDb, () =>
+				runWithTrace(crypto.randomUUID(), () =>
+					editStoredThought(user.id, thoughtId, editRequest, { onProgress })
+				)
 			);
 			if (!result.ok) {
 				writeRaw({ type: 'error', error: 'Thought not found', details: [] });
@@ -65,15 +74,22 @@ export const POST: RequestHandler = async (event) => {
 			console.error('capture edit failed', { userId: user.id, thoughtId, message });
 			writeRaw({ type: 'error', error: message, details: [] });
 		} finally {
-			await writer.close();
+			if (reserved) {
+				await reserved`select set_config('app.current_user_id', '', false)`.catch(() => {});
+				await reserved.release();
+			}
+			await writer.close().catch(() => {});
 		}
 	})();
 
-	event.request.signal.addEventListener('abort', () => {
-		void writer.abort(new Error('client disconnected'));
+	editWork.catch((err) => {
+		console.error('capture edit: editWork rejected', err);
+		writer.close().catch(() => {});
 	});
 
-	void editWork;
+	event.request.signal.addEventListener('abort', () => {
+		writer.abort(new Error('client disconnected')).catch(() => {});
+	});
 
 	return new Response(readable, {
 		headers: { 'content-type': 'application/x-ndjson; charset=utf-8' }
