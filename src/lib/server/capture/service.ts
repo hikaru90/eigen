@@ -76,58 +76,70 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	emitProgress(onProgress, 'accounting');
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
 
+	// Classify category and embed in parallel — both only need the raw text.
+	// This saves one full LLM round-trip vs the previous sequential approach.
 	emitProgress(onProgress, 'ontology');
-	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = await resolveThoughtCategory({
-		userId,
-		normalized,
-		rawText: rawInput
-	});
+	emitProgress(onProgress, 'embedding');
+	const [categoryResult, embedding] = await Promise.all([
+		resolveThoughtCategory({ userId, normalized, rawText: rawInput }),
+		createThoughtEmbedding(userId, normalized)
+	]);
+	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = categoryResult;
 	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
 
+	// captureSession + dedup check in parallel — session needs category (just resolved),
+	// dedup needs embedding (just resolved). Both are DB-only, no LLM.
 	emitProgress(onProgress, 'session');
-	const [sessionRow] = await getDb()
-		.insert(captureSession)
-		.values({
-			userId,
-			status: 'accepted',
-			rawInput,
-			normalizedPreview: normalized,
-			category,
-			metadataPreview: metadata,
-			revisionCount: 0
-		})
-		.returning();
-
-	emitProgress(onProgress, 'embedding');
-	const embedding = await createThoughtEmbedding(userId, normalized);
-
 	const lexicalText = computeLexicalText(normalized);
+	const vectorLiteral = toPgVectorLiteral(embedding);
 
-	// Pre-persist duplicate detection (non-blocking, non-fatal).
+	const [sessionRows, nearestRow] = await Promise.all([
+		getDb()
+			.insert(captureSession)
+			.values({
+				userId,
+				status: 'accepted',
+				rawInput,
+				normalizedPreview: normalized,
+				category,
+				metadataPreview: metadata,
+				revisionCount: 0
+			})
+			.returning(),
+		// Near-duplicate detection (non-fatal, wrapped so sync throws become rejections)
+		Promise.resolve()
+			.then(() =>
+				getDb()
+					.select({
+						id: thought.id,
+						normalizedText: thought.normalizedText,
+						distance: sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`
+					})
+					.from(thought)
+					.where(and(eq(thought.userId, userId), isNotNull(thought.embedding)))
+					.orderBy(sql`${thought.embedding} <=> ${vectorLiteral}::vector`)
+					.limit(1)
+			)
+			.catch((err: unknown) => {
+				console.warn('[capture.dedup] dedup check failed, proceeding', {
+					message: err instanceof Error ? err.message : String(err)
+				});
+				return [] as Array<{ id: string; normalizedText: string; distance: number }>;
+			})
+	]);
+
+	const sessionRow = sessionRows[0];
+	const nearest = nearestRow[0];
 	let nearDuplicateMeta: { id: string; distance: number; preview: string } | undefined;
-	try {
-		const vectorLiteral = toPgVectorLiteral(embedding);
-		const distanceExpr = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
-		const [nearest] = await getDb()
-			.select({ id: thought.id, normalizedText: thought.normalizedText, distance: distanceExpr })
-			.from(thought)
-			.where(and(eq(thought.userId, userId), isNotNull(thought.embedding)))
-			.orderBy(distanceExpr)
-			.limit(1);
-		if (nearest && typeof nearest.distance === 'number' && nearest.distance < 0.06) {
-			nearDuplicateMeta = {
-				id: nearest.id,
-				distance: nearest.distance,
-				preview: nearest.normalizedText.slice(0, 120)
-			};
-			console.info('[capture.dedup] near-duplicate detected', {
-				existingId: nearest.id,
-				distance: nearest.distance
-			});
-		}
-	} catch (err) {
-		console.warn('[capture.dedup] dedup check failed, proceeding', {
-			message: err instanceof Error ? err.message : String(err)
+	if (nearest && typeof nearest.distance === 'number' && nearest.distance < 0.06) {
+		nearDuplicateMeta = {
+			id: nearest.id,
+			distance: nearest.distance,
+			preview: nearest.normalizedText.slice(0, 120)
+		};
+		console.info('[capture.dedup] near-duplicate detected', {
+			existingId: nearest.id,
+			distance: nearest.distance
 		});
 	}
 

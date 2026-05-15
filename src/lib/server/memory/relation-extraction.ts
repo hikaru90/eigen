@@ -92,12 +92,15 @@ export async function extractRelations(input: {
 	userId: string;
 	thoughtId: string;
 	normalizedText: string;
+	/** Pre-computed embedding — skips re-embedding in searchThoughts when provided. */
+	embedding?: number[];
 }): Promise<ExtractedRelation[]> {
 	// Semantic neighbors (conceptually related)
 	const semanticNeighbors = await searchThoughts({
 		userId: input.userId,
 		query: input.normalizedText,
-		topK: 8
+		topK: 8,
+		queryEmbedding: input.embedding
 	});
 
 	// Temporal neighbors (recently captured — session continuity)

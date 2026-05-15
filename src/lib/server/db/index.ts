@@ -10,13 +10,27 @@ export type { AppDatabase } from './context';
 /**
  * App-facing Postgres pool. Use `getDb()` inside request handlers (RLS session var is set in hooks).
  *
- * `max` must be `1`: Drizzle `db.transaction()` issues `BEGIN` via `client.begin()` / `unsafe('begin')`.
- * postgres.js rejects `BEGIN` on pooled connections when `max > 1` unless the connection is in the
- * internal state produced by `sql.begin()`'s `onexecute` path (`UNSAFE_TRANSACTION`).
- * Per-request RLS uses `reserve()` + a patched `begin` on the reserved handle; keeping `max: 1`
- * matches postgres.js's allowed modes and avoids that failure.
+ * Each request calls `appSql.reserve()` in hooks.server to obtain a dedicated connection for the
+ * lifetime of that request. `attachReservedBeginIfMissing` patches a `begin()` method onto every
+ * reserved handle so that Drizzle `db.transaction()` works correctly (it calls `client.begin()`
+ * internally). This approach is safe with any `max` value — reserved connections are exclusively
+ * held and never shared between concurrent requests.
+ *
+ * Pool size: controlled by `DB_POOL_MAX` env var, defaulting to 10. A capture pipeline holds its
+ * connection for the full request duration (including LLM calls), so you need at least as many
+ * connections as you expect concurrent in-flight captures plus background requests.
  */
-export const appSql = postgres(getRuntimeDatabaseUrl(), { max: 1 });
+function poolMax(): number {
+	const raw = (typeof process !== 'undefined' ? process.env.DB_POOL_MAX : undefined) ?? '';
+	if (!raw.trim()) return 10;
+	const parsed = Number(raw.trim());
+	if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
+		throw new Error(`DB_POOL_MAX must be a positive integer, got: ${raw}`);
+	}
+	return parsed;
+}
+
+export const appSql = postgres(getRuntimeDatabaseUrl(), { max: poolMax(), idle_timeout: 30 });
 
 export async function closeAppDbPool(): Promise<void> {
 	await appSql.end({ timeout: 1 });

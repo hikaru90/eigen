@@ -36,11 +36,24 @@ type ResolvedLlmConfig = {
 };
 
 const routingRuleCache = new Map<string, RoutingConfig>();
-let lastLlmRequestAt = 0;
-// Serializes the spacing *between* request starts only (not the full request duration).
-// Each call acquires a slot (waits for its turn), records the start time, then releases
-// so the next call can immediately begin its own wait calculation.
-let llmRequestQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Per-user rate-limit state. Keyed by userId so that concurrent captures from different users
+ * do not queue behind each other — only a single user's own successive LLM calls are spaced out.
+ * Using a shared global queue previously caused one user's capture to block every other user's
+ * LLM access for the duration of their pipeline.
+ */
+type UserLlmState = { lastRequestAt: number; queue: Promise<void> };
+const userLlmState = new Map<string, UserLlmState>();
+
+function getUserLlmState(userId: string): UserLlmState {
+	let state = userLlmState.get(userId);
+	if (!state) {
+		state = { lastRequestAt: 0, queue: Promise.resolve() };
+		userLlmState.set(userId, state);
+	}
+	return state;
+}
 
 /**
  * Computes base USD from OpenAI-style `usage` using a single token rate (no per-model env table).
@@ -97,11 +110,13 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForLlmRateLimit(): Promise<void> {
+async function waitForLlmRateLimit(userId: string): Promise<void> {
 	const intervalMs = minRequestIntervalMs();
 	if (intervalMs === 0) return;
 
-	// Each call appends a slot to the queue. The slot:
+	const state = getUserLlmState(userId);
+
+	// Each call appends a slot to this user's queue. The slot:
 	//   1. Waits for the previous slot to finish (i.e. previous request started).
 	//   2. Computes how long to wait based on when the last request started.
 	//   3. Sleeps only for that gap.
@@ -110,22 +125,23 @@ async function waitForLlmRateLimit(): Promise<void> {
 	// Crucially the slot resolves *before* the HTTP request completes, so a nested
 	// llmChatCompletion call (e.g. from answer_question inside the agent loop) never
 	// deadlocks waiting on the outer call's in-flight HTTP request.
-	const slot = llmRequestQueue.then(async () => {
+	const slot = state.queue.then(async () => {
 		const now = Date.now();
-		const elapsed = now - lastLlmRequestAt;
+		const elapsed = now - state.lastRequestAt;
 		const waitMs = Math.max(0, intervalMs - elapsed);
 		if (waitMs > 0) {
 			console.info('[llm] rate-limit spacing', {
+				userId,
 				waitMs,
 				intervalMs,
-				hint: 'LLM_MIN_REQUEST_INTERVAL_MS spaces successive gateway calls; capture uses chat then embedding back-to-back.'
+				hint: 'LLM_MIN_REQUEST_INTERVAL_MS spaces successive gateway calls per user; capture uses chat then embedding back-to-back.'
 			});
 			await sleep(waitMs);
 		}
-		lastLlmRequestAt = Date.now();
-		// Slot resolves here — next queued call can now run its spacing check.
+		state.lastRequestAt = Date.now();
+		// Slot resolves here — next queued call for this user can now run its spacing check.
 	});
-	llmRequestQueue = slot;
+	state.queue = slot;
 	await slot;
 }
 
@@ -307,7 +323,7 @@ export async function llmChatCompletion(input: {
 				messageCount: input.messages.length,
 				totalChars: input.messages.reduce((n, m) => n + m.content.length, 0)
 			});
-			await waitForLlmRateLimit();
+			await waitForLlmRateLimit(input.userId);
 			const fetchStart = Date.now();
 			const timeoutMs = requestTimeoutMs();
 			const ac = new AbortController();
@@ -407,7 +423,7 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 		const attemptStart = Date.now();
 		const db = getDb();
 		try {
-			await waitForLlmRateLimit();
+			await waitForLlmRateLimit(input.userId);
 			const embAc = new AbortController();
 			const embTimeoutMs = requestTimeoutMs();
 			const embTimeoutHandle = setTimeout(() => embAc.abort(new Error(`LLM embedding request timed out after ${embTimeoutMs}ms`)), embTimeoutMs);

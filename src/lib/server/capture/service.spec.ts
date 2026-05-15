@@ -187,8 +187,8 @@ describe('captureThought', () => {
 		expect(phases).toEqual([
 			'accounting',
 			'ontology',
+			'embedding',   // now emitted together with ontology (parallel classify+embed)
 			'session',
-			'embedding',
 			'persist',
 			'graph'
 		]);

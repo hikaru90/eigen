@@ -11,16 +11,12 @@
  *   - cue bundle generation
  *   - ontology profile refresh trigger
  *
- * Each step is individually try/caught so a failure in one step does not block
- * the rest. The `enriched_at` timestamp is set only when all steps complete
- * without error. `enrichment_version` is always incremented on entry.
+ * Performance: relations, entities, memory type, and cues all run in parallel
+ * via Promise.allSettled. A pre-computed embedding is threaded through to avoid
+ * re-embedding the same text multiple times.
  *
- * Callers MUST NOT await this in the HTTP request handler — fire and forget:
- *   void enrichThought(userId, thoughtId, normalizedText, embedding)
- *
- * The DB connection used here is obtained from `getDb()` directly (not the
- * request-scoped connection from SvelteKit hooks) so it survives past the
- * request lifecycle.
+ * The `enriched_at` timestamp is set only when all parallel steps succeed.
+ * `enrichment_version` is always incremented on entry.
  */
 
 import { eq, sql } from 'drizzle-orm';
@@ -37,7 +33,7 @@ import { thoughtRelation } from '$lib/server/db/schema';
 
 export type EnrichThoughtOptions = {
 	onProgress?: (phase: CaptureIngestPhase) => void;
-	/** Pre-computed embedding from the fast path — avoids an extra LLM call. */
+	/** Pre-computed embedding from the fast path — avoids re-embedding the same text. */
 	thoughtEmbedding?: number[];
 	thoughtCountAfterInsert?: number;
 };
@@ -69,91 +65,79 @@ export async function enrichThought(
 			thoughtId,
 			message: err instanceof Error ? err.message : String(err)
 		});
-		// Continue — do not abort enrichment just because the version bump failed.
 	}
 
+	// Emit all enrichment progress phases before launching parallel work.
+	onProgress?.('relations');
+	onProgress?.('entities');
+	onProgress?.('memory_type');
+	onProgress?.('cues');
+
+	// Run all four enrichment jobs in parallel. Each is independent: they all
+	// read from normalizedText + thoughtEmbedding with no cross-dependencies.
+	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] =
+		await Promise.allSettled([
+			// ---- Relations -------------------------------------------------------
+			extractRelations({ userId, thoughtId, normalizedText, embedding: thoughtEmbedding })
+				.then(async (relations) => {
+					await db.transaction(async (tx) => {
+						await tx
+							.delete(thoughtRelation)
+							.where(eq(thoughtRelation.sourceThoughtId, thoughtId));
+						if (relations.length > 0) {
+							await tx.insert(thoughtRelation).values(
+								relations.map((r) => ({
+									userId,
+									sourceThoughtId: thoughtId,
+									targetThoughtId: r.targetId,
+									relationType: r.relationType
+								}))
+							);
+						}
+					});
+					for (const r of relations) {
+						await upsertThoughtRelation({
+							userId,
+							sourceId: thoughtId,
+							targetId: r.targetId,
+							relationType: r.relationType
+						});
+					}
+				}),
+
+			// ---- Entities --------------------------------------------------------
+			syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding }),
+
+			// ---- Memory type -----------------------------------------------------
+			classifyMemoryType({ userId, normalizedText }).then(async (memoryType) => {
+				await db.update(thought).set({ memoryType }).where(eq(thought.id, thoughtId));
+			}),
+
+			// ---- Cues ------------------------------------------------------------
+			extractCues({ userId, normalizedText }).then(async (cues) => {
+				if (cues.length > 0) {
+					await db.update(thought).set({ cues }).where(eq(thought.id, thoughtId));
+				}
+			})
+		]);
+
+	// Log failures individually so one bad step doesn't hide others.
+	const stepNames = ['relations', 'entities', 'memory_type', 'cues'] as const;
+	const results = [relationsResult, entitiesResult, memoryTypeResult, cuesResult];
 	let allOk = true;
 
-	// ---- Relations -----------------------------------------------------------
-	try {
-		onProgress?.('relations');
-		const relations = await extractRelations({ userId, thoughtId, normalizedText });
-		await db.transaction(async (tx) => {
-			await tx.delete(thoughtRelation).where(eq(thoughtRelation.sourceThoughtId, thoughtId));
-			if (relations.length > 0) {
-				await tx.insert(thoughtRelation).values(
-					relations.map((r) => ({
-						userId,
-						sourceThoughtId: thoughtId,
-						targetThoughtId: r.targetId,
-						relationType: r.relationType
-					}))
-				);
-			}
-		});
-		for (const r of relations) {
-			await upsertThoughtRelation({
-				userId,
-				sourceId: thoughtId,
-				targetId: r.targetId,
-				relationType: r.relationType
+	for (let i = 0; i < results.length; i++) {
+		const r = results[i];
+		if (r.status === 'rejected') {
+			allOk = false;
+			console.error(`[enrich] ${stepNames[i]} step failed`, {
+				thoughtId,
+				message: r.reason instanceof Error ? r.reason.message : String(r.reason)
 			});
 		}
-	} catch (err) {
-		allOk = false;
-		console.error('[enrich] relation extraction failed', {
-			thoughtId,
-			message: err instanceof Error ? err.message : String(err)
-		});
 	}
 
-	// ---- Entities ------------------------------------------------------------
-	try {
-		onProgress?.('entities');
-		await syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding });
-	} catch (err) {
-		allOk = false;
-		console.error('[enrich] entity graph sync failed', {
-			thoughtId,
-			message: err instanceof Error ? err.message : String(err)
-		});
-	}
-
-	// ---- Memory type ---------------------------------------------------------
-	try {
-		onProgress?.('memory_type');
-		const memoryType = await classifyMemoryType({ userId, normalizedText });
-		await db
-			.update(thought)
-			.set({ memoryType })
-			.where(eq(thought.id, thoughtId));
-	} catch (err) {
-		allOk = false;
-		console.error('[enrich] memory type classification failed', {
-			thoughtId,
-			message: err instanceof Error ? err.message : String(err)
-		});
-	}
-
-	// ---- Cues ----------------------------------------------------------------
-	try {
-		onProgress?.('cues');
-		const cues = await extractCues({ userId, normalizedText });
-		if (cues.length > 0) {
-			await db
-				.update(thought)
-				.set({ cues })
-				.where(eq(thought.id, thoughtId));
-		}
-	} catch (err) {
-		allOk = false;
-		console.error('[enrich] cue extraction failed', {
-			thoughtId,
-			message: err instanceof Error ? err.message : String(err)
-		});
-	}
-
-	// ---- Ontology eval -------------------------------------------------------
+	// ---- Ontology eval (sequential — depends on thought count) ---------------
 	if (thoughtCountAfterInsert !== undefined) {
 		try {
 			await maybeRefreshUserOntology({
@@ -162,7 +146,6 @@ export async function enrichThought(
 				onBeforeEval: () => onProgress?.('ontology_eval')
 			});
 		} catch (err) {
-			// Non-fatal: ontology refresh failure never blocks the thought.
 			console.error('[enrich] ontology refresh failed', {
 				thoughtId,
 				message: err instanceof Error ? err.message : String(err)

@@ -100,19 +100,24 @@ function toVectorLiteral(vector: number[]): string {
  * `weights = {vector: 0, graph: 1}` therefore yields graph-only behavior, and
  * `{vector: 1, graph: 0}` yields the semantic (vector + lexical) channel only,
  * matching the eval harness's preset semantics.
+ *
+ * Pass `queryEmbedding` to skip the embedding LLM call (e.g. when the caller
+ * already embedded the same text earlier in the pipeline).
  */
 export async function searchThoughts(params: {
 	userId: string;
 	query: string;
 	topK?: number;
 	weights?: RetrievalWeights;
+	/** Pre-computed embedding for `query`. Skips the embedding LLM call when provided. */
+	queryEmbedding?: number[];
 }): Promise<RetrievalResult[]> {
 	const topK = params.topK ?? 20;
 	const limit = Math.max(1, Math.min(topK, 100));
 	const weights: RetrievalWeights = params.weights ?? CONTEXT_WEIGHTS.default;
 	const candidateLimit = Math.max(limit * 2, 20);
 
-	const queryEmbedding = await createThoughtEmbedding(params.userId, params.query);
+	const queryEmbedding = params.queryEmbedding ?? await createThoughtEmbedding(params.userId, params.query);
 	const vectorLiteral = toVectorLiteral(queryEmbedding);
 	const vectorDistance = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
 
