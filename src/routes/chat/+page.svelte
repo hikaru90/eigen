@@ -138,7 +138,6 @@
             }];
           }
           if (v === 'tool_result') {
-            // Re-render tool_result content the same way as during streaming.
             let displayText = '';
             try {
               const parsed = JSON.parse(m.content);
@@ -156,11 +155,10 @@
             return [{
               role: 'assistant' as const,
               variant: 'tool_result' as const,
-              content: `📎 **Retrieved from your memories:**\n${displayText}`
+              content: `Retrieved from memory:\n${displayText}`
             }];
           }
         }
-        // Default: plain assistant text message.
         return [{ role: 'assistant' as const, variant: 'text' as const, content: m.content }];
       });
     } catch {
@@ -280,7 +278,7 @@
             messages.push({
               role: 'assistant',
               variant: 'tool_result',
-              content: `📎 **Retrieved from your memories:**\n${displayText}`
+              content: `Retrieved from memory:\n${displayText}`
             });
           } else if (event.type === 'done') {
             streamEventsReceived = true;
@@ -368,81 +366,82 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-60 bg-black/30"
+    class="fixed inset-0 z-60 bg-[#191414]/20"
     onclick={() => ($chatSidebarOpen = false)}
   ></div>
 {/if}
 
 <!-- sidebar panel -->
 <div
-  class="fixed left-0 top-0 z-60 flex h-full w-72 flex-col bg-background pt-safe shadow-lg transition-transform duration-200 {$chatSidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
+  class="fixed left-0 top-0 z-60 flex h-full w-64 flex-col bg-[#F6F0E6] pt-safe border-r border-[#C3C3B6]/60 transition-transform duration-200 {$chatSidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
   role="dialog"
   aria-label="Chat sessions"
 >
-    <div class="flex items-center justify-between px-4 py-3">
-      <h2 class="text-sm font-semibold">Chat History</h2>
-      <button
-        class="text-muted-foreground hover:text-foreground rounded-md p-1"
-        onclick={() => ($chatSidebarOpen = false)}
-        aria-label="Close sidebar"
-      >
-        <X class="size-4" strokeWidth={1.75} />
-      </button>
-    </div>
-
-    <div class="px-3 pb-2">
-      <Button size="sm" variant="outline" class="w-full justify-start gap-2 text-xs" onclick={newSession}>
-        <Plus class="size-3.5" strokeWidth={1.75} />
-        New chat
-      </Button>
-    </div>
-
-    <Separator />
-
-    <div class="flex-1 overflow-y-auto px-2 py-2">
-      {#if sessions.length === 0}
-        <p class="text-muted-foreground px-2 py-8 text-center text-xs">No conversations yet</p>
-      {/if}
-      {#each sessions as s (s.id)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="hover:bg-muted/50 group flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left {s.id === activeSessionId ? 'bg-muted' : ''}"
-          onclick={() => selectSession(s.id)}
-        >
-          <MessageSquareText class="mt-0.5 size-3.5 shrink-0 opacity-60" strokeWidth={1.5} />
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm">{s.title || 'Untitled'}</p>
-            <p class="text-muted-foreground mt-0.5 text-xs">{formatDate(s.updatedAt)}</p>
-          </div>
-          <button
-            class="invisible group-hover:visible text-muted-foreground hover:text-destructive shrink-0 rounded p-0.5"
-            onclick={(e) => deleteSession(s.id, e)}
-            aria-label="Delete session"
-          >
-            <Trash2 class="size-3" strokeWidth={1.5} />
-          </button>
-        </div>
-      {/each}
-    </div>
+  <div class="flex items-center justify-between px-4 py-3">
+    <span class="text-xs font-medium tracking-widest uppercase text-[#808064]">History</span>
+    <button
+      class="text-[#808064] hover:text-[#191414] rounded p-1 transition-colors"
+      onclick={() => ($chatSidebarOpen = false)}
+      aria-label="Close sidebar"
+    >
+      <X class="size-3.5" strokeWidth={1.5} />
+    </button>
   </div>
+
+  <div class="px-3 pb-3">
+    <button
+      class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-[#191414] hover:bg-[#C3C3B6]/30 transition-colors border border-[#C3C3B6]/60"
+      onclick={newSession}
+    >
+      <Plus class="size-3" strokeWidth={1.75} />
+      New chat
+    </button>
+  </div>
+
+  <div class="mx-3 h-px bg-[#C3C3B6]/50"></div>
+
+  <div class="flex-1 overflow-y-auto px-2 py-2">
+    {#if sessions.length === 0}
+      <p class="text-[#808064] px-2 py-8 text-center text-xs">No conversations yet</p>
+    {/if}
+    {#each sessions as s (s.id)}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="group flex w-full items-start gap-2 rounded px-2.5 py-2 text-left cursor-pointer transition-colors {s.id === activeSessionId ? 'bg-[#C3C3B6]/40' : 'hover:bg-[#C3C3B6]/20'}"
+        onclick={() => selectSession(s.id)}
+      >
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-xs text-[#191414] leading-snug">{s.title || 'Untitled'}</p>
+          <p class="text-[#808064] mt-0.5 text-[10px]">{formatDate(s.updatedAt)}</p>
+        </div>
+        <button
+          class="invisible group-hover:visible text-[#808064] hover:text-[#FF4632] shrink-0 rounded p-0.5 transition-colors"
+          onclick={(e) => deleteSession(s.id, e)}
+          aria-label="Delete session"
+        >
+          <Trash2 class="size-3" strokeWidth={1.5} />
+        </button>
+      </div>
+    {/each}
+  </div>
+</div>
 
 <div class="relative mx-auto flex max-w-2xl flex-col px-4 pt-4">
   <!-- messages area -->
   <div
     bind:this={chatEl}
-    class="flex min-h-dvh flex-auto flex-col gap-3 px-1 pb-52"
+    class="flex min-h-dvh flex-auto flex-col gap-1 px-1 pb-52"
     role="log"
     aria-label="Chat messages"
   >
     {#if loadingSession}
       <div class="flex flex-1 items-center justify-center">
-        <LoaderCircleIcon class="text-muted-foreground size-5 animate-spin" />
+        <LoaderCircleIcon class="text-[#C3C3B6] size-4 animate-spin" />
       </div>
     {:else if messages.length === 0 && !loading}
-      <div class="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <Bot class="text-muted-foreground size-8" strokeWidth={1.5} />
-        <p class="text-muted-foreground max-w-xs text-sm">
+      <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p class="text-[#C3C3B6] max-w-xs text-sm tracking-wide">
           Ask me anything about your thoughts, or tell me to remember something new.
         </p>
       </div>
@@ -450,108 +449,81 @@
 
     {#each messages as msg, i (i)}
       {#if msg.role === 'user'}
-        <div class="group flex flex-row-reverse items-start gap-2">
-          <div
-            class="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
-          >
-            <User class="size-3.5" strokeWidth={2} />
-          </div>
-          <div class="flex flex-col items-end gap-0.5">
-            <div
-              class="max-w-[80%] rounded-xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap bg-primary text-primary-foreground"
-            >
+        <!-- User message: right-aligned, Klein Blue bg, clean pill -->
+        <div class="group flex flex-row-reverse items-end gap-3 py-0.5">
+          <div class="flex flex-col items-end gap-1 max-w-[72%]">
+            <div class="rounded-[16px] rounded-br-none bg-[#191414] px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap text-white">
               {msg.content}
             </div>
             <button
-              class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 -mr-0.5"
+              class="text-[#C3C3B6] hover:text-[#808064] opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
               onclick={() => resend(msg.content)}
               aria-label="Send again"
             >
-              <Redo2 class="size-3" strokeWidth={1.75} />
+              <Redo2 class="size-3" strokeWidth={1.5} />
             </button>
           </div>
         </div>
+
       {:else if msg.variant === 'thinking'}
-        <div class="flex flex-row items-start gap-2">
-          <div
-            class="bg-muted text-muted-foreground mt-1 flex size-7 shrink-0 items-center justify-center rounded-full"
-          >
-            <Bot class="size-3.5" strokeWidth={2} />
-          </div>
-          <details class="max-w-[80%] group">
-            <summary
-              class="text-muted-foreground cursor-pointer select-none rounded-xl border-l-2 border-muted-foreground/25 bg-muted/40 px-3.5 py-2 text-sm italic leading-relaxed list-none"
-            >
+        <!-- Thinking: very reduced, borderless, italic inline label -->
+        <div class="py-0.5">
+          <details class="group/think">
+            <summary class="cursor-pointer select-none list-none text-xs text-[#808064] italic leading-relaxed py-1 flex items-center gap-1.5 w-fit">
+              <span class="inline-block size-1 rounded-full bg-[#9BF0E1] shrink-0"></span>
+              Thinking
               {#if msg.content}
-                Thinking… <span class="text-xs not-italic opacity-60 group-open:hidden">(expand)</span>
-              {:else}
-                Thinking…
+                <span class="text-[10px] not-italic opacity-50 group-open/think:hidden">(expand)</span>
               {/if}
             </summary>
             {#if msg.content}
-              <div
-                class="text-muted-foreground mt-1 rounded-xl border-l-2 border-muted-foreground/25 bg-muted/40 px-3.5 py-2 text-xs leading-relaxed whitespace-pre-wrap"
-              >
+              <div class="mt-1 ml-3.5 text-xs text-[#808064] leading-relaxed whitespace-pre-wrap border-l border-[#C3C3B6]/60 pl-3 py-0.5">
                 {msg.content}
               </div>
             {/if}
           </details>
         </div>
+
       {:else if msg.variant === 'tool_call'}
-        <div class="flex flex-row items-start gap-2">
-          <div
-            class="bg-muted text-muted-foreground mt-1 flex size-7 shrink-0 items-center justify-center rounded-full"
-          >
+        <!-- Tool call: compact inline label, no heavy bubble -->
+        <div class="py-0.5">
+          <div class="flex items-center gap-2 text-xs text-[#808064] py-0.5">
+            <span class="inline-block size-1 rounded-full bg-[#C3C3B6] shrink-0"></span>
             {#if toolIcon(msg.tool) === 'search'}
-              <Search class="size-3.5" strokeWidth={2} />
+              <Search class="size-3 shrink-0" strokeWidth={1.5} />
             {:else if toolIcon(msg.tool) === 'sparkles'}
-              <Sparkles class="size-3.5" strokeWidth={2} />
+              <Sparkles class="size-3 shrink-0" strokeWidth={1.5} />
             {:else if toolIcon(msg.tool) === 'pencil'}
-              <PencilLine class="size-3.5" strokeWidth={2} />
+              <PencilLine class="size-3 shrink-0" strokeWidth={1.5} />
             {:else}
-              <Bot class="size-3.5" strokeWidth={2} />
+              <Bot class="size-3 shrink-0" strokeWidth={1.5} />
             {/if}
-          </div>
-          <div class="bg-muted min-w-0 max-w-[min(100%,28rem)] rounded-xl px-3.5 py-2 text-sm leading-relaxed">
-            <p class="text-foreground font-medium">{toolLabel(msg.tool)}</p>
-            <pre
-              class="text-muted-foreground mt-1 max-h-40 overflow-auto rounded-md bg-background/80 p-2 font-mono text-xs leading-snug whitespace-pre-wrap">{toolArgumentsPreview(
-                msg.arguments
-              )}</pre>
+            <span class="tracking-wide">{toolLabel(msg.tool)}</span>
           </div>
         </div>
+
       {:else if msg.variant === 'tool_result'}
-        <div class="group flex flex-row items-start gap-2">
-          <div
-            class="bg-muted text-muted-foreground mt-1 flex size-7 shrink-0 items-center justify-center rounded-full"
-          >
-            <Sparkles class="size-3.5" strokeWidth={2} />
-          </div>
-          <div
-            class="max-w-[80%] rounded-xl border border-border/60 bg-muted px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap text-foreground"
-          >
-            {msg.content}
+        <!-- Tool result: borderless, muted, small — contextual, not primary -->
+        <div class="group py-0.5">
+          <div class="ml-3.5 border-l border-[#C3C3B6]/60 pl-3 py-0.5">
+            <p class="text-[10px] uppercase tracking-widest text-[#808064] mb-1">Memory</p>
+            <p class="text-xs text-[#808064] leading-relaxed whitespace-pre-wrap">{msg.content.replace(/^Retrieved from memory:\n/, '')}</p>
           </div>
         </div>
+
       {:else}
-        <div class="group flex flex-row items-start gap-2">
-          <div
-            class="bg-muted text-muted-foreground mt-1 flex size-7 shrink-0 items-center justify-center rounded-full"
-          >
-            <Bot class="size-3.5" strokeWidth={2} />
-          </div>
-          <div class="flex flex-col items-start gap-0.5">
-            <div
-              class="max-w-[80%] rounded-xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap bg-muted text-foreground"
-            >
+        <!-- Assistant text: no bubble, plain text with subtle left gutter -->
+        <div class="group flex flex-row items-start gap-0 py-1">
+          <div class="flex flex-col items-start gap-1 max-w-[82%]">
+            <div class="text-sm leading-relaxed whitespace-pre-wrap text-[#191414]">
               {msg.content}
             </div>
             <button
-              class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 -ml-0.5"
+              class="text-[#C3C3B6] hover:text-[#808064] opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
               onclick={() => regenerate(i)}
               aria-label="Regenerate answer"
             >
-              <RefreshCw class="size-3" strokeWidth={1.75} />
+              <RefreshCw class="size-3" strokeWidth={1.5} />
             </button>
           </div>
         </div>
@@ -559,12 +531,9 @@
     {/each}
 
     {#if loading && !streamEventsReceived}
-      <div class="flex flex-row items-start gap-2">
-        <div class="bg-muted text-muted-foreground mt-1 flex size-7 shrink-0 items-center justify-center rounded-full">
-          <Bot class="size-3.5" strokeWidth={2} />
-        </div>
-        <div class="bg-muted text-muted-foreground rounded-xl px-3.5 py-2 text-sm">
-          <LoaderCircleIcon class="size-4 animate-spin" />
+      <div class="py-1">
+        <div class="flex items-center gap-1.5 text-xs text-[#C3C3B6]">
+          <LoaderCircleIcon class="size-3.5 animate-spin" />
         </div>
       </div>
     {/if}
@@ -573,28 +542,28 @@
   <!-- input area -->
   <div class="fixed bottom-24 left-1/2 z-50 w-full max-w-2xl -translate-x-1/2 px-4">
     <Card.Root class="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] p-[2px] gap-[6px] items-start overflow-visible">
-    <Card.Content class="p-0 w-full">
-      <Textarea
-        bind:value={input}
-        onkeydown={handleKeydown}
-        placeholder="Ask about your memories..."
-        class="border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none"
-        disabled={loading || loadingSession}
-      />
-    </Card.Content>
-    <Card.Footer class="bg-[#FAFAFA] p-4 flex flex-row items-center justify-end w-full">
-      <Button
-        onclick={loading ? stop : send}
-        disabled={!loading && (loadingSession || !input.trim())}
-        class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
-      >
-        {#if loading}
-          <Square class="size-4 shrink-0" strokeWidth={1.75} />
-        {:else}
-          <SendHorizontal class="size-4 shrink-0" strokeWidth={1.75} />
-        {/if}
-      </Button>
-    </Card.Footer>
-  </Card.Root>
+      <Card.Content class="p-0 w-full">
+        <Textarea
+          bind:value={input}
+          onkeydown={handleKeydown}
+          placeholder="Ask about your memories..."
+          class="border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-[#191414] placeholder:text-[#C3C3B6]"
+          disabled={loading || loadingSession}
+        />
+      </Card.Content>
+      <Card.Footer class="bg-[#FAFAFA] p-4 flex flex-row items-center justify-end w-full">
+        <Button
+          onclick={loading ? stop : send}
+          disabled={!loading && (loadingSession || !input.trim())}
+          class="bg-black text-white rounded-none px-[22px] py-[12px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
+        >
+          {#if loading}
+            <Square class="size-4 shrink-0" strokeWidth={1.75} />
+          {:else}
+            <SendHorizontal class="size-4 shrink-0" strokeWidth={1.75} />
+          {/if}
+        </Button>
+      </Card.Footer>
+    </Card.Root>
   </div>
 </div>

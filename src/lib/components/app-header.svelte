@@ -15,6 +15,12 @@
   const isChatRoute = $derived(page.route.id === "/chat");
 
   let menuOpen = $state(false);
+
+  $effect(() => {
+    // Close the popover on any client-side navigation.
+    page.url.pathname;
+    menuOpen = false;
+  });
   const user = $derived(
     (page.data as { user?: { email?: string | null; name?: string | null } }).user ?? null,
   );
