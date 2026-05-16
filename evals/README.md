@@ -12,10 +12,42 @@ Designed to be promotable to nightly/PR-gating later without rewrites.
    the current `0.7/0.3` default is justified.
 
 2. **Answer quality** — wraps `composeAnswer` (server-side RAG path) and judges
-   each generated answer on three criteria:
-   - faithfulness (1..5)
-   - relevance (1..5)
-   - usefulness (1..5)
+   each generated answer on the **golden baseline 4-axis rubric**:
+
+   | Axis | Weight | What it measures |
+   |------|--------|-----------------|
+   | accuracy | 40% | Every factual claim is grounded in the retrieved thoughts and is correct |
+   | calibration | 25% | Confidence is appropriately expressed; the system knows what it doesn't know; stale facts are flagged; contradictions are surfaced |
+   | completeness | 20% | All relevant stored information is surfaced; nothing important is omitted |
+   | tone | 15% | Response is framed usefully — not intrusive, clinical, or preachy |
+
+   Weighted final score = `accuracy×0.40 + calibration×0.25 + completeness×0.20 + tone×0.15`
+
+   Score scale (1–5):
+   - **5 Excellent** — exceeds expectation, handles edge cases gracefully
+   - **4 Pass+** — solid pass, minor gaps only
+   - **3 Pass** — meets the expected behaviour
+   - **2 Partial** — correct intent but meaningfully incomplete or miscalibrated
+   - **1 Fail** — wrong, confabulated, misleading, or missing entirely
+
+## Capability dimensions
+
+Answer cases are tagged with a dimension from the golden baseline eval framework.
+Each dimension has a minimum weighted pass threshold:
+
+| Dimension | Tag | Min score |
+|-----------|-----|-----------|
+| Faithful Recall | `faithful_recall` | 4.0 |
+| Temporal Reasoning | `temporal_reasoning` | 3.5 |
+| Synthesis & Connection | `synthesis` | 3.2 |
+| Personalization | `personalization` | 3.2 |
+| Contextual Relevance | `contextual_relevance` | 3.5 |
+| Graceful Uncertainty | `graceful_uncertainty` | 4.0 |
+| Contradiction Detection | `contradiction_detection` | 3.5 |
+| Proactive Recall | `proactive_recall` | 2.75 |
+| Privacy & Scoping | `privacy_scoping` | 4.3 |
+| Memory Decay & Staleness | `memory_decay` | 3.5 |
+| General (untagged) | `default` | 3.0 |
 
 ## Layout
 
@@ -23,17 +55,25 @@ Designed to be promotable to nightly/PR-gating later without rewrites.
 evals/
   datasets/
     retrieval/
-      corpus.yaml            # ~75 thoughts in 6 named-entity clusters
+      corpus.yaml            # ~100 thoughts in 10 named-entity clusters
       relations.yaml         # ~60 graph edges (required for graph signal)
       queries.yaml           # 30 queries: semantic_paraphrase / entity_relation / hybrid
       embeddings.cache.json  # gitignored; populated on first seed
     answer/
-      qa-cases.yaml          # ~25 cases reusing the retrieval corpus
+      qa-cases.yaml          # 48 cases across 10 capability dimensions
+    agent/
+      thoughts-10.yaml       # 10 thoughts for agent-ingest eval
+      probes.yaml            # retrieval + QA probes for agent eval
+  golden/
+    dataset.yaml             # 10 human-labeled golden thoughts (entity/relation ground truth)
+    README.md                # Golden dataset documentation
   harness/
-    seed-fixtures.ts         # idempotent DB seed for retrieval fixtures
+    seed-fixtures.ts         # idempotent DB seed for retrieval fixtures (respects created_at)
     retrieval-eval.ts        # weight-sweep ablation runner
-    answer-eval.ts           # composeAnswer + judge runner
-    judge.ts                 # LLM-as-judge wrapper (temp 0, structured JSON)
+    answer-eval.ts           # composeAnswer + 4-axis judge runner
+    agent-ingest-eval.ts     # end-to-end ingest + retrieval + answer eval
+    judge.ts                 # LLM-as-judge wrapper (4-axis rubric, temp 0, structured JSON)
+    judge-rubric.ts          # dimension → pass threshold map
     metrics.ts + .spec.ts    # pure NDCG/Recall/MRR
     dataset.ts               # YAML loaders
     eval-context.ts          # RLS-aware async-local DB context
@@ -58,7 +98,7 @@ evals/
 ```bash
 npm run eval:seed         # idempotent: seeds eval-runner-retrieval user + thoughts + relations
 npm run eval:retrieval    # weight sweep + report
-npm run eval:answer       # composeAnswer + judge + report
+npm run eval:answer       # composeAnswer + 4-axis judge + report
 npm run eval:all          # all of the above
 ```
 
@@ -70,6 +110,37 @@ npm run eval:baseline retrieval   # copies retrieval-latest.json -> baselines/re
 npm run eval:baseline answer
 npm run eval:baseline both
 ```
+
+## Corpus clusters
+
+| Cluster | Topics | Key entities | Eval dimensions |
+|---------|--------|-------------|-----------------|
+| A | Sourdough / cooking | Marcus, Tartine | D1, D5 |
+| B | Eigen engineering | Sarah | D1, D3 |
+| C | Strength training | Diego | D1, D3 |
+| D | Climbing / outdoors | Tom | D1, D3 |
+| E | Books and ideas | Priya | D1, D3 |
+| F | Finance and admin | — | D1, D6 |
+| G | Temporal sequence | — | **D2 (temporal reasoning)** |
+| H | Contradiction pairs | — | **D7 (contradiction detection)** |
+| I | Staleness / decay | — | **D10 (memory decay)** |
+| J | Personalization signals | — | **D4 (personalization)** |
+
+## What compose-answer now does
+
+Beyond basic RAG, `composeAnswer` adds:
+
+- **Timestamp surfacing** — each retrieved thought's `created_at` date is shown in the
+  prompt so the LLM can reason about recency and sequence.
+- **Staleness annotation** — thoughts older than 6 months are flagged with a `⚠ STALE`
+  marker and a hard rule instructs the LLM to present them with explicit date context
+  rather than asserting them as currently true.
+- **Contradiction detection** — a post-retrieval pass groups thoughts by subject and
+  detects opposing polarity, location changes, and other conflict signals. Detected
+  pairs are injected as a `Detected potential contradictions` section in the prompt,
+  which the LLM must surface rather than silently picking one side.
+
+These features feed the D2, D7, and D10 eval dimensions directly.
 
 ## Failure semantics
 
@@ -86,9 +157,9 @@ The harness honors the project's no-fallback guardrails:
 
 ## Extending
 
-- New retrieval queries: add to `queries.yaml` with graded relevance labels.
-- New answer cases: add to `qa-cases.yaml`. Each case needs an `id`,
-  `question`, and `expected_facts` list.
-- Pure-graph-only retrieval arm (entity-extraction-driven seeding) is
-  intentionally out of scope; the weight sweep at `0.0/1.0` zero-weights the
-  vector score but still uses vector seeding from `searchThoughts`.
+- **New retrieval queries**: add to `queries.yaml` with graded relevance labels.
+- **New answer cases**: add to `qa-cases.yaml` with `id`, `question`, `expected_facts`,
+  and a `dimension` tag (see dimension table above).
+- **New corpus thoughts**: add to `corpus.yaml`. Add an optional `created_at` (ISO-8601)
+  field to set a deterministic DB timestamp for temporal eval cases.
+- **New dimension thresholds**: edit `evals/harness/judge-rubric.ts`.

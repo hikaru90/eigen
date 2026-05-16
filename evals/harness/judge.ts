@@ -1,10 +1,22 @@
 /**
  * LLM-as-judge for answer-quality evals.
  *
- * Single multi-criteria call per case:
- *   - faithfulness  (1..5): every claim is grounded in the provided thoughts
- *   - relevance     (1..5): answer addresses the question
- *   - usefulness    (1..5): would meaningfully help a user with this question
+ * Four-axis rubric (from the golden baseline eval framework):
+ *
+ *   accuracy     (1..5, weight 0.40): Are retrieved/synthesized facts correct?
+ *   calibration  (1..5, weight 0.25): Is confidence appropriately expressed?
+ *                                     Does the system know what it doesn't know?
+ *   completeness (1..5, weight 0.20): Is all relevant stored information surfaced?
+ *   tone         (1..5, weight 0.15): Is the response framed usefully, not
+ *                                     intrusively or clinically?
+ *
+ * Weighted final score = accuracy*0.40 + calibration*0.25 + completeness*0.20 + tone*0.15
+ * Score label mapping (0–3 document rubric → 1–5 internal scale):
+ *   5 = Excellent (3): exceeds expectation, handles edge cases gracefully
+ *   4 = Pass+    (2.5): solid pass, minor gaps only
+ *   3 = Pass     (2):  meets the behaviour described in the golden standard
+ *   2 = Partial  (1):  correct intent but meaningfully incomplete or miscalibrated
+ *   1 = Fail     (0):  wrong, confabulated, misleading, or missing entirely
  *
  * Uses temperature 0 and a strict JSON output contract for determinism.
  * Inherits the 3-retry no-fallback semantics of `llmChatCompletion`.
@@ -21,49 +33,94 @@ export type JudgeCriterionScore = {
 };
 
 export type JudgeVerdict = {
-	faithfulness: JudgeCriterionScore;
-	relevance: JudgeCriterionScore;
-	usefulness: JudgeCriterionScore;
+	accuracy: JudgeCriterionScore;
+	calibration: JudgeCriterionScore;
+	completeness: JudgeCriterionScore;
+	tone: JudgeCriterionScore;
+	/** Weighted composite: accuracy*0.40 + calibration*0.25 + completeness*0.20 + tone*0.15 */
+	weightedScore: number;
 };
 
 export type JudgeInput = {
 	question: string;
 	answer: string;
 	citations: string[];
-	thoughts: Array<{ id: string; normalizedText: string }>;
+	thoughts: Array<{ id: string; normalizedText: string; createdAt?: Date }>;
+	/** Optional dimension name for context — included in judge prompt if provided. */
+	dimension?: string;
 };
 
+const WEIGHTS = {
+	accuracy: 0.4,
+	calibration: 0.25,
+	completeness: 0.2,
+	tone: 0.15
+} as const;
+
 const SYSTEM_PROMPT = [
-	'You are an expert evaluator judging the quality of grounded RAG answers.',
+	'You are an expert evaluator judging the quality of a second-brain memory system answer.',
 	'You will be given:',
-	'  - a user question',
+	'  - the user question',
 	'  - the candidate answer',
-	'  - the thoughts that were retrieved as context (with stable ids)',
+	'  - the thoughts that were retrieved as context (with stable ids and optional timestamps)',
 	'  - the ids the answer cites',
 	'',
-	'Score the answer on three criteria using whole integers 1..5:',
-	'  faithfulness  -- every factual claim is supported by the provided thoughts (5 = fully grounded; 1 = mostly hallucinated)',
-	'  relevance     -- the answer addresses the asked question (5 = directly on point; 1 = off-topic)',
-	'  usefulness    -- the answer is actually helpful to a user with this question (5 = very helpful; 1 = useless)',
+	'Score the answer on FOUR criteria using whole integers 1..5:',
+	'',
+	'  accuracy     -- every factual claim is supported by the provided thoughts and is correct',
+	'                  5 = fully grounded and accurate; 1 = mostly hallucinated or wrong',
+	'',
+	'  calibration  -- confidence is appropriately expressed; the system knows what it does and',
+	'                  does not know; contradictions are surfaced when present; stale facts are',
+	'                  flagged rather than asserted as current',
+	'                  5 = perfectly calibrated; 1 = wildly over-confident or refuses to engage',
+	'',
+	'  completeness -- all relevant stored information is surfaced; nothing important is omitted',
+	'                  5 = complete; 1 = critically incomplete',
+	'',
+	'  tone         -- the response is framed usefully; not intrusive, not clinical, not preachy',
+	'                  5 = ideal framing; 1 = unhelpful or inappropriate framing',
+	'',
+	'Score label reference (for your own guidance, not output):',
+	'  5 = Excellent: exceeds expectation, handles edge cases gracefully',
+	'  4 = Pass+:     solid pass, only minor gaps',
+	'  3 = Pass:      meets the expected behaviour',
+	'  2 = Partial:   correct intent but meaningfully incomplete or miscalibrated',
+	'  1 = Fail:      wrong, confabulated, misleading, or missing entirely',
+	'',
+	'ANTI-PATTERNS that must cause a score of 1 on the relevant axis:',
+	'  - Confabulation: presenting inferred content as stored memory (accuracy=1)',
+	'  - Stale-fact assertion: claiming an old memory is current without a staleness flag (calibration=1)',
+	'  - Silent disambiguation: picking among ambiguous options without disclosing it (calibration=1)',
+	'  - False certainty about feelings/internal states from limited evidence (calibration=1)',
+	'  - Forgetting an explicit deletion request if one is mentioned (accuracy=1)',
+	'  - Scope leakage: answering from outside a stated scoped context (accuracy=1)',
 	'',
 	'Return strictly valid JSON with this exact shape, no prose, no markdown:',
 	'{',
-	'  "faithfulness": { "score": <1-5 int>, "rationale": "<one sentence>" },',
-	'  "relevance":    { "score": <1-5 int>, "rationale": "<one sentence>" },',
-	'  "usefulness":   { "score": <1-5 int>, "rationale": "<one sentence>" }',
+	'  "accuracy":     { "score": <1-5 int>, "rationale": "<one sentence>" },',
+	'  "calibration":  { "score": <1-5 int>, "rationale": "<one sentence>" },',
+	'  "completeness": { "score": <1-5 int>, "rationale": "<one sentence>" },',
+	'  "tone":         { "score": <1-5 int>, "rationale": "<one sentence>" }',
 	'}',
 	'Do not include any other keys. Do not wrap the JSON in code fences.'
 ].join('\n');
 
 function formatThoughts(thoughts: JudgeInput['thoughts']): string {
 	if (thoughts.length === 0) return '(none retrieved)';
-	return thoughts.map((t) => `[id=${t.id}] ${t.normalizedText}`).join('\n');
+	return thoughts
+		.map((t) => {
+			const ts = t.createdAt ? ` [stored: ${t.createdAt.toISOString().slice(0, 10)}]` : '';
+			return `[id=${t.id}]${ts} ${t.normalizedText}`;
+		})
+		.join('\n');
 }
 
 function buildUserMessage(input: JudgeInput): string {
 	const cited = input.citations.length > 0 ? input.citations.join(', ') : '(none)';
+	const dimNote = input.dimension ? `\nCapability dimension being tested: ${input.dimension}\n` : '';
 	return [
-		`Question:\n${input.question}`,
+		`${dimNote}Question:\n${input.question}`,
 		`Answer:\n${input.answer}`,
 		`Citations in answer: ${cited}`,
 		`Retrieved thoughts:\n${formatThoughts(input.thoughts)}`
@@ -124,6 +181,15 @@ function extractAnswerContent(response: unknown): string {
 	return content;
 }
 
+export function computeWeightedScore(verdict: Omit<JudgeVerdict, 'weightedScore'>): number {
+	return (
+		verdict.accuracy.score * WEIGHTS.accuracy +
+		verdict.calibration.score * WEIGHTS.calibration +
+		verdict.completeness.score * WEIGHTS.completeness +
+		verdict.tone.score * WEIGHTS.tone
+	);
+}
+
 export async function judgeAnswer(input: JudgeInput): Promise<JudgeVerdict> {
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },
@@ -139,9 +205,15 @@ export async function judgeAnswer(input: JudgeInput): Promise<JudgeVerdict> {
 		throw new Error(`judge: parsed JSON is not an object`);
 	}
 	const obj = raw as Record<string, unknown>;
+	const accuracy = asScore(obj.accuracy, 'accuracy');
+	const calibration = asScore(obj.calibration, 'calibration');
+	const completeness = asScore(obj.completeness, 'completeness');
+	const tone = asScore(obj.tone, 'tone');
 	return {
-		faithfulness: asScore(obj.faithfulness, 'faithfulness'),
-		relevance: asScore(obj.relevance, 'relevance'),
-		usefulness: asScore(obj.usefulness, 'usefulness')
+		accuracy,
+		calibration,
+		completeness,
+		tone,
+		weightedScore: computeWeightedScore({ accuracy, calibration, completeness, tone })
 	};
 }

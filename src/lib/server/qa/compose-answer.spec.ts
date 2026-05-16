@@ -19,6 +19,8 @@ function chatResponse(content: string) {
 	return { choices: [{ message: { content } }] };
 }
 
+const FIXED_DATE = new Date('2026-01-01T00:00:00Z');
+
 const sampleRetrieval = [
 	{
 		id: 't_001',
@@ -27,7 +29,8 @@ const sampleRetrieval = [
 		score: 0.82,
 		vectorScore: 0.9,
 		graphScore: 0.5,
-		metadata: {}
+		metadata: {},
+		createdAt: FIXED_DATE
 	},
 	{
 		id: 't_002',
@@ -36,7 +39,8 @@ const sampleRetrieval = [
 		score: 0.71,
 		vectorScore: 0.75,
 		graphScore: 0.6,
-		metadata: {}
+		metadata: {},
+		createdAt: FIXED_DATE
 	}
 ];
 
@@ -63,6 +67,7 @@ describe('composeAnswer', () => {
 		expect(result.citations).toEqual(expect.arrayContaining(['t_001', 't_002']));
 		expect(result.retrieved).toHaveLength(2);
 		expect(result.retrieved[0].id).toBe('t_001');
+		expect(result.conflicts).toBeDefined();
 	});
 
 	it('forwards topK, weights, and trimmed question to searchThoughts', async () => {
@@ -169,7 +174,8 @@ describe('composeAnswer', () => {
 				score: 0.5,
 				vectorScore: 0.4,
 				graphScore: 0.1,
-				metadata: { graphProvenance: 'entity:Marcus' }
+				metadata: { graphProvenance: 'entity:Marcus' },
+				createdAt: FIXED_DATE
 			}
 		]);
 		const result = await composeAnswer({ userId: 'u1', question: 'how is this connected?' });

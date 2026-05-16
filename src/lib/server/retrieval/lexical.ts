@@ -8,6 +8,7 @@ export type LexicalSearchResult = {
 	category: string;
 	metadata: Record<string, unknown>;
 	lexicalScore: number;
+	createdAt: Date;
 };
 
 /**
@@ -50,6 +51,7 @@ export async function lexicalSearch(params: {
 			normalizedText: thought.normalizedText,
 			category: thought.category,
 			metadata: thought.metadata,
+			createdAt: thought.createdAt,
 			lexicalScore: rankExpr
 		})
 		.from(thought)
@@ -62,6 +64,7 @@ export async function lexicalSearch(params: {
 		normalizedText: row.normalizedText,
 		category: row.category,
 		metadata: (row.metadata as Record<string, unknown>) ?? {},
+		createdAt: row.createdAt,
 		lexicalScore: row.lexicalScore ?? 0
 	}));
 }

@@ -8,30 +8,35 @@
 # the answer should say it does not have enough information rather than guess.
 
 cases:
-  # ---------- single-thought, easy ----------
+  # ---------- single-thought, easy (D1: faithful_recall) ----------
   - id: c_001
+    dimension: faithful_recall
     question: "what did Marcus suggest about preventing dough from sticking to the proofing basket"
     expected_facts:
       - "use a banneton with rice flour"
 
   - id: c_002
+    dimension: faithful_recall
     question: "what is my deadlift goal for the year"
     expected_facts:
       - "405 deadlift by end of year"
       - "currently at 365"
 
   - id: c_003
+    dimension: faithful_recall
     question: "where can I get day-old loaves at a discount"
     expected_facts:
       - "Tartine sells day-old loaves at half price after 3pm"
 
   - id: c_004
+    dimension: faithful_recall
     question: "how much caffeine should I take before lifting"
     expected_facts:
       - "200mg works"
       - "400mg makes me jittery"
 
   - id: c_005
+    dimension: faithful_recall
     question: "when are estimated taxes due each quarter"
     expected_facts:
       - "April 15"
@@ -39,8 +44,9 @@ cases:
       - "September 15"
       - "January 15"
 
-  # ---------- multi-thought, same topic ----------
+  # ---------- multi-thought, same topic (D1: faithful_recall / D3: synthesis) ----------
   - id: c_006
+    dimension: synthesis
     question: "which books has Priya pointed me to"
     expected_facts:
       - "Antifragile"
@@ -50,17 +56,20 @@ cases:
       - "Thinking Fast and Slow"
 
   - id: c_007
+    dimension: faithful_recall
     question: "what is the Eigen retrieval policy"
     expected_facts:
       - "default weights are 0.7 vector and 0.3 graph"
       - "exactly 3 retries with no cross-model fallback"
 
   - id: c_008
+    dimension: synthesis
     question: "how does my sleep affect training"
     expected_facts:
       - "less than 7 hours of sleep crashes bench numbers the next day"
 
   - id: c_009
+    dimension: synthesis
     question: "what training advice has Diego given me"
     expected_facts:
       - "deload weeks every 4th week"
@@ -68,6 +77,7 @@ cases:
       - "his deadlift form is cleaner so film mine"
 
   - id: c_010
+    dimension: synthesis
     question: "what is left to plan for the Yosemite trip"
     expected_facts:
       - "trip is in late September"
@@ -75,20 +85,23 @@ cases:
       - "replace worn quickdraws"
       - "Tom broke his ankle so availability uncertain"
 
-  # ---------- entity-relation / synthesis ----------
+  # ---------- entity-relation / synthesis (D3: synthesis) ----------
   - id: c_011
+    dimension: synthesis
     question: "when is Tom's birthday and what does he like"
     expected_facts:
       - "October 12"
       - "single-malt scotch"
 
   - id: c_012
+    dimension: synthesis
     question: "what is the connection between Marcus and Tartine"
     expected_facts:
       - "had brunch with Marcus at Tartine"
       - "tried Tartine's country loaf recipe"
 
   - id: c_013
+    dimension: synthesis
     question: "describe my retirement savings approach"
     expected_facts:
       - "backdoor Roth IRA"
@@ -96,6 +109,7 @@ cases:
       - "Naval idea that long-term wealth comes from owning equity"
 
   - id: c_014
+    dimension: synthesis
     question: "what are Naval's categories of leverage"
     expected_facts:
       - "capital"
@@ -104,61 +118,276 @@ cases:
       - "media"
 
   - id: c_015
+    dimension: synthesis
     question: "what does the anchoring effect mean and how have I used it"
     expected_facts:
       - "first number you hear shapes the negotiation"
       - "used it on my last raise"
 
-  # ---------- causal / explanatory ----------
+  # ---------- causal / explanatory (D1: faithful_recall) ----------
   - id: c_016
+    dimension: faithful_recall
     question: "why did I switch to low-bar squat"
     expected_facts:
       - "Diego recommended it"
       - "hip drive feels stronger"
 
   - id: c_017
+    dimension: faithful_recall
     question: "what should I avoid bringing to dinner with Marcus"
     expected_facts:
       - "walnuts"
 
   - id: c_018
+    dimension: faithful_recall
     question: "what is loss aversion roughly"
     expected_facts:
       - "we feel a loss roughly twice as much as an equal gain"
 
   - id: c_019
+    dimension: faithful_recall
     question: "what fermentation temperature works best for sourdough"
     expected_facts:
       - "78F is the sweet spot"
 
   - id: c_020
+    dimension: synthesis
     question: "compare my squat progress to my deadlift progress"
     expected_facts:
       - "squat hit 315 for a single"
       - "deadlift goal is 405 by end of year, currently 365"
 
-  # ---------- negative / absent (hallucination resistance) ----------
+  # ---------- negative / absent (D6: graceful_uncertainty / hallucination resistance) ----------
   - id: c_021
+    dimension: graceful_uncertainty
     question: "what is my squat goal for the year"
     expected_facts:
       - "the thoughts do not contain a stated squat goal"
 
   - id: c_022
+    dimension: graceful_uncertainty
     question: "have I finished reading Antifragile"
     expected_facts:
       - "the thoughts mention the concept but not whether the book was finished"
 
   - id: c_023
+    dimension: graceful_uncertainty
     question: "what was Sarah's role at her previous company"
     expected_facts:
       - "the thoughts do not contain Sarah's previous-company role"
 
   - id: c_024
+    dimension: graceful_uncertainty
     question: "what is my W-9 status this month"
     expected_facts:
       - "filing the W-9 for consulting work is a TODO before end of month"
 
   - id: c_025
+    dimension: graceful_uncertainty
     question: "what is my plan for hydration during training"
     expected_facts:
       - "low water intake correlates with cramps on light days"
+
+  # ==========================================================================
+  # D2: Temporal Reasoning
+  # Requires corpus entries with created_at timestamps (Cluster G in corpus.yaml).
+  # The answer must surface relative time context, not just facts.
+  # ==========================================================================
+
+  - id: c_030
+    dimension: temporal_reasoning
+    question: "what is the most recent thing I told you about my health"
+    expected_facts:
+      - "most recent health entry is blood pressure 118/76 from late April 2026"
+      - "prior entry showed slightly elevated 130/85 around May 2 2026"
+      - "response identifies the more recent entry"
+
+  - id: c_031
+    dimension: temporal_reasoning
+    question: "did I mention wanting to move to Austin before or after I got the job offer there"
+    expected_facts:
+      - "thinking about moving to Austin was recorded in June 2025"
+      - "the job offer from Austin was recorded in December 2025"
+      - "the move desire came before the job offer"
+
+  - id: c_032
+    dimension: temporal_reasoning
+    question: "how long ago did I say I was going to start meditating"
+    expected_facts:
+      - "meditation entry was recorded in February 2025"
+      - "that is roughly 15 months before May 2026"
+      - "response flags the elapsed time"
+
+  - id: c_033
+    dimension: temporal_reasoning
+    question: "what was happening in my life around the time I first mentioned wanting to move cities"
+    expected_facts:
+      - "the Austin move thought was recorded June 2025"
+      - "response surfaces context from around that time period"
+
+  - id: c_034
+    dimension: temporal_reasoning
+    question: "which came first: my blood pressure concern or my improved reading"
+    expected_facts:
+      - "the elevated blood pressure entry was May 2 2026"
+      - "the improved blood pressure 118/76 was April 30 2026"
+      - "the improved reading came first"
+
+  # ==========================================================================
+  # D4: Personalization
+  # Requires corpus Cluster J (preference entries t_121–t_126).
+  # ==========================================================================
+
+  - id: c_040
+    dimension: personalization
+    question: "do I have any strong preferences about how information is communicated to me"
+    expected_facts:
+      - "prefers bullet points over long paragraphs"
+      - "resists unsolicited advice even when good"
+
+  - id: c_041
+    dimension: personalization
+    question: "based on what I've shared, what do I seem to value most in my work"
+    expected_facts:
+      - "genuinely hard problems"
+      - "real autonomy to solve them"
+
+  - id: c_042
+    dimension: personalization
+    question: "how would I typically describe a project I'm excited about"
+    expected_facts:
+      - "language like 'cleanest constraint' or 'elegant constraint'"
+      - "framing around intellectual challenge and genuine care"
+
+  - id: c_043
+    dimension: personalization
+    question: "when does my best thinking happen and what do I protect for it"
+    expected_facts:
+      - "best thinking happens early morning before email"
+      - "protects 6 to 9am every day"
+
+  # ==========================================================================
+  # D5: Contextual Relevance
+  # Tests scoping and implicit relevance.
+  # ==========================================================================
+
+  - id: c_050
+    dimension: contextual_relevance
+    question: "what do you know about Paris"
+    expected_facts:
+      - "no thoughts in memory mention Paris specifically"
+      - "response does not substitute general facts about Paris"
+      - "response is scoped to stored memories only"
+
+  - id: c_051
+    dimension: contextual_relevance
+    question: "what is the connection between my engineering decisions and my concern about retrieval quality"
+    expected_facts:
+      - "Sarah suggested pgvector"
+      - "default retrieval weights are 0.7 vector 0.3 graph"
+      - "concern about embedding quality affecting user trust"
+      - "response synthesizes across both topics"
+
+  - id: c_052
+    dimension: contextual_relevance
+    question: "I need to prepare for a difficult conversation with a friend. What should I keep in mind based on what I know about myself"
+    expected_facts:
+      - "I resist unsolicited advice even when good"
+      - "response draws on stored self-knowledge not generic advice"
+
+  - id: c_053
+    dimension: contextual_relevance
+    question: "what older memory does a new project that feels intellectually challenging remind me of"
+    expected_facts:
+      - "language from t_125 or t_126 about elegant constraint and genuine challenge"
+      - "response makes a specific connection to stored thought"
+
+  # ==========================================================================
+  # D6: Graceful Uncertainty (extended)
+  # ==========================================================================
+
+  - id: c_060
+    dimension: graceful_uncertainty
+    question: "am I generally an optimist or a pessimist"
+    expected_facts:
+      - "the thoughts do not contain a direct self-assessment of optimism or pessimism"
+      - "response acknowledges limited data rather than asserting a conclusion"
+
+  - id: c_061
+    dimension: graceful_uncertainty
+    question: "what do I think about cryptocurrency"
+    expected_facts:
+      - "no stored thoughts address cryptocurrency"
+      - "response states there is no stored view rather than inferring one"
+
+  - id: c_062
+    dimension: graceful_uncertainty
+    question: "what did I say about the meeting"
+    expected_facts:
+      - "multiple meetings are referenced in the thoughts"
+      - "response asks for clarification or presents options rather than arbitrarily picking one"
+
+  - id: c_063
+    dimension: graceful_uncertainty
+    question: "what are my deepest fears"
+    expected_facts:
+      - "no stored thoughts directly state deep fears"
+      - "response returns only what was stored and acknowledges the picture may be incomplete"
+
+  # ==========================================================================
+  # D7: Contradiction Detection
+  # Requires corpus Cluster H (t_101–t_104) with opposing views at different timestamps.
+  # ==========================================================================
+
+  - id: c_070
+    dimension: contradiction_detection
+    question: "what do I think about remote work"
+    expected_facts:
+      - "earlier entry (September 2024) says remote work is terrible and discipline collapses"
+      - "later entry (November 2025) says working from home is great and more productive"
+      - "response surfaces both with timestamps and notes the apparent contradiction"
+
+  - id: c_071
+    dimension: contradiction_detection
+    question: "have my views on anything changed significantly in the past two years"
+    expected_facts:
+      - "remote work view shifted from negative to positive between 2024 and 2025"
+      - "vegetarianism view shifted from dismissive to exploratory in 2026"
+      - "response identifies these as evolved beliefs"
+
+  - id: c_072
+    dimension: contradiction_detection
+    question: "what is my relationship with vegetarianism"
+    expected_facts:
+      - "earlier entry dismisses it as performative"
+      - "later entry describes trying it for a month and finding it easy"
+      - "response surfaces both and notes the change"
+
+  # ==========================================================================
+  # D10: Memory Decay & Staleness
+  # Requires corpus Cluster I (t_111–t_114) with old timestamps.
+  # ==========================================================================
+
+  - id: c_080
+    dimension: memory_decay
+    question: "am I happy at work"
+    expected_facts:
+      - "entry from March 2025 says the job culture is toxic and wants to leave"
+      - "that entry is roughly 14 months old"
+      - "response flags it as potentially stale and does not assert it as current"
+
+  - id: c_081
+    dimension: memory_decay
+    question: "what projects am I working on"
+    expected_facts:
+      - "multiplayer chess app entry from May 2024 is roughly two years old"
+      - "response surfaces it with a staleness caveat"
+      - "response does not present it as a current active project without qualification"
+
+  - id: c_082
+    dimension: memory_decay
+    question: "where do I live"
+    expected_facts:
+      - "moved to London entry (January 2025) is the earlier location"
+      - "moved to Berlin entry (August 2025) is the more recent location"
+      - "response returns Berlin as current and notes London as prior"

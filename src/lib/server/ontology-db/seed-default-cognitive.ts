@@ -134,58 +134,69 @@ export const DEFAULT_ALL_ONTOLOGY_KIND_KEYS: readonly string[] = [
 ];
 
 export async function seedDefaultPracticalOntology(db: AppDatabase, userId: string): Promise<void> {
-	await db.transaction(async (tx) => {
-		// Insert thought category kinds
-		const insertedThoughtKinds = await tx
-			.insert(ontologyEntityKind)
-			.values(
-				DEFAULT_THOUGHT_CATEGORY_KINDS.map((row) => ({
-					userId,
-					key: row.key,
-					name: row.name,
-					definition: row.definition,
-					active: true,
-					kindType: 'thought_category'
-				}))
-			)
-			.returning({
-				id: ontologyEntityKind.id,
-				key: ontologyEntityKind.key
-			});
+	// Use ON CONFLICT DO NOTHING on every insert so concurrent callers (e.g.
+	// parallel captureThought calls in eval or batch-ingest) are safe. A plain
+	// db.transaction() wrapper is intentionally omitted here: the reserved
+	// connection held by withEvalDb already has RLS set_config active, and
+	// issuing BEGIN inside that context produces a "transaction already in
+	// progress" warning cascade. Each insert is individually atomic and the
+	// three steps are idempotent, so a lost-update race has no harmful outcome.
 
-		// Insert entity type kinds
-		await tx
-			.insert(ontologyEntityKind)
-			.values(
-				DEFAULT_ENTITY_TYPE_KINDS.map((row) => ({
-					userId,
-					key: row.key,
-					name: row.name,
-					definition: row.definition,
-					active: true,
-					kindType: 'entity_type'
-				}))
-			);
-
-		// Insert relation kinds between thought category kinds
-		const byKey = new Map(insertedThoughtKinds.map((r) => [r.key, r.id]));
-		const relValues = DEFAULT_RELATION_KINDS.map((r) => {
-			const fromId = byKey.get(r.fromKey);
-			const toId = byKey.get(r.toKey);
-			if (!fromId || !toId) {
-				throw new Error(`seedDefaultPracticalOntology: missing kind for ${r.fromKey} -> ${r.toKey}`);
-			}
-			return {
+	// Step 1 — thought category kinds
+	await db
+		.insert(ontologyEntityKind)
+		.values(
+			DEFAULT_THOUGHT_CATEGORY_KINDS.map((row) => ({
 				userId,
-				key: r.key,
-				meaning: r.meaning,
-				fromOntologyEntityKindId: fromId,
-				toOntologyEntityKindId: toId,
-				active: true
-			};
-		});
-		await tx.insert(ontologyRelationKind).values(relValues);
+				key: row.key,
+				name: row.name,
+				definition: row.definition,
+				active: true,
+				kindType: 'thought_category'
+			}))
+		)
+		.onConflictDoNothing();
+
+	// Step 2 — entity type kinds
+	await db
+		.insert(ontologyEntityKind)
+		.values(
+			DEFAULT_ENTITY_TYPE_KINDS.map((row) => ({
+				userId,
+				key: row.key,
+				name: row.name,
+				definition: row.definition,
+				active: true,
+				kindType: 'entity_type'
+			}))
+		)
+		.onConflictDoNothing();
+
+	// Step 3 — relation kinds. We need the IDs of the thought category rows
+	// just inserted (or already present), so query them rather than relying on
+	// .returning() which would be empty on conflict.
+	const thoughtKindRows = await db
+		.select({ id: ontologyEntityKind.id, key: ontologyEntityKind.key })
+		.from(ontologyEntityKind)
+		.where(and(eq(ontologyEntityKind.userId, userId), eq(ontologyEntityKind.kindType, 'thought_category')));
+
+	const byKey = new Map(thoughtKindRows.map((r) => [r.key, r.id]));
+	const relValues = DEFAULT_RELATION_KINDS.map((r) => {
+		const fromId = byKey.get(r.fromKey);
+		const toId = byKey.get(r.toKey);
+		if (!fromId || !toId) {
+			throw new Error(`seedDefaultPracticalOntology: missing kind for ${r.fromKey} -> ${r.toKey}`);
+		}
+		return {
+			userId,
+			key: r.key,
+			meaning: r.meaning,
+			fromOntologyEntityKindId: fromId,
+			toOntologyEntityKindId: toId,
+			active: true
+		};
 	});
+	await db.insert(ontologyRelationKind).values(relValues).onConflictDoNothing();
 }
 
 /**

@@ -49,6 +49,7 @@ type RetrievalResult = {
 	vectorScore: number;
 	graphScore: number;
 	metadata: Record<string, unknown>;
+	createdAt: Date;
 };
 
 type RetrievalWeights = { vector: number; graph: number };
@@ -127,6 +128,7 @@ export async function searchThoughts(params: {
 			normalizedText: thought.normalizedText,
 			category: thought.category,
 			metadata: thought.metadata,
+			createdAt: thought.createdAt,
 			distance: vectorDistance
 		})
 		.from(thought)
@@ -209,7 +211,8 @@ export async function searchThoughts(params: {
 						id: thought.id,
 						normalizedText: thought.normalizedText,
 						category: thought.category,
-						metadata: thought.metadata
+						metadata: thought.metadata,
+						createdAt: thought.createdAt
 					})
 					.from(thought)
 					.where(and(eq(thought.userId, params.userId), inArray(thought.id, connectedOnlyIds)));
@@ -218,11 +221,12 @@ export async function searchThoughts(params: {
 		normalizedText: string;
 		category: string;
 		metadata: Record<string, unknown>;
+		createdAt: Date;
 	};
 	const metaById = new Map<string, RowMeta>();
 	const recordMeta = (
 		id: string,
-		source: { normalizedText: string; category: string; metadata: unknown },
+		source: { normalizedText: string; category: string; metadata: unknown; createdAt?: Date | null },
 		graphProvenance?: string
 	) => {
 		const prev = metaById.get(id);
@@ -235,7 +239,8 @@ export async function searchThoughts(params: {
 		metaById.set(id, {
 			normalizedText: prev?.normalizedText ?? source.normalizedText,
 			category: prev?.category ?? source.category,
-			metadata: mergedMeta
+			metadata: mergedMeta,
+			createdAt: prev?.createdAt ?? source.createdAt ?? new Date(0)
 		});
 	};
 	for (const row of vectorRows) recordMeta(row.id, row);
@@ -274,6 +279,7 @@ export async function searchThoughts(params: {
 				normalizedText: meta.normalizedText,
 				category: meta.category,
 				metadata: meta.metadata,
+				createdAt: meta.createdAt,
 				vectorScore,
 				graphScore,
 				score: vectorScore + graphScore

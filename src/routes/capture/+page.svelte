@@ -16,12 +16,16 @@
 
 	let raw = $state('');
 	let editRequest = $state('');
-	let stored = $state<{ id: string; normalizedText: string; category: string } | null>(null);
+	let stored = $state<{
+		id: string;
+		normalizedText: string;
+		category: string;
+		metadata?: Record<string, unknown> | null;
+	} | null>(null);
+	let showEdit = $state(false);
 	let err = $state<string | null>(null);
 	let loading = $state(false);
 
-	// Every progress event received from the stream, in order, with timestamps.
-	// This is the single source of truth for the indicator — appended only, never mutated.
 	let progressEvents = $state<Array<{ event: ProgressEvent; arrivedAt: number }>>([]);
 	let captureStartMs = $state(0);
 
@@ -35,7 +39,6 @@
 	}
 
 	function pushEvent(event: ProgressEvent) {
-		// Spread into a new array so Svelte sees the reference change and re-renders.
 		progressEvents = [...progressEvents, { event, arrivedAt: Date.now() }];
 	}
 
@@ -67,11 +70,11 @@
 			const contentType = res.headers.get('content-type') ?? '';
 			if (contentType.includes('application/x-ndjson')) {
 				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(
-					res,
-					pushEvent,
-					ac.signal
+					res, pushEvent, ac.signal
 				);
 				stored = thought;
+				raw = '';
+				showEdit = false;
 				editRequest = '';
 				return;
 			}
@@ -89,6 +92,8 @@
 			}
 			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
 			stored = j.thought;
+			raw = '';
+			showEdit = false;
 			editRequest = '';
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -118,17 +123,17 @@
 			const contentType = res.headers.get('content-type') ?? '';
 			if (contentType.includes('application/x-ndjson')) {
 				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(
-					res,
-					pushEvent,
-					ac.signal
+					res, pushEvent, ac.signal
 				);
 				stored = thought;
+				showEdit = false;
 				editRequest = '';
 				return;
 			}
 			if (!res.ok) throw new Error(await res.text());
 			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
 			stored = j.thought;
+			showEdit = false;
 			editRequest = '';
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -138,6 +143,23 @@
 			progressEvents = [];
 			abortController = null;
 		}
+	}
+
+	// Pull interesting fields out of metadata for display
+	function getMetaDisplay(s: NonNullable<typeof stored>): Array<{ label: string; value: string }> {
+		const rows: Array<{ label: string; value: string }> = [];
+		const m = s.metadata as Record<string, unknown> | null | undefined;
+		if (!m) return rows;
+		if (typeof m.categoryConfidence === 'number') {
+			rows.push({ label: 'Confidence', value: `${Math.round(m.categoryConfidence * 100)}%` });
+		}
+		if (m.nearDuplicate && typeof m.nearDuplicate === 'object') {
+			const nd = m.nearDuplicate as { distance?: number; preview?: string };
+			if (typeof nd.distance === 'number') {
+				rows.push({ label: 'Near-duplicate', value: `distance ${nd.distance.toFixed(3)}${nd.preview ? ` — "${nd.preview}"` : ''}` });
+			}
+		}
+		return rows;
 	}
 </script>
 
@@ -195,50 +217,64 @@
 		{/if}
 
 		{#if stored}
+			{@const metaRows = getMetaDisplay(stored)}
 			<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4 gap-3 items-start overflow-visible">
-				<Card.Header class="p-0">
+				<Card.Header class="p-0 w-full flex flex-row items-start justify-between gap-2">
 					<Card.Title class="text-sm">Stored thought</Card.Title>
+					<Button
+						type="button"
+						variant="ghost"
+						class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground rounded-none -mt-0.5 shrink-0"
+						onclick={() => { showEdit = !showEdit; if (!showEdit) editRequest = ''; }}
+					>
+						{showEdit ? 'Cancel edit' : 'Edit'}
+					</Button>
 				</Card.Header>
 				<Card.Content class="p-0 space-y-2 text-sm">
 					<p class="text-card-foreground whitespace-pre-wrap">{stored.normalizedText}</p>
-					<p class="text-muted-foreground text-xs">Category: {stored.category}</p>
-					<p class="text-muted-foreground text-xs">
-						Id: <code class="bg-muted px-1 py-0.5">{stored.id}</code>
-					</p>
+					<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+						<span>Category: <span class="font-medium text-foreground">{stored.category}</span></span>
+						{#each metaRows as row}
+							<span>{row.label}: <span class="font-medium text-foreground">{row.value}</span></span>
+						{/each}
+					</div>
+					<p class="text-muted-foreground text-xs font-mono">{stored.id}</p>
 				</Card.Content>
 			</Card.Root>
 
-			<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible">
-				<Card.Content class="p-4 space-y-2 w-full">
-					<Label for="edit" class="text-sm">Want changes? Describe them in plain language</Label>
-					<Textarea
-						id="edit"
-						bind:value={editRequest}
-						placeholder="Example: Please make this shorter and categorize as task."
-						class="min-h-24 text-sm md:text-sm border-2 border-black dark:border-border p-3 bg-background dark:bg-input/30 text-foreground"
-					/>
-				</Card.Content>
-				<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-end gap-2 w-full">
-					{#if loading}
+			{#if showEdit}
+				<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible">
+					<Card.Content class="p-4 space-y-2 w-full">
+						<Label for="edit" class="text-sm">Describe your changes in plain language</Label>
+						<Textarea
+							id="edit"
+							bind:value={editRequest}
+							placeholder="Example: Make this shorter and categorize as task."
+							class="min-h-24 text-sm md:text-sm border-2 border-black dark:border-border p-3 bg-background dark:bg-input/30 text-foreground"
+						/>
+					</Card.Content>
+					<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-end gap-2 w-full">
+						{#if loading}
+							<Button
+								type="button"
+								variant="ghost"
+								class="rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto text-muted-foreground hover:text-destructive"
+								onclick={cancelCapture}
+							>
+								Cancel
+							</Button>
+						{/if}
 						<Button
 							type="button"
-							variant="ghost"
-							class="rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto text-muted-foreground hover:text-destructive"
-							onclick={cancelCapture}
+							class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"
+							disabled={loading || !editRequest.trim()}
+							onclick={submitEditRequest}
 						>
-							Cancel
+							Submit changes
 						</Button>
-					{/if}
-					<Button
-						type="button"
-						class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"
-						disabled={loading || !editRequest.trim()}
-						onclick={submitEditRequest}
-					>
-						Submit changes
-					</Button>
-				</Card.Footer>
-			</Card.Root>
+					</Card.Footer>
+				</Card.Root>
+			{/if}
 		{/if}
 	</section>
 </div>

@@ -63,15 +63,70 @@ describe('extractRelations', () => {
 		expect(out).toEqual([{ targetId: 't2', relationType: 'related_to' }]);
 	});
 
-	it('accepts new relation types follows_from, continuation_of, caused_by', async () => {
+	it('accepts all specific relation types without coercing to related_to', async () => {
+		const types = ['follows_from', 'continuation_of', 'caused_by', 'refines', 'contradicts', 'mentions', 'depends_on'] as const;
+		for (const relationType of types) {
+			searchThoughtsMock.mockResolvedValue([
+				{ id: 't2', normalizedText: 'prior thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			]);
+			llmChatCompletionMock.mockResolvedValue({
+				choices: [{ message: { content: JSON.stringify([{ targetId: 't2', relationType }]) } }]
+			});
+			const out = await extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'next thought' });
+			expect(out).toEqual([{ targetId: 't2', relationType }]);
+		}
+	});
+
+	it('prompt instructs model to use most specific type and treats related_to as last resort', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{ id: 't2', normalizedText: 'prior thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
-			choices: [{ message: { content: JSON.stringify([{ targetId: 't2', relationType: 'follows_from' }]) } }]
+			choices: [{ message: { content: JSON.stringify([]) } }]
 		});
-		const out = await extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'next thought' });
-		expect(out).toEqual([{ targetId: 't2', relationType: 'follows_from' }]);
+		await extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'source' });
+
+		const userPrompt = llmChatCompletionMock.mock.calls[0][0].messages[1].content as string;
+		const systemPrompt = llmChatCompletionMock.mock.calls[0][0].messages[0].content as string;
+
+		// Must NOT contain any of the old biasing instructions
+		expect(userPrompt).not.toContain('use this liberally');
+		expect(userPrompt).not.toContain('topical similarity is enough for related_to');
+		expect(userPrompt).not.toContain('Use related_to for any two thoughts');
+		expect(systemPrompt).not.toContain('prefer related_to over returning an empty array');
+
+		// Must instruct the model to prefer specific types
+		expect(userPrompt).toMatch(/most specific/i);
+		// "last resort" framing lives in the system message
+		expect(systemPrompt).toMatch(/last resort/i);
+
+		// Must include few-shot examples covering specific types
+		expect(userPrompt).toContain('refines');
+		expect(userPrompt).toContain('mentions');
+		expect(userPrompt).toContain('contradicts');
+		expect(userPrompt).toContain('follows_from');
+	});
+
+	it('handles mixed response with specific and generic types correctly', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{ id: 't2', normalizedText: 'thought two', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} },
+			{ id: 't3', normalizedText: 'thought three', category: 'idea', score: 0.9, vectorScore: 0.9, graphScore: 0, metadata: {} }
+		]);
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{
+				message: {
+					content: JSON.stringify([
+						{ targetId: 't2', relationType: 'contradicts' },
+						{ targetId: 't3', relationType: 'related_to' }
+					])
+				}
+			}]
+		});
+		const out = await extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'source' });
+		expect(out).toEqual([
+			{ targetId: 't2', relationType: 'contradicts' },
+			{ targetId: 't3', relationType: 'related_to' }
+		]);
 	});
 
 	it('filters invalid relation types', async () => {

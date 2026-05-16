@@ -1,7 +1,90 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+// ── Report types ───────────────────────────────────────────────────────────────
+
+type EntityMetrics = {
+	totalExpected?: number;
+	totalExtracted?: number;
+	truePositives?: number;
+	precision?: number;
+	recall?: number;
+	f1?: number;
+};
+
+type RelationMetrics = {
+	totalExpected?: number;
+	totalExtracted?: number;
+	correct?: number;
+	precision?: number;
+	recall?: number;
+	f1?: number;
+};
+
+type EmbeddingMetrics = {
+	avgSimilarity?: number;
+	minSimilarity?: number;
+	maxSimilarity?: number;
+};
+
+type CommunityMetrics = {
+	entityCount?: number;
+	totalCommunities?: number;
+	communitiesByLevel?: { L0: number; L1: number; L2: number; L3: number };
+	avgCommunitySize?: number;
+};
+
+type GraphVizNode = {
+	id: string;
+	kind: 'Thought' | 'Entity';
+	label: string;
+	subtype: string;
+};
+
+type GraphVizEdge = {
+	id: string;
+	sourceId: string;
+	targetId: string;
+	relationType: string;
+	kind: 'thought_link' | 'mention' | 'entity_relation';
+};
+
+type LayerChecksReport = {
+	thoughtCount?: number;
+	entities?: {
+		summary?: EntityMetrics;
+		falsePositives?: Array<{ thoughtId: string; text: string; extracted: string; extractedType: string }>;
+		falseNegatives?: Array<{ thoughtId: string; text: string; expected: string; expectedType: string }>;
+		perThought?: Array<{
+			evalId: string;
+			precision: number;
+			recall: number;
+			f1: number;
+			extractedCount?: number;
+			expectedCount?: number;
+		}>;
+	};
+	relations?: {
+		summary?: RelationMetrics;
+		falsePositives?: Array<{ sourceId: string; sourceText: string; targetText: string; relationType: string }>;
+	};
+	embedding?: {
+		metrics?: EmbeddingMetrics;
+		similarityMatrix?: Record<string, Record<string, number>>;
+		neighbors?: Record<string, Array<{ id: string; similarity: number }>>;
+	};
+	communities?: CommunityMetrics & {
+		communities?: Array<{
+			id: string;
+			level: number;
+			memberCount: number;
+			members: Array<{ entityId: string; canonicalKey: string; entityType: string }>;
+		}>;
+	};
+	graphSnapshot?: { nodes: GraphVizNode[]; edges: GraphVizEdge[] };
+};
 
 type WeightEntry = {
 	weights: { vector: number; graph: number };
@@ -11,238 +94,119 @@ type WeightEntry = {
 
 type HeadlineEntry = {
 	label: string;
-	weights: { vector: number; graph: number };
+	weights: { vector: number; graph: number } | null;
 	overall: { ndcgAt10: number; recallAt10: number; mrr: number };
 	byCategory: Record<string, { ndcgAt10: number; recallAt10: number; mrr: number }>;
 };
 
 type RetrievalReport = {
-	generatedAt?: string;
 	queryCount?: number;
 	weightSweep?: WeightEntry[];
 	headlineComparison?: HeadlineEntry[];
+	bestByCategory?: Array<{
+		category: string;
+		weights: { vector: number; graph: number };
+		ndcgAt10: number;
+	}>;
 	graphOnly?: {
 		overall: { ndcgAt10: number; recallAt10: number; mrr: number };
-		byCategory: Record<string, { ndcgAt10: number; recallAt10: number; mrr: number }>;
 	};
 };
 
-type AnswerRecord = {
+type AnswerCaseResult = {
 	caseId: string;
 	question: string;
 	answer: string;
 	passed: boolean;
-	verdict?: {
-		faithfulness?: { score: number; rationale: string };
-		relevance?: { score: number; rationale: string };
-		usefulness?: { score: number; rationale: string };
-	};
-};
-
-type AnswerReport = {
-	generatedAt?: string;
-	caseCount?: number;
-	passed?: number;
+	dimension?: string;
 	passThreshold?: number;
-	summary?: {
-		faithfulness?: { mean?: number; median?: number };
-		relevance?: { mean?: number; median?: number };
-		usefulness?: { mean?: number; median?: number };
+	verdict?: {
+		accuracy?: { score: number; rationale: string };
+		calibration?: { score: number; rationale: string };
+		completeness?: { score: number; rationale: string };
+		tone?: { score: number; rationale: string };
+		weightedScore?: number;
 	};
-	records?: AnswerRecord[];
 };
 
-type AgentProbeMetrics = {
-	recallAt1?: number;
-	recallAt3?: number;
-	recallAt5?: number;
-	ndcgAt5?: number;
-	mrr?: number;
-};
-
-type AgentReport = {
-	generatedAt?: string;
-	userId?: string;
-	thoughtCount?: number;
-	ingest?: {
-		totalDurationMs?: number;
-		perThought?: Array<{
-			evalId: string;
-			durationMs: number;
-			categoryAssigned: string;
-			phasesCompleted: string[];
-		}>;
-	};
-	retrieval?: {
-		probeCount?: number;
-		overall?: AgentProbeMetrics;
-		byCategory?: Record<string, AgentProbeMetrics>;
-	};
-	answer?: {
+type AnswerQaReport = {
+	probes?: {
 		passed?: number;
 		total?: number;
 		passRate?: number;
-		summary?: {
-			faithfulness?: { mean?: number };
-			relevance?: { mean?: number };
-			usefulness?: { mean?: number };
-		};
-		cases?: Array<{
-			evalId: string;
-			question: string;
-			answer: string;
-			passed: boolean;
-			faithfulness?: number;
-			relevance?: number;
-			usefulness?: number;
-		}>;
+		cases?: AnswerCaseResult[];
 	};
-	captureFidelity?: {
-		rate?: number;
+	full?: {
 		passed?: number;
 		total?: number;
-		meanScore?: number;
-		perThought?: Array<{
-			evalId: string;
-			faithful: boolean;
-			score: number;
-			rationale: string;
-		}>;
+		passRate?: number;
+		rubric?: string;
+		summary?: {
+			weightedScore?: { mean?: number; median?: number };
+			accuracy?: { mean?: number; median?: number };
+			calibration?: { mean?: number; median?: number };
+			completeness?: { mean?: number; median?: number };
+			tone?: { mean?: number; median?: number };
+		};
+		records?: AnswerCaseResult[];
 	};
 };
 
-type EntityPerThought = {
-	evalId: string;
-	precision: number;
-	recall: number;
-	f1: number;
-	extractedCount?: number;
-	expectedCount?: number;
-};
-
-type EntityLayerReport = {
-	layer: string;
-	timestamp: string;
-	thoughtCount?: number;
-	summary?: {
-		totalExpected?: number;
-		totalExtracted?: number;
-		truePositives?: number;
-		precision?: number;
-		recall?: number;
-		f1?: number;
-	};
-	perThought?: EntityPerThought[];
-	falsePositives?: Array<{ thoughtId: string; text: string; extracted: string; extractedType: string }>;
-	falseNegatives?: Array<{ thoughtId: string; text: string; expected: string; expectedType: string }>;
-};
-
-type RelationLayerReport = {
-	layer: string;
-	timestamp: string;
-	thoughtCount?: number;
-	summary?: {
-		totalExpected?: number;
-		totalExtracted?: number;
-		correct?: number;
-		precision?: number;
-		recall?: number;
-		f1?: number;
-	};
-	falsePositives?: Array<{
-		sourceId: string;
-		sourceText: string;
-		targetText: string;
-		relationType: string;
+type FidelityReport = {
+	total?: number;
+	passed?: number;
+	rate?: number;
+	meanScore?: number;
+	perThought?: Array<{
+		evalId: string;
+		faithful: boolean;
+		score: number;
+		rationale: string;
 	}>;
 };
 
-interface LayerReport {
-	layer: string;
-	timestamp: string;
-	[key: string]: unknown;
-}
+export type EvalReport = {
+	generatedAt?: string;
+	mode?: 'full' | 'analysis-only';
+	corpusUserId?: string;
+	manifestSize?: number;
+	layerChecks?: LayerChecksReport;
+	retrieval?: RetrievalReport;
+	answerQa?: AnswerQaReport;
+	fidelity?: FidelityReport | null;
+};
 
-interface ReportInfo {
-	name: string;
-	timestamp: string;
-	data: LayerReport;
-}
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function readJsonIfExists<T>(path: string): T | null {
 	if (!existsSync(path)) return null;
-	return JSON.parse(readFileSync(path, 'utf-8')) as T;
-}
-
-function loadLayerReports(): ReportInfo[] {
-	const reportsDir = resolve(process.cwd(), 'evals/reports');
 	try {
-		const files = readdirSync(reportsDir);
-		const reports: ReportInfo[] = [];
-
-		for (const file of files) {
-			if (!file.startsWith('layer-') || !file.endsWith('.json')) continue;
-			if (file.includes('latest')) continue;
-
-			try {
-				const content = readFileSync(resolve(reportsDir, file), 'utf-8');
-				const data = JSON.parse(content) as LayerReport;
-				reports.push({
-					name: file.replace('.json', ''),
-					timestamp: data.timestamp || statSync(resolve(reportsDir, file)).mtime.toISOString(),
-					data
-				});
-			} catch {
-				// Skip invalid files
-			}
-		}
-
-		return reports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+		return JSON.parse(readFileSync(path, 'utf-8')) as T;
 	} catch {
-		return [];
+		return null;
 	}
 }
+
+// ── Load ────────────────────────────────────────────────────────────────────────
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
 		throw redirect(302, '/login');
 	}
 
-	const retrievalPath = resolve(process.cwd(), 'evals/reports/retrieval-latest.json');
-	const answerPath = resolve(process.cwd(), 'evals/reports/answer-latest.json');
-	const agentPath = resolve(process.cwd(), 'evals/reports/agent-latest.json');
-	const entityPath = resolve(process.cwd(), 'evals/reports/layer-entities-latest.json');
-	const relationsPath = resolve(process.cwd(), 'evals/reports/layer-relations-latest.json');
-
-	const retrieval = readJsonIfExists<RetrievalReport>(retrievalPath);
-	const answer = readJsonIfExists<AnswerReport>(answerPath);
-	const agent = readJsonIfExists<AgentReport>(agentPath);
-	const entityLayer = readJsonIfExists<EntityLayerReport>(entityPath);
-	const relationsLayer = readJsonIfExists<RelationLayerReport>(relationsPath);
+	const evalPath = resolve(process.cwd(), 'evals/reports/eval-latest.json');
+	const report = readJsonIfExists<EvalReport>(evalPath);
 
 	const bestRetrieval =
-		retrieval?.weightSweep && retrieval.weightSweep.length > 0
-			? [...retrieval.weightSweep].sort((a, b) => b.overall.ndcgAt10 - a.overall.ndcgAt10)[0]
+		report?.retrieval?.weightSweep && report.retrieval.weightSweep.length > 0
+			? [...report.retrieval.weightSweep].sort(
+					(a, b) => b.overall.ndcgAt10 - a.overall.ndcgAt10
+				)[0]
 			: null;
-
-	const flatLayerReports = loadLayerReports();
-
-	const reportsByLayer: { [layer: string]: ReportInfo[] } = {};
-	for (const report of flatLayerReports) {
-		const layer = report.data.layer || 'unknown';
-		if (!reportsByLayer[layer]) reportsByLayer[layer] = [];
-		reportsByLayer[layer].push(report);
-	}
 
 	return {
 		user: event.locals.user,
-		retrieval,
-		answer,
-		agent,
-		bestRetrieval,
-		entityLayer,
-		relationsLayer,
-		paths: { retrievalPath, answerPath, agentPath },
-		reports: reportsByLayer
+		report,
+		bestRetrieval
 	};
 };

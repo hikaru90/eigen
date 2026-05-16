@@ -1,0 +1,303 @@
+# Consolidated eval queries with graded relevance labels.
+#
+# References corpus.yaml thought IDs (ec_NNN).
+#
+# Categories:
+#   semantic_paraphrase  -> wording diverges from corpus, no shared named entities (favors vector).
+#   entity_relation      -> asks about a named entity or a connection (favors graph expansion).
+#   hybrid               -> mixed signal; should land between the two extremes.
+#   direct_recall        -> paraphrase of a single stored thought, tests basic memory.
+#
+# Grades: 3 = direct answer, 2 = clearly relevant, 1 = tangential.
+# Unlabeled corpus thoughts are implicitly grade 0.
+
+queries:
+  # ── semantic_paraphrase (10) ──────────────────────────────────────
+  - id: q_sem_001
+    category: semantic_paraphrase
+    text: "how do I deepen the flavor of homemade bread without spending more active time"
+    relevant:
+      - { id: ec_005, grade: 3 }
+      - { id: ec_013, grade: 2 }
+      - { id: ec_003, grade: 1 }
+
+  - id: q_sem_002
+    category: semantic_paraphrase
+    text: "what is the right amount of stimulant before a heavy training session"
+    relevant:
+      - { id: ec_046, grade: 3 }
+
+  - id: q_sem_003
+    category: semantic_paraphrase
+    text: "which hand position is safest for the small finger tendons during repeat sessions"
+    relevant:
+      - { id: ec_059, grade: 3 }
+
+  - id: q_sem_004
+    category: semantic_paraphrase
+    text: "negotiation technique grounded in cognitive science about first numbers"
+    relevant:
+      - { id: ec_066, grade: 3 }
+      - { id: ec_065, grade: 1 }
+
+  - id: q_sem_005
+    category: semantic_paraphrase
+    text: "strategy for booking equity losses to offset gains at year end"
+    relevant:
+      - { id: ec_084, grade: 3 }
+
+  - id: q_sem_006
+    category: semantic_paraphrase
+    text: "concept where systems improve from chaos rather than break"
+    relevant:
+      - { id: ec_068, grade: 3 }
+
+  - id: q_sem_007
+    category: semantic_paraphrase
+    text: "best places to fully disconnect from work and recharge"
+    relevant:
+      - { id: ec_058, grade: 3 }
+
+  - id: q_sem_008
+    category: semantic_paraphrase
+    text: "how to keep proofing dough from sticking to the basket"
+    relevant:
+      - { id: ec_006, grade: 3 }
+
+  - id: q_sem_009
+    category: semantic_paraphrase
+    text: "using video review of my own lifts to fix technique"
+    relevant:
+      - { id: ec_040, grade: 3 }
+
+  - id: q_sem_010
+    category: semantic_paraphrase
+    text: "simple low-effort approach to long-term investing"
+    relevant:
+      - { id: ec_085, grade: 3 }
+      - { id: ec_081, grade: 2 }
+      - { id: ec_083, grade: 1 }
+
+  # ── entity_relation (10) ──────────────────────────────────────────
+  - id: q_rel_001
+    category: entity_relation
+    text: "what did Marcus tell me about my starter or technique"
+    relevant:
+      - { id: ec_002, grade: 3 }
+      - { id: ec_006, grade: 3 }
+      - { id: ec_011, grade: 2 }
+      - { id: ec_004, grade: 1 }
+      - { id: ec_015, grade: 1 }
+
+  - id: q_rel_002
+    category: entity_relation
+    text: "everything connected to Sarah at work"
+    relevant:
+      - { id: ec_020, grade: 3 }
+      - { id: ec_022, grade: 3 }
+      - { id: ec_024, grade: 3 }
+      - { id: ec_027, grade: 2 }
+      - { id: ec_030, grade: 2 }
+      - { id: ec_033, grade: 2 }
+
+  - id: q_rel_003
+    category: entity_relation
+    text: "training advice from Diego"
+    relevant:
+      - { id: ec_038, grade: 3 }
+      - { id: ec_042, grade: 3 }
+      - { id: ec_040, grade: 2 }
+      - { id: ec_045, grade: 1 }
+
+  - id: q_rel_004
+    category: entity_relation
+    text: "what is left to plan for the Yosemite trip"
+    relevant:
+      - { id: ec_053, grade: 3 }
+      - { id: ec_057, grade: 3 }
+      - { id: ec_056, grade: 2 }
+
+  - id: q_rel_005
+    category: entity_relation
+    text: "books or authors that Priya pointed me to"
+    relevant:
+      - { id: ec_067, grade: 3 }
+      - { id: ec_065, grade: 3 }
+      - { id: ec_069, grade: 2 }
+      - { id: ec_076, grade: 1 }
+      - { id: ec_072, grade: 1 }
+
+  - id: q_rel_006
+    category: entity_relation
+    text: "all my notes about Tartine"
+    relevant:
+      - { id: ec_003, grade: 3 }
+      - { id: ec_004, grade: 3 }
+      - { id: ec_012, grade: 3 }
+
+  - id: q_rel_007
+    category: entity_relation
+    text: "gift ideas for Tom's birthday"
+    relevant:
+      - { id: ec_060, grade: 3 }
+      - { id: ec_056, grade: 1 }
+      - { id: ec_053, grade: 1 }
+
+  - id: q_rel_008
+    category: entity_relation
+    text: "ideas connected to Naval Ravikant"
+    relevant:
+      - { id: ec_069, grade: 3 }
+      - { id: ec_071, grade: 3 }
+      - { id: ec_087, grade: 3 }
+      - { id: ec_067, grade: 1 }
+
+  - id: q_rel_009
+    category: entity_relation
+    text: "outcomes of pair programming with Sarah"
+    relevant:
+      - { id: ec_022, grade: 3 }
+      - { id: ec_020, grade: 2 }
+      - { id: ec_024, grade: 2 }
+      - { id: ec_030, grade: 1 }
+
+  - id: q_rel_010
+    category: entity_relation
+    text: "the time Marcus and I went to Tartine"
+    relevant:
+      - { id: ec_004, grade: 3 }
+      - { id: ec_003, grade: 1 }
+      - { id: ec_012, grade: 1 }
+      - { id: ec_011, grade: 1 }
+
+  # ── hybrid (10) ───────────────────────────────────────────────────
+  - id: q_hyb_001
+    category: hybrid
+    text: "how I use philosophy to handle stress"
+    relevant:
+      - { id: ec_070, grade: 3 }
+      - { id: ec_058, grade: 1 }
+      - { id: ec_073, grade: 1 }
+
+  - id: q_hyb_002
+    category: hybrid
+    text: "what Kahneman says about how we feel losses"
+    relevant:
+      - { id: ec_075, grade: 3 }
+      - { id: ec_065, grade: 2 }
+      - { id: ec_066, grade: 1 }
+
+  - id: q_hyb_003
+    category: hybrid
+    text: "recovery patterns that affect my training"
+    relevant:
+      - { id: ec_038, grade: 3 }
+      - { id: ec_041, grade: 3 }
+      - { id: ec_043, grade: 2 }
+      - { id: ec_044, grade: 1 }
+
+  - id: q_hyb_004
+    category: hybrid
+    text: "ideal fermentation temperature for sourdough"
+    relevant:
+      - { id: ec_013, grade: 3 }
+      - { id: ec_005, grade: 2 }
+      - { id: ec_002, grade: 1 }
+      - { id: ec_008, grade: 1 }
+
+  - id: q_hyb_005
+    category: hybrid
+    text: "my retirement savings playbook"
+    relevant:
+      - { id: ec_079, grade: 3 }
+      - { id: ec_083, grade: 3 }
+      - { id: ec_087, grade: 1 }
+      - { id: ec_080, grade: 1 }
+
+  - id: q_hyb_006
+    category: hybrid
+    text: "progress on the deadlift goal"
+    relevant:
+      - { id: ec_047, grade: 3 }
+      - { id: ec_040, grade: 2 }
+      - { id: ec_037, grade: 1 }
+
+  - id: q_hyb_007
+    category: hybrid
+    text: "Eigen retrieval policy decisions"
+    relevant:
+      - { id: ec_026, grade: 3 }
+      - { id: ec_019, grade: 3 }
+      - { id: ec_031, grade: 2 }
+      - { id: ec_023, grade: 2 }
+
+  - id: q_hyb_008
+    category: hybrid
+    text: "wrist injury and what to do about bench"
+    relevant:
+      - { id: ec_044, grade: 3 }
+      - { id: ec_038, grade: 1 }
+      - { id: ec_041, grade: 1 }
+
+  - id: q_hyb_009
+    category: hybrid
+    text: "Sarah's onboarding checklist for next week"
+    relevant:
+      - { id: ec_030, grade: 3 }
+      - { id: ec_022, grade: 1 }
+      - { id: ec_033, grade: 1 }
+
+  - id: q_hyb_010
+    category: hybrid
+    text: "what's the best leverage to scale impact"
+    relevant:
+      - { id: ec_071, grade: 3 }
+      - { id: ec_087, grade: 2 }
+      - { id: ec_069, grade: 1 }
+
+  # ── direct_recall (4) — formerly agent probes ─────────────────────
+  - id: q_dr_001
+    category: direct_recall
+    text: "What memory eval framework is being built?"
+    relevant:
+      - { id: ec_301, grade: 3 }
+      - { id: ec_302, grade: 1 }
+
+  - id: q_dr_002
+    category: direct_recall
+    text: "What is Alex's morning reading habit?"
+    relevant:
+      - { id: ec_304, grade: 3 }
+
+  - id: q_dr_003
+    category: direct_recall
+    text: "Which book is Alex currently reading?"
+    relevant:
+      - { id: ec_305, grade: 3 }
+
+  - id: q_dr_004
+    category: direct_recall
+    text: "What is the Recall@3 performance goal for the agent eval?"
+    relevant:
+      - { id: ec_309, grade: 3 }
+
+  - id: q_dr_005
+    category: entity_relation
+    text: "What was decided at the Berlin meeting?"
+    relevant:
+      - { id: ec_308, grade: 3 }
+      - { id: ec_306, grade: 2 }
+
+  - id: q_dr_006
+    category: entity_relation
+    text: "How is Alex connected to the eigen project?"
+    relevant:
+      - { id: ec_307, grade: 3 }
+      - { id: ec_301, grade: 1 }
+
+  - id: q_dr_007
+    category: entity_relation
+    text: "What triggered the addition of graph retrieval to eigen?"
+    relevant:
+      - { id: ec_308, grade: 3 }
+      - { id: ec_306, grade: 1 }
