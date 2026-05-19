@@ -5,6 +5,7 @@ const {
 	getDbMock,
 	extractRelationsMock,
 	syncEntityGraphFromThoughtMock,
+	syncTemporalEventsFromThoughtMock,
 	classifyMemoryTypeMock,
 	extractCuesMock,
 	maybeRefreshUserOntologyMock,
@@ -14,6 +15,7 @@ const {
 	getDbMock: vi.fn(),
 	extractRelationsMock: vi.fn(),
 	syncEntityGraphFromThoughtMock: vi.fn(),
+	syncTemporalEventsFromThoughtMock: vi.fn(),
 	classifyMemoryTypeMock: vi.fn(),
 	extractCuesMock: vi.fn(),
 	maybeRefreshUserOntologyMock: vi.fn(),
@@ -24,6 +26,9 @@ const {
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
 vi.mock('$lib/server/memory/relation-extraction', () => ({ extractRelations: extractRelationsMock }));
 vi.mock('$lib/server/memory/entity-graph-sync', () => ({ syncEntityGraphFromThought: syncEntityGraphFromThoughtMock }));
+vi.mock('$lib/server/memory/temporal-graph-sync', () => ({
+	syncTemporalEventsFromThought: syncTemporalEventsFromThoughtMock
+}));
 vi.mock('$lib/server/memory/classify-memory-type', () => ({ classifyMemoryType: classifyMemoryTypeMock }));
 vi.mock('$lib/server/memory/extract-cues', () => ({ extractCues: extractCuesMock }));
 vi.mock('$lib/server/ontology', () => ({ maybeRefreshUserOntology: maybeRefreshUserOntologyMock }));
@@ -57,6 +62,7 @@ describe('enrichThought', () => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
 		syncEntityGraphFromThoughtMock.mockResolvedValue(undefined);
+		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		classifyMemoryTypeMock.mockResolvedValue('episode');
 		extractCuesMock.mockResolvedValue(['cue one', 'cue two']);
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);

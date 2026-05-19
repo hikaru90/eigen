@@ -82,7 +82,7 @@
 
 <header class="fixed top-0 right-0 left-0 z-40 w-full px-5 pt-3">
   <div
-    class="bg-linear-to-b absolute top-0 right-0 left-0 -z-10 h-24 from-background to-transparent dark:from-black dark:to-black/0"
+    class="pointer-events-none bg-linear-to-b absolute top-0 right-0 left-0 -z-10 h-24 from-background to-transparent dark:from-black dark:to-black/0"
   ></div>
   <div class="mx-auto flex w-full items-center justify-between">
     {#if isChatRoute}

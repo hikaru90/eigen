@@ -50,6 +50,8 @@
 		height?: string;
 	} = $props();
 
+	const fillParent = $derived(height === '100%');
+
 	let rootEl: HTMLDivElement | undefined;
 	let status = $state('');
 
@@ -235,7 +237,7 @@
 	<div
 		bind:this={rootEl}
 		class="text-foreground min-h-0 w-full flex-1"
-		style="height: {height}"
+		style={fillParent ? undefined : `height: ${height}`}
 		role="img"
 		aria-label="Force-directed graph visualization"
 	></div>

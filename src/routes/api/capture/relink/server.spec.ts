@@ -1,10 +1,35 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 
-const { relinkThoughtGraphMock } = vi.hoisted(() => ({ relinkThoughtGraphMock: vi.fn() }));
+const { relinkThoughtGraphMock, reserveMock } = vi.hoisted(() => ({
+	relinkThoughtGraphMock: vi.fn(),
+	reserveMock: vi.fn()
+}));
 vi.mock('$lib/server/capture/service', () => ({ relinkThoughtGraph: relinkThoughtGraphMock }));
+vi.mock('$lib/server/db', () => ({
+	appSql: { reserve: reserveMock },
+	appDbAsyncLocal: { run: (_db: unknown, fn: () => unknown) => fn() },
+	createScopedDrizzle: vi.fn(() => ({}))
+}));
+
+function ndjsonRequest(body: unknown) {
+	return {
+		json: vi.fn(async () => body),
+		headers: {
+			get: (name: string) => (name.toLowerCase() === 'accept' ? 'application/x-ndjson' : null)
+		},
+		signal: new AbortController().signal
+	};
+}
 
 describe('POST /api/capture/relink', () => {
+	beforeEach(() => {
+		relinkThoughtGraphMock.mockReset();
+		const reserved = Object.assign(vi.fn(async () => undefined), {
+			release: vi.fn(async () => undefined)
+		});
+		reserveMock.mockResolvedValue(reserved);
+	});
 	it('requires auth', async () => {
 		await expect(
 			POST({ locals: { user: null }, request: { json: vi.fn(async () => ({})) } } as never)
@@ -53,8 +78,12 @@ describe('POST /api/capture/relink', () => {
 
 	it('streams ndjson when Accept includes application/x-ndjson', async () => {
 		relinkThoughtGraphMock.mockImplementation(
-			async (_uid: string, _tid: string, opts?: { onProgress?: (phase: string) => void }) => {
-				opts?.onProgress?.('graph');
+			async (
+				_uid: string,
+				_tid: string,
+				opts?: { onProgress?: (ev: { parallel: false; phase: string }) => Promise<void> }
+			) => {
+				await opts?.onProgress?.({ parallel: false, phase: 'graph' });
 				return {
 					ok: true as const,
 					thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
@@ -63,24 +92,154 @@ describe('POST /api/capture/relink', () => {
 		);
 		const res = await POST({
 			locals: { user: { id: 'u1' } },
-			request: {
-				json: vi.fn(async () => ({ thoughtId: 't1' })),
-				headers: {
-					get: (name: string) => (name.toLowerCase() === 'accept' ? 'application/x-ndjson' : null)
-				}
-			}
+			request: ndjsonRequest({ thoughtId: 't1' })
 		} as never);
-		expect(relinkThoughtGraphMock).toHaveBeenCalledWith(
-			'u1',
-			't1',
-			expect.objectContaining({ onProgress: expect.any(Function) })
-		);
 		const lines = (await res.text())
 			.trim()
 			.split('\n')
 			.filter(Boolean)
 			.map((l) => JSON.parse(l) as { type: string });
+		expect(relinkThoughtGraphMock).toHaveBeenLastCalledWith(
+			'u1',
+			't1',
+			expect.objectContaining({ onProgress: expect.any(Function) })
+		);
 		expect(lines.some((l) => l.type === 'progress')).toBe(true);
 		expect(lines.some((l) => l.type === 'done')).toBe(true);
+	});
+
+	it('swallows errors while clearing session config after a successful relink', async () => {
+		let sqlCalls = 0;
+		const reserved = Object.assign(
+			vi.fn(async () => {
+				sqlCalls += 1;
+				if (sqlCalls > 1) throw new Error('clear failed');
+			}),
+			{ release: vi.fn(async () => undefined) }
+		);
+		reserveMock.mockResolvedValue(reserved);
+		relinkThoughtGraphMock.mockResolvedValue({
+			ok: true,
+			thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
+		});
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ thoughtId: 't1' })
+		} as never);
+		const lines = (await res.text())
+			.trim()
+			.split('\n')
+			.filter(Boolean)
+			.map((l) => JSON.parse(l) as { type: string });
+		expect(lines.some((l) => l.type === 'done')).toBe(true);
+	});
+
+	it('streams parallel progress events', async () => {
+		relinkThoughtGraphMock.mockImplementation(
+			async (
+				_uid: string,
+				_tid: string,
+				opts?: { onProgress?: (ev: { parallel: true; phases: string[] }) => Promise<void> }
+			) => {
+				await opts?.onProgress?.({ parallel: true, phases: ['graph'] });
+				return {
+					ok: true as const,
+					thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
+				};
+			}
+		);
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ thoughtId: 't1' })
+		} as never);
+		const lines = (await res.text())
+			.trim()
+			.split('\n')
+			.filter(Boolean)
+			.map((l) => JSON.parse(l) as { type: string });
+		expect(lines.some((l) => l.type === 'progress_parallel')).toBe(true);
+	});
+
+	it('streams ndjson error when thought is not found', async () => {
+		relinkThoughtGraphMock.mockResolvedValue({ ok: false, reason: 'not_found' });
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ thoughtId: 't1' })
+		} as never);
+		const last = JSON.parse((await res.text()).trim().split('\n').filter(Boolean).pop() ?? '{}') as {
+			type: string;
+			error?: string;
+		};
+		expect(last.type).toBe('error');
+		expect(last.error).toBe('Thought not found');
+	});
+
+	it('streams ndjson error when the db pool cannot reserve a connection', async () => {
+		reserveMock.mockRejectedValue(new Error('pool exhausted'));
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ thoughtId: 't1' })
+		} as never);
+		const last = JSON.parse((await res.text()).trim().split('\n').filter(Boolean).pop() ?? '{}') as {
+			type: string;
+			error?: string;
+		};
+		expect(last.type).toBe('error');
+		expect(last.error).toBe('pool exhausted');
+		consoleSpy.mockRestore();
+	});
+
+	it('streams ndjson error when relinkThoughtGraph throws a non-Error', async () => {
+		relinkThoughtGraphMock.mockRejectedValue('graph offline');
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ thoughtId: 't1' })
+		} as never);
+		const last = JSON.parse((await res.text()).trim().split('\n').filter(Boolean).pop() ?? '{}') as {
+			type: string;
+			error?: string;
+		};
+		expect(last.type).toBe('error');
+		expect(last.error).toBe('Failed to relink thought');
+		consoleSpy.mockRestore();
+	});
+
+	it('logs when relinkWork rejects after connection release fails', async () => {
+		relinkThoughtGraphMock.mockResolvedValue({
+			ok: true,
+			thought: { id: 't1', rawText: 'a', normalizedText: 'a', category: 'task' }
+		});
+		const reserved = Object.assign(vi.fn(async () => undefined), {
+			release: vi.fn(async () => {
+				throw new Error('release failed');
+			})
+		});
+		reserveMock.mockResolvedValue(reserved);
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ thoughtId: 't1' })
+		} as never);
+		await res.text();
+		expect(consoleSpy).toHaveBeenCalledWith('capture relink: relinkWork rejected', expect.any(Error));
+		consoleSpy.mockRestore();
+	});
+
+	it('aborts the stream when the client disconnects', async () => {
+		const ac = new AbortController();
+		relinkThoughtGraphMock.mockImplementation(
+			() =>
+				new Promise(() => {
+					/* hang until abort */
+				})
+		);
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: { ...ndjsonRequest({ thoughtId: 't1' }), signal: ac.signal }
+		} as never);
+		ac.abort();
+		await expect(res.text()).rejects.toThrow();
 	});
 });

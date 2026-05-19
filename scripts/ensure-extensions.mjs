@@ -1,3 +1,4 @@
+import './load-env.mjs';
 import postgres from 'postgres';
 
 const raw = process.env.DATABASE_URL;

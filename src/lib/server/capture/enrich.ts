@@ -2,7 +2,7 @@
  * Async enrichment for already-persisted thought rows.
  *
  * The fast path in `captureThought` persists the raw text, embedding, category,
- * and FalkorDB node. This module handles the heavier steps that can run after
+ * and a FalkorDB provenance anchor (thought id only). This module handles the heavier steps that can run after
  * the HTTP response has been returned to the user:
  *
  *   - thought-to-thought relation extraction + graph sync
@@ -28,6 +28,7 @@ import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { classifyMemoryType } from '$lib/server/memory/classify-memory-type';
 import { extractCues } from '$lib/server/memory/extract-cues';
+import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync';
 import { maybeRefreshUserOntology } from '$lib/server/ontology';
 import { upsertThoughtRelation, deleteThoughtOutgoingGraphEdges } from '$lib/server/graph/falkor';
 import { thoughtRelation } from '$lib/server/db/schema';
@@ -70,9 +71,12 @@ export async function enrichThought(
 
 	// Emit a single parallel-group event so the UI shows all four enrichment
 	// phases as a concurrent cluster rather than four instantaneous sequential steps.
-	await onProgress?.({ parallel: true, phases: ['relations', 'entities', 'memory_type', 'cues'] });
+	await onProgress?.({
+		parallel: true,
+		phases: ['relations', 'entities', 'temporal', 'memory_type', 'cues']
+	});
 
-	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] =
+	const [relationsResult, entitiesResult, temporalResult, memoryTypeResult, cuesResult] =
 		await Promise.allSettled([
 			// ---- Relations -------------------------------------------------------
 			(async () => {
@@ -105,6 +109,14 @@ export async function enrichThought(
 			// ---- Entities --------------------------------------------------------
 			syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding }),
 
+			// ---- Temporal events (Postgres ledger + graph outbox) ----------------
+			syncTemporalEventsFromThought({
+				userId,
+				thoughtId,
+				normalizedText,
+				thoughtEmbedding
+			}),
+
 			// ---- Memory type -----------------------------------------------------
 			(async () => {
 				const memoryType = await classifyMemoryType({ userId, normalizedText });
@@ -121,8 +133,8 @@ export async function enrichThought(
 		]);
 
 	// Log failures individually so one bad step doesn't hide others.
-	const stepNames = ['relations', 'entities', 'memory_type', 'cues'] as const;
-	const results = [relationsResult, entitiesResult, memoryTypeResult, cuesResult];
+	const stepNames = ['relations', 'entities', 'temporal', 'memory_type', 'cues'] as const;
+	const results = [relationsResult, entitiesResult, temporalResult, memoryTypeResult, cuesResult];
 	let allOk = true;
 
 	for (let i = 0; i < results.length; i++) {

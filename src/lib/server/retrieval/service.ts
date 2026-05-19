@@ -8,6 +8,11 @@ import { reciprocalRankFusion } from '$lib/server/retrieval/fusion';
 import { expandNeighborsByIds, expandThoughtIdsFromEntitySeeds } from '$lib/server/graph/falkor';
 import type { EntityThoughtHit } from '$lib/server/graph/falkor';
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
+import {
+	filterTemporalEvents,
+	isTemporalQuery,
+	traverseTemporalContext
+} from '$lib/server/retrieval/temporal';
 
 /** Salience cap — prevents unbounded growth from high-frequency retrieval. */
 const SALIENCE_MAX = 5.0;
@@ -56,16 +61,21 @@ type RetrievalWeights = { vector: number; graph: number };
 
 const RRF_K = 60;
 
+type GraphHit = { id: string; hits: number; provenance?: string };
+
 /** Neighbor + entity-anchored graph expansion merged by hit count. */
 function mergeGraphHitMaps(
-	thoughtNeighbors: Array<{ id: string; hits: number }>,
+	thoughtNeighbors: GraphHit[],
 	entityHits: EntityThoughtHit[]
-): Array<{ id: string; hits: number; provenance?: string }> {
+): GraphHit[] {
 	const map = new Map<string, { hits: number; provenance?: string }>();
 	for (const n of thoughtNeighbors) {
 		const cur = map.get(n.id);
-		if (!cur) map.set(n.id, { hits: n.hits });
-		else cur.hits += n.hits;
+		if (!cur) map.set(n.id, { hits: n.hits, provenance: n.provenance });
+		else {
+			cur.hits += n.hits;
+			if (n.provenance && !cur.provenance) cur.provenance = n.provenance;
+		}
 	}
 	for (const e of entityHits) {
 		const cur = map.get(e.id);
@@ -119,6 +129,25 @@ export async function searchThoughts(params: {
 	const candidateLimit = Math.max(limit * 2, 20);
 
 	const queryEmbedding = params.queryEmbedding ?? await createThoughtEmbedding(params.userId, params.query);
+
+	// Filter-then-traverse temporal path (Postgres slice → Falkor context expansion).
+	const temporalSeeds = isTemporalQuery(params.query)
+		? await filterTemporalEvents({
+				userId: params.userId,
+				query: params.query,
+				queryEmbedding,
+				limit: candidateLimit
+			})
+		: [];
+	const temporalContextHits =
+		temporalSeeds.length > 0
+			? await traverseTemporalContext({
+					userId: params.userId,
+					seeds: temporalSeeds,
+					limit: candidateLimit
+				})
+			: [];
+
 	const vectorLiteral = toVectorLiteral(queryEmbedding);
 	const vectorDistance = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
 
@@ -186,7 +215,16 @@ export async function searchThoughts(params: {
 				})
 			: [];
 
-	const mergedGraphHits = mergeGraphHitMaps(graphNeighbors, entityThoughtHits);
+	const temporalGraphHits = temporalContextHits.map((h) => ({
+		id: h.thoughtId,
+		hits: h.hits,
+		provenance: h.provenance
+	}));
+
+	const mergedGraphHits = mergeGraphHitMaps(
+		mergeGraphHitMaps(graphNeighbors, entityThoughtHits),
+		temporalGraphHits
+	);
 	const graphProvenanceByThoughtId = new Map<string, string>();
 	for (const row of mergedGraphHits) {
 		if (row.provenance) {
@@ -201,8 +239,15 @@ export async function searchThoughts(params: {
 		.sort((a, b) => b.hits - a.hits)
 		.forEach((neighbor, index) => graphRanks.set(neighbor.id, index + 1));
 
+	const temporalThoughtIds = [
+		...temporalSeeds.map((s) => s.thoughtId),
+		...temporalContextHits.map((h) => h.thoughtId)
+	];
+
 	const semanticIds = new Set<string>([...vectorRanks.keys(), ...lexicalRanks.keys()]);
-	const connectedOnlyIds = [...graphRanks.keys()].filter((id) => !semanticIds.has(id));
+	const connectedOnlyIds = [...graphRanks.keys(), ...temporalThoughtIds].filter(
+		(id) => !semanticIds.has(id)
+	);
 	const connectedRows =
 		connectedOnlyIds.length === 0
 			? []
@@ -248,11 +293,28 @@ export async function searchThoughts(params: {
 	for (const row of connectedRows)
 		recordMeta(row.id, row, graphProvenanceByThoughtId.get(row.id));
 
-	// Attach entity-graph provenance even when the thought was also a semantic hit.
+	// Boost thoughts anchored to temporally-matched events (direct seed thoughts).
+	for (const seed of temporalSeeds) {
+		const existing = metaById.get(seed.thoughtId);
+		const temporalMeta = {
+			temporalEventId: seed.eventId,
+			semanticSummary: seed.semanticSummary,
+			temporalScore: seed.score
+		};
+		if (existing) {
+			metaById.set(seed.thoughtId, {
+				...existing,
+				metadata: { ...existing.metadata, ...temporalMeta }
+			});
+		}
+	}
+
+	// Attach graph provenance when the thought was also a semantic hit.
 	for (const [thoughtId, prov] of graphProvenanceByThoughtId) {
-		if (!semanticIds.has(thoughtId)) continue;
+		if (!semanticIds.has(thoughtId) || !prov) continue;
 		const existing = metaById.get(thoughtId);
-		if (existing && typeof existing.metadata.graphProvenance !== 'string') {
+		if (!existing) continue;
+		if (!existing.metadata.graphProvenance) {
 			metaById.set(thoughtId, {
 				...existing,
 				metadata: { ...existing.metadata, graphProvenance: prov }
@@ -263,7 +325,8 @@ export async function searchThoughts(params: {
 	const candidateIds = new Set<string>([
 		...vectorRanks.keys(),
 		...lexicalRanks.keys(),
-		...graphRanks.keys()
+		...graphRanks.keys(),
+		...temporalThoughtIds
 	]);
 
 	const scored = [...candidateIds]

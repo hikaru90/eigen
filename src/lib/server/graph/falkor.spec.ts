@@ -48,9 +48,6 @@ describe('upsertThoughtNode', () => {
 		await upsertThoughtNode({
 			id: 't1',
 			userId: 'u1',
-			rawText: 'raw',
-			normalizedText: 'normalized',
-			lexicalText: 'lexical',
 			category: 'thought'
 		});
 
@@ -60,13 +57,14 @@ describe('upsertThoughtNode', () => {
 			username: 'default'
 		});
 		expect(selectGraphMock).toHaveBeenCalledWith('user_u1');
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MERGE (t:Thought {id: $id})'),
+		const [cypher, opts] = queryMock.mock.calls[0] as [string, { params: Record<string, unknown> }];
+		expect(cypher).toContain('MERGE (t:Thought {id: $id})');
+		expect(cypher).not.toContain('raw_text');
+		expect(opts.params).toEqual(
 			expect.objectContaining({
-				params: expect.objectContaining({
-					id: 't1',
-					user_id: 'u1'
-				})
+				id: 't1',
+				user_id: 'u1',
+				category: 'thought'
 			})
 		);
 	});
@@ -79,9 +77,6 @@ describe('upsertThoughtNode', () => {
 			upsertThoughtNode({
 				id: 't1',
 				userId: 'u1',
-				rawText: 'raw',
-				normalizedText: 'normalized',
-				lexicalText: 'lexical',
 				category: 'thought'
 			})
 		).rejects.toThrow(/Invalid FALKOR_PORT/);
@@ -95,9 +90,6 @@ describe('upsertThoughtNode', () => {
 			upsertThoughtNode({
 				id: 't1',
 				userId: 'u1',
-				rawText: 'raw',
-				normalizedText: 'normalized',
-				lexicalText: 'lexical',
 				category: 'thought'
 			})
 		).rejects.toThrow(/FALKOR_HOST is required/);
@@ -135,7 +127,7 @@ describe('upsertThoughtNode', () => {
 			limit: 10
 		});
 		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MATCH (t:Thought {user_id: $user_id})'),
+			expect.stringContaining('MATCH (e:Entity {user_id: $user_id})'),
 			expect.objectContaining({
 				params: expect.objectContaining({
 					user_id: 'u1',
@@ -187,9 +179,6 @@ describe('upsertThoughtNode', () => {
 		await upsertThoughtNode({
 			id: 't1',
 			userId: 'u1',
-			rawText: 'raw',
-			normalizedText: 'normalized',
-			lexicalText: 'lexical',
 			category: 'thought'
 		});
 
@@ -323,9 +312,6 @@ describe('upsertThoughtNode', () => {
 		await upsertThoughtNode({
 			id: 't1',
 			userId: 'User-ID.With Spaces',
-			rawText: 'raw',
-			normalizedText: 'normalized',
-			lexicalText: 'lexical',
 			category: 'thought'
 		});
 

@@ -1,178 +1,79 @@
 /**
- * Unified eval runner — single entry point for all evaluation phases.
+ * Eval CLI — same modes as /eval UI (smoke | all).
  *
  * Usage:
- *   npm run eval              # full mode: seed + all phases
- *   npm run eval:quick        # analysis-only mode, golden subset only
- *   npm run eval:full         # explicit full mode
- *
- * Flags:
- *   --mode full | analysis-only   (default: full)
- *   --subset golden               (only run layer-checks on the 10 golden thoughts;
- *                                  other phases still use the full corpus)
- *   --skip-sweep                  (skip the 11-point weight sweep in retrieval ablation;
- *                                  still runs single-preset tests)
- *
- * Phases (in order):
- *   1. seed          (full mode only) — ingest corpus through captureThought()
- *   2. layer-checks  — entity/relation P/R/F1, embedding similarity, community detection
- *   3. retrieval     — weight-sweep ablation and single-preset tests
- *   4. answer-qa     — synthesis probes + full 48-case QA eval
- *   5. fidelity      (full mode only) — raw→normalized fidelity judge
- *
- * Hard-fails on any phase error (exit code 1). No silent catch-and-continue.
- * Writes a single unified report: evals/reports/eval-{timestamp}.json
- *                          and:  evals/reports/eval-latest.json
+ *   npm run eval              # smoke
+ *   npm run eval -- --mode all
+ *   npm run eval -- --mode qa --qa-id qa_smoke_dinner
  */
-import { runEval, logEval, startEvalHeartbeat } from './harness/eval-context';
-import { seedCorpus, EVAL_CORPUS_USER_ID } from './harness/seed-corpus';
-import { runLayerChecks } from './harness/phases/layer-checks';
-import { runRetrievalAblation } from './harness/phases/retrieval-ablation';
-import { runAnswerQa } from './harness/phases/answer-qa';
-import { runIngestFidelity } from './harness/phases/ingest-fidelity';
-import { loadSeedManifest } from './harness/dataset';
-import { writeReport } from './harness/report';
+import { insertEvalUserRow } from '../src/lib/eval/store';
+import { startEvalRun } from '../src/lib/eval/runner';
+import { runEval, logEval } from './harness/eval-context';
+import { EVAL_OPERATOR_USER_ID, EVAL_JUDGE_USER_ID } from './harness/eval-config';
+import { loadEvalRunDetail } from '../src/lib/eval/store';
+import type { EvalRunMode } from '../src/lib/eval/runner';
 
-// ── CLI args ──────────────────────────────────────────────────────────────────
-
-type Mode = 'full' | 'analysis-only';
-
-function parseArgs(): { mode: Mode; skipSweep: boolean } {
+function parseArgs(): { mode: EvalRunMode; qaId?: string; keepEvalUser: boolean } {
 	const args = process.argv.slice(2);
-
-	let mode: Mode = 'full';
-	const modeIdx = args.indexOf('--mode');
-	if (modeIdx !== -1) {
-		const val = args[modeIdx + 1];
-		if (val !== 'full' && val !== 'analysis-only') {
-			throw new Error(
-				`[eval] --mode must be 'full' or 'analysis-only', got: ${val}`
-			);
+	let mode: EvalRunMode = 'smoke';
+	let qaId: string | undefined;
+	let keepEvalUser = false;
+	for (let i = 0; i < args.length; i += 1) {
+		if (args[i] === '--mode' && args[i + 1]) {
+			const next = args[++i]!;
+			if (next === 'smoke' || next === 'all' || next === 'qa') {
+				mode = next;
+			} else {
+				throw new Error(`--mode must be smoke, all, or qa, got: ${next}`);
+			}
+		} else if ((args[i] === '--qa-id' || args[i] === '--qaId') && args[i + 1]) {
+			qaId = args[++i]!;
+		} else if (args[i] === '--keep-eval-user') {
+			keepEvalUser = true;
 		}
-		mode = val;
 	}
-
-	const skipSweep = args.includes('--skip-sweep');
-
-	return { mode, skipSweep };
+	return { mode, qaId, keepEvalUser };
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+async function ensureOperatorUser(): Promise<void> {
+	await insertEvalUserRow(EVAL_OPERATOR_USER_ID, 'Eval Operator');
+	await insertEvalUserRow(EVAL_JUDGE_USER_ID, 'Eval Judge');
+}
 
 async function main(): Promise<void> {
-	const { mode, skipSweep } = parseArgs();
-	const stopHeartbeat = startEvalHeartbeat('eval:run');
+	const { mode, qaId, keepEvalUser } = parseArgs();
+	await ensureOperatorUser();
 
-	logEval(`=== Unified eval runner (mode=${mode}${skipSweep ? ' skip-sweep' : ''}) ===`);
+	const { runId } = await startEvalRun({
+		operatorUserId: EVAL_OPERATOR_USER_ID,
+		mode,
+		qaId,
+		keepEvalUser
+	});
 
-	try {
-		// ── Phase 1: Seed ─────────────────────────────────────────────────────
-		let manifest = loadSeedManifest();
+	logEval(`started run ${runId} (mode=${mode}); waiting for completion…`);
 
-		if (mode === 'full') {
-			logEval('--- Phase 1: seed corpus ---');
-			manifest = await seedCorpus();
-			logEval(`seed complete: ${Object.keys(manifest).length} thoughts in manifest`);
-		} else {
-			if (Object.keys(manifest).length === 0) {
-				throw new Error(
-					'[eval] analysis-only mode requires a seed manifest from a prior full run. ' +
-						'Run with --mode full first.'
-				);
+	for (;;) {
+		await new Promise((r) => setTimeout(r, 2000));
+		const detail = await loadEvalRunDetail(EVAL_OPERATOR_USER_ID, runId);
+		if (!detail) throw new Error(`run not found: ${runId}`);
+		if (detail.run.status === 'completed' || detail.run.status === 'failed') {
+			logEval(
+				`run finished: status=${detail.run.status} passed=${detail.run.passedCount}/${detail.run.entryCount}`
+			);
+			const synthesis = detail.run.synthesis;
+			if (synthesis && typeof synthesis === 'object' && 'narrative' in synthesis) {
+				const narrative = (synthesis as { narrative?: string }).narrative;
+				if (narrative) {
+					console.log('\n--- Synthesis ---\n');
+					console.log(narrative);
+				}
 			}
-			logEval(
-				`analysis-only: using existing manifest (${Object.keys(manifest).length} entries, user=${EVAL_CORPUS_USER_ID})`
-			);
+			if (detail.run.status === 'failed') {
+				throw new Error(detail.run.error ?? 'eval run failed');
+			}
+			return;
 		}
-
-		// ── Phase 2: Layer checks ─────────────────────────────────────────────
-		logEval('--- Phase 2: layer checks ---');
-		const layerChecks = await runLayerChecks(manifest);
-		logEval(
-			`layer checks: entity F1=${layerChecks.entities.summary.f1.toFixed(3)} ` +
-				`relation F1=${layerChecks.relations.summary.f1.toFixed(3)} ` +
-				`embedding avg=${layerChecks.embedding.metrics.avgSimilarity.toFixed(3)}`
-		);
-
-		// ── Phase 3: Retrieval ablation ───────────────────────────────────────
-		logEval('--- Phase 3: retrieval ablation ---');
-		const retrieval = await runRetrievalAblation(manifest, { skipFullSweep: skipSweep });
-		const hybridEntry = retrieval.headlineComparison.find((r) => r.label === 'hybrid');
-		if (hybridEntry) {
-			logEval(
-				`retrieval: best hybrid NDCG@10=${hybridEntry.overall.ndcgAt10.toFixed(3)} ` +
-					`Recall@10=${hybridEntry.overall.recallAt10.toFixed(3)} MRR=${hybridEntry.overall.mrr.toFixed(3)}`
-			);
-		}
-
-		// ── Phase 4: Answer QA ────────────────────────────────────────────────
-		logEval('--- Phase 4: answer QA ---');
-		const answerQa = await runAnswerQa();
-		logEval(
-			`answer QA: probes=${answerQa.probes.passed}/${answerQa.probes.total} ` +
-				`full=${answerQa.full.passed}/${answerQa.full.total} ` +
-				`mean_score=${answerQa.full.summary.weightedScore.mean.toFixed(2)}`
-		);
-
-		// ── Phase 5: Ingest fidelity (full mode only) ─────────────────────────
-		let fidelity = null;
-		if (mode === 'full') {
-			logEval('--- Phase 5: ingest fidelity ---');
-			fidelity = await runIngestFidelity(manifest);
-			logEval(
-				`fidelity: ${fidelity.passed}/${fidelity.total} faithful (mean_score=${fidelity.meanScore.toFixed(1)})`
-			);
-		}
-
-		// ── Report ────────────────────────────────────────────────────────────
-		const { reportPath, latestPath } = writeReport('eval', {
-			generatedAt: new Date().toISOString(),
-			mode,
-			corpusUserId: EVAL_CORPUS_USER_ID,
-			manifestSize: Object.keys(manifest).length,
-			layerChecks,
-			retrieval,
-			answerQa,
-			fidelity
-		});
-
-		logEval(`=== Eval complete ===`);
-		logEval(`report: ${reportPath}`);
-		logEval(`latest: ${latestPath}`);
-
-		// Print headline summary
-		console.log('\n──────────────────────────────────────────────────');
-		console.log('EVAL SUMMARY');
-		console.log('──────────────────────────────────────────────────');
-		console.log(`Mode:         ${mode}`);
-		console.log(`Corpus:       ${Object.keys(manifest).length} thoughts`);
-		console.log(
-			`Entity F1:    ${layerChecks.entities.summary.f1.toFixed(3)} ` +
-				`(P=${layerChecks.entities.summary.precision.toFixed(3)} R=${layerChecks.entities.summary.recall.toFixed(3)})`
-		);
-		console.log(
-			`Relation F1:  ${layerChecks.relations.summary.f1.toFixed(3)} ` +
-				`(P=${layerChecks.relations.summary.precision.toFixed(3)} R=${layerChecks.relations.summary.recall.toFixed(3)})`
-		);
-		if (hybridEntry) {
-			console.log(
-				`Retrieval:    NDCG@10=${hybridEntry.overall.ndcgAt10.toFixed(3)} ` +
-					`MRR=${hybridEntry.overall.mrr.toFixed(3)} (hybrid)`
-			);
-		}
-		console.log(
-			`Answer QA:    ${answerQa.full.passed}/${answerQa.full.total} pass ` +
-				`(mean score=${answerQa.full.summary.weightedScore.mean.toFixed(2)})`
-		);
-		if (fidelity) {
-			console.log(
-				`Fidelity:     ${fidelity.passed}/${fidelity.total} faithful ` +
-					`(mean score=${fidelity.meanScore.toFixed(1)}/5)`
-			);
-		}
-		console.log('──────────────────────────────────────────────────');
-	} finally {
-		stopHeartbeat();
 	}
 }
 

@@ -40,6 +40,11 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 		title: 'Updating entity graph',
 		description: 'Extracting and reconciling entities mentioned in this thought against your entity index.'
 	},
+	temporal: {
+		title: 'Extracting dates and deadlines',
+		description:
+			'Identifying when things happen, due dates, and time ranges — stored in Postgres for timeline queries and linked in the graph.'
+	},
 	memory_type: {
 		title: 'Classifying memory type',
 		description: 'Determining whether this thought is an episode, decision, concern, open loop, or another memory type.'
@@ -68,6 +73,6 @@ export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> 
 	'session',
 	'persist',
 	'graph',
-	['relations', 'entities', 'memory_type', 'cues'],
+	['relations', 'entities', 'temporal', 'memory_type', 'cues'],
 	'ontology_eval'
 ];

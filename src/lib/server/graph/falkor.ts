@@ -103,25 +103,20 @@ async function runFalkorQueryWithRetry<T>(
 		: new Error(`Falkor operation failed after ${maxAttempts} attempts`);
 }
 
+/** Provenance anchor only — text and embedding live in Postgres `thought`. */
 export async function upsertThoughtNode(input: {
 	id: string;
 	userId: string;
-	rawText: string;
-	normalizedText: string;
-	lexicalText: string;
 	category: string;
 }): Promise<void> {
 	const client = await getClient();
 	const graph = client.selectGraph(falkorGraphForUser(input.userId));
-	const contextPreview = input.normalizedText.slice(0, 60);
+	const contextPreview = input.id.slice(0, 36);
 	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_node', async () => {
 		await graph.query(
 			`
 		MERGE (t:Thought {id: $id})
 		SET t.user_id = $user_id,
-		    t.raw_text = $raw_text,
-		    t.normalized_text = $normalized_text,
-		    t.lexical_text = $lexical_text,
 		    t.category = $category,
 		    t.updated_at = timestamp()
 		RETURN t.id
@@ -130,9 +125,6 @@ export async function upsertThoughtNode(input: {
 				params: {
 					id: input.id,
 					user_id: input.userId,
-					raw_text: input.rawText,
-					normalized_text: input.normalizedText,
-					lexical_text: input.lexicalText,
 					category: input.category
 				}
 			}
@@ -164,6 +156,18 @@ export async function deleteThoughtOutgoingGraphEdges(input: {
 		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(:Entity {user_id: $user_id})
+			DELETE r
+			`,
+			{
+				params: {
+					thought_id: thoughtId,
+					user_id: input.userId
+				}
+			}
+		);
+		await graph.query(
+			`
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:OCCURS_IN {user_id: $user_id}]->(:Event {user_id: $user_id})
 			DELETE r
 			`,
 			{
@@ -320,10 +324,11 @@ export async function graphOnlySearchByQuery(input: {
 	return runFalkorQueryWithRetry(input.userId, 'falkor.graph_only_search', async () => {
 		const result = (await graph.query(
 			`
-			MATCH (t:Thought {user_id: $user_id})
-			WITH t, [token IN $tokens WHERE t.lexical_text CONTAINS token] AS matches
-			WHERE size(matches) > 0
-			WITH t, size(matches) AS overlap
+			UNWIND $tokens AS token
+			MATCH (e:Entity {user_id: $user_id})
+			WHERE toLower(e.label) CONTAINS token
+			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(e)
+			WITH t, count(distinct token) AS overlap
 			ORDER BY overlap DESC
 			LIMIT $seed_limit
 
@@ -393,7 +398,7 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			`
 			MATCH (t:Thought {user_id: $user_id})
 			RETURN t.id AS id,
-			       coalesce(t.lexical_text, t.normalized_text, '') AS label,
+			       t.id AS label,
 			       coalesce(t.category, 'perception') AS subtype
 			LIMIT $node_limit
 			`,
@@ -710,4 +715,210 @@ export async function expandThoughtIdsFromEntitySeeds(input: {
 
 		return merged;
 	});
+}
+
+/** Temporal Event node — scalar dates for reference; range math lives in Postgres. */
+export async function upsertEventNode(input: {
+	id: string;
+	userId: string;
+	kind: string;
+	label: string;
+	startAt: string;
+	endAt: string;
+}): Promise<void> {
+	const id = validateNonEmptyEntityId(input.id, 'id');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_event', async () => {
+		await graph.query(
+			`
+			MERGE (e:Event {id: $id})
+			SET e.user_id = $user_id,
+			    e.kind = $kind,
+			    e.label = $label,
+			    e.start_at = $start_at,
+			    e.end_at = $end_at,
+			    e.updated_at = timestamp()
+			RETURN e.id
+			`,
+			{
+				params: {
+					id,
+					user_id: input.userId,
+					kind: input.kind,
+					label: input.label,
+					start_at: input.startAt,
+					end_at: input.endAt
+				}
+			}
+		);
+	});
+}
+
+export async function deleteEventNodeFromGraph(input: {
+	userId: string;
+	eventId: string;
+}): Promise<void> {
+	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_event', async () => {
+		await graph.query(
+			`
+			MATCH (e:Event {id: $event_id, user_id: $user_id})
+			DETACH DELETE e
+			`,
+			{ params: { event_id: eventId, user_id: input.userId } }
+		);
+	});
+}
+
+export async function upsertThoughtOccurrenceEdge(input: {
+	userId: string;
+	thoughtId: string;
+	eventId: string;
+}): Promise<void> {
+	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
+	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_occurs_in', async () => {
+		await graph.query(
+			`
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
+			MATCH (e:Event {id: $event_id, user_id: $user_id})
+			MERGE (t)-[r:OCCURS_IN {user_id: $user_id}]->(e)
+			SET r.updated_at = timestamp()
+			RETURN t.id, e.id
+			`,
+			{
+				params: {
+					thought_id: thoughtId,
+					event_id: eventId,
+					user_id: input.userId
+				}
+			}
+		);
+	});
+}
+
+export async function upsertEventInvolvesEntityEdge(input: {
+	userId: string;
+	eventId: string;
+	entityId: string;
+}): Promise<void> {
+	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
+	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_event_involves', async () => {
+		await graph.query(
+			`
+			MATCH (e:Event {id: $event_id, user_id: $user_id})
+			MATCH (n:Entity {id: $entity_id, user_id: $user_id})
+			MERGE (e)-[r:INVOLVES {user_id: $user_id}]->(n)
+			SET r.updated_at = timestamp()
+			RETURN e.id, n.id
+			`,
+			{
+				params: {
+					event_id: eventId,
+					entity_id: entityId,
+					user_id: input.userId
+				}
+			}
+		);
+	});
+}
+
+export type TemporalContextHit = {
+	thoughtId: string;
+	hits: number;
+	provenance?: string;
+};
+
+/**
+ * Filter-then-traverse step 2: expand thoughts linked to seeded Event nodes (1–2 hops).
+ */
+export async function expandContextFromTemporalEventSeeds(input: {
+	userId: string;
+	eventIds: string[];
+	limit: number;
+}): Promise<TemporalContextHit[]> {
+	const ids = input.eventIds
+		.map((id) => validateNonEmptyEntityId(id, 'eventIds[]'))
+		.filter((v, i, a) => a.indexOf(v) === i);
+	if (ids.length === 0) return [];
+
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.expand_from_events', async () => {
+		const direct = (await graph.query(
+			`
+			UNWIND $event_ids AS eid
+			MATCH (t:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(ev:Event {id: eid, user_id: $user_id})
+			RETURN t.id AS thought_id, count(*) AS hits, collect(distinct ev.label)[0] AS via_label
+			`,
+			{ params: { event_ids: ids, user_id: input.userId } }
+		)) as { data?: Array<{ thought_id?: unknown; hits?: unknown; via_label?: unknown }> };
+
+		const viaEntity = (await graph.query(
+			`
+			UNWIND $event_ids AS eid
+			MATCH (ev:Event {id: eid, user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(ent:Entity {user_id: $user_id})
+			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(ent)
+			RETURN t.id AS thought_id, count(*) AS hits, collect(distinct ent.label)[0] AS via_label
+			`,
+			{ params: { event_ids: ids, user_id: input.userId } }
+		)) as { data?: Array<{ thought_id?: unknown; hits?: unknown; via_label?: unknown }> };
+
+		const map = new Map<string, { hits: number; provenance?: string }>();
+		for (const row of [...(direct.data ?? []), ...(viaEntity.data ?? [])]) {
+			const thoughtId = typeof row.thought_id === 'string' ? row.thought_id : '';
+			if (!thoughtId) continue;
+			const hits = typeof row.hits === 'number' ? row.hits : Number(row.hits ?? 0);
+			const viaLabel = typeof row.via_label === 'string' ? row.via_label : '';
+			const cur = map.get(thoughtId);
+			if (!cur) {
+				map.set(thoughtId, {
+					hits,
+					provenance: viaLabel ? `event:${viaLabel}` : 'event'
+				});
+			} else {
+				cur.hits += hits;
+			}
+		}
+
+		return [...map.entries()]
+			.map(([thoughtId, v]) => ({
+				thoughtId,
+				hits: v.hits,
+				provenance: v.provenance
+			}))
+			.sort((a, b) => b.hits - a.hits)
+			.slice(0, input.limit);
+	});
+}
+
+/** Returns true when a Thought node exists for this user in Falkor. */
+export async function thoughtExistsInGraph(userId: string, thoughtId: string): Promise<boolean> {
+	const id = validateNonEmptyEntityId(thoughtId, 'thoughtId');
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(userId));
+	const result = await runFalkorQueryWithRetry(userId, 'falkor.thought_exists', async () => {
+		return graph.query(
+			`
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
+			RETURN t.id AS id
+			LIMIT 1
+			`,
+			{
+				params: {
+					thought_id: id,
+					user_id: userId
+				}
+			}
+		);
+	}) as { data?: Array<{ id?: unknown }> };
+	return (result.data?.length ?? 0) > 0;
 }

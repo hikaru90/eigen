@@ -45,11 +45,18 @@ export function logEval(message: string): void {
 	console.log(`[eval ${nowStamp()}] ${message}`);
 }
 
+let heartbeatProgressHint = '';
+
+export function setHeartbeatProgressHint(hint: string): void {
+	heartbeatProgressHint = hint;
+}
+
 export function startEvalHeartbeat(label: string, intervalMs = 15000): () => void {
 	const startedAt = Date.now();
 	const timer = setInterval(() => {
 		const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
-		logEval(`${label}: still running (${elapsedSec}s elapsed)`);
+		const pct = heartbeatProgressHint ? ` · ${heartbeatProgressHint}` : '';
+		logEval(`${label}: still running (${elapsedSec}s elapsed)${pct}`);
 	}, intervalMs);
 	timer.unref?.();
 	return () => clearInterval(timer);

@@ -53,4 +53,4 @@
 
 ## Eval / test harness
 
-- Retrieval presets and weights may be referenced from [`src/routes/evals/`](../../src/routes/evals/) and specs under `src/routes/api/retrieval/search/` — behavior should stay aligned with comments in `searchThoughts`.
+- Retrieval weight sweeps for evals live in [`evals/harness/retrieval-sweep.ts`](../../evals/harness/retrieval-sweep.ts); product search uses [`src/routes/api/retrieval/search/`](../../src/routes/api/retrieval/search/) — keep behavior aligned with `searchThoughts`.

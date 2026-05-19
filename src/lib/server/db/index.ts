@@ -2,10 +2,25 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
 import { getRuntimeDatabaseUrl } from './runtime-url';
-import type { AppDatabase } from './context';
+import { appDbAsyncLocal, type AppDatabase } from './context';
 
 export { getDb, appDbAsyncLocal } from './context';
 export type { AppDatabase } from './context';
+
+/**
+ * Run `fn` with RLS scoped to `userId` (eval metadata tables, etc.).
+ */
+export async function withDbUser<T>(userId: string, fn: (db: AppDatabase) => Promise<T>): Promise<T> {
+	const reserved = await appSql.reserve();
+	try {
+		await reserved`select set_config('app.current_user_id', ${userId}, false)`;
+		const scopedDb = createScopedDrizzle(reserved);
+		return await appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
+	} finally {
+		await reserved`select set_config('app.current_user_id', '', false)`;
+		await reserved.release();
+	}
+}
 
 /**
  * App-facing Postgres pool. Use `getDb()` inside request handlers (RLS session var is set in hooks).

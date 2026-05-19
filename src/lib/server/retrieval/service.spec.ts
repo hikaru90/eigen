@@ -39,6 +39,12 @@ vi.mock('$lib/server/memory/entity-resolution', () => ({
 	matchCanonicalEntitiesByEmbedding: matchCanonicalEntitiesByEmbeddingMock
 }));
 
+vi.mock('$lib/server/retrieval/temporal', () => ({
+	isTemporalQuery: vi.fn(() => false),
+	filterTemporalEvents: vi.fn(async () => []),
+	traverseTemporalContext: vi.fn(async () => [])
+}));
+
 function makeDb(selectResults: unknown[][]) {
 	let index = 0;
 	const limits: number[] = [];

@@ -128,3 +128,81 @@ CREATE POLICY llm_provider_config_isolation ON llm_provider_config
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE eval_run ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eval_run FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS eval_run_isolation ON eval_run;
+CREATE POLICY eval_run_isolation ON eval_run
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE eval_entry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eval_entry FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS eval_entry_isolation ON eval_entry;
+CREATE POLICY eval_entry_isolation ON eval_entry
+  FOR ALL
+  USING (
+    run_id IN (
+      SELECT id FROM eval_run
+      WHERE user_id = current_setting('app.current_user_id', true)
+    )
+  )
+  WITH CHECK (
+    run_id IN (
+      SELECT id FROM eval_run
+      WHERE user_id = current_setting('app.current_user_id', true)
+    )
+  );
+
+ALTER TABLE eval_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eval_event FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS eval_event_isolation ON eval_event;
+CREATE POLICY eval_event_isolation ON eval_event
+  FOR ALL
+  USING (
+    run_id IN (
+      SELECT id FROM eval_run
+      WHERE user_id = current_setting('app.current_user_id', true)
+    )
+  )
+  WITH CHECK (
+    run_id IN (
+      SELECT id FROM eval_run
+      WHERE user_id = current_setting('app.current_user_id', true)
+    )
+  );
+
+ALTER TABLE temporal_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE temporal_event FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS temporal_event_isolation ON temporal_event;
+CREATE POLICY temporal_event_isolation ON temporal_event
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE graph_sync_job ENABLE ROW LEVEL SECURITY;
+ALTER TABLE graph_sync_job FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS graph_sync_job_isolation ON graph_sync_job;
+CREATE POLICY graph_sync_job_isolation ON graph_sync_job
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE eval_thought_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eval_thought_map FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS eval_thought_map_isolation ON eval_thought_map;
+CREATE POLICY eval_thought_map_isolation ON eval_thought_map
+  FOR ALL
+  USING (
+    run_id IN (
+      SELECT id FROM eval_run
+      WHERE user_id = current_setting('app.current_user_id', true)
+    )
+  )
+  WITH CHECK (
+    run_id IN (
+      SELECT id FROM eval_run
+      WHERE user_id = current_setting('app.current_user_id', true)
+    )
+  );

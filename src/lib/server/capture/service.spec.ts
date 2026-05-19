@@ -373,7 +373,7 @@ describe('relinkThoughtGraph', () => {
 		const result = await relinkThoughtGraph('u1', 't1');
 		expect(result.ok).toBe(true);
 		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
-			expect.objectContaining({ id: 't1', normalizedText: 'hello' })
+			expect.objectContaining({ id: 't1', userId: 'u1' })
 		);
 		expect(reenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello');
 	});

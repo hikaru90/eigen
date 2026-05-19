@@ -65,7 +65,7 @@ export type CaptureThoughtOptions = {
 };
 
 /**
- * Fast path: classify → embed → persist → FalkorDB node → return immediately.
+ * Fast path: classify → embed → persist → FalkorDB provenance anchor → return immediately.
  *
  * Heavy enrichment (relation extraction, entity graph sync, memory type
  * classification, cue extraction, ontology eval) is fired asynchronously
@@ -185,9 +185,6 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	await upsertThoughtNode({
 		id: stored.id,
 		userId,
-		rawText: stored.rawText,
-		normalizedText: stored.normalizedText,
-		lexicalText: stored.lexicalText,
 		category: stored.category
 	});
 
@@ -288,9 +285,6 @@ export async function editStoredThought(
 	await upsertThoughtNode({
 		id: updated!.id,
 		userId,
-		rawText: updated!.rawText,
-		normalizedText: updated!.normalizedText,
-		lexicalText: updated!.lexicalText,
 		category: updated!.category
 	});
 
@@ -345,9 +339,6 @@ export async function relinkThoughtGraph(
 	await upsertThoughtNode({
 		id: existing.id,
 		userId,
-		rawText: existing.rawText,
-		normalizedText: existing.normalizedText,
-		lexicalText: existing.lexicalText,
 		category: existing.category
 	});
 

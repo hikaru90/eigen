@@ -26,6 +26,13 @@ const tsvector = customType<{ data: string }>({
 	}
 });
 
+/** Postgres `tsrange` literal, e.g. `[2025-10-01,2026-03-01)`. */
+const tsrange = customType<{ data: string }>({
+	dataType() {
+		return 'tsrange';
+	}
+});
+
 /**
  * Per-user entity kind definitions (ontology catalog). No TS closed union — keys are data.
  * `kind_type` discriminates between thought categories ('thought_category') and real-world
@@ -536,6 +543,115 @@ export const llmActiveProvider = pgTable('llm_active_provider', {
 });
 
 // ---------------------------------------------------------------------------
+// Temporal memory (Postgres time-keeper + Falkor context weaver)
+// ---------------------------------------------------------------------------
+
+export const temporalEventKindEnum = [
+	'deadline',
+	'appointment',
+	'milestone',
+	'period',
+	'reminder',
+	'inferred_event'
+] as const;
+export type TemporalEventKind = (typeof temporalEventKindEnum)[number];
+
+export const temporalTimePrecisionEnum = ['exact', 'day', 'week', 'month', 'fuzzy'] as const;
+export type TemporalTimePrecision = (typeof temporalTimePrecisionEnum)[number];
+
+/**
+ * Structured temporal facts extracted from thoughts. `active_period` is the
+ * canonical overlap key for timeline slicing; Falkor `Event` nodes mirror these rows.
+ */
+export const temporalEvent = pgTable(
+	'temporal_event',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		thoughtId: uuid('thought_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		/** Falkor Event node id; set when graph sync succeeds (defaults to row id). */
+		falkordbNodeId: text('falkordb_node_id'),
+		kind: text('kind').$type<TemporalEventKind>().notNull(),
+		activePeriod: tsrange('active_period').notNull(),
+		timePrecision: text('time_precision').$type<TemporalTimePrecision>().notNull(),
+		timezone: text('timezone').notNull(),
+		isAllDay: boolean('is_all_day').notNull().default(false),
+		recurrenceRule: text('recurrence_rule'),
+		confidence: real('confidence').notNull(),
+		semanticSummary: text('semantic_summary').notNull(),
+		embedding: vector('embedding', { dimensions: 1536 }),
+		lexicalText: text('lexical_text').notNull().default(''),
+		lexicalTsv: tsvector('lexical_tsv')
+			.notNull()
+			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
+		sourceTextSpan: text('source_text_span'),
+		parseMetadata: jsonb('parse_metadata').$type<Record<string, unknown>>().notNull().default({}),
+		/** Scalar bounds for Falkor reference (derived from active_period). */
+		startAt: timestamp('start_at'),
+		endAt: timestamp('end_at'),
+		graphSyncStatus: text('graph_sync_status').notNull().default('pending'),
+		graphSyncError: text('graph_sync_error'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		index('temporal_event_user_idx').on(t.userId),
+		index('temporal_event_thought_idx').on(t.thoughtId),
+		index('temporal_event_active_period_idx').using('gist', t.activePeriod),
+		index('temporal_event_lexical_tsv_idx').using('gin', t.lexicalTsv),
+		index('temporal_event_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+		index('temporal_event_graph_sync_idx').on(t.userId, t.graphSyncStatus)
+	]
+);
+
+export type TemporalEvent = typeof temporalEvent.$inferSelect;
+
+export const graphSyncJobStatusEnum = ['pending', 'processing', 'completed', 'failed'] as const;
+export type GraphSyncJobStatus = (typeof graphSyncJobStatusEnum)[number];
+
+export const graphSyncJobOperationEnum = ['upsert_temporal_event', 'delete_temporal_event'] as const;
+export type GraphSyncJobOperation = (typeof graphSyncJobOperationEnum)[number];
+
+/** Outbox for Falkor graph writes after Postgres commit (deterministic retries). */
+export const graphSyncJob = pgTable(
+	'graph_sync_job',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		temporalEventId: uuid('temporal_event_id').references(() => temporalEvent.id, {
+			onDelete: 'cascade'
+		}),
+		operation: text('operation').$type<GraphSyncJobOperation>().notNull(),
+		status: text('status').$type<GraphSyncJobStatus>().notNull().default('pending'),
+		payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+		attemptCount: integer('attempt_count').notNull().default(0),
+		lastError: text('last_error'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+		completedAt: timestamp('completed_at')
+	},
+	(t) => [
+		index('graph_sync_job_user_idx').on(t.userId),
+		index('graph_sync_job_status_idx').on(t.status, t.createdAt),
+		index('graph_sync_job_temporal_event_idx').on(t.temporalEventId)
+	]
+);
+
+export type GraphSyncJob = typeof graphSyncJob.$inferSelect;
+
+// ---------------------------------------------------------------------------
 // GraphRAG community detection tables
 // ---------------------------------------------------------------------------
 
@@ -671,3 +787,134 @@ export const ontologyProposal = pgTable(
 );
 
 export type OntologyProposal = typeof ontologyProposal.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Eval harness (DB-backed runs; operator-scoped via RLS)
+// ---------------------------------------------------------------------------
+
+export const evalRunStatusEnum = ['draft', 'running', 'completed', 'failed', 'stopped'] as const;
+export type EvalRunStatus = (typeof evalRunStatusEnum)[number];
+
+export const evalEntryKindEnum = ['capture', 'check', 'retrieval', 'answer', 'edit'] as const;
+export type EvalEntryKind = (typeof evalEntryKindEnum)[number];
+
+export const evalEntryStatusEnum = ['pending', 'running', 'completed', 'failed', 'skipped'] as const;
+export type EvalEntryStatus = (typeof evalEntryStatusEnum)[number];
+
+/** A composed eval session (QA catalog run). */
+export const evalRun = pgTable(
+	'eval_run',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		/** Logged-in dev user who owns this run row. */
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		/** Ephemeral brain tenant; thoughts live under this id during the run. */
+		evalUserId: text('eval_user_id').notNull(),
+		label: text('label').notNull(),
+		scenarioId: text('scenario_id'),
+		status: text('status').$type<EvalRunStatus>().notNull().default('draft'),
+		configJson: jsonb('config_json').$type<Record<string, unknown>>().notNull().default({}),
+		synthesisJson: jsonb('synthesis_json').$type<Record<string, unknown>>(),
+		startedAt: timestamp('started_at'),
+		finishedAt: timestamp('finished_at'),
+		error: text('error'),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('eval_run_user_idx').on(t.userId),
+		index('eval_run_user_created_idx').on(t.userId, t.createdAt)
+	]
+);
+
+export type EvalRun = typeof evalRun.$inferSelect;
+
+/** Atomic eval step: one capture, one retrieval query (+ sweep), or one answer. */
+export const evalEntry = pgTable(
+	'eval_entry',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		runId: uuid('run_id')
+			.notNull()
+			.references(() => evalRun.id, { onDelete: 'cascade' }),
+		ordinal: integer('ordinal').notNull(),
+		kind: text('kind').$type<EvalEntryKind>().notNull(),
+		fixtureRef: text('fixture_ref'),
+		inputJson: jsonb('input_json').$type<Record<string, unknown>>().notNull().default({}),
+		expectedJson: jsonb('expected_json').$type<Record<string, unknown>>().notNull().default({}),
+		status: text('status').$type<EvalEntryStatus>().notNull().default('pending'),
+		passed: boolean('passed'),
+		resultJson: jsonb('result_json').$type<Record<string, unknown>>(),
+		error: text('error'),
+		durationMs: integer('duration_ms'),
+		dependsOnEntryId: uuid('depends_on_entry_id'),
+		startedAt: timestamp('started_at'),
+		finishedAt: timestamp('finished_at')
+	},
+	(t) => [
+		index('eval_entry_run_idx').on(t.runId),
+		index('eval_entry_run_ordinal_idx').on(t.runId, t.ordinal)
+	]
+);
+
+export type EvalEntry = typeof evalEntry.$inferSelect;
+
+/** Append-only log for a run or entry (no file logs). */
+export const evalEvent = pgTable(
+	'eval_event',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		runId: uuid('run_id')
+			.notNull()
+			.references(() => evalRun.id, { onDelete: 'cascade' }),
+		entryId: uuid('entry_id').references(() => evalEntry.id, { onDelete: 'cascade' }),
+		level: text('level').notNull().default('info'),
+		message: text('message').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('eval_event_run_idx').on(t.runId),
+		index('eval_event_run_created_idx').on(t.runId, t.createdAt)
+	]
+);
+
+export type EvalEvent = typeof evalEvent.$inferSelect;
+
+/** Maps fixture ec_NNN ids to thought UUIDs within a run. */
+export const evalThoughtMap = pgTable(
+	'eval_thought_map',
+	{
+		runId: uuid('run_id')
+			.notNull()
+			.references(() => evalRun.id, { onDelete: 'cascade' }),
+		fixtureId: text('fixture_id').notNull(),
+		thoughtId: uuid('thought_id').notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.runId, t.fixtureId] }),
+		index('eval_thought_map_run_idx').on(t.runId)
+	]
+);
+
+export type EvalThoughtMap = typeof evalThoughtMap.$inferSelect;
+
+/** Reusable eval Q&A probe: captures, optional retrieval, optional edit, answer judge. */
+export const evalQa = pgTable('eval_qa', {
+	id: text('id').primaryKey(),
+	question: text('question').notNull(),
+	acceptance: text('acceptance').notNull(),
+	capturesJson: jsonb('captures_json').$type<Record<string, unknown>[]>().notNull().default([]),
+	retrievalQuery: text('retrieval_query'),
+	retrievalRelevantJson: jsonb('retrieval_relevant_json')
+		.$type<Array<{ id: string; grade: number }>>()
+		.notNull()
+		.default([]),
+	tagsJson: jsonb('tags_json').$type<string[]>().notNull().default([]),
+	editJson: jsonb('edit_json').$type<{ fixtureId: string; newRawText: string } | null>(),
+	checksJson: jsonb('checks_json').$type<Record<string, unknown>>().notNull().default({}),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at').defaultNow().notNull()
+});
+
+export type EvalQa = typeof evalQa.$inferSelect;

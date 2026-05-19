@@ -109,7 +109,7 @@
   >
     <div class="relative flex flex-row items-center gap-2 px-2 pb-6">
       <div
-        class="bg-linear-to-t absolute -top-6 right-0 bottom-0 left-0 -z-10 w-full from-background to-transparent dark:from-black dark:to-black/0"
+        class="pointer-events-none bg-linear-to-t absolute -top-6 right-0 bottom-0 left-0 -z-10 w-full from-background to-transparent dark:from-black dark:to-black/0"
       ></div>
       {#each bottomNavItems as item}
         <div class={cn("relative", item.variant === "primary" ? "grow" : "")}>

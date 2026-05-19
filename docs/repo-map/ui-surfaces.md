@@ -18,7 +18,7 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 - **`/settings`** — User settings (e.g. language). Load: [`settings/+page.server.ts`](../../src/routes/settings/+page.server.ts).
 - **`/api-keys`** — API key management UI. Load: [`api-keys/+page.server.ts`](../../src/routes/api-keys/+page.server.ts).
 - **`/login`**, **`/register`** — Auth flows.
-- **`/evals`** — Eval harness surface (development-oriented).
+- **`/eval`** — System evaluation harness (dev only): QA catalog and runs.
 
 ## API routes (browser or MCP)
 
