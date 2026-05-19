@@ -23,8 +23,6 @@
  * Usage: node scripts/migrate.mjs
  */
 import './load-env.mjs';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
@@ -59,7 +57,62 @@ const journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
 const LAST_PUSH_IDX = 8; // 0008_chat_message_metadata
 
 const client = postgres(urlString, { max: 1 });
-const db = drizzle(client);
+
+function migrationHash(sqlContent) {
+	return createHash('sha256').update(sqlContent).digest('hex');
+}
+
+function splitStatements(sqlContent) {
+	return sqlContent
+		.split('--> statement-breakpoint')
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
+/**
+ * Apply journal migrations missing from drizzle.__drizzle_migrations (hash-based).
+ * Drizzle's built-in migrate() only runs files newer than the latest created_at stamp,
+ * which skips older idx entries when a later migration was applied out of order (push / manual).
+ */
+async function applyPendingMigrationsByHash() {
+	await client`CREATE SCHEMA IF NOT EXISTS drizzle`;
+	await client`
+		CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+			id         SERIAL PRIMARY KEY,
+			hash       text NOT NULL,
+			created_at bigint
+		)
+	`;
+
+	const applied = await client`SELECT hash FROM drizzle.__drizzle_migrations`;
+	const appliedSet = new Set(applied.map((r) => r.hash));
+
+	let appliedCount = 0;
+	for (const entry of journal.entries) {
+		const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
+		const sqlContent = readFileSync(sqlPath, 'utf-8');
+		const hash = migrationHash(sqlContent);
+		if (appliedSet.has(hash)) continue;
+
+		console.log(`[eigen] Applying ${entry.tag}...`);
+		const statements = splitStatements(sqlContent);
+		for (const stmt of statements) {
+			await client.unsafe(stmt);
+		}
+		await client`
+			INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+			VALUES (${hash}, ${entry.when})
+		`;
+		appliedSet.add(hash);
+		appliedCount += 1;
+	}
+
+	if (appliedCount === 0) {
+		console.log('[eigen] No pending migrations.');
+	} else {
+		console.log(`[eigen] Applied ${appliedCount} migration(s).`);
+	}
+}
 
 /**
  * Detects a DB previously managed by drizzle-kit push and pre-seeds the

@@ -91,10 +91,11 @@
     }))
   );
 
-  function captureStatusLabel(status: string): string {
-    if (status === 'running') return 'Ingesting now…';
-    if (status === 'completed') return 'Stored';
-    if (status === 'failed') return 'Failed';
+  function captureStatusLabel(entry: EvalEntrySummary): string {
+    if (entry.status === 'running') return 'Ingesting now…';
+    if (entry.status === 'failed') return 'Failed';
+    if (entry.status === 'completed' && entry.passed === false) return 'Stored (check failed)';
+    if (entry.status === 'completed') return 'Stored';
     return 'Queued';
   }
 
@@ -349,10 +350,13 @@
                         class="text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform group-open:rotate-90"
                       />
                       <div class="min-w-0 flex-1">
-                        <span class="text-xs font-medium">{captureStatusLabel(cap.status)}</span>
+                        <span class="text-xs font-medium">{captureStatusLabel(cap)}</span>
                         <p class="mt-2 text-sm leading-relaxed whitespace-pre-wrap">
                           {excerpt(String(cap.result?.rawText ?? cap.input.rawText ?? ''), 200)}
                         </p>
+                        {#if cap.error}
+                          <p class="text-destructive mt-2 text-xs whitespace-pre-wrap">{cap.error}</p>
+                        {/if}
                       </div>
                     </summary>
                     {#if cap.result?.normalizedText && cap.status === 'completed'}

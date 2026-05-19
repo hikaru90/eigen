@@ -238,14 +238,7 @@
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: item.question,
-          acceptance: item.acceptance,
-          captures: item.captures,
-          retrievalQuery: item.retrievalQuery,
-          retrievalRelevant: item.retrievalRelevant,
-          tags: nextTags,
-          edit: item.edit,
-          checks: item.checks
+          tags: nextTags
         })
       });
       const body = await res.json();
@@ -422,9 +415,26 @@
                     Run
                   </Button>
                 {/if}
-                <Button variant="outline" size="sm" disabled={saving} onclick={() => void toggleActive(item)}>
-                  {isItemActive(item) ? 'Deactivate' : 'Activate'}
-                </Button>
+                <label class="inline-flex items-center gap-2 text-xs font-medium">
+                  <span class="text-muted-foreground">{isItemActive(item) ? 'Active' : 'Inactive'}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isItemActive(item)}
+                    aria-label={`Toggle ${item.id} active state`}
+                    class="relative inline-flex h-6 w-11 items-center rounded-full border transition-colors {isItemActive(item)
+                      ? 'bg-primary border-primary'
+                      : 'bg-muted border-border'} {saving ? 'opacity-60' : ''}"
+                    disabled={saving}
+                    onclick={() => void toggleActive(item)}
+                  >
+                    <span
+                      class="inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform {isItemActive(item)
+                        ? 'translate-x-5'
+                        : 'translate-x-0'}"
+                    ></span>
+                  </button>
+                </label>
                 <Button variant="outline" size="sm" disabled={saving} onclick={() => startEdit(item)}>
                   Edit
                 </Button>

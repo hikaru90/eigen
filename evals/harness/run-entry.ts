@@ -27,7 +27,8 @@ import { runRetrievalSweepForQuery } from './retrieval-sweep';
 import type { EvalRetrievalQuery, QaChecks } from './qa-types';
 import { captureEvalGraphSnapshot } from './graph-snapshot';
 import { runStructuralChecks } from './qa-checks';
-import { waitForThoughtEnrichment, loadThoughtEnrichmentTargets } from './wait-enrichment';
+import { assertThoughtEntitiesResolved } from './wait-enrichment';
+import { resolveEntryTimeoutMs, withEvalEntryTimeout } from './entry-timeout';
 import { generateRunSynthesis, type EntrySummary } from './synthesis';
 import type { EvalSynthesis } from '$lib/eval/types';
 
@@ -64,20 +65,21 @@ async function runCaptureEntry(input: {
 		})
 	);
 
-	await appendEvalEvent({
-		operatorUserId: input.operatorUserId,
-		runId: input.runId,
-		entryId: input.entry.id,
-		message: 'waiting for entity enrichment…'
-	});
 	await withEvalDb(input.evalUserId, async (db) => {
-		const targets = await loadThoughtEnrichmentTargets(db, input.evalUserId, [stored.id]);
-		await waitForThoughtEnrichment({
-			db,
-			userId: input.evalUserId,
-			targets,
-			timeoutMs: 5 * 60 * 1000
-		});
+		const [enrichRow] = await db
+			.select({ enrichedAt: thought.enrichedAt })
+			.from(thought)
+			.where(and(eq(thought.userId, input.evalUserId), eq(thought.id, stored.id)));
+		if (!enrichRow?.enrichedAt) {
+			logEval(
+				`capture enrich incomplete for ${stored.id} (enriched_at unset — ` +
+					'check dev logs for [enrich] step failed)'
+			);
+		}
+	});
+
+	await withEvalDb(input.evalUserId, async (db) => {
+		await assertThoughtEntitiesResolved(db, input.evalUserId, [stored.id]);
 	});
 
 	const fidelity = await judgeCaptureFidelity({
@@ -325,7 +327,7 @@ async function runEditEntry(input: {
 		throw new Error(`edit: no captured thought for fixture ${fixtureId}`);
 	}
 
-	const stored = await withEvalDb(input.evalUserId, () =>
+	const editResult = await withEvalDb(input.evalUserId, () =>
 		editStoredThought(input.evalUserId, thoughtId, newRawText, {
 			onProgress: async (ev) => {
 				const phases = ev.parallel ? ev.phases.join(',') : ev.phase;
@@ -338,15 +340,13 @@ async function runEditEntry(input: {
 			}
 		})
 	);
+	if (!editResult.ok) {
+		throw new Error(`edit failed: ${editResult.reason}`);
+	}
+	const stored = editResult.thought;
 
 	await withEvalDb(input.evalUserId, async (db) => {
-		const targets = await loadThoughtEnrichmentTargets(db, input.evalUserId, [stored.id]);
-		await waitForThoughtEnrichment({
-			db,
-			userId: input.evalUserId,
-			targets,
-			timeoutMs: 5 * 60 * 1000
-		});
+		await assertThoughtEntitiesResolved(db, input.evalUserId, [thoughtId]);
 	});
 
 	const normalized = stored.normalizedText.toLowerCase();
@@ -380,12 +380,20 @@ async function runAnswerEntry(input: {
 }): Promise<{ passed: boolean; result: Record<string, unknown> }> {
 	const question = String(input.entry.inputJson.question ?? '');
 	const acceptance = String(input.entry.expectedJson.acceptance ?? '');
+	const retrievalQuery =
+		typeof input.entry.inputJson.retrievalQuery === 'string'
+			? input.entry.inputJson.retrievalQuery.trim()
+			: '';
 	if (!question || !acceptance) {
 		throw new Error('answer entry missing question or acceptance criteria');
 	}
 
 	const composed = await withEvalDb(input.evalUserId, () =>
-		composeAnswer({ userId: input.evalUserId, question })
+		composeAnswer({
+			userId: input.evalUserId,
+			question,
+			...(retrievalQuery ? { retrievalQuery } : {})
+		})
 	);
 
 	const verdict = await judgeAnswerAcceptance({
@@ -432,21 +440,29 @@ async function runOneEntry(input: {
 		message: `entry start: ${input.entry.kind} ${input.entry.fixtureRef ?? ''}`
 	});
 
+	const entryLabel = `${input.entry.kind} ${input.entry.fixtureRef ?? ''}`.trim();
+	const timeoutMs = resolveEntryTimeoutMs(input.entry.kind);
+
 	try {
 		let outcome: { passed: boolean; result: Record<string, unknown> };
-		if (input.entry.kind === 'capture') {
-			outcome = await runCaptureEntry(input);
-		} else if (input.entry.kind === 'check') {
-			outcome = await runCheckEntry(input);
-		} else if (input.entry.kind === 'retrieval') {
-			outcome = await runRetrievalEntry(input);
-		} else if (input.entry.kind === 'edit') {
-			outcome = await runEditEntry(input);
-		} else if (input.entry.kind === 'answer') {
-			outcome = await runAnswerEntry(input);
-		} else {
+		outcome = await withEvalEntryTimeout(timeoutMs, entryLabel, async () => {
+			if (input.entry.kind === 'capture') {
+				return runCaptureEntry(input);
+			}
+			if (input.entry.kind === 'check') {
+				return runCheckEntry(input);
+			}
+			if (input.entry.kind === 'retrieval') {
+				return runRetrievalEntry(input);
+			}
+			if (input.entry.kind === 'edit') {
+				return runEditEntry(input);
+			}
+			if (input.entry.kind === 'answer') {
+				return runAnswerEntry(input);
+			}
 			throw new Error(`unknown entry kind: ${input.entry.kind}`);
-		}
+		});
 
 		const durationMs = Date.now() - startedAt.getTime();
 		await updateEvalEntry(input.operatorUserId, input.entry.id, {
@@ -509,6 +525,7 @@ export async function executeEvalRun(input: {
 
 	await ensureJudgeUser();
 	await insertEvalUserRow(run.evalUserId, `Eval run ${run.label}`);
+
 
 	await updateEvalRunStatus(input.operatorUserId, input.runId, {
 		status: 'running',

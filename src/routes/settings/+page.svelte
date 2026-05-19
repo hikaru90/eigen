@@ -4,6 +4,11 @@
 	import type { ActionData, PageData } from './$types';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
+	import { Input } from '$lib/components/ui/input';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation';
+	import CopyIcon from '@lucide/svelte/icons/copy';
+	import Check from '@lucide/svelte/icons/check';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let themePreference = $state('system');
@@ -20,6 +25,59 @@
 	let orApiKey = $state(data.openrouter.apiKey);
 	let orModelChat = $state(data.openrouter.modelChat);
 	let orModelEmbedding = $state(data.openrouter.modelEmbedding);
+
+	let deleteDialogOpen = $state(false);
+	let deleteConfirmation = $state('');
+	let deleteBusy = $state(false);
+	let deleteError = $state<string | null>(null);
+	let deleteSuccess = $state<string | null>(null);
+	let deletePhraseCopied = $state(false);
+
+	const deleteConfirmationValid = $derived(
+		deleteConfirmation.trim() === DELETE_ALL_MEMORIES_CONFIRMATION
+	);
+
+	function openDeleteMemoriesDialog() {
+		deleteConfirmation = '';
+		deleteError = null;
+		deletePhraseCopied = false;
+		deleteDialogOpen = true;
+	}
+
+	async function copyDeleteConfirmationPhrase() {
+		await navigator.clipboard.writeText(DELETE_ALL_MEMORIES_CONFIRMATION);
+		deletePhraseCopied = true;
+		setTimeout(() => (deletePhraseCopied = false), 2000);
+	}
+
+	async function deleteAllMemories() {
+		if (!deleteConfirmationValid || deleteBusy) return;
+		deleteBusy = true;
+		deleteError = null;
+		deleteSuccess = null;
+		try {
+			const res = await fetch('/api/memories', {
+				method: 'DELETE',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ confirmation: deleteConfirmation.trim() })
+			});
+			const body = await res.json().catch(() => null);
+			if (!res.ok) {
+				throw new Error(
+					typeof body?.message === 'string' ? body.message : `Request failed (${res.status})`
+				);
+			}
+			deleteDialogOpen = false;
+			deleteConfirmation = '';
+			const thoughts = typeof body?.thoughtsDeleted === 'number' ? body.thoughtsDeleted : 0;
+			const entities = typeof body?.entitiesDeleted === 'number' ? body.entitiesDeleted : 0;
+			deleteSuccess = `Deleted ${thoughts} thought${thoughts === 1 ? '' : 's'} and ${entities} entit${entities === 1 ? 'y' : 'ies'}. Your graph memory was cleared.`;
+		} catch (e) {
+			deleteError = e instanceof Error ? e.message : String(e);
+		} finally {
+			deleteBusy = false;
+		}
+	}
 
 	async function switchProvider(provider: string) {
 		activeProvider = provider;
@@ -315,4 +373,86 @@
 			</form>
 		{/if}
 	</div>
+
+	<div class="border-destructive/30 rounded-xl border bg-muted px-3.5 py-3 text-sm">
+		<h3 class="text-destructive text-xs font-semibold">Danger zone</h3>
+		<p class="text-muted-foreground mt-0.5 text-xs">
+			Permanently delete all captured thoughts, entities, temporal events, and your Falkor graph for
+			this account. Settings, API keys, and chat history are not removed.
+		</p>
+		<div class="mt-2">
+			<Button
+				type="button"
+				variant="destructive"
+				size="sm"
+				class="rounded-[4px]"
+				onclick={openDeleteMemoriesDialog}
+			>
+				Delete all my memories
+			</Button>
+			{#if deleteSuccess}
+				<p class="text-muted-foreground mt-2 text-xs">{deleteSuccess}</p>
+			{/if}
+		</div>
+	</div>
 </div>
+
+<AlertDialog.Root bind:open={deleteDialogOpen}>
+	<AlertDialog.Content class="max-w-sm rounded-[4px]">
+		<AlertDialog.Header>
+			<AlertDialog.Title>Delete all memories?</AlertDialog.Title>
+			<AlertDialog.Description>
+				This cannot be undone. All semantic entries and graph data for your account will be removed.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+
+		<div class="space-y-1.5">
+			<Label for="delete-confirmation" class="text-xs">Type this phrase to confirm</Label>
+			<div class="relative">
+				<code
+					class="border-input bg-muted block break-all rounded-sm border px-3 py-2 pr-9 font-mono text-xs leading-relaxed select-all"
+				>{DELETE_ALL_MEMORIES_CONFIRMATION}</code>
+				<button
+					type="button"
+					class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10"
+					onclick={() => void copyDeleteConfirmationPhrase()}
+					aria-label="Copy confirmation phrase"
+				>
+					{#if deletePhraseCopied}
+						<Check class="size-4 text-green-500" strokeWidth={2} />
+					{:else}
+						<CopyIcon class="size-4" strokeWidth={1.75} />
+					{/if}
+				</button>
+			</div>
+			<Input
+				id="delete-confirmation"
+				class="rounded-[4px] font-mono text-xs h-8"
+				bind:value={deleteConfirmation}
+				autocomplete="off"
+				spellcheck={false}
+				disabled={deleteBusy}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') void deleteAllMemories();
+				}}
+			/>
+			{#if deleteError}
+				<p class="text-destructive text-xs">{deleteError}</p>
+			{/if}
+		</div>
+
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel class="rounded-[4px]" disabled={deleteBusy}>Cancel</AlertDialog.Cancel>
+			<Button
+				type="button"
+				variant="destructive"
+				size="sm"
+				class="rounded-[4px]"
+				disabled={!deleteConfirmationValid || deleteBusy}
+				onclick={() => void deleteAllMemories()}
+			>
+				{deleteBusy ? 'Deleting…' : 'Delete all memories'}
+			</Button>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

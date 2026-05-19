@@ -95,6 +95,16 @@ describe('upsertThoughtNode', () => {
 		).rejects.toThrow(/FALKOR_HOST is required/);
 	});
 
+	it('deletes all vertices for the user graph', async () => {
+		const { deleteAllUserGraphVertices } = await import('./falkor');
+		await deleteAllUserGraphVertices('u1');
+		expect(selectGraphMock).toHaveBeenCalledWith('user_u1');
+		expect(queryMock).toHaveBeenCalledWith(
+			expect.stringContaining('MATCH (n {user_id: $user_id})'),
+			expect.objectContaining({ params: { user_id: 'u1' } })
+		);
+	});
+
 	it('upserts thought relation', async () => {
 		const { upsertThoughtRelation } = await import('./falkor');
 		await upsertThoughtRelation({
@@ -138,19 +148,13 @@ describe('upsertThoughtNode', () => {
 		expect(out).toEqual([{ id: 't2', score: 4 }]);
 	});
 
-	it('fetches visualization snapshot from Thought, Entity, and edge queries', async () => {
+	it('fetches entity-only visualization snapshot with co-mention and entity_relation edges', async () => {
 		queryMock
-			.mockResolvedValueOnce({
-				data: [{ id: 't1', label: 'hello', subtype: 'thought' }]
-			})
 			.mockResolvedValueOnce({
 				data: [{ id: 'e1', label: 'Alice', subtype: 'person' }]
 			})
 			.mockResolvedValueOnce({
-				data: [{ source_id: 't1', target_id: 't2', rel_type: 'related_to' }]
-			})
-			.mockResolvedValueOnce({
-				data: [{ source_id: 't1', target_id: 'e1', rel_type: 'mentions' }]
+				data: [{ source_id: 'e1', target_id: 'e2', rel_weight: 2 }]
 			})
 			.mockResolvedValueOnce({
 				data: [{ source_id: 'e1', target_id: 'e2', rel_type: 'knows' }]
@@ -159,9 +163,10 @@ describe('upsertThoughtNode', () => {
 		const { fetchGraphVisualizationSnapshot } = await import('./falkor');
 		const snap = await fetchGraphVisualizationSnapshot({ userId: 'u1', nodeLimit: 10, edgeLimit: 10 });
 
-		expect(snap.nodes.map((n) => n.id).sort()).toEqual(['e1', 't1']);
-		expect(snap.edges.length).toBe(3);
-		expect(queryMock).toHaveBeenCalledTimes(5);
+		expect(snap.nodes.map((n) => n.id)).toEqual(['e1']);
+		expect(snap.nodes.every((n) => n.kind === 'Entity')).toBe(true);
+		expect(snap.edges.length).toBe(2);
+		expect(queryMock).toHaveBeenCalledTimes(3);
 	});
 
 	it('passes FALKOR_USERNAME when set alongside password', async () => {

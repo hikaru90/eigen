@@ -15,15 +15,19 @@
 	import Link2 from '@lucide/svelte/icons/link-2';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import X from '@lucide/svelte/icons/x';
 	import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from '$lib/capture/ingest-phases';
 	import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
 	import EmbeddingMap from './EmbeddingMap.svelte';
+	import TemporalEvents from './TemporalEvents.svelte';
 	import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
+	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	/** Which tab is visible: the FalkorDB force-graph or the UMAP embedding scatter. */
-	let activeTab = $state<'graph' | 'embeddings'>('graph');
+	/** Which tab is visible: graph, embedding map, or temporal events timeline. */
+	let activeTab = $state<'graph' | 'embeddings' | 'temporal'>('graph');
+	let selectedTemporalId = $state<string | null>(null);
 
 	const legendSections = $derived(data.graphLegendSections ?? []);
 	const ontologyEntityKindSelectOptions = $derived.by(() => {
@@ -58,8 +62,19 @@
 			selectedNode = null;
 			return;
 		}
+		selectedTemporalId = null;
 		selectedNode = { id: item.id, kind: item.kind, label: item.label, subtype: item.subtype };
 	}
+
+	function handleTemporalSelect(item: TemporalEventListItem | null) {
+		selectedTemporalId = item?.id ?? null;
+		if (item) selectedNode = null;
+	}
+
+	$effect(() => {
+		if (activeTab === 'temporal') return;
+		selectedTemporalId = null;
+	});
 
 	type GraphThoughtEditorStored = { id: string; rawText: string; normalizedText: string; category: string };
 	let thoughtEditorLoadSeq = 0;
@@ -73,6 +88,19 @@
 	let thoughtEditorStored = $state<GraphThoughtEditorStored | null>(null);
 
 	type GraphEntityEditorStored = { id: string; label: string; entityType: string; canonicalKey: string };
+	type EntityCaptureRow = {
+		id: string;
+		rawText: string;
+		normalizedText: string;
+		category: string;
+		createdAt: string;
+	};
+	let entityCaptures = $state<EntityCaptureRow[]>([]);
+	let entityCapturesLoading = $state(false);
+	let entityCapturesErr = $state<string | null>(null);
+	let entityCapturesLoadSeq = 0;
+	/** Postgres capture being edited from the entity detail panel (not a graph node). */
+	let editingThoughtId = $state<string | null>(null);
 	let entityEditorLoadSeq = 0;
 	let entityEditorLoading = $state(false);
 	let entityEditorDraft = $state('');
@@ -93,15 +121,14 @@
 	);
 
 	$effect(() => {
-		const n = selectedNode;
-		if (!n || n.kind !== 'Thought') {
+		const id = editingThoughtId;
+		if (!id) {
 			thoughtEditorDraft = '';
 			thoughtEditorErr = null;
 			thoughtEditorStored = null;
 			thoughtEditorLoading = false;
 			return;
 		}
-		const id = n.id;
 		const seq = ++thoughtEditorLoadSeq;
 		thoughtEditorLoading = true;
 		thoughtEditorErr = null;
@@ -140,15 +167,42 @@
 
 	$effect(() => {
 		const n = selectedNode;
+		editingThoughtId = null;
 		if (!n || n.kind !== 'Entity') {
 			entityEditorDraft = '';
 			entityEditorEntityType = '';
 			entityEditorErr = null;
 			entityEditorStored = null;
 			entityEditorLoading = false;
+			entityCaptures = [];
+			entityCapturesErr = null;
+			entityCapturesLoading = false;
 			return;
 		}
 		const id = n.id;
+		const captureSeq = ++entityCapturesLoadSeq;
+		entityCapturesLoading = true;
+		entityCapturesErr = null;
+		entityCaptures = [];
+		void (async () => {
+			try {
+				const res = await fetch(`/api/entities/${encodeURIComponent(id)}/thoughts`);
+				if (captureSeq !== entityCapturesLoadSeq) return;
+				if (!res.ok) {
+					const t = await res.text();
+					throw new Error(t || `Failed to load captures (${res.status})`);
+				}
+				const body = (await res.json()) as { thoughts: EntityCaptureRow[] };
+				if (captureSeq !== entityCapturesLoadSeq) return;
+				entityCaptures = body.thoughts ?? [];
+			} catch (e) {
+				if (captureSeq !== entityCapturesLoadSeq) return;
+				entityCapturesErr = e instanceof Error ? e.message : String(e);
+			} finally {
+				if (captureSeq === entityCapturesLoadSeq) entityCapturesLoading = false;
+			}
+		})();
+
 		const seq = ++entityEditorLoadSeq;
 		entityEditorLoading = true;
 		entityEditorErr = null;
@@ -177,8 +231,30 @@
 		})();
 	});
 
+	async function reloadEntityCaptures(entityId: string) {
+		const captureSeq = ++entityCapturesLoadSeq;
+		entityCapturesLoading = true;
+		entityCapturesErr = null;
+		try {
+			const res = await fetch(`/api/entities/${encodeURIComponent(entityId)}/thoughts`);
+			if (captureSeq !== entityCapturesLoadSeq) return;
+			if (!res.ok) {
+				const t = await res.text();
+				throw new Error(t || `Failed to load captures (${res.status})`);
+			}
+			const body = (await res.json()) as { thoughts: EntityCaptureRow[] };
+			if (captureSeq !== entityCapturesLoadSeq) return;
+			entityCaptures = body.thoughts ?? [];
+		} catch (e) {
+			if (captureSeq !== entityCapturesLoadSeq) return;
+			entityCapturesErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			if (captureSeq === entityCapturesLoadSeq) entityCapturesLoading = false;
+		}
+	}
+
 	async function submitThoughtUpdateFromGraph() {
-		const id = selectedNode?.kind === 'Thought' ? selectedNode.id : '';
+		const id = editingThoughtId ?? '';
 		if (!id || !thoughtEditorDraft.trim()) return;
 		thoughtEditorErr = null;
 		thoughtEditorPhase = null;
@@ -205,6 +281,7 @@
 			}
 			thoughtEditorStored = thought;
 			thoughtEditorDraft = thought.rawText;
+			if (selectedNode?.kind === 'Entity') await reloadEntityCaptures(selectedNode.id);
 			await invalidateAll();
 		} catch (e) {
 			thoughtEditorErr = e instanceof Error ? e.message : String(e);
@@ -215,7 +292,7 @@
 	}
 
 	async function submitThoughtRelinkFromGraph() {
-		const id = selectedNode?.kind === 'Thought' ? selectedNode.id : '';
+		const id = editingThoughtId ?? '';
 		if (!id) return;
 		thoughtEditorErr = null;
 		thoughtEditorPhase = null;
@@ -242,6 +319,7 @@
 			}
 			thoughtEditorStored = thought;
 			thoughtEditorDraft = thought.rawText;
+			if (selectedNode?.kind === 'Entity') await reloadEntityCaptures(selectedNode.id);
 			await invalidateAll();
 		} catch (e) {
 			thoughtEditorErr = e instanceof Error ? e.message : String(e);
@@ -252,7 +330,7 @@
 	}
 
 	async function submitThoughtDeleteFromGraph() {
-		const id = selectedNode?.kind === 'Thought' ? selectedNode.id : '';
+		const id = editingThoughtId ?? '';
 		if (!id) return;
 		if (
 			!confirm(
@@ -266,7 +344,8 @@
 		try {
 			const res = await fetch(`/api/thoughts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 			if (!res.ok) throw new Error(await res.text());
-			selectedNode = null;
+			editingThoughtId = null;
+			if (selectedNode?.kind === 'Entity') await reloadEntityCaptures(selectedNode.id);
 			await invalidateAll();
 		} catch (e) {
 			thoughtEditorErr = e instanceof Error ? e.message : String(e);
@@ -683,8 +762,9 @@
 			function onNodeClick(event: MouseEvent, d: SimNode) {
 				event.stopPropagation();
 				const prev = selectedNode;
-				const hit = data.snapshot.nodes.find((n) => n.id === d.id);
+				const hit = data.snapshot.nodes.find((n) => n.id === d.id && n.kind === 'Entity');
 				selectedNode = hit ?? null;
+				if (hit) selectedTemporalId = null;
 				if (hit) {
 					if (!prev) {
 						const svgEl = svg.node();
@@ -709,7 +789,9 @@
 
 				prunePersistentToSnapshot(data.snapshot);
 
-				const rawNodes: SimNode[] = data.snapshot.nodes.map((n) => simNodeFromSnapshot(n));
+				const rawNodes: SimNode[] = data.snapshot.nodes
+					.filter((n) => n.kind === 'Entity')
+					.map((n) => simNodeFromSnapshot(n));
 				const q = norm(search);
 				const nodeMatch = (n: SimNode) =>
 					q.length === 0 || norm(n.label).includes(q) || norm(n.id).includes(q) || norm(n.subtype).includes(q);
@@ -897,6 +979,7 @@
 				<Tabs.List variant="line" class="shrink-0">
 					<Tabs.Trigger value="graph">Graph</Tabs.Trigger>
 					<Tabs.Trigger value="embeddings">Embedding Map</Tabs.Trigger>
+					<Tabs.Trigger value="temporal">Timeline</Tabs.Trigger>
 				</Tabs.List>
 				{#if activeTab === 'graph'}
 				<div class="flex shrink-0 items-center gap-1">
@@ -936,16 +1019,13 @@
 								<Select.Trigger class="w-full font-mono text-xs">
 									{edgeKind === 'all'
 										? 'All edges'
-										: edgeKind === 'thought_link'
-											? 'Node links'
-											: edgeKind === 'mention'
-												? 'Mentions'
-												: 'Relations'}
+										: edgeKind === 'co_mention'
+											? 'Co-mentioned'
+											: 'Relations'}
 								</Select.Trigger>
 								<Select.Content>
 									<Select.Item value="all">All edges</Select.Item>
-									<Select.Item value="thought_link">Node links</Select.Item>
-									<Select.Item value="mention">Mentions</Select.Item>
+									<Select.Item value="co_mention">Co-mentioned</Select.Item>
 									<Select.Item value="entity_relation">Relations</Select.Item>
 								</Select.Content>
 							</Select.Root>
@@ -1048,7 +1128,13 @@
 					selectedItemId={selectedNode?.id ?? null}
 				/>
 			</Tabs.Content>
-			{#if selectedNode}
+			<Tabs.Content value="temporal" class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col">
+				<TemporalEvents
+					onSelectItem={handleTemporalSelect}
+					selectedItemId={selectedTemporalId}
+				/>
+			</Tabs.Content>
+			{#if selectedNode && activeTab !== 'temporal'}
 			<div
 				class="border-border bg-background/95 shrink-0 border-t px-4 pt-3 pb-4 backdrop-blur-sm"
 				role="region"
@@ -1064,7 +1150,11 @@
 						</p>
 						<dl class="text-muted-foreground grid gap-x-4 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
 							<div class="contents">
-								<dt class="text-muted-foreground/80">Type</dt>
+								<dt class="text-muted-foreground/80">Kind</dt>
+								<dd class="text-foreground truncate">{selectedNode.kind}</dd>
+							</div>
+							<div class="contents">
+								<dt class="text-muted-foreground/80">Ontology</dt>
 								<dd class="text-foreground flex items-center gap-1.5 truncate">
 									{#if selectedNode.subtype}
 										<span
@@ -1076,7 +1166,7 @@
 									{selectedNode.subtype || '—'}
 								</dd>
 							</div>
-							<div class="contents">
+							<div class="contents sm:col-span-2">
 								<dt class="text-muted-foreground/80">Id</dt>
 								<dd class="text-foreground truncate">{selectedNode.id}</dd>
 							</div>
@@ -1084,10 +1174,11 @@
 					</div>
 						<button
 							type="button"
-							class="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-2 py-1 text-xs"
+							class="text-destructive hover:text-destructive/80 shrink-0 rounded-md p-1.5 transition-colors"
 							onclick={() => (selectedNode = null)}
+							aria-label="Close"
 						>
-							Close
+							<X class="size-4.5" strokeWidth={1.75} aria-hidden="true" />
 						</button>
 					</div>
 					{#if selectedEdges.length > 0}
@@ -1116,119 +1207,6 @@
 							</ul>
 						</div>
 					{/if}
-					{#if selectedNode.kind === 'Thought'}
-						<div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
-							<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-								Edit
-							</p>
-							{#if thoughtEditorLoading}
-								<div class="text-muted-foreground flex items-center gap-2 text-xs">
-									<LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
-									Loading…
-								</div>
-							{:else}
-								{#if thoughtEditorErr}
-									<p class="text-destructive text-xs">{thoughtEditorErr}</p>
-								{/if}
-								<div class="space-y-2">
-									<Label for="graph-thought-body" class="text-xs">Text (same flow as Capture)</Label>
-									<Textarea
-										id="graph-thought-body"
-										bind:value={thoughtEditorDraft}
-										rows={4}
-										class="font-mono text-xs"
-										disabled={thoughtEditorBusy ||
-											thoughtEditorRelinkBusy ||
-											thoughtEditorDeleteBusy}
-									/>
-								</div>
-								<div class="mt-3 flex flex-wrap gap-2">
-									<Button
-										type="button"
-										size="sm"
-										variant="default"
-										class="shrink-0"
-										disabled={thoughtEditorBusy ||
-											thoughtEditorRelinkBusy ||
-											thoughtEditorDeleteBusy ||
-											!thoughtEditorDraft.trim()}
-										onclick={() => void submitThoughtUpdateFromGraph()}
-									>
-										{#if thoughtEditorBusy}
-											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
-										{/if}
-										Save
-									</Button>
-									<Button
-										type="button"
-										size="sm"
-										variant="outline"
-										class="shrink-0"
-										disabled={thoughtEditorBusy ||
-											thoughtEditorRelinkBusy ||
-											thoughtEditorDeleteBusy}
-										onclick={() => void submitThoughtRelinkFromGraph()}
-									>
-										{#if thoughtEditorRelinkBusy}
-											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
-										{/if}
-										Rearrange in graph
-									</Button>
-								</div>
-								<p class="text-muted-foreground mt-2 text-[10px] leading-relaxed">
-									Rearrange keeps this text in Postgres, clears this node’s outgoing graph links, then
-									re-runs link and mention extraction so it reattaches to the graph.
-								</p>
-								<div class="border-destructive/25 mt-4 border-t pt-3">
-									<Button
-										type="button"
-										size="sm"
-										variant="destructive"
-										class="shrink-0"
-										disabled={thoughtEditorBusy ||
-											thoughtEditorRelinkBusy ||
-											thoughtEditorDeleteBusy ||
-											thoughtEditorLoading}
-										onclick={() => void submitThoughtDeleteFromGraph()}
-									>
-										{#if thoughtEditorDeleteBusy}
-											<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
-										{/if}
-										Delete
-									</Button>
-								</div>
-								{#if thoughtEditorBusy || thoughtEditorRelinkBusy}
-									<div
-										class="bg-muted/30 mt-3 rounded-md border border-black/5 p-3 dark:border-white/10"
-										role="status"
-										aria-live="polite"
-									>
-										<div class="flex gap-2">
-											<LoaderCircleIcon
-												class="text-muted-foreground size-4 shrink-0 animate-spin"
-												aria-hidden="true"
-											/>
-											<div class="min-w-0">
-												<p class="text-foreground text-xs font-medium">{thoughtIngestStatus.title}</p>
-												<p class="text-muted-foreground mt-0.5 text-[11px] leading-snug">
-													{thoughtIngestStatus.description}
-												</p>
-											</div>
-										</div>
-									</div>
-								{/if}
-								{#if thoughtEditorStored && !thoughtEditorBusy && !thoughtEditorRelinkBusy && !thoughtEditorDeleteBusy}
-									<div class="text-muted-foreground mt-2 space-y-0.5 font-mono text-[10px]">
-										<p>
-											<span class="text-muted-foreground/80">Stored</span>
-											<span class="text-foreground"> · {thoughtEditorStored.category}</span>
-										</p>
-										<p class="line-clamp-2 text-foreground/90">{thoughtEditorStored.normalizedText}</p>
-									</div>
-								{/if}
-							{/if}
-						</div>
-					{:else}
 						<div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
 							<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
 								Edit
@@ -1346,9 +1324,121 @@
 										</p>
 									</div>
 								{/if}
+								<div class="mt-4 border-t border-black/5 pt-3 dark:border-white/10">
+									<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+										Supporting captures (Postgres)
+									</p>
+									{#if entityCapturesLoading}
+										<div class="text-muted-foreground flex items-center gap-2 text-xs">
+											<LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
+											Loading…
+										</div>
+									{:else if entityCapturesErr}
+										<p class="text-destructive text-xs">{entityCapturesErr}</p>
+									{:else if entityCaptures.length === 0}
+										<p class="text-muted-foreground text-xs">No linked captures for this entity yet.</p>
+									{:else}
+										<ul class="max-h-40 space-y-2 overflow-y-auto">
+											{#each entityCaptures as cap (cap.id)}
+												<li class="rounded-md border border-black/5 p-2 dark:border-white/10">
+													<p class="text-foreground line-clamp-2 text-xs">{cap.rawText}</p>
+													<div class="mt-2 flex items-center justify-between gap-2">
+														<span class="text-muted-foreground font-mono text-[10px]">{cap.category}</span>
+														<Button
+															type="button"
+															size="sm"
+															variant={editingThoughtId === cap.id ? 'default' : 'outline'}
+															class="h-7 shrink-0 text-xs"
+															onclick={() => (editingThoughtId = cap.id)}
+														>
+															{editingThoughtId === cap.id ? 'Editing' : 'Edit'}
+														</Button>
+													</div>
+												</li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+								{#if editingThoughtId}
+									<div class="mt-4 border-t border-black/5 pt-3 dark:border-white/10">
+										<p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+											Edit capture
+										</p>
+										{#if thoughtEditorLoading}
+											<div class="text-muted-foreground flex items-center gap-2 text-xs">
+												<LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
+												Loading…
+											</div>
+										{:else}
+											{#if thoughtEditorErr}
+												<p class="text-destructive text-xs">{thoughtEditorErr}</p>
+											{/if}
+											<div class="space-y-2">
+												<Label for="graph-thought-body" class="text-xs">Raw text</Label>
+												<Textarea
+													id="graph-thought-body"
+													bind:value={thoughtEditorDraft}
+													rows={4}
+													class="font-mono text-xs"
+													disabled={thoughtEditorBusy ||
+														thoughtEditorRelinkBusy ||
+														thoughtEditorDeleteBusy}
+												/>
+											</div>
+											<div class="mt-3 flex flex-wrap gap-2">
+												<Button
+													type="button"
+													size="sm"
+													variant="default"
+													disabled={thoughtEditorBusy ||
+														thoughtEditorRelinkBusy ||
+														thoughtEditorDeleteBusy ||
+														!thoughtEditorDraft.trim()}
+													onclick={() => void submitThoughtUpdateFromGraph()}
+												>
+													Save
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="outline"
+													disabled={thoughtEditorBusy ||
+														thoughtEditorRelinkBusy ||
+														thoughtEditorDeleteBusy}
+													onclick={() => void submitThoughtRelinkFromGraph()}
+												>
+													Rearrange in graph
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													disabled={thoughtEditorBusy ||
+														thoughtEditorRelinkBusy ||
+														thoughtEditorDeleteBusy}
+													onclick={() => (editingThoughtId = null)}
+												>
+													Cancel
+												</Button>
+											</div>
+											<div class="border-destructive/25 mt-3 border-t pt-3">
+												<Button
+													type="button"
+													size="sm"
+													variant="destructive"
+													disabled={thoughtEditorBusy ||
+														thoughtEditorRelinkBusy ||
+														thoughtEditorDeleteBusy}
+													onclick={() => void submitThoughtDeleteFromGraph()}
+												>
+													Delete capture
+												</Button>
+											</div>
+										{/if}
+									</div>
+								{/if}
 							{/if}
 						</div>
-					{/if}
 				</div>
 			{/if}
 		</Card.Content>

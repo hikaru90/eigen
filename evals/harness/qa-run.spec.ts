@@ -64,6 +64,11 @@ describe('expandQa', () => {
 		expect(answer?.inputJson.question).toBe(sampleQa.question);
 	});
 
+	it('includes retrievalQuery on answer entry when configured', () => {
+		const answer = expandQa(retrievalQa).find((e) => e.kind === 'answer');
+		expect(answer?.inputJson.retrievalQuery).toBe('Marcus allergy');
+	});
+
 	it('inserts retrieval after check when configured', () => {
 		const kinds = expandQa(retrievalQa).map((e) => e.kind);
 		expect(kinds).toEqual(['capture', 'check', 'retrieval', 'answer']);

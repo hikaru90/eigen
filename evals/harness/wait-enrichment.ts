@@ -4,6 +4,7 @@ import { entityResolutionLog, thought } from '$lib/server/db/brain.schema';
 import type { AppDatabase } from '$lib/server/db';
 import { logEval, withEvalDb } from './eval-context';
 import { mapWithConcurrency } from './concurrency';
+import { EVAL_ENRICHMENT_TIMEOUT_MS_DEFAULT } from './eval-config';
 
 export type ThoughtEnrichmentTarget = {
 	id: string;
@@ -14,7 +15,7 @@ const POLL_INTERVAL_MS = 2000;
 
 export function resolveEnrichmentTimeoutMs(): number {
 	const raw = process.env.EVAL_ENRICHMENT_TIMEOUT_MS?.trim();
-	if (!raw) return 30 * 60 * 1000;
+	if (!raw) return EVAL_ENRICHMENT_TIMEOUT_MS_DEFAULT;
 	const parsed = Number(raw);
 	if (!Number.isFinite(parsed) || parsed < 1) {
 		throw new Error(`EVAL_ENRICHMENT_TIMEOUT_MS must be a positive number, got: ${raw}`);
@@ -80,7 +81,7 @@ export async function waitForThoughtEnrichment(input: {
 	}
 
 	logEval(
-		`enrichment wait: ${targets.length} thought(s), timeout=${Math.round(timeoutMs / 1000)}s, ` +
+		`enrichment verify: ${targets.length} thought(s), max_wait=${Math.round(timeoutMs / 1000)}s, ` +
 			`kick_concurrency=${kickConcurrency}`
 	);
 
@@ -129,6 +130,24 @@ export async function waitForThoughtEnrichment(input: {
 
 		await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 	}
+}
+
+/** Fail fast when inline enrich finished but left no entity resolution rows. */
+export async function assertThoughtEntitiesResolved(
+	db: AppDatabase,
+	userId: string,
+	thoughtIds: string[]
+): Promise<void> {
+	if (thoughtIds.length === 0) return;
+	const ready = await thoughtsWithEntities(db, userId, thoughtIds);
+	const missing = thoughtIds.filter((id) => !ready.has(id));
+	if (missing.length > 0) {
+		throw new Error(
+			`[eval] no entity resolution after enrich for thought(s): ${missing.join(', ')} ` +
+				'(see dev logs for [enrich] entities step failed)'
+		);
+	}
+	logEval(`entity resolution ok: ${ready.size}/${thoughtIds.length} thought(s)`);
 }
 
 export async function loadThoughtEnrichmentTargets(

@@ -8,6 +8,7 @@ import {
 } from './store';
 import type { EvalEntrySummary } from './types';
 import { loadEvalRunDetail } from './store';
+import { recoverOrphanedEvalRun } from '../../../evals/harness/stale-recovery';
 
 let activeRunId: string | null = null;
 
@@ -16,6 +17,8 @@ export type EvalRunMode = 'smoke' | 'all' | 'qa';
 export function getActiveEvalRunId(): string | null {
 	return activeRunId;
 }
+
+export { recoverOrphanedEvalRun };
 
 function isQaActive(item: EvalQaRecord): boolean {
 	return !item.tags.includes('inactive');

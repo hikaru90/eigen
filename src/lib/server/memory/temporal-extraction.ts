@@ -1,4 +1,5 @@
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
+import { parseLlmJsonPayload, stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 import {
 	parseTemporalMentions,
 	type ExtractedTemporalMention
@@ -50,6 +51,7 @@ Return ONLY a JSON array. Each element:
   "semanticSummary": "short natural-language summary"
 }
 Resolve relative dates against capture time ${capturedIso} in timezone ${input.timezone}.
+Text may be in any language (e.g. German "nächsten Mittwoch" = next Wednesday).
 If no temporal content exists, return [].`;
 
 	const response = await llmChatCompletion({
@@ -61,10 +63,10 @@ If no temporal content exists, return [].`;
 		temperature: 0
 	});
 
-	let content = extractChatContent(response);
-	// Some models wrap the array in { "events": [...] } despite json_object mode.
+	let content = stripMarkdownJsonFences(extractChatContent(response));
+	// Some models wrap the array in { "events": [...] }.
 	try {
-		const wrapped = JSON.parse(content) as unknown;
+		const wrapped = parseLlmJsonPayload(content) as unknown;
 		if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
 			const events = (wrapped as { events?: unknown }).events;
 			if (Array.isArray(events)) {
@@ -72,7 +74,7 @@ If no temporal content exists, return [].`;
 			}
 		}
 	} catch {
-		// use raw content
+		// use stripped raw content for array parser below
 	}
 
 	return parseTemporalMentions(content);

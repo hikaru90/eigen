@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { dev } from '$app/environment';
-import { deleteEvalQa, loadEvalQa, updateEvalQa } from '$lib/eval/qa-store';
+import { deleteEvalQa, loadEvalQa, updateEvalQa, updateEvalQaTags } from '$lib/eval/qa-store';
 
 function devOnly(): Response | null {
 	if (!dev) {
@@ -36,7 +36,43 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 	}
 
 	const o = body as Record<string, unknown>;
-	if (typeof o.question !== 'string' || typeof o.acceptance !== 'string') {
+	const keys = Object.keys(o);
+	const tagsOnlyUpdate = keys.length > 0 && keys.every((key) => key === 'tags');
+	if (tagsOnlyUpdate) {
+		try {
+			const item = await updateEvalQaTags(params.id, o.tags);
+			return json({ item });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			const status = message.includes('not found') ? 404 : 400;
+			return json({ error: message }, { status });
+		}
+	}
+
+	const existing = await loadEvalQa(params.id);
+	if (!existing) return json({ error: 'Not found' }, { status: 404 });
+
+	const question = typeof o.question === 'string' ? o.question : existing.question;
+	const acceptance = typeof o.acceptance === 'string' ? o.acceptance : existing.acceptance;
+	const captures = Array.isArray(o.captures) ? o.captures : existing.captures;
+	const retrievalQuery =
+		typeof o.retrievalQuery === 'string'
+			? o.retrievalQuery
+			: o.retrievalQuery === null
+				? null
+				: existing.retrievalQuery;
+	const retrievalRelevant = Array.isArray(o.retrievalRelevant)
+		? o.retrievalRelevant
+		: existing.retrievalRelevant;
+	const tags = Array.isArray(o.tags) ? o.tags : existing.tags;
+	const edit =
+		o.edit && typeof o.edit === 'object'
+			? o.edit
+			: o.edit === null
+				? null
+				: existing.edit;
+
+	if (question.trim().length === 0 || acceptance.trim().length === 0) {
 		return json({ error: 'question and acceptance are required' }, { status: 400 });
 	}
 
@@ -61,13 +97,13 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 
 	try {
 		const item = await updateEvalQa(params.id, {
-			question: o.question,
-			acceptance: o.acceptance,
-			captures: Array.isArray(o.captures) ? o.captures : [],
-			retrievalQuery: typeof o.retrievalQuery === 'string' ? o.retrievalQuery : null,
-			retrievalRelevant: Array.isArray(o.retrievalRelevant) ? o.retrievalRelevant : [],
-			tags: Array.isArray(o.tags) ? o.tags : [],
-			edit: o.edit && typeof o.edit === 'object' ? o.edit : null,
+			question,
+			acceptance,
+			captures,
+			retrievalQuery,
+			retrievalRelevant,
+			tags,
+			edit,
 			...(checks !== undefined ? { checks } : {})
 		});
 		return json({ item });

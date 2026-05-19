@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
-import { composeAnswer } from './compose-answer';
+import { composeAnswer, detectContradictions, type RetrievalContextItem } from './compose-answer';
 
 const { searchThoughtsMock, llmChatCompletionMock } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
@@ -90,6 +90,27 @@ describe('composeAnswer', () => {
 		expect(searchThoughtsMock).toHaveBeenCalledWith(
 			expect.objectContaining({ topK: 8, weights: CONTEXT_WEIGHTS.default })
 		);
+	});
+
+	it('merges retrievalQuery search with question search when they differ', async () => {
+		searchThoughtsMock
+			.mockResolvedValueOnce([sampleRetrieval[1]])
+			.mockResolvedValueOnce([sampleRetrieval[0]]);
+		const result = await composeAnswer({
+			userId: 'u1',
+			question: 'scheduling conflict?',
+			retrievalQuery: 'March schedule conflicts team'
+		});
+		expect(searchThoughtsMock).toHaveBeenCalledTimes(2);
+		expect(searchThoughtsMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ query: 'scheduling conflict?' })
+		);
+		expect(searchThoughtsMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ query: 'March schedule conflicts team' })
+		);
+		expect(result.retrieved.map((r) => r.id)).toEqual(expect.arrayContaining(['t_001', 't_002']));
 	});
 
 	it('passes a system + user message pair with temperature 0', async () => {
@@ -186,5 +207,94 @@ describe('composeAnswer', () => {
 			}
 		).messages[1].content;
 		expect(userMessage).toContain('Graph: entity:Marcus');
+	});
+
+	it('injects scheduling-conflict instructions into the LLM prompt', async () => {
+		searchThoughtsMock.mockResolvedValueOnce([
+			{
+				id: 't_tom',
+				normalizedText: 'Tom is moving to Lisbon in March.',
+				category: 'memory',
+				score: 0.9,
+				vectorScore: 0.9,
+				graphScore: 0,
+				metadata: {},
+				createdAt: FIXED_DATE
+			},
+			{
+				id: 't_berlin',
+				normalizedText: 'The team offsite is planned for March in Berlin.',
+				category: 'memory',
+				score: 0.85,
+				vectorScore: 0.85,
+				graphScore: 0,
+				metadata: {},
+				createdAt: FIXED_DATE
+			},
+			{
+				id: 't_mandatory',
+				normalizedText:
+					'Offsite attendance is mandatory for all senior staff. Tom is a senior engineer.',
+				category: 'reference',
+				score: 0.8,
+				vectorScore: 0.8,
+				graphScore: 0,
+				metadata: {},
+				createdAt: FIXED_DATE
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse(
+				"Answer: Tom's move to Lisbon clashes with the mandatory Berlin offsite in March.\nEvidence:\n- Tom is moving to Lisbon in March [t_tom]\nUnknown:\n- none"
+			)
+		);
+		await composeAnswer({ userId: 'u1', question: 'Is there a scheduling conflict?' });
+		const userMessage = (
+			llmChatCompletionMock.mock.calls[0][0] as { messages: Array<{ content: string }> }
+		).messages[1].content;
+		expect(userMessage).toContain('Detected scheduling conflict');
+		expect(userMessage).toContain('Do NOT list whether the conflict exists under Unknown');
+	});
+});
+
+describe('detectContradictions', () => {
+	const now = FIXED_DATE;
+
+	it('flags relocation vs mandatory offsite in another city', () => {
+		const items: RetrievalContextItem[] = [
+			{
+				id: 't_tom',
+				normalizedText: 'Tom is moving to Lisbon in March.',
+				category: 'thought',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				createdAt: now
+			},
+			{
+				id: 't_berlin',
+				normalizedText: 'The team offsite is planned for March in Berlin.',
+				category: 'thought',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				createdAt: now
+			},
+			{
+				id: 't_mandatory',
+				normalizedText: 'Offsite attendance is mandatory for all senior staff. Tom is a senior engineer.',
+				category: 'thought',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				createdAt: now
+			}
+		];
+		const conflicts = detectContradictions(items);
+		const scheduling = conflicts.find((c) => c.kind === 'scheduling');
+		expect(scheduling).toBeDefined();
+		expect(scheduling!.ids).toContain('t_tom');
+		expect(scheduling!.ids).toContain('t_berlin');
+		expect(scheduling!.relatedIds).toContain('t_mandatory');
 	});
 });

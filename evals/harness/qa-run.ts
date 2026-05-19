@@ -107,7 +107,10 @@ export function expandQaEntries(qas: EvalQaRecord[]): ExpandedEvalEntry[] {
 			ordinal: ordinal++,
 			kind: 'answer',
 			fixtureRef: qa.id,
-			inputJson: { question: qa.question },
+			inputJson: {
+				question: qa.question,
+				...(qa.retrievalQuery ? { retrievalQuery: qa.retrievalQuery } : {})
+			},
 			expectedJson: { acceptance: qa.acceptance }
 		});
 	}

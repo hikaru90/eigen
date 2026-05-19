@@ -1,4 +1,5 @@
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 
 export type ExtractedEntityMention = {
 	surface: string;
@@ -171,7 +172,7 @@ export async function extractEntityMentions(input: {
 		temperature: 0
 	});
 
-	return parseEntityMentions(extractChatContent(response), allowed);
+	return parseEntityMentions(stripMarkdownJsonFences(extractChatContent(response)), allowed);
 }
 
 /** LLM step 2: typed edges whose endpoints were mentioned in step 1. */
@@ -206,5 +207,5 @@ export async function extractEntityTriples(input: {
 		temperature: 0
 	});
 
-	return parseEntityTriples(extractChatContent(response), allowed);
+	return parseEntityTriples(stripMarkdownJsonFences(extractChatContent(response)), allowed);
 }

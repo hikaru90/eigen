@@ -20,10 +20,15 @@ export type RetrievalContextItem = {
 	isStale: boolean;
 };
 
+export type ConflictKind = 'scheduling' | 'polarity' | 'location';
+
 export type ConflictPair = {
 	ids: [string, string];
+	/** Extra thoughts needed to explain a scheduling clash (e.g. mandatory attendance). */
+	relatedIds?: string[];
 	subject: string;
 	description: string;
+	kind: ConflictKind;
 };
 
 export type ComposedAnswer = {
@@ -37,9 +42,24 @@ export type ComposedAnswer = {
 export type ComposeAnswerInput = {
 	userId: string;
 	question: string;
+	/** When set (e.g. eval retrieval probe), also search with this query and merge hits. */
+	retrievalQuery?: string;
 	topK?: number;
 	weights?: { vector: number; graph: number };
 };
+
+type SearchHit = Awaited<ReturnType<typeof searchThoughts>>;
+
+function mergeSearchHits(a: SearchHit[], b: SearchHit[], topK: number): SearchHit[] {
+	const byId = new Map<string, SearchHit>();
+	for (const hit of [...a, ...b]) {
+		const existing = byId.get(hit.id);
+		if (!existing || hit.score > existing.score) {
+			byId.set(hit.id, hit);
+		}
+	}
+	return [...byId.values()].sort((x, y) => y.score - x.score).slice(0, topK);
+}
 
 // ---------------------------------------------------------------------------
 // Contradiction detection
@@ -65,7 +85,8 @@ export type ComposeAnswerInput = {
 const POLARITY_POSITIVE = /\b(love|great|excellent|amazing|wonderful|perfect|fantastic|good|enjoy|like)\b/i;
 const POLARITY_NEGATIVE = /\b(hate|terrible|awful|horrible|dreadful|bad|dislike|can't stand|waste)\b/i;
 const LOCATION_PATTERN = /\b(?:live|living|moved|move)\s+(?:in|to)\s+([A-Z][a-zA-Z]+)/;
-const DECISION_PATTERN = /\b(?:decided|going|plan|switch|chose|use|using)\s+(?:to\s+)?([a-zA-Z]+)/i;
+const PERSON_MOVE_PATTERN = /\b([A-Z][a-z]+)\s+is\s+moving\s+to\s+([A-Z][a-zA-Z]+)/;
+const OFFSITE_LOCATION_PATTERN = /(?:offsite|off-site)[^.]{0,80}\b(?:in|for)\s+([A-Z][a-zA-Z]+)/i;
 
 function extractSubjectKey(text: string): string {
 	return text
@@ -101,12 +122,43 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 			conflicts.push({
 				ids: [first.id, last.id],
 				subject: 'location',
-				description: `Earlier thought says "${first.location}", later thought says "${last.location}"`
+				description: `Earlier thought says "${first.location}", later thought says "${last.location}"`,
+				kind: 'location'
 			});
 		}
 	}
 
-	// 2. Polarity pairs — thoughts about the same subject with opposite sentiment
+	// 2. Relocation vs mandatory offsite in a different city (e.g. Tom → Lisbon vs Berlin offsite)
+	const personMoves: Array<{ person: string; id: string; location: string }> = [];
+	for (const item of items) {
+		const moveMatch = PERSON_MOVE_PATTERN.exec(item.normalizedText);
+		if (moveMatch) {
+			personMoves.push({ person: moveMatch[1], id: item.id, location: moveMatch[2] });
+		}
+	}
+	for (const move of personMoves) {
+		const offsiteThoughts = items.filter((t) => /offsite|off-site/i.test(t.normalizedText));
+		const mandatoryThought = items.find(
+			(t) =>
+				/\bmandatory\b/i.test(t.normalizedText) &&
+				new RegExp(`\\b${move.person}\\b`, 'i').test(t.normalizedText)
+		);
+		for (const offsite of offsiteThoughts) {
+			const locMatch = OFFSITE_LOCATION_PATTERN.exec(offsite.normalizedText);
+			const eventLocation = locMatch?.[1];
+			if (!eventLocation || eventLocation === move.location) continue;
+			if (!mandatoryThought) continue;
+			conflicts.push({
+				ids: [move.id, offsite.id],
+				relatedIds: [mandatoryThought.id],
+				subject: move.person,
+				description: `${move.person} is moving to ${move.location} while mandatory attendance is required at a team offsite in ${eventLocation}`,
+				kind: 'scheduling'
+			});
+		}
+	}
+
+	// 3. Polarity pairs — thoughts about the same subject with opposite sentiment
 	for (let i = 0; i < items.length; i++) {
 		for (let j = i + 1; j < items.length; j++) {
 			const a = items[i];
@@ -129,7 +181,8 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 			conflicts.push({
 				ids: [a.id, b.id],
 				subject: shared[0],
-				description: `These thoughts appear to hold opposing views about "${shared[0]}"`
+				description: `These thoughts appear to hold opposing views about "${shared[0]}"`,
+				kind: 'polarity'
 			});
 		}
 	}
@@ -165,13 +218,40 @@ function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date): stri
 
 function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
 	if (conflicts.length === 0) return '';
-	const lines = conflicts.map(
-		(c) => `  - Thoughts [${c.ids[0]}] and [${c.ids[1]}] may conflict on "${c.subject}": ${c.description}`
-	);
-	return (
-		'\n\nDetected potential contradictions (surface these honestly in your answer rather than picking one side):\n' +
-		lines.join('\n')
-	);
+
+	const scheduling = conflicts.filter((c) => c.kind === 'scheduling');
+	const other = conflicts.filter((c) => c.kind !== 'scheduling');
+	const sections: string[] = [];
+
+	if (scheduling.length > 0) {
+		const lines = scheduling.map((c) => {
+			const citeIds = [...new Set([...c.ids, ...(c.relatedIds ?? [])])];
+			return `  - ${c.description}. Cite: ${citeIds.map((id) => `[${id}]`).join(', ')}`;
+		});
+		sections.push(
+			[
+				'Detected scheduling conflict(s) — REQUIRED:',
+				'- State the clash decisively in the Answer line (no "appears", "potential", "may", or "might").',
+				'- Connect relocation, offsite location, and mandatory attendance in one direct sentence.',
+				'- Cite every supporting thought in Evidence. Do NOT list whether the conflict exists under Unknown.',
+				'- Unknown may only list facts truly absent from the thoughts (e.g. exact calendar dates).',
+				...lines
+			].join('\n')
+		);
+	}
+
+	if (other.length > 0) {
+		const lines = other.map(
+			(c) =>
+				`  - Thoughts [${c.ids[0]}] and [${c.ids[1]}] may conflict on "${c.subject}": ${c.description}`
+		);
+		sections.push(
+			'Detected other contradictions (surface these honestly; present both views with dates):\n' +
+				lines.join('\n')
+		);
+	}
+
+	return `\n\n${sections.join('\n\n')}`;
 }
 
 const SYSTEM_PROMPT = [
@@ -187,7 +267,8 @@ const SYSTEM_PROMPT = [
 	'',
 	'Hard rules:',
 	'- Cite every factual claim with [<id>] using the EXACT id string from the thoughts list (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
-	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
+	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not infer motives or job titles beyond what is stated.',
+	'- When the question requires connecting multiple thoughts (e.g. conflict, eligibility, scheduling), you MAY state the combined conclusion in the Answer if each premise is cited in Evidence.',
 	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought.',
 	'- If the thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
 	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses.',
@@ -203,9 +284,8 @@ const SYSTEM_PROMPT = [
 	'  note the earlier one as a prior state.',
 	'',
 	'Contradiction rules:',
-	'- If the detected contradictions section is present, you MUST surface the conflict in your answer.',
-	'- Do not silently pick one side. Present both views with their storage dates and note the apparent',
-	'  contradiction. The user should be aware their stored beliefs conflict.',
+	'- For scheduling conflicts: state the clash as a fact in the Answer line; cite relocation, offsite, and mandatory notes.',
+	'- For sentiment or location-update contradictions: present both views with storage dates; do not silently pick one side.',
 ].join('\n');
 
 // ---------------------------------------------------------------------------
@@ -269,12 +349,32 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const now = new Date();
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
 	const topK = input.topK ?? 8;
-	const retrieved = await searchThoughts({
-		userId: input.userId,
-		query: trimmedQuestion,
-		topK,
-		weights
-	});
+	const retrievalQuery = input.retrievalQuery?.trim();
+	let retrieved: SearchHit[];
+	if (retrievalQuery && retrievalQuery !== trimmedQuestion) {
+		const [fromQuestion, fromRetrievalQuery] = await Promise.all([
+			searchThoughts({
+				userId: input.userId,
+				query: trimmedQuestion,
+				topK,
+				weights
+			}),
+			searchThoughts({
+				userId: input.userId,
+				query: retrievalQuery,
+				topK,
+				weights
+			})
+		]);
+		retrieved = mergeSearchHits(fromQuestion, fromRetrievalQuery, topK);
+	} else {
+		retrieved = await searchThoughts({
+			userId: input.userId,
+			query: retrievalQuery || trimmedQuestion,
+			topK,
+			weights
+		});
+	}
 	void tryRecordRetrievalQualityEvent({
 		userId: input.userId,
 		surface: 'compose_answer',

@@ -284,6 +284,23 @@ export async function updateEvalQa(
 	return rowToRecord(row);
 }
 
+export async function updateEvalQaTags(id: string, tags: unknown): Promise<EvalQaRecord> {
+	const db = getDb();
+	const normalizedTags = normalizeTags(tags);
+	const [row] = await db
+		.update(evalQa)
+		.set({
+			tagsJson: normalizedTags,
+			updatedAt: new Date()
+		})
+		.where(eq(evalQa.id, id))
+		.returning();
+	if (!row) {
+		throw new Error(`QA not found: ${id}`);
+	}
+	return rowToRecord(row);
+}
+
 export async function deleteEvalQa(id: string): Promise<void> {
 	const db = getDb();
 	const result = await db.delete(evalQa).where(eq(evalQa.id, id)).returning({ id: evalQa.id });

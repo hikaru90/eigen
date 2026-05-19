@@ -228,6 +228,25 @@ export async function deleteThoughtVertexFromGraph(input: {
 	});
 }
 
+/** Wipes every vertex for the tenant graph (Thought, Entity, Event, and attached edges). */
+export async function deleteAllUserGraphVertices(userId: string): Promise<void> {
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(userId));
+	await runFalkorQueryWithRetry(userId, 'falkor.delete_all_user_vertices', async () => {
+		await graph.query(
+			`
+			MATCH (n {user_id: $user_id})
+			DETACH DELETE n
+			`,
+			{
+				params: {
+					user_id: userId
+				}
+			}
+		);
+	});
+}
+
 export async function upsertThoughtRelation(input: {
 	userId: string;
 	sourceId: string;
@@ -362,7 +381,7 @@ export async function graphOnlySearchByQuery(input: {
 	});
 }
 
-/** Browser-safe snapshot for `/graph` visualization (Thought + Entity layers). */
+/** Browser-safe snapshot for `/graph` visualization (Entity layer only; provenance via Postgres). */
 export type GraphVizNodeKind = 'Thought' | 'Entity';
 
 export type GraphVizNode = {
@@ -372,7 +391,7 @@ export type GraphVizNode = {
 	subtype: string;
 };
 
-export type GraphVizEdgeKind = 'thought_link' | 'mention' | 'entity_relation';
+export type GraphVizEdgeKind = 'co_mention' | 'entity_relation';
 
 export type GraphVizEdge = {
 	id: string;
@@ -394,17 +413,6 @@ export async function fetchGraphVisualizationSnapshot(input: {
 		const client = await getClient();
 		const graph = client.selectGraph(falkorGraphForUser(input.userId));
 
-		const thoughtNodes = (await graph.query(
-			`
-			MATCH (t:Thought {user_id: $user_id})
-			RETURN t.id AS id,
-			       t.id AS label,
-			       coalesce(t.category, 'perception') AS subtype
-			LIMIT $node_limit
-			`,
-			{ params: { user_id: input.userId, node_limit: nodeLimit } }
-		)) as { data?: Array<{ id?: unknown; label?: unknown; subtype?: unknown }> };
-
 		const entityNodes = (await graph.query(
 			`
 			MATCH (e:Entity {user_id: $user_id})
@@ -416,23 +424,17 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			{ params: { user_id: input.userId, node_limit: nodeLimit } }
 		)) as { data?: Array<{ id?: unknown; label?: unknown; subtype?: unknown }> };
 
-		const relThought = (await graph.query(
+		/** Entities mentioned in the same capture (Thought) — replaces visible Thought→Entity mention edges. */
+		const relCoMention = (await graph.query(
 			`
-			MATCH (a:Thought {user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(b:Thought {user_id: $user_id})
-			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.type, 'related_to') AS rel_type
+			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(a:Entity {user_id: $user_id}),
+			      (t)-[:MENTIONS {user_id: $user_id}]->(b:Entity {user_id: $user_id})
+			WHERE a.id < b.id
+			RETURN a.id AS source_id, b.id AS target_id, count(t) AS rel_weight
 			LIMIT $edge_limit
 			`,
 			{ params: { user_id: input.userId, edge_limit: edgeLimit } }
-		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; rel_type?: unknown }> };
-
-		const relMentions = (await graph.query(
-			`
-			MATCH (a:Thought {user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(b:Entity {user_id: $user_id})
-			RETURN a.id AS source_id, b.id AS target_id, 'mentions' AS rel_type
-			LIMIT $edge_limit
-			`,
-			{ params: { user_id: input.userId, edge_limit: edgeLimit } }
-		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; rel_type?: unknown }> };
+		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; rel_weight?: unknown }> };
 
 		const relEntity = (await graph.query(
 			`
@@ -446,17 +448,6 @@ export async function fetchGraphVisualizationSnapshot(input: {
 		const nodes: GraphVizNode[] = [];
 		const seenNode = new Set<string>();
 
-		for (const row of thoughtNodes.data ?? []) {
-			const id = typeof row.id === 'string' ? row.id : '';
-			if (!id || seenNode.has(id)) continue;
-			seenNode.add(id);
-			nodes.push({
-				id,
-				kind: 'Thought',
-				label: typeof row.label === 'string' ? row.label : String(row.label ?? ''),
-				subtype: typeof row.subtype === 'string' ? row.subtype : String(row.subtype ?? '')
-			});
-		}
 		for (const row of entityNodes.data ?? []) {
 			const id = typeof row.id === 'string' ? row.id : '';
 			if (!id || seenNode.has(id)) continue;
@@ -487,17 +478,11 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			});
 		};
 
-		for (const row of relThought.data ?? []) {
+		for (const row of relCoMention.data ?? []) {
 			const s = typeof row.source_id === 'string' ? row.source_id : '';
 			const t = typeof row.target_id === 'string' ? row.target_id : '';
-			const rt = typeof row.rel_type === 'string' ? row.rel_type : 'related_to';
-			if (s && t) pushEdge(s, t, rt, 'thought_link');
-		}
-		for (const row of relMentions.data ?? []) {
-			const s = typeof row.source_id === 'string' ? row.source_id : '';
-			const t = typeof row.target_id === 'string' ? row.target_id : '';
-			const rt = typeof row.rel_type === 'string' ? row.rel_type : 'mentions';
-			if (s && t) pushEdge(s, t, rt, 'mention');
+			const w = typeof row.rel_weight === 'number' ? row.rel_weight : Number(row.rel_weight ?? 1);
+			if (s && t) pushEdge(s, t, w > 1 ? `co_mentioned (${w})` : 'co_mentioned', 'co_mention');
 		}
 		for (const row of relEntity.data ?? []) {
 			const s = typeof row.source_id === 'string' ? row.source_id : '';

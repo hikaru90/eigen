@@ -1,6 +1,6 @@
-import { and, eq, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity } from '$lib/server/db/schema';
+import { canonicalEntity, entityResolutionLog, thought } from '$lib/server/db/schema';
 import { deleteEntityVertexFromGraph, upsertEntityNode } from '$lib/server/graph/falkor';
 import {
 	activeEntityTypeKindKeys,
@@ -10,6 +10,39 @@ import {
 	loadOntologyForUser
 } from '$lib/server/ontology-db';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
+
+/** Postgres provenance: captures that resolved a mention to this canonical entity. */
+export async function listThoughtsMentioningCanonicalEntity(
+	userId: string,
+	entityId: string,
+	limit = 40
+) {
+	const id = validateNonEmptyEntityId(entityId, 'entityId');
+	const capped = Math.min(Math.max(limit, 1), 100);
+
+	const links = await getDb()
+		.selectDistinct({ thoughtId: entityResolutionLog.thoughtId })
+		.from(entityResolutionLog)
+		.where(
+			and(eq(entityResolutionLog.userId, userId), eq(entityResolutionLog.canonicalEntityId, id))
+		);
+
+	const thoughtIds = links.map((l) => l.thoughtId).filter((tid) => tid.length > 0);
+	if (thoughtIds.length === 0) return [];
+
+	return getDb()
+		.select({
+			id: thought.id,
+			rawText: thought.rawText,
+			normalizedText: thought.normalizedText,
+			category: thought.category,
+			createdAt: thought.createdAt
+		})
+		.from(thought)
+		.where(and(eq(thought.userId, userId), inArray(thought.id, thoughtIds)))
+		.orderBy(desc(thought.createdAt))
+		.limit(capped);
+}
 
 export async function getCanonicalEntityForUser(userId: string, entityId: string) {
 	const id = validateNonEmptyEntityId(entityId, 'entityId');
