@@ -885,6 +885,91 @@ export async function expandContextFromTemporalEventSeeds(input: {
 	});
 }
 
+export type TemporalSchedulingConflictGraphHit = {
+	personEntityId: string;
+	personLabel: string;
+	place1EntityId: string;
+	place1Label: string;
+	place2EntityId: string;
+	place2Label: string;
+	event1Id: string;
+	event2Id: string;
+	event1Label: string;
+	event2Label: string;
+	thought1Id: string;
+	thought2Id: string;
+};
+
+/**
+ * Falkor temporal graph: overlapping Event nodes sharing a person entity with distinct place entities.
+ */
+export async function findTemporalSchedulingConflictsInGraph(
+	userId: string
+): Promise<TemporalSchedulingConflictGraphHit[]> {
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(userId));
+	return runFalkorQueryWithRetry(userId, 'falkor.temporal_scheduling_conflicts', async () => {
+		const result = (await graph.query(
+			`
+			MATCH (e1:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person:Entity {user_id: $user_id}),
+			      (e2:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person)
+			WHERE e1.id < e2.id
+			  AND person.entity_type = 'person'
+			  AND e1.start_at < e2.end_at
+			  AND e2.start_at < e1.end_at
+			MATCH (e1)-[:INVOLVES {user_id: $user_id}]->(place1:Entity {user_id: $user_id}),
+			      (e2)-[:INVOLVES {user_id: $user_id}]->(place2:Entity {user_id: $user_id})
+			WHERE place1.entity_type = 'place'
+			  AND place2.entity_type = 'place'
+			  AND place1.id <> place2.id
+			MATCH (t1:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(e1)
+			MATCH (t2:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(e2)
+			RETURN
+			  person.id AS person_entity_id,
+			  person.label AS person_label,
+			  place1.id AS place1_entity_id,
+			  place1.label AS place1_label,
+			  place2.id AS place2_entity_id,
+			  place2.label AS place2_label,
+			  e1.id AS event1_id,
+			  e2.id AS event2_id,
+			  e1.label AS event1_label,
+			  e2.label AS event2_label,
+			  t1.id AS thought1_id,
+			  t2.id AS thought2_id
+			`,
+			{ params: { user_id: userId } }
+		)) as {
+			data?: Array<Record<string, unknown>>;
+		};
+
+		const hits: TemporalSchedulingConflictGraphHit[] = [];
+		for (const row of result.data ?? []) {
+			const personEntityId = typeof row.person_entity_id === 'string' ? row.person_entity_id : '';
+			const thought1Id = typeof row.thought1_id === 'string' ? row.thought1_id : '';
+			const thought2Id = typeof row.thought2_id === 'string' ? row.thought2_id : '';
+			const event1Id = typeof row.event1_id === 'string' ? row.event1_id : '';
+			const event2Id = typeof row.event2_id === 'string' ? row.event2_id : '';
+			if (!personEntityId || !thought1Id || !thought2Id || !event1Id || !event2Id) continue;
+			hits.push({
+				personEntityId,
+				personLabel: typeof row.person_label === 'string' ? row.person_label : '',
+				place1EntityId: typeof row.place1_entity_id === 'string' ? row.place1_entity_id : '',
+				place1Label: typeof row.place1_label === 'string' ? row.place1_label : '',
+				place2EntityId: typeof row.place2_entity_id === 'string' ? row.place2_entity_id : '',
+				place2Label: typeof row.place2_label === 'string' ? row.place2_label : '',
+				event1Id,
+				event2Id,
+				event1Label: typeof row.event1_label === 'string' ? row.event1_label : '',
+				event2Label: typeof row.event2_label === 'string' ? row.event2_label : '',
+				thought1Id,
+				thought2Id
+			});
+		}
+		return hits;
+	});
+}
+
 /** Returns true when a Thought node exists for this user in Falkor. */
 export async function thoughtExistsInGraph(userId: string, thoughtId: string): Promise<boolean> {
 	const id = validateNonEmptyEntityId(thoughtId, 'thoughtId');

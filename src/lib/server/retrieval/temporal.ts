@@ -16,8 +16,11 @@ const TEMPORAL_QUERY_PATTERNS = [
 	/\bwhen\b/i,
 	/\bdeadline\b/i,
 	/\bdue\b/i,
-	/\bschedule\b/i,
+	/\bschedul(?:e|ing)\b/i,
 	/\bappointment\b/i,
+	/\bconflict\b/i,
+	/\bclash\b/i,
+	/\boverlap\b/i,
 	/\blast (week|month|year|time)\b/i,
 	/\bnext (week|month|year|friday|monday)\b/i,
 	/\bin \d{4}\b/,
@@ -36,25 +39,43 @@ export function isTemporalQuery(query: string): boolean {
  * Parse a coarse query range from natural language (v1 heuristics).
  * Returns null when no explicit window is inferred — caller may use semantic-only filter.
  */
-export function inferQueryTimeRange(query: string): { start: Date; end: Date } | null {
-	const monthYear = query.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/i);
+const MONTH_NAMES = [
+	'january',
+	'february',
+	'march',
+	'april',
+	'may',
+	'june',
+	'july',
+	'august',
+	'september',
+	'october',
+	'november',
+	'december'
+] as const;
+
+export function inferQueryTimeRange(
+	query: string,
+	referenceDate: Date = new Date()
+): { start: Date; end: Date } | null {
+	const monthYear = query.match(
+		/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/i
+	);
 	if (monthYear) {
-		const months = [
-			'january',
-			'february',
-			'march',
-			'april',
-			'may',
-			'june',
-			'july',
-			'august',
-			'september',
-			'october',
-			'november',
-			'december'
-		];
-		const monthIdx = months.indexOf(monthYear[1].toLowerCase());
+		const monthIdx = MONTH_NAMES.indexOf(monthYear[1].toLowerCase() as (typeof MONTH_NAMES)[number]);
 		const year = Number(monthYear[2]);
+		return {
+			start: new Date(Date.UTC(year, monthIdx, 1)),
+			end: new Date(Date.UTC(year, monthIdx + 1, 1))
+		};
+	}
+
+	const monthOnly = query.match(
+		/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
+	);
+	if (monthOnly) {
+		const monthIdx = MONTH_NAMES.indexOf(monthOnly[1].toLowerCase() as (typeof MONTH_NAMES)[number]);
+		const year = referenceDate.getUTCFullYear();
 		return {
 			start: new Date(Date.UTC(year, monthIdx, 1)),
 			end: new Date(Date.UTC(year, monthIdx + 1, 1))

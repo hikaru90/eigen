@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
-import { composeAnswer, detectContradictions, type RetrievalContextItem } from './compose-answer';
+import { composeAnswer } from './compose-answer';
 
-const { searchThoughtsMock, llmChatCompletionMock } = vi.hoisted(() => ({
-	searchThoughtsMock: vi.fn(),
-	llmChatCompletionMock: vi.fn()
-}));
+const { searchThoughtsMock, llmChatCompletionMock, findTemporalSchedulingConflictsMock } = vi.hoisted(
+	() => ({
+		searchThoughtsMock: vi.fn(),
+		llmChatCompletionMock: vi.fn(),
+		findTemporalSchedulingConflictsMock: vi.fn()
+	})
+);
 
 vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
@@ -13,6 +16,23 @@ vi.mock('$lib/server/retrieval/service', () => ({
 
 vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
+}));
+
+vi.mock('$lib/server/retrieval/temporal-conflicts', () => ({
+	findTemporalSchedulingConflicts: findTemporalSchedulingConflictsMock,
+	formatTemporalConflictsForPrompt: (conflicts: unknown[]) =>
+		conflicts.length > 0 ? '\n\nTemporal scheduling conflicts (from memory graph):\n' : '',
+	isSchedulingConflictQuery: (q: string) => /conflict|scheduling/i.test(q)
+}));
+
+vi.mock('$lib/server/db', () => ({
+	getDb: vi.fn().mockReturnValue({
+		select: vi.fn().mockReturnValue({
+			from: vi.fn().mockReturnValue({
+				where: vi.fn().mockResolvedValue([])
+			})
+		})
+	})
 }));
 
 function chatResponse(content: string) {
@@ -48,6 +68,7 @@ describe('composeAnswer', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
+		findTemporalSchedulingConflictsMock.mockResolvedValue([]);
 		llmChatCompletionMock.mockResolvedValue(
 			chatResponse('Marcus suggested rice flour [t_001]. Also, Tartine has half-price loaves [t_002].')
 		);
@@ -209,92 +230,22 @@ describe('composeAnswer', () => {
 		expect(userMessage).toContain('Graph: entity:Marcus');
 	});
 
-	it('injects scheduling-conflict instructions into the LLM prompt', async () => {
-		searchThoughtsMock.mockResolvedValueOnce([
+	it('includes temporal graph conflicts in the prompt when detected', async () => {
+		findTemporalSchedulingConflictsMock.mockResolvedValueOnce([
 			{
-				id: 't_tom',
-				normalizedText: 'Tom is moving to Lisbon in March.',
-				category: 'memory',
-				score: 0.9,
-				vectorScore: 0.9,
-				graphScore: 0,
-				metadata: {},
-				createdAt: FIXED_DATE
-			},
-			{
-				id: 't_berlin',
-				normalizedText: 'The team offsite is planned for March in Berlin.',
-				category: 'memory',
-				score: 0.85,
-				vectorScore: 0.85,
-				graphScore: 0,
-				metadata: {},
-				createdAt: FIXED_DATE
-			},
-			{
-				id: 't_mandatory',
-				normalizedText:
-					'Offsite attendance is mandatory for all senior staff. Tom is a senior engineer.',
-				category: 'reference',
-				score: 0.8,
-				vectorScore: 0.8,
-				graphScore: 0,
-				metadata: {},
-				createdAt: FIXED_DATE
+				personEntityId: 'ent-tom',
+				personLabel: 'Tom',
+				events: [],
+				mandatoryThoughtIds: ['t_mandatory'],
+				thoughtIds: ['t_tom', 't_berlin', 't_mandatory'],
+				description: 'Tom has overlapping events in Lisbon and Berlin'
 			}
 		]);
-		llmChatCompletionMock.mockResolvedValueOnce(
-			chatResponse(
-				"Answer: Tom's move to Lisbon clashes with the mandatory Berlin offsite in March.\nEvidence:\n- Tom is moving to Lisbon in March [t_tom]\nUnknown:\n- none"
-			)
-		);
 		await composeAnswer({ userId: 'u1', question: 'Is there a scheduling conflict?' });
+		expect(findTemporalSchedulingConflictsMock).toHaveBeenCalled();
 		const userMessage = (
 			llmChatCompletionMock.mock.calls[0][0] as { messages: Array<{ content: string }> }
 		).messages[1].content;
-		expect(userMessage).toContain('Detected scheduling conflict');
-		expect(userMessage).toContain('Do NOT list whether the conflict exists under Unknown');
-	});
-});
-
-describe('detectContradictions', () => {
-	const now = FIXED_DATE;
-
-	it('flags relocation vs mandatory offsite in another city', () => {
-		const items: RetrievalContextItem[] = [
-			{
-				id: 't_tom',
-				normalizedText: 'Tom is moving to Lisbon in March.',
-				category: 'thought',
-				score: 1,
-				vectorScore: 1,
-				graphScore: 0,
-				createdAt: now
-			},
-			{
-				id: 't_berlin',
-				normalizedText: 'The team offsite is planned for March in Berlin.',
-				category: 'thought',
-				score: 1,
-				vectorScore: 1,
-				graphScore: 0,
-				createdAt: now
-			},
-			{
-				id: 't_mandatory',
-				normalizedText: 'Offsite attendance is mandatory for all senior staff. Tom is a senior engineer.',
-				category: 'thought',
-				score: 1,
-				vectorScore: 1,
-				graphScore: 0,
-				createdAt: now
-			}
-		];
-		const conflicts = detectContradictions(items);
-		const scheduling = conflicts.find((c) => c.kind === 'scheduling');
-		expect(scheduling).toBeDefined();
-		expect(scheduling!.ids).toContain('t_tom');
-		expect(scheduling!.ids).toContain('t_berlin');
-		expect(scheduling!.relatedIds).toContain('t_mandatory');
+		expect(userMessage).toContain('Temporal scheduling conflicts');
 	});
 });

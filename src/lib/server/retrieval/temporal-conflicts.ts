@@ -137,21 +137,14 @@ async function loadOverlappingEventPairs(input: {
 		? sql`AND e1.active_period && ${rangeLiteral}::tsrange AND e2.active_period && ${rangeLiteral}::tsrange`
 		: sql``;
 
-	const rows = await getDb().execute<{
-		event1_id: string;
-		thought1_id: string;
-		summary1: string;
-		event2_id: string;
-		thought2_id: string;
-		summary2: string;
-	}>(sql`
+	const result = await getDb().execute(sql`
 		SELECT
-			e1.id AS event1_id,
-			e1.thought_id AS thought1_id,
-			e1.semantic_summary AS summary1,
-			e2.id AS event2_id,
-			e2.thought_id AS thought2_id,
-			e2.semantic_summary AS summary2
+			e1.id AS "event1Id",
+			e1.thought_id AS "thought1Id",
+			e1.semantic_summary AS "summary1",
+			e2.id AS "event2Id",
+			e2.thought_id AS "thought2Id",
+			e2.semantic_summary AS "summary2"
 		FROM temporal_event e1
 		INNER JOIN temporal_event e2
 			ON e1.user_id = e2.user_id
@@ -161,14 +154,16 @@ async function loadOverlappingEventPairs(input: {
 		${rangeFilter}
 	`);
 
-	return rows.map((row) => ({
-		event1Id: row.event1_id,
-		thought1Id: row.thought1_id,
-		summary1: row.summary1,
-		event2Id: row.event2_id,
-		thought2Id: row.thought2_id,
-		summary2: row.summary2
-	}));
+	type Row = {
+		event1Id: string;
+		thought1Id: string;
+		summary1: string;
+		event2Id: string;
+		thought2Id: string;
+		summary2: string;
+	};
+	const rows = (Array.isArray(result) ? result : []) as Row[];
+	return rows;
 }
 
 /**
@@ -239,61 +234,82 @@ export async function findTemporalSchedulingConflictsInPostgres(input: {
 	return conflicts;
 }
 
-function graphHitsToConflicts(
-	hits: Awaited<ReturnType<typeof findTemporalSchedulingConflictsInGraph>>
-): TemporalSchedulingConflict[] {
+function conflictKey(c: Pick<TemporalSchedulingConflict, 'personEntityId' | 'events'>): string {
+	const eventIds = c.events.map((e) => e.eventId).sort();
+	return [c.personEntityId, ...eventIds].join('::');
+}
+
+function mergeConflicts(conflicts: TemporalSchedulingConflict[]): TemporalSchedulingConflict[] {
 	const byKey = new Map<string, TemporalSchedulingConflict>();
-
-	for (const hit of hits) {
-		const key = [hit.personEntityId, hit.event1Id, hit.event2Id].sort().join('::');
+	for (const c of conflicts) {
+		const key = conflictKey(c);
 		const existing = byKey.get(key);
-		const eventA = {
-			eventId: hit.event1Id,
-			thoughtId: hit.thought1Id,
-			semanticSummary: hit.event1Label,
-			placeLabel: hit.place1Label
-		};
-		const eventB = {
-			eventId: hit.event2Id,
-			thoughtId: hit.thought2Id,
-			semanticSummary: hit.event2Label,
-			placeLabel: hit.place2Label
-		};
-		const mandatoryThoughtIds = hit.mandatoryThoughtIds ?? [];
-		const thoughtIds = [
-			hit.thought1Id,
-			hit.thought2Id,
-			...mandatoryThoughtIds
-		];
-		const description = `${hit.personLabel} has overlapping events in ${hit.place1Label} and ${hit.place2Label}`;
-
 		if (!existing) {
-			byKey.set(key, {
-				personEntityId: hit.personEntityId,
-				personLabel: hit.personLabel,
-				events: [eventA, eventB],
-				mandatoryThoughtIds,
-				thoughtIds: [...new Set(thoughtIds)],
-				description
-			});
+			byKey.set(key, c);
+			continue;
 		}
+		const thoughtIds = [...new Set([...existing.thoughtIds, ...c.thoughtIds])];
+		const mandatoryThoughtIds = [
+			...new Set([...existing.mandatoryThoughtIds, ...c.mandatoryThoughtIds])
+		];
+		byKey.set(key, { ...existing, thoughtIds, mandatoryThoughtIds });
 	}
-
 	return [...byKey.values()];
 }
 
+async function graphHitsToConflicts(
+	userId: string,
+	hits: Awaited<ReturnType<typeof findTemporalSchedulingConflictsInGraph>>
+): Promise<TemporalSchedulingConflict[]> {
+	const conflicts: TemporalSchedulingConflict[] = [];
+
+	for (const hit of hits) {
+		const exclude = new Set([hit.thought1Id, hit.thought2Id]);
+		const mandatoryThoughtIds = await findMandatoryThoughtsForPerson({
+			userId,
+			personEntityId: hit.personEntityId,
+			excludeThoughtIds: exclude
+		});
+		const thoughtIds = [...exclude, ...mandatoryThoughtIds];
+		conflicts.push({
+			personEntityId: hit.personEntityId,
+			personLabel: hit.personLabel,
+			events: [
+				{
+					eventId: hit.event1Id,
+					thoughtId: hit.thought1Id,
+					semanticSummary: hit.event1Label,
+					placeLabel: hit.place1Label
+				},
+				{
+					eventId: hit.event2Id,
+					thoughtId: hit.thought2Id,
+					semanticSummary: hit.event2Label,
+					placeLabel: hit.place2Label
+				}
+			],
+			mandatoryThoughtIds,
+			thoughtIds: [...new Set(thoughtIds)],
+			description: `${hit.personLabel} has overlapping events in ${hit.place1Label} and ${hit.place2Label}`
+		});
+	}
+
+	return conflicts;
+}
+
 /**
- * Detect scheduling clashes via temporal graph (Falkor Event/INVOLVES) with Postgres ledger fallback.
+ * Detect scheduling clashes via Falkor Event/INVOLVES traversal and Postgres temporal_event overlap.
  */
 export async function findTemporalSchedulingConflicts(input: {
 	userId: string;
 	query: string;
 }): Promise<TemporalSchedulingConflict[]> {
-	const graphHits = await findTemporalSchedulingConflictsInGraph(input.userId);
-	if (graphHits.length > 0) {
-		return graphHitsToConflicts(graphHits);
-	}
-	return findTemporalSchedulingConflictsInPostgres(input);
+	const [graphHits, postgresConflicts] = await Promise.all([
+		findTemporalSchedulingConflictsInGraph(input.userId),
+		findTemporalSchedulingConflictsInPostgres(input)
+	]);
+	const graphConflicts = await graphHitsToConflicts(input.userId, graphHits);
+	return mergeConflicts([...graphConflicts, ...postgresConflicts]);
 }
 
 /** Factual conflict context derived from the temporal graph — not answer-style instructions. */

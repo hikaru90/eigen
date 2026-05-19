@@ -1,7 +1,15 @@
+import { and, eq, inArray } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { thought } from '$lib/server/db/schema';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
+import {
+	findTemporalSchedulingConflicts,
+	formatTemporalConflictsForPrompt,
+	isSchedulingConflictQuery
+} from '$lib/server/retrieval/temporal-conflicts';
 
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
@@ -20,15 +28,10 @@ export type RetrievalContextItem = {
 	isStale: boolean;
 };
 
-export type ConflictKind = 'scheduling' | 'polarity' | 'location';
-
 export type ConflictPair = {
 	ids: [string, string];
-	/** Extra thoughts needed to explain a scheduling clash (e.g. mandatory attendance). */
-	relatedIds?: string[];
 	subject: string;
 	description: string;
-	kind: ConflictKind;
 };
 
 export type ComposedAnswer = {
@@ -62,31 +65,12 @@ function mergeSearchHits(a: SearchHit[], b: SearchHit[], topK: number): SearchHi
 }
 
 // ---------------------------------------------------------------------------
-// Contradiction detection
+// Contradiction detection (sentiment / location updates — not scheduling)
 // ---------------------------------------------------------------------------
-
-/**
- * Heuristic contradiction detection over a set of retrieved thoughts.
- *
- * Groups thoughts by a loose "subject key" (first 4 meaningful tokens of the
- * normalized text) and then applies simple opposing-signal patterns:
- *
- *   - Positive/negative polarity pairs on the same topic
- *   - Location/identity update pairs ("I live in X" then "I live in Y")
- *   - Explicit contradicting verbs ("love"/"hate", "great"/"terrible", etc.)
- *
- * This is intentionally cheap — the LLM judge is the final arbiter. The goal
- * is to surface likely conflicts as a context hint so the LLM can flag them
- * in the answer rather than silently picking one side.
- *
- * No LLM call, no hard failure. Returns an empty array if nothing found.
- */
 
 const POLARITY_POSITIVE = /\b(love|great|excellent|amazing|wonderful|perfect|fantastic|good|enjoy|like)\b/i;
 const POLARITY_NEGATIVE = /\b(hate|terrible|awful|horrible|dreadful|bad|dislike|can't stand|waste)\b/i;
 const LOCATION_PATTERN = /\b(?:live|living|moved|move)\s+(?:in|to)\s+([A-Z][a-zA-Z]+)/;
-const PERSON_MOVE_PATTERN = /\b([A-Z][a-z]+)\s+is\s+moving\s+to\s+([A-Z][a-zA-Z]+)/;
-const OFFSITE_LOCATION_PATTERN = /(?:offsite|off-site)[^.]{0,80}\b(?:in|for)\s+([A-Z][a-zA-Z]+)/i;
 
 function extractSubjectKey(text: string): string {
 	return text
@@ -101,7 +85,6 @@ function extractSubjectKey(text: string): string {
 export function detectContradictions(items: RetrievalContextItem[]): ConflictPair[] {
 	const conflicts: ConflictPair[] = [];
 
-	// 1. Location/identity update pairs
 	const locationBySubject = new Map<string, Array<{ id: string; location: string; createdAt: Date }>>();
 	for (const item of items) {
 		const locMatch = LOCATION_PATTERN.exec(item.normalizedText);
@@ -114,7 +97,6 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 	}
 	for (const [, entries] of locationBySubject) {
 		if (entries.length < 2) continue;
-		// Sort by date, take first and last if locations differ
 		const sorted = [...entries].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 		const first = sorted[0];
 		const last = sorted[sorted.length - 1];
@@ -122,43 +104,11 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 			conflicts.push({
 				ids: [first.id, last.id],
 				subject: 'location',
-				description: `Earlier thought says "${first.location}", later thought says "${last.location}"`,
-				kind: 'location'
+				description: `Earlier thought says "${first.location}", later thought says "${last.location}"`
 			});
 		}
 	}
 
-	// 2. Relocation vs mandatory offsite in a different city (e.g. Tom → Lisbon vs Berlin offsite)
-	const personMoves: Array<{ person: string; id: string; location: string }> = [];
-	for (const item of items) {
-		const moveMatch = PERSON_MOVE_PATTERN.exec(item.normalizedText);
-		if (moveMatch) {
-			personMoves.push({ person: moveMatch[1], id: item.id, location: moveMatch[2] });
-		}
-	}
-	for (const move of personMoves) {
-		const offsiteThoughts = items.filter((t) => /offsite|off-site/i.test(t.normalizedText));
-		const mandatoryThought = items.find(
-			(t) =>
-				/\bmandatory\b/i.test(t.normalizedText) &&
-				new RegExp(`\\b${move.person}\\b`, 'i').test(t.normalizedText)
-		);
-		for (const offsite of offsiteThoughts) {
-			const locMatch = OFFSITE_LOCATION_PATTERN.exec(offsite.normalizedText);
-			const eventLocation = locMatch?.[1];
-			if (!eventLocation || eventLocation === move.location) continue;
-			if (!mandatoryThought) continue;
-			conflicts.push({
-				ids: [move.id, offsite.id],
-				relatedIds: [mandatoryThought.id],
-				subject: move.person,
-				description: `${move.person} is moving to ${move.location} while mandatory attendance is required at a team offsite in ${eventLocation}`,
-				kind: 'scheduling'
-			});
-		}
-	}
-
-	// 3. Polarity pairs — thoughts about the same subject with opposite sentiment
 	for (let i = 0; i < items.length; i++) {
 		for (let j = i + 1; j < items.length; j++) {
 			const a = items[i];
@@ -170,7 +120,6 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 
 			if (!((aPos && bNeg) || (aNeg && bPos))) continue;
 
-			// Only flag if they share a meaningful subject word
 			const aKey = extractSubjectKey(a.normalizedText);
 			const bKey = extractSubjectKey(b.normalizedText);
 			const aWords = new Set(aKey.split(' '));
@@ -181,13 +130,11 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 			conflicts.push({
 				ids: [a.id, b.id],
 				subject: shared[0],
-				description: `These thoughts appear to hold opposing views about "${shared[0]}"`,
-				kind: 'polarity'
+				description: `These thoughts appear to hold opposing views about "${shared[0]}"`
 			});
 		}
 	}
 
-	// Deduplicate by id pair
 	const seen = new Set<string>();
 	return conflicts.filter((c) => {
 		const key = [...c.ids].sort().join('::');
@@ -201,7 +148,7 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 // Prompt formatting
 // ---------------------------------------------------------------------------
 
-function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date): string {
+function formatThoughtsForPrompt(items: RetrievalContextItem[]): string {
 	if (items.length === 0) return '(no thoughts retrieved)';
 	return items
 		.map((t, i) => {
@@ -218,40 +165,13 @@ function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date): stri
 
 function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
 	if (conflicts.length === 0) return '';
-
-	const scheduling = conflicts.filter((c) => c.kind === 'scheduling');
-	const other = conflicts.filter((c) => c.kind !== 'scheduling');
-	const sections: string[] = [];
-
-	if (scheduling.length > 0) {
-		const lines = scheduling.map((c) => {
-			const citeIds = [...new Set([...c.ids, ...(c.relatedIds ?? [])])];
-			return `  - ${c.description}. Cite: ${citeIds.map((id) => `[${id}]`).join(', ')}`;
-		});
-		sections.push(
-			[
-				'Detected scheduling conflict(s) — REQUIRED:',
-				'- State the clash decisively in the Answer line (no "appears", "potential", "may", or "might").',
-				'- Connect relocation, offsite location, and mandatory attendance in one direct sentence.',
-				'- Cite every supporting thought in Evidence. Do NOT list whether the conflict exists under Unknown.',
-				'- Unknown may only list facts truly absent from the thoughts (e.g. exact calendar dates).',
-				...lines
-			].join('\n')
-		);
-	}
-
-	if (other.length > 0) {
-		const lines = other.map(
-			(c) =>
-				`  - Thoughts [${c.ids[0]}] and [${c.ids[1]}] may conflict on "${c.subject}": ${c.description}`
-		);
-		sections.push(
-			'Detected other contradictions (surface these honestly; present both views with dates):\n' +
-				lines.join('\n')
-		);
-	}
-
-	return `\n\n${sections.join('\n\n')}`;
+	const lines = conflicts.map(
+		(c) => `  - Thoughts [${c.ids[0]}] and [${c.ids[1]}] may conflict on "${c.subject}": ${c.description}`
+	);
+	return (
+		'\n\nDetected potential contradictions (surface these honestly in your answer rather than picking one side):\n' +
+		lines.join('\n')
+	);
 }
 
 const SYSTEM_PROMPT = [
@@ -267,8 +187,7 @@ const SYSTEM_PROMPT = [
 	'',
 	'Hard rules:',
 	'- Cite every factual claim with [<id>] using the EXACT id string from the thoughts list (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
-	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not infer motives or job titles beyond what is stated.',
-	'- When the question requires connecting multiple thoughts (e.g. conflict, eligibility, scheduling), you MAY state the combined conclusion in the Answer if each premise is cited in Evidence.',
+	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
 	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought.',
 	'- If the thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
 	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses.',
@@ -284,13 +203,11 @@ const SYSTEM_PROMPT = [
 	'  note the earlier one as a prior state.',
 	'',
 	'Contradiction rules:',
-	'- For scheduling conflicts: state the clash as a fact in the Answer line; cite relocation, offsite, and mandatory notes.',
-	'- For sentiment or location-update contradictions: present both views with storage dates; do not silently pick one side.',
+	'- If the detected contradictions section is present, you MUST surface the conflict in your answer.',
+	'- Do not silently pick one side. Present both views with their storage dates and note the apparent',
+	'  contradiction. The user should be aware their stored beliefs conflict.',
+	'- If temporal scheduling conflicts from the memory graph are listed, connect the cited thoughts in your Answer.'
 ].join('\n');
-
-// ---------------------------------------------------------------------------
-// Response parsing helpers
-// ---------------------------------------------------------------------------
 
 function extractAnswerText(response: unknown): string {
 	if (!response || typeof response !== 'object') {
@@ -324,23 +241,68 @@ function extractCitations(answer: string, allowedIds: Set<string>): string[] {
 	return [...seen];
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+function searchHitToContextItem(hit: SearchHit, now: Date): RetrievalContextItem {
+	return {
+		id: hit.id,
+		normalizedText: hit.normalizedText,
+		category: hit.category,
+		score: hit.score,
+		vectorScore: hit.vectorScore,
+		graphScore: hit.graphScore,
+		createdAt: hit.createdAt,
+		isStale: now.getTime() - hit.createdAt.getTime() > STALENESS_THRESHOLD_MS,
+		graphProvenance:
+			typeof hit.metadata?.graphProvenance === 'string' ? hit.metadata.graphProvenance : undefined
+	};
+}
 
-/**
- * Compose a grounded answer to `question` from the user's stored thoughts.
- *
- * Enhancements over the basic RAG path:
- *   - Retrieved thoughts are annotated with their storage date and a staleness flag
- *     (>6 months old) which is injected into the prompt so the LLM can present
- *     temporal context rather than asserting stale facts as current.
- *   - A lightweight contradiction-detection pass runs over the retrieved thoughts.
- *     Detected conflict pairs are injected into the prompt so the LLM surfaces
- *     them rather than silently picking one side.
- *
- * Inherits the 3-retry no-fallback semantics from `llmChatCompletion`.
- */
+async function hydrateConflictThoughts(input: {
+	userId: string;
+	contextItems: RetrievalContextItem[];
+	conflictThoughtIds: string[];
+	now: Date;
+}): Promise<RetrievalContextItem[]> {
+	const present = new Set(input.contextItems.map((c) => c.id));
+	const missing = input.conflictThoughtIds.filter((id) => !present.has(id));
+	if (missing.length === 0) return input.contextItems;
+
+	const rows = await getDb()
+		.select({
+			id: thought.id,
+			normalizedText: thought.normalizedText,
+			category: thought.category,
+			metadata: thought.metadata,
+			createdAt: thought.createdAt
+		})
+		.from(thought)
+		.where(and(eq(thought.userId, input.userId), inArray(thought.id, missing)));
+
+	const hydrated: RetrievalContextItem[] = rows.map((row) => ({
+		id: row.id,
+		normalizedText: row.normalizedText,
+		category: row.category,
+		score: 1,
+		vectorScore: 0,
+		graphScore: 1,
+		createdAt: row.createdAt,
+		isStale: input.now.getTime() - row.createdAt.getTime() > STALENESS_THRESHOLD_MS,
+		graphProvenance: 'temporal:scheduling_conflict'
+	}));
+
+	return [...input.contextItems, ...hydrated];
+}
+
+function prioritizeConflictThoughts(
+	items: RetrievalContextItem[],
+	conflictThoughtIds: Set<string>,
+	topK: number
+): RetrievalContextItem[] {
+	return [
+		...items.filter((c) => conflictThoughtIds.has(c.id)),
+		...items.filter((c) => !conflictThoughtIds.has(c.id))
+	].slice(0, topK);
+}
+
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {
 	const trimmedQuestion = input.question.trim();
 	if (trimmedQuestion.length === 0) {
@@ -382,18 +344,24 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		topKRequested: topK,
 		results: retrieved.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
-	const contextItems: RetrievalContextItem[] = retrieved.map((r) => ({
-		id: r.id,
-		normalizedText: r.normalizedText,
-		category: r.category,
-		score: r.score,
-		vectorScore: r.vectorScore,
-		graphScore: r.graphScore,
-		createdAt: r.createdAt,
-		isStale: now.getTime() - r.createdAt.getTime() > STALENESS_THRESHOLD_MS,
-		graphProvenance:
-			typeof r.metadata?.graphProvenance === 'string' ? r.metadata.graphProvenance : undefined
-	}));
+
+	const temporalQuery = [trimmedQuestion, retrievalQuery].filter(Boolean).join(' ');
+	const schedulingConflicts = isSchedulingConflictQuery(temporalQuery)
+		? await findTemporalSchedulingConflicts({
+				userId: input.userId,
+				query: temporalQuery
+			})
+		: [];
+	const conflictThoughtIdSet = new Set(schedulingConflicts.flatMap((c) => c.thoughtIds));
+
+	let contextItems = retrieved.map((r) => searchHitToContextItem(r, now));
+	contextItems = await hydrateConflictThoughts({
+		userId: input.userId,
+		contextItems,
+		conflictThoughtIds: [...conflictThoughtIdSet],
+		now
+	});
+	contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, topK);
 
 	const conflicts = detectContradictions(contextItems);
 
@@ -403,7 +371,8 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 			role: 'user',
 			content:
 				`Question: ${trimmedQuestion}\n\n` +
-				`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
+				`Thoughts:\n${formatThoughtsForPrompt(contextItems)}` +
+				formatTemporalConflictsForPrompt(schedulingConflicts) +
 				formatConflictsForPrompt(conflicts) +
 				`\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
 		}

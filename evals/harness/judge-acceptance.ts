@@ -15,9 +15,6 @@ const SYSTEM_PROMPT = [
 	'Return strictly valid JSON:',
 	'{ "passed": <boolean>, "score": <1-5 integer>, "explanation": "<one or two sentences>" }',
 	'passed=true only when the answer clearly meets every part of the acceptance criteria.',
-	'When criteria require connecting multiple notes, passed=true if the answer combines them into one clear conclusion (e.g. A clashes with B because C), even if Evidence lists facts separately.',
-	'passed=true for scheduling-conflict criteria when the Answer (or opening summary) states the clash between relocation and a mandatory event, even if Unknown lists minor gaps like exact dates.',
-	'Do not fail solely because Unknown mentions details absent from memory, unless Unknown contradicts or walks back the required conclusion.',
 	'Do not wrap JSON in markdown fences.'
 ].join('\n');
 

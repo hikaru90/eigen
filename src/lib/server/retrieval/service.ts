@@ -9,6 +9,10 @@ import { expandNeighborsByIds, expandThoughtIdsFromEntitySeeds } from '$lib/serv
 import type { EntityThoughtHit } from '$lib/server/graph/falkor';
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
 import {
+	findTemporalSchedulingConflicts,
+	isSchedulingConflictQuery
+} from '$lib/server/retrieval/temporal-conflicts';
+import {
 	filterTemporalEvents,
 	isTemporalQuery,
 	traverseTemporalContext
@@ -244,10 +248,29 @@ export async function searchThoughts(params: {
 		...temporalContextHits.map((h) => h.thoughtId)
 	];
 
+	const schedulingConflicts = isSchedulingConflictQuery(params.query)
+		? await findTemporalSchedulingConflicts({
+				userId: params.userId,
+				query: params.query
+			})
+		: [];
+	const conflictThoughtIds = [
+		...new Set(schedulingConflicts.flatMap((c) => c.thoughtIds))
+	];
+	for (const thoughtId of conflictThoughtIds) {
+		graphRanks.set(thoughtId, 1);
+		graphProvenanceByThoughtId.set(
+			thoughtId,
+			graphProvenanceByThoughtId.get(thoughtId) ?? 'temporal:scheduling_conflict'
+		);
+	}
+
 	const semanticIds = new Set<string>([...vectorRanks.keys(), ...lexicalRanks.keys()]);
-	const connectedOnlyIds = [...graphRanks.keys(), ...temporalThoughtIds].filter(
-		(id) => !semanticIds.has(id)
-	);
+	const connectedOnlyIds = [
+		...graphRanks.keys(),
+		...temporalThoughtIds,
+		...conflictThoughtIds
+	].filter((id) => !semanticIds.has(id));
 	const connectedRows =
 		connectedOnlyIds.length === 0
 			? []
@@ -326,7 +349,8 @@ export async function searchThoughts(params: {
 		...vectorRanks.keys(),
 		...lexicalRanks.keys(),
 		...graphRanks.keys(),
-		...temporalThoughtIds
+		...temporalThoughtIds,
+		...conflictThoughtIds
 	]);
 
 	const scored = [...candidateIds]
