@@ -168,7 +168,7 @@ async function bootstrapIfPushManaged() {
 try {
 	console.log('[eigen] Running migrations from', migrationsFolder);
 	await bootstrapIfPushManaged();
-	await migrate(db, { migrationsFolder });
+	await applyPendingMigrationsByHash();
 	console.log('[eigen] Migrations complete.');
 } catch (err) {
 	console.error('[eigen] Migration failed:', err);
