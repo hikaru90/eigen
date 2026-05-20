@@ -35,6 +35,20 @@ type ResolvedLlmConfig = {
 	modelEmbedding: string | null;
 };
 
+/** Hostname from gateway base URL for activity logs (handles missing `https://`). */
+function gatewayHostFromBaseUrl(baseUrl: string): string {
+	const trimmed = baseUrl.trim().replace(/\/$/, '');
+	try {
+		return new URL(trimmed).hostname.toLowerCase();
+	} catch {
+		try {
+			return new URL(`https://${trimmed}`).hostname.toLowerCase();
+		} catch {
+			return trimmed.slice(0, 120);
+		}
+	}
+}
+
 const routingRuleCache = new Map<string, RoutingConfig>();
 
 /**
@@ -306,6 +320,7 @@ export async function llmChatCompletion(input: {
 	logContext?: string;
 }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
+	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/chat/completions`;
 	const routing = await chatRoutingConfig(config);
 	const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_');
@@ -382,6 +397,7 @@ export async function llmChatCompletion(input: {
 			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				gatewayHost,
 				operation: `llm.chat.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
 				context: firstUserMessage,
@@ -400,6 +416,7 @@ export async function llmChatCompletion(input: {
 			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				gatewayHost,
 				operation: `llm.chat.error(attempt=${attempt})`,
 				baseCostUsd: 0,
 				context: firstUserMessage,
@@ -419,6 +436,7 @@ export async function llmChatCompletion(input: {
  */
 export async function llmCreateEmbeddings(input: { userId: string; input: string | string[] }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
+	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/embeddings`;
 	const routing = await embeddingRoutingConfig(config);
 
@@ -478,6 +496,7 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 				: input.input;
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				gatewayHost,
 				operation: `llm.embedding.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
 				context: embeddingPreview,
@@ -493,6 +512,7 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 				: input.input;
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				gatewayHost,
 				operation: `llm.embedding.error(attempt=${attempt})`,
 				baseCostUsd: 0,
 				context: embeddingPreview,

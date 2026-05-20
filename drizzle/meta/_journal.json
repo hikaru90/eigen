@@ -155,6 +155,27 @@
       "when": 1748320000000,
       "tag": "0021_temporal_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1748400000000,
+      "tag": "0022_activity_call_log_gateway_host",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1748480000000,
+      "tag": "0023_eval_qa_surgical_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1748560000000,
+      "tag": "0024_eval_qa_tlif_entity_surfaces",
+      "breakpoints": true
     }
   ]
 }

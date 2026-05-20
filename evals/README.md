@@ -9,6 +9,7 @@ npm run db:migrate && npm run db:rls
 npm run eval              # smoke — one question from eval_qa
 npm run eval -- --mode all
 npm run eval -- --mode qa --qa-id qa_smoke_dinner
+npm run eval -- --mode qa --qa-id qa_surgical_vats_phrenic_stapler
 ```
 
 Dev UI: `/eval` — manage the **Questions & answers** catalog. Use **Run** on a row to execute one question (`mode: qa`), or use the Runs tab for smoke/all.
@@ -58,3 +59,4 @@ Each QA run expands to: **captures** → **check** (deterministic) → optional 
 | Summarize | qa_synthesis_priya_books |
 | Learn from user | qa_edit_allergy_update |
 | Improve over time | qa_ontology_growth, retrieval learning flags |
+| Dense operative detail recall | `qa_surgical_*` (tag `surgical_memory`) — numeric/landmark/device specifics |

@@ -10,6 +10,8 @@ export async function logActivityCall(
 		provider: string;
 		operation: string;
 		baseCostUsd: number;
+		/** Hostname derived from the gateway base URL (billable LLM calls only). */
+		gatewayHost?: string | null;
 		context?: string;
 		groupId?: string;
 		durationMs?: number;
@@ -23,6 +25,7 @@ export async function logActivityCall(
 	await db.insert(activityCallLog).values({
 		userId,
 		provider: input.provider,
+		gatewayHost: input.gatewayHost?.trim() ? input.gatewayHost.trim().toLowerCase() : null,
 		operation: input.operation,
 		context,
 		baseCostUsd: priced.baseCostUsd,

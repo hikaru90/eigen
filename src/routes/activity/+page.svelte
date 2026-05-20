@@ -15,16 +15,21 @@
 		maximumFractionDigits: 6
 	});
 
-	function providerLabel(provider: string): string {
-		switch (provider) {
-			case 'eurouter':
-			case 'llm':
-				return 'EuRouter';
-			case 'agent':
-				return 'Agent';
-			default:
-				return provider;
-		}
+	/** Short label from gateway hostname (e.g. `openrouter` from `api.openrouter.ai`). */
+	function endpointLabelFromHost(hostname: string): string {
+		const h = hostname.trim().toLowerCase().replace(/^www\./, '');
+		const parts = h.split('.').filter(Boolean);
+		if (parts.length === 0) return h;
+		if (parts.length === 1) return parts[0];
+		if (parts.length === 2) return parts[0];
+		return parts[parts.length - 2] ?? parts[0];
+	}
+
+	function activityProviderRow(c: Call): { label: string; isPaid: boolean } {
+		if (c.provider === 'agent') return { label: 'Agent', isPaid: false };
+		const host = c.gatewayHost?.trim();
+		if (host) return { label: endpointLabelFromHost(host), isPaid: true };
+		return { label: 'Paid gateway', isPaid: true };
 	}
 
 	function formatDuration(ms: number | null | undefined): string {
@@ -103,7 +108,7 @@
 					size="xs"
 					class="capitalize"
 				>
-					{f === 'all' ? 'All' : f === 'gateway' ? 'EuRouter (paid)' : 'Agent (free)'}
+					{f === 'all' ? 'All' : f === 'gateway' ? 'Paid' : 'Free'}
 				</Button>
 			</a>
 		{/each}
@@ -129,15 +134,15 @@
 	>
 		<Card.Header>
 			<Card.Title class="text-sm">
-				{currentFilter === 'gateway' ? 'EuRouter usage' : currentFilter === 'agent' ? 'Agent tool calls' : 'All activity'}
+				{currentFilter === 'gateway' ? 'Paid gateway usage' : currentFilter === 'agent' ? 'Agent tool calls' : 'All activity'}
 			</Card.Title>
 			<Card.Description class="text-muted-foreground text-xs">
 				{#if currentFilter === 'gateway'}
-					LLM gateway calls (chat and embeddings). Per AC-014 and AC-015: base cost, 20% markup, and total for {data.user.email}.
+					Billable LLM gateway calls (chat and embeddings). Per AC-014 and AC-015: base cost, 20% markup, and total for {data.user.email}.
 				{:else if currentFilter === 'agent'}
 					Internal agent tool calls (free, zero-cost operations).
 				{:else}
-					All activity — paid (EuRouter) and free (agent tool calls).
+					All activity — paid gateway calls and free agent tool calls.
 				{/if}
 			</Card.Description>
 		</Card.Header>
@@ -181,17 +186,17 @@
 							</tr>
 						{/if}
 						{#each group.calls as c, ci (c.id)}
-							{@const prov = providerLabel(c.provider)}
+							{@const rowProv = activityProviderRow(c)}
 							<tr class="border-b border-border/60">
 								<td class="p-2 whitespace-nowrap">{ci === 0 ? formatDate(c.createdAt) : ''}</td>
 								<td class="p-2">
 									<span class="inline-flex items-center gap-1">
-										{#if prov === 'EuRouter'}
+										{#if rowProv.isPaid}
 											<span class="text-destructive">●</span>
 										{:else}
 											<span class="text-green-600">●</span>
 										{/if}
-										{prov}
+										{rowProv.label}
 									</span>
 								</td>
 								<td class="p-2">
@@ -218,7 +223,7 @@
 					{:else}
 						<tr>
 							<td class="text-muted-foreground p-4 text-xs" colspan="{isGateway ? 7 : 4}">
-								{currentFilter === 'gateway' ? 'No EuRouter calls logged yet.' : currentFilter === 'agent' ? 'No agent tool calls logged yet.' : 'No activity logged yet.'}
+								{currentFilter === 'gateway' ? 'No paid gateway calls logged yet.' : currentFilter === 'agent' ? 'No agent tool calls logged yet.' : 'No activity logged yet.'}
 							</td>
 						</tr>
 					{/each}

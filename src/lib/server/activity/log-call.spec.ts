@@ -30,6 +30,7 @@ describe('logActivityCall', () => {
 		expect(values).toHaveBeenCalledWith({
 			userId: 'u1',
 			provider: 'llm',
+			gatewayHost: null,
 			operation: 'embedding',
 			context: null,
 			baseCostUsd: '1.000000',

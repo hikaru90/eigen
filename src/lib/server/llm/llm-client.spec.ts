@@ -98,7 +98,8 @@ describe('llm client retries', () => {
 			'u1',
 			expect.objectContaining({
 				operation: 'llm.chat.success(attempt=1)',
-				baseCostUsd: 0
+				baseCostUsd: 0,
+				gatewayHost: 'example.test'
 			})
 		);
 	});
@@ -124,7 +125,8 @@ describe('llm client retries', () => {
 			'u1',
 			expect.objectContaining({
 				provider: 'eurouter',
-				operation: 'llm.chat.success(attempt=1)'
+				operation: 'llm.chat.success(attempt=1)',
+				gatewayHost: 'example.test'
 			})
 		);
 	});
@@ -182,12 +184,12 @@ describe('llm client retries', () => {
 		expect(logActivityCallMock).toHaveBeenCalledWith(
 			expect.anything(),
 			'u1',
-			expect.objectContaining({ operation: 'llm.embedding.error(attempt=1)' })
+			expect.objectContaining({ operation: 'llm.embedding.error(attempt=1)', gatewayHost: 'example.test' })
 		);
 		expect(logActivityCallMock).toHaveBeenCalledWith(
 			expect.anything(),
 			'u1',
-			expect.objectContaining({ operation: 'llm.embedding.success(attempt=2)' })
+			expect.objectContaining({ operation: 'llm.embedding.success(attempt=2)', gatewayHost: 'example.test' })
 		);
 	});
 

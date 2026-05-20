@@ -21,12 +21,13 @@ describe('activity page server', () => {
 		await expect(load({ locals: { user: null } } as never)).rejects.toMatchObject({ status: 302 });
 	});
 
-	it('returns EuRouter gateway rows, groups, and summed totals', async () => {
+	it('returns gateway activity rows, groups, and summed totals', async () => {
 		const rows = [
 			{
 				id: 'call-1',
 				userId: 'u1',
 				provider: 'eurouter',
+				gatewayHost: 'api.example.test',
 				operation: 'llm.chat.success(attempt=1)',
 				baseCostUsd: '1.000000',
 				markupUsd: '0.200000',
@@ -34,6 +35,7 @@ describe('activity page server', () => {
 				markupRate: '0.200000',
 				groupId: null,
 				durationMs: 342,
+				context: null,
 				createdAt: new Date('2026-01-01T00:00:00Z')
 			}
 		];
@@ -69,6 +71,7 @@ describe('activity page server', () => {
 				id: 'c2',
 				userId: 'u1',
 				provider: 'agent',
+				gatewayHost: null,
 				operation: 'tool_call.retrieve_thoughts',
 				baseCostUsd: '0.000000',
 				markupUsd: '0.000000',
@@ -76,12 +79,14 @@ describe('activity page server', () => {
 				markupRate: '0.200000',
 				groupId: 'g1',
 				durationMs: 200,
+				context: null,
 				createdAt: new Date('2026-01-02T00:00:02Z')
 			},
 			{
 				id: 'c1',
 				userId: 'u1',
 				provider: 'eurouter',
+				gatewayHost: 'api.example.test',
 				operation: 'llm.chat.success(attempt=1)',
 				baseCostUsd: '1.000000',
 				markupUsd: '0.200000',
@@ -89,6 +94,7 @@ describe('activity page server', () => {
 				markupRate: '0.200000',
 				groupId: 'g1',
 				durationMs: 500,
+				context: null,
 				createdAt: new Date('2026-01-02T00:00:01Z')
 			}
 		];

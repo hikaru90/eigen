@@ -76,19 +76,25 @@
 			const { UMAP } = await import('umap-js');
 			if (cancelled) return;
 
-			const embeddings = items.map((i) => i.embedding);
-			// nNeighbors: use a large fraction of the dataset so UMAP sees enough context to
-			// correctly rank local distances. Too low → local structure distorts (similar items
-			// end up further apart than dissimilar ones). Cap at 50 to keep compute reasonable.
-			const nNeighbors = Math.min(50, Math.max(10, Math.floor(items.length * 0.6)));
+			// L2-normalize so Euclidean distance in UMAP matches cosine geometry of embeddings.
+			const embeddings = items.map((i) => {
+				const v = i.embedding;
+				let sumSq = 0;
+				for (const x of v) sumSq += x * x;
+				const norm = Math.sqrt(sumSq);
+				if (norm === 0) return v;
+				return v.map((x) => x / norm);
+			});
+			// nNeighbors: ~15 default; scale gently with dataset size. Too high → one global blob.
+			const nNeighbors = Math.min(
+				30,
+				Math.max(2, Math.min(items.length - 1, Math.round(Math.sqrt(items.length) * 2)))
+			);
 			const nEpochs = items.length > 200 ? 300 : 500;
 
 			phase = { kind: 'projecting', epoch: 0, totalEpochs: nEpochs };
 
-			// minDist: 0.25 gives local clusters breathing room so nearby points don't
-			// get artificially pushed apart by repulsion. spread: 0.8 keeps the overall
-			// layout compact without over-separating unrelated regions.
-			const umap = new UMAP({ nNeighbors, nEpochs, nComponents: 2, minDist: 0.25, spread: 0.8 });
+			const umap = new UMAP({ nNeighbors, nEpochs, nComponents: 2, minDist: 0.1, spread: 1.0 });
 
 			let coords: number[][];
 			try {
@@ -121,113 +127,36 @@
 				cy: 0
 			}));
 
-			const w = rootEl.clientWidth;
-			const h = Math.max(1, rootEl.clientHeight);
 			const margin = { top: 24, right: 24, bottom: 24, left: 24 };
+			const MIN_LAYOUT_PX = 24;
 
-			const xScale = d3
-				.scaleLinear()
-				.domain(d3.extent(points, (p) => p.x) as [number, number])
-				.range([margin.left, w - margin.right])
-				.nice();
-			const yScale = d3
-				.scaleLinear()
-				.domain(d3.extent(points, (p) => p.y) as [number, number])
-				.range([margin.top, h - margin.bottom])
-				.nice();
-
-			for (const p of points) {
-				p.cx = xScale(p.x);
-				p.cy = yScale(p.y);
+			/** Pad degenerate UMAP output so a tight cluster still maps across the viewport. */
+			function paddedExtent(values: number[]): [number, number] {
+				const [lo, hi] = d3.extent(values) as [number, number];
+				if (lo === hi) {
+					const pad = lo === 0 ? 1 : Math.abs(lo) * 0.1;
+					return [lo - pad, hi + pad];
+				}
+				const span = hi - lo;
+				const pad = span * 0.05;
+				return [lo - pad, hi + pad];
 			}
 
-			const svg = d3
-				.select(rootEl)
-				.append('svg')
-				.attr('class', 'embedding-svg block h-full w-full touch-none')
-				.attr('width', w)
-				.attr('height', h);
+			let svg: d3.Selection<SVGSVGElement, unknown, HTMLElement, unknown> | null = null;
+			let gZoom: d3.Selection<SVGGElement, unknown, SVGSVGElement, unknown> | null = null;
+			let dotGroups: d3.Selection<SVGGElement, Point, SVGGElement, unknown> | null = null;
+			let zoom: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null;
+			let chartCreated = false;
 
-			svg
-				.append('defs')
-				.append('filter')
-				.attr('id', 'embedding-dot-glow')
-				.attr('x', '-60%').attr('y', '-60%')
-				.attr('width', '220%').attr('height', '220%')
-				.call((f) => {
-					f.append('feGaussianBlur').attr('in', 'SourceAlpha').attr('stdDeviation', 3).attr('result', 'embBlur');
-					const m = f.append('feMerge');
-					m.append('feMergeNode').attr('in', 'embBlur');
-					m.append('feMergeNode').attr('in', 'SourceGraphic');
-				});
-
-			const gZoom = svg.append('g');
-
-			let currentK = 1;
-
-			const zoom = d3
-				.zoom<SVGSVGElement, unknown>()
-				.scaleExtent([0.1, 20])
-				.on('zoom', (event) => {
-					gZoom.attr('transform', event.transform.toString());
-					currentK = event.transform.k;
-				});
-			svg.call(zoom);
-
-			svg.on('click.embedding-clear', (event) => {
-				const el = event.target as Element | null;
-				if (!el?.closest?.('.embedding-dot')) onSelectItem?.(null);
-			});
-
-			function resizeSvg() {
-				if (!rootEl) return;
-				svg.attr('width', rootEl.clientWidth).attr('height', Math.max(1, rootEl.clientHeight));
+			/** Each dot sits under `gZoom`'s zoom transform; `scale(1/k)` keeps circles + labels a constant screen size. */
+			function updateDotGroupTransforms(k: number) {
+				if (!dotGroups) return;
+				const inv = 1 / k;
+				dotGroups.attr('transform', (p) => `translate(${p.cx},${p.cy}) scale(${inv})`);
 			}
-
-			// ── Draw dots ────────────────────────────────────────────────────────
-			const dotGroups = gZoom
-				.selectAll<SVGGElement, Point>('g.embedding-dot')
-				.data(points, (p) => p.item.id)
-				.join((enter) => {
-					const g = enter.append('g').attr('class', 'embedding-dot');
-
-					g.append('circle')
-						.attr('r', 5)
-						.attr('fill', (p) => nodeFillForGraph(p.item.kind, p.item.subtype, customFills))
-						.attr('stroke', 'currentColor')
-						.attr('stroke-width', 0.8)
-						.attr('opacity', 0.85);
-
-					// Native tooltip — always available on hover
-					g.append('title').text((p) => `${p.item.kind}: ${p.item.label}\n${p.item.subtype}`);
-
-					// Text label — always visible
-					g.append('text')
-						.attr('class', 'emb-label')
-						.attr('x', 8)
-						.attr('y', 4)
-						.attr('font-size', '10px')
-						.attr('font-family', 'monospace')
-						.attr('fill', 'currentColor')
-						.attr('stroke', 'var(--background, #fff)')
-						.attr('stroke-width', '3')
-						.attr('paint-order', 'stroke')
-						.attr('pointer-events', 'none')
-						.text((p) => {
-							const base = p.item.label;
-							return base.length > 32 ? `${base.slice(0, 30)}…` : base;
-						});
-
-					return g;
-				})
-				.attr('transform', (p) => `translate(${p.cx},${p.cy})`)
-				.style('cursor', 'pointer')
-				.on('click.select', (event, p) => {
-					event.stopPropagation();
-					onSelectItem?.(p.item);
-				});
 
 			function applyHighlight(selId: string | null) {
+				if (!dotGroups) return;
 				dotGroups.each(function (p) {
 					const sel = d3.select(this);
 					const on = selId !== null && p.item.id === selId;
@@ -239,11 +168,140 @@
 				});
 			}
 
-			applyHighlight(selectedItemId);
+			function centerViewOnDataMean(w: number, h: number) {
+				if (!svg || !zoom) return;
+				const mx = (d3.mean(points, (d) => d.cx) ?? w / 2) as number;
+				const my = (d3.mean(points, (d) => d.cy) ?? h / 2) as number;
+				svg.call(zoom.transform, d3.zoomIdentity.translate(w / 2 - mx, h / 2 - my));
+			}
+
+			function layoutChart() {
+				if (cancelled || !rootEl) return;
+				const w = rootEl.clientWidth;
+				const h = rootEl.clientHeight;
+				if (w < MIN_LAYOUT_PX || h < MIN_LAYOUT_PX) return;
+
+				const xScale = d3
+					.scaleLinear()
+					.domain(paddedExtent(points.map((p) => p.x)))
+					.range([margin.left, w - margin.right]);
+				const yScale = d3
+					.scaleLinear()
+					.domain(paddedExtent(points.map((p) => p.y)))
+					.range([margin.top, h - margin.bottom]);
+
+				for (const p of points) {
+					p.cx = xScale(p.x);
+					p.cy = yScale(p.y);
+				}
+
+				if (!chartCreated) {
+					chartCreated = true;
+					svg = d3
+						.select(rootEl)
+						.append('svg')
+						.attr('class', 'embedding-svg block h-full w-full touch-none')
+						.attr('width', w)
+						.attr('height', h);
+
+					svg
+						.append('defs')
+						.append('filter')
+						.attr('id', 'embedding-dot-glow')
+						.attr('x', '-60%')
+						.attr('y', '-60%')
+						.attr('width', '220%')
+						.attr('height', '220%')
+						.call((f) => {
+							f.append('feGaussianBlur')
+								.attr('in', 'SourceAlpha')
+								.attr('stdDeviation', 3)
+								.attr('result', 'embBlur');
+							const m = f.append('feMerge');
+							m.append('feMergeNode').attr('in', 'embBlur');
+							m.append('feMergeNode').attr('in', 'SourceGraphic');
+						});
+
+					gZoom = svg.append('g');
+
+					svg.on('click.embedding-clear', (event) => {
+						const el = event.target as Element | null;
+						if (!el?.closest?.('.embedding-dot')) onSelectItem?.(null);
+					});
+
+					dotGroups = gZoom
+						.selectAll<SVGGElement, Point>('g.embedding-dot')
+						.data(points, (p) => p.item.id)
+						.join((enter) => {
+							const g = enter.append('g').attr('class', 'embedding-dot');
+
+							g.append('circle')
+								.attr('r', 5)
+								.attr('fill', (p) => nodeFillForGraph(p.item.kind, p.item.subtype, customFills))
+								.attr('stroke', 'currentColor')
+								.attr('stroke-width', 0.8)
+								.attr('opacity', 0.85);
+
+							g.append('title').text(
+								(p) => `${p.item.kind}: ${p.item.label}\n${p.item.subtype}`
+							);
+
+							g.append('text')
+								.attr('class', 'emb-label')
+								.attr('x', 8)
+								.attr('y', 4)
+								.attr('font-size', '10px')
+								.attr('font-family', 'monospace')
+								.attr('fill', 'currentColor')
+								.attr('stroke', 'var(--background, #fff)')
+								.attr('stroke-width', '3')
+								.attr('paint-order', 'stroke')
+								.attr('pointer-events', 'none')
+								.text((p) => {
+									const base = p.item.label;
+									return base.length > 32 ? `${base.slice(0, 30)}…` : base;
+								});
+
+							return g;
+						})
+						.style('cursor', 'pointer')
+						.on('click.select', (event, p) => {
+							event.stopPropagation();
+							onSelectItem?.(p.item);
+						});
+
+					zoom = d3
+						.zoom<SVGSVGElement, unknown>()
+						.scaleExtent([0.1, 20])
+						.on('zoom', (event) => {
+							if (!gZoom) return;
+							gZoom.attr('transform', event.transform.toString());
+							updateDotGroupTransforms(event.transform.k);
+						});
+
+					svg.call(zoom);
+				} else if (svg) {
+					svg.attr('width', w).attr('height', h);
+				}
+
+				centerViewOnDataMean(w, h);
+				if (svg && zoom) {
+					const k = d3.zoomTransform(svg.node() as SVGSVGElement).k;
+					updateDotGroupTransforms(k);
+				}
+			}
+
 			scheduleApplyHighlight = applyHighlight;
 
-			const ro = new ResizeObserver(() => resizeSvg());
+			const ro = new ResizeObserver(() => {
+				layoutChart();
+				queueMicrotask(() => applyHighlight(selectedItemId ?? null));
+			});
 			ro.observe(rootEl);
+			queueMicrotask(() => {
+				layoutChart();
+				applyHighlight(selectedItemId ?? null);
+			});
 
 			// Build legend from observed subtypes
 			const seenKeys = new Set<string>();
@@ -271,7 +329,12 @@
 				cancelled = true;
 				scheduleApplyHighlight = null;
 				ro.disconnect();
-				svg.remove();
+				svg?.remove();
+				svg = null;
+				gZoom = null;
+				dotGroups = null;
+				zoom = null;
+				chartCreated = false;
 			};
 		})();
 

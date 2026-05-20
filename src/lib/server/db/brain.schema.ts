@@ -266,6 +266,8 @@ export const activityCallLog = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		provider: text('provider').notNull(),
+		/** Hostname of the billable LLM gateway base URL (e.g. openrouter.ai); null for legacy rows. */
+		gatewayHost: text('gateway_host'),
 		operation: text('operation').notNull(),
 		/** Brief preview of the content being processed (e.g., first 50 chars of user message) */
 		context: text('context'),

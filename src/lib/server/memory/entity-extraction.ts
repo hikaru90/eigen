@@ -60,6 +60,35 @@ function clampConfidence(value: unknown): number {
 	return Math.min(1, Math.max(0, value));
 }
 
+/** Map common model drift to seeded ontology `entity_type` keys (always lowercase in DB). */
+const ENTITY_TYPE_SYNONYMS: Record<string, string> = {
+	org: 'organization',
+	orgs: 'organization',
+	tech: 'technology',
+	location: 'place',
+	locations: 'place',
+	device: 'technology',
+	equipment: 'technology',
+	tool: 'technology'
+};
+
+/**
+ * Resolve LLM `entityType` to a canonical key present in `allowed`.
+ * Models often return Title Case or shorthand ("org") that would otherwise be filtered out.
+ */
+export function resolveEntityTypeKey(raw: string, allowed: Set<string>): string | null {
+	const trimmed = raw.trim();
+	if (!trimmed) return null;
+	if (allowed.has(trimmed)) return trimmed;
+	const lower = trimmed.toLowerCase();
+	for (const key of allowed) {
+		if (key.toLowerCase() === lower) return key;
+	}
+	const mapped = ENTITY_TYPE_SYNONYMS[lower];
+	if (mapped && allowed.has(mapped)) return mapped;
+	return null;
+}
+
 export function parseEntityMentions(
 	content: string,
 	allowedEntityKindKeys: Set<string>
@@ -75,12 +104,13 @@ export function parseEntityMentions(
 				typeof (entry as { surface?: unknown }).surface === 'string'
 					? (entry as { surface: string }).surface.trim()
 					: '';
-			const entityType =
+			const rawEntityType =
 				typeof (entry as { entityType?: unknown }).entityType === 'string'
 					? (entry as { entityType: string }).entityType.trim()
 					: '';
 			const confidence = clampConfidence((entry as { confidence?: unknown }).confidence);
-			if (!surface || !allowedEntityKindKeys.has(entityType)) return null;
+			const entityType = resolveEntityTypeKey(rawEntityType, allowedEntityKindKeys);
+			if (!surface || !entityType) return null;
 			return { surface, entityType, confidence };
 		})
 		.filter((v): v is ExtractedEntityMention => v !== null);
@@ -144,9 +174,9 @@ export async function extractEntityMentions(input: {
 
 	const prompt = [
 		'Return ONLY JSON.',
-		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
-		`For each item, entityType must be exactly one of these entity type keys (no other strings): ${keyUnion}`,
-		'Pick the single best-matching real-world entity type for what this surface is (person, place, org, project, technology, event, concept, or artifact).',
+		'Extract notable named entities and noun phrases worth tracking as graph nodes (including procedures, anatomy, devices, and institutions when they are concrete spans in the text).',
+		`For each item, entityType must be exactly one of these keys, copied verbatim in lowercase ASCII (no other strings): ${keyUnion}`,
+		'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics, artifact for documents, event for time-bounded occurrences.',
 		'Schema: [{"surface":"<text as written>","entityType":"<one of the keys above>","confidence":0.0-1.0}]',
 		'Catalog:',
 		catalog,

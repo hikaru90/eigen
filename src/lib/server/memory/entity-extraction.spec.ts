@@ -3,7 +3,8 @@ import {
 	extractEntityMentions,
 	extractEntityTriples,
 	parseEntityMentions,
-	parseEntityTriples
+	parseEntityTriples,
+	resolveEntityTypeKey
 } from './entity-extraction';
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
@@ -22,7 +23,30 @@ const ONTOLOGY_KINDS_FOR_TESTS = [
 
 const ALLOWED_TEST_KEYS = new Set(ONTOLOGY_KINDS_FOR_TESTS.map((k) => k.key));
 
+describe('resolveEntityTypeKey', () => {
+	it('matches ontology keys case-insensitively', () => {
+		const allowed = new Set(['person', 'technology', 'organization']);
+		expect(resolveEntityTypeKey('Person', allowed)).toBe('person');
+		expect(resolveEntityTypeKey('TECHNOLOGY', allowed)).toBe('technology');
+	});
+
+	it('maps common shorthand to canonical keys', () => {
+		const allowed = new Set(['organization', 'technology', 'place']);
+		expect(resolveEntityTypeKey('org', allowed)).toBe('organization');
+		expect(resolveEntityTypeKey('device', allowed)).toBe('technology');
+		expect(resolveEntityTypeKey('location', allowed)).toBe('place');
+	});
+});
+
 describe('parseEntityMentions', () => {
+	it('accepts Title Case entityType when it matches a canonical ontology key', () => {
+		const out = parseEntityMentions(
+			'[{"surface":"StealthArray","entityType":"Technology","confidence":0.9}]',
+			new Set(['person', 'place', 'technology', 'concept'])
+		);
+		expect(out).toEqual([{ surface: 'StealthArray', entityType: 'technology', confidence: 0.9 }]);
+	});
+
 	it('parses and filters types not in the ontology key set', () => {
 		const out = parseEntityMentions(
 			'[{"surface":"  Sam  ","entityType":"person","confidence":0.9},{"surface":"X","entityType":"unknown_type","confidence":1}]',
