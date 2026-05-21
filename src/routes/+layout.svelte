@@ -62,6 +62,17 @@
   ]);
 
   onMount(() => {
+    void (async () => {
+      try {
+        const { pwaInfo } = await import("virtual:pwa-info");
+        if (!pwaInfo) return;
+        const { registerSW } = await import("virtual:pwa-register");
+        registerSW({ immediate: true });
+      } catch {
+        /* PWA plugin unavailable (e.g. test env) */
+      }
+    })();
+
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = (isDark: boolean) => {
       document.documentElement.classList.toggle("dark", isDark);

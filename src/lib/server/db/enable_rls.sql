@@ -189,6 +189,14 @@ CREATE POLICY graph_sync_job_isolation ON graph_sync_job
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE push_subscription ENABLE ROW LEVEL SECURITY;
+ALTER TABLE push_subscription FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS push_subscription_isolation ON push_subscription;
+CREATE POLICY push_subscription_isolation ON push_subscription
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE eval_thought_map ENABLE ROW LEVEL SECURITY;
 ALTER TABLE eval_thought_map FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS eval_thought_map_isolation ON eval_thought_map;

@@ -6,7 +6,12 @@ import { auth } from '$lib/server/auth';
 import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
-import { userPreference, llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
+import {
+	userPreference,
+	llmProviderConfig,
+	llmActiveProvider,
+	pushSubscription
+} from '$lib/server/db/schema';
 
 const LANGUAGE_OPTIONS = [
 	{ value: 'en', label: 'English' },
@@ -92,6 +97,11 @@ export const load: PageServerLoad = async (event) => {
 	const eurouterRow = providerRows.find((r) => r.provider === 'eurouter');
 	const openrouterRow = providerRows.find((r) => r.provider === 'openrouter');
 
+	const pushRows = await getDb()
+		.select({ id: pushSubscription.id })
+		.from(pushSubscription)
+		.where(eq(pushSubscription.userId, event.locals.user.id));
+
 	return {
 		user: event.locals.user,
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
@@ -110,7 +120,8 @@ export const load: PageServerLoad = async (event) => {
 			apiKey: openrouterRow?.apiKey ?? '',
 			modelChat: openrouterRow?.modelChat ?? '',
 			modelEmbedding: openrouterRow?.modelEmbedding ?? ''
-		}
+		},
+		pushSubscriptionCount: pushRows.length
 	};
 };
 

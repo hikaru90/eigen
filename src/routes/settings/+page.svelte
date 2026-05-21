@@ -9,6 +9,15 @@
 	import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import Check from '@lucide/svelte/icons/check';
+	import {
+		getPushSupportState,
+		getExistingPushSubscription,
+		subscribeToPush,
+		postSubscribe,
+		unsubscribeFromPush,
+		postUnsubscribe,
+		postTestPush
+	} from '$lib/push/client';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let themePreference = $state('system');
@@ -32,6 +41,16 @@
 	let deleteError = $state<string | null>(null);
 	let deleteSuccess = $state<string | null>(null);
 	let deletePhraseCopied = $state(false);
+
+	let pushSupport = $state<ReturnType<typeof getPushSupportState>>({
+		supported: false,
+		reason: 'Loading…'
+	});
+	let pushBusy = $state(false);
+	let pushMessage = $state<string | null>(null);
+	let pushError = $state<string | null>(null);
+	let pushSubscribed = $state(false);
+	let pushSubscriptionCount = $state(data.pushSubscriptionCount);
 
 	const deleteConfirmationValid = $derived(
 		deleteConfirmation.trim() === DELETE_ALL_MEMORIES_CONFIRMATION
@@ -100,9 +119,75 @@
 		window.dispatchEvent(new CustomEvent('theme-preference-change', { detail: { preference } }));
 	}
 
+	async function refreshPushState() {
+		pushSupport = getPushSupportState();
+		if (!pushSupport.supported) {
+			pushSubscribed = false;
+			return;
+		}
+		try {
+			const sub = await getExistingPushSubscription();
+			pushSubscribed = sub !== null;
+		} catch {
+			pushSubscribed = false;
+		}
+	}
+
+	async function enablePush() {
+		if (pushBusy) return;
+		pushBusy = true;
+		pushError = null;
+		pushMessage = null;
+		try {
+			const json = await subscribeToPush();
+			await postSubscribe(json);
+			pushSubscribed = true;
+			pushSubscriptionCount = Math.max(pushSubscriptionCount, 1);
+			pushMessage = 'Push notifications enabled for this device.';
+		} catch (e) {
+			pushError = e instanceof Error ? e.message : String(e);
+		} finally {
+			pushBusy = false;
+		}
+	}
+
+	async function disablePush() {
+		if (pushBusy) return;
+		pushBusy = true;
+		pushError = null;
+		pushMessage = null;
+		try {
+			const endpoint = await unsubscribeFromPush();
+			if (endpoint) await postUnsubscribe(endpoint);
+			pushSubscribed = false;
+			pushSubscriptionCount = 0;
+			pushMessage = 'Push notifications disabled for this device.';
+		} catch (e) {
+			pushError = e instanceof Error ? e.message : String(e);
+		} finally {
+			pushBusy = false;
+		}
+	}
+
+	async function sendTestPush() {
+		if (pushBusy) return;
+		pushBusy = true;
+		pushError = null;
+		pushMessage = null;
+		try {
+			const result = await postTestPush();
+			pushMessage = `Test notification sent (${result.sent} device${result.sent === 1 ? '' : 's'}).`;
+		} catch (e) {
+			pushError = e instanceof Error ? e.message : String(e);
+		} finally {
+			pushBusy = false;
+		}
+	}
+
 	onMount(() => {
 		const savedPreference = localStorage.getItem('theme-preference') ?? 'system';
 		themePreference = savedPreference;
+		void refreshPushState();
 	});
 
 	function confirmQualityChange(event: SubmitEvent) {
@@ -232,6 +317,62 @@
 				<p class="text-muted-foreground text-xs">{form.passwordMessage}</p>
 			{/if}
 		</form>
+	</div>
+
+	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+		<h3 class="text-xs font-semibold">Push notifications</h3>
+		<p class="text-muted-foreground mt-0.5 text-xs">
+			Requires a registered service worker (reload once after opening the app). Install as a PWA for
+			the best experience on macOS.
+		</p>
+		{#if !pushSupport.supported}
+			<p class="text-muted-foreground mt-2 text-xs">{pushSupport.reason}</p>
+		{:else}
+			<p class="text-muted-foreground mt-2 text-xs">
+				Permission: {pushSupport.permission}. Registered devices: {pushSubscriptionCount}.
+			</p>
+			<div class="mt-2 flex flex-wrap gap-2">
+				{#if !pushSubscribed}
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="rounded-[4px]"
+						disabled={pushBusy || pushSupport.permission === 'denied'}
+						onclick={() => void enablePush()}
+					>
+						{pushBusy ? 'Working…' : 'Enable push'}
+					</Button>
+				{:else}
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="rounded-[4px]"
+						disabled={pushBusy}
+						onclick={() => void disablePush()}
+					>
+						{pushBusy ? 'Working…' : 'Disable push'}
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="rounded-[4px]"
+						disabled={pushBusy}
+						onclick={() => void sendTestPush()}
+					>
+						{pushBusy ? 'Sending…' : 'Send test notification'}
+					</Button>
+				{/if}
+			</div>
+		{/if}
+		{#if pushMessage}
+			<p class="text-muted-foreground mt-2 text-xs">{pushMessage}</p>
+		{/if}
+		{#if pushError}
+			<p class="text-destructive mt-2 text-xs">{pushError}</p>
+		{/if}
 	</div>
 
 	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">

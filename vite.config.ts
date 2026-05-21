@@ -1,4 +1,5 @@
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
+import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
@@ -24,6 +25,20 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		sveltekit(),
+		SvelteKitPWA({
+			strategies: 'injectManifest',
+			srcDir: 'src',
+			filename: 'service-worker.ts',
+			registerType: 'autoUpdate',
+			manifest: false,
+			injectManifest: {
+				globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest}']
+			},
+			devOptions: {
+				enabled: true,
+				type: 'module'
+			}
+		}),
 		paraglideVitePlugin({ project: './project.inlang', outdir: './src/lib/paraglide' })
 	],
 	test: {

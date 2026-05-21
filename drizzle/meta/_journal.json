@@ -176,6 +176,13 @@
       "when": 1748560000000,
       "tag": "0024_eval_qa_tlif_entity_surfaces",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1748640000000,
+      "tag": "0025_push_subscription",
+      "breakpoints": true
     }
   ]
 }

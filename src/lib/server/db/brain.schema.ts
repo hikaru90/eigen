@@ -920,3 +920,29 @@ export const evalQa = pgTable('eval_qa', {
 });
 
 export type EvalQa = typeof evalQa.$inferSelect;
+
+/** Web Push subscription for a user device (VAPID). */
+export const pushSubscription = pgTable(
+	'push_subscription',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		endpoint: text('endpoint').notNull(),
+		p256dh: text('p256dh').notNull(),
+		auth: text('auth').notNull(),
+		userAgent: text('user_agent'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		uniqueIndex('push_subscription_endpoint_uidx').on(t.endpoint),
+		index('push_subscription_user_idx').on(t.userId)
+	]
+);
+
+export type PushSubscription = typeof pushSubscription.$inferSelect;

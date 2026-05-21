@@ -8,6 +8,9 @@ const config = {
 		runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 	},
 	kit: {
+		serviceWorker: {
+			register: false
+		},
 		adapter: adapter(),
 		typescript: {
 			config: (config) => ({
