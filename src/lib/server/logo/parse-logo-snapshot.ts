@@ -7,6 +7,14 @@ import {
   fieldParamsFromPartial,
   type MetaballFieldParams,
 } from "../../../routes/logo/metaball-params";
+import type { LogoAppIconOverlay } from "../../../routes/logo/app-icon-overlay";
+import {
+  APP_ICON_CORNER_RATIO_MAX,
+  APP_ICON_CORNER_RATIO_MIN,
+  APP_ICON_SIZE_MIN,
+  defaultAppIconOverlay,
+  normalizeAppIconOverlay,
+} from "../../../routes/logo/app-icon-overlay";
 import type { LogoTextLayer } from "../../../routes/logo/text-layer";
 import { DEFAULT_LOGO_TEXT_FONT_WEIGHT } from "../../../routes/logo/text-layer";
 import type { TextDotPlacementMode } from "../../../routes/logo/text-to-metaballs";
@@ -133,6 +141,38 @@ function parseLinkSettings(b: Record<string, unknown>): {
   };
 }
 
+function parseAppIconOverlay(
+  value: unknown,
+  canvasWidth: number,
+  canvasHeight: number,
+): LogoAppIconOverlay | null {
+  if (value === undefined) {
+    return defaultAppIconOverlay(canvasWidth, canvasHeight);
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const overlay = value as Record<string, unknown>;
+  if (overlay.enabled !== undefined && typeof overlay.enabled !== "boolean") return null;
+  const nums = ["x", "y", "size", "cornerRadiusRatio"] as const;
+  if (!nums.every((k) => typeof overlay[k] === "number" && Number.isFinite(overlay[k] as number))) {
+    return null;
+  }
+  const size = overlay.size as number;
+  const cornerRadiusRatio = overlay.cornerRadiusRatio as number;
+  if (size < APP_ICON_SIZE_MIN || cornerRadiusRatio < APP_ICON_CORNER_RATIO_MIN) return null;
+  if (cornerRadiusRatio > APP_ICON_CORNER_RATIO_MAX) return null;
+  return normalizeAppIconOverlay(
+    {
+      enabled: overlay.enabled === true,
+      x: overlay.x as number,
+      y: overlay.y as number,
+      size,
+      cornerRadiusRatio,
+    },
+    canvasWidth,
+    canvasHeight,
+  );
+}
+
 /** Validate JSON body from the logo editor (preset save or autosave). */
 export function parseLogoSnapshotBody(body: unknown): LogoEditorSnapshot | null {
   if (typeof body !== "object" || body === null) return null;
@@ -159,6 +199,12 @@ export function parseLogoSnapshotBody(body: unknown): LogoEditorSnapshot | null 
   if (textLayers === null) return null;
   const linkSettings = parseLinkSettings(b);
   if (linkSettings === null) return null;
+  const appIconOverlay = parseAppIconOverlay(
+    b.appIconOverlay,
+    b.canvasWidth as number,
+    b.canvasHeight as number,
+  );
+  if (appIconOverlay === null) return null;
   return snapshotFromEditor({
     canvasWidth: b.canvasWidth as number,
     canvasHeight: b.canvasHeight as number,
@@ -173,6 +219,7 @@ export function parseLogoSnapshotBody(body: unknown): LogoEditorSnapshot | null 
     typePlacementMode: parsePlacementMode(b.typePlacementMode),
     textLayers,
     ...linkSettings,
+    appIconOverlay,
     fieldParams,
   });
 }

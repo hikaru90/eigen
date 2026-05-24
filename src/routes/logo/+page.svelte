@@ -60,6 +60,17 @@
     normalizeTextLayer,
     type LogoTextLayer,
   } from "./text-layer";
+  import {
+    APP_ICON_CORNER_RATIO_MAX,
+    APP_ICON_CORNER_RATIO_MIN,
+    APP_ICON_SIZE_MIN,
+    appIconBounds,
+    defaultAppIconOverlay,
+    maxAppIconSize,
+    normalizeAppIconOverlay,
+    scaleAppIconOverlayToCanvas,
+    type LogoAppIconOverlay,
+  } from "./app-icon-overlay";
 
   const CLICK_R_MIN = 2;
   const CLICK_R_MAX = 72;
@@ -120,8 +131,11 @@
   let textLayers = $state<LogoTextLayer[]>([]);
   let selectedTextLayerId = $state<string | null>(null);
   let nextTextLayerId = 1;
+  let appIconOverlay = $state<LogoAppIconOverlay>(defaultAppIconOverlay(1, 1));
 
   const ballPoolSize = $derived(poolBallAnchors.length);
+  const appIconPreviewBounds = $derived(appIconBounds(appIconOverlay));
+  const appIconSizeMax = $derived(maxAppIconSize(canvasWidth, canvasHeight));
   const selectedTextLayer = $derived(
     textLayers.find((layer) => layer.id === selectedTextLayerId) ?? null,
   );
@@ -202,6 +216,14 @@
       };
 
   let drag: DragMode | null = null;
+
+  function updateAppIconOverlay(patch: Partial<LogoAppIconOverlay>) {
+    appIconOverlay = normalizeAppIconOverlay(
+      { ...appIconOverlay, ...patch },
+      canvasWidth,
+      canvasHeight,
+    );
+  }
 
   function newTextLayerId(): string {
     const id = `text-${nextTextLayerId}`;
@@ -612,6 +634,19 @@
     if (textLayers.length > 0 && prevW > 1 && prevH > 1) {
       textLayers = scaleTextLayersToCanvas(textLayers, w / prevW, h / prevH);
     }
+    if (prevW > 1 && prevH > 1) {
+      appIconOverlay = normalizeAppIconOverlay(
+        scaleAppIconOverlayToCanvas(appIconOverlay, w / prevW, h / prevH),
+        w,
+        h,
+      );
+    } else if (w > 1 && h > 1) {
+      appIconOverlay = normalizeAppIconOverlay(
+        { ...defaultAppIconOverlay(w, h), enabled: appIconOverlay.enabled },
+        w,
+        h,
+      );
+    }
 
     canvasWidth = w;
     canvasHeight = h;
@@ -743,6 +778,7 @@
     balls = [];
     textLayers = [];
     selectedTextLayerId = null;
+    appIconOverlay = defaultAppIconOverlay(canvasWidth, canvasHeight);
     noiseAmount = 0;
     noiseSeed = 0;
     atBallLimit = false;
@@ -781,6 +817,7 @@
       linkNeighborsPerBall,
       linkMaxDistance,
       linkDistanceThinning,
+      appIconOverlay,
       fieldParams,
     });
   }
@@ -843,6 +880,11 @@
     applyFieldParams(scaled.fieldParams);
     setBallPool(scaled.ballAnchors);
     textLayers = (scaled.textLayers ?? []).map((layer) => normalizeTextLayer({ ...layer }));
+    appIconOverlay = normalizeAppIconOverlay(
+      scaled.appIconOverlay ?? defaultAppIconOverlay(canvasWidth, canvasHeight),
+      canvasWidth,
+      canvasHeight,
+    );
     selectedTextLayerId = textLayers[0]?.id ?? null;
     selectedIndex = null;
     drag = null;
@@ -1011,6 +1053,48 @@
         </div>
       {/each}
     </div>
+    {#if appIconOverlay.enabled}
+      {@const icon = appIconPreviewBounds}
+      <svg
+        class="pointer-events-none absolute inset-0 z-26 size-full select-none"
+        viewBox="0 0 {canvasWidth} {canvasHeight}"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <defs>
+          <mask id="logo-app-icon-mask">
+            <rect width={canvasWidth} height={canvasHeight} fill="white" />
+            <rect
+              x={icon.left}
+              y={icon.top}
+              width={icon.size}
+              height={icon.size}
+              rx={icon.rx}
+              ry={icon.rx}
+              fill="black"
+            />
+          </mask>
+        </defs>
+        <rect
+          width={canvasWidth}
+          height={canvasHeight}
+          fill="rgb(17 17 17 / 0.38)"
+          mask="url(#logo-app-icon-mask)"
+        />
+        <rect
+          x={icon.left}
+          y={icon.top}
+          width={icon.size}
+          height={icon.size}
+          rx={icon.rx}
+          ry={icon.rx}
+          fill="none"
+          stroke="rgb(255 255 255 / 0.55)"
+          stroke-width="2"
+          vector-effect="non-scaling-stroke"
+        />
+      </svg>
+    {/if}
     {#if selectedIndex !== null && balls[selectedIndex]}
       {@const b = balls[selectedIndex]}
       <div
@@ -1268,6 +1352,70 @@
           </div>
         {:else}
           <p class="text-muted-foreground text-xs">Add text to place a layer you can drag on the canvas.</p>
+        {/if}
+      </div>
+      <div class="border-border/60 flex flex-col gap-2 rounded-md border p-3">
+        <p class="text-xs font-medium">App icon preview</p>
+        <p class="text-muted-foreground text-[0.65rem] leading-snug">
+          Rounded square mask over the canvas (non-interactive). Dimmed area simulates the home screen;
+          compose your logo inside the icon window.
+        </p>
+        <label class="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={appIconOverlay.enabled}
+            disabled={!!glError}
+            class="accent-foreground size-3.5 rounded border"
+            onchange={(event) => {
+              updateAppIconOverlay({ enabled: event.currentTarget.checked });
+              void autosaveCurrentDraft();
+            }}
+          />
+          Show app icon preview
+        </label>
+        {#if appIconOverlay.enabled}
+          <div class="flex flex-col gap-1.5">
+            <Label for="app-icon-size" class="text-xs">
+              Icon size ({Math.round(appIconOverlay.size)}px)
+            </Label>
+            <input
+              id="app-icon-size"
+              type="range"
+              min={APP_ICON_SIZE_MIN}
+              max={appIconSizeMax}
+              step={4}
+              value={Math.round(appIconOverlay.size)}
+              disabled={!!glError}
+              class="accent-foreground w-full"
+              oninput={(event) => {
+                updateAppIconOverlay({ size: Number(event.currentTarget.value) });
+              }}
+              onchange={() => {
+                void autosaveCurrentDraft();
+              }}
+            />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <Label for="app-icon-corner" class="text-xs">
+              Corner radius ({Math.round(appIconOverlay.cornerRadiusRatio * 100)}%)
+            </Label>
+            <input
+              id="app-icon-corner"
+              type="range"
+              min={APP_ICON_CORNER_RATIO_MIN}
+              max={APP_ICON_CORNER_RATIO_MAX}
+              step={0.01}
+              value={appIconOverlay.cornerRadiusRatio}
+              disabled={!!glError}
+              class="accent-foreground w-full"
+              oninput={(event) => {
+                updateAppIconOverlay({ cornerRadiusRatio: Number(event.currentTarget.value) });
+              }}
+              onchange={() => {
+                void autosaveCurrentDraft();
+              }}
+            />
+          </div>
         {/if}
       </div>
       <div class="flex flex-col gap-1.5">

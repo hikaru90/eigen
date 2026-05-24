@@ -1,4 +1,5 @@
 import type { BallAnchor } from "./metaball-interaction";
+import type { LogoAppIconOverlay } from "./app-icon-overlay";
 import type { LogoTextLayer } from "./text-layer";
 import type { TextDotPlacementMode } from "./text-to-metaballs";
 import {
@@ -6,6 +7,11 @@ import {
   fieldParamsFromPartial,
   type MetaballFieldParams,
 } from "./metaball-params";
+import {
+  defaultAppIconOverlay,
+  normalizeAppIconOverlay,
+  scaleAppIconOverlayToCanvas,
+} from "./app-icon-overlay";
 import { scaleTextLayersToCanvas, normalizeTextLayer } from "./text-layer";
 
 /** Serializable dot layout and related display options from the logo canvas. */
@@ -31,6 +37,8 @@ export type LogoDotPreset = {
   linkNeighborsPerBall?: number;
   linkMaxDistance?: number;
   linkDistanceThinning?: number;
+  /** Omitted in presets saved before app icon preview existed. */
+  appIconOverlay?: LogoAppIconOverlay;
   fieldParams: MetaballFieldParams;
 };
 
@@ -63,6 +71,7 @@ export function snapshotFromEditor(input: {
   linkNeighborsPerBall: number;
   linkMaxDistance: number;
   linkDistanceThinning: number;
+  appIconOverlay: LogoAppIconOverlay;
   fieldParams: MetaballFieldParams;
 }): Omit<LogoDotPreset, "id" | "savedAt"> {
   return {
@@ -82,6 +91,7 @@ export function snapshotFromEditor(input: {
     linkNeighborsPerBall: input.linkNeighborsPerBall,
     linkMaxDistance: input.linkMaxDistance,
     linkDistanceThinning: input.linkDistanceThinning,
+    appIconOverlay: { ...input.appIconOverlay },
     fieldParams: { ...input.fieldParams },
   };
 }
@@ -116,6 +126,15 @@ export function scalePresetToCanvas(
     linkNeighborsPerBall: preset.linkNeighborsPerBall ?? 2,
     linkMaxDistance: preset.linkMaxDistance ?? 0,
     linkDistanceThinning: preset.linkDistanceThinning ?? 0.75,
+    appIconOverlay: normalizeAppIconOverlay(
+      scaleAppIconOverlayToCanvas(
+        preset.appIconOverlay ?? defaultAppIconOverlay(preset.canvasWidth, preset.canvasHeight),
+        sx,
+        sy,
+      ),
+      canvasWidth,
+      canvasHeight,
+    ),
     fieldParams: fieldParamsFromPartial(preset.fieldParams),
   };
 }

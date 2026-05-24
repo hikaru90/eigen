@@ -3,20 +3,26 @@ import { POST } from './+server';
 
 const {
 	runCaptureThoughtToolMock,
+	runListThoughtsToolMock,
 	runRetrieveThoughtsToolMock,
 	runEditThoughtToolMock,
+	runDeleteThoughtToolMock,
 	runAnswerQuestionToolMock
 } = vi.hoisted(() => ({
 	runCaptureThoughtToolMock: vi.fn(),
+	runListThoughtsToolMock: vi.fn(),
 	runRetrieveThoughtsToolMock: vi.fn(),
 	runEditThoughtToolMock: vi.fn(),
+	runDeleteThoughtToolMock: vi.fn(),
 	runAnswerQuestionToolMock: vi.fn()
 }));
 
 vi.mock('$lib/server/mcp/tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
+	runListThoughtsTool: runListThoughtsToolMock,
 	runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
 	runEditThoughtTool: runEditThoughtToolMock,
+	runDeleteThoughtTool: runDeleteThoughtToolMock,
 	runAnswerQuestionTool: runAnswerQuestionToolMock
 }));
 

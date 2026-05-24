@@ -79,9 +79,19 @@
     })();
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncThemeColorMeta = () => {
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (!meta) return;
+      const bg = getComputedStyle(document.documentElement)
+        .getPropertyValue("--background")
+        .trim();
+      if (bg) meta.setAttribute("content", bg);
+    };
+
     const applyTheme = (isDark: boolean) => {
       document.documentElement.classList.toggle("dark", isDark);
       document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+      syncThemeColorMeta();
     };
     const applyThemePreference = (preference: string) => {
       themePreference = preference;

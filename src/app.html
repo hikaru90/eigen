@@ -9,10 +9,15 @@
 			content="width=device-width, initial-scale=1"
 		/>
 
-		<meta name="theme-color" content="#ff3e00" />
+		<meta name="theme-color" content="#e8ede5" />
 		<meta name="description" content="Self-hostable memory infrastructure" />
 		<link rel="manifest" href="/manifest.webmanifest" />
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<link
+			rel="apple-touch-icon"
+			href="/apple-touch-icon-dark.png"
+			media="(prefers-color-scheme: dark)"
+		/>
 
 		<meta name="text-scale" content="scale" />
 		<script>
@@ -27,6 +32,13 @@
 					document.documentElement.style.colorScheme = "dark";
 				} else {
 					document.documentElement.style.colorScheme = "light";
+				}
+				var themeMeta = document.querySelector('meta[name="theme-color"]');
+				if (themeMeta) {
+					themeMeta.setAttribute(
+						"content",
+						isDark ? "oklch(0.141 0.005 285.823)" : "#e8ede5"
+					);
 				}
 			})();
 		</script>
