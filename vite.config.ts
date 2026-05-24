@@ -9,6 +9,12 @@ const enforceCoverageThresholds =
 	process.env.CI === 'true' || process.argv.includes('run');
 
 export default defineConfig({
+	server: {
+		watch: {
+			// Autosave writes this during logo editing; watching it reloads the page every 5s.
+			ignored: ['**/data/logo-dot-current.json']
+		}
+	},
 	build: {
 		rollupOptions: {
 			onwarn(warning, warn) {

@@ -1,20 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	runCaptureThoughtTool,
+	runDeleteThoughtTool,
 	runEditThoughtTool,
 	runListThoughtsTool,
 	runRetrieveThoughtsTool,
 	runAnswerQuestionTool
 } from './tools';
 
-const { searchThoughtsMock, composeAnswerMock, captureThoughtMock, listThoughtsMock, editStoredThoughtMock } =
-	vi.hoisted(() => ({
-		searchThoughtsMock: vi.fn(),
-		composeAnswerMock: vi.fn(),
-		captureThoughtMock: vi.fn(),
-		listThoughtsMock: vi.fn(),
-		editStoredThoughtMock: vi.fn()
-	}));
+const {
+	searchThoughtsMock,
+	composeAnswerMock,
+	captureThoughtMock,
+	listThoughtsMock,
+	editStoredThoughtMock,
+	deleteThoughtForUserMock,
+	getDbSelectMock
+} = vi.hoisted(() => ({
+	searchThoughtsMock: vi.fn(),
+	composeAnswerMock: vi.fn(),
+	captureThoughtMock: vi.fn(),
+	listThoughtsMock: vi.fn(),
+	editStoredThoughtMock: vi.fn(),
+	deleteThoughtForUserMock: vi.fn(),
+	getDbSelectMock: vi.fn()
+}));
 
 vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
@@ -27,8 +37,25 @@ vi.mock('$lib/server/qa/compose-answer', () => ({
 vi.mock('$lib/server/capture/service', () => ({
 	captureThought: captureThoughtMock,
 	listThoughts: listThoughtsMock,
-	editStoredThought: editStoredThoughtMock
+	editStoredThought: editStoredThoughtMock,
+	deleteThoughtForUser: deleteThoughtForUserMock
 }));
+
+vi.mock('$lib/server/db', () => ({
+	getDb: () => ({
+		select: getDbSelectMock
+	})
+}));
+
+function mockThoughtRow(row: Record<string, unknown> | null) {
+	getDbSelectMock.mockReturnValue({
+		from: vi.fn(() => ({
+			where: vi.fn(() => ({
+				limit: vi.fn(async () => (row ? [row] : []))
+			}))
+		}))
+	});
+}
 
 describe('MCP tools', () => {
 	beforeEach(() => {
@@ -48,10 +75,11 @@ describe('MCP tools', () => {
 	});
 
 	it('returns thought not found as error', async () => {
-		editStoredThoughtMock.mockResolvedValue({ ok: false, reason: 'not_found' });
+		mockThoughtRow(null);
 		await expect(
 			runEditThoughtTool({ userId: 'u1' }, { thought_id: 't1', edit_request: 'fix' })
 		).rejects.toThrow(/Thought not found/);
+		expect(editStoredThoughtMock).not.toHaveBeenCalled();
 	});
 
 	it('runCaptureThoughtTool persists raw and returns id+thought', async () => {
@@ -123,6 +151,20 @@ describe('MCP tools', () => {
 		expect(out.results).toHaveLength(1);
 	});
 
+	it('runDeleteThoughtTool deletes by thought_id', async () => {
+		deleteThoughtForUserMock.mockResolvedValue({ ok: true });
+		const out = await runDeleteThoughtTool({ userId: 'u1' }, { thought_id: 't1' });
+		expect(deleteThoughtForUserMock).toHaveBeenCalledWith('u1', 't1');
+		expect(out).toEqual({ deleted: true, thoughtId: 't1' });
+	});
+
+	it('runDeleteThoughtTool throws when thought not found', async () => {
+		deleteThoughtForUserMock.mockResolvedValue({ ok: false, reason: 'not_found' });
+		await expect(
+			runDeleteThoughtTool({ userId: 'u1' }, { thought_id: 'missing' })
+		).rejects.toThrow(/Thought not found/);
+	});
+
 	it('runEditThoughtTool rejects empty edit_request', async () => {
 		await expect(
 			runEditThoughtTool({ userId: 'u1' }, { thought_id: 't1', edit_request: '   ' })
@@ -130,12 +172,31 @@ describe('MCP tools', () => {
 	});
 
 	it('runEditThoughtTool returns the updated thought on success', async () => {
-		editStoredThoughtMock.mockResolvedValue({ ok: true, thought: { id: 't1', rawText: 'new' } });
+		mockThoughtRow({
+			id: 't1',
+			rawText: 'old',
+			normalizedText: 'old',
+			category: 'task',
+			metadata: { status: 'open' }
+		});
+		editStoredThoughtMock.mockResolvedValue({
+			ok: true,
+			thought: {
+				id: 't1',
+				rawText: 'new',
+				normalizedText: 'new',
+				category: 'task',
+				metadata: { status: 'open' }
+			},
+			editSummary: 'Fixed typo.'
+		});
 		const out = await runEditThoughtTool(
 			{ userId: 'u1' },
 			{ thought_id: 't1', edit_request: 'fix typo' }
 		);
-		expect(out).toEqual({ thought: { id: 't1', rawText: 'new' } });
+		expect(out.summary).toBe('Fixed typo.');
+		expect(out.thoughtId).toBe('t1');
+		expect(out.before.normalizedText).toBe('old');
 	});
 
 	it('runAnswerQuestionTool rejects empty question', async () => {

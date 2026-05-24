@@ -36,7 +36,9 @@ export async function listThoughtsMentioningCanonicalEntity(
 			rawText: thought.rawText,
 			normalizedText: thought.normalizedText,
 			category: thought.category,
-			createdAt: thought.createdAt
+			metadata: thought.metadata,
+			createdAt: thought.createdAt,
+			updatedAt: thought.updatedAt
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, userId), inArray(thought.id, thoughtIds)))

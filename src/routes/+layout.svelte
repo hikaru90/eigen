@@ -10,6 +10,7 @@
   import favicon from "$lib/assets/favicon.svg";
   import { cn } from "$lib/utils";
   import AppHeader from "$lib/components/app-header.svelte";
+  import { startCaptureQueueRunner } from "$lib/capture/queue";
 
   let { children } = $props();
 
@@ -29,9 +30,11 @@
     page.route.id === "/login" ||
       page.route.id === "/signup" ||
       page.route.id === "/register" ||
+      page.route.id === "/logo" ||
       normalizePathname(page.url.pathname) === "/login" ||
       normalizePathname(page.url.pathname) === "/signup" ||
-      normalizePathname(page.url.pathname) === "/register",
+      normalizePathname(page.url.pathname) === "/register" ||
+      normalizePathname(page.url.pathname) === "/logo",
   );
 
   let currentPath = $derived(page.url.pathname);
@@ -62,6 +65,8 @@
   ]);
 
   onMount(() => {
+    startCaptureQueueRunner();
+
     void (async () => {
       try {
         const { pwaInfo } = await import("virtual:pwa-info");

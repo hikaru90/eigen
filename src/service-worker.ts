@@ -1,7 +1,24 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
+import { drainCaptureQueue } from '$lib/capture/queue/drain';
+import { CAPTURE_QUEUE_SYNC_TAG, type CaptureQueueBroadcast } from '$lib/capture/queue/types';
 
 declare const self: ServiceWorkerGlobalScope;
+
+async function broadcastCaptureQueueMessage(message: CaptureQueueBroadcast | { type: 'capture-queue-idle' }) {
+	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+	for (const client of clients) {
+		client.postMessage(message);
+	}
+}
+
+async function drainCaptureQueueInBackground(): Promise<void> {
+	await drainCaptureQueue({
+		streamProgress: false,
+		broadcast: (message) => broadcastCaptureQueueMessage(message)
+	});
+	await broadcastCaptureQueueMessage({ type: 'capture-queue-idle' });
+}
 
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
@@ -12,6 +29,19 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
 	event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('sync', (event) => {
+	const syncEvent = event as SyncEvent;
+	if (syncEvent.tag !== CAPTURE_QUEUE_SYNC_TAG) return;
+	syncEvent.waitUntil(drainCaptureQueueInBackground());
+});
+
+self.addEventListener('message', (event) => {
+	const data = event.data;
+	if (data && typeof data === 'object' && 'type' in data && (data as { type: string }).type === 'DRAIN_CAPTURE_QUEUE') {
+		event.waitUntil(drainCaptureQueueInBackground());
+	}
 });
 
 type PushPayload = {

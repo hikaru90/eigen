@@ -13,7 +13,7 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 - **[`/`](../../src/routes/+page.svelte)** — Landing / home. Load: [`+page.server.ts`](../../src/routes/+page.server.ts).
 - **`/capture`** — Primary thought capture and post-capture edit UI; `fetch` to `/api/capture/*`. Load: [`capture/+page.server.ts`](../../src/routes/capture/+page.server.ts).
 - **`/graph`** — Graph visualization and ontology admin actions. Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (Falkor snapshot, ontology legend).
-- **`/chat`** — Chat UI backed by [`/api/chat`](../../src/routes/api/chat/+server.ts) and session routes.
+- **`/chat`** — Memory assistant UI (default: `answer_question`; completion reports search via `retrieve_thoughts` then `edit_thought`/`delete_thought`; full MCP tool surface) backed by [`/api/chat`](../../src/routes/api/chat/+server.ts) and session routes.
 - **`/activity`** — Usage / activity views. Load: [`activity/+page.server.ts`](../../src/routes/activity/+page.server.ts).
 - **`/settings`** — User settings (language, theme, LLM provider, **push notifications**). Load: [`settings/+page.server.ts`](../../src/routes/settings/+page.server.ts).
 - **`/api-keys`** — API key management UI. Load: [`api-keys/+page.server.ts`](../../src/routes/api-keys/+page.server.ts).
@@ -23,7 +23,8 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 ## API routes (browser or MCP)
 
 - Documented in **ingestion** and **retrieval** domain maps; UI typically hits `/api/capture/*`, `/api/retrieval/search`, `/api/chat/*`, `/api/entities/*`, `/api/thoughts/*` as implemented. When adding a new button, trace to the matching `+server.ts` and update the relevant domain map.
-- **PWA / push:** manifest at `static/manifest.webmanifest`; service worker [`src/service-worker.ts`](../../src/service-worker.ts) (Workbox precache + `push` / `notificationclick`). Client registration in [`src/routes/+layout.svelte`](../../src/routes/+layout.svelte). Push APIs: `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test`, `/api/push/vapid-public-key` (requires `VAPID_*` env vars).
+- **PWA / push:** manifest at `static/manifest.webmanifest`; service worker [`src/service-worker.ts`](../../src/service-worker.ts) (Workbox precache + `push` / `notificationclick` + **capture queue Background Sync**). Client registration in [`src/routes/+layout.svelte`](../../src/routes/+layout.svelte). Push APIs: `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test`, `/api/push/vapid-public-key` (requires `VAPID_*` env vars).
+- **Offline capture queue:** [`src/lib/capture/queue/`](../../src/lib/capture/queue/) persists pending submits in IndexedDB, drains **serially** in the browser (NDJSON progress), and retries via service worker when offline (`eigen-capture-queue-sync`). `/capture` enqueues instead of blocking the UI on concurrent submits.
 
 ## Components
 

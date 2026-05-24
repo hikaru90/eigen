@@ -3,67 +3,64 @@ import { logActivityCall } from '$lib/server/activity/log-call';
 import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
 import { getDb } from '$lib/server/db';
 import {
-	runEditThoughtTool,
-	runRetrieveThoughtsTool,
-	type McpToolContext
-} from '$lib/server/mcp/tools';
+	buildAgentToolDescriptionBlock,
+	MCP_TOOL_DEFINITIONS,
+	MCP_TOOL_MAP,
+	MCP_TOOL_NAMES
+} from '$lib/server/mcp/registry';
+import type { McpToolContext } from '$lib/server/mcp/tools';
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
-
-type AgentToolDef = {
-	name: string;
-	description: string;
-	schema: string;
-};
-
-const AGENT_TOOLS: AgentToolDef[] = [
-	{
-		name: 'retrieve_thoughts',
-		description: 'Search the user\'s stored thoughts using hybrid semantic, lexical, and graph retrieval.',
-		schema: '{"query": "string (required)", "top_k": "number (optional, default 20)", "threshold": "number (optional, 0-1)"}'
-	},
-	{
-		name: 'edit_thought',
-		description: 'Edit an existing thought by ID with a natural-language edit request.',
-		schema: '{"thought_id": "string (required)", "edit_request": "string (required)"}'
-	}
-];
 
 const MAX_ITERATIONS = 10;
 
-const TOOL_MAP: Record<string, (ctx: McpToolContext, args: unknown) => Promise<unknown>> = {
-	retrieve_thoughts: runRetrieveThoughtsTool,
-	edit_thought: runEditThoughtTool
-};
-
-const TOOL_DESCRIPTION_BLOCK = AGENT_TOOLS.map(
-	(t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.schema}`
-).join('\n\n');
+const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock();
 
 const SYSTEM_PROMPT = [
-	'You are an AI assistant connected to the user\'s personal memory store. The user\'s thoughts, notes, and data are stored in a PostgreSQL database with vector embeddings and a FalkorDB graph. You can search this data using tools.',
+	'You are an AI assistant for the user\'s personal memory store (PostgreSQL with vector embeddings and a FalkorDB graph). You have the same MCP tools as the external memory server.',
 	'',
-	'=== CRITICAL: YOU MUST USE TOOLS ===',
-	'The user expects you to search their actual stored memories. Do NOT answer from your training data. Do NOT say "I don\'t have information about you." Always call retrieve_thoughts or answer_question first.',
+	'=== COMPLETION / "I DID SOMETHING" (check memories first) ===',
+	'When the user reports they did, finished, completed, bought, attended, or otherwise accomplished something — do NOT capture a new thought first. Call retrieve_thoughts with a query that describes what they did (hybrid semantic + graph search). From the results, find stored tasks, reminders, or notes that plausibly match.',
+	'- Strong match (especially category task or clear semantic overlap): call edit_thought with edit_request like "mark as completed" or "mark done" and briefly note what you updated in your final answer.',
+	'- Match that should leave memory but is obsolete as an open item: same as above (mark complete via edit_thought).',
+	'- User clearly wants it gone, duplicate, or a mistaken capture: call delete_thought instead.',
+	'- No reasonable match: say so in your final answer; only use capture_thought if they also want it logged as a new memory.',
+	'- Multiple plausible matches: update the best single match or ask which one in your final answer — do not edit/delete several without clear intent.',
+	'',
+	'=== DEFAULT: ANSWER / Q&A ===',
+	'When the user asks a question, wants information from their memories, or is chatting without clearly asking to store, edit, or delete — call answer_question with their message as `question` (rephrase for retrieval if helpful). Use the tool result to ground your final {"answer": "..."} with citations when available. Skip this default when the COMPLETION rules above apply.',
+	'',
+	'=== OTHER TOOLS ===',
+	'- retrieve_thoughts: hybrid semantic, lexical, and graph search — required before edit/delete when matching an accomplishment to an existing memory; also for raw search/list requests.',
+	'- list_thoughts: browse recent thoughts or find thought IDs (e.g. open tasks).',
+	'- capture_thought: store a new note, task, idea, or fact — only when the user clearly wants to remember something new.',
+	'- edit_thought: change text, mark tasks or thoughts complete, fix typos — use thought_id from list/retrieve when the user did not give an ID.',
+	'- delete_thought: permanently remove a thought by thought_id; use list/retrieve first if the target is ambiguous.',
 	'',
 	'=== TOOL CALLING FORMAT ===',
-	'Respond with a JSON object. No other text. Two possible formats:',
+	'Respond with a JSON object only. Two formats:',
 	'',
 	'To call a tool:',
 	'{"tool": "<tool_name>", "arguments": {<args>}}',
 	'',
-	'To give the final answer after receiving tool results:',
+	'To give the final answer after you are done with tools:',
 	'{"answer": "<your response>"}',
 	'',
 	'=== AVAILABLE TOOLS ===',
 	TOOL_DESCRIPTION_BLOCK,
 	'',
 	'=== BEHAVIOR RULES ===',
-	'- When the user asks about themselves, their memories, or anything they might have stored: call retrieve_thoughts ONCE with a broad query that covers the full intent, then give the final answer.',
-	'- Do NOT call retrieve_thoughts more than once per user message. One retrieval is enough — synthesize the answer from whatever is returned.',
-	'- After receiving a tool result, ALWAYS produce {"answer": "..."} immediately. Do not call another tool.',
-	'- If a tool errors, tell the user clearly what happened in your final answer.',
+	'- Completion reports ("I did X", "finished Y", "got the Z done") always use retrieve_thoughts before capture_thought or answer_question.',
+	'- Default to answer_question for questions and conversation about the user\'s memories; do not capture unless they clearly want to store something new.',
+	'- Use capture_thought only when the user explicitly asks to remember, save, or log a new thought — never as the first step when they report completing something.',
+	'- Use retrieve_thoughts for simple search/list requests without needing a composed answer.',
+	'- For edit_thought or delete_thought without a thought_id: call retrieve_thoughts (preferred) or list_thoughts first, then act.',
+	'- You may call multiple tools in sequence (e.g. search then edit) before the final answer.',
+	'- Call retrieve_thoughts at most once per user message unless they explicitly ask for another search.',
+	'- After a tool result, call another tool if more work is needed, otherwise {"answer": "..."}.',
+	'- TRACEABILITY: Never claim a thought was updated or deleted unless the matching tool succeeded in this turn. In your final answer, cite thought id (short prefix), the summary field from tool results, and before/after text or status when edit_thought ran.',
+	'- If a tool errors, explain clearly in your final answer.',
 	'- Do not invent tool names or argument keys.',
-	'- Output ONLY the JSON object. No greetings, no explanations, no markdown.'
+	'- Output ONLY the JSON object. No greetings, no markdown fences.'
 ].join('\n');
 
 type AgentResponse = {
@@ -183,9 +180,6 @@ export async function agentChat(input: {
 		...input.messages
 	];
 
-	let formatCorrectionSent = false;
-	let toolResultReceived = false;
-
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		console.error('[agent-loop] iteration', { iteration, messageCount: messages.length });
 
@@ -208,35 +202,19 @@ export async function agentChat(input: {
 		console.error('[agent-loop] LLM raw response', { preview: content.slice(0, 300) });
 		const parsed = parseResponse(content);
 
-		// Emit thinking content whenever the model produced a <think> block.
 		if (parsed.thinking) {
 			input.onEvent?.({ type: 'thinking', content: parsed.thinking });
 		}
 
 		if (parsed.type === 'tool_call') {
-			// If we already have a tool result, the model is looping — force it to answer.
-			if (toolResultReceived) {
-				console.error('[agent-loop] model tried a second tool call after result — forcing final answer');
+			input.onEvent?.({ type: 'tool_call', tool: parsed.tool, arguments: parsed.arguments });
+			const handler = MCP_TOOL_MAP.get(parsed.tool);
+			if (!handler) {
+				console.error('[agent-loop] unknown tool requested', { tool: parsed.tool });
 				messages.push({ role: 'assistant', content });
 				messages.push({
 					role: 'user',
-					content: 'You already have the retrieval results. Do NOT call any more tools. Produce your final answer now using {"answer": "<your response>"}.'
-				});
-				continue;
-			}
-
-			input.onEvent?.({ type: 'tool_call', tool: parsed.tool, arguments: parsed.arguments });
-			formatCorrectionSent = true;
-			const handler = TOOL_MAP[parsed.tool];
-			if (!handler) {
-				console.error('[agent-loop] unknown tool requested', { tool: parsed.tool });
-				messages.push({
-					role: 'assistant',
-					content: `TOOL: ${parsed.tool}\n{}`
-				});
-				messages.push({
-					role: 'user',
-					content: `Error: tool "${parsed.tool}" is not available. Available tools: ${AGENT_TOOLS.map((t) => t.name).join(', ')}`
+					content: `Error: tool "${parsed.tool}" is not available. Available tools: ${MCP_TOOL_NAMES.join(', ')}`
 				});
 				continue;
 			}
@@ -246,10 +224,9 @@ export async function agentChat(input: {
 			const toolStart = Date.now();
 			try {
 				result = await handler(ctx, parsed.arguments);
-				const preview = JSON.stringify(result).slice(0, 2000);
+				const preview = JSON.stringify(result);
 				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview });
 				console.error('[agent-loop] tool result', { tool: parsed.tool, result: preview });
-				console.error('[agent-loop] logging activity');
 				const toolCallContext = parsed.arguments && typeof parsed.arguments === 'object'
 					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
 					: '';
@@ -260,10 +237,11 @@ export async function agentChat(input: {
 					context: toolCallContext,
 					durationMs: Date.now() - toolStart
 				});
-				console.error('[agent-loop] activity logged');
 			} catch (err) {
 				console.error('[agent-loop] tool error', { tool: parsed.tool, error: err instanceof Error ? err.message : String(err) });
 				result = { error: err instanceof Error ? err.message : String(err) };
+				const errorPreview = JSON.stringify(result);
+				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview: errorPreview, failed: true });
 				const toolErrorContext = parsed.arguments && typeof parsed.arguments === 'object'
 					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
 					: '';
@@ -276,25 +254,10 @@ export async function agentChat(input: {
 				});
 			}
 
-			toolResultReceived = true;
-			console.error('[agent-loop] pushing tool messages');
 			messages.push({ role: 'assistant', content });
 			messages.push({
 				role: 'user',
-				content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}\n\nNow give your final answer using {"answer": "<your response>"}.`
-			});
-			console.error('[agent-loop] continuing after tool');
-			continue;
-		}
-
-		// Response was parsed as "final" — if we haven't corrected the format yet,
-		// assume the LLM is answering without using tools and push it to use them.
-		if (!formatCorrectionSent) {
-			formatCorrectionSent = true;
-			messages.push({ role: 'assistant', content });
-			messages.push({
-				role: 'user',
-				content: 'You answered without calling any tool. You MUST search the user\'s stored memories before answering. Call retrieve_thoughts now using the JSON format: {"tool": "retrieve_thoughts", "arguments": {"query": "<broad query>", "top_k": 10}}'
+				content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`
 			});
 			continue;
 		}
@@ -309,3 +272,6 @@ export async function agentChat(input: {
 		messages
 	};
 }
+
+// Re-export for tests that assert tool surface parity with MCP server.
+export { MCP_TOOL_DEFINITIONS };

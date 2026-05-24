@@ -9,6 +9,13 @@
 	import { Label } from '$lib/components/ui/label';
 	import { CAPTURE_PIPELINE } from '$lib/capture/ingest-phases';
 	import { consumeCaptureNdjsonStream, type ProgressEvent } from '$lib/capture/consume-capture-ndjson';
+	import {
+		cancelActiveCapture,
+		enqueueCapture,
+		getCaptureQueueSnapshot,
+		subscribeCaptureQueue,
+		type CaptureSubmitResult
+	} from '$lib/capture/queue';
 
 	let { data }: { data: PageData } = $props();
 
@@ -16,25 +23,23 @@
 
 	let raw = $state('');
 	let editRequest = $state('');
-	let stored = $state<{
-		id: string;
-		normalizedText: string;
-		category: string;
-		metadata?: Record<string, unknown> | null;
-	} | null>(null);
+	let stored = $state<CaptureSubmitResult | null>(null);
 	let showEdit = $state(false);
 	let err = $state<string | null>(null);
-	let loading = $state(false);
+
+	let activeCaptureId = $state<string | null>(null);
+	let pendingCount = $state(0);
+	let loading = $derived(activeCaptureId !== null);
 
 	let progressEvents = $state<Array<{ event: ProgressEvent; arrivedAt: number }>>([]);
 	let captureStartMs = $state(0);
 
-	let abortController = $state<AbortController | null>(null);
+	let editAbortController = $state<AbortController | null>(null);
+	let editLoading = $state(false);
 
 	function cancelCapture() {
-		abortController?.abort();
-		abortController = null;
-		loading = false;
+		cancelActiveCapture();
+		activeCaptureId = null;
 		progressEvents = [];
 	}
 
@@ -43,65 +48,77 @@
 	}
 
 	onMount(() => {
+		void getCaptureQueueSnapshot().then((snap) => {
+			pendingCount = snap.pending;
+			activeCaptureId = snap.processingId;
+		});
+
+		const unsub = subscribeCaptureQueue((message) => {
+			if (message.type === 'snapshot') {
+				pendingCount = message.pending;
+				activeCaptureId = message.processingId;
+				return;
+			}
+			if (message.type === 'active') {
+				activeCaptureId = message.id;
+				err = null;
+				progressEvents = [];
+				captureStartMs = Date.now();
+				return;
+			}
+			if (message.type === 'progress' && message.id === activeCaptureId) {
+				pushEvent(message.event);
+				return;
+			}
+			if (message.type === 'done') {
+				stored = message.thought;
+				showEdit = false;
+				editRequest = '';
+				if (message.id === activeCaptureId) {
+					activeCaptureId = null;
+					progressEvents = [];
+				}
+				return;
+			}
+			if (message.type === 'failed') {
+				err = message.error;
+				if (message.id === activeCaptureId) {
+					activeCaptureId = null;
+					progressEvents = [];
+				}
+				return;
+			}
+			if (message.type === 'idle') {
+				activeCaptureId = null;
+				progressEvents = [];
+			}
+		});
+
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
 				e.preventDefault();
-				if (!loading && raw.trim()) void capture();
+				if (raw.trim()) void capture();
 			}
 		};
 		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
+		return () => {
+			unsub();
+			window.removeEventListener('keydown', onKey);
+		};
 	});
 
 	async function capture() {
+		if (!raw.trim()) return;
 		err = null;
-		progressEvents = [];
-		captureStartMs = Date.now();
-		loading = true;
-		const ac = new AbortController();
-		abortController = ac;
+		const text = raw;
+		raw = '';
 		try {
-			const res = await fetch('/api/capture/submit', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json', accept: 'application/x-ndjson, application/json' },
-				body: JSON.stringify({ raw }),
-				signal: ac.signal
-			});
-			const contentType = res.headers.get('content-type') ?? '';
-			if (contentType.includes('application/x-ndjson')) {
-				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(
-					res, pushEvent, ac.signal
-				);
-				stored = thought;
-				raw = '';
-				showEdit = false;
-				editRequest = '';
-				return;
-			}
-			if (!res.ok) {
-				let serverMessage = '';
-				try {
-					const payload = (await res.json()) as { error?: unknown; details?: unknown };
-					if (typeof payload.error === 'string' && payload.error.trim()) serverMessage = payload.error;
-					else if (Array.isArray(payload.details)) {
-						const first = payload.details.find((v) => typeof v === 'string');
-						if (typeof first === 'string') serverMessage = first;
-					}
-				} catch { serverMessage = await res.text(); }
-				throw new Error(serverMessage || `Capture failed (${res.status})`);
-			}
-			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
-			stored = j.thought;
-			raw = '';
-			showEdit = false;
-			editRequest = '';
+			await enqueueCapture(text);
+			const snap = await getCaptureQueueSnapshot();
+			pendingCount = snap.pending;
 		} catch (e) {
-			if (e instanceof DOMException && e.name === 'AbortError') return;
+			raw = text;
 			err = e instanceof Error ? e.message : String(e);
-		} finally {
-			loading = false;
-			progressEvents = [];
-			abortController = null;
 		}
 	}
 
@@ -110,9 +127,9 @@
 		err = null;
 		progressEvents = [];
 		captureStartMs = Date.now();
-		loading = true;
+		editLoading = true;
 		const ac = new AbortController();
-		abortController = ac;
+		editAbortController = ac;
 		try {
 			const res = await fetch('/api/capture/edit', {
 				method: 'POST',
@@ -139,9 +156,9 @@
 			if (e instanceof DOMException && e.name === 'AbortError') return;
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
-			loading = false;
+			editLoading = false;
 			progressEvents = [];
-			abortController = null;
+			editAbortController = null;
 		}
 	}
 
@@ -193,7 +210,7 @@
 					<Button
 						type="button"
 						class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
-						disabled={loading || !raw.trim()}
+						disabled={!raw.trim()}
 						onclick={capture}
 					>
 						Capture
@@ -201,6 +218,12 @@
 				</div>
 			</Card.Footer>
 		</Card.Root>
+
+		{#if pendingCount > 0 && !loading}
+			<p class="text-muted-foreground text-xs">
+				{pendingCount} capture{pendingCount === 1 ? '' : 's'} queued{typeof navigator !== 'undefined' && !navigator.onLine ? ' (offline)' : ''}.
+			</p>
+		{/if}
 
 		{#if loading}
 			<div class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4">
@@ -254,12 +277,12 @@
 						/>
 					</Card.Content>
 					<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-end gap-2 w-full">
-						{#if loading}
+						{#if editLoading}
 							<Button
 								type="button"
 								variant="ghost"
 								class="rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto text-muted-foreground hover:text-destructive"
-								onclick={cancelCapture}
+								onclick={() => editAbortController?.abort()}
 							>
 								Cancel
 							</Button>
@@ -267,7 +290,7 @@
 						<Button
 							type="button"
 							class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"
-							disabled={loading || !editRequest.trim()}
+							disabled={editLoading || !editRequest.trim()}
 							onclick={submitEditRequest}
 						>
 							Submit changes

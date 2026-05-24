@@ -88,6 +88,7 @@
 		"@vite-pwa/sveltekit": "^1.1.0",
 		"d3": "^7.9.0",
 		"falkordb": "^6.6.2",
+		"opentype.js": "^2.0.0",
 		"umap-js": "^1.4.0",
 		"web-push": "^3.6.7",
 		"zod": "^4.4.3"

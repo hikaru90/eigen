@@ -21,7 +21,9 @@ vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
 
 vi.mock('./tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
+	runListThoughtsTool: vi.fn(),
 	runEditThoughtTool: vi.fn(),
+	runDeleteThoughtTool: vi.fn(),
 	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
 	runAnswerQuestionTool: vi.fn()
 }));
@@ -33,7 +35,14 @@ describe('createMcpServer', () => {
 		const listHandler = handlerMap.get(Symbol.for('list-tools')) as () => Promise<{ tools: Array<{ name: string }> }>;
 		const result = await listHandler();
 		expect(result.tools.map((t) => t.name)).toEqual(
-			expect.arrayContaining(['capture_thought', 'retrieve_thoughts', 'edit_thought', 'answer_question'])
+			expect.arrayContaining([
+				'capture_thought',
+				'list_thoughts',
+				'retrieve_thoughts',
+				'edit_thought',
+				'delete_thought',
+				'answer_question'
+			])
 		);
 	});
 

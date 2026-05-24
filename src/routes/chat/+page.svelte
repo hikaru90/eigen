@@ -21,15 +21,32 @@
   import Redo2 from '@lucide/svelte/icons/redo-2';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import Square from '@lucide/svelte/icons/square';
-  import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
-  import { toolLabel } from '$lib/chat/chat-stream-types';
+  import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus';
+  import List from '@lucide/svelte/icons/list';
+  import { consumeChatNdjsonStream, type ChatProgressEvent } from '$lib/chat/consume-chat-ndjson';
+  import {
+    formatToolArgumentsSummary,
+    formatToolResultForDisplay,
+    toolArgumentsPreview,
+    toolCategoryClasses,
+    toolLabel,
+    toolStatusBadgeClasses,
+    toolVisual,
+    type ChatToolIcon
+  } from '$lib/chat/chat-stream-types';
 
   type ChatEntry =
     | { role: 'user'; content: string }
     | { role: 'assistant'; variant: 'text'; content: string }
     | { role: 'assistant'; variant: 'thinking'; content: string }
     | { role: 'assistant'; variant: 'tool_call'; tool: string; arguments: Record<string, unknown> }
-    | { role: 'assistant'; variant: 'tool_result'; content: string };
+    | {
+        role: 'assistant';
+        variant: 'tool_result';
+        tool: string;
+        content: string;
+        status: 'success' | 'error';
+      };
 
   type SessionListItem = {
     id: string;
@@ -43,11 +60,13 @@
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
-    metadata?: {
+      metadata?: {
       variant?: string;
       tool?: string;
       arguments?: Record<string, unknown>;
       preview?: string;
+      displaySummary?: string;
+      failed?: boolean;
     } | null;
     createdAt: string;
   };
@@ -60,30 +79,21 @@
   let loadingSession = $state(false);
   let abortController = $state<AbortController | null>(null);
   let streamEventsReceived = $state(false);
+  let streamAbortReason = $state<'user' | 'timeout' | null>(null);
 
   let chatEl: HTMLDivElement | undefined;
 
   const STORAGE_KEY = 'chat-active-session-id';
 
-  function toolIcon(tool: string): string {
-    if (tool === 'retrieve_thoughts') return 'search';
-    if (tool === 'answer_question') return 'sparkles';
-    if (tool === 'edit_thought') return 'pencil';
-    return 'bot';
-  }
-
-  function toolArgumentsPreview(args: Record<string, unknown>, maxChars = 2400): string {
-    try {
-      const s = JSON.stringify(args, null, 2);
-      return s.length > maxChars ? `${s.slice(0, maxChars)}\n…` : s;
-    } catch {
-      return '(arguments could not be serialized)';
-    }
+  function toolIconName(tool: string): ChatToolIcon {
+    return toolVisual(tool).icon;
   }
 
   function scrollToBottom() {
+    const el = chatEl;
+    if (!el) return;
     requestAnimationFrame(() => {
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+      el.scrollTo({ top: el.scrollHeight, behavior: 'instant' });
     });
   }
 
@@ -138,24 +148,18 @@
             }];
           }
           if (v === 'tool_result') {
-            let displayText = '';
-            try {
-              const parsed = JSON.parse(m.content);
-              const results = parsed.results;
-              if (Array.isArray(results)) {
-                displayText = results.map((r: { normalizedText?: string }, i: number) =>
-                  `${i + 1}. ${r.normalizedText ?? '(no text)'}`
-                ).join('\n');
-              } else {
-                displayText = m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content;
-              }
-            } catch {
-              displayText = m.content.length > 500 ? m.content.slice(0, 500) + '...' : m.content;
-            }
+            const toolName = typeof m.metadata.tool === 'string' ? m.metadata.tool : 'retrieve_thoughts';
+            const displayText =
+              typeof m.metadata.displaySummary === 'string'
+                ? m.metadata.displaySummary
+                : formatToolResultForDisplay(toolName, m.content);
+            const failed = m.metadata.failed === true;
             return [{
               role: 'assistant' as const,
               variant: 'tool_result' as const,
-              content: `Retrieved from memory:\n${displayText}`
+              tool: toolName,
+              content: displayText,
+              status: failed ? ('error' as const) : ('success' as const)
             }];
           }
         }
@@ -202,16 +206,47 @@
     }
   }
 
+  function pushStreamEvent(event: ChatProgressEvent) {
+    streamEventsReceived = true;
+    if (event.type === 'thinking') {
+      messages.push({ role: 'assistant', variant: 'thinking', content: event.content });
+      return;
+    }
+    if (event.type === 'tool_call') {
+      messages.push({
+        role: 'assistant',
+        variant: 'tool_call',
+        tool: event.tool,
+        arguments: event.arguments ?? {}
+      });
+      return;
+    }
+    if (event.type === 'tool_result') {
+      const failed = event.failed === true;
+      messages.push({
+        role: 'assistant',
+        variant: 'tool_result',
+        tool: event.tool,
+        content: formatToolResultForDisplay(event.tool, event.preview ?? ''),
+        status: failed ? 'error' : 'success'
+      });
+    }
+  }
+
   async function sendStreaming(text: string) {
     loading = true;
     streamEventsReceived = false;
+    streamAbortReason = null;
 
     const body: Record<string, unknown> = { message: text };
     if (activeSessionId) body.sessionId = activeSessionId;
 
     const ac = new AbortController();
     abortController = ac;
-    const timeoutId = setTimeout(() => ac.abort(), 120_000);
+    const timeoutId = setTimeout(() => {
+      streamAbortReason = 'timeout';
+      ac.abort();
+    }, 120_000);
 
     try {
       const res = await fetch('/api/chat', {
@@ -231,70 +266,27 @@
         throw new Error(errBody?.message ?? `HTTP ${res.status}`);
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
-        let newline: number;
-        while ((newline = buffer.indexOf('\n')) >= 0) {
-          const raw = buffer.slice(0, newline);
-          buffer = buffer.slice(newline + 1);
-          const trimmed = raw.trim();
-          if (!trimmed) continue;
-          const event = JSON.parse(trimmed) as ChatStreamEvent;
-
-          if (event.type === 'thinking') {
-            streamEventsReceived = true;
-            messages.push({ role: 'assistant', variant: 'thinking', content: event.content });
-          } else if (event.type === 'tool_call') {
-            streamEventsReceived = true;
-            messages.push({
-              role: 'assistant',
-              variant: 'tool_call',
-              tool: event.tool,
-              arguments: event.arguments ?? {}
-            });
-          } else if (event.type === 'tool_result') {
-            streamEventsReceived = true;
-            let displayText = '';
-            try {
-              const parsed = JSON.parse(event.preview);
-              const results = parsed.results;
-              if (Array.isArray(results)) {
-                displayText = results.map((r: { normalizedText?: string }, i: number) =>
-                  `${i + 1}. ${r.normalizedText ?? '(no text)'}`
-                ).join('\n');
-              } else {
-                displayText = event.preview.length > 500 ? event.preview.slice(0, 500) + '...' : event.preview;
-              }
-            } catch {
-              displayText = event.preview.length > 500 ? event.preview.slice(0, 500) + '...' : event.preview;
-            }
-            messages.push({
-              role: 'assistant',
-              variant: 'tool_result',
-              content: `Retrieved from memory:\n${displayText}`
-            });
-          } else if (event.type === 'done') {
-            streamEventsReceived = true;
-            if (event.sessionId) activeSessionId = event.sessionId;
-            if (event.sessionId && browser) localStorage.setItem(STORAGE_KEY, event.sessionId);
-            messages.push({ role: 'assistant', variant: 'text', content: event.response });
-            loadSessions();
-          } else if (event.type === 'error') {
-            streamEventsReceived = true;
-            messages.push({ role: 'assistant', variant: 'text', content: `Error: ${event.error}` });
-          }
-        }
-        if (done) break;
+      const done = await consumeChatNdjsonStream(res, pushStreamEvent, ac.signal);
+      const responseText = (done.response ?? '').trim();
+      if (!responseText) {
+        throw new Error('The assistant returned an empty response.');
       }
+      if (done.sessionId) activeSessionId = done.sessionId;
+      if (done.sessionId && browser) localStorage.setItem(STORAGE_KEY, done.sessionId);
+      messages.push({ role: 'assistant', variant: 'text', content: responseText });
+      loadSessions();
     } catch (err) {
-      if ((err as Error)?.name !== 'AbortError') {
+      if ((err as Error)?.name === 'AbortError') {
+        if (streamAbortReason === 'timeout') {
+          messages.push({
+            role: 'assistant',
+            variant: 'text',
+            content: 'Error: Request timed out after 2 minutes.'
+          });
+        } else {
+          messages.push({ role: 'assistant', variant: 'text', content: 'Stopped.' });
+        }
+      } else {
         messages.push({
           role: 'assistant',
           variant: 'text',
@@ -304,6 +296,7 @@
     } finally {
       loading = false;
       abortController = null;
+      streamAbortReason = null;
     }
   }
 
@@ -339,6 +332,7 @@
 
   function stop() {
     if (!abortController) return;
+    streamAbortReason = 'user';
     abortController.abort();
   }
 
@@ -349,15 +343,25 @@
     }
   }
 
-  onMount(async () => {
-    await loadSessions();
-    const storedId = browser ? localStorage.getItem(STORAGE_KEY) : null;
-    const match = storedId ? sessions.find((s) => s.id === storedId) : null;
-    if (match) {
-      await selectSession(match.id);
-    } else if (sessions.length > 0) {
-      await selectSession(sessions[0].id);
-    }
+  onMount(() => {
+    const origHtmlOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
+    window.scrollTo({ top: 0, behavior: 'instant' });
+
+    void (async () => {
+      await loadSessions();
+      const storedId = browser ? localStorage.getItem(STORAGE_KEY) : null;
+      const match = storedId ? sessions.find((s) => s.id === storedId) : null;
+      if (match) {
+        await selectSession(match.id);
+      } else if (sessions.length > 0) {
+        await selectSession(sessions[0].id);
+      }
+    })();
+
+    return () => {
+      document.documentElement.style.overflow = origHtmlOverflow;
+    };
   });
 </script>
 
@@ -427,11 +431,11 @@
   </div>
 </div>
 
-<div class="relative mx-auto flex max-w-2xl flex-col px-4 pt-4 max-h-dvh">
+<div class="fixed inset-x-0 top-20 bottom-28 z-0 mx-auto flex max-w-2xl flex-col gap-3 px-4 pt-2 pb-2">
   <!-- messages area -->
   <div
     bind:this={chatEl}
-    class="flex h-dvh flex-auto flex-col gap-1 px-1 pb-52 overflow-hidden"
+    class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1"
     role="log"
     aria-label="Chat messages"
   >
@@ -442,7 +446,7 @@
     {:else if messages.length === 0 && !loading}
       <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <p class="text-muted-foreground max-w-xs text-sm tracking-wide">
-          Ask me anything about your thoughts, or tell me to remember something new.
+          Ask about your memories, manage thoughts, or save something new when you want to.
         </p>
       </div>
     {/if}
@@ -485,29 +489,67 @@
         </div>
 
       {:else if msg.variant === 'tool_call'}
-        <!-- Tool call: compact inline label, no heavy bubble -->
+        {@const visual = toolVisual(msg.tool)}
+        {@const classes = toolCategoryClasses(visual.category)}
+        {@const argSummary = formatToolArgumentsSummary(msg.tool, msg.arguments)}
         <div class="py-0.5">
-          <div class="flex items-center gap-2 text-xs text-muted-foreground py-0.5">
-            <span class="inline-block size-1 rounded-full bg-muted shrink-0"></span>
-            {#if toolIcon(msg.tool) === 'search'}
-              <Search class="size-3 shrink-0" strokeWidth={1.5} />
-            {:else if toolIcon(msg.tool) === 'sparkles'}
-              <Sparkles class="size-3 shrink-0" strokeWidth={1.5} />
-            {:else if toolIcon(msg.tool) === 'pencil'}
-              <PencilLine class="size-3 shrink-0" strokeWidth={1.5} />
-            {:else}
-              <Bot class="size-3 shrink-0" strokeWidth={1.5} />
+          <div class="rounded-md border {classes.border} bg-muted/20 px-2.5 py-2">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              {#if toolIconName(msg.tool) === 'save'}
+                <BookmarkPlus class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'list'}
+                <List class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'search'}
+                <Search class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'sparkles'}
+                <Sparkles class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'pencil'}
+                <PencilLine class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'trash'}
+                <Trash2 class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else}
+                <Bot class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {/if}
+              <span class="font-medium text-foreground/90">{toolLabel(msg.tool)}</span>
+              <span class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide {toolStatusBadgeClasses('running')}">Running</span>
+            </div>
+            {#if argSummary}
+              <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{argSummary}</p>
+            {:else if Object.keys(msg.arguments).length > 0}
+              <details class="mt-1.5 group/args">
+                <summary class="cursor-pointer text-[10px] text-muted-foreground">View parameters</summary>
+                <pre class="mt-1 text-[10px] text-muted-foreground/80 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-32 overflow-y-auto">{toolArgumentsPreview(msg.arguments, 800)}</pre>
+              </details>
             {/if}
-            <span class="tracking-wide">{toolLabel(msg.tool)}</span>
           </div>
         </div>
 
       {:else if msg.variant === 'tool_result'}
-        <!-- Tool result: borderless, muted, small — contextual, not primary -->
-        <div class="group py-0.5">
-          <div class="ml-3.5 border-l border-border pl-3 py-0.5 overflow-x-hidden">
-            <p class="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Memory</p>
-            <p class="text-xs text-muted-foreground leading-relaxed whitespace-normal break-words">{msg.content.replace(/^Retrieved from memory:\n/, '')}</p>
+        {@const visual = toolVisual(msg.tool)}
+        {@const classes = toolCategoryClasses(visual.category)}
+        {@const resultStatus = msg.status === 'error' ? 'failed' : 'done'}
+        <div class="py-0.5">
+          <div class="rounded-md border {classes.border} bg-muted/15 px-2.5 py-2">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              {#if toolIconName(msg.tool) === 'save'}
+                <BookmarkPlus class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'list'}
+                <List class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'search'}
+                <Search class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'sparkles'}
+                <Sparkles class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'pencil'}
+                <PencilLine class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else if toolIconName(msg.tool) === 'trash'}
+                <Trash2 class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {:else}
+                <Bot class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
+              {/if}
+              <span class="font-medium text-foreground/90">{toolLabel(msg.tool)}</span>
+              <span class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide {toolStatusBadgeClasses(resultStatus)}">{msg.status === 'error' ? 'Failed' : 'Done'}</span>
+            </div>
+            <p class="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap break-words {msg.status === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-muted-foreground'}">{msg.content}</p>
           </div>
         </div>
 
@@ -540,13 +582,13 @@
   </div>
 
   <!-- input area -->
-  <div class="fixed bottom-24 left-1/2 z-50 w-full max-w-2xl -translate-x-1/2 px-4">
+  <div class="shrink-0">
     <Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
       <Card.Content class="p-0 w-full">
         <Textarea
           bind:value={input}
           onkeydown={handleKeydown}
-          placeholder="Ask about your memories..."
+          placeholder="Ask a question about your memories..."
           class="border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
           disabled={loading || loadingSession}
         />

@@ -96,7 +96,7 @@
     {:else}
       <div class="w-10"></div>
     {/if}
-    <EigenWordmark heightClass="h-10" />
+    <EigenWordmark heightClass="h-8" />
     <Popover.Root bind:open={menuOpen}>
       <Popover.Trigger
         class="relative flex size-8 cursor-pointer items-center justify-center overflow-hidden rounded-full text-white"

@@ -1,4 +1,12 @@
-import { captureThought, editStoredThought, listThoughts } from '$lib/server/capture/service';
+import { and, eq } from 'drizzle-orm';
+import {
+	captureThought,
+	deleteThoughtForUser,
+	editStoredThought,
+	listThoughts
+} from '$lib/server/capture/service';
+import { getDb } from '$lib/server/db';
+import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
@@ -69,6 +77,19 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	return { results: filtered };
 }
 
+export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const thoughtId = validateNonEmptyEntityId(
+		typeof body.thought_id === 'string' ? body.thought_id : '',
+		'thought_id'
+	);
+	const result = await deleteThoughtForUser(context.userId, thoughtId);
+	if (!result.ok) {
+		throw new Error('Thought not found');
+	}
+	return { deleted: true, thoughtId };
+}
+
 export async function runEditThoughtTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const thoughtId = validateNonEmptyEntityId(
@@ -79,11 +100,50 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 	if (!editRequest) {
 		throw new Error('edit_request is required');
 	}
+	const [existing] = await getDb()
+		.select({
+			id: thought.id,
+			rawText: thought.rawText,
+			normalizedText: thought.normalizedText,
+			category: thought.category,
+			metadata: thought.metadata
+		})
+		.from(thought)
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, context.userId)))
+		.limit(1);
+
+	if (!existing) {
+		throw new Error('Thought not found');
+	}
+
+	const priorMeta = (existing.metadata as Record<string, unknown>) ?? {};
+	const before = {
+		thoughtId: existing.id,
+		rawText: existing.rawText,
+		normalizedText: existing.normalizedText,
+		category: existing.category,
+		status: typeof priorMeta.status === 'string' ? priorMeta.status : 'open'
+	};
+
 	const updated = await editStoredThought(context.userId, thoughtId, editRequest);
 	if (!updated.ok) {
 		throw new Error('Thought not found');
 	}
-	return { thought: updated.thought };
+
+	const afterMeta = (updated.thought.metadata as Record<string, unknown>) ?? {};
+	return {
+		thought: updated.thought,
+		thoughtId: updated.thought.id,
+		editRequest,
+		summary: updated.editSummary,
+		before,
+		after: {
+			rawText: updated.thought.rawText,
+			normalizedText: updated.thought.normalizedText,
+			category: updated.thought.category,
+			status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
+		}
+	};
 }
 
 export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {

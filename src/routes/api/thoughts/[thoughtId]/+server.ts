@@ -18,7 +18,9 @@ export const GET: RequestHandler = async (event) => {
 			id: thought.id,
 			rawText: thought.rawText,
 			normalizedText: thought.normalizedText,
-			category: thought.category
+			category: thought.category,
+			metadata: thought.metadata,
+			updatedAt: thought.updatedAt
 		})
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, user.id)))

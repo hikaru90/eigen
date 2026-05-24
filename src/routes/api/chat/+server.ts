@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { formatToolResultForDisplay } from '$lib/chat/chat-stream-types';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
 import { getDb } from '$lib/server/db';
@@ -123,9 +124,47 @@ export const POST: RequestHandler = async (event) => {
 		const streamDb = drizzle(streamPg, { schema });
 		const stream = new ReadableStream({
 			start(controller) {
-				const line = (payload: unknown) => {
+				let terminalSent = false;
+				let streamClosed = false;
+
+				const line = (payload: unknown): boolean => {
+					if (streamClosed) return false;
+					try {
 						controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+						return true;
+					} catch (enqueueErr) {
+						console.error('[api/chat] stream enqueue failed', { enqueueErr });
+						return false;
+					}
 				};
+
+				const sendTerminal = (payload: { type: 'done' | 'error'; [key: string]: unknown }) => {
+					if (terminalSent) return;
+					terminalSent = true;
+					line(payload);
+				};
+
+				const closeStream = () => {
+					if (streamClosed) return;
+					streamClosed = true;
+					try {
+						controller.close();
+					} catch {
+						// already closed
+					}
+					streamPg.end().catch(() => {});
+				};
+
+				event.request.signal.addEventListener('abort', () => {
+					if (!terminalSent) {
+						sendTerminal({
+							type: 'error',
+							error: 'Request cancelled.',
+							details: ['client disconnected']
+						});
+					}
+					closeStream();
+				});
 
 				// Buffer of intermediate steps to persist together after the run.
 				const intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }> = [];
@@ -135,6 +174,7 @@ export const POST: RequestHandler = async (event) => {
 						userId: user.id,
 						messages: [...history, { role: 'user', content: message }],
 						onEvent: (evt) => {
+							if (streamClosed) return;
 							line(evt);
 							// Capture intermediate steps for persistence.
 							if (evt.type === 'thinking' && evt.content) {
@@ -143,14 +183,22 @@ export const POST: RequestHandler = async (event) => {
 									metadata: { variant: 'thinking' }
 								});
 							} else if (evt.type === 'tool_call') {
+								const args = evt.arguments ?? {};
 								intermediateSteps.push({
-									content: '',
-									metadata: { variant: 'tool_call', tool: evt.tool, arguments: evt.arguments ?? {} }
+									content: JSON.stringify({ tool: evt.tool, arguments: args }),
+									metadata: { variant: 'tool_call', tool: evt.tool, arguments: args }
 								});
 							} else if (evt.type === 'tool_result') {
+								const preview = evt.preview ?? '';
+								const failed = evt.failed === true;
 								intermediateSteps.push({
-									content: evt.preview ?? '',
-									metadata: { variant: 'tool_result', tool: evt.tool }
+									content: preview,
+									metadata: {
+										variant: 'tool_result',
+										tool: evt.tool,
+										failed,
+										displaySummary: formatToolResultForDisplay(evt.tool, preview)
+									}
 								});
 							}
 						},
@@ -158,6 +206,7 @@ export const POST: RequestHandler = async (event) => {
 					})
 				)
 					.then(async (result) => {
+						if (streamClosed) return;
 						// Persist intermediate steps first (preserves display order on reload).
 						for (const step of intermediateSteps) {
 							await streamDb.insert(chatMessage).values({
@@ -168,7 +217,16 @@ export const POST: RequestHandler = async (event) => {
 								metadata: step.metadata
 							});
 						}
-						const messageId = await persistAssistantMessage(streamDb, sessionId, user.id, result.response);
+						const responseText =
+							typeof result.response === 'string' && result.response.trim().length > 0
+								? result.response
+								: 'The assistant did not produce a response.';
+						const messageId = await persistAssistantMessage(
+							streamDb,
+							sessionId,
+							user.id,
+							responseText
+						);
 						if (isFirstMessage) {
 							const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
 							await streamDb
@@ -176,17 +234,23 @@ export const POST: RequestHandler = async (event) => {
 								.set({ title })
 								.where(eq(chatSession.id, sessionId));
 						}
-						line({ type: 'done', response: result.response, sessionId, messageId });
+						sendTerminal({ type: 'done', response: responseText, sessionId, messageId });
 					})
 					.catch((err) => {
 						const details = collectErrorMessages(err);
 						const msg = details[0] ?? 'An unexpected error occurred.';
 						console.error('[api/chat] agentChat threw', { error: msg, details });
-						line({ type: 'error', error: msg, details });
+						sendTerminal({ type: 'error', error: msg, details });
 					})
 					.finally(() => {
-						controller.close();
-						streamPg.end().catch(() => {});
+						if (!terminalSent && !streamClosed) {
+							sendTerminal({
+								type: 'error',
+								error: 'Chat ended before a response was received.',
+								details: ['stream closed without terminal event']
+							});
+						}
+						closeStream();
 					});
 			}
 		});

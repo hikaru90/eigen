@@ -9,10 +9,9 @@ When status is **open**, the assistant should **hard-stop** on implementation gu
 - **Affected locations:** Docker init creates AGE graph `eigen_graph` ([`docker/postgres/init/01-extensions.sql`](../../docker/postgres/init/01-extensions.sql)). App graph operations (capture sync, retrieval expansion, graph page) use Falkor ([`src/lib/server/graph/falkor.ts`](../../src/lib/server/graph/falkor.ts)). Planning/guardrail docs still describe “pgvector + AGE” as core ([`AGENTS.md`](../../AGENTS.md), [`docs/planning/`](../../docs/planning/)).
 - **Risk:** Misleading mental model: someone adds AGE queries expecting them to stay in sync with Falkor; dual graph drift.
 
-### C002 — MCP `list_thoughts` not exposed over HTTP MCP (**open**)
+### C002 — MCP `list_thoughts` not exposed over HTTP MCP (**resolved**)
 
-- **Affected locations:** `runListThoughtsTool` exists in [`src/lib/server/mcp/tools.ts`](../../src/lib/server/mcp/tools.ts) (and tests) but [`src/routes/api/mcp/+server.ts`](../../src/routes/api/mcp/+server.ts) `TOOL_MAP` / `TOOL_DEFINITIONS` only register capture, retrieve, edit, answer.
-- **Risk:** External MCP clients cannot list thoughts via the same endpoint; behavior differs from a “full tool suite” expectation.
+- **Resolution:** [`src/lib/server/mcp/registry.ts`](../../src/lib/server/mcp/registry.ts) registers `list_thoughts`, `delete_thought`, and the rest of the tool suite for both HTTP MCP and `/chat` agent loop.
 
 ### Resolution playbook (short)
 

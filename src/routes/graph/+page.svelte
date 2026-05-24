@@ -116,8 +116,15 @@
     rawText: string;
     normalizedText: string;
     category: string;
+    metadata?: Record<string, unknown> | null;
     createdAt: string;
   };
+
+  function thoughtLifecycleStatus(metadata: unknown): string | null {
+    if (!metadata || typeof metadata !== "object") return null;
+    const s = (metadata as { status?: unknown }).status;
+    return typeof s === "string" ? s : null;
+  }
   let entityCaptures = $state<EntityCaptureRow[]>([]);
   let entityCapturesLoading = $state(false);
   let entityCapturesErr = $state<string | null>(null);
@@ -1406,7 +1413,12 @@
                       <li class="rounded-md border border-black/5 p-2 dark:border-white/10">
                         <p class="text-foreground line-clamp-2 text-xs">{cap.rawText}</p>
                         <div class="mt-2 flex items-center justify-between gap-2">
-                          <span class="text-muted-foreground font-mono text-[10px]">{cap.category}</span>
+                          <span class="text-muted-foreground font-mono text-[10px]">
+                            {cap.category}
+                            {#if thoughtLifecycleStatus(cap.metadata) === "completed"}
+                              <span class="text-accent ml-1">· completed</span>
+                            {/if}
+                          </span>
                           <Button
                             type="button"
                             size="sm"

@@ -1,0 +1,125 @@
+import {
+	CAPTURE_QUEUE_DB_NAME,
+	CAPTURE_QUEUE_DB_VERSION,
+	CAPTURE_QUEUE_STORE,
+	type CaptureQueueItem,
+	type CaptureQueueStatus
+} from './types';
+
+function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
+	return new Promise((resolve, reject) => {
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
+	});
+}
+
+function transactionDone(tx: IDBTransaction): Promise<void> {
+	return new Promise((resolve, reject) => {
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
+		tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+	});
+}
+
+export function openCaptureQueueDb(): Promise<IDBDatabase> {
+	if (typeof indexedDB === 'undefined') {
+		return Promise.reject(new Error('IndexedDB is not available'));
+	}
+	return new Promise((resolve, reject) => {
+		const req = indexedDB.open(CAPTURE_QUEUE_DB_NAME, CAPTURE_QUEUE_DB_VERSION);
+		req.onerror = () => reject(req.error ?? new Error('Failed to open capture queue database'));
+		req.onsuccess = () => resolve(req.result);
+		req.onupgradeneeded = () => {
+			const db = req.result;
+			if (!db.objectStoreNames.contains(CAPTURE_QUEUE_STORE)) {
+				const store = db.createObjectStore(CAPTURE_QUEUE_STORE, { keyPath: 'id' });
+				store.createIndex('status', 'status', { unique: false });
+				store.createIndex('createdAt', 'createdAt', { unique: false });
+			}
+		};
+	});
+}
+
+export async function listCaptureQueueItems(): Promise<CaptureQueueItem[]> {
+	const db = await openCaptureQueueDb();
+	try {
+		const tx = db.transaction(CAPTURE_QUEUE_STORE, 'readonly');
+		const store = tx.objectStore(CAPTURE_QUEUE_STORE);
+		const items = await requestToPromise(store.getAll());
+		await transactionDone(tx);
+		return (items as CaptureQueueItem[]).sort((a, b) => a.createdAt - b.createdAt);
+	} finally {
+		db.close();
+	}
+}
+
+export async function putCaptureQueueItem(item: CaptureQueueItem): Promise<void> {
+	const db = await openCaptureQueueDb();
+	try {
+		const tx = db.transaction(CAPTURE_QUEUE_STORE, 'readwrite');
+		tx.objectStore(CAPTURE_QUEUE_STORE).put(item);
+		await transactionDone(tx);
+	} finally {
+		db.close();
+	}
+}
+
+export async function deleteCaptureQueueItem(id: string): Promise<void> {
+	const db = await openCaptureQueueDb();
+	try {
+		const tx = db.transaction(CAPTURE_QUEUE_STORE, 'readwrite');
+		tx.objectStore(CAPTURE_QUEUE_STORE).delete(id);
+		await transactionDone(tx);
+	} finally {
+		db.close();
+	}
+}
+
+export async function updateCaptureQueueItem(
+	id: string,
+	patch: Partial<Pick<CaptureQueueItem, 'status' | 'attempts' | 'lastError'>>
+): Promise<CaptureQueueItem | null> {
+	const db = await openCaptureQueueDb();
+	try {
+		const tx = db.transaction(CAPTURE_QUEUE_STORE, 'readwrite');
+		const store = tx.objectStore(CAPTURE_QUEUE_STORE);
+		const existing = (await requestToPromise(store.get(id))) as CaptureQueueItem | undefined;
+		if (!existing) {
+			await transactionDone(tx);
+			return null;
+		}
+		const next: CaptureQueueItem = { ...existing, ...patch };
+		store.put(next);
+		await transactionDone(tx);
+		return next;
+	} finally {
+		db.close();
+	}
+}
+
+export async function getNextPendingCaptureItem(): Promise<CaptureQueueItem | null> {
+	const items = await listCaptureQueueItems();
+	return items.find((i) => i.status === 'pending') ?? null;
+}
+
+export async function enqueueCaptureRaw(raw: string, id = crypto.randomUUID()): Promise<CaptureQueueItem> {
+	const trimmed = raw.trim();
+	if (!trimmed) throw new Error('raw is required');
+	const item: CaptureQueueItem = {
+		id,
+		raw: trimmed,
+		createdAt: Date.now(),
+		status: 'pending',
+		attempts: 0
+	};
+	await putCaptureQueueItem(item);
+	return item;
+}
+
+export async function setCaptureQueueStatus(
+	id: string,
+	status: CaptureQueueStatus,
+	extra?: Partial<Pick<CaptureQueueItem, 'attempts' | 'lastError'>>
+): Promise<CaptureQueueItem | null> {
+	return updateCaptureQueueItem(id, { status, ...extra });
+}

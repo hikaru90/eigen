@@ -15,6 +15,7 @@ import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
+import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
 import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
 
 /** Explicit MVP pricing unit until the LLM ingest path is wired. */
@@ -237,15 +238,73 @@ export async function editStoredThought(
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
-	const editedRaw = editRequest.trim();
+	const applied = await applyThoughtEditRequest({
+		userId,
+		existingRawText: existing.rawText,
+		existingNormalizedText: existing.normalizedText,
+		category: existing.category,
+		editRequest
+	});
+
+	const priorMeta = (existing.metadata as Record<string, unknown>) ?? {};
+	const editedRaw = applied.rawText;
+	const textChanged = editedRaw !== existing.rawText;
+	const priorStatus = typeof priorMeta.status === 'string' ? priorMeta.status : 'open';
+	const nextStatus = applied.status ?? priorStatus;
+
+	const metadataPatch: Record<string, unknown> = {
+		...priorMeta,
+		lastEditRequest: editRequest.trim(),
+		lastEditSummary: applied.summary,
+		status: nextStatus,
+		...(nextStatus === 'completed' ? { completedAt: new Date().toISOString() } : {})
+	};
+
+	if (!textChanged) {
+		await emitProgress(onProgress, 'persist');
+		const [updated] = await getDb()
+			.update(thought)
+			.set({
+				metadata: metadataPatch,
+				updatedAt: new Date()
+			})
+			.where(eq(thought.id, thoughtId))
+			.returning({
+				id: thought.id,
+				userId: thought.userId,
+				rawText: thought.rawText,
+				normalizedText: thought.normalizedText,
+				lexicalText: thought.lexicalText,
+				category: thought.category,
+				metadata: thought.metadata
+			});
+
+		await emitProgress(onProgress, 'graph');
+		await upsertThoughtNode({
+			id: updated!.id,
+			userId,
+			category: updated!.category
+		});
+
+		await logCaptureActivity(userId, 'capture_edit', applied.summary.slice(0, 100), Date.now() - editStart);
+		return { ok: true as const, thought: updated!, editSummary: applied.summary };
+	}
+
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
 	await emitProgress(onProgress, 'ontology');
-	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = await resolveThoughtCategory({
-		userId,
-		normalized,
-		rawText: editedRaw
-	});
-	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
+	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } =
+		await resolveThoughtCategory({
+			userId,
+			normalized,
+			rawText: editedRaw
+		});
+	const metadata = {
+		...metadataPatch,
+		...baseMeta,
+		categorySource: 'llm',
+		categoryConfidence,
+		categoryAlternatives
+	};
 	const lexicalText = computeLexicalText(normalized);
 	await emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
@@ -260,13 +319,8 @@ export async function editStoredThought(
 			embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 			category,
 			ontologyEntityKindId,
-			// Reset enrichment state so background job re-runs on the new text.
 			enrichedAt: null,
-			metadata: {
-				...(existing.metadata as Record<string, unknown>),
-				...metadata,
-				lastEditRequest: editRequest.trim()
-			},
+			metadata,
 			updatedAt: new Date()
 		})
 		.where(eq(thought.id, thoughtId))
@@ -280,7 +334,6 @@ export async function editStoredThought(
 			metadata: thought.metadata
 		});
 
-	// Fast path: sync FalkorDB node with new text.
 	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: updated!.id,
@@ -288,9 +341,8 @@ export async function editStoredThought(
 		category: updated!.category
 	});
 
-	await logCaptureActivity(userId, 'capture_edit', editRequest.slice(0, 100), Date.now() - editStart);
+	await logCaptureActivity(userId, 'capture_edit', applied.summary.slice(0, 100), Date.now() - editStart);
 
-	// Same pattern as capture: await when user is watching (UI path), fire-and-forget otherwise.
 	if (onProgress) {
 		await reenrichThought(userId, updated!.id, updated!.normalizedText, {
 			onProgress,
@@ -302,7 +354,7 @@ export async function editStoredThought(
 		});
 	}
 
-	return { ok: true as const, thought: updated! };
+	return { ok: true as const, thought: updated!, editSummary: applied.summary };
 }
 
 export type RelinkThoughtGraphOptions = {

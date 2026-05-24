@@ -18,7 +18,8 @@ const {
 	deleteThoughtVertexFromGraphMock,
 	resolveThoughtCategoryMock,
 	enrichThoughtMock,
-	reenrichThoughtMock
+	reenrichThoughtMock,
+	applyThoughtEditRequestMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	logActivityCallMock: vi.fn(),
@@ -29,7 +30,8 @@ const {
 	deleteThoughtVertexFromGraphMock: vi.fn(),
 	resolveThoughtCategoryMock: vi.fn(),
 	enrichThoughtMock: vi.fn(),
-	reenrichThoughtMock: vi.fn()
+	reenrichThoughtMock: vi.fn(),
+	applyThoughtEditRequestMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -58,6 +60,10 @@ vi.mock('$lib/server/graph/falkor', () => ({
 vi.mock('$lib/server/ontology', () => ({
 	resolveThoughtCategory: resolveThoughtCategoryMock,
 	maybeRefreshUserOntology: vi.fn()
+}));
+
+vi.mock('$lib/server/capture/apply-thought-edit', () => ({
+	applyThoughtEditRequest: applyThoughtEditRequestMock
 }));
 
 /**
@@ -209,6 +215,11 @@ describe('editStoredThought', () => {
 		createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5]);
 		resolveThoughtCategoryMock.mockResolvedValue({ key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] });
 		reenrichThoughtMock.mockResolvedValue(undefined);
+		applyThoughtEditRequestMock.mockImplementation(async (input: { existingRawText: string; editRequest: string }) => ({
+			rawText: input.editRequest.includes('complete') ? input.existingRawText : input.editRequest,
+			status: input.editRequest.includes('complete') ? ('completed' as const) : null,
+			summary: input.editRequest.includes('complete') ? 'Marked complete' : 'Text updated'
+		}));
 	});
 
 	it('returns not_found when thought does not exist', async () => {
@@ -279,6 +290,46 @@ describe('editStoredThought', () => {
 			'make shorter',
 			expect.objectContaining({ thoughtEmbedding: [0.5, 0.5] })
 		);
+	});
+
+	it('skips re-embed when completion-only edit leaves text unchanged', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'Buy milk',
+			metadata: { status: 'open' },
+			category: 'task',
+			normalizedText: 'Buy milk',
+			lexicalText: 'buy milk'
+		};
+		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		applyThoughtEditRequestMock.mockResolvedValue({
+			rawText: 'Buy milk',
+			status: 'completed',
+			summary: 'Marked complete'
+		});
+
+		const result = await editStoredThought('u1', 't1', 'mark as completed');
+		expect(result.ok).toBe(true);
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+		expect(reenrichThoughtMock).not.toHaveBeenCalled();
 	});
 
 	it('reports fast-path ingest phases for edits when onProgress is provided', async () => {
