@@ -4,7 +4,7 @@ Goal: keep [`README.md`](../../README.md) (L0), [`index.md`](./index.md) (L1), d
 
 ## After you change behavior in code
 
-1. **Default:** Update only the **domain L2** file that owns that behavior (e.g. capture pipeline → `ingestion.md`).
+1. **Default:** Update only the **domain L2** file that owns that behavior (e.g. server capture pipeline → `ingestion.md`; browser queue / `/capture` submit UX → `capture-queue.md`).
 2. **If you add or rename a domain** (rare): Update `index.md` and add/remove an L2 file.
 3. **If project scope or top-level flows change:** Update the short “Repo map” paragraph in `README.md`.
 4. **If you introduce or fix overlap between systems:** Add or resolve a row in `conflicts.md` and adjust the `CompetingSystems` section in the affected domain file(s).

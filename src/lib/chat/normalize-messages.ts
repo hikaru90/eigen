@@ -19,10 +19,30 @@ export type ChatToolResultEntry = {
 	displaySummary?: string;
 };
 
+export type ChatTimelineKind =
+	| 'llm_progress'
+	| 'tool_call'
+	| 'tool_executing'
+	| 'tool_progress'
+	| 'tool_result';
+
+export type ChatTimelineEntry = {
+	role: 'assistant';
+	variant: 'timeline';
+	kind: ChatTimelineKind;
+	label: string;
+	tool?: string;
+	arguments?: Record<string, unknown>;
+	/** Raw tool_result JSON for evidence rendering. */
+	content?: string;
+	failed?: boolean;
+};
+
 export type ChatDisplayEntry =
 	| { role: 'user'; content: string }
 	| { role: 'assistant'; variant: 'text'; content: string }
 	| { role: 'assistant'; variant: 'thinking'; content: string }
+	| ChatTimelineEntry
 	| ChatToolCallEntry
 	| ChatToolResultEntry;
 
@@ -72,8 +92,27 @@ export function mergeToolCallPairs(entries: ChatDisplayEntry[]): ChatDisplayEntr
 	return merged;
 }
 
+function hasTimelineEntries(entries: ChatDisplayEntry[]): boolean {
+	return entries.some((e) => e.role === 'assistant' && e.variant === 'timeline');
+}
+
 /** Collapse duplicate tool cards and drop redundant final text after Q&A compose. */
 export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEntry[] {
+	if (hasTimelineEntries(entries)) {
+		return entries.filter((entry, i, arr) => {
+			if (entry.role !== 'assistant' || entry.variant !== 'timeline' || entry.kind !== 'tool_progress') {
+				return true;
+			}
+			const prev = arr[i - 1];
+			return !(
+				prev?.role === 'assistant' &&
+				prev.variant === 'timeline' &&
+				prev.kind === 'tool_progress' &&
+				prev.label === entry.label
+			);
+		});
+	}
+
 	const merged = mergeToolCallPairs(entries);
 	const out: ChatDisplayEntry[] = [];
 
@@ -99,7 +138,8 @@ export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEn
 			prev.variant === 'tool_call' &&
 			prev.tool === 'answer_question' &&
 			prev.status === 'done' &&
-			prev.result
+			prev.result &&
+			normalizeAnswerText(prev.result) === normalizeAnswerText(entry.content)
 		) {
 			continue;
 		}
@@ -177,4 +217,40 @@ export function toolStepToDisplayEntry(input: {
 		result: input.content,
 		displaySummary: input.displaySummary
 	};
+}
+
+/** Expand persisted tool_step into transparent timeline rows for reload. */
+export function toolStepToTimelineEntries(input: {
+	tool: string;
+	arguments?: Record<string, unknown>;
+	content: string;
+	failed?: boolean;
+}): ChatTimelineEntry[] {
+	const tool = input.tool;
+	return [
+		{
+			role: 'assistant',
+			variant: 'timeline',
+			kind: 'tool_call',
+			tool,
+			label: `Tool call · ${tool}`,
+			arguments: input.arguments ?? {}
+		},
+		{
+			role: 'assistant',
+			variant: 'timeline',
+			kind: 'tool_executing',
+			tool,
+			label: `Executing tool · ${tool}`
+		},
+		{
+			role: 'assistant',
+			variant: 'timeline',
+			kind: 'tool_result',
+			tool,
+			label: `Tool result · ${tool}`,
+			content: input.content,
+			failed: input.failed === true
+		}
+	];
 }

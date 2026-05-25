@@ -1,4 +1,10 @@
-import { enqueueCaptureRaw, listCaptureQueueItems } from './db';
+import {
+	deleteCaptureQueueItem,
+	enqueueCaptureRaw,
+	listCaptureQueueItems,
+	recoverStuckProcessingCaptureItems
+} from './db';
+import { buildCaptureQueueSnapshot } from './snapshot';
 import { drainCaptureQueue } from './drain';
 import { registerCaptureQueueBackgroundSync } from './sync-registration';
 import {
@@ -13,20 +19,32 @@ type RunnerListener = (message: CaptureQueueBroadcast) => void;
 
 let started = false;
 let draining = false;
+let drainingItemId: string | null = null;
 let activeAbort: AbortController | null = null;
 const listeners = new Set<RunnerListener>();
 let channel: BroadcastChannel | null = null;
+
+/** Identifies this tab so BroadcastChannel echoes are not delivered twice locally. */
+const tabOrigin =
+	typeof crypto !== 'undefined' && 'randomUUID' in crypto
+		? crypto.randomUUID()
+		: `tab-${Math.random()}`;
+
+type CaptureQueueBroadcastWire = CaptureQueueBroadcast & { _origin?: string };
 
 function notifyListeners(message: CaptureQueueBroadcast) {
 	for (const listener of listeners) listener(message);
 }
 
-/** Deliver queue updates to this tab and any other open tabs (without double-firing locally). */
+/**
+ * Notify subscribers in this tab synchronously, then fan out to other tabs.
+ * Previously only postMessage was used when BroadcastChannel existed, so progress
+ * events could be dropped if they were handled before the async `active` message.
+ */
 function emit(message: CaptureQueueBroadcast) {
+	notifyListeners(message);
 	if (channel) {
-		channel.postMessage(message);
-	} else {
-		notifyListeners(message);
+		channel.postMessage({ ...message, _origin: tabOrigin } satisfies CaptureQueueBroadcastWire);
 	}
 }
 
@@ -34,8 +52,12 @@ function ensureChannel() {
 	if (typeof BroadcastChannel === 'undefined') return;
 	if (!channel) {
 		channel = new BroadcastChannel(CAPTURE_QUEUE_CHANNEL);
-		channel.onmessage = (event: MessageEvent<CaptureQueueBroadcast>) => {
-			notifyListeners(event.data);
+		channel.onmessage = (event: MessageEvent<CaptureQueueBroadcastWire>) => {
+			const data = event.data;
+			if (!data || typeof data !== 'object' || !('type' in data)) return;
+			if (data._origin === tabOrigin) return;
+			const { _origin: _, ...message } = data;
+			notifyListeners(message);
 		};
 	}
 }
@@ -68,21 +90,24 @@ async function kickDrain() {
 		await drainCaptureQueue({
 			signal: ac.signal,
 			streamProgress: true,
-			broadcast: emit
+			broadcast: (message) => {
+				if (message.type === 'active') drainingItemId = message.id;
+				if (message.type === 'done' || message.type === 'failed' || message.type === 'idle') {
+					drainingItemId = null;
+				}
+				emit(message);
+			}
 		});
 	} finally {
 		draining = false;
+		drainingItemId = null;
 		if (activeAbort === ac) activeAbort = null;
 	}
 }
 
 export async function enqueueCapture(raw: string): Promise<CaptureQueueItem> {
 	const item = await enqueueCaptureRaw(raw);
-	emit({
-		type: 'snapshot',
-		pending: (await listCaptureQueueItems()).filter((i) => i.status === 'pending').length,
-		processingId: null
-	});
+	emit(await buildCaptureQueueSnapshot());
 	if (typeof navigator !== 'undefined' && !navigator.onLine) {
 		await registerCaptureQueueBackgroundSync();
 	} else {
@@ -91,9 +116,18 @@ export async function enqueueCapture(raw: string): Promise<CaptureQueueItem> {
 	return item;
 }
 
-export function cancelActiveCapture(): void {
+function cancelActiveCapture(): void {
 	activeAbort?.abort();
 	activeAbort = null;
+}
+
+/** Remove one queued capture; aborts in-flight work when cancelling the active item. */
+export async function cancelCaptureQueueItem(id: string): Promise<void> {
+	await deleteCaptureQueueItem(id);
+	if (drainingItemId === id) {
+		cancelActiveCapture();
+	}
+	emit(await buildCaptureQueueSnapshot());
 }
 
 export function startCaptureQueueRunner(): void {
@@ -124,13 +158,10 @@ export function startCaptureQueueRunner(): void {
 	}
 
 	void (async () => {
+		await recoverStuckProcessingCaptureItems();
 		const snap = await getCaptureQueueSnapshot();
 		if (snap.pending > 0 || snap.processingId) {
-			emit({
-				type: 'snapshot',
-				pending: snap.pending,
-				processingId: snap.processingId
-			});
+			emit(await buildCaptureQueueSnapshot());
 			void kickDrain();
 		}
 	})();

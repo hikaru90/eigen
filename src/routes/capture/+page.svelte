@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
-	import IngestPhaseIndicator from '$lib/components/ingest-phase-indicator.svelte';
+	import CaptureQueueList from '$lib/components/capture-queue-list.svelte';
+	import CaptureQueueStatus from '$lib/components/capture-queue-status.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -10,12 +11,19 @@
 	import { CAPTURE_PIPELINE } from '$lib/capture/ingest-phases';
 	import { consumeCaptureNdjsonStream, type ProgressEvent } from '$lib/capture/consume-capture-ndjson';
 	import {
-		cancelActiveCapture,
+		cancelCaptureQueueItem,
 		enqueueCapture,
 		getCaptureQueueSnapshot,
 		subscribeCaptureQueue,
+		type CaptureQueueItem,
 		type CaptureSubmitResult
 	} from '$lib/capture/queue';
+	import {
+		applyCaptureQueueActive,
+		applyCaptureQueueSnapshot,
+		initialCaptureQueueUiState,
+		type CaptureQueueUiState
+	} from '$lib/capture/queue/ui-state';
 	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -28,10 +36,15 @@
 	let showEdit = $state(false);
 	let err = $state<string | null>(null);
 
-	let activeCaptureId = $state<string | null>(null);
-	let pendingCount = $state(0);
-	let loading = $derived(activeCaptureId !== null);
+	let queueUi = $state<CaptureQueueUiState>(initialCaptureQueueUiState());
+	/** Mirrors in-flight capture id for progress matching (updated synchronously in queue handlers). */
+	let processingCaptureId = $state<string | null>(null);
+	let pendingCount = $derived(queueUi.pendingCount);
+	let loading = $derived(processingCaptureId !== null);
+	const queueActive = $derived(pendingCount > 0 || processingCaptureId !== null);
+	const offline = $derived(typeof navigator !== 'undefined' && !navigator.onLine);
 
+	let queueItems = $state<CaptureQueueItem[]>([]);
 	let progressEvents = $state<Array<{ event: ProgressEvent; arrivedAt: number }>>([]);
 	let captureStartMs = $state(0);
 
@@ -44,10 +57,42 @@
 		return base ? `${base} ${next}` : next;
 	}
 
-	function cancelCapture() {
-		cancelActiveCapture();
-		activeCaptureId = null;
-		progressEvents = [];
+	function applyQueueSnapshot(snapshot: {
+		items: CaptureQueueItem[];
+		pending: number;
+		processingId: string | null;
+	}) {
+		queueItems = snapshot.items;
+		queueUi = applyCaptureQueueSnapshot(queueUi, {
+			pending: snapshot.pending,
+			processingId: snapshot.processingId
+		});
+		processingCaptureId = snapshot.processingId;
+	}
+
+	async function reconcileQueueState(clearProgressWhenIdle = true) {
+		const snap = await getCaptureQueueSnapshot();
+		const hadActive = processingCaptureId != null;
+		applyQueueSnapshot(snap);
+		if (snap.processingId && !hadActive) {
+			captureStartMs = Date.now();
+		}
+		if (clearProgressWhenIdle && !snap.processingId) {
+			progressEvents = [];
+		}
+	}
+
+	async function cancelQueuedItem(id: string) {
+		err = null;
+		if (processingCaptureId === id) {
+			progressEvents = [];
+		}
+		try {
+			await cancelCaptureQueueItem(id);
+			await reconcileQueueState(false);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+		}
 	}
 
 	function pushEvent(event: ProgressEvent) {
@@ -55,25 +100,24 @@
 	}
 
 	onMount(() => {
-		void getCaptureQueueSnapshot().then((snap) => {
-			pendingCount = snap.pending;
-			activeCaptureId = snap.processingId;
-		});
+		void reconcileQueueState(false);
 
 		const unsub = subscribeCaptureQueue((message) => {
 			if (message.type === 'snapshot') {
-				pendingCount = message.pending;
-				activeCaptureId = message.processingId;
+				applyQueueSnapshot(message);
 				return;
 			}
 			if (message.type === 'active') {
-				activeCaptureId = message.id;
+				if (processingCaptureId !== message.id) {
+					progressEvents = [];
+					captureStartMs = Date.now();
+				}
+				processingCaptureId = message.id;
+				queueUi = applyCaptureQueueActive(queueUi, message.id);
 				err = null;
-				progressEvents = [];
-				captureStartMs = Date.now();
 				return;
 			}
-			if (message.type === 'progress' && message.id === activeCaptureId) {
+			if (message.type === 'progress' && processingCaptureId === message.id) {
 				pushEvent(message.event);
 				return;
 			}
@@ -81,23 +125,30 @@
 				stored = message.thought;
 				showEdit = false;
 				editRequest = '';
-				if (message.id === activeCaptureId) {
-					activeCaptureId = null;
-					progressEvents = [];
-				}
+				progressEvents = [];
+				processingCaptureId = null;
+				queueUi = {
+					...queueUi,
+					activeCaptureId: null,
+					recentlyActivatedId: null
+				};
+				void reconcileQueueState(false);
 				return;
 			}
 			if (message.type === 'failed') {
 				err = message.error;
-				if (message.id === activeCaptureId) {
-					activeCaptureId = null;
-					progressEvents = [];
-				}
+				progressEvents = [];
+				processingCaptureId = null;
+				queueUi = {
+					...queueUi,
+					activeCaptureId: null,
+					recentlyActivatedId: null
+				};
+				void reconcileQueueState(false);
 				return;
 			}
 			if (message.type === 'idle') {
-				activeCaptureId = null;
-				progressEvents = [];
+				void reconcileQueueState();
 			}
 		});
 
@@ -119,12 +170,16 @@
 		err = null;
 		const text = raw;
 		raw = '';
+		queueUi = { ...queueUi, pendingCount: queueUi.pendingCount + 1 };
 		try {
 			await enqueueCapture(text);
-			const snap = await getCaptureQueueSnapshot();
-			pendingCount = snap.pending;
+			await reconcileQueueState(false);
 		} catch (e) {
 			raw = text;
+			queueUi = {
+				...queueUi,
+				pendingCount: Math.max(0, queueUi.pendingCount - 1)
+			};
 			err = e instanceof Error ? e.message : String(e);
 		}
 	}
@@ -133,7 +188,6 @@
 		if (!stored) return;
 		err = null;
 		progressEvents = [];
-		captureStartMs = Date.now();
 		editLoading = true;
 		const ac = new AbortController();
 		editAbortController = ac;
@@ -198,7 +252,7 @@
 					id="thought"
 					bind:value={raw}
 					placeholder="Enter your thought…"
-					class="min-h-[128px] p-6 text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
+					class="min-h-[128px] p-6 text-base md:text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
 				/>
 			</Card.Content>
 			<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full">
@@ -214,16 +268,6 @@
 							err = message;
 						}}
 					/>
-					{#if loading}
-						<Button
-							type="button"
-							variant="ghost"
-							class="rounded-none px-4 py-[7.5px] text-sm font-medium leading-6 h-auto text-muted-foreground hover:text-destructive"
-							onclick={cancelCapture}
-						>
-							Cancel
-						</Button>
-					{/if}
 					<Button
 						type="button"
 						class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
@@ -236,20 +280,18 @@
 			</Card.Footer>
 		</Card.Root>
 
-		{#if pendingCount > 0 && !loading}
-			<p class="text-muted-foreground text-xs">
-				{pendingCount} capture{pendingCount === 1 ? '' : 's'} queued{typeof navigator !== 'undefined' && !navigator.onLine ? ' (offline)' : ''}.
-			</p>
-		{/if}
-
-		{#if loading}
-			<div class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4">
-				<IngestPhaseIndicator
-					events={progressEvents}
-					pipeline={CAPTURE_PIPELINE}
-					startMs={captureStartMs}
-				/>
-			</div>
+		{#if queueActive}
+			<CaptureQueueList
+				items={queueItems}
+				processingId={processingCaptureId}
+				events={progressEvents}
+				pipeline={CAPTURE_PIPELINE}
+				startMs={captureStartMs}
+				oncancel={(id) => void cancelQueuedItem(id)}
+			/>
+			{#if offline && pendingCount > 0 && !loading}
+				<p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
+			{/if}
 		{/if}
 
 		{#if err}
@@ -283,6 +325,16 @@
 			</Card.Root>
 
 			{#if showEdit}
+				{#if editLoading}
+					<div class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none px-4 py-3">
+						<CaptureQueueStatus
+							processing={true}
+							pendingCount={0}
+							events={progressEvents.map((row) => row.event)}
+							pipeline={CAPTURE_PIPELINE}
+						/>
+					</div>
+				{/if}
 				<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible">
 					<Card.Content class="p-4 space-y-2 w-full">
 						<Label for="edit" class="text-sm">Describe your changes in plain language</Label>

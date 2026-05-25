@@ -1,5 +1,6 @@
 import {
 	deleteCaptureQueueItem,
+	listCaptureQueueItems,
 	setCaptureQueueStatus,
 	updateCaptureQueueItem
 } from './db';
@@ -37,7 +38,10 @@ export async function processCaptureQueueItem(
 		return { outcome: 'done', thought };
 	} catch (err) {
 		if (options?.signal?.aborted) {
-			await setCaptureQueueStatus(item.id, 'pending');
+			const stillQueued = (await listCaptureQueueItems()).some((i) => i.id === item.id);
+			if (stillQueued) {
+				await setCaptureQueueStatus(item.id, 'pending');
+			}
 			throw err;
 		}
 

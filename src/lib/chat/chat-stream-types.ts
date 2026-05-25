@@ -2,6 +2,7 @@ export type ChatStreamEvent =
 	| { type: 'thinking'; content: string }
 	| { type: 'agent_progress'; label: string }
 	| { type: 'tool_call'; tool: string; arguments: Record<string, unknown> }
+	| { type: 'tool_executing'; tool: string }
 	| { type: 'tool_progress'; tool: string; phase: string; label: string }
 	| { type: 'tool_result'; tool: string; preview: string; failed?: boolean }
 	| { type: 'done'; response: string; sessionId: string; messageId: string }
@@ -33,7 +34,7 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
 	capture_thought: { title: 'Saving to memory', category: 'write', icon: 'save' },
 	list_thoughts: { title: 'Listing thoughts', category: 'memory', icon: 'list' },
 	retrieve_thoughts: { title: 'Searching your memories', category: 'search', icon: 'search' },
-	answer_question: { title: 'Analyzing and composing answer', category: 'compose', icon: 'sparkles' },
+	answer_question: { title: 'Answering your question', category: 'compose', icon: 'sparkles' },
 	edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
 	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' }
 };
@@ -199,6 +200,7 @@ function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView 
 	const sources = [parsed.results, parsed.retrieved, parsed.thoughts].find(Array.isArray);
 	if (!Array.isArray(sources)) return null;
 
+	const uniqueHits = new Map<string, ToolResultMemoryHit>();
 	const hits: ToolResultMemoryHit[] = sources
 		.map((row) => {
 			if (!row || typeof row !== 'object') return null;
@@ -216,7 +218,19 @@ function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView 
 				category: typeof r.category === 'string' ? r.category : undefined
 			};
 		})
-		.filter((h): h is ToolResultMemoryHit => h !== null);
+		.filter((h): h is ToolResultMemoryHit => h !== null)
+		.filter((hit) => {
+			const key = `${hit.text.toLowerCase()}::${hit.category?.toLowerCase() ?? ''}`;
+			const existing = uniqueHits.get(key);
+			if (existing) {
+				if (!existing.id && hit.id) {
+					uniqueHits.set(key, hit);
+				}
+				return false;
+			}
+			uniqueHits.set(key, hit);
+			return true;
+		});
 
 	return { kind: 'memories', hits };
 }
@@ -384,4 +398,78 @@ export function formatToolResultForDisplay(tool: string, preview: string): strin
 	const view = parseToolResultPreview(tool, preview);
 	if (view) return toolResultViewToText(view);
 	return preview.length > 500 ? `${preview.slice(0, 500)}...` : preview;
+}
+
+const CITATION_TOKEN_RE = /\[([A-Za-z0-9_-]+)\]/g;
+
+function stripCitationTokens(text: string): string {
+	return text.replace(CITATION_TOKEN_RE, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Split composed answer_question text into user-facing answer and evidence lines. */
+export function parseComposedAnswerSections(rawAnswer: string): {
+	answerText: string;
+	evidenceLines: string[];
+} {
+	const lines = rawAnswer.split(/\r?\n/);
+	let answerText = '';
+	const evidenceLines: string[] = [];
+	let section: 'none' | 'evidence' | 'unknown' = 'none';
+
+	for (const rawLine of lines) {
+		const line = rawLine.trim();
+		if (!line) continue;
+		if (/^answer\s*:/i.test(line)) {
+			answerText = stripCitationTokens(line.replace(/^answer\s*:/i, '').trim());
+			section = 'none';
+			continue;
+		}
+		if (/^evidence\s*:/i.test(line)) {
+			section = 'evidence';
+			continue;
+		}
+		if (/^unknown\s*:/i.test(line)) {
+			section = 'unknown';
+			continue;
+		}
+		if (section === 'evidence' && /^-\s*/.test(line)) {
+			const cleaned = stripCitationTokens(line.replace(/^-+\s*/, ''));
+			if (cleaned) evidenceLines.push(cleaned);
+		}
+	}
+
+	if (!answerText) {
+		answerText = stripCitationTokens(rawAnswer);
+	}
+	return { answerText, evidenceLines };
+}
+
+/** Evidence rows for answer_question tool_result JSON (retrieved + citations). */
+export function evidenceHitsFromAnswerQuestionPayload(preview: string): ToolResultMemoryHit[] {
+	const view = parseToolResultPreview('answer_question', preview);
+	if (view?.kind === 'memories') return view.hits;
+	if (view?.kind === 'text') {
+		return parseComposedAnswerSections(view.text).evidenceLines.map((text) => ({ text }));
+	}
+	return [];
+}
+
+/** Clean final reply text for the answer bubble (no Answer:/Evidence:/Unknown headers). */
+export function parseFinalAnswerText(response: string, toolResultPreview?: string): string {
+	if (toolResultPreview) {
+		const parsed = parseToolResultPreview('answer_question', toolResultPreview);
+		if (parsed?.kind === 'text') {
+			return parseComposedAnswerSections(parsed.text).answerText;
+		}
+		try {
+			let obj: unknown = JSON.parse(toolResultPreview);
+			if (typeof obj === 'string') obj = JSON.parse(obj);
+			if (obj && typeof obj === 'object' && typeof (obj as { answer?: unknown }).answer === 'string') {
+				return parseComposedAnswerSections((obj as { answer: string }).answer).answerText;
+			}
+		} catch {
+			// fall through
+		}
+	}
+	return parseComposedAnswerSections(response).answerText;
 }

@@ -17,16 +17,19 @@
   import Square from '@lucide/svelte/icons/square';
   import VoiceInputButton from '$lib/components/voice-input-button.svelte';
   import ChatToolStep from '$lib/components/chat-tool-step.svelte';
+  import ChatTimelineStep from '$lib/components/chat-timeline-step.svelte';
   import ChatMarkdown from '$lib/components/chat-markdown.svelte';
   import { consumeChatNdjsonStream, type ChatProgressEvent } from '$lib/chat/consume-chat-ndjson';
   import {
     coerceToolResultSource,
     formatToolArgumentsSummary,
+    parseFinalAnswerText,
     resolveToolResultView
   } from '$lib/chat/chat-stream-types';
   import {
     normalizeChatDisplay,
     toolStepToDisplayEntry,
+    toolStepToTimelineEntries,
     type ChatDisplayEntry
   } from '$lib/chat/normalize-messages';
 
@@ -134,13 +137,12 @@
               coerceToolResultSource(m.metadata.preview) ??
               coerceToolResultSource(m.metadata.result) ??
               '';
-            return [toolStepToDisplayEntry({
+            return toolStepToTimelineEntries({
               tool: m.metadata.tool,
               arguments: (m.metadata.arguments as Record<string, unknown>) ?? {},
-              displaySummary: coerceToolResultSource(m.metadata.displaySummary),
               content: payload,
               failed: m.metadata.failed === true
-            })];
+            });
           }
           if (v === 'tool_call' && typeof m.metadata.tool === 'string') {
             const legacyResult =
@@ -225,87 +227,71 @@
     }
   }
 
-  function findLastToolCallIndex(tool: string): number {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const entry = messages[i];
-      if (entry.role === 'assistant' && entry.variant === 'tool_call' && entry.tool === tool) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  function patchLastToolCall(
-    tool: string,
-    patch: Partial<Extract<ChatEntry, { variant: 'tool_call' }>>
-  ): boolean {
-    const i = findLastToolCallIndex(tool);
-    if (i < 0) return false;
-    const entry = messages[i];
-    if (entry.role !== 'assistant' || entry.variant !== 'tool_call') return false;
-    messages = [...messages.slice(0, i), { ...entry, ...patch }, ...messages.slice(i + 1)];
-    return true;
-  }
-
-  function updateLastToolCallProgress(tool: string, label: string) {
-    patchLastToolCall(tool, { progress: label, status: 'running' });
-  }
-
-  function finalizeLastToolCall(tool: string, content: string, failed: boolean) {
-    patchLastToolCall(tool, {
-      progress: undefined,
-      status: failed ? 'error' : 'done',
-      result: content
-    });
-  }
-
-  function lastEntryShowsAnswerQuestionResult(): boolean {
-    const last = messages.at(-1);
-    return (
-      last?.role === 'assistant' &&
-      last.variant === 'tool_call' &&
-      last.tool === 'answer_question' &&
-      last.status === 'done'
-    );
-  }
-
-  function pushStreamEvent(event: ChatProgressEvent) {
+  function pushStreamEvent(
+    event: ChatProgressEvent,
+    ctx: { lastAnswerQuestionPreview: { current: string | undefined } }
+  ) {
     streamEventsReceived = true;
+    agentStatus = null;
+
     if (event.type === 'thinking') {
       messages.push({ role: 'assistant', variant: 'thinking', content: event.content });
       return;
     }
     if (event.type === 'agent_progress') {
-      agentStatus = event.label;
+      messages.push({
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'llm_progress',
+        label: event.label
+      });
       return;
     }
     if (event.type === 'tool_call') {
-      agentStatus = null;
       messages.push({
         role: 'assistant',
-        variant: 'tool_call',
+        variant: 'timeline',
+        kind: 'tool_call',
         tool: event.tool,
-        arguments: event.arguments ?? {},
-        status: 'running'
+        label: `Tool call · ${event.tool}`,
+        arguments: event.arguments ?? {}
+      });
+      return;
+    }
+    if (event.type === 'tool_executing') {
+      messages.push({
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_executing',
+        tool: event.tool,
+        label: `Executing tool · ${event.tool}`
       });
       return;
     }
     if (event.type === 'tool_progress') {
-      updateLastToolCallProgress(event.tool, event.label);
+      messages.push({
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_progress',
+        tool: event.tool,
+        label: event.label
+      });
       return;
     }
     if (event.type === 'tool_result') {
-      const failed = event.failed === true;
       const preview = event.preview ?? '';
-      if (!finalizeLastToolCall(event.tool, preview, failed)) {
-        messages.push({
-          role: 'assistant',
-          variant: 'tool_result',
-          tool: event.tool,
-          content: preview,
-          status: failed ? 'error' : 'success'
-        });
+      if (event.tool === 'answer_question') {
+        ctx.lastAnswerQuestionPreview.current = preview;
       }
+      messages.push({
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_result',
+        tool: event.tool,
+        label: `Tool result · ${event.tool}`,
+        content: preview,
+        failed: event.failed === true
+      });
     }
   }
 
@@ -343,16 +329,22 @@
         throw new Error(errBody?.message ?? `HTTP ${res.status}`);
       }
 
-      const done = await consumeChatNdjsonStream(res, pushStreamEvent, ac.signal);
-      const responseText = (done.response ?? '').trim();
+      const streamCtx = { lastAnswerQuestionPreview: { current: undefined as string | undefined } };
+      const done = await consumeChatNdjsonStream(
+        res,
+        (event) => pushStreamEvent(event, streamCtx),
+        ac.signal
+      );
+      const responseText = parseFinalAnswerText(
+        done.response ?? '',
+        streamCtx.lastAnswerQuestionPreview.current
+      ).trim();
       if (!responseText) {
         throw new Error('The assistant returned an empty response.');
       }
       if (done.sessionId) activeSessionId = done.sessionId;
       if (done.sessionId && browser) localStorage.setItem(STORAGE_KEY, done.sessionId);
-      if (!lastEntryShowsAnswerQuestionResult()) {
-        messages.push({ role: 'assistant', variant: 'text', content: responseText });
-      }
+      messages.push({ role: 'assistant', variant: 'text', content: responseText });
       loadSessions();
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') {
@@ -560,23 +552,32 @@
         </div>
 
       {:else if msg.variant === 'thinking'}
-        <!-- Thinking: very reduced, borderless, italic inline label -->
         <div class="min-w-0 w-full py-0.5">
           <details class="group/think min-w-0 max-w-full">
-            <summary class="cursor-pointer select-none list-none max-w-full text-xs text-muted-foreground italic leading-normal py-1 flex flex-wrap items-center gap-1.5">
+            <summary class="cursor-pointer select-none list-none max-w-full rounded-md px-3 py-2 text-sm text-muted-foreground italic leading-normal flex flex-wrap items-center gap-1.5">
               <span class="inline-block size-1 rounded-full bg-accent shrink-0"></span>
               Thinking
               {#if msg.content}
-                <span class="text-[10px] not-italic opacity-50 group-open/think:hidden">(expand)</span>
+                <span class="text-xs not-italic opacity-50 group-open/think:hidden">(expand)</span>
               {/if}
             </summary>
             {#if msg.content}
-              <div class="mt-1 ml-3.5 min-w-0 border-l border-border pl-3 py-0.5">
+              <div class="mt-2 ml-3 min-w-0 border-l border-border pl-3 py-0.5">
                 <ChatMarkdown content={msg.content} tone="muted" />
               </div>
             {/if}
           </details>
         </div>
+
+      {:else if msg.variant === 'timeline'}
+        <ChatTimelineStep
+          kind={msg.kind}
+          label={msg.label}
+          tool={msg.tool}
+          arguments={msg.arguments}
+          content={msg.content}
+          failed={msg.failed}
+        />
 
       {:else if msg.variant === 'tool_call'}
         {@const argSummary = formatToolArgumentsSummary(msg.tool, msg.arguments)}
@@ -586,23 +587,26 @@
           msg.result && runStatus !== 'running'
             ? resolveToolResultView(msg.tool, msg.result, msg.displaySummary)
             : null}
-        <ChatToolStep
-          tool={msg.tool}
-          status={stepStatus}
-          argSummary={argSummary}
-          progress={msg.progress}
-          resultView={resultView}
-        />
+        <div class="w-full rounded-md px-3 py-2">
+          <ChatToolStep
+            tool={msg.tool}
+            status={stepStatus}
+            argSummary={argSummary}
+            progress={msg.progress}
+            resultView={resultView}
+          />
+        </div>
 
       {:else if msg.variant === 'tool_result'}
         {@const resultStatus = msg.status === 'error' ? 'failed' : 'done'}
         {@const resultView = resolveToolResultView(msg.tool, msg.content, msg.displaySummary)}
-        <ChatToolStep tool={msg.tool} status={resultStatus} {resultView} />
+        <div class="w-full rounded-md px-3 py-2">
+          <ChatToolStep tool={msg.tool} status={resultStatus} {resultView} />
+        </div>
 
       {:else}
-        <!-- Assistant text: no bubble, plain text with subtle left gutter -->
         <div class="group flex min-w-0 w-full flex-row items-start gap-0 py-1">
-          <div class="flex min-w-0 max-w-full flex-col items-start gap-1 sm:max-w-[82%]">
+          <div class="flex min-w-0 max-w-full flex-col items-start gap-1 rounded-md px-3.5 py-2 sm:max-w-[82%]">
             <ChatMarkdown content={msg.content} />
             <button
               class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
@@ -618,14 +622,14 @@
 
     {#if loading && agentStatus}
       <div class="min-w-0 py-0.5">
-        <p class="flex min-w-0 items-start gap-1.5 text-xs leading-normal text-muted-foreground">
+        <p class="flex min-w-0 items-start gap-1.5 text-sm leading-normal text-muted-foreground">
           <LoaderCircleIcon class="mt-0.5 size-3.5 shrink-0 animate-spin" />
           <span class="min-w-0 wrap-break-word">{agentStatus}</span>
         </p>
       </div>
     {:else if loading && !streamEventsReceived}
       <div class="min-w-0 py-1">
-        <div class="flex min-w-0 items-start gap-1.5 text-xs leading-normal text-muted-foreground">
+        <div class="flex min-w-0 items-start gap-1.5 text-sm leading-normal text-muted-foreground">
           <LoaderCircleIcon class="mt-0.5 size-3.5 shrink-0 animate-spin" />
           <span>Connecting…</span>
         </div>
@@ -641,7 +645,7 @@
           bind:value={input}
           onkeydown={handleKeydown}
           placeholder="Ask a question about your memories..."
-          class="min-w-0 w-full break-all border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
+          class="min-w-0 w-full break-all border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-base md:text-base min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
           disabled={loading || loadingSession}
         />
       </Card.Content>

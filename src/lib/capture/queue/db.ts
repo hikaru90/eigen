@@ -123,3 +123,15 @@ export async function setCaptureQueueStatus(
 ): Promise<CaptureQueueItem | null> {
 	return updateCaptureQueueItem(id, { status, ...extra });
 }
+
+/** Requeue items left in `processing` after a tab crash or reload. */
+export async function recoverStuckProcessingCaptureItems(): Promise<number> {
+	const items = await listCaptureQueueItems();
+	let recovered = 0;
+	for (const item of items) {
+		if (item.status !== 'processing') continue;
+		await setCaptureQueueStatus(item.id, 'pending');
+		recovered += 1;
+	}
+	return recovered;
+}

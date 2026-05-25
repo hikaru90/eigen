@@ -1,10 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { formatToolResultForDisplay } from '$lib/chat/chat-stream-types';
-import {
-	compactChatIntermediateSteps,
-	shouldSkipDuplicateFinalAnswer
-} from '$lib/chat/normalize-messages';
+import { formatToolResultForDisplay, parseFinalAnswerText } from '$lib/chat/chat-stream-types';
+import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
 import { appDbAsyncLocal, appSql, createScopedDrizzle, getDb } from '$lib/server/db';
@@ -182,6 +179,21 @@ export const POST: RequestHandler = async (event) => {
 					content: JSON.stringify({ tool: evt.tool, arguments: args }),
 					metadata: { variant: 'tool_call', tool: evt.tool, arguments: args }
 				});
+			} else if (evt.type === 'tool_executing') {
+				intermediateSteps.push({
+					content: evt.tool ?? '',
+					metadata: { variant: 'tool_executing', tool: evt.tool }
+				});
+			} else if (evt.type === 'tool_progress') {
+				intermediateSteps.push({
+					content: evt.label ?? '',
+					metadata: {
+						variant: 'tool_progress',
+						tool: evt.tool,
+						phase: evt.phase,
+						label: evt.label
+					}
+				});
 			} else if (evt.type === 'tool_result') {
 				const preview = evt.preview ?? '';
 				const failed = evt.failed === true;
@@ -224,6 +236,12 @@ export const POST: RequestHandler = async (event) => {
 				);
 
 				const storedSteps = compactChatIntermediateSteps(intermediateSteps);
+				let lastAnswerQuestionPreview: string | undefined;
+				for (const step of intermediateSteps) {
+					if (step.metadata.variant === 'tool_result' && step.metadata.tool === 'answer_question') {
+						lastAnswerQuestionPreview = step.content;
+					}
+				}
 				let lastPersistedMessageId = '';
 				for (const step of storedSteps) {
 					const [row] = await scopedDb
@@ -238,13 +256,12 @@ export const POST: RequestHandler = async (event) => {
 						.returning({ id: chatMessage.id });
 					lastPersistedMessageId = row?.id ?? lastPersistedMessageId;
 				}
-				const responseText =
+				const rawResponse =
 					typeof result.response === 'string' && result.response.trim().length > 0
 						? result.response
 						: 'The assistant did not produce a response.';
-				const messageId = shouldSkipDuplicateFinalAnswer(storedSteps)
-					? lastPersistedMessageId
-					: await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
+				const responseText = parseFinalAnswerText(rawResponse, lastAnswerQuestionPreview);
+				const messageId = await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
 				if (isFirstMessage) {
 					const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
 					await scopedDb

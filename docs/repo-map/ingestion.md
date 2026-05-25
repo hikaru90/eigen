@@ -56,13 +56,18 @@
 - **Purpose:** MCP tool runners; `runCaptureThoughtTool`, `runEditThoughtTool`, and `runListThoughtsTool` call `capture/service` (retrieval tools live in retrieval domain).
 - **Note:** `runListThoughtsTool` is implemented and tested but **not** registered on the HTTP MCP route — see **C002** in [conflicts.md](./conflicts.md).
 
+### Client capture queue (browser)
+
+- **Canonical doc:** [capture-queue.md](./capture-queue.md) — enqueue on `/capture`, serial drain, per-item remove, NDJSON progress, offline Background Sync.
+- **Code:** [`src/lib/capture/queue/`](../../src/lib/capture/queue/), [`src/routes/capture/+page.svelte`](../../src/routes/capture/+page.svelte), [`src/lib/components/capture-queue-list.svelte`](../../src/lib/components/capture-queue-list.svelte), [`src/lib/components/ingest-phase-indicator.svelte`](../../src/lib/components/ingest-phase-indicator.svelte).
+
 ### [`src/lib/capture/ingest-phases.ts`](../../src/lib/capture/ingest-phases.ts) and [`src/lib/capture/consume-capture-ndjson.ts`](../../src/lib/capture/consume-capture-ndjson.ts)
 
-- **Purpose:** Shared phase typing and browser-side NDJSON consumer for capture UI progress.
+- **Purpose:** Shared phase typing and NDJSON stream consumer (used by the queue submitter and by **edit** on the capture page).
 
 ### [`src/routes/capture/+page.svelte`](../../src/routes/capture/+page.svelte)
 
-- **Purpose:** Primary capture UI; `fetch` to `/api/capture/submit` and edit endpoints (see UI domain for route-level summary).
+- **Purpose:** Primary capture UI; **new submits** via `enqueueCapture` (queue). **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
 
 ## Related but not canonical for “ingest contract”
 

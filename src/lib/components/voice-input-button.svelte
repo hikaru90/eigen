@@ -3,11 +3,8 @@
 	import { onDestroy } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import Mic from '@lucide/svelte/icons/mic';
-	import Square from '@lucide/svelte/icons/square';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import { transcribeRecordedAudio } from '$lib/capture/transcribe-audio';
-
-	const LEVEL_BAR_COUNT = 5;
 
 	let {
 		disabled = false,
@@ -27,13 +24,14 @@
 	let transcribing = $state(false);
 	let mediaRecorder = $state<MediaRecorder | null>(null);
 	let stream = $state<MediaStream | null>(null);
-	/** Normalized mic level 0–1 while recording. */
+	/** Mic level 0–1 while recording. */
 	let level = $state(0);
 	let chunks: Blob[] = [];
 
 	let audioContext: AudioContext | null = null;
 	let analyser: AnalyserNode | null = null;
 	let levelFrameId: number | null = null;
+	let levelSmooth = 0;
 
 	const busy = $derived(recording || transcribing);
 	const micSupported = $derived(
@@ -43,12 +41,8 @@
 			typeof MediaRecorder !== 'undefined'
 	);
 
-	const levelBars = $derived(
-		Array.from({ length: LEVEL_BAR_COUNT }, (_, i) => {
-			const centerWeight = 1 - Math.abs(i - (LEVEL_BAR_COUNT - 1) / 2) * 0.22;
-			return Math.min(1, Math.max(0.12, level * centerWeight));
-		})
-	);
+	/** 10% floor so the level bar is always slightly visible while recording. */
+	const pulseSize = $derived(Math.round(10 + level * 90));
 
 	function stopLevelMeter() {
 		if (levelFrameId !== null) {
@@ -56,6 +50,7 @@
 			levelFrameId = null;
 		}
 		level = 0;
+		levelSmooth = 0;
 		analyser = null;
 		if (audioContext) {
 			void audioContext.close();
@@ -71,7 +66,7 @@
 		const source = audioContext.createMediaStreamSource(mediaStream);
 		analyser = audioContext.createAnalyser();
 		analyser.fftSize = 256;
-		analyser.smoothingTimeConstant = 0.75;
+		analyser.smoothingTimeConstant = 0.8;
 		source.connect(analyser);
 
 		const samples = new Uint8Array(analyser.fftSize);
@@ -85,8 +80,10 @@
 				sumSq += normalized * normalized;
 			}
 			const rms = Math.sqrt(sumSq / samples.length);
-			// Scale so normal speech sits in mid range; cap at 1.
-			level = Math.min(1, rms * 4.5);
+			const instant = Math.min(1, rms * 4);
+			const smooth = instant > levelSmooth ? 0.2 : 0.08;
+			levelSmooth += (instant - levelSmooth) * smooth;
+			level = levelSmooth;
 			levelFrameId = requestAnimationFrame(tick);
 		};
 
@@ -200,39 +197,53 @@
 	});
 </script>
 
-<div class="flex items-center gap-2">
+<style>
+	@keyframes recording-stop-flash {
+		0%,
+		100% {
+			background-color: var(--foreground);
+		}
+		50% {
+			background-color: var(--destructive);
+		}
+	}
+
+	.voice-recording-stop {
+		animation: recording-stop-flash 2.2s ease-in-out infinite;
+	}
+</style>
+
+<Button
+	type="button"
+	variant="outline"
+	size="icon"
+	class="relative overflow-hidden rounded-none border-black dark:border-border {className}"
+	disabled={disabled || !micSupported || transcribing}
+	onclick={toggleMic}
+	aria-label={recording ? 'Stop recording and transcribe' : transcribing ? 'Transcribing' : 'Start voice input'}
+	aria-pressed={recording}
+	role={recording ? 'meter' : undefined}
+	aria-valuenow={recording ? pulseSize : undefined}
+	aria-valuemin={recording ? 0 : undefined}
+	aria-valuemax={recording ? 100 : undefined}
+>
 	{#if recording}
 		<div
-			class="flex items-end gap-0.5 h-5 min-w-9"
-			role="meter"
-			aria-label="Microphone level"
-			aria-valuenow={Math.round(level * 100)}
-			aria-valuemin={0}
-			aria-valuemax={100}
-		>
-			{#each levelBars as barHeight, i (i)}
-				<span
-					class="w-1 rounded-sm bg-foreground/90 origin-bottom transition-[height] duration-75 ease-out"
-					style="height: {4 + barHeight * 14}px"
-				></span>
-			{/each}
-		</div>
+			class="pointer-events-none absolute bottom-0 left-0 right-0 z-0 bg-primary/30 transition-[height] duration-100 ease-out"
+			style="height: {pulseSize}%"
+			aria-hidden="true"
+		></div>
 	{/if}
-	<Button
-		type="button"
-		variant="outline"
-		class="rounded-none px-3 py-[7.5px] h-auto border-black dark:border-border {className}"
-		disabled={disabled || !micSupported || transcribing}
-		onclick={toggleMic}
-		aria-label={recording ? 'Stop recording and transcribe' : transcribing ? 'Transcribing' : 'Start voice input'}
-		aria-pressed={recording}
-	>
+	<span class="relative z-10 inline-flex items-center justify-center">
 		{#if transcribing}
 			<LoaderCircle class="size-4 shrink-0 animate-spin" strokeWidth={1.75} />
 		{:else if recording}
-			<Square class="size-4 shrink-0" strokeWidth={1.75} />
+			<span
+				class="voice-recording-stop inline-block size-3 shrink-0 rounded-[2px]"
+				aria-hidden="true"
+			></span>
 		{:else}
 			<Mic class="size-4 shrink-0" strokeWidth={1.75} />
 		{/if}
-	</Button>
-</div>
+	</span>
+</Button>

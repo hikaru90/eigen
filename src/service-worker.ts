@@ -14,7 +14,7 @@ async function broadcastCaptureQueueMessage(message: CaptureQueueBroadcast | { t
 
 async function drainCaptureQueueInBackground(): Promise<void> {
 	await drainCaptureQueue({
-		streamProgress: false,
+		streamProgress: true,
 		broadcast: (message) => broadcastCaptureQueueMessage(message)
 	});
 	await broadcastCaptureQueueMessage({ type: 'capture-queue-idle' });

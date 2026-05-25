@@ -18,7 +18,7 @@ Priority scope:
 - Retry controller enforces exactly 3 retries.
 - Pricing calculator:
   - base + 20% markup + total.
-- Capture state machine (submit persists once, edit updates target thought only).
+- Capture state machine (queue drain persists each enqueued submit once; edit updates target thought only). Client queue: [capture-queue.md](../repo-map/capture-queue.md).
 - browser transcription adapter:
   - deterministic transcription pipeline handoff
   - device capability detection and unsupported-browser messaging

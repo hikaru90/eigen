@@ -54,21 +54,21 @@
   {/if}
 {/snippet}
 
-<div class="flex min-w-0 max-w-full flex-col gap-2 py-2">
+<div class="flex min-w-0 max-w-full flex-col gap-2 py-1">
   <div class="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
     {@render ToolIcon(icon)}
-    <span class="min-w-0 break-all text-xs font-medium tracking-tight text-foreground">{toolLabel(tool)}</span>
-    <span class="text-[10px] font-medium uppercase tracking-widest {toolStatusBadgeClasses(status)}">
+    <span class="min-w-0 break-all text-sm font-medium tracking-tight text-foreground">{toolLabel(tool)}</span>
+    <span class="text-xs font-medium uppercase tracking-widest {toolStatusBadgeClasses(status)}">
       {statusLabel}
     </span>
   </div>
 
   {#if argSummary && status === 'running'}
-    <p class="min-w-0 break-all text-xs leading-relaxed text-muted-foreground pl-5">{argSummary}</p>
+    <p class="min-w-0 break-all text-sm leading-relaxed text-muted-foreground pl-5">{argSummary}</p>
   {/if}
 
   {#if progress && status === 'running'}
-    <p class="flex min-w-0 items-start gap-1.5 pl-5 text-xs leading-normal text-muted-foreground">
+    <p class="flex min-w-0 items-start gap-1.5 pl-5 text-sm leading-normal text-muted-foreground">
       <LoaderCircleIcon class="mt-0.5 size-3 shrink-0 animate-spin" />
       <span class="min-w-0 wrap-break-word">{progress}</span>
     </p>
@@ -82,7 +82,7 @@
         {:else}
           <ul class="flex flex-col gap-2.5 list-none m-0 p-0">
             {#each resultView.hits as hit (hit.id ?? hit.text)}
-              <li class="flex flex-col gap-0.5">
+              <li class="flex flex-col gap-0.5 rounded-md border border-border bg-muted px-3 py-2">
                 <p class="min-w-0 break-all text-sm leading-snug text-foreground">{hit.text}</p>
                 {#if hit.category}
                   <span class="text-[11px] capitalize tracking-wide text-muted-foreground">{hit.category}</span>

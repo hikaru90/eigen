@@ -1,5 +1,6 @@
-import { getNextPendingCaptureItem, listCaptureQueueItems } from './db';
+import { getNextPendingCaptureItem, setCaptureQueueStatus } from './db';
 import { processCaptureQueueItem } from './process-item';
+import { buildCaptureQueueSnapshot } from './snapshot';
 import { registerCaptureQueueBackgroundSync } from './sync-registration';
 import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson';
 import type { CaptureQueueBroadcast, CaptureSubmitResult } from './types';
@@ -24,13 +25,7 @@ export async function drainCaptureQueue(
 	let stoppedForOffline = false;
 
 	while (!options?.signal?.aborted) {
-		const pending = await listCaptureQueueItems();
-		const processingId = pending.find((i) => i.status === 'processing')?.id ?? null;
-		options?.broadcast?.({
-			type: 'snapshot',
-			pending: pending.filter((i) => i.status === 'pending').length,
-			processingId
-		});
+		options?.broadcast?.(await buildCaptureQueueSnapshot());
 
 		const item = await getNextPendingCaptureItem();
 		if (!item) {
@@ -38,16 +33,27 @@ export async function drainCaptureQueue(
 			break;
 		}
 
+		await setCaptureQueueStatus(item.id, 'processing');
+		options?.broadcast?.(await buildCaptureQueueSnapshot());
 		options?.broadcast?.({ type: 'active', id: item.id, raw: item.raw });
 
-		const result = await processCaptureQueueItem(item, {
-			signal: options?.signal,
-			streamProgress: options?.streamProgress,
-			onProgress: (event) => {
-				options?.onProgress?.(item.id, event);
-				options?.broadcast?.({ type: 'progress', id: item.id, event });
+		let result: Awaited<ReturnType<typeof processCaptureQueueItem>>;
+		try {
+			result = await processCaptureQueueItem(item, {
+				signal: options?.signal,
+				streamProgress: options?.streamProgress,
+				onProgress: (event) => {
+					options?.onProgress?.(item.id, event);
+					options?.broadcast?.({ type: 'progress', id: item.id, event });
+				}
+			});
+		} catch (err) {
+			if (options?.signal?.aborted) {
+				options?.broadcast?.(await buildCaptureQueueSnapshot());
+				continue;
 			}
-		});
+			throw err;
+		}
 
 		if (result.outcome === 'done') {
 			processed += 1;
@@ -56,12 +62,14 @@ export async function drainCaptureQueue(
 				id: item.id,
 				thought: result.thought as CaptureSubmitResult
 			});
+			options?.broadcast?.(await buildCaptureQueueSnapshot());
 			continue;
 		}
 
 		if (result.outcome === 'offline') {
 			stoppedForOffline = true;
 			await registerCaptureQueueBackgroundSync();
+			options?.broadcast?.(await buildCaptureQueueSnapshot());
 			options?.broadcast?.({ type: 'idle' });
 			break;
 		}
@@ -72,6 +80,7 @@ export async function drainCaptureQueue(
 
 		if (result.outcome === 'failed') {
 			options?.broadcast?.({ type: 'failed', id: item.id, error: result.error });
+			options?.broadcast?.(await buildCaptureQueueSnapshot());
 		}
 	}
 

@@ -30,4 +30,9 @@ export type CaptureQueueBroadcast =
 	| { type: 'done'; id: string; thought: CaptureSubmitResult }
 	| { type: 'failed'; id: string; error: string }
 	| { type: 'idle' }
-	| { type: 'snapshot'; pending: number; processingId: string | null };
+	| {
+			type: 'snapshot';
+			items: CaptureQueueItem[];
+			pending: number;
+			processingId: string | null;
+	  };

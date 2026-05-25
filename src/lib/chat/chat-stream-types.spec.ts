@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
 	coerceToolResultSource,
+	evidenceHitsFromAnswerQuestionPayload,
 	formatToolArgumentsSummary,
 	formatToolResultForDisplay,
 	isToolResultFailed,
+	parseComposedAnswerSections,
+	parseFinalAnswerText,
 	resolveToolResultView,
 	toolCategoryClasses,
 	toolVisual
@@ -51,6 +54,22 @@ describe('chat-stream-types', () => {
 		});
 	});
 
+	it('dedupes repeated memory hits by id and by text/category fallback', () => {
+		const raw = JSON.stringify({
+			results: [
+				{ id: 't1', normalizedText: 'Annie ist meine Schwester', category: 'reference' },
+				{ id: 't1', normalizedText: 'Annie ist meine Schwester', category: 'reference' },
+				{ normalizedText: 'Annie ist meine Schwester', category: 'reference' },
+				{ normalizedText: 'annie ist meine schwester', category: 'reference' }
+			]
+		});
+		const view = resolveToolResultView('retrieve_thoughts', raw, raw);
+		expect(view).toEqual({
+			kind: 'memories',
+			hits: [{ id: 't1', text: 'Annie ist meine Schwester', category: 'reference' }]
+		});
+	});
+
 	it('coerces jsonb object metadata into parseable memory hits', () => {
 		const obj = {
 			results: [{ normalizedText: 'ich mag kaffee', category: 'thought' }]
@@ -77,6 +96,24 @@ describe('chat-stream-types', () => {
 				{ text: 'ich mag kaffee', category: undefined }
 			]
 		});
+	});
+
+	it('parses composed answer sections without headers in final text', () => {
+		const raw =
+			'Answer: Annie ist deine Schwester. [id1]\n\nEvidence:\n- Annie ist meine Schwester [id1]\n\nUnknown:\n- none';
+		expect(parseComposedAnswerSections(raw).answerText).toBe('Annie ist deine Schwester.');
+		expect(parseComposedAnswerSections(raw).evidenceLines).toEqual(['Annie ist meine Schwester']);
+	});
+
+	it('parseFinalAnswerText uses answer field from tool_result JSON', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: Annie ist deine Schwester. [t1]\nEvidence:\n- Annie ist meine Schwester [t1]\nUnknown:\n- none',
+			citations: ['t1'],
+			retrieved: [{ id: 't1', normalizedText: 'Annie ist meine Schwester', category: 'reference' }]
+		});
+		expect(parseFinalAnswerText('ignored', preview)).toBe('Annie ist deine Schwester.');
+		expect(evidenceHitsFromAnswerQuestionPayload(preview).length).toBeGreaterThan(0);
 	});
 
 	it('does not surface raw JSON as text for legacy payloads', () => {

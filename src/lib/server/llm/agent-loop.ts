@@ -238,6 +238,7 @@ export async function agentChat(input: {
 			}
 
 			console.error('[agent-loop] executing tool', { tool: parsed.tool, args: parsed.arguments });
+			input.onEvent?.({ type: 'tool_executing', tool: parsed.tool });
 			let result: unknown;
 			const toolStart = Date.now();
 			try {

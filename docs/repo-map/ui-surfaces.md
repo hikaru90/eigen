@@ -11,7 +11,7 @@
 Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** (if any).
 
 - **[`/`](../../src/routes/+page.svelte)** — Landing / home. Load: [`+page.server.ts`](../../src/routes/+page.server.ts).
-- **`/capture`** — Primary thought capture and post-capture edit UI; `fetch` to `/api/capture/*`. Load: [`capture/+page.server.ts`](../../src/routes/capture/+page.server.ts).
+- **`/capture`** — Primary thought capture and post-capture edit UI. **New submits** use the client capture queue ([capture-queue.md](./capture-queue.md)); **edits** `fetch` `/api/capture/edit`. Load: [`capture/+page.server.ts`](../../src/routes/capture/+page.server.ts).
 - **`/graph`** — Graph visualization and ontology admin actions. Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (Falkor snapshot, ontology legend).
 - **`/chat`** — Memory assistant UI (default: `answer_question`; completion reports search via `retrieve_thoughts` then `edit_thought`/`delete_thought`; full MCP tool surface) backed by [`/api/chat`](../../src/routes/api/chat/+server.ts) and session routes.
 - **`/activity`** — Usage / activity views. Load: [`activity/+page.server.ts`](../../src/routes/activity/+page.server.ts).
@@ -24,7 +24,7 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 
 - Documented in **ingestion** and **retrieval** domain maps; UI typically hits `/api/capture/*`, `/api/retrieval/search`, `/api/chat/*`, `/api/entities/*`, `/api/thoughts/*` as implemented. When adding a new button, trace to the matching `+server.ts` and update the relevant domain map.
 - **PWA / push:** manifest at `static/manifest.webmanifest`; service worker [`src/service-worker.ts`](../../src/service-worker.ts) (Workbox precache + `push` / `notificationclick` + **capture queue Background Sync**). Client registration in [`src/routes/+layout.svelte`](../../src/routes/+layout.svelte). Push APIs: `/api/push/subscribe`, `/api/push/unsubscribe`, `/api/push/test`, `/api/push/vapid-public-key` (requires `VAPID_*` env vars).
-- **Offline capture queue:** [`src/lib/capture/queue/`](../../src/lib/capture/queue/) persists pending submits in IndexedDB, drains **serially** in the browser (NDJSON progress), and retries via service worker when offline (`eigen-capture-queue-sync`). `/capture` enqueues instead of blocking the UI on concurrent submits.
+- **Capture queue (canonical):** [capture-queue.md](./capture-queue.md) — IndexedDB queue, layout runner, service worker Background Sync, queue list UI, ingest step indicator.
 
 ## Components
 

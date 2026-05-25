@@ -47,6 +47,30 @@ describe('normalizeChatDisplay', () => {
 		expect(out).toHaveLength(1);
 	});
 
+	it('keeps final text when it differs from answer_question tool card result', () => {
+		const out = normalizeChatDisplay([
+			{
+				role: 'assistant',
+				variant: 'tool_call',
+				tool: 'answer_question',
+				arguments: {},
+				status: 'done',
+				result: 'reference\nAnnie ist meine Schwester'
+			},
+			{
+				role: 'assistant',
+				variant: 'text',
+				content: 'Annie ist deine Schwester.'
+			}
+		]);
+		expect(out).toHaveLength(2);
+		expect(out[1]).toMatchObject({
+			role: 'assistant',
+			variant: 'text',
+			content: 'Annie ist deine Schwester.'
+		});
+	});
+
 	it('dedupes consecutive identical answer_question cards', () => {
 		const out = normalizeChatDisplay([
 			{
