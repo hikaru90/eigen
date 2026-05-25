@@ -3,77 +3,56 @@
   "canvasHeight": 1782,
   "ballAnchors": [
     {
-      "x": 1649.4277198214152,
-      "y": 961.9948708196309,
-      "r": 39,
-      "jitterOx": 0.9692333868490526,
-      "jitterOy": 0.24614353905214506
+      "x": 1536.203125,
+      "y": 971.3828125,
+      "r": 72,
+      "jitterOx": 0.9628112400165303,
+      "jitterOy": -0.2701749731152598
     },
     {
-      "x": 1532.55625208855,
-      "y": 824.0625438598937,
-      "r": 39,
-      "jitterOx": -0.6398239491079831,
-      "jitterOy": -0.7685215118315589
+      "x": 1770.4609375,
+      "y": 971.5234375,
+      "r": 72,
+      "jitterOx": 0.8071665286044459,
+      "jitterOy": -0.5903238052972691
     },
     {
-      "x": 1452.7930512751977,
-      "y": 984.9356949719544,
-      "r": 39,
-      "jitterOx": -0.1582656707117243,
-      "jitterOy": -0.9873965654559307
-    },
-    {
-      "x": 1854.5892679451822,
-      "y": 1084.8728145744572,
-      "r": 39,
-      "jitterOx": -0.07807099689767984,
-      "jitterOy": 0.9969478017646674
-    },
-    {
-      "x": 1847.73956093958,
-      "y": 690.9675810660391,
-      "r": 39,
-      "jitterOx": 0.9369234262234148,
-      "jitterOy": -0.3495346812460494
-    },
-    {
-      "x": 1985.600631339814,
-      "y": 892.2421874999998,
-      "r": 39,
-      "jitterOx": 0.02205200547730617,
-      "jitterOy": 0.9997568249601644
+      "x": 1537.34375,
+      "y": 1201.421875,
+      "r": 72,
+      "jitterOx": -0.8413937196377081,
+      "jitterOy": 0.5404226203206356
     }
   ],
-  "ballRadius": 39,
+  "ballRadius": 72,
   "positionJitter": 0,
   "noiseAmount": 0,
   "noiseSeed": 0,
   "connectBalls": true,
-  "typeText": "MESH",
-  "typeFontSize": 196,
+  "typeText": "",
+  "typeFontSize": 24,
   "typePlacementMode": "fill",
   "textLayers": [],
   "linkAllPairs": false,
   "linkNeighborsPerBall": 2,
   "linkMaxDistance": 0,
-  "linkDistanceThinning": 0.6,
+  "linkDistanceThinning": 1.05,
   "appIconOverlay": {
     "enabled": false,
     "x": 1710,
-    "y": 890.9999999999998,
-    "size": 219.60460343026242,
+    "y": 891,
+    "size": 605.88,
     "cornerRadiusRatio": 0.2237
   },
   "fieldParams": {
     "threshold": 1,
-    "fieldStrength": 1.3,
+    "fieldStrength": 1,
     "falloffExponent": 2,
     "minDistance": 0.5,
     "noiseMaskOuter": 2.85,
     "noiseMaskInner": 0.35,
-    "bridgeStrength": 0.14,
-    "bridgeThinning": 0.6
+    "bridgeStrength": 0.06,
+    "bridgeThinning": 0.75
   },
-  "savedAt": "2026-05-24T11:27:45.149Z"
+  "savedAt": "2026-05-25T14:56:29.517Z"
 }

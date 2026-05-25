@@ -28,7 +28,7 @@
 
 	let llmSaving = $state(false);
 	let llmError = $state<string | null>(null);
-	let llmSaved = $state(llmConfigured);
+	let llmSaved = $state(false);
 
 	$effect(() => {
 		if (open) {

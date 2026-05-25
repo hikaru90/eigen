@@ -10,6 +10,10 @@ import {
 } from '$lib/server/mcp/registry';
 import type { McpToolContext } from '$lib/server/mcp/tools';
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
+import {
+	formatComposedAnswerForUser,
+	type ComposedAnswer
+} from '$lib/server/qa/compose-answer';
 
 const MAX_ITERATIONS = 10;
 
@@ -174,7 +178,17 @@ export async function agentChat(input: {
 	onEvent?: (event: ChatStreamEvent) => void;
 	db?: ReturnType<typeof getDb>;
 }): Promise<AgentChatResult> {
-	const ctx: McpToolContext = { userId: input.userId };
+	const ctx: McpToolContext = {
+		userId: input.userId,
+		onToolProgress: (event) => {
+			input.onEvent?.({
+				type: 'tool_progress',
+				tool: event.tool,
+				phase: event.phase,
+				label: event.label
+			});
+		}
+	};
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },
 		...input.messages
@@ -183,6 +197,10 @@ export async function agentChat(input: {
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		console.error('[agent-loop] iteration', { iteration, messageCount: messages.length });
 
+		input.onEvent?.({
+			type: 'agent_progress',
+			label: iteration === 0 ? 'Planning next step…' : 'Preparing your reply…'
+		});
 		console.error('[agent-loop] calling llmChatCompletion');
 		const raw = await llmChatCompletion({
 			userId: input.userId,
@@ -237,6 +255,23 @@ export async function agentChat(input: {
 					context: toolCallContext,
 					durationMs: Date.now() - toolStart
 				});
+
+				if (
+					parsed.tool === 'answer_question' &&
+					result &&
+					typeof result === 'object' &&
+					'answer' in result &&
+					typeof (result as ComposedAnswer).answer === 'string'
+				) {
+					const composed = result as ComposedAnswer;
+					const responseText = formatComposedAnswerForUser(composed.answer);
+					messages.push({ role: 'assistant', content });
+					messages.push({
+						role: 'user',
+						content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}`
+					});
+					return { response: responseText, messages };
+				}
 			} catch (err) {
 				console.error('[agent-loop] tool error', { tool: parsed.tool, error: err instanceof Error ? err.message : String(err) });
 				result = { error: err instanceof Error ? err.message : String(err) };

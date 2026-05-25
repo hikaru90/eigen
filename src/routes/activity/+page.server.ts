@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { and, desc, eq, gte, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { ACTIVITY_PAGE_LLM_PROVIDERS, AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
 import { activityCallLog } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
@@ -57,17 +57,13 @@ export const load: PageServerLoad = async (event) => {
 		? (rawFilter as ActivityFilter)
 		: 'all';
 
+	const gatewayProviders = inArray(activityCallLog.provider, [...ACTIVITY_PAGE_LLM_PROVIDERS]);
+
 	const conditions = [eq(activityCallLog.userId, event.locals.user.id)];
 	if (filter === 'all') {
-		conditions.push(
-			or(
-				eq(activityCallLog.provider, 'eurouter'),
-				eq(activityCallLog.provider, 'llm'),
-				eq(activityCallLog.provider, AGENT_TOOL_ACTIVITY_PROVIDER)
-			)
-		);
+		conditions.push(or(gatewayProviders, eq(activityCallLog.provider, AGENT_TOOL_ACTIVITY_PROVIDER)));
 	} else if (filter === 'gateway') {
-		conditions.push(or(eq(activityCallLog.provider, 'eurouter'), eq(activityCallLog.provider, 'llm')));
+		conditions.push(gatewayProviders);
 	} else if (filter === 'agent') {
 		conditions.push(eq(activityCallLog.provider, AGENT_TOOL_ACTIVITY_PROVIDER));
 	}
@@ -111,7 +107,7 @@ export const load: PageServerLoad = async (event) => {
 				.where(
 					and(
 						eq(activityCallLog.userId, event.locals.user.id),
-						or(eq(activityCallLog.provider, 'eurouter'), eq(activityCallLog.provider, 'llm')),
+						gatewayProviders,
 						sql`${activityCallLog.totalCostUsd}::numeric > 0`,
 						...(fromParam && !Number.isNaN(new Date(fromParam).getTime())
 							? [gte(activityCallLog.createdAt, new Date(fromParam))]

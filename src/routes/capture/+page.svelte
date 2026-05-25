@@ -16,6 +16,7 @@
 		subscribeCaptureQueue,
 		type CaptureSubmitResult
 	} from '$lib/capture/queue';
+	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -36,6 +37,12 @@
 
 	let editAbortController = $state<AbortController | null>(null);
 	let editLoading = $state(false);
+	function appendTranscript(current: string, transcript: string): string {
+		const next = transcript.trim();
+		if (!next) return current;
+		const base = current.trim();
+		return base ? `${base} ${next}` : next;
+	}
 
 	function cancelCapture() {
 		cancelActiveCapture();
@@ -197,6 +204,16 @@
 			<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full">
 				<span class="text-[#737373] text-xs leading-4">⌘ / Ctrl + Enter to capture</span>
 				<div class="flex items-center gap-2">
+					<VoiceInputButton
+						language={data.preferredLanguage}
+						disabled={loading}
+						ontranscript={(text) => {
+							raw = appendTranscript(raw, text);
+						}}
+						onerror={(message) => {
+							err = message;
+						}}
+					/>
 					{#if loading}
 						<Button
 							type="button"

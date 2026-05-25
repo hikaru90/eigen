@@ -133,7 +133,7 @@
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
-    <div class="relative flex flex-row items-center gap-2 px-2 pb-6">
+    <div class="relative flex flex-row items-center gap-2 px-2 pb-safe">
       <div
         class="pointer-events-none bg-linear-to-t absolute -top-6 right-0 bottom-0 left-0 -z-10 w-full from-background to-transparent dark:from-black dark:to-black/0"
       ></div>

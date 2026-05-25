@@ -1,14 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
-import { composeAnswer } from './compose-answer';
+import {
+	composeAnswer,
+	extractRetrievalHints,
+	narrowComposeContextToQuestionFocus
+} from './compose-answer';
 
-const { searchThoughtsMock, llmChatCompletionMock, findTemporalSchedulingConflictsMock } = vi.hoisted(
-	() => ({
-		searchThoughtsMock: vi.fn(),
-		llmChatCompletionMock: vi.fn(),
-		findTemporalSchedulingConflictsMock: vi.fn()
-	})
-);
+const {
+	searchThoughtsMock,
+	llmChatCompletionMock,
+	findTemporalSchedulingConflictsMock,
+	createThoughtEmbeddingMock,
+	lexicalSearchMock,
+	graphOnlySearchByQueryMock
+} = vi.hoisted(() => ({
+	searchThoughtsMock: vi.fn(),
+	llmChatCompletionMock: vi.fn(),
+	findTemporalSchedulingConflictsMock: vi.fn(),
+	createThoughtEmbeddingMock: vi.fn(),
+	lexicalSearchMock: vi.fn(),
+	graphOnlySearchByQueryMock: vi.fn()
+}));
 
 vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
@@ -16,6 +28,18 @@ vi.mock('$lib/server/retrieval/service', () => ({
 
 vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
+}));
+
+vi.mock('$lib/server/llm/embedding', () => ({
+	createThoughtEmbedding: createThoughtEmbeddingMock
+}));
+
+vi.mock('$lib/server/retrieval/lexical', () => ({
+	lexicalSearch: lexicalSearchMock
+}));
+
+vi.mock('$lib/server/graph/falkor', () => ({
+	graphOnlySearchByQuery: graphOnlySearchByQueryMock
 }));
 
 vi.mock('$lib/server/retrieval/temporal-conflicts', () => ({
@@ -64,11 +88,53 @@ const sampleRetrieval = [
 	}
 ];
 
+describe('narrowComposeContextToQuestionFocus', () => {
+	it('keeps only thoughts that mention the question name token', () => {
+		const out = narrowComposeContextToQuestionFocus('Wer ist Clemi?', [
+			{
+				id: 'a',
+				normalizedText: 'annie ist meine schwester',
+				category: 'reference',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				createdAt: FIXED_DATE,
+				isStale: false
+			},
+			{
+				id: 'b',
+				normalizedText: 'clemi ist clemens',
+				category: 'reference',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				createdAt: FIXED_DATE,
+				isStale: false
+			}
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].id).toBe('b');
+	});
+});
+
+describe('extractRetrievalHints', () => {
+	it('extracts name tokens from short German questions', () => {
+		expect(extractRetrievalHints('Wer ist Clemi?')).toBe('clemi');
+	});
+
+	it('returns undefined when hints equal the full normalized question', () => {
+		expect(extractRetrievalHints('clemi')).toBeUndefined();
+	});
+});
+
 describe('composeAnswer', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
 		findTemporalSchedulingConflictsMock.mockResolvedValue([]);
+		createThoughtEmbeddingMock.mockResolvedValue(new Array(1536).fill(0.1));
+		lexicalSearchMock.mockResolvedValue([]);
+		graphOnlySearchByQueryMock.mockResolvedValue([]);
 		llmChatCompletionMock.mockResolvedValue(
 			chatResponse('Marcus suggested rice flour [t_001]. Also, Tartine has half-price loaves [t_002].')
 		);
@@ -82,6 +148,18 @@ describe('composeAnswer', () => {
 		expect(llmChatCompletionMock).not.toHaveBeenCalled();
 	});
 
+	it('emits onProgress for embedding, searching, and composing', async () => {
+		const phases: string[] = [];
+		await composeAnswer({
+			userId: 'u1',
+			question: 'what about rice flour?',
+			onProgress: (phase) => {
+				phases.push(phase);
+			}
+		});
+		expect(phases).toEqual(['embedding', 'searching', 'composing']);
+	});
+
 	it('returns an answer with citations from the retrieved set', async () => {
 		const result = await composeAnswer({ userId: 'u1', question: 'what about rice flour?' });
 		expect(result.answer).toContain('[t_001]');
@@ -91,6 +169,50 @@ describe('composeAnswer', () => {
 		expect(result.conflicts).toBeDefined();
 	});
 
+	it('runs hybrid, hint, lexical, and entity-label retrieval for who-is questions', async () => {
+		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
+		expect(createThoughtEmbeddingMock).toHaveBeenCalled();
+		expect(searchThoughtsMock).toHaveBeenCalledTimes(2);
+		expect(searchThoughtsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ query: 'Wer ist Clemi?', queryEmbedding: expect.any(Array) })
+		);
+		expect(searchThoughtsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ query: 'clemi', queryEmbedding: expect.any(Array) })
+		);
+		expect(lexicalSearchMock).toHaveBeenCalledWith(
+			expect.objectContaining({ query: 'clemi' })
+		);
+		expect(graphOnlySearchByQueryMock).toHaveBeenCalledWith(
+			expect.objectContaining({ query: 'clemi' })
+		);
+	});
+
+	it('omits unrelated retrieved thoughts from the compose prompt for named-entity questions', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: '38b31459-ba6a-4e59-ac4e-1bf3039d142b',
+				normalizedText: 'annie ist meine schwester',
+				category: 'reference',
+				score: 0.03,
+				vectorScore: 0.02,
+				graphScore: 0.01,
+				metadata: { graphProvenance: 'entity:schwester' },
+				createdAt: FIXED_DATE
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse('Answer: Not in memory.\nEvidence:\n\nUnknown:\n- Wer ist Clemi?')
+		);
+		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
+		const userMsg = (
+			llmChatCompletionMock.mock.calls[0][0] as {
+				messages: Array<{ role: string; content: string }>;
+			}
+		).messages[1].content;
+		expect(userMsg).toContain('(no thoughts retrieved)');
+		expect(userMsg).not.toContain('annie');
+	});
+
 	it('forwards topK, weights, and trimmed question to searchThoughts', async () => {
 		await composeAnswer({
 			userId: 'u1',
@@ -98,12 +220,15 @@ describe('composeAnswer', () => {
 			topK: 5,
 			weights: { vector: 0.4, graph: 0.6 }
 		});
-		expect(searchThoughtsMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			query: 'what about graph weights?',
-			topK: 5,
-			weights: { vector: 0.4, graph: 0.6 }
-		});
+		expect(searchThoughtsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				query: 'what about graph weights?',
+				topK: 5,
+				weights: { vector: 0.4, graph: 0.6 },
+				queryEmbedding: expect.any(Array)
+			})
+		);
 	});
 
 	it('uses default topK of 8 when not provided', async () => {
@@ -208,7 +333,7 @@ describe('composeAnswer', () => {
 	});
 
 	it('surfaces graphProvenance from retrieval metadata into the prompt and context items', async () => {
-		searchThoughtsMock.mockResolvedValueOnce([
+		searchThoughtsMock.mockResolvedValue([
 			{
 				id: 't_003',
 				normalizedText: 'Connected via Marcus.',

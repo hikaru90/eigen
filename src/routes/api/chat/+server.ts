@@ -1,16 +1,16 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { formatToolResultForDisplay } from '$lib/chat/chat-stream-types';
+import {
+	compactChatIntermediateSteps,
+	shouldSkipDuplicateFinalAnswer
+} from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
-import { getDb } from '$lib/server/db';
+import { appDbAsyncLocal, appSql, createScopedDrizzle, getDb } from '$lib/server/db';
 import { chatSession, chatMessage } from '$lib/server/db/brain.schema';
 import { eq, sql } from 'drizzle-orm';
 import { runWithTrace } from '$lib/server/activity/trace-context';
-import { getRuntimeDatabaseUrl } from '$lib/server/db/runtime-url';
-import postgres from 'postgres';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '$lib/server/db/schema';
 
 function collectErrorMessages(input: unknown): string[] {
 	const parts: string[] = [];
@@ -120,142 +120,173 @@ export const POST: RequestHandler = async (event) => {
 
 	if (streamNdjson) {
 		const encoder = new TextEncoder();
-		const streamPg = postgres(getRuntimeDatabaseUrl());
-		const streamDb = drizzle(streamPg, { schema });
-		const stream = new ReadableStream({
-			start(controller) {
-				let terminalSent = false;
-				let streamClosed = false;
+		const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>(
+			{},
+			{ highWaterMark: 64 }
+		);
+		const writer = writable.getWriter();
 
-				const line = (payload: unknown): boolean => {
-					if (streamClosed) return false;
-					try {
-						controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
-						return true;
-					} catch (enqueueErr) {
-						console.error('[api/chat] stream enqueue failed', { enqueueErr });
-						return false;
-					}
-				};
+		let terminalSent = false;
+		let streamClosed = false;
 
-				const sendTerminal = (payload: { type: 'done' | 'error'; [key: string]: unknown }) => {
-					if (terminalSent) return;
-					terminalSent = true;
-					line(payload);
-				};
+		const writeLine = (payload: unknown) => {
+			if (streamClosed) return;
+			void writer.write(encoder.encode(`${JSON.stringify(payload)}\n`)).catch(() => {
+				streamClosed = true;
+			});
+		};
 
-				const closeStream = () => {
-					if (streamClosed) return;
-					streamClosed = true;
-					try {
-						controller.close();
-					} catch {
-						// already closed
-					}
-					streamPg.end().catch(() => {});
-				};
+		const sendTerminal = (payload: { type: 'done' | 'error'; [key: string]: unknown }) => {
+			if (terminalSent) return;
+			terminalSent = true;
+			writeLine(payload);
+		};
 
-				event.request.signal.addEventListener('abort', () => {
-					if (!terminalSent) {
-						sendTerminal({
-							type: 'error',
-							error: 'Request cancelled.',
-							details: ['client disconnected']
-						});
-					}
-					closeStream();
+		const closeStream = async () => {
+			if (streamClosed) return;
+			streamClosed = true;
+			await writer.close().catch(() => {});
+		};
+
+		event.request.signal.addEventListener('abort', () => {
+			if (!terminalSent) {
+				sendTerminal({
+					type: 'error',
+					error: 'Request cancelled.',
+					details: ['client disconnected']
 				});
-
-				// Buffer of intermediate steps to persist together after the run.
-				const intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }> = [];
-
-				runWithTrace(crypto.randomUUID(), () =>
-					agentChat({
-						userId: user.id,
-						messages: [...history, { role: 'user', content: message }],
-						onEvent: (evt) => {
-							if (streamClosed) return;
-							line(evt);
-							// Capture intermediate steps for persistence.
-							if (evt.type === 'thinking' && evt.content) {
-								intermediateSteps.push({
-									content: evt.content,
-									metadata: { variant: 'thinking' }
-								});
-							} else if (evt.type === 'tool_call') {
-								const args = evt.arguments ?? {};
-								intermediateSteps.push({
-									content: JSON.stringify({ tool: evt.tool, arguments: args }),
-									metadata: { variant: 'tool_call', tool: evt.tool, arguments: args }
-								});
-							} else if (evt.type === 'tool_result') {
-								const preview = evt.preview ?? '';
-								const failed = evt.failed === true;
-								intermediateSteps.push({
-									content: preview,
-									metadata: {
-										variant: 'tool_result',
-										tool: evt.tool,
-										failed,
-										displaySummary: formatToolResultForDisplay(evt.tool, preview)
-									}
-								});
-							}
-						},
-						db: streamDb
-					})
-				)
-					.then(async (result) => {
-						if (streamClosed) return;
-						// Persist intermediate steps first (preserves display order on reload).
-						for (const step of intermediateSteps) {
-							await streamDb.insert(chatMessage).values({
-								sessionId,
-								userId: user.id,
-								role: 'assistant',
-								content: step.content,
-								metadata: step.metadata
-							});
-						}
-						const responseText =
-							typeof result.response === 'string' && result.response.trim().length > 0
-								? result.response
-								: 'The assistant did not produce a response.';
-						const messageId = await persistAssistantMessage(
-							streamDb,
-							sessionId,
-							user.id,
-							responseText
-						);
-						if (isFirstMessage) {
-							const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
-							await streamDb
-								.update(chatSession)
-								.set({ title })
-								.where(eq(chatSession.id, sessionId));
-						}
-						sendTerminal({ type: 'done', response: responseText, sessionId, messageId });
-					})
-					.catch((err) => {
-						const details = collectErrorMessages(err);
-						const msg = details[0] ?? 'An unexpected error occurred.';
-						console.error('[api/chat] agentChat threw', { error: msg, details });
-						sendTerminal({ type: 'error', error: msg, details });
-					})
-					.finally(() => {
-						if (!terminalSent && !streamClosed) {
-							sendTerminal({
-								type: 'error',
-								error: 'Chat ended before a response was received.',
-								details: ['stream closed without terminal event']
-							});
-						}
-						closeStream();
-					});
 			}
+			streamClosed = true;
+			void writer.abort(new Error('client disconnected')).catch(() => {});
 		});
 
-		return new Response(stream, {
+		// Buffer of intermediate steps to persist together after the run.
+		const intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }> = [];
+
+		const recordIntermediateStep = (evt: {
+			type: string;
+			content?: string;
+			tool?: string;
+			arguments?: Record<string, unknown>;
+			preview?: string;
+			failed?: boolean;
+		}) => {
+			if (evt.type === 'thinking' && evt.content) {
+				intermediateSteps.push({
+					content: evt.content,
+					metadata: { variant: 'thinking' }
+				});
+			} else if (evt.type === 'tool_call') {
+				const args = evt.arguments ?? {};
+				intermediateSteps.push({
+					content: JSON.stringify({ tool: evt.tool, arguments: args }),
+					metadata: { variant: 'tool_call', tool: evt.tool, arguments: args }
+				});
+			} else if (evt.type === 'tool_result') {
+				const preview = evt.preview ?? '';
+				const failed = evt.failed === true;
+				intermediateSteps.push({
+					content: preview,
+					metadata: {
+						variant: 'tool_result',
+						tool: evt.tool,
+						failed,
+						displaySummary: formatToolResultForDisplay(evt.tool ?? '', preview)
+					}
+				});
+			}
+		};
+
+		// NDJSON returns immediately, so hooks release the request DB before agentChat finishes.
+		// Reserve a dedicated RLS-scoped connection for the full agent run (see capture/submit).
+		const chatWork = (async () => {
+			let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null;
+			try {
+				reserved = await appSql.reserve();
+				const uid = user.id;
+				await reserved`select set_config('app.current_user_id', ${uid}, false)`;
+				const scopedDb = createScopedDrizzle(reserved);
+
+				const result = await appDbAsyncLocal.run(scopedDb, () =>
+					runWithTrace(crypto.randomUUID(), () =>
+						agentChat({
+							userId: user.id,
+							messages: [...history, { role: 'user', content: message }],
+							onEvent: (evt) => {
+								if (!streamClosed) {
+									writeLine(evt);
+								}
+								recordIntermediateStep(evt);
+							},
+							db: scopedDb
+						})
+					)
+				);
+
+				const storedSteps = compactChatIntermediateSteps(intermediateSteps);
+				let lastPersistedMessageId = '';
+				for (const step of storedSteps) {
+					const [row] = await scopedDb
+						.insert(chatMessage)
+						.values({
+							sessionId,
+							userId: user.id,
+							role: 'assistant',
+							content: step.content,
+							metadata: step.metadata
+						})
+						.returning({ id: chatMessage.id });
+					lastPersistedMessageId = row?.id ?? lastPersistedMessageId;
+				}
+				const responseText =
+					typeof result.response === 'string' && result.response.trim().length > 0
+						? result.response
+						: 'The assistant did not produce a response.';
+				const messageId = shouldSkipDuplicateFinalAnswer(storedSteps)
+					? lastPersistedMessageId
+					: await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
+				if (isFirstMessage) {
+					const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
+					await scopedDb
+						.update(chatSession)
+						.set({ title })
+						.where(eq(chatSession.id, sessionId));
+				}
+				sendTerminal({ type: 'done', response: responseText, sessionId, messageId });
+			} catch (err) {
+				const details = collectErrorMessages(err);
+				const msg = details[0] ?? 'An unexpected error occurred.';
+				console.error('[api/chat] agentChat threw', { error: msg, details });
+				sendTerminal({ type: 'error', error: msg, details });
+			} finally {
+				if (reserved) {
+					await reserved`select set_config('app.current_user_id', '', false)`.catch(() => {});
+					await reserved.release();
+				}
+				if (!terminalSent) {
+					sendTerminal({
+						type: 'error',
+						error: 'Chat ended before a response was received.',
+						details: ['stream closed without terminal event']
+					});
+				}
+				await closeStream();
+			}
+		})();
+
+		chatWork.catch((err) => {
+			console.error('[api/chat] chatWork rejected', err);
+			if (!terminalSent) {
+				sendTerminal({
+					type: 'error',
+					error: 'Chat ended before a response was received.',
+					details: [err instanceof Error ? err.message : String(err)]
+				});
+			}
+			void closeStream();
+		});
+
+		return new Response(readable, {
 			headers: { 'content-type': 'application/x-ndjson; charset=utf-8' }
 		});
 	}

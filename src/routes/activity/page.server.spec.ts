@@ -131,6 +131,40 @@ describe('activity page server', () => {
 		expect(data.overallTotals).toBeDefined();
 	});
 
+	it('includes OpenRouter gateway rows in paid activity', async () => {
+		const rows = [
+			{
+				id: 'stt-1',
+				userId: 'u1',
+				provider: 'openrouter',
+				gatewayHost: 'openrouter.ai',
+				operation: 'llm.stt.success(attempt=1,model=qwen/qwen3-asr-flash-2026-02-10)',
+				baseCostUsd: '0.002000',
+				markupUsd: '0.000400',
+				totalCostUsd: '0.002400',
+				markupRate: '0.200000',
+				groupId: null,
+				durationMs: 1200,
+				context: 'hello world',
+				createdAt: new Date('2026-01-03T00:00:00Z')
+			}
+		];
+		const db = chain({
+			limit: vi.fn(async () => rows),
+			then: vi.fn(async (resolve: (v: unknown) => unknown) =>
+				resolve([{ baseCostUsd: '0.002000', markupUsd: '0.000400', totalCostUsd: '0.002400' }])
+			)
+		});
+		getDbMock.mockReturnValue(db);
+
+		const data = await load({
+			locals: { user: { id: 'u1', email: 'a@b.c' } },
+			url: new URL('http://localhost/activity?type=gateway')
+		} as never);
+		expect(data.calls).toEqual(rows);
+		expect(data.totals.totalCostUsd).toBe('0.002400');
+	});
+
 	it('skips overall totals for agent filter', async () => {
 		const db = chain({
 			limit: vi.fn(async () => [])

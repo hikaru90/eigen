@@ -72,9 +72,17 @@
 		@apply border-border outline-ring/50;
 	}
 	html {
-		@apply font-sans;
+		@apply bg-background font-sans;
 		overflow-y: auto;
 	}
+}
+
+/* PWA / notch: extend background edge-to-edge; pad interactive chrome in safe areas */
+.pt-safe {
+	padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+.pb-safe {
+	padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .dark {

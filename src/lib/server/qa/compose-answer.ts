@@ -1,7 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
+import { graphOnlySearchByQuery } from '$lib/server/graph/falkor';
+import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
+import { lexicalSearch, type LexicalSearchResult } from '$lib/server/retrieval/lexical';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
@@ -42,6 +45,8 @@ export type ComposedAnswer = {
 	conflicts: ConflictPair[];
 };
 
+export type ComposeAnswerProgressPhase = 'embedding' | 'searching' | 'composing';
+
 export type ComposeAnswerInput = {
 	userId: string;
 	question: string;
@@ -49,9 +54,56 @@ export type ComposeAnswerInput = {
 	retrievalQuery?: string;
 	topK?: number;
 	weights?: { vector: number; graph: number };
+	onProgress?: (phase: ComposeAnswerProgressPhase) => void | Promise<void>;
 };
 
+/** User-facing text from a composed Q&A result (used when skipping a second agent LLM turn). */
+export function formatComposedAnswerForUser(answer: string): string {
+	return answer.trim();
+}
+
 type SearchHit = Awaited<ReturnType<typeof searchThoughts>>;
+
+const RETRIEVAL_HINT_STOPWORDS = new Set([
+	'wer',
+	'ist',
+	'was',
+	'wie',
+	'wo',
+	'wann',
+	'warum',
+	'who',
+	'what',
+	'when',
+	'where',
+	'why',
+	'how',
+	'is',
+	'are',
+	'the',
+	'a',
+	'an'
+]);
+
+/** Focused tokens for a second retrieval pass (names, codes) on short questions. */
+export function extractRetrievalHints(question: string): string | undefined {
+	const tokens = question
+		.normalize('NFKC')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/g)
+		.map((t) => t.trim())
+		.filter((t, i, arr) => t.length >= 2 && arr.indexOf(t) === i);
+	const hints = tokens.filter((t) => !RETRIEVAL_HINT_STOPWORDS.has(t));
+	if (hints.length === 0) return undefined;
+	const hintQuery = hints.join(' ');
+	const normalizedQuestion = question
+		.normalize('NFKC')
+		.toLowerCase()
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (hintQuery === normalizedQuestion) return undefined;
+	return hintQuery;
+}
 
 function mergeSearchHits(a: SearchHit[], b: SearchHit[], topK: number): SearchHit[] {
 	const byId = new Map<string, SearchHit>();
@@ -163,6 +215,98 @@ function formatThoughtsForPrompt(items: RetrievalContextItem[]): string {
 		.join('\n\n');
 }
 
+export function questionFocusTokens(question: string): string[] {
+	const hintQuery = extractRetrievalHints(question);
+	if (!hintQuery) return [];
+	return hintQuery.split(/\s+/).filter((t) => t.length >= 2);
+}
+
+/** "Who is X" / "Wer ist X" — identity lookup, not broad topic search. */
+export function isIdentityLookupQuestion(question: string): boolean {
+	return /^(who|wer)\s+(is|ist)\s+\S/i.test(question.trim());
+}
+
+/** For identity questions, only thoughts that mention the asked-for name belong in the compose prompt. */
+export function narrowComposeContextToQuestionFocus(
+	question: string,
+	items: RetrievalContextItem[]
+): RetrievalContextItem[] {
+	if (!isIdentityLookupQuestion(question)) return items;
+	const tokens = questionFocusTokens(question);
+	if (tokens.length === 0) return items;
+	return items.filter((item) => {
+		const text = item.normalizedText.toLowerCase();
+		return tokens.some((token) => text.includes(token));
+	});
+}
+
+const HINT_ANCHOR_SCORE_BOOST = 2;
+
+async function searchHitsFromHintAnchors(input: {
+	userId: string;
+	hintQuery: string;
+	topK: number;
+}): Promise<SearchHit[]> {
+	const limit = Math.max(1, Math.min(input.topK, 100));
+	const [lexicalRows, graphLabelHits] = await Promise.all([
+		lexicalSearch({ userId: input.userId, query: input.hintQuery, limit }),
+		graphOnlySearchByQuery({ userId: input.userId, query: input.hintQuery, limit })
+	]);
+	return hydrateHintAnchorHits(input.userId, graphLabelHits, lexicalRows);
+}
+
+async function hydrateHintAnchorHits(
+	userId: string,
+	graphLabelHits: Array<{ id: string; score: number }>,
+	lexicalRows: LexicalSearchResult[]
+): Promise<SearchHit[]> {
+	const scoreById = new Map<string, { graph: number; lexical: number }>();
+	for (const hit of graphLabelHits) {
+		if (!hit.id) continue;
+		const cur = scoreById.get(hit.id) ?? { graph: 0, lexical: 0 };
+		cur.graph = Math.max(cur.graph, hit.score);
+		scoreById.set(hit.id, cur);
+	}
+	for (const row of lexicalRows) {
+		const cur = scoreById.get(row.id) ?? { graph: 0, lexical: 0 };
+		cur.lexical = Math.max(cur.lexical, row.lexicalScore);
+		scoreById.set(row.id, cur);
+	}
+	const ids = [...scoreById.keys()];
+	if (ids.length === 0) return [];
+
+	const rows = await getDb()
+		.select({
+			id: thought.id,
+			normalizedText: thought.normalizedText,
+			category: thought.category,
+			metadata: thought.metadata,
+			createdAt: thought.createdAt
+		})
+		.from(thought)
+		.where(and(eq(thought.userId, userId), inArray(thought.id, ids)));
+
+	return rows.map((row) => {
+		const parts = scoreById.get(row.id) ?? { graph: 0, lexical: 0 };
+		const graphScore = parts.graph * HINT_ANCHOR_SCORE_BOOST;
+		const vectorScore = parts.lexical * HINT_ANCHOR_SCORE_BOOST;
+		const baseMeta = (row.metadata as Record<string, unknown>) ?? {};
+		return {
+			id: row.id,
+			normalizedText: row.normalizedText,
+			category: row.category,
+			createdAt: row.createdAt,
+			vectorScore,
+			graphScore,
+			score: vectorScore + graphScore + HINT_ANCHOR_SCORE_BOOST,
+			metadata: {
+				...baseMeta,
+				...(parts.graph > 0 ? { graphProvenance: 'entity:label_match' } : {})
+			}
+		};
+	});
+}
+
 function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
 	if (conflicts.length === 0) return '';
 	const lines = conflicts.map(
@@ -188,6 +332,8 @@ const SYSTEM_PROMPT = [
 	'Hard rules:',
 	'- Cite every factual claim with [<id>] using the EXACT id string from the thoughts list (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
 	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
+	'- Do NOT equate or identify different people or names unless a cited thought explicitly states that link (e.g. "Clemi is Annie"). Similar topics, family, or graph edges are NOT enough.',
+	'- If the question names a person, nickname, or entity (e.g. "Clemi"), that name (or an alias written in the thoughts) MUST appear in a cited thought. Otherwise Answer MUST be "Not in memory."',
 	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought.',
 	'- If the thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
 	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses.',
@@ -311,30 +457,48 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const now = new Date();
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
 	const topK = input.topK ?? 8;
-	const retrievalQuery = input.retrievalQuery?.trim();
+	const explicitRetrievalQuery = input.retrievalQuery?.trim();
+	const hintRetrievalQuery = explicitRetrievalQuery ?? extractRetrievalHints(trimmedQuestion);
+	const retrievalQuery =
+		hintRetrievalQuery && hintRetrievalQuery !== trimmedQuestion ? hintRetrievalQuery : undefined;
+	await input.onProgress?.('embedding');
+	const queryEmbedding = await createThoughtEmbedding(input.userId, trimmedQuestion);
+	await input.onProgress?.('searching');
 	let retrieved: SearchHit[];
-	if (retrievalQuery && retrievalQuery !== trimmedQuestion) {
-		const [fromQuestion, fromRetrievalQuery] = await Promise.all([
+	if (retrievalQuery) {
+		const [fromQuestion, fromRetrievalQuery, hintAnchors] = await Promise.all([
 			searchThoughts({
 				userId: input.userId,
 				query: trimmedQuestion,
 				topK,
-				weights
+				weights,
+				queryEmbedding
 			}),
 			searchThoughts({
 				userId: input.userId,
 				query: retrievalQuery,
 				topK,
-				weights
+				weights,
+				queryEmbedding
+			}),
+			searchHitsFromHintAnchors({
+				userId: input.userId,
+				hintQuery: retrievalQuery,
+				topK
 			})
 		]);
-		retrieved = mergeSearchHits(fromQuestion, fromRetrievalQuery, topK);
+		retrieved = mergeSearchHits(
+			mergeSearchHits(fromQuestion, fromRetrievalQuery, topK),
+			hintAnchors,
+			topK
+		);
 	} else {
 		retrieved = await searchThoughts({
 			userId: input.userId,
-			query: retrievalQuery || trimmedQuestion,
+			query: trimmedQuestion,
 			topK,
-			weights
+			weights,
+			queryEmbedding
 		});
 	}
 	void tryRecordRetrievalQualityEvent({
@@ -362,6 +526,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		now
 	});
 	contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, topK);
+	contextItems = narrowComposeContextToQuestionFocus(trimmedQuestion, contextItems);
 
 	const conflicts = detectContradictions(contextItems);
 
@@ -377,6 +542,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 				`\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
 		}
 	];
+	await input.onProgress?.('composing');
 	const response = await llmChatCompletion({
 		userId: input.userId,
 		messages,

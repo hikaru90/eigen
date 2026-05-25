@@ -8,7 +8,7 @@
 		"node": "^22.13.0"
 	},
 	"scripts": {
-		"dev": "npm run db:up && vite dev --host",
+		"dev": "npm run db:up && svelte-kit sync && vite dev --host",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -89,6 +89,8 @@
 		"@vite-pwa/sveltekit": "^1.1.0",
 		"d3": "^7.9.0",
 		"falkordb": "^6.6.2",
+		"isomorphic-dompurify": "^3.14.0",
+		"marked": "^18.0.4",
 		"opentype.js": "^2.0.0",
 		"umap-js": "^1.4.0",
 		"web-push": "^3.6.7",

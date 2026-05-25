@@ -80,7 +80,7 @@
   }
 </script>
 
-<header class="fixed top-0 right-0 left-0 z-40 w-full px-5 pt-3">
+<header class="fixed top-0 right-0 left-0 z-40 w-full px-5 pt-safe">
   <div
     class="pointer-events-none bg-linear-to-b absolute top-0 right-0 left-0 -z-10 h-24 from-background to-transparent dark:from-black dark:to-black/0"
   ></div>

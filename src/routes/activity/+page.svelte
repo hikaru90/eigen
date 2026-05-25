@@ -138,7 +138,7 @@
 			</Card.Title>
 			<Card.Description class="text-muted-foreground text-xs">
 				{#if currentFilter === 'gateway'}
-					Billable LLM gateway calls (chat and embeddings). Per AC-014 and AC-015: base cost, 20% markup, and total for {data.user.email}.
+					Billable LLM gateway calls (chat, embeddings, and speech-to-text). Per AC-014 and AC-015: base cost, 20% markup, and total for {data.user.email}.
 				{:else if currentFilter === 'agent'}
 					Internal agent tool calls (free, zero-cost operations).
 				{:else}

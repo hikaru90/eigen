@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { computeTokenCostUsd, llmChatCompletion, llmCreateEmbeddings } from './llm-client';
+import {
+	computeTokenCostUsd,
+	llmChatCompletion,
+	llmCreateEmbeddings,
+	llmCreateTranscription
+} from './llm-client';
 
 const { mockEnv, logActivityCallMock, getDbMock } = vi.hoisted(() => {
 	function makeDbMock() {
@@ -21,7 +26,9 @@ const { mockEnv, logActivityCallMock, getDbMock } = vi.hoisted(() => {
 			LLM_MODEL_CHAT: 'gpt-test',
 			LLM_MODEL_EMBEDDING: 'text-embedding-3-small',
 			LLM_MIN_REQUEST_INTERVAL_MS: '0',
-			LLM_API_KEY: 'key-1'
+			LLM_API_KEY: 'key-1',
+			OPENROUTER_BASE_URL: 'https://openrouter.example/api/v1',
+			OPENROUTER_API_KEY: 'openrouter-key'
 		},
 		logActivityCallMock: vi.fn(),
 		getDbMock: vi.fn(() => makeDbMock())
@@ -432,5 +439,90 @@ describe('llm client retries', () => {
 		);
 		const { llmCreateEmbeddings: embed } = await import('./llm-client');
 		await expect(embed({ userId: 'u1', input: 'hi' })).rejects.toThrow(/missing a model/);
+	});
+});
+
+describe('llmCreateTranscription', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('prefers OPENROUTER_* env over database for speech-to-text', async () => {
+		const fetchMock = vi.fn(async () => response(true, 200, { text: 'from env' }));
+		vi.stubGlobal('fetch', fetchMock);
+		getDbMock.mockReturnValueOnce({
+			select: () => ({
+				from: () => ({
+					where: () => ({
+						limit: () =>
+							Promise.resolve([
+								{
+									provider: 'openrouter',
+									baseUrl: 'https://db-openrouter.example/api/v1',
+									apiKey: 'db-key',
+									ruleChat: null,
+									ruleEmbedding: null,
+									modelChat: null,
+									modelEmbedding: null
+								}
+							])
+					})
+				})
+			})
+		});
+		await llmCreateTranscription({
+			userId: 'u1',
+			model: 'qwen/qwen3-asr-flash-2026-02-10',
+			audio: { bytes: new Uint8Array([1]), format: 'webm' }
+		});
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+			'https://openrouter.example/api/v1/audio/transcriptions'
+		);
+	});
+
+	it('posts audio to OpenRouter /audio/transcriptions', async () => {
+		const fetchMock = vi.fn(async () =>
+			response(true, 200, { text: 'hello', usage: { cost: 0.001 } })
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const out = await llmCreateTranscription({
+			userId: 'u1',
+			model: 'qwen/qwen3-asr-flash-2026-02-10',
+			audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm', language: 'en' }
+		});
+		expect((out as { text: string }).text).toBe('hello');
+		const url = fetchMock.mock.calls[0]?.[0];
+		expect(String(url)).toBe('https://openrouter.example/api/v1/audio/transcriptions');
+		const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+			model: string;
+			input_audio: { data: string; format: string };
+			language: string;
+		};
+		expect(body.model).toBe('qwen/qwen3-asr-flash-2026-02-10');
+		expect(body.input_audio.format).toBe('webm');
+		expect(body.language).toBe('en');
+		expect(body.input_audio.data).toBe(Buffer.from([1, 2, 3]).toString('base64'));
+	});
+
+	it('logs OpenRouter STT cost from usage.cost in activity', async () => {
+		const fetchMock = vi.fn(async () =>
+			response(true, 200, { text: 'hello', usage: { cost: 0.0035 } })
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		await llmCreateTranscription({
+			userId: 'u1',
+			model: 'qwen/qwen3-asr-flash-2026-02-10',
+			audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm' }
+		});
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({
+				provider: 'openrouter',
+				operation: expect.stringContaining('llm.stt.success'),
+				baseCostUsd: 0.0035,
+				gatewayHost: 'openrouter.example'
+			})
+		);
 	});
 });

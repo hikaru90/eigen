@@ -7,46 +7,30 @@
   import * as Card from '$lib/components/ui/card';
   import { Separator } from '$lib/components/ui/separator';
   import { chatSidebarOpen } from '$lib/stores/chat-sidebar';
-  import Bot from '@lucide/svelte/icons/bot';
   import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
-  import User from '@lucide/svelte/icons/user';
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
-  import MessageSquareText from '@lucide/svelte/icons/message-square-text';
-  import Search from '@lucide/svelte/icons/search';
-  import Sparkles from '@lucide/svelte/icons/sparkles';
-  import PencilLine from '@lucide/svelte/icons/pencil-line';
   import Redo2 from '@lucide/svelte/icons/redo-2';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import Square from '@lucide/svelte/icons/square';
-  import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus';
-  import List from '@lucide/svelte/icons/list';
+  import VoiceInputButton from '$lib/components/voice-input-button.svelte';
+  import ChatToolStep from '$lib/components/chat-tool-step.svelte';
+  import ChatMarkdown from '$lib/components/chat-markdown.svelte';
   import { consumeChatNdjsonStream, type ChatProgressEvent } from '$lib/chat/consume-chat-ndjson';
   import {
+    coerceToolResultSource,
     formatToolArgumentsSummary,
-    formatToolResultForDisplay,
-    toolArgumentsPreview,
-    toolCategoryClasses,
-    toolLabel,
-    toolStatusBadgeClasses,
-    toolVisual,
-    type ChatToolIcon
+    resolveToolResultView
   } from '$lib/chat/chat-stream-types';
+  import {
+    normalizeChatDisplay,
+    toolStepToDisplayEntry,
+    type ChatDisplayEntry
+  } from '$lib/chat/normalize-messages';
 
-  type ChatEntry =
-    | { role: 'user'; content: string }
-    | { role: 'assistant'; variant: 'text'; content: string }
-    | { role: 'assistant'; variant: 'thinking'; content: string }
-    | { role: 'assistant'; variant: 'tool_call'; tool: string; arguments: Record<string, unknown> }
-    | {
-        role: 'assistant';
-        variant: 'tool_result';
-        tool: string;
-        content: string;
-        status: 'success' | 'error';
-      };
+  type ChatEntry = ChatDisplayEntry;
 
   type SessionListItem = {
     id: string;
@@ -74,20 +58,24 @@
   let sessions = $state<SessionListItem[]>([]);
   let activeSessionId = $state<string | null>(null);
   let messages = $state<ChatEntry[]>([]);
+  let displayMessages = $derived(normalizeChatDisplay(messages));
   let input = $state('');
   let loading = $state(false);
   let loadingSession = $state(false);
   let abortController = $state<AbortController | null>(null);
   let streamEventsReceived = $state(false);
   let streamAbortReason = $state<'user' | 'timeout' | null>(null);
-
+  let agentStatus = $state<string | null>(null);
   let chatEl: HTMLDivElement | undefined;
 
-  const STORAGE_KEY = 'chat-active-session-id';
-
-  function toolIconName(tool: string): ChatToolIcon {
-    return toolVisual(tool).icon;
+  function appendTranscript(current: string, transcript: string): string {
+    const next = transcript.trim();
+    if (!next) return current;
+    const base = current.trim();
+    return base ? `${base} ${next}` : next;
   }
+
+  const STORAGE_KEY = 'chat-active-session-id';
 
   function scrollToBottom() {
     const el = chatEl;
@@ -130,7 +118,7 @@
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       if (!res.ok) throw new Error('Failed to load session');
       const json = await res.json();
-      messages = (json.messages ?? []).flatMap((m: SessionMessage): ChatEntry[] => {
+      const loaded = (json.messages ?? []).flatMap((m: SessionMessage): ChatEntry[] => {
         if (m.role === 'user') {
           return [{ role: 'user' as const, content: m.content }];
         }
@@ -139,32 +127,63 @@
           if (v === 'thinking') {
             return [{ role: 'assistant' as const, variant: 'thinking' as const, content: m.content }];
           }
+          if (v === 'tool_step' && typeof m.metadata.tool === 'string') {
+            const payload =
+              coerceToolResultSource(m.content) ??
+              coerceToolResultSource(m.metadata.displaySummary) ??
+              coerceToolResultSource(m.metadata.preview) ??
+              coerceToolResultSource(m.metadata.result) ??
+              '';
+            return [toolStepToDisplayEntry({
+              tool: m.metadata.tool,
+              arguments: (m.metadata.arguments as Record<string, unknown>) ?? {},
+              displaySummary: coerceToolResultSource(m.metadata.displaySummary),
+              content: payload,
+              failed: m.metadata.failed === true
+            })];
+          }
           if (v === 'tool_call' && typeof m.metadata.tool === 'string') {
+            const legacyResult =
+              coerceToolResultSource(m.metadata.result) ??
+              coerceToolResultSource(m.metadata.preview);
+            const status =
+              m.metadata.status === 'done' || m.metadata.status === 'error'
+                ? m.metadata.status
+                : legacyResult
+                  ? 'done'
+                  : undefined;
             return [{
               role: 'assistant' as const,
               variant: 'tool_call' as const,
               tool: m.metadata.tool,
-              arguments: (m.metadata.arguments as Record<string, unknown>) ?? {}
+              arguments: (m.metadata.arguments as Record<string, unknown>) ?? {},
+              ...(status ? { status: status as 'done' | 'error' } : {}),
+              ...(legacyResult ? { result: legacyResult } : {}),
+              displaySummary: coerceToolResultSource(m.metadata.displaySummary)
             }];
           }
           if (v === 'tool_result') {
             const toolName = typeof m.metadata.tool === 'string' ? m.metadata.tool : 'retrieve_thoughts';
-            const displayText =
-              typeof m.metadata.displaySummary === 'string'
-                ? m.metadata.displaySummary
-                : formatToolResultForDisplay(toolName, m.content);
             const failed = m.metadata.failed === true;
+            const payload =
+              coerceToolResultSource(m.content) ??
+              coerceToolResultSource(m.metadata.displaySummary) ??
+              coerceToolResultSource(m.metadata.preview) ??
+              coerceToolResultSource(m.metadata.result) ??
+              '';
             return [{
               role: 'assistant' as const,
               variant: 'tool_result' as const,
               tool: toolName,
-              content: displayText,
+              content: payload,
+              displaySummary: coerceToolResultSource(m.metadata.displaySummary),
               status: failed ? ('error' as const) : ('success' as const)
             }];
           }
         }
         return [{ role: 'assistant' as const, variant: 'text' as const, content: m.content }];
       });
+      messages = loaded;
     } catch {
       messages = [];
     } finally {
@@ -206,30 +225,87 @@
     }
   }
 
+  function findLastToolCallIndex(tool: string): number {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const entry = messages[i];
+      if (entry.role === 'assistant' && entry.variant === 'tool_call' && entry.tool === tool) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function patchLastToolCall(
+    tool: string,
+    patch: Partial<Extract<ChatEntry, { variant: 'tool_call' }>>
+  ): boolean {
+    const i = findLastToolCallIndex(tool);
+    if (i < 0) return false;
+    const entry = messages[i];
+    if (entry.role !== 'assistant' || entry.variant !== 'tool_call') return false;
+    messages = [...messages.slice(0, i), { ...entry, ...patch }, ...messages.slice(i + 1)];
+    return true;
+  }
+
+  function updateLastToolCallProgress(tool: string, label: string) {
+    patchLastToolCall(tool, { progress: label, status: 'running' });
+  }
+
+  function finalizeLastToolCall(tool: string, content: string, failed: boolean) {
+    patchLastToolCall(tool, {
+      progress: undefined,
+      status: failed ? 'error' : 'done',
+      result: content
+    });
+  }
+
+  function lastEntryShowsAnswerQuestionResult(): boolean {
+    const last = messages.at(-1);
+    return (
+      last?.role === 'assistant' &&
+      last.variant === 'tool_call' &&
+      last.tool === 'answer_question' &&
+      last.status === 'done'
+    );
+  }
+
   function pushStreamEvent(event: ChatProgressEvent) {
     streamEventsReceived = true;
     if (event.type === 'thinking') {
       messages.push({ role: 'assistant', variant: 'thinking', content: event.content });
       return;
     }
+    if (event.type === 'agent_progress') {
+      agentStatus = event.label;
+      return;
+    }
     if (event.type === 'tool_call') {
+      agentStatus = null;
       messages.push({
         role: 'assistant',
         variant: 'tool_call',
         tool: event.tool,
-        arguments: event.arguments ?? {}
+        arguments: event.arguments ?? {},
+        status: 'running'
       });
+      return;
+    }
+    if (event.type === 'tool_progress') {
+      updateLastToolCallProgress(event.tool, event.label);
       return;
     }
     if (event.type === 'tool_result') {
       const failed = event.failed === true;
-      messages.push({
-        role: 'assistant',
-        variant: 'tool_result',
-        tool: event.tool,
-        content: formatToolResultForDisplay(event.tool, event.preview ?? ''),
-        status: failed ? 'error' : 'success'
-      });
+      const preview = event.preview ?? '';
+      if (!finalizeLastToolCall(event.tool, preview, failed)) {
+        messages.push({
+          role: 'assistant',
+          variant: 'tool_result',
+          tool: event.tool,
+          content: preview,
+          status: failed ? 'error' : 'success'
+        });
+      }
     }
   }
 
@@ -237,6 +313,7 @@
     loading = true;
     streamEventsReceived = false;
     streamAbortReason = null;
+    agentStatus = null;
 
     const body: Record<string, unknown> = { message: text };
     if (activeSessionId) body.sessionId = activeSessionId;
@@ -273,7 +350,9 @@
       }
       if (done.sessionId) activeSessionId = done.sessionId;
       if (done.sessionId && browser) localStorage.setItem(STORAGE_KEY, done.sessionId);
-      messages.push({ role: 'assistant', variant: 'text', content: responseText });
+      if (!lastEntryShowsAnswerQuestionResult()) {
+        messages.push({ role: 'assistant', variant: 'text', content: responseText });
+      }
       loadSessions();
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') {
@@ -297,6 +376,7 @@
       loading = false;
       abortController = null;
       streamAbortReason = null;
+      agentStatus = null;
     }
   }
 
@@ -306,17 +386,27 @@
     sendStreaming(text);
   }
 
-  function regenerate(index: number) {
+  function messagesForDisplayPrefix(displayCount: number): ChatEntry[] {
+    for (let rawLen = 0; rawLen <= messages.length; rawLen++) {
+      if (normalizeChatDisplay(messages.slice(0, rawLen)).length === displayCount) {
+        return messages.slice(0, rawLen);
+      }
+    }
+    return messages;
+  }
+
+  function regenerate(displayIndex: number) {
     if (loading) return;
-    let userIdx = index - 1;
-    while (userIdx >= 0 && messages[userIdx].role !== 'user') {
+    const prefix = normalizeChatDisplay(messages).slice(0, displayIndex);
+    let userIdx = prefix.length - 1;
+    while (userIdx >= 0 && prefix[userIdx].role !== 'user') {
       userIdx--;
     }
     if (userIdx < 0) return;
-    const prior = messages[userIdx];
+    const prior = prefix[userIdx];
     if (prior.role !== 'user') return;
     const text = prior.content;
-    messages = messages.slice(0, index);
+    messages = messagesForDisplayPrefix(displayIndex);
     sendStreaming(text);
   }
 
@@ -431,11 +521,11 @@
   </div>
 </div>
 
-<div class="fixed inset-x-0 top-20 bottom-28 z-0 mx-auto flex max-w-2xl flex-col gap-3 px-4 pt-2 pb-2">
+<div class="fixed inset-x-0 top-20 bottom-28 z-0 mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 px-4 pt-2 pb-2 overflow-x-clip">
   <!-- messages area -->
   <div
     bind:this={chatEl}
-    class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1"
+    class="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-1 overflow-x-clip"
     role="log"
     aria-label="Chat messages"
   >
@@ -451,13 +541,13 @@
       </div>
     {/if}
 
-    {#each messages as msg, i (i)}
+    {#each displayMessages as msg, i (i)}
       {#if msg.role === 'user'}
         <!-- User message: right-aligned, Klein Blue bg, clean pill -->
-        <div class="group flex flex-row-reverse items-end gap-3 py-0.5">
-          <div class="flex flex-col items-end gap-1 max-w-[72%]">
-            <div class="rounded-[16px] rounded-br-none bg-foreground px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap text-background">
-              {msg.content}
+        <div class="group flex min-w-0 w-full flex-row-reverse items-end gap-3 py-0.5">
+          <div class="flex min-w-0 max-w-[72%] flex-col items-end gap-1">
+            <div class="min-w-0 rounded-[16px] rounded-br-none bg-foreground px-3.5 py-2 text-background">
+              <ChatMarkdown content={msg.content} tone="user" />
             </div>
             <button
               class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
@@ -471,9 +561,9 @@
 
       {:else if msg.variant === 'thinking'}
         <!-- Thinking: very reduced, borderless, italic inline label -->
-        <div class="py-0.5">
-          <details class="group/think">
-            <summary class="cursor-pointer select-none list-none text-xs text-muted-foreground italic leading-relaxed py-1 flex items-center gap-1.5 w-fit">
+        <div class="min-w-0 w-full py-0.5">
+          <details class="group/think min-w-0 max-w-full">
+            <summary class="cursor-pointer select-none list-none max-w-full text-xs text-muted-foreground italic leading-normal py-1 flex flex-wrap items-center gap-1.5">
               <span class="inline-block size-1 rounded-full bg-accent shrink-0"></span>
               Thinking
               {#if msg.content}
@@ -481,85 +571,39 @@
               {/if}
             </summary>
             {#if msg.content}
-              <div class="mt-1 ml-3.5 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap border-l border-border pl-3 py-0.5">
-                {msg.content}
+              <div class="mt-1 ml-3.5 min-w-0 border-l border-border pl-3 py-0.5">
+                <ChatMarkdown content={msg.content} tone="muted" />
               </div>
             {/if}
           </details>
         </div>
 
       {:else if msg.variant === 'tool_call'}
-        {@const visual = toolVisual(msg.tool)}
-        {@const classes = toolCategoryClasses(visual.category)}
         {@const argSummary = formatToolArgumentsSummary(msg.tool, msg.arguments)}
-        <div class="py-0.5">
-          <div class="rounded-md border {classes.border} bg-muted/20 px-2.5 py-2">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              {#if toolIconName(msg.tool) === 'save'}
-                <BookmarkPlus class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'list'}
-                <List class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'search'}
-                <Search class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'sparkles'}
-                <Sparkles class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'pencil'}
-                <PencilLine class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'trash'}
-                <Trash2 class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else}
-                <Bot class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {/if}
-              <span class="font-medium text-foreground/90">{toolLabel(msg.tool)}</span>
-              <span class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide {toolStatusBadgeClasses('running')}">Running</span>
-            </div>
-            {#if argSummary}
-              <p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{argSummary}</p>
-            {:else if Object.keys(msg.arguments).length > 0}
-              <details class="mt-1.5 group/args">
-                <summary class="cursor-pointer text-[10px] text-muted-foreground">View parameters</summary>
-                <pre class="mt-1 text-[10px] text-muted-foreground/80 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-32 overflow-y-auto">{toolArgumentsPreview(msg.arguments, 800)}</pre>
-              </details>
-            {/if}
-          </div>
-        </div>
+        {@const runStatus = msg.status ?? 'running'}
+        {@const stepStatus = runStatus === 'running' ? 'running' : runStatus === 'error' ? 'failed' : 'done'}
+        {@const resultView =
+          msg.result && runStatus !== 'running'
+            ? resolveToolResultView(msg.tool, msg.result, msg.displaySummary)
+            : null}
+        <ChatToolStep
+          tool={msg.tool}
+          status={stepStatus}
+          argSummary={argSummary}
+          progress={msg.progress}
+          resultView={resultView}
+        />
 
       {:else if msg.variant === 'tool_result'}
-        {@const visual = toolVisual(msg.tool)}
-        {@const classes = toolCategoryClasses(visual.category)}
         {@const resultStatus = msg.status === 'error' ? 'failed' : 'done'}
-        <div class="py-0.5">
-          <div class="rounded-md border {classes.border} bg-muted/15 px-2.5 py-2">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              {#if toolIconName(msg.tool) === 'save'}
-                <BookmarkPlus class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'list'}
-                <List class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'search'}
-                <Search class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'sparkles'}
-                <Sparkles class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'pencil'}
-                <PencilLine class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else if toolIconName(msg.tool) === 'trash'}
-                <Trash2 class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {:else}
-                <Bot class="size-3.5 shrink-0 {classes.icon}" strokeWidth={1.5} />
-              {/if}
-              <span class="font-medium text-foreground/90">{toolLabel(msg.tool)}</span>
-              <span class="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide {toolStatusBadgeClasses(resultStatus)}">{msg.status === 'error' ? 'Failed' : 'Done'}</span>
-            </div>
-            <p class="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap break-words {msg.status === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-muted-foreground'}">{msg.content}</p>
-          </div>
-        </div>
+        {@const resultView = resolveToolResultView(msg.tool, msg.content, msg.displaySummary)}
+        <ChatToolStep tool={msg.tool} status={resultStatus} {resultView} />
 
       {:else}
         <!-- Assistant text: no bubble, plain text with subtle left gutter -->
-        <div class="group flex flex-row items-start gap-0 py-1">
-          <div class="flex flex-col items-start gap-1 max-w-[82%]">
-            <div class="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-              {msg.content}
-            </div>
+        <div class="group flex min-w-0 w-full flex-row items-start gap-0 py-1">
+          <div class="flex min-w-0 max-w-full flex-col items-start gap-1 sm:max-w-[82%]">
+            <ChatMarkdown content={msg.content} />
             <button
               class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
               onclick={() => regenerate(i)}
@@ -572,28 +616,45 @@
       {/if}
     {/each}
 
-    {#if loading && !streamEventsReceived}
-      <div class="py-1">
-        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircleIcon class="size-3.5 animate-spin" />
+    {#if loading && agentStatus}
+      <div class="min-w-0 py-0.5">
+        <p class="flex min-w-0 items-start gap-1.5 text-xs leading-normal text-muted-foreground">
+          <LoaderCircleIcon class="mt-0.5 size-3.5 shrink-0 animate-spin" />
+          <span class="min-w-0 wrap-break-word">{agentStatus}</span>
+        </p>
+      </div>
+    {:else if loading && !streamEventsReceived}
+      <div class="min-w-0 py-1">
+        <div class="flex min-w-0 items-start gap-1.5 text-xs leading-normal text-muted-foreground">
+          <LoaderCircleIcon class="mt-0.5 size-3.5 shrink-0 animate-spin" />
+          <span>Connecting…</span>
         </div>
       </div>
     {/if}
   </div>
 
   <!-- input area -->
-  <div class="shrink-0">
-    <Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
-      <Card.Content class="p-0 w-full">
+  <div class="min-w-0 shrink-0 w-full">
+    <Card.Root class="bg-white dark:bg-card min-w-0 w-full overflow-visible border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-x-clip">
+      <Card.Content class="min-w-0 p-0 w-full">
         <Textarea
           bind:value={input}
           onkeydown={handleKeydown}
           placeholder="Ask a question about your memories..."
-          class="border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
+          class="min-w-0 w-full break-all border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-sm min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
           disabled={loading || loadingSession}
         />
       </Card.Content>
-      <Card.Footer class="bg-muted/50 p-4 flex flex-row items-center justify-end w-full">
+      <Card.Footer class="bg-muted/50 p-4 flex flex-row items-center justify-end gap-2 w-full">
+        <VoiceInputButton
+          disabled={loading || loadingSession}
+          ontranscript={(text) => {
+            input = appendTranscript(input, text);
+          }}
+          onerror={(message) => {
+            console.error('voice input failed', message);
+          }}
+        />
         <Button
           onclick={loading ? stop : send}
           disabled={!loading && (loadingSession || !input.trim())}

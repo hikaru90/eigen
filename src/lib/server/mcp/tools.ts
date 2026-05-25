@@ -13,8 +13,15 @@ import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
 
+export type McpToolProgress = {
+	tool: string;
+	phase: string;
+	label: string;
+};
+
 export type McpToolContext = {
 	userId: string;
+	onToolProgress?: (event: McpToolProgress) => void;
 };
 
 function asObject(input: unknown): Record<string, unknown> {
@@ -60,6 +67,11 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	const threshold = typeof body.threshold === 'number' ? body.threshold : undefined;
 	validateSearchParams({ topK, threshold });
 	const weights = CONTEXT_WEIGHTS.default;
+	context.onToolProgress?.({
+		tool: 'retrieve_thoughts',
+		phase: 'searching',
+		label: 'Searching your memories…'
+	});
 	const results = await searchThoughts({
 		userId: context.userId,
 		query,
@@ -156,7 +168,19 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 	const result = await composeAnswer({
 		userId: context.userId,
 		question,
-		...(topK != null ? { topK } : {})
+		...(topK != null ? { topK } : {}),
+		onProgress: async (phase) => {
+			const labels: Record<string, string> = {
+				embedding: 'Embedding your question…',
+				searching: 'Searching your memories…',
+				composing: 'Composing answer from matches…'
+			};
+			context.onToolProgress?.({
+				tool: 'answer_question',
+				phase,
+				label: labels[phase] ?? 'Working…'
+			});
+		}
 	});
 	return result;
 }

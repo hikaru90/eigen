@@ -1,25 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 
-const { agentChatMock, getDbMock, drizzleMock, postgresMock } = vi.hoisted(() => ({
+const { agentChatMock, getDbMock, appSqlMock, createScopedDrizzleMock } = vi.hoisted(() => ({
 	agentChatMock: vi.fn(),
 	getDbMock: vi.fn(),
-	drizzleMock: vi.fn(),
-	postgresMock: vi.fn(() => ({
-		end: vi.fn().mockResolvedValue(undefined)
-	}))
+	appSqlMock: {
+		reserve: vi.fn()
+	},
+	createScopedDrizzleMock: vi.fn()
 }));
 
-vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
+vi.mock('$lib/server/db', () => ({
+	getDb: getDbMock,
+	appSql: appSqlMock,
+	appDbAsyncLocal: { run: (_db: unknown, fn: () => unknown) => fn() },
+	createScopedDrizzle: createScopedDrizzleMock
+}));
 vi.mock('$lib/server/llm/agent-loop', () => ({ agentChat: agentChatMock }));
 vi.mock('$lib/server/activity/trace-context', () => ({
 	runWithTrace: (_id: string, fn: () => unknown) => fn()
 }));
-vi.mock('$lib/server/db/runtime-url', () => ({
-	getRuntimeDatabaseUrl: () => 'postgres://test'
-}));
-vi.mock('postgres', () => ({ default: postgresMock }));
-vi.mock('drizzle-orm/postgres-js', () => ({ drizzle: drizzleMock }));
 
 const SESSION_ID = 'sess-1';
 const ASSISTANT_MSG_ID = 'asst-1';
@@ -55,7 +55,6 @@ function buildMainDb() {
 		})
 	});
 
-	// count(*) query resolves where() directly
 	whereForSelect.mockReturnValueOnce({
 		limit: vi.fn().mockResolvedValue([{ id: SESSION_ID }])
 	});
@@ -65,20 +64,17 @@ function buildMainDb() {
 }
 
 function buildStreamDb() {
-	const insertValues = vi.fn().mockResolvedValue(undefined);
-	const insert = vi.fn().mockReturnValue({ values: insertValues });
-	const update = vi.fn().mockReturnValue({
-		set: vi.fn().mockReturnValue({
-			where: vi.fn().mockResolvedValue(undefined)
-		})
-	});
 	return {
 		insert: vi.fn().mockReturnValue({
 			values: vi.fn().mockReturnValue({
 				returning: vi.fn().mockResolvedValue([{ id: ASSISTANT_MSG_ID }])
 			})
 		}),
-		update
+		update: vi.fn().mockReturnValue({
+			set: vi.fn().mockReturnValue({
+				where: vi.fn().mockResolvedValue(undefined)
+			})
+		})
 	};
 }
 
@@ -95,10 +91,16 @@ describe('POST /api/chat', () => {
 	beforeEach(() => {
 		agentChatMock.mockReset();
 		getDbMock.mockReset();
-		drizzleMock.mockReset();
-		postgresMock.mockClear();
+		appSqlMock.reserve.mockReset();
+		createScopedDrizzleMock.mockReset();
 		getDbMock.mockReturnValue(buildMainDb());
-		drizzleMock.mockReturnValue(buildStreamDb());
+		const streamDb = buildStreamDb();
+		createScopedDrizzleMock.mockReturnValue(streamDb);
+		appSqlMock.reserve.mockResolvedValue(
+			Object.assign(vi.fn().mockResolvedValue(undefined), {
+				release: vi.fn().mockResolvedValue(undefined)
+			})
+		);
 	});
 
 	it('requires auth', async () => {
@@ -134,6 +136,8 @@ describe('POST /api/chat', () => {
 
 		expect(res.headers.get('content-type')).toContain('ndjson');
 		const lines = await readNdjsonLines(res);
+		expect(appSqlMock.reserve).toHaveBeenCalled();
+		expect(createScopedDrizzleMock).toHaveBeenCalled();
 		expect(lines.some((l) => l.type === 'tool_call')).toBe(true);
 		expect(lines.some((l) => l.type === 'tool_result')).toBe(true);
 		const last = lines[lines.length - 1];
@@ -166,5 +170,75 @@ describe('POST /api/chat', () => {
 		const lines = await readNdjsonLines(res);
 		const terminal = lines.filter((l) => l.type === 'done' || l.type === 'error');
 		expect(terminal).toHaveLength(1);
+	});
+
+	function delayedAgentChatMock() {
+		agentChatMock.mockImplementation(async (input: { onEvent?: (e: unknown) => void }) => {
+			input.onEvent?.({
+				type: 'tool_call',
+				tool: 'answer_question',
+				arguments: { question: 'test' }
+			});
+			await new Promise((r) => setTimeout(r, 50));
+			input.onEvent?.({
+				type: 'tool_progress',
+				tool: 'answer_question',
+				phase: 'searching',
+				label: 'Searching memories…'
+			});
+			input.onEvent?.({
+				type: 'tool_result',
+				tool: 'answer_question',
+				preview: JSON.stringify({ answer: 'ok' })
+			});
+			return { response: 'Done.', messages: [] };
+		});
+	}
+
+	function enqueueFailedCalls(spy: ReturnType<typeof vi.spyOn>) {
+		return spy.mock.calls.filter(
+			(args) =>
+				typeof args[0] === 'string' &&
+				args[0].includes('[api/chat] stream enqueue failed')
+		);
+	}
+
+	it('does not log enqueue errors when consumer cancels mid-stream', async () => {
+		delayedAgentChatMock();
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ message: 'hello' })
+		} as never);
+
+		const reader = res.body?.getReader();
+		expect(reader).toBeDefined();
+		await reader!.read();
+		await reader!.cancel();
+		await new Promise((r) => setTimeout(r, 120));
+
+		expect(enqueueFailedCalls(consoleSpy)).toHaveLength(0);
+		consoleSpy.mockRestore();
+	});
+
+	it('does not log enqueue errors when request aborts mid-stream', async () => {
+		delayedAgentChatMock();
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const ac = new AbortController();
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ message: 'hello' }, ac.signal)
+		} as never);
+
+		const reader = res.body?.getReader();
+		expect(reader).toBeDefined();
+		await reader!.read();
+		ac.abort();
+		await new Promise((r) => setTimeout(r, 120));
+
+		expect(enqueueFailedCalls(consoleSpy)).toHaveLength(0);
+		consoleSpy.mockRestore();
 	});
 });

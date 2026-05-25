@@ -212,7 +212,9 @@ describe('MCP tools', () => {
 			retrieved: [{ id: 't1', normalizedText: 'text', category: 'idea', score: 0.9, vectorScore: 0.7, graphScore: 0.2 }]
 		});
 		const out = await runAnswerQuestionTool({ userId: 'u1' }, { question: 'what is X?' });
-		expect(composeAnswerMock).toHaveBeenCalledWith({ userId: 'u1', question: 'what is X?' });
+		expect(composeAnswerMock).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'u1', question: 'what is X?' })
+		);
 		expect(out.answer).toBe('Some answer.');
 		expect(out.citations).toEqual(['t1']);
 	});
@@ -224,6 +226,8 @@ describe('MCP tools', () => {
 			retrieved: []
 		});
 		await runAnswerQuestionTool({ userId: 'u1' }, { question: 'Y?', top_k: 5 });
-		expect(composeAnswerMock).toHaveBeenCalledWith({ userId: 'u1', question: 'Y?', topK: 5 });
+		expect(composeAnswerMock).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'u1', question: 'Y?', topK: 5 })
+		);
 	});
 });

@@ -17,9 +17,17 @@ let activeAbort: AbortController | null = null;
 const listeners = new Set<RunnerListener>();
 let channel: BroadcastChannel | null = null;
 
-function emit(message: CaptureQueueBroadcast) {
+function notifyListeners(message: CaptureQueueBroadcast) {
 	for (const listener of listeners) listener(message);
-	if (channel) channel.postMessage(message);
+}
+
+/** Deliver queue updates to this tab and any other open tabs (without double-firing locally). */
+function emit(message: CaptureQueueBroadcast) {
+	if (channel) {
+		channel.postMessage(message);
+	} else {
+		notifyListeners(message);
+	}
 }
 
 function ensureChannel() {
@@ -27,7 +35,7 @@ function ensureChannel() {
 	if (!channel) {
 		channel = new BroadcastChannel(CAPTURE_QUEUE_CHANNEL);
 		channel.onmessage = (event: MessageEvent<CaptureQueueBroadcast>) => {
-			emit(event.data);
+			notifyListeners(event.data);
 		};
 	}
 }
@@ -60,8 +68,7 @@ async function kickDrain() {
 		await drainCaptureQueue({
 			signal: ac.signal,
 			streamProgress: true,
-			broadcast: emit,
-			onProgress: (id, event) => emit({ type: 'progress', id, event })
+			broadcast: emit
 		});
 	} finally {
 		draining = false;
