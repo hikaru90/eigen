@@ -7,6 +7,7 @@
   import PencilLine from '@lucide/svelte/icons/pencil-line';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import Bot from '@lucide/svelte/icons/bot';
+  import CheckIcon from '@lucide/svelte/icons/check';
   import ChatMarkdown from '$lib/components/chat-markdown.svelte';
   import {
     toolLabel,
@@ -31,9 +32,7 @@
   const classes = $derived(toolCategoryClasses(visual.category));
   const icon = $derived(visual.icon);
 
-  const statusLabel = $derived(
-    status === 'running' ? 'Running' : status === 'failed' ? 'Failed' : 'Done'
-  );
+  const statusLabel = $derived(status === 'running' ? 'Running' : 'Failed');
 </script>
 
 {#snippet ToolIcon(name: ChatToolIcon)}
@@ -58,9 +57,16 @@
   <div class="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
     {@render ToolIcon(icon)}
     <span class="min-w-0 break-all text-sm font-medium tracking-tight text-foreground">{toolLabel(tool)}</span>
-    <span class="text-xs font-medium uppercase tracking-widest {toolStatusBadgeClasses(status)}">
-      {statusLabel}
-    </span>
+    {#if status === 'done'}
+      <CheckIcon
+        class="size-3.5 shrink-0 text-green-600 dark:text-green-500"
+        aria-label="Done"
+      />
+    {:else}
+      <span class="text-xs font-medium uppercase tracking-widest {toolStatusBadgeClasses(status)}">
+        {statusLabel}
+      </span>
+    {/if}
   </div>
 
   {#if argSummary && status === 'running'}

@@ -48,4 +48,21 @@ describe('POST /api/push/subscribe', () => {
 		);
 		expect(await res.json()).toEqual({ ok: true, id: 'sub-1' });
 	});
+
+	it('returns 400 for invalid subscription payload', async () => {
+		parsePushSubscriptionBodyMock.mockImplementation(() => {
+			throw new Error('endpoint is required');
+		});
+
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: new Request('http://localhost/api/push/subscribe', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({})
+				})
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
+	});
 });

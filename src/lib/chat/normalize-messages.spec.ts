@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { evidenceHitsFromAnswerQuestionPayload } from './chat-stream-types';
 import {
 	compactChatIntermediateSteps,
 	normalizeChatDisplay,
+	sessionMessagesToChatEntries,
 	shouldSkipDuplicateFinalAnswer
 } from './normalize-messages';
 
@@ -91,6 +93,113 @@ describe('normalizeChatDisplay', () => {
 			}
 		]);
 		expect(out).toHaveLength(1);
+	});
+});
+
+describe('sessionMessagesToChatEntries', () => {
+	it('maps persisted tool rows to timeline entries like the live stream', () => {
+		const out = sessionMessagesToChatEntries([
+			{ role: 'user', content: 'hi' },
+			{
+				role: 'assistant',
+				content: '{"tool":"retrieve_thoughts"}',
+				metadata: {
+					variant: 'tool_call',
+					tool: 'retrieve_thoughts',
+					arguments: { query: 'coffee' }
+				}
+			},
+			{
+				role: 'assistant',
+				content: 'retrieve_thoughts',
+				metadata: { variant: 'tool_executing', tool: 'retrieve_thoughts' }
+			},
+			{
+				role: 'assistant',
+				content: 'Searching your memories…',
+				metadata: {
+					variant: 'tool_progress',
+					tool: 'retrieve_thoughts',
+					label: 'Searching your memories…'
+				}
+			},
+			{
+				role: 'assistant',
+				content: '{"results":[]}',
+				metadata: { variant: 'tool_result', tool: 'retrieve_thoughts' }
+			},
+			{ role: 'assistant', content: 'You like coffee.' }
+		]);
+		expect(out.filter((e) => e.role === 'assistant' && e.variant === 'timeline')).toHaveLength(4);
+		expect(out.at(-1)).toMatchObject({ variant: 'text', content: 'You like coffee.' });
+	});
+
+	it('keeps raw answer_question JSON for evidence cards, not displaySummary alone', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: Annie ist deine Schwester. [t1]\nEvidence:\n- Annie ist meine Schwester [t1]\nUnknown:\n- none',
+			retrieved: [{ id: 't1', normalizedText: 'Annie ist meine Schwester', category: 'reference' }]
+		});
+		const out = sessionMessagesToChatEntries([
+			{
+				role: 'assistant',
+				content: preview,
+				metadata: {
+					variant: 'tool_result',
+					tool: 'answer_question',
+					displaySummary: 'Answer: Annie ist deine Schwester.'
+				}
+			}
+		]);
+		const step = out.find(
+			(e) => e.role === 'assistant' && e.variant === 'timeline' && e.kind === 'tool_result'
+		);
+		expect(step && step.variant === 'timeline' && step.content).toBe(preview);
+		expect(evidenceHitsFromAnswerQuestionPayload(preview).length).toBeGreaterThan(0);
+	});
+
+	it('expands tool_step with raw JSON payload for evidence on reload', () => {
+		const preview = JSON.stringify({
+			answer: 'Answer: ok',
+			retrieved: [{ id: 'a', normalizedText: 'memory hit', category: 'thought' }]
+		});
+		const out = sessionMessagesToChatEntries([
+			{
+				role: 'assistant',
+				content: preview,
+				metadata: {
+					variant: 'tool_step',
+					tool: 'answer_question',
+					arguments: { question: 'q' },
+					displaySummary: 'Answer: ok'
+				}
+			}
+		]);
+		const result = out.find(
+			(e) => e.role === 'assistant' && e.variant === 'timeline' && e.kind === 'tool_result'
+		);
+		expect(result && result.variant === 'timeline' && result.content).toBe(preview);
+		expect(evidenceHitsFromAnswerQuestionPayload(preview).length).toBe(1);
+	});
+
+	it('expands tool_step into call / executing / result timeline rows', () => {
+		const out = sessionMessagesToChatEntries([
+			{
+				role: 'assistant',
+				content: '{"results":[]}',
+				metadata: {
+					variant: 'tool_step',
+					tool: 'retrieve_thoughts',
+					arguments: { query: 'x' }
+				}
+			}
+		]);
+		expect(out).toHaveLength(3);
+		expect(out.map((e) => (e.role === 'assistant' && e.variant === 'timeline' ? e.kind : null))).toEqual([
+			'tool_call',
+			'tool_executing',
+			'tool_result'
+		]);
 	});
 });
 

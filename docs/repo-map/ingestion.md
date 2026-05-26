@@ -4,7 +4,7 @@
 
 ## CompetingSystems
 
-- **Postgres AGE vs FalkorDB for runtime graph:** Postgres image enables AGE and creates `eigen_graph` ([`docker/postgres/init/01-extensions.sql`](../../docker/postgres/init/01-extensions.sql)). Application graph reads/writes for thoughts, relations, and visualization use **FalkorDB** via [`src/lib/server/graph/falkor.ts`](../../src/lib/server/graph/falkor.ts). See conflict **C001** in [conflicts.md](./conflicts.md).
+- **Runtime graph:** Apache AGE (`AGE_GRAPH_NAME`, default `eigen_graph`) via [`src/lib/server/graph/falkor.ts`](../../src/lib/server/graph/falkor.ts). See **C001** (resolved) in [conflicts.md](./conflicts.md).
 
 ## Key files (scan-first)
 

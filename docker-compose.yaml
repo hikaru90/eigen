@@ -1,36 +1,11 @@
 # Self-hosted Postgres for Eigen (pgvector + Apache AGE).
 services:
-  falkordb:
-    container_name: eigen-falkordb
-    image: falkordb/falkordb:latest
-    ports:
-      - '6379:6379'
-      # FalkorDB image also serves a browser UI on 3000 inside the container; map to 3001
-      # so `app` can use host port 3000 when you run the full stack (`npm run stack:up`).
-      - '3001:3000'
-    environment:
-      # Same variable the app uses; compose substitutes from your shell or root `.env`.
-      FALKOR_PASSWORD: ${FALKOR_PASSWORD:-eigen_falkor_dev}
-      REDIS_ARGS: --requirepass ${FALKOR_PASSWORD:-eigen_falkor_dev}
-      # Browser UI is Next.js + NextAuth; must match the URL you open in the browser (host port 3001 above).
-      # If this is wrong, login often fails with a generic "Invalid credentials" even when Redis auth is correct.
-      NEXTAUTH_URL: http://localhost:3001
-      # Browser persists encrypted session credentials; must be exactly 64 hex chars (32 bytes). Required in `.env`.
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-    healthcheck:
-      test: ['CMD-SHELL', 'redis-cli -a "$$FALKOR_PASSWORD" ping | grep -q PONG']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-    volumes:
-      - eigen_falkor:/var/lib/falkordb/data
-    restart: unless-stopped
   db:
     container_name: eigen-db
     build:
       context: .
       dockerfile: Dockerfile.postgres
+    command: ['postgres', '-c', 'shared_preload_libraries=age']
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-eigen}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eigen}
@@ -54,14 +29,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      falkordb:
-        condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://eigen:eigen@db:5432/eigen}
-      FALKOR_HOST: ${FALKOR_HOST:-falkordb}
-      FALKOR_PORT: ${FALKOR_PORT:-6379}
-      FALKOR_GRAPH: ${FALKOR_GRAPH:-eigen_memory}
-      FALKOR_PASSWORD: ${FALKOR_PASSWORD:-eigen_falkor_dev}
+      AGE_GRAPH_NAME: ${AGE_GRAPH_NAME:-eigen_graph}
       ADMIN_NAME: ${ADMIN_NAME:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
@@ -75,4 +45,3 @@ services:
 
 volumes:
   eigen_pg:
-  eigen_falkor:

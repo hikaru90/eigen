@@ -1,3 +1,5 @@
+import { looksLikeRawToolJson } from './chat-stream-types';
+
 export type ChatToolCallEntry = {
 	role: 'assistant';
 	variant: 'tool_call';
@@ -49,6 +51,13 @@ export type ChatDisplayEntry =
 export type StoredChatStep = {
 	content: string;
 	metadata: Record<string, unknown>;
+};
+
+/** Row shape returned by GET /api/chat/sessions/:id */
+export type PersistedChatMessage = {
+	role: 'user' | 'assistant' | 'system';
+	content: string;
+	metadata?: Record<string, unknown> | null;
 };
 
 export function normalizeAnswerText(text: string): string {
@@ -217,6 +226,136 @@ export function toolStepToDisplayEntry(input: {
 		result: input.content,
 		displaySummary: input.displaySummary
 	};
+}
+
+/** Prefer stored raw tool JSON (same as live stream preview) over displaySummary for evidence UI. */
+function toolResultPayloadFromMetadata(
+	content: string,
+	metadata: Record<string, unknown>
+): string {
+	const rawContent = content.trim();
+	if (rawContent && looksLikeRawToolJson(rawContent)) {
+		return rawContent;
+	}
+	const preview =
+		typeof metadata.preview === 'string' ? metadata.preview.trim() : '';
+	if (preview && looksLikeRawToolJson(preview)) {
+		return preview;
+	}
+	const result = typeof metadata.result === 'string' ? metadata.result.trim() : '';
+	if (result && looksLikeRawToolJson(result)) {
+		return result;
+	}
+	const displaySummary =
+		typeof metadata.displaySummary === 'string' ? metadata.displaySummary.trim() : '';
+	return displaySummary || rawContent || preview || result;
+}
+
+/**
+ * Map persisted session rows to the same in-memory timeline shape used while streaming,
+ * so reload renders identically to the live client.
+ */
+export function sessionMessagesToChatEntries(messages: PersistedChatMessage[]): ChatDisplayEntry[] {
+	const out: ChatDisplayEntry[] = [];
+
+	for (const m of messages) {
+		if (m.role === 'user') {
+			out.push({ role: 'user', content: m.content });
+			continue;
+		}
+		if (m.role !== 'assistant') continue;
+
+		const meta = m.metadata ?? {};
+		const variant = typeof meta.variant === 'string' ? meta.variant : undefined;
+
+		if (variant === 'thinking') {
+			out.push({ role: 'assistant', variant: 'thinking', content: m.content });
+			continue;
+		}
+
+		const tool = typeof meta.tool === 'string' ? meta.tool : '';
+		if (!tool && variant !== undefined && variant !== 'text') {
+			// Unknown assistant step — skip empty tool rows rather than showing raw JSON as text.
+			if (variant === 'tool_executing' || variant === 'tool_progress') continue;
+		}
+
+		if (variant === 'tool_step' && tool) {
+			out.push(
+				...toolStepToTimelineEntries({
+					tool,
+					arguments: (meta.arguments as Record<string, unknown>) ?? {},
+					content: toolResultPayloadFromMetadata(m.content, meta),
+					failed: meta.failed === true
+				})
+			);
+			continue;
+		}
+
+		if (variant === 'tool_call' && tool) {
+			out.push({
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_call',
+				tool,
+				label: `Tool call · ${tool}`,
+				arguments: (meta.arguments as Record<string, unknown>) ?? {}
+			});
+			const legacyResult = toolResultPayloadFromMetadata('', meta);
+			if (legacyResult) {
+				out.push({
+					role: 'assistant',
+					variant: 'timeline',
+					kind: 'tool_result',
+					tool,
+					label: `Tool result · ${tool}`,
+					content: legacyResult,
+					failed: meta.status === 'error' || meta.failed === true
+				});
+			}
+			continue;
+		}
+
+		if (variant === 'tool_executing' && tool) {
+			out.push({
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_executing',
+				tool,
+				label: `Executing tool · ${tool}`
+			});
+			continue;
+		}
+
+		if (variant === 'tool_progress' && tool) {
+			const label =
+				(typeof meta.label === 'string' && meta.label.trim()) || m.content.trim() || 'Working…';
+			out.push({
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_progress',
+				tool,
+				label
+			});
+			continue;
+		}
+
+		if (variant === 'tool_result' && tool) {
+			out.push({
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_result',
+				tool,
+				label: `Tool result · ${tool}`,
+				content: toolResultPayloadFromMetadata(m.content, meta),
+				failed: meta.failed === true
+			});
+			continue;
+		}
+
+		out.push({ role: 'assistant', variant: 'text', content: m.content });
+	}
+
+	return out;
 }
 
 /** Expand persisted tool_step into transparent timeline rows for reload. */

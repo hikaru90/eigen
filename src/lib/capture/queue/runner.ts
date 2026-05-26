@@ -2,7 +2,9 @@ import {
 	deleteCaptureQueueItem,
 	enqueueCaptureRaw,
 	listCaptureQueueItems,
-	recoverStuckProcessingCaptureItems
+	recoverStuckProcessingCaptureItems,
+	releaseCaptureQueueDrainLock,
+	tryAcquireCaptureQueueDrainLock
 } from './db';
 import { buildCaptureQueueSnapshot } from './snapshot';
 import { drainCaptureQueue } from './drain';
@@ -83,6 +85,9 @@ export async function getCaptureQueueSnapshot(): Promise<{
 
 async function kickDrain() {
 	if (draining) return;
+	if (!(await tryAcquireCaptureQueueDrainLock(tabOrigin))) {
+		return;
+	}
 	draining = true;
 	const ac = new AbortController();
 	activeAbort = ac;
@@ -102,6 +107,7 @@ async function kickDrain() {
 		draining = false;
 		drainingItemId = null;
 		if (activeAbort === ac) activeAbort = null;
+		await releaseCaptureQueueDrainLock(tabOrigin);
 	}
 }
 
@@ -144,6 +150,10 @@ export function startCaptureQueueRunner(): void {
 		navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
 			const data = event.data;
 			if (data && typeof data === 'object' && 'type' in data) {
+				if ((data as { type?: string }).type === 'DRAIN_CAPTURE_QUEUE') {
+					void kickDrain();
+					return;
+				}
 				emit(data as CaptureQueueBroadcast);
 			}
 			if (
@@ -152,7 +162,10 @@ export function startCaptureQueueRunner(): void {
 				'type' in data &&
 				(data as { type?: string }).type === 'capture-queue-idle'
 			) {
-				void kickDrain();
+				void (async () => {
+					const snap = await getCaptureQueueSnapshot();
+					if (snap.pending > 0 || snap.processingId) void kickDrain();
+				})();
 			}
 		});
 	}

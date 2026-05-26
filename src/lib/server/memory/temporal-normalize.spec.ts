@@ -24,7 +24,7 @@ describe('parseTemporalMentions', () => {
 });
 
 describe('resolveTemporalBounds', () => {
-	it('builds a half-open tsrange literal for a deadline', () => {
+	it('returns a half-open tsrange literal for a deadline', () => {
 		const bounds = resolveTemporalBounds({
 			surface: 'due Friday',
 			kind: 'deadline',
@@ -38,5 +38,19 @@ describe('resolveTemporalBounds', () => {
 		expect(bounds.end.getTime()).toBeGreaterThan(bounds.start.getTime());
 		expect(bounds.activePeriodLiteral).toMatch(/^\[.+,.+\)$/);
 		expect(buildActivePeriodLiteral(bounds.start, bounds.end)).toBe(bounds.activePeriodLiteral);
+	});
+
+	it('uses a fuzzy window when endAt is omitted', () => {
+		const bounds = resolveTemporalBounds({
+			surface: 'sometime next month',
+			kind: 'period',
+			startAt: '2026-06-01T00:00:00.000Z',
+			timePrecision: 'fuzzy',
+			timezone: 'UTC',
+			isAllDay: true,
+			confidence: 0.7,
+			semanticSummary: 'Vacation sometime next month'
+		});
+		expect(bounds.end.getTime() - bounds.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
 	});
 });

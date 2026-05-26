@@ -35,6 +35,9 @@
 	let orModelChat = $state(data.openrouter.modelChat);
 	let orModelEmbedding = $state(data.openrouter.modelEmbedding);
 
+	let exportBusy = $state(false);
+	let exportError = $state<string | null>(null);
+
 	let deleteDialogOpen = $state(false);
 	let deleteConfirmation = $state('');
 	let deleteBusy = $state(false);
@@ -67,6 +70,32 @@
 		await navigator.clipboard.writeText(DELETE_ALL_MEMORIES_CONFIRMATION);
 		deletePhraseCopied = true;
 		setTimeout(() => (deletePhraseCopied = false), 2000);
+	}
+
+	async function exportThoughtsCsv() {
+		if (exportBusy) return;
+		exportBusy = true;
+		exportError = null;
+		try {
+			const res = await fetch('/api/thoughts/export');
+			if (!res.ok) {
+				throw new Error(`Export failed (${res.status})`);
+			}
+			const blob = await res.blob();
+			const disposition = res.headers.get('content-disposition') ?? '';
+			const filenameMatch = disposition.match(/filename="([^"]+)"/);
+			const filename = filenameMatch?.[1] ?? 'thoughts-export.csv';
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = filename;
+			anchor.click();
+			URL.revokeObjectURL(url);
+		} catch (e) {
+			exportError = e instanceof Error ? e.message : String(e);
+		} finally {
+			exportBusy = false;
+		}
 	}
 
 	async function deleteAllMemories() {
@@ -515,10 +544,32 @@
 		{/if}
 	</div>
 
+	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+		<h3 class="text-xs font-semibold">Data export</h3>
+		<p class="text-muted-foreground mt-0.5 text-xs">
+			Download all captured thoughts as a CSV file (id, timestamps, category, text, status).
+		</p>
+		<div class="mt-2">
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				class="rounded-[4px]"
+				disabled={exportBusy}
+				onclick={() => void exportThoughtsCsv()}
+			>
+				{exportBusy ? 'Exporting…' : 'Export thoughts as CSV'}
+			</Button>
+			{#if exportError}
+				<p class="text-destructive mt-2 text-xs">{exportError}</p>
+			{/if}
+		</div>
+	</div>
+
 	<div class="border-destructive/30 rounded-xl border bg-muted px-3.5 py-3 text-sm">
 		<h3 class="text-destructive text-xs font-semibold">Danger zone</h3>
 		<p class="text-muted-foreground mt-0.5 text-xs">
-			Permanently delete all captured thoughts, entities, temporal events, and your Falkor graph for
+			Permanently delete all captured thoughts, entities, temporal events, and your memory graph for
 			this account. Settings, API keys, and chat history are not removed.
 		</p>
 		<div class="mt-2">

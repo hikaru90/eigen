@@ -21,7 +21,9 @@
 	import {
 		applyCaptureQueueActive,
 		applyCaptureQueueSnapshot,
+		CAPTURE_QUEUE_ACTIVATION_GUARD_MS,
 		initialCaptureQueueUiState,
+		shouldAcceptCaptureProgress,
 		type CaptureQueueUiState
 	} from '$lib/capture/queue/ui-state';
 	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
@@ -47,6 +49,8 @@
 	let queueItems = $state<CaptureQueueItem[]>([]);
 	let progressEvents = $state<Array<{ event: ProgressEvent; arrivedAt: number }>>([]);
 	let captureStartMs = $state(0);
+	/** Ignore stale snapshot processing ids briefly after done/failed (SW/tab race). */
+	let suppressProcessingResyncUntil = $state(0);
 
 	let editAbortController = $state<AbortController | null>(null);
 	let editLoading = $state(false);
@@ -57,26 +61,36 @@
 		return base ? `${base} ${next}` : next;
 	}
 
-	function applyQueueSnapshot(snapshot: {
-		items: CaptureQueueItem[];
-		pending: number;
-		processingId: string | null;
-	}) {
+	function applyQueueSnapshot(
+		snapshot: {
+			items: CaptureQueueItem[];
+			pending: number;
+			processingId: string | null;
+		},
+		opts?: { respectProcessingSuppress?: boolean }
+	) {
 		queueItems = snapshot.items;
 		queueUi = applyCaptureQueueSnapshot(queueUi, {
 			pending: snapshot.pending,
 			processingId: snapshot.processingId
 		});
-		processingCaptureId = snapshot.processingId;
+		const mayResyncProcessing =
+			!opts?.respectProcessingSuppress || Date.now() >= suppressProcessingResyncUntil;
+		if (mayResyncProcessing) {
+			if (snapshot.processingId && snapshot.processingId !== processingCaptureId) {
+				progressEvents = [];
+				captureStartMs = Date.now();
+			}
+			processingCaptureId = snapshot.processingId;
+		}
 	}
 
-	async function reconcileQueueState(clearProgressWhenIdle = true) {
+	async function reconcileQueueState(
+		clearProgressWhenIdle = true,
+		opts?: { respectProcessingSuppress?: boolean }
+	) {
 		const snap = await getCaptureQueueSnapshot();
-		const hadActive = processingCaptureId != null;
-		applyQueueSnapshot(snap);
-		if (snap.processingId && !hadActive) {
-			captureStartMs = Date.now();
-		}
+		applyQueueSnapshot(snap, opts);
 		if (clearProgressWhenIdle && !snap.processingId) {
 			progressEvents = [];
 		}
@@ -108,6 +122,7 @@
 				return;
 			}
 			if (message.type === 'active') {
+				suppressProcessingResyncUntil = 0;
 				if (processingCaptureId !== message.id) {
 					progressEvents = [];
 					captureStartMs = Date.now();
@@ -117,7 +132,19 @@
 				err = null;
 				return;
 			}
-			if (message.type === 'progress' && processingCaptureId === message.id) {
+			if (
+				message.type === 'progress' &&
+				shouldAcceptCaptureProgress(
+					{
+						...queueUi,
+						activeCaptureId: processingCaptureId ?? queueUi.activeCaptureId
+					},
+					message.id
+				)
+			) {
+				if (processingCaptureId !== message.id) {
+					processingCaptureId = message.id;
+				}
 				pushEvent(message.event);
 				return;
 			}
@@ -127,24 +154,26 @@
 				editRequest = '';
 				progressEvents = [];
 				processingCaptureId = null;
+				suppressProcessingResyncUntil = Date.now() + CAPTURE_QUEUE_ACTIVATION_GUARD_MS;
 				queueUi = {
 					...queueUi,
 					activeCaptureId: null,
 					recentlyActivatedId: null
 				};
-				void reconcileQueueState(false);
+				void reconcileQueueState(false, { respectProcessingSuppress: true });
 				return;
 			}
 			if (message.type === 'failed') {
 				err = message.error;
 				progressEvents = [];
 				processingCaptureId = null;
+				suppressProcessingResyncUntil = Date.now() + CAPTURE_QUEUE_ACTIVATION_GUARD_MS;
 				queueUi = {
 					...queueUi,
 					activeCaptureId: null,
 					recentlyActivatedId: null
 				};
-				void reconcileQueueState(false);
+				void reconcileQueueState(false, { respectProcessingSuppress: true });
 				return;
 			}
 			if (message.type === 'idle') {

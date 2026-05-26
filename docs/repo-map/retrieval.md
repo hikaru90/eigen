@@ -4,7 +4,7 @@
 
 ## CompetingSystems
 
-- None inside retrieval merge logic: vector, lexical, and Falkor expansion are composed in one service. For **stack-level** graph duality (AGE enabled vs Falkor used), see **C001** in [conflicts.md](./conflicts.md).
+- None inside retrieval merge logic: vector, lexical, and graph (Apache AGE) expansion are composed in one service.
 
 ## Key files (scan-first)
 

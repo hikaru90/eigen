@@ -20,7 +20,7 @@ const MAX_ITERATIONS = 10;
 const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock();
 
 const SYSTEM_PROMPT = [
-	'You are an AI assistant for the user\'s personal memory store (PostgreSQL with vector embeddings and a FalkorDB graph). You have the same MCP tools as the external memory server.',
+	'You are an AI assistant for the user\'s personal memory store (PostgreSQL with vector embeddings and an Apache AGE property graph). You have the same MCP tools as the external memory server.',
 	'',
 	'=== COMPLETION / "I DID SOMETHING" (check memories first) ===',
 	'When the user reports they did, finished, completed, bought, attended, or otherwise accomplished something — do NOT capture a new thought first. Call retrieve_thoughts with a query that describes what they did (hybrid semantic + graph search). From the results, find stored tasks, reminders, or notes that plausibly match.',

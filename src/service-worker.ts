@@ -1,7 +1,13 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { drainCaptureQueue } from '$lib/capture/queue/drain';
+import {
+	releaseCaptureQueueDrainLock,
+	tryAcquireCaptureQueueDrainLock
+} from '$lib/capture/queue/db';
 import { CAPTURE_QUEUE_SYNC_TAG, type CaptureQueueBroadcast } from '$lib/capture/queue/types';
+
+const SW_DRAIN_LOCK_HOLDER = 'service-worker';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -12,12 +18,37 @@ async function broadcastCaptureQueueMessage(message: CaptureQueueBroadcast | { t
 	}
 }
 
+async function requestPageDrain(): Promise<void> {
+	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+	for (const client of clients) {
+		client.postMessage({ type: 'DRAIN_CAPTURE_QUEUE' });
+	}
+}
+
 async function drainCaptureQueueInBackground(): Promise<void> {
-	await drainCaptureQueue({
-		streamProgress: true,
-		broadcast: (message) => broadcastCaptureQueueMessage(message)
-	});
-	await broadcastCaptureQueueMessage({ type: 'capture-queue-idle' });
+	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+	const hasVisibleClient = clients.some(
+		(c) => 'visibilityState' in c && c.visibilityState === 'visible'
+	);
+	if (hasVisibleClient) {
+		await requestPageDrain();
+		return;
+	}
+
+	if (!(await tryAcquireCaptureQueueDrainLock(SW_DRAIN_LOCK_HOLDER))) {
+		await requestPageDrain();
+		return;
+	}
+
+	try {
+		await drainCaptureQueue({
+			streamProgress: false,
+			broadcast: (message) => broadcastCaptureQueueMessage(message)
+		});
+		await broadcastCaptureQueueMessage({ type: 'capture-queue-idle' });
+	} finally {
+		await releaseCaptureQueueDrainLock(SW_DRAIN_LOCK_HOLDER);
+	}
 }
 
 precacheAndRoute(self.__WB_MANIFEST);

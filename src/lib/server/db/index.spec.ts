@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const { endMock, drizzleMock } = vi.hoisted(() => ({
+const { endMock, drizzleMock, reserveMock } = vi.hoisted(() => ({
 	endMock: vi.fn(async () => undefined),
-	drizzleMock: vi.fn(() => ({ mocked: true }))
+	drizzleMock: vi.fn(() => ({ mocked: true })),
+	reserveMock: vi.fn()
 }));
 
 vi.mock('postgres', () => ({
 	default: vi.fn(() => ({
 		end: endMock,
-		options: { host: 'localhost' }
+		options: { host: 'localhost' },
+		reserve: reserveMock
 	}))
 }));
 
@@ -34,6 +36,20 @@ function makeReservedMock(): ReservedMock {
 }
 
 describe('db/index', () => {
+	it('withDbUser scopes the session user and releases the reserved connection', async () => {
+		const release = vi.fn(async () => undefined);
+		const reserved = Object.assign(vi.fn(async () => undefined), { release });
+		reserveMock.mockResolvedValue(reserved);
+
+		const { withDbUser } = await import('./index');
+		const fn = vi.fn(async () => 'scoped');
+
+		await expect(withDbUser('user-123', fn)).resolves.toBe('scoped');
+		expect(reserved).toHaveBeenCalled();
+		expect(release).toHaveBeenCalled();
+		expect(fn).toHaveBeenCalled();
+	});
+
 	it('closeAppDbPool closes postgres pool', async () => {
 		const { closeAppDbPool } = await import('./index');
 		await closeAppDbPool();
@@ -171,5 +187,15 @@ describe('db/index', () => {
 				await extended.savepoint!('orphan');
 			})
 		).rejects.toThrow(/savepoint requires a callback/);
+	});
+
+	it('throws when DB_POOL_MAX is not a positive integer', async () => {
+		const prev = process.env.DB_POOL_MAX;
+		process.env.DB_POOL_MAX = 'not-a-number';
+		vi.resetModules();
+		await expect(import('./index')).rejects.toThrow(/DB_POOL_MAX must be a positive integer/);
+		vi.resetModules();
+		if (prev === undefined) delete process.env.DB_POOL_MAX;
+		else process.env.DB_POOL_MAX = prev;
 	});
 });

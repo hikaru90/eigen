@@ -5,6 +5,8 @@ export const CAPTURE_QUEUE_DB_VERSION = 1;
 export const CAPTURE_QUEUE_STORE = 'items';
 export const CAPTURE_QUEUE_SYNC_TAG = 'eigen-capture-queue-sync';
 export const CAPTURE_QUEUE_CHANNEL = 'eigen-capture-queue';
+/** Reserved IndexedDB row — excluded from queue listings. */
+export const CAPTURE_QUEUE_DRAIN_LOCK_ID = '__drain_lock__';
 
 export type CaptureQueueStatus = 'pending' | 'processing' | 'failed';
 

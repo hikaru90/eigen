@@ -1,26 +1,107 @@
+import { env } from '$env/dynamic/private';
+import { FalkorDB, type FalkorDBOptions } from 'falkordb';
+import { getDb } from '$lib/server/db';
+import { logActivityCall } from '$lib/server/activity/log-call';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
-import {
-	renderCypherQuery,
-	runAgeCypher,
-	runGraphQueryWithRetry
-} from './age-cypher';
-export type {
-	EntityThoughtHit,
-	GraphVizEdge,
-	GraphVizEdgeKind,
-	GraphVizNode,
-	GraphVizNodeKind,
-	TemporalContextHit,
-	TemporalSchedulingConflictGraphHit
-} from './graph-contract';
-import type {
-	EntityThoughtHit,
-	GraphVizEdge,
-	GraphVizEdgeKind,
-	GraphVizNode,
-	TemporalContextHit,
-	TemporalSchedulingConflictGraphHit
-} from './graph-contract';
+
+type FalkorClient = Awaited<ReturnType<typeof FalkorDB.connect>>;
+
+let clientPromise: Promise<FalkorClient> | null = null;
+
+function requiredEnv(name: 'FALKOR_HOST' | 'FALKOR_PORT' | 'FALKOR_PASSWORD' | 'FALKOR_USERNAME'): string {
+	const value = env[name]?.trim();
+	if (!value) {
+		throw new Error(`${name} is required and must be non-empty`);
+	}
+	return value;
+}
+
+function falkorHost(): string {
+	return requiredEnv('FALKOR_HOST');
+}
+
+function falkorPort(): number {
+	const raw = requiredEnv('FALKOR_PORT');
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(`Invalid FALKOR_PORT: ${raw}`);
+	}
+	return value;
+}
+
+function normalizeGraphKeyPart(input: string): string {
+	const out = input.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+	const collapsed = out.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+	if (collapsed.length === 0) {
+		throw new Error('Invalid user id for Falkor graph name: no usable characters after normalization');
+	}
+	return collapsed;
+}
+
+function falkorGraphForUser(userId: string): string {
+	const user = normalizeGraphKeyPart(userId).slice(0, 80);
+	return `user_${user}`;
+}
+
+function falkorPassword(): string {
+	return requiredEnv('FALKOR_PASSWORD');
+}
+
+function falkorUsername(): string {
+	return requiredEnv('FALKOR_USERNAME');
+}
+
+async function getClient(): Promise<FalkorClient> {
+	if (!clientPromise) {
+		const options: FalkorDBOptions = {
+			socket: {
+				host: falkorHost(),
+				port: falkorPort()
+			},
+			password: falkorPassword(),
+			username: falkorUsername()
+		};
+		clientPromise = FalkorDB.connect(options);
+	}
+	return clientPromise;
+}
+
+async function runFalkorQueryWithRetry<T>(
+	userId: string,
+	operation: string,
+	query: () => Promise<T>,
+	context?: string
+): Promise<T> {
+	const maxAttempts = 3;
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const attemptStart = Date.now();
+		try {
+			const result = await query();
+			await logActivityCall(getDb(), userId, {
+				provider: 'falkor',
+				operation: `${operation}.success(attempt=${attempt})`,
+				baseCostUsd: 0,
+				context,
+				durationMs: Date.now() - attemptStart
+			});
+			return result;
+		} catch (err) {
+			lastError = err;
+			await logActivityCall(getDb(), userId, {
+				provider: 'falkor',
+				operation: `${operation}.error(attempt=${attempt})`,
+				baseCostUsd: 0,
+				context,
+				durationMs: Date.now() - attemptStart
+			});
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error(`Falkor operation failed after ${maxAttempts} attempts`);
+}
 
 /** Provenance anchor only — text and embedding live in Postgres `thought`. */
 export async function upsertThoughtNode(input: {
@@ -28,24 +109,25 @@ export async function upsertThoughtNode(input: {
 	userId: string;
 	category: string;
 }): Promise<void> {
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
 	const contextPreview = input.id.slice(0, 36);
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_node', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_node', async () => {
+		await graph.query(
 			`
-			MERGE (t:Thought {id: $id})
+		MERGE (t:Thought {id: $id})
 		SET t.user_id = $user_id,
 		    t.category = $category,
 		    t.updated_at = timestamp()
 		RETURN t.id
 			`,
-				{
+			{
+				params: {
 					id: input.id,
 					user_id: input.userId,
 					category: input.category
 				}
-			),
-			'ok agtype'
+			}
 		);
 	}, contextPreview);
 }
@@ -56,48 +138,44 @@ export async function deleteThoughtOutgoingGraphEdges(input: {
 	thoughtId: string;
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
-	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_outgoing_edges', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_thought_outgoing_edges', async () => {
+		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(:Thought {user_id: $user_id})
 			DELETE r
-			RETURN 1 AS ok
 			`,
-				{
+			{
+				params: {
 					thought_id: thoughtId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
-		await runAgeCypher(
-			renderCypherQuery(
+		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(:Entity {user_id: $user_id})
 			DELETE r
-			RETURN 1 AS ok
 			`,
-				{
+			{
+				params: {
 					thought_id: thoughtId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
-		await runAgeCypher(
-			renderCypherQuery(
+		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:OCCURS_IN {user_id: $user_id}]->(:Event {user_id: $user_id})
 			DELETE r
-			RETURN 1 AS ok
 			`,
-				{
+			{
+				params: {
 					thought_id: thoughtId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -108,20 +186,20 @@ export async function deleteEntityVertexFromGraph(input: {
 	entityId: string;
 }): Promise<void> {
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
-	await runGraphQueryWithRetry(input.userId, 'age.delete_entity_vertex', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_entity_vertex', async () => {
+		await graph.query(
 			`
 			MATCH (e:Entity {id: $entity_id, user_id: $user_id})
 			DETACH DELETE e
-			RETURN 1 AS ok
 			`,
-				{
+			{
+				params: {
 					entity_id: entityId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -132,39 +210,39 @@ export async function deleteThoughtVertexFromGraph(input: {
 	thoughtId: string;
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
-	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_vertex', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_thought_vertex', async () => {
+		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			DETACH DELETE t
-			RETURN 1 AS ok
 			`,
-				{
+			{
+				params: {
 					thought_id: thoughtId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
 
 /** Wipes every vertex for the tenant graph (Thought, Entity, Event, and attached edges). */
 export async function deleteAllUserGraphVertices(userId: string): Promise<void> {
-	await runGraphQueryWithRetry(userId, 'age.delete_all_user_vertices', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(userId));
+	await runFalkorQueryWithRetry(userId, 'falkor.delete_all_user_vertices', async () => {
+		await graph.query(
 			`
 			MATCH (n {user_id: $user_id})
 			DETACH DELETE n
-			RETURN 1 AS ok
 			`,
-				{
+			{
+				params: {
 					user_id: userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -178,24 +256,25 @@ export async function upsertThoughtRelation(input: {
 	const sourceId = validateNonEmptyEntityId(input.sourceId, 'sourceId');
 	const targetId = validateNonEmptyEntityId(input.targetId, 'targetId');
 
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_relation', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_relation', async () => {
+		await graph.query(
 			`
 			MATCH (a:Thought {id: $source_id})
 			MATCH (b:Thought {id: $target_id})
 			MERGE (a)-[r:RELATES_TO {user_id: $user_id, type: $relation_type}]->(b)
 			SET r.updated_at = timestamp()
-			RETURN 1 AS ok
+			RETURN a.id, b.id
 			`,
-				{
+			{
+				params: {
 					source_id: sourceId,
 					target_id: targetId,
 					user_id: input.userId,
 					relation_type: input.relationType
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -210,27 +289,29 @@ export async function expandNeighborsByIds(input: {
 		.filter((value, index, self) => self.indexOf(value) === index);
 	if (normalizedSeedIds.length === 0) return [];
 
-	return runGraphQueryWithRetry(input.userId, 'age.expand_neighbors', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.expand_neighbors', async () => {
+		const result = (await graph.query(
 			`
 			UNWIND $seed_ids AS sid
 			MATCH (s:Thought {id: sid, user_id: $user_id})
 			MATCH (s)-[r:RELATES_TO]-(n:Thought {user_id: $user_id})
 			WHERE n.id <> sid AND r.user_id = $user_id
-			WITH n.id AS id, count(r) AS hits
-			RETURN id, hits
+			RETURN n.id AS id, count(r) AS hits
 			ORDER BY hits DESC
 			LIMIT $limit
 			`,
-				{
+			{
+				params: {
 					seed_ids: normalizedSeedIds,
 					user_id: input.userId,
 					limit: input.limit
 				}
-			),
-			'id agtype, hits agtype'
-		);
+			}
+		)) as { data?: Array<{ id: unknown; hits: unknown }> };
+
+		const rows = result?.data ?? [];
 		return rows
 			.map((row) => ({
 				id: typeof row.id === 'string' ? row.id : '',
@@ -257,9 +338,10 @@ export async function graphOnlySearchByQuery(input: {
 	const tokens = graphQueryTokens(input.query);
 	if (tokens.length === 0) return [];
 
-	return runGraphQueryWithRetry(input.userId, 'age.graph_only_search', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.graph_only_search', async () => {
+		const result = (await graph.query(
 			`
 			UNWIND $tokens AS token
 			MATCH (e:Entity {user_id: $user_id})
@@ -279,17 +361,17 @@ export async function graphOnlySearchByQuery(input: {
 			ORDER BY score DESC
 			LIMIT $limit
 			`,
-				{
+			{
+				params: {
 					user_id: input.userId,
 					tokens,
 					seed_limit: Math.max(input.limit * 3, 20),
 					limit: input.limit
 				}
-			),
-			'id agtype, score agtype'
-		);
+			}
+		)) as { data?: Array<{ id: unknown; score: unknown }> };
 
-		
+		const rows = result?.data ?? [];
 		return rows
 			.map((row) => ({
 				id: typeof row.id === 'string' ? row.id : '',
@@ -299,6 +381,26 @@ export async function graphOnlySearchByQuery(input: {
 	});
 }
 
+/** Browser-safe snapshot for `/graph` visualization (Entity layer only; provenance via Postgres). */
+export type GraphVizNodeKind = 'Thought' | 'Entity';
+
+export type GraphVizNode = {
+	id: string;
+	kind: GraphVizNodeKind;
+	label: string;
+	subtype: string;
+};
+
+export type GraphVizEdgeKind = 'co_mention' | 'entity_relation';
+
+export type GraphVizEdge = {
+	id: string;
+	sourceId: string;
+	targetId: string;
+	relationType: string;
+	kind: GraphVizEdgeKind;
+};
+
 export async function fetchGraphVisualizationSnapshot(input: {
 	userId: string;
 	nodeLimit?: number;
@@ -307,9 +409,11 @@ export async function fetchGraphVisualizationSnapshot(input: {
 	const nodeLimit = Math.min(Math.max(input.nodeLimit ?? 400, 1), 2000);
 	const edgeLimit = Math.min(Math.max(input.edgeLimit ?? 800, 1), 5000);
 
-	return runGraphQueryWithRetry(input.userId, 'age.viz_snapshot', async () => {
-		const entityNodeRows = await runAgeCypher(
-			renderCypherQuery(
+	return runFalkorQueryWithRetry(input.userId, 'falkor.viz_snapshot', async () => {
+		const client = await getClient();
+		const graph = client.selectGraph(falkorGraphForUser(input.userId));
+
+		const entityNodes = (await graph.query(
 			`
 			MATCH (e:Entity {user_id: $user_id})
 			RETURN e.id AS id,
@@ -317,14 +421,11 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			       coalesce(e.entity_type, 'other') AS subtype
 			LIMIT $node_limit
 			`,
-				{ user_id: input.userId, node_limit: nodeLimit }
-			),
-			'id agtype, label agtype, subtype agtype'
-		);
+			{ params: { user_id: input.userId, node_limit: nodeLimit } }
+		)) as { data?: Array<{ id?: unknown; label?: unknown; subtype?: unknown }> };
 
 		/** Entities mentioned in the same capture (Thought) — replaces visible Thought→Entity mention edges. */
-		const relCoMentionRows = await runAgeCypher(
-			renderCypherQuery(
+		const relCoMention = (await graph.query(
 			`
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(a:Entity {user_id: $user_id}),
 			      (t)-[:MENTIONS {user_id: $user_id}]->(b:Entity {user_id: $user_id})
@@ -332,27 +433,22 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			RETURN a.id AS source_id, b.id AS target_id, count(t) AS rel_weight
 			LIMIT $edge_limit
 			`,
-				{ user_id: input.userId, edge_limit: edgeLimit }
-			),
-			'source_id agtype, target_id agtype, rel_weight agtype'
-		);
+			{ params: { user_id: input.userId, edge_limit: edgeLimit } }
+		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; rel_weight?: unknown }> };
 
-		const relEntityRows = await runAgeCypher(
-			renderCypherQuery(
+		const relEntity = (await graph.query(
 			`
 			MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id})
 			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.predicate, 'related_to') AS rel_type
 			LIMIT $edge_limit
 			`,
-				{ user_id: input.userId, edge_limit: edgeLimit }
-			),
-			'source_id agtype, target_id agtype, rel_type agtype'
-		);
+			{ params: { user_id: input.userId, edge_limit: edgeLimit } }
+		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; rel_type?: unknown }> };
 
 		const nodes: GraphVizNode[] = [];
 		const seenNode = new Set<string>();
 
-		for (const row of entityNodeRows ?? []) {
+		for (const row of entityNodes.data ?? []) {
 			const id = typeof row.id === 'string' ? row.id : '';
 			if (!id || seenNode.has(id)) continue;
 			seenNode.add(id);
@@ -382,13 +478,13 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			});
 		};
 
-		for (const row of relCoMentionRows ?? []) {
+		for (const row of relCoMention.data ?? []) {
 			const s = typeof row.source_id === 'string' ? row.source_id : '';
 			const t = typeof row.target_id === 'string' ? row.target_id : '';
 			const w = typeof row.rel_weight === 'number' ? row.rel_weight : Number(row.rel_weight ?? 1);
 			if (s && t) pushEdge(s, t, w > 1 ? `co_mentioned (${w})` : 'co_mentioned', 'co_mention');
 		}
-		for (const row of relEntityRows ?? []) {
+		for (const row of relEntity.data ?? []) {
 			const s = typeof row.source_id === 'string' ? row.source_id : '';
 			const t = typeof row.target_id === 'string' ? row.target_id : '';
 			const rt = typeof row.rel_type === 'string' ? row.rel_type : 'related_to';
@@ -407,9 +503,10 @@ export async function upsertEntityNode(input: {
 	entityType: string;
 }): Promise<void> {
 	const id = validateNonEmptyEntityId(input.id, 'id');
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_entity', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_entity', async () => {
+		await graph.query(
 			`
 			MERGE (e:Entity {id: $id})
 			SET e.user_id = $user_id,
@@ -419,15 +516,15 @@ export async function upsertEntityNode(input: {
 			    e.updated_at = timestamp()
 			RETURN e.id
 			`,
-				{
+			{
+				params: {
 					id,
 					user_id: input.userId,
 					canonical_key: input.canonicalKey,
 					label: input.label,
 					entity_type: input.entityType
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -440,23 +537,24 @@ export async function upsertMentionEdge(input: {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
 
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_mention', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_mention', async () => {
+		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			MATCH (e:Entity {id: $entity_id, user_id: $user_id})
 			MERGE (t)-[r:MENTIONS {user_id: $user_id}]->(e)
 			SET r.updated_at = timestamp()
-			RETURN 1 AS ok
+			RETURN t.id, e.id
 			`,
-				{
+			{
+				params: {
 					thought_id: thoughtId,
 					entity_id: entityId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -470,25 +568,26 @@ export async function upsertEntityRelationEdge(input: {
 	const sourceEntityId = validateNonEmptyEntityId(input.sourceEntityId, 'sourceEntityId');
 	const targetEntityId = validateNonEmptyEntityId(input.targetEntityId, 'targetEntityId');
 
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_entity_relation', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_entity_relation', async () => {
+		await graph.query(
 			`
 			MATCH (a:Entity {id: $a_id, user_id: $user_id})
 			MATCH (b:Entity {id: $b_id, user_id: $user_id})
 			MERGE (a)-[r:ENTITY_RELATES {user_id: $user_id, predicate: $predicate}]->(b)
 			SET r.updated_at = timestamp(),
 			    r.weight = coalesce(r.weight, 0) + 1
-			RETURN 1 AS ok
+			RETURN a.id, b.id
 			`,
-				{
+			{
+				params: {
 					a_id: sourceEntityId,
 					b_id: targetEntityId,
 					user_id: input.userId,
 					predicate: input.predicate
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -501,20 +600,19 @@ export async function upsertEntityRelationEdge(input: {
 export async function fetchEntityEdgesForUser(input: {
 	userId: string;
 }): Promise<Array<{ sourceId: string; targetId: string; weight: number }>> {
-	return runGraphQueryWithRetry(input.userId, 'age.fetch_entity_edges', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.fetch_entity_edges', async () => {
+		const result = (await graph.query(
 			`
 			MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id})
 			WHERE a.id <> b.id
 			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.weight, 1) AS weight
 			`,
-				{ user_id: input.userId }
-			),
-			'source_id agtype, target_id agtype, weight agtype'
-		);
+			{ params: { user_id: input.userId } }
+		)) as { data?: Array<{ source_id?: unknown; target_id?: unknown; weight?: unknown }> };
 
-		return (rows ?? [])
+		return (result.data ?? [])
 			.map((row) => ({
 				sourceId: typeof row.source_id === 'string' ? row.source_id : '',
 				targetId: typeof row.target_id === 'string' ? row.target_id : '',
@@ -523,6 +621,8 @@ export async function fetchEntityEdgesForUser(input: {
 			.filter((r) => r.sourceId && r.targetId);
 	});
 }
+
+export type EntityThoughtHit = { id: string; hits: number; provenance?: string };
 
 function mergeHitMaps(a: EntityThoughtHit[], b: EntityThoughtHit[]): EntityThoughtHit[] {
 	const map = new Map<string, { hits: number; provenance?: string }>();
@@ -553,33 +653,29 @@ export async function expandThoughtIdsFromEntitySeeds(input: {
 		.filter((v, i, a) => a.indexOf(v) === i);
 	if (ids.length === 0) return [];
 
-	return runGraphQueryWithRetry(input.userId, 'age.expand_from_entities', async () => {
-		const directRows = await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.expand_from_entities', async () => {
+		const direct = (await graph.query(
 			`
 			UNWIND $entity_ids AS eid
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(e:Entity {id: eid, user_id: $user_id})
 			RETURN t.id AS id, count(*) AS hits, collect(distinct e.label)[0] AS via_label
 			`,
-				{ entity_ids: ids, user_id: input.userId }
-			),
-			'id agtype, hits agtype, via_label agtype'
-		);
+			{ params: { entity_ids: ids, user_id: input.userId } }
+		)) as { data?: Array<{ id?: unknown; hits?: unknown; via_label?: unknown }> };
 
-		const hopRows = await runAgeCypher(
-			renderCypherQuery(
+		const hop = (await graph.query(
 			`
 			UNWIND $entity_ids AS eid
 			MATCH (e:Entity {id: eid, user_id: $user_id})-[:ENTITY_RELATES {user_id: $user_id}]-(e2:Entity {user_id: $user_id})
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(e2)
 			RETURN t.id AS id, count(*) AS hits, collect(distinct e2.label)[0] AS via_label
 			`,
-				{ entity_ids: ids, user_id: input.userId }
-			),
-			'id agtype, hits agtype, via_label agtype'
-		);
+			{ params: { entity_ids: ids, user_id: input.userId } }
+		)) as { data?: Array<{ id?: unknown; hits?: unknown; via_label?: unknown }> };
 
-		const directHits: EntityThoughtHit[] = directRows.map((row) => ({
+		const directHits: EntityThoughtHit[] = (direct.data ?? []).map((row) => ({
 			id: typeof row.id === 'string' ? row.id : '',
 			hits: typeof row.hits === 'number' ? row.hits : Number(row.hits ?? 0),
 			provenance:
@@ -588,7 +684,7 @@ export async function expandThoughtIdsFromEntitySeeds(input: {
 					: undefined
 		}));
 
-		const hopHits: EntityThoughtHit[] = hopRows.map((row) => ({
+		const hopHits: EntityThoughtHit[] = (hop.data ?? []).map((row) => ({
 			id: typeof row.id === 'string' ? row.id : '',
 			hits: typeof row.hits === 'number' ? row.hits : Number(row.hits ?? 0),
 			provenance:
@@ -616,9 +712,10 @@ export async function upsertEventNode(input: {
 	endAt: string;
 }): Promise<void> {
 	const id = validateNonEmptyEntityId(input.id, 'id');
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_event', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_event', async () => {
+		await graph.query(
 			`
 			MERGE (e:Event {id: $id})
 			SET e.user_id = $user_id,
@@ -629,7 +726,8 @@ export async function upsertEventNode(input: {
 			    e.updated_at = timestamp()
 			RETURN e.id
 			`,
-				{
+			{
+				params: {
 					id,
 					user_id: input.userId,
 					kind: input.kind,
@@ -637,8 +735,7 @@ export async function upsertEventNode(input: {
 					start_at: input.startAt,
 					end_at: input.endAt
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -648,17 +745,15 @@ export async function deleteEventNodeFromGraph(input: {
 	eventId: string;
 }): Promise<void> {
 	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
-	await runGraphQueryWithRetry(input.userId, 'age.delete_event', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.delete_event', async () => {
+		await graph.query(
 			`
 			MATCH (e:Event {id: $event_id, user_id: $user_id})
 			DETACH DELETE e
-			RETURN 1 AS ok
 			`,
-				{ event_id: eventId, user_id: input.userId }
-			),
-			'ok agtype'
+			{ params: { event_id: eventId, user_id: input.userId } }
 		);
 	});
 }
@@ -670,23 +765,24 @@ export async function upsertThoughtOccurrenceEdge(input: {
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_occurs_in', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_occurs_in', async () => {
+		await graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			MATCH (e:Event {id: $event_id, user_id: $user_id})
 			MERGE (t)-[r:OCCURS_IN {user_id: $user_id}]->(e)
 			SET r.updated_at = timestamp()
-			RETURN 1 AS ok
+			RETURN t.id, e.id
 			`,
-				{
+			{
+				params: {
 					thought_id: thoughtId,
 					event_id: eventId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
@@ -698,26 +794,33 @@ export async function upsertEventInvolvesEntityEdge(input: {
 }): Promise<void> {
 	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
-	await runGraphQueryWithRetry(input.userId, 'age.upsert_event_involves', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	await runFalkorQueryWithRetry(input.userId, 'falkor.upsert_event_involves', async () => {
+		await graph.query(
 			`
 			MATCH (e:Event {id: $event_id, user_id: $user_id})
 			MATCH (n:Entity {id: $entity_id, user_id: $user_id})
 			MERGE (e)-[r:INVOLVES {user_id: $user_id}]->(n)
 			SET r.updated_at = timestamp()
-			RETURN 1 AS ok
+			RETURN e.id, n.id
 			`,
-				{
+			{
+				params: {
 					event_id: eventId,
 					entity_id: entityId,
 					user_id: input.userId
 				}
-			),
-			'ok agtype'
+			}
 		);
 	});
 }
+
+export type TemporalContextHit = {
+	thoughtId: string;
+	hits: number;
+	provenance?: string;
+};
 
 /**
  * Filter-then-traverse step 2: expand thoughts linked to seeded Event nodes (1–2 hops).
@@ -732,34 +835,30 @@ export async function expandContextFromTemporalEventSeeds(input: {
 		.filter((v, i, a) => a.indexOf(v) === i);
 	if (ids.length === 0) return [];
 
-	return runGraphQueryWithRetry(input.userId, 'age.expand_from_events', async () => {
-		const directRows = await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(input.userId));
+	return runFalkorQueryWithRetry(input.userId, 'falkor.expand_from_events', async () => {
+		const direct = (await graph.query(
 			`
 			UNWIND $event_ids AS eid
 			MATCH (t:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(ev:Event {id: eid, user_id: $user_id})
 			RETURN t.id AS thought_id, count(*) AS hits, collect(distinct ev.label)[0] AS via_label
 			`,
-				{ event_ids: ids, user_id: input.userId }
-			),
-			'thought_id agtype, hits agtype, via_label agtype'
-		);
+			{ params: { event_ids: ids, user_id: input.userId } }
+		)) as { data?: Array<{ thought_id?: unknown; hits?: unknown; via_label?: unknown }> };
 
-		const viaEntityRows = await runAgeCypher(
-			renderCypherQuery(
+		const viaEntity = (await graph.query(
 			`
 			UNWIND $event_ids AS eid
 			MATCH (ev:Event {id: eid, user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(ent:Entity {user_id: $user_id})
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(ent)
 			RETURN t.id AS thought_id, count(*) AS hits, collect(distinct ent.label)[0] AS via_label
 			`,
-				{ event_ids: ids, user_id: input.userId }
-			),
-			'thought_id agtype, hits agtype, via_label agtype'
-		);
+			{ params: { event_ids: ids, user_id: input.userId } }
+		)) as { data?: Array<{ thought_id?: unknown; hits?: unknown; via_label?: unknown }> };
 
 		const map = new Map<string, { hits: number; provenance?: string }>();
-		for (const row of [...directRows, ...viaEntityRows]) {
+		for (const row of [...(direct.data ?? []), ...(viaEntity.data ?? [])]) {
 			const thoughtId = typeof row.thought_id === 'string' ? row.thought_id : '';
 			if (!thoughtId) continue;
 			const hits = typeof row.hits === 'number' ? row.hits : Number(row.hits ?? 0);
@@ -786,15 +885,31 @@ export async function expandContextFromTemporalEventSeeds(input: {
 	});
 }
 
+export type TemporalSchedulingConflictGraphHit = {
+	personEntityId: string;
+	personLabel: string;
+	place1EntityId: string;
+	place1Label: string;
+	place2EntityId: string;
+	place2Label: string;
+	event1Id: string;
+	event2Id: string;
+	event1Label: string;
+	event2Label: string;
+	thought1Id: string;
+	thought2Id: string;
+};
+
 /**
- * Temporal graph: overlapping Event nodes sharing a person entity with distinct place entities.
+ * Falkor temporal graph: overlapping Event nodes sharing a person entity with distinct place entities.
  */
 export async function findTemporalSchedulingConflictsInGraph(
 	userId: string
 ): Promise<TemporalSchedulingConflictGraphHit[]> {
-	return runGraphQueryWithRetry(userId, 'age.temporal_scheduling_conflicts', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(userId));
+	return runFalkorQueryWithRetry(userId, 'falkor.temporal_scheduling_conflicts', async () => {
+		const result = (await graph.query(
 			`
 			MATCH (e1:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person:Entity {user_id: $user_id}),
 			      (e2:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person)
@@ -823,13 +938,13 @@ export async function findTemporalSchedulingConflictsInGraph(
 			  t1.id AS thought1_id,
 			  t2.id AS thought2_id
 			`,
-				{ user_id: userId }
-			),
-			'person_entity_id agtype, person_label agtype, place1_entity_id agtype, place1_label agtype, place2_entity_id agtype, place2_label agtype, event1_id agtype, event2_id agtype, event1_label agtype, event2_label agtype, thought1_id agtype, thought2_id agtype'
-		);
+			{ params: { user_id: userId } }
+		)) as {
+			data?: Array<Record<string, unknown>>;
+		};
 
 		const hits: TemporalSchedulingConflictGraphHit[] = [];
-		for (const row of rows) {
+		for (const row of result.data ?? []) {
 			const personEntityId = typeof row.person_entity_id === 'string' ? row.person_entity_id : '';
 			const thought1Id = typeof row.thought1_id === 'string' ? row.thought1_id : '';
 			const thought2Id = typeof row.thought2_id === 'string' ? row.thought2_id : '';
@@ -855,24 +970,25 @@ export async function findTemporalSchedulingConflictsInGraph(
 	});
 }
 
-/** Returns true when a Thought node exists for this user in the graph. */
+/** Returns true when a Thought node exists for this user in Falkor. */
 export async function thoughtExistsInGraph(userId: string, thoughtId: string): Promise<boolean> {
 	const id = validateNonEmptyEntityId(thoughtId, 'thoughtId');
-	const rows = await runGraphQueryWithRetry(userId, 'age.thought_exists', async () => {
-		return runAgeCypher(
-			renderCypherQuery(
+	const client = await getClient();
+	const graph = client.selectGraph(falkorGraphForUser(userId));
+	const result = await runFalkorQueryWithRetry(userId, 'falkor.thought_exists', async () => {
+		return graph.query(
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			RETURN t.id AS id
 			LIMIT 1
 			`,
-				{
+			{
+				params: {
 					thought_id: id,
 					user_id: userId
 				}
-			),
-			'id agtype'
+			}
 		);
-	});
-	return rows.length > 0;
+	}) as { data?: Array<{ id?: unknown }> };
+	return (result.data?.length ?? 0) > 0;
 }

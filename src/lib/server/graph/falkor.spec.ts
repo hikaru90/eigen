@@ -1,27 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const connectMock = vi.fn();
-const queryMock = vi.fn();
-const selectGraphMock = vi.fn(() => ({ query: queryMock }));
-const getDbMock = vi.fn(() => ({}));
+const executeMock = vi.fn();
+const getDbMock = vi.fn(() => ({ execute: executeMock }));
 const logActivityCallMock = vi.fn();
-const env = {
-	FALKOR_HOST: '',
-	FALKOR_PORT: '',
-	FALKOR_GRAPH: '',
-	FALKOR_PASSWORD: '',
-	FALKOR_USERNAME: ''
-};
+const env = { AGE_GRAPH_NAME: 'eigen_graph' };
 
-vi.mock('falkordb', () => ({
-	FalkorDB: {
-		connect: connectMock
-	}
-}));
-
-vi.mock('$env/dynamic/private', () => ({
-	env
-}));
+vi.mock('$env/dynamic/private', () => ({ env }));
 
 vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
@@ -31,295 +15,62 @@ vi.mock('$lib/server/activity/log-call', () => ({
 	logActivityCall: logActivityCallMock
 }));
 
-describe('upsertThoughtNode', () => {
+function mockCypherRows(rows: Array<Record<string, unknown>>) {
+	executeMock
+		.mockResolvedValueOnce({ rows: [] })
+		.mockResolvedValueOnce({ rows: [] })
+		.mockResolvedValueOnce(rows);
+}
+
+describe('graph adapter (Apache AGE)', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		env.FALKOR_HOST = 'localhost';
-		env.FALKOR_PORT = '6379';
-		env.FALKOR_GRAPH = '';
-		env.FALKOR_PASSWORD = 'secret';
-		env.FALKOR_USERNAME = 'default';
-		connectMock.mockResolvedValue({ selectGraph: selectGraphMock });
-		queryMock.mockResolvedValue({ data: [] });
+		env.AGE_GRAPH_NAME = 'eigen_graph';
 	});
 
-	it('uses explicit Falkor env and sends expected query params', async () => {
-		const { upsertThoughtNode } = await import('./falkor');
-		await upsertThoughtNode({
-			id: 't1',
-			userId: 'u1',
-			category: 'thought'
-		});
-
-		expect(connectMock).toHaveBeenCalledWith({
-			socket: { host: 'localhost', port: 6379 },
-			password: 'secret',
-			username: 'default'
-		});
-		expect(selectGraphMock).toHaveBeenCalledWith('user_u1');
-		const [cypher, opts] = queryMock.mock.calls[0] as [string, { params: Record<string, unknown> }];
-		expect(cypher).toContain('MERGE (t:Thought {id: $id})');
-		expect(cypher).not.toContain('raw_text');
-		expect(opts.params).toEqual(
-			expect.objectContaining({
-				id: 't1',
-				user_id: 'u1',
-				category: 'thought'
-			})
-		);
-	});
-
-	it('throws on invalid FALKOR_PORT', async () => {
+	it('throws when AGE_GRAPH_NAME is missing', async () => {
 		vi.resetModules();
-		env.FALKOR_PORT = 'abc';
+		env.AGE_GRAPH_NAME = '';
 		const { upsertThoughtNode } = await import('./falkor');
 		await expect(
-			upsertThoughtNode({
-				id: 't1',
-				userId: 'u1',
-				category: 'thought'
-			})
-		).rejects.toThrow(/Invalid FALKOR_PORT/);
+			upsertThoughtNode({ id: 't1', userId: 'u1', category: 'thought' })
+		).rejects.toThrow(/AGE_GRAPH_NAME is required/);
 	});
 
-	it('throws when required Falkor env is missing', async () => {
+	it('upsertThoughtNode runs through AGE and logs activity', async () => {
 		vi.resetModules();
-		env.FALKOR_HOST = '';
+		env.AGE_GRAPH_NAME = 'eigen_graph';
+		mockCypherRows([{ id: 't1' }]);
 		const { upsertThoughtNode } = await import('./falkor');
-		await expect(
-			upsertThoughtNode({
-				id: 't1',
-				userId: 'u1',
-				category: 'thought'
-			})
-		).rejects.toThrow(/FALKOR_HOST is required/);
-	});
-
-	it('deletes all vertices for the user graph', async () => {
-		const { deleteAllUserGraphVertices } = await import('./falkor');
-		await deleteAllUserGraphVertices('u1');
-		expect(selectGraphMock).toHaveBeenCalledWith('user_u1');
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MATCH (n {user_id: $user_id})'),
-			expect.objectContaining({ params: { user_id: 'u1' } })
+		await upsertThoughtNode({ id: 't1', userId: 'u1', category: 'thought' });
+		expect(executeMock).toHaveBeenCalledTimes(3);
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({ provider: 'apache_age' })
 		);
 	});
 
-	it('upserts thought relation', async () => {
-		const { upsertThoughtRelation } = await import('./falkor');
-		await upsertThoughtRelation({
-			userId: 'u1',
-			sourceId: 't1',
-			targetId: 't2',
-			relationType: 'related_to'
-		});
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MERGE (a)-[r:RELATES_TO'),
-			expect.objectContaining({
-				params: expect.objectContaining({ source_id: 't1', target_id: 't2' })
-			})
-		);
-	});
-
-	it('returns expanded neighbors', async () => {
-		queryMock.mockResolvedValueOnce({ data: [{ id: 't2', hits: 3 }] });
+	it('expandNeighborsByIds returns ranked thought hits', async () => {
+		mockCypherRows([{ id: 't2', hits: 3 }]);
 		const { expandNeighborsByIds } = await import('./falkor');
 		const out = await expandNeighborsByIds({ userId: 'u1', seedIds: ['t1'], limit: 10 });
 		expect(out).toEqual([{ id: 't2', hits: 3 }]);
 	});
 
-	it('runs graph-only query search with tokenized input', async () => {
-		queryMock.mockResolvedValueOnce({ data: [{ id: 't2', score: 4 }] });
+	it('graphOnlySearchByQuery short-circuits when query tokenization is empty', async () => {
 		const { graphOnlySearchByQuery } = await import('./falkor');
-		const out = await graphOnlySearchByQuery({
-			userId: 'u1',
-			query: 'How does sleep affect training?',
-			limit: 10
-		});
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MATCH (e:Entity {user_id: $user_id})'),
-			expect.objectContaining({
-				params: expect.objectContaining({
-					user_id: 'u1',
-					limit: 10
-				})
-			})
-		);
-		expect(out).toEqual([{ id: 't2', score: 4 }]);
-	});
-
-	it('fetches entity-only visualization snapshot with co-mention and entity_relation edges', async () => {
-		queryMock
-			.mockResolvedValueOnce({
-				data: [{ id: 'e1', label: 'Alice', subtype: 'person' }]
-			})
-			.mockResolvedValueOnce({
-				data: [{ source_id: 'e1', target_id: 'e2', rel_weight: 2 }]
-			})
-			.mockResolvedValueOnce({
-				data: [{ source_id: 'e1', target_id: 'e2', rel_type: 'knows' }]
-			});
-
-		const { fetchGraphVisualizationSnapshot } = await import('./falkor');
-		const snap = await fetchGraphVisualizationSnapshot({ userId: 'u1', nodeLimit: 10, edgeLimit: 10 });
-
-		expect(snap.nodes.map((n) => n.id)).toEqual(['e1']);
-		expect(snap.nodes.every((n) => n.kind === 'Entity')).toBe(true);
-		expect(snap.edges.length).toBe(2);
-		expect(queryMock).toHaveBeenCalledTimes(3);
-	});
-
-	it('passes FALKOR_USERNAME when set alongside password', async () => {
-		vi.resetModules();
-		vi.clearAllMocks();
-		env.FALKOR_HOST = 'localhost';
-		env.FALKOR_PORT = '6379';
-		env.FALKOR_GRAPH = '';
-		env.FALKOR_PASSWORD = 'secret';
-		env.FALKOR_USERNAME = 'customuser';
-		connectMock.mockResolvedValue({ selectGraph: selectGraphMock });
-		queryMock.mockResolvedValue({ data: [] });
-
-		const { upsertThoughtNode } = await import('./falkor');
-		await upsertThoughtNode({
-			id: 't1',
-			userId: 'u1',
-			category: 'thought'
-		});
-
-		expect(connectMock).toHaveBeenCalledWith({
-			socket: { host: 'localhost', port: 6379 },
-			password: 'secret',
-			username: 'customuser'
-		});
-	});
-
-	it('upsertEntityNode merges Entity node and forwards canonical metadata', async () => {
-		const { upsertEntityNode } = await import('./falkor');
-		await upsertEntityNode({
-			id: 'e1',
-			userId: 'u1',
-			canonicalKey: 'sam',
-			label: 'Sam',
-			entityType: 'person'
-		});
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MERGE (e:Entity {id: $id})'),
-			expect.objectContaining({
-				params: expect.objectContaining({
-					id: 'e1',
-					user_id: 'u1',
-					canonical_key: 'sam',
-					label: 'Sam',
-					entity_type: 'person'
-				})
-			})
-		);
-	});
-
-	it('deleteEntityVertexFromGraph deletes Entity vertex scoped to user', async () => {
-		const { deleteEntityVertexFromGraph } = await import('./falkor');
-		await deleteEntityVertexFromGraph({ userId: 'u1', entityId: 'e1' });
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('DETACH DELETE e'),
-			expect.objectContaining({
-				params: expect.objectContaining({
-					entity_id: 'e1',
-					user_id: 'u1'
-				})
-			})
-		);
-	});
-
-	it('upsertMentionEdge merges MENTIONS edge between Thought and Entity', async () => {
-		const { upsertMentionEdge } = await import('./falkor');
-		await upsertMentionEdge({ userId: 'u1', thoughtId: 't1', entityId: 'e1' });
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MERGE (t)-[r:MENTIONS'),
-			expect.objectContaining({
-				params: expect.objectContaining({
-					thought_id: 't1',
-					entity_id: 'e1',
-					user_id: 'u1'
-				})
-			})
-		);
-	});
-
-	it('upsertEntityRelationEdge merges ENTITY_RELATES with predicate', async () => {
-		const { upsertEntityRelationEdge } = await import('./falkor');
-		await upsertEntityRelationEdge({
-			userId: 'u1',
-			sourceEntityId: 'e1',
-			targetEntityId: 'e2',
-			predicate: 'located_in'
-		});
-		expect(queryMock).toHaveBeenCalledWith(
-			expect.stringContaining('MERGE (a)-[r:ENTITY_RELATES'),
-			expect.objectContaining({
-				params: expect.objectContaining({
-					a_id: 'e1',
-					b_id: 'e2',
-					user_id: 'u1',
-					predicate: 'located_in'
-				})
-			})
-		);
-	});
-
-	it('expandThoughtIdsFromEntitySeeds short-circuits with empty array when no ids given', async () => {
-		const { expandThoughtIdsFromEntitySeeds } = await import('./falkor');
-		const out = await expandThoughtIdsFromEntitySeeds({
-			userId: 'u1',
-			entityIds: [],
-			limit: 10
-		});
+		const out = await graphOnlySearchByQuery({ userId: 'u1', query: '!', limit: 10 });
 		expect(out).toEqual([]);
-		expect(queryMock).not.toHaveBeenCalled();
+		expect(executeMock).not.toHaveBeenCalled();
 	});
 
-	it('expandThoughtIdsFromEntitySeeds merges direct and one-hop hits and tags provenance', async () => {
-		queryMock
-			.mockResolvedValueOnce({
-				data: [
-					{ id: 't1', hits: 2, via_label: 'Sam' },
-					{ id: 't2', hits: 1, via_label: '' }
-				]
-			})
-			.mockResolvedValueOnce({
-				data: [{ id: 't2', hits: 3, via_label: 'Berlin' }]
-			});
-		const { expandThoughtIdsFromEntitySeeds } = await import('./falkor');
-		const out = await expandThoughtIdsFromEntitySeeds({
-			userId: 'u1',
-			entityIds: ['e1', 'e1'],
-			limit: 10
-		});
-		const t2 = out.find((r) => r.id === 't2');
-		const t1 = out.find((r) => r.id === 't1');
-		expect(t2).toEqual({ id: 't2', hits: 4, provenance: 'via_related:Berlin' });
-		expect(t1).toEqual({ id: 't1', hits: 2, provenance: 'entity:Sam' });
-		expect(out[0].hits).toBeGreaterThanOrEqual(out[out.length - 1].hits);
-	});
+	it('thoughtExistsInGraph returns true only when rows are returned', async () => {
+		mockCypherRows([{ id: 't1' }]);
+		const { thoughtExistsInGraph } = await import('./falkor');
+		await expect(thoughtExistsInGraph('u1', 't1')).resolves.toBe(true);
 
-	it('normalizes user id into graph-safe graph name', async () => {
-		vi.resetModules();
-		vi.clearAllMocks();
-		env.FALKOR_HOST = 'localhost';
-		env.FALKOR_PORT = '6379';
-		env.FALKOR_GRAPH = 'eigen_memory';
-		env.FALKOR_PASSWORD = 'secret';
-		env.FALKOR_USERNAME = 'default';
-		connectMock.mockResolvedValue({ selectGraph: selectGraphMock });
-		queryMock.mockResolvedValue({ data: [] });
-
-		const { upsertThoughtNode } = await import('./falkor');
-		await upsertThoughtNode({
-			id: 't1',
-			userId: 'User-ID.With Spaces',
-			category: 'thought'
-		});
-
-		expect(selectGraphMock).toHaveBeenCalledWith('user_user_id_with_spaces');
+		mockCypherRows([]);
+		await expect(thoughtExistsInGraph('u1', 't2')).resolves.toBe(false);
 	});
 });

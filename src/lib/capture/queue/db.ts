@@ -1,10 +1,30 @@
 import {
 	CAPTURE_QUEUE_DB_NAME,
 	CAPTURE_QUEUE_DB_VERSION,
+	CAPTURE_QUEUE_DRAIN_LOCK_ID,
 	CAPTURE_QUEUE_STORE,
 	type CaptureQueueItem,
 	type CaptureQueueStatus
 } from './types';
+
+const CAPTURE_QUEUE_DRAIN_LOCK_TTL_MS = 120_000;
+
+type CaptureQueueDrainLockRow = {
+	id: typeof CAPTURE_QUEUE_DRAIN_LOCK_ID;
+	holderId: string;
+	expiresAt: number;
+};
+
+function isQueueItem(row: unknown): row is CaptureQueueItem {
+	return (
+		typeof row === 'object' &&
+		row !== null &&
+		'id' in row &&
+		(row as { id: string }).id !== CAPTURE_QUEUE_DRAIN_LOCK_ID &&
+		'raw' in row &&
+		'status' in row
+	);
+}
 
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
 	return new Promise((resolve, reject) => {
@@ -47,7 +67,9 @@ export async function listCaptureQueueItems(): Promise<CaptureQueueItem[]> {
 		const store = tx.objectStore(CAPTURE_QUEUE_STORE);
 		const items = await requestToPromise(store.getAll());
 		await transactionDone(tx);
-		return (items as CaptureQueueItem[]).sort((a, b) => a.createdAt - b.createdAt);
+		return (items as unknown[])
+			.filter(isQueueItem)
+			.sort((a, b) => a.createdAt - b.createdAt);
 	} finally {
 		db.close();
 	}
@@ -122,6 +144,50 @@ export async function setCaptureQueueStatus(
 	extra?: Partial<Pick<CaptureQueueItem, 'attempts' | 'lastError'>>
 ): Promise<CaptureQueueItem | null> {
 	return updateCaptureQueueItem(id, { status, ...extra });
+}
+
+/** Single-flight drain across tabs and the service worker. */
+export async function tryAcquireCaptureQueueDrainLock(holderId: string): Promise<boolean> {
+	const db = await openCaptureQueueDb();
+	const now = Date.now();
+	try {
+		const tx = db.transaction(CAPTURE_QUEUE_STORE, 'readwrite');
+		const store = tx.objectStore(CAPTURE_QUEUE_STORE);
+		const existing = (await requestToPromise(store.get(CAPTURE_QUEUE_DRAIN_LOCK_ID))) as
+			| CaptureQueueDrainLockRow
+			| undefined;
+		if (existing && existing.expiresAt > now && existing.holderId !== holderId) {
+			await transactionDone(tx);
+			return false;
+		}
+		const lock: CaptureQueueDrainLockRow = {
+			id: CAPTURE_QUEUE_DRAIN_LOCK_ID,
+			holderId,
+			expiresAt: now + CAPTURE_QUEUE_DRAIN_LOCK_TTL_MS
+		};
+		store.put(lock);
+		await transactionDone(tx);
+		return true;
+	} finally {
+		db.close();
+	}
+}
+
+export async function releaseCaptureQueueDrainLock(holderId: string): Promise<void> {
+	const db = await openCaptureQueueDb();
+	try {
+		const tx = db.transaction(CAPTURE_QUEUE_STORE, 'readwrite');
+		const store = tx.objectStore(CAPTURE_QUEUE_STORE);
+		const existing = (await requestToPromise(store.get(CAPTURE_QUEUE_DRAIN_LOCK_ID))) as
+			| CaptureQueueDrainLockRow
+			| undefined;
+		if (existing?.holderId === holderId) {
+			store.delete(CAPTURE_QUEUE_DRAIN_LOCK_ID);
+		}
+		await transactionDone(tx);
+	} finally {
+		db.close();
+	}
 }
 
 /** Requeue items left in `processing` after a tab crash or reload. */

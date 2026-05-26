@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	findTemporalSchedulingConflicts,
 	findTemporalSchedulingConflictsInPostgres,
+	formatTemporalConflictsForPrompt,
 	isSchedulingConflictQuery
 } from './temporal-conflicts';
 
@@ -105,5 +107,95 @@ describe('findTemporalSchedulingConflictsInPostgres', () => {
 		expect(conflicts[0]!.personLabel).toBe('Tom');
 		expect(conflicts[0]!.thoughtIds).toEqual(expect.arrayContaining(['t1', 't2', 't3']));
 		expect(conflicts[0]!.events.map((e) => e.placeLabel).sort()).toEqual(['Berlin', 'Lisbon']);
+	});
+
+	it('returns [] when no overlapping pairs exist', async () => {
+		getDbMock.mockReturnValue({
+			execute: vi.fn(async () => [])
+		});
+
+		await expect(
+			findTemporalSchedulingConflictsInPostgres({
+				userId: 'u1',
+				query: 'March scheduling conflict'
+			})
+		).resolves.toEqual([]);
+	});
+});
+
+describe('findTemporalSchedulingConflicts', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('merges graph and postgres conflicts', async () => {
+		findTemporalSchedulingConflictsInGraphMock.mockResolvedValue([
+			{
+				personEntityId: 'ent-tom',
+				personLabel: 'Tom',
+				thought1Id: 't1',
+				thought2Id: 't2',
+				event1Id: 'ev1',
+				event2Id: 'ev2',
+				event1Label: 'Move to Lisbon',
+				event2Label: 'Berlin offsite',
+				place1Label: 'Lisbon',
+				place2Label: 'Berlin'
+			}
+		]);
+
+		getDbMock.mockReturnValue({
+			execute: vi.fn(async () => []),
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					innerJoin: vi.fn().mockReturnValue({
+						where: vi.fn().mockResolvedValue([])
+					})
+				})
+			})
+		});
+
+		const conflicts = await findTemporalSchedulingConflicts({
+			userId: 'u1',
+			query: 'scheduling conflict'
+		});
+
+		expect(conflicts).toHaveLength(1);
+		expect(conflicts[0]?.personLabel).toBe('Tom');
+	});
+});
+
+describe('formatTemporalConflictsForPrompt', () => {
+	it('returns empty string when there are no conflicts', () => {
+		expect(formatTemporalConflictsForPrompt([])).toBe('');
+	});
+
+	it('formats conflict lines for the compose prompt', () => {
+		const text = formatTemporalConflictsForPrompt([
+			{
+				personEntityId: 'ent-tom',
+				personLabel: 'Tom',
+				events: [
+					{
+						eventId: 'ev1',
+						thoughtId: 't1',
+						semanticSummary: 'Move to Lisbon',
+						placeLabel: 'Lisbon'
+					},
+					{
+						eventId: 'ev2',
+						thoughtId: 't2',
+						semanticSummary: 'Berlin offsite',
+						placeLabel: 'Berlin'
+					}
+				],
+				mandatoryThoughtIds: ['t3'],
+				thoughtIds: ['t1', 't2', 't3'],
+				description: 'Tom has overlapping events in Lisbon and Berlin'
+			}
+		]);
+
+		expect(text).toContain('Temporal scheduling conflicts');
+		expect(text).toContain('Mandatory notes');
 	});
 });

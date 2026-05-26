@@ -31,4 +31,26 @@ describe('POST /api/push/test', () => {
 		);
 		expect(await res.json()).toMatchObject({ ok: true, sent: 1 });
 	});
+
+	it('returns 400 when the user has no subscriptions', async () => {
+		sendPushToUserMock.mockRejectedValue(new Error('No push subscriptions registered'));
+
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: new Request('http://localhost/api/push/test', { method: 'POST' })
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('returns 503 when VAPID is not configured', async () => {
+		sendPushToUserMock.mockRejectedValue(new Error('VAPID_PUBLIC_KEY is required'));
+
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: new Request('http://localhost/api/push/test', { method: 'POST' })
+			} as never)
+		).rejects.toMatchObject({ status: 503 });
+	});
 });

@@ -39,4 +39,21 @@ describe('DELETE /api/memories', () => {
 		expect(deleteAllMemoriesForUserMock).toHaveBeenCalledWith('u1');
 		expect(await res.json()).toEqual({ ok: true, thoughtsDeleted: 3, entitiesDeleted: 1 });
 	});
+
+	it('returns 400 for invalid confirmation text', async () => {
+		assertDeleteAllMemoriesConfirmationMock.mockImplementation(() => {
+			throw new Error('Confirmation phrase did not match');
+		});
+
+		await expect(
+			DELETE({
+				locals: { user: { id: 'u1' } },
+				request: new Request('http://localhost/api/memories', {
+					method: 'DELETE',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ confirmation: 'nope' })
+				})
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
+	});
 });

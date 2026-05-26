@@ -36,4 +36,44 @@ describe('transcribe-audio client', () => {
 		} as Response;
 		await expect(parseTranscribeErrorResponse(res)).resolves.toBe('gateway down');
 	});
+
+	it('parseTranscribeErrorResponse falls back to response text', async () => {
+		const res = {
+			status: 502,
+			json: async () => {
+				throw new Error('not json');
+			},
+			text: async () => 'bad gateway'
+		} as Response;
+		await expect(parseTranscribeErrorResponse(res)).resolves.toBe('bad gateway');
+	});
+
+	it('throws when transcription response is not ok', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({
+				ok: false,
+				status: 503,
+				json: async () => ({ error: 'stt unavailable' })
+			}))
+		);
+
+		await expect(
+			transcribeRecordedAudio(new Blob(['x'], { type: 'audio/webm' }))
+		).rejects.toThrow('stt unavailable');
+	});
+
+	it('throws when transcript is missing from a successful response', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({
+				ok: true,
+				json: async () => ({ transcript: '   ' })
+			}))
+		);
+
+		await expect(
+			transcribeRecordedAudio(new Blob(['x'], { type: 'audio/webm' }))
+		).rejects.toThrow(/missing transcript/i);
+	});
 });
