@@ -12,6 +12,7 @@
   import KeyRound from "@lucide/svelte/icons/key-round";
   import LogOut from "@lucide/svelte/icons/log-out";
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
+  import Cpu from "@lucide/svelte/icons/cpu";
 
   const isChatRoute = $derived(page.route.id === "/chat");
 
@@ -126,6 +127,13 @@
         >
           <KeyRound class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
+        </a>
+        <a
+          href={resolve("/settings/llm")}
+          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          <Cpu class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          LLM
         </a>
         <a
           href={resolve("/eval")}

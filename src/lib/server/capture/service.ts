@@ -17,6 +17,7 @@ import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/on
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
 import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
+import { chargePlatformUsage } from '$lib/server/billing/usage-gate';
 
 /** Explicit MVP pricing unit until the LLM ingest path is wired. */
 const CAPTURE_BASE_COST_USD = 0.0005;
@@ -36,6 +37,7 @@ async function logCaptureActivity(
 	context?: string,
 	durationMs?: number
 ) {
+	await chargePlatformUsage(userId, CAPTURE_BASE_COST_USD, { operation });
 	await logActivityCall(getDb(), userId, {
 		provider: 'mvp_stub',
 		operation,

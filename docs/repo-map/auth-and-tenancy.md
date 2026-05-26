@@ -10,7 +10,7 @@
 
 ### [`src/hooks.server.ts`](../../src/hooks.server.ts)
 
-- **Purpose:** `sequence`: Paraglide → Better Auth session → COOP/COEP headers.
+- **Purpose:** `sequence`: Paraglide → Better Auth session → `Cross-Origin-Opener-Policy: same-origin-allow-popups` (no global COEP; third-party checkout SDKs require it).
 - **Owns:** Calling `auth.api.getSession`; populating `event.locals.user` / `session`; per-request `appSql.reserve()`, `set_config('app.current_user_id', uid)`, `appDbAsyncLocal.run(scopedDb, …)`, release + clear config.
 - **DependsOn:** `auth`, `appSql`, `createScopedDrizzle`, `appDbAsyncLocal`.
 - **PublicSymbols:** `handle` export.

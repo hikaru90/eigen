@@ -4,13 +4,19 @@ import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { ACTIVITY_PAGE_LLM_PROVIDERS, AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
 import { activityCallLog } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
+import { normalizeCurrencyCode, usdStringToCents } from '$lib/server/billing/money';
+import { getOrCreateWallet } from '$lib/server/billing/wallet';
 
 const VALID_FILTERS = ['all', 'gateway', 'agent'] as const;
 type ActivityFilter = (typeof VALID_FILTERS)[number];
 
-function sumGatewayCosts(
-	rows: Array<{ baseCostUsd: string; markupUsd: string; totalCostUsd: string }>
-) {
+type BillingSlice = {
+	baseBilledCents: number;
+	markupBilledCents: number;
+	totalBilledCents: number;
+};
+
+function sumUsd(rows: Array<{ baseCostUsd: string; markupUsd: string; totalCostUsd: string }>) {
 	let base = 0;
 	let markup = 0;
 	let total = 0;
@@ -23,6 +29,19 @@ function sumGatewayCosts(
 		baseCostUsd: base.toFixed(6),
 		markupUsd: markup.toFixed(6),
 		totalCostUsd: total.toFixed(6)
+	};
+}
+
+/** Same minor-unit mapping as Eigen wallet ledger (`usdStringToCents`). */
+function billedSliceUsdStrings(r: {
+	baseCostUsd: string;
+	markupUsd: string;
+	totalCostUsd: string;
+}): BillingSlice {
+	return {
+		baseBilledCents: usdStringToCents(r.baseCostUsd),
+		markupBilledCents: usdStringToCents(r.markupUsd),
+		totalBilledCents: usdStringToCents(r.totalCostUsd)
 	};
 }
 
@@ -91,12 +110,21 @@ export const load: PageServerLoad = async (event) => {
 		.orderBy(desc(activityCallLog.createdAt))
 		.limit(100);
 
+	const wallet = await getOrCreateWallet(event.locals.user.id);
+	const activityCurrency = normalizeCurrencyCode(wallet.currency);
+
+	const calls = rows.map((r) => ({
+		...r,
+		...billedSliceUsdStrings(r)
+	}));
+
 	const isGatewayFilter = filter === 'all' || filter === 'gateway';
 
-	const totals = sumGatewayCosts(rows);
+	const totalsUsd = sumUsd(rows);
+	const totalsBilling = billedSliceUsdStrings(totalsUsd);
 	const groups = groupCalls(rows);
 
-	const overallTotals = isGatewayFilter
+	const overallTotalsUsd = isGatewayFilter
 		? await getDb()
 				.select({
 					baseCostUsd: sql<string>`coalesce(sum(${activityCallLog.baseCostUsd}::numeric), 0)`,
@@ -120,5 +148,21 @@ export const load: PageServerLoad = async (event) => {
 				.then((r) => r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' })
 		: { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
 
-	return { user: event.locals.user, calls: rows, groups, totals, overallTotals, filter, from: fromParam ?? null, to: toParam ?? null };
+	const overallBilling = billedSliceUsdStrings({
+		baseCostUsd: overallTotalsUsd.baseCostUsd,
+		markupUsd: overallTotalsUsd.markupUsd,
+		totalCostUsd: overallTotalsUsd.totalCostUsd
+	});
+
+	return {
+		user: event.locals.user,
+		activityCurrency,
+		calls,
+		groups,
+		totals: { ...totalsUsd, ...totalsBilling },
+		overallTotals: { ...overallTotalsUsd, ...overallBilling },
+		filter,
+		from: fromParam ?? null,
+		to: toParam ?? null
+	};
 };

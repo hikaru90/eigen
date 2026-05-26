@@ -11,7 +11,7 @@
 		"dev": "npm run db:up && svelte-kit sync && vite dev --host",
 		"build": "vite build",
 		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
+		"prepare": "svelte-kit sync && npx @inlang/paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",
 		"generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "eslint .",

@@ -257,6 +257,90 @@ export const thoughtRelation = pgTable(
 	]
 );
 
+/** Prepaid wallet balance (integer cents) per user. */
+export const userWallet = pgTable('user_wallet', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	availableCents: integer('available_cents').notNull().default(0),
+	reservedCents: integer('reserved_cents').notNull().default(0),
+	currency: text('currency').notNull().default('USD'),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull()
+});
+
+export const walletLedgerKindEnum = [
+	'top_up',
+	'usage_debit',
+	'reservation_hold',
+	'reservation_release',
+	'adjustment'
+] as const;
+export type WalletLedgerKind = (typeof walletLedgerKindEnum)[number];
+
+/** Append-only wallet ledger (credits positive, debits negative). */
+export const walletLedgerEntry = pgTable(
+	'wallet_ledger_entry',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		kind: text('kind').$type<WalletLedgerKind>().notNull(),
+		amountCents: integer('amount_cents').notNull(),
+		currency: text('currency').notNull(),
+		referenceType: text('reference_type'),
+		referenceId: text('reference_id'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('wallet_ledger_entry_user_idx').on(t.userId),
+		index('wallet_ledger_entry_user_created_idx').on(t.userId, t.createdAt)
+	]
+);
+
+export const paymentOrderStatusEnum = [
+	'created',
+	'approved',
+	'captured',
+	'failed',
+	'cancelled'
+] as const;
+export type PaymentOrderStatus = (typeof paymentOrderStatusEnum)[number];
+
+/** PayPal checkout orders for credit top-ups. */
+export const paymentOrder = pgTable(
+	'payment_order',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').notNull().default('paypal'),
+		paypalOrderId: text('paypal_order_id').notNull(),
+		status: text('status').$type<PaymentOrderStatus>().notNull().default('created'),
+		requestedCents: integer('requested_cents').notNull(),
+		capturedCents: integer('captured_cents'),
+		currency: text('currency').notNull(),
+		payerEmail: text('payer_email'),
+		rawCapture: jsonb('raw_capture').$type<Record<string, unknown>>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		uniqueIndex('payment_order_paypal_order_id_uidx').on(t.paypalOrderId),
+		index('payment_order_user_idx').on(t.userId)
+	]
+);
+
+export type PaymentOrder = typeof paymentOrder.$inferSelect;
+
 /** Per-call pricing transparency (AC-013, AC-014). Amounts stored as decimal strings in USD. */
 export const activityCallLog = pgTable(
 	'activity_call_log',
@@ -311,6 +395,9 @@ export const retrievalQualityEvent = pgTable(
 	]
 );
 
+export const billingModeEnum = ['platform_credits', 'byok'] as const;
+export type BillingMode = (typeof billingModeEnum)[number];
+
 /** Per-user app preferences (settings page). */
 export const userPreference = pgTable(
 	'user_preference',
@@ -319,9 +406,15 @@ export const userPreference = pgTable(
 			.primaryKey()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		preferredLanguage: text('preferred_language').notNull().default('en'),
+		/** Paraglide UI locale (`en`, `de`, …). */
+		preferredUiLocale: text('preferred_ui_locale').notNull().default('en'),
 		preferredTranscriptionQuality: text('preferred_transcription_quality')
 			.notNull()
 			.default('low'),
+		/** `platform_credits` (default) bills Eigen wallet; `byok` uses user gateway keys. */
+		billingMode: text('billing_mode').$type<BillingMode>().notNull().default('platform_credits'),
+		/** ISO 4217 currency code fallback when PayPal does not infer checkout currency. */
+		defaultBillingCurrency: text('default_billing_currency').notNull().default('USD'),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())
@@ -329,6 +422,7 @@ export const userPreference = pgTable(
 	},
 	(t) => [
 		index('user_preference_language_idx').on(t.preferredLanguage),
+		index('user_preference_ui_locale_idx').on(t.preferredUiLocale),
 		index('user_preference_quality_idx').on(t.preferredTranscriptionQuality)
 	]
 );

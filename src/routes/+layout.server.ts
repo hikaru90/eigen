@@ -1,5 +1,34 @@
 import type { LayoutServerLoad } from './$types';
+import { eq } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
+import { userPreference } from '$lib/server/db/schema';
+import { normalizeUiLocale } from '$lib/i18n/ui-locale';
+import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime';
 
-export const load: LayoutServerLoad = ({ locals }) => ({
-	user: locals.user ?? null
-});
+export const load: LayoutServerLoad = async ({ locals, cookies }) => {
+	let preferredUiLocale: string | null = null;
+
+	if (locals.user) {
+		const [pref] = await getDb()
+			.select({ preferredUiLocale: userPreference.preferredUiLocale })
+			.from(userPreference)
+			.where(eq(userPreference.userId, locals.user.id))
+			.limit(1);
+
+		preferredUiLocale = normalizeUiLocale(pref?.preferredUiLocale ?? 'en');
+		const currentCookie = cookies.get(cookieName);
+		if (currentCookie !== preferredUiLocale) {
+			cookies.set(cookieName, preferredUiLocale, {
+				path: '/',
+				maxAge: cookieMaxAge,
+				httpOnly: false,
+				sameSite: 'lax'
+			});
+		}
+	}
+
+	return {
+		user: locals.user ?? null,
+		preferredUiLocale
+	};
+};

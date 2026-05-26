@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { load } from './+page.server';
 
+vi.mock('$lib/server/billing/wallet', () => ({
+	getOrCreateWallet: vi.fn(async () => ({ availableCents: 0, reservedCents: 0, currency: 'USD' }))
+}));
+
 const { getDbMock } = vi.hoisted(() => ({ getDbMock: vi.fn() }));
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
 
@@ -39,6 +43,14 @@ describe('activity page server', () => {
 				createdAt: new Date('2026-01-01T00:00:00Z')
 			}
 		];
+		const enriched = [
+			{
+				...rows[0],
+				baseBilledCents: 100,
+				markupBilledCents: 20,
+				totalBilledCents: 120
+			}
+		];
 		const db = chain({
 			limit: vi.fn(async () => rows),
 			then: vi.fn(async (resolve: (v: unknown) => unknown) =>
@@ -51,17 +63,24 @@ describe('activity page server', () => {
 			locals: { user: { id: 'u1', email: 'a@b.c' } },
 			url: new URL('http://localhost/activity')
 		} as never);
-		expect(data.calls).toEqual(rows);
+		expect(data.activityCurrency).toBe('USD');
+		expect(data.calls).toEqual(enriched);
 		expect(data.groups).toEqual([{ groupId: null, groupStart: rows[0].createdAt, callCount: 1 }]);
 		expect(data.totals).toEqual({
 			baseCostUsd: '1.000000',
 			markupUsd: '0.200000',
-			totalCostUsd: '1.200000'
+			totalCostUsd: '1.200000',
+			baseBilledCents: 100,
+			markupBilledCents: 20,
+			totalBilledCents: 120
 		});
 		expect(data.overallTotals).toEqual({
 			baseCostUsd: '1.000000',
 			markupUsd: '0.200000',
-			totalCostUsd: '1.200000'
+			totalCostUsd: '1.200000',
+			baseBilledCents: 100,
+			markupBilledCents: 20,
+			totalBilledCents: 120
 		});
 	});
 
@@ -149,6 +168,14 @@ describe('activity page server', () => {
 				createdAt: new Date('2026-01-03T00:00:00Z')
 			}
 		];
+		const enriched = [
+			{
+				...rows[0],
+				baseBilledCents: 1,
+				markupBilledCents: 1,
+				totalBilledCents: 1
+			}
+		];
 		const db = chain({
 			limit: vi.fn(async () => rows),
 			then: vi.fn(async (resolve: (v: unknown) => unknown) =>
@@ -161,8 +188,9 @@ describe('activity page server', () => {
 			locals: { user: { id: 'u1', email: 'a@b.c' } },
 			url: new URL('http://localhost/activity?type=gateway')
 		} as never);
-		expect(data.calls).toEqual(rows);
+		expect(data.calls).toEqual(enriched);
 		expect(data.totals.totalCostUsd).toBe('0.002400');
+		expect(data.totals.totalBilledCents).toBe(1);
 	});
 
 	it('skips overall totals for agent filter', async () => {
@@ -175,6 +203,6 @@ describe('activity page server', () => {
 			locals: { user: { id: 'u1', email: 'a@b.c' } },
 			url: new URL('http://localhost/activity?type=agent')
 		} as never);
-		expect(data.overallTotals).toEqual({ baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' });
+		expect(data.overallTotals).toEqual({ baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0', baseBilledCents: 0, markupBilledCents: 0, totalBilledCents: 0 });
 	});
 });

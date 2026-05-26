@@ -1,4 +1,17 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"hello_world": "Hello, {name} from de!"
+	"hello_world": "Hallo, {name} aus de!",
+	"settings_theme_title": "Design",
+	"settings_theme_description": "Standard folgt dem Browser- oder Systemdesign.",
+	"settings_theme_mode": "Designmodus",
+	"settings_theme_system": "Systemstandard",
+	"settings_theme_light": "Hell",
+	"settings_theme_dark": "Dunkel",
+	"settings_display_language_title": "Anzeigesprache",
+	"settings_display_language_description": "Sprache der App-Oberfläche. Die Spracherkennung wird unten separat eingestellt.",
+	"settings_display_language_label": "Oberflächensprache",
+	"settings_display_language_save": "Anzeigesprache speichern",
+	"settings_transcription_language_title": "Spracherkennung",
+	"settings_transcription_language_label": "Transkriptionssprache",
+	"settings_transcription_language_save": "Sprache speichern"
 }

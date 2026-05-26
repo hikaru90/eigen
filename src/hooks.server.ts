@@ -124,11 +124,11 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 	return svelteKitHandler({ event, resolve: resolveWithAppDb, auth, building });
 };
 
-const handleCrossOriginIsolation: Handle = async ({ event, resolve }) => {
+/** COOP only — do not set COEP `require-corp` globally; it blocks third-party scripts (e.g. PayPal SDK). */
+const handleCrossOriginOpenerPolicy: Handle = async ({ event, resolve }) => {
 	const response = await resolve(event);
-	response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-	response.headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+	response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 	return response;
 };
 
-export const handle: Handle = sequence(handleParaglide, handleWellKnown, handleBetterAuth, handleCrossOriginIsolation);
+export const handle: Handle = sequence(handleParaglide, handleWellKnown, handleBetterAuth, handleCrossOriginOpenerPolicy);

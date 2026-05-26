@@ -214,3 +214,27 @@ CREATE POLICY eval_thought_map_isolation ON eval_thought_map
       WHERE user_id = current_setting('app.current_user_id', true)
     )
   );
+
+ALTER TABLE user_wallet ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_wallet FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_wallet_isolation ON user_wallet;
+CREATE POLICY user_wallet_isolation ON user_wallet
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE wallet_ledger_entry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wallet_ledger_entry FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS wallet_ledger_entry_isolation ON wallet_ledger_entry;
+CREATE POLICY wallet_ledger_entry_isolation ON wallet_ledger_entry
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE payment_order ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_order FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS payment_order_isolation ON payment_order;
+CREATE POLICY payment_order_isolation ON payment_order
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));

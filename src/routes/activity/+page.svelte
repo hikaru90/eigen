@@ -8,12 +8,17 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const usd = new Intl.NumberFormat(undefined, {
+	const activityMoney = new Intl.NumberFormat(undefined, {
 		style: 'currency',
-		currency: 'USD',
+		currency: data.activityCurrency,
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 6
 	});
+
+	/** Matches Eigen wallet billed minor units (`usdStringToCents` on USD strings → major unit display). */
+	function fmtBilling(cents: number): string {
+		return activityMoney.format(cents / 100);
+	}
 
 	/** Short label from gateway hostname (e.g. `openrouter` from `api.openrouter.ai`). */
 	function endpointLabelFromHost(hostname: string): string {
@@ -66,7 +71,7 @@
 	type Call = PageData['calls'][number];
 
 	const grouped = $derived.by(() => {
-		const groups: Array<{ groupId: string | null; calls: Call[]; firstOp: string; groupTotal: number }> = [];
+		const groups: Array<{ groupId: string | null; calls: Call[]; firstOp: string; groupBillingCents: number }> = [];
 		const groupMap = new Map<string, Call[]>();
 		const order: string[] = [];
 
@@ -85,8 +90,8 @@
 			const list = groupMap.get(key)!;
 			list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 			const groupId = key.startsWith('__ungrouped__') ? null : key;
-			const groupTotal = list.reduce((sum, c) => sum + Number(c.totalCostUsd), 0);
-			groups.push({ groupId, calls: list, firstOp: list[0].operation, groupTotal });
+			const groupBillingCents = list.reduce((sum, c) => sum + c.totalBilledCents, 0);
+			groups.push({ groupId, calls: list, firstOp: list[0].operation, groupBillingCents });
 		}
 
 		return groups;
@@ -118,8 +123,8 @@
 		<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card">
 			<Card.Content class="flex items-center justify-between px-4 py-3">
 				<div class="flex items-center gap-2">
-					<span class="text-xs font-medium">Total spend:</span>
-					<span class="font-mono text-sm font-semibold">{usd.format(Number(data.overallTotals.totalCostUsd))}</span>
+					<span class="text-xs font-medium">Total spend ({data.activityCurrency}):</span>
+					<span class="font-mono text-sm font-semibold">{fmtBilling(data.overallTotals.totalBilledCents)}</span>
 				</div>
 				<div class="flex items-center gap-2">
 					<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
@@ -138,11 +143,11 @@
 			</Card.Title>
 			<Card.Description class="text-muted-foreground text-xs">
 				{#if currentFilter === 'gateway'}
-					Billable LLM gateway calls (chat, embeddings, and speech-to-text). Per AC-014 and AC-015: base cost, 20% markup, and total for {data.user.email}.
+					Billable LLM gateway calls (chat, embeddings, and speech-to-text). Base, markup (AC-014), and total are stored in USD; totals below use your Eigen wallet currency (same billed minor-unit rules as deductions) for transparency.
 				{:else if currentFilter === 'agent'}
 					Internal agent tool calls (free, zero-cost operations).
 				{:else}
-					All activity — paid gateway calls and free agent tool calls.
+					All activity — paid gateway calls use your Eigen wallet currency (same billed minor units as deductions); free agent tool calls shown with zero billed amount.
 				{/if}
 			</Card.Description>
 		</Card.Header>
@@ -155,9 +160,9 @@
 						<th class="p-2 font-medium">Operation</th>
 						<th class="p-2 font-medium">Duration</th>
 						{#if isGateway}
-							<th class="p-2 font-medium">Base USD</th>
-							<th class="p-2 font-medium">Markup USD</th>
-							<th class="p-2 font-medium">Total USD</th>
+							<th class="p-2 font-medium">Base</th>
+							<th class="p-2 font-medium">Markup</th>
+							<th class="p-2 font-medium">Total</th>
 						{/if}
 					</tr>
 				</thead>
@@ -178,7 +183,7 @@
 										<span class="ml-2 shrink-0">
 											{group.calls.length > 1 ? `${group.calls.length} calls` : ''}
 											{#if isGateway}
-												· {usd.format(group.groupTotal)}
+												· {fmtBilling(group.groupBillingCents)}
 											{/if}
 										</span>
 									</span>
@@ -214,9 +219,9 @@
 								</td>
 								<td class="p-2 font-mono text-[11px] text-muted-foreground">{formatDuration(c.durationMs)}</td>
 								{#if isGateway}
-									<td class="p-2 font-mono text-[11px]">{usd.format(Number(c.baseCostUsd))}</td>
-									<td class="p-2 font-mono text-[11px]">{usd.format(Number(c.markupUsd))}</td>
-									<td class="p-2 font-mono text-[11px]">{usd.format(Number(c.totalCostUsd))}</td>
+									<td class="p-2 font-mono text-[11px]">{fmtBilling(c.baseBilledCents)}</td>
+									<td class="p-2 font-mono text-[11px]">{fmtBilling(c.markupBilledCents)}</td>
+									<td class="p-2 font-mono text-[11px]">{fmtBilling(c.totalBilledCents)}</td>
 								{/if}
 							</tr>
 						{/each}
@@ -232,9 +237,9 @@
 					<tfoot class="border-t-2 border-border bg-muted/30">
 						<tr>
 							<td class="p-2 text-right text-xs font-medium" colspan="4">Total (this page)</td>
-							<td class="p-2 font-mono text-[11px]">{usd.format(Number(data.totals.baseCostUsd))}</td>
-							<td class="p-2 font-mono text-[11px]">{usd.format(Number(data.totals.markupUsd))}</td>
-							<td class="p-2 font-mono text-[11px]">{usd.format(Number(data.totals.totalCostUsd))}</td>
+							<td class="p-2 font-mono text-[11px]">{fmtBilling(data.totals.baseBilledCents)}</td>
+							<td class="p-2 font-mono text-[11px]">{fmtBilling(data.totals.markupBilledCents)}</td>
+							<td class="p-2 font-mono text-[11px]">{fmtBilling(data.totals.totalBilledCents)}</td>
 						</tr>
 					</tfoot>
 				{/if}

@@ -47,6 +47,17 @@ vi.mock('$lib/server/activity/log-call', () => ({
 	logActivityCall: logActivityCallMock
 }));
 
+vi.mock('$lib/server/billing/preferences', () => ({
+	isByokBilling: vi.fn(async () => true),
+	useByokGatewayWithPlatformBillingInDev: vi.fn(async () => false)
+}));
+
+vi.mock('$lib/server/billing/usage-gate', () => ({
+	withPlatformBilling: vi.fn(async (_userId, _est, _settle, fn) => fn()),
+	estimateChatBilledCents: vi.fn(() => 1),
+	estimateEmbeddingBilledCents: vi.fn(() => 1)
+}));
+
 describe('computeTokenCostUsd', () => {
 	it('uses prompt and completion tokens', () => {
 		expect(computeTokenCostUsd({ prompt_tokens: 1000, completion_tokens: 1000 })).toBeCloseTo(0.00013);

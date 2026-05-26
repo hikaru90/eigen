@@ -11,6 +11,7 @@
   import { cn } from "$lib/utils";
   import AppHeader from "$lib/components/app-header.svelte";
   import { startCaptureQueueRunner } from "$lib/capture/queue";
+  import { getLocale, setLocale } from "$lib/paraglide/runtime";
 
   let { children } = $props();
 
@@ -66,6 +67,12 @@
 
   onMount(() => {
     startCaptureQueueRunner();
+
+    const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale;
+    if (preferredUiLocale && getLocale() !== preferredUiLocale) {
+      setLocale(preferredUiLocale as "en" | "de");
+      return;
+    }
 
     void (async () => {
       try {

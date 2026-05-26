@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { assertRedirectsToLogin, loginUser, registerUser } from './test-helpers';
 
 test.describe('Auth redirects (AC-019)', () => {
-	const PROTECTED_ROUTES = ['/capture', '/activity', '/settings', '/graph'];
+	const PROTECTED_ROUTES = ['/capture', '/activity', '/settings', '/settings/llm', '/graph'];
 
 	for (const route of PROTECTED_ROUTES) {
 		test(`redirects unauthenticated user from ${route} to /login`, async ({ page }) => {

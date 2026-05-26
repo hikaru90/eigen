@@ -1,4 +1,17 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"hello_world": "Hello, {name} from en!"
+	"hello_world": "Hello, {name} from en!",
+	"settings_theme_title": "Theme",
+	"settings_theme_description": "Default follows your browser/system theme.",
+	"settings_theme_mode": "Theme mode",
+	"settings_theme_system": "System default",
+	"settings_theme_light": "Light",
+	"settings_theme_dark": "Dark",
+	"settings_display_language_title": "Display language",
+	"settings_display_language_description": "Language for the app interface. Speech transcription uses a separate setting below.",
+	"settings_display_language_label": "Interface language",
+	"settings_display_language_save": "Save display language",
+	"settings_transcription_language_title": "Speech recognition",
+	"settings_transcription_language_label": "Transcription language",
+	"settings_transcription_language_save": "Save language"
 }

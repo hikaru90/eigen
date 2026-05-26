@@ -7,11 +7,20 @@ import {
 	OPENROUTER_ACTIVITY_PROVIDER
 } from '$lib/server/activity/gateway-providers';
 import { logActivityCall } from '$lib/server/activity/log-call';
+import {
+	isByokBilling,
+	useByokGatewayWithPlatformBillingInDev
+} from '$lib/server/billing/preferences';
+import { loadPlatformLlmConfig, loadPlatformOpenRouterSttConfig } from '$lib/server/billing/platform-llm';
+import {
+	estimateChatBilledCents,
+	estimateEmbeddingBilledCents,
+	withPlatformBilling
+} from '$lib/server/billing/usage-gate';
+import { TOKEN_USD_PER_1K } from '$lib/server/llm/token-rates';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-
-/** Fallback $/1K until the gateway returns billable usage you map to real pricing. */
-const TOKEN_USD_PER_1K = { prompt: 0.0001, completion: 0.00003 } as const;
+export { TOKEN_USD_PER_1K } from '$lib/server/llm/token-rates';
 const EMBEDDING_DIMENSIONS = 1536;
 
 type TokenUsage = {
@@ -22,21 +31,8 @@ type TokenUsage = {
 
 type RoutingConfig = { ruleId?: string; model: string; provider?: Record<string, unknown> };
 
-export type LlmProviderKind = 'eurouter' | 'openrouter';
-
-type ResolvedLlmConfig = {
-	provider: LlmProviderKind;
-	baseUrl: string;
-	apiKey: string;
-	/** EUrouter only */
-	ruleChat: string | null;
-	/** EUrouter only */
-	ruleEmbedding: string | null;
-	/** OpenRouter only */
-	modelChat: string | null;
-	/** OpenRouter only */
-	modelEmbedding: string | null;
-};
+export type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
+import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
 
 /** Hostname from gateway base URL for activity logs (handles missing `https://`). */
 function gatewayHostFromBaseUrl(baseUrl: string): string {
@@ -230,10 +226,8 @@ async function loadLlmProviderConfig(
 	};
 }
 
-/**
- * Loads LLM config for a user. Reads the active provider then fetches that provider's credentials.
- */
-async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
+/** Active provider row + DB/env credentials (EUrouter or OpenRouter BYOK shapes). */
+async function resolveActiveProviderLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
 	const db = getDb();
 	const [activeRow] = await db
 		.select()
@@ -242,6 +236,22 @@ async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
 		.limit(1);
 	const provider = (activeRow?.provider ?? 'eurouter') as LlmProviderKind;
 	return loadLlmProviderConfig(userId, provider);
+}
+
+/**
+ * Loads LLM config for a user:
+ * — BYOK billing: user's saved gateways.
+ * — Platform credits (prod/staging): env platform keys.
+ * — Platform credits in dev: user's saved gateways when present (wallet still bills platform credits).
+ */
+async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
+	if (await isByokBilling(userId)) {
+		return resolveActiveProviderLlmConfig(userId);
+	}
+	if (await useByokGatewayWithPlatformBillingInDev(userId)) {
+		return resolveActiveProviderLlmConfig(userId);
+	}
+	return loadPlatformLlmConfig(userId);
 }
 
 async function resolveRoutingRuleById(ruleId: string, apiKey: string, baseUrl: string): Promise<RoutingConfig> {
@@ -341,6 +351,20 @@ export async function llmChatCompletion(input: {
 	messages: ChatMessage[];
 	temperature?: number;
 	/** Dev/server observability only; appears in logs to disambiguate parallel chat uses. */
+	logContext?: string;
+}): Promise<unknown> {
+	return withPlatformBilling(
+		input.userId,
+		estimateChatBilledCents(input.messages),
+		(body) => computeTokenCostUsd(extractUsage(body)),
+		() => llmChatCompletionInner(input)
+	);
+}
+
+async function llmChatCompletionInner(input: {
+	userId: string;
+	messages: ChatMessage[];
+	temperature?: number;
 	logContext?: string;
 }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
@@ -459,6 +483,15 @@ export async function llmChatCompletion(input: {
  * Embeddings: `POST ${baseUrl}/embeddings` with rule_id from the user's LLM config.
  */
 export async function llmCreateEmbeddings(input: { userId: string; input: string | string[] }): Promise<unknown> {
+	return withPlatformBilling(
+		input.userId,
+		estimateEmbeddingBilledCents(input.input),
+		(body) => computeTokenCostUsd(extractUsage(body)),
+		() => llmCreateEmbeddingsInner(input)
+	);
+}
+
+async function llmCreateEmbeddingsInner(input: { userId: string; input: string | string[] }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
 	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/embeddings`;
@@ -599,20 +632,25 @@ function sttRequestCostUsd(body: unknown): number {
  * OpenRouter credentials for speech-to-text. `OPENROUTER_*` env vars take priority over Settings DB.
  */
 async function loadOpenRouterSttConfig(userId: string): Promise<ResolvedLlmConfig> {
-	const baseUrl = env.OPENROUTER_BASE_URL?.trim();
-	const apiKey = env.OPENROUTER_API_KEY?.trim();
-	if (baseUrl && apiKey) {
-		return {
-			provider: 'openrouter',
-			baseUrl: baseUrl.replace(/\/$/, ''),
-			apiKey,
-			ruleChat: null,
-			ruleEmbedding: null,
-			modelChat: null,
-			modelEmbedding: null
-		};
+	const routeLikeByok =
+		(await isByokBilling(userId)) || (await useByokGatewayWithPlatformBillingInDev(userId));
+	if (routeLikeByok) {
+		const baseUrl = env.OPENROUTER_BASE_URL?.trim();
+		const apiKey = env.OPENROUTER_API_KEY?.trim();
+		if (baseUrl && apiKey) {
+			return {
+				provider: 'openrouter',
+				baseUrl: baseUrl.replace(/\/$/, ''),
+				apiKey,
+				ruleChat: null,
+				ruleEmbedding: null,
+				modelChat: null,
+				modelEmbedding: null
+			};
+		}
+		return loadLlmProviderConfig(userId, 'openrouter');
 	}
-	return loadLlmProviderConfig(userId, 'openrouter');
+	return loadPlatformOpenRouterSttConfig();
 }
 
 /**
@@ -623,8 +661,15 @@ export async function llmCreateTranscription(input: {
 	model: string;
 	audio: LlmTranscriptionAudio;
 }): Promise<unknown> {
-	const config = await loadOpenRouterSttConfig(input.userId);
-	return llmCreateTranscriptionDedicated(input, config);
+	return withPlatformBilling(
+		input.userId,
+		1,
+		(body) => sttRequestCostUsd(body),
+		async () => {
+			const config = await loadOpenRouterSttConfig(input.userId);
+			return llmCreateTranscriptionDedicated(input, config);
+		}
+	);
 }
 
 async function llmCreateTranscriptionDedicated(
