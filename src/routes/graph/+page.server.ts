@@ -1,15 +1,9 @@
-import { fail, redirect } from '@sveltejs/kit';
-import type { Actions, PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
 import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/falkor';
 import { getDb } from '$lib/server/db';
-import {
-	ensureUserOntologySeeded,
-	loadOntologyForUser,
-	pruneUnusedOntologyEntityKinds
-} from '$lib/server/ontology-db';
-import { recomputeUserOntologyProfileForUser } from '$lib/server/ontology';
+import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend';
-import { repairCanonicalEntityTypesForUser } from '$lib/server/memory/canonical-entity-admin';
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
@@ -40,39 +34,3 @@ export const load: PageServerLoad = async (event) => {
 	});
 	return { user: event.locals.user, snapshot, graphLegendSections };
 };
-
-export const actions = {
-	recomputeOntology: async (event) => {
-		if (!event.locals.user) {
-			return fail(401, {
-				ontologyFailed: true as const,
-				ontologyMessage: 'You must be signed in.'
-			});
-		}
-		const userId = event.locals.user.id;
-		try {
-			const pruned = await pruneUnusedOntologyEntityKinds(getDb(), userId);
-			await recomputeUserOntologyProfileForUser(userId);
-			const repaired = await repairCanonicalEntityTypesForUser(userId);
-			const nEnt = pruned.deletedEntityKindIds.length;
-			const nRel = pruned.deletedRelationKindIds.length;
-			const prunePart =
-				nEnt === 0 && nRel === 0
-					? 'No unused custom ontology entity kinds to remove.'
-					: `Removed ${nEnt} unused ontology entity kind(s) and ${nRel} relation kind(s) tied to them.`;
-			const repairPart =
-				repaired.repaired > 0
-					? ` Realigned ${repaired.repaired} extracted entit${repaired.repaired === 1 ? 'y' : 'ies'} to active ontology kind keys.`
-					: '';
-			return {
-				ontologyMessage: `${prunePart} Ontology labeling notes refreshed.${repairPart}`
-			};
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			return fail(500, {
-				ontologyFailed: true as const,
-				ontologyMessage: `Ontology recompute failed: ${message}`
-			});
-		}
-	}
-} satisfies Actions;

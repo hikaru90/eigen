@@ -7,10 +7,7 @@ import {
 	OPENROUTER_ACTIVITY_PROVIDER
 } from '$lib/server/activity/gateway-providers';
 import { logActivityCall } from '$lib/server/activity/log-call';
-import {
-	isByokBilling,
-	useByokGatewayWithPlatformBillingInDev
-} from '$lib/server/billing/preferences';
+import { isByokBilling } from '$lib/server/billing/preferences';
 import { loadPlatformLlmConfig, loadPlatformOpenRouterSttConfig } from '$lib/server/billing/platform-llm';
 import {
 	estimateChatBilledCents,
@@ -241,14 +238,10 @@ async function resolveActiveProviderLlmConfig(userId: string): Promise<ResolvedL
 /**
  * Loads LLM config for a user:
  * — BYOK billing: user's saved gateways.
- * — Platform credits (prod/staging): env platform keys.
- * — Platform credits in dev: user's saved gateways when present (wallet still bills platform credits).
+ * — Platform credits: Eigen service-account env keys.
  */
 async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
 	if (await isByokBilling(userId)) {
-		return resolveActiveProviderLlmConfig(userId);
-	}
-	if (await useByokGatewayWithPlatformBillingInDev(userId)) {
 		return resolveActiveProviderLlmConfig(userId);
 	}
 	return loadPlatformLlmConfig(userId);
@@ -632,9 +625,7 @@ function sttRequestCostUsd(body: unknown): number {
  * OpenRouter credentials for speech-to-text. `OPENROUTER_*` env vars take priority over Settings DB.
  */
 async function loadOpenRouterSttConfig(userId: string): Promise<ResolvedLlmConfig> {
-	const routeLikeByok =
-		(await isByokBilling(userId)) || (await useByokGatewayWithPlatformBillingInDev(userId));
-	if (routeLikeByok) {
+	if (await isByokBilling(userId)) {
 		const baseUrl = env.OPENROUTER_BASE_URL?.trim();
 		const apiKey = env.OPENROUTER_API_KEY?.trim();
 		if (baseUrl && apiKey) {

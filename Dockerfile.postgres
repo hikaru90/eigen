@@ -2,6 +2,8 @@ FROM postgres:16-bookworm
 
 ARG PGVECTOR_VERSION=v0.8.0
 ARG APACHE_AGE_VERSION=release/PG16/1.5.0
+ARG PG_CRON_VERSION=v1.6.4
+ARG PG_NET_VERSION=v0.14.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -10,6 +12,7 @@ RUN apt-get update \
     git \
     flex \
     bison \
+    libcurl4-openssl-dev \
     postgresql-server-dev-16 \
   && git clone --depth 1 --branch ${PGVECTOR_VERSION} https://github.com/pgvector/pgvector.git /tmp/pgvector \
   && make -C /tmp/pgvector \
@@ -17,7 +20,15 @@ RUN apt-get update \
   && git clone --depth 1 --branch ${APACHE_AGE_VERSION} https://github.com/apache/age.git /tmp/age \
   && make -C /tmp/age PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
   && make -C /tmp/age install PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
-  && rm -rf /tmp/pgvector /tmp/age \
+  && git clone --depth 1 --branch ${PG_CRON_VERSION} https://github.com/citusdata/pg_cron.git /tmp/pg_cron \
+  && make -C /tmp/pg_cron PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
+  && make -C /tmp/pg_cron install PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
+  && git clone --depth 1 --branch ${PG_NET_VERSION} https://github.com/supabase/pg_net.git /tmp/pg_net \
+  && make -C /tmp/pg_net PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
+  && make -C /tmp/pg_net install PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
+  && rm -rf /tmp/pgvector /tmp/age /tmp/pg_cron /tmp/pg_net \
+  && test -f /usr/lib/postgresql/16/lib/pg_cron.so \
+  && test -f /usr/lib/postgresql/16/lib/pg_net.so \
   && apt-get purge -y --auto-remove \
     build-essential \
     git \

@@ -1,4 +1,4 @@
-import { appSql, createScopedDrizzle, appDbAsyncLocal, type AppDatabase } from '$lib/server/db';
+import { appSql, createScopedDrizzle, appDbAsyncLocal, activateTenantDbSession, deactivateTenantDbSession, type AppDatabase } from '$lib/server/db';
 
 /**
  * Run `fn` inside an RLS-aware DB context bound to `userId`.
@@ -11,11 +11,11 @@ import { appSql, createScopedDrizzle, appDbAsyncLocal, type AppDatabase } from '
 export async function withEvalDb<T>(userId: string, fn: (db: AppDatabase) => Promise<T>): Promise<T> {
 	const reserved = await appSql.reserve();
 	try {
-		await reserved`select set_config('app.current_user_id', ${userId}, false)`;
+		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
 		return await appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
 	} finally {
-		await reserved`select set_config('app.current_user_id', '', false)`;
+		await deactivateTenantDbSession(reserved).catch(() => {});
 		await reserved.release();
 	}
 }

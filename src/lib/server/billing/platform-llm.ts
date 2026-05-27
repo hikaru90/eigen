@@ -5,7 +5,7 @@ import { llmActiveProvider } from '$lib/server/db/schema';
 import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
 
 /**
- * Platform-managed gateway credentials (Eigen pays via env keys).
+ * Platform-managed gateway credentials (Eigen service account).
  * Used when billing_mode is platform_credits.
  */
 export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
@@ -19,12 +19,12 @@ export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlm
 
 	if (provider === 'openrouter') {
 		const baseUrl = env.OPENROUTER_BASE_URL?.trim();
-		const apiKey = env.OPENROUTER_API_KEY?.trim();
+		const apiKey = env.SERVICE_API_KEY_OPENROUTER?.trim();
 		if (!baseUrl) {
 			throw new Error('Platform OpenRouter not configured: set OPENROUTER_BASE_URL');
 		}
 		if (!apiKey) {
-			throw new Error('Platform OpenRouter not configured: set OPENROUTER_API_KEY');
+			throw new Error('Platform OpenRouter not configured: set SERVICE_API_KEY_OPENROUTER');
 		}
 		return {
 			provider: 'openrouter',
@@ -38,12 +38,12 @@ export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlm
 	}
 
 	const baseUrl = env.LLM_BASE_URL?.trim();
-	const apiKey = env.LLM_API_KEY?.trim();
+	const apiKey = env.SERVICE_API_KEY_EUROUTER?.trim();
 	if (!baseUrl) {
 		throw new Error('Platform EUrouter not configured: set LLM_BASE_URL');
 	}
 	if (!apiKey) {
-		throw new Error('Platform EUrouter not configured: set LLM_API_KEY');
+		throw new Error('Platform EUrouter not configured: set SERVICE_API_KEY_EUROUTER');
 	}
 	return {
 		provider: 'eurouter',
@@ -58,12 +58,12 @@ export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlm
 
 export async function loadPlatformOpenRouterSttConfig(): Promise<ResolvedLlmConfig> {
 	const baseUrl = env.OPENROUTER_BASE_URL?.trim();
-	const apiKey = env.OPENROUTER_API_KEY?.trim();
+	const apiKey = env.SERVICE_API_KEY_OPENROUTER?.trim();
 	if (!baseUrl) {
 		throw new Error('Platform OpenRouter STT not configured: set OPENROUTER_BASE_URL');
 	}
 	if (!apiKey) {
-		throw new Error('Platform OpenRouter STT not configured: set OPENROUTER_API_KEY');
+		throw new Error('Platform OpenRouter STT not configured: set SERVICE_API_KEY_OPENROUTER');
 	}
 	return {
 		provider: 'openrouter',

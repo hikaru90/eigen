@@ -3,12 +3,18 @@ import type { Actions, PageServerLoad } from './$types';
 import { auth } from '$lib/server/auth';
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors';
 import { signInSchema } from '$lib/validation/auth';
+import { env } from '$env/dynamic/private';
+import { listEnabledSocialProviderIds } from '$lib/server/auth-social';
 
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {
 		throw redirect(302, '/capture');
 	}
-	return {};
+	const oauthError = event.url.searchParams.get('error');
+	return {
+		socialProviders: listEnabledSocialProviderIds(env),
+		oauthError: oauthError?.trim() || null
+	};
 };
 
 export const actions: Actions = {

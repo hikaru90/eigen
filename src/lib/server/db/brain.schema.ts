@@ -1,6 +1,7 @@
 import {
 	boolean,
 	customType,
+	date,
 	doublePrecision,
 	foreignKey,
 	index,
@@ -883,6 +884,34 @@ export const ontologyProposal = pgTable(
 );
 
 export type OntologyProposal = typeof ontologyProposal.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Nightly consolidation run ledger (no RLS — system operational metadata)
+// ---------------------------------------------------------------------------
+
+export const consolidationRunStatusEnum = ['running', 'completed', 'failed'] as const;
+export type ConsolidationRunStatus = (typeof consolidationRunStatusEnum)[number];
+
+/**
+ * One row per calendar night (in consolidation cron TZ) for the global nightly sleep run.
+ * Idempotency guard for pg_cron double-fires.
+ */
+export const consolidationRun = pgTable(
+	'consolidation_run',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		/** Calendar date in CONSOLIDATION_CRON_TZ when the nightly run started. */
+		runNight: date('run_night').notNull(),
+		status: text('status').$type<ConsolidationRunStatus>().notNull(),
+		jobs: jsonb('jobs').$type<Record<string, unknown>>(),
+		errorMessage: text('error_message'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		finishedAt: timestamp('finished_at')
+	},
+	(t) => [unique('consolidation_run_nightly_uidx').on(t.runNight)]
+);
+
+export type ConsolidationRun = typeof consolidationRun.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Eval harness (DB-backed runs; operator-scoped via RLS)

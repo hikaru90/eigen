@@ -6,8 +6,10 @@
 	import { Label } from '$lib/components/ui/label';
 	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
 	import { signInSchema } from '$lib/validation/auth';
+	import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte';
+	import type { PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let email = $state('');
 	let password = $state('');
@@ -36,6 +38,18 @@
 
 	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-8 border border-black/10 bg-card">
 		<Card.Content class="space-y-4 pt-6">
+			{#if data.socialProviders.length > 0}
+				<AuthSocialButtons providers={data.socialProviders} />
+				{#if data.oauthError}
+					<p class="text-destructive text-xs">{data.oauthError}</p>
+				{/if}
+				<div class="relative py-1">
+					<div class="border-t border-black/10" aria-hidden="true"></div>
+					<p class="text-muted-foreground absolute inset-x-0 top-1/2 -translate-y-1/2 bg-card px-2 text-center text-[10px] mx-auto w-fit">
+						or
+					</p>
+				</div>
+			{/if}
 			<form
 				method="post"
 				action="?/signInEmail"

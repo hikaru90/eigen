@@ -28,21 +28,9 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { getDatabaseUrl } from './db-urls.mjs';
 
-const raw = process.env.DATABASE_URL;
-if (!raw) {
-	console.error('[eigen] DATABASE_URL is required');
-	process.exit(1);
-}
-
-let urlString = raw;
-try {
-	const u = new URL(raw);
-	u.searchParams.delete('uselibpqcompat');
-	urlString = u.toString();
-} catch {
-	// keep raw
-}
+const urlString = getDatabaseUrl();
 
 const migrationsFolder = path.join(
 	path.dirname(fileURLToPath(import.meta.url)),

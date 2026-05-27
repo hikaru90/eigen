@@ -3,12 +3,14 @@ import type { Actions, PageServerLoad } from './$types';
 import { auth } from '$lib/server/auth';
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors';
 import { signUpSchema } from '$lib/validation/auth';
+import { env } from '$env/dynamic/private';
+import { listEnabledSocialProviderIds } from '$lib/server/auth-social';
 
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {
 		throw redirect(302, '/capture');
 	}
-	return {};
+	return { socialProviders: listEnabledSocialProviderIds(env) };
 };
 
 export const actions: Actions = {

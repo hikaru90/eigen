@@ -20,7 +20,7 @@
 		"test:coverage:watch": "vitest --coverage",
 		"test": "npm run test:unit:run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test",
-		"db:up": "docker compose up -d db",
+		"db:up": "docker compose up -d --build db",
 		"db:migrate-graph-falkor-to-age": "node scripts/migrate-graph-falkor-to-age.mjs",
 		"db:migrate-graph-falkor-to-age:dry-run": "node scripts/migrate-graph-falkor-to-age.mjs --dry-run",
 		"db:import-graph-falkor-export": "node scripts/migrate-graph-falkor-to-age.mjs --from-export",
@@ -33,6 +33,7 @@
 		"db:migrate": "node scripts/migrate.mjs",
 		"db:studio": "drizzle-kit studio",
 		"db:rls": "node scripts/apply-rls.mjs",
+		"db:app-role": "node scripts/ensure-app-role.mjs",
 		"eval": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:smoke": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all"

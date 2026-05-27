@@ -48,8 +48,7 @@ vi.mock('$lib/server/activity/log-call', () => ({
 }));
 
 vi.mock('$lib/server/billing/preferences', () => ({
-	isByokBilling: vi.fn(async () => true),
-	useByokGatewayWithPlatformBillingInDev: vi.fn(async () => false)
+	isByokBilling: vi.fn(async () => true)
 }));
 
 vi.mock('$lib/server/billing/usage-gate', () => ({

@@ -4,7 +4,7 @@ import { formatToolResultForDisplay, parseFinalAnswerText } from '$lib/chat/chat
 import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
-import { appDbAsyncLocal, appSql, createScopedDrizzle, getDb } from '$lib/server/db';
+import { appDbAsyncLocal, appSql, createScopedDrizzle, getDb, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
 import { chatSession, chatMessage } from '$lib/server/db/brain.schema';
 import { eq, sql } from 'drizzle-orm';
 import { runWithTrace } from '$lib/server/activity/trace-context';
@@ -215,8 +215,7 @@ export const POST: RequestHandler = async (event) => {
 			let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null;
 			try {
 				reserved = await appSql.reserve();
-				const uid = user.id;
-				await reserved`select set_config('app.current_user_id', ${uid}, false)`;
+				await activateTenantDbSession(reserved, user.id);
 				const scopedDb = createScopedDrizzle(reserved);
 
 				const result = await appDbAsyncLocal.run(scopedDb, () =>
@@ -277,7 +276,7 @@ export const POST: RequestHandler = async (event) => {
 				sendTerminal({ type: 'error', error: msg, details });
 			} finally {
 				if (reserved) {
-					await reserved`select set_config('app.current_user_id', '', false)`.catch(() => {});
+					await deactivateTenantDbSession(reserved).catch(() => {});
 					await reserved.release();
 				}
 				if (!terminalSent) {

@@ -75,6 +75,7 @@ describe('maybeRefreshUserOntology', () => {
 				onConflictDoUpdate: vi.fn(async () => undefined)
 			}))
 		};
+		const recentThoughtsLimit = vi.fn(async () => [{ normalizedText: 'hello', category: 'task' }]);
 		let fromN = 0;
 		const db = {
 			select: vi.fn(() => ({
@@ -90,7 +91,7 @@ describe('maybeRefreshUserOntology', () => {
 					return {
 						where: vi.fn(() => ({
 							orderBy: vi.fn(() => ({
-								limit: vi.fn(async () => [{ normalizedText: 'hello', category: 'task' }])
+								limit: recentThoughtsLimit
 							}))
 						}))
 					};
@@ -124,6 +125,7 @@ describe('maybeRefreshUserOntology', () => {
 		expect(onBeforeEval).toHaveBeenCalledTimes(1);
 		expect(llmChatCompletionMock).toHaveBeenCalledTimes(1);
 		expect(db.insert).toHaveBeenCalled();
+		expect(recentThoughtsLimit).toHaveBeenCalledWith(10);
 	});
 });
 

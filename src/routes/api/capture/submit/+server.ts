@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { captureThought } from '$lib/server/capture/service';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
-import { appSql, appDbAsyncLocal, createScopedDrizzle } from '$lib/server/db';
+import { appSql, appDbAsyncLocal, createScopedDrizzle, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
 
 function collectErrorMessages(input: unknown): string[] {
 	const parts: string[] = [];
@@ -85,8 +85,7 @@ export const POST: RequestHandler = async (event) => {
 		let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null;
 		try {
 			reserved = await appSql.reserve();
-			const uid = user.id;
-			await reserved`select set_config('app.current_user_id', ${uid}, false)`;
+			await activateTenantDbSession(reserved, user.id);
 			const scopedDb = createScopedDrizzle(reserved);
 			const thought = await appDbAsyncLocal.run(scopedDb, () =>
 				runWithTrace(crypto.randomUUID(), () =>
@@ -101,7 +100,7 @@ export const POST: RequestHandler = async (event) => {
 			writeRaw({ type: 'error', error: message, details });
 		} finally {
 			if (reserved) {
-				await reserved`select set_config('app.current_user_id', '', false)`.catch(() => {});
+				await deactivateTenantDbSession(reserved).catch(() => {});
 				await reserved.release();
 			}
 			await writer.close().catch(() => {});

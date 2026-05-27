@@ -3,6 +3,7 @@ import {
 	CAPTURE_QUEUE_DB_VERSION,
 	CAPTURE_QUEUE_DRAIN_LOCK_ID,
 	CAPTURE_QUEUE_STORE,
+	MAX_BACKGROUND_CAPTURE_ATTEMPTS,
 	type CaptureQueueItem,
 	type CaptureQueueStatus
 } from './types';
@@ -196,7 +197,16 @@ export async function recoverStuckProcessingCaptureItems(): Promise<number> {
 	let recovered = 0;
 	for (const item of items) {
 		if (item.status !== 'processing') continue;
-		await setCaptureQueueStatus(item.id, 'pending');
+		const attempts = item.attempts + 1;
+		if (attempts >= MAX_BACKGROUND_CAPTURE_ATTEMPTS) {
+			await updateCaptureQueueItem(item.id, {
+				status: 'failed',
+				attempts,
+				lastError: 'Capture interrupted before completion (reload or tab closed)'
+			});
+		} else {
+			await setCaptureQueueStatus(item.id, 'pending', { attempts });
+		}
 		recovered += 1;
 	}
 	return recovered;

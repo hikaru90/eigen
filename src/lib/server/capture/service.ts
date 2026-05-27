@@ -2,7 +2,6 @@ import { and, desc, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import { captureSession, thought, thoughtRelation } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
-import { logActivityCall } from '$lib/server/activity/log-call';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import {
 	deleteThoughtOutgoingGraphEdges,
@@ -17,10 +16,6 @@ import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/on
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
 import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
-import { chargePlatformUsage } from '$lib/server/billing/usage-gate';
-
-/** Explicit MVP pricing unit until the LLM ingest path is wired. */
-const CAPTURE_BASE_COST_USD = 0.0005;
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
@@ -29,22 +24,6 @@ export function normalizeThoughtText(raw: string): { normalized: string; metadat
 		normalized,
 		metadata: { pipeline: 'ontology_llm_v1' }
 	};
-}
-
-async function logCaptureActivity(
-	userId: string,
-	operation: 'capture_submit' | 'capture_edit' | 'capture_relink' | 'capture_delete',
-	context?: string,
-	durationMs?: number
-) {
-	await chargePlatformUsage(userId, CAPTURE_BASE_COST_USD, { operation });
-	await logActivityCall(getDb(), userId, {
-		provider: 'mvp_stub',
-		operation,
-		baseCostUsd: CAPTURE_BASE_COST_USD,
-		context,
-		durationMs
-	});
 }
 
 function toPgVectorLiteral(values: number[]): string {
@@ -80,7 +59,6 @@ export type CaptureThoughtOptions = {
  * is fully flushed). For plain JSON mode, enrichment events are not visible.
  */
 export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
-	const captureStart = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	await emitProgress(onProgress, 'accounting');
@@ -191,8 +169,6 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		category: stored.category
 	});
 
-	await logCaptureActivity(userId, 'capture_submit', rawInput.slice(0, 100), Date.now() - captureStart);
-
 	// Count thoughts for optional ontology eval trigger.
 	const [countRow] = await getDb()
 		.select({ n: sql<number>`count(*)::int` })
@@ -224,7 +200,6 @@ export async function editStoredThought(
 	editRequest: string,
 	options?: EditStoredThoughtOptions
 ) {
-	const editStart = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	await emitProgress(onProgress, 'accounting');
@@ -236,7 +211,6 @@ export async function editStoredThought(
 		.limit(1);
 
 	if (!existing) {
-		await logCaptureActivity(userId, 'capture_edit', editRequest.slice(0, 100), Date.now() - editStart);
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
@@ -288,7 +262,6 @@ export async function editStoredThought(
 			category: updated!.category
 		});
 
-		await logCaptureActivity(userId, 'capture_edit', applied.summary.slice(0, 100), Date.now() - editStart);
 		return { ok: true as const, thought: updated!, editSummary: applied.summary };
 	}
 
@@ -343,8 +316,6 @@ export async function editStoredThought(
 		category: updated!.category
 	});
 
-	await logCaptureActivity(userId, 'capture_edit', applied.summary.slice(0, 100), Date.now() - editStart);
-
 	if (onProgress) {
 		await reenrichThought(userId, updated!.id, updated!.normalizedText, {
 			onProgress,
@@ -372,7 +343,6 @@ export async function relinkThoughtGraph(
 	thoughtId: string,
 	options?: RelinkThoughtGraphOptions
 ) {
-	const started = Date.now();
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	await emitProgress(onProgress, 'accounting');
@@ -384,7 +354,6 @@ export async function relinkThoughtGraph(
 		.limit(1);
 
 	if (!existing) {
-		await logCaptureActivity(userId, 'capture_relink', thoughtId, Date.now() - started);
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
@@ -395,8 +364,6 @@ export async function relinkThoughtGraph(
 		userId,
 		category: existing.category
 	});
-
-	await logCaptureActivity(userId, 'capture_relink', existing.normalizedText.slice(0, 100), Date.now() - started);
 
 	if (onProgress) {
 		await reenrichThought(userId, existing.id, existing.normalizedText, { onProgress });
@@ -423,7 +390,6 @@ export async function relinkThoughtGraph(
  * then deletes the Postgres row (cascades `thought_relation` and `entity_resolution_log`).
  */
 export async function deleteThoughtForUser(userId: string, thoughtId: string) {
-	const started = Date.now();
 	await ensureUserOntologySeeded(getDb(), userId);
 
 	const [existing] = await getDb()
@@ -433,7 +399,6 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 		.limit(1);
 
 	if (!existing) {
-		await logCaptureActivity(userId, 'capture_delete', thoughtId, Date.now() - started);
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
@@ -441,7 +406,6 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 
 	await getDb().delete(thought).where(and(eq(thought.id, existing.id), eq(thought.userId, userId)));
 
-	await logCaptureActivity(userId, 'capture_delete', `deleted: ${thoughtId.slice(0, 8)}...`, Date.now() - started);
 	return { ok: true as const };
 }
 

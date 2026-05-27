@@ -13,6 +13,7 @@
   import LogOut from "@lucide/svelte/icons/log-out";
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
   import Cpu from "@lucide/svelte/icons/cpu";
+  import HeartPulse from "@lucide/svelte/icons/heart-pulse";
 
   const isChatRoute = $derived(page.route.id === "/chat");
 
@@ -141,6 +142,13 @@
         >
           <ClipboardCheck class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Evals
+        </a>
+        <a
+          href={resolve("/settings/scheduled-tasks")}
+          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          <HeartPulse class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          Heartbeat
         </a>
         <a
           href={resolve("/settings")}

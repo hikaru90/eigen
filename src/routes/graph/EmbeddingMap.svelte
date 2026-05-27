@@ -1,17 +1,30 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { tick } from 'svelte';
 	import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
 	import { nodeFillForGraph, customEntityFillsFromLegendSections } from '$lib/graph/graph-ontology-legend';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import type { GraphLegendSection } from '$lib/graph/graph-ontology-legend';
+	import {
+		canRunUmap,
+		computeUmapNeighbors,
+		fallbackProjection2d,
+		l2NormalizeEmbeddings
+	} from './embedding-projection';
 
 	type Props = {
 		graphLegendSections: GraphLegendSection[];
+		/** When false the tab panel is hidden — defer fetch/UMAP until visible so layout has size. */
+		visible?: boolean;
 		onSelectItem?: (item: EmbeddingSnapshotItem | null) => void;
 		selectedItemId?: string | null;
 	};
 
-	let { graphLegendSections, onSelectItem, selectedItemId = null }: Props = $props();
+	let {
+		graphLegendSections,
+		visible = true,
+		onSelectItem,
+		selectedItemId = null
+	}: Props = $props();
 
 	type LegendEntry = { subtype: string; fill: string };
 
@@ -44,8 +57,13 @@
 	}
 
 	let teardown: (() => void) | undefined;
+	let scheduleLayoutChart: (() => void) | null = null;
+	let pipelineStarted = false;
 
-	onMount(() => {
+	$effect(() => {
+		if (!visible || pipelineStarted) return;
+		pipelineStarted = true;
+
 		let cancelled = false;
 
 		(async () => {
@@ -73,43 +91,43 @@
 			}
 
 			// ── UMAP projection ──────────────────────────────────────────────────
-			const { UMAP } = await import('umap-js');
-			if (cancelled) return;
-
-			// L2-normalize so Euclidean distance in UMAP matches cosine geometry of embeddings.
-			const embeddings = items.map((i) => {
-				const v = i.embedding;
-				let sumSq = 0;
-				for (const x of v) sumSq += x * x;
-				const norm = Math.sqrt(sumSq);
-				if (norm === 0) return v;
-				return v.map((x) => x / norm);
-			});
-			// nNeighbors: ~15 default; scale gently with dataset size. Too high → one global blob.
-			const nNeighbors = Math.min(
-				30,
-				Math.max(2, Math.min(items.length - 1, Math.round(Math.sqrt(items.length) * 2)))
-			);
+			const embeddings = l2NormalizeEmbeddings(items);
+			const nNeighbors = computeUmapNeighbors(items.length);
 			const nEpochs = items.length > 200 ? 300 : 500;
 
-			phase = { kind: 'projecting', epoch: 0, totalEpochs: nEpochs };
-
-			const umap = new UMAP({ nNeighbors, nEpochs, nComponents: 2, minDist: 0.1, spread: 1.0 });
-
 			let coords: number[][];
-			try {
-				coords = await umap.fitAsync(embeddings, (epochNumber) => {
-					if (cancelled) return false;
-					phase = { kind: 'projecting', epoch: epochNumber, totalEpochs: nEpochs };
-					return true;
-				});
-			} catch (err) {
+			if (canRunUmap(items.length, nNeighbors)) {
+				const { UMAP } = await import('umap-js');
 				if (cancelled) return;
-				phase = { kind: 'error', message: `UMAP failed: ${err instanceof Error ? err.message : String(err)}` };
-				return;
+
+				phase = { kind: 'projecting', epoch: 0, totalEpochs: nEpochs };
+
+				const umap = new UMAP({ nNeighbors, nEpochs, nComponents: 2, minDist: 0.1, spread: 1.0 });
+
+				try {
+					coords = await umap.fitAsync(embeddings, (epochNumber) => {
+						if (cancelled) return false;
+						phase = { kind: 'projecting', epoch: epochNumber, totalEpochs: nEpochs };
+						return true;
+					});
+				} catch (err) {
+					if (cancelled) return;
+					phase = {
+						kind: 'error',
+						message: `UMAP failed: ${err instanceof Error ? err.message : String(err)}`
+					};
+					return;
+				}
+			} else {
+				coords = fallbackProjection2d(items.length);
 			}
 
-			if (cancelled || !rootEl) return;
+			await tick();
+			if (cancelled) return;
+			if (!rootEl) {
+				phase = { kind: 'error', message: 'Chart container is not mounted.' };
+				return;
+			}
 
 			// ── D3 render ────────────────────────────────────────────────────────
 			const d3 = await import('d3');
@@ -292,6 +310,7 @@
 			}
 
 			scheduleApplyHighlight = applyHighlight;
+			scheduleLayoutChart = layoutChart;
 
 			const ro = new ResizeObserver(() => {
 				layoutChart();
@@ -328,6 +347,7 @@
 			teardown = () => {
 				cancelled = true;
 				scheduleApplyHighlight = null;
+				scheduleLayoutChart = null;
 				ro.disconnect();
 				svg?.remove();
 				svg = null;
@@ -337,11 +357,22 @@
 				chartCreated = false;
 			};
 		})();
+	});
 
-		return () => { teardown?.(); teardown = undefined; };
+	$effect(() => {
+		return () => {
+			teardown?.();
+			teardown = undefined;
+			pipelineStarted = false;
+		};
 	});
 
 	let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
+
+	$effect(() => {
+		if (!visible) return;
+		queueMicrotask(() => scheduleLayoutChart?.());
+	});
 
 	$effect(() => {
 		const id = selectedItemId ?? null;

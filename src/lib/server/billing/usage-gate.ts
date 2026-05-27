@@ -67,17 +67,3 @@ export async function withPlatformBilling<T>(
 		throw err;
 	}
 }
-
-/** For fixed-cost operations (e.g. capture stub). */
-export async function chargePlatformUsage(
-	userId: string,
-	baseCostUsd: number,
-	metadata?: Record<string, unknown>
-): Promise<void> {
-	if (await isByokBilling(userId)) return;
-	const actualCents = billedCentsFromBaseUsd(baseCostUsd);
-	if (actualCents < 1) return;
-	const heldCents = actualCents;
-	const reservationId = await reserveFunds(userId, heldCents);
-	await settleReservation(userId, reservationId, heldCents, actualCents, metadata ?? {});
-}

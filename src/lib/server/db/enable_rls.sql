@@ -238,3 +238,73 @@ CREATE POLICY payment_order_isolation ON payment_order
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE user_api_key ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_api_key FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_api_key_isolation ON user_api_key;
+CREATE POLICY user_api_key_isolation ON user_api_key
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE graph_community ENABLE ROW LEVEL SECURITY;
+ALTER TABLE graph_community FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS graph_community_isolation ON graph_community;
+CREATE POLICY graph_community_isolation ON graph_community
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE community_member ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_member FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS community_member_isolation ON community_member;
+CREATE POLICY community_member_isolation ON community_member
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE community_summary ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_summary FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS community_summary_isolation ON community_summary;
+CREATE POLICY community_summary_isolation ON community_summary
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE ontology_proposal ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ontology_proposal FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ontology_proposal_isolation ON ontology_proposal;
+CREATE POLICY ontology_proposal_isolation ON ontology_proposal
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+-- Bearer API key auth runs before app.current_user_id is set; resolve via SECURITY DEFINER.
+CREATE OR REPLACE FUNCTION resolve_user_api_key(p_key_hash text)
+RETURNS TABLE(id uuid, user_id text)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT uak.id, uak.user_id
+  FROM user_api_key uak
+  WHERE uak.key_hash = p_key_hash AND uak.is_active = true
+  LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION touch_user_api_key(p_key_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  UPDATE user_api_key
+  SET last_used_at = now()
+  WHERE id = p_key_id AND is_active = true;
+$$;
+
+REVOKE ALL ON FUNCTION resolve_user_api_key(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION touch_user_api_key(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION resolve_user_api_key(text) TO eigen_app;
+GRANT EXECUTE ON FUNCTION touch_user_api_key(uuid) TO eigen_app;

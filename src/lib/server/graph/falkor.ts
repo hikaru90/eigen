@@ -266,8 +266,7 @@ export async function graphOnlySearchByQuery(input: {
 			WHERE toLower(e.label) CONTAINS token
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(e)
 			WITH t, count(distinct token) AS overlap
-			ORDER BY overlap DESC
-			LIMIT $seed_limit
+			WITH t, overlap ORDER BY overlap DESC LIMIT $seed_limit
 
 			OPTIONAL MATCH (t)-[r:RELATES_TO]-(n:Thought {user_id: $user_id})
 			WHERE r.user_id = $user_id
@@ -275,9 +274,8 @@ export async function graphOnlySearchByQuery(input: {
 
 			UNWIND ([t.id] + neighbor_ids) AS candidate_id
 			WITH candidate_id AS id, sum(overlap) AS seed_score
+			WITH id, seed_score ORDER BY seed_score DESC LIMIT $limit
 			RETURN id, seed_score AS score
-			ORDER BY score DESC
-			LIMIT $limit
 			`,
 				{
 					user_id: input.userId,

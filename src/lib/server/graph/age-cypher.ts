@@ -79,7 +79,7 @@ export async function runAgeCypher(
 	columnDefs: string
 ): Promise<Array<Record<string, unknown>>> {
 	const db = getDb();
-	await db.execute(sql.raw(`LOAD 'age'`));
+	// AGE is preloaded via shared_preload_libraries; LOAD 'age' fails under SET ROLE eigen_app.
 	await db.execute(sql.raw(`SET search_path = ag_catalog, "$user", public`));
 	const graph = ageGraphName().replace(/'/g, "''");
 	const quotedCypher = wrapAgeCypherDollarQuote(cypher);

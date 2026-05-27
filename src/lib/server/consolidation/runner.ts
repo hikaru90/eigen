@@ -1,26 +1,26 @@
 /**
- * Consolidation runner.
+ * Consolidation runner — nightly "sleep" for memory maintenance.
  *
- * Orchestrates all consolidation jobs for one or all users.
- * Called by the admin cron endpoint (POST /api/admin/consolidate).
+ * Phase 1 (DeepSleep): declarative pruning — salience decay, ontology prune, entity repair.
+ * Phase 2 (REM): integration — community detection/summaries, open-loop salience boost.
  *
- * Job execution order:
- *   1. Salience decay (cheap, always runs)
- *   2. Community detection (runs only when entity graph grew sufficiently)
- *   3. Community summary generation (runs after detection if new communities exist)
- *
- * Each job is individually try/caught so a failure in one does not block others.
- * A job log summary is returned for observability.
+ * Called by POST /api/admin/consolidate (pg_cron at 2am or manual).
  */
 
-import { eq, sql } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { eq } from 'drizzle-orm';
+import { getDb, withDbUser } from '$lib/server/db';
 import { user } from '$lib/server/db/schema';
+import { pruneUnusedOntologyEntityKinds } from '$lib/server/ontology-db';
+import { repairCanonicalEntityTypesForUser } from '$lib/server/memory/canonical-entity-admin';
 import { runSalienceDecay } from './salience-decay';
 import { runCommunityDetection, shouldRunCommunityDetection } from './community-detection';
 import { runCommunitySummaryGeneration } from './community-summaries';
+import { boostOpenLoopSalience } from './open-loop-salience';
+
+export type ConsolidationPhase = 'deep_sleep' | 'rem';
 
 export type ConsolidationJobResult = {
+	phase: ConsolidationPhase;
 	job: string;
 	ok: boolean;
 	detail?: string;
@@ -33,7 +33,18 @@ export type ConsolidationRunResult = {
 	totalDurationMs: number;
 };
 
+/** Human-readable lines for failed consolidation steps (shown in UI). */
+export function formatConsolidationJobErrors(jobs: ConsolidationJobResult[]): string[] {
+	return jobs
+		.filter((j) => !j.ok)
+		.map((j) => {
+			const label = j.job.replace(/_/g, ' ');
+			return j.detail ? `${label}: ${j.detail}` : `${label} failed`;
+		});
+}
+
 async function runJob(
+	phase: ConsolidationPhase,
 	name: string,
 	fn: () => Promise<unknown>
 ): Promise<ConsolidationJobResult> {
@@ -41,13 +52,22 @@ async function runJob(
 	try {
 		const detail = await fn();
 		return {
+			phase,
 			job: name,
 			ok: true,
-			detail: typeof detail === 'number' ? `${detail} items` : undefined,
+			detail:
+				typeof detail === 'number'
+					? `${detail} items`
+					: typeof detail === 'object' && detail !== null && 'repaired' in detail
+						? `${(detail as { repaired: number }).repaired} repaired`
+						: typeof detail === 'object' && detail !== null && 'deletedEntityKindIds' in detail
+							? `${(detail as { deletedEntityKindIds: string[] }).deletedEntityKindIds.length} entity kinds pruned`
+							: undefined,
 			durationMs: Date.now() - start
 		};
 	} catch (err) {
 		return {
+			phase,
 			job: name,
 			ok: false,
 			detail: err instanceof Error ? err.message : String(err),
@@ -57,37 +77,56 @@ async function runJob(
 }
 
 /**
- * Run all consolidation jobs for a single user.
+ * Run all consolidation jobs for a single user (RLS-scoped via {@link withDbUser}).
  */
 export async function consolidateForUser(userId: string): Promise<ConsolidationRunResult> {
-	const start = Date.now();
-	const jobs: ConsolidationJobResult[] = [];
+	return withDbUser(userId, async () => {
+		const start = Date.now();
+		const jobs: ConsolidationJobResult[] = [];
 
-	// 1. Salience decay.
-	jobs.push(await runJob('salience_decay', () => runSalienceDecay(userId)));
-
-	// 2. Community detection (conditional).
-	const shouldDetect = await shouldRunCommunityDetection(userId).catch(() => false);
-	if (shouldDetect) {
-		const detectionResult = await runJob('community_detection', () =>
-			runCommunityDetection(userId).then((r) => r.totalCommunities)
+		// ---- Phase 1: DeepSleep ------------------------------------------------
+		jobs.push(
+			await runJob('deep_sleep', 'salience_decay', () => runSalienceDecay(userId))
 		);
-		jobs.push(detectionResult);
 
-		// 3. Community summaries (runs after detection).
-		if (detectionResult.ok) {
+		jobs.push(
+			await runJob('deep_sleep', 'ontology_prune', async () => {
+				const pruned = await pruneUnusedOntologyEntityKinds(getDb(), userId);
+				return pruned;
+			})
+		);
+
+		jobs.push(
+			await runJob('deep_sleep', 'repair_canonical_entity_types', () =>
+				repairCanonicalEntityTypesForUser(userId)
+			)
+		);
+
+		// ---- Phase 2: REM --------------------------------------------------------
+		const shouldDetect = await shouldRunCommunityDetection(userId).catch(() => false);
+		if (shouldDetect) {
+			const detectionResult = await runJob('rem', 'community_detection', () =>
+				runCommunityDetection(userId).then((r) => r.totalCommunities)
+			);
+			jobs.push(detectionResult);
+
+			if (detectionResult.ok) {
+				jobs.push(
+					await runJob('rem', 'community_summaries', () => runCommunitySummaryGeneration(userId))
+				);
+			}
+		} else {
 			jobs.push(
-				await runJob('community_summaries', () => runCommunitySummaryGeneration(userId))
+				await runJob('rem', 'community_summaries', () => runCommunitySummaryGeneration(userId))
 			);
 		}
-	} else {
-		// Still generate missing summaries even if detection didn't re-run.
-		jobs.push(
-			await runJob('community_summaries', () => runCommunitySummaryGeneration(userId))
-		);
-	}
 
-	return { userId, jobs, totalDurationMs: Date.now() - start };
+		jobs.push(
+			await runJob('rem', 'open_loop_salience', () => boostOpenLoopSalience(userId))
+		);
+
+		return { userId, jobs, totalDurationMs: Date.now() - start };
+	});
 }
 
 /**
@@ -105,7 +144,7 @@ export async function consolidateAllUsers(): Promise<ConsolidationRunResult[]> {
 			results.push(result);
 			console.info('[consolidation] completed for user', {
 				userId: u.id,
-				jobs: result.jobs.map((j) => `${j.job}:${j.ok ? 'ok' : 'err'}`).join(','),
+				jobs: result.jobs.map((j) => `${j.phase}/${j.job}:${j.ok ? 'ok' : 'err'}`).join(','),
 				durationMs: result.totalDurationMs
 			});
 		} catch (err) {

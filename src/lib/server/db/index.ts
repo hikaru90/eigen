@@ -3,9 +3,11 @@ import postgres from 'postgres';
 import * as schema from './schema';
 import { getRuntimeDatabaseUrl } from './runtime-url';
 import { appDbAsyncLocal, type AppDatabase } from './context';
+import { activateTenantDbSession, deactivateTenantDbSession } from './tenant-session';
 
 export { getDb, appDbAsyncLocal } from './context';
 export type { AppDatabase } from './context';
+export { activateTenantDbSession, deactivateTenantDbSession, appDbRole } from './tenant-session';
 
 /**
  * Run `fn` with RLS scoped to `userId` (eval metadata tables, etc.).
@@ -13,17 +15,22 @@ export type { AppDatabase } from './context';
 export async function withDbUser<T>(userId: string, fn: (db: AppDatabase) => Promise<T>): Promise<T> {
 	const reserved = await appSql.reserve();
 	try {
-		await reserved`select set_config('app.current_user_id', ${userId}, false)`;
+		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
 		return await appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
 	} finally {
-		await reserved`select set_config('app.current_user_id', '', false)`;
+		await deactivateTenantDbSession(reserved).catch(() => {});
 		await reserved.release();
 	}
 }
 
 /**
  * App-facing Postgres pool. Use `getDb()` inside request handlers (RLS session var is set in hooks).
+ *
+ * Pool connects with DATABASE_URL (often the DB owner / superuser for migrations and Studio).
+ * Each reserved connection calls SET ROLE to the non-superuser APP_DB_ROLE (default eigen_app)
+ * before set_config('app.current_user_id', …) so row-level security applies even when the pool
+ * user is a superuser.
  *
  * Each request calls `appSql.reserve()` in hooks.server to obtain a dedicated connection for the
  * lifetime of that request. `attachReservedBeginIfMissing` patches a `begin()` method onto every

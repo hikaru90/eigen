@@ -4,6 +4,10 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { env } from '$env/dynamic/private';
 import { getRequestEvent } from '$app/server';
 import { authDb } from '$lib/server/db/auth-db';
+import { buildSocialProvidersConfig, listEnabledSocialProviderIds } from '$lib/server/auth-social';
+
+const socialProviders = buildSocialProvidersConfig(env);
+const enabledSocialProviderIds = listEnabledSocialProviderIds(env);
 
 /**
  * Better Auth requires an absolute URL with a scheme. Some hosts set `ORIGIN` to a bare hostname
@@ -29,6 +33,17 @@ export const auth = betterAuth({
 	secret: env.BETTER_AUTH_SECRET,
 	database: drizzleAdapter(authDb, { provider: 'pg' }),
 	emailAndPassword: { enabled: true },
+	...(enabledSocialProviderIds.length > 0
+		? {
+				socialProviders,
+				account: {
+					accountLinking: {
+						enabled: true,
+						trustedProviders: enabledSocialProviderIds
+					}
+				}
+			}
+		: {}),
 	user: {
 		additionalFields: {
 			onboardingCompleted: {

@@ -10,6 +10,7 @@ import {
 	type OntologyProfileV2
 } from './types';
 import { extractChatContent, userMessage } from './llm-json';
+import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants';
 
 function parseOntologyEvalOutput(content: string, allowedKeys: Set<string>): OntologyProfileV2 {
 	const parsed = JSON.parse(content.trim()) as unknown;
@@ -63,7 +64,7 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
 		.from(thought)
 		.where(eq(thought.userId, userId))
 		.orderBy(desc(thought.createdAt), desc(thought.id))
-		.limit(20);
+		.limit(ONTOLOGY_RECENT_THOUGHT_WINDOW);
 
 	const lines = recent.map((r, i) => {
 		const cat =

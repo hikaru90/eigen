@@ -1,15 +1,8 @@
-import { isActionFailure } from '@sveltejs/kit';
-import { assert, describe, expect, it, vi } from 'vitest';
-import { actions, load } from './+page.server';
+import { describe, expect, it, vi } from 'vitest';
+import { load } from './+page.server';
 
-const { fetchSnapshotMock, pruneMock, recomputeMock, repairEntityTypesMock } = vi.hoisted(() => ({
-	fetchSnapshotMock: vi.fn(),
-	pruneMock: vi.fn().mockResolvedValue({
-		deletedEntityKindIds: [] as string[],
-		deletedRelationKindIds: [] as string[]
-	}),
-	recomputeMock: vi.fn().mockResolvedValue(undefined),
-	repairEntityTypesMock: vi.fn().mockResolvedValue({ repaired: 0 })
+const { fetchSnapshotMock } = vi.hoisted(() => ({
+	fetchSnapshotMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -29,16 +22,7 @@ vi.mock('$lib/server/ontology-db', () => ({
 		entityKindsByKey: new Map(),
 		relationKindsById: new Map(),
 		relationKindsByKey: new Map()
-	}),
-	pruneUnusedOntologyEntityKinds: pruneMock
-}));
-
-vi.mock('$lib/server/ontology', () => ({
-	recomputeUserOntologyProfileForUser: recomputeMock
-}));
-
-vi.mock('$lib/server/memory/canonical-entity-admin', () => ({
-	repairCanonicalEntityTypesForUser: repairEntityTypesMock
+	})
 }));
 
 describe('graph page server', () => {
@@ -60,23 +44,5 @@ describe('graph page server', () => {
 		expect(fetchSnapshotMock).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'u1', nodeLimit: 500, edgeLimit: 1200 })
 		);
-	});
-
-	it('recomputeOntology prunes unused kinds then refreshes classifier profile', async () => {
-		pruneMock.mockResolvedValueOnce({
-			deletedEntityKindIds: ['e1'],
-			deletedRelationKindIds: ['r1']
-		});
-		const result = await actions.recomputeOntology({
-			locals: { user: { id: 'u1' } },
-			request: new Request('http://test/graph', { method: 'POST', body: new FormData() })
-		} as never);
-		expect(isActionFailure(result)).toBe(false);
-		assert(!isActionFailure(result));
-		expect(pruneMock).toHaveBeenCalledTimes(1);
-		expect(recomputeMock).toHaveBeenCalledWith('u1');
-		expect(repairEntityTypesMock).toHaveBeenCalledWith('u1');
-		expect(result.ontologyMessage).toContain('Removed 1 unused ontology entity kind');
-		expect(result.ontologyMessage).toContain('Ontology labeling notes refreshed');
 	});
 });

@@ -197,6 +197,13 @@
       "when": 1748800000000,
       "tag": "0027_preferred_ui_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1748880000000,
+      "tag": "0028_consolidation_run",
+      "breakpoints": true
     }
   ]
 }

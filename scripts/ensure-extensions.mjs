@@ -1,20 +1,8 @@
 import './load-env.mjs';
 import postgres from 'postgres';
+import { getDatabaseUrl } from './db-urls.mjs';
 
-const raw = process.env.DATABASE_URL;
-if (!raw) {
-	console.error('DATABASE_URL is required');
-	process.exit(1);
-}
-
-let urlString = raw;
-try {
-	const u = new URL(raw);
-	u.searchParams.delete('uselibpqcompat');
-	urlString = u.toString();
-} catch {
-	// keep raw
-}
+const urlString = getDatabaseUrl();
 
 const sql = postgres(urlString, { max: 1 });
 try {

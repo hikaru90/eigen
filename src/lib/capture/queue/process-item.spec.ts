@@ -45,6 +45,23 @@ describe('processCaptureQueueItem', () => {
 		expect(pending).toHaveBeenCalled();
 	});
 
+	it('marks failed immediately on permission errors', async () => {
+		vi.spyOn(db, 'setCaptureQueueStatus').mockResolvedValue({ ...baseItem, status: 'processing' });
+		vi.spyOn(submit, 'submitCaptureRaw').mockRejectedValue(
+			new Error('permission denied for sequence Thought_id_seq')
+		);
+		vi.spyOn(submit, 'isLikelyOfflineError').mockReturnValue(false);
+		vi.spyOn(db, 'updateCaptureQueueItem').mockResolvedValue({
+			...baseItem,
+			status: 'failed',
+			attempts: 1,
+			lastError: 'permission denied for sequence Thought_id_seq'
+		});
+
+		const result = await processCaptureQueueItem(baseItem);
+		expect(result.outcome).toBe('failed');
+	});
+
 	it('marks failed after max attempts', async () => {
 		vi.spyOn(db, 'setCaptureQueueStatus').mockResolvedValue({ ...baseItem, status: 'processing' });
 		vi.spyOn(submit, 'submitCaptureRaw').mockRejectedValue(new Error('server error'));

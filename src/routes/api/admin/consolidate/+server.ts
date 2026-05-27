@@ -9,14 +9,19 @@
  * Request body (JSON, optional):
  *   { userId?: string }  — omit to run for all users (admin key required)
  *
- * This endpoint is designed to be called by an external cron scheduler
- * (e.g. cron-job.org, Render cron, GitHub Actions schedule).
+ * Global all-users runs are idempotent per calendar night (CONSOLIDATION_CRON_TZ).
+ * Scheduled via pg_cron → pg_net HTTP POST (see scripts/ensure-sleep-cron.mjs).
  */
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
 import { consolidateForUser, consolidateAllUsers } from '$lib/server/consolidation/runner';
+import {
+	tryAcquireGlobalNightlyRun,
+	completeGlobalNightlyRun,
+	failGlobalNightlyRun
+} from '$lib/server/consolidation/consolidation-run-ledger';
 
 function getAdminKey(): string | undefined {
 	return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined;
@@ -46,19 +51,51 @@ export const POST: RequestHandler = async (event) => {
 
 	try {
 		if (targetUserId) {
-			// Restrict non-admin users to their own data.
 			if (!isAdminKeyValid && user?.id !== targetUserId) {
 				error(403, 'Forbidden');
 			}
 			const result = await consolidateForUser(targetUserId);
 			return json({ ok: true, results: [result] });
-		} else {
-			// All users — requires admin key.
-			if (!isAdminKeyValid) {
-				error(403, 'Admin key required to run consolidation for all users');
-			}
+		}
+
+		if (!isAdminKeyValid) {
+			error(403, 'Admin key required to run consolidation for all users');
+		}
+
+		let ledger: Awaited<ReturnType<typeof tryAcquireGlobalNightlyRun>> | undefined;
+		try {
+			ledger = await tryAcquireGlobalNightlyRun();
+		} catch (ledgerErr) {
+			console.warn('[consolidate] ledger unavailable, proceeding without idempotency', {
+				message: ledgerErr instanceof Error ? ledgerErr.message : String(ledgerErr)
+			});
+		}
+
+		if (ledger && !ledger.acquired) {
+			return json({
+				ok: true,
+				skipped: true,
+				reason: ledger.reason,
+				runNight: ledger.runNight
+			});
+		}
+
+		try {
 			const results = await consolidateAllUsers();
-			return json({ ok: true, results });
+			if (ledger?.acquired) {
+				await completeGlobalNightlyRun(ledger.runId, results);
+			}
+			return json({
+				ok: true,
+				results,
+				...(ledger ? { runNight: ledger.runNight, runId: ledger.runId } : {})
+			});
+		} catch (runErr) {
+			if (ledger?.acquired) {
+				const message = runErr instanceof Error ? runErr.message : String(runErr);
+				await failGlobalNightlyRun(ledger.runId, message).catch(() => {});
+			}
+			throw runErr;
 		}
 	} catch (err) {
 		if (err && typeof err === 'object' && 'status' in err) throw err;

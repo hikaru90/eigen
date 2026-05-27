@@ -3,12 +3,11 @@ import { building } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import type { Handle } from '@sveltejs/kit';
-import { appSql, appDbAsyncLocal, createScopedDrizzle } from '$lib/server/db';
+import { appSql, appDbAsyncLocal, createScopedDrizzle, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
+import { authSql } from '$lib/server/db/auth-db';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import { hashApiKey } from '$lib/server/api-keys/api-key-utils';
-import { userApiKey } from '$lib/server/db/brain.schema';
-import { eq, and } from 'drizzle-orm';
 
 const handleParaglide: Handle = ({ event, resolve }) => paraglideMiddleware(event.request, ({ request, locale }) => {
 	event.request = request;
@@ -74,32 +73,21 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 		const match = authHeader.match(/^Bearer\s+(eigen_[0-9a-f]+)$/i);
 		if (match) {
 			const hash = hashApiKey(match[1]);
-			const reserved = await appSql.reserve();
-			try {
-				const rows = await createScopedDrizzle(reserved)
-					.select({ userId: userApiKey.userId, id: userApiKey.id })
-					.from(userApiKey)
-					.where(and(eq(userApiKey.keyHash, hash), eq(userApiKey.isActive, true)))
-					.limit(1);
-				if (rows.length > 0) {
-					const row = rows[0];
-					createScopedDrizzle(reserved)
-						.update(userApiKey)
-						.set({ lastUsedAt: new Date() })
-						.where(eq(userApiKey.id, row.id))
-						.catch(() => {/* non-critical */});
-					event.locals.user = {
-						id: row.userId,
-						email: '',
-						name: '',
-						emailVerified: false,
-						createdAt: new Date(),
-						updatedAt: new Date(),
-						image: null
-					} as typeof event.locals.user;
-				}
-			} finally {
-				await reserved.release();
+			const rows = await authSql<Array<{ id: string; user_id: string }>>`
+				SELECT id, user_id FROM resolve_user_api_key(${hash})
+			`;
+			if (rows.length > 0) {
+				const row = rows[0];
+				authSql`SELECT touch_user_api_key(${row.id}::uuid)`.catch(() => {/* non-critical */});
+				event.locals.user = {
+					id: row.user_id,
+					email: '',
+					name: '',
+					emailVerified: false,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+					image: null
+				} as typeof event.locals.user;
 			}
 		}
 	}
@@ -112,11 +100,11 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 		const reserved = await appSql.reserve();
 		try {
 			const uid = event.locals.user?.id ?? '';
-			await reserved`select set_config('app.current_user_id', ${uid}, false)`;
+			await activateTenantDbSession(reserved, uid);
 			const scopedDb = createScopedDrizzle(reserved);
 			return await appDbAsyncLocal.run(scopedDb, () => resolve(opts));
 		} finally {
-			await reserved`select set_config('app.current_user_id', '', false)`;
+			await deactivateTenantDbSession(reserved).catch(() => {});
 			await reserved.release();
 		}
 	};

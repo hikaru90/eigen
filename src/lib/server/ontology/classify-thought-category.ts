@@ -5,6 +5,7 @@ import { thought, userOntology } from '$lib/server/db/schema';
 import { loadOntologyForUser, validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db';
 import { ontologyKindsPromptBlock, parseOntologyProfileJson } from './types';
 import { extractChatContent, userMessage } from './llm-json';
+import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants';
 
 export type ResolvedThoughtOntologyKind = {
 	/** Same as `thought.category` and `ontology_entity_kind.key`. */
@@ -92,7 +93,7 @@ export async function resolveThoughtCategory(input: {
 	const tContext = Date.now();
 	const [recentThoughts, categoryDist] = await Promise.all([
 		loadRecentThoughtsContext(input.userId, 5),
-		loadCategoryDistribution(input.userId, 20)
+		loadCategoryDistribution(input.userId, ONTOLOGY_RECENT_THOUGHT_WINDOW)
 	]);
 	console.info('[capture.ontology] context loaded', { ms: Date.now() - tContext });
 
@@ -111,7 +112,7 @@ export async function resolveThoughtCategory(input: {
 	if (categoryDist.size > 0) {
 		const sorted = [...categoryDist.entries()].sort((a, b) => b[1] - a[1]);
 		const distLine = sorted.map(([k, n]) => `${k} x${n}`).join(', ');
-		distributionBlock = `\nRecent category distribution (last 20): ${distLine}`;
+		distributionBlock = `\nRecent category distribution (last ${ONTOLOGY_RECENT_THOUGHT_WINDOW}): ${distLine}`;
 	}
 
 	const prompt = [

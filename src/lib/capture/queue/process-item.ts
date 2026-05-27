@@ -5,10 +5,18 @@ import {
 	updateCaptureQueueItem
 } from './db';
 import { isLikelyOfflineError, submitCaptureRaw } from './submit-capture';
-import type { CaptureQueueItem, CaptureSubmitResult } from './types';
+import {
+	MAX_BACKGROUND_CAPTURE_ATTEMPTS,
+	type CaptureQueueItem,
+	type CaptureSubmitResult
+} from './types';
 import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson';
 
-const MAX_BACKGROUND_ATTEMPTS = 3;
+/** Permanent infra/config failures — retrying only burns LLM quota. */
+export function isNonRetryableCaptureError(err: unknown): boolean {
+	const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+	return message.includes('permission denied');
+}
 
 export type ProcessCaptureItemOptions = {
 	signal?: AbortSignal;
@@ -50,9 +58,22 @@ export async function processCaptureQueueItem(
 			return { outcome: 'offline', item: pending ?? item };
 		}
 
-		const attempts = item.attempts + 1;
 		const message = err instanceof Error ? err.message : String(err);
-		if (attempts >= MAX_BACKGROUND_ATTEMPTS) {
+		if (isNonRetryableCaptureError(err)) {
+			const failed = await updateCaptureQueueItem(item.id, {
+				status: 'failed',
+				attempts: item.attempts + 1,
+				lastError: message
+			});
+			return {
+				outcome: 'failed',
+				item: failed ?? { ...item, status: 'failed', attempts: item.attempts + 1, lastError: message },
+				error: message
+			};
+		}
+
+		const attempts = item.attempts + 1;
+		if (attempts >= MAX_BACKGROUND_CAPTURE_ATTEMPTS) {
 			const failed = await updateCaptureQueueItem(item.id, {
 				status: 'failed',
 				attempts,

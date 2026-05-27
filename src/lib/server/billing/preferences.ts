@@ -1,4 +1,3 @@
-import { dev } from '$app/environment';
 import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { llmProviderConfig, userPreference, type BillingMode } from '$lib/server/db/schema';
@@ -41,18 +40,6 @@ export async function hasSavedByokLlmCredentials(userId: string): Promise<boolea
 		.where(eq(llmProviderConfig.userId, userId));
 
 	return rows.some((r) => Boolean(r.baseUrl?.trim() && r.apiKey?.trim()));
-}
-
-/**
- * Development only: billing mode is platform credits (wallet settles) but LLM/STT routes through
- * the user's saved gateway keys — same gateways as BYOK — so Eigen credit deduction can be exercised
- * without spending platform env keys.
- */
-export async function useByokGatewayWithPlatformBillingInDev(userId: string): Promise<boolean> {
-	if (!dev) return false;
-	const prefs = await getBillingPreferences(userId);
-	if (prefs.billingMode !== 'platform_credits') return false;
-	return hasSavedByokLlmCredentials(userId);
 }
 
 /** PayPal-inferred currency first, then user setting. */

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import type { ActionData, PageData } from "./$types";
-  import { enhance } from "$app/forms";
+  import type { PageData } from "./$types";
   import { invalidateAll } from "$app/navigation";
   import { onMount } from "svelte";
   import * as Card from "$lib/components/ui/card";
@@ -27,11 +26,17 @@
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import type { TemporalEventListItem } from "../api/temporal-events/+server";
 
-  let { data, form }: { data: PageData; form: ActionData } = $props();
+  let { data }: { data: PageData } = $props();
 
   /** Which tab is visible: graph, embedding map, or temporal events timeline. */
   let activeTab = $state<"graph" | "embeddings" | "temporal">("graph");
+  /** Mount embedding map only after first visit so projection runs in a sized panel. */
+  let embeddingsTabOpened = $state(false);
   let selectedTemporalId = $state<string | null>(null);
+
+  $effect(() => {
+    if (activeTab === "embeddings") embeddingsTabOpened = true;
+  });
 
   const legendSections = $derived(data.graphLegendSections ?? []);
   const ontologyEntityKindSelectOptions = $derived.by(() => {
@@ -53,7 +58,6 @@
   const searchFilterActive = $derived(search.trim().length > 0);
   const edgeFilterActive = $derived(edgeKind !== "all");
   let status = $state<string>("");
-  let recomputing = $state(false);
   let scheduleGraphUpdate: (() => void) | null = null;
   let scheduleGraphResize: (() => void) | null = null;
   let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
@@ -1069,43 +1073,9 @@
                 </Popover.Content>
               </Popover.Root>
             </div>
-            <form
-              method="post"
-              action="?/recomputeOntology"
-              use:enhance={() => {
-                recomputing = true;
-                return async ({ update }) => {
-                  await update();
-                  recomputing = false;
-                };
-              }}
-              class="contents"
-            >
-              <Button
-                type="submit"
-                variant="outline"
-                size="xs"
-                class="shrink-0"
-                disabled={recomputing}
-              >
-                {#if recomputing}
-                  <LoaderCircleIcon class="size-3 shrink-0 animate-spin" aria-hidden="true" />
-                {/if}
-                {recomputing ? "Recomputing…" : "Recompute ontology"}
-              </Button>
-            </form>
             {#if status}
               <p class="text-muted-foreground min-w-0 font-mono text-[11px] leading-tight">
                 {status}
-              </p>
-            {/if}
-            {#if form?.ontologyMessage}
-              <p
-                class="w-full min-w-0 text-[11px] leading-tight {form.ontologyFailed
-                  ? 'text-destructive'
-                  : 'text-muted-foreground'}"
-              >
-                {form.ontologyMessage}
               </p>
             {/if}
           {/if}
@@ -1176,11 +1146,14 @@
           value="embeddings"
           class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
         >
-          <EmbeddingMap
-            graphLegendSections={data.graphLegendSections ?? []}
-            onSelectItem={handleEmbeddingSelect}
-            selectedItemId={selectedNode?.id ?? null}
-          />
+          {#if embeddingsTabOpened}
+            <EmbeddingMap
+              visible={activeTab === "embeddings"}
+              graphLegendSections={data.graphLegendSections ?? []}
+              onSelectItem={handleEmbeddingSelect}
+              selectedItemId={selectedNode?.id ?? null}
+            />
+          {/if}
         </Tabs.Content>
         <Tabs.Content
           value="temporal"
