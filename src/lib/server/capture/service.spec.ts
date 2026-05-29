@@ -479,7 +479,7 @@ describe('deleteThoughtForUser', () => {
 		expect(deleteThoughtVertexFromGraphMock).not.toHaveBeenCalled();
 	});
 
-	it('deletes Falkor vertex then Postgres row', async () => {
+	it('deletes AGE graph vertex then Postgres row', async () => {
 		const deleteWhere = vi.fn(async () => undefined);
 		const db = {
 			select: vi.fn(() => ({

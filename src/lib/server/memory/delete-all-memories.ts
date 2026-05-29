@@ -30,7 +30,7 @@ export function assertDeleteAllMemoriesConfirmation(confirmation: string): void 
 }
 
 /**
- * Removes all semantic memory rows for the tenant and wipes their Falkor graph.
+ * Removes all semantic memory rows for the tenant and wipes their AGE graph.
  * Does not delete auth, preferences, LLM config, API keys, or chat history.
  */
 export async function deleteAllMemoriesForUser(userId: string): Promise<DeleteAllMemoriesResult> {

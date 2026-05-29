@@ -11,6 +11,7 @@ import {
 const {
 	getDbMock,
 	upsertEntityNodeMock,
+	upsertMentionEdgeMock,
 	deleteEntityVertexFromGraphMock,
 	ensureUserOntologySeededMock,
 	ensureEntityTypeKindsSeededMock,
@@ -19,6 +20,7 @@ const {
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	upsertEntityNodeMock: vi.fn(),
+	upsertMentionEdgeMock: vi.fn(),
 	deleteEntityVertexFromGraphMock: vi.fn(),
 	ensureUserOntologySeededMock: vi.fn(),
 	ensureEntityTypeKindsSeededMock: vi.fn(),
@@ -29,6 +31,7 @@ const {
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
 vi.mock('$lib/server/graph/falkor', () => ({
 	upsertEntityNode: upsertEntityNodeMock,
+	upsertMentionEdge: upsertMentionEdgeMock,
 	deleteEntityVertexFromGraph: deleteEntityVertexFromGraphMock
 }));
 vi.mock('$lib/server/ontology-db', () => ({
@@ -64,6 +67,7 @@ describe('canonical-entity-admin', () => {
 		loadOntologyForUserMock.mockResolvedValue({});
 		activeEntityTypeKindKeysMock.mockReturnValue(new Set(['person', 'place', 'concept']));
 		upsertEntityNodeMock.mockResolvedValue(undefined);
+		upsertMentionEdgeMock.mockResolvedValue(undefined);
 		deleteEntityVertexFromGraphMock.mockResolvedValue(undefined);
 	});
 
@@ -157,6 +161,39 @@ describe('canonical-entity-admin', () => {
 		await expect(syncCanonicalEntityVertexToGraph('u1', 'missing')).resolves.toEqual({
 			ok: false,
 			reason: 'not_found'
+		});
+	});
+
+	it('syncCanonicalEntityVertexToGraph reattaches mention edges for linked thoughts', async () => {
+		getDbMock
+			.mockReturnValueOnce({
+				select: vi.fn(() => ({
+					from: vi.fn(() => ({
+						where: vi.fn(() => chainLimit([entityRow]))
+					}))
+				}))
+			})
+			.mockReturnValueOnce({
+				selectDistinct: vi.fn(() => ({
+					from: vi.fn(() => ({
+						where: vi.fn(async () => [{ thoughtId: 't1' }, { thoughtId: 't2' }])
+					}))
+				}))
+			});
+
+		await expect(syncCanonicalEntityVertexToGraph('u1', 'ent-1')).resolves.toEqual({ ok: true });
+		expect(upsertEntityNodeMock).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'ent-1', userId: 'u1' })
+		);
+		expect(upsertMentionEdgeMock).toHaveBeenNthCalledWith(1, {
+			userId: 'u1',
+			thoughtId: 't1',
+			entityId: 'ent-1'
+		});
+		expect(upsertMentionEdgeMock).toHaveBeenNthCalledWith(2, {
+			userId: 'u1',
+			thoughtId: 't2',
+			entityId: 'ent-1'
 		});
 	});
 

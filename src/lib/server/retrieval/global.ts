@@ -12,8 +12,9 @@
  *
  * This is separate from `searchThoughts` (which handles local/relational queries)
  * because it retrieves from `community_summary` rows, not `thought` rows.
- * The QA compose layer (`compose-answer.ts`) calls this when the query router
- * classifies the query as 'global'.
+ *
+ * **Not wired into production callers yet** — `classifyQueryType` and compose-answer
+ * still always use `searchThoughts`. See docs/repo-map/retrieval.md § Global retrieval (deferred).
  *
  * Cost: N community LLM calls + 1 reduce LLM call + 1 embedding call.
  * Controlled by `topCommunities` (default 5).

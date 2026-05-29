@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { estimateChatBilledCents, billedCentsFromBaseUsd } from './usage-gate';
+import { billedMicroUsdFromBaseUsd } from './usage-gate';
+import { MICRO_USD_PER_CENT } from './money';
 
-describe('usage-gate estimates', () => {
-	it('returns at least 1 cent for chat estimates', () => {
-		expect(estimateChatBilledCents([{ role: 'user', content: 'hi' }])).toBeGreaterThanOrEqual(1);
+describe('usage-gate billing', () => {
+	it('accumulates sub-cent settled costs instead of rounding up to 1 cent', () => {
+		const micro = billedMicroUsdFromBaseUsd(0.0001);
+		expect(micro).toBeGreaterThan(0);
+		expect(micro).toBeLessThan(MICRO_USD_PER_CENT);
 	});
 
-	it('returns 0 billed cents for zero base cost', () => {
-		expect(billedCentsFromBaseUsd(0)).toBe(0);
+	it('returns 0 micro-USD for zero base cost', () => {
+		expect(billedMicroUsdFromBaseUsd(0)).toBe(0);
 	});
 });

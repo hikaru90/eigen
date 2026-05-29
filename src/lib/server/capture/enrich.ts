@@ -2,11 +2,11 @@
  * Async enrichment for already-persisted thought rows.
  *
  * The fast path in `captureThought` persists the raw text, embedding, category,
- * and a FalkorDB provenance anchor (thought id only). This module handles the heavier steps that can run after
+ * and an Apache AGE provenance anchor (thought id only). This module handles the heavier steps that can run after
  * the HTTP response has been returned to the user:
  *
  *   - thought-to-thought relation extraction + graph sync
- *   - entity mention extraction + canonical resolution + FalkorDB entity edges
+ *   - entity mention extraction + canonical resolution + AGE entity edges
  *   - memory type classification
  *   - cue bundle generation
  *   - ontology profile refresh trigger
@@ -182,7 +182,7 @@ export async function enrichThought(
 
 /**
  * Re-run enrichment for an existing thought (e.g. after an edit or manual relink).
- * Clears outgoing FalkorDB edges first so stale links don't accumulate.
+ * Clears outgoing AGE graph edges first so stale links don't accumulate.
  */
 export async function reenrichThought(
 	userId: string,

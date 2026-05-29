@@ -40,7 +40,7 @@ export type QaTemporalCheck = {
 };
 
 export type QaChecks = {
-	/** Falkor Thought nodes must exist for these fixtures. */
+	/** AGE Thought nodes must exist for these fixtures. */
 	graph?: { requireThoughtNodes?: string[] };
 	/** Postgres thought_relation rows between fixture pairs. */
 	relations?: QaRelationCheck[];

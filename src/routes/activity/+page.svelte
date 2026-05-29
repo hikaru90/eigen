@@ -8,16 +8,17 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const activityMoney = new Intl.NumberFormat(undefined, {
-		style: 'currency',
-		currency: data.activityCurrency,
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 6
-	});
+	/** Exact stored USD decimal (6 dp) — no cent rounding. */
+	function fmtUsd(usd: string): string {
+		return `$${usd}`;
+	}
 
-	/** Matches Eigen wallet billed minor units (`usdStringToCents` on USD strings → major unit display). */
-	function fmtBilling(cents: number): string {
-		return activityMoney.format(cents / 100);
+	function sumTotalUsd(calls: Call[]): string {
+		let total = 0;
+		for (const c of calls) {
+			total += Number(c.totalCostUsd);
+		}
+		return total.toFixed(6);
 	}
 
 	/** Short label from gateway hostname (e.g. `openrouter` from `api.openrouter.ai`). */
@@ -62,16 +63,28 @@
 	function filterUrl(type: string): string {
 		const url = new URL(page.url);
 		url.searchParams.set('type', type);
+		url.searchParams.delete('page');
+		return url.pathname + url.search;
+	}
+
+	function pageUrl(nextPage: number): string {
+		const url = new URL(page.url);
+		if (nextPage <= 1) {
+			url.searchParams.delete('page');
+		} else {
+			url.searchParams.set('page', String(nextPage));
+		}
 		return url.pathname + url.search;
 	}
 
 	const isGateway = $derived(currentFilter === 'gateway' || currentFilter === 'all');
 	const showOverall = $derived(isGateway && data.overallTotals);
+	const gatewayColspan = 6;
 
 	type Call = PageData['calls'][number];
 
 	const grouped = $derived.by(() => {
-		const groups: Array<{ groupId: string | null; calls: Call[]; firstOp: string; groupBillingCents: number }> = [];
+		const groups: Array<{ groupId: string | null; calls: Call[]; firstOp: string; groupTotalUsd: string }> = [];
 		const groupMap = new Map<string, Call[]>();
 		const order: string[] = [];
 
@@ -90,8 +103,12 @@
 			const list = groupMap.get(key)!;
 			list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 			const groupId = key.startsWith('__ungrouped__') ? null : key;
-			const groupBillingCents = list.reduce((sum, c) => sum + c.totalBilledCents, 0);
-			groups.push({ groupId, calls: list, firstOp: list[0].operation, groupBillingCents });
+			groups.push({
+				groupId,
+				calls: list,
+				firstOp: list[0].operation,
+				groupTotalUsd: sumTotalUsd(list)
+			});
 		}
 
 		return groups;
@@ -123,8 +140,8 @@
 		<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card">
 			<Card.Content class="flex items-center justify-between px-4 py-3">
 				<div class="flex items-center gap-2">
-					<span class="text-xs font-medium">Total spend ({data.activityCurrency}):</span>
-					<span class="font-mono text-sm font-semibold">{fmtBilling(data.overallTotals.totalBilledCents)}</span>
+					<span class="text-xs font-medium">Total spend (USD):</span>
+					<span class="font-mono text-sm font-semibold">{fmtUsd(data.overallTotals.totalCostUsd)}</span>
 				</div>
 				<div class="flex items-center gap-2">
 					<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
@@ -143,11 +160,11 @@
 			</Card.Title>
 			<Card.Description class="text-muted-foreground text-xs">
 				{#if currentFilter === 'gateway'}
-					Billable LLM gateway calls (chat, embeddings, and speech-to-text). Base, markup (AC-014), and total are stored in USD; totals below use your Eigen wallet currency (same billed minor-unit rules as deductions) for transparency.
+					Billable LLM gateway calls (chat, embeddings, and speech-to-text). Base and total cost in USD (6 decimal places).
 				{:else if currentFilter === 'agent'}
 					Internal agent tool calls (free, zero-cost operations).
 				{:else}
-					All activity — paid gateway calls use your Eigen wallet currency (same billed minor units as deductions); free agent tool calls shown with zero billed amount.
+					All activity — paid gateway calls in USD; free agent tool calls shown with zero cost.
 				{/if}
 			</Card.Description>
 		</Card.Header>
@@ -160,9 +177,8 @@
 						<th class="p-2 font-medium">Operation</th>
 						<th class="p-2 font-medium">Duration</th>
 						{#if isGateway}
-							<th class="p-2 font-medium">Base</th>
-							<th class="p-2 font-medium">Markup</th>
-							<th class="p-2 font-medium">Total</th>
+							<th class="p-2 font-medium">Base USD</th>
+							<th class="p-2 font-medium">Total USD</th>
 						{/if}
 					</tr>
 				</thead>
@@ -172,7 +188,7 @@
 							{@const groupLabel = group.firstOp.replace(/\.(success|error)\(.*\)$/, '')}
 							{@const groupContext = group.calls.find(c => c.context)?.context}
 							<tr class="bg-muted/20 border-b border-border/40">
-								<td class="p-2 whitespace-nowrap text-[11px] text-muted-foreground" colspan="{isGateway ? 7 : 4}">
+								<td class="p-2 whitespace-nowrap text-[11px] text-muted-foreground" colspan={gatewayColspan}>
 									<span class="flex items-center justify-between">
 										<span class="flex items-center gap-2 min-w-0">
 											<span class="truncate font-mono shrink-0">{groupLabel}</span>
@@ -183,7 +199,7 @@
 										<span class="ml-2 shrink-0">
 											{group.calls.length > 1 ? `${group.calls.length} calls` : ''}
 											{#if isGateway}
-												· {fmtBilling(group.groupBillingCents)}
+												· {fmtUsd(group.groupTotalUsd)}
 											{/if}
 										</span>
 									</span>
@@ -219,15 +235,14 @@
 								</td>
 								<td class="p-2 font-mono text-[11px] text-muted-foreground">{formatDuration(c.durationMs)}</td>
 								{#if isGateway}
-									<td class="p-2 font-mono text-[11px]">{fmtBilling(c.baseBilledCents)}</td>
-									<td class="p-2 font-mono text-[11px]">{fmtBilling(c.markupBilledCents)}</td>
-									<td class="p-2 font-mono text-[11px]">{fmtBilling(c.totalBilledCents)}</td>
+									<td class="p-2 font-mono text-[11px]">{fmtUsd(c.baseCostUsd)}</td>
+									<td class="p-2 font-mono text-[11px]">{fmtUsd(c.totalCostUsd)}</td>
 								{/if}
 							</tr>
 						{/each}
 					{:else}
 						<tr>
-							<td class="text-muted-foreground p-4 text-xs" colspan="{isGateway ? 7 : 4}">
+							<td class="text-muted-foreground p-4 text-xs" colspan={isGateway ? gatewayColspan : 4}>
 								{currentFilter === 'gateway' ? 'No paid gateway calls logged yet.' : currentFilter === 'agent' ? 'No agent tool calls logged yet.' : 'No activity logged yet.'}
 							</td>
 						</tr>
@@ -237,9 +252,8 @@
 					<tfoot class="border-t-2 border-border bg-muted/30">
 						<tr>
 							<td class="p-2 text-right text-xs font-medium" colspan="4">Total (this page)</td>
-							<td class="p-2 font-mono text-[11px]">{fmtBilling(data.totals.baseBilledCents)}</td>
-							<td class="p-2 font-mono text-[11px]">{fmtBilling(data.totals.markupBilledCents)}</td>
-							<td class="p-2 font-mono text-[11px]">{fmtBilling(data.totals.totalBilledCents)}</td>
+							<td class="p-2 font-mono text-[11px]">{fmtUsd(data.totals.baseCostUsd)}</td>
+							<td class="p-2 font-mono text-[11px]">{fmtUsd(data.totals.totalCostUsd)}</td>
 						</tr>
 					</tfoot>
 				{/if}
@@ -247,5 +261,22 @@
 		</Card.Content>
 	</Card.Root>
 
-
+	{#if data.pagination.totalPages > 1}
+		<div class="mt-4 flex items-center justify-center gap-3">
+			{#if data.pagination.hasPrev}
+				<a href={pageUrl(data.pagination.page - 1)}>
+					<Button variant="outline" size="xs">Previous</Button>
+				</a>
+			{/if}
+			<span class="text-muted-foreground text-xs">
+				Page {data.pagination.page} of {data.pagination.totalPages}
+				({data.pagination.totalCount} entries)
+			</span>
+			{#if data.pagination.hasNext}
+				<a href={pageUrl(data.pagination.page + 1)}>
+					<Button variant="outline" size="xs">Next</Button>
+				</a>
+			{/if}
+		</div>
+	{/if}
 </div>

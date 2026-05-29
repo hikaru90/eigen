@@ -1,3 +1,8 @@
+/**
+ * Apache AGE graph adapter (OpenCypher via `ag_catalog.cypher` on `AGE_GRAPH_NAME`).
+ * Module path `$lib/server/graph/falkor` is retained for import stability after the
+ * FalkorDB → AGE cutover; runtime graph operations do not use FalkorDB.
+ */
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 import {
 	renderCypherQuery,

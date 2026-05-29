@@ -3,9 +3,12 @@
  *
  * `selectRetrievalModeFromQuery` and `CONTEXT_WEIGHTS.relation_centric` support **deferred**
  * AC-011/013 (relation-centric routing). They are **not** wired into `searchThoughts`, MCP
- * `search_thoughts`, or HTTP retrieval until that scope is explicitly re-opened; production
+ * `retrieve_thoughts`, or HTTP retrieval until that scope is explicitly re-opened; production
  * paths always use `CONTEXT_WEIGHTS.default` unless a caller passes explicit `weights`
  * (e.g. `composeAnswer` input).
+ *
+ * Global sensemaking (`searchGlobal` + `classifyQueryType` `'global'`) is similarly deferred;
+ * see docs/repo-map/retrieval.md § Global retrieval (deferred).
  */
 
 export type RetrievalMode = 'default' | 'relation_centric';

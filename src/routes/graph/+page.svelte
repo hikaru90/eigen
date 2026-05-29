@@ -15,6 +15,11 @@
     nodeFillForGraph,
     customEntityFillsFromLegendSections,
   } from "$lib/graph/graph-ontology-legend";
+  import {
+    COMMUNITY_HULL_GRADIENT,
+    communityCircleFromPositions,
+    communityGradientId,
+  } from "$lib/graph/community-hull";
   import Link2 from "@lucide/svelte/icons/link-2";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import SearchIcon from "@lucide/svelte/icons/search";
@@ -52,25 +57,38 @@
   let rootEl: HTMLDivElement | undefined;
   let search = $state("");
   let edgeKind = $state<string>("all");
+  let communityLevel = $state<string>("leaf");
   let searchPopoverOpen = $state(false);
   let edgePopoverOpen = $state(false);
+  let levelPopoverOpen = $state(false);
 
   const searchFilterActive = $derived(search.trim().length > 0);
   const edgeFilterActive = $derived(edgeKind !== "all");
+  const levelFilterActive = $derived(communityLevel !== "leaf");
   let status = $state<string>("");
   let scheduleGraphUpdate: (() => void) | null = null;
   let scheduleGraphResize: (() => void) | null = null;
   let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
   let scheduleRestorePreEntityZoom: (() => void) | null = null;
   let selectedNode = $state<(typeof data.snapshot.nodes)[number] | null>(null);
+  let selectedCommunityId = $state<string | null>(null);
   let nodeDrawerOpen = $state(false);
 
+  const selectedCommunity = $derived.by(() => {
+    if (!selectedCommunityId) return null;
+    return (data.communities ?? []).find((c) => c.id === selectedCommunityId) ?? null;
+  });
+
   $effect(() => {
-    nodeDrawerOpen = selectedNode !== null && activeTab !== "temporal";
+    nodeDrawerOpen =
+      (selectedNode !== null || selectedCommunity !== null) && activeTab !== "temporal";
   });
 
   function onNodeDrawerOpenChange(open: boolean) {
-    if (!open) selectedNode = null;
+    if (!open) {
+      selectedNode = null;
+      selectedCommunityId = null;
+    }
   }
 
   /** Convert an embedding-map dot click into the same selectedNode shape so the detail panel works for both tabs. */
@@ -481,9 +499,57 @@
     return data.snapshot.edges.filter((e) => e.sourceId === id || e.targetId === id);
   });
 
+  const selectedCommunityMembers = $derived.by(() => {
+    if (!selectedCommunity) return [];
+    const memberIds = new Set(selectedCommunity.memberEntityIds);
+    return data.snapshot.nodes.filter((n) => n.kind === "Entity" && memberIds.has(n.id));
+  });
+
   const legendCustomEntityFills = $derived(
     customEntityFillsFromLegendSections(data.graphLegendSections ?? []),
   );
+  const availableCommunityLevels = $derived.by(() => {
+    const unique = [...new Set((data.communities ?? []).map((c) => c.level))];
+    return unique.sort((a, b) => b - a);
+  });
+  const selectedCommunityLevel = $derived.by(() => {
+    if (communityLevel === "leaf") {
+      return availableCommunityLevels[0] ?? null;
+    }
+    const parsed = Number.parseInt(communityLevel, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  });
+  const communityEvidenceById = $derived.by(() => {
+    const edgeMap = new Map<string, number>();
+    for (const edge of data.snapshot.edges) {
+      const key = `${edge.sourceId}|${edge.targetId}`;
+      edgeMap.set(key, (edgeMap.get(key) ?? 0) + 1);
+      const reverse = `${edge.targetId}|${edge.sourceId}`;
+      edgeMap.set(reverse, (edgeMap.get(reverse) ?? 0) + 1);
+    }
+
+    const evidence = new Map<string, string>();
+    for (const community of data.communities ?? []) {
+      const memberSet = new Set(community.memberEntityIds);
+      const kindCounts = new Map<string, number>();
+      let supportEdges = 0;
+      for (const edge of data.snapshot.edges) {
+        if (!memberSet.has(edge.sourceId) || !memberSet.has(edge.targetId)) continue;
+        supportEdges++;
+        kindCounts.set(edge.kind, (kindCounts.get(edge.kind) ?? 0) + 1);
+      }
+      const topKinds = [...kindCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 2)
+        .map(([kind, count]) => `${kind}:${count}`);
+      const detail = topKinds.length > 0 ? ` (${topKinds.join(", ")})` : "";
+      evidence.set(
+        community.id,
+        `${community.levelLabel} ${community.levelIntent}; support edges: ${supportEdges}${detail}`,
+      );
+    }
+    return evidence;
+  });
 
   function selectedNodeFill(node: (typeof data.snapshot.nodes)[number]): string {
     return nodeFillForGraph(node.kind, node.subtype, legendCustomEntityFills);
@@ -508,6 +574,16 @@
     kind: string;
   };
 
+  type CommunityHull = {
+    id: string;
+    level: number;
+    name: string;
+    description: string | null;
+    cx: number;
+    cy: number;
+    r: number;
+  };
+
   let teardown: (() => void) | undefined;
 
   function norm(s: string): string {
@@ -522,6 +598,7 @@
 
   $effect(() => {
     data.snapshot;
+    data.communities;
     queueMicrotask(() => scheduleGraphUpdate?.());
   });
 
@@ -589,13 +666,32 @@
           m.append("feMergeNode").attr("in", "SourceGraphic");
         });
 
+      const defs = svg.select("defs");
+      const grad = defs
+        .append("radialGradient")
+        .attr("id", communityGradientId())
+        .attr("cx", "50%")
+        .attr("cy", "50%")
+        .attr("r", "50%");
+      grad.append("stop").attr("offset", "0%").attr("stop-color", COMMUNITY_HULL_GRADIENT.center);
+      grad.append("stop").attr("offset", "65%").attr("stop-color", COMMUNITY_HULL_GRADIENT.mid);
+      grad.append("stop").attr("offset", "100%").attr("stop-color", COMMUNITY_HULL_GRADIENT.edge);
+
       const gZoom = svg.append("g");
+      const gCommunityFills = gZoom
+        .append("g")
+        .attr("class", "graph-community-fills")
+        .attr("pointer-events", "none");
       const gLinks = gZoom
         .append("g")
         .attr("class", "graph-links")
         .attr("stroke", "currentColor")
         .attr("stroke-opacity", 0.35);
       const gNodes = gZoom.append("g").attr("class", "graph-nodes");
+      const gCommunityChrome = gZoom
+        .append("g")
+        .attr("class", "graph-community-chrome")
+        .attr("pointer-events", "none");
 
       const zoom = d3
         .zoom<SVGSVGElement, unknown>()
@@ -607,6 +703,7 @@
       svg.on("click.details-clear", (event) => {
         const el = event.target as Element | null;
         if (!el?.closest?.(".graph-node")) selectedNode = null;
+        if (!el?.closest?.(".community-hull-label-wrap")) selectedCommunityId = null;
       });
 
       let preEntityZoomTransform: ReturnType<typeof d3.zoomIdentity> | null = null;
@@ -724,6 +821,8 @@
 
       let simulation: d3.Simulation<SimNode, SimLink> | null = null;
       let linkSelection = gLinks.selectAll<SVGGElement, SimLink>("g");
+      let communityFillSelection = gCommunityFills.selectAll<SVGGElement, CommunityHull>("g");
+      let communityChromeSelection = gCommunityChrome.selectAll<SVGGElement, CommunityHull>("g");
       let nodeSelection = gNodes.selectAll<SVGGElement, SimNode>("g.graph-node");
 
       const dragBehavior = d3
@@ -770,6 +869,122 @@
         });
       }
 
+      function communityHullsForNodes(nodes: SimNode[]): CommunityHull[] {
+        const posById = new Map<string, { x: number; y: number }>();
+        for (const n of nodes) {
+          const x = n.x ?? 0;
+          const y = n.y ?? 0;
+          if (Number.isFinite(x) && Number.isFinite(y)) posById.set(n.id, { x, y });
+        }
+
+        const activeLevel = selectedCommunityLevel;
+        if (activeLevel === null) return [];
+        const hulls: CommunityHull[] = [];
+        for (const community of data.communities ?? []) {
+          if (community.level !== activeLevel) continue;
+          const positions: { x: number; y: number }[] = [];
+          for (const entityId of community.memberEntityIds) {
+            const p = posById.get(entityId);
+            if (p) positions.push(p);
+          }
+          if (positions.length === 0) continue;
+          const circle = communityCircleFromPositions(positions, community.level === 0 ? 48 : 36);
+          if (!circle) continue;
+          hulls.push({
+            id: community.id,
+            level: community.level,
+            name: community.name,
+            description: [community.description, communityEvidenceById.get(community.id)]
+              .filter((v) => typeof v === "string" && v.trim().length > 0)
+              .join("\n\n"),
+            cx: circle.cx,
+            cy: circle.cy,
+            r: circle.r,
+          });
+        }
+        return hulls.sort((a, b) => a.level - b.level);
+      }
+
+      function updateCommunityHulls(nodes: SimNode[]) {
+        const hulls = communityHullsForNodes(nodes);
+
+        communityFillSelection = gCommunityFills
+          .selectAll<SVGGElement, CommunityHull>("g.community-hull-fill")
+          .data(hulls, (d) => d.id)
+          .join(
+            (enter) => {
+              const g = enter.append("g").attr("class", "community-hull-fill");
+              g.append("circle")
+                .attr("fill", `url(#${communityGradientId()})`)
+                .attr("stroke", "none");
+              return g;
+            },
+            (update) => update,
+            (exit) => exit.remove(),
+          )
+          .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
+          .select("circle")
+          .attr("r", (d) => d.r);
+
+        communityChromeSelection = gCommunityChrome
+          .selectAll<SVGGElement, CommunityHull>("g.community-hull-chrome")
+          .data(hulls, (d) => d.id)
+          .join(
+            (enter) => {
+              const g = enter.append("g").attr("class", "community-hull-chrome");
+              g.append("circle")
+                .attr("class", "community-hull-border")
+                .attr("fill", "none")
+                .attr("stroke", "#ffffff")
+                .attr("stroke-width", 1.25)
+                .attr("stroke-dasharray", "3 4")
+                .attr("pointer-events", "none");
+              const labelWrap = g
+                .append("g")
+                .attr("class", "community-hull-label-wrap")
+                .attr("pointer-events", "all");
+              labelWrap
+                .append("rect")
+                .attr("class", "community-hull-label-bg")
+                .attr("fill", "#ffffff")
+                .attr("rx", 3);
+              labelWrap
+                .append("text")
+                .attr("class", "community-hull-label")
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("font-family", "monospace")
+                .attr("fill", "#000000")
+                .attr("dy", "0.35em");
+              return g;
+            },
+            (update) => update,
+            (exit) => exit.remove(),
+          )
+          .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
+          .each(function (d) {
+            const g = d3.select(this);
+            g.select("circle.community-hull-border").attr("r", d.r);
+            const labelWrap = g.select("g.community-hull-label-wrap");
+            labelWrap.attr("transform", `translate(0, ${-(d.r + 8)})`);
+            const label = labelWrap.select("text.community-hull-label").text(d.name);
+            const bbox = (label.node() as SVGTextElement | null)?.getBBox();
+            if (bbox) {
+              labelWrap
+                .select("rect.community-hull-label-bg")
+                .attr("x", bbox.x - 4)
+                .attr("y", bbox.y - 2)
+                .attr("width", bbox.width + 8)
+                .attr("height", bbox.height + 4);
+            }
+            labelWrap.select("title").remove();
+            if (d.description) {
+              labelWrap.append("title").text(d.description);
+            }
+            labelWrap.style("cursor", "pointer").on("click", (event, hull) => onCommunityClick(event, hull));
+          });
+      }
+
       function ticked() {
         linkSelection
           .select("line")
@@ -783,6 +998,8 @@
         linkSelection.select("text").attr("x", midpointX).attr("y", midpointY);
 
         nodeSelection.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+
+        updateCommunityHulls(simulation?.nodes() ?? []);
       }
 
       function midpointX(d: SimLink) {
@@ -799,6 +1016,7 @@
 
       function onNodeClick(event: MouseEvent, d: SimNode) {
         event.stopPropagation();
+        selectedCommunityId = null;
         const prev = selectedNode;
         const hit = data.snapshot.nodes.find((n) => n.id === d.id && n.kind === "Entity");
         selectedNode = hit ?? null;
@@ -817,6 +1035,13 @@
           }
         }
         scheduleApplyHighlight?.(hit?.id ?? null);
+      }
+
+      function onCommunityClick(event: MouseEvent, d: CommunityHull) {
+        event.stopPropagation();
+        selectedNode = null;
+        selectedCommunityId = d.id;
+        scheduleApplyHighlight?.(null);
       }
 
       function updateGraph() {
@@ -952,7 +1177,7 @@
         }
 
         applyHighlight(selectedNode?.id ?? null);
-        status = `${nodes.length} nodes · ${links.length} edges (live FalkorDB)`;
+        status = `${nodes.length} nodes · ${links.length} edges (live AGE graph)`;
       }
 
       function resizeGraph() {
@@ -1072,6 +1297,35 @@
                   </Select.Root>
                 </Popover.Content>
               </Popover.Root>
+              <Popover.Root bind:open={levelPopoverOpen}>
+                <Popover.Trigger
+                  class="border-border bg-background text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex size-8 shrink-0 items-center justify-center rounded-none border shadow-none transition-colors focus-visible:ring-1 focus-visible:outline-none {levelFilterActive
+                    ? 'ring-primary/40 bg-muted/40 ring-1'
+                    : ''}"
+                  aria-label="Community level filter"
+                  aria-expanded={levelPopoverOpen}
+                >
+                  <span class="text-[10px] font-semibold">L</span>
+                </Popover.Trigger>
+                <Popover.Content align="start" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
+                  <Label class="text-xs">Community level</Label>
+                  <Select.Root type="single" bind:value={communityLevel}>
+                    <Select.Trigger class="w-full font-mono text-xs">
+                      {communityLevel === "leaf"
+                        ? "Leaf level (default)"
+                        : `L${communityLevel}`}
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Item value="leaf">Leaf level (tightest)</Select.Item>
+                      {#each availableCommunityLevels as level (level)}
+                        <Select.Item value={String(level)}>
+                          L{level}
+                        </Select.Item>
+                      {/each}
+                    </Select.Content>
+                  </Select.Root>
+                </Popover.Content>
+              </Popover.Root>
             </div>
             {#if status}
               <p class="text-muted-foreground min-w-0 font-mono text-[11px] leading-tight">
@@ -1171,13 +1425,91 @@
     shouldScaleBackground={false}
   >
     <Drawer.Content
-      class="border-border !max-h-[min(92dvh,920px)] flex flex-col gap-0 overflow-hidden border-t bg-background p-0"
+      class="border-border max-h-[min(92dvh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!"
     >
-      {#if selectedNode && activeTab !== "temporal"}
+      {#if selectedCommunity && activeTab !== "temporal"}
+        <Drawer.Description class="sr-only">
+          Community summary for the selected graph cluster.
+        </Drawer.Description>
+        <div
+          class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10"
+          data-vaul-no-drag
+        >
+          <div class="flex items-start justify-between gap-3">
+            <Drawer.Header class="min-w-0 flex-1 space-y-1 p-0 text-left">
+              <p class="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+                Community
+              </p>
+              <Drawer.Title class="text-foreground text-sm font-semibold">
+                {selectedCommunity.name || "—"}
+              </Drawer.Title>
+              <dl
+                class="text-muted-foreground grid gap-x-4 gap-y-1 pt-1 font-mono text-[11px] sm:grid-cols-2"
+              >
+                <div class="contents">
+                  <dt class="text-muted-foreground/80">Level</dt>
+                  <dd class="text-foreground truncate">{selectedCommunity.levelLabel}</dd>
+                </div>
+                <div class="contents">
+                  <dt class="text-muted-foreground/80">Scope</dt>
+                  <dd class="text-foreground truncate">{selectedCommunity.levelIntent}</dd>
+                </div>
+                <div class="contents sm:col-span-2">
+                  <dt class="text-muted-foreground/80">Members</dt>
+                  <dd class="text-foreground truncate">
+                    {selectedCommunity.memberEntityIds.length} entities
+                  </dd>
+                </div>
+              </dl>
+            </Drawer.Header>
+            <Drawer.Close
+              class="text-destructive hover:text-destructive/80 shrink-0 rounded-md p-1.5 transition-colors focus-visible:ring-ring/50 focus-visible:ring-1 focus-visible:outline-none"
+              aria-label="Close"
+            >
+              <X class="size-4.5" strokeWidth={1.75} aria-hidden="true" />
+            </Drawer.Close>
+          </div>
+          <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
+            <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+              Summary
+            </p>
+            {#if selectedCommunity.description}
+              <p class="text-foreground text-sm leading-relaxed whitespace-pre-wrap">
+                {selectedCommunity.description}
+              </p>
+            {:else}
+              <p class="text-muted-foreground text-sm">
+                No summary generated yet. Run the overnight heartbeat to build community summaries.
+              </p>
+            {/if}
+          </div>
+          {#if selectedCommunityMembers.length > 0}
+            <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
+              <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+                Entities ({selectedCommunityMembers.length})
+              </p>
+              <ul class="max-h-40 space-y-1.5 overflow-y-auto font-mono text-[11px]">
+                {#each selectedCommunityMembers as member (member.id)}
+                  <li class="text-foreground flex min-w-0 items-baseline gap-x-2">
+                    {#if member.subtype}
+                      <span class="text-muted-foreground shrink-0">{member.subtype}</span>
+                      <span class="text-muted-foreground shrink-0">·</span>
+                    {/if}
+                    <span class="min-w-0 truncate">{member.label || member.id}</span>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+        </div>
+      {:else if selectedNode && activeTab !== "temporal"}
         <Drawer.Description class="sr-only">
           Details and edits for the selected graph or embedding-map node.
         </Drawer.Description>
-        <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10">
+        <div
+          class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10"
+          data-vaul-no-drag
+        >
           <div class="flex items-start justify-between gap-3">
             <Drawer.Header class="min-w-0 flex-1 space-y-1 p-0 text-left">
               <p class="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">

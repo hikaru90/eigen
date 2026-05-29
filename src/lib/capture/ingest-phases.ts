@@ -30,7 +30,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 	},
 	graph: {
 		title: 'Syncing memory graph',
-		description: 'Upserting this thought as a node in FalkorDB so graph navigation stays aligned with Postgres.'
+		description: 'Upserting this thought as a node in the AGE graph so graph navigation stays aligned with Postgres.'
 	},
 	relations: {
 		title: 'Resolving thought links',

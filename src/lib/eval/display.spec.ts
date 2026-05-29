@@ -32,7 +32,7 @@ describe('eval display', () => {
 				id: 'graph_ec_011',
 				label: 'Graph node exists (ec_011)',
 				passed: true,
-				evidence: 'Thought uuid found in Falkor'
+				evidence: 'Thought uuid found in AGE graph'
 			},
 			entries
 		);

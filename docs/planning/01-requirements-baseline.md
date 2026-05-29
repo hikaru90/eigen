@@ -32,7 +32,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 - Thought storage and retrieval:
   - PostgreSQL as system of record.
   - `pgvector` semantic retrieval (cosine kNN over stored embeddings).
-  - **FalkorDB** (OpenCypher) for memory graph edges and graph expansion during retrieval (per-tenant graph keys); relational `thought_relation` remains in Postgres for SoR.
+  - **Apache AGE** (OpenCypher in Postgres) for memory graph edges and graph expansion during retrieval (`AGE_GRAPH_NAME`, default `eigen_graph`); relational `thought_relation` remains in Postgres for SoR.
   - Immediate **hybrid** retrieval from day one: **semantic** channel = pgvector + lexical (`ts_rank_cd` over precomputed `lexical_text` / `tsvector`), fused with **graph** channel (neighbor expansion + entity-anchored paths), merged via weighted reciprocal rank fusion (default **0.7** on the combined semantic RRF contribution, **0.3** on graph RRF — see AC-012).
   - Deterministic **lexical search surface** on stored thoughts (`lexical_text` derived from normalized text) for Postgres `tsvector` / keyword fusion with semantic search.
   - **Retrieval quality diagnostics (metadata-only):** each search may persist numeric channel diagnostics (e.g. semantic share for top results) in Postgres for effectiveness tracking; **no** query text, thought bodies, thought ids, or embeddings in that row (GDPR-aligned).
@@ -67,7 +67,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 - Advanced analytics dashboards.
 - Sharing/collaboration features.
 - Complex workflow automations.
-- Fine-tuned reranking optimization.
+- Fine-tuned reranking optimization (LLM listwise second stage is documented but deferred — see [`docs/repo-map/retrieval.md`](../repo-map/retrieval.md#reranking-deferred-second-stage)).
 - Deep observability/audit tooling.
 
 ## Functional Requirements

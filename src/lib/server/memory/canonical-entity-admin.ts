@@ -1,7 +1,7 @@
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, entityResolutionLog, thought } from '$lib/server/db/schema';
-import { deleteEntityVertexFromGraph, upsertEntityNode } from '$lib/server/graph/falkor';
+import { canonicalEntity, entityAlias, entityResolutionLog, thought } from '$lib/server/db/schema';
+import { deleteEntityVertexFromGraph, upsertEntityNode, upsertMentionEdge } from '$lib/server/graph/falkor';
 import {
 	activeEntityTypeKindKeys,
 	DEFAULT_ENTITY_TYPE_KIND_KEYS,
@@ -108,7 +108,7 @@ export async function updateCanonicalEntityForUser(
 }
 
 /**
- * Rewrites `canonical_entity.entity_type` (and Falkor `entity_type`) when the stored value is not
+ * Rewrites `canonical_entity.entity_type` (and AGE `entity_type`) when the stored value is not
  * one of the user's **active entity_type** ontology kind keys — e.g. legacy rows typed with old cognitive keys.
  * Picks the first still-active entity type kind as fallback (defaults to 'concept').
  */
@@ -179,6 +179,23 @@ export async function syncCanonicalEntityVertexToGraph(
 		label: row.label,
 		entityType: row.entityType
 	});
+	const mentionRows = await getDb()
+		.selectDistinct({ thoughtId: entityResolutionLog.thoughtId })
+		.from(entityResolutionLog)
+		.where(
+			and(
+				eq(entityResolutionLog.userId, userId),
+				eq(entityResolutionLog.canonicalEntityId, row.id)
+			)
+		);
+	for (const mention of mentionRows) {
+		if (!mention.thoughtId) continue;
+		await upsertMentionEdge({
+			userId,
+			thoughtId: mention.thoughtId,
+			entityId: row.id
+		});
+	}
 	return { ok: true };
 }
 
@@ -195,4 +212,128 @@ export async function deleteCanonicalEntityForUser(
 		.where(and(eq(canonicalEntity.id, row.id), eq(canonicalEntity.userId, userId)));
 
 	return { ok: true };
+}
+
+const DEDUP_DISTANCE_THRESHOLD = 0.08;
+const DEDUP_CANDIDATE_LIMIT = 200;
+const EMBEDDING_DIMENSIONS = 1536;
+
+function toVectorLiteral(vector: number[]): string {
+	return `[${vector.join(',')}]`;
+}
+
+function toVectorSql(vector: number[]) {
+	if (vector.length !== EMBEDDING_DIMENSIONS) {
+		throw new Error(
+			`Invalid canonical entity embedding length: ${vector.length}. Expected ${EMBEDDING_DIMENSIONS}.`
+		);
+	}
+	if (!vector.every((n) => Number.isFinite(n))) {
+		throw new Error('Invalid canonical entity embedding: expected finite values');
+	}
+	return sql.raw(`'${toVectorLiteral(vector)}'::vector`);
+}
+
+export type ConsolidateCanonicalEntityAliasesResult = {
+	scanned: number;
+	candidates: number;
+	merged: number;
+};
+
+/**
+ * Nightly dedup pass: merge very-close duplicate canonical entities and keep
+ * prior keys as aliases on the surviving entity.
+ */
+export async function consolidateCanonicalEntityAliasesForUser(
+	userId: string
+): Promise<ConsolidateCanonicalEntityAliasesResult> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			id: canonicalEntity.id,
+			canonicalKey: canonicalEntity.canonicalKey,
+			entityType: canonicalEntity.entityType,
+			embedding: canonicalEntity.embedding,
+			createdAt: canonicalEntity.createdAt
+		})
+		.from(canonicalEntity)
+		.where(and(eq(canonicalEntity.userId, userId), isNotNull(canonicalEntity.embedding)))
+		.orderBy(desc(canonicalEntity.createdAt))
+		.limit(DEDUP_CANDIDATE_LIMIT);
+
+	const available = rows.filter(
+		(row): row is typeof row & { embedding: number[] } => Array.isArray(row.embedding)
+	);
+	if (available.length < 2) return { scanned: available.length, candidates: 0, merged: 0 };
+
+	const mergedIds = new Set<string>();
+	let candidates = 0;
+	let merged = 0;
+
+	for (const row of available) {
+		if (mergedIds.has(row.id)) continue;
+		let vectorSql;
+		try {
+			vectorSql = toVectorSql(row.embedding);
+		} catch {
+			continue;
+		}
+		const distanceExpr = sql<number>`${canonicalEntity.embedding} <=> ${vectorSql}`;
+		const [nearest] = await db
+			.select({
+				id: canonicalEntity.id,
+				canonicalKey: canonicalEntity.canonicalKey,
+				entityType: canonicalEntity.entityType,
+				createdAt: canonicalEntity.createdAt,
+				distance: distanceExpr
+			})
+			.from(canonicalEntity)
+			.where(
+				and(
+					eq(canonicalEntity.userId, userId),
+					isNotNull(canonicalEntity.embedding),
+					eq(canonicalEntity.entityType, row.entityType),
+					sql`${canonicalEntity.id} <> ${row.id}`
+				)
+			)
+			.orderBy(distanceExpr)
+			.limit(1);
+
+		if (!nearest || typeof nearest.distance !== 'number' || nearest.distance > DEDUP_DISTANCE_THRESHOLD) {
+			continue;
+		}
+		if (mergedIds.has(nearest.id)) continue;
+
+		candidates++;
+		const primary = row.createdAt <= nearest.createdAt ? row : nearest;
+		const secondary = primary.id === row.id ? nearest : row;
+		mergedIds.add(secondary.id);
+
+		await db
+			.update(entityResolutionLog)
+			.set({ canonicalEntityId: primary.id })
+			.where(
+				and(
+					eq(entityResolutionLog.userId, userId),
+					eq(entityResolutionLog.canonicalEntityId, secondary.id)
+				)
+			);
+
+		await db
+			.insert(entityAlias)
+			.values({
+				userId,
+				canonicalEntityId: primary.id,
+				aliasText: secondary.canonicalKey
+			})
+			.onConflictDoNothing();
+
+		await deleteEntityVertexFromGraph({ userId, entityId: secondary.id });
+		await db
+			.delete(canonicalEntity)
+			.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, secondary.id)));
+		merged++;
+	}
+
+	return { scanned: available.length, candidates, merged };
 }

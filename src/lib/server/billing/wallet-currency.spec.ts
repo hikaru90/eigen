@@ -27,7 +27,7 @@ describe('alignWalletCurrencyWithPreference', () => {
 			from: vi.fn().mockReturnThis(),
 			where: vi.fn().mockReturnThis(),
 			limit: vi.fn().mockResolvedValue([
-				{ availableCents: 0, reservedCents: 0, currency: 'USD' }
+				{ availableCents: 0, reservedCents: 0, pendingBillingMicroUsd: 0, currency: 'USD' }
 			])
 		};
 		selectMock.mockReturnValue(chain);

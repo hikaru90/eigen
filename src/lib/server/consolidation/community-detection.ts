@@ -1,30 +1,194 @@
 /**
  * Community detection consolidation job.
  *
- * Fetches entity-entity edges from FalkorDB, runs the Leiden community detection
+ * Fetches entity-entity edges from the AGE graph, runs the Leiden community detection
  * algorithm, then persists:
  *   - graph_community rows (4 levels: L3 leaf → L0 root)
  *   - community_member rows (entity → community membership per level)
  *
- * Should be triggered by the nightly consolidation runner when the entity count
- * has grown by ≥15% since the last run, or ≥24h have passed with new captures.
+ * Should be triggered by the nightly consolidation runner on every heartbeat.
  *
- * Idempotent: deletes all existing community/member rows for the user before
- * writing new ones. This is safe because downstream community_summary rows are
- * also cascaded when graph_community rows are deleted.
+ * Idempotent: compares the new Leiden partition to persisted membership and skips
+ * DB writes when unchanged (preserving community_summary rows). When the graph
+ * changes, deletes all existing community/member rows for the user before writing
+ * new ones (community_summary rows cascade via FK).
  */
 
 import { eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { graphCommunity, communityMember, canonicalEntity } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/falkor';
-import { detectCommunities } from './leiden';
+import { detectCommunities, type CommunityHierarchy } from './leiden';
 
 export type CommunityDetectionResult = {
 	entityCount: number;
 	communityCounts: number[];  // per level, index 0 = L3
 	totalCommunities: number;
+	/** False when Leiden partition matches persisted membership (no DB rewrite). */
+	changed: boolean;
+	graphHealth: CommunityGraphHealth;
 };
+
+/** DB level values in leaf→root order (matches hierarchy.levels indexing). */
+const LEVEL_SCHEMA_INDEX = [3, 2, 1, 0] as const;
+const LOW_DENSITY_THRESHOLD = 0.015;
+const HIGH_ISOLATION_THRESHOLD = 0.6;
+const HIGH_COMPONENT_THRESHOLD = 6;
+
+export type CommunityGraphHealth = {
+	edgePolicy: 'entity_relates_only';
+	leafLevel: 3;
+	rootLevel: 0;
+	componentCount: number;
+	isolatedNodeCount: number;
+	isolatedNodeRatio: number;
+	relationEdgeCount: number;
+	relationEdgeDensity: number;
+	lowConfidence: boolean;
+	reasons: string[];
+};
+
+function buildGraphHealth(input: {
+	nodeIds: string[];
+	edges: Array<{ sourceId: string; targetId: string }>;
+}): CommunityGraphHealth {
+	const neighbors = new Map<string, Set<string>>();
+	for (const nodeId of input.nodeIds) {
+		neighbors.set(nodeId, new Set<string>());
+	}
+	for (const edge of input.edges) {
+		if (edge.sourceId === edge.targetId) continue;
+		const source = neighbors.get(edge.sourceId);
+		const target = neighbors.get(edge.targetId);
+		if (!source || !target) continue;
+		source.add(edge.targetId);
+		target.add(edge.sourceId);
+	}
+
+	let isolatedNodeCount = 0;
+	for (const nodeId of input.nodeIds) {
+		if ((neighbors.get(nodeId)?.size ?? 0) === 0) isolatedNodeCount++;
+	}
+
+	const visited = new Set<string>();
+	let componentCount = 0;
+	for (const nodeId of input.nodeIds) {
+		if (visited.has(nodeId)) continue;
+		componentCount++;
+		const queue: string[] = [nodeId];
+		visited.add(nodeId);
+		while (queue.length > 0) {
+			const current = queue.shift();
+			if (!current) continue;
+			for (const next of neighbors.get(current) ?? []) {
+				if (visited.has(next)) continue;
+				visited.add(next);
+				queue.push(next);
+			}
+		}
+	}
+
+	const nodeCount = input.nodeIds.length;
+	const relationEdgeCount = input.edges.length;
+	const possibleEdgeCount = nodeCount > 1 ? (nodeCount * (nodeCount - 1)) / 2 : 1;
+	const relationEdgeDensity = relationEdgeCount / possibleEdgeCount;
+	const isolatedNodeRatio = nodeCount > 0 ? isolatedNodeCount / nodeCount : 0;
+	const reasons: string[] = [];
+	if (relationEdgeDensity < LOW_DENSITY_THRESHOLD) {
+		reasons.push(`low relation density (${relationEdgeDensity.toFixed(4)})`);
+	}
+	if (isolatedNodeRatio > HIGH_ISOLATION_THRESHOLD) {
+		reasons.push(`high isolation (${Math.round(isolatedNodeRatio * 100)}%)`);
+	}
+	if (componentCount > HIGH_COMPONENT_THRESHOLD) {
+		reasons.push(`many disconnected components (${componentCount})`);
+	}
+
+	return {
+		edgePolicy: 'entity_relates_only',
+		leafLevel: 3,
+		rootLevel: 0,
+		componentCount,
+		isolatedNodeCount,
+		isolatedNodeRatio,
+		relationEdgeCount,
+		relationEdgeDensity,
+		lowConfidence: reasons.length > 0,
+		reasons
+	};
+}
+
+function buildMembershipFingerprint(
+	byLevel: Map<number, Map<string, Set<string>>>
+): string {
+	const parts: string[] = [];
+	for (const dbLevel of [...byLevel.keys()].sort((a, b) => b - a)) {
+		const commMap = byLevel.get(dbLevel)!;
+		const entityAssignments: string[] = [];
+		for (const members of commMap.values()) {
+			const signature = [...members].sort().join(',');
+			for (const entityId of members) {
+				entityAssignments.push(`${entityId}=${signature}`);
+			}
+		}
+		entityAssignments.sort();
+		parts.push(`L${dbLevel}:${entityAssignments.join('|')}`);
+	}
+	return parts.join('\n');
+}
+
+function buildHierarchyFingerprint(hierarchy: CommunityHierarchy): string {
+	const byLevel = new Map<number, Map<string, Set<string>>>();
+	for (let i = 0; i < hierarchy.levels.length; i++) {
+		const level = hierarchy.levels[i];
+		const dbLevel = LEVEL_SCHEMA_INDEX[i];
+		const levelMap = new Map<string, Set<string>>();
+		for (const [commKey, members] of level.communities) {
+			levelMap.set(commKey, new Set(members));
+		}
+		byLevel.set(dbLevel, levelMap);
+	}
+	return buildMembershipFingerprint(byLevel);
+}
+
+async function loadStoredMembershipFingerprint(userId: string): Promise<string | null> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			level: graphCommunity.level,
+			entityId: communityMember.canonicalEntityId,
+			communityId: communityMember.communityId
+		})
+		.from(communityMember)
+		.innerJoin(graphCommunity, eq(communityMember.communityId, graphCommunity.id))
+		.where(eq(communityMember.userId, userId));
+
+	if (rows.length === 0) return null;
+
+	const byLevel = new Map<number, Map<string, Set<string>>>();
+	for (const row of rows) {
+		if (!byLevel.has(row.level)) byLevel.set(row.level, new Map());
+		const levelMap = byLevel.get(row.level)!;
+		if (!levelMap.has(row.communityId)) levelMap.set(row.communityId, new Set());
+		levelMap.get(row.communityId)!.add(row.entityId);
+	}
+	return buildMembershipFingerprint(byLevel);
+}
+
+async function loadStoredCommunityCounts(userId: string): Promise<number[]> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			level: graphCommunity.level,
+			n: sql<number>`count(*)::int`
+		})
+		.from(graphCommunity)
+		.where(eq(graphCommunity.userId, userId))
+		.groupBy(graphCommunity.level);
+
+	const countsByLevel = new Map(rows.map((row) => [row.level, row.n]));
+	return LEVEL_SCHEMA_INDEX.map((level) => countsByLevel.get(level) ?? 0);
+}
 
 /**
  * Run community detection for a user and persist results.
@@ -42,17 +206,54 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 		.where(eq(canonicalEntity.userId, userId));
 
 	const nodeIds = entities.map((e) => e.id);
+	const emptyHealth: CommunityGraphHealth = {
+		edgePolicy: 'entity_relates_only',
+		leafLevel: 3,
+		rootLevel: 0,
+		componentCount: nodeIds.length > 0 ? nodeIds.length : 0,
+		isolatedNodeCount: nodeIds.length,
+		isolatedNodeRatio: nodeIds.length > 0 ? 1 : 0,
+		relationEdgeCount: 0,
+		relationEdgeDensity: 0,
+		lowConfidence: nodeIds.length > 0,
+		reasons: nodeIds.length > 0 ? ['insufficient relation edges'] : []
+	};
 
 	if (nodeIds.length < 2) {
 		// Not enough entities for meaningful communities.
-		return { entityCount: nodeIds.length, communityCounts: [], totalCommunities: 0 };
+		const storedFingerprint = await loadStoredMembershipFingerprint(userId);
+		const changed = storedFingerprint !== null;
+		if (changed) {
+			await db.delete(graphCommunity).where(eq(graphCommunity.userId, userId));
+		}
+		return {
+			entityCount: nodeIds.length,
+			communityCounts: [],
+			totalCommunities: 0,
+			changed,
+			graphHealth: emptyHealth
+		};
 	}
 
-	// Load entity-entity edges with weights from FalkorDB.
+	// Load entity-entity edges with weights from the AGE graph.
 	const edges = await fetchEntityEdgesForUser({ userId });
+	const graphHealth = buildGraphHealth({ nodeIds, edges });
 
 	// Run Leiden community detection (4 levels).
 	const hierarchy = detectCommunities(nodeIds, edges, 4);
+	const nextFingerprint = buildHierarchyFingerprint(hierarchy);
+	const storedFingerprint = await loadStoredMembershipFingerprint(userId);
+
+	if (storedFingerprint !== null && storedFingerprint === nextFingerprint) {
+		const communityCounts = await loadStoredCommunityCounts(userId);
+		return {
+			entityCount: nodeIds.length,
+			communityCounts,
+			totalCommunities: communityCounts.reduce((s, n) => s + n, 0),
+			changed: false,
+			graphHealth
+		};
+	}
 
 	// Delete existing community data for this user (cascade deletes community_member
 	// and community_summary rows via FK cascade).
@@ -62,7 +263,6 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 	// L3 = level 3 (leaf), L0 = level 0 (root).
 	// hierarchy.levels[0] = L3, hierarchy.levels[3] = L0.
 	const communityCounts: number[] = [];
-	const levelSchemaIndex = [3, 2, 1, 0]; // hierarchy array index → DB level value
 
 	// We need to build parent relationships between levels.
 	// communityIdMap: algorithmCommunityKey → DB uuid
@@ -70,7 +270,7 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 
 	for (let i = 0; i < hierarchy.levels.length; i++) {
 		const level = hierarchy.levels[i];
-		const dbLevel = levelSchemaIndex[i]; // 3, 2, 1, 0
+		const dbLevel = LEVEL_SCHEMA_INDEX[i]; // 3, 2, 1, 0
 
 		// Determine parent community UUIDs from level i+1 (coarser).
 		// The "parent" of a community at level i is the community that the same
@@ -132,42 +332,8 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 	return {
 		entityCount: nodeIds.length,
 		communityCounts,
-		totalCommunities: communityCounts.reduce((s, n) => s + n, 0)
+		totalCommunities: communityCounts.reduce((s, n) => s + n, 0),
+		changed: true,
+		graphHealth
 	};
-}
-
-/**
- * Check whether community detection should run for a user.
- * Returns true if:
- *   - No communities exist yet, OR
- *   - Entity count has grown by ≥15% since last detection
- */
-export async function shouldRunCommunityDetection(userId: string): Promise<boolean> {
-	const db = getDb();
-
-	const [communityCountRow] = await db
-		.select({ n: sql<number>`count(*)::int` })
-		.from(graphCommunity)
-		.where(eq(graphCommunity.userId, userId));
-
-	if ((communityCountRow?.n ?? 0) === 0) return true;
-
-	// Check entity count growth.
-	const [entityCountRow] = await db
-		.select({ n: sql<number>`count(*)::int` })
-		.from(canonicalEntity)
-		.where(eq(canonicalEntity.userId, userId));
-
-	const [lastMemberCountRow] = await db
-		.select({ total: sql<number>`sum(member_count)::int` })
-		.from(graphCommunity)
-		.where(eq(graphCommunity.userId, userId));
-
-	const currentEntities = entityCountRow?.n ?? 0;
-	const lastDetectedEntities = lastMemberCountRow?.total ?? 0;
-
-	if (lastDetectedEntities === 0) return true;
-
-	const growthRate = (currentEntities - lastDetectedEntities) / lastDetectedEntities;
-	return growthRate >= 0.15;
 }

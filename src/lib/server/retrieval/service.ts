@@ -54,6 +54,7 @@ type RetrievalResult = {
 	id: string;
 	normalizedText: string;
 	category: string;
+	memoryType: string | null;
 	score: number;
 	vectorScore: number;
 	graphScore: number;
@@ -107,7 +108,7 @@ function toVectorLiteral(vector: number[]): string {
  *
  *   - vector  (pgvector cosine distance)
  *   - lexical (Postgres ts_rank_cd over precomputed lexical_text)
- *   - graph   (FalkorDB neighbor expansion from semantic seeds)
+ *   - graph   (Apache AGE neighbor expansion from semantic seeds)
  *
  * Channels are merged via weighted reciprocal rank fusion. Vector and lexical
  * share the "semantic" weight (`weights.vector`) because lexical is the keyword
@@ -134,7 +135,7 @@ export async function searchThoughts(params: {
 
 	const queryEmbedding = params.queryEmbedding ?? await createThoughtEmbedding(params.userId, params.query);
 
-	// Filter-then-traverse temporal path (Postgres slice → Falkor context expansion).
+	// Filter-then-traverse temporal path (Postgres slice → AGE context expansion).
 	const temporalSeeds = isTemporalQuery(params.query)
 		? await filterTemporalEvents({
 				userId: params.userId,
@@ -160,6 +161,7 @@ export async function searchThoughts(params: {
 			id: thought.id,
 			normalizedText: thought.normalizedText,
 			category: thought.category,
+			memoryType: thought.memoryType,
 			metadata: thought.metadata,
 			createdAt: thought.createdAt,
 			distance: vectorDistance
@@ -279,6 +281,7 @@ export async function searchThoughts(params: {
 						id: thought.id,
 						normalizedText: thought.normalizedText,
 						category: thought.category,
+						memoryType: thought.memoryType,
 						metadata: thought.metadata,
 						createdAt: thought.createdAt
 					})
@@ -288,13 +291,20 @@ export async function searchThoughts(params: {
 	type RowMeta = {
 		normalizedText: string;
 		category: string;
+		memoryType: string | null;
 		metadata: Record<string, unknown>;
 		createdAt: Date;
 	};
 	const metaById = new Map<string, RowMeta>();
 	const recordMeta = (
 		id: string,
-		source: { normalizedText: string; category: string; metadata: unknown; createdAt?: Date | null },
+		source: {
+			normalizedText: string;
+			category: string;
+			memoryType?: string | null;
+			metadata: unknown;
+			createdAt?: Date | null;
+		},
 		graphProvenance?: string
 	) => {
 		const prev = metaById.get(id);
@@ -305,10 +315,11 @@ export async function searchThoughts(params: {
 			...(graphProvenance ? { graphProvenance } : {})
 		};
 		metaById.set(id, {
-			normalizedText: prev?.normalizedText ?? source.normalizedText,
-			category: prev?.category ?? source.category,
+			normalizedText: source.normalizedText,
+			category: source.category,
+			memoryType: source.memoryType ?? prev?.memoryType ?? null,
 			metadata: mergedMeta,
-			createdAt: prev?.createdAt ?? source.createdAt ?? new Date(0)
+			createdAt: source.createdAt ?? prev?.createdAt ?? new Date(0)
 		});
 	};
 	for (const row of vectorRows) recordMeta(row.id, row);
@@ -365,6 +376,7 @@ export async function searchThoughts(params: {
 				id,
 				normalizedText: meta.normalizedText,
 				category: meta.category,
+				memoryType: meta.memoryType,
 				metadata: meta.metadata,
 				createdAt: meta.createdAt,
 				vectorScore,

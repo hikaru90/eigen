@@ -60,7 +60,7 @@
 ### AC-010 Retrieval router default mode (active)
 - Given a non-relation-centric query
 - When retrieval runs
-- Then vector-first retrieval path is used, followed by graph expansion/reranking.
+- Then vector-first retrieval path is used, followed by graph expansion and weighted RRF merge (“reranking” here means fused ranking, not a separate reranker model — see [`docs/repo-map/retrieval.md`](../repo-map/retrieval.md#reranking-deferred-second-stage)).
 
 ### AC-011 Retrieval router relation mode (deferred)
 - Given a relation-centric query intent

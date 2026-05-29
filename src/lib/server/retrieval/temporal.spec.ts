@@ -102,7 +102,7 @@ describe('traverseTemporalContext', () => {
 		).resolves.toEqual([]);
 	});
 
-	it('delegates to Falkor expansion for seeded events', async () => {
+	it('delegates to AGE graph expansion for seeded events', async () => {
 		expandContextFromTemporalEventSeedsMock.mockResolvedValue([
 			{ thoughtId: 't1', hits: 2, provenance: 'temporal' }
 		]);

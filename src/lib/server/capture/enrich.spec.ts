@@ -78,7 +78,7 @@ describe('enrichThought', () => {
 		expect(db.update).toHaveBeenCalled();
 	});
 
-	it('calls relation extraction and syncs relations to DB and FalkorDB', async () => {
+	it('calls relation extraction and syncs relations to DB and AGE graph', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		extractRelationsMock.mockResolvedValue([

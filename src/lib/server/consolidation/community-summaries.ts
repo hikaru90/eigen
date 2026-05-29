@@ -23,13 +23,88 @@ import {
 	communitySummary,
 	communityMember,
 	canonicalEntity,
-	thought,
-	thoughtRelation
+	thought
 } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 
 const SUMMARY_BATCH_SIZE = 20;
+
+export type CommunitySummaryResult = {
+	total: number;
+	summarized: number;
+	generated: number;
+	pending: number;
+};
+
+export type CommunitySummaryStats = Pick<CommunitySummaryResult, 'total' | 'summarized' | 'pending'>;
+
+export type CommunitySummaryOptions = {
+	batchSize?: number;
+	shouldCancel?: () => boolean | Promise<boolean>;
+};
+
+function toPgVectorLiteral(values: number[]): string {
+	return `[${values.join(',')}]`;
+}
+
+function dbErrorMessage(err: unknown): string {
+	if (!(err instanceof Error)) return String(err);
+	const cause = (err as Error & { cause?: unknown }).cause;
+	if (cause instanceof Error && cause.message.trim()) return cause.message;
+	if (err.message.startsWith('Failed query:') && cause) {
+		return typeof cause === 'string' ? cause : String(cause);
+	}
+	return err.message;
+}
+
+async function communityStillExists(userId: string, communityId: string): Promise<boolean> {
+	const db = getDb();
+	const [row] = await db
+		.select({ id: graphCommunity.id })
+		.from(graphCommunity)
+		.where(and(eq(graphCommunity.id, communityId), eq(graphCommunity.userId, userId)))
+		.limit(1);
+	return Boolean(row);
+}
+
+export function formatCommunitySummaryDetail(stats: CommunitySummaryStats): string {
+	if (stats.total === 0) return 'no communities';
+	const base = `${stats.summarized} of ${stats.total} summarized`;
+	if (stats.pending > 0) return `${base}, ${stats.pending} pending`;
+	return base;
+}
+
+export async function getCommunitySummaryStats(userId: string): Promise<CommunitySummaryStats> {
+	const db = getDb();
+	const [totalRow] = await db
+		.select({ n: sql<number>`count(*)::int` })
+		.from(graphCommunity)
+		.where(eq(graphCommunity.userId, userId));
+	const total = totalRow?.n ?? 0;
+	if (total === 0) return { total: 0, pending: 0, summarized: 0 };
+
+	const [pendingRow] = await db
+		.select({ n: sql<number>`count(*)::int` })
+		.from(graphCommunity)
+		.leftJoin(communitySummary, eq(communitySummary.communityId, graphCommunity.id))
+		.where(and(eq(graphCommunity.userId, userId), isNull(communitySummary.communityId)));
+	const pending = pendingRow?.n ?? 0;
+	return { total, pending, summarized: total - pending };
+}
+
+const SUMMARY_SYSTEM =
+	'You summarize clusters of related memories for semantic search. Be concise and factual. Output only the summary text — no preamble, labels, or markdown.';
+
+function summaryTaskForLevel(level: number): string {
+	if (level === 3) {
+		return 'Summarize this leaf cluster: key entities, types, and factual themes. Up to 2 short sentences.';
+	}
+	if (level === 1 || level === 2) {
+		return 'Summarize this mid-level cluster: main topics, strongest entity ties, and recurring links. Up to 3 short sentences.';
+	}
+	return 'Summarize this root cluster: overarching themes and patterns across these thoughts, in second person (you/your). Up to 3 short sentences.';
+}
 
 type CommunityContext = {
 	communityId: string;
@@ -98,7 +173,16 @@ async function loadCommunityContext(
 		);
 
 		thoughtCount = matching.length;
-		relatedThoughts = matching.slice(0, 8).map((t) => t.normalizedText.slice(0, 200));
+		const seen = new Set<string>();
+		relatedThoughts = matching
+			.filter((t) => {
+				const key = t.normalizedText.toLowerCase();
+				if (seen.has(key)) return false;
+				seen.add(key);
+				return true;
+			})
+			.slice(0, 5)
+			.map((t) => t.normalizedText.slice(0, 200));
 	}
 
 	return {
@@ -118,86 +202,70 @@ function buildSummaryPrompt(ctx: CommunityContext): string {
 		.map((t, i) => `${i + 1}. ${t}`)
 		.join('\n');
 
-	if (ctx.level === 3) {
-		// Leaf: factual, structural.
-		return [
-			'Write a factual summary of this memory cluster. Be concise and specific.',
-			'List: the key entities, their types, how they relate, and when they appeared.',
-			'No interpretation. Facts only.',
-			'',
-			`Entities (${ctx.entityLabels.length}): ${entityList}`,
-			`Types: ${typeList}`,
-			`Related thought samples (${ctx.thoughtCount} total):`,
-			thoughtSamples || '(none)',
-			'',
-			'Write the summary in 2-4 sentences.'
-		].join('\n');
-	}
-
-	if (ctx.level === 1 || ctx.level === 2) {
-		// Mid: structural with light interpretation.
-		return [
-			'Write a structural summary of this memory cluster.',
-			'Describe how the entities relate to each other, which relationships are strongest,',
-			'and the main topics connecting them. Stay close to the evidence.',
-			'',
-			`Entities (${ctx.entityLabels.length}): ${entityList}`,
-			`Types: ${typeList}`,
-			`Related thought samples (${ctx.thoughtCount} total):`,
-			thoughtSamples || '(none)',
-			'',
-			'Write the summary in 3-5 sentences.'
-		].join('\n');
-	}
-
-	// Root (level 0): interpretive, second person.
 	return [
-		'Write a personal memory pattern summary for the user. Use second person ("you", "your").',
-		'Identify patterns, recurring themes, tensions, unresolved concerns, and relationship dynamics.',
-		'Be honest and insightful. Focus on what matters most about this cluster of memories.',
+		summaryTaskForLevel(ctx.level),
 		'',
-		`Entities (${ctx.entityLabels.length}): ${entityList}`,
-		`Types: ${typeList}`,
-		`Related thought samples (${ctx.thoughtCount} total):`,
-		thoughtSamples || '(none)',
-		'',
-		'Write the summary in 4-6 sentences. Be direct and specific.'
+		`Entities (${ctx.entityLabels.length}): ${entityList || 'none'}`,
+		`Types: ${typeList || 'none'}`,
+		`Thought samples (${ctx.thoughtCount} total):`,
+		thoughtSamples || '(none)'
 	].join('\n');
 }
 
 /**
  * Generate and persist summaries for communities that don't have one yet.
- * Processes up to `batchSize` communities per run.
+ * Processes communities in batches until none are pending, cancel is requested,
+ * or a batch makes no progress.
  *
- * Returns the number of summaries generated.
+ * Returns generation stats for UI reporting.
  */
 export async function runCommunitySummaryGeneration(
 	userId: string,
-	batchSize = SUMMARY_BATCH_SIZE
-): Promise<number> {
+	options?: CommunitySummaryOptions
+): Promise<CommunitySummaryResult> {
+	const batchSize = options?.batchSize ?? SUMMARY_BATCH_SIZE;
+	let totalGenerated = 0;
+	let last: CommunitySummaryResult = { total: 0, summarized: 0, generated: 0, pending: 0 };
+
+	while (true) {
+		if (options?.shouldCancel && (await options.shouldCancel())) break;
+
+		last = await runCommunitySummaryBatch(userId, batchSize);
+		totalGenerated += last.generated;
+
+		if (last.pending === 0) break;
+		if (last.generated === 0) break;
+	}
+
+	return { ...last, generated: totalGenerated };
+}
+
+async function runCommunitySummaryBatch(
+	userId: string,
+	batchSize: number
+): Promise<CommunitySummaryResult> {
 	const db = getDb();
 
-	// Find communities without summaries.
+	const stats = await getCommunitySummaryStats(userId);
+	if (stats.total === 0) {
+		return { total: 0, summarized: 0, generated: 0, pending: 0 };
+	}
+
+	// Find communities without summaries (batch window for LLM work).
 	const communities = await db
 		.select({ id: graphCommunity.id, level: graphCommunity.level, memberCount: graphCommunity.memberCount })
 		.from(graphCommunity)
 		.where(eq(graphCommunity.userId, userId))
 		.orderBy(sql`${graphCommunity.level} DESC`) // leaf first, then up
-		.limit(batchSize * 4); // fetch more to filter by missing summaries
+		.limit(batchSize * 4);
 
-	if (communities.length === 0) return 0;
-
-	// Filter to communities without summaries.
-	const communityIds = communities.map((c) => c.id);
 	const existingSummaryIds = await db
 		.select({ communityId: communitySummary.communityId })
 		.from(communitySummary)
 		.where(eq(communitySummary.userId, userId));
 
 	const existingSet = new Set(existingSummaryIds.map((s) => s.communityId));
-	const needSummary = communities
-		.filter((c) => !existingSet.has(c.id) && c.memberCount >= 2)
-		.slice(0, batchSize);
+	const needSummary = communities.filter((c) => !existingSet.has(c.id)).slice(0, batchSize);
 
 	let generated = 0;
 
@@ -209,15 +277,12 @@ export async function runCommunitySummaryGeneration(
 			const response = await llmChatCompletion({
 				userId,
 				messages: [
-					{
-						role: 'system',
-						content: community.level === 0
-							? 'You write insightful personal memory summaries. Be honest, specific, and direct.'
-							: 'You write factual memory cluster summaries. Be precise and evidence-based.'
-					},
+					{ role: 'system', content: SUMMARY_SYSTEM },
 					{ role: 'user', content: prompt }
 				],
-				temperature: community.level === 0 ? 0.4 : 0
+				temperature: 0,
+				maxTokens: 120,
+				logContext: 'community_summary'
 			});
 
 			const choices = (response as { choices?: unknown }).choices;
@@ -230,6 +295,13 @@ export async function runCommunitySummaryGeneration(
 			// Embed the summary.
 			const embedding = await createThoughtEmbedding(userId, summaryText);
 
+			if (!(await communityStillExists(userId, community.id))) {
+				console.warn('[consolidation.summary] stale community skipped (graph was rebuilt)', {
+					communityId: community.id
+				});
+				continue;
+			}
+
 			// Upsert summary.
 			await db
 				.insert(communitySummary)
@@ -238,7 +310,7 @@ export async function runCommunitySummaryGeneration(
 					communityId: community.id,
 					level: community.level,
 					summaryText,
-					summaryEmbedding: sql`${`[${embedding.join(',')}]`}::vector`,
+					summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 					entityCount: ctx.entityLabels.length,
 					thoughtCount: ctx.thoughtCount
 				})
@@ -246,10 +318,10 @@ export async function runCommunitySummaryGeneration(
 					target: communitySummary.communityId,
 					set: {
 						summaryText,
-						summaryEmbedding: sql`EXCLUDED.summary_embedding`,
+						summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 						entityCount: ctx.entityLabels.length,
 						thoughtCount: ctx.thoughtCount,
-						generatedAt: new Date()
+						generatedAt: sql`now()`
 					}
 				});
 
@@ -257,11 +329,17 @@ export async function runCommunitySummaryGeneration(
 		} catch (err) {
 			console.error('[consolidation.summary] failed for community', {
 				communityId: community.id,
-				message: err instanceof Error ? err.message : String(err)
+				message: dbErrorMessage(err)
 			});
 			// Continue with next community.
 		}
 	}
 
-	return generated;
+	const after = await getCommunitySummaryStats(userId);
+	return {
+		total: after.total,
+		summarized: after.summarized,
+		generated,
+		pending: after.pending
+	};
 }

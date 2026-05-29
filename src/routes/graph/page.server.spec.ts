@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { load } from './+page.server';
 
-const { fetchSnapshotMock } = vi.hoisted(() => ({
-	fetchSnapshotMock: vi.fn()
+const { fetchSnapshotMock, fetchCommunitiesMock } = vi.hoisted(() => ({
+	fetchSnapshotMock: vi.fn(),
+	fetchCommunitiesMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -11,6 +12,10 @@ vi.mock('$lib/server/db', () => ({
 
 vi.mock('$lib/server/graph/falkor', () => ({
 	fetchGraphVisualizationSnapshot: fetchSnapshotMock
+}));
+
+vi.mock('$lib/server/graph/community-overlays', () => ({
+	fetchGraphCommunityOverlays: fetchCommunitiesMock
 }));
 
 vi.mock('$lib/server/ontology-db', () => ({
@@ -32,6 +37,7 @@ describe('graph page server', () => {
 
 	it('returns snapshot for signed-in user', async () => {
 		fetchSnapshotMock.mockResolvedValueOnce({ nodes: [], edges: [] });
+		fetchCommunitiesMock.mockResolvedValueOnce([]);
 		const data = await load({
 			locals: {
 				user: { id: 'u1', email: 'a@b.c' }
@@ -40,6 +46,7 @@ describe('graph page server', () => {
 		expect(data).toBeTruthy();
 		if (!data) return;
 		expect(data.snapshot).toEqual({ nodes: [], edges: [] });
+		expect(data.communities).toEqual([]);
 		expect(Array.isArray(data.graphLegendSections)).toBe(true);
 		expect(fetchSnapshotMock).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'u1', nodeLimit: 500, edgeLimit: 1200 })

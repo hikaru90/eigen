@@ -11,8 +11,8 @@
 ### [`src/lib/server/capture/service.ts`](../../src/lib/server/capture/service.ts)
 
 - **Purpose:** Single orchestration layer for thought capture, edit, relink, and listing after persistence.
-- **Owns:** Transactional insert/update of `thought` rows; embedding and lexical text; Falkor upsert for thought node; relation + entity graph sync hooks; capture activity logging; ontology refresh triggers.
-- **DependsOn:** Drizzle `getDb()`, LLM embedding gateway, ontology resolution, Falkor client, lexical helper, relation extraction / entity sync modules.
+- **Owns:** Transactional insert/update of `thought` rows; embedding and lexical text; AGE graph upsert for thought node; relation + entity graph sync hooks; capture activity logging; ontology refresh triggers.
+- **DependsOn:** Drizzle `getDb()`, LLM embedding gateway, ontology resolution, AGE graph adapter ([`falkor.ts`](../../src/lib/server/graph/falkor.ts)), lexical helper, relation extraction / entity sync modules.
 - **PublicSymbols:** `normalizeThoughtText`, `captureThought`, `editStoredThought`, `relinkThoughtGraph`, `deleteThoughtForUser`, `listThoughts`.
 - **FailureMode:** Throws or returns `{ ok: false }` for edit when thought missing; no silent fallback for missing LLM or DB.
 
@@ -20,20 +20,25 @@
 
 - **InputContract:** Non-empty trimmed raw string; authenticated `userId`.
 - **OutputContract:** Stored thought row subset (id, texts, category, metadata).
-- **SideEffects:** Inserts `capture_session` and `thought`; writes embedding vector; updates Falkor; syncs relations and entities; may refresh ontology; logs activity.
+- **SideEffects:** Inserts `capture_session` and `thought`; writes embedding vector; updates AGE graph; syncs relations and entities; may refresh ontology; logs activity.
 - **Invariants:** Lexical text derived deterministically from normalized body; tenant is always `userId`.
 - **ConflictsWith:** None for capture path; MCP and HTTP both call this (intentional dual entry, same canonical implementation).
+
+### Canonical dedup lifecycle
+
+- Ingest-time dedup still happens in `resolveOrCreateCanonicalEntity` (key/alias/embedding merge decision).
+- Nightly consolidation now adds a conservative post-ingest pass (`dedup_canonical_entities`) that merges very-close canonical duplicates and preserves secondary keys as aliases before community detection.
 
 #### `editStoredThought(userId, thoughtId, editRequest, options?)`
 
 - **InputContract:** Existing thought owned by `userId`; non-empty edit request string.
 - **OutputContract:** `{ ok: true, thought }` or `{ ok: false, reason: 'not_found' }`.
-- **SideEffects:** Updates thought row, re-embeds, updates Falkor node, re-syncs relations/entities, logs activity.
+- **SideEffects:** Updates thought row, re-embeds, updates AGE graph node, re-syncs relations/entities, logs activity.
 - **Invariants:** Same as capture for graph/lexical/embedding consistency.
 
 #### `relinkThoughtGraph(userId, thoughtId, options?)`
 
-- **Purpose:** Re-run relation + entity graph sync without changing stored text; clears outgoing Falkor edges for that thought first (see file docblock).
+- **Purpose:** Re-run relation + entity graph sync without changing stored text; clears outgoing AGE graph edges for that thought first (see file docblock).
 - **FailureMode:** Missing thought → not found path; errors propagate.
 
 ### [`src/routes/api/capture/submit/+server.ts`](../../src/routes/api/capture/submit/+server.ts)

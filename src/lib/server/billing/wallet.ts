@@ -6,7 +6,7 @@ import {
 	walletLedgerEntry,
 	type WalletLedgerKind
 } from '$lib/server/db/schema';
-import { normalizeCurrencyCode } from '$lib/server/billing/money';
+import { normalizeCurrencyCode, MICRO_USD_PER_CENT } from '$lib/server/billing/money';
 
 export class InsufficientCreditsError extends Error {
 	constructor(message = 'Insufficient Eigen credits. Top up in Settings or switch to BYOK mode.') {
@@ -18,6 +18,7 @@ export class InsufficientCreditsError extends Error {
 export type WalletSnapshot = {
 	availableCents: number;
 	reservedCents: number;
+	pendingBillingMicroUsd: number;
 	currency: string;
 };
 
@@ -29,6 +30,7 @@ export async function getOrCreateWallet(userId: string, currency = 'USD'): Promi
 		return {
 			availableCents: existing.availableCents,
 			reservedCents: existing.reservedCents,
+			pendingBillingMicroUsd: existing.pendingBillingMicroUsd,
 			currency: existing.currency
 		};
 	}
@@ -36,9 +38,10 @@ export async function getOrCreateWallet(userId: string, currency = 'USD'): Promi
 		userId,
 		availableCents: 0,
 		reservedCents: 0,
+		pendingBillingMicroUsd: 0,
 		currency: normalized
 	});
-	return { availableCents: 0, reservedCents: 0, currency: normalized };
+	return { availableCents: 0, reservedCents: 0, pendingBillingMicroUsd: 0, currency: normalized };
 }
 
 function isWalletUnsettled(wallet: WalletSnapshot): boolean {
@@ -185,7 +188,135 @@ export async function releaseReservation(userId: string, reservationId: string, 
 }
 
 /**
+ * Accumulates micro-USD usage and debits whole wallet cents when the sub-cent balance crosses $0.01.
+ * Returns cents debited on this call (often 0 for sub-cent gateway costs).
+ */
+export async function chargePlatformUsageMicroUsd(
+	userId: string,
+	actualMicroUsd: number,
+	metadata?: Record<string, unknown>
+): Promise<number> {
+	if (!Number.isInteger(actualMicroUsd) || actualMicroUsd < 0) {
+		throw new Error('actualMicroUsd must be a non-negative integer');
+	}
+	if (actualMicroUsd === 0) return 0;
+
+	const db = getDb();
+	return db.transaction(async (tx) => {
+		const [wallet] = await tx
+			.select()
+			.from(userWallet)
+			.where(eq(userWallet.userId, userId))
+			.for('update');
+		if (!wallet) {
+			throw new InsufficientCreditsError();
+		}
+
+		const pending = wallet.pendingBillingMicroUsd + actualMicroUsd;
+		const debitedCents = Math.floor(pending / MICRO_USD_PER_CENT);
+		const newPending = pending - debitedCents * MICRO_USD_PER_CENT;
+
+		if (debitedCents > 0 && wallet.availableCents < debitedCents) {
+			throw new InsufficientCreditsError();
+		}
+
+		await tx
+			.update(userWallet)
+			.set({
+				availableCents: wallet.availableCents - debitedCents,
+				pendingBillingMicroUsd: newPending,
+				updatedAt: new Date()
+			})
+			.where(eq(userWallet.userId, userId));
+
+		if (debitedCents > 0) {
+			await insertLedger(tx, {
+				userId,
+				kind: 'usage_debit',
+				amountCents: -debitedCents,
+				currency: wallet.currency,
+				referenceType: 'usage',
+				metadata: { ...metadata, actualMicroUsd, debitedCents, pendingMicroUsd: newPending }
+			});
+		}
+
+		return debitedCents;
+	});
+}
+
+/**
+ * Releases a pre-call hold, then applies accumulated micro-USD billing.
+ */
+export async function settleReservationWithMicroCharge(
+	userId: string,
+	reservationId: string,
+	heldCents: number,
+	actualMicroUsd: number,
+	metadata?: Record<string, unknown>
+): Promise<number> {
+	if (!Number.isInteger(actualMicroUsd) || actualMicroUsd < 0) {
+		throw new Error('actualMicroUsd must be a non-negative integer');
+	}
+
+	const db = getDb();
+	return db.transaction(async (tx) => {
+		const [wallet] = await tx
+			.select()
+			.from(userWallet)
+			.where(eq(userWallet.userId, userId))
+			.for('update');
+		if (!wallet) return 0;
+
+		const availableAfterRelease = wallet.availableCents + heldCents;
+		const pending = wallet.pendingBillingMicroUsd + actualMicroUsd;
+		const debitedCents = Math.floor(pending / MICRO_USD_PER_CENT);
+		const newPending = pending - debitedCents * MICRO_USD_PER_CENT;
+
+		if (debitedCents > 0 && availableAfterRelease < debitedCents) {
+			throw new InsufficientCreditsError();
+		}
+
+		await tx
+			.update(userWallet)
+			.set({
+				availableCents: availableAfterRelease - debitedCents,
+				reservedCents: Math.max(0, wallet.reservedCents - heldCents),
+				pendingBillingMicroUsd: newPending,
+				updatedAt: new Date()
+			})
+			.where(eq(userWallet.userId, userId));
+
+		if (heldCents > 0) {
+			await insertLedger(tx, {
+				userId,
+				kind: 'reservation_release',
+				amountCents: heldCents,
+				currency: wallet.currency,
+				referenceType: 'reservation',
+				referenceId: reservationId,
+				metadata: { heldCents }
+			});
+		}
+
+		if (debitedCents > 0) {
+			await insertLedger(tx, {
+				userId,
+				kind: 'usage_debit',
+				amountCents: -debitedCents,
+				currency: wallet.currency,
+				referenceType: 'usage',
+				referenceId: reservationId,
+				metadata: { ...metadata, actualMicroUsd, debitedCents, pendingMicroUsd: newPending }
+			});
+		}
+
+		return debitedCents;
+	});
+}
+
+/**
  * Settle a reservation: debit `actualCents` from reserved, return unused hold to available.
+ * @deprecated Prefer {@link settleReservationWithMicroCharge} for platform LLM billing.
  */
 export async function settleReservation(
 	userId: string,
@@ -283,12 +414,14 @@ export async function creditFromPayment(input: {
 				userId: input.userId,
 				availableCents: 0,
 				reservedCents: 0,
+				pendingBillingMicroUsd: 0,
 				currency: normalized
 			});
 			wallet = {
 				userId: input.userId,
 				availableCents: 0,
 				reservedCents: 0,
+				pendingBillingMicroUsd: 0,
 				currency: normalized,
 				updatedAt: new Date()
 			};
@@ -338,9 +471,17 @@ async function getOrCreateWalletInTx(
 		userId,
 		availableCents: 0,
 		reservedCents: 0,
+		pendingBillingMicroUsd: 0,
 		currency
 	});
-	return { userId, availableCents: 0, reservedCents: 0, currency, updatedAt: new Date() };
+	return {
+		userId,
+		availableCents: 0,
+		reservedCents: 0,
+		pendingBillingMicroUsd: 0,
+		currency,
+		updatedAt: new Date()
+	};
 }
 
 export async function listRecentLedger(userId: string, limit = 20) {
@@ -359,6 +500,14 @@ export async function listRecentPayments(userId: string, limit = 10) {
 		.where(eq(paymentOrder.userId, userId))
 		.orderBy(desc(paymentOrder.createdAt))
 		.limit(limit);
+}
+
+/** Platform LLM calls require a positive wallet balance; actual cost is debited after the call. */
+export async function assertHasPlatformCredits(userId: string): Promise<void> {
+	const wallet = await getOrCreateWallet(userId);
+	if (wallet.availableCents < 1) {
+		throw new InsufficientCreditsError();
+	}
 }
 
 /** Minimum balance check without reservation (read-only). */

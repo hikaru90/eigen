@@ -40,7 +40,7 @@ export function buildActivePeriodLiteral(start: Date, end: Date): string {
 }
 
 /**
- * Expand a parsed instant/range into concrete Date bounds for storage and Falkor scalars.
+ * Expand a parsed instant/range into concrete Date bounds for storage and AGE graph scalars.
  * Fuzzy precision uses a ±7 day window around start when end is absent.
  */
 export function resolveTemporalBounds(mention: ExtractedTemporalMention): {

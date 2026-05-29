@@ -12,7 +12,7 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 
 - **[`/`](../../src/routes/+page.svelte)** — Landing / home. Load: [`+page.server.ts`](../../src/routes/+page.server.ts).
 - **`/capture`** — Primary thought capture and post-capture edit UI. **New submits** use the client capture queue ([capture-queue.md](./capture-queue.md)); **edits** `fetch` `/api/capture/edit`. Load: [`capture/+page.server.ts`](../../src/routes/capture/+page.server.ts).
-- **`/graph`** — Graph visualization and ontology admin actions. Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (Falkor snapshot, ontology legend).
+- **`/graph`** — Graph visualization and ontology admin actions. Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (AGE graph snapshot, ontology legend, community overlays with multi-level semantics).
 - **`/chat`** — Memory assistant UI (default: `answer_question`; completion reports search via `retrieve_thoughts` then `edit_thought`/`delete_thought`; full MCP tool surface) backed by [`/api/chat`](../../src/routes/api/chat/+server.ts) and session routes.
 - **`/activity`** — Usage / activity views. Load: [`activity/+page.server.ts`](../../src/routes/activity/+page.server.ts).
 - **`/settings`** — User settings (language, theme, LLM provider, **push notifications**). Load: [`settings/+page.server.ts`](../../src/routes/settings/+page.server.ts).

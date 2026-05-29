@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/falkor';
+import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays';
 import { getDb } from '$lib/server/db';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend';
@@ -32,5 +33,6 @@ export const load: PageServerLoad = async (event) => {
 		nodeLimit: 500,
 		edgeLimit: 1200
 	});
-	return { user: event.locals.user, snapshot, graphLegendSections };
+	const communities = await fetchGraphCommunityOverlays(userId);
+	return { user: event.locals.user, snapshot, graphLegendSections, communities };
 };

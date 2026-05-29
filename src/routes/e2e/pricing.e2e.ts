@@ -20,8 +20,8 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
 		const headerText = headers.join(' ');
 		expect(headerText).toContain('Duration');
 		expect(headerText).toContain('Base USD');
-		expect(headerText).toContain('Markup USD');
 		expect(headerText).toContain('Total USD');
+		expect(headerText).not.toContain('Markup');
 
 		const rowCount = await page.locator('tbody tr').count();
 		expect(rowCount).toBeGreaterThanOrEqual(1);
@@ -47,6 +47,6 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
 		await registerUser(context, page);
 		await page.goto('/activity');
 
-		await expect(page.locator('text=No EuRouter calls logged yet')).toBeVisible();
+		await expect(page.locator('text=No activity logged yet')).toBeVisible();
 	});
 });

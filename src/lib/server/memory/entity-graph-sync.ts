@@ -16,7 +16,7 @@ const KNOWN_ENTITY_HINT_LIMIT = 12;
 const KNOWN_ENTITY_HINT_MAX_DISTANCE = 0.55;
 
 /**
- * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → Falkor.
+ * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → AGE graph.
  * Entity `entityType` values are **entity_type** ontology kind keys (person, place, org, etc.)
  * — a separate taxonomy from thought categories.
  * Invoked after thought-to-thought relation sync.
@@ -94,15 +94,34 @@ export async function syncEntityGraphFromThought(input: {
 		});
 	}
 
-	const triples = await extractEntityTriples({
+	await upsertEntityRelationTriples({
 		userId: input.userId,
 		normalizedText: input.normalizedText,
-		mentions
+		mentions,
+		surfaceToEntityId
 	});
+}
 
+/** Writes ENTITY_RELATES edges for extracted triples. Returns count of edges upserted. */
+export async function upsertEntityRelationTriples(input: {
+	userId: string;
+	normalizedText: string;
+	mentions: Awaited<ReturnType<typeof extractEntityMentions>>;
+	surfaceToEntityId: Map<string, string>;
+	triples?: Awaited<ReturnType<typeof extractEntityTriples>>;
+}): Promise<number> {
+	const triples =
+		input.triples ??
+		(await extractEntityTriples({
+			userId: input.userId,
+			normalizedText: input.normalizedText,
+			mentions: input.mentions
+		}));
+
+	let written = 0;
 	for (const triple of triples) {
-		const sourceId = surfaceToEntityId.get(triple.subject.trim());
-		const targetId = surfaceToEntityId.get(triple.object.trim());
+		const sourceId = input.surfaceToEntityId.get(triple.subject.trim());
+		const targetId = input.surfaceToEntityId.get(triple.object.trim());
 		if (!sourceId || !targetId || sourceId === targetId) continue;
 
 		await upsertEntityRelationEdge({
@@ -111,5 +130,7 @@ export async function syncEntityGraphFromThought(input: {
 			targetEntityId: targetId,
 			predicate: triple.predicate
 		});
+		written++;
 	}
+	return written;
 }

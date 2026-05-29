@@ -47,7 +47,7 @@ export type CaptureThoughtOptions = {
 };
 
 /**
- * Fast path: classify → embed → persist → FalkorDB provenance anchor → return immediately.
+ * Fast path: classify → embed → persist → AGE graph provenance anchor → return immediately.
  *
  * Heavy enrichment (relation extraction, entity graph sync, memory type
  * classification, cue extraction, ontology eval) is fired asynchronously
@@ -161,7 +161,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		return [t];
 	});
 
-	// Fast path: sync the FalkorDB node (lightweight, no LLM calls).
+	// Fast path: sync the AGE graph node (lightweight, no LLM calls).
 	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: stored.id,
@@ -336,7 +336,7 @@ export type RelinkThoughtGraphOptions = {
 
 /**
  * Re-runs relation + entity graph sync for an existing thought without changing
- * stored text. Clears outgoing Falkor edges first so removed links don't linger.
+ * stored text. Clears outgoing AGE graph edges first so removed links don't linger.
  */
 export async function relinkThoughtGraph(
 	userId: string,
@@ -386,7 +386,7 @@ export async function relinkThoughtGraph(
 }
 
 /**
- * Removes a thought from Falkor first (so a failed DB step can be repaired with relink),
+ * Removes a thought from the AGE graph first (so a failed DB step can be repaired with relink),
  * then deletes the Postgres row (cascades `thought_relation` and `entity_resolution_log`).
  */
 export async function deleteThoughtForUser(userId: string, thoughtId: string) {

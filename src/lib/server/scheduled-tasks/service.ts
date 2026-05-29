@@ -8,8 +8,22 @@ import postgres from 'postgres';
 import { consolidationRun } from '$lib/server/db/schema';
 import {
 	formatConsolidationJobErrors,
+	formatConsolidationJobSummaries,
+	type ConsolidationJobResult,
 	type ConsolidationRunResult
 } from '$lib/server/consolidation/runner';
+import {
+	heartbeatProgressPct,
+	isHeartbeatRunActive,
+	loadActiveHeartbeatRun,
+	loadLastUserHeartbeatRun,
+	recoverOrphanedHeartbeatRun
+} from '$lib/server/consolidation/heartbeat-run-ledger';
+import { getInProcessHeartbeatRunId } from '$lib/server/consolidation/heartbeat-worker';
+import {
+	getCommunitySummaryStats,
+	type CommunitySummaryStats
+} from '$lib/server/consolidation/community-summaries';
 import {
 	SLEEP_CONSOLIDATION_JOB_NAME,
 	SLEEP_CONSOLIDATION_TASK_ID
@@ -24,9 +38,24 @@ export type ScheduledTaskStatus = {
 	/** False when pg_cron job row is missing (not bootstrapped or extension unavailable). */
 	configured: boolean;
 	lastRunAt: string | null;
-	lastRunStatus: 'completed' | 'failed' | 'running' | null;
+	lastRunStatus: 'completed' | 'failed' | 'running' | 'cancelled' | null;
 	/** User-visible error from the last run, when relevant to this user. */
 	lastRunError: string | null;
+	/** Per-step summary from the most recent completed run. */
+	lastRunSteps: string[] | null;
+	/** Structured job results from the most recent completed run. */
+	lastRunJobs: ConsolidationJobResult[] | null;
+	/** Live progress while a manual run is in flight. */
+	activeRun: {
+		runId: string;
+		status: 'running';
+		currentJob: string | null;
+		plannedJobs: string[];
+		jobs: ConsolidationJobResult[];
+		progressPct: number;
+		cancelRequested: boolean;
+		summaryStats: CommunitySummaryStats | null;
+	} | null;
 };
 
 type PgCronJobRow = {
@@ -129,6 +158,51 @@ async function loadLastConsolidationRun(userId: string): Promise<{
 	startedAt: Date;
 	status: 'completed' | 'failed' | 'running';
 	error: string | null;
+	steps: string[] | null;
+	jobs: ConsolidationJobResult[] | null;
+	totalDurationMs: number | null;
+} | null> {
+	const [globalRun, userRun] = await Promise.all([
+		loadGlobalConsolidationRun(userId).catch(() => null),
+		loadLastUserHeartbeatRun(userId).catch(() => null)
+	]);
+
+	const candidates: Array<{
+		startedAt: Date;
+		status: 'completed' | 'failed' | 'running';
+		error: string | null;
+		steps: string[] | null;
+		jobs: ConsolidationJobResult[] | null;
+		totalDurationMs: number | null;
+	}> = [];
+
+	if (globalRun) candidates.push(globalRun);
+	if (userRun) {
+		const jobs = userRun.jobs;
+		candidates.push({
+			startedAt: userRun.startedAt,
+			status: userRun.status,
+			error: userRun.error,
+			steps: isHeartbeatRunActive(userRun.status)
+				? null
+				: formatConsolidationJobSummaries(jobs),
+			jobs: isHeartbeatRunActive(userRun.status) ? null : jobs,
+			totalDurationMs: userRun.totalDurationMs
+		});
+	}
+
+	if (candidates.length === 0) return null;
+	candidates.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+	return candidates[0];
+}
+
+async function loadGlobalConsolidationRun(userId: string): Promise<{
+	startedAt: Date;
+	status: 'completed' | 'failed' | 'running';
+	error: string | null;
+	steps: string[] | null;
+	jobs: ConsolidationJobResult[] | null;
+	totalDurationMs: number | null;
 } | null> {
 	const url = getAdminDatabaseUrl();
 	if (!url) return null;
@@ -148,6 +222,9 @@ async function loadLastConsolidationRun(userId: string): Promise<{
 			.limit(1);
 		if (!row) return null;
 		const status = row.status as 'completed' | 'failed' | 'running';
+		const results = row.jobs?.results as ConsolidationRunResult[] | undefined;
+		const userResult = results?.find((r) => r.userId === userId);
+		const jobs = userResult?.jobs ?? [];
 		return {
 			startedAt: row.startedAt,
 			status,
@@ -155,7 +232,10 @@ async function loadLastConsolidationRun(userId: string): Promise<{
 				status,
 				errorMessage: row.errorMessage,
 				jobs: row.jobs
-			})
+			}),
+			steps: jobs.length > 0 ? formatConsolidationJobSummaries(jobs) : null,
+			jobs: jobs.length > 0 ? jobs : null,
+			totalDurationMs: userResult?.totalDurationMs ?? null
 		};
 	} finally {
 		await sql.end();
@@ -166,9 +246,22 @@ export async function listScheduledTasks(userId: string): Promise<ScheduledTaskS
 	const timezone = getCronTimezone();
 	const defaultSchedule = getCronSchedule();
 	const cronJob = await queryPgCronJob(SLEEP_CONSOLIDATION_JOB_NAME).catch(() => null);
+
+	let activeRun = await loadActiveHeartbeatRun(userId).catch(() => null);
+	const inProcessRunId = getInProcessHeartbeatRunId(userId);
+	if (activeRun && inProcessRunId !== activeRun.runId) {
+		await recoverOrphanedHeartbeatRun(userId).catch(() => {});
+		activeRun = null;
+	}
+
 	const lastRun = await loadLastConsolidationRun(userId).catch(() => null);
 
 	const schedule = cronJob?.schedule ?? defaultSchedule;
+
+	let summaryStats: CommunitySummaryStats | null = null;
+	if (activeRun?.currentJob === 'community_summaries') {
+		summaryStats = await getCommunitySummaryStats(userId).catch(() => null);
+	}
 
 	return [
 		{
@@ -179,9 +272,27 @@ export async function listScheduledTasks(userId: string): Promise<ScheduledTaskS
 			scheduleLabel: formatScheduleLabel(schedule, timezone),
 			active: cronJob?.active ?? false,
 			configured: cronJob !== null,
-			lastRunAt: lastRun ? lastRun.startedAt.toISOString() : null,
-			lastRunStatus: lastRun?.status ?? null,
-			lastRunError: lastRun?.error ?? null
+			lastRunAt: activeRun
+				? activeRun.startedAt.toISOString()
+				: lastRun
+					? lastRun.startedAt.toISOString()
+					: null,
+			lastRunStatus: activeRun ? 'running' : (lastRun?.status ?? null),
+			lastRunError: activeRun ? null : (lastRun?.error ?? null),
+			lastRunSteps: activeRun ? null : (lastRun?.steps ?? null),
+			lastRunJobs: activeRun ? null : (lastRun?.jobs ?? null),
+			activeRun: activeRun
+				? {
+						runId: activeRun.runId,
+						status: 'running',
+						currentJob: activeRun.currentJob,
+						plannedJobs: activeRun.plannedJobs,
+						jobs: activeRun.jobs,
+						progressPct: heartbeatProgressPct(activeRun, summaryStats),
+						cancelRequested: activeRun.cancelRequested,
+						summaryStats
+					}
+				: null
 		}
 	];
 }

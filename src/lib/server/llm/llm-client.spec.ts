@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-	computeTokenCostUsd,
 	llmChatCompletion,
 	llmCreateEmbeddings,
 	llmCreateTranscription
@@ -52,32 +51,8 @@ vi.mock('$lib/server/billing/preferences', () => ({
 }));
 
 vi.mock('$lib/server/billing/usage-gate', () => ({
-	withPlatformBilling: vi.fn(async (_userId, _est, _settle, fn) => fn()),
-	estimateChatBilledCents: vi.fn(() => 1),
-	estimateEmbeddingBilledCents: vi.fn(() => 1)
+	withPlatformBilling: vi.fn(async (_userId, _settle, fn) => fn())
 }));
-
-describe('computeTokenCostUsd', () => {
-	it('uses prompt and completion tokens', () => {
-		expect(computeTokenCostUsd({ prompt_tokens: 1000, completion_tokens: 1000 })).toBeCloseTo(0.00013);
-	});
-
-	it('treats missing completion tokens as zero', () => {
-		expect(computeTokenCostUsd({ prompt_tokens: 1000, completion_tokens: -1 })).toBeCloseTo(0.0001);
-	});
-
-	it('falls back to total tokens', () => {
-		expect(computeTokenCostUsd({ total_tokens: 1000 })).toBeCloseTo(0.000065);
-	});
-
-	it('returns 0 when usage is missing', () => {
-		expect(computeTokenCostUsd(undefined)).toBe(0);
-	});
-
-	it('returns 0 when usage has no countable tokens', () => {
-		expect(computeTokenCostUsd({})).toBe(0);
-	});
-});
 
 function response(ok: boolean, status: number, body: unknown): Response {
 	return {

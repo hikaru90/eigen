@@ -8,8 +8,8 @@
 
 | Phase | Analog | Jobs |
 |-------|--------|------|
-| **DeepSleep** | Slow-wave / declarative + pruning | `salience_decay`, `ontology_prune`, `repair_canonical_entity_types` |
-| **REM** | Integration + procedural | `community_detection` (conditional), `community_summaries`, `open_loop_salience` |
+| **DeepSleep** | Slow-wave / declarative + pruning | `salience_compute`, `ontology_prune`, `repair_canonical_entity_types`, `dedup_canonical_entities`, `repair_entity_relations` |
+| **REM** | Integration + procedural | `community_detection`, `community_summaries` |
 
 Orchestrator: [`src/lib/server/consolidation/runner.ts`](../../src/lib/server/consolidation/runner.ts)
 
@@ -18,7 +18,17 @@ Per-user work runs inside `withDbUser` so RLS applies.
 ## Awake vs asleep
 
 - **Awake:** capture enrichment, retrieval reconsolidation (salience bumps on access), ontology profile refresh every 10th thought.
-- **Asleep:** nightly consolidation above; idempotent global run tracked in `consolidation_run`.
+- **Asleep:** nightly consolidation above; salience decay/open-loop floors recomputed from **elapsed wall-clock time** (not per-run ticks). Idempotent global run tracked in `consolidation_run`.
+
+## Community contract
+
+- Community detection clusters over **`ENTITY_RELATES`** graph edges only (`edgePolicy: entity_relates_only`); co-mention edges are visualization support, not clustering input.
+- Level semantics are fixed:
+  - `L3` leaf = tight operational groups
+  - `L2` = sub-domain thematic lanes
+  - `L1` = domain-level structure
+  - `L0` root = broad worldview partitions
+- Before writing communities, detection computes graph-health diagnostics (components, isolation ratio, relation density) and marks low-confidence runs when relation structure is too weak.
 
 ## Environment
 
@@ -52,3 +62,4 @@ curl -sf -X POST "$ORIGIN/api/admin/consolidate" \
 - `ontology_proposal` generation from clustering
 - Declarative fact merging
 - Stale community summary refresh when `community.updatedAt > summary.generatedAt`
+- Persist graph edge fingerprint at detection time for finer staleness (same entity IDs, rewired edges)

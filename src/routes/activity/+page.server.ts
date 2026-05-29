@@ -4,17 +4,11 @@ import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { ACTIVITY_PAGE_LLM_PROVIDERS, AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
 import { activityCallLog } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
-import { normalizeCurrencyCode, usdStringToCents } from '$lib/server/billing/money';
-import { getOrCreateWallet } from '$lib/server/billing/wallet';
 
 const VALID_FILTERS = ['all', 'gateway', 'agent'] as const;
 type ActivityFilter = (typeof VALID_FILTERS)[number];
 
-type BillingSlice = {
-	baseBilledCents: number;
-	markupBilledCents: number;
-	totalBilledCents: number;
-};
+const PAGE_SIZE = 50;
 
 function sumUsd(rows: Array<{ baseCostUsd: string; markupUsd: string; totalCostUsd: string }>) {
 	let base = 0;
@@ -29,19 +23,6 @@ function sumUsd(rows: Array<{ baseCostUsd: string; markupUsd: string; totalCostU
 		baseCostUsd: base.toFixed(6),
 		markupUsd: markup.toFixed(6),
 		totalCostUsd: total.toFixed(6)
-	};
-}
-
-/** Same minor-unit mapping as Eigen wallet ledger (`usdStringToCents`). */
-function billedSliceUsdStrings(r: {
-	baseCostUsd: string;
-	markupUsd: string;
-	totalCostUsd: string;
-}): BillingSlice {
-	return {
-		baseBilledCents: usdStringToCents(r.baseCostUsd),
-		markupBilledCents: usdStringToCents(r.markupUsd),
-		totalBilledCents: usdStringToCents(r.totalCostUsd)
 	};
 }
 
@@ -64,6 +45,11 @@ function groupCalls(rows: Array<{ groupId: string | null; createdAt: Date }>) {
 	}
 
 	return groups;
+}
+
+function parsePage(raw: string | null): number {
+	const n = Number.parseInt(raw ?? '1', 10);
+	return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -103,29 +89,37 @@ export const load: PageServerLoad = async (event) => {
 		}
 	}
 
-	const rows = await getDb()
+	const whereClause = and(...conditions);
+	const page = parsePage(event.url.searchParams.get('page'));
+	const offset = (page - 1) * PAGE_SIZE;
+
+	const db = getDb();
+
+	const [countRow] = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(activityCallLog)
+		.where(whereClause);
+
+	const totalCount = countRow?.count ?? 0;
+	const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+	const safePage = Math.min(page, totalPages);
+	const safeOffset = (safePage - 1) * PAGE_SIZE;
+
+	const rows = await db
 		.select()
 		.from(activityCallLog)
-		.where(and(...conditions))
+		.where(whereClause)
 		.orderBy(desc(activityCallLog.createdAt))
-		.limit(100);
-
-	const wallet = await getOrCreateWallet(event.locals.user.id);
-	const activityCurrency = normalizeCurrencyCode(wallet.currency);
-
-	const calls = rows.map((r) => ({
-		...r,
-		...billedSliceUsdStrings(r)
-	}));
+		.offset(safeOffset)
+		.limit(PAGE_SIZE);
 
 	const isGatewayFilter = filter === 'all' || filter === 'gateway';
 
-	const totalsUsd = sumUsd(rows);
-	const totalsBilling = billedSliceUsdStrings(totalsUsd);
+	const totals = sumUsd(rows);
 	const groups = groupCalls(rows);
 
-	const overallTotalsUsd = isGatewayFilter
-		? await getDb()
+	const overallTotals = isGatewayFilter
+		? await db
 				.select({
 					baseCostUsd: sql<string>`coalesce(sum(${activityCallLog.baseCostUsd}::numeric), 0)`,
 					markupUsd: sql<string>`coalesce(sum(${activityCallLog.markupUsd}::numeric), 0)`,
@@ -145,24 +139,32 @@ export const load: PageServerLoad = async (event) => {
 							: [])
 					)
 				)
-				.then((r) => r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' })
-		: { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
-
-	const overallBilling = billedSliceUsdStrings({
-		baseCostUsd: overallTotalsUsd.baseCostUsd,
-		markupUsd: overallTotalsUsd.markupUsd,
-		totalCostUsd: overallTotalsUsd.totalCostUsd
-	});
+				.then((r) => {
+					const row = r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
+					return {
+						baseCostUsd: Number(row.baseCostUsd).toFixed(6),
+						markupUsd: Number(row.markupUsd).toFixed(6),
+						totalCostUsd: Number(row.totalCostUsd).toFixed(6)
+					};
+				})
+		: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' };
 
 	return {
 		user: event.locals.user,
-		activityCurrency,
-		calls,
+		calls: rows,
 		groups,
-		totals: { ...totalsUsd, ...totalsBilling },
-		overallTotals: { ...overallTotalsUsd, ...overallBilling },
+		totals,
+		overallTotals,
 		filter,
 		from: fromParam ?? null,
-		to: toParam ?? null
+		to: toParam ?? null,
+		pagination: {
+			page: safePage,
+			pageSize: PAGE_SIZE,
+			totalCount,
+			totalPages,
+			hasPrev: safePage > 1,
+			hasNext: safePage < totalPages
+		}
 	};
 };

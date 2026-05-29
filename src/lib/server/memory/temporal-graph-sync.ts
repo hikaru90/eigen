@@ -14,7 +14,7 @@ import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker
 const DEFAULT_TIMEZONE = 'UTC';
 
 /**
- * Extract temporal facts from a thought, persist to Postgres, enqueue Falkor sync jobs.
+ * Extract temporal facts from a thought, persist to Postgres, enqueue AGE graph sync jobs.
  * Postgres is the ledger; graph sync runs post-commit via the outbox worker.
  */
 export async function syncTemporalEventsFromThought(input: {
@@ -36,7 +36,7 @@ export async function syncTemporalEventsFromThought(input: {
 		timezone
 	});
 
-	// Replace prior temporal rows: enqueue Falkor deletes, then remove Postgres ledger rows.
+	// Replace prior temporal rows: enqueue AGE graph deletes, then remove Postgres ledger rows.
 	const existing = await db
 		.select({ id: temporalEvent.id, falkordbNodeId: temporalEvent.falkordbNodeId })
 		.from(temporalEvent)

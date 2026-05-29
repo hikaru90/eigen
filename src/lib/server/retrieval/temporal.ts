@@ -151,7 +151,7 @@ export async function filterTemporalEvents(input: {
 }
 
 /**
- * Filter-then-traverse: Falkor expansion from Postgres-seeded event ids.
+ * Filter-then-traverse: AGE graph expansion from Postgres-seeded event ids.
  */
 export async function traverseTemporalContext(input: {
 	userId: string;

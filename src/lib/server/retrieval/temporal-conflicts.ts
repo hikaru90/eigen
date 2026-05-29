@@ -298,7 +298,7 @@ async function graphHitsToConflicts(
 }
 
 /**
- * Detect scheduling clashes via Falkor Event/INVOLVES traversal and Postgres temporal_event overlap.
+ * Detect scheduling clashes via AGE Event/INVOLVES traversal and Postgres temporal_event overlap.
  */
 export async function findTemporalSchedulingConflicts(input: {
 	userId: string;

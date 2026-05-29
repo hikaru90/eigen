@@ -9,27 +9,26 @@ import {
 import { logActivityCall } from '$lib/server/activity/log-call';
 import { isByokBilling } from '$lib/server/billing/preferences';
 import { loadPlatformLlmConfig, loadPlatformOpenRouterSttConfig } from '$lib/server/billing/platform-llm';
+import { withPlatformBilling } from '$lib/server/billing/usage-gate';
 import {
-	estimateChatBilledCents,
-	estimateEmbeddingBilledCents,
-	withPlatformBilling
-} from '$lib/server/billing/usage-gate';
-import { TOKEN_USD_PER_1K } from '$lib/server/llm/token-rates';
+	gatewayReportedCostUsdForLog,
+	requireGatewayReportedCostUsd,
+	type TokenUsage
+} from '$lib/server/llm/gateway-cost';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-export { TOKEN_USD_PER_1K } from '$lib/server/llm/token-rates';
-const EMBEDDING_DIMENSIONS = 1536;
-
-type TokenUsage = {
-	prompt_tokens?: number;
-	completion_tokens?: number;
-	total_tokens?: number;
-};
+export {
+	extractGatewayReportedCostUsd,
+	gatewayReportedCostUsdForLog,
+	requireGatewayReportedCostUsd
+} from '$lib/server/llm/gateway-cost';
 
 type RoutingConfig = { ruleId?: string; model: string; provider?: Record<string, unknown> };
 
 export type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
 import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
+
+const EMBEDDING_DIMENSIONS = 1536;
 
 /** Hostname from gateway base URL for activity logs (handles missing `https://`). */
 function gatewayHostFromBaseUrl(baseUrl: string): string {
@@ -65,32 +64,6 @@ function getUserLlmState(userId: string): UserLlmState {
 	return state;
 }
 
-/**
- * Computes base USD from OpenAI-style `usage` using a single token rate (no per-model env table).
- * Returns 0 when usage is absent or contains no countable tokens — some providers omit the field
- * on valid responses and a missing cost estimate must not abort a successful LLM call.
- */
-export function computeTokenCostUsd(usage: TokenUsage | undefined): number {
-	if (!usage || typeof usage !== 'object') {
-		console.warn('[llm] response missing usage field; logging cost as 0');
-		return 0;
-	}
-	const rates = TOKEN_USD_PER_1K;
-	const pi = usage.prompt_tokens;
-	const co = usage.completion_tokens;
-	if (typeof pi === 'number' && pi >= 0) {
-		const coSafe = typeof co === 'number' && co >= 0 ? co : 0;
-		return (pi / 1000) * rates.prompt + (coSafe / 1000) * rates.completion;
-	}
-	const total = usage.total_tokens;
-	if (typeof total === 'number' && total >= 0) {
-		const blendedPer1k = (rates.prompt + rates.completion) / 2;
-		return (total / 1000) * blendedPer1k;
-	}
-	console.warn('[llm] usage present but no countable tokens; logging cost as 0', usage);
-	return 0;
-}
-
 function extractUsage(body: unknown): TokenUsage | undefined {
 	if (!body || typeof body !== 'object') return undefined;
 	return (body as { usage?: TokenUsage }).usage;
@@ -118,6 +91,81 @@ function requestTimeoutMs(): number {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractChatResponseText(body: unknown): string {
+	if (!body || typeof body !== 'object') return '';
+	const choices = (body as { choices?: unknown }).choices;
+	if (!Array.isArray(choices) || choices.length === 0) return '';
+	const message = (choices[0] as { message?: { content?: unknown } }).message;
+	const content = message?.content;
+	if (typeof content === 'string') return content;
+	if (Array.isArray(content)) {
+		return content
+			.map((part) => {
+				if (typeof part === 'string') return part;
+				if (part && typeof part === 'object' && 'text' in part) {
+					const text = (part as { text?: unknown }).text;
+					return typeof text === 'string' ? text : '';
+				}
+				return '';
+			})
+			.filter(Boolean)
+			.join('');
+	}
+	return '';
+}
+
+function logLlmChatRequest(logCtx: string, attempt: number, messages: ChatMessage[]): void {
+	console.log(`[llm.chat:${logCtx}] request attempt ${attempt}/${3}`);
+	for (const message of messages) {
+		console.log(`[llm.chat:${logCtx}] ${message.role}:\n${message.content}`);
+	}
+}
+
+function logLlmChatResponse(logCtx: string, attempt: number, body: unknown): void {
+	console.log(`[llm.chat:${logCtx}] response attempt ${attempt}:\n${extractChatResponseText(body)}`);
+}
+
+function logLlmEmbeddingRequest(attempt: number, input: string | string[]): void {
+	console.log(`[llm.embedding] request attempt ${attempt}/${3}`);
+	if (Array.isArray(input)) {
+		for (const [index, text] of input.entries()) {
+			console.log(`[llm.embedding] input[${index}]:\n${text}`);
+		}
+	} else {
+		console.log(`[llm.embedding] input:\n${input}`);
+	}
+}
+
+function logLlmSttRequest(
+	attempt: number,
+	model: string,
+	audio: { bytes: Uint8Array; format: string; language?: string }
+): void {
+	console.log(
+		`[llm.stt] request attempt ${attempt}/${3} model=${model} format=${audio.format} bytes=${audio.bytes.byteLength}${audio.language ? ` language=${audio.language}` : ''}`
+	);
+}
+
+function logLlmSttResponse(attempt: number, body: unknown): void {
+	if (!body || typeof body !== 'object') {
+		console.log(`[llm.stt] response attempt ${attempt}: (empty response)`);
+		return;
+	}
+	if ('text' in body && typeof (body as { text?: unknown }).text === 'string') {
+		console.log(`[llm.stt] response attempt ${attempt}:\n${(body as { text: string }).text}`);
+		return;
+	}
+	const choices = (body as { choices?: unknown }).choices;
+	if (Array.isArray(choices) && choices[0] && typeof choices[0] === 'object') {
+		const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
+		if (typeof content === 'string') {
+			console.log(`[llm.stt] response attempt ${attempt}:\n${content}`);
+			return;
+		}
+	}
+	console.log(`[llm.stt] response attempt ${attempt}: (no transcript text in response)`);
 }
 
 async function waitForLlmRateLimit(userId: string): Promise<void> {
@@ -343,13 +391,13 @@ export async function llmChatCompletion(input: {
 	userId: string;
 	messages: ChatMessage[];
 	temperature?: number;
+	maxTokens?: number;
 	/** Dev/server observability only; appears in logs to disambiguate parallel chat uses. */
 	logContext?: string;
 }): Promise<unknown> {
 	return withPlatformBilling(
 		input.userId,
-		estimateChatBilledCents(input.messages),
-		(body) => computeTokenCostUsd(extractUsage(body)),
+		(body) => requireGatewayReportedCostUsd(body),
 		() => llmChatCompletionInner(input)
 	);
 }
@@ -358,6 +406,7 @@ async function llmChatCompletionInner(input: {
 	userId: string;
 	messages: ChatMessage[];
 	temperature?: number;
+	maxTokens?: number;
 	logContext?: string;
 }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
@@ -379,6 +428,7 @@ async function llmChatCompletionInner(input: {
 				messageCount: input.messages.length,
 				totalChars: input.messages.reduce((n, m) => n + m.content.length, 0)
 			});
+			logLlmChatRequest(logCtx, attempt, input.messages);
 			await waitForLlmRateLimit(input.userId);
 			const fetchStart = Date.now();
 			const timeoutMs = requestTimeoutMs();
@@ -398,7 +448,8 @@ async function llmChatCompletionInner(input: {
 						model: routing.model,
 						...(routing.provider ? { provider: routing.provider } : {}),
 						messages: input.messages,
-						...(input.temperature !== undefined ? { temperature: input.temperature } : {})
+						...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+						...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {})
 					})
 				});
 			} finally {
@@ -421,10 +472,10 @@ async function llmChatCompletionInner(input: {
 				throw new Error(`LLM HTTP ${res.status}: ${message}`);
 			}
 
-			const usage = extractUsage(json);
-			const baseCost = computeTokenCostUsd(usage);
 			const attemptMs = Date.now() - attemptStart;
 			const fetchMs = Date.now() - fetchStart;
+			const usage = extractUsage(json);
+			const baseCost = gatewayReportedCostUsdForLog(json);
 			console.info(`[llm.chat:${logCtx}] gateway response ok`, {
 				attempt,
 				httpStatus: res.status,
@@ -434,6 +485,7 @@ async function llmChatCompletionInner(input: {
 				completion_tokens: usage?.completion_tokens,
 				total_tokens: usage?.total_tokens
 			});
+			logLlmChatResponse(logCtx, attempt, json);
 			// Extract first user message for context preview
 			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
@@ -478,8 +530,7 @@ async function llmChatCompletionInner(input: {
 export async function llmCreateEmbeddings(input: { userId: string; input: string | string[] }): Promise<unknown> {
 	return withPlatformBilling(
 		input.userId,
-		estimateEmbeddingBilledCents(input.input),
-		(body) => computeTokenCostUsd(extractUsage(body)),
+		(body) => requireGatewayReportedCostUsd(body),
 		() => llmCreateEmbeddingsInner(input)
 	);
 }
@@ -497,6 +548,7 @@ async function llmCreateEmbeddingsInner(input: { userId: string; input: string |
 		const attemptStart = Date.now();
 		const db = getDb();
 		try {
+			logLlmEmbeddingRequest(attempt, input.input);
 			await waitForLlmRateLimit(input.userId);
 			const embAc = new AbortController();
 			const embTimeoutMs = requestTimeoutMs();
@@ -538,8 +590,7 @@ async function llmCreateEmbeddingsInner(input: { userId: string; input: string |
 				throw new Error(`LLM HTTP ${res.status}: ${message}`);
 			}
 
-			const usage = extractUsage(json);
-			const baseCost = computeTokenCostUsd(usage);
+			const baseCost = gatewayReportedCostUsdForLog(json);
 			// Extract preview from embedding input
 			const embeddingPreview = Array.isArray(input.input)
 				? input.input[0]
@@ -583,27 +634,6 @@ export type LlmTranscriptionAudio = {
 	language?: string;
 };
 
-function parseUsdCost(value: unknown): number {
-	if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
-	if (typeof value === 'string') {
-		const parsed = Number(value);
-		if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-	}
-	return 0;
-}
-
-function extractSttCostUsd(body: unknown): number {
-	if (!body || typeof body !== 'object') return 0;
-	const root = body as { usage?: unknown; cost?: unknown };
-	const fromRoot = parseUsdCost(root.cost);
-	if (fromRoot > 0) return fromRoot;
-	const usage = root.usage;
-	if (!usage || typeof usage !== 'object') return 0;
-	const fromUsage = parseUsdCost((usage as { cost?: unknown }).cost);
-	if (fromUsage > 0) return fromUsage;
-	return computeTokenCostUsd(usage as TokenUsage);
-}
-
 function sttTranscriptPreview(body: unknown): string {
 	if (!body || typeof body !== 'object') return '';
 	if ('text' in body && typeof (body as { text?: unknown }).text === 'string') {
@@ -615,10 +645,6 @@ function sttTranscriptPreview(body: unknown): string {
 		if (typeof content === 'string') return content.slice(0, 200);
 	}
 	return '';
-}
-
-function sttRequestCostUsd(body: unknown): number {
-	return extractSttCostUsd(body);
 }
 
 /**
@@ -654,8 +680,7 @@ export async function llmCreateTranscription(input: {
 }): Promise<unknown> {
 	return withPlatformBilling(
 		input.userId,
-		1,
-		(body) => sttRequestCostUsd(body),
+		(body) => requireGatewayReportedCostUsd(body),
 		async () => {
 			const config = await loadOpenRouterSttConfig(input.userId);
 			return llmCreateTranscriptionDedicated(input, config);
@@ -678,6 +703,7 @@ async function llmCreateTranscriptionDedicated(
 		const attemptStart = Date.now();
 		const db = getDb();
 		try {
+			logLlmSttRequest(attempt, input.model, input.audio);
 			await waitForLlmRateLimit(input.userId);
 			const timeoutMs = requestTimeoutMs();
 			const ac = new AbortController();
@@ -724,7 +750,8 @@ async function llmCreateTranscriptionDedicated(
 				throw new Error(`LLM STT HTTP ${res.status}: ${message}`);
 			}
 
-			const sttCost = sttRequestCostUsd(json);
+			const sttCost = gatewayReportedCostUsdForLog(json);
+			logLlmSttResponse(attempt, json);
 			await logActivityCall(db, input.userId, {
 				provider: OPENROUTER_ACTIVITY_PROVIDER,
 				gatewayHost,

@@ -13,6 +13,8 @@ import {
 	formatTemporalConflictsForPrompt,
 	isSchedulingConflictQuery
 } from '$lib/server/retrieval/temporal-conflicts';
+import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness';
+import type { MemoryType } from '$lib/server/db/brain.schema';
 
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
@@ -25,7 +27,7 @@ export type RetrievalContextItem = {
 	vectorScore: number;
 	graphScore: number;
 	createdAt: Date;
-	/** Optional Falkor/entity path hint from hybrid retrieval. */
+	/** Optional AGE graph / entity path hint from hybrid retrieval. */
 	graphProvenance?: string;
 	/** True when the thought was stored more than 6 months ago. */
 	isStale: boolean;
@@ -62,7 +64,7 @@ export function formatComposedAnswerForUser(answer: string): string {
 	return answer.trim();
 }
 
-type SearchHit = Awaited<ReturnType<typeof searchThoughts>>;
+type SearchHit = Awaited<ReturnType<typeof searchThoughts>>[number];
 
 const RETRIEVAL_HINT_STOPWORDS = new Set([
 	'wer',
@@ -396,7 +398,13 @@ function searchHitToContextItem(hit: SearchHit, now: Date): RetrievalContextItem
 		vectorScore: hit.vectorScore,
 		graphScore: hit.graphScore,
 		createdAt: hit.createdAt,
-		isStale: now.getTime() - hit.createdAt.getTime() > STALENESS_THRESHOLD_MS,
+		isStale: isThoughtStaleByAge({
+			createdAt: hit.createdAt,
+			now,
+			thresholdMs: STALENESS_THRESHOLD_MS,
+			memoryType: hit.memoryType as MemoryType | null,
+			metadata: hit.metadata
+		}),
 		graphProvenance:
 			typeof hit.metadata?.graphProvenance === 'string' ? hit.metadata.graphProvenance : undefined
 	};
@@ -417,6 +425,7 @@ async function hydrateConflictThoughts(input: {
 			id: thought.id,
 			normalizedText: thought.normalizedText,
 			category: thought.category,
+			memoryType: thought.memoryType,
 			metadata: thought.metadata,
 			createdAt: thought.createdAt
 		})
@@ -431,7 +440,13 @@ async function hydrateConflictThoughts(input: {
 		vectorScore: 0,
 		graphScore: 1,
 		createdAt: row.createdAt,
-		isStale: input.now.getTime() - row.createdAt.getTime() > STALENESS_THRESHOLD_MS,
+		isStale: isThoughtStaleByAge({
+			createdAt: row.createdAt,
+			now: input.now,
+			thresholdMs: STALENESS_THRESHOLD_MS,
+			memoryType: row.memoryType as MemoryType | null,
+			metadata: row.metadata
+		}),
 		graphProvenance: 'temporal:scheduling_conflict'
 	}));
 

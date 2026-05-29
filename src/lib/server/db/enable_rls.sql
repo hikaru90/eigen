@@ -41,6 +41,14 @@ CREATE POLICY user_preference_isolation ON user_preference
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE heartbeat_run ENABLE ROW LEVEL SECURITY;
+ALTER TABLE heartbeat_run FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS heartbeat_run_isolation ON heartbeat_run;
+CREATE POLICY heartbeat_run_isolation ON heartbeat_run
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE user_ontology ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_ontology FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS user_ontology_isolation ON user_ontology;

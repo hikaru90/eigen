@@ -10,8 +10,9 @@
  * Uses heuristics first (fast, no LLM cost). Ambiguous queries default to 'local'
  * because the local path also includes graph expansion and handles most cases well.
  *
- * The router is used by the QA compose layer and the retrieval API to select
- * the right retrieval function and weight configuration.
+ * The router is intended for the QA compose layer once global/relational routing
+ * is re-scoped beyond MVP. Today it is unit-tested only; production paths always
+ * call `searchThoughts` with `CONTEXT_WEIGHTS.default`.
  */
 
 export type QueryType = 'local' | 'relational' | 'global';
