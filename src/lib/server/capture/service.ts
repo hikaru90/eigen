@@ -8,7 +8,7 @@ import {
 	deleteThoughtVertexFromGraph,
 	upsertThoughtNode,
 	upsertThoughtRelation
-} from '$lib/server/graph/falkor';
+} from '$lib/server/graph/age';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
@@ -420,7 +420,17 @@ export async function listThoughts(
 	const cursor = options?.cursor;
 
 	return getDb()
-		.select()
+		.select({
+			id: thought.id,
+			userId: thought.userId,
+			rawText: thought.rawText,
+			normalizedText: thought.normalizedText,
+			category: thought.category,
+			metadata: thought.metadata,
+			memoryType: thought.memoryType,
+			createdAt: thought.createdAt,
+			updatedAt: thought.updatedAt
+		})
 		.from(thought)
 		.where(
 			and(

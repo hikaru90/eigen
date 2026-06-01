@@ -31,7 +31,7 @@ describe('graph adapter (Apache AGE)', () => {
 	it('throws when AGE_GRAPH_NAME is missing', async () => {
 		vi.resetModules();
 		env.AGE_GRAPH_NAME = '';
-		const { upsertThoughtNode } = await import('./falkor');
+		const { upsertThoughtNode } = await import('./age');
 		await expect(
 			upsertThoughtNode({ id: 't1', userId: 'u1', category: 'thought' })
 		).rejects.toThrow(/AGE_GRAPH_NAME is required/);
@@ -41,7 +41,7 @@ describe('graph adapter (Apache AGE)', () => {
 		vi.resetModules();
 		env.AGE_GRAPH_NAME = 'eigen_graph';
 		mockCypherRows([{ id: 't1' }]);
-		const { upsertThoughtNode } = await import('./falkor');
+		const { upsertThoughtNode } = await import('./age');
 		await upsertThoughtNode({ id: 't1', userId: 'u1', category: 'thought' });
 		expect(executeMock).toHaveBeenCalledTimes(3);
 		expect(logActivityCallMock).toHaveBeenCalledWith(
@@ -53,13 +53,13 @@ describe('graph adapter (Apache AGE)', () => {
 
 	it('expandNeighborsByIds returns ranked thought hits', async () => {
 		mockCypherRows([{ id: 't2', hits: 3 }]);
-		const { expandNeighborsByIds } = await import('./falkor');
+		const { expandNeighborsByIds } = await import('./age');
 		const out = await expandNeighborsByIds({ userId: 'u1', seedIds: ['t1'], limit: 10 });
 		expect(out).toEqual([{ id: 't2', hits: 3 }]);
 	});
 
 	it('graphOnlySearchByQuery short-circuits when query tokenization is empty', async () => {
-		const { graphOnlySearchByQuery } = await import('./falkor');
+		const { graphOnlySearchByQuery } = await import('./age');
 		const out = await graphOnlySearchByQuery({ userId: 'u1', query: '!', limit: 10 });
 		expect(out).toEqual([]);
 		expect(executeMock).not.toHaveBeenCalled();
@@ -67,7 +67,7 @@ describe('graph adapter (Apache AGE)', () => {
 
 	it('thoughtExistsInGraph returns true only when rows are returned', async () => {
 		mockCypherRows([{ id: 't1' }]);
-		const { thoughtExistsInGraph } = await import('./falkor');
+		const { thoughtExistsInGraph } = await import('./age');
 		await expect(thoughtExistsInGraph('u1', 't1')).resolves.toBe(true);
 
 		mockCypherRows([]);

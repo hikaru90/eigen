@@ -7,7 +7,7 @@ import {
 	userOntology
 } from '$lib/server/db/brain.schema';
 import type { AppDatabase } from '$lib/server/db';
-import { thoughtExistsInGraph } from '$lib/server/graph/falkor';
+import { thoughtExistsInGraph } from '$lib/server/graph/age';
 import { loadOntologyForUser } from '$lib/server/ontology-db';
 import { parseOntologyProfileJson } from '$lib/server/ontology/types';
 import type { CheckAssertionResult, CheckEntryResult, QaChecks } from './qa-types';

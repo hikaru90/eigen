@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
-import { graphOnlySearchByQuery } from '$lib/server/graph/falkor';
+import { graphOnlySearchByQuery } from '$lib/server/graph/age';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { lexicalSearch, type LexicalSearchResult } from '$lib/server/retrieval/lexical';
@@ -378,6 +378,18 @@ function extractAnswerText(response: unknown): string {
 
 const CITATION_PATTERN = /\[([A-Za-z0-9_-]+)\]/g;
 
+/** Citation ids present in answer text that are not in the retrieved allow-list. */
+export function findInvalidCitationIds(answer: string, allowedIds: Set<string>): string[] {
+	const invalid = new Set<string>();
+	let match: RegExpExecArray | null;
+	const re = new RegExp(CITATION_PATTERN);
+	while ((match = re.exec(answer)) !== null) {
+		const id = match[1];
+		if (!allowedIds.has(id)) invalid.add(id);
+	}
+	return [...invalid];
+}
+
 function extractCitations(answer: string, allowedIds: Set<string>): string[] {
 	const seen = new Set<string>();
 	let match: RegExpExecArray | null;
@@ -477,7 +489,12 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const retrievalQuery =
 		hintRetrievalQuery && hintRetrievalQuery !== trimmedQuestion ? hintRetrievalQuery : undefined;
 	await input.onProgress?.('embedding');
-	const queryEmbedding = await createThoughtEmbedding(input.userId, trimmedQuestion);
+	const [queryEmbedding, hintQueryEmbedding] = await Promise.all([
+		createThoughtEmbedding(input.userId, trimmedQuestion),
+		retrievalQuery
+			? createThoughtEmbedding(input.userId, retrievalQuery)
+			: Promise.resolve(undefined as number[] | undefined)
+	]);
 	await input.onProgress?.('searching');
 	let retrieved: SearchHit[];
 	if (retrievalQuery) {
@@ -494,7 +511,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 				query: retrievalQuery,
 				topK,
 				weights,
-				queryEmbedding
+				queryEmbedding: hintQueryEmbedding ?? queryEmbedding
 			}),
 			searchHitsFromHintAnchors({
 				userId: input.userId,
@@ -565,6 +582,12 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	});
 	const answer = extractAnswerText(response);
 	const allowedIds = new Set(contextItems.map((c) => c.id));
+	const invalidCitations = findInvalidCitationIds(answer, allowedIds);
+	if (invalidCitations.length > 0) {
+		throw new Error(
+			`composeAnswer: answer cites thought ids not in retrieved context: ${invalidCitations.join(', ')}`
+		);
+	}
 	const citations = extractCitations(answer, allowedIds);
 	return { answer, citations, retrieved: contextItems, conflicts };
 }

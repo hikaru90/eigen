@@ -10,7 +10,7 @@ import {
 	thought,
 	userOntology
 } from '$lib/server/db/schema';
-import { deleteAllUserGraphVertices } from '$lib/server/graph/falkor';
+import { deleteAllUserGraphVertices } from '$lib/server/graph/age';
 import {
 	DELETE_ALL_MEMORIES_CONFIRMATION,
 	isDeleteAllMemoriesConfirmation

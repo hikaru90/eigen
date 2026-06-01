@@ -30,7 +30,11 @@ import { classifyMemoryType } from '$lib/server/memory/classify-memory-type';
 import { extractCues } from '$lib/server/memory/extract-cues';
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync';
 import { maybeRefreshUserOntology } from '$lib/server/ontology';
-import { upsertThoughtRelation, deleteThoughtOutgoingGraphEdges } from '$lib/server/graph/falkor';
+import {
+	deleteThoughtOutgoingGraphEdges,
+	deleteThoughtOutgoingRelatesToEdges,
+	upsertThoughtRelation
+} from '$lib/server/graph/age';
 import { thoughtRelation } from '$lib/server/db/schema';
 
 export type EnrichThoughtOptions = {
@@ -76,10 +80,10 @@ export async function enrichThought(
 		phases: ['relations', 'entities', 'temporal', 'memory_type', 'cues']
 	});
 
-	const [relationsResult, entitiesResult, temporalResult, memoryTypeResult, cuesResult] =
-		await Promise.allSettled([
+	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] = await Promise.allSettled([
 			// ---- Relations -------------------------------------------------------
 			(async () => {
+				await deleteThoughtOutgoingRelatesToEdges({ userId, thoughtId });
 				const relations = await extractRelations({ userId, thoughtId, normalizedText, embedding: thoughtEmbedding });
 				await db.transaction(async (tx) => {
 					await tx
@@ -107,15 +111,7 @@ export async function enrichThought(
 			})(),
 
 			// ---- Entities --------------------------------------------------------
-			syncEntityGraphFromThought({ userId, thoughtId, normalizedText, thoughtEmbedding }),
-
-			// ---- Temporal events (Postgres ledger + graph outbox) ----------------
-			syncTemporalEventsFromThought({
-				userId,
-				thoughtId,
-				normalizedText,
-				thoughtEmbedding
-			}),
+			syncEntityGraphFromThought({ userId, thoughtId, normalizedText }),
 
 			// ---- Memory type -----------------------------------------------------
 			(async () => {
@@ -131,6 +127,16 @@ export async function enrichThought(
 				}
 			})()
 		]);
+
+	// Temporal graph sync reads entity_resolution_log — run after entity step completes.
+	const temporalResult = await Promise.allSettled([
+		syncTemporalEventsFromThought({
+			userId,
+			thoughtId,
+			normalizedText,
+			thoughtEmbedding
+		})
+	]).then((r) => r[0]);
 
 	// Log failures individually so one bad step doesn't hide others.
 	const stepNames = ['relations', 'entities', 'temporal', 'memory_type', 'cues'] as const;

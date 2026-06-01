@@ -101,7 +101,7 @@ thoughts:
     cluster: B
 
   - id: ec_027
-    rawText: "Sarah and I disagreed on whether to use Apache AGE or FalkorDB for the graph layer. Went with FalkorDB."
+    rawText: "Sarah and I disagreed on whether to use Apache AGE or a separate graph database for the graph layer. We went with Apache AGE in Postgres."
     cluster: B
 
   - id: ec_028

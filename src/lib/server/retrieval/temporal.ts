@@ -2,11 +2,11 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { temporalEvent } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
-import { expandContextFromTemporalEventSeeds } from '$lib/server/graph/falkor';
+import { expandContextFromTemporalEventSeeds } from '$lib/server/graph/age';
 
 export type TemporalFilterResult = {
 	eventId: string;
-	falkordbNodeId: string | null;
+	graphNodeId: string | null;
 	semanticSummary: string;
 	thoughtId: string;
 	score: number;
@@ -123,7 +123,7 @@ export async function filterTemporalEvents(input: {
 	const rows = await db
 		.select({
 			id: temporalEvent.id,
-			falkordbNodeId: temporalEvent.falkordbNodeId,
+			graphNodeId: temporalEvent.graphNodeId,
 			semanticSummary: temporalEvent.semanticSummary,
 			thoughtId: temporalEvent.thoughtId,
 			distance
@@ -143,7 +143,7 @@ export async function filterTemporalEvents(input: {
 
 	return rows.map((row, index) => ({
 		eventId: row.id,
-		falkordbNodeId: row.falkordbNodeId,
+		graphNodeId: row.graphNodeId,
 		semanticSummary: row.semanticSummary,
 		thoughtId: row.thoughtId,
 		score: 1 / (index + 1)
@@ -159,7 +159,7 @@ export async function traverseTemporalContext(input: {
 	limit?: number;
 }): Promise<Array<{ thoughtId: string; hits: number; provenance?: string }>> {
 	const eventIds = input.seeds
-		.map((s) => s.falkordbNodeId ?? s.eventId)
+		.map((s) => s.graphNodeId ?? s.eventId)
 		.filter((id) => id.length > 0);
 
 	if (eventIds.length === 0) return [];

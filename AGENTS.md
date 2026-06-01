@@ -84,6 +84,7 @@
 - **Lexical recall:** persist a deterministic **precomputed search surface** on each thought (e.g. `thought.lexical_text`: NFKC-folded, lowercased, whitespace-collapsed from normalized body). Use it to build `tsvector` and/or BM25-style keyword retrieval alongside `pgvector`, so short phrases, names, and codes are not lost to embedding-only search.
 - **Strict MCP / ingest contracts:** validate entity IDs (non-empty after trim, no interior whitespace), numeric bounds such as search `threshold` in `[0, 1]` and non-negative integer `top_k`, and reject ambiguous argument shapes at the boundary before any DB or LLM work.
 - **Observability without leaks:** when logging or emitting telemetry for tool calls, configs, or errors, run payloads through a **secret redaction** pass (keys like `api_key`, `*_token`, `*_secret`, `password`, etc.) so usage transparency never ships raw credentials.
+- **Embeddings are DB-only:** vectors may be stored and used for retrieval, but must **never** appear in MCP tool results, agent/LLM messages, or logs. See [`docs/planning/embeddings-db-only-boundary.md`](docs/planning/embeddings-db-only-boundary.md). Use `sanitizeMcpToolResult` / `stripEmbeddingsFromValue` / `sanitizeChatMessages` ([`src/lib/server/observability/strip-embeddings.ts`](src/lib/server/observability/strip-embeddings.ts)); never `select()` embedding columns for tool-facing queries.
 
 ## Definition Of Ready (DoR)
 - Requirement is unambiguous and approved.

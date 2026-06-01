@@ -225,6 +225,20 @@
       "when": 1749139200000,
       "tag": "0031_wallet_pending_billing_micro_usd",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1749225600000,
+      "tag": "0032_user_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1749312000000,
+      "tag": "0033_temporal_event_graph_node_id",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,8 @@ const {
 	extractCuesMock,
 	maybeRefreshUserOntologyMock,
 	upsertThoughtRelationMock,
-	deleteThoughtOutgoingGraphEdgesMock
+	deleteThoughtOutgoingGraphEdgesMock,
+	deleteThoughtOutgoingRelatesToEdgesMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	extractRelationsMock: vi.fn(),
@@ -20,7 +21,8 @@ const {
 	extractCuesMock: vi.fn(),
 	maybeRefreshUserOntologyMock: vi.fn(),
 	upsertThoughtRelationMock: vi.fn(),
-	deleteThoughtOutgoingGraphEdgesMock: vi.fn()
+	deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
+	deleteThoughtOutgoingRelatesToEdgesMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
@@ -32,9 +34,10 @@ vi.mock('$lib/server/memory/temporal-graph-sync', () => ({
 vi.mock('$lib/server/memory/classify-memory-type', () => ({ classifyMemoryType: classifyMemoryTypeMock }));
 vi.mock('$lib/server/memory/extract-cues', () => ({ extractCues: extractCuesMock }));
 vi.mock('$lib/server/ontology', () => ({ maybeRefreshUserOntology: maybeRefreshUserOntologyMock }));
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	upsertThoughtRelation: upsertThoughtRelationMock,
-	deleteThoughtOutgoingGraphEdges: deleteThoughtOutgoingGraphEdgesMock
+	deleteThoughtOutgoingGraphEdges: deleteThoughtOutgoingGraphEdgesMock,
+	deleteThoughtOutgoingRelatesToEdges: deleteThoughtOutgoingRelatesToEdgesMock
 }));
 
 function makeDb(overrides: Partial<{
@@ -78,6 +81,35 @@ describe('enrichThought', () => {
 		expect(db.update).toHaveBeenCalled();
 	});
 
+	it('clears outgoing RELATES_TO edges before relation extraction', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+
+		await enrichThought('u1', 't1', 'hello world');
+
+		expect(deleteThoughtOutgoingRelatesToEdgesMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1'
+		});
+	});
+
+	it('runs temporal sync after entity sync completes', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const order: string[] = [];
+		syncEntityGraphFromThoughtMock.mockImplementation(async () => {
+			order.push('entities');
+		});
+		syncTemporalEventsFromThoughtMock.mockImplementation(async () => {
+			order.push('temporal');
+		});
+
+		await enrichThought('u1', 't1', 'hello world');
+
+		expect(order.indexOf('entities')).toBeGreaterThanOrEqual(0);
+		expect(order.indexOf('temporal')).toBeGreaterThan(order.indexOf('entities'));
+	});
+
 	it('calls relation extraction and syncs relations to DB and AGE graph', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
@@ -106,8 +138,7 @@ describe('enrichThought', () => {
 		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			thoughtId: 't1',
-			normalizedText: 'hello world',
-			thoughtEmbedding: [0.1, 0.2]
+			normalizedText: 'hello world'
 		});
 	});
 

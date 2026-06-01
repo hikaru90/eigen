@@ -42,7 +42,7 @@ describe('extractRelations', () => {
 
 	it('returns parsed allowed relations', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [
@@ -67,7 +67,7 @@ describe('extractRelations', () => {
 		const types = ['follows_from', 'continuation_of', 'caused_by', 'refines', 'contradicts', 'mentions', 'depends_on'] as const;
 		for (const relationType of types) {
 			searchThoughtsMock.mockResolvedValue([
-				{ id: 't2', normalizedText: 'prior thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+				{ id: 't2', normalizedText: 'prior thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 			]);
 			llmChatCompletionMock.mockResolvedValue({
 				choices: [{ message: { content: JSON.stringify([{ targetId: 't2', relationType }]) } }]
@@ -79,7 +79,7 @@ describe('extractRelations', () => {
 
 	it('prompt instructs model to use most specific type and treats related_to as last resort', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'prior thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'prior thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [{ message: { content: JSON.stringify([]) } }]
@@ -109,8 +109,8 @@ describe('extractRelations', () => {
 
 	it('handles mixed response with specific and generic types correctly', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'thought two', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} },
-			{ id: 't3', normalizedText: 'thought three', category: 'idea', score: 0.9, vectorScore: 0.9, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'thought two', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} },
+			{ id: 't3', normalizedText: 'thought three', category: 'idea', score: 0.9, vectorScore: 0.9, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [{
@@ -122,16 +122,23 @@ describe('extractRelations', () => {
 				}
 			}]
 		});
-		const out = await extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'source' });
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'source thought three continuation'
+		});
 		expect(out).toEqual([
 			{ targetId: 't2', relationType: 'contradicts' },
-			{ targetId: 't3', relationType: 'related_to' }
+			{
+				targetId: 't3',
+				relationType: 'related_to'
+			}
 		]);
 	});
 
 	it('filters invalid relation types', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [
@@ -152,6 +159,50 @@ describe('extractRelations', () => {
 		expect(out).toEqual([]);
 	});
 
+	it('skips semantic neighbors without graph connectivity', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 't2',
+				normalizedText: 'topical but disconnected',
+				category: 'task',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				metadata: {}
+			}
+		]);
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'source thought'
+		});
+		expect(out).toEqual([]);
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+	});
+
+	it('filters related_to when source and candidate share no lexical overlap', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 't2',
+				normalizedText: 'quantum lattice calibration',
+				category: 'task',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0.02,
+				metadata: {}
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: JSON.stringify([{ targetId: 't2', relationType: 'related_to' }]) } }]
+		});
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'bought groceries after lunch'
+		});
+		expect(out).toEqual([]);
+	});
+
 	it('returns empty when only self is retrieved', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{ id: 't1', normalizedText: 'source thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
@@ -167,7 +218,7 @@ describe('extractRelations', () => {
 
 	it('merges temporal neighbors with semantic neighbors', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'semantic neighbor', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'semantic neighbor', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		// Temporal neighbor (distinct from semantic)
 		getDbMock.mockReturnValue({
@@ -196,7 +247,7 @@ describe('extractRelations', () => {
 
 	it('throws when llm response has no choices', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({});
 		await expect(
@@ -210,7 +261,7 @@ describe('extractRelations', () => {
 
 	it('throws when llm output is not a json array', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [{ message: { content: '{}' } }]
@@ -226,7 +277,7 @@ describe('extractRelations', () => {
 
 	it('throws when llm response message is missing', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({ choices: [{}] });
 		await expect(
@@ -240,7 +291,7 @@ describe('extractRelations', () => {
 
 	it('throws when llm response is not an object', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue(null);
 		await expect(
@@ -254,7 +305,7 @@ describe('extractRelations', () => {
 
 	it('throws when llm response content is non-string', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({ choices: [{ message: { content: 123 } }] });
 		await expect(
@@ -268,7 +319,7 @@ describe('extractRelations', () => {
 
 	it('filters non-object and malformed array entries', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0, metadata: {} }
+			{ id: 't2', normalizedText: 'connected thought', category: 'task', score: 1, vectorScore: 1, graphScore: 0.02, metadata: {} }
 		]);
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [

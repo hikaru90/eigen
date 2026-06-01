@@ -1,0 +1,31 @@
+---
+description: Embeddings stay in Postgres only — never in MCP tools or LLM prompts
+alwaysApply: true
+---
+
+# No Embeddings in Tools or LLM Calls
+
+Embeddings (1536-dim vectors) may be **computed and stored** in Postgres/pgvector. They must **never** be returned by MCP tools or included in any chat/completion request.
+
+## Non-negotiable
+
+- Do not `select()` full `thought` rows (or other tables with `embedding` columns) for tool/API payloads — use explicit column lists that omit `embedding`, `summary_embedding`, etc.
+- Do not pass embedding arrays through tool results, agent messages, MCP `CallTool` responses, or `llmChatCompletion` messages.
+- Do not log embedding vectors or full embedding API inputs (truncate or omit).
+- Retrieval may **use** embeddings internally (`searchThoughts`, `createThoughtEmbedding`); only return scores, ids, and text fields to callers.
+
+## Required enforcement (use existing helpers)
+
+- **`sanitizeMcpToolResult()`** — wrap every MCP tool return ([`src/lib/server/mcp/tools.ts`](src/lib/server/mcp/tools.ts)).
+- **`stripEmbeddingsFromValue()`** — deep strip of vector fields and 1536-element numeric arrays ([`src/lib/server/observability/strip-embeddings.ts`](src/lib/server/observability/strip-embeddings.ts)).
+- **`sanitizeChatMessages()`** — applied in [`llm-client.ts`](src/lib/server/llm/llm-client.ts) before `POST /chat/completions` (last line of defense).
+- **Agent loop** — sanitize after each tool; compact tool results for follow-up turns ([`agent-tool-result-compact.ts`](src/lib/server/llm/agent-tool-result-compact.ts)).
+
+Canonical doc: [`docs/planning/embeddings-db-only-boundary.md`](docs/planning/embeddings-db-only-boundary.md).
+
+## Review checklist
+
+- New tool or API: does the response shape exclude embeddings?
+- New `llmChatCompletion` caller: could message content include vectors? If yes, sanitize or compact first.
+- New `list*` / `get*` query: explicit `.select({ ... })` without embedding columns?
+- Tests: assert `"embedding"` absent from tool output and from messages sent to the LLM mock?

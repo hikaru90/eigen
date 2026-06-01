@@ -12,7 +12,7 @@ vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
 vi.mock('$lib/server/llm/embedding', () => ({
 	createThoughtEmbedding: createThoughtEmbeddingMock
 }));
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	expandContextFromTemporalEventSeeds: expandContextFromTemporalEventSeedsMock
 }));
 
@@ -64,7 +64,7 @@ describe('filterTemporalEvents', () => {
 		const limit = vi.fn(async () => [
 			{
 				id: 'ev1',
-				falkordbNodeId: 'node-1',
+				graphNodeId: 'node-1',
 				semanticSummary: 'Team offsite',
 				thoughtId: 't1',
 				distance: 0.2
@@ -112,7 +112,7 @@ describe('traverseTemporalContext', () => {
 			seeds: [
 				{
 					eventId: 'ev1',
-					falkordbNodeId: 'node-1',
+					graphNodeId: 'node-1',
 					semanticSummary: 'Meeting',
 					thoughtId: 't1',
 					score: 1

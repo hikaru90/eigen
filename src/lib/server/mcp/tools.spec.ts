@@ -96,6 +96,21 @@ describe('MCP tools', () => {
 		await expect(runCaptureThoughtTool({ userId: 'u1' }, null)).rejects.toThrow(/raw is required/);
 	});
 
+	it('runListThoughtsTool strips embedding vectors from tool output', async () => {
+		listThoughtsMock.mockResolvedValue([
+			{
+				id: 't1',
+				normalizedText: 'hello',
+				embedding: Array.from({ length: 1536 }, () => 0.1)
+			}
+		]);
+		const out = await runListThoughtsTool({ userId: 'u1' }, {}) as {
+			thoughts: Array<Record<string, unknown>>;
+		};
+		expect(out.thoughts[0]).not.toHaveProperty('embedding');
+		expect(out.thoughts[0].normalizedText).toBe('hello');
+	});
+
 	it('runListThoughtsTool forwards default limit when not provided', async () => {
 		listThoughtsMock.mockResolvedValue([{ id: 't1' }]);
 		const out = await runListThoughtsTool({ userId: 'u1' }, {});
@@ -127,10 +142,10 @@ describe('MCP tools', () => {
 		);
 	});
 
-	it('runRetrieveThoughtsTool filters by threshold when provided', async () => {
+	it('runRetrieveThoughtsTool filters by normalized RRF threshold when provided', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 'a', score: 0.9 },
-			{ id: 'b', score: 0.4 }
+			{ id: 'a', score: 0.02 },
+			{ id: 'b', score: 0.008 }
 		]);
 		const out = await runRetrieveThoughtsTool(
 			{ userId: 'u1' },
@@ -142,7 +157,7 @@ describe('MCP tools', () => {
 			topK: 5,
 			weights: { vector: 0.7, graph: 0.3 }
 		});
-		expect(out).toEqual({ results: [{ id: 'a', score: 0.9 }] });
+		expect(out.results).toEqual([{ id: 'a', score: 0.02 }]);
 	});
 
 	it('runRetrieveThoughtsTool returns all results when threshold is omitted', async () => {

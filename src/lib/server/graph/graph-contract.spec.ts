@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GRAPH_ADAPTER_OPERATIONS } from './graph-contract';
-import * as graphAdapter from './falkor';
+import * as graphAdapter from './age';
 
 describe('graph adapter contract', () => {
 	it('exports every operation from the runtime adapter module', () => {

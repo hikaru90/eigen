@@ -37,10 +37,11 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - Deterministic **lexical search surface** on stored thoughts (`lexical_text` derived from normalized text) for Postgres `tsvector` / keyword fusion with semantic search.
   - **Retrieval quality diagnostics (metadata-only):** each search may persist numeric channel diagnostics (e.g. semantic share for top results) in Postgres for effectiveness tracking; **no** query text, thought bodies, thought ids, or embeddings in that row (GDPR-aligned).
   - **MCP and ingest validation:** strict entity IDs and numeric search bounds at the tool boundary; **redaction** of secret-shaped fields in logs and telemetry tied to pricing transparency.
+  - **Embeddings DB-only:** embedding vectors are stored in Postgres for search but must never be returned by MCP tools or included in chat/LLM prompts ([embeddings-db-only-boundary.md](./embeddings-db-only-boundary.md)).
 - MCP v1 tools:
   - `capture_thought`
   - `list_thoughts`
-  - `search_thoughts`
+  - `retrieve_thoughts` (hybrid search; legacy docs may say `search_thoughts`)
   - `edit_thought`
 - Activity/cost log:
   - Per-call LLM gateway usage log.

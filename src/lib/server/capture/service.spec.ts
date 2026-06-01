@@ -50,7 +50,7 @@ vi.mock('$lib/server/llm/embedding', () => ({
 	createThoughtEmbedding: createThoughtEmbeddingMock
 }));
 
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	upsertThoughtNode: upsertThoughtNodeMock,
 	upsertThoughtRelation: upsertThoughtRelationMock,
 	deleteThoughtOutgoingGraphEdges: deleteThoughtOutgoingGraphEdgesMock,

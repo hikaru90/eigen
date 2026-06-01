@@ -673,8 +673,8 @@ export const temporalEvent = pgTable(
 		thoughtId: uuid('thought_id')
 			.notNull()
 			.references(() => thought.id, { onDelete: 'cascade' }),
-		/** AGE Event node id (column name retained from Falkor cutover); set when graph sync succeeds (defaults to row id). */
-		falkordbNodeId: text('falkordb_node_id'),
+		/** AGE Event node id; set when graph sync succeeds (defaults to row id). */
+		graphNodeId: text('graph_node_id'),
 		kind: text('kind').$type<TemporalEventKind>().notNull(),
 		activePeriod: tsrange('active_period').notNull(),
 		timePrecision: text('time_precision').$type<TemporalTimePrecision>().notNull(),

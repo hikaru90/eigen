@@ -150,23 +150,34 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 	}
 
 	if (tool === 'capture_thought' && parsed.thought && typeof parsed.thought === 'object') {
-		const t = parsed.thought as { normalizedText?: string; category?: string };
+		const t = parsed.thought as { normalizedText?: string; snippet?: string; category?: string };
 		const cat = t.category ? ` (${t.category})` : '';
-		return { kind: 'text', text: `Saved${cat}: ${t.normalizedText ?? '(no text)'}` };
+		const body = t.normalizedText ?? t.snippet ?? '(no text)';
+		return { kind: 'text', text: `Saved${cat}: ${body}` };
 	}
 
 	if (tool === 'edit_thought') {
 		const summary = typeof parsed.summary === 'string' ? parsed.summary : null;
 		const thoughtId = typeof parsed.thoughtId === 'string' ? parsed.thoughtId : null;
-		const before = parsed.before as { normalizedText?: string; status?: string } | undefined;
-		const after = parsed.after as { normalizedText?: string; status?: string } | undefined;
+		const before = parsed.before as {
+			normalizedText?: string;
+			snippet?: string;
+			status?: string;
+		} | undefined;
+		const after = parsed.after as {
+			normalizedText?: string;
+			snippet?: string;
+			status?: string;
+		} | undefined;
 		const lines: string[] = [];
 		if (thoughtId) lines.push(`Thought ${thoughtId.slice(0, 8)}…`);
 		if (summary) lines.push(summary);
 		if (before && after) {
-			if (before.normalizedText !== after.normalizedText) {
-				lines.push(`Before: ${before.normalizedText ?? '(no text)'}`);
-				lines.push(`After: ${after.normalizedText ?? '(no text)'}`);
+			const beforeText = before.normalizedText ?? before.snippet;
+			const afterText = after.normalizedText ?? after.snippet;
+			if (beforeText !== afterText) {
+				lines.push(`Before: ${beforeText ?? '(no text)'}`);
+				lines.push(`After: ${afterText ?? '(no text)'}`);
 			}
 			if (before.status !== after.status) {
 				lines.push(`Status: ${before.status ?? 'open'} → ${after.status ?? 'open'}`);
@@ -197,7 +208,9 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 }
 
 function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView | null {
-	const sources = [parsed.results, parsed.retrieved, parsed.thoughts].find(Array.isArray);
+	const sources = [parsed.results, parsed.candidates, parsed.retrieved, parsed.thoughts].find(
+		Array.isArray
+	);
 	if (!Array.isArray(sources)) return null;
 
 	const uniqueHits = new Map<string, ToolResultMemoryHit>();
@@ -208,9 +221,11 @@ function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView 
 			const text =
 				typeof r.normalizedText === 'string'
 					? r.normalizedText
-					: typeof r.text === 'string'
-						? r.text
-						: '';
+					: typeof r.snippet === 'string'
+						? r.snippet
+						: typeof r.text === 'string'
+							? r.text
+							: '';
 			if (!text.trim()) return null;
 			return {
 				id: typeof r.id === 'string' ? r.id : undefined,

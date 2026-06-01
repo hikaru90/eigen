@@ -10,8 +10,10 @@ import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
+import { normalizeFusedRrfScore } from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
+import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
 
 export type McpToolProgress = {
 	tool: string;
@@ -35,7 +37,7 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
 		throw new Error('raw is required');
 	}
 	const stored = await captureThought(context.userId, raw);
-	return { thoughtId: stored.id, thought: stored };
+	return sanitizeMcpToolResult({ thoughtId: stored.id, thought: stored });
 }
 
 export async function runListThoughtsTool(context: McpToolContext, args: unknown) {
@@ -54,7 +56,7 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 					}
 				: undefined
 	});
-	return { thoughts };
+	return sanitizeMcpToolResult({ thoughts });
 }
 
 export async function runRetrieveThoughtsTool(context: McpToolContext, args: unknown) {
@@ -85,8 +87,13 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 		topKRequested: topK ?? 20,
 		results: results.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
-	const filtered = threshold == null ? results : results.filter((result) => result.score >= threshold);
-	return { results: filtered };
+	const filtered =
+		threshold == null
+			? results
+			: results.filter(
+					(result) => normalizeFusedRrfScore(result.score, weights) >= threshold
+				);
+	return sanitizeMcpToolResult({ results: filtered });
 }
 
 export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {
@@ -99,7 +106,7 @@ export async function runDeleteThoughtTool(context: McpToolContext, args: unknow
 	if (!result.ok) {
 		throw new Error('Thought not found');
 	}
-	return { deleted: true, thoughtId };
+	return sanitizeMcpToolResult({ deleted: true, thoughtId });
 }
 
 export async function runEditThoughtTool(context: McpToolContext, args: unknown) {
@@ -143,7 +150,7 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 	}
 
 	const afterMeta = (updated.thought.metadata as Record<string, unknown>) ?? {};
-	return {
+	return sanitizeMcpToolResult({
 		thought: updated.thought,
 		thoughtId: updated.thought.id,
 		editRequest,
@@ -155,7 +162,7 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 			category: updated.thought.category,
 			status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
 		}
-	};
+	});
 }
 
 export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {
@@ -182,5 +189,5 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 			});
 		}
 	});
-	return result;
+	return sanitizeMcpToolResult(result);
 }

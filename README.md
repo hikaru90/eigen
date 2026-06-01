@@ -68,17 +68,6 @@ The app is now available at `http://<your-host>:3000`.
 
 Set these in your Coolify service dashboard or in an `.env` file at the project root. The compose stack passes `DATABASE_URL`, `AGE_GRAPH_NAME`, `ORIGIN`, `HOST`, and `PORT` to the app container automatically.
 
-### Migrating from FalkorDB
-
-If you have existing Falkor graph data, run once while Falkor is still reachable:
-
-```sh
-npm run db:migrate-graph-falkor-to-age:dry-run   # review tmp/falkor-to-age-migration-report.json
-npm run db:migrate-graph-falkor-to-age
-```
-
-See [`docs/planning/08-age-cutover-rollback.md`](./docs/planning/08-age-cutover-rollback.md) for rollback steps.
-
 ## Deploying to Coolify
 
 1. **Connect the repository** in Coolify.
@@ -154,7 +143,7 @@ npm run dev        # run the SvelteKit dev server on :5173
 | Command | What it does |
 |---------|-------------|
 | `npm run db:up` | Start `db` container only |
-| `npm run db:migrate-graph-falkor-to-age` | One-time Falkor → AGE data migration |
+| `npm run db:import-graph-export` | Import a graph export JSON into AGE (`--from-export <path>`) |
 | `npm run db:down` | Stop all compose services |
 | `npm run db:reset` | Stop services and delete DB volume (destructive) |
 | `npm run db:push` | Apply Drizzle schema (interactive) |

@@ -37,7 +37,7 @@ const sampleMention = {
 	semanticSummary: 'Report due Friday'
 };
 
-function makeDb(existingRows: Array<{ id: string; falkordbNodeId: string | null }> = []) {
+function makeDb(existingRows: Array<{ id: string; graphNodeId: string | null }> = []) {
 	const deleteWhere = vi.fn(async () => undefined);
 	const deleteFn = vi.fn(() => ({ where: deleteWhere }));
 
@@ -90,7 +90,7 @@ describe('syncTemporalEventsFromThought', () => {
 	});
 
 	it('deletes existing temporal rows and enqueues graph deletes before inserting new mentions', async () => {
-		const db = makeDb([{ id: 'ev-old', falkordbNodeId: 'node-1' }]);
+		const db = makeDb([{ id: 'ev-old', graphNodeId: 'node-1' }]);
 		getDbMock.mockReturnValue(db);
 		extractTemporalMentionsMock.mockResolvedValue([sampleMention]);
 

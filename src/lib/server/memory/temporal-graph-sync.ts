@@ -38,14 +38,14 @@ export async function syncTemporalEventsFromThought(input: {
 
 	// Replace prior temporal rows: enqueue AGE graph deletes, then remove Postgres ledger rows.
 	const existing = await db
-		.select({ id: temporalEvent.id, falkordbNodeId: temporalEvent.falkordbNodeId })
+		.select({ id: temporalEvent.id, graphNodeId: temporalEvent.graphNodeId })
 		.from(temporalEvent)
 		.where(eq(temporalEvent.thoughtId, input.thoughtId));
 
 	if (existing.length > 0) {
 		await db.transaction(async (tx) => {
 			for (const row of existing) {
-				if (row.falkordbNodeId) {
+				if (row.graphNodeId) {
 					await tx.insert(graphSyncJob).values({
 						userId: input.userId,
 						temporalEventId: row.id,

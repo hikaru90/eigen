@@ -30,7 +30,7 @@ vi.mock('$lib/server/retrieval/lexical', () => ({
 	lexicalSearch: lexicalSearchMock
 }));
 
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	expandNeighborsByIds: expandNeighborsByIdsMock,
 	expandThoughtIdsFromEntitySeeds: expandThoughtIdsFromEntitySeedsMock
 }));
@@ -86,11 +86,20 @@ describe('searchThoughts', () => {
 		expandThoughtIdsFromEntitySeedsMock.mockResolvedValue([]);
 	});
 
-	it('returns empty array when no semantic candidates are found', async () => {
-		const db = makeDb([[]]);
+	it('still expands graph when semantic channels are empty', async () => {
+		const connectedRows = [{ id: 'g1', normalizedText: 'Graph only', category: 'thought', metadata: {} }];
+		const db = makeDb([[], connectedRows]);
 		getDbMock.mockReturnValue(db);
-		const result = await searchThoughts({ userId: 'u1', query: 'x' });
-		expect(result).toEqual([]);
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([
+			{ id: 'ent-1', label: 'Sam', distance: 0.1 }
+		]);
+		expandThoughtIdsFromEntitySeedsMock.mockResolvedValue([
+			{ id: 'g1', hits: 2, provenance: 'entity:Sam' }
+		]);
+
+		const result = await searchThoughts({ userId: 'u1', query: 'x', topK: 5 });
+		expect(result.map((r) => r.id)).toContain('g1');
+		expect(expandThoughtIdsFromEntitySeedsMock).toHaveBeenCalled();
 	});
 
 	it('merges semantic and graph results and scores deterministically', async () => {
@@ -115,7 +124,7 @@ describe('searchThoughts', () => {
 		const db = makeDb([vectorRows, connectedRows]);
 		getDbMock.mockReturnValue(db);
 		lexicalSearchMock.mockResolvedValue(lexicalRows);
-		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 1 }]);
+		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 1, provenance: 'via_related:refines' }]);
 
 		const result = await searchThoughts({ userId: 'u1', query: 'query', topK: 2 });
 		expect(result).toHaveLength(2);
@@ -170,7 +179,7 @@ describe('searchThoughts', () => {
 		const db = makeDb([vectorRows, connectedRows]);
 		getDbMock.mockReturnValue(db);
 		lexicalSearchMock.mockResolvedValue(lexicalRows);
-		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 1 }]);
+		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 1, provenance: 'via_related:refines' }]);
 
 		const explicit = await searchThoughts({
 			userId: 'u1',
@@ -191,10 +200,12 @@ describe('searchThoughts', () => {
 		const db = makeDb([vectorRows, connectedRows]);
 		getDbMock.mockReturnValue(db);
 		lexicalSearchMock.mockResolvedValue([]);
-		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 2 }]);
+		expandNeighborsByIdsMock.mockResolvedValue([{ id: 'c', hits: 2, provenance: 'via_related:mentions' }]);
 
 		const result = await searchThoughts({ userId: 'u1', query: 'query', topK: 5 });
 		expect(result.map((r) => r.id)).toEqual(expect.arrayContaining(['a', 'c']));
+		const connected = result.find((r) => r.id === 'c');
+		expect(connected?.metadata.graphProvenance).toBe('via_related:mentions');
 	});
 
 	it('covers duplicate and null-metadata branches', async () => {

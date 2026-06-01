@@ -2,18 +2,13 @@ import {
 	upsertEntityNode,
 	upsertEntityRelationEdge,
 	upsertMentionEdge
-} from '$lib/server/graph/falkor';
+} from '$lib/server/graph/age';
 import { getDb } from '$lib/server/db';
 import { extractEntityMentions, extractEntityTriples } from '$lib/server/memory/entity-extraction';
-import { resolveOrCreateCanonicalEntity, matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
+import { resolveOrCreateCanonicalEntity } from '$lib/server/memory/entity-resolution';
+import { loadGraphKnownEntityHints } from '$lib/server/memory/entity-graph-hints';
+import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
-import { createThoughtEmbedding } from '$lib/server/llm/embedding';
-
-/** Max number of known canonical entity hints to inject into the extraction prompt. */
-const KNOWN_ENTITY_HINT_LIMIT = 12;
-
-/** Cosine distance threshold for known entity hints — only close matches are injected. */
-const KNOWN_ENTITY_HINT_MAX_DISTANCE = 0.55;
 
 /**
  * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → AGE graph.
@@ -25,8 +20,6 @@ export async function syncEntityGraphFromThought(input: {
 	userId: string;
 	thoughtId: string;
 	normalizedText: string;
-	/** Pre-computed thought embedding, used for known entity lookup (avoids redundant LLM call). */
-	thoughtEmbedding?: number[];
 }): Promise<void> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 	const loaded = await loadOntologyForUser(getDb(), input.userId);
@@ -40,21 +33,17 @@ export async function syncEntityGraphFromThought(input: {
 		throw new Error('Entity graph sync requires at least one active entity_type kind');
 	}
 
-	// Load known entities semantically similar to this thought (injected into extraction prompt)
 	let knownEntities: Array<{ label: string; entityType: string }> = [];
 	try {
-		const embedding = input.thoughtEmbedding ?? (await createThoughtEmbedding(input.userId, input.normalizedText));
-		const nearbyEntities = await matchCanonicalEntitiesByEmbedding({
+		knownEntities = await loadGraphKnownEntityHints({
 			userId: input.userId,
-			embedding,
-			limit: KNOWN_ENTITY_HINT_LIMIT
+			thoughtId: input.thoughtId
 		});
-		knownEntities = nearbyEntities
-			.filter((e) => e.distance < KNOWN_ENTITY_HINT_MAX_DISTANCE)
-			.map((e) => ({ label: e.label, entityType: e.entityType }));
-	} catch {
-		// Non-fatal: if entity lookup fails, proceed without hints
-		console.warn('[entity-graph-sync] known entity lookup failed, proceeding without hints');
+	} catch (err) {
+		console.warn('[entity-graph-sync] graph known-entity hints failed, proceeding without hints', {
+			thoughtId: input.thoughtId,
+			message: err instanceof Error ? err.message : String(err)
+		});
 	}
 
 	const mentions = await extractEntityMentions({
@@ -67,6 +56,7 @@ export async function syncEntityGraphFromThought(input: {
 	if (mentions.length === 0) return;
 
 	const surfaceToEntityId = new Map<string, string>();
+	const coMentionEntityIds: string[] = [];
 
 	for (const mention of mentions) {
 		const resolved = await resolveOrCreateCanonicalEntity({
@@ -74,10 +64,12 @@ export async function syncEntityGraphFromThought(input: {
 			thoughtId: input.thoughtId,
 			surface: mention.surface,
 			entityType: mention.entityType,
-			confidence: mention.confidence
+			confidence: mention.confidence,
+			coMentionEntityIds: [...coMentionEntityIds]
 		});
 
 		surfaceToEntityId.set(mention.surface.trim(), resolved.entityId);
+		coMentionEntityIds.push(resolved.entityId);
 
 		await upsertEntityNode({
 			id: resolved.entityId,
@@ -110,13 +102,17 @@ export async function upsertEntityRelationTriples(input: {
 	surfaceToEntityId: Map<string, string>;
 	triples?: Awaited<ReturnType<typeof extractEntityTriples>>;
 }): Promise<number> {
-	const triples =
+	const rawTriples =
 		input.triples ??
 		(await extractEntityTriples({
 			userId: input.userId,
 			normalizedText: input.normalizedText,
 			mentions: input.mentions
 		}));
+	const triples = filterAcceptedEntityTriples({
+		triples: rawTriples,
+		normalizedText: input.normalizedText
+	});
 
 	let written = 0;
 	for (const triple of triples) {

@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityAlias, entityResolutionLog, thought } from '$lib/server/db/schema';
-import { deleteEntityVertexFromGraph, upsertEntityNode, upsertMentionEdge } from '$lib/server/graph/falkor';
+import { deleteEntityVertexFromGraph, upsertEntityNode, upsertMentionEdge } from '$lib/server/graph/age';
 import {
 	activeEntityTypeKindKeys,
 	DEFAULT_ENTITY_TYPE_KIND_KEYS,
@@ -328,6 +328,7 @@ export async function consolidateCanonicalEntityAliasesForUser(
 			})
 			.onConflictDoNothing();
 
+		await syncCanonicalEntityVertexToGraph(userId, primary.id);
 		await deleteEntityVertexFromGraph({ userId, entityId: secondary.id });
 		await db
 			.delete(canonicalEntity)

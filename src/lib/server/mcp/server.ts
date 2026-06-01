@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { MCP_TOOL_DEFINITIONS, MCP_TOOL_MAP } from '$lib/server/mcp/registry';
 import type { McpToolContext } from '$lib/server/mcp/tools';
+import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
 
 export function createMcpServer(context: McpToolContext): Server {
 	const server = new Server(
@@ -31,7 +32,7 @@ export function createMcpServer(context: McpToolContext): Server {
 			throw new Error(`Unknown tool: ${name}`);
 		}
 
-		const result = await handler(context, request.params.arguments ?? {});
+		const result = sanitizeMcpToolResult(await handler(context, request.params.arguments ?? {}));
 		return {
 			content: [
 				{

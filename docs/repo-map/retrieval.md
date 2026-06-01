@@ -2,6 +2,8 @@
 
 **Canonical rule:** Server-side hybrid search is implemented in [`src/lib/server/retrieval/service.ts`](../../src/lib/server/retrieval/service.ts) (`searchThoughts`). API route and MCP both call it with explicit weights.
 
+**Embeddings boundary:** Query embeddings are computed in-process for SQL distance only; `searchThoughts` / MCP / `composeAnswer` outputs are text + scores, never stored thought vectors. See [embeddings-db-only-boundary.md](../planning/embeddings-db-only-boundary.md).
+
 ## CompetingSystems
 
 - None inside retrieval merge logic: vector, lexical, and graph (Apache AGE) expansion are composed in one service.
@@ -12,9 +14,9 @@
 
 - **Purpose:** Hybrid retrieval: pgvector distance + lexical FTS + Apache AGE neighbor/entity expansion, merged with weighted RRF.
 - **Owns:** Ranking and score breakdown (`vectorScore`, `graphScore`, fused `score`); candidate limits; seed selection for graph expansion.
-- **DependsOn:** `getDb()`, `thought` table, `lexicalSearch`, `reciprocalRankFusion`, AGE adapter [`falkor.ts`](../../src/lib/server/graph/falkor.ts) (`expandNeighborsByIds` / `expandThoughtIdsFromEntitySeeds`), embedding creation for query string, entity resolution helpers.
+- **DependsOn:** `getDb()`, `thought` table, `lexicalSearch`, `reciprocalRankFusion`, AGE adapter [`age.ts`](../../src/lib/server/graph/age.ts) (`expandNeighborsByIds` / `expandThoughtIdsFromEntitySeeds`), embedding creation for query string, entity resolution helpers.
 - **PublicSymbols:** `searchThoughts`.
-- **FailureMode:** Returns empty array when no vector or lexical candidates; LLM/DB errors propagate.
+- **FailureMode:** Continues graph/temporal/entity expansion when vector and lexical channels are empty; returns `[]` only when no channel produces candidates. LLM/DB errors propagate.
 
 #### `searchThoughts({ userId, query, topK?, weights? })`
 
@@ -25,7 +27,7 @@
 
 ### [`src/lib/server/retrieval/lexical.ts`](../../src/lib/server/retrieval/lexical.ts)
 
-- **Purpose:** Lexical / FTS side of hybrid search over `lexical_text`.
+- **Purpose:** Lexical / FTS side of hybrid search over `lexical_text` plus `cues[]` (OR-joined tokens).
 
 ### [`src/lib/server/retrieval/fusion.ts`](../../src/lib/server/retrieval/fusion.ts)
 
@@ -44,13 +46,13 @@
 
 ### [`src/lib/server/mcp/tools.ts`](../../src/lib/server/mcp/tools.ts)
 
-- **Purpose:** `runRetrieveThoughtsTool` wraps `searchThoughts` with MCP arg validation (`validateSearchParams`); `runAnswerQuestionTool` delegates to QA compose (below).
+- **Purpose:** `runRetrieveThoughtsTool` (MCP name `retrieve_thoughts`) wraps `searchThoughts` with MCP arg validation (`validateSearchParams`). Optional `threshold` is in `[0, 1]` and applies to **normalized** fused RRF scores (`normalizeFusedRrfScore` in [`rrf-scoring.ts`](../../src/lib/server/retrieval/rrf-scoring.ts)), not raw RRF sums. `runAnswerQuestionTool` delegates to QA compose (below).
 
 ### [`src/lib/server/qa/compose-answer.ts`](../../src/lib/server/qa/compose-answer.ts)
 
 - **Purpose:** Grounded QA: retrieve then compose natural-language answer (used by MCP `answer_question` and potentially other callers — treat as **retrieval consumer**, not a second search implementation).
-- **Owns:** Prompting / composition policy for answers over retrieved context.
-- **DependsOn:** `searchThoughts` (or related retrieval entrypoints as implemented in file).
+- **Owns:** Prompting / composition policy for answers over retrieved context; citation integrity (answer `[id]` citations must ⊆ retrieved ids).
+- **DependsOn:** `searchThoughts` (or related retrieval entrypoints as implemented in file). Hint retrieval passes use a **separate query embedding** from the full question embedding.
 
 ### [`src/lib/server/retrieval/quality-telemetry.ts`](../../src/lib/server/retrieval/quality-telemetry.ts)
 

@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { repairEntityRelationsForUser } from '$lib/server/consolidation/repair-entity-relations';
 import { syncCanonicalEntityVertexToGraph } from '$lib/server/memory/canonical-entity-admin';
 
 export const POST: RequestHandler = async (event) => {
@@ -12,5 +13,7 @@ export const POST: RequestHandler = async (event) => {
 	const result = await syncCanonicalEntityVertexToGraph(user.id, entityId);
 	if (!result.ok) error(404, 'Entity not found');
 
-	return json({ ok: true as const });
+	const repair = await repairEntityRelationsForUser(user.id, { batchSize: 40 });
+
+	return json({ ok: true as const, repair });
 };

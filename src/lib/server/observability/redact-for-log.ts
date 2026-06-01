@@ -21,10 +21,27 @@ const SENSITIVE_EXACT = new Set(
 
 const SENSITIVE_SUFFIXES = ['_secret', '_token', '_password', '_key', '_credentials'] as const;
 
+const VECTOR_EXACT = new Set(
+	['embedding', 'summaryembedding', 'queryembedding', 'vector', 'embeddings'].map((s) =>
+		s.toLowerCase()
+	)
+);
+
+function isVectorField(name: string): boolean {
+	return VECTOR_EXACT.has(name.toLowerCase());
+}
+
 function isSensitiveField(name: string): boolean {
 	const lower = name.toLowerCase();
 	if (SENSITIVE_EXACT.has(lower)) return true;
 	return SENSITIVE_SUFFIXES.some((s) => lower.endsWith(s));
+}
+
+function redactValue(key: string, value: unknown): unknown {
+	if (isSensitiveField(key)) return '[REDACTED]';
+	if (isVectorField(key)) return '[REDACTED_VECTOR]';
+	if (value !== null && typeof value === 'object') return redactForLog(value);
+	return value;
 }
 
 export function redactForLog(value: unknown): unknown {
@@ -34,13 +51,7 @@ export function redactForLog(value: unknown): unknown {
 	const obj = value as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(obj)) {
-		if (isSensitiveField(k)) {
-			out[k] = '[REDACTED]';
-		} else if (v !== null && typeof v === 'object') {
-			out[k] = redactForLog(v);
-		} else {
-			out[k] = v;
-		}
+		out[k] = redactValue(k, v);
 	}
 	return out;
 }

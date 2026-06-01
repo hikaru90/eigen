@@ -19,6 +19,16 @@ describe('redactForLog', () => {
 		expect(redactForLog('hello')).toBe('hello');
 	});
 
+	it('redacts embedding vector fields', () => {
+		const out = redactForLog({
+			embedding: [0.1, 0.2],
+			thought: { queryEmbedding: [1, 2, 3], id: 't1' }
+		}) as { embedding: string; thought: { queryEmbedding: string; id: string } };
+		expect(out.embedding).toBe('[REDACTED_VECTOR]');
+		expect(out.thought.queryEmbedding).toBe('[REDACTED_VECTOR]');
+		expect(out.thought.id).toBe('t1');
+	});
+
 	it('redacts suffix-based keys and arrays', () => {
 		const out = redactForLog({
 			service_token: 'abc',

@@ -95,12 +95,13 @@ export async function extractRelations(input: {
 	/** Pre-computed embedding — skips re-embedding in searchThoughts when provided. */
 	embedding?: number[];
 }): Promise<ExtractedRelation[]> {
-	// Semantic neighbors (conceptually related)
+	// Hybrid retrieval biased toward graph connectivity (not embedding-only topical neighbors).
 	const semanticNeighbors = await searchThoughts({
 		userId: input.userId,
 		query: input.normalizedText,
 		topK: 8,
-		queryEmbedding: input.embedding
+		queryEmbedding: input.embedding,
+		weights: { vector: 0.25, graph: 0.75 }
 	});
 
 	// Temporal neighbors (recently captured — session continuity)
@@ -110,9 +111,9 @@ export async function extractRelations(input: {
 	const seen = new Set<string>([input.thoughtId]);
 	const candidates: Array<{ id: string; normalizedText: string }> = [];
 
-	// Semantic neighbors first (higher priority), then temporal
+	// Graph-connected neighbors first; skip embedding-only weak topical hits.
 	for (const n of semanticNeighbors) {
-		if (!seen.has(n.id)) {
+		if (!seen.has(n.id) && n.graphScore > 0) {
 			seen.add(n.id);
 			candidates.push({ id: n.id, normalizedText: n.normalizedText });
 		}
@@ -154,7 +155,7 @@ export async function extractRelations(input: {
 		'-> refines  (source adds specific detail — eval visibility — to the general system concept)',
 		'',
 		'SOURCE: "The community detection should group Sarah, Alex, and the Berlin trip together."',
-		'CANDIDATE: "Met with Sarah yesterday at the coffee shop. She suggested FalkorDB for the graph layer."',
+		'CANDIDATE: "Met with Sarah yesterday at the coffee shop. She suggested Apache AGE for the graph layer."',
 		'-> mentions  (source explicitly names Sarah, who is the subject of the candidate)',
 		'',
 		'SOURCE: "Maybe calling it a system is too technical. What if we call it a memory instead?"',
@@ -189,5 +190,14 @@ export async function extractRelations(input: {
 		temperature: 0
 	});
 
-	return parseRelations(extractChatContent(response));
+	const parsed = parseRelations(extractChatContent(response));
+	return parsed.filter((relation) => {
+		if (relation.relationType !== 'related_to') return true;
+		const candidate = candidates.find((c) => c.id === relation.targetId);
+		if (!candidate) return false;
+		const source = input.normalizedText.toLowerCase();
+		const target = candidate.normalizedText.toLowerCase();
+		const sourceTokens = source.split(/\s+/).filter((t) => t.length >= 4);
+		return sourceTokens.some((token) => target.includes(token));
+	});
 }

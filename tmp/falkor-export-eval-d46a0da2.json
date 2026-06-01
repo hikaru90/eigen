@@ -1,0 +1,97 @@
+{
+  "userId": "eval-d46a0da2",
+  "counts": {
+    "thoughts": 1,
+    "entities": 3,
+    "events": 1,
+    "relates_to": 0,
+    "mentions": 3,
+    "entity_relates": 2,
+    "occurs_in": 1,
+    "involves": 3
+  },
+  "thoughts": [
+    {
+      "id": "b44743cc-97d8-4897-ab8d-424bf714129d",
+      "category": "memory"
+    }
+  ],
+  "entities": [
+    {
+      "id": "6ebf2565-ea6b-4903-9570-ea458645a0c4",
+      "canonical_key": "tom",
+      "label": "Tom",
+      "entity_type": "person"
+    },
+    {
+      "id": "c31bb234-d40e-4ca8-b552-af819b061b4b",
+      "canonical_key": "lisbon",
+      "label": "Lisbon",
+      "entity_type": "place"
+    },
+    {
+      "id": "1e7623d1-3079-449a-b991-5499379dc6a4",
+      "canonical_key": "march",
+      "label": "March",
+      "entity_type": "event"
+    }
+  ],
+  "events": [
+    {
+      "id": "1bd49f38-6f07-4fd4-bad5-0ce67316f745",
+      "kind": "period",
+      "label": "Tom's move to Lisbon in March 2026",
+      "start_at": "2026-03-01T00:00:00.000Z",
+      "end_at": "2026-03-31T23:59:59.999Z"
+    }
+  ],
+  "relates_to": [],
+  "mentions": [
+    {
+      "thought_id": "b44743cc-97d8-4897-ab8d-424bf714129d",
+      "entity_id": "6ebf2565-ea6b-4903-9570-ea458645a0c4"
+    },
+    {
+      "thought_id": "b44743cc-97d8-4897-ab8d-424bf714129d",
+      "entity_id": "c31bb234-d40e-4ca8-b552-af819b061b4b"
+    },
+    {
+      "thought_id": "b44743cc-97d8-4897-ab8d-424bf714129d",
+      "entity_id": "1e7623d1-3079-449a-b991-5499379dc6a4"
+    }
+  ],
+  "entity_relates": [
+    {
+      "source_id": "6ebf2565-ea6b-4903-9570-ea458645a0c4",
+      "target_id": "c31bb234-d40e-4ca8-b552-af819b061b4b",
+      "predicate": "located_in",
+      "weight": 1
+    },
+    {
+      "source_id": "6ebf2565-ea6b-4903-9570-ea458645a0c4",
+      "target_id": "1e7623d1-3079-449a-b991-5499379dc6a4",
+      "predicate": "depends_on",
+      "weight": 1
+    }
+  ],
+  "occurs_in": [
+    {
+      "thought_id": "b44743cc-97d8-4897-ab8d-424bf714129d",
+      "event_id": "1bd49f38-6f07-4fd4-bad5-0ce67316f745"
+    }
+  ],
+  "involves": [
+    {
+      "event_id": "1bd49f38-6f07-4fd4-bad5-0ce67316f745",
+      "entity_id": "6ebf2565-ea6b-4903-9570-ea458645a0c4"
+    },
+    {
+      "event_id": "1bd49f38-6f07-4fd4-bad5-0ce67316f745",
+      "entity_id": "c31bb234-d40e-4ca8-b552-af819b061b4b"
+    },
+    {
+      "event_id": "1bd49f38-6f07-4fd4-bad5-0ce67316f745",
+      "entity_id": "1e7623d1-3079-449a-b991-5499379dc6a4"
+    }
+  ]
+}

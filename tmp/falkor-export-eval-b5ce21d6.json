@@ -1,0 +1,460 @@
+{
+  "userId": "eval-b5ce21d6",
+  "counts": {
+    "thoughts": 11,
+    "entities": 10,
+    "events": 3,
+    "relates_to": 36,
+    "mentions": 19,
+    "entity_relates": 5,
+    "occurs_in": 3,
+    "involves": 2
+  },
+  "thoughts": [
+    {
+      "id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "category": "idea"
+    },
+    {
+      "id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "category": "task"
+    },
+    {
+      "id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "category": "idea"
+    },
+    {
+      "id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "category": "observation"
+    },
+    {
+      "id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "category": "observation"
+    },
+    {
+      "id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "category": "idea"
+    },
+    {
+      "id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "category": "task"
+    },
+    {
+      "id": "e9da99c4-08ac-440b-ad80-dc9321d68906",
+      "category": "observation"
+    },
+    {
+      "id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "category": "observation"
+    },
+    {
+      "id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "category": "observation"
+    },
+    {
+      "id": "76b5fd68-6d9a-4da5-8da0-5813ee2d10e4",
+      "category": "observation"
+    }
+  ],
+  "entities": [
+    {
+      "id": "126d504c-c89e-404f-8a53-5847aad4897d",
+      "canonical_key": "pomodoro technique",
+      "label": "Pomodoro technique",
+      "entity_type": "concept"
+    },
+    {
+      "id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7",
+      "canonical_key": "wearable",
+      "label": "wearable",
+      "entity_type": "technology"
+    },
+    {
+      "id": "795f1a7f-b06d-4a8d-b84f-7467863869be",
+      "canonical_key": "gratitude journaling",
+      "label": "gratitude journaling",
+      "entity_type": "concept"
+    },
+    {
+      "id": "a0205a1f-4291-4009-bc8e-973f21b71440",
+      "canonical_key": "deep work sessions",
+      "label": "Deep work sessions",
+      "entity_type": "concept"
+    },
+    {
+      "id": "63764fcf-65a9-4bb2-b971-38cb1b63007e",
+      "canonical_key": "phone",
+      "label": "phone",
+      "entity_type": "technology"
+    },
+    {
+      "id": "bd03efc2-1c9d-4bed-ab83-1ce7a1dd1508",
+      "canonical_key": "circadian rhythm",
+      "label": "circadian rhythm",
+      "entity_type": "concept"
+    },
+    {
+      "id": "4e4e5920-c814-417d-abbb-989fb68954ef",
+      "canonical_key": "protein-forward breakfast",
+      "label": "protein-forward breakfast",
+      "entity_type": "concept"
+    },
+    {
+      "id": "d3f4b685-a2a0-456e-9cee-6b33ca2c96d5",
+      "canonical_key": "mid-morning hunger",
+      "label": "mid-morning hunger",
+      "entity_type": "concept"
+    },
+    {
+      "id": "ea85034a-9eb5-40d7-96c9-556c2bcce915",
+      "canonical_key": "snack cravings",
+      "label": "snack cravings",
+      "entity_type": "concept"
+    },
+    {
+      "id": "23c37f32-c1cc-43f8-98ad-95542b509bed",
+      "canonical_key": "evening stretching routine",
+      "label": "Evening stretching routine",
+      "entity_type": "concept"
+    }
+  ],
+  "events": [
+    {
+      "id": "08bb0095-3094-4808-a242-b426adc1c5df",
+      "kind": "period",
+      "label": "Afternoon period for maintaining energy stability",
+      "start_at": "2026-05-19T12:00:00.000Z",
+      "end_at": "2026-05-19T18:00:00.000Z"
+    },
+    {
+      "id": "c76fd840-9f21-4fff-bcf1-27491f8c782f",
+      "kind": "period",
+      "label": "Weekly meal prep on Sundays",
+      "start_at": "2026-05-19T00:00:00.000Z",
+      "end_at": "2026-05-20T00:00:00.000Z"
+    },
+    {
+      "id": "be226283-75fd-4fdf-924f-5cdb1d2864d9",
+      "kind": "period",
+      "label": "Daily gratitude journaling session at the start of each day",
+      "start_at": "2026-05-19T00:00:00.000Z",
+      "end_at": "2026-05-20T00:00:00.000Z"
+    }
+  ],
+  "relates_to": [
+    {
+      "source_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "target_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "target_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "target_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "target_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "continuation_of"
+    },
+    {
+      "source_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "target_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "target_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "target_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "target_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "e9da99c4-08ac-440b-ad80-dc9321d68906",
+      "target_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "relation_type": "refines"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "target_id": "e9da99c4-08ac-440b-ad80-dc9321d68906",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "e9da99c4-08ac-440b-ad80-dc9321d68906",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "target_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "76b5fd68-6d9a-4da5-8da0-5813ee2d10e4",
+      "target_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "76b5fd68-6d9a-4da5-8da0-5813ee2d10e4",
+      "target_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "relation_type": "continuation_of"
+    }
+  ],
+  "mentions": [
+    {
+      "thought_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "thought_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "thought_id": "22b10057-6004-4686-ac1e-8b8f632ffec4",
+      "entity_id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7"
+    },
+    {
+      "thought_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "thought_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "thought_id": "7aeb49ae-db58-4630-abe7-368e6d88145d",
+      "entity_id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7"
+    },
+    {
+      "thought_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "thought_id": "66d39b3f-4021-46a4-9197-6fb7565854e9",
+      "entity_id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7"
+    },
+    {
+      "thought_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "entity_id": "795f1a7f-b06d-4a8d-b84f-7467863869be"
+    },
+    {
+      "thought_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "thought_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "entity_id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7"
+    },
+    {
+      "thought_id": "70e21a8a-a7c6-463c-8ceb-44f155880a8a",
+      "entity_id": "795f1a7f-b06d-4a8d-b84f-7467863869be"
+    },
+    {
+      "thought_id": "e9da99c4-08ac-440b-ad80-dc9321d68906",
+      "entity_id": "a0205a1f-4291-4009-bc8e-973f21b71440"
+    },
+    {
+      "thought_id": "e9da99c4-08ac-440b-ad80-dc9321d68906",
+      "entity_id": "63764fcf-65a9-4bb2-b971-38cb1b63007e"
+    },
+    {
+      "thought_id": "85d3bae1-b72d-4044-89d5-08f694d71f50",
+      "entity_id": "bd03efc2-1c9d-4bed-ab83-1ce7a1dd1508"
+    },
+    {
+      "thought_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "entity_id": "4e4e5920-c814-417d-abbb-989fb68954ef"
+    },
+    {
+      "thought_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "entity_id": "d3f4b685-a2a0-456e-9cee-6b33ca2c96d5"
+    },
+    {
+      "thought_id": "7d564ccf-4e08-41c5-bfa6-2e11783d6b01",
+      "entity_id": "ea85034a-9eb5-40d7-96c9-556c2bcce915"
+    },
+    {
+      "thought_id": "76b5fd68-6d9a-4da5-8da0-5813ee2d10e4",
+      "entity_id": "23c37f32-c1cc-43f8-98ad-95542b509bed"
+    }
+  ],
+  "entity_relates": [
+    {
+      "source_id": "126d504c-c89e-404f-8a53-5847aad4897d",
+      "target_id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "126d504c-c89e-404f-8a53-5847aad4897d",
+      "target_id": "795f1a7f-b06d-4a8d-b84f-7467863869be",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "58a18e59-18b2-4a65-b209-ec3ba3d8b2c7",
+      "target_id": "126d504c-c89e-404f-8a53-5847aad4897d",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "4e4e5920-c814-417d-abbb-989fb68954ef",
+      "target_id": "d3f4b685-a2a0-456e-9cee-6b33ca2c96d5",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "4e4e5920-c814-417d-abbb-989fb68954ef",
+      "target_id": "ea85034a-9eb5-40d7-96c9-556c2bcce915",
+      "predicate": "depends_on",
+      "weight": 1
+    }
+  ],
+  "occurs_in": [
+    {
+      "thought_id": "35faec73-2120-4679-a3ae-4c435dc70f29",
+      "event_id": "08bb0095-3094-4808-a242-b426adc1c5df"
+    },
+    {
+      "thought_id": "ce8605ad-6e2d-46e8-8ad9-db7d7e562f34",
+      "event_id": "c76fd840-9f21-4fff-bcf1-27491f8c782f"
+    },
+    {
+      "thought_id": "c923a464-23cf-4d17-ba70-249ccd79c0c0",
+      "event_id": "be226283-75fd-4fdf-924f-5cdb1d2864d9"
+    }
+  ],
+  "involves": [
+    {
+      "event_id": "c76fd840-9f21-4fff-bcf1-27491f8c782f",
+      "entity_id": "126d504c-c89e-404f-8a53-5847aad4897d"
+    },
+    {
+      "event_id": "be226283-75fd-4fdf-924f-5cdb1d2864d9",
+      "entity_id": "795f1a7f-b06d-4a8d-b84f-7467863869be"
+    }
+  ]
+}

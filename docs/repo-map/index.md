@@ -15,3 +15,4 @@ Supporting docs (not domain maps):
 
 - [answer-protocol.md](./answer-protocol.md) — how the coding assistant should answer when maps and code disagree.
 - [maintenance.md](./maintenance.md) — when to update which layer after a change.
+- [Embeddings DB-only boundary](../planning/embeddings-db-only-boundary.md) — vectors in Postgres only; never in MCP tools or LLM calls.

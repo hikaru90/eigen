@@ -5,8 +5,8 @@ import { thought } from '$lib/server/db/schema';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { lexicalSearch } from '$lib/server/retrieval/lexical';
 import { reciprocalRankFusion } from '$lib/server/retrieval/fusion';
-import { expandNeighborsByIds, expandThoughtIdsFromEntitySeeds } from '$lib/server/graph/falkor';
-import type { EntityThoughtHit } from '$lib/server/graph/falkor';
+import { expandNeighborsByIds, expandThoughtIdsFromEntitySeeds } from '$lib/server/graph/age';
+import type { EntityThoughtHit } from '$lib/server/graph/age';
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
 import {
 	findTemporalSchedulingConflicts,
@@ -176,8 +176,6 @@ export async function searchThoughts(params: {
 		query: params.query,
 		limit: candidateLimit
 	});
-
-	if (vectorRows.length === 0 && lexicalRows.length === 0) return [];
 
 	const vectorRanks = new Map<string, number>();
 	vectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));

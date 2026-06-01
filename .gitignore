@@ -31,8 +31,8 @@ coverage
 src/lib/paraglide
 project.inlang/cache/
 # Graph migration artifacts
-tmp/falkor-export-*.json
-tmp/falkor-to-age-migration-report.json
+tmp/graph-export-*.json
+tmp/graph-import-report.json
 
 # Eval reports and embedding caches (datasets and baselines stay tracked)
 evals/reports/

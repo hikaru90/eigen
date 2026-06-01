@@ -1,0 +1,224 @@
+{
+  "userId": "eval-agent-1778874724255",
+  "counts": {
+    "thoughts": 5,
+    "entities": 11,
+    "events": 0,
+    "relates_to": 2,
+    "mentions": 15,
+    "entity_relates": 7,
+    "occurs_in": 0,
+    "involves": 0
+  },
+  "thoughts": [
+    {
+      "id": "a5274157-13b8-41ca-8968-292e75ced5c6",
+      "category": "idea"
+    },
+    {
+      "id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "category": "observation"
+    },
+    {
+      "id": "db13fa24-3346-4f36-b872-7fa284cb496a",
+      "category": "idea"
+    },
+    {
+      "id": "a8efbf6e-517e-4a38-8945-d0872282b062",
+      "category": "task"
+    },
+    {
+      "id": "e6fa87d9-7187-4b90-b8bc-4315ef30c146",
+      "category": "observation"
+    }
+  ],
+  "entities": [
+    {
+      "id": "522684e8-ade2-4a29-be9e-98e73c4e6384",
+      "canonical_key": "system",
+      "label": "system",
+      "entity_type": "concept"
+    },
+    {
+      "id": "7d6da430-0130-4298-8c39-57f269d218c8",
+      "canonical_key": "thoughts",
+      "label": "thoughts",
+      "entity_type": "concept"
+    },
+    {
+      "id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33",
+      "canonical_key": "capture",
+      "label": "capture",
+      "entity_type": "concept"
+    },
+    {
+      "id": "40de47b9-eb08-44de-b819-46665617271b",
+      "canonical_key": "sarah",
+      "label": "Sarah",
+      "entity_type": "person"
+    },
+    {
+      "id": "b5a787e2-e3e0-47eb-b14a-ab12bb476611",
+      "canonical_key": "yesterday",
+      "label": "yesterday",
+      "entity_type": "event"
+    },
+    {
+      "id": "cf0f8e38-4690-411c-ad1c-75402f9fac87",
+      "canonical_key": "coffee shop",
+      "label": "coffee shop",
+      "entity_type": "place"
+    },
+    {
+      "id": "6d64a96b-e0b9-422b-a407-9ff250c2c710",
+      "canonical_key": "main street",
+      "label": "Main Street",
+      "entity_type": "place"
+    },
+    {
+      "id": "f363e51b-20f1-47f0-9391-3f173c37d4d0",
+      "canonical_key": "falkordb",
+      "label": "FalkorDB",
+      "entity_type": "technology"
+    },
+    {
+      "id": "43aa788b-0d4c-4905-bcaf-b225d92ca135",
+      "canonical_key": "mom",
+      "label": "Mom",
+      "entity_type": "person"
+    },
+    {
+      "id": "2589527b-2a80-4962-a21d-2c821899aa9b",
+      "canonical_key": "evaluation framework",
+      "label": "evaluation framework",
+      "entity_type": "concept"
+    },
+    {
+      "id": "2fda4996-18c0-4e40-b1da-08f6285a9a74",
+      "canonical_key": "postgres",
+      "label": "Postgres",
+      "entity_type": "technology"
+    }
+  ],
+  "events": [],
+  "relates_to": [
+    {
+      "source_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "target_id": "a5274157-13b8-41ca-8968-292e75ced5c6",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "db13fa24-3346-4f36-b872-7fa284cb496a",
+      "target_id": "a5274157-13b8-41ca-8968-292e75ced5c6",
+      "relation_type": "related_to"
+    }
+  ],
+  "mentions": [
+    {
+      "thought_id": "a5274157-13b8-41ca-8968-292e75ced5c6",
+      "entity_id": "522684e8-ade2-4a29-be9e-98e73c4e6384"
+    },
+    {
+      "thought_id": "a5274157-13b8-41ca-8968-292e75ced5c6",
+      "entity_id": "7d6da430-0130-4298-8c39-57f269d218c8"
+    },
+    {
+      "thought_id": "a5274157-13b8-41ca-8968-292e75ced5c6",
+      "entity_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33"
+    },
+    {
+      "thought_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "entity_id": "40de47b9-eb08-44de-b819-46665617271b"
+    },
+    {
+      "thought_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "entity_id": "b5a787e2-e3e0-47eb-b14a-ab12bb476611"
+    },
+    {
+      "thought_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "entity_id": "cf0f8e38-4690-411c-ad1c-75402f9fac87"
+    },
+    {
+      "thought_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "entity_id": "6d64a96b-e0b9-422b-a407-9ff250c2c710"
+    },
+    {
+      "thought_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "entity_id": "f363e51b-20f1-47f0-9391-3f173c37d4d0"
+    },
+    {
+      "thought_id": "87960594-e6bd-446c-81bc-cec9f1fa8ad9",
+      "entity_id": "2fda4996-18c0-4e40-b1da-08f6285a9a74"
+    },
+    {
+      "thought_id": "db13fa24-3346-4f36-b872-7fa284cb496a",
+      "entity_id": "522684e8-ade2-4a29-be9e-98e73c4e6384"
+    },
+    {
+      "thought_id": "db13fa24-3346-4f36-b872-7fa284cb496a",
+      "entity_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33"
+    },
+    {
+      "thought_id": "db13fa24-3346-4f36-b872-7fa284cb496a",
+      "entity_id": "2589527b-2a80-4962-a21d-2c821899aa9b"
+    },
+    {
+      "thought_id": "a8efbf6e-517e-4a38-8945-d0872282b062",
+      "entity_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33"
+    },
+    {
+      "thought_id": "a8efbf6e-517e-4a38-8945-d0872282b062",
+      "entity_id": "b5a787e2-e3e0-47eb-b14a-ab12bb476611"
+    },
+    {
+      "thought_id": "a8efbf6e-517e-4a38-8945-d0872282b062",
+      "entity_id": "43aa788b-0d4c-4905-bcaf-b225d92ca135"
+    }
+  ],
+  "entity_relates": [
+    {
+      "source_id": "522684e8-ade2-4a29-be9e-98e73c4e6384",
+      "target_id": "7d6da430-0130-4298-8c39-57f269d218c8",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "522684e8-ade2-4a29-be9e-98e73c4e6384",
+      "target_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33",
+      "target_id": "7d6da430-0130-4298-8c39-57f269d218c8",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33",
+      "target_id": "43aa788b-0d4c-4905-bcaf-b225d92ca135",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "43aa788b-0d4c-4905-bcaf-b225d92ca135",
+      "target_id": "b5a787e2-e3e0-47eb-b14a-ab12bb476611",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "2589527b-2a80-4962-a21d-2c821899aa9b",
+      "target_id": "522684e8-ade2-4a29-be9e-98e73c4e6384",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "2589527b-2a80-4962-a21d-2c821899aa9b",
+      "target_id": "4a95f5e6-7f8f-4b6c-b4c7-3dd135b4ba33",
+      "predicate": "related_to",
+      "weight": 1
+    }
+  ],
+  "occurs_in": [],
+  "involves": []
+}

@@ -2,9 +2,11 @@
 
 **Canonical rule:** All server-side capture, edit, relink, and list persistence flows go through [`src/lib/server/capture/service.ts`](../../src/lib/server/capture/service.ts). HTTP and MCP are thin adapters.
 
+**Embeddings boundary:** Capture/edit may **write** embeddings to Postgres; `listThoughts` and tool returns must **not** select or expose vector columns. See [embeddings-db-only-boundary.md](../planning/embeddings-db-only-boundary.md).
+
 ## CompetingSystems
 
-- **Runtime graph:** Apache AGE (`AGE_GRAPH_NAME`, default `eigen_graph`) via [`src/lib/server/graph/falkor.ts`](../../src/lib/server/graph/falkor.ts). See **C001** (resolved) in [conflicts.md](./conflicts.md).
+- **Runtime graph:** Apache AGE (`AGE_GRAPH_NAME`, default `eigen_graph`) via [`src/lib/server/graph/age.ts`](../../src/lib/server/graph/age.ts). See **C001** (resolved) in [conflicts.md](./conflicts.md).
 
 ## Key files (scan-first)
 
@@ -12,7 +14,7 @@
 
 - **Purpose:** Single orchestration layer for thought capture, edit, relink, and listing after persistence.
 - **Owns:** Transactional insert/update of `thought` rows; embedding and lexical text; AGE graph upsert for thought node; relation + entity graph sync hooks; capture activity logging; ontology refresh triggers.
-- **DependsOn:** Drizzle `getDb()`, LLM embedding gateway, ontology resolution, AGE graph adapter ([`falkor.ts`](../../src/lib/server/graph/falkor.ts)), lexical helper, relation extraction / entity sync modules.
+- **DependsOn:** Drizzle `getDb()`, LLM embedding gateway, ontology resolution, AGE graph adapter ([`age.ts`](../../src/lib/server/graph/age.ts)), lexical helper, relation extraction / entity sync modules.
 - **PublicSymbols:** `normalizeThoughtText`, `captureThought`, `editStoredThought`, `relinkThoughtGraph`, `deleteThoughtForUser`, `listThoughts`.
 - **FailureMode:** Throws or returns `{ ok: false }` for edit when thought missing; no silent fallback for missing LLM or DB.
 
@@ -59,7 +61,7 @@
 ### [`src/lib/server/mcp/tools.ts`](../../src/lib/server/mcp/tools.ts)
 
 - **Purpose:** MCP tool runners; `runCaptureThoughtTool`, `runEditThoughtTool`, and `runListThoughtsTool` call `capture/service` (retrieval tools live in retrieval domain).
-- **Note:** `runListThoughtsTool` is implemented and tested but **not** registered on the HTTP MCP route — see **C002** in [conflicts.md](./conflicts.md).
+- **Note:** MCP HTTP registration lives in [`registry.ts`](../../src/lib/server/mcp/registry.ts) (`capture_thought`, `list_thoughts`, `retrieve_thoughts`, `edit_thought`, `delete_thought`, `answer_question`). **C002** resolved — see [conflicts.md](./conflicts.md).
 
 ### Client capture queue (browser)
 

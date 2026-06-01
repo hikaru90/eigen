@@ -15,6 +15,7 @@ import {
 	requireGatewayReportedCostUsd,
 	type TokenUsage
 } from '$lib/server/llm/gateway-cost';
+import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 export {
@@ -127,14 +128,22 @@ function logLlmChatResponse(logCtx: string, attempt: number, body: unknown): voi
 	console.log(`[llm.chat:${logCtx}] response attempt ${attempt}:\n${extractChatResponseText(body)}`);
 }
 
+const EMBEDDING_LOG_INPUT_MAX = 100;
+
+function truncateForEmbeddingLog(text: string): string {
+	const trimmed = text.trim();
+	if (trimmed.length <= EMBEDDING_LOG_INPUT_MAX) return trimmed;
+	return `${trimmed.slice(0, EMBEDDING_LOG_INPUT_MAX - 3)}...`;
+}
+
 function logLlmEmbeddingRequest(attempt: number, input: string | string[]): void {
 	console.log(`[llm.embedding] request attempt ${attempt}/${3}`);
 	if (Array.isArray(input)) {
 		for (const [index, text] of input.entries()) {
-			console.log(`[llm.embedding] input[${index}]:\n${text}`);
+			console.log(`[llm.embedding] input[${index}]: ${truncateForEmbeddingLog(text)}`);
 		}
 	} else {
-		console.log(`[llm.embedding] input:\n${input}`);
+		console.log(`[llm.embedding] input: ${truncateForEmbeddingLog(input)}`);
 	}
 }
 
@@ -414,6 +423,7 @@ async function llmChatCompletionInner(input: {
 	const url = `${config.baseUrl}/chat/completions`;
 	const routing = await chatRoutingConfig(config);
 	const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_');
+	const messages = sanitizeChatMessages(input.messages);
 
 	const maxAttempts = 3;
 	let lastError: unknown;
@@ -425,10 +435,10 @@ async function llmChatCompletionInner(input: {
 			console.info(`[llm.chat:${logCtx}] attempt ${attempt}/${maxAttempts}`, {
 				model: routing.model,
 				ruleId: routing.ruleId ?? null,
-				messageCount: input.messages.length,
-				totalChars: input.messages.reduce((n, m) => n + m.content.length, 0)
+				messageCount: messages.length,
+				totalChars: messages.reduce((n, m) => n + m.content.length, 0)
 			});
-			logLlmChatRequest(logCtx, attempt, input.messages);
+			logLlmChatRequest(logCtx, attempt, messages);
 			await waitForLlmRateLimit(input.userId);
 			const fetchStart = Date.now();
 			const timeoutMs = requestTimeoutMs();
@@ -447,7 +457,7 @@ async function llmChatCompletionInner(input: {
 						...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
 						model: routing.model,
 						...(routing.provider ? { provider: routing.provider } : {}),
-						messages: input.messages,
+						messages,
 						...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
 						...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {})
 					})

@@ -9,7 +9,8 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityResolutionLog, thought } from '$lib/server/db/schema';
-import { fetchEntityEdgesForUser, upsertEntityRelationEdge } from '$lib/server/graph/falkor';
+import { fetchEntityEdgesForUser, upsertEntityRelationEdge } from '$lib/server/graph/age';
+import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges';
 import { extractEntityTriples, type ExtractedEntityMention } from '$lib/server/memory/entity-extraction';
 import { upsertEntityRelationTriples } from '$lib/server/memory/entity-graph-sync';
 
@@ -22,6 +23,7 @@ export type RepairEntityRelationsResult = {
 	processed: number;
 	repaired: number;
 	edgesAdded: number;
+	suspiciousEdgesRemoved: number;
 };
 
 export type RepairEntityRelationsOptions = {
@@ -246,10 +248,18 @@ export async function repairEntityRelationsForUser(
 	options?: RepairEntityRelationsOptions
 ): Promise<RepairEntityRelationsResult> {
 	const batchSize = options?.batchSize ?? REPAIR_BATCH_SIZE;
+	const pruned = await pruneSuspiciousEntityEdgesForUser(userId);
 	const coMentionThoughts = await loadCoMentionThoughts(userId);
 	const scanned = coMentionThoughts.length;
 	if (scanned === 0) {
-		return { scanned: 0, gaps: 0, processed: 0, repaired: 0, edgesAdded: 0 };
+		return {
+			scanned: 0,
+			gaps: 0,
+			processed: 0,
+			repaired: 0,
+			edgesAdded: 0,
+			suspiciousEdgesRemoved: pruned.removed
+		};
 	}
 
 	const edges = await fetchEntityEdgesForUser({ userId });
@@ -303,6 +313,7 @@ export async function repairEntityRelationsForUser(
 		gaps: gapThoughts.length,
 		processed,
 		repaired,
-		edgesAdded
+		edgesAdded,
+		suspiciousEdgesRemoved: pruned.removed
 	};
 }

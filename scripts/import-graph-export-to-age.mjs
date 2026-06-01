@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 /**
- * One-time FalkorDB → Apache AGE migration.
+ * Import a prior graph export JSON into Apache AGE.
  *
- * Full export+import (needs Falkor): DATABASE_URL, AGE_GRAPH_NAME, FALKOR_*
- * Import only from a prior export JSON: DATABASE_URL, AGE_GRAPH_NAME, --from-export <path>
+ * Requires: DATABASE_URL, AGE_GRAPH_NAME
  *
  * Usage:
- *   node scripts/migrate-graph-falkor-to-age.mjs [--dry-run] [--user-id <id>]
- *   node scripts/migrate-graph-falkor-to-age.mjs --from-export tmp/falkor-export-<userId>.json
+ *   node scripts/import-graph-export-to-age.mjs --from-export tmp/graph-export-<userId>.json
+ *   node scripts/import-graph-export-to-age.mjs --dry-run --from-export tmp/graph-export-<userId>.json
  */
 import './load-env.mjs';
 import postgres from 'postgres';
-import { FalkorDB } from 'falkordb';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -19,17 +17,6 @@ function required(name) {
 	const v = process.env[name]?.trim();
 	if (!v) throw new Error(`${name} is required`);
 	return v;
-}
-
-function normalizeGraphKeyPart(input) {
-	const out = input.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-	const collapsed = out.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-	if (!collapsed.length) throw new Error(`Invalid user id: ${input}`);
-	return collapsed.slice(0, 80);
-}
-
-function falkorGraphForUser(userId) {
-	return `user_${normalizeGraphKeyPart(userId)}`;
 }
 
 function toCypherLiteral(value) {
@@ -68,59 +55,6 @@ async function runAge(sql, graphName, cypher, columnDefs) {
 	return sql.unsafe(
 		`SELECT * FROM ag_catalog.cypher('${graph}', ${wrapAgeCypherDollarQuote(cypher)}) AS (${columnDefs})`
 	);
-}
-
-async function exportUserGraph(graph, userId) {
-	const exportQueries = [
-		{
-			key: 'thoughts',
-			cypher: `MATCH (n:Thought {user_id: $user_id}) RETURN n.id AS id, n.category AS category`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'entities',
-			cypher: `MATCH (n:Entity {user_id: $user_id}) RETURN n.id AS id, n.canonical_key AS canonical_key, n.label AS label, n.entity_type AS entity_type`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'events',
-			cypher: `MATCH (n:Event {user_id: $user_id}) RETURN n.id AS id, n.kind AS kind, n.label AS label, n.start_at AS start_at, n.end_at AS end_at`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'relates_to',
-			cypher: `MATCH (a:Thought {user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(b:Thought {user_id: $user_id}) RETURN a.id AS source_id, b.id AS target_id, r.type AS relation_type`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'mentions',
-			cypher: `MATCH (t:Thought {user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(e:Entity {user_id: $user_id}) RETURN t.id AS thought_id, e.id AS entity_id`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'entity_relates',
-			cypher: `MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id}) RETURN a.id AS source_id, b.id AS target_id, r.predicate AS predicate, coalesce(r.weight, 1) AS weight`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'occurs_in',
-			cypher: `MATCH (t:Thought {user_id: $user_id})-[r:OCCURS_IN {user_id: $user_id}]->(e:Event {user_id: $user_id}) RETURN t.id AS thought_id, e.id AS event_id`,
-			params: { user_id: userId }
-		},
-		{
-			key: 'involves',
-			cypher: `MATCH (ev:Event {user_id: $user_id})-[r:INVOLVES {user_id: $user_id}]->(ent:Entity {user_id: $user_id}) RETURN ev.id AS event_id, ent.id AS entity_id`,
-			params: { user_id: userId }
-		}
-	];
-
-	const out = { userId, counts: {} };
-	for (const q of exportQueries) {
-		const result = await graph.query(q.cypher, { params: q.params });
-		out[q.key] = result?.data ?? [];
-		out.counts[q.key] = out[q.key].length;
-	}
-	return out;
 }
 
 async function importUserToAge(sql, graphName, payload, dryRun) {
@@ -235,30 +169,17 @@ async function importUserToAge(sql, graphName, payload, dryRun) {
 }
 
 const dryRun = process.argv.includes('--dry-run');
-const userIdArg = process.argv.includes('--user-id')
-	? process.argv[process.argv.indexOf('--user-id') + 1]
-	: null;
-const fromExportArg = process.argv.includes('--from-export')
-	? process.argv[process.argv.indexOf('--from-export') + 1]
-	: null;
+const fromExportIdx = process.argv.indexOf('--from-export');
+if (fromExportIdx === -1 || !process.argv[fromExportIdx + 1]) {
+	console.error('Usage: node scripts/import-graph-export-to-age.mjs --from-export <path> [--dry-run]');
+	process.exit(1);
+}
+const fromExportArg = process.argv[fromExportIdx + 1];
 
 const databaseUrl = required('DATABASE_URL');
 const ageGraphName = required('AGE_GRAPH_NAME');
 
 const sql = postgres(databaseUrl, { max: 1 });
-/** @type {import('falkordb').FalkorDB | null} */
-let client = null;
-if (!fromExportArg) {
-	const falkorHost = required('FALKOR_HOST');
-	const falkorPort = Number(required('FALKOR_PORT'));
-	const falkorPassword = required('FALKOR_PASSWORD');
-	const falkorUsername = required('FALKOR_USERNAME');
-	client = await FalkorDB.connect({
-		socket: { host: falkorHost, port: falkorPort },
-		password: falkorPassword,
-		username: falkorUsername
-	});
-}
 
 try {
 	await sql.unsafe(`LOAD 'age'`);
@@ -272,42 +193,29 @@ try {
 		END $$;
 	`);
 
-	const report = { users: [], dryRun, fromExport: fromExportArg ?? null };
 	mkdirSync(join(process.cwd(), 'tmp'), { recursive: true });
 
-	if (fromExportArg) {
-		const artifactPath = join(process.cwd(), fromExportArg);
-		const payload = JSON.parse(readFileSync(artifactPath, 'utf8'));
-		const imported = await importUserToAge(sql, ageGraphName, payload, dryRun);
-		report.users.push({
-			userId: payload.userId,
-			counts: payload.counts,
-			artifactPath,
-			importedStatements: imported
-		});
-		console.log(
-			`[migrate] import-only user=${payload.userId} counts=${JSON.stringify(payload.counts)} imported=${imported}`
-		);
-	} else {
-		const userRows = userIdArg
-			? [{ user_id: userIdArg }]
-			: await sql`SELECT DISTINCT user_id FROM thought ORDER BY user_id`;
+	const artifactPath = join(process.cwd(), fromExportArg);
+	const payload = JSON.parse(readFileSync(artifactPath, 'utf8'));
+	const imported = await importUserToAge(sql, ageGraphName, payload, dryRun);
 
-		for (const { user_id: userId } of userRows) {
-			const graph = client.selectGraph(falkorGraphForUser(userId));
-			const payload = await exportUserGraph(graph, userId);
-			const artifactPath = join(process.cwd(), 'tmp', `falkor-export-${userId}.json`);
-			writeFileSync(artifactPath, JSON.stringify(payload, null, 2));
-			const imported = await importUserToAge(sql, ageGraphName, payload, dryRun);
-			report.users.push({ userId, counts: payload.counts, artifactPath, importedStatements: imported });
-			console.log(`[migrate] user=${userId} counts=${JSON.stringify(payload.counts)} imported=${imported}`);
-		}
-	}
-
-	const reportPath = join(process.cwd(), 'tmp', 'falkor-to-age-migration-report.json');
+	const report = {
+		dryRun,
+		fromExport: fromExportArg,
+		users: [
+			{
+				userId: payload.userId,
+				counts: payload.counts,
+				artifactPath,
+				importedStatements: imported
+			}
+		]
+	};
+	const reportPath = join(process.cwd(), 'tmp', 'graph-import-report.json');
 	writeFileSync(reportPath, JSON.stringify(report, null, 2));
-	console.log(`[migrate] report written to ${reportPath}`);
+	console.log(
+		`[import-graph] user=${payload.userId} counts=${JSON.stringify(payload.counts)} imported=${imported} report=${reportPath}`
+	);
 } finally {
 	await sql.end();
-	if (client) await client.close();
 }

@@ -6,10 +6,12 @@
 	import type { GraphLegendSection } from '$lib/graph/graph-ontology-legend';
 	import {
 		canRunUmap,
+		centerAndScaleCoords3d,
 		computeUmapNeighbors,
-		fallbackProjection2d,
+		fallbackProjection3d,
 		l2NormalizeEmbeddings
 	} from './embedding-projection';
+	import { createEmbeddingMap3d, type EmbeddingMap3dHandle } from './embedding-map-3d';
 
 	type Props = {
 		graphLegendSections: GraphLegendSection[];
@@ -57,7 +59,7 @@
 	}
 
 	let teardown: (() => void) | undefined;
-	let scheduleLayoutChart: (() => void) | null = null;
+	let mapHandle: EmbeddingMap3dHandle | null = null;
 	let pipelineStarted = false;
 
 	$effect(() => {
@@ -90,7 +92,7 @@
 				return;
 			}
 
-			// ── UMAP projection ──────────────────────────────────────────────────
+			// ── UMAP projection (3D) ───────────────────────────────────────────
 			const embeddings = l2NormalizeEmbeddings(items);
 			const nNeighbors = computeUmapNeighbors(items.length);
 			const nEpochs = items.length > 200 ? 300 : 500;
@@ -102,7 +104,7 @@
 
 				phase = { kind: 'projecting', epoch: 0, totalEpochs: nEpochs };
 
-				const umap = new UMAP({ nNeighbors, nEpochs, nComponents: 2, minDist: 0.1, spread: 1.0 });
+				const umap = new UMAP({ nNeighbors, nEpochs, nComponents: 3, minDist: 0.1, spread: 1.0 });
 
 				try {
 					coords = await umap.fitAsync(embeddings, (epochNumber) => {
@@ -119,8 +121,10 @@
 					return;
 				}
 			} else {
-				coords = fallbackProjection2d(items.length);
+				coords = fallbackProjection3d(items.length);
 			}
+
+			coords = centerAndScaleCoords3d(coords);
 
 			await tick();
 			if (cancelled) return;
@@ -129,198 +133,31 @@
 				return;
 			}
 
-			// ── D3 render ────────────────────────────────────────────────────────
-			const d3 = await import('d3');
+			// ── Three.js render ──────────────────────────────────────────────────
 			if (cancelled || !rootEl) return;
 
 			const customFills = customEntityFillsFromLegendSections(graphLegendSections);
 
-			type Point = { item: EmbeddingSnapshotItem; x: number; y: number; cx: number; cy: number };
-
-			const points: Point[] = items.map((item, i) => ({
+			const mapPoints = items.map((item, i) => ({
 				item,
 				x: coords[i][0],
 				y: coords[i][1],
-				cx: 0,
-				cy: 0
+				z: coords[i][2],
+				color: nodeFillForGraph(item.kind, item.subtype, customFills)
 			}));
 
-			const margin = { top: 24, right: 24, bottom: 24, left: 24 };
-			const MIN_LAYOUT_PX = 24;
-
-			/** Pad degenerate UMAP output so a tight cluster still maps across the viewport. */
-			function paddedExtent(values: number[]): [number, number] {
-				const [lo, hi] = d3.extent(values) as [number, number];
-				if (lo === hi) {
-					const pad = lo === 0 ? 1 : Math.abs(lo) * 0.1;
-					return [lo - pad, hi + pad];
-				}
-				const span = hi - lo;
-				const pad = span * 0.05;
-				return [lo - pad, hi + pad];
-			}
-
-			let svg: d3.Selection<SVGSVGElement, unknown, HTMLElement, unknown> | null = null;
-			let gZoom: d3.Selection<SVGGElement, unknown, SVGSVGElement, unknown> | null = null;
-			let dotGroups: d3.Selection<SVGGElement, Point, SVGGElement, unknown> | null = null;
-			let zoom: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null;
-			let chartCreated = false;
-
-			/** Each dot sits under `gZoom`'s zoom transform; `scale(1/k)` keeps circles + labels a constant screen size. */
-			function updateDotGroupTransforms(k: number) {
-				if (!dotGroups) return;
-				const inv = 1 / k;
-				dotGroups.attr('transform', (p) => `translate(${p.cx},${p.cy}) scale(${inv})`);
-			}
-
-			function applyHighlight(selId: string | null) {
-				if (!dotGroups) return;
-				dotGroups.each(function (p) {
-					const sel = d3.select(this);
-					const on = selId !== null && p.item.id === selId;
-					sel.select<SVGCircleElement>('circle')
-						.attr('r', on ? 7 : 5)
-						.attr('stroke-width', on ? 3 : 0.8)
-						.attr('stroke', on ? '#fbbf24' : 'currentColor')
-						.attr('filter', on ? 'url(#embedding-dot-glow)' : null);
-				});
-			}
-
-			function centerViewOnDataMean(w: number, h: number) {
-				if (!svg || !zoom) return;
-				const mx = (d3.mean(points, (d) => d.cx) ?? w / 2) as number;
-				const my = (d3.mean(points, (d) => d.cy) ?? h / 2) as number;
-				svg.call(zoom.transform, d3.zoomIdentity.translate(w / 2 - mx, h / 2 - my));
-			}
-
-			function layoutChart() {
-				if (cancelled || !rootEl) return;
-				const w = rootEl.clientWidth;
-				const h = rootEl.clientHeight;
-				if (w < MIN_LAYOUT_PX || h < MIN_LAYOUT_PX) return;
-
-				const xScale = d3
-					.scaleLinear()
-					.domain(paddedExtent(points.map((p) => p.x)))
-					.range([margin.left, w - margin.right]);
-				const yScale = d3
-					.scaleLinear()
-					.domain(paddedExtent(points.map((p) => p.y)))
-					.range([margin.top, h - margin.bottom]);
-
-				for (const p of points) {
-					p.cx = xScale(p.x);
-					p.cy = yScale(p.y);
-				}
-
-				if (!chartCreated) {
-					chartCreated = true;
-					svg = d3
-						.select(rootEl)
-						.append('svg')
-						.attr('class', 'embedding-svg block h-full w-full touch-none')
-						.attr('width', w)
-						.attr('height', h);
-
-					svg
-						.append('defs')
-						.append('filter')
-						.attr('id', 'embedding-dot-glow')
-						.attr('x', '-60%')
-						.attr('y', '-60%')
-						.attr('width', '220%')
-						.attr('height', '220%')
-						.call((f) => {
-							f.append('feGaussianBlur')
-								.attr('in', 'SourceAlpha')
-								.attr('stdDeviation', 3)
-								.attr('result', 'embBlur');
-							const m = f.append('feMerge');
-							m.append('feMergeNode').attr('in', 'embBlur');
-							m.append('feMergeNode').attr('in', 'SourceGraphic');
-						});
-
-					gZoom = svg.append('g');
-
-					svg.on('click.embedding-clear', (event) => {
-						const el = event.target as Element | null;
-						if (!el?.closest?.('.embedding-dot')) onSelectItem?.(null);
-					});
-
-					dotGroups = gZoom
-						.selectAll<SVGGElement, Point>('g.embedding-dot')
-						.data(points, (p) => p.item.id)
-						.join((enter) => {
-							const g = enter.append('g').attr('class', 'embedding-dot');
-
-							g.append('circle')
-								.attr('r', 5)
-								.attr('fill', (p) => nodeFillForGraph(p.item.kind, p.item.subtype, customFills))
-								.attr('stroke', 'currentColor')
-								.attr('stroke-width', 0.8)
-								.attr('opacity', 0.85);
-
-							g.append('title').text(
-								(p) => `${p.item.kind}: ${p.item.label}\n${p.item.subtype}`
-							);
-
-							g.append('text')
-								.attr('class', 'emb-label')
-								.attr('x', 8)
-								.attr('y', 4)
-								.attr('font-size', '10px')
-								.attr('font-family', 'monospace')
-								.attr('fill', 'currentColor')
-								.attr('stroke', 'var(--background, #fff)')
-								.attr('stroke-width', '3')
-								.attr('paint-order', 'stroke')
-								.attr('pointer-events', 'none')
-								.text((p) => {
-									const base = p.item.label;
-									return base.length > 32 ? `${base.slice(0, 30)}…` : base;
-								});
-
-							return g;
-						})
-						.style('cursor', 'pointer')
-						.on('click.select', (event, p) => {
-							event.stopPropagation();
-							onSelectItem?.(p.item);
-						});
-
-					zoom = d3
-						.zoom<SVGSVGElement, unknown>()
-						.scaleExtent([0.1, 20])
-						.on('zoom', (event) => {
-							if (!gZoom) return;
-							gZoom.attr('transform', event.transform.toString());
-							updateDotGroupTransforms(event.transform.k);
-						});
-
-					svg.call(zoom);
-				} else if (svg) {
-					svg.attr('width', w).attr('height', h);
-				}
-
-				centerViewOnDataMean(w, h);
-				if (svg && zoom) {
-					const k = d3.zoomTransform(svg.node() as SVGSVGElement).k;
-					updateDotGroupTransforms(k);
-				}
-			}
-
-			scheduleApplyHighlight = applyHighlight;
-			scheduleLayoutChart = layoutChart;
+			mapHandle = createEmbeddingMap3d({
+				container: rootEl,
+				points: mapPoints,
+				onSelectItem
+			});
+			mapHandle.setSelectedId(selectedItemId ?? null);
 
 			const ro = new ResizeObserver(() => {
-				layoutChart();
-				queueMicrotask(() => applyHighlight(selectedItemId ?? null));
+				mapHandle?.resize();
 			});
 			ro.observe(rootEl);
-			queueMicrotask(() => {
-				layoutChart();
-				applyHighlight(selectedItemId ?? null);
-			});
+			queueMicrotask(() => mapHandle?.resize());
 
 			// Build legend from observed subtypes
 			const seenKeys = new Set<string>();
@@ -346,15 +183,9 @@
 
 			teardown = () => {
 				cancelled = true;
-				scheduleApplyHighlight = null;
-				scheduleLayoutChart = null;
 				ro.disconnect();
-				svg?.remove();
-				svg = null;
-				gZoom = null;
-				dotGroups = null;
-				zoom = null;
-				chartCreated = false;
+				mapHandle?.dispose();
+				mapHandle = null;
 			};
 		})();
 	});
@@ -367,16 +198,14 @@
 		};
 	});
 
-	let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
-
 	$effect(() => {
 		if (!visible) return;
-		queueMicrotask(() => scheduleLayoutChart?.());
+		queueMicrotask(() => mapHandle?.resize());
 	});
 
 	$effect(() => {
 		const id = selectedItemId ?? null;
-		queueMicrotask(() => scheduleApplyHighlight?.(id));
+		queueMicrotask(() => mapHandle?.setSelectedId(id));
 	});
 </script>
 
@@ -392,7 +221,7 @@
 		<div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
 			<LoaderCircleIcon class="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
 			<div class="text-center">
-				<p class="text-foreground text-sm font-medium">Projecting to 2D…</p>
+				<p class="text-foreground text-sm font-medium">Projecting to 3D…</p>
 				<p class="text-muted-foreground mt-1 text-xs">Epoch {phase.epoch} / {phase.totalEpochs}</p>
 				<div class="bg-muted mt-2 h-1.5 w-48 overflow-hidden rounded-full">
 					<div
@@ -402,7 +231,7 @@
 				</div>
 			</div>
 			<p class="text-muted-foreground/60 max-w-xs text-center text-[10px] leading-relaxed">
-				UMAP is computing a 2D layout from your embedding vectors in the browser.
+				UMAP is computing a 3D layout from your embedding vectors in the browser.
 			</p>
 		</div>
 
@@ -419,16 +248,14 @@
 		</div>
 	{/if}
 
-	<!-- D3 canvas -->
 	<div
 		bind:this={rootEl}
 		class="text-foreground h-full min-h-0 w-full"
 		role="img"
-		aria-label="Embedding map — 2D UMAP projection of your thoughts and entities"
+		aria-label="Embedding map — 3D UMAP projection of your thoughts and entities"
 	></div>
 
 	{#if phase.kind === 'ready' && phase.count > 0}
-		<!-- Floating legend — bottom-left -->
 		<div
 			class="border-border/60 bg-background/90 pointer-events-none absolute bottom-8 left-3 max-w-[190px] rounded-md border px-3 py-2 backdrop-blur-sm"
 			aria-label="Embedding map legend"
@@ -450,9 +277,8 @@
 			</div>
 		</div>
 
-		<!-- Bottom hint -->
 		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px]">
-			Click a dot to inspect · proximity is approximate · axes have no meaning
+			Drag to orbit · scroll to zoom · click a dot to inspect · proximity is approximate
 		</p>
 	{/if}
 </div>

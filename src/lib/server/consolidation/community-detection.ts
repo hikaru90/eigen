@@ -17,7 +17,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { graphCommunity, communityMember, canonicalEntity } from '$lib/server/db/schema';
-import { fetchEntityEdgesForUser } from '$lib/server/graph/falkor';
+import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
 import { detectCommunities, type CommunityHierarchy } from './leiden';
 
 export type CommunityDetectionResult = {

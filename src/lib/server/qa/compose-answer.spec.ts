@@ -3,6 +3,7 @@ import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import {
 	composeAnswer,
 	extractRetrievalHints,
+	findInvalidCitationIds,
 	narrowComposeContextToQuestionFocus
 } from './compose-answer';
 
@@ -38,7 +39,7 @@ vi.mock('$lib/server/retrieval/lexical', () => ({
 	lexicalSearch: lexicalSearchMock
 }));
 
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	graphOnlySearchByQuery: graphOnlySearchByQueryMock
 }));
 
@@ -74,7 +75,8 @@ const sampleRetrieval = [
 		vectorScore: 0.9,
 		graphScore: 0.5,
 		metadata: {},
-		createdAt: FIXED_DATE
+		createdAt: FIXED_DATE,
+		memoryType: null
 	},
 	{
 		id: 't_002',
@@ -84,7 +86,8 @@ const sampleRetrieval = [
 		vectorScore: 0.75,
 		graphScore: 0.6,
 		metadata: {},
-		createdAt: FIXED_DATE
+		createdAt: FIXED_DATE,
+		memoryType: null
 	}
 ];
 
@@ -114,6 +117,13 @@ describe('narrowComposeContextToQuestionFocus', () => {
 		]);
 		expect(out).toHaveLength(1);
 		expect(out[0].id).toBe('b');
+	});
+});
+
+describe('findInvalidCitationIds', () => {
+	it('flags citation ids not in the allow-list', () => {
+		const invalid = findInvalidCitationIds('Fact [a] and bad [z]', new Set(['a']));
+		expect(invalid).toEqual(['z']);
 	});
 });
 
@@ -170,6 +180,22 @@ describe('composeAnswer', () => {
 	});
 
 	it('runs hybrid, hint, lexical, and entity-label retrieval for who-is questions', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 'b',
+				normalizedText: 'clemi ist clemens',
+				category: 'reference',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				metadata: {},
+				createdAt: FIXED_DATE,
+				memoryType: null
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse('Answer: Clemi is Clemens.\nEvidence:\n- Clemi is Clemens [b]\n\nUnknown:\n- none')
+		);
 		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
 		expect(createThoughtEmbeddingMock).toHaveBeenCalled();
 		expect(searchThoughtsMock).toHaveBeenCalledTimes(2);
@@ -291,13 +317,47 @@ describe('composeAnswer', () => {
 		expect(userMessage).toContain('(no thoughts retrieved)');
 	});
 
-	it('drops citations to ids that are not in the retrieved set', async () => {
+	it('throws when the answer cites ids outside the retrieved set', async () => {
 		llmChatCompletionMock.mockResolvedValueOnce(
 			chatResponse('Some claim [t_001] but also a hallucinated [t_999].')
 		);
-		const result = await composeAnswer({ userId: 'u1', question: 'q' });
-		expect(result.citations).toEqual(['t_001']);
-		expect(result.citations).not.toContain('t_999');
+		await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(
+			'cites thought ids not in retrieved context'
+		);
+	});
+
+	it('embeds hint queries separately from the full question', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 'b',
+				normalizedText: 'clemi ist clemens',
+				category: 'reference',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0,
+				metadata: {},
+				createdAt: FIXED_DATE,
+				memoryType: null
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse('Answer: Clemi is Clemens.\nEvidence:\n- Clemi is Clemens [b]\n\nUnknown:\n- none')
+		);
+		createThoughtEmbeddingMock.mockImplementation(async (_userId: string, text: string) => {
+			return text.toLowerCase().includes('clemi') && !text.includes('?') ? [0.9] : [0.1];
+		});
+		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(2);
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'Wer ist Clemi?');
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'clemi');
+		const hintCall = searchThoughtsMock.mock.calls.find(
+			(call) => (call[0] as { query: string }).query === 'clemi'
+		);
+		const questionCall = searchThoughtsMock.mock.calls.find(
+			(call) => (call[0] as { query: string }).query === 'Wer ist Clemi?'
+		);
+		expect(hintCall?.[0].queryEmbedding).toEqual([0.9]);
+		expect(questionCall?.[0].queryEmbedding).toEqual([0.1]);
 	});
 
 	it('throws a clear error when the LLM response shape is unexpected', async () => {
@@ -342,9 +402,13 @@ describe('composeAnswer', () => {
 				vectorScore: 0.4,
 				graphScore: 0.1,
 				metadata: { graphProvenance: 'entity:Marcus' },
-				createdAt: FIXED_DATE
+				createdAt: FIXED_DATE,
+				memoryType: null
 			}
 		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse('Answer: Connected via Marcus.\nEvidence:\n- Link [t_003]\n\nUnknown:\n- none')
+		);
 		const result = await composeAnswer({ userId: 'u1', question: 'how is this connected?' });
 		expect(result.retrieved[0].graphProvenance).toBe('entity:Marcus');
 		const userMessage = (

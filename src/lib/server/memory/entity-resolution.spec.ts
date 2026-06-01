@@ -5,9 +5,10 @@ import {
 	resolveOrCreateCanonicalEntity
 } from './entity-resolution';
 
-const { createThoughtEmbeddingMock, getDbMock } = vi.hoisted(() => ({
+const { createThoughtEmbeddingMock, getDbMock, fetchEntityEdgesForUserMock } = vi.hoisted(() => ({
 	createThoughtEmbeddingMock: vi.fn(),
-	getDbMock: vi.fn()
+	getDbMock: vi.fn(),
+	fetchEntityEdgesForUserMock: vi.fn()
 }));
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -16,6 +17,10 @@ vi.mock('$lib/server/llm/embedding', () => ({
 
 vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
+}));
+
+vi.mock('$lib/server/graph/age', () => ({
+	fetchEntityEdgesForUser: fetchEntityEdgesForUserMock
 }));
 
 const EMBEDDING_DIMENSIONS = 1536;
@@ -111,6 +116,7 @@ describe('canonicalKeyFromSurface', () => {
 describe('resolveOrCreateCanonicalEntity', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		fetchEntityEdgesForUserMock.mockResolvedValue([]);
 	});
 
 	it('returns merged when canonical_key already matches', async () => {
@@ -164,20 +170,55 @@ describe('resolveOrCreateCanonicalEntity', () => {
 		});
 	});
 
-	it('merges into nearest embedding neighbor and inserts a new alias when below distance threshold', async () => {
+	it('merges via graph context when a co-mentioned neighbor links to one candidate', async () => {
+		fetchEntityEdgesForUserMock.mockResolvedValue([
+			{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'located_in' }
+		]);
 		const db = buildDb({
 			selects: [
 				[], // canonical key
 				[], // alias
-				[
-					{ id: 'e3', canonicalKey: 'samuel', label: 'Samuel', distance: 0.1 },
-					{ id: 'e4', canonicalKey: 'sammy', label: 'Sammy', distance: 0.3 }
-				],
-				[] // aliasExists lookup empty → insert new alias
+				[{ id: 'e-samuel', canonicalKey: 'samuel', label: 'Samuel', entityType: 'person' }],
+				[] // aliasExists
 			],
 			inserts: ['void', 'void']
 		});
 		getDbMock.mockReturnValue(db);
+
+		const out = await resolveOrCreateCanonicalEntity({
+			userId: 'u1',
+			thoughtId: 't1',
+			surface: 'Sam',
+			entityType: 'person',
+			confidence: 0.4,
+			coMentionEntityIds: ['e-berlin']
+		});
+
+		expect(out).toEqual({ entityId: 'e-samuel', canonicalKey: 'samuel', decision: 'merged' });
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+		expect(db.insertCalls[1]?.values).toMatchObject({
+			decision: 'merged',
+			metadata: expect.objectContaining({ reason: 'graph_context_match' })
+		});
+	});
+
+	it('creates a new entity when graph candidates are ambiguous', async () => {
+		fetchEntityEdgesForUserMock.mockResolvedValue([
+			{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'related_to' },
+			{ sourceId: 'e-berlin', targetId: 'e-sammy', weight: 1, predicate: 'related_to' }
+		]);
+		const db = buildDb({
+			selects: [
+				[],
+				[],
+				[
+					{ id: 'e-samuel', canonicalKey: 'samuel', label: 'Samuel', entityType: 'person' },
+					{ id: 'e-sammy', canonicalKey: 'sammy', label: 'Sammy', entityType: 'person' }
+				]
+			],
+			inserts: [[{ id: 'new-1', canonicalKey: 'sam' }], 'void', 'void']
+		});
+		getDbMock.mockReturnValue(db);
 		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
 
 		const out = await resolveOrCreateCanonicalEntity({
@@ -185,30 +226,21 @@ describe('resolveOrCreateCanonicalEntity', () => {
 			thoughtId: 't1',
 			surface: 'Sam',
 			entityType: 'person',
-			confidence: 0.4
+			confidence: 0.4,
+			coMentionEntityIds: ['e-berlin']
 		});
 
-		expect(out).toEqual({ entityId: 'e3', canonicalKey: 'samuel', decision: 'merged' });
-		expect(db.insertCalls[0]?.values).toMatchObject({
-			canonicalEntityId: 'e3',
-			aliasText: 'sam'
-		});
-		expect(db.insertCalls[1]?.values).toMatchObject({
-			canonicalEntityId: 'e3',
-			decision: 'merged',
-			metadata: { reason: 'embedding_neighbor', distance: 0.1 }
+		expect(out.decision).toBe('created');
+		expect(db.insertCalls[2]?.values).toMatchObject({
+			decision: 'created',
+			metadata: expect.objectContaining({ reason: 'ambiguous_graph_context_create_new' })
 		});
 	});
 
-	it('does not insert duplicate alias when one already exists for the neighbor', async () => {
+	it('creates instead of embedding-neighbor merge when graph context is absent', async () => {
 		const db = buildDb({
-			selects: [
-				[], // canonical key
-				[], // alias
-				[{ id: 'e3', canonicalKey: 'samuel', label: 'Samuel', distance: 0.1 }],
-				[{ id: 'alias-existing' }] // aliasExists hits
-			],
-			inserts: ['void'] // only the resolution log insert
+			selects: [[], []],
+			inserts: [[{ id: 'new-1', canonicalKey: 'sam' }], 'void', 'void']
 		});
 		getDbMock.mockReturnValue(db);
 		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
@@ -221,11 +253,9 @@ describe('resolveOrCreateCanonicalEntity', () => {
 			confidence: 0.4
 		});
 
-		expect(out.decision).toBe('merged');
-		expect(db.insertCalls).toHaveLength(1);
-		expect(db.insertCalls[0]?.values).toMatchObject({
-			decision: 'merged',
-			metadata: { reason: 'embedding_neighbor', distance: 0.1 }
+		expect(out.decision).toBe('created');
+		expect(db.insertCalls[2]?.values).toMatchObject({
+			metadata: { entityType: 'person' }
 		});
 	});
 
@@ -233,9 +263,7 @@ describe('resolveOrCreateCanonicalEntity', () => {
 		const db = buildDb({
 			selects: [
 				[], // canonical key
-				[], // alias
-				[{ id: 'e5', canonicalKey: 'somethingelse', label: 'Other', distance: 0.9 }]
-				// no aliasExists query reached because nearest neighbor exceeds threshold
+				[] // alias
 			],
 			inserts: [[{ id: 'new-1', canonicalKey: 'fresh' }], 'void', 'void']
 		});
@@ -267,9 +295,9 @@ describe('resolveOrCreateCanonicalEntity', () => {
 		});
 	});
 
-	it('treats empty neighbor list as a create path', async () => {
+	it('treats empty graph context as a create path', async () => {
 		const db = buildDb({
-			selects: [[], [], []],
+			selects: [[], []],
 			inserts: [[{ id: 'new-2', canonicalKey: 'fresh' }], 'void', 'void']
 		});
 		getDbMock.mockReturnValue(db);
@@ -288,7 +316,7 @@ describe('resolveOrCreateCanonicalEntity', () => {
 
 	it('throws when canonical entity insert returns no row', async () => {
 		const db = buildDb({
-			selects: [[], [], []],
+			selects: [[], []],
 			inserts: [[]]
 		});
 		getDbMock.mockReturnValue(db);

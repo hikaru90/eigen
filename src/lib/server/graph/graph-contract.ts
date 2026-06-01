@@ -56,6 +56,7 @@ export const GRAPH_ADAPTER_OPERATIONS = [
 	'upsertEntityNode',
 	'upsertMentionEdge',
 	'upsertEntityRelationEdge',
+	'deleteEntityRelationEdge',
 	'fetchEntityEdgesForUser',
 	'expandThoughtIdsFromEntitySeeds',
 	'upsertEventNode',

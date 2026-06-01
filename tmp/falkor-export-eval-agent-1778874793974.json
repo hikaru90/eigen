@@ -1,0 +1,484 @@
+{
+  "userId": "eval-agent-1778874793974",
+  "counts": {
+    "thoughts": 10,
+    "entities": 17,
+    "events": 0,
+    "relates_to": 16,
+    "mentions": 29,
+    "entity_relates": 20,
+    "occurs_in": 0,
+    "involves": 0
+  },
+  "thoughts": [
+    {
+      "id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "category": "idea"
+    },
+    {
+      "id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "category": "observation"
+    },
+    {
+      "id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "category": "idea"
+    },
+    {
+      "id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "category": "task"
+    },
+    {
+      "id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "category": "observation"
+    },
+    {
+      "id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "category": "feeling"
+    },
+    {
+      "id": "94021e4e-7264-4649-b576-f8f38539731d",
+      "category": "reflection"
+    },
+    {
+      "id": "a6fb8b6f-b52a-49f1-ae00-886971592a86",
+      "category": "idea"
+    },
+    {
+      "id": "1063d0e8-1c04-49b1-b1f2-d01b46ea9fc8",
+      "category": "goal"
+    },
+    {
+      "id": "c615f628-037c-424c-8b45-9bd6dc23bccc",
+      "category": "idea"
+    }
+  ],
+  "entities": [
+    {
+      "id": "f02de6ed-9c3b-4955-b724-bbe23243d415",
+      "canonical_key": "system",
+      "label": "system",
+      "entity_type": "technology"
+    },
+    {
+      "id": "6a186f8f-e2f6-4f05-b27e-748c95978452",
+      "canonical_key": "thoughts",
+      "label": "thoughts",
+      "entity_type": "concept"
+    },
+    {
+      "id": "5aa58689-1700-4654-a25f-91e58c2c1350",
+      "canonical_key": "capture",
+      "label": "capture",
+      "entity_type": "concept"
+    },
+    {
+      "id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc",
+      "canonical_key": "sarah",
+      "label": "Alex",
+      "entity_type": "person"
+    },
+    {
+      "id": "3ed92a9d-5295-4f45-a9ae-0fc7289b0277",
+      "canonical_key": "coffee shop",
+      "label": "coffee shop",
+      "entity_type": "place"
+    },
+    {
+      "id": "e1225f35-48a7-4ebe-8de0-51a976d7662a",
+      "canonical_key": "evaluation framework",
+      "label": "evaluation framework",
+      "entity_type": "concept"
+    },
+    {
+      "id": "d255f5f3-de02-4fcb-afce-42a7aec9349e",
+      "canonical_key": "main street",
+      "label": "Main Street",
+      "entity_type": "place"
+    },
+    {
+      "id": "403d8830-1142-43f3-a32e-58c669cd26f0",
+      "canonical_key": "falkordb",
+      "label": "FalkorDB",
+      "entity_type": "technology"
+    },
+    {
+      "id": "ff245ede-e37a-4b74-9177-18ed2bc7cf33",
+      "canonical_key": "postgres",
+      "label": "Postgres",
+      "entity_type": "technology"
+    },
+    {
+      "id": "d2da2088-5e62-4be2-bef6-1bc9c104bbbf",
+      "canonical_key": "mom",
+      "label": "Mom",
+      "entity_type": "person"
+    },
+    {
+      "id": "4734a711-3173-49b5-8627-0feadf920ce8",
+      "canonical_key": "berlin",
+      "label": "Berlin",
+      "entity_type": "place"
+    },
+    {
+      "id": "12724233-2969-44b6-92f8-7a1021fc847e",
+      "canonical_key": "march",
+      "label": "March",
+      "entity_type": "event"
+    },
+    {
+      "id": "edd56b31-d796-4bc2-9232-c796e02b3890",
+      "canonical_key": "architecture review",
+      "label": "architecture review",
+      "entity_type": "event"
+    },
+    {
+      "id": "3e3530da-eaab-487a-82dd-d7678b213f9b",
+      "canonical_key": "community detection",
+      "label": "community detection",
+      "entity_type": "technology"
+    },
+    {
+      "id": "509e14b7-12fa-45b1-9532-dd9277bcecb0",
+      "canonical_key": "embedding",
+      "label": "embedding",
+      "entity_type": "technology"
+    },
+    {
+      "id": "590cf9f6-8a65-4024-8d82-1bf6c6153422",
+      "canonical_key": "retrieval system",
+      "label": "retrieval system",
+      "entity_type": "technology"
+    },
+    {
+      "id": "9c76a2af-af70-4a4a-b28c-f5a80edaf25d",
+      "canonical_key": "thinking fast and slow",
+      "label": "Kahneman",
+      "entity_type": "person"
+    }
+  ],
+  "events": [],
+  "relates_to": [
+    {
+      "source_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "target_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "target_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "target_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "target_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "target_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "target_id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "target_id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "target_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "target_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "target_id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "target_id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "target_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "94021e4e-7264-4649-b576-f8f38539731d",
+      "target_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "a6fb8b6f-b52a-49f1-ae00-886971592a86",
+      "target_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "a6fb8b6f-b52a-49f1-ae00-886971592a86",
+      "target_id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "relation_type": "related_to"
+    },
+    {
+      "source_id": "a6fb8b6f-b52a-49f1-ae00-886971592a86",
+      "target_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "relation_type": "related_to"
+    }
+  ],
+  "mentions": [
+    {
+      "thought_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "entity_id": "f02de6ed-9c3b-4955-b724-bbe23243d415"
+    },
+    {
+      "thought_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "entity_id": "6a186f8f-e2f6-4f05-b27e-748c95978452"
+    },
+    {
+      "thought_id": "3f58996f-8292-4ac9-9e6a-41c16c7fd255",
+      "entity_id": "5aa58689-1700-4654-a25f-91e58c2c1350"
+    },
+    {
+      "thought_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "entity_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc"
+    },
+    {
+      "thought_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "entity_id": "3ed92a9d-5295-4f45-a9ae-0fc7289b0277"
+    },
+    {
+      "thought_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "entity_id": "d255f5f3-de02-4fcb-afce-42a7aec9349e"
+    },
+    {
+      "thought_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "entity_id": "403d8830-1142-43f3-a32e-58c669cd26f0"
+    },
+    {
+      "thought_id": "339517e9-ca04-420b-a7ec-be85d05e630a",
+      "entity_id": "ff245ede-e37a-4b74-9177-18ed2bc7cf33"
+    },
+    {
+      "thought_id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "entity_id": "f02de6ed-9c3b-4955-b724-bbe23243d415"
+    },
+    {
+      "thought_id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "entity_id": "5aa58689-1700-4654-a25f-91e58c2c1350"
+    },
+    {
+      "thought_id": "d03adf8a-e7c0-4ab1-b045-e87fcc3a66f9",
+      "entity_id": "e1225f35-48a7-4ebe-8de0-51a976d7662a"
+    },
+    {
+      "thought_id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "entity_id": "5aa58689-1700-4654-a25f-91e58c2c1350"
+    },
+    {
+      "thought_id": "40f19f87-f37c-4889-94cd-ac943a926a92",
+      "entity_id": "d2da2088-5e62-4be2-bef6-1bc9c104bbbf"
+    },
+    {
+      "thought_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "entity_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc"
+    },
+    {
+      "thought_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "entity_id": "4734a711-3173-49b5-8627-0feadf920ce8"
+    },
+    {
+      "thought_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "entity_id": "12724233-2969-44b6-92f8-7a1021fc847e"
+    },
+    {
+      "thought_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "entity_id": "edd56b31-d796-4bc2-9232-c796e02b3890"
+    },
+    {
+      "thought_id": "91abfea6-a29d-4d8c-9c18-ac1704c38f8f",
+      "entity_id": "3e3530da-eaab-487a-82dd-d7678b213f9b"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "f02de6ed-9c3b-4955-b724-bbe23243d415"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "6a186f8f-e2f6-4f05-b27e-748c95978452"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "5aa58689-1700-4654-a25f-91e58c2c1350"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "e1225f35-48a7-4ebe-8de0-51a976d7662a"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "403d8830-1142-43f3-a32e-58c669cd26f0"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "509e14b7-12fa-45b1-9532-dd9277bcecb0"
+    },
+    {
+      "thought_id": "cda47067-bd0e-489d-be26-142b6ce8e85d",
+      "entity_id": "590cf9f6-8a65-4024-8d82-1bf6c6153422"
+    },
+    {
+      "thought_id": "94021e4e-7264-4649-b576-f8f38539731d",
+      "entity_id": "6a186f8f-e2f6-4f05-b27e-748c95978452"
+    },
+    {
+      "thought_id": "94021e4e-7264-4649-b576-f8f38539731d",
+      "entity_id": "5aa58689-1700-4654-a25f-91e58c2c1350"
+    },
+    {
+      "thought_id": "94021e4e-7264-4649-b576-f8f38539731d",
+      "entity_id": "9c76a2af-af70-4a4a-b28c-f5a80edaf25d"
+    },
+    {
+      "thought_id": "c615f628-037c-424c-8b45-9bd6dc23bccc",
+      "entity_id": "f02de6ed-9c3b-4955-b724-bbe23243d415"
+    }
+  ],
+  "entity_relates": [
+    {
+      "source_id": "f02de6ed-9c3b-4955-b724-bbe23243d415",
+      "target_id": "6a186f8f-e2f6-4f05-b27e-748c95978452",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "f02de6ed-9c3b-4955-b724-bbe23243d415",
+      "target_id": "5aa58689-1700-4654-a25f-91e58c2c1350",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "5aa58689-1700-4654-a25f-91e58c2c1350",
+      "target_id": "6a186f8f-e2f6-4f05-b27e-748c95978452",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc",
+      "target_id": "3ed92a9d-5295-4f45-a9ae-0fc7289b0277",
+      "predicate": "located_in",
+      "weight": 1
+    },
+    {
+      "source_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc",
+      "target_id": "403d8830-1142-43f3-a32e-58c669cd26f0",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc",
+      "target_id": "ff245ede-e37a-4b74-9177-18ed2bc7cf33",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc",
+      "target_id": "edd56b31-d796-4bc2-9232-c796e02b3890",
+      "predicate": "works_at",
+      "weight": 1
+    },
+    {
+      "source_id": "3ed92a9d-5295-4f45-a9ae-0fc7289b0277",
+      "target_id": "d255f5f3-de02-4fcb-afce-42a7aec9349e",
+      "predicate": "located_in",
+      "weight": 1
+    },
+    {
+      "source_id": "e1225f35-48a7-4ebe-8de0-51a976d7662a",
+      "target_id": "f02de6ed-9c3b-4955-b724-bbe23243d415",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "e1225f35-48a7-4ebe-8de0-51a976d7662a",
+      "target_id": "5aa58689-1700-4654-a25f-91e58c2c1350",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "403d8830-1142-43f3-a32e-58c669cd26f0",
+      "target_id": "ff245ede-e37a-4b74-9177-18ed2bc7cf33",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "d2da2088-5e62-4be2-bef6-1bc9c104bbbf",
+      "target_id": "5aa58689-1700-4654-a25f-91e58c2c1350",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "4734a711-3173-49b5-8627-0feadf920ce8",
+      "target_id": "12724233-2969-44b6-92f8-7a1021fc847e",
+      "predicate": "located_in",
+      "weight": 1
+    },
+    {
+      "source_id": "edd56b31-d796-4bc2-9232-c796e02b3890",
+      "target_id": "4734a711-3173-49b5-8627-0feadf920ce8",
+      "predicate": "located_in",
+      "weight": 1
+    },
+    {
+      "source_id": "3e3530da-eaab-487a-82dd-d7678b213f9b",
+      "target_id": "3585ba8d-6244-414f-ab1c-30de3b9ee2dc",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "3e3530da-eaab-487a-82dd-d7678b213f9b",
+      "target_id": "edd56b31-d796-4bc2-9232-c796e02b3890",
+      "predicate": "related_to",
+      "weight": 1
+    },
+    {
+      "source_id": "509e14b7-12fa-45b1-9532-dd9277bcecb0",
+      "target_id": "590cf9f6-8a65-4024-8d82-1bf6c6153422",
+      "predicate": "depends_on",
+      "weight": 1
+    },
+    {
+      "source_id": "590cf9f6-8a65-4024-8d82-1bf6c6153422",
+      "target_id": "f02de6ed-9c3b-4955-b724-bbe23243d415",
+      "predicate": "part_of",
+      "weight": 1
+    },
+    {
+      "source_id": "9c76a2af-af70-4a4a-b28c-f5a80edaf25d",
+      "target_id": "6a186f8f-e2f6-4f05-b27e-748c95978452",
+      "predicate": "knows",
+      "weight": 1
+    },
+    {
+      "source_id": "9c76a2af-af70-4a4a-b28c-f5a80edaf25d",
+      "target_id": "5aa58689-1700-4654-a25f-91e58c2c1350",
+      "predicate": "depends_on",
+      "weight": 1
+    }
+  ],
+  "occurs_in": [],
+  "involves": []
+}

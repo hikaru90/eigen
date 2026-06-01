@@ -1,11 +1,17 @@
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityAlias, entityResolutionLog } from '$lib/server/db/schema';
+import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
+import {
+	buildEntityAdjacency,
+	neighborEntityIds,
+	pickGraphMergeWinner,
+	scoreGraphLinkCandidate,
+	type GraphLinkCandidate
+} from '$lib/server/memory/entity-link-graph';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 
-/** Cosine distance threshold on pgvector `<=>`; lower is closer (conservative merge). */
-const MERGE_DISTANCE_THRESHOLD = 0.22;
 const EMBEDDING_DIMENSIONS = 1536;
 
 function toVectorLiteral(vector: number[]): string {
@@ -120,12 +126,58 @@ async function insertResolutionLog(input: {
 	});
 }
 
+async function loadGraphMergeCandidates(input: {
+	userId: string;
+	entityType: string;
+	mentionKey: string;
+	coMentionEntityIds: string[];
+}): Promise<GraphLinkCandidate[]> {
+	if (input.coMentionEntityIds.length === 0) return [];
+
+	const edges = await fetchEntityEdgesForUser({ userId: input.userId });
+	const adjacency = buildEntityAdjacency(edges);
+	const neighborIds = neighborEntityIds(adjacency, input.coMentionEntityIds);
+	if (neighborIds.size === 0) return [];
+
+	const coMentionSet = new Set(input.coMentionEntityIds);
+	const rows = await getDb()
+		.select({
+			id: canonicalEntity.id,
+			canonicalKey: canonicalEntity.canonicalKey,
+			label: canonicalEntity.label,
+			entityType: canonicalEntity.entityType
+		})
+		.from(canonicalEntity)
+		.where(
+			and(eq(canonicalEntity.userId, input.userId), inArray(canonicalEntity.id, [...neighborIds]))
+		)
+		.limit(32);
+
+	return rows.map((row) => ({
+		id: row.id,
+		canonicalKey: row.canonicalKey,
+		label: row.label,
+		entityType: row.entityType,
+		graphScore: scoreGraphLinkCandidate({
+			candidateId: row.id,
+			candidateEntityType: row.entityType,
+			candidateCanonicalKey: row.canonicalKey,
+			mentionEntityType: input.entityType,
+			mentionKey: input.mentionKey,
+			coMentionEntityIds: coMentionSet,
+			neighborEntityIds: neighborIds
+		})
+	}));
+}
+
 export async function resolveOrCreateCanonicalEntity(input: {
 	userId: string;
 	thoughtId: string;
 	surface: string;
 	entityType: string;
 	confidence: number;
+	/** Entities already resolved in the same thought — graph context for linking. */
+	coMentionEntityIds?: string[];
 }): Promise<ResolveCanonicalResult> {
 	const key = canonicalKeyFromSurface(input.surface);
 	const confStr = input.confidence.toFixed(4);
@@ -188,28 +240,17 @@ export async function resolveOrCreateCanonicalEntity(input: {
 		};
 	}
 
-	const embedding = await createThoughtEmbedding(input.userId, input.surface);
-	const vectorSql = toVectorSql(embedding);
-	const distanceExpr = sql<number>`${canonicalEntity.embedding} <=> ${vectorSql}`;
+	const coMentionIds = [...new Set(input.coMentionEntityIds ?? [])];
+	const graphCandidates = await loadGraphMergeCandidates({
+		userId: input.userId,
+		entityType: input.entityType,
+		mentionKey: key,
+		coMentionEntityIds: coMentionIds
+	});
+	const graphPick = pickGraphMergeWinner(graphCandidates);
 
-	const nearest = await getDb()
-		.select({
-			id: canonicalEntity.id,
-			canonicalKey: canonicalEntity.canonicalKey,
-			label: canonicalEntity.label,
-			distance: distanceExpr
-		})
-		.from(canonicalEntity)
-		.where(and(eq(canonicalEntity.userId, input.userId), isNotNull(canonicalEntity.embedding)))
-		.orderBy(distanceExpr)
-		.limit(5);
-
-	const best = nearest[0];
-	if (
-		best &&
-		typeof best.distance === 'number' &&
-		best.distance < MERGE_DISTANCE_THRESHOLD
-	) {
+	if (graphPick.kind === 'winner') {
+		const winner = graphPick.candidate;
 		const [aliasExists] = await getDb()
 			.select({ id: entityAlias.id })
 			.from(entityAlias)
@@ -218,27 +259,76 @@ export async function resolveOrCreateCanonicalEntity(input: {
 		if (!aliasExists) {
 			await getDb().insert(entityAlias).values({
 				userId: input.userId,
-				canonicalEntityId: best.id,
+				canonicalEntityId: winner.id,
 				aliasText: key
 			});
 		}
 		await getDb()
 			.update(canonicalEntity)
 			.set({ entityType: input.entityType })
-			.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, best.id)));
+			.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, winner.id)));
 		await insertResolutionLog({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
 			surface: input.surface,
-			entityId: best.id,
+			entityId: winner.id,
 			decision: 'merged',
 			confidence: confStr,
-			metadata: { reason: 'embedding_neighbor', distance: best.distance }
+			metadata: {
+				reason: 'graph_context_match',
+				graphScore: winner.graphScore,
+				coMentionCount: coMentionIds.length
+			}
 		});
 		return {
-			entityId: best.id,
-			canonicalKey: best.canonicalKey,
+			entityId: winner.id,
+			canonicalKey: winner.canonicalKey,
 			decision: 'merged'
+		};
+	}
+
+	const embedding = await createThoughtEmbedding(input.userId, input.surface);
+
+	if (graphPick.kind === 'ambiguous') {
+		const [created] = await getDb()
+			.insert(canonicalEntity)
+			.values({
+				userId: input.userId,
+				canonicalKey: key,
+				label: input.surface.trim(),
+				entityType: input.entityType,
+				embedding
+			})
+			.returning();
+
+		if (!created) {
+			throw new Error('resolveOrCreateCanonicalEntity: insert returned no row');
+		}
+
+		await getDb().insert(entityAlias).values({
+			userId: input.userId,
+			canonicalEntityId: created.id,
+			aliasText: key
+		});
+
+		await insertResolutionLog({
+			userId: input.userId,
+			thoughtId: input.thoughtId,
+			surface: input.surface,
+			entityId: created.id,
+			decision: 'created',
+			confidence: confStr,
+			metadata: {
+				reason: 'ambiguous_graph_context_create_new',
+				topScore: graphPick.topScore,
+				runnerUpScore: graphPick.runnerUpScore
+			}
+		});
+
+		return {
+			entityId: created.id,
+			canonicalKey: created.canonicalKey,
+			decision: 'created'
 		};
 	}
 
@@ -313,15 +403,11 @@ export async function matchCanonicalEntitiesByEmbedding(input: {
 		console.error('[entity-resolution] canonical embedding similarity query failed', {
 			userId: input.userId,
 			queryEmbeddingLength: input.embedding.length,
-			queryEmbeddingPreview: input.embedding.slice(0, 8),
 			columnType: diagnostics.columnType,
 			storedDims: diagnostics.storedDims,
 			nonNullEmbeddings: diagnostics.nonNullEmbeddings,
 			errorCode: err.code,
-			errorMessage: err.message,
-			errorDetail: err.detail,
-			errorHint: err.hint,
-			errorWhere: err.where
+			errorMessage: err.message?.slice(0, 500)
 		});
 		if (err.code === '42P01') {
 			throw new Error(

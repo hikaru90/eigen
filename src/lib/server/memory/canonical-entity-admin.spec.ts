@@ -29,7 +29,7 @@ const {
 }));
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	upsertEntityNode: upsertEntityNodeMock,
 	upsertMentionEdge: upsertMentionEdgeMock,
 	deleteEntityVertexFromGraph: deleteEntityVertexFromGraphMock

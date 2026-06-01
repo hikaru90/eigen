@@ -116,6 +116,43 @@ export function parseEntityMentions(
 		.filter((v): v is ExtractedEntityMention => v !== null);
 }
 
+const MIN_TRIPLE_CONFIDENCE_DEFAULT = 0.55;
+const MIN_TRIPLE_CONFIDENCE_RELATED_TO = 0.75;
+
+function lexicalContextSupportsTriple(
+	triple: ExtractedEntityTriple,
+	normalizedText: string
+): boolean {
+	const text = normalizedText.toLowerCase();
+	const subject = triple.subject.trim().toLowerCase();
+	const object = triple.object.trim().toLowerCase();
+	if (!subject || !object) return false;
+	return text.includes(subject) && text.includes(object);
+}
+
+/** Post-LLM gate before writing ENTITY_RELATES edges. */
+export function acceptEntityTriple(
+	triple: ExtractedEntityTriple,
+	normalizedText: string
+): boolean {
+	const minConfidence =
+		triple.predicate === 'related_to'
+			? MIN_TRIPLE_CONFIDENCE_RELATED_TO
+			: MIN_TRIPLE_CONFIDENCE_DEFAULT;
+	if (triple.confidence < minConfidence) return false;
+	if (triple.predicate === 'related_to') {
+		return lexicalContextSupportsTriple(triple, normalizedText);
+	}
+	return true;
+}
+
+export function filterAcceptedEntityTriples(input: {
+	triples: ExtractedEntityTriple[];
+	normalizedText: string;
+}): ExtractedEntityTriple[] {
+	return input.triples.filter((t) => acceptEntityTriple(t, input.normalizedText));
+}
+
 export function parseEntityTriples(
 	content: string,
 	allowedSurfaces: Set<string>

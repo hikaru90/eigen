@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/falkor';
+import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/age';
 import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays';
 import { getDb } from '$lib/server/db';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';

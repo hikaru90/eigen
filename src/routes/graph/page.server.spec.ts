@@ -10,7 +10,7 @@ vi.mock('$lib/server/db', () => ({
 	getDb: vi.fn(() => ({}))
 }));
 
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	fetchGraphVisualizationSnapshot: fetchSnapshotMock
 }));
 

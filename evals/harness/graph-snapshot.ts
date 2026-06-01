@@ -2,7 +2,7 @@ import {
 	fetchGraphVisualizationSnapshot,
 	type GraphVizEdge,
 	type GraphVizNode
-} from '$lib/server/graph/falkor';
+} from '$lib/server/graph/age';
 
 export type EvalGraphSnapshot = {
 	nodes: GraphVizNode[];

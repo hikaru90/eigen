@@ -41,6 +41,16 @@ describe('chat-stream-types', () => {
 		);
 	});
 
+	it('formats compact retrieve_thoughts candidates as numbered list', () => {
+		const preview = JSON.stringify({
+			count: 1,
+			candidates: [{ id: 't1', snippet: 'i do like sweet coffee', category: 'thought' }]
+		});
+		expect(formatToolResultForDisplay('retrieve_thoughts', preview)).toBe(
+			'1. i do like sweet coffee'
+		);
+	});
+
 	it('parses raw JSON displaySummary into memory hits', () => {
 		const raw = JSON.stringify({
 			results: [

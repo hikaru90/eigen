@@ -40,7 +40,7 @@ export async function lexicalSearch(params: {
 	const tsQueryString = buildLexicalTsQuery(params.query);
 	if (tsQueryString.length === 0) return [];
 
-	const lexicalVector = sql`to_tsvector('simple', coalesce(${thought.lexicalText}, ''))`;
+	const lexicalVector = sql`to_tsvector('simple', coalesce(${thought.lexicalText}, '') || ' ' || coalesce(array_to_string(${thought.cues}, ' '), ''))`;
 	const tsQueryExpr = sql`to_tsquery('simple', ${tsQueryString})`;
 	const rankExpr = sql<number>`ts_rank_cd(${lexicalVector}, ${tsQueryExpr})`;
 	const matchExpr = sql<boolean>`${lexicalVector} @@ ${tsQueryExpr}`;

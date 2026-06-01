@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	acceptEntityTriple,
 	extractEntityMentions,
 	extractEntityTriples,
+	filterAcceptedEntityTriples,
 	parseEntityMentions,
 	parseEntityTriples,
 	resolveEntityTypeKey
@@ -81,6 +83,49 @@ describe('parseEntityMentions', () => {
 
 	it('throws when JSON is not an array', () => {
 		expect(() => parseEntityMentions('{"surface":"A"}', ALLOWED_TEST_KEYS)).toThrow(/must be a JSON array/);
+	});
+});
+
+describe('acceptEntityTriple', () => {
+	it('rejects low-confidence related_to without lexical support', () => {
+		expect(
+			acceptEntityTriple(
+				{ subject: 'Sam', object: 'Mars', predicate: 'related_to', confidence: 0.9 },
+				'sam met alex in berlin'
+			)
+		).toBe(false);
+	});
+
+	it('accepts related_to when both endpoints appear in text', () => {
+		expect(
+			acceptEntityTriple(
+				{ subject: 'Sam', object: 'Berlin', predicate: 'related_to', confidence: 0.8 },
+				'sam traveled to berlin'
+			)
+		).toBe(true);
+	});
+
+	it('rejects specific predicates below default confidence floor', () => {
+		expect(
+			acceptEntityTriple(
+				{ subject: 'Sam', object: 'Berlin', predicate: 'located_in', confidence: 0.5 },
+				'sam in berlin'
+			)
+		).toBe(false);
+	});
+});
+
+describe('filterAcceptedEntityTriples', () => {
+	it('filters invalid triples from a batch', () => {
+		const out = filterAcceptedEntityTriples({
+			normalizedText: 'sam in berlin',
+			triples: [
+				{ subject: 'Sam', object: 'Berlin', predicate: 'located_in', confidence: 0.8 },
+				{ subject: 'Sam', object: 'Mars', predicate: 'related_to', confidence: 0.9 }
+			]
+		});
+		expect(out).toHaveLength(1);
+		expect(out[0].predicate).toBe('located_in');
 	});
 });
 
@@ -223,7 +268,7 @@ describe('extractEntityTriples', () => {
 
 	it('returns triples when endpoints match mention surfaces', async () => {
 		llmChatCompletionMock.mockResolvedValue(
-			chatResponse('[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.5}]')
+			chatResponse('[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.6}]')
 		);
 		const mentions = [
 			{ surface: 'Sam', entityType: 'person', confidence: 0.9 },

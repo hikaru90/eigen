@@ -12,7 +12,7 @@ vi.mock('$lib/server/llm/embedding', () => ({
 	createThoughtEmbedding: vi.fn().mockResolvedValue(embeddingVec())
 }));
 
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	expandNeighborsByIds: vi.fn().mockResolvedValue([]),
 	expandThoughtIdsFromEntitySeeds: vi.fn().mockResolvedValue([])
 }));

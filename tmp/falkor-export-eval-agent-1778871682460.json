@@ -1,0 +1,26 @@
+{
+  "userId": "eval-agent-1778871682460",
+  "counts": {
+    "thoughts": 1,
+    "entities": 0,
+    "events": 0,
+    "relates_to": 0,
+    "mentions": 0,
+    "entity_relates": 0,
+    "occurs_in": 0,
+    "involves": 0
+  },
+  "thoughts": [
+    {
+      "id": "aa0fec0e-f14a-47bb-9af3-75776bc4cb82",
+      "category": "task"
+    }
+  ],
+  "entities": [],
+  "events": [],
+  "relates_to": [],
+  "mentions": [],
+  "entity_relates": [],
+  "occurs_in": [],
+  "involves": []
+}

@@ -1,5 +1,5 @@
 -- Migration: 0021_temporal_memory
--- Temporal events (Postgres time-keeper) and graph_sync_job outbox for Falkor Event nodes.
+-- Temporal events (Postgres time-keeper) and graph_sync_job outbox for AGE Event nodes.
 
 --> statement-breakpoint
 

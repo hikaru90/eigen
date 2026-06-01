@@ -14,6 +14,14 @@ import {
 	formatComposedAnswerForUser,
 	type ComposedAnswer
 } from '$lib/server/qa/compose-answer';
+import { redactForLog } from '$lib/server/observability/redact-for-log';
+import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
+import {
+	findUniqueStrongRetrieveMatch,
+	formatToolResultForAgentMessage,
+	formatToolResultPreview,
+	isDeleteIntent
+} from '$lib/server/llm/agent-tool-result-compact';
 
 const MAX_ITERATIONS = 10;
 
@@ -194,6 +202,10 @@ export async function agentChat(input: {
 		...input.messages
 	];
 
+	const lastUserMessage =
+		[...input.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+	const deleteIntent = isDeleteIntent(lastUserMessage);
+
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		console.error('[agent-loop] iteration', { iteration, messageCount: messages.length });
 
@@ -242,10 +254,63 @@ export async function agentChat(input: {
 			let result: unknown;
 			const toolStart = Date.now();
 			try {
-				result = await handler(ctx, parsed.arguments);
-				const preview = JSON.stringify(result);
+				result = sanitizeMcpToolResult(await handler(ctx, parsed.arguments));
+
+				if (
+					deleteIntent &&
+					parsed.tool === 'retrieve_thoughts' &&
+					result &&
+					typeof result === 'object' &&
+					Array.isArray((result as { results?: unknown[] }).results)
+				) {
+					const retrieveResults = (result as { results: unknown[] }).results;
+					const strongMatch = findUniqueStrongRetrieveMatch(retrieveResults);
+					if (strongMatch) {
+						const deleteHandler = MCP_TOOL_MAP.get('delete_thought');
+						if (deleteHandler) {
+							input.onEvent?.({
+								type: 'tool_call',
+								tool: 'delete_thought',
+								arguments: { thought_id: strongMatch.id }
+							});
+							input.onEvent?.({ type: 'tool_executing', tool: 'delete_thought' });
+							const deleteStart = Date.now();
+							const deleteResult = await deleteHandler(ctx, {
+								thought_id: strongMatch.id
+							});
+							const deletePreview = formatToolResultPreview('delete_thought', deleteResult);
+							input.onEvent?.({
+								type: 'tool_result',
+								tool: 'delete_thought',
+								preview: deletePreview
+							});
+							console.error('[agent-loop] auto-deleted after single strong match', {
+								thoughtId: strongMatch.id
+							});
+							await logActivityCall(input.db ?? getDb(), input.userId, {
+								provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+								operation: 'tool_call.delete_thought',
+								baseCostUsd: 0,
+								context: `auto after retrieve: ${strongMatch.id}`,
+								durationMs: Date.now() - deleteStart
+							});
+							const responseText = `Deleted 1 thought (${strongMatch.id.slice(0, 8)}…): ${strongMatch.snippet}`;
+							messages.push({ role: 'assistant', content });
+							messages.push({
+								role: 'user',
+								content: `Tool result for retrieve_thoughts:\n${formatToolResultForAgentMessage('retrieve_thoughts', result)}\n\nTool result for delete_thought:\n${formatToolResultForAgentMessage('delete_thought', deleteResult)}`
+							});
+							return { response: responseText, messages };
+						}
+					}
+				}
+
+				const preview = formatToolResultPreview(parsed.tool, result);
 				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview });
-				console.error('[agent-loop] tool result', { tool: parsed.tool, result: preview });
+				console.error('[agent-loop] tool result', {
+					tool: parsed.tool,
+					result: formatToolResultPreview(parsed.tool, redactForLog(result))
+				});
 				const toolCallContext = parsed.arguments && typeof parsed.arguments === 'object'
 					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
 					: '';
@@ -269,14 +334,14 @@ export async function agentChat(input: {
 					messages.push({ role: 'assistant', content });
 					messages.push({
 						role: 'user',
-						content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}`
+						content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, result)}`
 					});
 					return { response: responseText, messages };
 				}
 			} catch (err) {
 				console.error('[agent-loop] tool error', { tool: parsed.tool, error: err instanceof Error ? err.message : String(err) });
 				result = { error: err instanceof Error ? err.message : String(err) };
-				const errorPreview = JSON.stringify(result);
+				const errorPreview = formatToolResultPreview(parsed.tool, result);
 				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview: errorPreview, failed: true });
 				const toolErrorContext = parsed.arguments && typeof parsed.arguments === 'object'
 					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
@@ -293,7 +358,7 @@ export async function agentChat(input: {
 			messages.push({ role: 'assistant', content });
 			messages.push({
 				role: 'user',
-				content: `Tool result for ${parsed.tool}:\n${JSON.stringify(result, null, 2)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`
+				content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, result)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`
 			});
 			continue;
 		}

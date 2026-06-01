@@ -68,6 +68,7 @@ A change is Done only when all items below are satisfied:
 - **Lexical surface:** each committed thought maintains a deterministic `lexical_text` (or equivalent) for Postgres full-text / keyword fusion with vectors; stem or lemmatize only behind an explicit, tested pipeline.
 - **MCP and ingest boundaries:** validate IDs and search parameters at the tool/API edge; document contracts in the MCP spec.
 - **Logging and telemetry:** structured logs and cost traces must redact secret-shaped fields; never persist raw API keys in the activity log payload.
+- **Embeddings DB-only:** vectors may be stored and used for retrieval, but must never appear in MCP tool results, agent/LLM messages, or logs. See [embeddings-db-only-boundary.md](./embeddings-db-only-boundary.md).
 
 ## Change Control for Core Policies
 Any change to these requires explicit requirement update before implementation:

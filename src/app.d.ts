@@ -1,6 +1,6 @@
 import type { User, Session } from 'better-auth/minimal';
 
-export type AppUser = User & { onboardingCompleted?: boolean };
+export type AppUser = User & { onboardingCompleted?: boolean; role?: 'user' | 'admin' };
 
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces

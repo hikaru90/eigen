@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityResolutionLog, temporalEvent, thought } from '$lib/server/db/schema';
-import { findTemporalSchedulingConflictsInGraph } from '$lib/server/graph/falkor';
+import { findTemporalSchedulingConflictsInGraph } from '$lib/server/graph/age';
 import { inferQueryTimeRange, isTemporalQuery } from '$lib/server/retrieval/temporal';
 
 const PERSON_ENTITY_TYPES = new Set(['person']);

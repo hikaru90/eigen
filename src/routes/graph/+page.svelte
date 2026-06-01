@@ -33,6 +33,19 @@
 
   let { data }: { data: PageData } = $props();
 
+  /** Live prop accessors for D3 callbacks created in onMount (avoids stale snapshot closures). */
+  const vizCtx = {
+    get snapshot() {
+      return data.snapshot;
+    },
+    get communities() {
+      return data.communities ?? [];
+    },
+    get legendSections() {
+      return data.graphLegendSections ?? [];
+    },
+  };
+
   /** Which tab is visible: graph, embedding map, or temporal events timeline. */
   let activeTab = $state<"graph" | "embeddings" | "temporal">("graph");
   /** Mount embedding map only after first visit so projection runs in a sized panel. */
@@ -68,6 +81,9 @@
   let status = $state<string>("");
   let scheduleGraphUpdate: (() => void) | null = null;
   let scheduleGraphResize: (() => void) | null = null;
+  let scheduleGraphRelayout: (() => void) | null = null;
+  let graphRearrangeBusy = $state(false);
+  let graphRearrangeErr = $state<string | null>(null);
   let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
   let scheduleRestorePreEntityZoom: (() => void) | null = null;
   let selectedNode = $state<(typeof data.snapshot.nodes)[number] | null>(null);
@@ -343,6 +359,15 @@
     }
   }
 
+  async function refreshGraphAfterRearrange(message: string) {
+    await invalidateAll();
+    queueMicrotask(() => {
+      scheduleGraphUpdate?.();
+      scheduleGraphRelayout?.();
+    });
+    status = message;
+  }
+
   async function submitThoughtRelinkFromGraph() {
     const id = editingThoughtId ?? "";
     if (!id) return;
@@ -358,6 +383,9 @@
         },
         body: JSON.stringify({ thoughtId: id }),
       });
+      if (!res.ok) {
+        throw new Error((await res.text()) || `Relink failed (${res.status})`);
+      }
       const contentType = res.headers.get("content-type") ?? "";
       let thought: GraphThoughtEditorStored;
       if (contentType.includes("application/x-ndjson")) {
@@ -372,7 +400,7 @@
       thoughtEditorStored = thought;
       thoughtEditorDraft = thought.rawText;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
-      await invalidateAll();
+      await refreshGraphAfterRearrange("Capture relinked to graph — layout refreshed.");
     } catch (e) {
       thoughtEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -441,11 +469,45 @@
     try {
       const res = await fetch(`/api/entities/${encodeURIComponent(id)}/sync`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
-      await invalidateAll();
+      const j = (await res.json()) as {
+        repair?: { edgesAdded?: number; repaired?: number };
+      };
+      const added = j.repair?.edgesAdded ?? 0;
+      await refreshGraphAfterRearrange(
+        added > 0
+          ? `Entity synced — ${added} relation edge${added === 1 ? "" : "s"} repaired.`
+          : "Entity synced to graph — layout refreshed.",
+      );
     } catch (e) {
       entityEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
       entityEditorSyncBusy = false;
+    }
+  }
+
+  async function submitRearrangeGraph() {
+    graphRearrangeErr = null;
+    graphRearrangeBusy = true;
+    try {
+      const res = await fetch("/api/graph/rearrange", { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      const j = (await res.json()) as {
+        pruned?: { removed?: number };
+        duplicatePruned?: { removed?: number };
+        connections?: { removed?: number };
+        repaired?: { edgesAdded?: number };
+      };
+      const removed = j.pruned?.removed ?? 0;
+      const duplicateRemoved = j.duplicatePruned?.removed ?? 0;
+      const invalidRemoved = j.connections?.removed ?? 0;
+      const added = j.repaired?.edgesAdded ?? 0;
+      await refreshGraphAfterRearrange(
+        `Graph rearranged — ${removed} weak edge${removed === 1 ? "" : "s"} pruned, ${duplicateRemoved} duplicate-driven edge${duplicateRemoved === 1 ? "" : "s"} removed, ${invalidRemoved} illogical relation edge${invalidRemoved === 1 ? "" : "s"} removed, ${added} edge${added === 1 ? "" : "s"} added.`,
+      );
+    } catch (e) {
+      graphRearrangeErr = e instanceof Error ? e.message : String(e);
+    } finally {
+      graphRearrangeBusy = false;
     }
   }
 
@@ -880,7 +942,7 @@
         const activeLevel = selectedCommunityLevel;
         if (activeLevel === null) return [];
         const hulls: CommunityHull[] = [];
-        for (const community of data.communities ?? []) {
+        for (const community of vizCtx.communities) {
           if (community.level !== activeLevel) continue;
           const positions: { x: number; y: number }[] = [];
           for (const entityId of community.memberEntityIds) {
@@ -1018,7 +1080,7 @@
         event.stopPropagation();
         selectedCommunityId = null;
         const prev = selectedNode;
-        const hit = data.snapshot.nodes.find((n) => n.id === d.id && n.kind === "Entity");
+        const hit = vizCtx.snapshot.nodes.find((n) => n.id === d.id && n.kind === "Entity");
         selectedNode = hit ?? null;
         if (hit) selectedTemporalId = null;
         if (hit) {
@@ -1048,11 +1110,11 @@
         const dims = resizeSvg();
         if (!dims) return;
 
-        customEntityFills = customEntityFillsFromLegendSections(data.graphLegendSections ?? []);
+        customEntityFills = customEntityFillsFromLegendSections(vizCtx.legendSections);
 
-        prunePersistentToSnapshot(data.snapshot);
+        prunePersistentToSnapshot(vizCtx.snapshot);
 
-        const rawNodes: SimNode[] = data.snapshot.nodes
+        const rawNodes: SimNode[] = vizCtx.snapshot.nodes
           .filter((n) => n.kind === "Entity")
           .map((n) => simNodeFromSnapshot(n));
         const q = norm(search);
@@ -1064,7 +1126,7 @@
 
         const visibleIds = new Set(rawNodes.filter(nodeMatch).map((n) => n.id));
         if (q.length > 0) {
-          for (const e of data.snapshot.edges) {
+          for (const e of vizCtx.snapshot.edges) {
             if (visibleIds.has(e.sourceId) || visibleIds.has(e.targetId)) {
               visibleIds.add(e.sourceId);
               visibleIds.add(e.targetId);
@@ -1076,11 +1138,11 @@
         if (selectedNode && !visibleIds.has(selectedNode.id)) {
           selectedNode = null;
         }
-        const edgeFilter = (e: (typeof data.snapshot.edges)[0]) => {
+        const edgeFilter = (e: (typeof vizCtx.snapshot.edges)[0]) => {
           if (edgeKind !== "all" && e.kind !== edgeKind) return false;
           return visibleIds.has(e.sourceId) && visibleIds.has(e.targetId);
         };
-        const links: SimLink[] = data.snapshot.edges.filter(edgeFilter).map((e) => ({
+        const links: SimLink[] = vizCtx.snapshot.edges.filter(edgeFilter).map((e) => ({
           id: e.id,
           source: e.sourceId,
           target: e.targetId,
@@ -1190,6 +1252,10 @@
 
       scheduleGraphUpdate = updateGraph;
       scheduleGraphResize = resizeGraph;
+      scheduleGraphRelayout = () => {
+        if (!simulation) return;
+        simulation.alpha(1).restart();
+      };
       scheduleApplyHighlight = (id) => applyHighlight(id);
       scheduleRestorePreEntityZoom = scheduleRestorePreEntityZoomInner;
 
@@ -1212,6 +1278,7 @@
         document.documentElement.style.overflow = origHtmlOverflow;
         scheduleGraphUpdate = null;
         scheduleGraphResize = null;
+        scheduleGraphRelayout = null;
         scheduleApplyHighlight = null;
         scheduleRestorePreEntityZoom = null;
         preEntityZoomTransform = null;
@@ -1326,7 +1393,28 @@
                   </Select.Root>
                 </Popover.Content>
               </Popover.Root>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                class="h-8 shrink-0 font-mono text-[11px]"
+                disabled={graphRearrangeBusy}
+                onclick={() => void submitRearrangeGraph()}
+              >
+                {#if graphRearrangeBusy}
+                  <LoaderCircleIcon
+                    class="mr-1 size-3 shrink-0 animate-spin"
+                    aria-hidden="true"
+                  />
+                {/if}
+                Rearrange graph
+              </Button>
             </div>
+            {#if graphRearrangeErr}
+              <p class="text-destructive min-w-0 font-mono text-[11px] leading-tight">
+                {graphRearrangeErr}
+              </p>
+            {/if}
             {#if status}
               <p class="text-muted-foreground min-w-0 font-mono text-[11px] leading-tight">
                 {status}
@@ -1787,6 +1875,12 @@
                           thoughtEditorDeleteBusy}
                         onclick={() => void submitThoughtRelinkFromGraph()}
                       >
+                        {#if thoughtEditorRelinkBusy}
+                          <LoaderCircleIcon
+                            class="mr-1 size-3 shrink-0 animate-spin"
+                            aria-hidden="true"
+                          />
+                        {/if}
                         Rearrange in graph
                       </Button>
                       <Button

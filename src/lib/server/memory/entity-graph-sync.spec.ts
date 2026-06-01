@@ -5,8 +5,7 @@ const {
 	extractEntityMentionsMock,
 	extractEntityTriplesMock,
 	resolveOrCreateCanonicalEntityMock,
-	matchCanonicalEntitiesByEmbeddingMock,
-	createThoughtEmbeddingMock,
+	loadGraphKnownEntityHintsMock,
 	upsertEntityNodeMock,
 	upsertEntityRelationEdgeMock,
 	upsertMentionEdgeMock,
@@ -17,8 +16,7 @@ const {
 	extractEntityMentionsMock: vi.fn(),
 	extractEntityTriplesMock: vi.fn(),
 	resolveOrCreateCanonicalEntityMock: vi.fn(),
-	matchCanonicalEntitiesByEmbeddingMock: vi.fn(),
-	createThoughtEmbeddingMock: vi.fn(),
+	loadGraphKnownEntityHintsMock: vi.fn(),
 	upsertEntityNodeMock: vi.fn(),
 	upsertEntityRelationEdgeMock: vi.fn(),
 	upsertMentionEdgeMock: vi.fn(),
@@ -36,21 +34,24 @@ vi.mock('$lib/server/ontology-db', () => ({
 	loadOntologyForUser: loadOntologyForUserMock
 }));
 
-vi.mock('$lib/server/memory/entity-extraction', () => ({
-	extractEntityMentions: extractEntityMentionsMock,
-	extractEntityTriples: extractEntityTriplesMock
-}));
+vi.mock('$lib/server/memory/entity-extraction', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/memory/entity-extraction')>();
+	return {
+		...actual,
+		extractEntityMentions: extractEntityMentionsMock,
+		extractEntityTriples: extractEntityTriplesMock
+	};
+});
 
 vi.mock('$lib/server/memory/entity-resolution', () => ({
-	resolveOrCreateCanonicalEntity: resolveOrCreateCanonicalEntityMock,
-	matchCanonicalEntitiesByEmbedding: matchCanonicalEntitiesByEmbeddingMock
+	resolveOrCreateCanonicalEntity: resolveOrCreateCanonicalEntityMock
 }));
 
-vi.mock('$lib/server/llm/embedding', () => ({
-	createThoughtEmbedding: createThoughtEmbeddingMock
+vi.mock('$lib/server/memory/entity-graph-hints', () => ({
+	loadGraphKnownEntityHints: loadGraphKnownEntityHintsMock
 }));
 
-vi.mock('$lib/server/graph/falkor', () => ({
+vi.mock('$lib/server/graph/age', () => ({
 	upsertEntityNode: upsertEntityNodeMock,
 	upsertEntityRelationEdge: upsertEntityRelationEdgeMock,
 	upsertMentionEdge: upsertMentionEdgeMock
@@ -68,8 +69,7 @@ describe('syncEntityGraphFromThought', () => {
 		extractEntityTriplesMock.mockResolvedValue([]);
 		getDbMock.mockReturnValue({});
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
-		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
-		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([]);
+		loadGraphKnownEntityHintsMock.mockResolvedValue([]);
 		loadOntologyForUserMock.mockResolvedValue({
 			entityKinds: entityTypeRows,
 			relationKinds: [],
@@ -128,6 +128,9 @@ describe('syncEntityGraphFromThought', () => {
 		});
 
 		expect(resolveOrCreateCanonicalEntityMock).toHaveBeenCalledTimes(2);
+		expect(resolveOrCreateCanonicalEntityMock.mock.calls[1][0]).toMatchObject({
+			coMentionEntityIds: ['id-Sam']
+		});
 		expect(upsertEntityNodeMock).toHaveBeenCalledTimes(2);
 		expect(upsertEntityNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -175,18 +178,22 @@ describe('syncEntityGraphFromThought', () => {
 		expect(upsertEntityRelationEdgeMock).not.toHaveBeenCalled();
 	});
 
-	it('uses provided thoughtEmbedding instead of creating a new one', async () => {
+	it('passes graph-derived known entities into mention extraction', async () => {
+		loadGraphKnownEntityHintsMock.mockResolvedValue([{ label: 'Berlin', entityType: 'place' }]);
 		extractEntityMentionsMock.mockResolvedValue([]);
 		await syncEntityGraphFromThought({
 			userId: 'u1',
 			thoughtId: 't1',
-			normalizedText: 'some text',
-			thoughtEmbedding: [0.5, 0.6, 0.7]
+			normalizedText: 'some text'
 		});
-		// Should use the provided embedding for known entity lookup
-		expect(matchCanonicalEntitiesByEmbeddingMock).toHaveBeenCalledWith(
-			expect.objectContaining({ embedding: [0.5, 0.6, 0.7] })
+		expect(loadGraphKnownEntityHintsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1'
+		});
+		expect(extractEntityMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				knownEntities: [{ label: 'Berlin', entityType: 'place' }]
+			})
 		);
-		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 	});
 });

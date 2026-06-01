@@ -11,37 +11,55 @@ import {
 	upsertEventInvolvesEntityEdge,
 	upsertEventNode,
 	upsertThoughtOccurrenceEdge
-} from '$lib/server/graph/falkor';
+} from '$lib/server/graph/age';
 import { INGEST_MAX_RETRIES, runIngestWithRetries } from '$lib/server/ingest/retry';
 
 const MAX_JOB_ATTEMPTS = 1 + INGEST_MAX_RETRIES;
 
-async function executeUpsertTemporalEvent(input: {
-	userId: string;
-	temporalEventId: string;
-	thoughtId: string;
-	kind: string;
-	semanticSummary: string;
-	startAt: string;
-	endAt: string;
-}): Promise<void> {
+/** Entity resolution may lag temporal ledger writes — requeue instead of syncing without INVOLVES. */
+class AwaitingEntityResolutionError extends Error {
+	constructor() {
+		super('awaiting_entity_resolution');
+		this.name = 'AwaitingEntityResolutionError';
+	}
+}
+
+async function loadEntityIdsForThought(userId: string, thoughtId: string): Promise<string[]> {
 	const entityRows = await getDb()
 		.select({ canonicalEntityId: entityResolutionLog.canonicalEntityId })
 		.from(entityResolutionLog)
 		.where(
 			and(
-				eq(entityResolutionLog.userId, input.userId),
-				eq(entityResolutionLog.thoughtId, input.thoughtId)
+				eq(entityResolutionLog.userId, userId),
+				eq(entityResolutionLog.thoughtId, thoughtId)
 			)
 		);
 
-	const entityIds = [
+	return [
 		...new Set(
 			entityRows
 				.map((r) => r.canonicalEntityId)
 				.filter((id): id is string => typeof id === 'string' && id.length > 0)
 		)
 	];
+}
+
+async function executeUpsertTemporalEvent(
+	input: {
+		userId: string;
+		temporalEventId: string;
+		thoughtId: string;
+		kind: string;
+		semanticSummary: string;
+		startAt: string;
+		endAt: string;
+	},
+	options?: { allowEmptyEntityInvolves?: boolean }
+): Promise<void> {
+	const entityIds = await loadEntityIdsForThought(input.userId, input.thoughtId);
+	if (entityIds.length === 0 && !options?.allowEmptyEntityInvolves) {
+		throw new AwaitingEntityResolutionError();
+	}
 
 	await runIngestWithRetries(async () => {
 		await upsertEventNode({
@@ -113,20 +131,36 @@ async function processJob(job: {
 				throw new Error('upsert_temporal_event job payload is incomplete');
 			}
 
-			await executeUpsertTemporalEvent({
-				userId: job.userId,
-				temporalEventId,
-				thoughtId,
-				kind,
-				semanticSummary,
-				startAt,
-				endAt
-			});
+			const entityIds = await loadEntityIdsForThought(job.userId, thoughtId);
+			if (entityIds.length === 0 && job.attemptCount + 1 < MAX_JOB_ATTEMPTS) {
+				await db
+					.update(graphSyncJob)
+					.set({
+						status: 'pending',
+						attemptCount: job.attemptCount,
+						lastError: 'awaiting_entity_resolution'
+					})
+					.where(eq(graphSyncJob.id, job.id));
+				return;
+			}
+
+			await executeUpsertTemporalEvent(
+				{
+					userId: job.userId,
+					temporalEventId,
+					thoughtId,
+					kind,
+					semanticSummary,
+					startAt,
+					endAt
+				},
+				{ allowEmptyEntityInvolves: entityIds.length === 0 }
+			);
 
 			await db
 				.update(temporalEvent)
 				.set({
-					falkordbNodeId: temporalEventId,
+					graphNodeId: temporalEventId,
 					graphSyncStatus: 'synced',
 					graphSyncError: null
 				})

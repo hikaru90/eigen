@@ -1,0 +1,21 @@
+{
+  "users": [
+    {
+      "userId": "e1tyNF0tTYmwUsMAcIAwX0h3LLrcKPgd",
+      "counts": {
+        "thoughts": 19,
+        "entities": 7,
+        "events": 3,
+        "relates_to": 79,
+        "mentions": 32,
+        "entity_relates": 2,
+        "occurs_in": 3,
+        "involves": 3
+      },
+      "artifactPath": "/Users/alexanderbuckner/+Code/eigen/tmp/falkor-export-e1tyNF0tTYmwUsMAcIAwX0h3LLrcKPgd.json",
+      "importedStatements": 148
+    }
+  ],
+  "dryRun": false,
+  "fromExport": "tmp/falkor-export-e1tyNF0tTYmwUsMAcIAwX0h3LLrcKPgd.json"
+}
