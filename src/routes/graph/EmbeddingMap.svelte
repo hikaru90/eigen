@@ -250,7 +250,7 @@
 
 	<div
 		bind:this={rootEl}
-		class="text-foreground h-full min-h-0 w-full"
+		class="text-foreground relative h-full min-h-0 w-full overflow-hidden"
 		role="img"
 		aria-label="Embedding map — 3D UMAP projection of your thoughts and entities"
 	></div>
@@ -278,7 +278,35 @@
 		</div>
 
 		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px]">
-			Drag to orbit · scroll to zoom · click a dot to inspect · proximity is approximate
+			Drag to orbit · scroll to zoom · click a dot to inspect · labels show entity/thought names · proximity is approximate
 		</p>
 	{/if}
 </div>
+
+<style>
+	:global(.embedding-map-label) {
+		transform: translate(-4px, -50%);
+		max-width: 11rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 1px 4px;
+		border-radius: 2px;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		font-size: 10px;
+		line-height: 1.2;
+		color: var(--foreground);
+		background: color-mix(in oklab, var(--background) 88%, transparent);
+		border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+		opacity: 0.92;
+		pointer-events: none;
+		user-select: none;
+	}
+
+	:global(.embedding-map-label--selected) {
+		font-weight: 600;
+		opacity: 1;
+		border-color: #fbbf24;
+		box-shadow: 0 0 0 1px color-mix(in oklab, #fbbf24 35%, transparent);
+	}
+</style>

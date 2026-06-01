@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { pruneMock, repairMock, checkConnectionsMock, pruneDuplicateMock } = vi.hoisted(() => ({
+const { pruneMock, repairMock, checkConnectionsMock, pruneDuplicateMock, pruneOrphanThoughtsMock } =
+	vi.hoisted(() => ({
 	pruneMock: vi.fn(),
 	repairMock: vi.fn(),
 	checkConnectionsMock: vi.fn(),
-	pruneDuplicateMock: vi.fn()
+	pruneDuplicateMock: vi.fn(),
+	pruneOrphanThoughtsMock: vi.fn()
 }));
 
 vi.mock('$lib/server/consolidation/check-entity-graph-connections', () => ({
 	checkEntityGraphConnectionsForUser: checkConnectionsMock
+}));
+vi.mock('$lib/server/consolidation/prune-orphan-thought-nodes', () => ({
+	pruneOrphanThoughtNodesForUser: pruneOrphanThoughtsMock
 }));
 vi.mock('$lib/server/consolidation/prune-duplicate-thought-relation-edges', () => ({
 	pruneDuplicateThoughtRelationEdgesForUser: pruneDuplicateMock
@@ -26,6 +31,7 @@ describe('POST /api/graph/rearrange', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		pruneMock.mockResolvedValue({ scanned: 1, removed: 0 });
+		pruneOrphanThoughtsMock.mockResolvedValue({ graphThoughts: 0, orphanThoughts: 0, removed: 0 });
 		pruneDuplicateMock.mockResolvedValue({ scanned: 1, flagged: 0, removed: 0 });
 		checkConnectionsMock.mockResolvedValue({ scanned: 1, flagged: 0, removed: 0 });
 		repairMock.mockResolvedValue({
@@ -50,6 +56,7 @@ describe('POST /api/graph/rearrange', () => {
 		} as never);
 		expect(res.status).toBe(200);
 		expect(pruneMock).toHaveBeenCalledWith('u1');
+		expect(pruneOrphanThoughtsMock).toHaveBeenCalledWith('u1');
 		expect(pruneDuplicateMock).toHaveBeenCalledWith('u1');
 		expect(checkConnectionsMock).toHaveBeenCalledWith('u1');
 		expect(repairMock).toHaveBeenCalledWith('u1');

@@ -26,18 +26,21 @@
     return p || "/";
   }
 
-  /** Hide header + bottom nav on auth screens (works with `paths.base` and trailing slashes). */
+  const marketingPaths = new Set([
+    "/",
+    "/login",
+    "/signup",
+    "/register",
+    "/logo",
+    "/privacy",
+    "/terms",
+    "/imprint",
+  ]);
+
+  /** Hide header + bottom nav on marketing and auth screens (works with `paths.base` and trailing slashes). */
   const hideAppChrome = $derived(
-    page.route.id === "/" ||
-      page.route.id === "/login" ||
-      page.route.id === "/signup" ||
-      page.route.id === "/register" ||
-      page.route.id === "/logo" ||
-      normalizePathname(page.url.pathname) === "/" ||
-      normalizePathname(page.url.pathname) === "/login" ||
-      normalizePathname(page.url.pathname) === "/signup" ||
-      normalizePathname(page.url.pathname) === "/register" ||
-      normalizePathname(page.url.pathname) === "/logo",
+    (page.route.id != null && marketingPaths.has(page.route.id)) ||
+      marketingPaths.has(normalizePathname(page.url.pathname)),
   );
 
   let currentPath = $derived(page.url.pathname);

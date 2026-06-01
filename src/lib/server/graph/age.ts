@@ -1,6 +1,8 @@
 /**
  * Apache AGE graph adapter (OpenCypher via `ag_catalog.cypher` on `AGE_GRAPH_NAME`).
  */
+import { sql } from 'drizzle-orm';
+import { getDb } from '$lib/server/db';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 import {
 	renderCypherQuery,
@@ -24,6 +26,45 @@ import type {
 	TemporalContextHit,
 	TemporalSchedulingConflictGraphHit
 } from './graph-contract';
+
+type CoMentionEdgeRow = {
+	source_id: string;
+	target_id: string;
+	rel_weight: number | string;
+};
+
+async function fetchCoMentionEdgesFromPostgres(input: {
+	userId: string;
+	limit: number;
+}): Promise<CoMentionEdgeRow[]> {
+	const result = await getDb().execute(sql`
+		SELECT
+			LEAST(e1.canonical_entity_id::text, e2.canonical_entity_id::text) AS source_id,
+			GREATEST(e1.canonical_entity_id::text, e2.canonical_entity_id::text) AS target_id,
+			COUNT(DISTINCT e1.thought_id)::int AS rel_weight
+		FROM entity_resolution_log e1
+		INNER JOIN entity_resolution_log e2
+			ON e2.user_id = e1.user_id
+			AND e2.thought_id = e1.thought_id
+			AND e1.canonical_entity_id < e2.canonical_entity_id
+		WHERE
+			e1.user_id = ${input.userId}
+			AND e1.canonical_entity_id IS NOT NULL
+			AND e2.canonical_entity_id IS NOT NULL
+		GROUP BY source_id, target_id
+		ORDER BY rel_weight DESC
+		LIMIT ${input.limit}
+	`);
+	const rows = (result as { rows?: unknown[] }).rows ?? [];
+	return rows
+		.map((row) => row as Partial<CoMentionEdgeRow>)
+		.filter(
+			(row): row is CoMentionEdgeRow =>
+				typeof row.source_id === 'string' &&
+				typeof row.target_id === 'string' &&
+				(typeof row.rel_weight === 'number' || typeof row.rel_weight === 'string')
+		);
+}
 
 /** Provenance anchor only — text and embedding live in Postgres `thought`. */
 export async function upsertThoughtNode(input: {
@@ -363,20 +404,14 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			'id agtype, label agtype, subtype agtype'
 		);
 
-		/** Entities mentioned in the same capture (Thought) — replaces visible Thought→Entity mention edges. */
-		const relCoMentionRows = await runAgeCypher(
-			renderCypherQuery(
-			`
-			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(a:Entity {user_id: $user_id}),
-			      (t)-[:MENTIONS {user_id: $user_id}]->(b:Entity {user_id: $user_id})
-			WHERE a.id < b.id
-			RETURN a.id AS source_id, b.id AS target_id, count(t) AS rel_weight
-			LIMIT $edge_limit
-			`,
-				{ user_id: input.userId, edge_limit: edgeLimit }
-			),
-			'source_id agtype, target_id agtype, rel_weight agtype'
-		);
+		/**
+		 * Co-mention source of truth is Postgres entity_resolution_log.
+		 * This prevents stale/orphan AGE Thought nodes from creating phantom co-mentions.
+		 */
+		const relCoMentionRows = await fetchCoMentionEdgesFromPostgres({
+			userId: input.userId,
+			limit: edgeLimit
+		});
 
 		const relEntityRows = await runAgeCypher(
 			renderCypherQuery(
@@ -946,4 +981,25 @@ export async function thoughtExistsInGraph(userId: string, thoughtId: string): P
 		);
 	});
 	return rows.length > 0;
+}
+
+/** Returns all Thought node ids for this user from AGE. */
+export async function fetchThoughtNodeIdsForUser(input: { userId: string }): Promise<string[]> {
+	return runGraphQueryWithRetry(input.userId, 'age.fetch_thought_node_ids', async () => {
+		const rows = await runAgeCypher(
+			renderCypherQuery(
+				`
+			MATCH (t:Thought {user_id: $user_id})
+			RETURN t.id AS id
+			`,
+				{
+					user_id: input.userId
+				}
+			),
+			'id agtype'
+		);
+		return rows
+			.map((row) => (typeof row.id === 'string' ? row.id : ''))
+			.filter((id) => id.length > 0);
+	});
 }

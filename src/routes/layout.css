@@ -14,7 +14,8 @@
 	font-display: swap;
 }
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *:not(.marketing-light-theme *)));
+@custom-variant is-visible (&[data-visible="true"]);
 
 @layer base {
 	:root {
@@ -162,4 +163,47 @@
 	--radius-2xl: calc(var(--radius) * 1.8);
 	--radius-3xl: calc(var(--radius) * 2.2);
 	--radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer utilities {
+	.marketing-container {
+		@apply mx-auto w-full max-w-[1200px] px-5 md:px-16;
+	}
+
+	/* Homepage: always light scroll column regardless of global dark mode */
+	.marketing-light-theme {
+		color-scheme: light;
+		--background: #ffffff;
+		--foreground: #111111;
+		--card: #ffffff;
+		--card-foreground: #111111;
+		--popover: #ffffff;
+		--popover-foreground: #111111;
+		--primary: #111111;
+		--primary-foreground: #ffffff;
+		--secondary: #f0f3f0;
+		--secondary-foreground: #111111;
+		--muted: #f0f3f0;
+		--muted-foreground: #999999;
+		--accent: #f0f3f0;
+		--accent-foreground: #111111;
+		--border: rgb(17 17 17 / 10%);
+		--input: rgb(17 17 17 / 12%);
+		--ring: rgb(17 17 17 / 25%);
+	}
+
+}
+
+@keyframes marketing-float {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-6px);
+	}
+}
+
+@utility animate-marketing-float {
+	animation: marketing-float 4s ease-in-out infinite;
 }

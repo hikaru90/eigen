@@ -11,4 +11,11 @@ describe('eigen-wordmark.svelte', () => {
 		await expect.element(page.getByText('MESH')).toBeInTheDocument();
 		await expect.element(page.locator('#wordmark')).toBeInTheDocument();
 	});
+
+	it('renders light tone with a single Eigen mark', async () => {
+		render(EigenWordmark, { tone: 'light', heightClass: 'h-12', id: 'light-wordmark' });
+		await expect.element(page.getByAltText('Eigen')).toBeInTheDocument();
+		await expect.element(page.getByText('MESH')).toBeInTheDocument();
+		await expect.element(page.locator('#light-wordmark')).toBeInTheDocument();
+	});
 });

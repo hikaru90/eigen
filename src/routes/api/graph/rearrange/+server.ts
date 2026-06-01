@@ -8,6 +8,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { checkEntityGraphConnectionsForUser } from '$lib/server/consolidation/check-entity-graph-connections';
 import { pruneDuplicateThoughtRelationEdgesForUser } from '$lib/server/consolidation/prune-duplicate-thought-relation-edges';
+import { pruneOrphanThoughtNodesForUser } from '$lib/server/consolidation/prune-orphan-thought-nodes';
 import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges';
 import { repairEntityRelationsForUser } from '$lib/server/consolidation/repair-entity-relations';
 
@@ -16,6 +17,7 @@ export const POST: RequestHandler = async (event) => {
 	if (!user) error(401, 'Unauthorized');
 
 	const pruned = await pruneSuspiciousEntityEdgesForUser(user.id);
+	const orphanThoughts = await pruneOrphanThoughtNodesForUser(user.id);
 	const duplicatePruned = await pruneDuplicateThoughtRelationEdgesForUser(user.id);
 	const connections = await checkEntityGraphConnectionsForUser(user.id);
 	const repaired = await repairEntityRelationsForUser(user.id);
@@ -23,6 +25,7 @@ export const POST: RequestHandler = async (event) => {
 	return json({
 		ok: true as const,
 		pruned,
+		orphanThoughts,
 		duplicatePruned,
 		connections,
 		repaired

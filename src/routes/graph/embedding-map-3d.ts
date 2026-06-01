@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
 
 export type EmbeddingMap3dPoint = {
@@ -25,9 +26,25 @@ export type EmbeddingMap3dHandle = {
 const POINT_RADIUS = 0.028;
 const HIGHLIGHT_RADIUS = 0.048;
 const HIGHLIGHT_COLOR = 0xfbbf24;
+/** Offset label above the sphere in scene units. */
+const LABEL_Y_OFFSET = 0.055;
 
 function parseCssColor(color: string): THREE.Color {
 	return new THREE.Color(color);
+}
+
+/** Match 2D graph node label truncation on /graph. */
+export function embeddingMapLabelText(item: EmbeddingSnapshotItem): string {
+	const base = item.label?.trim() || item.id;
+	return base.length > 42 ? `${base.slice(0, 40)}…` : base;
+}
+
+function createLabelElement(text: string, itemId: string): HTMLDivElement {
+	const el = document.createElement('div');
+	el.className = 'embedding-map-label';
+	el.dataset.itemId = itemId;
+	el.textContent = text;
+	return el;
 }
 
 export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): EmbeddingMap3dHandle {
@@ -40,9 +57,14 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 	renderer.setClearColor(0x000000, 0);
-	renderer.domElement.className = 'embedding-map-3d block h-full w-full touch-none';
+	renderer.domElement.className = 'embedding-map-3d absolute inset-0 touch-none';
 	renderer.domElement.style.cursor = 'grab';
 	container.appendChild(renderer.domElement);
+
+	const labelRenderer = new CSS2DRenderer();
+	labelRenderer.domElement.className = 'embedding-map-labels absolute inset-0 touch-none';
+	labelRenderer.domElement.style.pointerEvents = 'none';
+	container.appendChild(labelRenderer.domElement);
 
 	const controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true;
@@ -54,6 +76,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	controls.maxDistance = 8;
 
 	const pointMeshes: THREE.Mesh[] = [];
+	const labelByItemId = new Map<string, HTMLDivElement>();
 	const sphereGeometry = new THREE.SphereGeometry(POINT_RADIUS, 10, 10);
 
 	for (const point of points) {
@@ -67,6 +90,12 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		mesh.userData = { itemId: point.item.id, item: point.item };
 		scene.add(mesh);
 		pointMeshes.push(mesh);
+
+		const labelEl = createLabelElement(embeddingMapLabelText(point.item), point.item.id);
+		labelByItemId.set(point.item.id, labelEl);
+		const label = new CSS2DObject(labelEl);
+		label.position.set(0, LABEL_Y_OFFSET, 0);
+		mesh.add(label);
 	}
 
 	const highlightGeometry = new THREE.SphereGeometry(HIGHLIGHT_RADIUS, 12, 12);
@@ -102,6 +131,10 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			const on = id !== null && mesh.userData.itemId === id;
 			const mat = mesh.material as THREE.MeshBasicMaterial;
 			mat.opacity = on ? 1 : 0.88;
+			const labelEl = labelByItemId.get(mesh.userData.itemId as string);
+			if (labelEl) {
+				labelEl.classList.toggle('embedding-map-label--selected', on);
+			}
 		}
 
 		if (id === null) {
@@ -126,6 +159,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		camera.aspect = w / h;
 		camera.updateProjectionMatrix();
 		renderer.setSize(w, h, false);
+		labelRenderer.setSize(w, h);
 	}
 
 	function onPointerDown() {
@@ -156,6 +190,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		animationFrame = requestAnimationFrame(animate);
 		controls.update();
 		renderer.render(scene, camera);
+		labelRenderer.render(scene, camera);
 	}
 
 	renderer.domElement.addEventListener('pointerdown', onPointerDown);
@@ -186,6 +221,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			scene.remove(highlightGroup);
 			renderer.dispose();
 			renderer.domElement.remove();
+			labelRenderer.domElement.remove();
 		}
 	};
 }

@@ -493,16 +493,18 @@
       if (!res.ok) throw new Error(await res.text());
       const j = (await res.json()) as {
         pruned?: { removed?: number };
+        orphanThoughts?: { removed?: number };
         duplicatePruned?: { removed?: number };
         connections?: { removed?: number };
         repaired?: { edgesAdded?: number };
       };
       const removed = j.pruned?.removed ?? 0;
+      const orphanThoughtsRemoved = j.orphanThoughts?.removed ?? 0;
       const duplicateRemoved = j.duplicatePruned?.removed ?? 0;
       const invalidRemoved = j.connections?.removed ?? 0;
       const added = j.repaired?.edgesAdded ?? 0;
       await refreshGraphAfterRearrange(
-        `Graph rearranged — ${removed} weak edge${removed === 1 ? "" : "s"} pruned, ${duplicateRemoved} duplicate-driven edge${duplicateRemoved === 1 ? "" : "s"} removed, ${invalidRemoved} illogical relation edge${invalidRemoved === 1 ? "" : "s"} removed, ${added} edge${added === 1 ? "" : "s"} added.`,
+        `Graph rearranged — ${removed} weak edge${removed === 1 ? "" : "s"} pruned, ${orphanThoughtsRemoved} orphan thought${orphanThoughtsRemoved === 1 ? "" : "s"} removed, ${duplicateRemoved} duplicate-driven edge${duplicateRemoved === 1 ? "" : "s"} removed, ${invalidRemoved} illogical relation edge${invalidRemoved === 1 ? "" : "s"} removed, ${added} edge${added === 1 ? "" : "s"} added.`,
       );
     } catch (e) {
       graphRearrangeErr = e instanceof Error ? e.message : String(e);
