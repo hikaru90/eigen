@@ -239,6 +239,13 @@
       "when": 1749312000000,
       "tag": "0033_temporal_event_graph_node_id",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1749398400000,
+      "tag": "0034_tenant_envelope_encryption",
+      "breakpoints": true
     }
   ]
 }
