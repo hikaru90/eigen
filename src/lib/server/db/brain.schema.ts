@@ -117,7 +117,9 @@ export const captureSession = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		status: text('status').$type<CaptureSessionStatus>().notNull().default('open'),
 		rawInput: text('raw_input').notNull(),
+		rawInputEncrypted: text('raw_input_encrypted'),
 		normalizedPreview: text('normalized_preview').notNull().default(''),
+		normalizedPreviewEncrypted: text('normalized_preview_encrypted'),
 		category: text('category').notNull().default('perception'),
 		metadataPreview: jsonb('metadata_preview').$type<Record<string, unknown>>().notNull().default({}),
 		revisionCount: integer('revision_count').notNull().default(0),
@@ -166,7 +168,9 @@ export const thought = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		rawText: text('raw_text').notNull(),
+		rawTextEncrypted: text('raw_text_encrypted'),
 		normalizedText: text('normalized_text').notNull(),
+		normalizedTextEncrypted: text('normalized_text_encrypted'),
 		/** NFKC-folded, lowercased, whitespace-collapsed — feed for `tsvector` / BM25-style search. */
 		lexicalText: text('lexical_text').notNull().default(''),
 		lexicalTsv: tsvector('lexical_tsv')
@@ -174,6 +178,7 @@ export const thought = pgTable(
 			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
 		category: text('category').notNull(),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		metadataEncrypted: text('metadata_encrypted'),
 		// metadata.neverStale: true — exempt from Q&A staleness and salience decay
 		embedding: vector('embedding', { dimensions: 1536 }),
 		/** FK to the ontology row whose `key` matches `category` (set on capture / edit). */
@@ -190,6 +195,7 @@ export const thought = pgTable(
 		 * GIN-indexed for lexical search diversification.
 		 */
 		cues: text('cues').array().notNull().default(sql`ARRAY[]::text[]`),
+		cuesEncrypted: text('cues_encrypted'),
 		/**
 		 * Importance signal: starts at 1.0, boosted on retrieval access; consolidation
 		 * recomputes decay/open-loop floors from elapsed time (see compute-salience.ts).
@@ -613,6 +619,7 @@ export const llmProviderConfig = pgTable('llm_provider_config', {
 	provider: text('provider').notNull(), // 'eurouter' | 'openrouter'
 	baseUrl: text('base_url').notNull(),
 	apiKey: text('api_key').notNull(),
+	apiKeyEncrypted: text('api_key_encrypted'),
 	/** EUrouter only: routing rule UUID for chat completions. */
 	ruleChat: text('rule_chat'),
 	/** EUrouter only: routing rule UUID for embeddings. */
@@ -626,6 +633,21 @@ export const llmProviderConfig = pgTable('llm_provider_config', {
 		.$onUpdate(() => new Date())
 		.notNull()
 }, (t) => [primaryKey({ columns: [t.userId, t.provider], name: 'llm_provider_config_pk' })]);
+
+export const tenantDataKey = pgTable('tenant_data_key', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	wrappedDek: text('wrapped_dek').notNull(),
+	dekVersion: integer('dek_version').notNull().default(1),
+	kekProvider: text('kek_provider').notNull(),
+	kekKeyId: text('kek_key_id').notNull(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull()
+});
 
 /**
  * Tracks which provider is currently active for a user.

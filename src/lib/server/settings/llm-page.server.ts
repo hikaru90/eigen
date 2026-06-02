@@ -16,6 +16,7 @@ import { assertByokConfigured } from '$lib/server/billing/preferences';
 import { normalizeCurrencyCode } from '$lib/server/billing/money';
 import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$lib/server/billing/paypal';
 import { env } from '$env/dynamic/private';
+import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 export type LlmProviderId = 'eurouter' | 'openrouter';
 
@@ -84,8 +85,26 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 
 	const eurouterRow = providerRows.find((r) => r.provider === 'eurouter');
 	const openrouterRow = providerRows.find((r) => r.provider === 'openrouter');
+	const [eurouterApiKey, openrouterApiKey] = await Promise.all([
+		eurouterRow?.apiKeyEncrypted
+			? decryptTenantValue({
+					userId,
+					table: 'llm_provider_config',
+					column: 'api_key',
+					ciphertext: eurouterRow.apiKeyEncrypted
+				})
+			: Promise.resolve(eurouterRow?.apiKey ?? ''),
+		openrouterRow?.apiKeyEncrypted
+			? decryptTenantValue({
+					userId,
+					table: 'llm_provider_config',
+					column: 'api_key',
+					ciphertext: openrouterRow.apiKeyEncrypted
+				})
+			: Promise.resolve(openrouterRow?.apiKey ?? '')
+	]);
 	const byokConfigured =
-		isProviderConfigured(eurouterRow) || isProviderConfigured(openrouterRow);
+		Boolean((eurouterRow?.baseUrl?.trim() && eurouterApiKey.trim()) || (openrouterRow?.baseUrl?.trim() && openrouterApiKey.trim()));
 
 	const tab = event.url.searchParams.get('tab');
 	const initialTab = (
@@ -106,14 +125,14 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 			eurouter: {
 				configured: isProviderConfigured(eurouterRow),
 				baseUrl: eurouterRow?.baseUrl ?? '',
-				apiKey: eurouterRow?.apiKey ?? '',
+				apiKey: eurouterApiKey,
 				ruleChat: eurouterRow?.ruleChat ?? '',
 				ruleEmbedding: eurouterRow?.ruleEmbedding ?? ''
 			},
 			openrouter: {
 				configured: isProviderConfigured(openrouterRow),
 				baseUrl: openrouterRow?.baseUrl ?? '',
-				apiKey: openrouterRow?.apiKey ?? '',
+				apiKey: openrouterApiKey,
 				modelChat: openrouterRow?.modelChat ?? '',
 				modelEmbedding: openrouterRow?.modelEmbedding ?? ''
 			}
@@ -153,6 +172,12 @@ export const llmSettingsActions: Actions = {
 		try {
 			const db = getDb();
 			const userId = event.locals.user.id;
+			const apiKeyEncrypted = await encryptTenantValue({
+				userId,
+				table: 'llm_provider_config',
+				column: 'api_key',
+				plaintext: apiKey
+			});
 			await db
 				.insert(llmProviderConfig)
 				.values({
@@ -160,6 +185,7 @@ export const llmSettingsActions: Actions = {
 					provider,
 					baseUrl: baseUrl.replace(/\/$/, ''),
 					apiKey,
+					apiKeyEncrypted,
 					ruleChat,
 					ruleEmbedding,
 					modelChat,
@@ -170,6 +196,7 @@ export const llmSettingsActions: Actions = {
 					set: {
 						baseUrl: baseUrl.replace(/\/$/, ''),
 						apiKey,
+						apiKeyEncrypted,
 						ruleChat,
 						ruleEmbedding,
 						modelChat,

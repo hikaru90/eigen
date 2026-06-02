@@ -16,6 +16,7 @@ import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/on
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
 import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
+import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
@@ -45,6 +46,48 @@ async function emitProgress(
 export type CaptureThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
+
+async function decryptThoughtRow<T extends {
+	rawText: string;
+	rawTextEncrypted?: string | null;
+	normalizedText: string;
+	normalizedTextEncrypted?: string | null;
+	metadata: Record<string, unknown>;
+	metadataEncrypted?: string | null;
+}>(userId: string, row: T): Promise<T> {
+	const [rawText, normalizedText, metadataJson] = await Promise.all([
+		row.rawTextEncrypted
+			? decryptTenantValue({
+					userId,
+					table: 'thought',
+					column: 'raw_text',
+					ciphertext: row.rawTextEncrypted
+				})
+			: Promise.resolve(row.rawText),
+		row.normalizedTextEncrypted
+			? decryptTenantValue({
+					userId,
+					table: 'thought',
+					column: 'normalized_text',
+					ciphertext: row.normalizedTextEncrypted
+				})
+			: Promise.resolve(row.normalizedText),
+		row.metadataEncrypted
+			? decryptTenantValue({
+					userId,
+					table: 'thought',
+					column: 'metadata',
+					ciphertext: row.metadataEncrypted
+				})
+			: Promise.resolve(JSON.stringify(row.metadata ?? {}))
+	]);
+	return {
+		...row,
+		rawText,
+		normalizedText,
+		metadata: JSON.parse(metadataJson) as Record<string, unknown>
+	};
+}
 
 /**
  * Fast path: classify → embed → persist → AGE graph provenance anchor → return immediately.
@@ -80,6 +123,18 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	await emitProgress(onProgress, 'session');
 	const lexicalText = computeLexicalText(normalized);
 	const vectorLiteral = toPgVectorLiteral(embedding);
+	const [rawInputEncrypted, normalizedPreviewEncrypted, rawTextEncrypted, normalizedTextEncrypted] =
+		await Promise.all([
+			encryptTenantValue({ userId, table: 'capture_session', column: 'raw_input', plaintext: rawInput }),
+			encryptTenantValue({
+				userId,
+				table: 'capture_session',
+				column: 'normalized_preview',
+				plaintext: normalized
+			}),
+			encryptTenantValue({ userId, table: 'thought', column: 'raw_text', plaintext: rawInput }),
+			encryptTenantValue({ userId, table: 'thought', column: 'normalized_text', plaintext: normalized })
+		]);
 
 	const [sessionRows, nearestRow] = await Promise.all([
 		getDb()
@@ -88,9 +143,11 @@ export async function captureThought(userId: string, rawInput: string, options?:
 				userId,
 				status: 'accepted',
 				rawInput,
+				rawInputEncrypted,
 				normalizedPreview: normalized,
+				normalizedPreviewEncrypted,
 				category,
-				metadataPreview: metadata,
+				metadataPreview: { encrypted: true },
 				revisionCount: 0
 			})
 			.returning(),
@@ -130,6 +187,15 @@ export async function captureThought(userId: string, rawInput: string, options?:
 			distance: nearest.distance
 		});
 	}
+	const metadataEncrypted = await encryptTenantValue({
+		userId,
+		table: 'thought',
+		column: 'metadata',
+		plaintext: JSON.stringify({
+			...metadata,
+			...(nearDuplicateMeta ? { nearDuplicate: nearDuplicateMeta } : {})
+		})
+	});
 
 	await emitProgress(onProgress, 'persist');
 	const [stored] = await getDb().transaction(async (tx) => {
@@ -138,28 +204,31 @@ export async function captureThought(userId: string, rawInput: string, options?:
 			.values({
 				userId,
 				rawText: rawInput,
+				rawTextEncrypted,
 				normalizedText: normalized,
+				normalizedTextEncrypted,
 				lexicalText,
 				category,
 				ontologyEntityKindId,
-				metadata: {
-					...metadata,
-					captureSessionId: sessionRow.id,
-					...(nearDuplicateMeta ? { nearDuplicate: nearDuplicateMeta } : {})
-				},
+				metadata: { encrypted: true, captureSessionId: sessionRow.id },
+				metadataEncrypted,
 				embedding: sql`${toPgVectorLiteral(embedding)}::vector`
 			})
 			.returning({
 				id: thought.id,
 				userId: thought.userId,
 				rawText: thought.rawText,
+				rawTextEncrypted: thought.rawTextEncrypted,
 				normalizedText: thought.normalizedText,
+				normalizedTextEncrypted: thought.normalizedTextEncrypted,
 				lexicalText: thought.lexicalText,
 				category: thought.category,
-				metadata: thought.metadata
+				metadata: thought.metadata,
+				metadataEncrypted: thought.metadataEncrypted
 			});
 		return [t];
 	});
+	const decryptedStored = await decryptThoughtRow(userId, stored);
 
 	// Fast path: sync the AGE graph node (lightweight, no LLM calls).
 	await emitProgress(onProgress, 'graph');
@@ -187,7 +256,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		void enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
 	}
 
-	return stored;
+	return decryptedStored;
 }
 
 export type EditStoredThoughtOptions = {
@@ -214,17 +283,18 @@ export async function editStoredThought(
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
+	const decryptedExisting = await decryptThoughtRow(userId, existing);
 	const applied = await applyThoughtEditRequest({
 		userId,
-		existingRawText: existing.rawText,
-		existingNormalizedText: existing.normalizedText,
-		category: existing.category,
+		existingRawText: decryptedExisting.rawText,
+		existingNormalizedText: decryptedExisting.normalizedText,
+		category: decryptedExisting.category,
 		editRequest
 	});
 
-	const priorMeta = (existing.metadata as Record<string, unknown>) ?? {};
+	const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {};
 	const editedRaw = applied.rawText;
-	const textChanged = editedRaw !== existing.rawText;
+	const textChanged = editedRaw !== decryptedExisting.rawText;
 	const priorStatus = typeof priorMeta.status === 'string' ? priorMeta.status : 'open';
 	const nextStatus = applied.status ?? priorStatus;
 
@@ -242,6 +312,12 @@ export async function editStoredThought(
 			.update(thought)
 			.set({
 				metadata: metadataPatch,
+				metadataEncrypted: await encryptTenantValue({
+					userId,
+					table: 'thought',
+					column: 'metadata',
+					plaintext: JSON.stringify(metadataPatch)
+				}),
 				updatedAt: new Date()
 			})
 			.where(eq(thought.id, thoughtId))
@@ -249,10 +325,13 @@ export async function editStoredThought(
 				id: thought.id,
 				userId: thought.userId,
 				rawText: thought.rawText,
+				rawTextEncrypted: thought.rawTextEncrypted,
 				normalizedText: thought.normalizedText,
+				normalizedTextEncrypted: thought.normalizedTextEncrypted,
 				lexicalText: thought.lexicalText,
 				category: thought.category,
-				metadata: thought.metadata
+				metadata: thought.metadata,
+				metadataEncrypted: thought.metadataEncrypted
 			});
 
 		await emitProgress(onProgress, 'graph');
@@ -262,7 +341,11 @@ export async function editStoredThought(
 			category: updated!.category
 		});
 
-		return { ok: true as const, thought: updated!, editSummary: applied.summary };
+		return {
+			ok: true as const,
+			thought: await decryptThoughtRow(userId, updated!),
+			editSummary: applied.summary
+		};
 	}
 
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
@@ -283,19 +366,32 @@ export async function editStoredThought(
 	const lexicalText = computeLexicalText(normalized);
 	await emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
+	const [rawTextEncrypted, normalizedTextEncrypted, metadataEncrypted] = await Promise.all([
+		encryptTenantValue({ userId, table: 'thought', column: 'raw_text', plaintext: editedRaw }),
+		encryptTenantValue({ userId, table: 'thought', column: 'normalized_text', plaintext: normalized }),
+		encryptTenantValue({
+			userId,
+			table: 'thought',
+			column: 'metadata',
+			plaintext: JSON.stringify(metadata)
+		})
+	]);
 
 	await emitProgress(onProgress, 'persist');
 	const [updated] = await getDb()
 		.update(thought)
 		.set({
 			rawText: editedRaw,
+			rawTextEncrypted,
 			normalizedText: normalized,
+			normalizedTextEncrypted,
 			lexicalText,
 			embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 			category,
 			ontologyEntityKindId,
 			enrichedAt: null,
 			metadata,
+			metadataEncrypted,
 			updatedAt: new Date()
 		})
 		.where(eq(thought.id, thoughtId))
@@ -303,11 +399,15 @@ export async function editStoredThought(
 			id: thought.id,
 			userId: thought.userId,
 			rawText: thought.rawText,
+			rawTextEncrypted: thought.rawTextEncrypted,
 			normalizedText: thought.normalizedText,
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			lexicalText: thought.lexicalText,
 			category: thought.category,
-			metadata: thought.metadata
+			metadata: thought.metadata,
+			metadataEncrypted: thought.metadataEncrypted
 		});
+	const decryptedUpdated = await decryptThoughtRow(userId, updated!);
 
 	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
@@ -317,17 +417,17 @@ export async function editStoredThought(
 	});
 
 	if (onProgress) {
-		await reenrichThought(userId, updated!.id, updated!.normalizedText, {
+		await reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
 			onProgress,
 			thoughtEmbedding: embedding
 		});
 	} else {
-		void reenrichThought(userId, updated!.id, updated!.normalizedText, {
+		void reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
 			thoughtEmbedding: embedding
 		});
 	}
 
-	return { ok: true as const, thought: updated!, editSummary: applied.summary };
+	return { ok: true as const, thought: decryptedUpdated, editSummary: applied.summary };
 }
 
 export type RelinkThoughtGraphOptions = {
@@ -352,6 +452,7 @@ export async function relinkThoughtGraph(
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 		.limit(1);
+	const decryptedExisting = await decryptThoughtRow(userId, existing);
 
 	if (!existing) {
 		return { ok: false as const, reason: 'not_found' as const };
@@ -366,21 +467,21 @@ export async function relinkThoughtGraph(
 	});
 
 	if (onProgress) {
-		await reenrichThought(userId, existing.id, existing.normalizedText, { onProgress });
+		await reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText, { onProgress });
 	} else {
-		void reenrichThought(userId, existing.id, existing.normalizedText);
+		void reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText);
 	}
 
 	return {
 		ok: true as const,
 		thought: {
-			id: existing.id,
-			userId: existing.userId,
-			rawText: existing.rawText,
-			normalizedText: existing.normalizedText,
-			lexicalText: existing.lexicalText,
-			category: existing.category,
-			metadata: existing.metadata as Record<string, unknown>
+			id: decryptedExisting.id,
+			userId: decryptedExisting.userId,
+			rawText: decryptedExisting.rawText,
+			normalizedText: decryptedExisting.normalizedText,
+			lexicalText: decryptedExisting.lexicalText,
+			category: decryptedExisting.category,
+			metadata: decryptedExisting.metadata as Record<string, unknown>
 		}
 	};
 }
@@ -419,14 +520,17 @@ export async function listThoughts(
 	const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
 	const cursor = options?.cursor;
 
-	return getDb()
+	const rows = await getDb()
 		.select({
 			id: thought.id,
 			userId: thought.userId,
 			rawText: thought.rawText,
+			rawTextEncrypted: thought.rawTextEncrypted,
 			normalizedText: thought.normalizedText,
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			category: thought.category,
 			metadata: thought.metadata,
+			metadataEncrypted: thought.metadataEncrypted,
 			memoryType: thought.memoryType,
 			createdAt: thought.createdAt,
 			updatedAt: thought.updatedAt
@@ -445,4 +549,5 @@ export async function listThoughts(
 		)
 		.orderBy(desc(thought.createdAt), desc(thought.id))
 		.limit(limit);
+	return Promise.all(rows.map((row) => decryptThoughtRow(userId, row)));
 }

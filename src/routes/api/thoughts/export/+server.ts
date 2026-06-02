@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { asc, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 const CSV_HEADERS = [
 	'id',
@@ -50,8 +51,12 @@ export const GET: RequestHandler = async (event) => {
 			updatedAt: thought.updatedAt,
 			category: thought.category,
 			rawText: thought.rawText,
+			rawTextEncrypted: thought.rawTextEncrypted,
 			normalizedText: thought.normalizedText,
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			metadata: thought.metadata
+			,
+			metadataEncrypted: thought.metadataEncrypted
 		})
 		.from(thought)
 		.where(eq(thought.userId, user.id))
@@ -59,15 +64,42 @@ export const GET: RequestHandler = async (event) => {
 
 	const lines = [formatCsvRow([...CSV_HEADERS])];
 	for (const row of rows) {
+		const [rawText, normalizedText, metadataJson] = await Promise.all([
+			row.rawTextEncrypted
+				? decryptTenantValue({
+						userId: user.id,
+						table: 'thought',
+						column: 'raw_text',
+						ciphertext: row.rawTextEncrypted
+					})
+				: Promise.resolve(row.rawText),
+			row.normalizedTextEncrypted
+				? decryptTenantValue({
+						userId: user.id,
+						table: 'thought',
+						column: 'normalized_text',
+						ciphertext: row.normalizedTextEncrypted
+					})
+				: Promise.resolve(row.normalizedText),
+			row.metadataEncrypted
+				? decryptTenantValue({
+						userId: user.id,
+						table: 'thought',
+						column: 'metadata',
+						ciphertext: row.metadataEncrypted
+					})
+				: Promise.resolve(JSON.stringify(row.metadata ?? {}))
+		]);
+		const metadata = JSON.parse(metadataJson) as Record<string, unknown>;
 		lines.push(
 			formatCsvRow([
 				row.id,
 				formatTimestamp(row.createdAt),
 				formatTimestamp(row.updatedAt),
 				row.category,
-				row.rawText,
-				row.normalizedText,
-				thoughtStatus(row.metadata)
+				rawText,
+				normalizedText,
+				thoughtStatus(metadata)
 			])
 		);
 	}

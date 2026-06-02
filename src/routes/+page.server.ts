@@ -1,10 +1,5 @@
-import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = (event) => {
-	if (event.locals.user) {
-		throw redirect(302, '/capture');
-	}
-
+export const load: PageServerLoad = () => {
 	return {};
 };

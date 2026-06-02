@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { llmProviderConfig, userPreference, type BillingMode } from '$lib/server/db/schema';
 import { normalizeCurrencyCode } from '$lib/server/billing/money';
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 export type BillingPreferences = {
 	billingMode: BillingMode;
@@ -34,12 +35,26 @@ export async function hasSavedByokLlmCredentials(userId: string): Promise<boolea
 	const rows = await getDb()
 		.select({
 			baseUrl: llmProviderConfig.baseUrl,
-			apiKey: llmProviderConfig.apiKey
+			apiKey: llmProviderConfig.apiKey,
+			apiKeyEncrypted: llmProviderConfig.apiKeyEncrypted,
+			provider: llmProviderConfig.provider
 		})
 		.from(llmProviderConfig)
 		.where(eq(llmProviderConfig.userId, userId));
 
-	return rows.some((r) => Boolean(r.baseUrl?.trim() && r.apiKey?.trim()));
+	const keys = await Promise.all(
+		rows.map((r) =>
+			r.apiKeyEncrypted
+				? decryptTenantValue({
+						userId,
+						table: 'llm_provider_config',
+						column: 'api_key',
+						ciphertext: r.apiKeyEncrypted
+					})
+				: Promise.resolve(r.apiKey ?? '')
+		)
+	);
+	return rows.some((r, idx) => Boolean(r.baseUrl?.trim() && keys[idx]?.trim()));
 }
 
 /** PayPal-inferred currency first, then user setting. */

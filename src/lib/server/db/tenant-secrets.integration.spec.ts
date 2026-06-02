@@ -48,15 +48,22 @@ describe.skipIf(!hasDb)('tenant secrets RLS integration', () => {
 				userId: ub,
 				provider: 'openrouter',
 				baseUrl: 'https://openrouter.example',
-				apiKey: secretKeyB
+				apiKey: secretKeyB,
+				apiKeyEncrypted: `cipher:${secretKeyB}`
 			});
 		});
 
 		const visibleToA = await withEvalDb(ua, async (db) =>
-			db.select({ apiKey: llmProviderConfig.apiKey }).from(llmProviderConfig)
+			db
+				.select({
+					apiKey: llmProviderConfig.apiKey,
+					apiKeyEncrypted: llmProviderConfig.apiKeyEncrypted
+				})
+				.from(llmProviderConfig)
 		);
 
 		expect(visibleToA.some((row) => row.apiKey === secretKeyB)).toBe(false);
+		expect(visibleToA.some((row) => row.apiKeyEncrypted === `cipher:${secretKeyB}`)).toBe(false);
 	});
 
 	it('user_api_key rows are not visible to other tenants', async () => {

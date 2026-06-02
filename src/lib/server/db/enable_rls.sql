@@ -137,6 +137,14 @@ CREATE POLICY llm_provider_config_isolation ON llm_provider_config
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE tenant_data_key ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_data_key FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_data_key_isolation ON tenant_data_key;
+CREATE POLICY tenant_data_key_isolation ON tenant_data_key
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE eval_run ENABLE ROW LEVEL SECURITY;
 ALTER TABLE eval_run FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS eval_run_isolation ON eval_run;

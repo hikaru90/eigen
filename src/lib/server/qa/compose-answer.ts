@@ -15,6 +15,7 @@ import {
 } from '$lib/server/retrieval/temporal-conflicts';
 import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness';
 import type { MemoryType } from '$lib/server/db/brain.schema';
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
@@ -281,14 +282,39 @@ async function hydrateHintAnchorHits(
 		.select({
 			id: thought.id,
 			normalizedText: thought.normalizedText,
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			category: thought.category,
 			metadata: thought.metadata,
+			metadataEncrypted: thought.metadataEncrypted,
 			createdAt: thought.createdAt
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, userId), inArray(thought.id, ids)));
+	const decryptedRows = await Promise.all(
+		rows.map(async (row) => {
+			const [normalizedText, metadataJson] = await Promise.all([
+				row.normalizedTextEncrypted
+					? decryptTenantValue({
+							userId,
+							table: 'thought',
+							column: 'normalized_text',
+							ciphertext: row.normalizedTextEncrypted
+						})
+					: Promise.resolve(row.normalizedText),
+				row.metadataEncrypted
+					? decryptTenantValue({
+							userId,
+							table: 'thought',
+							column: 'metadata',
+							ciphertext: row.metadataEncrypted
+						})
+					: Promise.resolve(JSON.stringify(row.metadata ?? {}))
+			]);
+			return { ...row, normalizedText, metadata: JSON.parse(metadataJson) as Record<string, unknown> };
+		})
+	);
 
-	return rows.map((row) => {
+	return decryptedRows.map((row) => {
 		const parts = scoreById.get(row.id) ?? { graph: 0, lexical: 0 };
 		const graphScore = parts.graph * HINT_ANCHOR_SCORE_BOOST;
 		const vectorScore = parts.lexical * HINT_ANCHOR_SCORE_BOOST;
@@ -436,15 +462,40 @@ async function hydrateConflictThoughts(input: {
 		.select({
 			id: thought.id,
 			normalizedText: thought.normalizedText,
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			category: thought.category,
 			memoryType: thought.memoryType,
 			metadata: thought.metadata,
+			metadataEncrypted: thought.metadataEncrypted,
 			createdAt: thought.createdAt
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, input.userId), inArray(thought.id, missing)));
+	const decryptedRows = await Promise.all(
+		rows.map(async (row) => {
+			const [normalizedText, metadataJson] = await Promise.all([
+				row.normalizedTextEncrypted
+					? decryptTenantValue({
+							userId: input.userId,
+							table: 'thought',
+							column: 'normalized_text',
+							ciphertext: row.normalizedTextEncrypted
+						})
+					: Promise.resolve(row.normalizedText),
+				row.metadataEncrypted
+					? decryptTenantValue({
+							userId: input.userId,
+							table: 'thought',
+							column: 'metadata',
+							ciphertext: row.metadataEncrypted
+						})
+					: Promise.resolve(JSON.stringify(row.metadata ?? {}))
+			]);
+			return { ...row, normalizedText, metadata: JSON.parse(metadataJson) as Record<string, unknown> };
+		})
+	);
 
-	const hydrated: RetrievalContextItem[] = rows.map((row) => ({
+	const hydrated: RetrievalContextItem[] = decryptedRows.map((row) => ({
 		id: row.id,
 		normalizedText: row.normalizedText,
 		category: row.category,

@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
-	import type { Pathname } from '$app/types';
 	import Menu from '@lucide/svelte/icons/menu';
 	import X from '@lucide/svelte/icons/x';
 	import MarketingButton from '$lib/components/marketing/marketing-button.svelte';
@@ -15,12 +14,12 @@
 	import { scrollToSectionId } from '$lib/components/marketing/scroll-to-element';
 
 	const menuItems = [
-		{ label: 'Why Mesh', target: 'uspsSectionTarget' },
+		{ label: 'Why Eigenmesh', target: 'uspsSectionTarget' },
 		{ label: 'How it works', target: 'flowSectionTarget' },
-		{ label: 'Pricing', target: 'transparencySectionTarget' }
+		{ label: 'Transparency', target: 'transparencySectionTarget' }
 	];
 
-const developersHref = resolve('/developers' as Pathname);
+	const developersHref = resolve('/developers');
 
 	let menuVisible = $state(true);
 	let mobileOpen = $state(false);
@@ -51,21 +50,19 @@ const developersHref = resolve('/developers' as Pathname);
 	});
 </script>
 
-<div class="pointer-events-none fixed inset-x-0 top-0 z-[100] px-4 pt-4">
+<div class="pointer-events-none fixed inset-x-0 top-0 z-100 px-4 pt-4">
 	<div
-		class="pointer-events-auto mx-auto max-w-[1200px] overflow-hidden rounded-md border-2 backdrop-blur-sm transition-all duration-300 {$marketingScrollY >
+		class="pointer-events-auto mx-auto max-w-[1200px] overflow-hidden backdrop-blur-sm transition-all duration-300 px-6 py-1 rounded-full border {$marketingScrollY >
 		8
 			? 'opacity-100'
 			: 'opacity-100'} {menuVisible
 			? 'max-h-24 translate-y-0 opacity-100'
 			: 'max-h-0 -translate-y-4 opacity-0'} {navOnDark
-			? 'border-white/25 bg-black/90 shadow-[4px_4px_0px_0px_rgb(255_255_255/0.15)]'
-			: 'border-black bg-card/95 shadow-[4px_4px_0px_0px_#000]'}"
+				? 'bg-black/90 text-white border-black'
+				: 'bg-white/50 border-white'}"
 	>
 		<nav
-			class="flex items-center justify-between gap-4 px-3 py-2.5 {navOnDark
-				? 'marketing-on-dark bg-black/90 text-white'
-				: `${$marketingBackgroundClass}/90`}"
+			class="flex items-center justify-between gap-4 px-3 py-2.5"
 		>
 			<button type="button" class="shrink-0" onclick={() => scrollTo('topTarget')}>
 				<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-8 mt-2" />
@@ -126,7 +123,7 @@ const developersHref = resolve('/developers' as Pathname);
 
 {#if mobileOpen}
 	<div
-		class="fixed inset-0 z-[110] flex flex-col bg-background p-4 transition-all duration-200"
+		class="fixed inset-0 z-110 flex flex-col bg-background p-4 transition-all duration-200"
 		role="dialog"
 		aria-modal="true"
 		aria-label="Site menu"
@@ -144,7 +141,7 @@ const developersHref = resolve('/developers' as Pathname);
 				<X class="size-5" strokeWidth={1.75} />
 			</button>
 		</div>
-		<div class="flex flex-grow flex-col justify-center gap-4 px-2">
+		<div class="flex grow flex-col justify-center gap-4 px-2">
 			{#each menuItems as item, index (item.target)}
 				<button
 					type="button"

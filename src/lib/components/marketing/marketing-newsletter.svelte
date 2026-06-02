@@ -1,51 +1,37 @@
 <script lang="ts">
 	import { marketingReveal } from '$lib/actions/marketing-reveal';
 	import MarketingButton from '$lib/components/marketing/marketing-button.svelte';
-	import { Input } from '$lib/components/ui/input';
-
-	let email = $state('');
-	let previewAcknowledged = $state(false);
-
-	function handlePreviewClick(event: Event) {
-		event.preventDefault();
-		previewAcknowledged = true;
-	}
 </script>
 
 <section class="mb-20 flex justify-center md:mb-32">
 	<div
 		use:marketingReveal
-		class="bg-secondary w-full max-w-2xl rounded-lg p-8 text-center transition-all duration-700 is-visible:translate-y-0 is-visible:opacity-100 translate-y-10 opacity-0 md:p-10"
+		class="bg-secondary w-full max-w-4xl rounded-lg p-8 transition-all duration-700 is-visible:translate-y-0 is-visible:opacity-100 translate-y-10 opacity-0 md:p-10"
 	>
-		<h2 class="text-foreground mb-2 text-xl font-medium tracking-tight">Get early access</h2>
-		<p class="text-muted-foreground mb-5 text-sm leading-relaxed">
-			Be first to self-host or try managed. No lock-in, ever.
+		<p class="text-muted-foreground mb-2 text-center text-[11px] font-medium uppercase tracking-[0.1em]">
+			Get started
 		</p>
-
-		{#if previewAcknowledged}
-			<p class="text-foreground text-sm font-medium" role="status">
-				Preview only — newsletter signup is not wired yet. Thanks for your interest.
-			</p>
-		{:else}
-			<form
-				class="mx-auto flex max-w-[380px] flex-col gap-2 sm:flex-row"
-				onsubmit={handlePreviewClick}
-				data-marketing-form="newsletter"
-			>
-				<Input
-					type="email"
-					bind:value={email}
-					placeholder="your@email.com"
-					class="flex-1"
-					aria-label="Email address"
-				/>
-				<MarketingButton type="button" class="shrink-0 rounded-[6px] whitespace-nowrap" onclick={handlePreviewClick}>
-					Join waitlist
+		<h2 class="text-foreground mb-2 text-center text-xl font-medium tracking-tight">Choose your deployment</h2>
+		<p class="text-muted-foreground mx-auto mb-6 max-w-2xl text-center text-sm leading-relaxed">
+			Run Eigenmesh as managed-hosted or deploy self-hosted on your own stack.
+		</p>
+		<div class="grid gap-3 md:grid-cols-2">
+			<div class="rounded-lg border border-border bg-background p-5">
+				<p class="text-foreground mb-1 text-sm font-semibold">Managed / hosted</p>
+				<p class="text-muted-foreground mb-4 text-xs leading-relaxed">
+					Fastest path to production. We operate infrastructure while you keep full visibility.
+				</p>
+				<MarketingButton type="button" class="w-full rounded-[6px]">Start managed</MarketingButton>
+			</div>
+			<div class="rounded-lg border border-border bg-background p-5">
+				<p class="text-foreground mb-1 text-sm font-semibold">Self-hosted</p>
+				<p class="text-muted-foreground mb-4 text-xs leading-relaxed">
+					Run on your own PostgreSQL, pgvector, and AGE setup with full control of runtime.
+				</p>
+				<MarketingButton variant="outline" type="button" class="w-full rounded-[6px]">
+					Start self-hosted
 				</MarketingButton>
-			</form>
-			<p class="text-muted-foreground mt-3 text-xs">
-				UI preview — no data is sent. Backend subscription will be enabled in a future release.
-			</p>
-		{/if}
+			</div>
+		</div>
 	</div>
 </section>

@@ -32,7 +32,7 @@
 <section class="mb-20 md:mb-32">
 	<div class="mb-8 flex flex-col gap-2 md:items-center md:text-center">
 		<p class="text-muted-foreground text-[11px] font-medium uppercase tracking-[0.1em]">
-			Why Eigen Mesh
+			Why Eigenmesh
 		</p>
 		<h2 class="text-foreground text-[22px] font-medium tracking-tight">Built against lock-in</h2>
 		<p class="text-muted-foreground mx-auto max-w-xl text-[15px] leading-relaxed">

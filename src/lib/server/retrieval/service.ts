@@ -17,6 +17,7 @@ import {
 	isTemporalQuery,
 	traverseTemporalContext
 } from '$lib/server/retrieval/temporal';
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 /** Salience cap — prevents unbounded growth from high-frequency retrieval. */
 const SALIENCE_MAX = 5.0;
@@ -156,13 +157,39 @@ export async function searchThoughts(params: {
 	const vectorLiteral = toVectorLiteral(queryEmbedding);
 	const vectorDistance = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
 
+	const decryptRow = async <T extends { normalizedText: string; normalizedTextEncrypted?: string | null; metadata: Record<string, unknown>; metadataEncrypted?: string | null }>(
+		row: T
+	): Promise<T> => {
+		const [normalizedText, metadataJson] = await Promise.all([
+			row.normalizedTextEncrypted
+				? decryptTenantValue({
+						userId: params.userId,
+						table: 'thought',
+						column: 'normalized_text',
+						ciphertext: row.normalizedTextEncrypted
+					})
+				: Promise.resolve(row.normalizedText),
+			row.metadataEncrypted
+				? decryptTenantValue({
+						userId: params.userId,
+						table: 'thought',
+						column: 'metadata',
+						ciphertext: row.metadataEncrypted
+					})
+				: Promise.resolve(JSON.stringify(row.metadata ?? {}))
+		]);
+		return { ...row, normalizedText, metadata: JSON.parse(metadataJson) as Record<string, unknown> };
+	};
+
 	const vectorRows = await getDb()
 		.select({
 			id: thought.id,
 			normalizedText: thought.normalizedText,
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			category: thought.category,
 			memoryType: thought.memoryType,
 			metadata: thought.metadata,
+			metadataEncrypted: thought.metadataEncrypted,
 			createdAt: thought.createdAt,
 			distance: vectorDistance
 		})
@@ -170,6 +197,7 @@ export async function searchThoughts(params: {
 		.where(and(eq(thought.userId, params.userId), isNotNull(thought.embedding)))
 		.orderBy(vectorDistance)
 		.limit(candidateLimit);
+	const decryptedVectorRows = await Promise.all(vectorRows.map((row) => decryptRow(row)));
 
 	const lexicalRows = await lexicalSearch({
 		userId: params.userId,
@@ -178,14 +206,14 @@ export async function searchThoughts(params: {
 	});
 
 	const vectorRanks = new Map<string, number>();
-	vectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));
+	decryptedVectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));
 	const lexicalRanks = new Map<string, number>();
 	lexicalRows.forEach((row, index) => lexicalRanks.set(row.id, index + 1));
 
 	// Seed graph expansion from the RRF-fused semantic top so we expand from the
 	// best joint vector+lexical evidence rather than only the vector top.
 	const fusedSemantic = reciprocalRankFusion([
-		vectorRows.map((row, index) => ({ id: row.id, rank: index + 1 })),
+		decryptedVectorRows.map((row, index) => ({ id: row.id, rank: index + 1 })),
 		lexicalRows.map((row, index) => ({ id: row.id, rank: index + 1 }))
 	]);
 	const semanticSeedIds = [...fusedSemantic.entries()]
@@ -278,13 +306,16 @@ export async function searchThoughts(params: {
 					.select({
 						id: thought.id,
 						normalizedText: thought.normalizedText,
+						normalizedTextEncrypted: thought.normalizedTextEncrypted,
 						category: thought.category,
 						memoryType: thought.memoryType,
 						metadata: thought.metadata,
+						metadataEncrypted: thought.metadataEncrypted,
 						createdAt: thought.createdAt
 					})
 					.from(thought)
 					.where(and(eq(thought.userId, params.userId), inArray(thought.id, connectedOnlyIds)));
+	const decryptedConnectedRows = await Promise.all(connectedRows.map((row) => decryptRow(row)));
 
 	type RowMeta = {
 		normalizedText: string;
@@ -320,9 +351,9 @@ export async function searchThoughts(params: {
 			createdAt: source.createdAt ?? prev?.createdAt ?? new Date(0)
 		});
 	};
-	for (const row of vectorRows) recordMeta(row.id, row);
+	for (const row of decryptedVectorRows) recordMeta(row.id, row);
 	for (const row of lexicalRows) recordMeta(row.id, row);
-	for (const row of connectedRows)
+	for (const row of decryptedConnectedRows)
 		recordMeta(row.id, row, graphProvenanceByThoughtId.get(row.id));
 
 	// Boost thoughts anchored to temporally-matched events (direct seed thoughts).

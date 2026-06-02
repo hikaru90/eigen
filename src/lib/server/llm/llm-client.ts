@@ -16,6 +16,7 @@ import {
 	type TokenUsage
 } from '$lib/server/llm/gateway-cost';
 import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings';
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 export {
@@ -221,10 +222,18 @@ async function loadLlmProviderConfig(
 		.limit(1);
 
 	if (row?.baseUrl && row?.apiKey) {
+		const apiKey = row.apiKeyEncrypted
+			? await decryptTenantValue({
+					userId,
+					table: 'llm_provider_config',
+					column: 'api_key',
+					ciphertext: row.apiKeyEncrypted
+				})
+			: row.apiKey;
 		return {
 			provider,
 			baseUrl: row.baseUrl.replace(/\/$/, ''),
-			apiKey: row.apiKey,
+			apiKey,
 			ruleChat: row.ruleChat ?? null,
 			ruleEmbedding: row.ruleEmbedding ?? null,
 			modelChat: row.modelChat ?? null,

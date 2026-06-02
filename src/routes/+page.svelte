@@ -2,9 +2,8 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import MarketingNav from '$lib/components/marketing/marketing-nav.svelte';
-	import MarketingHero from '$lib/components/marketing/marketing-hero.svelte';
+	import MarketingProductStory from '$lib/components/marketing/marketing-product-story.svelte';
 	import MarketingTrustBar from '$lib/components/marketing/marketing-trust-bar.svelte';
-	import MarketingFlow from '$lib/components/marketing/marketing-flow.svelte';
 	import MarketingUsps from '$lib/components/marketing/marketing-usps.svelte';
 	import MarketingTransparency from '$lib/components/marketing/marketing-transparency.svelte';
 	import MarketingAbout from '$lib/components/marketing/marketing-about.svelte';
@@ -19,8 +18,17 @@
 	} from '$lib/components/marketing/marketing-scroll';
 	import { scrollToSectionId } from '$lib/components/marketing/scroll-to-element';
 
+	let scrollOffset = $state(0);
+
+	const scrollCircles = [
+		{ size: 560, x: '-14%', y: 120, speed: 0.16, opacity: 0.22 },
+		{ size: 680, x: '72%', y: 420, speed: 0.24, opacity: 0.2 },
+		{ size: 500, x: '24%', y: 760, speed: 0.14, opacity: 0.16 }
+	];
+
 	function updateSectionBackground() {
 		if (!browser) return;
+		scrollOffset = window.scrollY;
 
 		const viewportCenter = window.innerHeight / 2;
 		let nextBg = marketingSectionTargets[0].bgClass;
@@ -74,15 +82,28 @@
 
 	<div class="{$marketingBackgroundClass} relative grow transition-colors duration-500">
 		<div id="topTarget" class="pointer-events-none absolute top-0"></div>
+		<div class="pointer-events-none absolute inset-0 overflow-hidden">
+			{#each scrollCircles as circle}
+				<div
+					class="absolute rounded-full"
+					style="
+						width: {circle.size}px;
+						height: {circle.size}px;
+						left: {circle.x};
+						top: {circle.y + scrollOffset * circle.speed}px;
+						opacity: {circle.opacity};
+						background: radial-gradient(circle, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0) 72%);
+					"
+				></div>
+			{/each}
+		</div>
 
 		<div class="marketing-container relative z-10 pb-8">
-			<MarketingHero />
-			<MarketingTrustBar />
-
 			<div class="relative">
 				<div id="flowSectionTarget" class="pointer-events-none absolute -top-20"></div>
 			</div>
-			<MarketingFlow />
+			<MarketingProductStory />
+			<MarketingTrustBar />
 
 			<div class="relative">
 				<div id="uspsSectionTarget" class="pointer-events-none absolute -top-20"></div>
