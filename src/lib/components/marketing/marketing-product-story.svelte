@@ -4,6 +4,7 @@
 	import { computeBallLinks, linksForShader, type BallLinkSegment } from '../../../routes/logo/ball-links';
 	import {
 		createMetaballRenderer,
+		EIGEN_ACCENT_METABALL_COLOR,
 		type Metaball,
 		type MetaballRenderer
 	} from '../../../routes/logo/metaball-gl';
@@ -24,7 +25,22 @@
 		drift: number;
 	};
 
-	const METABALL_COUNT = 10;
+	const heroUsps = [
+		'Self-hostable',
+		'Open source',
+		'Data sovereignty',
+		'Context sharing',
+		'Remember everything',
+		'Temporal awareness',
+		'MCP connections',
+		'Data portability',
+		'No subscription',
+		'Full transparency',
+		'Encrypted at rest',
+		'Row-level security'
+	] as const;
+
+	const METABALL_COUNT = heroUsps.length;
 	const METABALL_BASE_RADIUS = 60;
 	const METABALL_RADIUS_VARIANCE = 22;
 	const METABALL_DRIFT_MIN = 1.2;
@@ -47,8 +63,8 @@
 	let metaballRenderer: MetaballRenderer | null = null;
 	let glError = $state<string | null>(null);
 	let metaballs = $state<FloatingMetaball[]>([]);
-	let metaballLinks = $state<BallLinkSegment[]>([]);
 	let shaderMetaballLinks = $state<BallLinkSegment[]>([]);
+	let uspLabelPositions = $state<{ x: number; y: number }[]>([]);
 	let metaballRaf = 0;
 	let lastFrameTs = 0;
 	let reduceMotion = false;
@@ -114,10 +130,30 @@
 		return min + random() * (max - min);
 	}
 
+	/** Random canvas placement; rejects samples inside a center hole for the headline. */
 	function randomBallOrigin(width: number, height: number, radius: number, random: () => number) {
+		const cx = width / 2;
+		const cy = height / 2;
+		const span = Math.min(width, height);
+		const minCenterDist = span * 0.2 + radius;
+		const minCenterDistSq = minCenterDist * minCenterDist;
+
+		for (let attempt = 0; attempt < 64; attempt += 1) {
+			const ox = randomBetween(random, radius, Math.max(radius, width - radius));
+			const oy = randomBetween(random, radius, Math.max(radius, height - radius));
+			const dx = ox - cx;
+			const dy = oy - cy;
+			if (dx * dx + dy * dy >= minCenterDistSq) {
+				return { ox, oy };
+			}
+		}
+
+		const angle = randomBetween(random, 0, Math.PI * 2);
+		const maxDist = Math.min(cx, cy, width - cx, height - cy) - radius - 8;
+		const dist = randomBetween(random, minCenterDist, Math.max(minCenterDist, maxDist));
 		return {
-			ox: randomBetween(random, radius, Math.max(radius, width - radius)),
-			oy: randomBetween(random, radius, Math.max(radius, height - radius))
+			ox: cx + Math.cos(angle) * dist,
+			oy: cy + Math.sin(angle) * dist
 		};
 	}
 
@@ -172,7 +208,7 @@
 		const driftMax = Math.max(METABALL_DRIFT_MAX, span * 0.028);
 		const next: FloatingMetaball[] = [];
 		for (let i = 0; i < METABALL_COUNT; i += 1) {
-			const baseRadius = Math.min(METABALL_BASE_RADIUS, span * 0.065);
+			const baseRadius = Math.min(METABALL_BASE_RADIUS, span * (METABALL_COUNT > 10 ? 0.056 : 0.065));
 			const r =
 				baseRadius +
 				randomBetween(random, -METABALL_RADIUS_VARIANCE, METABALL_RADIUS_VARIANCE) *
@@ -215,20 +251,23 @@
 			bridgeStrength: METABALL_BRIDGE_STRENGTH,
 			bridgeThinning: METABALL_BRIDGE_THINNING
 		});
-		metaballLinks = links;
 		shaderMetaballLinks = linksForShader(links);
+		if (metaballs.length === heroUsps.length) {
+			uspLabelPositions = metaballs.map((ball) => uspLabelCanvasPosition(ball));
+		}
 		metaballRenderer?.draw(
 			balls,
 			{ amount: 0, seed: 0 },
 			metaballFieldParams,
-			shaderMetaballLinks
+			shaderMetaballLinks,
+			EIGEN_ACCENT_METABALL_COLOR
 		);
 	}
 
 	function tickMetaballs(timestamp: number) {
 		const dt = lastFrameTs === 0 ? 0 : Math.min((timestamp - lastFrameTs) / 1000, 0.05);
 		lastFrameTs = timestamp;
-		if (!reduceMotion && dt > 0) {
+		if (metaballFrameOpacity > 0.02 && !reduceMotion && dt > 0) {
 			const t = timestamp / 1000;
 			metaballs = metaballs.map((ball) => {
 				const x = ball.ox + Math.cos(t * 0.28 + ball.phase) * ball.drift;
@@ -237,8 +276,8 @@
 				const vy = ball.vy;
 				return { ...ball, x, y, vx, vy };
 			});
+			recomputeLinksAndRender();
 		}
-		recomputeLinksAndRender();
 		metaballRaf = window.requestAnimationFrame(tickMetaballs);
 	}
 
@@ -279,7 +318,8 @@
 
 	/** Fades metaballs out while scrolling the story; enter zoom is CSS on load, not scroll. */
 	const metaballFrameOpacity = $derived(fadeOutOpacity(0.22, 0.34));
-	const headlineOpacity = $derived(stageOpacity(0.3, 0.38, 0.46, 0.56));
+	/** Visible on first frame over metaballs; fades out as capture takes over. */
+	const headlineOpacity = $derived(fadeOutOpacity(0.36, 0.46));
 	const captureOpacity = $derived(stageOpacity(0.12, 0.18, 0.4, 0.48));
 	const processOpacity = $derived(stageOpacity(0.24, 0.3, 0.52, 0.6));
 	const graphOpacity = $derived(stageOpacity(0.36, 0.42, 0.64, 0.72));
@@ -292,47 +332,49 @@
 	function isInteractive(opacity: number) {
 		return opacity >= 0.12;
 	}
+
+	/** Horizontal offset outward from center; vertical center aligned with the ball. */
+	function uspLabelCanvasPosition(ball: FloatingMetaball) {
+		const cx = metaballWidth / 2;
+		const dx = ball.x - cx;
+		const dy = ball.y - metaballHeight / 2;
+		const len = Math.hypot(dx, dy) || 1;
+		const gap = ball.r * 1.35;
+		return {
+			x: ball.x + (dx / len) * gap,
+			y: ball.y
+		};
+	}
 </script>
 
 <section bind:this={containerEl} class="relative mb-24 h-[550vh] md:mb-32">
-	<div
-		bind:this={metaballStageEl}
-		class="pointer-events-none fixed inset-0 z-5 overflow-hidden"
-		style="opacity: {metaballFrameOpacity}"
-		aria-hidden={metaballFrameOpacity < 0.12}
-	>
-		<div class="metaball-stage marketing-metaball-fly-in absolute inset-0 size-full">
-			<canvas
-				bind:this={metaballCanvasEl}
-				width={metaballWidth}
-				height={metaballHeight}
-				class="relative z-10 size-full touch-none select-none"
-			></canvas>
-			{#if metaballLinks.length > 0}
-				<svg
-					class="pointer-events-none absolute inset-0 z-20 size-full text-black"
-					viewBox="0 0 {metaballWidth} {metaballHeight}"
-					preserveAspectRatio="none"
-					aria-hidden="true"
-				>
-					{#each metaballLinks as link, idx (idx)}
-						<line
-							x1={link.x1}
-							y1={link.y1}
-							x2={link.x2}
-							y2={link.y2}
-							stroke="currentColor"
-							stroke-opacity={link.strokeOpacity}
-							stroke-width={link.strokeWidth}
-							vector-effect="non-scaling-stroke"
-						/>
-					{/each}
-				</svg>
-			{/if}
-		</div>
-	</div>
-
 	<div class="sticky top-0 z-10 flex h-dvh items-center overflow-hidden">
+		<div
+			bind:this={metaballStageEl}
+			class="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+			style="opacity: {metaballFrameOpacity}"
+			aria-hidden={metaballFrameOpacity < 0.12}
+		>
+			<div class="metaball-stage marketing-metaball-fly-in absolute inset-0 size-full">
+				<canvas
+					bind:this={metaballCanvasEl}
+					class="metaball-canvas absolute inset-0 z-10 block h-full w-full touch-none select-none"
+				></canvas>
+				{#if uspLabelPositions.length === heroUsps.length && metaballWidth > 1}
+					<div class="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-hidden="true">
+						{#each heroUsps as label, i (label)}
+							{@const pos = uspLabelPositions[i]}
+							<span
+								class="absolute max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/25 bg-white/88 px-2 py-0.5 text-center text-[10px] leading-tight font-medium tracking-tight text-black/85 shadow-sm backdrop-blur-sm sm:max-w-none sm:px-2.5 sm:text-[11px]"
+								style="left: {(pos.x / metaballWidth) * 100}%; top: {(pos.y / metaballHeight) * 100}%"
+							>
+								{label}
+							</span>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</div>
 		<div class="absolute inset-0 z-1 bg-[radial-gradient(circle_at_50%_45%,rgba(29,158,117,0.12),transparent_55%)]"></div>
 		<div class="relative z-10 mx-auto flex h-full w-full max-w-6xl items-center justify-center px-4">
 			<div
@@ -348,7 +390,7 @@
 							? 'pointer-events-auto'
 							: 'pointer-events-none'}"
 					>
-						Your memory.
+						Your memories.
 						<span class="block text-[#0F6E56]">Not theirs.</span>
 					</h1>
 				</div>
@@ -472,6 +514,11 @@
 <style>
 	.metaball-stage {
 		transform-origin: center center;
+	}
+
+	.metaball-canvas {
+		max-width: none;
+		max-height: none;
 	}
 
 	.marketing-metaball-fly-in {

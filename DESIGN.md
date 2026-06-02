@@ -25,6 +25,7 @@
 
 | Role | Value |
 |---|---|
+| **Accent** | `#28F97F` — bright green; marketing metaballs, highlights |
 | Background | `#E8EDE5` — soft sage green |
 | Card / Input background | `#FFFFFF` — white |
 | Card shadow | Subtle offset box shadow, dark |

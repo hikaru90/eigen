@@ -65,7 +65,7 @@
 			class="flex items-center justify-between gap-4 px-3 py-2.5"
 		>
 			<button type="button" class="shrink-0" onclick={() => scrollTo('topTarget')}>
-				<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-8 mt-2" />
+				<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-8 mt-1" />
 			</button>
 
 			<div class="hidden items-center gap-6 lg:flex">

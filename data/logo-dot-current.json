@@ -1,30 +1,65 @@
 {
-  "canvasWidth": 3420,
+  "canvasWidth": 2790,
   "canvasHeight": 1782,
   "ballAnchors": [
     {
-      "x": 1536.203125,
-      "y": 971.3828125,
-      "r": 72,
+      "x": 932.6558388157894,
+      "y": 940.296875,
+      "r": 42,
       "jitterOx": 0.9628112400165303,
       "jitterOy": -0.2701749731152598
     },
     {
-      "x": 2352.640625,
-      "y": 652.078125,
-      "r": 72,
+      "x": 2506.290707236842,
+      "y": 1132.53125,
+      "r": 42,
       "jitterOx": 0.8071665286044459,
       "jitterOy": -0.5903238052972691
     },
     {
-      "x": 2266.453125,
-      "y": 1383.40625,
-      "r": 72,
+      "x": 1150.6673519736842,
+      "y": 1288.5234375,
+      "r": 42,
       "jitterOx": -0.8413937196377081,
       "jitterOy": 0.5404226203206356
+    },
+    {
+      "x": 1405.6484375,
+      "y": 535.9140625,
+      "r": 42,
+      "jitterOx": 0.07430793538823546,
+      "jitterOy": -0.9972353437069595
+    },
+    {
+      "x": 2557.7109375,
+      "y": 614.515625,
+      "r": 42,
+      "jitterOx": -0.826693478857553,
+      "jitterOy": 0.5626525499936854
+    },
+    {
+      "x": 2001.015625,
+      "y": 874.265625,
+      "r": 42,
+      "jitterOx": -0.5254477398278179,
+      "jitterOy": -0.8508258768454553
+    },
+    {
+      "x": 1426.109375,
+      "y": 1041.421875,
+      "r": 42,
+      "jitterOx": 0.6186115237310922,
+      "jitterOy": 0.7856970043897943
+    },
+    {
+      "x": 1749.484375,
+      "y": 647.7109375,
+      "r": 42,
+      "jitterOx": -0.9972441946164966,
+      "jitterOy": 0.07418905784342564
     }
   ],
-  "ballRadius": 72,
+  "ballRadius": 42,
   "positionJitter": 0,
   "noiseAmount": 0,
   "noiseSeed": 0,
@@ -35,24 +70,24 @@
   "textLayers": [],
   "linkAllPairs": false,
   "linkNeighborsPerBall": 2,
-  "linkMaxDistance": 0,
+  "linkMaxDistance": 0.9,
   "linkDistanceThinning": 1.05,
   "appIconOverlay": {
     "enabled": false,
-    "x": 1710,
+    "x": 1395,
     "y": 891,
-    "size": 605.88,
+    "size": 494.2705263157895,
     "cornerRadiusRatio": 0.2237
   },
   "fieldParams": {
     "threshold": 1,
-    "fieldStrength": 1,
-    "falloffExponent": 2,
+    "fieldStrength": 1.1,
+    "falloffExponent": 1.9,
     "minDistance": 0.5,
     "noiseMaskOuter": 2.85,
     "noiseMaskInner": 0.35,
-    "bridgeStrength": 0.06,
+    "bridgeStrength": 0.42,
     "bridgeThinning": 0.75
   },
-  "savedAt": "2026-06-02T09:38:08.739Z"
+  "savedAt": "2026-06-02T12:47:59.403Z"
 }

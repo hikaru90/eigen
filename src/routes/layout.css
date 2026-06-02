@@ -167,7 +167,7 @@
 
 @layer utilities {
 	.marketing-container {
-		@apply mx-auto w-full max-w-[1200px] px-5 md:px-16;
+		@apply mx-auto w-full;
 	}
 
 	/* Homepage: always light scroll column regardless of global dark mode */

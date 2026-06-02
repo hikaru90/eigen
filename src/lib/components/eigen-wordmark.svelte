@@ -3,7 +3,7 @@
 	import { cn } from '$lib/utils.js';
 	import light from '$lib/assets/images/logo.png';
 	import dark from '$lib/assets/images/logo-dark.png';
-	import mesh from '$lib/assets/images/mesh.png';
+	import mesh from '$lib/assets/images/mesh.svg';
 
 	type Props = HTMLAttributes<HTMLDivElement> & {
 		heightClass?: string;
@@ -22,7 +22,7 @@
 	}: Props = $props();
 </script>
 
-<div class={cn('inline-flex w-full items-start justify-center', className)} {...rest}>
+<div class={cn('w-full flex items-center justify-center gap-2', className)} {...rest}>
 	<div
 		class={cn(
 			'relative shrink-0',
@@ -66,7 +66,7 @@
 	<div
 		aria-hidden="true"
 		class={cn(
-			'pointer-events-none relative -mt-[2px] ml-2 shrink-0 text-xs font-light tracking-[0.35em]',
+			'pointer-events-none relative shrink-0 text-base font-light tracking-[0.35em]',
 			inverted ? 'text-white' : 'text-black dark:text-white'
 		)}
 		style="font-family: 'Geist Mono', ui-sans-serif, system-ui, sans-serif; font-weight: 300;"
@@ -75,7 +75,7 @@
 		<img
 			src={mesh}
 			alt=""
-			class={cn('absolute -top-0.5 -left-2 block w-40', inverted && 'invert')}
+			class={cn('absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 block w-40 -z-10', inverted && 'invert')}
 			loading="eager"
 			decoding="async"
 		/>

@@ -6,6 +6,25 @@ import type { MetaballFieldParams } from "./metaball-params";
 
 export type MetaballNoise = { amount: number; seed: number };
 
+/** Normalized RGB (0–1) for metaball fill. */
+export type MetaballFillColor = readonly [r: number, g: number, b: number];
+
+export const DEFAULT_METABALL_FILL_COLOR: MetaballFillColor = [0, 0, 0];
+
+/** Brand accent — see DESIGN.md */
+export const EIGEN_ACCENT_HEX = "#28F97F";
+
+export function metaballColorFromHex(hex: string): MetaballFillColor {
+  const normalized = hex.replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    throw new Error(`Invalid metaball color hex: ${hex}`);
+  }
+  const n = Number.parseInt(normalized, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => c / 255) as MetaballFillColor;
+}
+
+export const EIGEN_ACCENT_METABALL_COLOR = metaballColorFromHex(EIGEN_ACCENT_HEX);
+
 const MAX_BALLS = 128;
 const MAX_LINKS = SHADER_MAX_BALL_LINKS;
 
@@ -39,6 +58,7 @@ uniform float u_noiseSeed;
 uniform int u_linkCount;
 uniform vec4 u_links[${MAX_LINKS}];
 uniform float u_linkTubeR[${MAX_LINKS}];
+uniform vec3 u_fillColor;
 
 float hash21(vec2 p) {
   p = fract(p * vec2(234.34, 435.345));
@@ -137,7 +157,7 @@ void main() {
 
   float field = clickMetaballField(px) + linkFields(px) + proceduralNoiseField(px);
   float alpha = step(u_threshold, field);
-  fragColor = vec4(0.0, 0.0, 0.0, alpha);
+  fragColor = vec4(u_fillColor, alpha);
 }
 `;
 
@@ -178,6 +198,7 @@ export type MetaballRenderer = {
     noise: MetaballNoise,
     field: MetaballFieldParams,
     links: BallLinkSegment[],
+    fillColor?: MetaballFillColor,
   ) => void;
   dispose: () => void;
 };
@@ -221,6 +242,7 @@ export function createMetaballRenderer(
   const uLinkCount = gl.getUniformLocation(program, "u_linkCount");
   const uLinks = gl.getUniformLocation(program, "u_links[0]");
   const uLinkTubeR = gl.getUniformLocation(program, "u_linkTubeR[0]");
+  const uFillColor = gl.getUniformLocation(program, "u_fillColor");
 
   const ballBuffer = new Float32Array(MAX_BALLS * 3);
   const linkBuffer = new Float32Array(MAX_LINKS * 4);
@@ -231,7 +253,7 @@ export function createMetaballRenderer(
   gl.clearColor(0, 0, 0, 0);
 
   return {
-    draw(balls, noise, field, links) {
+    draw(balls, noise, field, links, fillColor = DEFAULT_METABALL_FILL_COLOR) {
       gl.useProgram(program);
       gl.bindVertexArray(vao);
       gl.viewport(0, 0, width, height);
@@ -255,6 +277,7 @@ export function createMetaballRenderer(
       gl.uniform1f(uNoiseMaskInner, field.noiseMaskInner);
       gl.uniform1f(uNoiseAmount, noise.amount);
       gl.uniform1f(uNoiseSeed, noise.seed);
+      gl.uniform3f(uFillColor, fillColor[0], fillColor[1], fillColor[2]);
 
       const linkCount = Math.min(links.length, MAX_LINKS);
       for (let i = 0; i < linkCount; i++) {
