@@ -28,3 +28,32 @@ export function scrollToSectionId(sectionId: string, duration = 400): void {
 	const el = document.getElementById(sectionId);
 	if (el) scrollToElement(el, duration);
 }
+
+/** Scroll a tall section so its internal story progress lands on `targetProgress` (0–1). */
+export function scrollSectionToProgress(
+	sectionEl: HTMLElement,
+	targetProgress: number,
+	duration = 650
+): void {
+	if (!browser) return;
+
+	const travel = sectionEl.offsetHeight - window.innerHeight;
+	if (travel <= 0) return;
+
+	const clamped = Math.min(1, Math.max(0, targetProgress));
+	const rect = sectionEl.getBoundingClientRect();
+	const delta = rect.top + clamped * travel;
+	const start = window.scrollY;
+	const targetTop = start + delta;
+	const change = targetTop - start;
+	const startTime = performance.now();
+
+	function step(currentTime: number) {
+		const elapsed = currentTime - startTime;
+		const t = Math.min(elapsed / duration, 1);
+		window.scrollTo(0, start + change * easeInOutQuad(t));
+		if (elapsed < duration) requestAnimationFrame(step);
+	}
+
+	requestAnimationFrame(step);
+}

@@ -41,19 +41,39 @@
 		edges,
 		legendSections = [],
 		statusSuffix = '',
-		height = '400px'
+		height = '400px',
+		interactive = true,
+		showStatus = true,
+		exitProgress = 0
 	}: {
 		nodes: GraphVizNode[];
 		edges: GraphVizEdge[];
 		legendSections?: GraphLegendSection[];
 		statusSuffix?: string;
 		height?: string;
+		interactive?: boolean;
+		showStatus?: boolean;
+		/** 0 = clustered layout; 1 = nodes pinned off-screen (stops simulation). */
+		exitProgress?: number;
 	} = $props();
 
 	const fillParent = $derived(height === '100%');
 
 	let rootEl: HTMLDivElement | undefined;
 	let status = $state('');
+	let applyExitProgress: ((t: number) => void) | undefined;
+	let latestExitProgress = 0;
+
+	function scatterAngleForNode(id: string): number {
+		let h = 0;
+		for (let i = 0; i < id.length; i += 1) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+		return ((h >>> 0) % 360) * (Math.PI / 180);
+	}
+
+	$effect(() => {
+		latestExitProgress = exitProgress;
+		applyExitProgress?.(exitProgress);
+	});
 
 	onMount(() => {
 		let cancelled = false;
@@ -106,7 +126,9 @@
 				.on('zoom', (event) => {
 					gZoom.attr('transform', event.transform.toString());
 				});
-			svg.call(zoom);
+			if (interactive) {
+				svg.call(zoom);
+			}
 
 			function resizeSvg() {
 				if (!rootEl) return;
@@ -209,17 +231,69 @@
 
 			status = `${simNodes.length} nodes · ${simLinks.length} edges${statusSuffix ? ' · ' + statusSuffix : ''}`;
 
+			let latestDims = dims;
+
+			function applyScatter(t: number) {
+				const cx = latestDims.w / 2;
+				const cy = latestDims.h / 2;
+				const maxPush = Math.max(latestDims.w, latestDims.h) * 0.9;
+
+				if (t <= 0) {
+					for (const node of simNodes) {
+						node.fx = null;
+						node.fy = null;
+					}
+					simulation.alpha(0.08).restart();
+					ticked(linkSel, nodeSel);
+					return;
+				}
+
+				for (const node of simNodes) {
+					const x = node.x ?? cx;
+					const y = node.y ?? cy;
+					let dx = x - cx;
+					let dy = y - cy;
+					let len = Math.hypot(dx, dy);
+					if (len < 10) {
+						const angle = scatterAngleForNode(node.id);
+						dx = Math.cos(angle);
+						dy = Math.sin(angle);
+						len = 1;
+					}
+					const dist = len + t * maxPush;
+					node.fx = cx + (dx / len) * dist;
+					node.fy = cy + (dy / len) * dist;
+				}
+
+				if (t >= 1) {
+					simulation.stop();
+					for (let i = 0; i < 12; i += 1) simulation.tick();
+				} else {
+					simulation.alpha(0.35).restart();
+				}
+				ticked(linkSel, nodeSel);
+			}
+
+			applyExitProgress = applyScatter;
+			applyScatter(exitProgress);
+
 			const ro = new ResizeObserver(() => {
 				const d = resizeSvg();
 				if (!d || !simulation) return;
+				latestDims = d;
 				simulation.force('x', d3.forceX<SimNode>(d.w / 2).strength(0.08));
 				simulation.force('y', d3.forceY<SimNode>(d.h / 2).strength(0.08));
+				if (latestExitProgress > 0) {
+					applyScatter(latestExitProgress);
+					return;
+				}
 				simulation.alpha(0.08).restart();
 			});
 			ro.observe(rootEl);
 
 			teardown = () => {
 				cancelled = true;
+				applyExitProgress = undefined;
 				simulation.stop();
 				ro.disconnect();
 				svg.remove();
@@ -231,12 +305,12 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	{#if status}
+	{#if showStatus && status}
 		<p class="text-muted-foreground mb-1 font-mono text-[11px] leading-tight">{status}</p>
 	{/if}
 	<div
 		bind:this={rootEl}
-		class="text-foreground min-h-0 w-full flex-1"
+		class="text-foreground min-h-0 w-full flex-1 {interactive ? '' : 'pointer-events-none'}"
 		style={fillParent ? undefined : `height: ${height}`}
 		role="img"
 		aria-label="Force-directed graph visualization"

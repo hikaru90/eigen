@@ -12,6 +12,14 @@
 		DEFAULT_METABALL_FIELD_PARAMS,
 		type MetaballFieldParams
 	} from '../../../routes/logo/metaball-params';
+	import MarketingStoryCapturePreview from './marketing-story-capture-preview.svelte';
+	import MarketingStoryIngestPreview from './marketing-story-ingest-preview.svelte';
+	import MarketingStoryStoredPreview from './marketing-story-stored-preview.svelte';
+	import MarketingStoryGraphPreview from './marketing-story-graph-preview.svelte';
+	import MarketingStoryChatPreview from './marketing-story-chat-preview.svelte';
+	import MarketingStoryTemporalPreview from './marketing-story-temporal-preview.svelte';
+	import { DEMO_CAPTURE_TEXT } from './marketing-story-demo-data';
+	import { scrollSectionToProgress } from './scroll-to-element';
 
 	type FloatingMetaball = {
 		ox: number;
@@ -54,9 +62,13 @@
 	const LINK_MAX_DISTANCE_RATIO = 0.48;
 	const LINK_THICKNESS_MIN = 0.7;
 	const LINK_THICKNESS_MAX = 2.8;
+	/** Cap backing-store scale (lower = softer + cheaper; full retina is rarely worth it here). */
+	const METABALL_DPR_CAP = 1.25;
+	/** Target animation rate; fragment shader cost scales linearly with fps. */
+	const METABALL_TARGET_FPS = 30;
 
-	/** Scroll runway below one pinned viewport (550vh total with sticky stage). */
-	const STORY_RUNWAY_VH = 450;
+	/** Scroll runway below one pinned viewport — extra length for six sequential beats. */
+	const STORY_RUNWAY_VH = 520;
 
 	let storySectionEl: HTMLElement | null = null;
 	let metaballStageEl: HTMLDivElement | null = null;
@@ -65,13 +77,15 @@
 	let metaballWidth = $state(1);
 	let metaballHeight = $state(1);
 	let metaballRenderer: MetaballRenderer | null = null;
-	let metaballs = $state<FloatingMetaball[]>([]);
-	let shaderMetaballLinks = $state<BallLinkSegment[]>([]);
+	let metaballs: FloatingMetaball[] = [];
+	let shaderMetaballLinks: BallLinkSegment[] = [];
 	let uspLabelPositions = $state<{ x: number; y: number }[]>([]);
 	let metaballRaf = 0;
 	let scrollRaf = 0;
 	let lastFrameTs = 0;
+	let lastAnimFrameTs = 0;
 	let reduceMotion = false;
+	let captureText = $state(DEMO_CAPTURE_TEXT);
 	const metaballFieldParams: MetaballFieldParams = {
 		...DEFAULT_METABALL_FIELD_PARAMS,
 		bridgeStrength: METABALL_BRIDGE_STRENGTH,
@@ -125,6 +139,11 @@
 		});
 	}
 
+	function scrollToProcessBeat() {
+		if (!browser || !storySectionEl) return;
+		scrollSectionToProgress(storySectionEl, 0.28);
+	}
+
 	function createSeededRandom(seed: number) {
 		let state = seed >>> 0;
 		return () => {
@@ -175,7 +194,7 @@
 
 	function syncMetaballCanvasSize(rect: DOMRectReadOnly) {
 		if (!browser) return;
-		const dpr = Math.min(window.devicePixelRatio || 1, 2);
+		const dpr = Math.min(window.devicePixelRatio || 1, METABALL_DPR_CAP);
 		const w = Math.max(1, Math.floor(rect.width * dpr));
 		const h = Math.max(1, Math.floor(rect.height * dpr));
 		if (w === metaballWidth && h === metaballHeight) return;
@@ -269,18 +288,30 @@
 	}
 
 	function tickMetaballs(timestamp: number) {
+		metaballRaf = window.requestAnimationFrame(tickMetaballs);
+
+		const visible =
+			metaballFrameOpacity > 0.02 && !reduceMotion && document.visibilityState === 'visible';
+		if (!visible) {
+			lastFrameTs = 0;
+			lastAnimFrameTs = 0;
+			return;
+		}
+
+		const frameInterval = 1000 / METABALL_TARGET_FPS;
+		if (lastAnimFrameTs !== 0 && timestamp - lastAnimFrameTs < frameInterval) return;
+		lastAnimFrameTs = timestamp;
+
 		const dt = lastFrameTs === 0 ? 0 : Math.min((timestamp - lastFrameTs) / 1000, 0.05);
 		lastFrameTs = timestamp;
-		if (metaballFrameOpacity > 0.02 && !reduceMotion && document.visibilityState === 'visible' && dt > 0) {
-			const t = timestamp / 1000;
-			metaballs = metaballs.map((ball) => {
-				const x = ball.ox + Math.cos(t * 0.28 + ball.phase) * ball.drift;
-				const y = ball.oy + Math.sin(t * 0.34 + ball.phase) * ball.drift;
-				return { ...ball, x, y };
-			});
-			recomputeLinksAndRender();
+		if (dt <= 0) return;
+
+		const t = timestamp / 1000;
+		for (const ball of metaballs) {
+			ball.x = ball.ox + Math.cos(t * 0.28 + ball.phase) * ball.drift;
+			ball.y = ball.oy + Math.sin(t * 0.34 + ball.phase) * ball.drift;
 		}
-		metaballRaf = window.requestAnimationFrame(tickMetaballs);
+		recomputeLinksAndRender();
 	}
 
 	onMount(() => {
@@ -323,14 +354,21 @@
 	/** Hero reacts on first scroll (no 10% dead zone). */
 	const headlineExitT = $derived(ease(segment(0, 0.14)));
 	const headlineOnScreen = $derived(headlineExitT < 1);
-	const captureOpacity = $derived(stageOpacity(0.12, 0.18, 0.4, 0.48));
-	const processOpacity = $derived(stageOpacity(0.24, 0.3, 0.52, 0.6));
-	const graphOpacity = $derived(stageOpacity(0.36, 0.42, 0.64, 0.72));
-	const retrievalOpacity = $derived(stageOpacity(0.5, 0.56, 0.78, 0.86));
-	const timeOpacity = $derived(stageOpacity(0.62, 0.68, 0.94, 1));
-	const graphScale = $derived(0.94 + ease(segment(0.36, 0.5)) * 0.06);
-	const graphSpread = $derived(12 + ease(segment(0.38, 0.58)) * 40);
-	const hitShift = $derived(24 - ease(segment(0.52, 0.78)) * 24);
+	const captureOpacity = $derived(stageOpacity(0.12, 0.16, 0.2, 0.24));
+	const processOpacity = $derived(stageOpacity(0.26, 0.3, 0.36, 0.4));
+	const storedOpacity = $derived(stageOpacity(0.42, 0.46, 0.5, 0.54));
+	const graphBeatIn = $derived(stageOpacity(0.56, 0.58, 0.66, 0.68));
+	const graphScatterT = $derived(ease(segment(0.6, 0.66)));
+	const graphExitFadeT = $derived(ease(segment(0.66, 0.68)));
+	const graphOpacity = $derived(graphBeatIn * (graphScatterT >= 1 ? 1 - graphExitFadeT : 1));
+	const graphScale = $derived(0.86 + ease(segment(0.56, 0.62)) * 0.14);
+	const graphMounted = $derived(
+		progress >= 0.555 && !(progress >= 0.685 && graphScatterT >= 1 && graphExitFadeT >= 1)
+	);
+	const timeOpacity = $derived(stageOpacity(0.7, 0.74, 0.78, 0.82));
+	const retrievalOpacity = $derived(stageOpacity(0.84, 0.88, 0.96, 0.99));
+	const processStep = $derived(segment(0.26, 0.4));
+	const retrievalBeatProgress = $derived(segment(0.84, 0.98));
 
 	function isInteractive(opacity: number) {
 		return opacity >= 0.12;
@@ -396,7 +434,7 @@
 			aria-hidden={!headlineOnScreen && metaballFrameOpacity < 0.12}
 		>
 			<div
-				class="marketing-headline-pop-in relative z-10 {headlineOnScreen
+				class="relative z-10 {headlineOnScreen
 					? 'pointer-events-auto'
 					: 'pointer-events-none'}"
 			>
@@ -416,16 +454,11 @@
 				style="opacity: {captureOpacity}"
 			>
 				<div
-					class="select-text w-full max-w-2xl rounded-lg border-2 border-black bg-card p-4 shadow-[6px_6px_0px_0px_#000] dark:border-border dark:shadow-none md:p-6 {isInteractive(
-						captureOpacity
-					)
+					class="select-text w-full {isInteractive(captureOpacity)
 						? 'pointer-events-auto'
 						: 'pointer-events-none'}"
 				>
-					<p class="text-muted-foreground mb-2 text-xs uppercase tracking-widest">Capture</p>
-					<div class="rounded-md border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
-						Idea after customer call: tie Q3 roadmap to migration blockers and owner follow-up...
-					</div>
+					<MarketingStoryCapturePreview bind:text={captureText} onCapture={scrollToProcessBeat} />
 				</div>
 			</div>
 
@@ -434,92 +467,61 @@
 				style="opacity: {processOpacity}"
 			>
 				<div
-					class="select-text w-full max-w-3xl rounded-lg border border-border bg-card p-5 md:p-7 {isInteractive(
-						processOpacity
-					)
+					class="select-text w-full {isInteractive(processOpacity)
 						? 'pointer-events-auto'
 						: 'pointer-events-none'}"
 				>
-					<p class="text-muted-foreground mb-1 text-xs uppercase tracking-widest">How it works</p>
-					<p class="text-muted-foreground mb-4 text-xs uppercase tracking-widest">Capture process</p>
-					<div class="grid gap-3 md:grid-cols-3">
-						<div class="rounded-md border border-border bg-background p-3 text-sm">Persist thought</div>
-						<div class="rounded-md border border-border bg-background p-3 text-sm">Extract entities</div>
-						<div class="rounded-md border border-border bg-background p-3 text-sm">Link in graph</div>
-					</div>
+					<MarketingStoryIngestPreview progress={processStep} captureText={captureText} />
 				</div>
 			</div>
 
 			<div
 				class="absolute inset-0 z-30 grid place-items-center px-4"
-				style="opacity: {graphOpacity}"
+				style="opacity: {storedOpacity}"
 			>
 				<div
-					class="relative h-[74vh] w-full max-w-5xl rounded-xl border border-border bg-card/95 select-text {isInteractive(
-						graphOpacity
-					)
+					class="select-text w-full {isInteractive(storedOpacity)
 						? 'pointer-events-auto'
 						: 'pointer-events-none'}"
-					style="transform: scale({graphScale})"
 				>
-					<p class="absolute top-3 left-4 text-xs uppercase tracking-widest text-muted-foreground">
-						Graph insertion (dummy data)
-					</p>
-					{#each [0, 1, 2, 3, 4, 5] as node}
-						<div
-							class="absolute size-3 rounded-full bg-[#557416]"
-							style="left: {50 + Math.cos(node * 1.05) * graphSpread}%; top: {52 + Math.sin(node * 0.95) * (graphSpread * 0.7)}%"
-						></div>
-					{/each}
-					<div class="absolute left-[48%] top-[50%] size-4 rounded-full bg-black dark:bg-white"></div>
+					<MarketingStoryStoredPreview />
 				</div>
 			</div>
 
 			<div
 				class="absolute inset-0 z-40 grid place-items-center px-4"
-				style="opacity: {retrievalOpacity}"
+				style="opacity: {graphOpacity}; display: {graphMounted ? 'grid' : 'none'}"
+				aria-hidden={!graphMounted || graphOpacity < 0.12}
 			>
-				<div
-					class="select-text w-full max-w-3xl rounded-lg border-2 border-black bg-card p-5 shadow-[6px_6px_0px_0px_#000] dark:border-border dark:shadow-none md:p-7 {isInteractive(
-						retrievalOpacity
-					)
-						? 'pointer-events-auto'
-						: 'pointer-events-none'}"
-				>
-					<p class="text-muted-foreground mb-3 text-xs uppercase tracking-widest">
-						Retrieval chat - needle in haystack
-					</p>
-					<div class="space-y-2 text-sm">
-						<p class="rounded-md border border-border bg-background p-3">
-							When did we promise to revisit the migration blockers?
-						</p>
-						<p class="rounded-md border border-[#557416] bg-[#e9f4f0] p-3 text-foreground dark:bg-[#143128]">
-							Found it: customer sync on Mar 18, owner assigned, follow-up scheduled for Apr 02.
-						</p>
-						<p class="text-muted-foreground" style="transform: translateX({hitShift}px)">
-							Signal extracted from 128 related memories.
-						</p>
+				{#if graphMounted}
+					<div
+						class="pointer-events-none relative w-full select-text"
+						style="transform: scale({graphScale})"
+					>
+						<MarketingStoryGraphPreview exitProgress={graphScatterT} />
 					</div>
+				{/if}
+			</div>
+
+			<div
+				class="absolute inset-0 z-50 grid place-items-center px-4"
+				style="opacity: {timeOpacity}"
+			>
+				<div class="pointer-events-none w-full select-text">
+					<MarketingStoryTemporalPreview />
 				</div>
 			</div>
 
 			<div
-				class="absolute right-4 bottom-6 left-4 z-50 md:right-10 md:bottom-10 md:left-10"
-				style="opacity: {timeOpacity}"
+				class="absolute inset-0 z-[60] grid place-items-center px-4"
+				style="opacity: {retrievalOpacity}"
 			>
 				<div
-					class="select-text rounded-md border border-border bg-card/90 p-3 backdrop-blur-sm md:p-4 {isInteractive(
-						timeOpacity
-					)
+					class="select-text w-full {isInteractive(retrievalOpacity)
 						? 'pointer-events-auto'
 						: 'pointer-events-none'}"
 				>
-					<p class="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Temporal memory</p>
-					<div class="grid grid-cols-3 gap-2 text-xs md:text-sm">
-						<div class="rounded border border-border bg-background px-2 py-1.5">Mar 18: captured</div>
-						<div class="rounded border border-border bg-background px-2 py-1.5">Apr 02: follow-up</div>
-						<div class="rounded border border-border bg-background px-2 py-1.5">Now: retrieved</div>
-					</div>
+					<MarketingStoryChatPreview beatProgress={retrievalBeatProgress} />
 				</div>
 			</div>
 		</div>
@@ -553,23 +555,6 @@
 		}
 	}
 
-	.marketing-headline-pop-in {
-		animation: marketing-pop-in 520ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
-		transform-origin: center center;
-	}
-
-	@keyframes marketing-pop-in {
-		0% {
-			transform: scale(0.9);
-		}
-		70% {
-			transform: scale(1.03);
-		}
-		100% {
-			transform: scale(1);
-		}
-	}
-
 	.story-headline {
 		isolation: isolate;
 	}
@@ -579,8 +564,7 @@
 		width: max-content;
 		max-width: min(100%, 22em);
 		margin-inline: auto;
-		transform: translateY(calc(var(--exit-t) * -95vh))
-			scale(calc(1 + var(--exit-t) * 0.5));
+		transform: translateY(calc(var(--exit-t) * -95vh));
 		transform-origin: center center;
 		will-change: transform;
 	}
@@ -603,11 +587,6 @@
 		.marketing-metaball-fly-in {
 			animation: none;
 			transform: scale(1);
-		}
-
-		.marketing-headline-pop-in {
-			animation: none;
-			transform: none;
 		}
 
 		.marketing-headline-exit {
