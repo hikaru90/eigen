@@ -12,8 +12,8 @@ describe('marketing forms (UI-only)', () => {
 	it('newsletter does not call fetch', () => {
 		const src = readComponent('marketing-newsletter.svelte');
 		expect(src).not.toMatch(/\bfetch\s*\(/);
-		expect(src).toContain('Join waitlist');
-		expect(src).toContain('not wired yet');
+		expect(src).toContain('Choose your deployment');
+		expect(src).toContain('Start managed');
 	});
 
 	it('contact does not call fetch', () => {

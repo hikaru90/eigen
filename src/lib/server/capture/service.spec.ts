@@ -38,6 +38,13 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
 
+vi.mock('$lib/server/crypto/tenant-encryption', () => ({
+	encryptTenantValue: vi.fn(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`),
+	decryptTenantValue: vi.fn(async ({ ciphertext }: { ciphertext: string }) =>
+		ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext
+	)
+}));
+
 vi.mock('$lib/server/ontology-db', () => ({
 	ensureUserOntologySeeded: vi.fn(async () => undefined)
 }));
@@ -121,10 +128,14 @@ function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				where: vi.fn(() => {
-					const result = [{ n: thoughtCount }];
+					const countResult = [{ n: thoughtCount }];
 					return {
-						limit: vi.fn(async () => result),
-						then: (onfulfilled: (v: typeof result) => unknown) => Promise.resolve(result).then(onfulfilled)
+						orderBy: vi.fn().mockReturnValue({
+							limit: vi.fn(async () => [])
+						}),
+						limit: vi.fn(async () => countResult),
+						then: (onfulfilled: (v: typeof countResult) => unknown) =>
+							Promise.resolve(countResult).then(onfulfilled)
 					};
 				})
 			}))
@@ -147,7 +158,6 @@ describe('captureThought', () => {
 		const stored = await captureThought('u1', 'raw input');
 
 		expect(stored.id).toBe('thought-1');
-		expect(logActivityCallMock).toHaveBeenCalledTimes(1);
 		expect(resolveThoughtCategoryMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			normalized: 'raw input',

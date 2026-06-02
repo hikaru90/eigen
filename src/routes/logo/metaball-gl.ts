@@ -138,6 +138,8 @@ float segmentLinkField(vec2 px, vec2 a, vec2 b, float tubeR) {
   float t = clamp(dot(ap, ab) / len2, 0.0, 1.0);
   vec2 closest = a + ab * t;
   float dist = length(px - closest);
+  // Avoid a zero-field spine along the segment axis (minDistance would hollow the bridge).
+  dist = max(dist, sqrt(u_minDistanceSq) + 0.001);
   return metaballContribution(dist, tubeR);
 }
 

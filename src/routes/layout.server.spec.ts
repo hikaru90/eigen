@@ -1,9 +1,42 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { load } from './+layout.server';
 
+const { getDbMock } = vi.hoisted(() => ({
+	getDbMock: vi.fn()
+}));
+
+vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
+vi.mock('$lib/i18n/ui-locale', () => ({ normalizeUiLocale: (value: string) => value }));
+vi.mock('$lib/paraglide/runtime', () => ({ cookieName: 'locale', cookieMaxAge: 31_536_000 }));
+
+function makeCookies() {
+	return {
+		get: vi.fn(() => undefined),
+		set: vi.fn()
+	};
+}
+
 describe('layout server load', () => {
-	it('returns user or null', () => {
-		expect(load({ locals: { user: { id: 'u1' } } } as never)).toEqual({ user: { id: 'u1' } });
-		expect(load({ locals: { user: undefined } } as never)).toEqual({ user: null });
+	it('returns user or null', async () => {
+		getDbMock.mockReturnValue({
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					where: vi.fn().mockReturnValue({
+						limit: vi.fn().mockResolvedValue([{ preferredUiLocale: 'en' }])
+					})
+				})
+			})
+		});
+
+		const cookies = makeCookies();
+		await expect(load({ locals: { user: { id: 'u1' } }, cookies } as never)).resolves.toEqual({
+			user: { id: 'u1' },
+			preferredUiLocale: 'en'
+		});
+
+		await expect(load({ locals: { user: undefined }, cookies } as never)).resolves.toEqual({
+			user: null,
+			preferredUiLocale: null
+		});
 	});
 });

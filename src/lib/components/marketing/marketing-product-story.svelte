@@ -36,6 +36,7 @@
 		'Data portability',
 		'No subscription',
 		'Full transparency',
+		'Audiographic memory',
 		'Encrypted at rest',
 		'Row-level security'
 	] as const;
@@ -54,18 +55,21 @@
 	const LINK_THICKNESS_MIN = 0.7;
 	const LINK_THICKNESS_MAX = 2.8;
 
-	let containerEl: HTMLElement | null = null;
+	/** Scroll runway below one pinned viewport (550vh total with sticky stage). */
+	const STORY_RUNWAY_VH = 450;
+
+	let storySectionEl: HTMLElement | null = null;
 	let metaballStageEl: HTMLDivElement | null = null;
 	let metaballCanvasEl: HTMLCanvasElement | null = null;
 	let progress = $state(0);
 	let metaballWidth = $state(1);
 	let metaballHeight = $state(1);
 	let metaballRenderer: MetaballRenderer | null = null;
-	let glError = $state<string | null>(null);
 	let metaballs = $state<FloatingMetaball[]>([]);
 	let shaderMetaballLinks = $state<BallLinkSegment[]>([]);
 	let uspLabelPositions = $state<{ x: number; y: number }[]>([]);
 	let metaballRaf = 0;
+	let scrollRaf = 0;
 	let lastFrameTs = 0;
 	let reduceMotion = false;
 	const metaballFieldParams: MetaballFieldParams = {
@@ -84,16 +88,11 @@
 		return clamp((progress - start) / (end - start));
 	}
 
-	/** Smoothstep easing (0–1 in, 0–1 out). */
 	function ease(t: number) {
 		const x = clamp(t);
 		return x * x * (3 - 2 * x);
 	}
 
-	/**
-	 * Plateau opacity: quick eased fade-in, long hold at 1, eased fade-out.
-	 * Wider gap between fadeInEnd and fadeOutStart = visible longer.
-	 */
 	function stageOpacity(fadeInStart: number, fadeInEnd: number, fadeOutStart: number, fadeOutEnd: number) {
 		if (progress <= fadeInStart || progress >= fadeOutEnd) return 0;
 		if (progress >= fadeInEnd && progress <= fadeOutStart) return 1;
@@ -108,14 +107,22 @@
 	}
 
 	function updateProgress() {
-		if (!browser || !containerEl) return;
-		const rect = containerEl.getBoundingClientRect();
+		if (!browser || !storySectionEl) return;
+		const rect = storySectionEl.getBoundingClientRect();
 		const travel = rect.height - window.innerHeight;
 		if (travel <= 0) {
 			progress = 0;
 			return;
 		}
 		progress = clamp(-rect.top / travel);
+	}
+
+	function scheduleProgressUpdate() {
+		if (scrollRaf !== 0) return;
+		scrollRaf = window.requestAnimationFrame(() => {
+			scrollRaf = 0;
+			updateProgress();
+		});
 	}
 
 	function createSeededRandom(seed: number) {
@@ -130,7 +137,6 @@
 		return min + random() * (max - min);
 	}
 
-	/** Random canvas placement; rejects samples inside a center hole for the headline. */
 	function randomBallOrigin(width: number, height: number, radius: number, random: () => number) {
 		const cx = width / 2;
 		const cy = height / 2;
@@ -162,10 +168,8 @@
 		metaballRenderer?.dispose();
 		try {
 			metaballRenderer = createMetaballRenderer(metaballCanvasEl, metaballWidth, metaballHeight);
-			glError = null;
-		} catch (error) {
+		} catch {
 			metaballRenderer = null;
-			glError = error instanceof Error ? error.message : 'WebGL2 unavailable';
 		}
 	}
 
@@ -267,14 +271,12 @@
 	function tickMetaballs(timestamp: number) {
 		const dt = lastFrameTs === 0 ? 0 : Math.min((timestamp - lastFrameTs) / 1000, 0.05);
 		lastFrameTs = timestamp;
-		if (metaballFrameOpacity > 0.02 && !reduceMotion && dt > 0) {
+		if (metaballFrameOpacity > 0.02 && !reduceMotion && document.visibilityState === 'visible' && dt > 0) {
 			const t = timestamp / 1000;
 			metaballs = metaballs.map((ball) => {
 				const x = ball.ox + Math.cos(t * 0.28 + ball.phase) * ball.drift;
 				const y = ball.oy + Math.sin(t * 0.34 + ball.phase) * ball.drift;
-				const vx = ball.vx;
-				const vy = ball.vy;
-				return { ...ball, x, y, vx, vy };
+				return { ...ball, x, y };
 			});
 			recomputeLinksAndRender();
 		}
@@ -285,9 +287,9 @@
 		if (!browser) return;
 		reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		updateProgress();
-		const onScroll = () => updateProgress();
+		const onScroll = () => scheduleProgressUpdate();
 		const onResize = () => {
-			updateProgress();
+			scheduleProgressUpdate();
 			if (metaballStageEl) syncMetaballCanvasSize(metaballStageEl.getBoundingClientRect());
 		};
 		window.addEventListener('scroll', onScroll, { passive: true });
@@ -295,6 +297,7 @@
 		metaballRaf = window.requestAnimationFrame(tickMetaballs);
 		return () => {
 			window.cancelAnimationFrame(metaballRaf);
+			if (scrollRaf !== 0) window.cancelAnimationFrame(scrollRaf);
 			metaballRenderer?.dispose();
 			metaballRenderer = null;
 			window.removeEventListener('scroll', onScroll);
@@ -316,10 +319,10 @@
 		return () => ro.disconnect();
 	});
 
-	/** Fades metaballs out while scrolling the story; enter zoom is CSS on load, not scroll. */
 	const metaballFrameOpacity = $derived(fadeOutOpacity(0.22, 0.34));
-	/** Visible on first frame over metaballs; fades out as capture takes over. */
-	const headlineOpacity = $derived(fadeOutOpacity(0.36, 0.46));
+	/** Hero reacts on first scroll (no 10% dead zone). */
+	const headlineExitT = $derived(ease(segment(0, 0.14)));
+	const headlineOnScreen = $derived(headlineExitT < 1);
 	const captureOpacity = $derived(stageOpacity(0.12, 0.18, 0.4, 0.48));
 	const processOpacity = $derived(stageOpacity(0.24, 0.3, 0.52, 0.6));
 	const graphOpacity = $derived(stageOpacity(0.36, 0.42, 0.64, 0.72));
@@ -333,12 +336,10 @@
 		return opacity >= 0.12;
 	}
 
-	/** Horizontal offset outward from center; vertical center aligned with the ball. */
 	function uspLabelCanvasPosition(ball: FloatingMetaball) {
 		const cx = metaballWidth / 2;
 		const dx = ball.x - cx;
-		const dy = ball.y - metaballHeight / 2;
-		const len = Math.hypot(dx, dy) || 1;
+		const len = Math.hypot(dx, ball.y - metaballHeight / 2) || 1;
 		const gap = ball.r * 1.35;
 		return {
 			x: ball.x + (dx / len) * gap,
@@ -347,25 +348,34 @@
 	}
 </script>
 
-<section bind:this={containerEl} class="relative mb-24 h-[550vh] md:mb-32">
-	<div class="sticky top-0 z-10 flex h-dvh items-center overflow-hidden">
-		<div
-			bind:this={metaballStageEl}
-			class="pointer-events-none absolute inset-0 z-0 overflow-hidden"
-			style="opacity: {metaballFrameOpacity}"
-			aria-hidden={metaballFrameOpacity < 0.12}
-		>
-			<div class="metaball-stage marketing-metaball-fly-in absolute inset-0 size-full">
-				<canvas
-					bind:this={metaballCanvasEl}
-					class="metaball-canvas absolute inset-0 z-10 block h-full w-full touch-none select-none"
-				></canvas>
+<section
+	bind:this={storySectionEl}
+	class="marketing-product-story relative mb-24 md:mb-32"
+	style="--story-runway-vh: {STORY_RUNWAY_VH}"
+>
+	<div class="story-sticky-stage sticky top-0 z-10 h-dvh overflow-hidden contain-paint">
+		<div class="story-decoration pointer-events-none absolute inset-0 z-0">
+			<div
+				bind:this={metaballStageEl}
+				class="absolute inset-0 overflow-hidden"
+				style="opacity: {metaballFrameOpacity}"
+				aria-hidden={metaballFrameOpacity < 0.12}
+			>
+				<div class="metaball-stage marketing-metaball-fly-in absolute inset-0 size-full">
+					<canvas
+						bind:this={metaballCanvasEl}
+						class="metaball-canvas absolute inset-0 z-10 block h-full w-full touch-none select-none"
+					></canvas>
+				</div>
 				{#if uspLabelPositions.length === heroUsps.length && metaballWidth > 1}
-					<div class="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-hidden="true">
+					<div
+						class="marketing-metaball-labels pointer-events-none absolute inset-0 z-20 overflow-hidden"
+						aria-hidden="true"
+					>
 						{#each heroUsps as label, i (label)}
 							{@const pos = uspLabelPositions[i]}
 							<span
-								class="absolute max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/25 bg-white/88 px-2 py-0.5 text-center text-[10px] leading-tight font-medium tracking-tight text-black/85 shadow-sm backdrop-blur-sm sm:max-w-none sm:px-2.5 sm:text-[11px]"
+								class="marketing-metaball-label absolute max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#444444] px-2 py-0.5 text-center text-[10px] leading-tight font-medium tracking-tight text-[#28F97F] shadow-sm sm:max-w-none sm:px-2.5 sm:text-[11px]"
 								style="left: {(pos.x / metaballWidth) * 100}%; top: {(pos.y / metaballHeight) * 100}%"
 							>
 								{label}
@@ -374,30 +384,35 @@
 					</div>
 				{/if}
 			</div>
+			<div
+				class="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(29,158,117,0.12),transparent_55%)]"
+				style="opacity: {metaballFrameOpacity}"
+				aria-hidden="true"
+			></div>
 		</div>
-		<div class="absolute inset-0 z-1 bg-[radial-gradient(circle_at_50%_45%,rgba(29,158,117,0.12),transparent_55%)]"></div>
-		<div class="relative z-10 mx-auto flex h-full w-full max-w-6xl items-center justify-center px-4">
-			<div
-				class="pointer-events-none absolute inset-0"
-				style="opacity: {headlineOpacity}"
-				aria-hidden={headlineOpacity < 0.12}
-			>
-				<div class="absolute inset-0 flex items-center justify-center px-4">
-					<h1
-						class="marketing-pop-in relative z-10 select-text text-center text-5xl leading-[0.92] font-semibold tracking-tight sm:text-7xl md:text-8xl {isInteractive(
-							headlineOpacity
-						)
-							? 'pointer-events-auto'
-							: 'pointer-events-none'}"
-					>
-						Your memories.
-						<span class="block text-[#0F6E56]">Not theirs.</span>
-					</h1>
-				</div>
-			</div>
 
+		<div
+			class="story-headline pointer-events-none absolute inset-0 z-5 flex items-center justify-center px-4"
+			aria-hidden={!headlineOnScreen && metaballFrameOpacity < 0.12}
+		>
 			<div
-				class="pointer-events-none absolute inset-0 grid place-items-center px-4"
+				class="marketing-headline-pop-in relative z-10 {headlineOnScreen
+					? 'pointer-events-auto'
+					: 'pointer-events-none'}"
+			>
+				<h1
+					class="marketing-headline-exit select-text text-center text-5xl leading-[0.92] font-semibold tracking-tight text-foreground sm:text-7xl md:text-8xl"
+					style="--exit-t: {headlineExitT}"
+				>
+					<span class="marketing-headline-line">Your&nbsp;memories.</span>
+					<span class="marketing-headline-line">Not&nbsp;theirs.</span>
+				</h1>
+			</div>
+		</div>
+
+		<div class="story-beats pointer-events-none absolute inset-0 z-10 mx-auto h-dvh w-full max-w-6xl px-4">
+			<div
+				class="absolute inset-0 z-10 grid place-items-center px-4"
 				style="opacity: {captureOpacity}"
 			>
 				<div
@@ -415,7 +430,7 @@
 			</div>
 
 			<div
-				class="pointer-events-none absolute inset-0 grid place-items-center px-4"
+				class="absolute inset-0 z-20 grid place-items-center px-4"
 				style="opacity: {processOpacity}"
 			>
 				<div
@@ -436,7 +451,7 @@
 			</div>
 
 			<div
-				class="pointer-events-none absolute inset-0 grid place-items-center px-4"
+				class="absolute inset-0 z-30 grid place-items-center px-4"
 				style="opacity: {graphOpacity}"
 			>
 				<div
@@ -452,7 +467,7 @@
 					</p>
 					{#each [0, 1, 2, 3, 4, 5] as node}
 						<div
-							class="absolute size-3 rounded-full bg-[#0F6E56]"
+							class="absolute size-3 rounded-full bg-[#557416]"
 							style="left: {50 + Math.cos(node * 1.05) * graphSpread}%; top: {52 + Math.sin(node * 0.95) * (graphSpread * 0.7)}%"
 						></div>
 					{/each}
@@ -461,7 +476,7 @@
 			</div>
 
 			<div
-				class="pointer-events-none absolute inset-0 grid place-items-center px-4"
+				class="absolute inset-0 z-40 grid place-items-center px-4"
 				style="opacity: {retrievalOpacity}"
 			>
 				<div
@@ -478,7 +493,7 @@
 						<p class="rounded-md border border-border bg-background p-3">
 							When did we promise to revisit the migration blockers?
 						</p>
-						<p class="rounded-md border border-[#0F6E56] bg-[#e9f4f0] p-3 text-foreground dark:bg-[#143128]">
+						<p class="rounded-md border border-[#557416] bg-[#e9f4f0] p-3 text-foreground dark:bg-[#143128]">
 							Found it: customer sync on Mar 18, owner assigned, follow-up scheduled for Apr 02.
 						</p>
 						<p class="text-muted-foreground" style="transform: translateX({hitShift}px)">
@@ -489,7 +504,7 @@
 			</div>
 
 			<div
-				class="pointer-events-none absolute right-4 bottom-6 left-4 md:right-10 md:bottom-10 md:left-10"
+				class="absolute right-4 bottom-6 left-4 z-50 md:right-10 md:bottom-10 md:left-10"
 				style="opacity: {timeOpacity}"
 			>
 				<div
@@ -512,6 +527,10 @@
 </section>
 
 <style>
+	.marketing-product-story {
+		min-height: calc(100dvh + var(--story-runway-vh, 450) * 1vh);
+	}
+
 	.metaball-stage {
 		transform-origin: center center;
 	}
@@ -534,9 +553,9 @@
 		}
 	}
 
-	.marketing-pop-in {
+	.marketing-headline-pop-in {
 		animation: marketing-pop-in 520ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
-		transform-origin: center;
+		transform-origin: center center;
 	}
 
 	@keyframes marketing-pop-in {
@@ -551,17 +570,53 @@
 		}
 	}
 
+	.story-headline {
+		isolation: isolate;
+	}
+
+	.marketing-headline-exit {
+		--exit-t: 0;
+		width: max-content;
+		max-width: min(100%, 22em);
+		margin-inline: auto;
+		transform: translateY(calc(var(--exit-t) * -95vh))
+			scale(calc(1 + var(--exit-t) * 0.5));
+		transform-origin: center center;
+		will-change: transform;
+	}
+
+	.marketing-headline-line {
+		display: block;
+		white-space: nowrap;
+		text-wrap: nowrap;
+	}
+
+	.marketing-metaball-label {
+		mix-blend-mode: difference;
+	}
+
 	@media (prefers-reduced-motion: reduce) {
+		.marketing-product-story {
+			min-height: auto;
+		}
+
 		.marketing-metaball-fly-in {
 			animation: none;
 			transform: scale(1);
 		}
 
-		.marketing-pop-in {
+		.marketing-headline-pop-in {
 			animation: none;
-			opacity: 1;
 			transform: none;
 		}
 
+		.marketing-headline-exit {
+			--exit-t: 0;
+			transform: none;
+		}
+
+		.marketing-metaball-label {
+			mix-blend-mode: normal;
+		}
 	}
 </style>

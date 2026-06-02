@@ -14,7 +14,9 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock,
 	appSql: appSqlMock,
 	appDbAsyncLocal: { run: (_db: unknown, fn: () => unknown) => fn() },
-	createScopedDrizzle: createScopedDrizzleMock
+	createScopedDrizzle: createScopedDrizzleMock,
+	activateTenantDbSession: vi.fn(async () => undefined),
+	deactivateTenantDbSession: vi.fn(async () => undefined)
 }));
 vi.mock('$lib/server/llm/agent-loop', () => ({ agentChat: agentChatMock }));
 vi.mock('$lib/server/activity/trace-context', () => ({

@@ -25,7 +25,7 @@
 			class="text-foreground max-w-2xl text-4xl leading-[1.2] font-medium tracking-tight sm:text-5xl lg:text-[2.25rem]"
 		>
 			Your memory.
-			<span class="block text-[#0F6E56]">Not theirs.</span>
+			<span class="block">Not theirs.</span>
 		</h1>
 		<p class="text-muted-foreground mt-4 max-w-xl text-base leading-relaxed">
 			Eigen Mesh keeps your context alive across tools and sessions — without surrendering it to

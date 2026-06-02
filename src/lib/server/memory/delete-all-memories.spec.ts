@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+	assertDeleteAllMemoriesConfirmation,
+	deleteAllMemoriesForUser
+} from './delete-all-memories';
 
 const { getDbMock, deleteAllUserGraphVerticesMock } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
@@ -16,8 +20,7 @@ describe('deleteAllMemoriesForUser', () => {
 		deleteAllUserGraphVerticesMock.mockResolvedValue(undefined);
 	});
 
-	it('rejects wrong confirmation phrase', async () => {
-		const { assertDeleteAllMemoriesConfirmation } = await import('./delete-all-memories');
+	it('rejects wrong confirmation phrase', () => {
 		expect(() => assertDeleteAllMemoriesConfirmation('nope')).toThrow(/exactly match/);
 	});
 
@@ -39,7 +42,6 @@ describe('deleteAllMemoriesForUser', () => {
 			transaction: vi.fn(async (fn: (inner: typeof tx) => Promise<unknown>) => fn(tx))
 		});
 
-		const { deleteAllMemoriesForUser } = await import('./delete-all-memories');
 		const result = await deleteAllMemoriesForUser('u1');
 
 		expect(result).toEqual({ thoughtsDeleted: 2, entitiesDeleted: 2 });

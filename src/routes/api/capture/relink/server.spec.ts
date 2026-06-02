@@ -9,7 +9,9 @@ vi.mock('$lib/server/capture/service', () => ({ relinkThoughtGraph: relinkThough
 vi.mock('$lib/server/db', () => ({
 	appSql: { reserve: reserveMock },
 	appDbAsyncLocal: { run: (_db: unknown, fn: () => unknown) => fn() },
-	createScopedDrizzle: vi.fn(() => ({}))
+	createScopedDrizzle: vi.fn(() => ({})),
+	activateTenantDbSession: vi.fn(async () => undefined),
+	deactivateTenantDbSession: vi.fn(async () => undefined)
 }));
 
 function ndjsonRequest(body: unknown) {

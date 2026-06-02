@@ -452,11 +452,12 @@ export async function relinkThoughtGraph(
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 		.limit(1);
-	const decryptedExisting = await decryptThoughtRow(userId, existing);
 
 	if (!existing) {
 		return { ok: false as const, reason: 'not_found' as const };
 	}
+
+	const decryptedExisting = await decryptThoughtRow(userId, existing);
 
 	// Sync the node first (fast, no LLM).
 	await emitProgress(onProgress, 'graph');

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { closeAuthDbPool } from './auth-db';
 
 const { endMock } = vi.hoisted(() => ({
 	endMock: vi.fn(async () => undefined)
@@ -16,7 +17,6 @@ vi.mock('drizzle-orm/postgres-js', () => ({
 
 describe('db/auth-db', () => {
 	it('closeAuthDbPool closes auth pool', async () => {
-		const { closeAuthDbPool } = await import('./auth-db');
 		await closeAuthDbPool();
 		expect(endMock).toHaveBeenCalled();
 	});

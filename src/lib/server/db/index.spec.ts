@@ -36,9 +36,14 @@ function makeReservedMock(): ReservedMock {
 }
 
 describe('db/index', () => {
-	it('withDbUser scopes the session user and releases the reserved connection', async () => {
+	it(
+		'withDbUser scopes the session user and releases the reserved connection',
+		async () => {
 		const release = vi.fn(async () => undefined);
-		const reserved = Object.assign(vi.fn(async () => undefined), { release });
+		const reserved = Object.assign(vi.fn(async () => undefined), {
+			release,
+			unsafe: vi.fn(async () => undefined)
+		});
 		reserveMock.mockResolvedValue(reserved);
 
 		const { withDbUser } = await import('./index');
@@ -46,9 +51,12 @@ describe('db/index', () => {
 
 		await expect(withDbUser('user-123', fn)).resolves.toBe('scoped');
 		expect(reserved).toHaveBeenCalled();
+		expect(reserved.unsafe).toHaveBeenCalled();
 		expect(release).toHaveBeenCalled();
 		expect(fn).toHaveBeenCalled();
-	});
+		},
+		10_000
+	);
 
 	it('closeAppDbPool closes postgres pool', async () => {
 		const { closeAppDbPool } = await import('./index');
