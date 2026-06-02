@@ -33,12 +33,16 @@ export function scrollToSectionId(sectionId: string, duration = 400): void {
 export function scrollSectionToProgress(
 	sectionEl: HTMLElement,
 	targetProgress: number,
-	duration = 650
+	duration = 650,
+	onComplete?: () => void
 ): void {
 	if (!browser) return;
 
 	const travel = sectionEl.offsetHeight - window.innerHeight;
-	if (travel <= 0) return;
+	if (travel <= 0) {
+		onComplete?.();
+		return;
+	}
 
 	const clamped = Math.min(1, Math.max(0, targetProgress));
 	const rect = sectionEl.getBoundingClientRect();
@@ -52,7 +56,11 @@ export function scrollSectionToProgress(
 		const elapsed = currentTime - startTime;
 		const t = Math.min(elapsed / duration, 1);
 		window.scrollTo(0, start + change * easeInOutQuad(t));
-		if (elapsed < duration) requestAnimationFrame(step);
+		if (elapsed < duration) {
+			requestAnimationFrame(step);
+		} else {
+			onComplete?.();
+		}
 	}
 
 	requestAnimationFrame(step);

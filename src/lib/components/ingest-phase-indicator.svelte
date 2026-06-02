@@ -17,13 +17,17 @@
 		pipeline: Array<CaptureIngestPhase | CaptureIngestPhase[]>;
 		/** Timestamp when the overall capture started. */
 		startMs: number;
+		/** When set, freezes elapsed timers (e.g. scroll-driven marketing demo). */
+		nowOverrideMs?: number;
+		/** When true, every step is shown as completed — no active spinner. */
+		allComplete?: boolean;
 	}
 
-	let { events, pipeline, startMs }: Props = $props();
+	let { events, pipeline, startMs, nowOverrideMs, allComplete = false }: Props = $props();
 
 	// Last event is "active"; everything before it is "completed".
-	const activeItem  = $derived(events.at(-1) ?? null);
-	const doneItems   = $derived(events.slice(0, -1));
+	const activeItem = $derived(allComplete ? null : (events.at(-1) ?? null));
+	const doneItems = $derived(allComplete ? events : events.slice(0, -1));
 	const totalSteps  = $derived(pipeline.length);
 
 	// Which pipeline slot does the active event belong to?
@@ -43,7 +47,11 @@
 	});
 
 	const progress = $derived(
-		activeStepIndex >= 0 ? ((activeStepIndex + 1) / totalSteps) * 100 : 0
+		allComplete
+			? 100
+			: activeStepIndex >= 0
+				? ((activeStepIndex + 1) / totalSteps) * 100
+				: 0
 	);
 
 	const nextSlot = $derived(
@@ -62,42 +70,49 @@
 		return CAPTURE_INGEST_PHASE_COPY[slot].title;
 	}
 
-	function durationLabel(item: TimestampedEvent, index: number): string {
-		const next = events[index + 1];
-		const endMs = next?.arrivedAt ?? item.arrivedAt;
-		const ms = endMs - item.arrivedAt;
-		if (ms < 50) return '';
-		if (ms < 1000) return `${ms}ms`;
-		return `${(ms / 1000).toFixed(1)}s`;
+	function formatDuration(ms: number): string {
+		const roundedMs = Math.round(ms);
+		if (roundedMs < 50) return '';
+		if (roundedMs < 1000) return `${roundedMs}ms`;
+		const seconds = Math.round(roundedMs / 100) / 10;
+		return `${seconds.toFixed(1)}s`;
 	}
 
-	// Live elapsed ticker — only ticks while something is active.
-	let nowMs = $state(Date.now());
+	function durationLabel(item: TimestampedEvent, index: number): string {
+		const next = events[index + 1];
+		const endMs = next?.arrivedAt ?? (allComplete ? nowMs : item.arrivedAt);
+		return formatDuration(endMs - item.arrivedAt);
+	}
+
+	// Live elapsed ticker — only ticks while something is active (unless frozen).
+	let liveNowMs = $state(Date.now());
 	$effect(() => {
-		if (!activeItem) return;
-		const id = setInterval(() => { nowMs = Date.now(); }, 100);
+		if (nowOverrideMs !== undefined || !activeItem) return;
+		const id = setInterval(() => {
+			liveNowMs = Date.now();
+		}, 100);
 		return () => clearInterval(id);
 	});
+	const nowMs = $derived(nowOverrideMs ?? liveNowMs);
 	const totalElapsed = $derived.by(() => {
-		if (!startMs) return '';
-		const ms = nowMs - startMs;
-		if (ms < 1000) return `${ms}ms`;
-		return `${(ms / 1000).toFixed(1)}s`;
+		if (!startMs && startMs !== 0) return '';
+		return formatDuration(nowMs - startMs);
 	});
 	// Per-step elapsed — how long the active step has been running.
 	const stepElapsed = $derived.by(() => {
 		if (!activeItem) return '';
-		const ms = nowMs - activeItem.arrivedAt;
-		if (ms < 1000) return `${ms}ms`;
-		return `${(ms / 1000).toFixed(1)}s`;
+		return formatDuration(nowMs - activeItem.arrivedAt);
 	});
 </script>
 
-<div class="space-y-3" role="status" aria-live="polite">
+<div class="min-w-0 space-y-3" role="status" aria-live="polite">
 
 	<!-- Header: step counter + running clock -->
 	<div class="flex items-center justify-between text-xs text-muted-foreground">
-		{#if activeItem}
+		{#if allComplete}
+			<span>All {totalSteps} steps complete</span>
+			<span class="tabular-nums">{totalElapsed}</span>
+		{:else if activeItem}
 			<span>Step {activeStepIndex + 1} of {totalSteps}</span>
 			<span class="tabular-nums">{totalElapsed}</span>
 		{:else}
@@ -116,9 +131,9 @@
 		<div class="space-y-1">
 			{#each doneItems as item, i (i)}
 				{@const dur = durationLabel(item, i)}
-				<div class="flex items-center gap-2 text-xs">
-					<CheckIcon class="size-3 shrink-0 text-green-600" aria-hidden="true" />
-					<span class="font-medium text-green-700 dark:text-green-500 flex-1 truncate">
+				<div class="flex min-w-0 items-start gap-2 text-xs">
+					<CheckIcon class="mt-0.5 size-3 shrink-0 text-green-600" aria-hidden="true" />
+					<span class="min-w-0 flex-1 wrap-break-word font-medium text-green-700 dark:text-green-500">
 						{eventLabel(item.event)}
 					</span>
 					{#if dur}
@@ -130,12 +145,19 @@
 	{/if}
 
 	<!-- Active step -->
-	{#if activeItem}
+	{#if allComplete}
+		<div class="flex items-center gap-2 rounded-lg border border-green-600/20 bg-green-600/5 p-3 text-sm">
+			<CheckIcon class="size-4 shrink-0 text-green-600" aria-hidden="true" />
+			<p class="font-medium text-green-700 dark:text-green-500">Capture complete</p>
+		</div>
+	{:else if activeItem}
 		<div class="flex items-start gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
 			<LoaderCircleIcon class="size-4 animate-spin text-primary shrink-0 mt-0.5" aria-hidden="true" />
 			<div class="min-w-0 flex-1">
-				<div class="flex items-center justify-between gap-2">
-					<p class="text-sm font-medium text-foreground">{eventLabel(activeItem.event)}</p>
+				<div class="flex min-w-0 items-start justify-between gap-2">
+					<p class="min-w-0 flex-1 wrap-break-word text-sm font-medium text-foreground">
+						{eventLabel(activeItem.event)}
+					</p>
 					<span class="text-xs tabular-nums text-muted-foreground shrink-0">{stepElapsed}</span>
 				</div>
 				{#if !activeItem.event.parallel}

@@ -8,9 +8,11 @@
 	import { scrollToSectionId } from '$lib/components/marketing/scroll-to-element';
 
 	const navLinks = [
-		{ label: 'Why Mesh', target: 'uspsSectionTarget' },
-		{ label: 'How it works', target: 'flowSectionTarget' },
-		{ label: 'Pricing', target: 'transparencySectionTarget' }
+		{ label: 'How it works', target: 'topTarget' },
+		{ label: 'Why Eigenmesh', target: 'whySectionTarget' },
+		{ label: 'Transparency', target: 'transparencySectionTarget' },
+		{ label: 'Pricing', target: 'pricingSectionTarget' },
+		{ label: 'FAQ', target: 'faqSectionTarget' }
 	];
 
 	const legalLinks = [
@@ -30,7 +32,7 @@
 </script>
 
 <div class="marketing-on-dark border-t-2 border-white/20 bg-black py-12 text-white">
-	<div class="marketing-container flex flex-col items-center gap-6 text-center">
+	<div class="mx-auto flex w-full max-w-6xl flex-col items-center gap-6 px-4 text-center">
 		<p class="text-sm font-medium">Get early access</p>
 		<div class="flex flex-wrap justify-center gap-3">
 			<MarketingButton
@@ -39,7 +41,7 @@
 				surface="dark"
 				size="lg"
 				class="rounded-[6px]"
-				onclick={() => navigateToSection('newsletterSectionTarget')}
+				onclick={() => navigateToSection('pricingSectionTarget')}
 			>
 				Join waitlist
 			</MarketingButton>
@@ -57,7 +59,7 @@
 </div>
 
 <footer class="bg-foreground text-background">
-	<div class="marketing-container py-16">
+	<div class="mx-auto w-full max-w-6xl px-4 py-16">
 		<div class="grid grid-cols-1 gap-12 lg:grid-cols-4 lg:gap-8">
 			<div class="lg:col-span-2">
 				<div class="mb-6">

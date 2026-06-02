@@ -36,7 +36,7 @@
 				type="button"
 				size="lg"
 				class="rounded-[6px] px-5"
-				onclick={() => scrollToSectionId('newsletterSectionTarget')}
+				onclick={() => scrollToSectionId('pricingSectionTarget')}
 			>
 				Get early access
 			</MarketingButton>

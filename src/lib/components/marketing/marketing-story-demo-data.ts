@@ -81,15 +81,39 @@ export const DEMO_GRAPH_EDGES = [
 	{ id: 'ed-10', sourceId: 'e-infra', targetId: 'e-blockers', relationType: 'mentions', kind: 'mention' }
 ];
 
+/**
+ * Graph beat reveal schedule (0–1 scroll within the graph beat).
+ * Existing ontology nodes are visible from the start; only entities
+ * extracted from the demo capture pop in as the graph syncs.
+ */
+export const DEMO_GRAPH_NODE_REVEAL: Record<string, number> = {
+	// Already in the graph before this capture
+	'e-blockers': 0,
+	'e-cutover': 0,
+	'e-db': 0,
+	'e-infra': 0,
+	'e-q3': 0,
+	// Added from “Follow up with Alex…” capture
+	'e-capture': 0.32,
+	'e-alex': 0.48,
+	'e-april': 0.62
+};
+
 export const DEMO_CHAT_QUESTION = 'When is the Alex follow-up?';
 
 export const DEMO_ANSWER_QUESTION_PREVIEW = JSON.stringify({
-	answer: 'Answer: Early April — you captured a follow-up with Alex on migration blockers.',
+	answer:
+		'Answer: Early April — you captured a follow-up with Alex on migration blockers. I can also show it in the **Temporal events** tab.',
 	retrieved: [
 		{
 			id: 'th_demo_018f4a',
 			normalizedText: 'Follow up with Alex on migration blockers by early April.',
 			category: 'task'
+		},
+		{
+			id: 'th_demo_019a2c',
+			normalizedText: 'Alex owns the migration blocker review — sync before phase-two cutover.',
+			category: 'reference'
 		}
 	]
 });
@@ -138,20 +162,65 @@ function pipelineSlotEvent(slot: CaptureIngestPhase | CaptureIngestPhase[]): Pro
 	return { parallel: false, phase: slot };
 }
 
+/** Plausible per-step durations for the marketing ingest demo (ms). */
+export const DEMO_INGEST_STEP_DURATIONS_MS = [
+	420, // accounting
+	580, // ontology
+	1180, // embedding
+	340, // session
+	760, // persist
+	1420, // graph
+	2280, // relations · entities · temporal · memory_type · cues (parallel)
+	480 // ontology_eval
+] as const;
+
+const DEMO_INGEST_TOTAL_MS = DEMO_INGEST_STEP_DURATIONS_MS.reduce((sum, ms) => sum + ms, 0);
+
+function demoIngestArrivalMs(stepIndex: number): number {
+	let sum = 0;
+	for (let i = 0; i < stepIndex; i += 1) {
+		sum += DEMO_INGEST_STEP_DURATIONS_MS[i]!;
+	}
+	return sum;
+}
+
+export type DemoIngestScrollState = {
+	events: Array<{ event: ProgressEvent; arrivedAt: number }>;
+	complete: boolean;
+	nowMs: number;
+};
+
 /** Map scroll segment [0,1] to ingest progress events for IngestPhaseIndicator. */
-export function demoIngestEventsForProgress(
-	progress: number,
-	startMs = 1_700_000_000_000
-): Array<{ event: ProgressEvent; arrivedAt: number }> {
+export function demoIngestEventsForProgress(progress: number): DemoIngestScrollState {
 	const clamped = Math.min(1, Math.max(0, progress));
 	const slotCount = CAPTURE_PIPELINE.length;
-	const activeIndex = Math.min(slotCount - 1, Math.floor(clamped * slotCount));
+	const elapsedTarget = clamped * DEMO_INGEST_TOTAL_MS;
+
+	if (clamped >= 1) {
+		const events = CAPTURE_PIPELINE.map((slot, i) => ({
+			event: pipelineSlotEvent(slot),
+			arrivedAt: demoIngestArrivalMs(i)
+		}));
+		return { events, complete: true, nowMs: DEMO_INGEST_TOTAL_MS };
+	}
+
+	let activeIndex = 0;
+	for (let i = 0; i < slotCount; i += 1) {
+		const stepEnd = demoIngestArrivalMs(i + 1);
+		if (elapsedTarget < stepEnd) {
+			activeIndex = i;
+			break;
+		}
+		activeIndex = i;
+	}
+
 	const events: Array<{ event: ProgressEvent; arrivedAt: number }> = [];
 	for (let i = 0; i <= activeIndex; i += 1) {
 		events.push({
 			event: pipelineSlotEvent(CAPTURE_PIPELINE[i]!),
-			arrivedAt: startMs + i * 900
+			arrivedAt: demoIngestArrivalMs(i)
 		});
 	}
-	return events;
+
+	return { events, complete: false, nowMs: elapsedTarget };
 }

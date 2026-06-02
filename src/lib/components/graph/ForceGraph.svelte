@@ -43,7 +43,11 @@
 		statusSuffix = '',
 		height = '400px',
 		interactive = true,
-		showStatus = true
+		showStatus = true,
+		/** 0–1 scroll-driven zoom when `interactive` is false (marketing story). */
+		presentationProgress = 0,
+		/** node id → beat progress when the node fades in (presentation mode). */
+		presentationReveals = {} as Record<string, number>
 	}: {
 		nodes: GraphVizNode[];
 		edges: GraphVizEdge[];
@@ -52,12 +56,33 @@
 		height?: string;
 		interactive?: boolean;
 		showStatus?: boolean;
+		presentationProgress?: number;
+		presentationReveals?: Record<string, number>;
 	} = $props();
 
 	const fillParent = $derived(height === '100%');
 
 	let rootEl: HTMLDivElement | undefined;
 	let status = $state('');
+	let applyPresentationFrame: ((t: number) => void) | null = null;
+	let lastPresentationProgress = 0;
+	let presentationMounted = $state(false);
+
+	function clampPresentationProgress(t: number) {
+		return Math.min(1, Math.max(0, t));
+	}
+
+	function easePresentation(t: number) {
+		const x = clampPresentationProgress(t);
+		return x * x * (3 - 2 * x);
+	}
+
+	$effect(() => {
+		if (interactive) return;
+		void presentationMounted;
+		lastPresentationProgress = clampPresentationProgress(presentationProgress);
+		applyPresentationFrame?.(lastPresentationProgress);
+	});
 
 	onMount(() => {
 		let cancelled = false;
@@ -204,10 +229,34 @@
 				.data(simNodes, (d) => d.id)
 				.join((enter) => {
 					const g = enter.append('g').style('cursor', 'default');
-					g.append('circle').attr('r', 8).attr('fill', nodeFill).attr('stroke', 'currentColor').attr('stroke-width', 1);
+					const inner = g.append('g').attr('class', 'fg-node-inner');
+					inner
+						.append('circle')
+						.attr('class', 'fg-node-flash-bg')
+						.attr('r', 8)
+						.attr('fill', '#28F97F')
+						.attr('stroke', 'none')
+						.attr('opacity', 0);
+					inner
+						.append('circle')
+						.attr('class', 'fg-node-reveal-ring')
+						.attr('r', 8)
+						.attr('fill', 'none')
+						.attr('stroke', '#28F97F')
+						.attr('stroke-width', 2)
+						.attr('opacity', 0);
+					inner
+						.append('circle')
+						.attr('class', 'fg-node-core')
+						.attr('r', 8)
+						.attr('fill', nodeFill)
+						.attr('stroke', 'currentColor')
+						.attr('stroke-width', 1);
 					g.append('title').text((d) => `${d.kind}: ${d.label || d.id}\n${d.subtype}`);
-					g.append('text')
-						.attr('x', 12).attr('y', 4)
+					inner
+						.append('text')
+						.attr('x', 12)
+						.attr('y', 4)
 						.attr('class', 'fill-foreground text-[10px] font-mono')
 						.text(labelText);
 					return g;
@@ -226,7 +275,6 @@
 			simulation.stop();
 			for (let i = 0; i < 80; i++) simulation.tick();
 			ticked(linkSel, nodeSel);
-			simulation.restart();
 
 			function relayoutSimulation(d: { w: number; h: number }, alpha = 1) {
 				simulation.force('x', d3.forceX<SimNode>(d.w / 2).strength(0.08));
@@ -240,6 +288,103 @@
 
 			status = `${simNodes.length} nodes · ${simLinks.length} edges${statusSuffix ? ' · ' + statusSuffix : ''}`;
 
+			const presentationRevealMap = presentationReveals;
+			const presentationMode = !interactive && Object.keys(presentationRevealMap).length > 0;
+			const revealWindow = 0.1;
+
+			function nodeRevealAt(nodeId: string) {
+				if (!(nodeId in presentationRevealMap)) return 1;
+				return presentationRevealMap[nodeId] ?? 1;
+			}
+
+			function nodeRevealProgress(nodeId: string, t: number) {
+				const at = nodeRevealAt(nodeId);
+				if (at >= 1) return 0;
+				if (at <= 0) return 1;
+				if (t <= at) return 0;
+				return clampPresentationProgress((t - at) / revealWindow);
+			}
+
+			function nodeIsVisible(nodeId: string, t: number) {
+				return nodeRevealProgress(nodeId, t) > 0.001;
+			}
+
+			function linkEndpointId(endpoint: string | SimNode) {
+				return typeof endpoint === 'string' ? endpoint : endpoint.id;
+			}
+
+			// Freeze layout — marketing graph is a staged demo, not a live simulation.
+			for (const node of simNodes) {
+				node.fx = node.x;
+				node.fy = node.y;
+			}
+			simulation.stop();
+
+			applyPresentationFrame = (t: number) => {
+				if (!rootEl) return;
+				const w = rootEl.clientWidth;
+				const h = Math.max(1, rootEl.clientHeight);
+				const eased = easePresentation(t);
+				const kEnd = 1.47;
+				const kStart = kEnd * 0.5;
+				const k = kStart + (kEnd - kStart) * eased;
+				const tx = w * 0.5 * (1 - k) + eased * 9;
+				const ty = h * 0.5 * (1 - k) - eased * 7;
+				gZoom.attr('transform', `translate(${tx},${ty}) scale(${k})`);
+
+				nodeSel.each(function (d) {
+					const at = nodeRevealAt(d.id);
+					const rawT = nodeRevealProgress(d.id, t);
+					const rt = easePresentation(rawT);
+					const visible = rawT > 0.001;
+					const outer = d3.select(this);
+
+					outer.style('display', visible ? null : 'none');
+
+					if (!visible) return;
+
+					const inner = outer.select<SVGGElement>('.fg-node-inner');
+					const pop = at > 0 ? 0.08 + rt * 0.92 : 1;
+					const overshoot = at > 0 && rawT < 1 ? 1 + Math.sin(rawT * Math.PI) * 0.12 : 1;
+					const revealFlash = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) ** 0.45 : 0;
+					inner
+						.attr('opacity', at > 0 ? rt : 1)
+						.attr('transform', `scale(${pop * overshoot})`);
+
+					inner
+						.select('.fg-node-flash-bg')
+						.attr('opacity', revealFlash)
+						.attr('r', 8 + revealFlash * 5);
+
+					inner
+						.select('.fg-node-core')
+						.attr('fill', revealFlash > 0.02 ? '#28F97F' : nodeFill(d));
+
+					const ringOpacity = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) * 0.95 : 0;
+					inner
+						.select('.fg-node-reveal-ring')
+						.attr('opacity', ringOpacity)
+						.attr('r', 8 + (1 - rawT) * 24);
+				});
+
+				linkSel.style('display', (d) => {
+					const sourceId = linkEndpointId(d.source);
+					const targetId = linkEndpointId(d.target);
+					return nodeIsVisible(sourceId, t) && nodeIsVisible(targetId, t) ? null : 'none';
+				});
+				linkSel.attr('opacity', (d) => {
+					const sourceId = linkEndpointId(d.source);
+					const targetId = linkEndpointId(d.target);
+					return Math.min(nodeRevealProgress(sourceId, t), nodeRevealProgress(targetId, t));
+				});
+			};
+			if (presentationMode) {
+				applyPresentationFrame(clampPresentationProgress(presentationProgress));
+				presentationMounted = true;
+			} else if (!interactive) {
+				applyPresentationFrame(clampPresentationProgress(presentationProgress));
+			}
+
 			const ro = new ResizeObserver(() => {
 				const d = resizeSvg();
 				if (!d || !simulation) return;
@@ -249,16 +394,25 @@
 					(dims.h <= 80 && d.h > 80);
 				if (grew) {
 					relayoutSimulation(d);
+					if (!interactive && applyPresentationFrame) {
+						applyPresentationFrame(lastPresentationProgress);
+					}
 					return;
 				}
 				simulation.force('x', d3.forceX<SimNode>(d.w / 2).strength(0.08));
 				simulation.force('y', d3.forceY<SimNode>(d.h / 2).strength(0.08));
-				simulation.alpha(0.08).restart();
+				if (!presentationMode) {
+					simulation.alpha(0.08).restart();
+				}
+				if (!interactive && applyPresentationFrame) {
+					applyPresentationFrame(lastPresentationProgress);
+				}
 			});
 			ro.observe(rootEl);
 
 			teardown = () => {
 				cancelled = true;
+				applyPresentationFrame = null;
 				simulation.stop();
 				ro.disconnect();
 				svg.remove();

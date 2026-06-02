@@ -34,21 +34,23 @@
 		<p class="text-muted-foreground text-[11px] font-medium uppercase tracking-[0.1em]">
 			Why Eigenmesh
 		</p>
-		<h2 class="text-foreground text-[22px] font-medium tracking-tight">Built against lock-in</h2>
+		<h2 class="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+			Built against lock-in
+		</h2>
 		<p class="text-muted-foreground mx-auto max-w-xl text-[15px] leading-relaxed">
 			Most AI memory lives inside a vendor's walled garden. Mesh doesn't.
 		</p>
 	</div>
 
-	<div class="grid gap-3 sm:grid-cols-2">
+	<div class="grid gap-4 sm:grid-cols-2">
 		{#each usps as usp, index (usp.title)}
 			<div
 				use:marketingReveal
-				class="bg-secondary rounded-lg p-4 transition-all duration-700 is-visible:translate-y-0 is-visible:opacity-100 translate-y-8 opacity-0"
+				class="border-2 border-black bg-white p-5 shadow-[6px_6px_0px_0px_#000] transition-all duration-700 is-visible:translate-y-0 is-visible:opacity-100 translate-y-8 opacity-0"
 				style="transition-delay: {(index + 1) * 120}ms"
 			>
-				<usp.icon class="mb-2.5 size-[18px] text-[#1D9E75]" strokeWidth={1.9} aria-hidden="true" />
-				<h3 class="text-foreground mb-1 text-sm font-medium">{usp.title}</h3>
+				<usp.icon class="mb-3 size-[18px] text-[#1D9E75]" strokeWidth={1.9} aria-hidden="true" />
+				<h3 class="text-foreground mb-1.5 text-sm font-semibold">{usp.title}</h3>
 				<p class="text-muted-foreground text-[13px] leading-snug">{usp.description}</p>
 			</div>
 		{/each}

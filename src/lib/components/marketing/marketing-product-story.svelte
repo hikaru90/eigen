@@ -17,6 +17,10 @@
 	import MarketingStoryStoredPreview from './marketing-story-stored-preview.svelte';
 	import MarketingStoryGraphPreview from './marketing-story-graph-preview.svelte';
 	import MarketingStoryChatPreview from './marketing-story-chat-preview.svelte';
+	import MarketingStorySearchPreview from './marketing-story-search-preview.svelte';
+	import MarketingStoryAnswerPreview from './marketing-story-answer-preview.svelte';
+	import MarketingStoryTemporalPreview from './marketing-story-temporal-preview.svelte';
+	import MarketingScrollHint from './marketing-scroll-hint.svelte';
 	import { DEMO_CAPTURE_TEXT } from './marketing-story-demo-data';
 	import { scrollSectionToProgress } from './scroll-to-element';
 
@@ -70,15 +74,24 @@
 	const METABALL_SHADER_MAX_LINKS = 36;
 	/** USP label DOM updates — every N rendered frames. */
 	const METABALL_LABEL_UPDATE_EVERY = 2;
-	/** Hero metaball exit — wider scroll bands so scatter/fade read at normal scroll speed. */
+	/** Hero metaball exit — scatter/fade bands (tighter scatter so capture beats arrive sooner). */
 	const METABALL_SCATTER_START = 0.06;
-	const METABALL_SCATTER_END = 0.32;
-	const METABALL_FADE_START = 0.32;
-	const METABALL_FADE_END = 0.4;
-	const METABALL_UNMOUNT_AT = 0.41;
+	const METABALL_SCATTER_END = 0.18;
+	const METABALL_FADE_START = 0.18;
+	const METABALL_FADE_END = 0.26;
+	const METABALL_UNMOUNT_AT = 0.27;
 
-	/** Scroll runway below one pinned viewport — extra length for six sequential beats. */
-	const STORY_RUNWAY_VH = 520;
+	/** Scroll runway below one pinned viewport — extra length for sequential beats. */
+	const STORY_RUNWAY_VH = 1280;
+
+	/** Beat scroll bands — fade-out ends before the next beat's fade-in starts. */
+	const BEAT_GRAPH = { inStart: 0.44, inEnd: 0.47, outStart: 0.63, outEnd: 0.66 };
+	const BEAT_CHAT = { inStart: 0.675, inEnd: 0.705, outStart: 0.765, outEnd: 0.795 };
+	/** Search needs a long hold so status + hits stay readable before answer. */
+	const BEAT_SEARCH = { inStart: 0.805, inEnd: 0.822, outStart: 0.908, outEnd: 0.922 };
+	/** Answer is the key payoff — long hold after the full reply is visible. */
+	const BEAT_ANSWER = { inStart: 0.928, inEnd: 0.938, outStart: 0.99, outEnd: 0.996 };
+	const BEAT_TEMPORAL = { inStart: 0.9972, inEnd: 0.9995 };
 
 	let storySectionEl: HTMLElement | null = null;
 	let metaballStageEl = $state<HTMLDivElement | null>(null);
@@ -95,6 +108,9 @@
 	let lastFrameTs = 0;
 	let labelUpdateCounter = 0;
 	let reduceMotion = false;
+	let autoScrolling = $state(false);
+	let captureInteractionDone = $state(false);
+	let graphMounted = $state(false);
 	let captureText = $state(DEMO_CAPTURE_TEXT);
 	const metaballFieldParams: MetaballFieldParams = {
 		...DEFAULT_METABALL_FIELD_PARAMS,
@@ -122,6 +138,13 @@
 		if (progress >= fadeInEnd && progress <= fadeOutStart) return 1;
 		if (progress < fadeInEnd) return ease(segment(fadeInStart, fadeInEnd));
 		return 1 - ease(segment(fadeOutStart, fadeOutEnd));
+	}
+
+	/** Map scroll progress to 0–1 only while the beat is fully visible (hold band). */
+	function beatHoldProgress(beat: { inEnd: number; outStart: number }, p: number) {
+		if (p <= beat.inEnd) return 0;
+		if (p >= beat.outStart) return 1;
+		return segment(beat.inEnd, beat.outStart);
 	}
 
 	function metaballScatterTAt(p: number) {
@@ -180,9 +203,13 @@
 		});
 	}
 
-	function scrollToProcessBeat() {
-		if (!browser || !storySectionEl) return;
-		scrollSectionToProgress(storySectionEl, 0.28);
+	function scrollToStoredThought() {
+		if (!browser || !storySectionEl || autoScrolling) return;
+		autoScrolling = true;
+		scrollSectionToProgress(storySectionEl, 0.4, 4600, () => {
+			autoScrolling = false;
+			captureInteractionDone = true;
+		});
 	}
 
 	function createSeededRandom(seed: number) {
@@ -471,28 +498,61 @@
 		else stopMetaballLoop();
 	});
 
+	$effect(() => {
+		if (progress >= 0.43) graphMounted = true;
+	});
+
 	const metaballVisualOpacity = $derived(metaballVisualOpacityAt(progress));
 	const metaballMounted = $derived(metaballMountedAt(progress));
 	/** Hero reacts on first scroll (no 10% dead zone). */
 	const headlineExitT = $derived(ease(segment(0, 0.14)));
 	const headlineOnScreen = $derived(headlineExitT < 1);
-	const captureOpacity = $derived(stageOpacity(0.12, 0.16, 0.2, 0.24));
+	const captureOpacity = $derived(stageOpacity(0.08, 0.12, 0.16, 0.2));
 	const processOpacity = $derived(processOpacityAt(progress));
-	const storedOpacity = $derived(stageOpacity(0.42, 0.46, 0.5, 0.54));
-	const graphOpacity = $derived(stageOpacity(0.56, 0.58, 0.66, 0.7));
-	const retrievalOpacity = $derived(stageOpacity(0.72, 0.76, 0.94, 0.99));
-	const processStep = $derived(segment(0.26, 0.4));
-	const retrievalBeatProgress = $derived(segment(0.72, 0.98));
+	const storedOpacity = $derived(stageOpacity(0.34, 0.38, 0.42, 0.46));
+	const graphOpacity = $derived(
+		stageOpacity(BEAT_GRAPH.inStart, BEAT_GRAPH.inEnd, BEAT_GRAPH.outStart, BEAT_GRAPH.outEnd)
+	);
+	const chatOpacity = $derived(
+		stageOpacity(BEAT_CHAT.inStart, BEAT_CHAT.inEnd, BEAT_CHAT.outStart, BEAT_CHAT.outEnd)
+	);
+	const searchOpacity = $derived(
+		stageOpacity(BEAT_SEARCH.inStart, BEAT_SEARCH.inEnd, BEAT_SEARCH.outStart, BEAT_SEARCH.outEnd)
+	);
+	const answerOpacity = $derived(
+		stageOpacity(BEAT_ANSWER.inStart, BEAT_ANSWER.inEnd, BEAT_ANSWER.outStart, BEAT_ANSWER.outEnd)
+	);
+	const temporalOpacity = $derived(stageOpacityHold(BEAT_TEMPORAL.inStart, BEAT_TEMPORAL.inEnd));
+	const processStep = $derived(segment(0.18, 0.32));
+	const graphBeatProgress = $derived(segment(BEAT_GRAPH.inStart, BEAT_GRAPH.outEnd));
+	const chatBeatProgress = $derived(segment(BEAT_CHAT.inStart, BEAT_CHAT.outEnd));
+	const searchBeatProgress = $derived(beatHoldProgress(BEAT_SEARCH, progress));
+	const answerBeatProgress = $derived(beatHoldProgress(BEAT_ANSWER, progress));
+	const temporalBeatProgress = $derived(segment(BEAT_TEMPORAL.inStart, 1));
+	const storyHandoffOpacity = $derived(
+		progress >= 0.99 ? 1 - ease(segment(0.99, 1)) * 0.12 : 1
+	);
+	const showScrollHint = $derived.by(() => {
+		if (!captureInteractionDone || autoScrolling) return false;
+		// Rest point after Capture: stored thought is fully visible.
+		return progress >= 0.36 && progress < 0.46;
+	});
 
 	function isInteractive(opacity: number) {
 		return opacity >= 0.12;
 	}
 
 	function processOpacityAt(p: number) {
-		if (p < 0.26 || p >= 0.43) return 0;
-		if (p < 0.3) return ease(segment(0.26, 0.3));
-		if (segment(0.26, 0.4) < 0.98) return 1;
-		return 1 - ease(segment(0.398, 0.43));
+		if (p < 0.18 || p >= 0.35) return 0;
+		if (p < 0.22) return ease(segment(0.18, 0.22));
+		if (segment(0.18, 0.32) < 0.98) return 1;
+		return 1 - ease(segment(0.33, 0.35));
+	}
+
+	function stageOpacityHold(fadeInStart: number, fadeInEnd: number) {
+		if (progress <= fadeInStart) return 0;
+		if (progress >= fadeInEnd) return 1;
+		return ease(segment(fadeInStart, fadeInEnd));
 	}
 
 	function uspLabelCanvasPosition(ball: FloatingMetaball) {
@@ -509,10 +569,13 @@
 
 <section
 	bind:this={storySectionEl}
-	class="marketing-product-story relative mb-24 md:mb-32"
+	class="marketing-product-story relative mb-8 md:mb-12"
 	style="--story-runway-vh: {STORY_RUNWAY_VH}"
 >
-	<div class="story-sticky-stage sticky top-0 z-10 h-dvh overflow-hidden contain-paint">
+	<div
+		class="story-sticky-stage sticky top-0 z-10 h-dvh overflow-hidden contain-paint"
+		style="opacity: {storyHandoffOpacity}"
+	>
 		<div class="story-decoration pointer-events-none absolute inset-0 z-0">
 			{#if metaballMounted}
 				<div
@@ -535,9 +598,10 @@
 							{#each heroUsps as label, i (label)}
 								{@const pos = uspLabelPositions[i]}
 								<span
-									class="marketing-metaball-label absolute max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#444444] px-2 py-0.5 text-center text-[10px] leading-tight font-medium tracking-tight text-[#28F97F] shadow-sm sm:max-w-none sm:px-2.5 sm:text-[11px]"
+									class="marketing-metaball-label absolute max-w-36 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#f5f5f0] px-2 py-0.5 text-center text-[10px] leading-tight font-medium tracking-tight text-foreground sm:max-w-none sm:px-2.5 sm:text-[11px]"
 									style="left: {(pos.x / metaballWidth) * 100}%; top: {(pos.y / metaballHeight) * 100}%"
 								>
+									<span class="text-[#28F97F]">●</span>
 									{label}
 								</span>
 							{/each}
@@ -571,7 +635,7 @@
 			</div>
 		</div>
 
-		<div class="story-beats pointer-events-none absolute inset-0 z-10 mx-auto h-dvh w-full max-w-6xl px-4">
+		<div class="story-beats pointer-events-none absolute inset-0 z-10 mx-auto h-dvh w-full max-w-6xl px-4 pt-20 pb-8 sm:pt-0 sm:pb-0">
 			<div
 				class="absolute inset-0 z-10 grid place-items-center px-4"
 				style="opacity: {captureOpacity}"
@@ -584,7 +648,7 @@
 					<MarketingStoryCapturePreview
 						bind:text={captureText}
 						storyProgress={progress}
-						onCapture={scrollToProcessBeat}
+						onCapture={scrollToStoredThought}
 					/>
 				</div>
 			</div>
@@ -594,7 +658,7 @@
 				style="opacity: {processOpacity}"
 			>
 				<div
-					class="select-text w-full {isInteractive(processOpacity)
+					class="select-text w-full min-w-0 {isInteractive(processOpacity)
 						? 'pointer-events-auto'
 						: 'pointer-events-none'}"
 				>
@@ -616,26 +680,71 @@
 			</div>
 
 			<div
-				class="absolute inset-0 z-40 grid place-items-center px-4"
+				class="absolute inset-0 z-40 flex items-center justify-center overflow-hidden px-2 sm:px-4"
 				style="opacity: {graphOpacity}"
 			>
-				<div class="pointer-events-none relative w-full select-text">
-					<MarketingStoryGraphPreview />
+				<div class="pointer-events-none relative w-full max-w-[min(100%,88rem)] select-text">
+					{#if graphMounted}
+						<MarketingStoryGraphPreview beatProgress={graphBeatProgress} />
+					{/if}
 				</div>
 			</div>
 
 			<div
 				class="absolute inset-0 z-[60] grid place-items-center px-4"
-				style="opacity: {retrievalOpacity}"
+				style="opacity: {chatOpacity}"
 			>
 				<div
-					class="select-text w-full {isInteractive(retrievalOpacity)
+					class="select-text w-full {isInteractive(chatOpacity)
 						? 'pointer-events-auto'
 						: 'pointer-events-none'}"
 				>
-					<MarketingStoryChatPreview beatProgress={retrievalBeatProgress} {captureText} />
+					<MarketingStoryChatPreview beatProgress={chatBeatProgress} />
 				</div>
 			</div>
+
+			<div
+				class="absolute inset-0 z-[65] grid place-items-center px-4"
+				style="opacity: {searchOpacity}"
+			>
+				<div
+					class="select-text w-full {isInteractive(searchOpacity)
+						? 'pointer-events-auto'
+						: 'pointer-events-none'}"
+				>
+					<MarketingStorySearchPreview beatProgress={searchBeatProgress} />
+				</div>
+			</div>
+
+			<div
+				class="absolute inset-0 z-[68] grid place-items-center px-4"
+				style="opacity: {answerOpacity}"
+			>
+				<div
+					class="select-text w-full {isInteractive(answerOpacity)
+						? 'pointer-events-auto'
+						: 'pointer-events-none'}"
+				>
+					<MarketingStoryAnswerPreview beatProgress={answerBeatProgress} />
+				</div>
+			</div>
+
+			<div
+				class="absolute inset-0 z-[70] grid place-items-center px-4"
+				style="opacity: {temporalOpacity}"
+			>
+				<div
+					class="select-text w-full {isInteractive(temporalOpacity)
+						? 'pointer-events-auto'
+						: 'pointer-events-none'}"
+				>
+					<MarketingStoryTemporalPreview beatProgress={temporalBeatProgress} {captureText} />
+				</div>
+			</div>
+		</div>
+
+		<div class="pointer-events-none absolute inset-x-0 bottom-6 z-80 flex justify-center">
+			<MarketingScrollHint visible={showScrollHint} />
 		</div>
 	</div>
 </section>
@@ -688,7 +797,7 @@
 	}
 
 	.marketing-metaball-label {
-		mix-blend-mode: difference;
+		white-space: nowrap;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
@@ -704,10 +813,6 @@
 		.marketing-headline-exit {
 			--exit-t: 0;
 			transform: none;
-		}
-
-		.marketing-metaball-label {
-			mix-blend-mode: normal;
 		}
 	}
 </style>

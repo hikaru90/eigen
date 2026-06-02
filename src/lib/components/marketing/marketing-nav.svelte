@@ -8,15 +8,16 @@
 	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
 	import {
 		marketingScrollY,
-		marketingSectionId,
-		marketingBackgroundClass
+		marketingSectionId
 	} from '$lib/components/marketing/marketing-scroll';
 	import { scrollToSectionId } from '$lib/components/marketing/scroll-to-element';
 
 	const menuItems = [
-		{ label: 'Why Eigenmesh', target: 'uspsSectionTarget' },
-		{ label: 'How it works', target: 'flowSectionTarget' },
-		{ label: 'Transparency', target: 'transparencySectionTarget' }
+		{ label: 'How it works', target: 'topTarget' },
+		{ label: 'Why Eigenmesh', target: 'whySectionTarget' },
+		{ label: 'Transparency', target: 'transparencySectionTarget' },
+		{ label: 'Pricing', target: 'pricingSectionTarget' },
+		{ label: 'FAQ', target: 'faqSectionTarget' }
 	];
 
 	const developersHref = resolve('/developers');
@@ -50,23 +51,21 @@
 	});
 </script>
 
-<div class="pointer-events-none fixed inset-x-0 top-0 z-100 px-4 pt-4">
+<div class="pointer-events-none fixed inset-x-0 top-0 z-100">
 	<div
-		class="pointer-events-auto mx-auto max-w-[1200px] overflow-hidden backdrop-blur-sm transition-all duration-300 px-6 py-1 rounded-full border {$marketingScrollY >
-		8
-			? 'opacity-100'
-			: 'opacity-100'} {menuVisible
-			? 'max-h-24 translate-y-0 opacity-100'
-			: 'max-h-0 -translate-y-4 opacity-0'} {navOnDark
-				? 'bg-black/90 text-white border-black'
-				: 'bg-white/50 border-white'}"
+		class="pointer-events-auto mx-auto max-w-[1200px] overflow-hidden transition-all duration-300 ease-in-out {menuVisible
+			? 'max-h-24 translate-y-0 px-4 pt-4 opacity-100'
+			: 'max-h-0 -translate-y-2 px-4 pt-0 opacity-0 pointer-events-none'}"
 	>
-		<nav
-			class="flex items-center justify-between gap-4 px-3 py-2.5"
+		<div
+			class="overflow-hidden rounded-full border backdrop-blur-md px-6 py-1 {navOnDark
+				? 'border-white/20 bg-white/10 text-white'
+				: 'border-white bg-white/50'}"
 		>
-			<button type="button" class="shrink-0" onclick={() => scrollTo('topTarget')}>
-				<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-8 mt-1" />
-			</button>
+			<nav class="flex items-center justify-between gap-4 px-3 py-2.5">
+				<button type="button" class="shrink-0" onclick={() => scrollTo('topTarget')}>
+					<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-6 mt-0.5 sm:h-8 sm:mt-1" />
+				</button>
 
 			<div class="hidden items-center gap-6 lg:flex">
 				{#each menuItems as item (item.target)}
@@ -99,15 +98,13 @@
 					size="sm"
 					surface={navOnDark ? 'dark' : 'light'}
 					class="hidden rounded-[6px] lg:inline-flex"
-					onclick={() => scrollTo('newsletterSectionTarget')}
+					onclick={() => scrollTo('pricingSectionTarget')}
 				>
 					Get early access
 				</MarketingButton>
 				<button
 					type="button"
-					class="rounded border p-2 lg:hidden {navOnDark
-						? 'border-white/30 text-white'
-						: 'border-border'}"
+					class="p-2 lg:hidden {navOnDark ? 'text-white' : 'text-foreground'}"
 					aria-label="Open menu"
 					onclick={() => {
 						menuVisible = false;
@@ -117,7 +114,8 @@
 					<Menu class="size-5" strokeWidth={1.75} />
 				</button>
 			</div>
-		</nav>
+			</nav>
+		</div>
 	</div>
 </div>
 
@@ -161,7 +159,7 @@
 				<MarketingButton
 					type="button"
 					class="w-full rounded-[6px]"
-					onclick={() => scrollTo('newsletterSectionTarget')}
+					onclick={() => scrollTo('pricingSectionTarget')}
 				>
 					Get early access
 				</MarketingButton>

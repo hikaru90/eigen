@@ -30,19 +30,18 @@
 		if (!browser) return;
 		scrollOffset = window.scrollY;
 
-		const viewportCenter = window.innerHeight / 2;
+		// Match fixed nav height + scroll-to offset in scroll-to-element.ts
+		const scrollPos = window.scrollY + 96;
 		let nextBg = marketingSectionTargets[0].bgClass;
 		let nextSection = marketingSectionTargets[0].id;
 
-		for (let i = marketingSectionTargets.length - 1; i >= 0; i--) {
-			const target = marketingSectionTargets[i];
+		for (const target of marketingSectionTargets) {
 			const el = document.getElementById(target.id);
 			if (!el) continue;
-			const rect = el.getBoundingClientRect();
-			if (rect.top <= viewportCenter) {
+			const top = el.getBoundingClientRect().top + window.scrollY;
+			if (scrollPos >= top) {
 				nextBg = target.bgClass;
 				nextSection = target.id;
-				break;
 			}
 		}
 
@@ -98,37 +97,36 @@
 			{/each}
 		</div>
 
-		<div class="marketing-container relative z-10 pb-8">
-			<div class="relative">
-				<div id="flowSectionTarget" class="pointer-events-none absolute -top-20"></div>
-			</div>
+		<div class="relative z-10">
 			<MarketingProductStory />
-			<MarketingTrustBar />
 
-			<div class="relative">
-				<div id="uspsSectionTarget" class="pointer-events-none absolute -top-20"></div>
-			</div>
-			<MarketingUsps />
+			<div class="mx-auto w-full max-w-6xl px-4 pt-10 pb-8 md:pt-14">
+				<div class="relative">
+					<div id="whySectionTarget" class="pointer-events-none absolute -top-20"></div>
+				</div>
+				<MarketingTrustBar />
+				<MarketingUsps />
 
-			<div class="relative">
-				<div id="transparencySectionTarget" class="pointer-events-none absolute -top-20"></div>
-			</div>
-			<MarketingTransparency />
+				<div class="relative">
+					<div id="transparencySectionTarget" class="pointer-events-none absolute -top-20"></div>
+				</div>
+				<MarketingTransparency />
 
-			<div class="relative">
-				<div id="newsletterSectionTarget" class="pointer-events-none absolute -top-20"></div>
-			</div>
-			<MarketingNewsletter />
+				<div class="relative">
+					<div id="pricingSectionTarget" class="pointer-events-none absolute -top-20"></div>
+				</div>
+				<MarketingNewsletter />
 
-			<div class="relative">
-				<div id="aboutSectionTarget" class="pointer-events-none absolute -top-20"></div>
-			</div>
-			<MarketingAbout />
+				<div class="relative">
+					<div id="aboutSectionTarget" class="pointer-events-none absolute -top-20"></div>
+				</div>
+				<MarketingAbout />
 
-			<div class="relative">
-				<div id="faqSectionTarget" class="pointer-events-none absolute -top-20"></div>
+				<div class="relative">
+					<div id="faqSectionTarget" class="pointer-events-none absolute -top-20"></div>
+				</div>
+				<MarketingFaq />
 			</div>
-			<MarketingFaq />
 		</div>
 	</div>
 

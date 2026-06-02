@@ -37,6 +37,12 @@
 </script>
 
 <section class="mb-20 md:mb-32">
+	<p
+		use:marketingReveal
+		class="text-muted-foreground mb-2 text-[11px] font-medium uppercase tracking-[0.1em] transition-all duration-700 is-visible:translate-y-0 is-visible:opacity-100 translate-y-6 opacity-0"
+	>
+		FAQ
+	</p>
 	<h2
 		use:marketingReveal
 		class="text-foreground mb-8 text-2xl font-semibold tracking-tight transition-all duration-700 is-visible:translate-y-0 is-visible:opacity-100 translate-y-8 opacity-0 sm:text-3xl"
@@ -44,7 +50,7 @@
 		Common questions
 	</h2>
 
-	<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-3">
 		{#each faqs as faq (faq.question)}
 			<MarketingFaqEntry {faq} />
 		{/each}

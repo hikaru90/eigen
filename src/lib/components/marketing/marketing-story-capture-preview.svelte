@@ -112,7 +112,7 @@
 	}
 
 	$effect(() => {
-		if (storyProgress >= 0.185 && !scrollCaptureTriggered && text.trim()) {
+		if (storyProgress >= 0.155 && !scrollCaptureTriggered && text.trim()) {
 			scrollCaptureTriggered = true;
 			flashCaptureButton();
 		}

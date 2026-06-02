@@ -75,7 +75,7 @@
 		<img
 			src={mesh}
 			alt=""
-			class={cn('absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 block w-40 -z-10', inverted && 'invert')}
+			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 block w-40 -z-10"
 			loading="eager"
 			decoding="async"
 		/>
