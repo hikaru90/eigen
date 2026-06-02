@@ -11,8 +11,19 @@
 
 	let { progress = 0.5, captureText = DEMO_CAPTURE_TEXT }: Props = $props();
 
-	const ingestStartMs = 1_700_000_000_000;
-	const events = $derived(demoIngestEventsForProgress(progress, ingestStartMs));
+	let ingestStartMs = $state(0);
+	let ingestStarted = $state(false);
+
+	$effect(() => {
+		if (progress > 0 && !ingestStarted) {
+			ingestStarted = true;
+			ingestStartMs = Date.now();
+		}
+	});
+
+	const events = $derived(
+		ingestStarted ? demoIngestEventsForProgress(progress, ingestStartMs) : []
+	);
 </script>
 
 <div class="mx-auto w-full max-w-xl">

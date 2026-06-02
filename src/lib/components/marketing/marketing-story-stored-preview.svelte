@@ -17,6 +17,11 @@
 					>Category: <span class="font-medium text-foreground">{DEMO_STORED_THOUGHT.category}</span
 					></span
 				>
+				<span
+					>Confidence: <span class="font-medium text-foreground"
+						>{Math.round(DEMO_STORED_THOUGHT.categoryConfidence * 100)}%</span
+					></span
+				>
 			</div>
 			<p class="font-mono text-xs text-muted-foreground">{DEMO_STORED_THOUGHT.id}</p>
 		</Card.Content>

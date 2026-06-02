@@ -38,15 +38,20 @@ void main() {
 }
 `;
 
-const FRAGMENT_SHADER = `#version 300 es
-precision highp float;
+function buildFragmentShader(
+  maxBalls: number,
+  maxLinks: number,
+  precision: "highp" | "mediump" = "highp",
+): string {
+  return `#version 300 es
+precision ${precision} float;
 
 in vec2 v_uv;
 out vec4 fragColor;
 
 uniform vec2 u_resolution;
 uniform int u_ballCount;
-uniform vec3 u_balls[${MAX_BALLS}];
+uniform vec3 u_balls[${maxBalls}];
 uniform float u_threshold;
 uniform float u_fieldStrength;
 uniform float u_falloffExponent;
@@ -56,8 +61,8 @@ uniform float u_noiseMaskInner;
 uniform float u_noiseAmount;
 uniform float u_noiseSeed;
 uniform int u_linkCount;
-uniform vec4 u_links[${MAX_LINKS}];
-uniform float u_linkTubeR[${MAX_LINKS}];
+uniform vec4 u_links[${maxLinks}];
+uniform float u_linkTubeR[${maxLinks}];
 uniform vec3 u_fillColor;
 
 float hash21(vec2 p) {
@@ -83,7 +88,7 @@ float cellNoiseMetaball(vec2 px, vec2 cell) {
 
 float noiseMaskAroundBalls(vec2 px) {
   float mask = 0.0;
-  for (int i = 0; i < ${MAX_BALLS}; i++) {
+  for (int i = 0; i < ${maxBalls}; i++) {
     if (i >= u_ballCount) break;
     vec3 b = u_balls[i];
     float dist = length(px - b.xy);
@@ -120,7 +125,7 @@ float metaballContribution(float dist, float radius) {
 
 float clickMetaballField(vec2 px) {
   float field = 0.0;
-  for (int i = 0; i < ${MAX_BALLS}; i++) {
+  for (int i = 0; i < ${maxBalls}; i++) {
     if (i >= u_ballCount) break;
     vec3 b = u_balls[i];
     float dist = length(px - b.xy);
@@ -138,14 +143,13 @@ float segmentLinkField(vec2 px, vec2 a, vec2 b, float tubeR) {
   float t = clamp(dot(ap, ab) / len2, 0.0, 1.0);
   vec2 closest = a + ab * t;
   float dist = length(px - closest);
-  // Avoid a zero-field spine along the segment axis (minDistance would hollow the bridge).
   dist = max(dist, sqrt(u_minDistanceSq) + 0.001);
   return metaballContribution(dist, tubeR);
 }
 
 float linkFields(vec2 px) {
   float field = 0.0;
-  for (int i = 0; i < ${MAX_LINKS}; i++) {
+  for (int i = 0; i < ${maxLinks}; i++) {
     if (i >= u_linkCount) break;
     vec4 seg = u_links[i];
     field += segmentLinkField(px, seg.xy, seg.zw, u_linkTubeR[i]);
@@ -162,6 +166,7 @@ void main() {
   fragColor = vec4(u_fillColor, alpha);
 }
 `;
+}
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type);
@@ -176,9 +181,9 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
   return shader;
 }
 
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
+function createProgram(gl: WebGL2RenderingContext, fragmentShader: string): WebGLProgram {
   const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-  const fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShader);
   const program = gl.createProgram();
   if (!program) throw new Error("Failed to create program");
   gl.attachShader(program, vs);
@@ -205,11 +210,24 @@ export type MetaballRenderer = {
   dispose: () => void;
 };
 
+export type MetaballRendererLimits = {
+  /** Shader loop bound for balls (default: logo/editor max). */
+  maxBalls?: number;
+  /** Shader loop bound for links (default: logo/editor max). */
+  maxLinks?: number;
+  /** Fragment precision (marketing can use mediump). */
+  precision?: "highp" | "mediump";
+};
+
 export function createMetaballRenderer(
   canvas: HTMLCanvasElement,
   width: number,
   height: number,
+  limits?: MetaballRendererLimits,
 ): MetaballRenderer {
+  const maxBalls = limits?.maxBalls ?? MAX_BALLS;
+  const maxLinks = limits?.maxLinks ?? MAX_LINKS;
+  const precision = limits?.precision ?? "highp";
   const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false });
   if (!gl) throw new Error("WebGL2 is required for the logo metaball canvas");
 
@@ -217,7 +235,7 @@ export function createMetaballRenderer(
   canvas.height = height;
   gl.viewport(0, 0, width, height);
 
-  const program = createProgram(gl);
+  const program = createProgram(gl, buildFragmentShader(maxBalls, maxLinks, precision));
   gl.useProgram(program);
 
   const quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
@@ -246,9 +264,9 @@ export function createMetaballRenderer(
   const uLinkTubeR = gl.getUniformLocation(program, "u_linkTubeR[0]");
   const uFillColor = gl.getUniformLocation(program, "u_fillColor");
 
-  const ballBuffer = new Float32Array(MAX_BALLS * 3);
-  const linkBuffer = new Float32Array(MAX_LINKS * 4);
-  const linkTubeBuffer = new Float32Array(MAX_LINKS);
+  const ballBuffer = new Float32Array(maxBalls * 3);
+  const linkBuffer = new Float32Array(maxLinks * 4);
+  const linkTubeBuffer = new Float32Array(maxLinks);
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -261,7 +279,7 @@ export function createMetaballRenderer(
       gl.viewport(0, 0, width, height);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
-      const count = Math.min(balls.length, MAX_BALLS);
+      const count = Math.min(balls.length, maxBalls);
       for (let i = 0; i < count; i++) {
         ballBuffer[i * 3] = balls[i].x;
         ballBuffer[i * 3 + 1] = balls[i].y;
@@ -281,7 +299,7 @@ export function createMetaballRenderer(
       gl.uniform1f(uNoiseSeed, noise.seed);
       gl.uniform3f(uFillColor, fillColor[0], fillColor[1], fillColor[2]);
 
-      const linkCount = Math.min(links.length, MAX_LINKS);
+      const linkCount = Math.min(links.length, maxLinks);
       for (let i = 0; i < linkCount; i++) {
         const L = links[i];
         linkBuffer[i * 4] = L.x1;

@@ -6,10 +6,15 @@ import type { TemporalEventListItem } from '../../../routes/api/temporal-events/
 
 export const DEMO_CAPTURE_TEXT = 'Follow up with Alex on migration blockers — due early April.';
 
+/** Simulated voice transcript — same intent as typed capture, slightly spoken phrasing. */
+export const DEMO_VOICE_TRANSCRIPT =
+	'Follow up with Alex on migration blockers due early April.';
+
 export const DEMO_STORED_THOUGHT = {
 	id: 'th_demo_018f4a',
 	normalizedText: 'Follow up with Alex on migration blockers by early April.',
-	category: 'task'
+	category: 'task',
+	categoryConfidence: 0.91
 } as const;
 
 export const DEMO_GRAPH_LEGEND: GraphLegendSection[] = [

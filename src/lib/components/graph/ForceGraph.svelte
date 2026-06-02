@@ -43,8 +43,7 @@
 		statusSuffix = '',
 		height = '400px',
 		interactive = true,
-		showStatus = true,
-		exitProgress = 0
+		showStatus = true
 	}: {
 		nodes: GraphVizNode[];
 		edges: GraphVizEdge[];
@@ -53,27 +52,12 @@
 		height?: string;
 		interactive?: boolean;
 		showStatus?: boolean;
-		/** 0 = clustered layout; 1 = nodes pinned off-screen (stops simulation). */
-		exitProgress?: number;
 	} = $props();
 
 	const fillParent = $derived(height === '100%');
 
 	let rootEl: HTMLDivElement | undefined;
 	let status = $state('');
-	let applyExitProgress: ((t: number) => void) | undefined;
-	let latestExitProgress = 0;
-
-	function scatterAngleForNode(id: string): number {
-		let h = 0;
-		for (let i = 0; i < id.length; i += 1) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
-		return ((h >>> 0) % 360) * (Math.PI / 180);
-	}
-
-	$effect(() => {
-		latestExitProgress = exitProgress;
-		applyExitProgress?.(exitProgress);
-	});
 
 	onMount(() => {
 		let cancelled = false;
@@ -82,6 +66,21 @@
 		(async () => {
 			const d3 = await import('d3');
 			if (cancelled || !rootEl) return;
+
+			async function waitForLayout(el: HTMLElement): Promise<{ w: number; h: number } | null> {
+				const deadline = performance.now() + 2500;
+				while (performance.now() < deadline) {
+					if (cancelled) return null;
+					const w = el.clientWidth;
+					const h = el.clientHeight;
+					if (w >= 80 && h >= 80) return { w, h: Math.max(1, h) };
+					await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+				}
+				return null;
+			}
+
+			const layout = await waitForLayout(rootEl);
+			if (cancelled || !rootEl || !layout) return;
 
 			const persistentNodes = new Map<string, SimNode>();
 
@@ -170,7 +169,7 @@
 				nodeSel.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
 			}
 
-			const dims = resizeSvg();
+			const dims = resizeSvg() ?? layout;
 			if (!dims) return;
 
 			const simNodes: SimNode[] = nodes.map((n) => simNodeFromSnapshot(n));
@@ -229,71 +228,37 @@
 			ticked(linkSel, nodeSel);
 			simulation.restart();
 
-			status = `${simNodes.length} nodes · ${simLinks.length} edges${statusSuffix ? ' · ' + statusSuffix : ''}`;
-
-			let latestDims = dims;
-
-			function applyScatter(t: number) {
-				const cx = latestDims.w / 2;
-				const cy = latestDims.h / 2;
-				const maxPush = Math.max(latestDims.w, latestDims.h) * 0.9;
-
-				if (t <= 0) {
-					for (const node of simNodes) {
-						node.fx = null;
-						node.fy = null;
-					}
-					simulation.alpha(0.08).restart();
-					ticked(linkSel, nodeSel);
-					return;
-				}
-
-				for (const node of simNodes) {
-					const x = node.x ?? cx;
-					const y = node.y ?? cy;
-					let dx = x - cx;
-					let dy = y - cy;
-					let len = Math.hypot(dx, dy);
-					if (len < 10) {
-						const angle = scatterAngleForNode(node.id);
-						dx = Math.cos(angle);
-						dy = Math.sin(angle);
-						len = 1;
-					}
-					const dist = len + t * maxPush;
-					node.fx = cx + (dx / len) * dist;
-					node.fy = cy + (dy / len) * dist;
-				}
-
-				if (t >= 1) {
-					simulation.stop();
-					for (let i = 0; i < 12; i += 1) simulation.tick();
-				} else {
-					simulation.alpha(0.35).restart();
-				}
+			function relayoutSimulation(d: { w: number; h: number }, alpha = 1) {
+				simulation.force('x', d3.forceX<SimNode>(d.w / 2).strength(0.08));
+				simulation.force('y', d3.forceY<SimNode>(d.h / 2).strength(0.08));
+				simulation.alpha(alpha).restart();
+				simulation.stop();
+				for (let i = 0; i < 80; i += 1) simulation.tick();
 				ticked(linkSel, nodeSel);
+				simulation.restart();
 			}
 
-			applyExitProgress = applyScatter;
-			applyScatter(exitProgress);
+			status = `${simNodes.length} nodes · ${simLinks.length} edges${statusSuffix ? ' · ' + statusSuffix : ''}`;
 
 			const ro = new ResizeObserver(() => {
 				const d = resizeSvg();
 				if (!d || !simulation) return;
-				latestDims = d;
-				simulation.force('x', d3.forceX<SimNode>(d.w / 2).strength(0.08));
-				simulation.force('y', d3.forceY<SimNode>(d.h / 2).strength(0.08));
-				if (latestExitProgress > 0) {
-					applyScatter(latestExitProgress);
+				const grew =
+					d.w > dims.w * 1.35 ||
+					d.h > dims.h * 1.35 ||
+					(dims.h <= 80 && d.h > 80);
+				if (grew) {
+					relayoutSimulation(d);
 					return;
 				}
+				simulation.force('x', d3.forceX<SimNode>(d.w / 2).strength(0.08));
+				simulation.force('y', d3.forceY<SimNode>(d.h / 2).strength(0.08));
 				simulation.alpha(0.08).restart();
 			});
 			ro.observe(rootEl);
 
 			teardown = () => {
 				cancelled = true;
-				applyExitProgress = undefined;
 				simulation.stop();
 				ro.disconnect();
 				svg.remove();
