@@ -11,7 +11,8 @@
 	import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte';
 	import type { PageData } from './$types';
 
-	const homeHref = resolve('/' as Pathname);
+	const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '');
+	const homeHref = websiteOrigin || resolve('/' as Pathname);
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 

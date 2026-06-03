@@ -4,10 +4,6 @@
   import type { Pathname } from "$app/types";
   import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
-  import {
-    installPwaLaunchRedirectListeners,
-    navigatePwaLaunchRedirect,
-  } from "$lib/pwa/launch-redirect";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
@@ -20,6 +16,8 @@
 
   let { children } = $props();
 
+  const authPaths = new Set(["/login", "/signup", "/register"]);
+
   function normalizePathname(pathname: string): string {
     let p = pathname;
     if (base && p.startsWith(base)) {
@@ -31,54 +29,13 @@
     return p || "/";
   }
 
-  const marketingPaths = new Set([
-    "/",
-    "/login",
-    "/signup",
-    "/register",
-    "/logo",
-    "/privacy",
-    "/terms",
-    "/imprint",
-  ]);
-
-  function isDeveloperDocsPath(pathname: string): boolean {
-    const p = normalizePathname(pathname);
-    return p === "/developers" || p.startsWith("/developers/");
-  }
-
-  /** Hide header + bottom nav on marketing and auth screens (works with `paths.base` and trailing slashes). */
   const hideAppChrome = $derived(
-    (page.route.id != null && marketingPaths.has(page.route.id)) ||
-      marketingPaths.has(normalizePathname(page.url.pathname)),
+    authPaths.has(normalizePathname(page.url.pathname)) ||
+      (page.route.id != null && authPaths.has(page.route.id)),
   );
-
-  /** Docs and similar read-only surfaces: keep the top bar, hide capture/graph bottom nav. */
-  const hideBottomNav = $derived(
-    hideAppChrome || isDeveloperDocsPath(page.url.pathname),
-  );
-
-  const isDeveloperDocs = $derived(isDeveloperDocsPath(page.url.pathname));
 
   let currentPath = $derived(page.url.pathname);
   let themePreference = "system";
-
-  function pwaLaunchRedirectOptions() {
-    const user = (page.data as { user?: { id: string } | null }).user;
-    return {
-      pathname: page.url.pathname,
-      isAuthenticated: user != null,
-      base,
-      resolveHref: (target: "/capture" | "/login") => resolve(target as Pathname),
-    };
-  }
-
-  $effect(() => {
-    if (!browser) return;
-    page.url.pathname;
-    (page.data as { user?: { id: string } | null }).user;
-    navigatePwaLaunchRedirect(pwaLaunchRedirectOptions());
-  });
 
   const bottomNavItems = $derived([
     {
@@ -105,19 +62,13 @@
   ]);
 
   onMount(() => {
-    startCaptureQueueRunner();
-
-    const removePwaLaunchListeners = installPwaLaunchRedirectListeners({
-      ...pwaLaunchRedirectOptions(),
-      getPathname: () => page.url.pathname,
-      isAuthenticated: () =>
-        (page.data as { user?: { id: string } | null }).user != null,
-    });
+    if ((page.data as { user?: { id: string } | null }).user) {
+      startCaptureQueueRunner();
+    }
 
     const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale;
     if (preferredUiLocale && getLocale() !== preferredUiLocale) {
       setLocale(preferredUiLocale as "en" | "de");
-      return;
     }
 
     void (async () => {
@@ -166,7 +117,6 @@
     media.addEventListener("change", handleChange);
     window.addEventListener("theme-preference-change", handlePreferenceChange);
     return () => {
-      removePwaLaunchListeners();
       media.removeEventListener("change", handleChange);
       window.removeEventListener("theme-preference-change", handlePreferenceChange);
     };
@@ -175,19 +125,14 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div
-  class="min-h-dvh"
-  class:pb-28={!hideBottomNav}
-  class:pb-6={hideBottomNav}
-  class:pt-20={!hideAppChrome && !isDeveloperDocs}
->
-  {#if !hideAppChrome && !isDeveloperDocs}
+<div class="min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome} class:pt-20={hideAppChrome}>
+  {#if !hideAppChrome}
     <AppHeader />
   {/if}
   {@render children()}
 </div>
 
-{#if !hideBottomNav}
+{#if !hideAppChrome}
   <nav
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"

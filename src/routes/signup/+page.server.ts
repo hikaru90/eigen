@@ -5,7 +5,7 @@ import { getSafeErrorMessage } from '$lib/server/auth-form-errors';
 import { signUpSchema } from '$lib/validation/auth';
 import { env } from '$env/dynamic/private';
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social';
-import { parseSignupPlanParam } from '$lib/components/marketing/marketing-cta';
+import { parseSignupPlanParam } from '$lib/auth/signup-plan';
 
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {
