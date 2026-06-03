@@ -125,7 +125,7 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome} class:pt-20={hideAppChrome}>
+<div class="min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome} class:pt-20={!hideAppChrome}>
   {#if !hideAppChrome}
     <AppHeader />
   {/if}
