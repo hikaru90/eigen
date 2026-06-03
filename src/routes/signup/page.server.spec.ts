@@ -1,11 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
-import { actions } from './+page.server';
+import { actions, load } from './+page.server';
 
 const { signUpEmailMock } = vi.hoisted(() => ({ signUpEmailMock: vi.fn() }));
 vi.mock('$lib/server/auth', () => ({ auth: { api: { signUpEmail: signUpEmailMock } } }));
 vi.mock('$lib/server/auth-form-errors', () => ({ getSafeErrorMessage: (e: unknown) => `safe: ${e}` }));
 
 describe('signup page server', () => {
+	it('returns plan from valid query param', () => {
+		const url = new URL('http://localhost/signup?plan=self-hosted');
+		const data = load({ url, locals: { user: null } } as never);
+		expect(data).toMatchObject({ plan: 'self-hosted' });
+	});
+
+	it('returns null plan when query param omitted', () => {
+		const url = new URL('http://localhost/signup');
+		const data = load({ url, locals: { user: null } } as never);
+		expect(data).toMatchObject({ plan: null });
+	});
+
+	it('rejects invalid plan query param', () => {
+		const url = new URL('http://localhost/signup?plan=invalid');
+		expect(() => load({ url, locals: { user: null } } as never)).toThrow();
+	});
+
 	it('returns validation error for empty name', async () => {
 		const request = new Request('http://localhost/signup', {
 			method: 'POST',

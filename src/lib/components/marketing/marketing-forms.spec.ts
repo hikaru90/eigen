@@ -13,7 +13,10 @@ describe('marketing forms (UI-only)', () => {
 		const src = readComponent('marketing-newsletter.svelte');
 		expect(src).not.toMatch(/\bfetch\s*\(/);
 		expect(src).toContain('Choose your deployment');
-		expect(src).toContain('Start managed');
+		expect(src).toContain('signupHref');
+		expect(src).toContain('pricingCtaLabel');
+		expect(src).toContain("signupHref('managed')");
+		expect(src).toContain("signupHref('self-hosted')");
 	});
 
 	it('contact does not call fetch', () => {

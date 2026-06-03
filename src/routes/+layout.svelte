@@ -37,11 +37,23 @@
     "/imprint",
   ]);
 
+  function isDeveloperDocsPath(pathname: string): boolean {
+    const p = normalizePathname(pathname);
+    return p === "/developers" || p.startsWith("/developers/");
+  }
+
   /** Hide header + bottom nav on marketing and auth screens (works with `paths.base` and trailing slashes). */
   const hideAppChrome = $derived(
     (page.route.id != null && marketingPaths.has(page.route.id)) ||
       marketingPaths.has(normalizePathname(page.url.pathname)),
   );
+
+  /** Docs and similar read-only surfaces: keep the top bar, hide capture/graph bottom nav. */
+  const hideBottomNav = $derived(
+    hideAppChrome || isDeveloperDocsPath(page.url.pathname),
+  );
+
+  const isDeveloperDocs = $derived(isDeveloperDocsPath(page.url.pathname));
 
   let currentPath = $derived(page.url.pathname);
   let themePreference = "system";
@@ -133,14 +145,19 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="min-h-dvh bg-background" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome} class:pt-20={!hideAppChrome}>
-  {#if !hideAppChrome}
+<div
+  class="min-h-dvh"
+  class:pb-28={!hideBottomNav}
+  class:pb-6={hideBottomNav}
+  class:pt-20={!hideAppChrome && !isDeveloperDocs}
+>
+  {#if !hideAppChrome && !isDeveloperDocs}
     <AppHeader />
   {/if}
   {@render children()}
 </div>
 
-{#if !hideAppChrome}
+{#if !hideBottomNav}
   <nav
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"

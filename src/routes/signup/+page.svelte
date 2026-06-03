@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
+	import type { Pathname } from '$app/types';
 	import type { ActionData } from './$types';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
@@ -7,7 +9,10 @@
 	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
 	import { signUpSchema } from '$lib/validation/auth';
 	import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte';
+	import { signupPlanSubtitle } from '$lib/components/marketing/marketing-cta';
 	import type { PageData } from './$types';
+
+	const homeHref = resolve('/' as Pathname);
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -33,9 +38,19 @@
 </script>
 
 <div class="mx-auto max-w-md px-5 pt-10">
+	<p class="mb-4">
+		<a href={homeHref} class="text-muted-foreground text-xs underline-offset-2 hover:underline">
+			← Back to home
+		</a>
+	</p>
 	<header class="text-center">
-		<EigenWordmark heightClass="h-8" />
+		<a href={homeHref} class="inline-block">
+			<EigenWordmark heightClass="h-8" />
+		</a>
 		<p class="text-muted-foreground mt-2 text-xs">Create an account</p>
+		{#if data.plan}
+			<p class="text-muted-foreground mt-1 text-xs">{signupPlanSubtitle(data.plan)}</p>
+		{/if}
 	</header>
 
 	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-8 border border-black/10 bg-card">

@@ -3,9 +3,8 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import type { Pathname } from '$app/types';
-	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import MarketingFooter from '$lib/components/marketing/marketing-footer.svelte';
-	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
+	import DeveloperDocsHeader from '$lib/components/docs/developer-docs-header.svelte';
+	import { developerDocsHeaderOffsetClass } from '$lib/docs/developer-docs-layout';
 	import { developerDocSections } from '$lib/docs/developer-nav';
 
 	let { children }: { children: Snippet } = $props();
@@ -13,30 +12,16 @@
 	const activeSlug = $derived(page.params.slug ?? '');
 </script>
 
-<div class="min-h-screen bg-background">
-	<header class="border-b-2 border-black bg-card dark:border-border">
-		<div class="marketing-container flex flex-col gap-4 py-6 md:flex-row md:items-center md:justify-between md:py-8">
-			<div class="flex flex-col gap-3">
-				<a
-					href={resolve('/')}
-					class="text-foreground inline-flex w-fit items-center gap-2 rounded-[6px] border-2 border-black bg-background px-3 py-1.5 text-xs font-medium shadow-[4px_4px_0px_0px_#000] transition-transform hover:translate-y-px dark:border-border dark:shadow-none"
-				>
-					<ArrowLeft class="size-3.5" strokeWidth={1.75} />
-					Back to home
-				</a>
-				<EigenWordmark heightClass="h-8" />
-				<p class="text-muted-foreground max-w-xl text-sm">Documentation for self-hosting and integration.</p>
-			</div>
-		</div>
-	</header>
+<!--
+  Docs header is absolute within this shell; sidebar stays put, only <main> scrolls.
+-->
+<div class="relative flex h-[calc(100dvh-1.5rem)] min-h-0 flex-col overflow-hidden">
+	<DeveloperDocsHeader />
 
-	<div class="marketing-container py-8 pb-20">
-		<div class="flex flex-col gap-8 lg:flex-row lg:gap-12">
-			<aside class="lg:w-56 lg:shrink-0">
-				<nav
-					class="rounded-md border-2 border-black bg-card p-4 shadow-[4px_4px_0px_0px_#000] dark:border-border dark:shadow-none lg:sticky lg:top-6"
-					aria-label="Developer documentation"
-				>
+	<div class="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4">
+		<div class="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-12">
+			<aside class="shrink-0 pt-6 {developerDocsHeaderOffsetClass} lg:w-56">
+				<nav aria-label="Developer documentation">
 					{#each developerDocSections as section (section.title)}
 						<div class="mb-4 last:mb-0">
 							<p class="text-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
@@ -63,11 +48,11 @@
 				</nav>
 			</aside>
 
-			<main class="min-w-0 flex-1">
-				{@render children()}
+			<main class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+				<div class="{developerDocsHeaderOffsetClass} pb-8">
+					{@render children()}
+				</div>
 			</main>
 		</div>
 	</div>
-
-	<MarketingFooter />
 </div>

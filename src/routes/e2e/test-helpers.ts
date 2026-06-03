@@ -15,7 +15,7 @@ export async function registerUser(
 	const id = `${Date.now()}-${userCounter}`;
 	const email = `e2e-${id}@test.eigen`;
 
-	await page.goto('/register');
+	await page.goto('/signup');
 	await page.fill('#name', `Test User ${id}`);
 	await page.fill('#email', email);
 	await page.fill('#password', TEST_PASSWORD);

@@ -35,13 +35,13 @@ export function scrollSectionToProgress(
 	targetProgress: number,
 	duration = 650,
 	onComplete?: () => void
-): void {
-	if (!browser) return;
+): () => void {
+	if (!browser) return () => {};
 
 	const travel = sectionEl.offsetHeight - window.innerHeight;
 	if (travel <= 0) {
 		onComplete?.();
-		return;
+		return () => {};
 	}
 
 	const clamped = Math.min(1, Math.max(0, targetProgress));
@@ -51,17 +51,25 @@ export function scrollSectionToProgress(
 	const targetTop = start + delta;
 	const change = targetTop - start;
 	const startTime = performance.now();
+	let animFrame = 0;
+	let cancelled = false;
 
 	function step(currentTime: number) {
+		if (cancelled) return;
 		const elapsed = currentTime - startTime;
 		const t = Math.min(elapsed / duration, 1);
 		window.scrollTo(0, start + change * easeInOutQuad(t));
 		if (elapsed < duration) {
-			requestAnimationFrame(step);
+			animFrame = requestAnimationFrame(step);
 		} else {
 			onComplete?.();
 		}
 	}
 
-	requestAnimationFrame(step);
+	animFrame = requestAnimationFrame(step);
+
+	return () => {
+		cancelled = true;
+		if (animFrame !== 0) window.cancelAnimationFrame(animFrame);
+	};
 }

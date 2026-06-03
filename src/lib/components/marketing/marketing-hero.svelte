@@ -5,9 +5,13 @@
 	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
 	import { marketingReveal } from '$lib/actions/marketing-reveal';
 	import MarketingHeroVisual from '$lib/components/marketing/marketing-hero-visual.svelte';
-	import { scrollToSectionId } from '$lib/components/marketing/scroll-to-element';
+	import {
+		MARKETING_PRIMARY_CTA,
+		signupHref
+	} from '$lib/components/marketing/marketing-cta';
 
 	const developersHref = resolve('/developers' as Pathname);
+	const signupPath = resolve(signupHref() as Pathname);
 </script>
 
 <section class="grid min-h-[calc(100dvh-6rem)] items-center gap-10 pt-28 pb-16 lg:grid-cols-[1.05fr_0.95fr]">
@@ -32,13 +36,8 @@
 			hyperscalers. Self-hostable, portable, and priced per call with full markup transparency.
 		</p>
 		<div class="mt-8 flex flex-wrap gap-2.5">
-			<MarketingButton
-				type="button"
-				size="lg"
-				class="rounded-[6px] px-5"
-				onclick={() => scrollToSectionId('pricingSectionTarget')}
-			>
-				Get early access
+			<MarketingButton href={signupPath} size="lg" class="rounded-[6px] px-5">
+				{MARKETING_PRIMARY_CTA}
 			</MarketingButton>
 			<MarketingButton href={developersHref} variant="outline" size="lg" class="rounded-[6px] px-5">
 				Read the docs

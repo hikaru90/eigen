@@ -13,7 +13,7 @@
 </script>
 
 {#if html}
-	<article class="doc-markdown max-w-none text-sm leading-relaxed {className}">
+	<article class="doc-markdown pt-6 max-w-none text-sm leading-relaxed {className}">
 		{@html html}
 	</article>
 {/if}

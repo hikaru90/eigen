@@ -1,11 +1,19 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import type { Pathname } from '$app/types';
 	import Menu from '@lucide/svelte/icons/menu';
 	import X from '@lucide/svelte/icons/x';
 	import MarketingButton from '$lib/components/marketing/marketing-button.svelte';
 	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
+	import {
+		MARKETING_APP_PATH,
+		MARKETING_LOGGED_IN_CTA,
+		MARKETING_PRIMARY_CTA,
+		signupHref
+	} from '$lib/components/marketing/marketing-cta';
 	import {
 		marketingScrollY,
 		marketingSectionId
@@ -21,6 +29,10 @@
 	];
 
 	const developersHref = resolve('/developers');
+	const signupCtaHref = resolve(signupHref() as Pathname);
+	const appCtaHref = resolve(MARKETING_APP_PATH as Pathname);
+	const primaryCtaHref = $derived(page.data.user ? appCtaHref : signupCtaHref);
+	const primaryCtaLabel = $derived(page.data.user ? MARKETING_LOGGED_IN_CTA : MARKETING_PRIMARY_CTA);
 
 	let menuVisible = $state(true);
 	let mobileOpen = $state(false);
@@ -64,7 +76,7 @@
 		>
 			<nav class="flex items-center justify-between gap-4 px-3 py-2.5">
 				<button type="button" class="shrink-0" onclick={() => scrollTo('topTarget')}>
-					<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-6 mt-0.5 sm:h-8 sm:mt-1" />
+					<EigenWordmark tone="light" inverted={navOnDark} heightClass="h-5 mt-0.5 sm:h-7 sm:mt-0.5" />
 				</button>
 
 			<div class="hidden items-center gap-6 lg:flex">
@@ -94,13 +106,12 @@
 					Docs
 				</MarketingButton>
 				<MarketingButton
-					type="button"
+					href={primaryCtaHref}
 					size="sm"
 					surface={navOnDark ? 'dark' : 'light'}
 					class="hidden rounded-[6px] lg:inline-flex"
-					onclick={() => scrollTo('pricingSectionTarget')}
 				>
-					Get early access
+					{primaryCtaLabel}
 				</MarketingButton>
 				<button
 					type="button"
@@ -156,12 +167,8 @@
 				<MarketingButton href={developersHref} variant="outline" class="w-full rounded-[6px]"
 					>Docs</MarketingButton
 				>
-				<MarketingButton
-					type="button"
-					class="w-full rounded-[6px]"
-					onclick={() => scrollTo('pricingSectionTarget')}
-				>
-					Get early access
+				<MarketingButton href={primaryCtaHref} class="w-full rounded-[6px]">
+					{primaryCtaLabel}
 				</MarketingButton>
 			</div>
 		</div>

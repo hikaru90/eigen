@@ -1,16 +1,28 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { auth } from '$lib/server/auth';
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors';
 import { signUpSchema } from '$lib/validation/auth';
 import { env } from '$env/dynamic/private';
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social';
+import { parseSignupPlanParam } from '$lib/components/marketing/marketing-cta';
 
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {
 		throw redirect(302, '/capture');
 	}
-	return { socialProviders: listEnabledSocialProviderIds(env) };
+
+	const rawPlan = event.url.searchParams.get('plan');
+	if (rawPlan !== null && parseSignupPlanParam(rawPlan) === null) {
+		throw error(400, 'Invalid plan parameter. Use managed or self-hosted.');
+	}
+
+	const plan = parseSignupPlanParam(rawPlan);
+
+	return {
+		socialProviders: listEnabledSocialProviderIds(env),
+		plan
+	};
 };
 
 export const actions: Actions = {

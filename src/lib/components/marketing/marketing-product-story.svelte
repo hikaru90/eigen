@@ -22,7 +22,10 @@
 	import MarketingStoryTemporalPreview from './marketing-story-temporal-preview.svelte';
 	import MarketingScrollHint from './marketing-scroll-hint.svelte';
 	import { DEMO_CAPTURE_TEXT } from './marketing-story-demo-data';
-	import { scrollSectionToProgress } from './scroll-to-element';
+	import { scrollSectionToProgress, scrollToSectionId } from './scroll-to-element';
+	import { Button } from '$lib/components/ui/button';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 
 	type FloatingMetaball = {
 		ox: number;
@@ -85,13 +88,53 @@
 	const STORY_RUNWAY_VH = 1280;
 
 	/** Beat scroll bands — fade-out ends before the next beat's fade-in starts. */
+	const BEAT_CAPTURE = { inStart: 0.08, inEnd: 0.12, outStart: 0.16, outEnd: 0.2 };
+	const BEAT_STORED = { inStart: 0.34, inEnd: 0.38, outStart: 0.42, outEnd: 0.46 };
+	const BEAT_PROCESS = {
+		rangeStart: 0.18,
+		rangeEnd: 0.32,
+		fadeInEnd: 0.22,
+		fadeOutStart: 0.33,
+		fadeOutEnd: 0.35
+	};
 	const BEAT_GRAPH = { inStart: 0.44, inEnd: 0.47, outStart: 0.63, outEnd: 0.66 };
 	const BEAT_CHAT = { inStart: 0.675, inEnd: 0.705, outStart: 0.765, outEnd: 0.795 };
 	/** Search needs a long hold so status + hits stay readable before answer. */
 	const BEAT_SEARCH = { inStart: 0.805, inEnd: 0.822, outStart: 0.908, outEnd: 0.922 };
 	/** Answer is the key payoff — long hold after the full reply is visible. */
 	const BEAT_ANSWER = { inStart: 0.928, inEnd: 0.938, outStart: 0.99, outEnd: 0.996 };
+	/** Fades in near story end; beatProgress runs through progress=1 so the card scrolls up with the runway exit. */
 	const BEAT_TEMPORAL = { inStart: 0.9972, inEnd: 0.9995 };
+	const STORY_NEXT_SECTION_ID = 'whySectionTarget';
+	/** Nav slide 9: temporal card fully visible (matches contentOpacity beatProgress ≥ 0.65). */
+	const STORY_SLIDE_TEMPORAL_TARGET =
+		BEAT_TEMPORAL.inStart + 0.65 * (1 - BEAT_TEMPORAL.inStart);
+
+	/** Midpoint of each beat's opacity=1 hold (or peak for hero / temporal). */
+	function storyBeatHoldCenter(fadeInEnd: number, fadeOutStart: number) {
+		return (fadeInEnd + fadeOutStart) / 2;
+	}
+
+	function processBeatHoldCenter() {
+		const { rangeStart, rangeEnd, fadeInEnd } = BEAT_PROCESS;
+		const fullOpacityEnd = rangeStart + 0.98 * (rangeEnd - rangeStart);
+		return (fadeInEnd + fullOpacityEnd) / 2;
+	}
+
+	/** Scroll-snap targets aligned to full-opacity hold for each beat. */
+	const STORY_SLIDE_PROGRESS = [
+		0.03,
+		storyBeatHoldCenter(BEAT_CAPTURE.inEnd, BEAT_CAPTURE.outStart),
+		processBeatHoldCenter(),
+		storyBeatHoldCenter(BEAT_STORED.inEnd, BEAT_STORED.outStart),
+		// Graph: past center so the full graph beat reads clearly on nav jump.
+		BEAT_GRAPH.inEnd + 0.82 * (BEAT_GRAPH.outStart - BEAT_GRAPH.inEnd),
+		storyBeatHoldCenter(BEAT_CHAT.inEnd, BEAT_CHAT.outStart),
+		// Search / "Memories retrieved": past center so results finish animating on nav jump.
+		BEAT_SEARCH.inEnd + 0.82 * (BEAT_SEARCH.outStart - BEAT_SEARCH.inEnd),
+		storyBeatHoldCenter(BEAT_ANSWER.inEnd, BEAT_ANSWER.outStart),
+		STORY_SLIDE_TEMPORAL_TARGET
+	] as const;
 
 	let storySectionEl: HTMLElement | null = null;
 	let metaballStageEl = $state<HTMLDivElement | null>(null);
@@ -108,7 +151,10 @@
 	let lastFrameTs = 0;
 	let labelUpdateCounter = 0;
 	let reduceMotion = false;
-	let autoScrolling = $state(false);
+	let storyNavTargetIndex = $state(-1);
+	let storyNavHidden = $state(false);
+	let cancelStoryScroll: (() => void) | null = null;
+	const STORY_SLIDE_SCROLL_MS = 300;
 	let captureInteractionDone = $state(false);
 	let graphMounted = $state(false);
 	let captureText = $state(DEMO_CAPTURE_TEXT);
@@ -204,12 +250,62 @@
 	}
 
 	function scrollToStoredThought() {
-		if (!browser || !storySectionEl || autoScrolling) return;
-		autoScrolling = true;
-		scrollSectionToProgress(storySectionEl, 0.4, 4600, () => {
-			autoScrolling = false;
-			captureInteractionDone = true;
+		goToStorySlide(3, 4600);
+	}
+
+	function slideIndexForProgress(p: number) {
+		let idx = 0;
+		for (let i = 0; i < STORY_SLIDE_PROGRESS.length - 1; i++) {
+			const mid =
+				(STORY_SLIDE_PROGRESS[i] + STORY_SLIDE_PROGRESS[i + 1]) / 2;
+			if (p >= mid) idx = i + 1;
+		}
+		return idx;
+	}
+
+	function activeStorySlideIndex() {
+		return storyNavTargetIndex >= 0 ? storyNavTargetIndex : slideIndexForProgress(progress);
+	}
+
+	function goToStorySlide(targetIndex: number, duration = STORY_SLIDE_SCROLL_MS) {
+		if (!browser || !storySectionEl) return;
+		const target = STORY_SLIDE_PROGRESS[targetIndex];
+		if (target === undefined) return;
+		storyNavTargetIndex = targetIndex;
+		cancelStoryScroll?.();
+		cancelStoryScroll = scrollSectionToProgress(storySectionEl, target, duration, () => {
+			cancelStoryScroll = null;
+			updateProgress();
+			// Keep nav index until scroll progress settles (avoids snapping back to a prior slide).
+			if (Math.abs(progress - target) < 0.02) {
+				storyNavTargetIndex = -1;
+			}
+			if (target >= 0.1) captureInteractionDone = true;
 		});
+	}
+
+	function goToPreviousStorySlide() {
+		const idx = activeStorySlideIndex();
+		if (idx > 0) goToStorySlide(idx - 1);
+	}
+
+	function exitStoryToNextSection() {
+		if (!browser) return;
+		cancelStoryScroll?.();
+		cancelStoryScroll = null;
+		storyNavTargetIndex = -1;
+		storyNavHidden = true;
+		scrollToSectionId(STORY_NEXT_SECTION_ID, STORY_SLIDE_SCROLL_MS);
+	}
+
+	function goToNextStorySlide() {
+		const idx = activeStorySlideIndex();
+		const lastIdx = STORY_SLIDE_PROGRESS.length - 1;
+		if (idx < lastIdx) {
+			goToStorySlide(idx + 1);
+			return;
+		}
+		exitStoryToNextSection();
 	}
 
 	function createSeededRandom(seed: number) {
@@ -443,6 +539,9 @@
 		document.addEventListener('visibilitychange', onVisibilityChange);
 		startMetaballLoop();
 		return () => {
+			cancelStoryScroll?.();
+			cancelStoryScroll = null;
+			storyNavTargetIndex = -1;
 			stopMetaballLoop();
 			if (scrollRaf !== 0) window.cancelAnimationFrame(scrollRaf);
 			metaballRenderer?.dispose();
@@ -507,9 +606,13 @@
 	/** Hero reacts on first scroll (no 10% dead zone). */
 	const headlineExitT = $derived(ease(segment(0, 0.14)));
 	const headlineOnScreen = $derived(headlineExitT < 1);
-	const captureOpacity = $derived(stageOpacity(0.08, 0.12, 0.16, 0.2));
+	const captureOpacity = $derived(
+		stageOpacity(BEAT_CAPTURE.inStart, BEAT_CAPTURE.inEnd, BEAT_CAPTURE.outStart, BEAT_CAPTURE.outEnd)
+	);
 	const processOpacity = $derived(processOpacityAt(progress));
-	const storedOpacity = $derived(stageOpacity(0.34, 0.38, 0.42, 0.46));
+	const storedOpacity = $derived(
+		stageOpacity(BEAT_STORED.inStart, BEAT_STORED.inEnd, BEAT_STORED.outStart, BEAT_STORED.outEnd)
+	);
 	const graphOpacity = $derived(
 		stageOpacity(BEAT_GRAPH.inStart, BEAT_GRAPH.inEnd, BEAT_GRAPH.outStart, BEAT_GRAPH.outEnd)
 	);
@@ -523,7 +626,7 @@
 		stageOpacity(BEAT_ANSWER.inStart, BEAT_ANSWER.inEnd, BEAT_ANSWER.outStart, BEAT_ANSWER.outEnd)
 	);
 	const temporalOpacity = $derived(stageOpacityHold(BEAT_TEMPORAL.inStart, BEAT_TEMPORAL.inEnd));
-	const processStep = $derived(segment(0.18, 0.32));
+	const processStep = $derived(segment(BEAT_PROCESS.rangeStart, BEAT_PROCESS.rangeEnd));
 	const graphBeatProgress = $derived(segment(BEAT_GRAPH.inStart, BEAT_GRAPH.outEnd));
 	const chatBeatProgress = $derived(segment(BEAT_CHAT.inStart, BEAT_CHAT.outEnd));
 	const searchBeatProgress = $derived(beatHoldProgress(BEAT_SEARCH, progress));
@@ -533,20 +636,23 @@
 		progress >= 0.99 ? 1 - ease(segment(0.99, 1)) * 0.12 : 1
 	);
 	const showScrollHint = $derived.by(() => {
-		if (!captureInteractionDone || autoScrolling) return false;
+		if (!captureInteractionDone || storyNavTargetIndex >= 0) return false;
 		// Rest point after Capture: stored thought is fully visible.
 		return progress >= 0.36 && progress < 0.46;
 	});
 
+	const storySlideIndex = $derived(activeStorySlideIndex());
+	const canGoToPreviousStorySlide = $derived(storySlideIndex > 0);
 	function isInteractive(opacity: number) {
 		return opacity >= 0.12;
 	}
 
 	function processOpacityAt(p: number) {
-		if (p < 0.18 || p >= 0.35) return 0;
-		if (p < 0.22) return ease(segment(0.18, 0.22));
-		if (segment(0.18, 0.32) < 0.98) return 1;
-		return 1 - ease(segment(0.33, 0.35));
+		const { rangeStart, rangeEnd, fadeInEnd, fadeOutStart, fadeOutEnd } = BEAT_PROCESS;
+		if (p < rangeStart || p >= fadeOutEnd) return 0;
+		if (p < fadeInEnd) return ease(segment(rangeStart, fadeInEnd));
+		if (segment(rangeStart, rangeEnd) < 0.98) return 1;
+		return 1 - ease(segment(fadeOutStart, fadeOutEnd));
 	}
 
 	function stageOpacityHold(fadeInStart: number, fadeInEnd: number) {
@@ -747,6 +853,48 @@
 			<MarketingScrollHint visible={showScrollHint} />
 		</div>
 	</div>
+
+	{#if !storyNavHidden}
+	<div
+		class="pointer-events-none fixed right-4 bottom-6 z-[90] flex flex-col items-center gap-1.5 sm:right-6"
+		aria-label="Story slide navigation"
+	>
+		<p
+			class="text-[10px] font-medium tracking-wide text-foreground/70 tabular-nums"
+			aria-live="polite"
+			aria-label="Story slide {storySlideIndex + 1} of {STORY_SLIDE_PROGRESS.length}"
+		>
+			{storySlideIndex + 1}/{STORY_SLIDE_PROGRESS.length}
+		</p>
+		<div
+			class="pointer-events-auto flex flex-col items-center overflow-hidden rounded-full border border-white bg-white/50 p-1 backdrop-blur-md"
+		>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon"
+				class="size-9 rounded-full text-foreground"
+				disabled={!canGoToPreviousStorySlide}
+				aria-label="Previous story slide"
+				onclick={goToPreviousStorySlide}
+			>
+				<ChevronUp class="size-5" strokeWidth={2} />
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon"
+				class="size-9 rounded-full text-foreground"
+				aria-label={storySlideIndex >= STORY_SLIDE_PROGRESS.length - 1
+					? 'Continue to next section'
+					: 'Next story slide'}
+				onclick={goToNextStorySlide}
+			>
+				<ChevronDown class="size-5" strokeWidth={2} />
+			</Button>
+		</div>
+	</div>
+	{/if}
 </section>
 
 <style>

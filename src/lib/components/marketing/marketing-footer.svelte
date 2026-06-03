@@ -5,6 +5,12 @@
 	import type { Pathname } from '$app/types';
 	import MarketingButton from '$lib/components/marketing/marketing-button.svelte';
 	import EigenWordmark from '$lib/components/eigen-wordmark.svelte';
+	import {
+		MARKETING_APP_PATH,
+		MARKETING_LOGGED_IN_CTA,
+		MARKETING_PRIMARY_CTA,
+		signupHref
+	} from '$lib/components/marketing/marketing-cta';
 	import { scrollToSectionId } from '$lib/components/marketing/scroll-to-element';
 
 	const navLinks = [
@@ -22,6 +28,11 @@
 		{ label: 'Docs', href: '/developers' }
 	];
 
+	const signupCtaHref = resolve(signupHref() as Pathname);
+	const appCtaHref = resolve(MARKETING_APP_PATH as Pathname);
+	const primaryCtaHref = $derived(page.data.user ? appCtaHref : signupCtaHref);
+	const primaryCtaLabel = $derived(page.data.user ? MARKETING_LOGGED_IN_CTA : MARKETING_PRIMARY_CTA);
+
 	function navigateToSection(target: string) {
 		if (page.url.pathname === '/') {
 			scrollToSectionId(target);
@@ -33,17 +44,16 @@
 
 <div class="marketing-on-dark border-t-2 border-white/20 bg-black py-12 text-white">
 	<div class="mx-auto flex w-full max-w-6xl flex-col items-center gap-6 px-4 text-center">
-		<p class="text-sm font-medium">Get early access</p>
+		<p class="text-sm font-medium">{MARKETING_PRIMARY_CTA}</p>
 		<div class="flex flex-wrap justify-center gap-3">
 			<MarketingButton
-				type="button"
+				href={primaryCtaHref}
 				variant="secondary"
 				surface="dark"
 				size="lg"
 				class="rounded-[6px]"
-				onclick={() => navigateToSection('pricingSectionTarget')}
 			>
-				Join waitlist
+				{primaryCtaLabel}
 			</MarketingButton>
 			<MarketingButton
 				href={resolve('/developers' as Pathname)}

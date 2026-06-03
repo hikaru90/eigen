@@ -82,11 +82,12 @@
   }
 </script>
 
-<header class="fixed top-0 right-0 left-0 z-40 w-full px-5 pt-safe">
+<header class="fixed top-0 right-0 left-0 z-40 w-full bg-transparent px-5 pt-safe">
   <div
-    class="pointer-events-none bg-linear-to-b absolute top-0 right-0 left-0 -z-10 h-24 from-background to-transparent dark:from-black dark:to-black/0"
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 bg-linear-to-b from-background to-transparent"
   ></div>
-  <div class="mx-auto flex w-full items-center justify-between">
+  <div class="relative z-10 mx-auto flex w-full items-center justify-between pb-3">
     {#if isChatRoute}
       <button
         class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"

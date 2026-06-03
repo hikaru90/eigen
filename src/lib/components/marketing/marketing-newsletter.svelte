@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+	import type { Pathname } from '$app/types';
 	import { marketingReveal } from '$lib/actions/marketing-reveal';
 	import MarketingButton from '$lib/components/marketing/marketing-button.svelte';
+	import { pricingCtaLabel, signupHref } from '$lib/components/marketing/marketing-cta';
 </script>
 
 <section class="mb-20 md:mb-32">
@@ -24,15 +27,24 @@
 				<p class="text-muted-foreground mb-4 text-[13px] leading-relaxed">
 					Fastest path to production. We operate infrastructure while you keep full visibility.
 				</p>
-				<MarketingButton type="button" class="w-full rounded-none">Start managed</MarketingButton>
+				<MarketingButton
+					href={resolve(signupHref('managed') as Pathname)}
+					class="w-full rounded-none"
+				>
+					{pricingCtaLabel('managed')}
+				</MarketingButton>
 			</div>
 			<div class="border-2 border-black bg-[#FAFAFA] p-5">
 				<p class="text-foreground mb-1 text-sm font-semibold">Self-hosted</p>
 				<p class="text-muted-foreground mb-4 text-[13px] leading-relaxed">
 					Run on your own PostgreSQL, pgvector, and AGE setup with full control of runtime.
 				</p>
-				<MarketingButton variant="outline" type="button" class="w-full rounded-none">
-					Start self-hosted
+				<MarketingButton
+					variant="outline"
+					href={resolve(signupHref('self-hosted') as Pathname)}
+					class="w-full rounded-none"
+				>
+					{pricingCtaLabel('self-hosted')}
 				</MarketingButton>
 			</div>
 		</div>
