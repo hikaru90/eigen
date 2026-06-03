@@ -19,6 +19,11 @@ export const developerDocSections: DeveloperDocSection[] = [
 		items: [
 			{ slug: 'getting-started', label: 'Overview & quick start', file: 'README.md' },
 			{
+				slug: 'onboarding-and-setup',
+				label: 'Onboarding & setup',
+				file: 'docs/getting-started/onboarding-and-setup.md'
+			},
+			{
 				slug: 'deployment-model',
 				label: 'Deployment model',
 				file: 'docs/planning/07-deployment-ownership-and-licensing.md'

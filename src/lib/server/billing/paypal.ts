@@ -13,7 +13,18 @@ export function getPayPalApiBase(): string {
 	if (!base) {
 		throw new Error('PayPal base URL is required (set PAYPAL_API_BASE or PAYPAL_URL)');
 	}
-	return base.replace(/\/$/, '');
+	const normalized = base.replace(/\/$/, '');
+	const lower = normalized.toLowerCase();
+	// Common misconfiguration: website host instead of REST API (causes OAuth 401 / capture 404).
+	if (
+		(lower.includes('sandbox.paypal.com') || lower.includes('www.paypal.com')) &&
+		!lower.includes('api-m.')
+	) {
+		throw new Error(
+			'PAYPAL_API_BASE must be the PayPal REST host (sandbox: https://api-m.sandbox.paypal.com, live: https://api-m.paypal.com), not the marketing site https://sandbox.paypal.com'
+		);
+	}
+	return normalized;
 }
 
 export function getPayPalClientId(): string {

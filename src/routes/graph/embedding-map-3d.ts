@@ -26,8 +26,10 @@ export type EmbeddingMap3dHandle = {
 const POINT_RADIUS = 0.028;
 const HIGHLIGHT_RADIUS = 0.048;
 const HIGHLIGHT_COLOR = 0xfbbf24;
-/** Offset label above the sphere in scene units. */
-const LABEL_Y_OFFSET = 0.055;
+
+/** Match /graph force layout: text at x=12, y=4 beside the node circle. */
+const LABEL_MARGIN_LEFT_PX = 12;
+const LABEL_MARGIN_TOP_PX = 4;
 
 function parseCssColor(color: string): THREE.Color {
 	return new THREE.Color(color);
@@ -44,6 +46,8 @@ function createLabelElement(text: string, itemId: string): HTMLDivElement {
 	el.className = 'embedding-map-label';
 	el.dataset.itemId = itemId;
 	el.textContent = text;
+	el.style.marginLeft = `${LABEL_MARGIN_LEFT_PX}px`;
+	el.style.marginTop = `${LABEL_MARGIN_TOP_PX}px`;
 	return el;
 }
 
@@ -57,14 +61,22 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 	renderer.setClearColor(0x000000, 0);
-	renderer.domElement.className = 'embedding-map-3d absolute inset-0 touch-none';
+	renderer.domElement.className = 'embedding-map-3d touch-none';
 	renderer.domElement.style.cursor = 'grab';
 	container.appendChild(renderer.domElement);
 
 	const labelRenderer = new CSS2DRenderer();
-	labelRenderer.domElement.className = 'embedding-map-labels absolute inset-0 touch-none';
+	labelRenderer.domElement.className = 'embedding-map-labels touch-none';
 	labelRenderer.domElement.style.pointerEvents = 'none';
 	container.appendChild(labelRenderer.domElement);
+
+	const stackLayer = (el: HTMLElement) => {
+		el.style.position = 'absolute';
+		el.style.top = '0';
+		el.style.left = '0';
+	};
+	stackLayer(renderer.domElement);
+	stackLayer(labelRenderer.domElement);
 
 	const controls = new OrbitControls(camera, renderer.domElement);
 	controls.enableDamping = true;
@@ -94,7 +106,8 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		const labelEl = createLabelElement(embeddingMapLabelText(point.item), point.item.id);
 		labelByItemId.set(point.item.id, labelEl);
 		const label = new CSS2DObject(labelEl);
-		label.position.set(0, LABEL_Y_OFFSET, 0);
+		// Left-middle anchor at the dot; pixel margin offsets match the 2D graph tab.
+		label.center.set(0, 0.5);
 		mesh.add(label);
 	}
 
@@ -158,7 +171,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		if (w < 1 || h < 1) return;
 		camera.aspect = w / h;
 		camera.updateProjectionMatrix();
-		renderer.setSize(w, h, false);
+		renderer.setSize(w, h, true);
 		labelRenderer.setSize(w, h);
 	}
 

@@ -8,6 +8,8 @@ This repository is a **fully self-contained Docker Compose stack** — no extern
 
 For **scope, canonical files, and known overlaps** (ingestion, retrieval, auth, UI), read the layered map: start at [`docs/repo-map/index.md`](./docs/repo-map/index.md). That index links deeper domain docs and the [conflict ledger](./docs/repo-map/conflicts.md). Update the smallest affected layer when you change behavior (see [`docs/repo-map/maintenance.md`](./docs/repo-map/maintenance.md)).
 
+For **user onboarding** (managed hosting) and **operator setup** (self-hosted accounts and env vars), see [`docs/getting-started/onboarding-and-setup.md`](./docs/getting-started/onboarding-and-setup.md) — also published at `/developers/onboarding-and-setup`.
+
 ## Architecture
 
 | Service | Container | Role |

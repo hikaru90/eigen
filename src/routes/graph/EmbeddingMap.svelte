@@ -285,7 +285,6 @@
 
 <style>
 	:global(.embedding-map-label) {
-		transform: translate(-4px, -50%);
 		max-width: 11rem;
 		overflow: hidden;
 		text-overflow: ellipsis;

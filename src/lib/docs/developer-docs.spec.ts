@@ -82,7 +82,7 @@ describe('developer documentation', () => {
 	it('resolves previous and next pages in sidebar order', () => {
 		expect(getDeveloperDocPrevNextLinks('getting-started')).toEqual({
 			prev: null,
-			next: { label: 'Deployment model', slug: 'deployment-model' }
+			next: { label: 'Onboarding & setup', slug: 'onboarding-and-setup' }
 		});
 		expect(getDeveloperDocPrevNextLinks('ingestion')).toEqual({
 			prev: { label: 'Embeddings boundary', slug: 'embeddings-boundary' },
