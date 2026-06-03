@@ -10,7 +10,7 @@
 <div class="border-2 border-black bg-white shadow-[4px_4px_0px_0px_#000]">
 	<button
 		type="button"
-		class="flex w-full items-center justify-between gap-4 p-4 text-left"
+		class="flex w-full cursor-pointer items-center justify-between gap-4 p-4 text-left"
 		aria-expanded={open}
 		onclick={() => (open = !open)}
 	>

@@ -2,7 +2,7 @@
 	"name": "Eigen",
 	"short_name": "Eigen",
 	"description": "Self-hostable memory infrastructure",
-	"start_url": "/",
+	"start_url": "/login",
 	"scope": "/",
 	"display": "standalone",
 	"background_color": "#e8ede5",

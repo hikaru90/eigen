@@ -152,7 +152,6 @@
 	let labelUpdateCounter = 0;
 	let reduceMotion = false;
 	let storyNavTargetIndex = $state(-1);
-	let storyNavHidden = $state(false);
 	let cancelStoryScroll: (() => void) | null = null;
 	const STORY_SLIDE_SCROLL_MS = 300;
 	let captureInteractionDone = $state(false);
@@ -230,6 +229,12 @@
 		return { dx: (dx / len) * push, dy: (dy / len) * push };
 	}
 
+	/** Pinned story runway: section top passed stick point, bottom still below viewport. */
+	function isStoryScrollspyActive(rect: DOMRect) {
+		const vh = window.innerHeight;
+		return rect.top <= 0 && rect.bottom > vh;
+	}
+
 	function updateProgress() {
 		if (!browser || !storySectionEl) return;
 		const rect = storySectionEl.getBoundingClientRect();
@@ -294,7 +299,6 @@
 		cancelStoryScroll?.();
 		cancelStoryScroll = null;
 		storyNavTargetIndex = -1;
-		storyNavHidden = true;
 		scrollToSectionId(STORY_NEXT_SECTION_ID, STORY_SLIDE_SCROLL_MS);
 	}
 
@@ -643,6 +647,12 @@
 
 	const storySlideIndex = $derived(activeStorySlideIndex());
 	const canGoToPreviousStorySlide = $derived(storySlideIndex > 0);
+	/** Show slide nav only while the story section is pinned (scrollspy). */
+	const storyNavVisible = $derived.by(() => {
+		void progress;
+		if (!browser || !storySectionEl) return false;
+		return isStoryScrollspyActive(storySectionEl.getBoundingClientRect());
+	});
 	function isInteractive(opacity: number) {
 		return opacity >= 0.12;
 	}
@@ -854,7 +864,7 @@
 		</div>
 	</div>
 
-	{#if !storyNavHidden}
+	{#if storyNavVisible}
 	<div
 		class="pointer-events-none fixed right-4 bottom-6 z-[90] flex flex-col items-center gap-1.5 sm:right-6"
 		aria-label="Story slide navigation"

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
+	import type { Pathname } from '$app/types';
 	import type { ActionData } from './$types';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
@@ -8,6 +10,8 @@
 	import { signInSchema } from '$lib/validation/auth';
 	import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte';
 	import type { PageData } from './$types';
+
+	const homeHref = resolve('/' as Pathname);
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -32,7 +36,9 @@
 
 <div class="mx-auto max-w-md px-5 pt-10">
 	<header class="text-center">
-		<EigenWordmark heightClass="h-8" />
+		<a href={homeHref} class="inline-block" aria-label="Eigen home">
+			<EigenWordmark heightClass="h-8" />
+		</a>
 		<p class="text-muted-foreground mt-2 text-xs">Sign in</p>
 	</header>
 

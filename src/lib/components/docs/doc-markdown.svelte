@@ -78,6 +78,7 @@
 	}
 	.doc-markdown :global(a) {
 		color: var(--foreground);
+		cursor: pointer;
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}

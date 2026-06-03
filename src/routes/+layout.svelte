@@ -1,8 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { browser } from "$app/environment";
   import type { Pathname } from "$app/types";
   import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
+  import {
+    installPwaLaunchRedirectListeners,
+    navigatePwaLaunchRedirect,
+  } from "$lib/pwa/launch-redirect";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
@@ -58,6 +63,23 @@
   let currentPath = $derived(page.url.pathname);
   let themePreference = "system";
 
+  function pwaLaunchRedirectOptions() {
+    const user = (page.data as { user?: { id: string } | null }).user;
+    return {
+      pathname: page.url.pathname,
+      isAuthenticated: user != null,
+      base,
+      resolveHref: (target: "/capture" | "/login") => resolve(target as Pathname),
+    };
+  }
+
+  $effect(() => {
+    if (!browser) return;
+    page.url.pathname;
+    (page.data as { user?: { id: string } | null }).user;
+    navigatePwaLaunchRedirect(pwaLaunchRedirectOptions());
+  });
+
   const bottomNavItems = $derived([
     {
       label: "Graph",
@@ -84,6 +106,13 @@
 
   onMount(() => {
     startCaptureQueueRunner();
+
+    const removePwaLaunchListeners = installPwaLaunchRedirectListeners({
+      ...pwaLaunchRedirectOptions(),
+      getPathname: () => page.url.pathname,
+      isAuthenticated: () =>
+        (page.data as { user?: { id: string } | null }).user != null,
+    });
 
     const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale;
     if (preferredUiLocale && getLocale() !== preferredUiLocale) {
@@ -137,6 +166,7 @@
     media.addEventListener("change", handleChange);
     window.addEventListener("theme-preference-change", handlePreferenceChange);
     return () => {
+      removePwaLaunchListeners();
       media.removeEventListener("change", handleChange);
       window.removeEventListener("theme-preference-change", handlePreferenceChange);
     };

@@ -68,6 +68,12 @@ export const developerDocSections: DeveloperDocSection[] = [
 	}
 ];
 
+/** One header link per sidebar section (first page in each group). */
+export const developerDocsNavbarItems = developerDocSections.map((section) => ({
+	label: section.title,
+	slug: section.items[0].slug
+}));
+
 const entries = developerDocSections.flatMap((section) => section.items);
 
 export const developerDocBySlug = new Map(entries.map((entry) => [entry.slug, entry]));

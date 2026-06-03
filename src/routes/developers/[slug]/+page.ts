@@ -4,6 +4,7 @@ import {
 	getDeveloperDocEntry,
 	loadDocSource
 } from '$lib/docs/doc-loader';
+import { getDeveloperDocPrevNextLinks } from '$lib/docs/doc-link-resolve';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = ({ params }) => {
@@ -24,6 +25,7 @@ export const load: PageLoad = ({ params }) => {
 		label: entry.label,
 		file: entry.file,
 		title,
-		source
+		source,
+		...getDeveloperDocPrevNextLinks(entry.slug)
 	};
 };

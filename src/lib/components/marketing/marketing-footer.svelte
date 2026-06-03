@@ -88,7 +88,7 @@
 						<li>
 							<button
 								type="button"
-								class="text-left transition-opacity hover:opacity-100"
+								class="cursor-pointer text-left transition-opacity hover:opacity-100"
 								onclick={() => navigateToSection(link.target)}
 							>
 								{link.label}
