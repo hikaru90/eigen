@@ -9,12 +9,6 @@ const enforceCoverageThresholds =
 	process.env.CI === 'true' || process.argv.includes('run');
 
 export default defineConfig({
-	server: {
-		watch: {
-			// Autosave writes this during logo editing; watching it reloads the page every 5s.
-			ignored: ['**/data/logo-dot-current.json']
-		}
-	},
 	build: {
 		rollupOptions: {
 			onwarn(warning, warn) {
@@ -70,7 +64,6 @@ export default defineConfig({
 				'src/lib/stores/**',
 				'src/lib/server/db/auth.schema.ts',
 				'src/lib/server/db/brain.schema.ts',
-				'src/lib/server/logo/**',
 				'src/lib/server/consolidation/**',
 				'src/lib/server/ontology/**',
 				'src/lib/server/ontology-db/**',
@@ -84,10 +77,8 @@ export default defineConfig({
 				'src/routes/**/*.svelte',
 				'src/routes/+layout.server.ts',
 				'src/routes/demo/**',
-				'src/routes/logo/**',
 				'src/routes/e2e/**',
 				'src/routes/api/eval/**',
-				'src/routes/api/logo/**',
 				'src/routes/api/admin/**',
 				'src/routes/api/keys/**',
 				'src/routes/api/chat/sessions/**',
