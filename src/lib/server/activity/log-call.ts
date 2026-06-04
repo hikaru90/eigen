@@ -1,5 +1,6 @@
 import { activityCallLog } from '$lib/server/db/schema';
 import type { AppDatabase } from '$lib/server/db/context';
+import { resolveTenantUserId } from '$lib/server/billing/context';
 import { priceCall } from '$lib/server/pricing';
 import { getCurrentTraceGroupId } from './trace-context';
 
@@ -22,8 +23,9 @@ export async function logActivityCall(
 	const context = input.context?.trim()
 		? (input.context.length > 100 ? input.context.slice(0, 97) + '...' : input.context)
 		: null;
+	const logUserId = resolveTenantUserId(userId);
 	await db.insert(activityCallLog).values({
-		userId,
+		userId: logUserId,
 		provider: input.provider,
 		gatewayHost: input.gatewayHost?.trim() ? input.gatewayHost.trim().toLowerCase() : null,
 		operation: input.operation,

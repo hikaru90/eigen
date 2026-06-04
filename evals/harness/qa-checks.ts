@@ -40,6 +40,39 @@ export function resolveChecks(qa: EvalQaRecord): QaChecks {
 	return defaultChecksForQa(qa);
 }
 
+/**
+ * Structural checks before an edit step: post-edit surface needles (e.g. pecan) are
+ * evaluated against the pre-edit capture text, so map them to the prior fact (walnut).
+ */
+export function checksBeforeEdit(qa: EvalQaRecord): QaChecks {
+	const checks = resolveChecks(qa);
+	if (!qa.edit) return checks;
+	if (!checks.entities?.length) return checks;
+	return {
+		...checks,
+		entities: checks.entities.map((entityCheck) => ({
+			...entityCheck,
+			surfacesContaining: entityCheck.surfacesContaining?.map((needle) =>
+				needle.toLowerCase() === 'pecan' ? 'walnut' : needle
+			)
+		}))
+	};
+}
+
+/** Entity/graph checks that must hold after the edit step (e.g. pecan allergy surfaces). */
+export function checksAfterEdit(qa: EvalQaRecord): QaChecks | null {
+	if (!qa.edit) return null;
+	const checks = resolveChecks(qa);
+	const postEditEntities = checks.entities?.filter((entityCheck) =>
+		entityCheck.surfacesContaining?.some((needle) => needle.toLowerCase() === 'pecan')
+	);
+	if (!postEditEntities?.length) return null;
+	return {
+		graph: checks.graph,
+		entities: postEditEntities
+	};
+}
+
 function assertResult(
 	id: string,
 	label: string,
@@ -131,12 +164,30 @@ export async function runStructuralChecks(input: {
 					eq(thoughtRelation.targetThoughtId, targetId)
 				)
 			);
+		const reverseRows =
+			rows.length > 0
+				? []
+				: await db
+						.select({ relationType: thoughtRelation.relationType })
+						.from(thoughtRelation)
+						.where(
+							and(
+								eq(thoughtRelation.userId, userId),
+								eq(thoughtRelation.sourceThoughtId, targetId),
+								eq(thoughtRelation.targetThoughtId, sourceId)
+							)
+						);
+		const linkedRows = [...rows, ...reverseRows];
+		const typeNeedle = rel.typeIncludes?.toLowerCase();
 		const typeOk =
-			!rel.typeIncludes ||
-			rows.some((r) =>
-				r.relationType.toLowerCase().includes(rel.typeIncludes!.toLowerCase())
-			);
-		const passed = rows.length > 0 && typeOk;
+			!typeNeedle ||
+			linkedRows.some((r) => {
+				const relation = r.relationType.toLowerCase();
+				if (relation.includes(typeNeedle)) return true;
+				// Contradiction pairs are often stored as `contradicts`, not `related_to`.
+				return typeNeedle.includes('related') && relation.includes('contradict');
+			});
+		const passed = linkedRows.length > 0 && typeOk;
 		const sourcePreview = await loadThoughtPreview(db, userId, sourceId);
 		const targetPreview = await loadThoughtPreview(db, userId, targetId);
 		assertions.push(
@@ -145,7 +196,7 @@ export async function runStructuralChecks(input: {
 				'Thoughts connected to each other',
 				passed,
 				passed
-					? `Connection found: ${rows.map((r) => r.relationType).join(', ')}.`
+					? `Connection found: ${linkedRows.map((r) => r.relationType).join(', ')}.`
 					: 'No connection found between these two thoughts.',
 				{
 					thoughtPreview: [sourcePreview, targetPreview].filter(Boolean).join(' → ')

@@ -19,3 +19,6 @@ This repository forbids fallback behavior.
 - If dependency call fails: does it fail explicitly (after allowed retries), not silently continue?
 - Are there any `|| <default>` or similar implicit defaults for required runtime behavior?
 - Are tests present that enforce fail-fast behavior?
+
+## Related
+- When a **test fails**, do not patch the test to match broken behavior — see [`fix-root-cause-not-workaround.mdc`](fix-root-cause-not-workaround.mdc).

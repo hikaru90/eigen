@@ -33,7 +33,7 @@ async function launchRun(input: {
 	operatorUserId: string;
 	mode: EvalRunMode;
 	qas: EvalQaRecord[];
-	keepEvalUser?: boolean;
+	freshCorpus?: boolean;
 }): Promise<{ runId: string; entries: EvalEntrySummary[] }> {
 	const expanded = expandQaEntries(input.qas);
 	const label =
@@ -48,7 +48,7 @@ async function launchRun(input: {
 		label,
 		scenarioId: input.mode === 'qa' ? input.qas[0]!.id : input.mode === 'smoke' ? input.qas[0]!.id : 'all',
 		config: {
-			keepEvalUser: input.keepEvalUser ?? false,
+			freshCorpus: input.freshCorpus ?? false,
 			mode: input.mode,
 			qaIds: input.qas.map((q) => q.id)
 		}
@@ -81,7 +81,7 @@ async function launchRun(input: {
 	void executeEvalRun({
 		operatorUserId: input.operatorUserId,
 		runId,
-		keepEvalUser: input.keepEvalUser,
+		freshCorpus: input.freshCorpus,
 		scenarioGoal
 	})
 		.catch(async (err) => {
@@ -104,7 +104,7 @@ export async function startEvalRun(input: {
 	operatorUserId: string;
 	mode: EvalRunMode;
 	qaId?: string;
-	keepEvalUser?: boolean;
+	freshCorpus?: boolean;
 }): Promise<{ runId: string; entries: EvalEntrySummary[] }> {
 	if (activeRunId) {
 		throw new Error('An eval run is already in progress');
@@ -122,7 +122,7 @@ export async function startEvalRun(input: {
 		if (!isQaActive(qa)) {
 			throw new Error(`QA is inactive: ${qaId}`);
 		}
-		return launchRun({ operatorUserId: input.operatorUserId, mode: 'qa', qas: [qa], keepEvalUser: input.keepEvalUser });
+		return launchRun({ operatorUserId: input.operatorUserId, mode: 'qa', qas: [qa], freshCorpus: input.freshCorpus });
 	}
 
 	const items = (await listEvalQa()).filter(isQaActive);

@@ -34,7 +34,8 @@
 		"db:app-role": "node scripts/ensure-app-role.mjs",
 		"eval": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:smoke": "vite-node --config evals/vite.config.ts evals/run.ts",
-		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all"
+		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",
+		"eval:reset-fixture": "vite-node --config evals/vite.config.ts evals/reset-fixture.ts"
 	},
 	"devDependencies": {
 		"@better-auth/cli": "~1.4.21",

@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
 import { getRuntimeDatabaseUrl } from './runtime-url';
+import { tenantUserAsyncLocal } from '$lib/server/billing/context';
 import { appDbAsyncLocal, type AppDatabase } from './context';
 import { activateTenantDbSession, deactivateTenantDbSession } from './tenant-session';
 
@@ -17,7 +18,7 @@ export async function withDbUser<T>(userId: string, fn: (db: AppDatabase) => Pro
 	try {
 		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
-		return await appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
+		return await tenantUserAsyncLocal.run(userId, () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb)));
 	} finally {
 		await deactivateTenantDbSession(reserved).catch(() => {});
 		await reserved.release();

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { tenantUserAsyncLocal } from '$lib/server/billing/context';
 import { logActivityCall } from './log-call';
 
 vi.mock('$lib/server/pricing', () => ({
@@ -40,6 +41,22 @@ describe('logActivityCall', () => {
 			groupId: undefined,
 			durationMs: undefined
 		});
+	});
+
+	it('uses tenant RLS user for user_id when tenant context is set', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+
+		await tenantUserAsyncLocal.run('eval-tenant-1', async () => {
+			await logActivityCall(db, 'eval-runner-judge', {
+				provider: 'eurouter',
+				operation: 'llm.chat.success(attempt=1)',
+				baseCostUsd: 0.000026
+			});
+		});
+
+		expect(values).toHaveBeenCalledWith(expect.objectContaining({ userId: 'eval-tenant-1' }));
 	});
 
 	it('forwards groupId and durationMs when provided', async () => {

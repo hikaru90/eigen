@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { billingUserAsyncLocal, resolveBillingUserId } from './context';
+import {
+	billingUserAsyncLocal,
+	resolveBillingUserId,
+	resolveTenantUserId,
+	tenantUserAsyncLocal
+} from './context';
 
 describe('billing context', () => {
 	it('resolveBillingUserId returns tenant id when no override', () => {
@@ -11,5 +16,12 @@ describe('billing context', () => {
 			expect(resolveBillingUserId('eval-abc')).toBe('operator-1');
 		});
 		expect(resolveBillingUserId('eval-abc')).toBe('eval-abc');
+	});
+
+	it('resolveTenantUserId uses tenant async local override', async () => {
+		await tenantUserAsyncLocal.run('eval-tenant-1', async () => {
+			expect(resolveTenantUserId('eval-runner-judge')).toBe('eval-tenant-1');
+		});
+		expect(resolveTenantUserId('eval-runner-judge')).toBe('eval-runner-judge');
 	});
 });

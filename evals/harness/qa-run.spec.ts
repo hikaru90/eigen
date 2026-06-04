@@ -79,6 +79,26 @@ describe('expandQa', () => {
 		expect(kinds).toEqual(['capture', 'check', 'edit', 'answer']);
 	});
 
+	it('inserts post-edit check when catalog expects pecan surfaces', () => {
+		const editWithChecks: EvalQaRecord = {
+			...editQa,
+			checks: {
+				entities: [{ fixtureId: 'ec_011', minCount: 1, surfacesContaining: ['pecan'] }]
+			}
+		};
+		const entries = expandQa(editWithChecks);
+		const preCheck = entries.find((e) => e.fixtureRef === 'qa_edit_check');
+		const postCheck = entries.find((e) => e.fixtureRef === 'qa_edit_post_edit_check');
+		expect(preCheck?.inputJson.checks).toEqual({
+			entities: [{ fixtureId: 'ec_011', minCount: 1, surfacesContaining: ['walnut'] }]
+		});
+		expect(postCheck?.inputJson.checks).toEqual({
+			entities: [{ fixtureId: 'ec_011', minCount: 1, surfacesContaining: ['pecan'] }]
+		});
+		const kinds = entries.map((e) => e.kind);
+		expect(kinds).toEqual(['capture', 'check', 'edit', 'check', 'answer']);
+	});
+
 	it('passes retrieval thresholds from checks on retrieval entry', () => {
 		const retrieval = expandQa({
 			...retrievalQa,
@@ -96,5 +116,18 @@ describe('expandQaEntries', () => {
 		expect(entries.filter((e) => e.kind === 'capture')).toHaveLength(2);
 		expect(entries.filter((e) => e.kind === 'answer')).toHaveLength(2);
 		expect(entries.at(-1)?.fixtureRef).toBe('qa_test_2');
+	});
+
+	it('inserts fixture reset edit before a later QA when a shared fixture was edited', () => {
+		const entries = expandQaEntries([editQa, sampleQa]);
+		const reset = entries.find((e) => e.fixtureRef === 'qa_test_fixture_reset_ec_011');
+		expect(reset?.kind).toBe('edit');
+		expect(reset?.inputJson).toEqual({
+			fixtureId: 'ec_011',
+			newRawText: sampleQa.captures[0]!.rawText
+		});
+		const editIdx = entries.findIndex((e) => e.fixtureRef === 'qa_edit_edit');
+		const resetIdx = entries.findIndex((e) => e.fixtureRef === 'qa_test_fixture_reset_ec_011');
+		expect(resetIdx).toBeGreaterThan(editIdx);
 	});
 });

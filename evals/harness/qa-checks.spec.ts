@@ -1,53 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { defaultChecksForQa, normalizeChecks, resolveChecks } from './qa-checks';
+import { checksAfterEdit, checksBeforeEdit, resolveChecks } from './qa-checks';
 import type { EvalQaRecord } from '../../src/lib/eval/qa-store';
 
-const baseQa: EvalQaRecord = {
-	id: 'qa_test',
-	question: 'test',
-	acceptance: 'test',
-	captures: [{ fixtureId: 'ec_011', rawText: 'Marcus allergy' }],
+const editQa: EvalQaRecord = {
+	id: 'qa_edit_allergy_update',
+	question: 'what is Marcus allergic to now',
+	acceptance: 'Must state pecan allergy (updated).',
+	captures: [{ fixtureId: 'ec_011', rawText: 'Marcus is allergic to walnuts.' }],
 	retrievalQuery: null,
 	retrievalRelevant: [],
-	tags: [],
-	edit: null,
-	checks: {},
+	tags: ['edit'],
+	edit: {
+		fixtureId: 'ec_011',
+		newRawText: 'Correction: Marcus is allergic to pecans, not walnuts.'
+	},
+	checks: {
+		entities: [{ fixtureId: 'ec_011', minCount: 1, surfacesContaining: ['pecan'] }]
+	},
 	createdAt: '',
 	updatedAt: ''
 };
 
-describe('normalizeChecks', () => {
-	it('returns empty object for invalid input', () => {
-		expect(normalizeChecks(null)).toEqual({});
-		expect(normalizeChecks('x')).toEqual({});
+describe('checksBeforeEdit', () => {
+	it('maps pecan surface needles to walnut before the edit step', () => {
+		const before = checksBeforeEdit(editQa);
+		expect(before.entities?.[0]?.surfacesContaining).toEqual(['walnut']);
+		expect(resolveChecks(editQa).entities?.[0]?.surfacesContaining).toEqual(['pecan']);
 	});
 
-	it('passes through object checks', () => {
-		const checks = { graph: { requireThoughtNodes: ['ec_011'] } };
-		expect(normalizeChecks(checks)).toEqual(checks);
-	});
-});
-
-describe('defaultChecksForQa', () => {
-	it('includes graph, embedding, ontology, extraction for captures', () => {
-		const checks = defaultChecksForQa(baseQa);
-		expect(checks.graph?.requireThoughtNodes).toEqual(['ec_011']);
-		expect(checks.embedding?.requireVector).toEqual(['ec_011']);
-		expect(checks.ontology?.requireActiveCategories).toEqual(['ec_011']);
-		expect(checks.extraction?.requireEnriched).toEqual(['ec_011']);
+	it('leaves checks unchanged when there is no edit step', () => {
+		const plain: EvalQaRecord = { ...editQa, edit: null };
+		expect(checksBeforeEdit(plain)).toEqual(resolveChecks(plain));
 	});
 });
 
-describe('resolveChecks', () => {
-	it('uses explicit checks when configured', () => {
-		const qa: EvalQaRecord = {
-			...baseQa,
-			checks: { graph: { requireThoughtNodes: ['ec_006'] } }
-		};
-		expect(resolveChecks(qa).graph?.requireThoughtNodes).toEqual(['ec_006']);
+describe('checksAfterEdit', () => {
+	it('returns pecan entity checks for post-edit verification', () => {
+		expect(checksAfterEdit(editQa)).toEqual({
+			entities: [{ fixtureId: 'ec_011', minCount: 1, surfacesContaining: ['pecan'] }]
+		});
 	});
 
-	it('falls back to defaults when checks empty', () => {
-		expect(resolveChecks(baseQa).graph?.requireThoughtNodes).toEqual(['ec_011']);
+	it('returns null when catalog has no pecan entity requirements', () => {
+		const plain: EvalQaRecord = { ...editQa, edit: null, checks: {} };
+		expect(checksAfterEdit(plain)).toBeNull();
 	});
 });

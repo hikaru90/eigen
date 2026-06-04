@@ -3,9 +3,81 @@ import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityResolutionLog } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
 import { buildEntityAdjacency, neighborEntityIds } from '$lib/server/memory/entity-link-graph';
-import type { KnownEntityHint } from '$lib/server/memory/entity-extraction';
+import { computeLexicalText } from '$lib/server/memory/lexical-text';
+import { ENTITY_RETRY_SIGNAL, type KnownEntityHint } from '$lib/server/memory/entity-extraction';
 
 const GRAPH_HINT_LIMIT = 12;
+
+const TEXT_HINT_STOP_WORDS = new Set([
+	'that',
+	'this',
+	'with',
+	'from',
+	'have',
+	'been',
+	'were',
+	'they',
+	'them',
+	'least',
+	'minutes',
+	'hours',
+	'before',
+	'after',
+	'about',
+	'into',
+	'over',
+	'some',
+	'more',
+	'very',
+	'much',
+	'also',
+	'just',
+	'only',
+	'when',
+	'where',
+	'what',
+	'which',
+	'while',
+	'there',
+	'their',
+	'would',
+	'could',
+	'should',
+	'completely',
+	'kill',
+	'kills',
+	'killed',
+	'work',
+	'creative',
+	'flow'
+]);
+
+/** Sentence-initial capitalized words that are usually adverbs, not proper names. */
+const SENTENCE_START_PROPER_NOUN_SKIP = new Set([
+	'before',
+	'after',
+	'when',
+	'what',
+	'where',
+	'while',
+	'since',
+	'until',
+	'because',
+	'although',
+	'however',
+	'during',
+	'between',
+	'through',
+	'without',
+	'within',
+	'every',
+	'always',
+	'never',
+	'sometimes',
+	'often'
+]);
+
+const LEXICAL_HINT_SCAN_LIMIT = 200;
 
 /**
  * Known-entity hints from graph context (same-thought resolutions + ENTITY_RELATES neighbors).
@@ -70,4 +142,118 @@ export async function loadGraphKnownEntityHints(input: {
 	}
 
 	return [...byId.values()].slice(0, GRAPH_HINT_LIMIT);
+}
+
+/**
+ * Canonical entities whose labels appear in the thought text (helps short notes that reference Marcus, etc.).
+ */
+export async function loadLexicalCanonicalEntityHints(input: {
+	userId: string;
+	normalizedText: string;
+}): Promise<KnownEntityHint[]> {
+	const textKey = computeLexicalText(input.normalizedText);
+	if (!textKey) return [];
+
+	const rows = await getDb()
+		.select({
+			label: canonicalEntity.label,
+			entityType: canonicalEntity.entityType
+		})
+		.from(canonicalEntity)
+		.where(eq(canonicalEntity.userId, input.userId))
+		.limit(LEXICAL_HINT_SCAN_LIMIT);
+
+	const hints: KnownEntityHint[] = [];
+	const seen = new Set<string>();
+	for (const row of rows) {
+		const label = row.label.trim();
+		if (label.length < 2) continue;
+		const labelKey = computeLexicalText(label);
+		if (!labelKey || !textKey.includes(labelKey)) continue;
+		const dedupe = `${labelKey}\0${row.entityType}`;
+		if (seen.has(dedupe)) continue;
+		seen.add(dedupe);
+		hints.push({ label, entityType: row.entityType });
+		if (hints.length >= GRAPH_HINT_LIMIT) break;
+	}
+	return hints;
+}
+
+/**
+ * Deterministic hints from the thought text itself (proper nouns, requirement nouns).
+ * Prompt-only — does not write resolution rows.
+ */
+export function loadTextDerivedEntityHints(normalizedText: string): KnownEntityHint[] {
+	const hints: KnownEntityHint[] = [];
+	const seen = new Set<string>();
+
+	const addHint = (label: string, entityType: string) => {
+		const trimmed = label.trim();
+		if (trimmed.length < 2) return;
+		const key = computeLexicalText(trimmed);
+		if (!key || seen.has(key)) return;
+		seen.add(key);
+		hints.push({ label: trimmed, entityType });
+	};
+
+	for (const match of normalizedText.matchAll(/\b([A-Z][a-z]{2,})\b/g)) {
+		const label = match[1]!;
+		const index = match.index ?? 0;
+		const isSentenceStart =
+			index === 0 || /[.!?]\s*$/.test(normalizedText.slice(0, index));
+		if (isSentenceStart && SENTENCE_START_PROPER_NOUN_SKIP.has(label.toLowerCase())) continue;
+		addHint(label, 'person');
+	}
+
+	if (!ENTITY_RETRY_SIGNAL.test(normalizedText)) {
+		return hints.slice(0, GRAPH_HINT_LIMIT);
+	}
+
+	for (const match of normalizedText.matchAll(/\b(?:allergic|allergy)\s+to\s+([a-z]{3,})\b/gi)) {
+		addHint(match[1]!, 'concept');
+	}
+
+	for (const match of normalizedText.matchAll(
+		/\b(?:needs?|requires?)\b[^.]{0,100}?\b(?:of|to|for)\s+([a-z]{3,})\b/gi
+	)) {
+		addHint(match[1]!, 'concept');
+	}
+
+	const needMatch = normalizedText.match(/\b(?:needs?|requires?)\b/i);
+	if (needMatch?.index !== undefined) {
+		const window = normalizedText.slice(needMatch.index, needMatch.index + 100);
+		for (const match of window.matchAll(/\b([a-z]{4,})\b/g)) {
+			const word = match[1]!;
+			if (!TEXT_HINT_STOP_WORDS.has(word.toLowerCase())) {
+				addHint(word, 'concept');
+			}
+		}
+	}
+
+	return hints.slice(0, GRAPH_HINT_LIMIT);
+}
+
+/** Graph neighbors for this thought plus lexical matches from the user's entity index. */
+export async function loadEntityHintsForThought(input: {
+	userId: string;
+	thoughtId: string;
+	normalizedText: string;
+}): Promise<KnownEntityHint[]> {
+	const textDerivedHints = loadTextDerivedEntityHints(input.normalizedText);
+
+	const [graphHints, lexicalHints] = await Promise.all([
+		loadGraphKnownEntityHints({ userId: input.userId, thoughtId: input.thoughtId }),
+		loadLexicalCanonicalEntityHints({
+			userId: input.userId,
+			normalizedText: input.normalizedText
+		})
+	]);
+
+	const byLabel = new Map<string, KnownEntityHint>();
+	for (const hint of [...textDerivedHints, ...graphHints, ...lexicalHints]) {
+		const key = computeLexicalText(hint.label);
+		if (!key || byLabel.has(key)) continue;
+		byLabel.set(key, hint);
+	}
+	return [...byLabel.values()].slice(0, GRAPH_HINT_LIMIT);
 }

@@ -9,11 +9,15 @@ import {
 	type EvalRunStatus
 } from '$lib/server/db/brain.schema';
 import { getDb, withDbUser } from '$lib/server/db';
+import { evalCorpusUserId } from '../../../evals/harness/eval-config';
 import type { EvalEntrySummary, EvalRunListItem, EvalRunSummary, EvalSynthesis } from './types';
 
-export function newEvalUserId(runId: string): string {
-	return `eval-${runId.slice(0, 8)}`;
-}
+export { evalCorpusUserId };
+
+export type CorpusFixtureRef = {
+	thoughtId: string;
+	sourceRunId: string;
+};
 
 export async function createEvalRun(input: {
 	operatorUserId: string;
@@ -21,24 +25,19 @@ export async function createEvalRun(input: {
 	scenarioId?: string;
 	config?: Record<string, unknown>;
 }): Promise<{ runId: string; evalUserId: string }> {
+	const evalUserId = evalCorpusUserId(input.operatorUserId);
 	return withDbUser(input.operatorUserId, async (db) => {
 		const [row] = await db
 			.insert(evalRun)
 			.values({
 				userId: input.operatorUserId,
-				evalUserId: 'pending',
+				evalUserId,
 				label: input.label,
 				scenarioId: input.scenarioId ?? null,
 				status: 'draft',
 				configJson: input.config ?? {}
 			})
 			.returning({ id: evalRun.id });
-
-		const evalUserId = newEvalUserId(row.id);
-		await db
-			.update(evalRun)
-			.set({ evalUserId })
-			.where(eq(evalRun.id, row.id));
 
 		return { runId: row.id, evalUserId };
 	});
@@ -124,9 +123,9 @@ export async function updateEvalEntry(
 		passed?: boolean | null;
 		resultJson?: Record<string, unknown>;
 		error?: string | null;
-		durationMs?: number;
-		startedAt?: Date;
-		finishedAt?: Date;
+		durationMs?: number | null;
+		startedAt?: Date | null;
+		finishedAt?: Date | null;
 	}
 ): Promise<void> {
 	await withDbUser(operatorUserId, async (db) => {
@@ -172,6 +171,38 @@ export async function getThoughtMap(
 			.from(evalThoughtMap)
 			.where(eq(evalThoughtMap.runId, runId));
 		return new Map(rows.map((r) => [r.fixtureId, r.thoughtId]));
+	});
+}
+
+/** Latest fixture → thought mapping across all runs for a shared corpus tenant. */
+export async function getCorpusFixtureMap(
+	operatorUserId: string,
+	evalUserId: string
+): Promise<Map<string, CorpusFixtureRef>> {
+	return withDbUser(operatorUserId, async (db) => {
+		const result = await db.execute(sql`
+			SELECT DISTINCT ON (etm.fixture_id)
+				etm.fixture_id AS fixture_id,
+				etm.thought_id AS thought_id,
+				etm.run_id AS source_run_id
+			FROM eval_thought_map etm
+			INNER JOIN eval_run er ON er.id = etm.run_id
+			INNER JOIN thought t ON t.id = etm.thought_id AND t.user_id = er.eval_user_id
+			WHERE er.eval_user_id = ${evalUserId}
+			ORDER BY etm.fixture_id, er.created_at DESC
+		`);
+		const rows = Array.isArray(result) ? result : (result.rows ?? []);
+		const map = new Map<string, CorpusFixtureRef>();
+		for (const row of rows) {
+			const r = row as Record<string, unknown>;
+			const fixtureId = String(r.fixture_id ?? '');
+			if (!fixtureId) continue;
+			map.set(fixtureId, {
+				thoughtId: String(r.thought_id),
+				sourceRunId: String(r.source_run_id)
+			});
+		}
+		return map;
 	});
 }
 
@@ -325,7 +356,7 @@ export async function loadEvalRunDetail(
 	});
 }
 
-/** Bypass RLS for eval harness bootstrap (create ephemeral eval user row). */
+/** Bypass RLS for eval harness bootstrap (create eval corpus / operator user row). */
 export async function insertEvalUserRow(userId: string, name: string): Promise<void> {
 	const { user } = await import('$lib/server/db/auth.schema');
 	const { authDb } = await import('$lib/server/db/auth-db');

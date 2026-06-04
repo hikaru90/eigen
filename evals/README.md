@@ -10,9 +10,32 @@ npm run eval              # smoke — one question from eval_qa
 npm run eval -- --mode all
 npm run eval -- --mode qa --qa-id qa_smoke_dinner
 npm run eval -- --mode qa --qa-id qa_surgical_vats_phrenic_stapler
+npm run eval -- --fresh-corpus   # wipe corpus tenant and re-ingest everything
+npm run eval:reset-fixture -- --fixture ec_jonas_silence   # delete one corpus thought so next run re-captures it
 ```
 
-Dev UI: `/eval` — manage the **Questions & answers** catalog. Use **Run** on a row to execute one question (`mode: qa`), or use the Runs tab for smoke/all.
+Dev UI: `/eval` — manage the **Questions & answers** catalog. Use **Run** on a row to execute one question (`mode: qa`), or use the Runs tab for smoke/all. **Reset corpus & start** wipes the shared eval tenant before ingesting.
+
+## Persistent corpus
+
+Each operator has one shared eval brain tenant (`eval-corpus-{operatorUserId}`). By default:
+
+- **Thoughts are kept** across runs (no post-run wipe).
+- **Captures are skipped** when a fixture was already ingested with the same `rawText`.
+- **Re-capture** happens automatically if fixture text in the catalog changed or the thought was deleted.
+
+Use `--fresh-corpus` (CLI) or **Reset corpus & start** (UI) when you need a clean slate — e.g. after changing fixture text or debugging edit tests that left shared fixtures modified.
+
+### Automatic retrieval-only prune (broken ingest on graded fixtures)
+
+When a **check** entry finds ingest failures (embedding, extraction, entities, graph, ontology) on a fixture that is also listed in **`retrievalRelevant`**, the harness **automatically**:
+
+1. Updates **`eval_qa`** — removes those fixture ids from `retrievalRelevant` only (captures and structural checks unchanged; clears `needleFixtureId` if the needle was pruned).
+2. On the **retrieval** step in the same run — grades NDCG without those fixtures and skips the needle-in-top-K check for an ingest-broken needle.
+
+Pure retrieval failures (healthy ingest, bad rank) are **not** auto-pruned. The **needle** (`checks.retrieval.needleFixtureId`) is never auto-pruned or excluded from grading — a needle ingest failure shows up on the **check** step and retrieval still runs (NDCG / needle-in-top-K may fail until ingest is fixed).
+
+If a prior run cleared `retrievalQuery` on a needle-only QA, run `npm run db:migrate` (see `drizzle/0036_eval_qa_restore_jonas_retrieval.sql`) or re-enter retrieval fields in the Q&A editor.
 
 ## Model
 
@@ -33,6 +56,7 @@ evals/
     capture-fidelity.ts
     judge-acceptance.ts
     retrieval-sweep.ts
+    prune-retrieval-relevant.ts  # drop broken-ingest fixtures from retrieval grades only
     synthesis.ts
 ```
 

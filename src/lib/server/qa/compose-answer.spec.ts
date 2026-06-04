@@ -2,9 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import {
 	composeAnswer,
+	detectContradictions,
+	extractQuestionSubjectName,
 	extractRetrievalHints,
 	findInvalidCitationIds,
-	narrowComposeContextToQuestionFocus
+	narrowComposeContextToQuestionFocus,
+	prioritizePersonNamedThoughts,
+	type RetrievalContextItem
 } from './compose-answer';
 
 const {
@@ -91,7 +95,71 @@ const sampleRetrieval = [
 	}
 ];
 
+describe('extractQuestionSubjectName', () => {
+	it('extracts Marcus from allergy questions', () => {
+		expect(extractQuestionSubjectName('what is Marcus allergic to')).toBe('marcus');
+		expect(extractQuestionSubjectName('what is Marcus allergic to now')).toBe('marcus');
+	});
+
+	it('extracts Jonas from need questions', () => {
+		expect(extractQuestionSubjectName('What does Jonas need before doing creative work?')).toBe(
+			'jonas'
+		);
+	});
+});
+
+describe('prioritizePersonNamedThoughts', () => {
+	const base = (id: string, text: string, score: number): RetrievalContextItem => ({
+		id,
+		normalizedText: text,
+		category: 'observation',
+		score,
+		vectorScore: score,
+		graphScore: 0,
+		createdAt: FIXED_DATE,
+		isStale: false
+	});
+
+	it('ranks thoughts mentioning the subject ahead of generic productivity notes', () => {
+		const ordered = prioritizePersonNamedThoughts(
+			'What does Jonas need before doing creative work?',
+			[
+				base('a', 'Schedule creative work when personal energy is historically highest.', 0.9),
+				base('b', 'Before any creative work, Jonas needs at least 20 minutes of silence.', 0.4)
+			],
+			8
+		);
+		expect(ordered[0]?.id).toBe('b');
+	});
+});
+
 describe('narrowComposeContextToQuestionFocus', () => {
+	it('drops haystack noise for Marcus allergy questions when the allergy note is present', () => {
+		const out = narrowComposeContextToQuestionFocus('what is Marcus allergic to', [
+			{
+				id: 'a',
+				normalizedText: 'Started a new sourdough starter today.',
+				category: 'task',
+				score: 0.9,
+				vectorScore: 0.9,
+				graphScore: 0,
+				createdAt: FIXED_DATE,
+				isStale: false
+			},
+			{
+				id: 'b',
+				normalizedText: "Marcus is allergic to walnuts. Don't bring the walnut levain.",
+				category: 'observation',
+				score: 0.5,
+				vectorScore: 0.5,
+				graphScore: 0,
+				createdAt: FIXED_DATE,
+				isStale: false
+			}
+		]);
+		expect(out.map((i) => i.id)).toEqual(['b']);
+	});
+
 	it('keeps only thoughts that mention the question name token', () => {
 		const out = narrowComposeContextToQuestionFocus('Wer ist Clemi?', [
 			{
@@ -213,6 +281,22 @@ describe('composeAnswer', () => {
 		);
 	});
 
+	it('requests person-anchor lexical search for subject-focused questions', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		lexicalSearchMock.mockResolvedValue([]);
+		graphOnlySearchByQueryMock.mockResolvedValue([]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse('Answer: Not in memory.\nEvidence:\n\nUnknown:\n- Jonas needs')
+		);
+		await composeAnswer({
+			userId: 'u1',
+			question: 'What does Jonas need before doing creative work?'
+		});
+		expect(lexicalSearchMock).toHaveBeenCalledWith(
+			expect.objectContaining({ query: 'jonas' })
+		);
+	});
+
 	it('omits unrelated retrieved thoughts from the compose prompt for named-entity questions', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
@@ -326,6 +410,25 @@ describe('composeAnswer', () => {
 		);
 	});
 
+	it('throws when the answer cites list position numbers instead of thought ids', async () => {
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse('Answer: Jonas needs silence.\nEvidence:\n- Needs silence [6]\n\nUnknown:\n- none')
+		);
+		await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(
+			'cites thought ids not in retrieved context: 6'
+		);
+	});
+
+	it('does not number thoughts with # prefixes in the compose prompt', async () => {
+		await composeAnswer({ userId: 'u1', question: 'why rice flour' });
+		const userMessage = (
+			llmChatCompletionMock.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> }
+		).messages[1].content;
+		expect(userMessage).not.toMatch(/^#\d+\s/m);
+		expect(userMessage).not.toMatch(/\n#\d+\s/m);
+		expect(userMessage).toContain('id=t_001');
+	});
+
 	it('embeds hint queries separately from the full question', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
@@ -436,5 +539,34 @@ describe('composeAnswer', () => {
 			llmChatCompletionMock.mock.calls[0][0] as { messages: Array<{ content: string }> }
 		).messages[1].content;
 		expect(userMessage).toContain('Temporal scheduling conflicts');
+	});
+});
+
+describe('detectContradictions', () => {
+	const now = new Date('2026-06-04T12:00:00.000Z');
+	const base = (id: string, text: string): RetrievalContextItem => ({
+		id,
+		normalizedText: text,
+		category: 'feeling',
+		score: 1,
+		vectorScore: 1,
+		graphScore: 0,
+		createdAt: now,
+		isStale: false
+	});
+
+	it('detects opposing remote-work sentiments without shared subject tokens', () => {
+		const conflicts = detectContradictions([
+			base(
+				'a',
+				'Remote work is terrible for me. I lose all discipline and end up doing nothing. Need an office.'
+			),
+			base(
+				'b',
+				'Working from home is actually great. I am more productive, calmer, and the commute savings are real.'
+			)
+		]);
+		expect(conflicts).toHaveLength(1);
+		expect(conflicts[0]?.ids).toEqual(['a', 'b']);
 	});
 });

@@ -25,7 +25,7 @@ import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { thought } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
-import { ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH } from '$lib/server/memory/entity-extraction';
+import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { classifyMemoryType } from '$lib/server/memory/classify-memory-type';
 import { extractCues } from '$lib/server/memory/extract-cues';
@@ -118,10 +118,7 @@ export async function enrichThought(
 					thoughtId,
 					normalizedText
 				});
-				if (
-					mentionCount === 0 &&
-					normalizedText.trim().length >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH
-				) {
+				if (mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
 					throw new Error(
 						`entity graph sync produced zero mentions (${normalizedText.trim().length} chars)`
 					);
@@ -166,6 +163,19 @@ export async function enrichThought(
 				thoughtId,
 				message: r.reason instanceof Error ? r.reason.message : String(r.reason)
 			});
+			if (stepNames[i] === 'entities') {
+				try {
+					await db
+						.update(thought)
+						.set({ enrichedAt: null })
+						.where(eq(thought.id, thoughtId));
+				} catch (clearErr) {
+					console.warn('[enrich] failed to clear enriched_at after entity step failure', {
+						thoughtId,
+						message: clearErr instanceof Error ? clearErr.message : String(clearErr)
+					});
+				}
+			}
 		}
 	}
 

@@ -1,4 +1,4 @@
-import { billingUserAsyncLocal } from '$lib/server/billing/context';
+import { billingUserAsyncLocal, tenantUserAsyncLocal } from '$lib/server/billing/context';
 import { appSql, createScopedDrizzle, appDbAsyncLocal, activateTenantDbSession, deactivateTenantDbSession, type AppDatabase } from '$lib/server/db';
 
 export type WithEvalDbOptions = {
@@ -24,11 +24,12 @@ export async function withEvalDb<T>(
 		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
 		const run = () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
+		const withTenant = () => tenantUserAsyncLocal.run(userId, run);
 		const billingUserId = options?.billingUserId?.trim();
 		if (billingUserId) {
-			return await billingUserAsyncLocal.run(billingUserId, run);
+			return await billingUserAsyncLocal.run(billingUserId, withTenant);
 		}
-		return await run();
+		return await withTenant();
 	} finally {
 		await deactivateTenantDbSession(reserved).catch(() => {});
 		await reserved.release();

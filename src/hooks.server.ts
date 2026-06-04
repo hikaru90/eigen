@@ -3,6 +3,7 @@ import { building } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import type { Handle } from '@sveltejs/kit';
+import { tenantUserAsyncLocal } from '$lib/server/billing/context';
 import { appSql, appDbAsyncLocal, createScopedDrizzle, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
 import { authSql } from '$lib/server/db/auth-db';
 import { getTextDirection } from '$lib/paraglide/runtime';
@@ -102,7 +103,8 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 			const uid = event.locals.user?.id ?? '';
 			await activateTenantDbSession(reserved, uid);
 			const scopedDb = createScopedDrizzle(reserved);
-			return await appDbAsyncLocal.run(scopedDb, () => resolve(opts));
+			const run = () => appDbAsyncLocal.run(scopedDb, () => resolve(opts));
+			return uid ? await tenantUserAsyncLocal.run(uid, run) : await run();
 		} finally {
 			await deactivateTenantDbSession(reserved).catch(() => {});
 			await reserved.release();

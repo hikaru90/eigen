@@ -5,36 +5,15 @@
  *   npm run eval              # smoke
  *   npm run eval -- --mode all
  *   npm run eval -- --mode qa --qa-id qa_smoke_dinner
+ *   npm run eval -- --fresh-corpus
  */
 import { insertEvalUserRow } from '../src/lib/eval/store';
 import { startEvalRun } from '../src/lib/eval/runner';
 import { withDbUser } from '../src/lib/server/db';
 import { runEval, logEval } from './harness/eval-context';
 import { EVAL_OPERATOR_USER_ID, EVAL_JUDGE_USER_ID } from './harness/eval-config';
+import { parseEvalCliArgs } from './harness/corpus-reuse';
 import { loadEvalRunDetail } from '../src/lib/eval/store';
-import type { EvalRunMode } from '../src/lib/eval/runner';
-
-function parseArgs(): { mode: EvalRunMode; qaId?: string; keepEvalUser: boolean } {
-	const args = process.argv.slice(2);
-	let mode: EvalRunMode = 'smoke';
-	let qaId: string | undefined;
-	let keepEvalUser = false;
-	for (let i = 0; i < args.length; i += 1) {
-		if (args[i] === '--mode' && args[i + 1]) {
-			const next = args[++i]!;
-			if (next === 'smoke' || next === 'all' || next === 'qa') {
-				mode = next;
-			} else {
-				throw new Error(`--mode must be smoke, all, or qa, got: ${next}`);
-			}
-		} else if ((args[i] === '--qa-id' || args[i] === '--qaId') && args[i + 1]) {
-			qaId = args[++i]!;
-		} else if (args[i] === '--keep-eval-user') {
-			keepEvalUser = true;
-		}
-	}
-	return { mode, qaId, keepEvalUser };
-}
 
 async function ensureOperatorUser(): Promise<void> {
 	await insertEvalUserRow(EVAL_OPERATOR_USER_ID, 'Eval Operator');
@@ -42,7 +21,7 @@ async function ensureOperatorUser(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-	const { mode, qaId, keepEvalUser } = parseArgs();
+	const { mode, qaId, freshCorpus } = parseEvalCliArgs(process.argv.slice(2));
 	await ensureOperatorUser();
 
 	const { runId } = await withDbUser(EVAL_OPERATOR_USER_ID, () =>
@@ -50,7 +29,7 @@ async function main(): Promise<void> {
 			operatorUserId: EVAL_OPERATOR_USER_ID,
 			mode,
 			qaId,
-			keepEvalUser
+			freshCorpus
 		})
 	);
 

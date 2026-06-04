@@ -1,0 +1,34 @@
+---
+description: Fix root causes when tests or evals fail; never weaken tests or add workarounds
+alwaysApply: true
+---
+
+# Fix Root Cause, Not Workaround
+
+When a test fails, an eval check fails, or CI is red, **fix the underlying defect**. Do not make the symptom disappear.
+
+## Non-negotiable
+
+- Do **not** loosen assertions, skip tests, or change expected values to match broken behavior.
+- Do **not** add parallel code paths that “keep things green” while hiding misconfiguration (wrong RLS user, missing billing context, stale corpus rows).
+- Do **not** swallow errors from required dependencies (LLM gateway, `activity_call_log` insert, entity extraction) unless project policy explicitly defines that retry/fail path.
+- Do **not** substitute regex/heuristic output for a broken LLM or DB path to pass evals.
+
+## Required approach
+
+1. **Identify the failure layer** — config, RLS session, billing user, async timing, LLM contract, or bad data in corpus reuse.
+2. **Fix at the boundary** where the invariant broke (e.g. `activity_call_log.user_id` must match `app.current_user_id`; eval re-enrich must run under `billingUserId`).
+3. **Add or update a unit test** that would fail if the root cause regresses.
+4. **Re-run the smallest test scope** that covers the fix (not full eval suites unless the user asks).
+
+## Allowed (not workarounds)
+
+- Explicit **retry policy** already in project guardrails (e.g. entity mention second pass with `retry_minimum` prompt).
+- **`knownEntities` in the LLM prompt** (hints), not post-hoc DB bootstrap when the model returns `[]`.
+- **`tenantUserAsyncLocal`** so usage rows respect RLS while billing debits the operator.
+
+## Review checklist
+
+- Would this change pass if the real dependency were still broken?
+- Is there a test proving the invariant (RLS tenant, billing context, corpus entity gate)?
+- Does this violate [`no-fallbacks.mdc`](no-fallbacks.mdc)? If yes, reject the approach.

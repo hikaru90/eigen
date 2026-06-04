@@ -4,6 +4,41 @@ import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 
+const POLARITY_POSITIVE = /\b(love|great|excellent|amazing|wonderful|perfect|fantastic|good|enjoy|like|productive|calmer)\b/i;
+const POLARITY_NEGATIVE = /\b(hate|terrible|awful|horrible|dreadful|bad|dislike|can't stand|waste|discipline)\b/i;
+
+const TOPIC_CLUSTERS: readonly string[][] = [
+	['remote', 'work', 'wfh', 'office', 'commute', 'home', 'working']
+];
+
+function sharedTopicCluster(aText: string, bText: string): boolean {
+	const tokenize = (text: string) =>
+		new Set(
+			text
+				.toLowerCase()
+				.replace(/[^a-z0-9\s]/g, ' ')
+				.split(/\s+/)
+				.filter((t) => t.length >= 3)
+		);
+	const aTokens = tokenize(aText);
+	const bTokens = tokenize(bText);
+	const aLower = aText.toLowerCase();
+	const bLower = bText.toLowerCase();
+	return TOPIC_CLUSTERS.some((cluster) => {
+		const aHit = cluster.some((term) => aTokens.has(term) || aLower.includes(term));
+		const bHit = cluster.some((term) => bTokens.has(term) || bLower.includes(term));
+		return aHit && bHit;
+	});
+}
+
+function sentimentConflict(aText: string, bText: string): boolean {
+	const aPos = POLARITY_POSITIVE.test(aText);
+	const aNeg = POLARITY_NEGATIVE.test(aText);
+	const bPos = POLARITY_POSITIVE.test(bText);
+	const bNeg = POLARITY_NEGATIVE.test(bText);
+	return (aPos && bNeg) || (aNeg && bPos);
+}
+
 const ALLOWED_RELATION_TYPES = new Set([
 	'mentions',
 	'depends_on',
@@ -191,6 +226,16 @@ export async function extractRelations(input: {
 	});
 
 	const parsed = parseRelations(extractChatContent(response));
+	const linkedTargets = new Set(parsed.map((r) => r.targetId));
+	const temporalOnly = temporalNeighbors.filter((n) => !linkedTargets.has(n.id));
+	for (const neighbor of temporalOnly) {
+		if (
+			sharedTopicCluster(input.normalizedText, neighbor.normalizedText) &&
+			sentimentConflict(input.normalizedText, neighbor.normalizedText)
+		) {
+			parsed.push({ targetId: neighbor.id, relationType: 'contradicts' });
+		}
+	}
 	return parsed.filter((relation) => {
 		if (relation.relationType !== 'related_to') return true;
 		const candidate = candidates.find((c) => c.id === relation.targetId);

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+	aggregateQaScores,
 	aggregateRunScores,
+	entriesForQa,
 	formatRunOptionLabel,
 	humanizeCheckAssertion,
 	humanEntryTitle,
@@ -119,6 +121,76 @@ describe('eval display', () => {
 			failedCount: 1
 		};
 		expect(formatRunOptionLabel(run)).toContain('9/10 passed');
+	});
+
+	it('scores only entries and assertions for one Q&A in a batch run', () => {
+		const entries: EvalEntrySummary[] = [
+			{
+				id: 'c1',
+				ordinal: 0,
+				kind: 'capture',
+				fixtureRef: 'ec_a',
+				status: 'completed',
+				passed: true,
+				durationMs: 1,
+				error: null,
+				input: { rawText: 'A' },
+				expected: {},
+				result: { fidelityScore: 5 }
+			},
+			{
+				id: 'c2',
+				ordinal: 1,
+				kind: 'capture',
+				fixtureRef: 'ec_b',
+				status: 'completed',
+				passed: true,
+				durationMs: 1,
+				error: null,
+				input: { rawText: 'B' },
+				expected: {},
+				result: { fidelityScore: 5 }
+			},
+			{
+				id: 'chk',
+				ordinal: 2,
+				kind: 'check',
+				fixtureRef: 'qa_one_check',
+				status: 'completed',
+				passed: true,
+				durationMs: 1,
+				error: null,
+				input: { qaId: 'qa_one' },
+				expected: {},
+				result: {
+					assertions: [
+						{ id: 'g_a', passed: true, fixtureId: 'ec_a' },
+						{ id: 'g_b', passed: false, fixtureId: 'ec_b' }
+					]
+				}
+			},
+			{
+				id: 'ans',
+				ordinal: 3,
+				kind: 'answer',
+				fixtureRef: 'qa_one',
+				status: 'completed',
+				passed: true,
+				durationMs: 1,
+				error: null,
+				input: { question: 'Q one?' },
+				expected: {},
+				result: {}
+			}
+		];
+		const slice = entriesForQa(entries, 'qa_one', ['ec_a']);
+		expect(slice.map((e) => e.id)).toEqual(['c1', 'chk', 'ans']);
+		const score = aggregateQaScores(entries, {
+			id: 'qa_one',
+			captures: [{ fixtureId: 'ec_a', rawText: 'A' }]
+		});
+		expect(score?.possible).toBe(3);
+		expect(score?.earned).toBe(3);
 	});
 
 	it('parses graph snapshot from check result', () => {

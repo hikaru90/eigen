@@ -1,10 +1,12 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { reenrichThought } from '$lib/server/capture/enrich';
 import { entityResolutionLog, thought } from '$lib/server/db/brain.schema';
 import type { AppDatabase } from '$lib/server/db';
+import type { WithEvalDbOptions } from './eval-context';
 import { logEval, withEvalDb } from './eval-context';
 import { mapWithConcurrency } from './concurrency';
 import { EVAL_ENRICHMENT_TIMEOUT_MS_DEFAULT } from './eval-config';
+import type { QaChecks } from './qa-types';
 
 export type ThoughtEnrichmentTarget = {
 	id: string;
@@ -70,8 +72,10 @@ export async function waitForThoughtEnrichment(input: {
 	userId: string;
 	targets: ThoughtEnrichmentTarget[];
 	timeoutMs?: number;
+	/** Operator wallet / platform LLM config for re-enrich kicks. */
+	withEvalDbOptions?: WithEvalDbOptions;
 }): Promise<void> {
-	const { db, userId, targets } = input;
+	const { db, userId, targets, withEvalDbOptions } = input;
 	const timeoutMs = input.timeoutMs ?? resolveEnrichmentTimeoutMs();
 	const kickConcurrency = resolveEnrichmentKickConcurrency();
 
@@ -113,9 +117,13 @@ export async function waitForThoughtEnrichment(input: {
 					`(background capture enrich is not awaited during seed)`
 			);
 			await mapWithConcurrency(missing, kickConcurrency, async (target) => {
-				await withEvalDb(userId, async () => {
-					await reenrichThought(userId, target.id, target.normalizedText);
-				});
+				await withEvalDb(
+					userId,
+					async () => {
+						await reenrichThought(userId, target.id, target.normalizedText);
+					},
+					withEvalDbOptions
+				);
 				logEval(`enrichment kick complete: ${target.id}`);
 			});
 			continue;
@@ -185,4 +193,100 @@ export async function loadThoughtEnrichmentTargets(
 	}
 
 	return targets;
+}
+
+/** All fixtures that must have enriched_at before structural checks pass. */
+export function fixtureIdsRequiringEnrichment(checks: QaChecks): string[] {
+	return [...new Set(checks.extraction?.requireEnriched ?? [])];
+}
+
+async function thoughtsWithEnrichedAt(
+	db: AppDatabase,
+	userId: string,
+	thoughtIds: string[]
+): Promise<Set<string>> {
+	if (thoughtIds.length === 0) return new Set();
+
+	const rows = await db
+		.select({ id: thought.id })
+		.from(thought)
+		.where(
+			and(
+				eq(thought.userId, userId),
+				inArray(thought.id, thoughtIds),
+				isNotNull(thought.enrichedAt)
+			)
+		);
+
+	return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * Wait until each target thought has enriched_at set (tags/metadata pipeline complete).
+ */
+export async function waitForThoughtEnrichmentComplete(input: {
+	db: AppDatabase;
+	userId: string;
+	targets: ThoughtEnrichmentTarget[];
+	timeoutMs?: number;
+	withEvalDbOptions?: WithEvalDbOptions;
+}): Promise<void> {
+	const { db, userId, targets, withEvalDbOptions } = input;
+	const timeoutMs = input.timeoutMs ?? resolveEnrichmentTimeoutMs();
+	const kickConcurrency = resolveEnrichmentKickConcurrency();
+
+	if (targets.length === 0) {
+		logEval('enrichment-at wait: no thoughts to check');
+		return;
+	}
+
+	logEval(
+		`enrichment-at verify: ${targets.length} thought(s), max_wait=${Math.round(timeoutMs / 1000)}s`
+	);
+
+	const pollStart = Date.now();
+	let kicked = false;
+
+	while (true) {
+		const ready = await thoughtsWithEnrichedAt(
+			db,
+			userId,
+			targets.map((t) => t.id)
+		);
+		const missing = missingTargets(targets, ready);
+		const elapsed = Date.now() - pollStart;
+
+		logEval(
+			`enrichment-at poll: ${ready.size}/${targets.length} thoughts enriched (${elapsed}ms elapsed)`
+		);
+
+		if (missing.length === 0) {
+			logEval('all target thoughts have enriched_at');
+			return;
+		}
+
+		if (!kicked) {
+			kicked = true;
+			logEval(`enrichment-at kick: re-running enrich for ${missing.length} thought(s)`);
+			await mapWithConcurrency(missing, kickConcurrency, async (target) => {
+				await withEvalDb(
+					userId,
+					async () => {
+						await reenrichThought(userId, target.id, target.normalizedText);
+					},
+					withEvalDbOptions
+				);
+			});
+			continue;
+		}
+
+		if (elapsed >= timeoutMs) {
+			throw new Error(
+				`[eval] enrichment-at timeout after ${timeoutMs}ms — ${missing.length} thought(s) ` +
+					`never received enriched_at: ${missing.map((t) => t.id).join(', ')}`
+			);
+		}
+
+		await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+	}
 }

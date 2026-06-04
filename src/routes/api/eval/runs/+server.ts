@@ -31,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	let mode: EvalRunMode = 'smoke';
 	let qaId: string | undefined;
-	let keepEvalUser = false;
+	let freshCorpus = false;
 	try {
 		const body = await request.json();
 		if (body.mode === 'all' || body.mode === 'smoke' || body.mode === 'qa') {
@@ -40,7 +40,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		if (typeof body.qaId === 'string' && body.qaId.trim()) {
 			qaId = body.qaId.trim();
 		}
-		if (body.keepEvalUser === true) keepEvalUser = true;
+		if (body.freshCorpus === true) freshCorpus = true;
 	} catch {
 		// default smoke
 	}
@@ -51,7 +51,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		operatorUserId: locals.user.id,
 		mode,
 		qaId,
-		keepEvalUser
+		freshCorpus
 	});
 
 	return json({ success: true, runId, mode, qaId: qaId ?? null, entries });

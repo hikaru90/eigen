@@ -1,0 +1,29 @@
+---
+description: Do not run Q&A evals or npm eval — the user runs them locally or in the UI
+alwaysApply: true
+---
+
+# Do Not Run Evals (Agent)
+
+Q&A evals (`npm run eval`, `npm run eval:smoke`, `npm run eval:all`, `evals/run.ts`, `/eval` harness) are **operator-owned**. The agent must not execute them.
+
+## Non-negotiable
+
+- Do not run `npm run eval`, `npm run eval:smoke`, `npm run eval:all`, or `vite-node … evals/run.ts`.
+- Do not start eval runs via CLI, background shell, or automation to "verify" capture/retrieval/answer behavior.
+- Do not poll or wait on eval run completion unless the user explicitly asked you to monitor output they started.
+
+## What to do instead
+
+- After eval-related code changes: run **unit tests** only (e.g. `evals/harness/*.spec.ts`, `compose-answer.spec.ts`, `relation-extraction.spec.ts`).
+- Tell the operator which **`/eval` UI action** to use — **never** `npm run eval` or other eval npm scripts. This operator runs evals by clicking in the app, not from the terminal.
+  - **One question:** `/eval` → **Questions & answers** → **Run** on the catalog row.
+  - **Smoke / all:** `/eval` → **Runs** → **Start run**.
+  - **Fresh corpus:** `/eval` → **Runs** → **Reset corpus & start**.
+- Use eval **results the user pastes** (or saved run detail from the UI) for diagnosis — do not re-run to reproduce unless they ask.
+
+## Review checklist
+
+- Did the agent avoid invoking eval npm scripts or `evals/run.ts`?
+- Were harness/unit tests used for automated verification instead?
+- Did the agent point the operator to the **`/eval` UI** (Run / Start run / Reset corpus & start), not npm eval commands?

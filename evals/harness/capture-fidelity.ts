@@ -14,8 +14,8 @@
  *
  * faithful = score >= 4.
  *
- * Judge spend is logged under EVAL_JUDGE_USER_ID, not the ephemeral eval run
- * user, so costs are queryable via the stable judge identity.
+ * Judge LLM config uses EVAL_JUDGE_USER_ID; activity rows are stored under the eval
+ * tenant (RLS session) while platform credits debit the operator via billingUserId.
  */
 import { billingUserAsyncLocal } from '$lib/server/billing/context';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';

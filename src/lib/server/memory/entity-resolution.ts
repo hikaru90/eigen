@@ -126,6 +126,21 @@ async function insertResolutionLog(input: {
 	});
 }
 
+/** Remove prior resolution rows before re-sync so re-enrich reflects the latest extraction. */
+export async function clearEntityResolutionLogsForThought(input: {
+	userId: string;
+	thoughtId: string;
+}): Promise<void> {
+	await getDb()
+		.delete(entityResolutionLog)
+		.where(
+			and(
+				eq(entityResolutionLog.userId, input.userId),
+				eq(entityResolutionLog.thoughtId, input.thoughtId)
+			)
+		);
+}
+
 async function loadGraphMergeCandidates(input: {
 	userId: string;
 	entityType: string;

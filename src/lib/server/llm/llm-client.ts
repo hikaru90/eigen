@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { and, eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { getDb, withDbUser } from '$lib/server/db';
 import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
 import {
 	LLM_GATEWAY_ACTIVITY_PROVIDER,
@@ -219,12 +219,13 @@ async function loadLlmProviderConfig(
 	userId: string,
 	provider: LlmProviderKind
 ): Promise<ResolvedLlmConfig> {
-	const db = getDb();
-	const [row] = await db
-		.select()
-		.from(llmProviderConfig)
-		.where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)))
-		.limit(1);
+	const [row] = await withDbUser(userId, async (db) =>
+		db
+			.select()
+			.from(llmProviderConfig)
+			.where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)))
+			.limit(1)
+	);
 
 	if (row?.baseUrl && row?.apiKey) {
 		const apiKey = row.apiKeyEncrypted
@@ -317,12 +318,13 @@ async function loadLlmProviderConfig(
 
 /** Active provider row + DB/env credentials (EUrouter or OpenRouter BYOK shapes). */
 async function resolveActiveProviderLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
-	const db = getDb();
-	const [activeRow] = await db
-		.select()
-		.from(llmActiveProvider)
-		.where(eq(llmActiveProvider.userId, userId))
-		.limit(1);
+	const [activeRow] = await withDbUser(userId, async (db) =>
+		db
+			.select()
+			.from(llmActiveProvider)
+			.where(eq(llmActiveProvider.userId, userId))
+			.limit(1)
+	);
 	const provider = (activeRow?.provider ?? 'eurouter') as LlmProviderKind;
 	return loadLlmProviderConfig(userId, provider);
 }
@@ -706,8 +708,9 @@ function sttTranscriptPreview(body: unknown): string {
  * — BYOK: user DB credentials first, then deployment `OPENROUTER_*` env fallback (same as chat).
  */
 async function loadOpenRouterSttConfig(userId: string): Promise<ResolvedLlmConfig> {
-	if (await isByokBilling(userId)) {
-		return loadLlmProviderConfig(userId, 'openrouter');
+	const billingUserId = resolveBillingUserId(userId);
+	if (await isByokBilling(billingUserId)) {
+		return loadLlmProviderConfig(billingUserId, 'openrouter');
 	}
 	return loadPlatformOpenRouterSttConfig();
 }

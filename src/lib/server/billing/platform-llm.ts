@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { withDbUser } from '$lib/server/db';
 import { llmActiveProvider } from '$lib/server/db/schema';
 import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
 import { assertEurouterGatewayConfigured } from '$lib/server/llm/llm-config-guard';
@@ -10,12 +10,13 @@ import { assertEurouterGatewayConfigured } from '$lib/server/llm/llm-config-guar
  * Used when billing_mode is platform_credits.
  */
 export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
-	const db = getDb();
-	const [activeRow] = await db
-		.select()
-		.from(llmActiveProvider)
-		.where(eq(llmActiveProvider.userId, userId))
-		.limit(1);
+	const [activeRow] = await withDbUser(userId, async (db) =>
+		db
+			.select()
+			.from(llmActiveProvider)
+			.where(eq(llmActiveProvider.userId, userId))
+			.limit(1)
+	);
 	const provider = (activeRow?.provider ?? 'eurouter') as LlmProviderKind;
 
 	if (provider === 'openrouter') {

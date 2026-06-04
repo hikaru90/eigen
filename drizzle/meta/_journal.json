@@ -253,6 +253,13 @@
       "when": 1749484800000,
       "tag": "0035_wallet_eigen_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1749571200000,
+      "tag": "0036_eval_qa_restore_jonas_retrieval",
+      "breakpoints": true
     }
   ]
 }

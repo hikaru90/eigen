@@ -5,8 +5,8 @@ import {
 } from '$lib/server/graph/age';
 import { getDb } from '$lib/server/db';
 import { extractEntityMentions, extractEntityTriples } from '$lib/server/memory/entity-extraction';
-import { resolveOrCreateCanonicalEntity } from '$lib/server/memory/entity-resolution';
-import { loadGraphKnownEntityHints } from '$lib/server/memory/entity-graph-hints';
+import { resolveOrCreateCanonicalEntity, clearEntityResolutionLogsForThought } from '$lib/server/memory/entity-resolution';
+import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints';
 import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 
@@ -35,9 +35,10 @@ export async function syncEntityGraphFromThought(input: {
 
 	let knownEntities: Array<{ label: string; entityType: string }> = [];
 	try {
-		knownEntities = await loadGraphKnownEntityHints({
+		knownEntities = await loadEntityHintsForThought({
 			userId: input.userId,
-			thoughtId: input.thoughtId
+			thoughtId: input.thoughtId,
+			normalizedText: input.normalizedText
 		});
 	} catch (err) {
 		console.warn('[entity-graph-sync] graph known-entity hints failed, proceeding without hints', {
@@ -45,6 +46,11 @@ export async function syncEntityGraphFromThought(input: {
 			message: err instanceof Error ? err.message : String(err)
 		});
 	}
+
+	await clearEntityResolutionLogsForThought({
+		userId: input.userId,
+		thoughtId: input.thoughtId
+	});
 
 	const mentions = await extractEntityMentions({
 		userId: input.userId,

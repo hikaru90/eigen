@@ -19,6 +19,7 @@
     parseEvalGraphSnapshot
   } from '$lib/eval/display';
   import ScoreBanner from '$lib/eval/score-banner.svelte';
+  import VersionTestResults from '$lib/eval/version-test-results.svelte';
   import * as Tabs from '$lib/components/ui/tabs';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import { goto, invalidateAll } from '$app/navigation';
@@ -94,12 +95,17 @@
   function captureStatusLabel(entry: EvalEntrySummary): string {
     if (entry.status === 'running') return 'Ingesting now…';
     if (entry.status === 'failed') return 'Failed';
+    if (entry.status === 'completed' && entry.result?.reused === true) return 'Reused';
     if (entry.status === 'completed' && entry.passed === false) return 'Stored (check failed)';
     if (entry.status === 'completed') return 'Stored';
     return 'Queued';
   }
 
-  async function startEvalRequest(request: { mode: 'smoke' | 'all' | 'qa'; qaId?: string }) {
+  async function startEvalRequest(request: {
+    mode: 'smoke' | 'all' | 'qa';
+    qaId?: string;
+    freshCorpus?: boolean;
+  }) {
     if (activeQaItems.length === 0 && request.mode !== 'qa') return;
     running = true;
     events = [];
@@ -136,9 +142,9 @@
     await startEvalRequest({ mode: runMode });
   }
 
-  async function startQaRun(qaId: string) {
+  async function startQaRun(qaId: string, freshCorpus = false) {
     activeTab = 'runs';
-    await startEvalRequest({ mode: 'qa', qaId });
+    await startEvalRequest({ mode: 'qa', qaId, freshCorpus });
   }
 
   async function pollRun() {
@@ -203,9 +209,11 @@
   <div>
     <h1 class="text-2xl font-bold tracking-tight">System evaluation</h1>
     <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
-      User-like evals: capture thoughts, search memory, answer questions. Every run is saved automatically.
+      User-like evals: capture thoughts, search memory, answer questions. Captures are kept across runs and reused when unchanged.
     </p>
   </div>
+
+  <VersionTestResults overview={data.versionOverview} />
 
   <Tabs.Root bind:value={activeTab} class="space-y-6">
     <Tabs.List>
@@ -223,6 +231,7 @@
       <Card.Title class="text-base">Run eval</Card.Title>
       <Card.Description>
         Smoke test runs one question from the catalog. All questions runs every entry in Questions &amp; answers.
+        Previously ingested fixtures are reused automatically unless you reset the corpus.
       </Card.Description>
     </Card.Header>
     <Card.Content class="space-y-4">
@@ -241,6 +250,13 @@
         <Button disabled={running || activeQaItems.length === 0} onclick={startRun}>
           {running ? 'Running…' : 'Start run'}
         </Button>
+        <Button
+          variant="outline"
+          disabled={running || activeQaItems.length === 0}
+          onclick={() => startEvalRequest({ mode: runMode, freshCorpus: true })}
+        >
+          Reset corpus &amp; start
+        </Button>
       </div>
 
       {#if activeQaItems.length === 0}
@@ -252,7 +268,8 @@
           <p class="text-sm font-medium">{runPreview.label}</p>
           <p class="text-muted-foreground text-xs">
             {runPreview.questions.length} question{runPreview.questions.length === 1 ? '' : 's'} ·
-            {runPreview.captureCount} unique capture{runPreview.captureCount === 1 ? '' : 's'} to ingest
+            {runPreview.captureCount} unique capture{runPreview.captureCount === 1 ? '' : 's'}
+            (reused when already in corpus)
           </p>
           <ol class="space-y-3">
             {#each runPreview.questions as qa, i}

@@ -204,7 +204,7 @@ describe('enrichThought', () => {
 		expect(enrichedAtCall).toBeDefined();
 	});
 
-	it('does not set enriched_at when entity sync returns zero mentions on substantive text', async () => {
+	it('clears enriched_at when entity sync fails on substantive text', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
@@ -214,13 +214,21 @@ describe('enrichThought', () => {
 		await enrichThought('u1', 't1', longText);
 
 		const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls;
-		const enrichedAtCall = setCalls.find(
+		const enrichedAtSet = setCalls.find(
 			(args: unknown[]) =>
 				args[0] &&
 				typeof args[0] === 'object' &&
-				'enrichedAt' in (args[0] as Record<string, unknown>)
+				'enrichedAt' in (args[0] as Record<string, unknown>) &&
+				(args[0] as { enrichedAt?: unknown }).enrichedAt !== null
 		);
-		expect(enrichedAtCall).toBeUndefined();
+		expect(enrichedAtSet).toBeUndefined();
+		const cleared = setCalls.find(
+			(args: unknown[]) =>
+				args[0] &&
+				typeof args[0] === 'object' &&
+				(args[0] as { enrichedAt?: unknown }).enrichedAt === null
+		);
+		expect(cleared).toBeDefined();
 	});
 
 	it('does not set enriched_at when a step fails', async () => {

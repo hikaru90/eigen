@@ -40,7 +40,9 @@ vi.mock('$env/dynamic/private', () => ({
 }));
 
 vi.mock('$lib/server/db', () => ({
-	getDb: getDbMock
+	getDb: getDbMock,
+	withDbUser: async (_userId: string, fn: (db: ReturnType<typeof getDbMock>) => Promise<unknown>) =>
+		fn(getDbMock())
 }));
 
 vi.mock('$lib/server/activity/log-call', () => ({

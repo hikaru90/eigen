@@ -992,7 +992,7 @@ export const evalRun = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		/** Ephemeral brain tenant; thoughts live under this id during the run. */
+		/** Shared corpus brain tenant; thoughts persist across runs for this operator. */
 		evalUserId: text('eval_user_id').notNull(),
 		label: text('label').notNull(),
 		scenarioId: text('scenario_id'),

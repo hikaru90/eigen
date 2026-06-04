@@ -5,7 +5,8 @@ const {
 	extractEntityMentionsMock,
 	extractEntityTriplesMock,
 	resolveOrCreateCanonicalEntityMock,
-	loadGraphKnownEntityHintsMock,
+	clearEntityResolutionLogsForThoughtMock,
+	loadEntityHintsForThoughtMock,
 	upsertEntityNodeMock,
 	upsertEntityRelationEdgeMock,
 	upsertMentionEdgeMock,
@@ -16,7 +17,8 @@ const {
 	extractEntityMentionsMock: vi.fn(),
 	extractEntityTriplesMock: vi.fn(),
 	resolveOrCreateCanonicalEntityMock: vi.fn(),
-	loadGraphKnownEntityHintsMock: vi.fn(),
+	clearEntityResolutionLogsForThoughtMock: vi.fn(),
+	loadEntityHintsForThoughtMock: vi.fn(),
 	upsertEntityNodeMock: vi.fn(),
 	upsertEntityRelationEdgeMock: vi.fn(),
 	upsertMentionEdgeMock: vi.fn(),
@@ -44,11 +46,12 @@ vi.mock('$lib/server/memory/entity-extraction', async (importOriginal) => {
 });
 
 vi.mock('$lib/server/memory/entity-resolution', () => ({
-	resolveOrCreateCanonicalEntity: resolveOrCreateCanonicalEntityMock
+	resolveOrCreateCanonicalEntity: resolveOrCreateCanonicalEntityMock,
+	clearEntityResolutionLogsForThought: clearEntityResolutionLogsForThoughtMock
 }));
 
 vi.mock('$lib/server/memory/entity-graph-hints', () => ({
-	loadGraphKnownEntityHints: loadGraphKnownEntityHintsMock
+	loadEntityHintsForThought: loadEntityHintsForThoughtMock
 }));
 
 vi.mock('$lib/server/graph/age', () => ({
@@ -67,9 +70,10 @@ describe('syncEntityGraphFromThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractEntityTriplesMock.mockResolvedValue([]);
+		clearEntityResolutionLogsForThoughtMock.mockResolvedValue(undefined);
 		getDbMock.mockReturnValue({});
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
-		loadGraphKnownEntityHintsMock.mockResolvedValue([]);
+		loadEntityHintsForThoughtMock.mockResolvedValue([]);
 		loadOntologyForUserMock.mockResolvedValue({
 			entityKinds: entityTypeRows,
 			relationKinds: [],
@@ -88,6 +92,10 @@ describe('syncEntityGraphFromThought', () => {
 			normalizedText: 'a quiet thought'
 		});
 		expect(result).toEqual({ mentionCount: 0 });
+		expect(clearEntityResolutionLogsForThoughtMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1'
+		});
 		expect(ensureUserOntologySeededMock).toHaveBeenCalled();
 		expect(extractEntityMentionsMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -180,16 +188,17 @@ describe('syncEntityGraphFromThought', () => {
 	});
 
 	it('passes graph-derived known entities into mention extraction', async () => {
-		loadGraphKnownEntityHintsMock.mockResolvedValue([{ label: 'Berlin', entityType: 'place' }]);
+		loadEntityHintsForThoughtMock.mockResolvedValue([{ label: 'Berlin', entityType: 'place' }]);
 		extractEntityMentionsMock.mockResolvedValue([]);
 		await syncEntityGraphFromThought({
 			userId: 'u1',
 			thoughtId: 't1',
 			normalizedText: 'some text'
 		});
-		expect(loadGraphKnownEntityHintsMock).toHaveBeenCalledWith({
+		expect(loadEntityHintsForThoughtMock).toHaveBeenCalledWith({
 			userId: 'u1',
-			thoughtId: 't1'
+			thoughtId: 't1',
+			normalizedText: 'some text'
 		});
 		expect(extractEntityMentionsMock).toHaveBeenCalledWith(
 			expect.objectContaining({

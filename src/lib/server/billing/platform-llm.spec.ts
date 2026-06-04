@@ -11,15 +11,16 @@ vi.mock('$env/dynamic/private', () => ({
 }));
 
 vi.mock('$lib/server/db', () => ({
-	getDb: () => ({
-		select: () => ({
-			from: () => ({
-				where: () => ({
-					limit: limitMock
+	withDbUser: async (_userId: string, fn: (db: unknown) => Promise<unknown>) =>
+		fn({
+			select: () => ({
+				from: () => ({
+					where: () => ({
+						limit: limitMock
+					})
 				})
 			})
 		})
-	})
 }));
 
 describe('loadPlatformLlmConfig', () => {

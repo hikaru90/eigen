@@ -1,5 +1,5 @@
 import { loadCorpus } from './dataset';
-import { resolveChecks } from './qa-checks';
+import { checksAfterEdit, checksBeforeEdit } from './qa-checks';
 import type { ExpandedEvalEntry, QaCapture } from './qa-types';
 import type { EvalQaRecord } from '../../src/lib/eval/qa-store';
 
@@ -55,8 +55,26 @@ export function expandQaEntries(qas: EvalQaRecord[]): ExpandedEvalEntry[] {
 		});
 	}
 
+	const editedFixtures = new Set<string>();
+
 	for (const qa of qas) {
-		const checks = resolveChecks(qa);
+		const checks = checksBeforeEdit(qa);
+		const postEditChecks = checksAfterEdit(qa);
+
+		for (const cap of qa.captures) {
+			const rawText = cap.rawText ?? corpus.get(cap.fixtureId)?.rawText;
+			if (!rawText?.trim() || !editedFixtures.has(cap.fixtureId)) continue;
+			entries.push({
+				ordinal: ordinal++,
+				kind: 'edit',
+				fixtureRef: `${qa.id}_fixture_reset_${cap.fixtureId}`,
+				inputJson: {
+					fixtureId: cap.fixtureId,
+					newRawText: rawText
+				},
+				expectedJson: { fixtureReset: true }
+			});
+		}
 
 		entries.push({
 			ordinal: ordinal++,
@@ -101,6 +119,20 @@ export function expandQaEntries(qas: EvalQaRecord[]): ExpandedEvalEntry[] {
 				},
 				expectedJson: {}
 			});
+
+			if (postEditChecks) {
+				entries.push({
+					ordinal: ordinal++,
+					kind: 'check',
+					fixtureRef: `${qa.id}_post_edit_check`,
+					inputJson: {
+						qaId: qa.id,
+						checks: postEditChecks,
+						fixtureIds: qa.captures.map((c) => c.fixtureId)
+					},
+					expectedJson: {}
+				});
+			}
 		}
 
 		entries.push({
@@ -113,6 +145,10 @@ export function expandQaEntries(qas: EvalQaRecord[]): ExpandedEvalEntry[] {
 			},
 			expectedJson: { acceptance: qa.acceptance }
 		});
+
+		if (qa.edit) {
+			editedFixtures.add(qa.edit.fixtureId);
+		}
 	}
 
 	return entries;

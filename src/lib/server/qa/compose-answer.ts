@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { thought } from '$lib/server/db/schema';
+import { thought, thoughtRelation } from '$lib/server/db/schema';
 import { graphOnlySearchByQuery } from '$lib/server/graph/age';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
@@ -85,7 +85,9 @@ const RETRIEVAL_HINT_STOPWORDS = new Set([
 	'are',
 	'the',
 	'a',
-	'an'
+	'an',
+	'to',
+	'now'
 ]);
 
 /** Focused tokens for a second retrieval pass (names, codes) on short questions. */
@@ -123,9 +125,35 @@ function mergeSearchHits(a: SearchHit[], b: SearchHit[], topK: number): SearchHi
 // Contradiction detection (sentiment / location updates — not scheduling)
 // ---------------------------------------------------------------------------
 
-const POLARITY_POSITIVE = /\b(love|great|excellent|amazing|wonderful|perfect|fantastic|good|enjoy|like)\b/i;
-const POLARITY_NEGATIVE = /\b(hate|terrible|awful|horrible|dreadful|bad|dislike|can't stand|waste)\b/i;
+const POLARITY_POSITIVE = /\b(love|great|excellent|amazing|wonderful|perfect|fantastic|good|enjoy|like|productive|calmer)\b/i;
+const POLARITY_NEGATIVE = /\b(hate|terrible|awful|horrible|dreadful|bad|dislike|can't stand|waste|discipline)\b/i;
 const LOCATION_PATTERN = /\b(?:live|living|moved|move)\s+(?:in|to)\s+([A-Z][a-zA-Z]+)/;
+
+/** Topic clusters: if both thoughts touch the same cluster, treat as the same subject for sentiment conflicts. */
+const TOPIC_CLUSTERS: readonly string[][] = [
+	['remote', 'work', 'wfh', 'office', 'commute', 'home', 'working']
+];
+
+function normalizeTopicTokens(text: string): Set<string> {
+	return new Set(
+		text
+			.toLowerCase()
+			.replace(/[^a-z0-9\s]/g, ' ')
+			.split(/\s+/)
+			.filter((t) => t.length >= 3)
+	);
+}
+
+function sharedTopicCluster(aText: string, bText: string): string | undefined {
+	const aTokens = normalizeTopicTokens(aText);
+	const bTokens = normalizeTopicTokens(bText);
+	for (const cluster of TOPIC_CLUSTERS) {
+		const aHit = cluster.some((term) => aTokens.has(term) || aText.toLowerCase().includes(term));
+		const bHit = cluster.some((term) => bTokens.has(term) || bText.toLowerCase().includes(term));
+		if (aHit && bHit) return cluster[0];
+	}
+	return undefined;
+}
 
 function extractSubjectKey(text: string): string {
 	return text
@@ -180,12 +208,13 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 			const aWords = new Set(aKey.split(' '));
 			const bWords = new Set(bKey.split(' '));
 			const shared = [...aWords].filter((w) => bWords.has(w));
-			if (shared.length < 1) continue;
+			const topic = shared.length >= 1 ? shared[0] : sharedTopicCluster(a.normalizedText, b.normalizedText);
+			if (!topic) continue;
 
 			conflicts.push({
 				ids: [a.id, b.id],
-				subject: shared[0],
-				description: `These thoughts appear to hold opposing views about "${shared[0]}"`
+				subject: topic,
+				description: `These thoughts appear to hold opposing views about "${topic}"`
 			});
 		}
 	}
@@ -199,6 +228,65 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 	});
 }
 
+function mergeConflictPairs(a: ConflictPair[], b: ConflictPair[]): ConflictPair[] {
+	const seen = new Set<string>();
+	const merged: ConflictPair[] = [];
+	for (const pair of [...a, ...b]) {
+		const key = [...pair.ids].sort().join('::');
+		if (seen.has(key)) continue;
+		seen.add(key);
+		merged.push(pair);
+	}
+	return merged;
+}
+
+/** Contradictions persisted during enrichment (`thought_relation.relation_type`). */
+export async function detectStoredThoughtContradictions(input: {
+	userId: string;
+	items: RetrievalContextItem[];
+}): Promise<ConflictPair[]> {
+	const ids = input.items.map((i) => i.id);
+	if (ids.length < 2) return [];
+
+	const rows = await getDb()
+		.select({
+			sourceThoughtId: thoughtRelation.sourceThoughtId,
+			targetThoughtId: thoughtRelation.targetThoughtId,
+			relationType: thoughtRelation.relationType
+		})
+		.from(thoughtRelation)
+		.where(
+			and(
+				eq(thoughtRelation.userId, input.userId),
+				inArray(thoughtRelation.sourceThoughtId, ids),
+				inArray(thoughtRelation.targetThoughtId, ids)
+			)
+		);
+
+	const idSet = new Set(ids);
+	const byId = new Map(input.items.map((i) => [i.id, i]));
+	const conflicts: ConflictPair[] = [];
+
+	for (const row of rows) {
+		if (!row.relationType.toLowerCase().includes('contradict')) continue;
+		if (!idSet.has(row.sourceThoughtId) || !idSet.has(row.targetThoughtId)) continue;
+		const a = byId.get(row.sourceThoughtId);
+		const b = byId.get(row.targetThoughtId);
+		if (!a || !b) continue;
+		const topic =
+			sharedTopicCluster(a.normalizedText, b.normalizedText) ??
+			extractSubjectKey(a.normalizedText).split(' ')[0] ??
+			'this topic';
+		conflicts.push({
+			ids: [row.sourceThoughtId, row.targetThoughtId],
+			subject: topic,
+			description: `Stored memory links mark these thoughts as contradictory about "${topic}"`
+		});
+	}
+
+	return conflicts;
+}
+
 // ---------------------------------------------------------------------------
 // Prompt formatting
 // ---------------------------------------------------------------------------
@@ -206,16 +294,28 @@ export function detectContradictions(items: RetrievalContextItem[]): ConflictPai
 function formatThoughtsForPrompt(items: RetrievalContextItem[]): string {
 	if (items.length === 0) return '(no thoughts retrieved)';
 	return items
-		.map((t, i) => {
+		.map((t) => {
 			const dateStr = t.createdAt.toISOString().slice(0, 10);
 			const staleFlag = t.isStale ? ' ⚠ STALE (>6 months old — may no longer reflect current state)' : '';
 			const graphLine = t.graphProvenance ? `\nGraph: ${t.graphProvenance}` : '';
 			return (
-				`#${i + 1} [id=${t.id}] (${t.category}, score=${t.score.toFixed(3)}, stored=${dateStr}${staleFlag})` +
+				`[id=${t.id}] (${t.category}, score=${t.score.toFixed(3)}, stored=${dateStr}${staleFlag})` +
 				`${graphLine}\n${t.normalizedText}`
 			);
 		})
 		.join('\n\n');
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Whole-word (or hyphenated) match so hint tokens like "to" do not match inside "today". */
+export function thoughtTextMentionsToken(text: string, token: string): boolean {
+	const normalized = token.trim().toLowerCase();
+	if (normalized.length < 2) return false;
+	const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(normalized)}(?:[^a-z0-9]|$)`, 'i');
+	return re.test(text);
 }
 
 export function questionFocusTokens(question: string): string[] {
@@ -229,18 +329,60 @@ export function isIdentityLookupQuestion(question: string): boolean {
 	return /^(who|wer)\s+(is|ist)\s+\S/i.test(question.trim());
 }
 
+/**
+ * Person named in a focused fact question (allergy, needs, contact preference, etc.).
+ * Returns a lowercase token suitable for lexical/graph anchoring.
+ */
+export function extractQuestionSubjectName(question: string): string | undefined {
+	const trimmed = question.trim();
+	const patterns = [
+		/^(?:who|wer)\s+(?:is|ist)\s+([A-Za-z][A-Za-z'-]{1,})\b/i,
+		/^what\s+is\s+([A-Za-z][A-Za-z'-]{1,})\s+/i,
+		/^what\s+does\s+([A-Za-z][A-Za-z'-]{1,})\s+/i,
+		/^how\s+(?:do|does|can|should)\s+(?:i|we)\s+(?:reach|contact)\s+([A-Za-z][A-Za-z'-]{1,})\b/i
+	];
+	for (const pattern of patterns) {
+		const match = pattern.exec(trimmed);
+		const name = match?.[1]?.replace(/[^A-Za-z'-]/g, '').toLowerCase();
+		if (name && name.length >= 2) return name;
+	}
+	return undefined;
+}
+
+export function isPersonFocusedQuestion(question: string): boolean {
+	return isIdentityLookupQuestion(question) || extractQuestionSubjectName(question) !== undefined;
+}
+
 /** For identity questions, only thoughts that mention the asked-for name belong in the compose prompt. */
 export function narrowComposeContextToQuestionFocus(
 	question: string,
 	items: RetrievalContextItem[]
 ): RetrievalContextItem[] {
-	if (!isIdentityLookupQuestion(question)) return items;
-	const tokens = questionFocusTokens(question);
-	if (tokens.length === 0) return items;
-	return items.filter((item) => {
-		const text = item.normalizedText.toLowerCase();
-		return tokens.some((token) => text.includes(token));
-	});
+	if (!isPersonFocusedQuestion(question)) return items;
+	const subject = extractQuestionSubjectName(question);
+	const tokens = subject ? [subject, ...questionFocusTokens(question)] : questionFocusTokens(question);
+	const uniqueTokens = [...new Set(tokens)];
+	if (uniqueTokens.length === 0) return items;
+	const filtered = items.filter((item) =>
+		uniqueTokens.some((token) => thoughtTextMentionsToken(item.normalizedText, token))
+	);
+	if (isIdentityLookupQuestion(question)) return filtered;
+	return filtered.length > 0 ? filtered : items;
+}
+
+/** Boost thoughts that mention the question's subject person before slicing to topK. */
+export function prioritizePersonNamedThoughts(
+	question: string,
+	items: RetrievalContextItem[],
+	topK: number
+): RetrievalContextItem[] {
+	const subject = extractQuestionSubjectName(question);
+	if (!subject) return items.slice(0, topK);
+	const mentionsSubject = (item: RetrievalContextItem) =>
+		thoughtTextMentionsToken(item.normalizedText, subject);
+	const primary = items.filter(mentionsSubject);
+	const rest = items.filter((item) => !mentionsSubject(item));
+	return [...primary, ...rest].slice(0, topK);
 }
 
 const HINT_ANCHOR_SCORE_BOOST = 2;
@@ -359,6 +501,7 @@ const SYSTEM_PROMPT = [
 	'',
 	'Hard rules:',
 	'- Cite every factual claim with [<id>] using the EXACT id string from the thoughts list (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
+	'- Never cite entry position numbers (e.g. [1], [6]); only cite the full id= value from each thought header.',
 	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
 	'- Do NOT equate or identify different people or names unless a cited thought explicitly states that link (e.g. "Clemi is Annie"). Similar topics, family, or graph edges are NOT enough.',
 	'- If the question names a person, nickname, or entity (e.g. "Clemi"), that name (or an alias written in the thoughts) MUST appear in a cited thought. Otherwise Answer MUST be "Not in memory."',
@@ -584,6 +727,17 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 			queryEmbedding
 		});
 	}
+	const subjectName = extractQuestionSubjectName(trimmedQuestion);
+	if (subjectName) {
+		const personAnchors = await searchHitsFromHintAnchors({
+			userId: input.userId,
+			hintQuery: subjectName,
+			topK
+		});
+		if (personAnchors.length > 0) {
+			retrieved = mergeSearchHits(retrieved, personAnchors, topK);
+		}
+	}
 	void tryRecordRetrievalQualityEvent({
 		userId: input.userId,
 		surface: 'compose_answer',
@@ -609,9 +763,13 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		now
 	});
 	contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, topK);
+	contextItems = prioritizePersonNamedThoughts(trimmedQuestion, contextItems, topK);
 	contextItems = narrowComposeContextToQuestionFocus(trimmedQuestion, contextItems);
 
-	const conflicts = detectContradictions(contextItems);
+	const conflicts = mergeConflictPairs(
+		detectContradictions(contextItems),
+		await detectStoredThoughtContradictions({ userId: input.userId, items: contextItems })
+	);
 
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },

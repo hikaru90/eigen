@@ -4,6 +4,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { user } from '$lib/server/db/auth.schema';
 import { captureThought, editStoredThought } from '$lib/server/capture/service';
+import { reenrichThought } from '$lib/server/capture/enrich';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/brain.schema';
@@ -11,23 +12,51 @@ import type { EvalEntry } from '$lib/server/db/brain.schema';
 import {
 	appendEvalEvent,
 	deleteEvalUserRow,
+	getCorpusFixtureMap,
 	getEvalRunRow,
 	getThoughtMap,
 	insertEvalUserRow,
 	listEvalEntries,
 	updateEvalEntry,
 	updateEvalRunStatus,
-	upsertThoughtMap
+	upsertThoughtMap,
+	type CorpusFixtureRef
 } from '$lib/eval/store';
 import { logEval, withEvalDb, type WithEvalDbOptions } from './eval-context';
 import { EVAL_JUDGE_USER_ID } from './eval-config';
+import { shouldReuseCorpusCapture } from './corpus-reuse';
 import { judgeCaptureFidelity } from './capture-fidelity';
 import { judgeAnswerAcceptance } from './judge-acceptance';
 import { runRetrievalSweepForQuery } from './retrieval-sweep';
 import type { EvalRetrievalQuery, QaChecks } from './qa-types';
 import { captureEvalGraphSnapshot } from './graph-snapshot';
+import {
+	ingestBrokenFromCheckAssertions,
+	qaIdFromRetrievalFixtureRef,
+	runtimeRetrievalRelevant
+} from './auto-retrieval-prune';
+import {
+	assessCorpusThoughtReuseHealth,
+	invalidateCorpusFixture
+} from './corpus-fixture-health';
 import { runStructuralChecks } from './qa-checks';
-import { assertThoughtEntitiesResolved } from './wait-enrichment';
+import type { CheckAssertionResult } from './qa-types';
+import {
+	assertThoughtEntitiesResolved,
+	fixtureIdsRequiringEnrichment,
+	loadThoughtEnrichmentTargets,
+	waitForThoughtEnrichment,
+	waitForThoughtEnrichmentComplete
+} from './wait-enrichment';
+import {
+	allBrokenFixtureIds,
+	fixtureIdsRequiringEntityResolution,
+	planIngestRetries,
+	purgeCorpusFixtures,
+	resetEvalEntriesForRetry,
+	resolveIngestRetryMax
+} from './ingest-retry';
+import { storedTextReflectsEdit } from './edit-verification';
 import { resolveEntryTimeoutMs, withEvalEntryTimeout } from './entry-timeout';
 import { generateRunSynthesis, type EntrySummary } from './synthesis';
 import type { EvalSynthesis } from '$lib/eval/types';
@@ -48,14 +77,105 @@ async function runCaptureEntry(input: {
 	runId: string;
 	entry: EvalEntry;
 	evalUserId: string;
+	corpusFixtureMap: Map<string, CorpusFixtureRef>;
 }): Promise<{ passed: boolean; result: Record<string, unknown> }> {
 	const rawText = String(input.entry.inputJson.rawText ?? '');
 	if (!rawText.trim()) {
 		throw new Error('capture entry missing rawText');
 	}
 	const fixtureRef = input.entry.fixtureRef ?? 'unknown';
-
 	const billing = evalBillingOpts(input.operatorUserId);
+
+	const corpusRef = input.corpusFixtureMap.get(fixtureRef);
+	if (corpusRef) {
+		const existing = await withEvalDb(
+			input.evalUserId,
+			async (db) => {
+				const [row] = await db
+					.select({
+						id: thought.id,
+						rawText: thought.rawText,
+						normalizedText: thought.normalizedText,
+						category: thought.category
+					})
+					.from(thought)
+					.where(and(eq(thought.userId, input.evalUserId), eq(thought.id, corpusRef.thoughtId)));
+				return row ?? null;
+			},
+			billing
+		);
+
+		if (
+			existing &&
+			shouldReuseCorpusCapture({ expectedRawText: rawText, storedRawText: existing.rawText })
+		) {
+			const reuseOk = await withEvalDb(
+				input.evalUserId,
+				async (db) => {
+					const health = await assessCorpusThoughtReuseHealth({
+						db,
+						evalUserId: input.evalUserId,
+						thoughtId: existing.id,
+						withEvalDbOptions: billing
+					});
+					if (!health.reusable) {
+						return { reusable: false as const, reason: health.reason ?? 'unhealthy corpus row' };
+					}
+					try {
+						await assertThoughtEntitiesResolved(db, input.evalUserId, [existing.id]);
+					} catch {
+						await reenrichThought(
+							input.evalUserId,
+							existing.id,
+							existing.normalizedText
+						);
+						await assertThoughtEntitiesResolved(db, input.evalUserId, [existing.id]);
+					}
+					return { reusable: true as const };
+				},
+				billing
+			);
+
+			if (!reuseOk.reusable) {
+				await invalidateCorpusFixture({
+					evalUserId: input.evalUserId,
+					corpusFixtureMap: input.corpusFixtureMap,
+					fixtureId: fixtureRef
+				});
+				await appendEvalEvent({
+					operatorUserId: input.operatorUserId,
+					runId: input.runId,
+					entryId: input.entry.id,
+					level: 'warn',
+					message:
+						`corpus reuse rejected for ${fixtureRef}` +
+						('reason' in reuseOk && reuseOk.reason ? `: ${reuseOk.reason}` : '') +
+						' — re-capturing'
+				});
+			} else {
+				await upsertThoughtMap(input.operatorUserId, input.runId, fixtureRef, existing.id);
+				await appendEvalEvent({
+					operatorUserId: input.operatorUserId,
+					runId: input.runId,
+					entryId: input.entry.id,
+					message: `capture reused fixture ${fixtureRef} (thought ${existing.id})`
+				});
+				return {
+					passed: true,
+					result: {
+						reused: true,
+						thoughtId: existing.id,
+						rawText: existing.rawText,
+						category: existing.category,
+						normalizedText: existing.normalizedText,
+						sourceRunId: corpusRef.sourceRunId,
+						explanation: 'Reused existing corpus capture'
+					}
+				};
+			}
+		}
+	}
+
 	const stored = await withEvalDb(
 		input.evalUserId,
 		() =>
@@ -102,6 +222,7 @@ async function runCaptureEntry(input: {
 	});
 
 	await upsertThoughtMap(input.operatorUserId, input.runId, fixtureRef, stored.id);
+	input.corpusFixtureMap.set(fixtureRef, { thoughtId: stored.id, sourceRunId: input.runId });
 
 	return {
 		passed: fidelity.faithful,
@@ -130,24 +251,61 @@ async function runCheckEntry(input: {
 	}
 
 	const fixtureToUuid = await getThoughtMap(input.operatorUserId, input.runId);
-	const scopedMap = new Map<string, string>();
-	const fixtureIds = Array.isArray(input.entry.inputJson.fixtureIds)
-		? (input.entry.inputJson.fixtureIds as string[])
-		: [];
-	for (const fixtureId of fixtureIds) {
-		const uuid = fixtureToUuid.get(fixtureId);
-		if (uuid) scopedMap.set(fixtureId, uuid);
-	}
+
+	const entityFixtureIds = fixtureIdsRequiringEntityResolution(checks);
+	const enrichFixtureIds = fixtureIdsRequiringEnrichment(checks);
+	const entityThoughtIds = [
+		...new Set(
+			entityFixtureIds
+				.map((fixtureId) => fixtureToUuid.get(fixtureId))
+				.filter((id): id is string => Boolean(id))
+		)
+	];
+	const enrichThoughtIds = [
+		...new Set(
+			enrichFixtureIds
+				.map((fixtureId) => fixtureToUuid.get(fixtureId))
+				.filter((id): id is string => Boolean(id))
+		)
+	];
 
 	const result = await withEvalDb(
 		input.evalUserId,
-		(db) =>
-			runStructuralChecks({
+		async (db) => {
+			if (entityThoughtIds.length > 0) {
+				const targets = await loadThoughtEnrichmentTargets(
+					db,
+					input.evalUserId,
+					entityThoughtIds
+				);
+				await waitForThoughtEnrichment({
+					db,
+					userId: input.evalUserId,
+					targets,
+					withEvalDbOptions: evalBillingOpts(input.operatorUserId)
+				});
+				await assertThoughtEntitiesResolved(db, input.evalUserId, entityThoughtIds);
+			}
+			if (enrichThoughtIds.length > 0) {
+				const targets = await loadThoughtEnrichmentTargets(
+					db,
+					input.evalUserId,
+					enrichThoughtIds
+				);
+				await waitForThoughtEnrichmentComplete({
+					db,
+					userId: input.evalUserId,
+					targets,
+					withEvalDbOptions: evalBillingOpts(input.operatorUserId)
+				});
+			}
+			return runStructuralChecks({
 				db,
 				userId: input.evalUserId,
-				fixtureToUuid: scopedMap,
+				fixtureToUuid,
 				checks
-			}),
+			});
+		},
 		evalBillingOpts(input.operatorUserId)
 	);
 
@@ -174,11 +332,16 @@ async function runCheckEntry(input: {
 		});
 	}
 
+	const qaId = String(input.entry.inputJson.qaId ?? '').trim();
+	const ingestBroken = ingestBrokenFromCheckAssertions(result.assertions);
+	const corpusInvalidated = [...ingestBroken];
+
 	const passed = result.failedCount === 0;
 	return {
 		passed,
 		result: {
 			qaId: input.entry.inputJson.qaId,
+			...(corpusInvalidated.length > 0 ? { corpusInvalidated } : {}),
 			...result,
 			...(graphSnapshot ? { graphSnapshot } : {}),
 			explanation:
@@ -187,6 +350,20 @@ async function runCheckEntry(input: {
 					: `${result.failedCount} of ${result.assertions.length} assertions failed`
 		}
 	};
+}
+
+async function ingestBrokenForQaFromRun(
+	operatorUserId: string,
+	runId: string,
+	qaId: string
+): Promise<Set<string>> {
+	const entries = await listEvalEntries(operatorUserId, runId);
+	const check = entries.find(
+		(e) => e.kind === 'check' && e.fixtureRef === `${qaId}_check` && e.status === 'completed'
+	);
+	const raw = check?.resultJson as { assertions?: CheckAssertionResult[] } | null | undefined;
+	if (!raw?.assertions?.length) return new Set();
+	return ingestBrokenFromCheckAssertions(raw.assertions);
 }
 
 async function runRetrievalEntry(input: {
@@ -202,22 +379,60 @@ async function runRetrievalEntry(input: {
 	}
 
 	const fixtureToUuid = await getThoughtMap(input.operatorUserId, input.runId);
-	/** Grade only thoughts ingested in this run; ignore corpus labels for uncaptured fixtures. */
-	const scopedRelevant = relevant.filter((r) => fixtureToUuid.has(r.id));
-	const skippedLabels = relevant.filter((r) => !fixtureToUuid.has(r.id));
+	const qaId = qaIdFromRetrievalFixtureRef(input.entry.fixtureRef);
+	const ingestBroken = qaId
+		? await ingestBrokenForQaFromRun(input.operatorUserId, input.runId, qaId)
+		: new Set<string>();
+
+	let needleFixtureIdFromExpected =
+		typeof input.entry.expectedJson.needleFixtureId === 'string'
+			? input.entry.expectedJson.needleFixtureId
+			: undefined;
+
+	const {
+		scoped: scopedRelevant,
+		skippedUncaptured,
+		skippedIngestBroken,
+		ingestBrokenNeedleRetained
+	} = runtimeRetrievalRelevant({
+		relevant,
+		fixtureToUuid,
+		ingestBroken,
+		needleFixtureId: needleFixtureIdFromExpected
+	});
+
 	if (scopedRelevant.length === 0) {
+		const parts = [
+			skippedIngestBroken.length > 0
+				? `ingest-broken haystack (excluded from retrieval grades): ${skippedIngestBroken.join(', ')}`
+				: null,
+			skippedUncaptured.length > 0 ? `uncaptured: ${skippedUncaptured.join(', ')}` : null
+		].filter(Boolean);
 		throw new Error(
-			'retrieval: no relevance labels match captured thoughts in this run — add captures or pick another query'
+			`retrieval: no gradable relevance labels remain${parts.length ? ` (${parts.join('; ')})` : ''}`
 		);
 	}
-	if (skippedLabels.length > 0) {
+
+	const skipParts: string[] = [];
+	if (skippedUncaptured.length > 0) {
+		skipParts.push(`uncaptured labels: ${skippedUncaptured.join(', ')}`);
+	}
+	if (skippedIngestBroken.length > 0) {
+		skipParts.push(
+			`ingest-broken haystack (excluded from retrieval grades): ${skippedIngestBroken.join(', ')}`
+		);
+	}
+	if (ingestBrokenNeedleRetained.length > 0) {
+		skipParts.push(
+			`needle ingest failed but still graded: ${ingestBrokenNeedleRetained.join(', ')} — fix check assertions`
+		);
+	}
+	if (skipParts.length > 0) {
 		await appendEvalEvent({
 			operatorUserId: input.operatorUserId,
 			runId: input.runId,
 			entryId: input.entry.id,
-			message:
-				`grading against ${scopedRelevant.length} captured fixture(s); ` +
-				`skipped uncaptured labels: ${skippedLabels.map((s) => s.id).join(', ')}`
+			message: `grading against ${scopedRelevant.length} fixture(s); skipped ${skipParts.join('; ')}`
 		});
 	}
 
@@ -232,10 +447,7 @@ async function runRetrievalEntry(input: {
 		typeof input.entry.expectedJson.minNdcgAt10 === 'number'
 			? input.entry.expectedJson.minNdcgAt10
 			: 0.5;
-	const needleFixtureId =
-		typeof input.entry.expectedJson.needleFixtureId === 'string'
-			? input.entry.expectedJson.needleFixtureId
-			: undefined;
+	let needleFixtureId = needleFixtureIdFromExpected;
 	const needleTopK =
 		typeof input.entry.expectedJson.needleTopK === 'number'
 			? input.entry.expectedJson.needleTopK
@@ -316,7 +528,9 @@ async function runRetrievalEntry(input: {
 			query: queryText,
 			topRanked,
 			scopedRelevant,
-			skippedLabels: skippedLabels.map((s) => s.id),
+			skippedUncaptured,
+			skippedIngestBroken,
+			ingestBrokenNeedleRetained,
 			needleCheck: needleFixtureId
 				? { fixtureId: needleFixtureId, topK: needleTopK, inTopK: topRanked.slice(0, needleTopK).includes(needleFixtureId) }
 				: undefined,
@@ -376,14 +590,7 @@ async function runEditEntry(input: {
 		evalBillingOpts(input.operatorUserId)
 	);
 
-	const normalized = stored.normalizedText.toLowerCase();
-	const anchor = newRawText
-		.trim()
-		.split(/\s+/)
-		.find((w) => w.replace(/[^a-z0-9]/gi, '').length > 4)
-		?.replace(/[^a-z0-9]/gi, '')
-		.toLowerCase();
-	const passed = anchor ? normalized.includes(anchor) : normalized.length > 0;
+	const passed = storedTextReflectsEdit(stored.normalizedText, newRawText);
 
 	return {
 		passed,
@@ -458,6 +665,7 @@ async function runOneEntry(input: {
 	runId: string;
 	entry: EvalEntry;
 	evalUserId: string;
+	corpusFixtureMap: Map<string, CorpusFixtureRef>;
 }): Promise<void> {
 	const startedAt = new Date();
 	await updateEvalEntry(input.operatorUserId, input.entry.id, {
@@ -548,15 +756,27 @@ function entrySummaries(entries: EvalEntry[]): EntrySummary[] {
 export async function executeEvalRun(input: {
 	operatorUserId: string;
 	runId: string;
-	keepEvalUser?: boolean;
+	freshCorpus?: boolean;
 	scenarioGoal?: string;
 }): Promise<EvalSynthesis | null> {
 	const run = await getEvalRunRow(input.operatorUserId, input.runId);
 	if (!run) throw new Error(`eval run not found: ${input.runId}`);
 
-	await ensureJudgeUser();
-	await insertEvalUserRow(run.evalUserId, `Eval run ${run.label}`);
+	const config = (run.configJson ?? {}) as Record<string, unknown>;
+	const freshCorpus = input.freshCorpus ?? config.freshCorpus === true;
 
+	await ensureJudgeUser();
+
+	if (freshCorpus) {
+		try {
+			await deleteEvalUserRow(run.evalUserId);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			logEval(`fresh corpus delete warning: ${msg}`);
+		}
+	}
+
+	await insertEvalUserRow(run.evalUserId, 'Eval corpus');
 
 	await updateEvalRunStatus(input.operatorUserId, input.runId, {
 		status: 'running',
@@ -566,28 +786,81 @@ export async function executeEvalRun(input: {
 	await appendEvalEvent({
 		operatorUserId: input.operatorUserId,
 		runId: input.runId,
-		message: `run start: evalUserId=${run.evalUserId}`
+		message:
+			`run start: evalUserId=${run.evalUserId}` +
+			(freshCorpus ? ' (fresh corpus)' : ' (persistent corpus)')
 	});
 
 	let synthesis: EvalSynthesis | null = null;
 	let runError: string | null = null;
 
 	try {
-		const entries = await listEvalEntries(input.operatorUserId, input.runId);
-		const total = entries.length;
-		for (const entry of entries) {
-			if (entry.status === 'completed' || entry.status === 'failed') continue;
+		const corpusFixtureMap = freshCorpus
+			? new Map<string, CorpusFixtureRef>()
+			: await getCorpusFixtureMap(input.operatorUserId, run.evalUserId);
+
+		const maxIngestRetries = resolveIngestRetryMax();
+		let ingestRetryPass = 0;
+
+		while (true) {
+			let entries = await listEvalEntries(input.operatorUserId, input.runId);
+			const total = entries.length;
+
+			for (;;) {
+				const pending = entries.filter((e) => e.status !== 'completed' && e.status !== 'failed');
+				if (pending.length === 0) break;
+
+				const entry = pending[0]!;
+				await appendEvalEvent({
+					operatorUserId: input.operatorUserId,
+					runId: input.runId,
+					entryId: entry.id,
+					message: `step ${entry.ordinal + 1}/${total}: ${entry.kind} ${entry.fixtureRef ?? ''}`
+				});
+				await runOneEntry({
+					operatorUserId: input.operatorUserId,
+					runId: input.runId,
+					entry,
+					evalUserId: run.evalUserId,
+					corpusFixtureMap
+				});
+				entries = await listEvalEntries(input.operatorUserId, input.runId);
+			}
+
+			const passEntries = await listEvalEntries(input.operatorUserId, input.runId);
+			const retryBatches = planIngestRetries(passEntries);
+			const brokenFixtures = allBrokenFixtureIds(retryBatches);
+
+			if (brokenFixtures.length > 0) {
+				const purged = await purgeCorpusFixtures({
+					evalUserId: run.evalUserId,
+					corpusFixtureMap,
+					fixtureIds: brokenFixtures
+				});
+				for (const fixtureId of purged) {
+					await appendEvalEvent({
+						operatorUserId: input.operatorUserId,
+						runId: input.runId,
+						message: `corpus invalidated: ${fixtureId} (ingest broken — will re-capture on retry)`
+					});
+				}
+			}
+
+			if (retryBatches.length === 0 || ingestRetryPass >= maxIngestRetries) {
+				break;
+			}
+
+			const entryIds = [
+				...new Set(retryBatches.flatMap((batch) => batch.entriesToRerun.map((e) => e.id)))
+			];
+			await resetEvalEntriesForRetry(input.operatorUserId, entryIds);
+			ingestRetryPass += 1;
 			await appendEvalEvent({
 				operatorUserId: input.operatorUserId,
 				runId: input.runId,
-				entryId: entry.id,
-				message: `step ${entry.ordinal + 1}/${total}: ${entry.kind} ${entry.fixtureRef ?? ''}`
-			});
-			await runOneEntry({
-				operatorUserId: input.operatorUserId,
-				runId: input.runId,
-				entry,
-				evalUserId: run.evalUserId
+				message:
+					`ingest retry ${ingestRetryPass}/${maxIngestRetries}: re-running ${entryIds.length} ` +
+					`entr${entryIds.length === 1 ? 'y' : 'ies'} for fixture(s) ${brokenFixtures.join(', ')}`
 			});
 		}
 
@@ -610,21 +883,6 @@ export async function executeEvalRun(input: {
 			message: runError
 		});
 	} finally {
-		if (!input.keepEvalUser) {
-			try {
-				await deleteEvalUserRow(run.evalUserId);
-				await appendEvalEvent({
-					operatorUserId: input.operatorUserId,
-					runId: input.runId,
-					message: 'cleaned up eval user'
-				});
-			} catch (cleanupErr) {
-				const msg =
-					cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-				logEval(`cleanup warning: ${msg}`);
-			}
-		}
-
 		const finalEntries = await listEvalEntries(input.operatorUserId, input.runId);
 		const anyFailed = finalEntries.some((e) => e.status === 'failed' || e.passed === false);
 

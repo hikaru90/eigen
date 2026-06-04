@@ -124,3 +124,17 @@
 ## Workflow
 - Requirement -> acceptance criteria -> risk classification -> test planning -> approval -> implementation.
 - Pull requests must reference requirement IDs and related test cases.
+
+## Eval runs (agent)
+- **Do not run Q&A evals** (`npm run eval`, `eval:smoke`, `eval:all`, or `evals/run.ts`). The operator validates from the **`/eval` UI**, not the CLI.
+- **Do not tell the operator to run `npm run eval` or other eval npm scripts** for end-to-end validation. Point them to the UI instead:
+  - **One catalog question:** `/eval` → **Questions & answers** → **Run** on the row (e.g. `qa_jonas_creative_silence`).
+  - **Smoke or all questions:** `/eval` → **Runs** → choose run type → **Start run**.
+  - **Clean corpus before a run:** `/eval` → **Runs** → **Reset corpus & start** (not `npm run eval -- --fresh-corpus`).
+- After eval-related code changes, run **unit tests** only (e.g. `evals/harness/*.spec.ts`, `entity-extraction.spec.ts`) and tell the operator which **`/eval` UI action** to use.
+- Diagnose from eval output the user pastes (or saved run detail in the UI); do not re-run evals to reproduce unless they explicitly ask.
+
+## Agent debugging: root cause, not workaround
+- When a **test or eval check fails**, fix the underlying bug (RLS, billing context, enrichment order, LLM config, stale corpus data). Do **not** weaken assertions, skip tests, or add heuristic/fallback paths to green the build. See [`.cursor/rules/fix-root-cause-not-workaround.mdc`](.cursor/rules/fix-root-cause-not-workaround.mdc) and [`no-fallbacks.mdc`](.cursor/rules/no-fallbacks.mdc).
+- **Eval entity checks** depend on real `entity_resolution_log` rows from successful enrichment. Root fixes include: `activity_call_log` inserts under the RLS tenant (`tenantUserAsyncLocal`), eval re-enrich kicks with `billingUserId`, corpus reuse only maps fixtures after entity assert/reenrich, and LLM mention extraction with the existing retry pass (not regex bootstrap after `[]`).
+- Add or update a **unit test** for each invariant you fix so the regression cannot return silently.

@@ -341,4 +341,35 @@ describe('extractRelations', () => {
 		});
 		expect(out).toEqual([]);
 	});
+
+	it('infers contradicts for temporal neighbors when LLM returns no links', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: vi.fn(async () => [
+								{
+									id: 'prior-remote',
+									normalizedText:
+										'Remote work is terrible for me. I lose all discipline and end up doing nothing. Need an office.'
+								}
+							])
+						}))
+					}))
+				}))
+			}))
+		});
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: JSON.stringify([]) } }]
+		});
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't-wfh',
+			normalizedText:
+				'Working from home is actually great. I am more productive, calmer, and the commute savings are real.'
+		});
+		expect(out).toEqual([{ targetId: 'prior-remote', relationType: 'contradicts' }]);
+	});
 });

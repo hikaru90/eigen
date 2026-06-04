@@ -78,11 +78,41 @@ const ENTITY_TYPE_SYNONYMS: Record<string, string> = {
 	landmarks: 'place',
 	institution: 'organization',
 	medical_device: 'technology',
-	system: 'technology'
+	system: 'technology',
+	abstract: 'concept',
+	topic: 'concept',
+	theme: 'concept',
+	idea: 'concept',
+	human: 'person',
+	individual: 'person',
+	character: 'person',
+	name: 'person',
+	audio: 'concept',
+	sound: 'concept'
 };
 
 /** Retry entity extraction when the first pass returns nothing on substantive notes. */
 export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH = 120;
+
+/** Shorter notes that still name people, allergies, or multiple proper nouns. */
+export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT = 50;
+
+/** Substantive notes that should not end with zero entity mentions after retries. */
+export const ENTITY_RETRY_SIGNAL =
+	/\b(?:allergic|allergy|birthday|born|works at|located in|met with|called|named|needs?|requires?)\b/i;
+
+/** Whether a second LLM pass is warranted after zero mentions on the first pass. */
+export function shouldRetryEntityMentionExtraction(normalizedText: string): boolean {
+	const text = normalizedText.trim();
+	const len = text.length;
+	if (len === 0) return false;
+	if (len >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH) return true;
+	if (len < ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT) return false;
+	if (ENTITY_RETRY_SIGNAL.test(text)) return true;
+	if (/(?:^|[.!?]\s+)[A-Z][a-z]{2,}/.test(text)) return true;
+	if (/\b[A-Z][a-z]{2,}\b.*\b[A-Z][a-z]{2,}\b/.test(text)) return true;
+	return false;
+}
 
 /**
  * Resolve LLM `entityType` to a canonical key present in `allowed`.
@@ -206,7 +236,7 @@ export function parseEntityTriples(
 		.filter((v): v is ExtractedEntityTriple => v !== null);
 }
 
-type ExtractEntityMentionsPass = 'default' | 'retry_minimum';
+type ExtractEntityMentionsPass = 'default' | 'retry_minimum' | 'retry_verbatim';
 
 async function extractEntityMentionsOnce(
 	input: {
@@ -232,8 +262,10 @@ async function extractEntityMentionsOnce(
 
 	const minimumRule =
 		pass === 'retry_minimum'
-			? 'Return at least 2 items when the text names procedures, anatomy, devices, measurements, or institutions. Never return an empty array for substantive operative or technical notes.'
-			: 'Include 0–12 items. Omit generic pronouns and vague terms.';
+			? 'Return at least 2 items when the text names people, allergies, food, places, procedures, anatomy, devices, measurements, or institutions. Never return an empty array for substantive notes.'
+			: pass === 'retry_verbatim'
+				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 items. Copy surfaces exactly as written in the text.'
+				: 'Include 0–12 items. Omit generic pronouns and vague terms.';
 
 	const prompt = [
 		'Return ONLY JSON.',
@@ -265,8 +297,17 @@ async function extractEntityMentionsOnce(
 		messages,
 		temperature: 0
 	});
-
-	return parseEntityMentions(stripMarkdownJsonFences(extractChatContent(response)), allowed);
+	const content = stripMarkdownJsonFences(extractChatContent(response));
+	try {
+		return parseEntityMentions(content, allowed);
+	} catch (err) {
+		console.warn('[entity-extraction] invalid mention JSON from LLM', {
+			userId: input.userId,
+			pass,
+			message: err instanceof Error ? err.message : String(err)
+		});
+		return [];
+	}
 }
 
 /** LLM step 1: surfaces + entity type (real-world entity type catalog, separate from thought categories). */
@@ -283,20 +324,26 @@ export async function extractEntityMentions(input: {
 
 	let mentions = await extractEntityMentionsOnce(input, 'default');
 	const textLen = input.normalizedText.trim().length;
-	if (mentions.length === 0 && textLen >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH) {
+	if (mentions.length === 0 && shouldRetryEntityMentionExtraction(input.normalizedText)) {
 		console.warn('[entity-extraction] zero mentions on first pass; retrying with minimum rule', {
 			userId: input.userId,
 			textLen
 		});
 		mentions = await extractEntityMentionsOnce(input, 'retry_minimum');
 	}
-	if (mentions.length === 0 && textLen >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH) {
-		console.warn('[entity-extraction] zero mentions after retry', {
+	if (mentions.length === 0 && shouldRetryEntityMentionExtraction(input.normalizedText)) {
+		console.warn('[entity-extraction] zero mentions after minimum retry; retrying verbatim', {
+			userId: input.userId,
+			textLen
+		});
+		mentions = await extractEntityMentionsOnce(input, 'retry_verbatim');
+	}
+	if (mentions.length === 0 && shouldRetryEntityMentionExtraction(input.normalizedText)) {
+		console.warn('[entity-extraction] zero mentions after all retries', {
 			userId: input.userId,
 			textLen
 		});
 	}
-
 	return mentions;
 }
 

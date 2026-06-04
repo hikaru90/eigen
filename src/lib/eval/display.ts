@@ -58,6 +58,52 @@ function isGradedEntry(entry: EvalEntrySummary): boolean {
 	return entry.status === 'completed' || entry.status === 'failed';
 }
 
+/** Entries belonging to one catalog Q&A (including its captures). */
+export function entriesForQa(
+	entries: EvalEntrySummary[],
+	qaId: string,
+	captureFixtureIds: string[]
+): EvalEntrySummary[] {
+	const fixtureSet = new Set(captureFixtureIds);
+	return entries.filter((e) => {
+		if (e.kind === 'capture') {
+			return e.fixtureRef != null && fixtureSet.has(e.fixtureRef);
+		}
+		if (e.input?.qaId === qaId) return true;
+		if (e.fixtureRef === qaId || e.fixtureRef?.startsWith(`${qaId}_`)) return true;
+		return false;
+	});
+}
+
+function filterCheckAssertionsForFixtures(
+	entry: EvalEntrySummary,
+	fixtureIds: Set<string>
+): EvalEntrySummary {
+	if (entry.kind !== 'check' || !Array.isArray(entry.result?.assertions)) {
+		return entry;
+	}
+	const assertions = (entry.result.assertions as CheckAssertion[]).filter(
+		(a) =>
+			typeof a.fixtureId !== 'string' ||
+			a.fixtureId.length === 0 ||
+			fixtureIds.has(a.fixtureId)
+	);
+	return { ...entry, result: { ...entry.result, assertions } };
+}
+
+/** Score one Q&A within a run (handles shared batch captures/check assertions). */
+export function aggregateQaScores(
+	entries: EvalEntrySummary[],
+	qa: { id: string; captures: Array<{ fixtureId: string }> }
+): RunScoreSummary | null {
+	const fixtureIds = new Set(qa.captures.map((c) => c.fixtureId));
+	const slice = entriesForQa(entries, qa.id, [...fixtureIds]).map((e) =>
+		filterCheckAssertionsForFixtures(e, fixtureIds)
+	);
+	if (!slice.some(isGradedEntry)) return null;
+	return aggregateRunScores(slice);
+}
+
 function capturePointEarned(entry: EvalEntrySummary): number {
 	if (entry.passed === true) return 1;
 	const score = entry.result?.fidelityScore;
@@ -414,16 +460,23 @@ export function humanizeCheckAssertion(
 	}
 
 	if (id.startsWith('entities_')) {
-		const surfacesMatch = assertion.evidence?.match(/surfaces=([^)]+)/);
-		const countMatch = assertion.evidence?.match(/count=(\d+)/);
-		const count = countMatch?.[1] ?? '?';
-		const surfaces = surfacesMatch?.[1]?.replace('(none)', 'nothing detected') ?? '';
+		const detectedMatch = assertion.evidence?.match(/^Detected (\d+): (.+)\.$/);
+		if (detectedMatch) {
+			const count = detectedMatch[1] ?? '0';
+			const surfaces = detectedMatch[2]?.trim() || 'nothing detected';
+			return {
+				label: 'People, places, and things mentioned',
+				evidence: assertion.passed
+					? `Detected ${count}: ${surfaces}.`
+					: `Expected entity surfaces not found (detected ${count}: ${surfaces}).`,
+				preview: previewExcerpt
+			};
+		}
 		return {
 			label: 'People, places, and things mentioned',
-			evidence:
-				Number(count) > 0
-					? `Detected ${count}: ${surfaces}.`
-					: 'No entities were extracted from this thought.',
+			evidence: assertion.passed
+				? assertion.evidence ?? 'Entities detected.'
+				: assertion.evidence ?? 'No entities were extracted from this thought.',
 			preview: previewExcerpt
 		};
 	}
@@ -467,12 +520,12 @@ export function humanizeCheckAssertion(
 	}
 
 	if (id.startsWith('enriched_')) {
-		const cuesMatch = assertion.evidence?.match(/cues=(\d+)/);
-		const cues = cuesMatch?.[1] ?? '0';
+		const tagMatch = assertion.evidence?.match(/enriched with (\d+) automatic tag/);
+		const cues = tagMatch?.[1] ?? (assertion.passed ? '0' : null);
 		return {
 			label: 'Automatic tags and metadata',
 			evidence: assertion.passed
-				? `Thought was enriched with ${cues} automatic tag${cues === '1' ? '' : 's'}.`
+				? `Thought was enriched with ${cues ?? '0'} automatic tag${cues === '1' ? '' : 's'}.`
 				: 'Thought was not fully enriched (missing tags or metadata).',
 			preview: previewExcerpt
 		};
