@@ -16,6 +16,7 @@ import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/on
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
 import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
+import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
@@ -105,6 +106,7 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	await emitProgress(onProgress, 'accounting');
+	await assertCapturePipelineAffordable(userId);
 	const { normalized, metadata: baseMeta } = normalizeThoughtText(rawInput);
 
 	// Classify and embed sequentially — both hit the same per-user rate-limited

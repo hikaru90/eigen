@@ -6,6 +6,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
 	import * as Tabs from '$lib/components/ui/tabs';
+	import { fetchWalletBalance } from '$lib/billing/fetch-wallet';
 	import { initPayPalCheckout } from '$lib/billing/paypal-checkout';
 	import Check from '@lucide/svelte/icons/check';
 
@@ -89,8 +90,10 @@
 			sdkUrl: data.paypalSdkUrl,
 			currencyCode: data.defaultBillingCurrency,
 			getAmountCents: parseTopUpCents,
-			onBalanceUpdated: (cents) => {
-				walletAvailableCents = cents;
+			onBalanceUpdated: () => {
+				void fetchWalletBalance().then((wallet) => {
+					if (wallet) walletAvailableCents = wallet.availableCents;
+				});
 			},
 			onStatus: (msg) => {
 				topUpStatus = msg;

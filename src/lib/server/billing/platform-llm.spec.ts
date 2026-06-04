@@ -63,6 +63,16 @@ describe('loadPlatformLlmConfig', () => {
 		expect(config.modelChat).toBe('gpt-test');
 	});
 
+	it('throws when LLM_BASE_URL is the Docker placeholder', async () => {
+		limitMock.mockResolvedValue([]);
+		mockEnv.LLM_BASE_URL = 'https://example.com/v1';
+		mockEnv.SERVICE_API_KEY_EUROUTER = 'eurouter-service-key';
+		mockEnv.LLM_RULE_CHAT = 'real-rule-chat';
+		mockEnv.LLM_RULE_EMBEDDING = 'real-rule-embed';
+
+		await expect(loadPlatformLlmConfig('user-1')).rejects.toThrow(/Docker placeholder/);
+	});
+
 	it('throws when SERVICE_API_KEY_EUROUTER is missing', async () => {
 		limitMock.mockResolvedValue([]);
 		mockEnv.LLM_BASE_URL = 'https://eurouter.example/v1';

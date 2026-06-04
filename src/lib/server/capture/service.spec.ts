@@ -73,6 +73,10 @@ vi.mock('$lib/server/capture/apply-thought-edit', () => ({
 	applyThoughtEditRequest: applyThoughtEditRequestMock
 }));
 
+vi.mock('$lib/server/billing/usage-gate', () => ({
+	assertCapturePipelineAffordable: vi.fn(async () => undefined)
+}));
+
 /**
  * Enrich is fire-and-forget in service.ts. We mock the whole module so service
  * unit tests stay focused on the fast path. Enrichment pipeline is tested

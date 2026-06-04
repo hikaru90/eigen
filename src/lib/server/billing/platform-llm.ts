@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { llmActiveProvider } from '$lib/server/db/schema';
 import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
+import { assertEurouterGatewayConfigured } from '$lib/server/llm/llm-config-guard';
 
 /**
  * Platform-managed gateway credentials (Eigen service account).
@@ -45,12 +46,21 @@ export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlm
 	if (!apiKey) {
 		throw new Error('Platform EUrouter not configured: set SERVICE_API_KEY_EUROUTER');
 	}
+	const ruleChat = env.LLM_RULE_CHAT?.trim() || null;
+	const ruleEmbedding = env.LLM_RULE_EMBEDDING?.trim() || null;
+	const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+	assertEurouterGatewayConfigured({
+		baseUrl: normalizedBaseUrl,
+		ruleChat,
+		ruleEmbedding,
+		context: 'platform'
+	});
 	return {
 		provider: 'eurouter',
-		baseUrl: baseUrl.replace(/\/$/, ''),
+		baseUrl: normalizedBaseUrl,
 		apiKey,
-		ruleChat: env.LLM_RULE_CHAT?.trim() || null,
-		ruleEmbedding: env.LLM_RULE_EMBEDDING?.trim() || null,
+		ruleChat,
+		ruleEmbedding,
 		modelChat: null,
 		modelEmbedding: null
 	};

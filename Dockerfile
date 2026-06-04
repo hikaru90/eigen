@@ -30,21 +30,9 @@ RUN BETTER_AUTH_SECRET="local-dev-build-secret-change-me" \
   npm run build
 
 FROM base AS runner
-ARG DATABASE_URL=postgres://eigen:eigen@db:5432/eigen
-ARG ORIGIN=http://localhost:3000
-ARG AGE_GRAPH_NAME=eigen_graph
-ARG LLM_BASE_URL=https://example.com/v1
-ARG LLM_MIN_REQUEST_INTERVAL_MS=1000
-ARG LLM_RULE_CHAT=00000000-0000-0000-0000-000000000001
-ARG LLM_RULE_EMBEDDING=00000000-0000-0000-0000-000000000002
+# LLM gateway vars are intentionally NOT baked in here — set them at runtime via compose env_file / your platform.
+# Build-stage placeholders (example.com) exist only so `npm run build` can succeed in CI; they must not ship in the image.
 ARG EMBEDDING_COMPRESS_INTENSITY=full
-ENV DATABASE_URL=${DATABASE_URL}
-ENV ORIGIN=${ORIGIN}
-ENV AGE_GRAPH_NAME=${AGE_GRAPH_NAME}
-ENV LLM_BASE_URL=${LLM_BASE_URL}
-ENV LLM_MIN_REQUEST_INTERVAL_MS=${LLM_MIN_REQUEST_INTERVAL_MS}
-ENV LLM_RULE_CHAT=${LLM_RULE_CHAT}
-ENV LLM_RULE_EMBEDDING=${LLM_RULE_EMBEDDING}
 ENV EMBEDDING_COMPRESS_INTENSITY=${EMBEDDING_COMPRESS_INTENSITY}
 ENV HOST=0.0.0.0
 ENV PORT=3000

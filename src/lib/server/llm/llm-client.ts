@@ -17,6 +17,10 @@ import {
 } from '$lib/server/llm/gateway-cost';
 import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
+import {
+	assertEurouterGatewayConfigured,
+	routingRuleLookupErrorMessage
+} from '$lib/server/llm/llm-config-guard';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 export {
@@ -230,12 +234,23 @@ async function loadLlmProviderConfig(
 					ciphertext: row.apiKeyEncrypted
 				})
 			: row.apiKey;
+		const baseUrl = row.baseUrl.replace(/\/$/, '');
+		const ruleChat = row.ruleChat ?? null;
+		const ruleEmbedding = row.ruleEmbedding ?? null;
+		if (provider === 'eurouter') {
+			assertEurouterGatewayConfigured({
+				baseUrl,
+				ruleChat,
+				ruleEmbedding,
+				context: 'byok'
+			});
+		}
 		return {
 			provider,
-			baseUrl: row.baseUrl.replace(/\/$/, ''),
+			baseUrl,
 			apiKey,
-			ruleChat: row.ruleChat ?? null,
-			ruleEmbedding: row.ruleEmbedding ?? null,
+			ruleChat,
+			ruleEmbedding,
 			modelChat: row.modelChat ?? null,
 			modelEmbedding: row.modelEmbedding ?? null
 		};
@@ -278,12 +293,22 @@ async function loadLlmProviderConfig(
 		);
 	}
 
+	const ruleChat = env.LLM_RULE_CHAT?.trim() || null;
+	const ruleEmbedding = env.LLM_RULE_EMBEDDING?.trim() || null;
+	const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+	assertEurouterGatewayConfigured({
+		baseUrl: normalizedBaseUrl,
+		ruleChat,
+		ruleEmbedding,
+		context: 'byok'
+	});
+
 	return {
 		provider: 'eurouter',
-		baseUrl: baseUrl.replace(/\/$/, ''),
+		baseUrl: normalizedBaseUrl,
 		apiKey,
-		ruleChat: env.LLM_RULE_CHAT?.trim() || null,
-		ruleEmbedding: env.LLM_RULE_EMBEDDING?.trim() || null,
+		ruleChat,
+		ruleEmbedding,
 		modelChat: null,
 		modelEmbedding: null
 	};
@@ -332,7 +357,14 @@ async function resolveRoutingRuleById(ruleId: string, apiKey: string, baseUrl: s
 	}
 
 	if (!res.ok) {
-		throw new Error(`Routing rule lookup failed (${ruleId}) HTTP ${res.status}: ${text.slice(0, 500)}`);
+		throw new Error(
+			routingRuleLookupErrorMessage({
+				ruleId,
+				baseUrl,
+				status: res.status,
+				bodyPreview: text
+			})
+		);
 	}
 
 	const candidate =
@@ -667,23 +699,12 @@ function sttTranscriptPreview(body: unknown): string {
 }
 
 /**
- * OpenRouter credentials for speech-to-text. `OPENROUTER_*` env vars take priority over Settings DB.
+ * OpenRouter credentials for speech-to-text.
+ * — Platform credits: Eigen service account (`SERVICE_API_KEY_OPENROUTER`).
+ * — BYOK: user DB credentials first, then deployment `OPENROUTER_*` env fallback (same as chat).
  */
 async function loadOpenRouterSttConfig(userId: string): Promise<ResolvedLlmConfig> {
 	if (await isByokBilling(userId)) {
-		const baseUrl = env.OPENROUTER_BASE_URL?.trim();
-		const apiKey = env.OPENROUTER_API_KEY?.trim();
-		if (baseUrl && apiKey) {
-			return {
-				provider: 'openrouter',
-				baseUrl: baseUrl.replace(/\/$/, ''),
-				apiKey,
-				ruleChat: null,
-				ruleEmbedding: null,
-				modelChat: null,
-				modelEmbedding: null
-			};
-		}
 		return loadLlmProviderConfig(userId, 'openrouter');
 	}
 	return loadPlatformOpenRouterSttConfig();

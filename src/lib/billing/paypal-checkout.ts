@@ -137,7 +137,7 @@ export async function initPayPalCheckout(input: {
 	sdkUrl: string;
 	currencyCode: string;
 	getAmountCents: () => number;
-	onBalanceUpdated: (availableCents: number) => void;
+	onBalanceUpdated: () => void;
 	onStatus: (message: string) => void;
 	onError: (message: string) => void;
 	button: HTMLElement;

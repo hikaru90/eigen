@@ -27,7 +27,8 @@ const { mockEnv, logActivityCallMock, getDbMock } = vi.hoisted(() => {
 			LLM_MIN_REQUEST_INTERVAL_MS: '0',
 			LLM_API_KEY: 'key-1',
 			OPENROUTER_BASE_URL: 'https://openrouter.example/api/v1',
-			OPENROUTER_API_KEY: 'openrouter-key'
+			OPENROUTER_API_KEY: 'openrouter-key',
+			SERVICE_API_KEY_OPENROUTER: 'service-openrouter-key'
 		},
 		logActivityCallMock: vi.fn(),
 		getDbMock: vi.fn(() => makeDbMock())
@@ -432,8 +433,10 @@ describe('llmCreateTranscription', () => {
 		vi.clearAllMocks();
 	});
 
-	it('prefers OPENROUTER_* env over database for speech-to-text', async () => {
-		const fetchMock = vi.fn(async () => response(true, 200, { text: 'from env' }));
+	it('BYOK uses saved OpenRouter credentials for speech-to-text', async () => {
+		const { isByokBilling } = await import('$lib/server/billing/preferences');
+		vi.mocked(isByokBilling).mockResolvedValue(true);
+		const fetchMock = vi.fn(async () => response(true, 200, { text: 'from db', usage: { cost: 0.001 } }));
 		vi.stubGlobal('fetch', fetchMock);
 		getDbMock.mockReturnValueOnce({
 			select: () => ({
@@ -445,6 +448,7 @@ describe('llmCreateTranscription', () => {
 									provider: 'openrouter',
 									baseUrl: 'https://db-openrouter.example/api/v1',
 									apiKey: 'db-key',
+									apiKeyEncrypted: null,
 									ruleChat: null,
 									ruleEmbedding: null,
 									modelChat: null,
@@ -461,8 +465,44 @@ describe('llmCreateTranscription', () => {
 			audio: { bytes: new Uint8Array([1]), format: 'webm' }
 		});
 		expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+			'https://db-openrouter.example/api/v1/audio/transcriptions'
+		);
+		const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>;
+		expect(auth.Authorization).toBe('Bearer db-key');
+	});
+
+	it('BYOK falls back to OPENROUTER_* env when no DB credentials', async () => {
+		const { isByokBilling } = await import('$lib/server/billing/preferences');
+		vi.mocked(isByokBilling).mockResolvedValue(true);
+		const fetchMock = vi.fn(async () => response(true, 200, { text: 'from env', usage: { cost: 0.001 } }));
+		vi.stubGlobal('fetch', fetchMock);
+		await llmCreateTranscription({
+			userId: 'u1',
+			model: 'qwen/qwen3-asr-flash-2026-02-10',
+			audio: { bytes: new Uint8Array([1]), format: 'webm' }
+		});
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
 			'https://openrouter.example/api/v1/audio/transcriptions'
 		);
+	});
+
+	it('platform credits uses SERVICE_API_KEY_OPENROUTER for speech-to-text', async () => {
+		const { isByokBilling } = await import('$lib/server/billing/preferences');
+		vi.mocked(isByokBilling).mockResolvedValue(false);
+		const fetchMock = vi.fn(async () =>
+			response(true, 200, { text: 'platform', usage: { cost: 0.001 } })
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		await llmCreateTranscription({
+			userId: 'u1',
+			model: 'qwen/qwen3-asr-flash-2026-02-10',
+			audio: { bytes: new Uint8Array([1]), format: 'webm' }
+		});
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+			'https://openrouter.example/api/v1/audio/transcriptions'
+		);
+		const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>;
+		expect(auth.Authorization).toBe('Bearer service-openrouter-key');
 	});
 
 	it('posts audio to OpenRouter /audio/transcriptions', async () => {

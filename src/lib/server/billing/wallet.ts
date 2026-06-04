@@ -6,13 +6,71 @@ import {
 	walletLedgerEntry,
 	type WalletLedgerKind
 } from '$lib/server/db/schema';
-import { normalizeCurrencyCode, MICRO_USD_PER_CENT } from '$lib/server/billing/money';
+import { formatCents, normalizeCurrencyCode, MICRO_USD_PER_CENT } from '$lib/server/billing/money';
+
+export type InsufficientCreditsPhase = 'precheck' | 'settle';
+
+export type InsufficientCreditsOptions = {
+	availableCents?: number;
+	requiredCents?: number;
+	currency?: string;
+	phase?: InsufficientCreditsPhase;
+	message?: string;
+	baseUsd?: number;
+};
 
 export class InsufficientCreditsError extends Error {
-	constructor(message = 'Insufficient Eigen credits. Top up in Settings or switch to BYOK mode.') {
+	readonly availableCents?: number;
+	readonly requiredCents?: number;
+	readonly currency?: string;
+	readonly phase: InsufficientCreditsPhase;
+
+	constructor(options?: InsufficientCreditsOptions | string) {
+		const opts = typeof options === 'string' ? { message: options } : (options ?? {});
+		const phase = opts.phase ?? 'precheck';
+		const message = opts.message ?? buildInsufficientCreditsMessage(opts);
 		super(message);
 		this.name = 'InsufficientCreditsError';
+		this.phase = phase;
+		this.availableCents = opts.availableCents;
+		this.requiredCents = opts.requiredCents;
+		this.currency = opts.currency;
 	}
+}
+
+function buildInsufficientCreditsMessage(opts: InsufficientCreditsOptions): string {
+	const suffix = ' Top up in Settings or switch to BYOK mode.';
+	if (
+		opts.availableCents !== undefined &&
+		opts.currency &&
+		opts.requiredCents !== undefined &&
+		opts.requiredCents > 0
+	) {
+		const available = formatCents(opts.availableCents, opts.currency);
+		const need = formatCents(opts.requiredCents, opts.currency);
+		if (opts.phase === 'settle' && opts.baseUsd !== undefined && opts.baseUsd > 0) {
+			return `Insufficient Eigen credits (available ${available}, need at least ${need} for this call at ~$${opts.baseUsd.toFixed(4)} USD gateway cost).${suffix}`;
+		}
+		return `Insufficient Eigen credits (available ${available}, need at least ${need}).${suffix}`;
+	}
+	if (opts.availableCents !== undefined && opts.currency) {
+		return `Insufficient Eigen credits (available ${formatCents(opts.availableCents, opts.currency)}).${suffix}`;
+	}
+	return `Insufficient Eigen credits.${suffix}`;
+}
+
+function rowToSnapshot(row: {
+	availableCents: number;
+	reservedCents: number;
+	pendingBillingMicroUsd: number;
+	currency: string;
+}): WalletSnapshot {
+	return {
+		availableCents: row.availableCents,
+		reservedCents: row.reservedCents,
+		pendingBillingMicroUsd: row.pendingBillingMicroUsd,
+		currency: row.currency
+	};
 }
 
 export type WalletSnapshot = {
@@ -22,26 +80,35 @@ export type WalletSnapshot = {
 	currency: string;
 };
 
+/** Read wallet without creating a row (diagnostics / API). */
+export async function getWalletSnapshot(userId: string): Promise<WalletSnapshot | null> {
+	const [existing] = await getDb()
+		.select()
+		.from(userWallet)
+		.where(eq(userWallet.userId, userId))
+		.limit(1);
+	return existing ? rowToSnapshot(existing) : null;
+}
+
 export async function getOrCreateWallet(userId: string, currency = 'USD'): Promise<WalletSnapshot> {
 	const db = getDb();
 	const normalized = normalizeCurrencyCode(currency);
-	const [existing] = await db.select().from(userWallet).where(eq(userWallet.userId, userId)).limit(1);
-	if (existing) {
-		return {
-			availableCents: existing.availableCents,
-			reservedCents: existing.reservedCents,
-			pendingBillingMicroUsd: existing.pendingBillingMicroUsd,
-			currency: existing.currency
-		};
+	await db
+		.insert(userWallet)
+		.values({
+			userId,
+			availableCents: 0,
+			reservedCents: 0,
+			pendingBillingMicroUsd: 0,
+			currency: normalized
+		})
+		.onConflictDoNothing();
+
+	const [row] = await db.select().from(userWallet).where(eq(userWallet.userId, userId)).limit(1);
+	if (!row) {
+		throw new Error(`Failed to load wallet for user ${userId}`);
 	}
-	await db.insert(userWallet).values({
-		userId,
-		availableCents: 0,
-		reservedCents: 0,
-		pendingBillingMicroUsd: 0,
-		currency: normalized
-	});
-	return { availableCents: 0, reservedCents: 0, pendingBillingMicroUsd: 0, currency: normalized };
+	return rowToSnapshot(row);
 }
 
 function isWalletUnsettled(wallet: WalletSnapshot): boolean {
@@ -125,10 +192,15 @@ export async function reserveFunds(userId: string, estimatedCents: number): Prom
 			.for('update');
 
 		if (!wallet) {
-			throw new InsufficientCreditsError();
+			throw new InsufficientCreditsError({ phase: 'precheck', requiredCents: estimatedCents });
 		}
 		if (wallet.availableCents < estimatedCents) {
-			throw new InsufficientCreditsError();
+			throw new InsufficientCreditsError({
+				phase: 'precheck',
+				availableCents: wallet.availableCents,
+				requiredCents: estimatedCents,
+				currency: wallet.currency
+			});
 		}
 
 		await tx
@@ -209,7 +281,7 @@ export async function chargePlatformUsageMicroUsd(
 			.where(eq(userWallet.userId, userId))
 			.for('update');
 		if (!wallet) {
-			throw new InsufficientCreditsError();
+			throw new InsufficientCreditsError({ phase: 'settle' });
 		}
 
 		const pending = wallet.pendingBillingMicroUsd + actualMicroUsd;
@@ -217,7 +289,17 @@ export async function chargePlatformUsageMicroUsd(
 		const newPending = pending - debitedCents * MICRO_USD_PER_CENT;
 
 		if (debitedCents > 0 && wallet.availableCents < debitedCents) {
-			throw new InsufficientCreditsError();
+			const baseUsd =
+				typeof metadata?.baseUsd === 'number' && Number.isFinite(metadata.baseUsd)
+					? metadata.baseUsd
+					: undefined;
+			throw new InsufficientCreditsError({
+				phase: 'settle',
+				availableCents: wallet.availableCents,
+				requiredCents: debitedCents,
+				currency: wallet.currency,
+				baseUsd
+			});
 		}
 
 		await tx
@@ -273,7 +355,17 @@ export async function settleReservationWithMicroCharge(
 		const newPending = pending - debitedCents * MICRO_USD_PER_CENT;
 
 		if (debitedCents > 0 && availableAfterRelease < debitedCents) {
-			throw new InsufficientCreditsError();
+			const baseUsd =
+				typeof metadata?.baseUsd === 'number' && Number.isFinite(metadata.baseUsd)
+					? metadata.baseUsd
+					: undefined;
+			throw new InsufficientCreditsError({
+				phase: 'settle',
+				availableCents: availableAfterRelease,
+				requiredCents: debitedCents,
+				currency: wallet.currency,
+				baseUsd
+			});
 		}
 
 		await tx
@@ -410,21 +502,7 @@ export async function creditFromPayment(input: {
 			.for('update');
 
 		if (!wallet) {
-			await tx.insert(userWallet).values({
-				userId: input.userId,
-				availableCents: 0,
-				reservedCents: 0,
-				pendingBillingMicroUsd: 0,
-				currency: normalized
-			});
-			wallet = {
-				userId: input.userId,
-				availableCents: 0,
-				reservedCents: 0,
-				pendingBillingMicroUsd: 0,
-				currency: normalized,
-				updatedAt: new Date()
-			};
+			wallet = await getOrCreateWalletInTx(tx, input.userId, normalized);
 		} else if (wallet.currency !== normalized) {
 			throw new Error(
 				`Wallet currency is ${wallet.currency}; cannot credit ${normalized}. Change your default billing currency or use the same currency.`
@@ -465,23 +543,21 @@ async function getOrCreateWalletInTx(
 	userId: string,
 	currency: string
 ) {
+	await tx
+		.insert(userWallet)
+		.values({
+			userId,
+			availableCents: 0,
+			reservedCents: 0,
+			pendingBillingMicroUsd: 0,
+			currency
+		})
+		.onConflictDoNothing();
 	const [wallet] = await tx.select().from(userWallet).where(eq(userWallet.userId, userId)).limit(1);
-	if (wallet) return wallet;
-	await tx.insert(userWallet).values({
-		userId,
-		availableCents: 0,
-		reservedCents: 0,
-		pendingBillingMicroUsd: 0,
-		currency
-	});
-	return {
-		userId,
-		availableCents: 0,
-		reservedCents: 0,
-		pendingBillingMicroUsd: 0,
-		currency,
-		updatedAt: new Date()
-	};
+	if (!wallet) {
+		throw new Error(`Failed to load wallet for user ${userId}`);
+	}
+	return wallet;
 }
 
 export async function listRecentLedger(userId: string, limit = 20) {
@@ -503,17 +579,28 @@ export async function listRecentPayments(userId: string, limit = 10) {
 }
 
 /** Platform LLM calls require a positive wallet balance; actual cost is debited after the call. */
-export async function assertHasPlatformCredits(userId: string): Promise<void> {
+export async function assertHasPlatformCredits(userId: string): Promise<WalletSnapshot> {
 	const wallet = await getOrCreateWallet(userId);
 	if (wallet.availableCents < 1) {
-		throw new InsufficientCreditsError();
+		throw new InsufficientCreditsError({
+			phase: 'precheck',
+			availableCents: wallet.availableCents,
+			requiredCents: 1,
+			currency: wallet.currency
+		});
 	}
+	return wallet;
 }
 
 /** Minimum balance check without reservation (read-only). */
 export async function assertCanAfford(userId: string, requiredCents: number): Promise<void> {
 	const wallet = await getOrCreateWallet(userId);
 	if (wallet.availableCents < requiredCents) {
-		throw new InsufficientCreditsError();
+		throw new InsufficientCreditsError({
+			phase: 'precheck',
+			availableCents: wallet.availableCents,
+			requiredCents,
+			currency: wallet.currency
+		});
 	}
 }

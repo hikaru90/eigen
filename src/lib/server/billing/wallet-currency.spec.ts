@@ -31,6 +31,11 @@ describe('alignWalletCurrencyWithPreference', () => {
 			])
 		};
 		selectMock.mockReturnValue(chain);
+		insertMock.mockReturnValue({
+			values: vi.fn().mockReturnValue({
+				onConflictDoNothing: vi.fn().mockResolvedValue(undefined)
+			})
+		});
 		updateMock.mockReturnValue({
 			set: vi.fn().mockReturnValue({
 				where: vi.fn().mockResolvedValue(undefined)

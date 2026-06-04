@@ -1,6 +1,7 @@
 import { isByokBilling } from '$lib/server/billing/preferences';
 import {
 	InsufficientCreditsError,
+	assertCanAfford,
 	assertHasPlatformCredits,
 	chargePlatformUsageMicroUsd
 } from '$lib/server/billing/wallet';
@@ -8,9 +9,23 @@ import { baseUsdToTotalMicroUsd } from '$lib/server/billing/money';
 
 export { InsufficientCreditsError };
 
+/** Minimum wallet cents before capture classify + embed (platform credits only). */
+export const MIN_CAPTURE_PIPELINE_CENTS = 5;
+
 export function billedMicroUsdFromBaseUsd(baseCostUsd: number): number {
 	if (baseCostUsd <= 0) return 0;
 	return baseUsdToTotalMicroUsd(baseCostUsd);
+}
+
+/**
+ * Ensures platform-credits users have enough balance for a typical capture pipeline
+ * (ontology classify + embedding) before any LLM calls run.
+ */
+export async function assertCapturePipelineAffordable(userId: string): Promise<void> {
+	if (await isByokBilling(userId)) {
+		return;
+	}
+	await assertCanAfford(userId, MIN_CAPTURE_PIPELINE_CENTS);
 }
 
 /**

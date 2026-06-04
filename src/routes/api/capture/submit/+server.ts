@@ -1,5 +1,11 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import {
+	billingErrorHttpStatus,
+	billingErrorJsonBody,
+	isInsufficientCreditsError,
+	insufficientCreditsPayload
+} from '$lib/server/billing/insufficient-credits';
 import { captureThought } from '$lib/server/capture/service';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
@@ -55,7 +61,10 @@ export const POST: RequestHandler = async (event) => {
 			const details = collectErrorMessages(err);
 			const message = details[0] ?? 'Failed to capture thought';
 			console.error('capture submit failed', { userId: user.id, message, details });
-			return json({ error: message, details }, { status: 500 });
+			return json(
+				{ ...billingErrorJsonBody(err, message), details },
+				{ status: billingErrorHttpStatus(err) }
+			);
 		}
 	}
 
@@ -97,7 +106,12 @@ export const POST: RequestHandler = async (event) => {
 			const details = collectErrorMessages(err);
 			const message = details[0] ?? 'Failed to capture thought';
 			console.error('capture submit failed', { userId: user.id, message, details });
-			writeRaw({ type: 'error', error: message, details });
+			writeRaw({
+				type: 'error',
+				error: message,
+				details,
+				...(isInsufficientCreditsError(err) ? insufficientCreditsPayload(err) : {})
+			});
 		} finally {
 			if (reserved) {
 				await deactivateTenantDbSession(reserved).catch(() => {});

@@ -60,6 +60,8 @@ Default billing mode is **Eigen platform credits** (`platform_credits`). Capture
 
 Each LLM call is logged in **Activity** with cost detail (transparent per-call billing).
 
+Full payment and wallet behavior: [`docs/payments.md`](../payments.md).
+
 ### 4. Optional: bring your own key (BYOK)
 
 If you prefer to bill your own gateway directly:
@@ -221,7 +223,7 @@ Direct them to:
 
 | Symptom | Likely cause |
 |---------|----------------|
-| Capture fails with LLM not configured | Wallet empty (platform credits) or BYOK keys missing — check **Settings → LLM**. |
+| Capture fails with LLM not configured | Wallet empty (platform credits) or BYOK keys missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
 | PayPal button missing on Credits tab | Operator has not set `PAYPAL_*` env vars. |
 | BYOK option disabled in billing method | No provider saved on **Settings → LLM → BYOK** yet. |
 | OAuth sign-in fails | Callback URL must match `{ORIGIN}/api/auth/callback/<provider>`. |
