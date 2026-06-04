@@ -33,6 +33,8 @@ export function microUsdToWholeCents(microUsd: number): number {
 	return Math.floor(microUsd / MICRO_USD_PER_CENT);
 }
 
+export { microUsdToWholeCredits, usdToCredits, creditsToPayPalUsdAmount } from '$lib/server/billing/credits';
+
 /** Format integer cents for display (e.g. 1050 -> "10.50"). */
 export function formatCents(cents: number, currency: string): string {
 	const major = (cents / 100).toFixed(2);

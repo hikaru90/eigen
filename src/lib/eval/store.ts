@@ -328,10 +328,10 @@ export async function loadEvalRunDetail(
 /** Bypass RLS for eval harness bootstrap (create ephemeral eval user row). */
 export async function insertEvalUserRow(userId: string, name: string): Promise<void> {
 	const { user } = await import('$lib/server/db/auth.schema');
-	const db = getDb();
-	const existing = await db.select().from(user).where(eq(user.id, userId));
+	const { authDb } = await import('$lib/server/db/auth-db');
+	const existing = await authDb.select().from(user).where(eq(user.id, userId));
 	if (existing.length > 0) return;
-	await db.insert(user).values({
+	await authDb.insert(user).values({
 		id: userId,
 		name,
 		email: `${userId}@local.eval`,
@@ -342,8 +342,8 @@ export async function insertEvalUserRow(userId: string, name: string): Promise<v
 
 export async function deleteEvalUserRow(userId: string): Promise<void> {
 	const { user } = await import('$lib/server/db/auth.schema');
-	const db = getDb();
-	await db.delete(user).where(eq(user.id, userId));
+	const { authDb } = await import('$lib/server/db/auth-db');
+	await authDb.delete(user).where(eq(user.id, userId));
 }
 
 export async function countRunsForOperator(operatorUserId: string): Promise<number> {

@@ -132,11 +132,12 @@ export async function loadPayPalSdkScript(sdkUrl: string): Promise<void> {
 	await job;
 }
 
+const PAYPAL_CHECKOUT_CURRENCY = 'USD';
+
 export async function initPayPalCheckout(input: {
 	clientId: string;
 	sdkUrl: string;
-	currencyCode: string;
-	getAmountCents: () => number;
+	getAmountCredits: () => number;
 	onBalanceUpdated: () => void;
 	onStatus: (message: string) => void;
 	onError: (message: string) => void;
@@ -147,11 +148,6 @@ export async function initPayPalCheckout(input: {
 	const paypal = window.paypal;
 	if (!paypal?.createInstance) {
 		throw new Error('PayPal SDK is not initialized');
-	}
-
-	const currencyCode = input.currencyCode.trim().toUpperCase();
-	if (!/^[A-Z]{3}$/.test(currencyCode)) {
-		throw new Error(`Invalid billing currency code: ${input.currencyCode}`);
 	}
 
 	const clientMetadataId =
@@ -166,10 +162,10 @@ export async function initPayPalCheckout(input: {
 		...(clientMetadataId !== undefined ? { clientMetadataId } : {})
 	});
 
-	const methods = await sdkInstance.findEligibleMethods({ currencyCode });
+	const methods = await sdkInstance.findEligibleMethods({ currencyCode: PAYPAL_CHECKOUT_CURRENCY });
 	if (!methods.isEligible('paypal')) {
 		throw new Error(
-			`PayPal wallet checkout is not available for ${currencyCode} in this browser (eligibility declined). Ensure you use sandbox Client ID + https://www.sandbox.paypal.com/web-sdk/v6/core with REST base api-m.sandbox.paypal.com — or override PAYPAL_WEB_SDK_URL. Docs: https://docs.paypal.ai/developer/how-to/sdk/js/v6/configuration`
+			'PayPal checkout is not available in this browser (eligibility declined). Ensure sandbox Client ID + https://www.sandbox.paypal.com/web-sdk/v6/core with REST base api-m.sandbox.paypal.com — or override PAYPAL_WEB_SDK_URL. Docs: https://docs.paypal.ai/developer/how-to/sdk/js/v6/configuration'
 		);
 	}
 
@@ -185,8 +181,8 @@ export async function initPayPalCheckout(input: {
 			if (!res.ok) {
 				throw new Error(typeof body?.error === 'string' ? body.error : `Capture failed (${res.status})`);
 			}
-			if (typeof body?.availableCents === 'number') {
-				input.onBalanceUpdated(body.availableCents);
+			if (typeof body?.availableCredits === 'number') {
+				input.onBalanceUpdated();
 			}
 			input.onStatus('Credits added to your account.');
 		},
@@ -199,9 +195,9 @@ export async function initPayPalCheckout(input: {
 	});
 
 	const handler = async () => {
-		const amountCents = input.getAmountCents();
-		if (!Number.isInteger(amountCents) || amountCents < 100) {
-			input.onError('Enter at least 1.00 in your billing currency.');
+		const amountCredits = input.getAmountCredits();
+		if (!Number.isInteger(amountCredits) || amountCredits < 1000) {
+			input.onError('Enter at least 1,000 Eigen credits ($1).');
 			return;
 		}
 		input.onStatus('Opening PayPal…');
@@ -212,10 +208,7 @@ export async function initPayPalCheckout(input: {
 					const res = await fetch('/api/billing/paypal/create-order', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							amountCents,
-							currency: currencyCode
-						})
+						body: JSON.stringify({ amountCredits })
 					});
 					const body = await res.json().catch(() => null);
 					if (!res.ok || typeof body?.orderId !== 'string') {

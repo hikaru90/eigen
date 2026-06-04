@@ -1,24 +1,25 @@
 import type { InsufficientCreditsError } from '$lib/server/billing/wallet';
+import { CREDITS_PER_USD } from '$lib/server/billing/credits';
 
 export const INSUFFICIENT_CREDITS_CODE = 'insufficient_credits' as const;
 
 export type InsufficientCreditsPayload = {
 	error: string;
 	code: typeof INSUFFICIENT_CREDITS_CODE;
-	availableCents: number;
-	currency: string;
-	requiredCents?: number;
+	availableCredits: number;
+	requiredCredits?: number;
 	phase?: 'precheck' | 'settle';
+	creditsPerUsd: number;
 };
 
 export function insufficientCreditsPayload(err: InsufficientCreditsError): InsufficientCreditsPayload {
 	return {
 		error: err.message,
 		code: INSUFFICIENT_CREDITS_CODE,
-		availableCents: err.availableCents ?? 0,
-		currency: err.currency ?? 'USD',
-		...(err.requiredCents !== undefined ? { requiredCents: err.requiredCents } : {}),
-		phase: err.phase
+		availableCredits: err.availableCredits ?? 0,
+		...(err.requiredCredits !== undefined ? { requiredCredits: err.requiredCredits } : {}),
+		phase: err.phase,
+		creditsPerUsd: CREDITS_PER_USD
 	};
 }
 

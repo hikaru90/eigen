@@ -1,6 +1,7 @@
 /**
  * LLM judge: does the answer satisfy natural-language acceptance criteria?
  */
+import { billingUserAsyncLocal } from '$lib/server/billing/context';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { EVAL_JUDGE_USER_ID } from './eval-config';
 
@@ -28,6 +29,8 @@ export async function judgeAnswerAcceptance(input: {
 	answer: string;
 	acceptance: string;
 	citations: string[];
+	/** Platform credits debited from this user (eval operator), not the judge tenant. */
+	billingUserId?: string;
 }): Promise<AcceptanceVerdict> {
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },
@@ -41,11 +44,16 @@ export async function judgeAnswerAcceptance(input: {
 			].join('\n\n')
 		}
 	];
-	const response = await llmChatCompletion({
-		userId: EVAL_JUDGE_USER_ID,
-		messages,
-		temperature: 0
-	});
+	const callLlm = () =>
+		llmChatCompletion({
+			userId: EVAL_JUDGE_USER_ID,
+			messages,
+			temperature: 0
+		});
+	const billingUserId = input.billingUserId?.trim();
+	const response = billingUserId
+		? await billingUserAsyncLocal.run(billingUserId, callLlm)
+		: await callLlm();
 	const choices = (response as { choices?: Array<{ message?: { content?: string } }> }).choices;
 	const content = choices?.[0]?.message?.content;
 	if (typeof content !== 'string') {

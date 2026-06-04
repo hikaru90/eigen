@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { withDbUser } from '$lib/server/db';
 import { llmProviderConfig, userPreference, type BillingMode } from '$lib/server/db/schema';
 import { normalizeCurrencyCode } from '$lib/server/billing/money';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -10,19 +10,21 @@ export type BillingPreferences = {
 };
 
 export async function getBillingPreferences(userId: string): Promise<BillingPreferences> {
-	const [row] = await getDb()
-		.select({
-			billingMode: userPreference.billingMode,
-			defaultBillingCurrency: userPreference.defaultBillingCurrency
-		})
-		.from(userPreference)
-		.where(eq(userPreference.userId, userId))
-		.limit(1);
+	return withDbUser(userId, async (db) => {
+		const [row] = await db
+			.select({
+				billingMode: userPreference.billingMode,
+				defaultBillingCurrency: userPreference.defaultBillingCurrency
+			})
+			.from(userPreference)
+			.where(eq(userPreference.userId, userId))
+			.limit(1);
 
-	return {
-		billingMode: (row?.billingMode ?? 'platform_credits') as BillingMode,
-		defaultBillingCurrency: row?.defaultBillingCurrency ?? 'USD'
-	};
+		return {
+			billingMode: (row?.billingMode ?? 'platform_credits') as BillingMode,
+			defaultBillingCurrency: row?.defaultBillingCurrency ?? 'USD'
+		};
+	});
 }
 
 export async function isByokBilling(userId: string): Promise<boolean> {
@@ -32,29 +34,31 @@ export async function isByokBilling(userId: string): Promise<boolean> {
 
 /** True when the user has at least one stored OpenRouter or EUrouter credential row. */
 export async function hasSavedByokLlmCredentials(userId: string): Promise<boolean> {
-	const rows = await getDb()
-		.select({
-			baseUrl: llmProviderConfig.baseUrl,
-			apiKey: llmProviderConfig.apiKey,
-			apiKeyEncrypted: llmProviderConfig.apiKeyEncrypted,
-			provider: llmProviderConfig.provider
-		})
-		.from(llmProviderConfig)
-		.where(eq(llmProviderConfig.userId, userId));
+	return withDbUser(userId, async (db) => {
+		const rows = await db
+			.select({
+				baseUrl: llmProviderConfig.baseUrl,
+				apiKey: llmProviderConfig.apiKey,
+				apiKeyEncrypted: llmProviderConfig.apiKeyEncrypted,
+				provider: llmProviderConfig.provider
+			})
+			.from(llmProviderConfig)
+			.where(eq(llmProviderConfig.userId, userId));
 
-	const keys = await Promise.all(
-		rows.map((r) =>
-			r.apiKeyEncrypted
-				? decryptTenantValue({
-						userId,
-						table: 'llm_provider_config',
-						column: 'api_key',
-						ciphertext: r.apiKeyEncrypted
-					})
-				: Promise.resolve(r.apiKey ?? '')
-		)
-	);
-	return rows.some((r, idx) => Boolean(r.baseUrl?.trim() && keys[idx]?.trim()));
+		const keys = await Promise.all(
+			rows.map((r) =>
+				r.apiKeyEncrypted
+					? decryptTenantValue({
+							userId,
+							table: 'llm_provider_config',
+							column: 'api_key',
+							ciphertext: r.apiKeyEncrypted
+						})
+					: Promise.resolve(r.apiKey ?? '')
+			)
+		);
+		return rows.some((r, idx) => Boolean(r.baseUrl?.trim() && keys[idx]?.trim()));
+	});
 }
 
 /** PayPal-inferred currency first, then user setting. */

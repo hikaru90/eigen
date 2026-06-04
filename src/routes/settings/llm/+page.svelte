@@ -35,14 +35,12 @@
 		}
 	});
 
-	let walletAvailableCents = $state(0);
-
-	const displayCurrency = $derived(data.wallet.currency);
+	let walletAvailableCredits = $state(0);
 
 	$effect(() => {
-		walletAvailableCents = data.wallet.availableCents;
+		walletAvailableCredits = data.wallet.availableCredits;
 	});
-	let topUpAmount = $state('10.00');
+	let topUpAmount = $state('10000');
 	let topUpStatus = $state<string | null>(null);
 	let topUpError = $state<string | null>(null);
 	let paypalReady = $state(false);
@@ -53,14 +51,15 @@
 		{ id: 'eurouter' as const, label: 'EUrouter' }
 	];
 
-	function formatWalletBalance(cents: number, currency: string): string {
-		return `${(cents / 100).toFixed(2)} ${currency}`;
+	function formatWalletBalance(credits: number): string {
+		return credits.toLocaleString('en-US');
 	}
 
-	function parseTopUpCents(): number {
-		const parsed = Number(topUpAmount.replace(',', '.').trim());
+	function parseTopUpCredits(): number {
+		const raw = topUpAmount.replace(/,/g, '').trim();
+		const parsed = Number(raw);
 		if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-		return Math.round(parsed * 100);
+		return Math.round(parsed);
 	}
 
 	/** Plain `let` — must not be `$state` or assigning the teardown retriggers `$effect` and cancels PayPal forever. */
@@ -88,11 +87,10 @@
 		void initPayPalCheckout({
 			clientId: data.paypalClientId,
 			sdkUrl: data.paypalSdkUrl,
-			currencyCode: data.defaultBillingCurrency,
-			getAmountCents: parseTopUpCents,
+			getAmountCredits: parseTopUpCredits,
 			onBalanceUpdated: () => {
 				void fetchWalletBalance().then((wallet) => {
-					if (wallet) walletAvailableCents = wallet.availableCents;
+					if (wallet) walletAvailableCredits = wallet.availableCredits;
 				});
 			},
 			onStatus: (msg) => {
@@ -187,7 +185,8 @@
 		<div>
 			<h2 class="text-sm font-semibold">Billing settings</h2>
 			<p class="text-muted-foreground mt-1 text-xs">
-				Top up your wallet and set currency on Credits, or manage OpenRouter and EUrouter keys on BYOK.
+				Top up Eigen credits on Credits, or manage OpenRouter and EUrouter keys on BYOK. PayPal charges USD
+				(1,000 credits = $1).
 			</p>
 		</div>
 
@@ -201,42 +200,24 @@
 			<div class="px-1 py-1">
 				<p class="text-muted-foreground text-xs">Balance</p>
 				<p class="text-3xl font-semibold tracking-tight tabular-nums">
-					{formatWalletBalance(walletAvailableCents, displayCurrency)}
+					{formatWalletBalance(walletAvailableCredits)}
 				</p>
+				<p class="text-muted-foreground mt-0.5 text-xs">Eigen credits</p>
 			</div>
 
 			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-				<form method="post" action="?/updateBillingCurrency" use:enhance class="space-y-2">
+				<div class="space-y-2">
 					<div class="space-y-1">
-						<Label for="billing-currency">Default billing currency</Label>
-						<select
-							id="billing-currency"
-							name="defaultBillingCurrency"
-							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-							value={data.defaultBillingCurrency}
-						>
-							<option value="USD">USD</option>
-							<option value="EUR">EUR</option>
-							<option value="GBP">GBP</option>
-							<option value="CHF">CHF</option>
-							<option value="CAD">CAD</option>
-							<option value="AUD">AUD</option>
-						</select>
-					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Save currency</Button>
-				</form>
-
-				<div class="mt-3 space-y-2 border-t border-border/60 pt-3">
-					<div class="space-y-1">
-						<Label for="top-up-amount">Top-up amount ({data.defaultBillingCurrency})</Label>
+						<Label for="top-up-amount">Top-up amount (credits)</Label>
 						<Input
 							id="top-up-amount"
 							type="text"
-							inputmode="decimal"
+							inputmode="numeric"
 							class="h-9 rounded-[4px] text-xs"
 							bind:value={topUpAmount}
-							placeholder="10.00"
+							placeholder="10000"
 						/>
+						<p class="text-muted-foreground text-xs">Minimum 1,000 credits ($1 USD via PayPal).</p>
 					</div>
 					{#if data.paypalConfigured}
 						<Button
@@ -266,7 +247,6 @@
 						<p class="text-destructive text-xs">{topUpError}</p>
 					{/if}
 				</div>
-
 			</div>
 		</Tabs.Content>
 

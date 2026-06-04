@@ -20,7 +20,7 @@ export async function syncEntityGraphFromThought(input: {
 	userId: string;
 	thoughtId: string;
 	normalizedText: string;
-}): Promise<void> {
+}): Promise<{ mentionCount: number }> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 	const loaded = await loadOntologyForUser(getDb(), input.userId);
 
@@ -53,7 +53,13 @@ export async function syncEntityGraphFromThought(input: {
 		knownEntities: knownEntities.length > 0 ? knownEntities : undefined
 	});
 
-	if (mentions.length === 0) return;
+	if (mentions.length === 0) {
+		console.warn('[entity-graph-sync] zero entity mentions extracted', {
+			thoughtId: input.thoughtId,
+			textLen: input.normalizedText.trim().length
+		});
+		return { mentionCount: 0 };
+	}
 
 	const surfaceToEntityId = new Map<string, string>();
 	const coMentionEntityIds: string[] = [];
@@ -92,6 +98,8 @@ export async function syncEntityGraphFromThought(input: {
 		mentions,
 		surfaceToEntityId
 	});
+
+	return { mentionCount: mentions.length };
 }
 
 /** Writes ENTITY_RELATES edges for extracted triples. Returns count of edges upserted. */

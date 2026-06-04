@@ -64,7 +64,7 @@ describe('enrichThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
-		syncEntityGraphFromThoughtMock.mockResolvedValue(undefined);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
 		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		classifyMemoryTypeMock.mockResolvedValue('episode');
 		extractCuesMock.mockResolvedValue(['cue one', 'cue two']);
@@ -204,6 +204,25 @@ describe('enrichThought', () => {
 		expect(enrichedAtCall).toBeDefined();
 	});
 
+	it('does not set enriched_at when entity sync returns zero mentions on substantive text', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		const longText =
+			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
+
+		await enrichThought('u1', 't1', longText);
+
+		const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls;
+		const enrichedAtCall = setCalls.find(
+			(args: unknown[]) =>
+				args[0] &&
+				typeof args[0] === 'object' &&
+				'enrichedAt' in (args[0] as Record<string, unknown>)
+		);
+		expect(enrichedAtCall).toBeUndefined();
+	});
+
 	it('does not set enriched_at when a step fails', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
@@ -259,7 +278,7 @@ describe('reenrichThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
-		syncEntityGraphFromThoughtMock.mockResolvedValue(undefined);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
 		classifyMemoryTypeMock.mockResolvedValue('fact');
 		extractCuesMock.mockResolvedValue([]);
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);

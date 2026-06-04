@@ -8,12 +8,8 @@ import {
 	llmActiveProvider,
 	type BillingMode
 } from '$lib/server/db/schema';
-import {
-	alignWalletCurrencyWithPreference,
-	assertCanChangeWalletCurrency
-} from '$lib/server/billing/wallet';
+import { getOrCreateWallet } from '$lib/server/billing/wallet';
 import { assertByokConfigured } from '$lib/server/billing/preferences';
-import { normalizeCurrencyCode } from '$lib/server/billing/money';
 import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$lib/server/billing/paypal';
 import { env } from '$env/dynamic/private';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -41,17 +37,13 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 	const userId = event.locals.user.id;
 
 	const [pref] = await getDb()
-		.select({
-			billingMode: userPreference.billingMode,
-			defaultBillingCurrency: userPreference.defaultBillingCurrency
-		})
+		.select({ billingMode: userPreference.billingMode })
 		.from(userPreference)
 		.where(eq(userPreference.userId, userId))
 		.limit(1);
 
 	const billingMode = (pref?.billingMode ?? 'platform_credits') as BillingMode;
-	const defaultBillingCurrency = pref?.defaultBillingCurrency ?? 'USD';
-	const wallet = await alignWalletCurrencyWithPreference(userId, defaultBillingCurrency);
+	const wallet = await getOrCreateWallet(userId);
 
 	let paypalConfigured = false;
 	let paypalClientId: string | null = null;
@@ -114,7 +106,6 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 	return {
 		billingMode,
 		byokConfigured,
-		defaultBillingCurrency,
 		wallet,
 		paypalConfigured,
 		paypalClientId,
@@ -305,39 +296,6 @@ export const llmSettingsActions: Actions = {
 		} catch (error) {
 			return fail(400, {
 				billingMessage: getSafeErrorMessage(error, 'Unable to update billing method.')
-			});
-		}
-	},
-
-	updateBillingCurrency: async (event) => {
-		if (!event.locals.user) {
-			return fail(401, { billingMessage: 'You must be signed in.' });
-		}
-
-		const formData = await event.request.formData();
-		const raw = formData.get('defaultBillingCurrency')?.toString() ?? '';
-		try {
-			const defaultBillingCurrency = normalizeCurrencyCode(raw);
-			const userId = event.locals.user.id;
-			const changeCheck = await assertCanChangeWalletCurrency(userId, defaultBillingCurrency);
-			if (!changeCheck.ok) {
-				return fail(400, { billingMessage: changeCheck.message });
-			}
-			await getDb()
-				.insert(userPreference)
-				.values({
-					userId,
-					defaultBillingCurrency
-				})
-				.onConflictDoUpdate({
-					target: userPreference.userId,
-					set: { defaultBillingCurrency, updatedAt: new Date() }
-				});
-			await alignWalletCurrencyWithPreference(userId, defaultBillingCurrency);
-			return { billingMessage: `Default billing currency set to ${defaultBillingCurrency}.` };
-		} catch (error) {
-			return fail(400, {
-				billingMessage: getSafeErrorMessage(error, 'Unable to save billing currency.')
 			});
 		}
 	}

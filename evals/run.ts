@@ -8,6 +8,7 @@
  */
 import { insertEvalUserRow } from '../src/lib/eval/store';
 import { startEvalRun } from '../src/lib/eval/runner';
+import { withDbUser } from '../src/lib/server/db';
 import { runEval, logEval } from './harness/eval-context';
 import { EVAL_OPERATOR_USER_ID, EVAL_JUDGE_USER_ID } from './harness/eval-config';
 import { loadEvalRunDetail } from '../src/lib/eval/store';
@@ -44,12 +45,14 @@ async function main(): Promise<void> {
 	const { mode, qaId, keepEvalUser } = parseArgs();
 	await ensureOperatorUser();
 
-	const { runId } = await startEvalRun({
-		operatorUserId: EVAL_OPERATOR_USER_ID,
-		mode,
-		qaId,
-		keepEvalUser
-	});
+	const { runId } = await withDbUser(EVAL_OPERATOR_USER_ID, () =>
+		startEvalRun({
+			operatorUserId: EVAL_OPERATOR_USER_ID,
+			mode,
+			qaId,
+			keepEvalUser
+		})
+	);
 
 	logEval(`started run ${runId} (mode=${mode}); waiting for completion…`);
 

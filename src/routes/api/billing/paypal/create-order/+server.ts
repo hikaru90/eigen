@@ -2,12 +2,10 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDb } from '$lib/server/db';
 import { paymentOrder } from '$lib/server/db/schema';
-import { getBillingPreferences, resolveCheckoutCurrency } from '$lib/server/billing/preferences';
 import { createPayPalOrder } from '$lib/server/billing/paypal';
-import { normalizeCurrencyCode } from '$lib/server/billing/money';
-import { alignWalletCurrencyWithPreference } from '$lib/server/billing/wallet';
+import { MIN_TOP_UP_CREDITS } from '$lib/server/billing/credits';
 
-const MAX_TOP_UP_CENTS = 500_000; // 5000.00 major units
+const MAX_TOP_UP_CREDITS = 5_000_000; // $5000 USD at 1000 credits per dollar
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -16,35 +14,24 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const body = await event.request.json().catch(() => null);
-	const amountCents =
-		typeof body?.amountCents === 'number'
-			? body.amountCents
-			: typeof body?.amountCents === 'string'
-				? Number(body.amountCents)
+	const amountCredits =
+		typeof body?.amountCredits === 'number'
+			? body.amountCredits
+			: typeof body?.amountCredits === 'string'
+				? Number(body.amountCredits)
 				: NaN;
 
-	if (!Number.isInteger(amountCents) || amountCents < 100) {
-		return json({ error: 'amountCents must be an integer of at least 100 (1.00)' }, { status: 400 });
+	if (!Number.isInteger(amountCredits) || amountCredits < MIN_TOP_UP_CREDITS) {
+		return json(
+			{ error: `amountCredits must be an integer of at least ${MIN_TOP_UP_CREDITS}` },
+			{ status: 400 }
+		);
 	}
-	if (amountCents > MAX_TOP_UP_CENTS) {
-		return json({ error: `amountCents cannot exceed ${MAX_TOP_UP_CENTS}` }, { status: 400 });
-	}
-
-	const prefs = await getBillingPreferences(user.id);
-	let currency: string;
-	try {
-		const hint =
-			typeof body?.currency === 'string' && body.currency.trim() ? body.currency : null;
-		currency = resolveCheckoutCurrency(prefs, hint);
-		normalizeCurrencyCode(currency);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Invalid currency';
-		return json({ error: message }, { status: 400 });
+	if (amountCredits > MAX_TOP_UP_CREDITS) {
+		return json({ error: `amountCredits cannot exceed ${MAX_TOP_UP_CREDITS}` }, { status: 400 });
 	}
 
-	await alignWalletCurrencyWithPreference(user.id, currency);
-
-	const paypalOrder = await createPayPalOrder({ amountCents, currency });
+	const paypalOrder = await createPayPalOrder({ amountCredits });
 
 	const db = getDb();
 	const [row] = await db
@@ -53,8 +40,8 @@ export const POST: RequestHandler = async (event) => {
 			userId: user.id,
 			paypalOrderId: paypalOrder.id,
 			status: 'created',
-			requestedCents: amountCents,
-			currency
+			requestedCredits: amountCredits,
+			currency: 'USD'
 		})
 		.returning({ id: paymentOrder.id });
 
@@ -62,7 +49,6 @@ export const POST: RequestHandler = async (event) => {
 		orderId: paypalOrder.id,
 		internalOrderId: row.id,
 		status: paypalOrder.status,
-		currency,
-		amountCents
+		amountCredits
 	});
 };

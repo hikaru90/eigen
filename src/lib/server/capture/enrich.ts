@@ -25,6 +25,7 @@ import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { thought } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
+import { ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH } from '$lib/server/memory/entity-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { classifyMemoryType } from '$lib/server/memory/classify-memory-type';
 import { extractCues } from '$lib/server/memory/extract-cues';
@@ -111,7 +112,21 @@ export async function enrichThought(
 			})(),
 
 			// ---- Entities --------------------------------------------------------
-			syncEntityGraphFromThought({ userId, thoughtId, normalizedText }),
+			(async () => {
+				const { mentionCount } = await syncEntityGraphFromThought({
+					userId,
+					thoughtId,
+					normalizedText
+				});
+				if (
+					mentionCount === 0 &&
+					normalizedText.trim().length >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH
+				) {
+					throw new Error(
+						`entity graph sync produced zero mentions (${normalizedText.trim().length} chars)`
+					);
+				}
+			})(),
 
 			// ---- Memory type -----------------------------------------------------
 			(async () => {

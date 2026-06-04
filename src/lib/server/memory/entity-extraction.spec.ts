@@ -38,6 +38,13 @@ describe('resolveEntityTypeKey', () => {
 		expect(resolveEntityTypeKey('device', allowed)).toBe('technology');
 		expect(resolveEntityTypeKey('location', allowed)).toBe('place');
 	});
+
+	it('maps operative-note drift (procedure, anatomy) to allowed keys', () => {
+		const allowed = new Set(['person', 'place', 'technology', 'organization', 'concept', 'event']);
+		expect(resolveEntityTypeKey('procedure', allowed)).toBe('event');
+		expect(resolveEntityTypeKey('anatomy', allowed)).toBe('place');
+		expect(resolveEntityTypeKey('landmark', allowed)).toBe('place');
+	});
 });
 
 describe('parseEntityMentions', () => {
@@ -47,6 +54,21 @@ describe('parseEntityMentions', () => {
 			new Set(['person', 'place', 'technology', 'concept'])
 		);
 		expect(out).toEqual([{ surface: 'StealthArray', entityType: 'technology', confidence: 0.9 }]);
+	});
+
+	it('keeps surgical spans when the model uses procedure/anatomy labels', () => {
+		const allowed = new Set(['person', 'place', 'technology', 'organization', 'concept', 'event']);
+		const out = parseEntityMentions(
+			JSON.stringify([
+				{ surface: 'MIS TLIF', entityType: 'procedure', confidence: 0.9 },
+				{ surface: 'L4 transverse processes', entityType: 'anatomy', confidence: 0.85 },
+				{ surface: 'StealthArray navigation', entityType: 'technology', confidence: 0.8 }
+			]),
+			allowed
+		);
+		expect(out).toHaveLength(3);
+		expect(out[0]).toMatchObject({ surface: 'MIS TLIF', entityType: 'event' });
+		expect(out[1]).toMatchObject({ surface: 'L4 transverse processes', entityType: 'place' });
 	});
 
 	it('parses and filters types not in the ontology key set', () => {
@@ -235,6 +257,32 @@ describe('extractEntityMentions', () => {
 				ontologyEntityKinds: ONTOLOGY_KINDS_FOR_TESTS
 			})
 		).rejects.toThrow(/must be a string/);
+	});
+
+	it('retries with a minimum-mention prompt when the first pass returns an empty array on long text', async () => {
+		const tlifText =
+			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm versus institutional proceed-if-under 2.0 mm.';
+		llmChatCompletionMock
+			.mockResolvedValueOnce(chatResponse('[]'))
+			.mockResolvedValueOnce(
+				chatResponse(
+					'[{"surface":"MIS TLIF","entityType":"event","confidence":0.9},{"surface":"L4 transverse processes","entityType":"place","confidence":0.85}]'
+				)
+			);
+
+		const out = await extractEntityMentions({
+			userId: 'u1',
+			normalizedText: tlifText,
+			ontologyEntityKinds: [
+				...ONTOLOGY_KINDS_FOR_TESTS,
+				{ key: 'technology', name: 'Technology', definition: 'A system or device' },
+				{ key: 'event', name: 'Event', definition: 'A procedure or occurrence' }
+			]
+		});
+
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(2);
+		expect(out).toHaveLength(2);
+		expect(out.some((m) => m.surface.toLowerCase().includes('transverse'))).toBe(true);
 	});
 });
 

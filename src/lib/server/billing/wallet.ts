@@ -1,28 +1,33 @@
 import { desc, eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { getDb, withDbUser } from '$lib/server/db';
 import {
 	paymentOrder,
 	userWallet,
 	walletLedgerEntry,
 	type WalletLedgerKind
 } from '$lib/server/db/schema';
-import { formatCents, normalizeCurrencyCode, MICRO_USD_PER_CENT } from '$lib/server/billing/money';
+import {
+	formatEigenCredits,
+	MICRO_USD_PER_CREDIT,
+	microUsdToWholeCredits
+} from '$lib/server/billing/credits';
+
+/** Ledger / PayPal audit currency (not shown in UI). */
+const WALLET_AUDIT_CURRENCY = 'USD';
 
 export type InsufficientCreditsPhase = 'precheck' | 'settle';
 
 export type InsufficientCreditsOptions = {
-	availableCents?: number;
-	requiredCents?: number;
-	currency?: string;
+	availableCredits?: number;
+	requiredCredits?: number;
 	phase?: InsufficientCreditsPhase;
 	message?: string;
 	baseUsd?: number;
 };
 
 export class InsufficientCreditsError extends Error {
-	readonly availableCents?: number;
-	readonly requiredCents?: number;
-	readonly currency?: string;
+	readonly availableCredits?: number;
+	readonly requiredCredits?: number;
 	readonly phase: InsufficientCreditsPhase;
 
 	constructor(options?: InsufficientCreditsOptions | string) {
@@ -32,123 +37,99 @@ export class InsufficientCreditsError extends Error {
 		super(message);
 		this.name = 'InsufficientCreditsError';
 		this.phase = phase;
-		this.availableCents = opts.availableCents;
-		this.requiredCents = opts.requiredCents;
-		this.currency = opts.currency;
+		this.availableCredits = opts.availableCredits;
+		this.requiredCredits = opts.requiredCredits;
 	}
 }
 
 function buildInsufficientCreditsMessage(opts: InsufficientCreditsOptions): string {
 	const suffix = ' Top up in Settings or switch to BYOK mode.';
 	if (
-		opts.availableCents !== undefined &&
-		opts.currency &&
-		opts.requiredCents !== undefined &&
-		opts.requiredCents > 0
+		opts.availableCredits !== undefined &&
+		opts.requiredCredits !== undefined &&
+		opts.requiredCredits > 0
 	) {
-		const available = formatCents(opts.availableCents, opts.currency);
-		const need = formatCents(opts.requiredCents, opts.currency);
+		const available = formatEigenCredits(opts.availableCredits);
+		const need = formatEigenCredits(opts.requiredCredits);
 		if (opts.phase === 'settle' && opts.baseUsd !== undefined && opts.baseUsd > 0) {
-			return `Insufficient Eigen credits (available ${available}, need at least ${need} for this call at ~$${opts.baseUsd.toFixed(4)} USD gateway cost).${suffix}`;
+			return `Insufficient Eigen platform credits (available ${available}, need at least ${need} for this call at ~$${opts.baseUsd.toFixed(4)} USD gateway cost).${suffix}`;
 		}
-		return `Insufficient Eigen credits (available ${available}, need at least ${need}).${suffix}`;
+		return `Insufficient Eigen platform credits (available ${available}, need at least ${need}).${suffix}`;
 	}
-	if (opts.availableCents !== undefined && opts.currency) {
-		return `Insufficient Eigen credits (available ${formatCents(opts.availableCents, opts.currency)}).${suffix}`;
+	if (opts.availableCredits !== undefined) {
+		return `Insufficient Eigen platform credits (available ${formatEigenCredits(opts.availableCredits)}).${suffix}`;
 	}
-	return `Insufficient Eigen credits.${suffix}`;
+	return `Insufficient Eigen platform credits.${suffix}`;
 }
 
 function rowToSnapshot(row: {
-	availableCents: number;
-	reservedCents: number;
+	availableCredits: number;
+	reservedCredits: number;
 	pendingBillingMicroUsd: number;
-	currency: string;
 }): WalletSnapshot {
 	return {
-		availableCents: row.availableCents,
-		reservedCents: row.reservedCents,
-		pendingBillingMicroUsd: row.pendingBillingMicroUsd,
-		currency: row.currency
+		availableCredits: row.availableCredits,
+		reservedCredits: row.reservedCredits,
+		pendingBillingMicroUsd: row.pendingBillingMicroUsd
 	};
 }
 
 export type WalletSnapshot = {
-	availableCents: number;
-	reservedCents: number;
+	availableCredits: number;
+	reservedCredits: number;
 	pendingBillingMicroUsd: number;
-	currency: string;
 };
 
 /** Read wallet without creating a row (diagnostics / API). */
 export async function getWalletSnapshot(userId: string): Promise<WalletSnapshot | null> {
 	const [existing] = await getDb()
-		.select()
+		.select({
+			availableCredits: userWallet.availableCredits,
+			reservedCredits: userWallet.reservedCredits,
+			pendingBillingMicroUsd: userWallet.pendingBillingMicroUsd
+		})
 		.from(userWallet)
 		.where(eq(userWallet.userId, userId))
 		.limit(1);
 	return existing ? rowToSnapshot(existing) : null;
 }
 
-export async function getOrCreateWallet(userId: string, currency = 'USD'): Promise<WalletSnapshot> {
-	const db = getDb();
-	const normalized = normalizeCurrencyCode(currency);
-	await db
-		.insert(userWallet)
-		.values({
-			userId,
-			availableCents: 0,
-			reservedCents: 0,
-			pendingBillingMicroUsd: 0,
-			currency: normalized
-		})
-		.onConflictDoNothing();
+/** Wallet rows are RLS-scoped; always open a session for `userId`. */
+export async function getOrCreateWallet(userId: string): Promise<WalletSnapshot> {
+	return withDbUser(userId, async (db) => {
+		await db
+			.insert(userWallet)
+			.values({
+				userId,
+				availableCredits: 0,
+				reservedCredits: 0,
+				pendingBillingMicroUsd: 0,
+				currency: WALLET_AUDIT_CURRENCY
+			})
+			.onConflictDoNothing();
 
-	const [row] = await db.select().from(userWallet).where(eq(userWallet.userId, userId)).limit(1);
-	if (!row) {
-		throw new Error(`Failed to load wallet for user ${userId}`);
-	}
-	return rowToSnapshot(row);
+		const [row] = await db
+			.select({
+				availableCredits: userWallet.availableCredits,
+				reservedCredits: userWallet.reservedCredits,
+				pendingBillingMicroUsd: userWallet.pendingBillingMicroUsd
+			})
+			.from(userWallet)
+			.where(eq(userWallet.userId, userId))
+			.limit(1);
+		if (!row) {
+			throw new Error(`Failed to load wallet for user ${userId}`);
+		}
+		return rowToSnapshot(row);
+	});
 }
 
-function isWalletUnsettled(wallet: WalletSnapshot): boolean {
-	return wallet.availableCents === 0 && wallet.reservedCents === 0;
-}
-
-/**
- * Aligns wallet currency with user preference when the wallet has no balance yet.
- * Once funds exist, currency is fixed until the balance is spent.
- */
+/** @deprecated Currency selection removed; use {@link getOrCreateWallet}. */
 export async function alignWalletCurrencyWithPreference(
 	userId: string,
-	preferredCurrency: string
+	_preferredCurrency?: string
 ): Promise<WalletSnapshot> {
-	const normalized = normalizeCurrencyCode(preferredCurrency);
-	let wallet = await getOrCreateWallet(userId, normalized);
-	if (isWalletUnsettled(wallet) && wallet.currency !== normalized) {
-		const db = getDb();
-		await db
-			.update(userWallet)
-			.set({ currency: normalized, updatedAt: new Date() })
-			.where(eq(userWallet.userId, userId));
-		wallet = { ...wallet, currency: normalized };
-	}
-	return wallet;
-}
-
-export async function assertCanChangeWalletCurrency(
-	userId: string,
-	nextCurrency: string
-): Promise<{ ok: true; wallet: WalletSnapshot } | { ok: false; message: string }> {
-	const normalized = normalizeCurrencyCode(nextCurrency);
-	const wallet = await getOrCreateWallet(userId, normalized);
-	if (!isWalletUnsettled(wallet) && wallet.currency !== normalized) {
-		return {
-			ok: false,
-			message: `Your balance is in ${wallet.currency}. Spend it before switching to ${normalized}.`
-		};
-	}
-	return { ok: true, wallet };
+	return getOrCreateWallet(userId);
 }
 
 async function insertLedger(
@@ -156,8 +137,7 @@ async function insertLedger(
 	input: {
 		userId: string;
 		kind: WalletLedgerKind;
-		amountCents: number;
-		currency: string;
+		amountCredits: number;
 		referenceType?: string;
 		referenceId?: string;
 		metadata?: Record<string, unknown>;
@@ -166,21 +146,17 @@ async function insertLedger(
 	await tx.insert(walletLedgerEntry).values({
 		userId: input.userId,
 		kind: input.kind,
-		amountCents: input.amountCents,
-		currency: input.currency,
+		amountCredits: input.amountCredits,
+		currency: WALLET_AUDIT_CURRENCY,
 		referenceType: input.referenceType ?? null,
 		referenceId: input.referenceId ?? null,
 		metadata: input.metadata ?? {}
 	});
 }
 
-/**
- * Pre-call hold: moves `estimatedCents` from available to reserved.
- * Returns a reservation id (ledger row id) for release/settle.
- */
-export async function reserveFunds(userId: string, estimatedCents: number): Promise<string> {
-	if (!Number.isInteger(estimatedCents) || estimatedCents < 1) {
-		throw new Error('estimatedCents must be a positive integer');
+export async function reserveFunds(userId: string, estimatedCredits: number): Promise<string> {
+	if (!Number.isInteger(estimatedCredits) || estimatedCredits < 1) {
+		throw new Error('estimatedCredits must be a positive integer');
 	}
 
 	const db = getDb();
@@ -192,22 +168,21 @@ export async function reserveFunds(userId: string, estimatedCents: number): Prom
 			.for('update');
 
 		if (!wallet) {
-			throw new InsufficientCreditsError({ phase: 'precheck', requiredCents: estimatedCents });
+			throw new InsufficientCreditsError({ phase: 'precheck', requiredCredits: estimatedCredits });
 		}
-		if (wallet.availableCents < estimatedCents) {
+		if (wallet.availableCredits < estimatedCredits) {
 			throw new InsufficientCreditsError({
 				phase: 'precheck',
-				availableCents: wallet.availableCents,
-				requiredCents: estimatedCents,
-				currency: wallet.currency
+				availableCredits: wallet.availableCredits,
+				requiredCredits: estimatedCredits
 			});
 		}
 
 		await tx
 			.update(userWallet)
 			.set({
-				availableCents: wallet.availableCents - estimatedCents,
-				reservedCents: wallet.reservedCents + estimatedCents,
+				availableCredits: wallet.availableCredits - estimatedCredits,
+				reservedCredits: wallet.reservedCredits + estimatedCredits,
 				updatedAt: new Date()
 			})
 			.where(eq(userWallet.userId, userId));
@@ -217,10 +192,10 @@ export async function reserveFunds(userId: string, estimatedCents: number): Prom
 			.values({
 				userId,
 				kind: 'reservation_hold',
-				amountCents: -estimatedCents,
-				currency: wallet.currency,
+				amountCredits: -estimatedCredits,
+				currency: WALLET_AUDIT_CURRENCY,
 				referenceType: 'reservation',
-				metadata: { estimatedCents }
+				metadata: { estimatedCredits }
 			})
 			.returning({ id: walletLedgerEntry.id });
 
@@ -228,7 +203,11 @@ export async function reserveFunds(userId: string, estimatedCents: number): Prom
 	});
 }
 
-export async function releaseReservation(userId: string, reservationId: string, heldCents: number): Promise<void> {
+export async function releaseReservation(
+	userId: string,
+	reservationId: string,
+	heldCredits: number
+): Promise<void> {
 	const db = getDb();
 	await db.transaction(async (tx) => {
 		const [wallet] = await tx
@@ -241,8 +220,8 @@ export async function releaseReservation(userId: string, reservationId: string, 
 		await tx
 			.update(userWallet)
 			.set({
-				availableCents: wallet.availableCents + heldCents,
-				reservedCents: Math.max(0, wallet.reservedCents - heldCents),
+				availableCredits: wallet.availableCredits + heldCredits,
+				reservedCredits: Math.max(0, wallet.reservedCredits - heldCredits),
 				updatedAt: new Date()
 			})
 			.where(eq(userWallet.userId, userId));
@@ -250,18 +229,16 @@ export async function releaseReservation(userId: string, reservationId: string, 
 		await insertLedger(tx, {
 			userId,
 			kind: 'reservation_release',
-			amountCents: heldCents,
-			currency: wallet.currency,
+			amountCredits: heldCredits,
 			referenceType: 'reservation',
 			referenceId: reservationId,
-			metadata: { heldCents }
+			metadata: { heldCredits }
 		});
 	});
 }
 
 /**
- * Accumulates micro-USD usage and debits whole wallet cents when the sub-cent balance crosses $0.01.
- * Returns cents debited on this call (often 0 for sub-cent gateway costs).
+ * Accumulates micro-USD usage and debits whole Eigen credits when pending crosses one credit.
  */
 export async function chargePlatformUsageMicroUsd(
 	userId: string,
@@ -273,8 +250,8 @@ export async function chargePlatformUsageMicroUsd(
 	}
 	if (actualMicroUsd === 0) return 0;
 
-	const db = getDb();
-	return db.transaction(async (tx) => {
+	return withDbUser(userId, (db) =>
+		db.transaction(async (tx) => {
 		const [wallet] = await tx
 			.select()
 			.from(userWallet)
@@ -285,19 +262,18 @@ export async function chargePlatformUsageMicroUsd(
 		}
 
 		const pending = wallet.pendingBillingMicroUsd + actualMicroUsd;
-		const debitedCents = Math.floor(pending / MICRO_USD_PER_CENT);
-		const newPending = pending - debitedCents * MICRO_USD_PER_CENT;
+		const debitedCredits = microUsdToWholeCredits(pending);
+		const newPending = pending - debitedCredits * MICRO_USD_PER_CREDIT;
 
-		if (debitedCents > 0 && wallet.availableCents < debitedCents) {
+		if (debitedCredits > 0 && wallet.availableCredits < debitedCredits) {
 			const baseUsd =
 				typeof metadata?.baseUsd === 'number' && Number.isFinite(metadata.baseUsd)
 					? metadata.baseUsd
 					: undefined;
 			throw new InsufficientCreditsError({
 				phase: 'settle',
-				availableCents: wallet.availableCents,
-				requiredCents: debitedCents,
-				currency: wallet.currency,
+				availableCredits: wallet.availableCredits,
+				requiredCredits: debitedCredits,
 				baseUsd
 			});
 		}
@@ -305,34 +281,31 @@ export async function chargePlatformUsageMicroUsd(
 		await tx
 			.update(userWallet)
 			.set({
-				availableCents: wallet.availableCents - debitedCents,
+				availableCredits: wallet.availableCredits - debitedCredits,
 				pendingBillingMicroUsd: newPending,
 				updatedAt: new Date()
 			})
 			.where(eq(userWallet.userId, userId));
 
-		if (debitedCents > 0) {
+		if (debitedCredits > 0) {
 			await insertLedger(tx, {
 				userId,
 				kind: 'usage_debit',
-				amountCents: -debitedCents,
-				currency: wallet.currency,
+				amountCredits: -debitedCredits,
 				referenceType: 'usage',
-				metadata: { ...metadata, actualMicroUsd, debitedCents, pendingMicroUsd: newPending }
+				metadata: { ...metadata, actualMicroUsd, debitedCredits, pendingMicroUsd: newPending }
 			});
 		}
 
-		return debitedCents;
-	});
+		return debitedCredits;
+		})
+	);
 }
 
-/**
- * Releases a pre-call hold, then applies accumulated micro-USD billing.
- */
 export async function settleReservationWithMicroCharge(
 	userId: string,
 	reservationId: string,
-	heldCents: number,
+	heldCredits: number,
 	actualMicroUsd: number,
 	metadata?: Record<string, unknown>
 ): Promise<number> {
@@ -349,21 +322,20 @@ export async function settleReservationWithMicroCharge(
 			.for('update');
 		if (!wallet) return 0;
 
-		const availableAfterRelease = wallet.availableCents + heldCents;
+		const availableAfterRelease = wallet.availableCredits + heldCredits;
 		const pending = wallet.pendingBillingMicroUsd + actualMicroUsd;
-		const debitedCents = Math.floor(pending / MICRO_USD_PER_CENT);
-		const newPending = pending - debitedCents * MICRO_USD_PER_CENT;
+		const debitedCredits = microUsdToWholeCredits(pending);
+		const newPending = pending - debitedCredits * MICRO_USD_PER_CREDIT;
 
-		if (debitedCents > 0 && availableAfterRelease < debitedCents) {
+		if (debitedCredits > 0 && availableAfterRelease < debitedCredits) {
 			const baseUsd =
 				typeof metadata?.baseUsd === 'number' && Number.isFinite(metadata.baseUsd)
 					? metadata.baseUsd
 					: undefined;
 			throw new InsufficientCreditsError({
 				phase: 'settle',
-				availableCents: availableAfterRelease,
-				requiredCents: debitedCents,
-				currency: wallet.currency,
+				availableCredits: availableAfterRelease,
+				requiredCredits: debitedCredits,
 				baseUsd
 			});
 		}
@@ -371,57 +343,52 @@ export async function settleReservationWithMicroCharge(
 		await tx
 			.update(userWallet)
 			.set({
-				availableCents: availableAfterRelease - debitedCents,
-				reservedCents: Math.max(0, wallet.reservedCents - heldCents),
+				availableCredits: availableAfterRelease - debitedCredits,
+				reservedCredits: Math.max(0, wallet.reservedCredits - heldCredits),
 				pendingBillingMicroUsd: newPending,
 				updatedAt: new Date()
 			})
 			.where(eq(userWallet.userId, userId));
 
-		if (heldCents > 0) {
+		if (heldCredits > 0) {
 			await insertLedger(tx, {
 				userId,
 				kind: 'reservation_release',
-				amountCents: heldCents,
-				currency: wallet.currency,
+				amountCredits: heldCredits,
 				referenceType: 'reservation',
 				referenceId: reservationId,
-				metadata: { heldCents }
+				metadata: { heldCredits }
 			});
 		}
 
-		if (debitedCents > 0) {
+		if (debitedCredits > 0) {
 			await insertLedger(tx, {
 				userId,
 				kind: 'usage_debit',
-				amountCents: -debitedCents,
-				currency: wallet.currency,
+				amountCredits: -debitedCredits,
 				referenceType: 'usage',
 				referenceId: reservationId,
-				metadata: { ...metadata, actualMicroUsd, debitedCents, pendingMicroUsd: newPending }
+				metadata: { ...metadata, actualMicroUsd, debitedCredits, pendingMicroUsd: newPending }
 			});
 		}
 
-		return debitedCents;
+		return debitedCredits;
 	});
 }
 
-/**
- * Settle a reservation: debit `actualCents` from reserved, return unused hold to available.
- * @deprecated Prefer {@link settleReservationWithMicroCharge} for platform LLM billing.
- */
+/** @deprecated Prefer {@link settleReservationWithMicroCharge}. */
 export async function settleReservation(
 	userId: string,
 	reservationId: string,
-	heldCents: number,
-	actualCents: number,
+	heldCredits: number,
+	actualCredits: number,
 	metadata?: Record<string, unknown>
 ): Promise<void> {
-	if (!Number.isInteger(actualCents) || actualCents < 0) {
-		throw new Error('actualCents must be a non-negative integer');
+	if (!Number.isInteger(actualCredits) || actualCredits < 0) {
+		throw new Error('actualCredits must be a non-negative integer');
 	}
-	if (actualCents > heldCents) {
-		throw new Error('actualCents cannot exceed held reservation');
+	if (actualCredits > heldCredits) {
+		throw new Error('actualCredits cannot exceed held reservation');
 	}
 
 	const db = getDb();
@@ -433,37 +400,35 @@ export async function settleReservation(
 			.for('update');
 		if (!wallet) return;
 
-		const releaseCents = heldCents - actualCents;
+		const releaseCredits = heldCredits - actualCredits;
 		await tx
 			.update(userWallet)
 			.set({
-				availableCents: wallet.availableCents + releaseCents,
-				reservedCents: Math.max(0, wallet.reservedCents - heldCents),
+				availableCredits: wallet.availableCredits + releaseCredits,
+				reservedCredits: Math.max(0, wallet.reservedCredits - heldCredits),
 				updatedAt: new Date()
 			})
 			.where(eq(userWallet.userId, userId));
 
-		if (actualCents > 0) {
+		if (actualCredits > 0) {
 			await insertLedger(tx, {
 				userId,
 				kind: 'usage_debit',
-				amountCents: -actualCents,
-				currency: wallet.currency,
+				amountCredits: -actualCredits,
 				referenceType: 'usage',
 				referenceId: reservationId,
 				metadata: metadata ?? {}
 			});
 		}
 
-		if (releaseCents > 0) {
+		if (releaseCredits > 0) {
 			await insertLedger(tx, {
 				userId,
 				kind: 'reservation_release',
-				amountCents: releaseCents,
-				currency: wallet.currency,
+				amountCredits: releaseCredits,
 				referenceType: 'reservation',
 				referenceId: reservationId,
-				metadata: { releaseCents, actualCents }
+				metadata: { releaseCredits, actualCredits }
 			});
 		}
 	});
@@ -474,11 +439,12 @@ export async function creditFromPayment(input: {
 	userId: string;
 	paymentOrderId: string;
 	paypalOrderId: string;
-	amountCents: number;
-	currency: string;
-}): Promise<{ credited: boolean; availableCents: number }> {
+	amountCredits: number;
+}): Promise<{ credited: boolean; availableCredits: number }> {
 	const db = getDb();
-	const normalized = normalizeCurrencyCode(input.currency);
+	if (!Number.isInteger(input.amountCredits) || input.amountCredits < 1) {
+		throw new Error('amountCredits must be a positive integer');
+	}
 
 	return db.transaction(async (tx) => {
 		const [order] = await tx
@@ -491,8 +457,14 @@ export async function creditFromPayment(input: {
 			throw new Error('Payment order not found');
 		}
 		if (order.status === 'captured') {
-			const wallet = await getOrCreateWalletInTx(tx, input.userId, normalized);
-			return { credited: false, availableCents: wallet.availableCents };
+			const wallet = await getOrCreateWalletInTx(tx, input.userId);
+			return { credited: false, availableCredits: wallet.availableCredits };
+		}
+
+		if (input.amountCredits !== order.requestedCredits) {
+			throw new Error(
+				`Capture credits (${input.amountCredits}) do not match order (${order.requestedCredits})`
+			);
 		}
 
 		let [wallet] = await tx
@@ -502,24 +474,19 @@ export async function creditFromPayment(input: {
 			.for('update');
 
 		if (!wallet) {
-			wallet = await getOrCreateWalletInTx(tx, input.userId, normalized);
-		} else if (wallet.currency !== normalized) {
-			throw new Error(
-				`Wallet currency is ${wallet.currency}; cannot credit ${normalized}. Change your default billing currency or use the same currency.`
-			);
+			wallet = await getOrCreateWalletInTx(tx, input.userId);
 		}
 
-		const nextAvailable = wallet.availableCents + input.amountCents;
+		const nextAvailable = wallet.availableCredits + input.amountCredits;
 		await tx
 			.update(userWallet)
-			.set({ availableCents: nextAvailable, updatedAt: new Date() })
+			.set({ availableCredits: nextAvailable, updatedAt: new Date() })
 			.where(eq(userWallet.userId, input.userId));
 
 		await insertLedger(tx, {
 			userId: input.userId,
 			kind: 'top_up',
-			amountCents: input.amountCents,
-			currency: normalized,
+			amountCredits: input.amountCredits,
 			referenceType: 'payment_order',
 			referenceId: input.paymentOrderId,
 			metadata: { paypalOrderId: input.paypalOrderId }
@@ -529,28 +496,27 @@ export async function creditFromPayment(input: {
 			.update(paymentOrder)
 			.set({
 				status: 'captured',
-				capturedCents: input.amountCents,
+				capturedCredits: input.amountCredits,
 				updatedAt: new Date()
 			})
 			.where(eq(paymentOrder.id, order.id));
 
-		return { credited: true, availableCents: nextAvailable };
+		return { credited: true, availableCredits: nextAvailable };
 	});
 }
 
 async function getOrCreateWalletInTx(
 	tx: Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0],
-	userId: string,
-	currency: string
+	userId: string
 ) {
 	await tx
 		.insert(userWallet)
 		.values({
 			userId,
-			availableCents: 0,
-			reservedCents: 0,
+			availableCredits: 0,
+			reservedCredits: 0,
 			pendingBillingMicroUsd: 0,
-			currency
+			currency: WALLET_AUDIT_CURRENCY
 		})
 		.onConflictDoNothing();
 	const [wallet] = await tx.select().from(userWallet).where(eq(userWallet.userId, userId)).limit(1);
@@ -578,29 +544,25 @@ export async function listRecentPayments(userId: string, limit = 10) {
 		.limit(limit);
 }
 
-/** Platform LLM calls require a positive wallet balance; actual cost is debited after the call. */
 export async function assertHasPlatformCredits(userId: string): Promise<WalletSnapshot> {
 	const wallet = await getOrCreateWallet(userId);
-	if (wallet.availableCents < 1) {
+	if (wallet.availableCredits < 1) {
 		throw new InsufficientCreditsError({
 			phase: 'precheck',
-			availableCents: wallet.availableCents,
-			requiredCents: 1,
-			currency: wallet.currency
+			availableCredits: wallet.availableCredits,
+			requiredCredits: 1
 		});
 	}
 	return wallet;
 }
 
-/** Minimum balance check without reservation (read-only). */
-export async function assertCanAfford(userId: string, requiredCents: number): Promise<void> {
+export async function assertCanAfford(userId: string, requiredCredits: number): Promise<void> {
 	const wallet = await getOrCreateWallet(userId);
-	if (wallet.availableCents < requiredCents) {
+	if (wallet.availableCredits < requiredCredits) {
 		throw new InsufficientCreditsError({
 			phase: 'precheck',
-			availableCents: wallet.availableCents,
-			requiredCents,
-			currency: wallet.currency
+			availableCredits: wallet.availableCredits,
+			requiredCredits
 		});
 	}
 }

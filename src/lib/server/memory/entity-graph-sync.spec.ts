@@ -82,11 +82,12 @@ describe('syncEntityGraphFromThought', () => {
 
 	it('returns early when no entity mentions are extracted', async () => {
 		extractEntityMentionsMock.mockResolvedValue([]);
-		await syncEntityGraphFromThought({
+		const result = await syncEntityGraphFromThought({
 			userId: 'u1',
 			thoughtId: 't1',
 			normalizedText: 'a quiet thought'
 		});
+		expect(result).toEqual({ mentionCount: 0 });
 		expect(ensureUserOntologySeededMock).toHaveBeenCalled();
 		expect(extractEntityMentionsMock).toHaveBeenCalledWith(
 			expect.objectContaining({

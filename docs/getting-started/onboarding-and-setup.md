@@ -56,7 +56,7 @@ Default billing mode is **Eigen platform credits** (`platform_credits`). Capture
 
 1. Open **Settings → LLM** (`/settings/llm`).
 2. Stay on the **Credits** tab.
-3. Choose an amount and complete checkout via **PayPal** (when the operator has configured PayPal on the deployment).
+3. Enter an amount in **Eigen credits** (minimum 1,000 credits = $1 USD) and complete checkout via **PayPal** (when the operator has configured PayPal on the deployment). PayPal charges USD only; there is no billing currency setting in the UI.
 
 Each LLM call is logged in **Activity** with cost detail (transparent per-call billing).
 

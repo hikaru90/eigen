@@ -7,6 +7,7 @@ import {
 	OPENROUTER_ACTIVITY_PROVIDER
 } from '$lib/server/activity/gateway-providers';
 import { logActivityCall } from '$lib/server/activity/log-call';
+import { resolveBillingUserId } from '$lib/server/billing/context';
 import { isByokBilling } from '$lib/server/billing/preferences';
 import { loadPlatformLlmConfig, loadPlatformOpenRouterSttConfig } from '$lib/server/billing/platform-llm';
 import { withPlatformBilling } from '$lib/server/billing/usage-gate';
@@ -327,15 +328,16 @@ async function resolveActiveProviderLlmConfig(userId: string): Promise<ResolvedL
 }
 
 /**
- * Loads LLM config for a user:
- * — BYOK billing: user's saved gateways.
- * — Platform credits: Eigen service-account env keys.
+ * Loads LLM config for billing (gateway keys + active provider preference).
+ * Uses resolveBillingUserId so eval tenants bill/configure via the operator, not the
+ * ephemeral eval user. Unrelated to tenant envelope encryption (thought/BYOK-at-rest DEK).
  */
 async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
-	if (await isByokBilling(userId)) {
-		return resolveActiveProviderLlmConfig(userId);
+	const billingUserId = resolveBillingUserId(userId);
+	if (await isByokBilling(billingUserId)) {
+		return resolveActiveProviderLlmConfig(billingUserId);
 	}
-	return loadPlatformLlmConfig(userId);
+	return loadPlatformLlmConfig(billingUserId);
 }
 
 async function resolveRoutingRuleById(ruleId: string, apiKey: string, baseUrl: string): Promise<RoutingConfig> {

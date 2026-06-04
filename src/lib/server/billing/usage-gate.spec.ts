@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { billedMicroUsdFromBaseUsd, MIN_CAPTURE_PIPELINE_CENTS } from './usage-gate';
+import { billedMicroUsdFromBaseUsd, MIN_CAPTURE_PIPELINE_CREDITS } from './usage-gate';
+import { MICRO_USD_PER_CREDIT } from './credits';
 import { MICRO_USD_PER_CENT } from './money';
 
 vi.mock('$lib/server/billing/preferences', () => ({
@@ -9,10 +10,9 @@ vi.mock('$lib/server/billing/preferences', () => ({
 vi.mock('$lib/server/billing/wallet', () => ({
 	assertCanAfford: vi.fn(async () => undefined),
 	assertHasPlatformCredits: vi.fn(async () => ({
-		availableCents: 100,
-		reservedCents: 0,
-		pendingBillingMicroUsd: 0,
-		currency: 'USD'
+		availableCredits: 1000,
+		reservedCredits: 0,
+		pendingBillingMicroUsd: 0
 	})),
 	chargePlatformUsageMicroUsd: vi.fn(async () => 0),
 	InsufficientCreditsError: class InsufficientCreditsError extends Error {
@@ -21,9 +21,9 @@ vi.mock('$lib/server/billing/wallet', () => ({
 }));
 
 describe('usage-gate billing', () => {
-	it('MIN_CAPTURE_PIPELINE_CENTS is a positive integer', () => {
-		expect(MIN_CAPTURE_PIPELINE_CENTS).toBeGreaterThan(0);
-		expect(Number.isInteger(MIN_CAPTURE_PIPELINE_CENTS)).toBe(true);
+	it('MIN_CAPTURE_PIPELINE_CREDITS is a positive integer', () => {
+		expect(MIN_CAPTURE_PIPELINE_CREDITS).toBe(50);
+		expect(Number.isInteger(MIN_CAPTURE_PIPELINE_CREDITS)).toBe(true);
 	});
 	it('accumulates sub-cent settled costs instead of rounding up to 1 cent', () => {
 		const micro = billedMicroUsdFromBaseUsd(0.0001);
@@ -39,6 +39,10 @@ describe('usage-gate billing', () => {
 		const { assertCapturePipelineAffordable } = await import('./usage-gate');
 		const { assertCanAfford } = await import('./wallet');
 		await assertCapturePipelineAffordable('user-1');
-		expect(assertCanAfford).toHaveBeenCalledWith('user-1', MIN_CAPTURE_PIPELINE_CENTS);
+		expect(assertCanAfford).toHaveBeenCalledWith('user-1', MIN_CAPTURE_PIPELINE_CREDITS);
+	});
+
+	it('MICRO_USD_PER_CREDIT matches one millicent of USD per credit', () => {
+		expect(MICRO_USD_PER_CREDIT).toBe(1000);
 	});
 });

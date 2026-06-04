@@ -1,5 +1,7 @@
 import { env } from '$env/dynamic/private';
-import { centsToPayPalAmountValue } from '$lib/server/billing/money';
+import { creditsToPayPalUsdAmount } from '$lib/server/billing/credits';
+
+const PAYPAL_SETTLEMENT_CURRENCY = 'USD';
 
 type PayPalAccessToken = { access_token: string; expires_in: number };
 
@@ -129,17 +131,14 @@ export type PayPalCreateOrderResult = {
 	status: string;
 };
 
-export async function createPayPalOrder(input: {
-	amountCents: number;
-	currency: string;
-}): Promise<PayPalCreateOrderResult> {
-	const value = centsToPayPalAmountValue(input.amountCents);
+export async function createPayPalOrder(input: { amountCredits: number }): Promise<PayPalCreateOrderResult> {
+	const value = creditsToPayPalUsdAmount(input.amountCredits);
 	const body = {
 		intent: 'CAPTURE',
 		purchase_units: [
 			{
 				amount: {
-					currency_code: input.currency,
+					currency_code: PAYPAL_SETTLEMENT_CURRENCY,
 					value
 				}
 			}
@@ -159,7 +158,7 @@ export type PayPalCaptureResult = {
 	id: string;
 	status: string;
 	payerEmail: string | null;
-	capturedCents: number;
+	capturedCredits: number;
 	currency: string;
 	raw: Record<string, unknown>;
 };
@@ -179,10 +178,14 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalCapture
 			? (capture as { amount?: { currency_code?: string; value?: string } }).amount
 			: undefined;
 
-	const currency = amount?.currency_code?.trim() ?? 'USD';
+	const currency = amount?.currency_code?.trim() ?? PAYPAL_SETTLEMENT_CURRENCY;
+	if (currency !== PAYPAL_SETTLEMENT_CURRENCY) {
+		throw new Error(`PayPal capture currency must be ${PAYPAL_SETTLEMENT_CURRENCY}, got ${currency}`);
+	}
 	const valueStr = amount?.value?.trim() ?? '0';
-	const capturedCents = Math.round(Number(valueStr) * 100);
-	if (!Number.isFinite(capturedCents) || capturedCents < 1) {
+	const usd = Number(valueStr);
+	const capturedCredits = Math.round(usd * 1000);
+	if (!Number.isFinite(capturedCredits) || capturedCredits < 1) {
 		throw new Error('PayPal capture amount missing or invalid');
 	}
 
@@ -196,7 +199,7 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalCapture
 		id: typeof json.id === 'string' ? json.id : orderId,
 		status,
 		payerEmail,
-		capturedCents,
+		capturedCredits,
 		currency,
 		raw: json
 	};

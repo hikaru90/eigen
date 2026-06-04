@@ -19,7 +19,7 @@ import {
 	updateEvalRunStatus,
 	upsertThoughtMap
 } from '$lib/eval/store';
-import { logEval, withEvalDb } from './eval-context';
+import { logEval, withEvalDb, type WithEvalDbOptions } from './eval-context';
 import { EVAL_JUDGE_USER_ID } from './eval-config';
 import { judgeCaptureFidelity } from './capture-fidelity';
 import { judgeAnswerAcceptance } from './judge-acceptance';
@@ -31,6 +31,10 @@ import { assertThoughtEntitiesResolved } from './wait-enrichment';
 import { resolveEntryTimeoutMs, withEvalEntryTimeout } from './entry-timeout';
 import { generateRunSynthesis, type EntrySummary } from './synthesis';
 import type { EvalSynthesis } from '$lib/eval/types';
+
+function evalBillingOpts(operatorUserId: string): WithEvalDbOptions {
+	return { billingUserId: operatorUserId };
+}
 
 async function ensureJudgeUser(): Promise<void> {
 	const db = getDb();
@@ -51,18 +55,22 @@ async function runCaptureEntry(input: {
 	}
 	const fixtureRef = input.entry.fixtureRef ?? 'unknown';
 
-	const stored = await withEvalDb(input.evalUserId, () =>
-		captureThought(input.evalUserId, rawText, {
-			onProgress: async (ev) => {
-				const phases = ev.parallel ? ev.phases.join(',') : ev.phase;
-				await appendEvalEvent({
-					operatorUserId: input.operatorUserId,
-					runId: input.runId,
-					entryId: input.entry.id,
-					message: `capture progress: ${phases}`
-				});
-			}
-		})
+	const billing = evalBillingOpts(input.operatorUserId);
+	const stored = await withEvalDb(
+		input.evalUserId,
+		() =>
+			captureThought(input.evalUserId, rawText, {
+				onProgress: async (ev) => {
+					const phases = ev.parallel ? ev.phases.join(',') : ev.phase;
+					await appendEvalEvent({
+						operatorUserId: input.operatorUserId,
+						runId: input.runId,
+						entryId: input.entry.id,
+						message: `capture progress: ${phases}`
+					});
+				}
+			}),
+		billing
 	);
 
 	await withEvalDb(input.evalUserId, async (db) => {
@@ -76,16 +84,21 @@ async function runCaptureEntry(input: {
 					'check dev logs for [enrich] step failed)'
 			);
 		}
-	});
+	}, billing);
 
-	await withEvalDb(input.evalUserId, async (db) => {
-		await assertThoughtEntitiesResolved(db, input.evalUserId, [stored.id]);
-	});
+	await withEvalDb(
+		input.evalUserId,
+		async (db) => {
+			await assertThoughtEntitiesResolved(db, input.evalUserId, [stored.id]);
+		},
+		billing
+	);
 
 	const fidelity = await judgeCaptureFidelity({
 		rawText: stored.rawText,
 		normalizedText: stored.normalizedText,
-		category: stored.category
+		category: stored.category,
+		billingUserId: input.operatorUserId
 	});
 
 	await upsertThoughtMap(input.operatorUserId, input.runId, fixtureRef, stored.id);
@@ -126,13 +139,16 @@ async function runCheckEntry(input: {
 		if (uuid) scopedMap.set(fixtureId, uuid);
 	}
 
-	const result = await withEvalDb(input.evalUserId, (db) =>
-		runStructuralChecks({
-			db,
-			userId: input.evalUserId,
-			fixtureToUuid: scopedMap,
-			checks
-		})
+	const result = await withEvalDb(
+		input.evalUserId,
+		(db) =>
+			runStructuralChecks({
+				db,
+				userId: input.evalUserId,
+				fixtureToUuid: scopedMap,
+				checks
+			}),
+		evalBillingOpts(input.operatorUserId)
 	);
 
 	let graphSnapshot: Awaited<ReturnType<typeof captureEvalGraphSnapshot>> | undefined;
@@ -227,6 +243,7 @@ async function runRetrievalEntry(input: {
 
 	const sweep = await runRetrievalSweepForQuery({
 		evalUserId: input.evalUserId,
+		billingUserId: input.operatorUserId,
 		query,
 		fixtureToUuid,
 		minNdcgAt10,
@@ -268,13 +285,16 @@ async function runRetrievalEntry(input: {
 			.map((fid) => fixtureToUuid.get(fid))
 			.filter((id): id is string => Boolean(id));
 		if (rankedUuids.length > 0) {
-			const rows = await withEvalDb(input.evalUserId, (db) =>
-				db
-					.select({ id: thought.id, accessCount: thought.accessCount })
-					.from(thought)
-					.where(
-						and(eq(thought.userId, input.evalUserId), inArray(thought.id, rankedUuids))
-					)
+			const rows = await withEvalDb(
+				input.evalUserId,
+				(db) =>
+					db
+						.select({ id: thought.id, accessCount: thought.accessCount })
+						.from(thought)
+						.where(
+							and(eq(thought.userId, input.evalUserId), inArray(thought.id, rankedUuids))
+						),
+				evalBillingOpts(input.operatorUserId)
 			);
 			const minSeen = rows.length > 0 ? Math.min(...rows.map((r) => r.accessCount)) : 0;
 			if (requireSalienceBump && minSeen < 1) {
@@ -327,27 +347,34 @@ async function runEditEntry(input: {
 		throw new Error(`edit: no captured thought for fixture ${fixtureId}`);
 	}
 
-	const editResult = await withEvalDb(input.evalUserId, () =>
-		editStoredThought(input.evalUserId, thoughtId, newRawText, {
-			onProgress: async (ev) => {
-				const phases = ev.parallel ? ev.phases.join(',') : ev.phase;
-				await appendEvalEvent({
-					operatorUserId: input.operatorUserId,
-					runId: input.runId,
-					entryId: input.entry.id,
-					message: `edit progress: ${phases}`
-				});
-			}
-		})
+	const editResult = await withEvalDb(
+		input.evalUserId,
+		() =>
+			editStoredThought(input.evalUserId, thoughtId, newRawText, {
+				onProgress: async (ev) => {
+					const phases = ev.parallel ? ev.phases.join(',') : ev.phase;
+					await appendEvalEvent({
+						operatorUserId: input.operatorUserId,
+						runId: input.runId,
+						entryId: input.entry.id,
+						message: `edit progress: ${phases}`
+					});
+				}
+			}),
+		evalBillingOpts(input.operatorUserId)
 	);
 	if (!editResult.ok) {
 		throw new Error(`edit failed: ${editResult.reason}`);
 	}
 	const stored = editResult.thought;
 
-	await withEvalDb(input.evalUserId, async (db) => {
-		await assertThoughtEntitiesResolved(db, input.evalUserId, [thoughtId]);
-	});
+	await withEvalDb(
+		input.evalUserId,
+		async (db) => {
+			await assertThoughtEntitiesResolved(db, input.evalUserId, [thoughtId]);
+		},
+		evalBillingOpts(input.operatorUserId)
+	);
 
 	const normalized = stored.normalizedText.toLowerCase();
 	const anchor = newRawText
@@ -388,19 +415,23 @@ async function runAnswerEntry(input: {
 		throw new Error('answer entry missing question or acceptance criteria');
 	}
 
-	const composed = await withEvalDb(input.evalUserId, () =>
-		composeAnswer({
-			userId: input.evalUserId,
-			question,
-			...(retrievalQuery ? { retrievalQuery } : {})
-		})
+	const composed = await withEvalDb(
+		input.evalUserId,
+		() =>
+			composeAnswer({
+				userId: input.evalUserId,
+				question,
+				...(retrievalQuery ? { retrievalQuery } : {})
+			}),
+		evalBillingOpts(input.operatorUserId)
 	);
 
 	const verdict = await judgeAnswerAcceptance({
 		question,
 		answer: composed.answer,
 		acceptance,
-		citations: composed.citations
+		citations: composed.citations,
+		billingUserId: input.operatorUserId
 	});
 
 	return {
@@ -564,7 +595,8 @@ export async function executeEvalRun(input: {
 		synthesis = await generateRunSynthesis({
 			runLabel: run.label,
 			scenarioGoal: input.scenarioGoal,
-			entries: entrySummaries(finalEntries)
+			entries: entrySummaries(finalEntries),
+			billingUserId: input.operatorUserId
 		});
 		await updateEvalRunStatus(input.operatorUserId, input.runId, {
 			synthesisJson: synthesis

@@ -69,8 +69,20 @@ const ENTITY_TYPE_SYNONYMS: Record<string, string> = {
 	locations: 'place',
 	device: 'technology',
 	equipment: 'technology',
-	tool: 'technology'
+	tool: 'technology',
+	procedure: 'event',
+	procedures: 'event',
+	surgery: 'event',
+	anatomy: 'place',
+	landmark: 'place',
+	landmarks: 'place',
+	institution: 'organization',
+	medical_device: 'technology',
+	system: 'technology'
 };
+
+/** Retry entity extraction when the first pass returns nothing on substantive notes. */
+export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH = 120;
 
 /**
  * Resolve LLM `entityType` to a canonical key present in `allowed`.
@@ -97,7 +109,8 @@ export function parseEntityMentions(
 	if (!Array.isArray(parsed)) {
 		throw new Error('Entity extraction output must be a JSON array');
 	}
-	return parsed
+	const rawEntityTypes: string[] = [];
+	const mentions = parsed
 		.map((entry) => {
 			if (!entry || typeof entry !== 'object') return null;
 			const surface =
@@ -108,12 +121,21 @@ export function parseEntityMentions(
 				typeof (entry as { entityType?: unknown }).entityType === 'string'
 					? (entry as { entityType: string }).entityType.trim()
 					: '';
+			if (rawEntityType) rawEntityTypes.push(rawEntityType);
 			const confidence = clampConfidence((entry as { confidence?: unknown }).confidence);
 			const entityType = resolveEntityTypeKey(rawEntityType, allowedEntityKindKeys);
 			if (!surface || !entityType) return null;
 			return { surface, entityType, confidence };
 		})
 		.filter((v): v is ExtractedEntityMention => v !== null);
+
+	if (parsed.length > 0 && mentions.length === 0) {
+		console.warn('[entity-extraction] all LLM mentions dropped (invalid entityType?)', {
+			rawEntityTypes
+		});
+	}
+
+	return mentions;
 }
 
 const MIN_TRIPLE_CONFIDENCE_DEFAULT = 0.55;
@@ -184,24 +206,23 @@ export function parseEntityTriples(
 		.filter((v): v is ExtractedEntityTriple => v !== null);
 }
 
-/** LLM step 1: surfaces + entity type (real-world entity type catalog, separate from thought categories). */
-export async function extractEntityMentions(input: {
-	userId: string;
-	normalizedText: string;
-	ontologyEntityKinds: OntologyEntityKindForExtraction[];
-	/** Existing canonical entities that may be referenced — helps LLM use consistent surface forms. */
-	knownEntities?: KnownEntityHint[];
-}): Promise<ExtractedEntityMention[]> {
-	if (input.ontologyEntityKinds.length === 0) {
-		throw new Error('extractEntityMentions requires at least one ontology entity kind');
-	}
+type ExtractEntityMentionsPass = 'default' | 'retry_minimum';
+
+async function extractEntityMentionsOnce(
+	input: {
+		userId: string;
+		normalizedText: string;
+		ontologyEntityKinds: OntologyEntityKindForExtraction[];
+		knownEntities?: KnownEntityHint[];
+	},
+	pass: ExtractEntityMentionsPass
+): Promise<ExtractedEntityMention[]> {
 	const allowed = new Set(input.ontologyEntityKinds.map((k) => k.key));
 	const catalog = input.ontologyEntityKinds
 		.map((k) => `- entityType must be exactly "${k.key}" (${k.name}): ${k.definition}`)
 		.join('\n');
 	const keyUnion = [...allowed].sort().join('|');
 
-	// Build the known entities block if available
 	const knownEntitiesBlock =
 		input.knownEntities && input.knownEntities.length > 0
 			? `\nKnown entities already in memory (prefer these surface forms when referring to the same thing):\n${input.knownEntities
@@ -209,16 +230,22 @@ export async function extractEntityMentions(input: {
 					.join('\n')}`
 			: '';
 
+	const minimumRule =
+		pass === 'retry_minimum'
+			? 'Return at least 2 items when the text names procedures, anatomy, devices, measurements, or institutions. Never return an empty array for substantive operative or technical notes.'
+			: 'Include 0–12 items. Omit generic pronouns and vague terms.';
+
 	const prompt = [
 		'Return ONLY JSON.',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes (including procedures, anatomy, devices, and institutions when they are concrete spans in the text).',
 		`For each item, entityType must be exactly one of these keys, copied verbatim in lowercase ASCII (no other strings): ${keyUnion}`,
-		'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics, artifact for documents, event for time-bounded occurrences.',
+		'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics, artifact for documents, event for time-bounded occurrences or procedures.',
+		'Never invent entityType labels such as procedure, anatomy, device, or landmark — map them to the keys above.',
 		'Schema: [{"surface":"<text as written>","entityType":"<one of the keys above>","confidence":0.0-1.0}]',
 		'Catalog:',
 		catalog,
 		knownEntitiesBlock,
-		'Include 0–12 items. Omit generic pronouns and vague terms.',
+		minimumRule,
 		`Text:\n${input.normalizedText}`
 	]
 		.filter(Boolean)
@@ -240,6 +267,37 @@ export async function extractEntityMentions(input: {
 	});
 
 	return parseEntityMentions(stripMarkdownJsonFences(extractChatContent(response)), allowed);
+}
+
+/** LLM step 1: surfaces + entity type (real-world entity type catalog, separate from thought categories). */
+export async function extractEntityMentions(input: {
+	userId: string;
+	normalizedText: string;
+	ontologyEntityKinds: OntologyEntityKindForExtraction[];
+	/** Existing canonical entities that may be referenced — helps LLM use consistent surface forms. */
+	knownEntities?: KnownEntityHint[];
+}): Promise<ExtractedEntityMention[]> {
+	if (input.ontologyEntityKinds.length === 0) {
+		throw new Error('extractEntityMentions requires at least one ontology entity kind');
+	}
+
+	let mentions = await extractEntityMentionsOnce(input, 'default');
+	const textLen = input.normalizedText.trim().length;
+	if (mentions.length === 0 && textLen >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH) {
+		console.warn('[entity-extraction] zero mentions on first pass; retrying with minimum rule', {
+			userId: input.userId,
+			textLen
+		});
+		mentions = await extractEntityMentionsOnce(input, 'retry_minimum');
+	}
+	if (mentions.length === 0 && textLen >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH) {
+		console.warn('[entity-extraction] zero mentions after retry', {
+			userId: input.userId,
+			textLen
+		});
+	}
+
+	return mentions;
 }
 
 /** LLM step 2: typed edges whose endpoints were mentioned in step 1. */

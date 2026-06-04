@@ -265,15 +265,16 @@ export const thoughtRelation = pgTable(
 	]
 );
 
-/** Prepaid wallet balance (integer cents) per user. */
+/** Prepaid Eigen platform credits per user (1000 credits = $1 USD). */
 export const userWallet = pgTable('user_wallet', {
 	userId: text('user_id')
 		.primaryKey()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	availableCents: integer('available_cents').notNull().default(0),
-	reservedCents: integer('reserved_cents').notNull().default(0),
-	/** Sub-cent USD charges accumulate here until a whole wallet cent is debited. */
+	availableCredits: integer('available_credits').notNull().default(0),
+	reservedCredits: integer('reserved_credits').notNull().default(0),
+	/** Sub-cent USD charges accumulate here until whole credits are debited. */
 	pendingBillingMicroUsd: integer('pending_billing_micro_usd').notNull().default(0),
+	/** Audit only; PayPal settles in USD. Not shown in UI. */
 	currency: text('currency').notNull().default('USD'),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
@@ -299,7 +300,7 @@ export const walletLedgerEntry = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		kind: text('kind').$type<WalletLedgerKind>().notNull(),
-		amountCents: integer('amount_cents').notNull(),
+		amountCredits: integer('amount_credits').notNull(),
 		currency: text('currency').notNull(),
 		referenceType: text('reference_type'),
 		referenceId: text('reference_id'),
@@ -332,8 +333,8 @@ export const paymentOrder = pgTable(
 		provider: text('provider').notNull().default('paypal'),
 		paypalOrderId: text('paypal_order_id').notNull(),
 		status: text('status').$type<PaymentOrderStatus>().notNull().default('created'),
-		requestedCents: integer('requested_cents').notNull(),
-		capturedCents: integer('captured_cents'),
+		requestedCredits: integer('requested_credits').notNull(),
+		capturedCredits: integer('captured_credits'),
 		currency: text('currency').notNull(),
 		payerEmail: text('payer_email'),
 		rawCapture: jsonb('raw_capture').$type<Record<string, unknown>>(),

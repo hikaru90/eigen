@@ -11,28 +11,39 @@ Eigen bills LLM usage in two modes. Wallet top-ups use PayPal when the operator 
 
 Users switch mode on **Settings → LLM** under **Billing method**.
 
-## Wallet model
+## Wallet model (Eigen credits)
+
+Users see **Eigen platform credits** only in Settings — not EUR, USD, or cent amounts. Internally:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `CREDITS_PER_USD` | `1000` | Display and ledger unit |
+| `MICRO_USD_PER_CREDIT` | `1000` | `debitedCredits = floor(pendingMicroUsd / 1000)` |
 
 Each user has one row in `user_wallet` (tenant-isolated via RLS):
 
 | Column | Meaning |
 |--------|---------|
-| `available_cents` | Spendable balance (integer cents in the wallet currency label) |
-| `reserved_cents` | Held for pre-call reservations (reserved API exists; capture uses post-call debit) |
-| `pending_billing_micro_usd` | Sub-cent USD charges accumulated until a full cent debits |
-| `currency` | ISO 4217 label for display and PayPal (`USD`, `EUR`, `GBP`, `CHF`, `CAD`, `AUD`) |
+| `available_credits` | Spendable balance (integer Eigen credits) |
+| `reserved_credits` | Held for pre-call reservations (reserved API exists; capture uses post-call debit) |
+| `pending_billing_micro_usd` | Sub-cent USD gateway charges accumulated until whole credits debit |
+| `currency` | Audit only (`USD`); not shown in UI |
 
-**Important:** Gateway costs are reported in **USD**. Platform billing converts provider `usage.cost` (USD) to micro-USD, applies **20% markup**, then debits whole wallet cents. Wallet currency is the PayPal/display denomination; debits use the same cent integer as \$0.01 USD units (no live FX conversion today).
+Gateway `usage.cost` is **USD**. Platform billing converts provider cost to micro-USD, applies **20% markup**, then debits whole credits from `available_credits`.
 
-Append-only `wallet_ledger_entry` rows record `top_up`, `usage_debit`, and reservation kinds.
+Append-only `wallet_ledger_entry` rows record `top_up`, `usage_debit`, and reservation kinds (`amount_credits`).
+
+**Activity** (`/activity`) still shows per-call costs in **USD** for pricing transparency.
 
 ## PayPal top-up flow
 
-1. User sets amount and currency on **Settings → LLM → Credits**.
-2. `POST /api/billing/paypal/create-order` creates a `payment_order` row and PayPal order.
+1. User enters an integer **credit** amount on **Settings → LLM → Credits** (minimum 1,000 credits = $1 USD).
+2. `POST /api/billing/paypal/create-order` with `{ "amountCredits": … }` creates a `payment_order` row and a PayPal order in **USD** (`value = credits / 1000`).
 3. User approves in the PayPal UI.
 4. `POST /api/billing/paypal/capture-order` verifies capture and calls `creditFromPayment` (idempotent per `paypal_order_id`).
 5. Client refreshes balance via `GET /api/billing/wallet`.
+
+There is no user-facing billing currency picker; PayPal settlement is always USD.
 
 ### Operator env vars (PayPal)
 
@@ -47,15 +58,13 @@ Append-only `wallet_ledger_entry` rows record `top_up`, `usage_debit`, and reser
 
 | Surface | Billable calls |
 |---------|----------------|
-| **Capture** | Ontology classify (`llmChatCompletion`) + embedding (`llmCreateEmbeddings`); pipeline pre-check requires at least **5 cents** available (`MIN_CAPTURE_PIPELINE_CENTS`) |
+| **Capture** | Ontology classify (`llmChatCompletion`) + embedding (`llmCreateEmbeddings`); pipeline pre-check requires at least **50 credits** (`MIN_CAPTURE_PIPELINE_CREDITS`, ~$0.05 USD) |
 | **Dictation** | `POST /api/capture/transcribe` → OpenRouter STT (`llmCreateTranscription`) |
 | **Chat / agent** | `llmChatCompletion` |
 | **Retrieval / QA** | Embeddings and chat as used by retrieval and compose-answer |
 | **Enrichment** | Background enrich paths that call the LLM |
 
 Each successful platform call debits only **provider-reported** `usage.cost` (no token estimates). Missing cost fails the request (hard failure per project guardrails).
-
-Activity logs show per-call base cost, markup, and total in USD.
 
 ## Operator env vars (platform LLM)
 
@@ -104,11 +113,11 @@ Policies live in [`src/lib/server/db/enable_rls.sql`](../src/lib/server/db/enabl
 
 ```json
 {
-  "availableCents": 1665,
-  "reservedCents": 0,
+  "availableCredits": 16650,
+  "reservedCredits": 0,
   "pendingBillingMicroUsd": 0,
-  "currency": "EUR",
-  "billingMode": "platform_credits"
+  "billingMode": "platform_credits",
+  "creditsPerUsd": 1000
 }
 ```
 
@@ -119,13 +128,17 @@ Policies live in [`src/lib/server/db/enable_rls.sql`](../src/lib/server/db/enabl
 | 402 | `insufficient_credits` | Platform credits: wallet empty, below capture minimum, or post-call debit exceeds balance |
 | 500 | — | Gateway misconfiguration, missing `usage.cost`, or other hard failures |
 
-Response body includes `error`, `availableCents`, `currency`, and optionally `requiredCents` and `phase` (`precheck` | `settle`).
+Response body includes `error`, `availableCredits`, `creditsPerUsd`, and optionally `requiredCredits` and `phase` (`precheck` | `settle`). No fiat `currency` field.
+
+### Eval harness (`/eval`, `npm run eval`)
+
+Each eval run uses an isolated **eval tenant** (`evalUserId`) for thoughts and RLS. Platform LLM charges are debited from the **operator's** wallet (the signed-in user who started the run), not from the ephemeral eval user — otherwise smoke tests would always see zero balance on the eval tenant.
 
 ### Troubleshooting: balance shows but capture fails
 
 1. Confirm **Billing method** is platform credits (not BYOK).
 2. Refresh balance via `GET /api/billing/wallet` — UI can be stale until refetch after PayPal.
-3. Check **Activity** for large debits; long captures need enough cents for **two** LLM calls plus markup.
+3. Check **Activity** for large debits (USD); long captures need enough credits for **two** LLM calls plus markup.
 4. Verify `npm run db:rls` and `APP_DB_ROLE` on the deployment.
 5. If error `phase` is `settle`, the gateway cost for the last call exceeded remaining balance; top up or shorten input.
 

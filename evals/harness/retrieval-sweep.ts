@@ -56,6 +56,8 @@ function fixtureRelevance(
 
 export async function runRetrievalSweepForQuery(input: {
 	evalUserId: string;
+	/** Operator (or other payer) for platform credits when eval tenant has no wallet. */
+	billingUserId?: string;
 	query: EvalRetrievalQuery;
 	fixtureToUuid: Map<string, string>;
 	minNdcgAt10?: number;
@@ -75,6 +77,9 @@ export async function runRetrievalSweepForQuery(input: {
 		ranked: []
 	};
 
+	const billingOpts = input.billingUserId?.trim()
+		? { billingUserId: input.billingUserId.trim() }
+		: undefined;
 	await withEvalDb(evalUserId, async () => {
 		for (let wi = 0; wi < sweep.length; wi += 1) {
 			const weights = sweep[wi]!;
@@ -107,7 +112,7 @@ export async function runRetrievalSweepForQuery(input: {
 			metrics: computeQueryMetrics(graphRankedUuids, relevance),
 			ranked: graphRanked
 		};
-	});
+	}, billingOpts);
 
 	const fullSemantic = weightSweep.find((w) => w.weights.vector === 1 && w.weights.graph === 0);
 	const hybrid = [...weightSweep].sort((a, b) => b.metrics.ndcgAt10 - a.metrics.ndcgAt10)[0]!;

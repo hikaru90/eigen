@@ -46,11 +46,11 @@ describe.skipIf(!hasDb)('wallet RLS integration', () => {
 
 	it('user A wallet is not visible to user B', async () => {
 		await withEvalDb(userA, async () => {
-			const wallet = await getOrCreateWallet(userA, 'EUR');
-			expect(wallet.availableCents).toBe(0);
+			const wallet = await getOrCreateWallet(userA);
+			expect(wallet.availableCredits).toBe(0);
 		});
 
-		const creditedCents = 1665;
+		const creditedCredits = 16_650;
 		const paypalOrderId = `paypal_${suffix}`;
 
 		await withEvalDb(userA, async (db) => {
@@ -60,8 +60,8 @@ describe.skipIf(!hasDb)('wallet RLS integration', () => {
 					userId: userA,
 					paypalOrderId,
 					status: 'created',
-					requestedCents: creditedCents,
-					currency: 'EUR'
+					requestedCredits: creditedCredits,
+					currency: 'USD'
 				})
 				.returning({ id: paymentOrder.id });
 
@@ -69,17 +69,15 @@ describe.skipIf(!hasDb)('wallet RLS integration', () => {
 				userId: userA,
 				paymentOrderId: order.id,
 				paypalOrderId,
-				amountCents: creditedCents,
-				currency: 'EUR'
+				amountCredits: creditedCredits
 			});
 			expect(result.credited).toBe(true);
-			expect(result.availableCents).toBe(creditedCents);
+			expect(result.availableCredits).toBe(creditedCredits);
 		});
 
 		await withEvalDb(userA, async () => {
-			const wallet = await getOrCreateWallet(userA, 'EUR');
-			expect(wallet.availableCents).toBe(creditedCents);
-			expect(wallet.currency).toBe('EUR');
+			const wallet = await getOrCreateWallet(userA);
+			expect(wallet.availableCredits).toBe(creditedCredits);
 		});
 
 		await withEvalDb(userB, async (db) => {

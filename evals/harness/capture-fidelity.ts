@@ -17,6 +17,7 @@
  * Judge spend is logged under EVAL_JUDGE_USER_ID, not the ephemeral eval run
  * user, so costs are queryable via the stable judge identity.
  */
+import { billingUserAsyncLocal } from '$lib/server/billing/context';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { EVAL_JUDGE_USER_ID } from './eval-config';
 
@@ -100,16 +101,23 @@ export async function judgeCaptureFidelity(input: {
 	rawText: string;
 	normalizedText: string;
 	category: string;
+	/** Platform credits debited from this user (eval operator), not the judge tenant. */
+	billingUserId?: string;
 }): Promise<FidelityVerdict> {
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },
 		{ role: 'user', content: buildUserMessage(input) }
 	];
-	const response = await llmChatCompletion({
-		userId: EVAL_JUDGE_USER_ID,
-		messages,
-		temperature: 0
-	});
+	const callLlm = () =>
+		llmChatCompletion({
+			userId: EVAL_JUDGE_USER_ID,
+			messages,
+			temperature: 0
+		});
+	const billingUserId = input.billingUserId?.trim();
+	const response = billingUserId
+		? await billingUserAsyncLocal.run(billingUserId, callLlm)
+		: await callLlm();
 	const raw = parseJsonContent(extractContent(response));
 	if (!raw || typeof raw !== 'object') {
 		throw new Error('capture-fidelity judge: parsed JSON is not an object');

@@ -1,4 +1,10 @@
+import { billingUserAsyncLocal } from '$lib/server/billing/context';
 import { appSql, createScopedDrizzle, appDbAsyncLocal, activateTenantDbSession, deactivateTenantDbSession, type AppDatabase } from '$lib/server/db';
+
+export type WithEvalDbOptions = {
+	/** Platform credits / BYOK checks and wallet debits use this user (e.g. eval operator). */
+	billingUserId?: string;
+};
 
 /**
  * Run `fn` inside an RLS-aware DB context bound to `userId`.
@@ -8,12 +14,21 @@ import { appSql, createScopedDrizzle, appDbAsyncLocal, activateTenantDbSession, 
  *
  * Fails loud on errors (no fallback) per project guardrails.
  */
-export async function withEvalDb<T>(userId: string, fn: (db: AppDatabase) => Promise<T>): Promise<T> {
+export async function withEvalDb<T>(
+	userId: string,
+	fn: (db: AppDatabase) => Promise<T>,
+	options?: WithEvalDbOptions
+): Promise<T> {
 	const reserved = await appSql.reserve();
 	try {
 		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
-		return await appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
+		const run = () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
+		const billingUserId = options?.billingUserId?.trim();
+		if (billingUserId) {
+			return await billingUserAsyncLocal.run(billingUserId, run);
+		}
+		return await run();
 	} finally {
 		await deactivateTenantDbSession(reserved).catch(() => {});
 		await reserved.release();

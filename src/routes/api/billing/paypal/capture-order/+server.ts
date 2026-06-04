@@ -3,12 +3,9 @@ import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { getDb } from '$lib/server/db';
 import { paymentOrder } from '$lib/server/db/schema';
-import {
-	capturePayPalOrder,
-	getPayPalOrderCurrency
-} from '$lib/server/billing/paypal';
-import { getBillingPreferences, resolveCheckoutCurrency } from '$lib/server/billing/preferences';
+import { capturePayPalOrder } from '$lib/server/billing/paypal';
 import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet';
+import { CREDITS_PER_USD } from '$lib/server/billing/credits';
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -34,34 +31,21 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	if (existing.status === 'captured') {
-		const wallet = await getOrCreateWallet(user.id, existing.currency);
+		const wallet = await getOrCreateWallet(user.id);
 		return json({
 			status: 'captured',
 			alreadyCaptured: true,
-			availableCents: wallet.availableCents,
-			currency: wallet.currency
+			availableCredits: wallet.availableCredits,
+			creditsPerUsd: CREDITS_PER_USD
 		});
 	}
 
-	const paypalCurrency = await getPayPalOrderCurrency(orderId).catch(() => null);
-	const prefs = await getBillingPreferences(user.id);
-	const currency = resolveCheckoutCurrency(prefs, paypalCurrency ?? existing.currency);
-
 	const capture = await capturePayPalOrder(orderId);
 
-	if (capture.currency !== currency && capture.currency !== existing.currency) {
+	if (capture.capturedCredits !== existing.requestedCredits) {
 		return json(
 			{
-				error: `Capture currency ${capture.currency} does not match order currency ${existing.currency}`
-			},
-			{ status: 400 }
-		);
-	}
-
-	if (capture.capturedCents !== existing.requestedCents) {
-		return json(
-			{
-				error: `Captured amount (${capture.capturedCents} cents) does not match requested (${existing.requestedCents} cents)`
+				error: `Captured credits (${capture.capturedCredits}) do not match requested (${existing.requestedCredits})`
 			},
 			{ status: 400 }
 		);
@@ -81,15 +65,14 @@ export const POST: RequestHandler = async (event) => {
 		userId: user.id,
 		paymentOrderId: existing.id,
 		paypalOrderId: orderId,
-		amountCents: capture.capturedCents,
-		currency: existing.currency
+		amountCredits: capture.capturedCredits
 	});
 
 	return json({
 		status: 'captured',
 		credited: result.credited,
-		availableCents: result.availableCents,
-		currency: existing.currency,
-		capturedCents: capture.capturedCents
+		availableCredits: result.availableCredits,
+		capturedCredits: capture.capturedCredits,
+		creditsPerUsd: CREDITS_PER_USD
 	});
 };
