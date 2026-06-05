@@ -67,7 +67,7 @@
   {#if kind === "tool_result" && tool === "answer_question"}
     {#if evidenceHits.length > 0}
       <ul class="flex flex-col gap-2 list-none m-0 p-0 pl-1">
-        {#each evidenceHits as hit (hit.id ?? hit.text)}
+        {#each evidenceHits as hit, i (hit.id ?? `${i}:${hit.text}`)}
           <li class="flex flex-col gap-0.5 rounded-md border border-border bg-muted px-3 py-2">
             {#if hit.category}
               <span class="text-xs capitalize tracking-wide text-muted-foreground"
@@ -93,7 +93,7 @@
           <p class="text-muted-foreground">No matching memories.</p>
         {:else}
           <ul class="flex flex-col gap-2 list-none m-0 p-0">
-            {#each genericResultView.hits as hit (hit.id ?? hit.text)}
+            {#each genericResultView.hits as hit, i (hit.id ?? `${i}:${hit.text}`)}
               <li class="rounded-md border border-border bg-muted px-3 py-2">
                 <p class="min-w-0 break-all text-sm leading-snug">{hit.text}</p>
               </li>

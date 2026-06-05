@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { classifyQueryType } from './query-router';
 
 describe('classifyQueryType', () => {
+	describe('self-profile queries', () => {
+		it.each([
+			'What do you know about me?',
+			'What do you remember about me?',
+			'was weißt du über mich?',
+			'Was weisst du uber mich?',
+			'wer bin ich?'
+		])('classifies "%s" as global', (query) => {
+			expect(classifyQueryType(query)).toBe('global');
+		});
+	});
+
 	describe('global queries', () => {
 		it.each([
 			'What are my recurring patterns?',

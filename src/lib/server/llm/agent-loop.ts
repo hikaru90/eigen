@@ -40,10 +40,11 @@ const SYSTEM_PROMPT = [
 	'',
 	'=== DEFAULT: ANSWER / Q&A ===',
 	'When the user asks a question, wants information from their memories, or is chatting without clearly asking to store, edit, or delete — call answer_question with their message as `question` (rephrase for retrieval if helpful). Use the tool result to ground your final {"answer": "..."} with citations when available. Skip this default when the COMPLETION rules above apply.',
+	'Planning and task questions ("what do I need to do", "what\'s on my list", "what should I focus on today") MUST use answer_question — not list_thoughts or retrieve_thoughts alone. Those search tools omit temporal expiry context needed for relative dates like "today" / "heute".',
 	'',
 	'=== OTHER TOOLS ===',
-	'- retrieve_thoughts: hybrid semantic, lexical, and graph search — required before edit/delete when matching an accomplishment to an existing memory; also for raw search/list requests.',
-	'- list_thoughts: browse recent thoughts or find thought IDs (e.g. open tasks).',
+	'- retrieve_thoughts: hybrid semantic, lexical, and graph search — required before edit/delete when matching an accomplishment to an existing memory; not for open-ended planning or Q&A (use answer_question).',
+	'- list_thoughts: browse recent thoughts or find thought IDs when you need raw ids before edit/delete — not for answering what the user should do today.',
 	'- capture_thought: store a new note, task, idea, or fact — only when the user clearly wants to remember something new.',
 	'- edit_thought: change text, mark tasks or thoughts complete, fix typos — use thought_id from list/retrieve when the user did not give an ID.',
 	'- delete_thought: permanently remove a thought by thought_id; use list/retrieve first if the target is ambiguous.',
@@ -63,8 +64,9 @@ const SYSTEM_PROMPT = [
 	'=== BEHAVIOR RULES ===',
 	'- Completion reports ("I did X", "finished Y", "got the Z done") always use retrieve_thoughts before capture_thought or answer_question.',
 	'- Default to answer_question for questions and conversation about the user\'s memories; do not capture unless they clearly want to store something new.',
+	'- Do not use list_thoughts or retrieve_thoughts to answer planning/task questions — answer_question applies temporal validity (EXPIRED vs ACTIVE) so old "today/heute" tasks are not treated as due now.',
 	'- Use capture_thought only when the user explicitly asks to remember, save, or log a new thought — never as the first step when they report completing something.',
-	'- Use retrieve_thoughts for simple search/list requests without needing a composed answer.',
+	'- Use retrieve_thoughts only for accomplishment matching, explicit search requests, or disambiguation before edit/delete — not for "what should I do" style questions.',
 	'- For edit_thought or delete_thought without a thought_id: call retrieve_thoughts (preferred) or list_thoughts first, then act.',
 	'- You may call multiple tools in sequence (e.g. search then edit) before the final answer.',
 	'- Call retrieve_thoughts at most once per user message unless they explicitly ask for another search.',
@@ -213,12 +215,22 @@ export async function agentChat(input: {
 			type: 'agent_progress',
 			label: iteration === 0 ? 'Planning next step…' : 'Preparing your reply…'
 		});
-		console.error('[agent-loop] calling llmChatCompletion');
+		const llmStart = Date.now();
+		console.info('[agent-loop] llm request start', {
+			iteration,
+			messageCount: messages.length,
+			promptChars: messages.reduce((n, m) => n + m.content.length, 0)
+		});
+		for (const message of messages) {
+			console.log(`[agent-loop] prompt ${message.role}:\n${message.content}`);
+		}
 		const raw = await llmChatCompletion({
 			userId: input.userId,
 			messages,
-			temperature: 0
+			temperature: 0,
+			logContext: `agent_iter_${iteration}`
 		});
+		console.info('[agent-loop] llm request done', { iteration, durationMs: Date.now() - llmStart });
 
 		const response = raw as { choices?: Array<{ message?: { content?: string } }> };
 		const content =
@@ -249,7 +261,7 @@ export async function agentChat(input: {
 				continue;
 			}
 
-			console.error('[agent-loop] executing tool', { tool: parsed.tool, args: parsed.arguments });
+			console.info('[agent-loop] tool start', { tool: parsed.tool, arguments: parsed.arguments });
 			input.onEvent?.({ type: 'tool_executing', tool: parsed.tool });
 			let result: unknown;
 			const toolStart = Date.now();
@@ -307,8 +319,9 @@ export async function agentChat(input: {
 
 				const preview = formatToolResultPreview(parsed.tool, result);
 				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview });
-				console.error('[agent-loop] tool result', {
+				console.info('[agent-loop] tool done', {
 					tool: parsed.tool,
+					durationMs: Date.now() - toolStart,
 					result: formatToolResultPreview(parsed.tool, redactForLog(result))
 				});
 				const toolCallContext = parsed.arguments && typeof parsed.arguments === 'object'

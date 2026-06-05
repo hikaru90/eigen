@@ -41,8 +41,10 @@ export function logRetrievalPhaseTiming(input: {
 	mode: 'fast' | 'full';
 	topK: number;
 	timing: RetrievalPhaseTiming;
+	/** Log tag override (default: retrieval.searchThoughts). */
+	tag?: string;
 }): void {
-	console.info('[retrieval.searchThoughts]', {
+	console.info(input.tag ?? '[retrieval.searchThoughts]', {
 		userId: input.userId,
 		mode: input.mode,
 		topK: input.topK,

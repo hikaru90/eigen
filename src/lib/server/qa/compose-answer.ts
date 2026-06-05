@@ -4,7 +4,14 @@ import { thought, thoughtRelation } from '$lib/server/db/schema';
 import { graphOnlySearchByQuery } from '$lib/server/graph/age';
 import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
+import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { lexicalSearch, type LexicalSearchResult } from '$lib/server/retrieval/lexical';
+import {
+	fetchRelevantCommunitySummaries,
+	hasCommunitySummaries,
+	type RelevantCommunitySummary
+} from '$lib/server/retrieval/global';
+import { classifyQueryType } from '$lib/server/retrieval/query-router';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
@@ -14,6 +21,12 @@ import {
 	isSchedulingConflictQuery
 } from '$lib/server/retrieval/temporal-conflicts';
 import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness';
+import { loadTemporalContextByThoughtIds } from '$lib/server/memory/temporal-context';
+import {
+	formatTemporalAnnotation,
+	type TemporalEventValidity,
+	type ThoughtTemporalStatus
+} from '$lib/server/memory/temporal-validity';
 import type { MemoryType } from '$lib/server/db/brain.schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
@@ -32,6 +45,9 @@ export type RetrievalContextItem = {
 	graphProvenance?: string;
 	/** True when the thought was stored more than 6 months ago. */
 	isStale: boolean;
+	/** Validity of linked temporal_event rows relative to answer time. */
+	temporalStatus: ThoughtTemporalStatus;
+	temporalEvents: TemporalEventValidity[];
 };
 
 export type ConflictPair = {
@@ -92,20 +108,11 @@ const RETRIEVAL_HINT_STOPWORDS = new Set([
 
 /** Focused tokens for a second retrieval pass (names, codes) on short questions. */
 export function extractRetrievalHints(question: string): string | undefined {
-	const tokens = question
-		.normalize('NFKC')
-		.toLowerCase()
-		.split(/[^a-z0-9]+/g)
-		.map((t) => t.trim())
-		.filter((t, i, arr) => t.length >= 2 && arr.indexOf(t) === i);
+	const tokens = tokenizeLexicalQuery(question).filter((t) => t.length >= 2);
 	const hints = tokens.filter((t) => !RETRIEVAL_HINT_STOPWORDS.has(t));
 	if (hints.length === 0) return undefined;
 	const hintQuery = hints.join(' ');
-	const normalizedQuestion = question
-		.normalize('NFKC')
-		.toLowerCase()
-		.replace(/\s+/g, ' ')
-		.trim();
+	const normalizedQuestion = tokenizeLexicalQuery(question).join(' ');
 	if (hintQuery === normalizedQuestion) return undefined;
 	return hintQuery;
 }
@@ -291,15 +298,19 @@ export async function detectStoredThoughtContradictions(input: {
 // Prompt formatting
 // ---------------------------------------------------------------------------
 
-function formatThoughtsForPrompt(items: RetrievalContextItem[]): string {
+export function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date): string {
 	if (items.length === 0) return '(no thoughts retrieved)';
 	return items
 		.map((t) => {
 			const dateStr = t.createdAt.toISOString().slice(0, 10);
 			const staleFlag = t.isStale ? ' ⚠ STALE (>6 months old — may no longer reflect current state)' : '';
+			const temporalAnnotation =
+				t.temporalStatus !== 'none'
+					? `, ${formatTemporalAnnotation(t.temporalEvents, t.temporalStatus, now)}`
+					: '';
 			const graphLine = t.graphProvenance ? `\nGraph: ${t.graphProvenance}` : '';
 			return (
-				`[id=${t.id}] (${t.category}, score=${t.score.toFixed(3)}, stored=${dateStr}${staleFlag})` +
+				`[id=${t.id}] (${t.category}, score=${t.score.toFixed(3)}, stored=${dateStr}${staleFlag}${temporalAnnotation})` +
 				`${graphLine}\n${t.normalizedText}`
 			);
 		})
@@ -512,9 +523,12 @@ const SYSTEM_PROMPT = [
 	'- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts.',
 	'',
 	'Temporal & staleness rules:',
-	'- Thoughts marked "STALE (>6 months old)" must be presented with their date and a clear caveat that',
-	'  this may no longer reflect current reality (e.g. "As of <date>, you noted …; this may be outdated.").',
-	'- For questions about current state (where do I live, am I happy at work, etc.) with only stale evidence,',
+	'- "STALE (>6 months old)" is age-based: present with storage date and caveat it may be outdated.',
+	'- "temporal: … EXPIRED" means the thought\'s time-bound period has ended — do NOT state as current plans',
+	'  or present intent. Frame as past: "As of <stored date>, you noted …".',
+	'- For questions about now/today/current plans with only EXPIRED temporal evidence, Answer must say current',
+	'  status is unknown or not in memory for the present.',
+	'- For questions about current state (where do I live, am I happy at work, etc.) with only STALE evidence,',
 	'  state explicitly that the most recent memory is from <date> and current status is unknown.',
 	'- If two thoughts give conflicting timestamps for the same fact, present the most recent as current and',
 	'  note the earlier one as a prior state.',
@@ -559,6 +573,26 @@ export function findInvalidCitationIds(answer: string, allowedIds: Set<string>):
 	return [...invalid];
 }
 
+/** Profile answers only require citations under the Details section. */
+export function extractProfileDetailsBlock(answer: string): string {
+	const match = answer.match(/^Details:\s*([\s\S]*?)(?=^Themes:|\s*$)/m);
+	return match?.[1]?.trim() ?? '';
+}
+
+const PROFILE_CITATION_PLACEHOLDERS = new Set(['id']);
+
+/** Validate citations only in the Details block; ignore Summary/Themes bracket noise. */
+export function findInvalidProfileCitationIds(answer: string, allowedIds: Set<string>): string[] {
+	const details = extractProfileDetailsBlock(answer);
+	if (!details) return [];
+	return findInvalidCitationIds(details, allowedIds).filter((id) => !PROFILE_CITATION_PLACEHOLDERS.has(id));
+}
+
+function extractProfileCitations(answer: string, allowedIds: Set<string>): string[] {
+	const details = extractProfileDetailsBlock(answer);
+	return details ? extractCitations(details, allowedIds) : [];
+}
+
 function extractCitations(answer: string, allowedIds: Set<string>): string[] {
 	const seen = new Set<string>();
 	let match: RegExpExecArray | null;
@@ -587,8 +621,34 @@ function searchHitToContextItem(hit: SearchHit, now: Date): RetrievalContextItem
 			metadata: hit.metadata
 		}),
 		graphProvenance:
-			typeof hit.metadata?.graphProvenance === 'string' ? hit.metadata.graphProvenance : undefined
+			typeof hit.metadata?.graphProvenance === 'string' ? hit.metadata.graphProvenance : undefined,
+		temporalStatus: 'none',
+		temporalEvents: []
 	};
+}
+
+async function hydrateTemporalContextForThoughts(input: {
+	userId: string;
+	items: RetrievalContextItem[];
+	now: Date;
+}): Promise<RetrievalContextItem[]> {
+	const thoughtIds = input.items.map((item) => item.id);
+	if (thoughtIds.length === 0) return input.items;
+
+	const contextByThoughtId = await loadTemporalContextByThoughtIds({
+		userId: input.userId,
+		thoughtIds,
+		now: input.now
+	});
+
+	return input.items.map((item) => {
+		const ctx = contextByThoughtId.get(item.id);
+		return {
+			...item,
+			temporalStatus: ctx?.temporalStatus ?? 'none',
+			temporalEvents: ctx?.temporalEvents ?? []
+		};
+	});
 }
 
 async function hydrateConflictThoughts(input: {
@@ -653,7 +713,9 @@ async function hydrateConflictThoughts(input: {
 			memoryType: row.memoryType as MemoryType | null,
 			metadata: row.metadata
 		}),
-		graphProvenance: 'temporal:scheduling_conflict'
+		graphProvenance: 'temporal:scheduling_conflict',
+		temporalStatus: 'none',
+		temporalEvents: []
 	}));
 
 	return [...input.contextItems, ...hydrated];
@@ -670,80 +732,172 @@ function prioritizeConflictThoughts(
 	].slice(0, topK);
 }
 
+/** Broad self/profile ("about me") answers retrieve more thoughts than a focused fact lookup. */
+const PROFILE_TOP_K = 20;
+/** How many community summaries to fold in as thematic background context. */
+const PROFILE_COMMUNITY_LIMIT = 6;
+
+const PROFILE_SYSTEM_PROMPT = [
+	'You answer a broad question about who the user is, using ONLY the provided memory themes and thoughts.',
+	'This is a synthesis task: build a coherent portrait of the person, not a list of two disconnected trivia facts.',
+	'',
+	'Output format (use these exact section headers in this order):',
+	'Summary: <2-4 sentences capturing who the user is and what currently occupies them, grounded in the provided context; no bracket citations here>',
+	'Details:',
+	'- <specific fact, trait, project, or relationship> [thought-id]',
+	'- <specific fact, trait, project, or relationship> [thought-id]',
+	'Themes: <1-2 sentences naming the recurring areas/topics from the memory themes; no bracket citations here>',
+	'',
+	'Rules:',
+	'- Use only information present in the provided themes and thoughts. Do not invent facts, names, jobs, or relationships.',
+	'- Under Details only: end each bullet with [thought-id] using the EXACT id= value from a thought header (copy the full uuid; never write the literal word "id", never invent or shorten ids; never cite a theme line).',
+	'- Give more weight to RECENT thoughts and current activities/projects than to old or one-off trivia; lead the Summary with what currently occupies the user.',
+	'- Prefer substantive facts (work, projects, goals, recurring interests, important relationships) over incidental details.',
+	'- Memory themes are derived background summaries: use them only to frame and connect, never cite them with [id], and never treat them as a source of new specific facts.',
+	'- Do NOT equate or identify different people or names unless a cited thought explicitly states the link.',
+	'- Thoughts marked "STALE (>6 months old)" should be framed with their date as possibly outdated.',
+	'- Thoughts with "temporal: … EXPIRED" must not be presented as current activities; frame as past intent.',
+	'- If the provided context is genuinely thin, say so plainly in Summary rather than padding with speculation.',
+	'- No preamble, no closing remarks, no meta commentary.'
+].join('\n');
+
+function formatCommunitySummariesForPrompt(summaries: RelevantCommunitySummary[]): string {
+	if (summaries.length === 0) return '(no memory themes available)';
+	return summaries.map((s) => `- (L${s.level}) ${s.summaryText.trim()}`).join('\n');
+}
+
+/**
+ * Blended answer for broad self/profile ("about me") questions: combines hybrid
+ * thought retrieval (vector + lexical + graph, larger top-K) with relevant
+ * community summaries as thematic context, then composes one grounded answer.
+ */
+async function composeProfileAnswer(params: {
+	input: ComposeAnswerInput;
+	trimmedQuestion: string;
+}): Promise<ComposedAnswer> {
+	const { input, trimmedQuestion } = params;
+	const now = new Date();
+	const overallStart = Date.now();
+	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
+	const topK = Math.max(input.topK ?? PROFILE_TOP_K, PROFILE_TOP_K);
+
+	await input.onProgress?.('embedding');
+	const queryEmbedding = await createThoughtEmbedding(input.userId, trimmedQuestion);
+
+	await input.onProgress?.('searching');
+	const [retrieved, communitySummaries] = await Promise.all([
+		searchThoughts({ userId: input.userId, query: trimmedQuestion, topK, weights, queryEmbedding }),
+		fetchRelevantCommunitySummaries({
+			userId: input.userId,
+			queryEmbedding,
+			limit: PROFILE_COMMUNITY_LIMIT
+		})
+	]);
+
+	let contextItems = retrieved.map((r) => searchHitToContextItem(r, now));
+	contextItems = await hydrateTemporalContextForThoughts({
+		userId: input.userId,
+		items: contextItems,
+		now
+	});
+	const conflicts = mergeConflictPairs(
+		detectContradictions(contextItems),
+		await detectStoredThoughtContradictions({ userId: input.userId, items: contextItems })
+	);
+	console.info('[composeAnswer] profile path retrieval', {
+		userId: input.userId,
+		question: trimmedQuestion,
+		retrievedCount: retrieved.length,
+		communityCount: communitySummaries.length,
+		topK
+	});
+
+	await input.onProgress?.('composing');
+	const allowedIds = new Set(contextItems.map((c) => c.id));
+	const messages: ChatMessage[] = [
+		{ role: 'system', content: PROFILE_SYSTEM_PROMPT },
+		{
+			role: 'user',
+			content:
+				`Question: ${trimmedQuestion}\n\n` +
+				`Memory themes (background context from community summaries; do NOT cite with bracket ids):\n` +
+				`${formatCommunitySummariesForPrompt(communitySummaries)}\n\n` +
+				`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
+				formatConflictsForPrompt(conflicts) +
+				`\n\nWrite the profile using the strict format from the system message. Under Details only, cite each fact with [thought-id] using the exact id= uuid from the thought headers above.`
+		}
+	];
+
+	let answer = '';
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const response = await llmChatCompletion({
+			userId: input.userId,
+			messages,
+			temperature: 0.2,
+			logContext: 'compose_answer_profile'
+		});
+		answer = extractAnswerText(response);
+		const invalidCitations = findInvalidProfileCitationIds(answer, allowedIds);
+		if (invalidCitations.length === 0) break;
+		if (attempt === 1) {
+			throw new Error(
+				`composeAnswer: profile answer cites thought ids not in retrieved context: ${invalidCitations.join(', ')}`
+			);
+		}
+		messages.push({ role: 'assistant', content: answer });
+		messages.push({
+			role: 'user',
+			content:
+				`Invalid citation ids in Details: ${invalidCitations.join(', ')}. ` +
+				`Rewrite the full profile. Under Details only, use bracket citations with exact id= uuids from the Thoughts list. ` +
+				`Do not use the literal word "id" inside brackets. Summary and Themes must have no bracket citations.`
+		});
+	}
+
+	const citations = extractProfileCitations(answer, allowedIds);
+	console.info('[composeAnswer] profile path done', {
+		totalDurationMs: Date.now() - overallStart,
+		citationCount: citations.length,
+		answerChars: answer.length
+	});
+	return { answer, citations, retrieved: contextItems, conflicts };
+}
+
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {
 	const trimmedQuestion = input.question.trim();
 	if (trimmedQuestion.length === 0) {
 		throw new Error('composeAnswer: question must be non-empty');
 	}
+
+	const overallStart = Date.now();
 	const now = new Date();
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
 	const topK = input.topK ?? 8;
-	const explicitRetrievalQuery = input.retrievalQuery?.trim();
-	const hintRetrievalQuery = explicitRetrievalQuery ?? extractRetrievalHints(trimmedQuestion);
-	const retrievalQuery =
-		hintRetrievalQuery && hintRetrievalQuery !== trimmedQuestion ? hintRetrievalQuery : undefined;
+	const retrievalQuery = input.retrievalQuery?.trim() || trimmedQuestion;
+
+	let phaseStart = Date.now();
+	console.info('[composeAnswer] phase=embedding start', {
+		userId: input.userId,
+		question: trimmedQuestion,
+		retrievalQuery
+	});
 	await input.onProgress?.('embedding');
-	let queryEmbedding: number[];
-	let hintQueryEmbedding: number[] | undefined;
-	if (retrievalQuery) {
-		const [questionEmb, hintEmb] = await createThoughtEmbeddings(input.userId, [
-			trimmedQuestion,
-			retrievalQuery
-		]);
-		queryEmbedding = questionEmb;
-		hintQueryEmbedding = hintEmb;
-	} else {
-		queryEmbedding = await createThoughtEmbedding(input.userId, trimmedQuestion);
-	}
+	const queryEmbedding = await createThoughtEmbedding(input.userId, retrievalQuery);
+	console.info('[composeAnswer] phase=embedding done', {
+		durationMs: Date.now() - phaseStart,
+		embeddingCount: 1
+	});
+
+	phaseStart = Date.now();
+	console.info('[composeAnswer] phase=searching start', { topK, retrievalQuery });
 	await input.onProgress?.('searching');
-	let retrieved: SearchHit[];
-	if (retrievalQuery) {
-		const [fromQuestion, fromRetrievalQuery, hintAnchors] = await Promise.all([
-			searchThoughts({
-				userId: input.userId,
-				query: trimmedQuestion,
-				topK,
-				weights,
-				queryEmbedding
-			}),
-			searchThoughts({
-				userId: input.userId,
-				query: retrievalQuery,
-				topK,
-				weights,
-				queryEmbedding: hintQueryEmbedding ?? queryEmbedding
-			}),
-			searchHitsFromHintAnchors({
-				userId: input.userId,
-				hintQuery: retrievalQuery,
-				topK
-			})
-		]);
-		retrieved = mergeSearchHits(
-			mergeSearchHits(fromQuestion, fromRetrievalQuery, topK),
-			hintAnchors,
-			topK
-		);
-	} else {
-		retrieved = await searchThoughts({
-			userId: input.userId,
-			query: trimmedQuestion,
-			topK,
-			weights,
-			queryEmbedding
-		});
-	}
-	const subjectName = extractQuestionSubjectName(trimmedQuestion);
-	if (subjectName) {
-		const personAnchors = await searchHitsFromHintAnchors({
-			userId: input.userId,
-			hintQuery: subjectName,
-			topK
-		});
-		if (personAnchors.length > 0) {
-			retrieved = mergeSearchHits(retrieved, personAnchors, topK);
-		}
-	}
+	const retrieved = await searchThoughts({
+		userId: input.userId,
+		query: retrievalQuery,
+		topK,
+		weights,
+		queryEmbedding
+	});
 	void tryRecordRetrievalQualityEvent({
 		userId: input.userId,
 		surface: 'compose_answer',
@@ -752,7 +906,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		results: retrieved.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
 
-	const temporalQuery = [trimmedQuestion, retrievalQuery].filter(Boolean).join(' ');
+	const temporalQuery = retrievalQuery;
 	const schedulingConflicts = isSchedulingConflictQuery(temporalQuery)
 		? await findTemporalSchedulingConflicts({
 				userId: input.userId,
@@ -771,11 +925,23 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, topK);
 	contextItems = prioritizePersonNamedThoughts(trimmedQuestion, contextItems, topK);
 	contextItems = narrowComposeContextToQuestionFocus(trimmedQuestion, contextItems);
+	contextItems = await hydrateTemporalContextForThoughts({
+		userId: input.userId,
+		items: contextItems,
+		now
+	});
 
 	const conflicts = mergeConflictPairs(
 		detectContradictions(contextItems),
 		await detectStoredThoughtContradictions({ userId: input.userId, items: contextItems })
 	);
+	console.info('[composeAnswer] phase=searching done', {
+		durationMs: Date.now() - phaseStart,
+		retrievedCount: retrieved.length,
+		contextCount: contextItems.length,
+		conflictCount: conflicts.length,
+		schedulingConflictCount: schedulingConflicts.length
+	});
 
 	const messages: ChatMessage[] = [
 		{ role: 'system', content: SYSTEM_PROMPT },
@@ -783,18 +949,28 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 			role: 'user',
 			content:
 				`Question: ${trimmedQuestion}\n\n` +
-				`Thoughts:\n${formatThoughtsForPrompt(contextItems)}` +
+				`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
 				formatTemporalConflictsForPrompt(schedulingConflicts) +
 				formatConflictsForPrompt(conflicts) +
 				`\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
 		}
 	];
+	phaseStart = Date.now();
+	console.info('[composeAnswer] phase=composing start', {
+		thoughtCount: contextItems.length,
+		promptChars: messages.reduce((n, m) => n + m.content.length, 0)
+	});
+	for (const message of messages) {
+		console.log(`[composeAnswer] prompt ${message.role}:\n${message.content}`);
+	}
 	await input.onProgress?.('composing');
 	const response = await llmChatCompletion({
 		userId: input.userId,
 		messages,
-		temperature: 0
+		temperature: 0,
+		logContext: 'compose_answer'
 	});
+	console.info('[composeAnswer] phase=composing done', { durationMs: Date.now() - phaseStart });
 	const answer = extractAnswerText(response);
 	const allowedIds = new Set(contextItems.map((c) => c.id));
 	const invalidCitations = findInvalidCitationIds(answer, allowedIds);
@@ -804,5 +980,10 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		);
 	}
 	const citations = extractCitations(answer, allowedIds);
+	console.info('[composeAnswer] done', {
+		totalDurationMs: Date.now() - overallStart,
+		citationCount: citations.length,
+		answerChars: answer.length
+	});
 	return { answer, citations, retrieved: contextItems, conflicts };
 }

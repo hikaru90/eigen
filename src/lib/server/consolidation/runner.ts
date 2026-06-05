@@ -21,6 +21,9 @@ import { runSalienceCompute } from './compute-salience';
 import { repairEntityRelationsForUser } from './repair-entity-relations';
 import { runCommunityDetection } from './community-detection';
 import { runCommunitySummaryGeneration, getCommunitySummaryStats, type CommunitySummaryResult } from './community-summaries';
+import { buildAllCommunityBundles } from './community-bundles';
+import { computeThoughtRetrievalFeatures } from './thought-retrieval-features';
+import { backfillRetrievalLinksForUser } from '$lib/server/retrieval/materialize-links';
 
 export type ConsolidationPhase = 'deep_sleep' | 'rem';
 
@@ -301,7 +304,31 @@ export async function consolidateForUser(
 					jobs.push(await skipCommunitySummariesJob(userId, stats, options));
 				}
 			}
+
+			if (await shouldStop(options)) {
+				return { userId, jobs, totalDurationMs: Date.now() - start };
+			}
+			jobs.push(
+				await runJob('rem', 'community_bundles', () => buildAllCommunityBundles(userId), options)
+			);
 		}
+
+		if (await shouldStop(options)) {
+			return { userId, jobs, totalDurationMs: Date.now() - start };
+		}
+		jobs.push(
+			await runJob('rem', 'retrieval_links_backfill', () => backfillRetrievalLinksForUser(userId), options)
+		);
+
+		if (await shouldStop(options)) {
+			return { userId, jobs, totalDurationMs: Date.now() - start };
+		}
+		jobs.push(
+			await runJob('rem', 'thought_retrieval_features', async () => {
+				const updated = await computeThoughtRetrievalFeatures(userId);
+				return `${updated} thoughts updated`;
+			}, options)
+		);
 
 		return { userId, jobs, totalDurationMs: Date.now() - start };
 	});

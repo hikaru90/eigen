@@ -87,7 +87,7 @@
           <p class="text-sm text-muted-foreground">No matching memories.</p>
         {:else}
           <ul class="flex flex-col gap-2.5 list-none m-0 p-0">
-            {#each resultView.hits as hit (hit.id ?? hit.text)}
+            {#each resultView.hits as hit, i (hit.id ?? `${i}:${hit.text}`)}
               <li class="flex flex-col gap-0.5 rounded-md border border-border bg-muted px-3 py-2">
                 <p class="min-w-0 break-all text-sm leading-snug text-foreground">{hit.text}</p>
                 {#if hit.category}

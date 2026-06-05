@@ -19,7 +19,7 @@
  * `enrichment_version` is always incremented on entry.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { thought } from '$lib/server/db/schema';
@@ -28,6 +28,7 @@ import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { extractThoughtMetadata } from '$lib/server/memory/extract-thought-metadata';
+import { getTemporalAnchorTimezone } from '$lib/server/memory/temporal-anchor-timezone';
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync';
 import { maybeRefreshUserOntology } from '$lib/server/ontology';
 import {
@@ -36,6 +37,8 @@ import {
 	upsertThoughtRelation
 } from '$lib/server/graph/age';
 import { thoughtRelation } from '$lib/server/db/schema';
+import { materializeRetrievalLinksForThought } from '$lib/server/retrieval/materialize-links';
+import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation';
 
 export type EnrichThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
@@ -142,12 +145,21 @@ export async function enrichThought(
 		]);
 
 	// Temporal graph sync reads entity_resolution_log — run after entity step completes.
+	const [thoughtRow] = await db
+		.select({ createdAt: thought.createdAt })
+		.from(thought)
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+		.limit(1);
+	const capturedAt = thoughtRow?.createdAt ?? new Date();
+
 	const temporalResult = await Promise.allSettled([
 		syncTemporalEventsFromThought({
 			userId,
 			thoughtId,
 			normalizedText,
-			thoughtEmbedding
+			thoughtEmbedding,
+			capturedAt,
+			timezone: getTemporalAnchorTimezone(userId)
 		})
 	]).then((r) => r[0]);
 
@@ -199,6 +211,19 @@ export async function enrichThought(
 	// ---- Mark enriched -------------------------------------------------------
 	if (allOk) {
 		try {
+			await materializeRetrievalLinksForThought({
+				userId,
+				thoughtId,
+				normalizedText
+			});
+		} catch (err) {
+			console.error('[enrich] retrieval link materialization failed', {
+				thoughtId,
+				message: err instanceof Error ? err.message : String(err)
+			});
+		}
+
+		try {
 			await db
 				.update(thought)
 				.set({ enrichedAt: new Date() })
@@ -209,6 +234,8 @@ export async function enrichThought(
 				message: err instanceof Error ? err.message : String(err)
 			});
 		}
+
+		scheduleIncrementalConsolidation(userId, thoughtId);
 	}
 }
 

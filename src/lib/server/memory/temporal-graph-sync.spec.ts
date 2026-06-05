@@ -98,16 +98,54 @@ describe('syncTemporalEventsFromThought', () => {
 			.mockResolvedValueOnce([{ id: 'ev-new' }])
 			.mockResolvedValueOnce([{ id: 'job-1' }]);
 
+		const capturedAt = new Date('2026-06-02T09:00:00.000Z');
+
 		await syncTemporalEventsFromThought({
 			userId: 'u1',
 			thoughtId: 't1',
 			normalizedText: 'Report due Friday',
 			thoughtEmbedding: [0.5, 0.6],
+			capturedAt,
 			timezone: 'UTC'
 		});
 
+		expect(extractTemporalMentionsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				capturedAt,
+				timezone: 'UTC'
+			})
+		);
 		expect(db.transaction).toHaveBeenCalledTimes(2);
 		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 		expect(processPendingGraphSyncJobsMock).toHaveBeenCalled();
+	});
+
+	it('persists thought capture time in parse_metadata.capturedAt', async () => {
+		const capturedAt = new Date('2026-06-02T09:00:00.000Z');
+		const insertValuesCalls: unknown[] = [];
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		extractTemporalMentionsMock.mockResolvedValue([sampleMention]);
+		db.insertValues.mockImplementation((values: unknown) => {
+			insertValuesCalls.push(values);
+			return { returning: db.insertReturning };
+		});
+		db.insertReturning.mockResolvedValueOnce([{ id: 'ev-new' }]).mockResolvedValueOnce([{ id: 'job-1' }]);
+
+		await syncTemporalEventsFromThought({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'Report due Friday',
+			capturedAt,
+			timezone: 'UTC'
+		});
+
+		const temporalInsert = insertValuesCalls.find(
+			(v) =>
+				v &&
+				typeof v === 'object' &&
+				'parseMetadata' in (v as Record<string, unknown>)
+		) as { parseMetadata?: { capturedAt?: string } } | undefined;
+		expect(temporalInsert?.parseMetadata?.capturedAt).toBe(capturedAt.toISOString());
 	});
 });

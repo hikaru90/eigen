@@ -72,6 +72,7 @@ export default defineConfig({
 				'src/lib/server/llm/embedding-compress/index.ts',
 				'src/lib/server/llm/embedding-compress/types.ts',
 				'src/lib/server/llm/embedding-compress/tokenize.ts',
+				'src/lib/server/llm/types.ts',
 				'src/lib/vitest-examples/**',
 				'src/routes/**/+page.server.ts',
 				'src/routes/**/*.svelte',
@@ -91,10 +92,10 @@ export default defineConfig({
 				? {
 						thresholds: {
 							'src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity}/**': {
-								lines: 90,
-								branches: 75,
-								functions: 93,
-								statements: 88
+								lines: 95,
+								branches: 95,
+								functions: 95,
+								statements: 95
 							},
 							'src/lib/server/db/**': {
 								lines: 80,

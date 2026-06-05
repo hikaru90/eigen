@@ -16,6 +16,11 @@ import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/vali
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
 import { resolveMcpRetrievalMode } from '$lib/server/mcp/resolve-retrieval-mode';
 import { thoughtSnippet } from '$lib/server/mcp/snippet';
+import {
+	compactTemporalFieldsForMcp,
+	enhanceSnippetWithTemporalContext,
+	loadTemporalContextByThoughtIds
+} from '$lib/server/memory/temporal-context';
 
 export type McpToolProgress = {
 	tool: string;
@@ -35,6 +40,62 @@ function asObject(input: unknown): Record<string, unknown> {
 function parseDetailLevel(body: Record<string, unknown>): 'snippet' | 'full' {
 	const detail = body.detail;
 	return detail === 'full' ? 'full' : 'snippet';
+}
+
+type McpThoughtSnippetRow = {
+	id: string;
+	category: string;
+	createdAt: Date;
+	normalizedText: string;
+	memoryType?: string | null;
+	scoreNormalized?: number;
+};
+
+async function buildMcpThoughtSnippetRows(
+	userId: string,
+	rows: Array<Omit<McpThoughtSnippetRow, 'snippet'> & { score?: number }>,
+	weights: { vector: number; graph: number },
+	now: Date
+): Promise<
+	Array<{
+		id: string;
+		category: string;
+		createdAt: Date;
+		snippet: string;
+		temporalStatus: 'none' | 'active' | 'expired';
+		temporalSummary?: string;
+		memoryType?: string;
+		scoreNormalized?: number;
+	}>
+> {
+	const contextByThoughtId = await loadTemporalContextByThoughtIds({
+		userId,
+		thoughtIds: rows.map((row) => row.id),
+		now
+	});
+
+	return rows.map((row) => {
+		const ctx = contextByThoughtId.get(row.id);
+		const { temporalStatus, temporalSummary } = compactTemporalFieldsForMcp(ctx, now);
+		const baseSnippet = thoughtSnippet(row.normalizedText);
+		return {
+			id: row.id,
+			category: row.category,
+			createdAt: row.createdAt.toISOString(),
+			temporalStatus,
+			...(temporalSummary ? { temporalSummary } : {}),
+			...(row.memoryType ? { memoryType: row.memoryType } : {}),
+			...(typeof row.score === 'number'
+				? { scoreNormalized: normalizeFusedRrfScore(row.score, weights) }
+				: {}),
+			snippet: enhanceSnippetWithTemporalContext({
+				snippet: baseSnippet,
+				storedAt: row.createdAt,
+				temporalStatus,
+				temporalSummary
+			})
+		};
+	});
 }
 
 export async function runCaptureThoughtTool(context: McpToolContext, args: unknown) {
@@ -70,15 +131,23 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 		return sanitizeMcpToolResult({ count: thoughts.length, thoughts });
 	}
 
-	return sanitizeMcpToolResult({
-		count: thoughts.length,
-		thoughts: thoughts.map((row) => ({
+	const now = new Date();
+	const snippetRows = await buildMcpThoughtSnippetRows(
+		context.userId,
+		thoughts.map((row) => ({
 			id: row.id,
 			category: row.category,
-			snippet: thoughtSnippet(row.normalizedText),
 			createdAt: row.createdAt,
-			...(row.memoryType ? { memoryType: row.memoryType } : {})
-		}))
+			normalizedText: row.normalizedText,
+			memoryType: row.memoryType
+		})),
+		CONTEXT_WEIGHTS.default,
+		now
+	);
+
+	return sanitizeMcpToolResult({
+		count: snippetRows.length,
+		thoughts: snippetRows
 	});
 }
 
@@ -97,6 +166,9 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	const weights = CONTEXT_WEIGHTS.default;
 	const mode = resolveMcpRetrievalMode(query, explicitMode);
 	const effectiveTopK = topK ?? 10;
+
+	const retrieveStart = Date.now();
+	console.info('[mcp.tool:retrieve_thoughts] start', { query, topK: effectiveTopK, mode, threshold: threshold ?? null });
 
 	context.onToolProgress?.({
 		tool: 'retrieve_thoughts',
@@ -125,18 +197,37 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 				);
 
 	if (detail === 'full') {
-		return sanitizeMcpToolResult({ count: filtered.length, results: filtered });
+		const out = sanitizeMcpToolResult({ count: filtered.length, results: filtered });
+		console.info('[mcp.tool:retrieve_thoughts] done', {
+			durationMs: Date.now() - retrieveStart,
+			resultCount: filtered.length
+		});
+		return out;
 	}
 
-	return sanitizeMcpToolResult({
-		count: filtered.length,
-		results: filtered.map((row) => ({
+	const now = new Date();
+	const snippetRows = await buildMcpThoughtSnippetRows(
+		context.userId,
+		filtered.map((row) => ({
 			id: row.id,
 			category: row.category,
-			snippet: thoughtSnippet(row.normalizedText),
-			scoreNormalized: normalizeFusedRrfScore(row.score, weights)
-		}))
+			createdAt: row.createdAt,
+			normalizedText: row.normalizedText,
+			score: row.score
+		})),
+		weights,
+		now
+	);
+
+	const out = sanitizeMcpToolResult({
+		count: snippetRows.length,
+		results: snippetRows
 	});
+	console.info('[mcp.tool:retrieve_thoughts] done', {
+		durationMs: Date.now() - retrieveStart,
+		resultCount: filtered.length
+	});
+	return out;
 }
 
 export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {
@@ -215,6 +306,8 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 		throw new Error('question is required');
 	}
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
+	const answerStart = Date.now();
+	console.info('[mcp.tool:answer_question] start', { question, topK: topK ?? null });
 	const result = await composeAnswer({
 		userId: context.userId,
 		question,
@@ -225,12 +318,18 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 				searching: 'Searching your memories…',
 				composing: 'Composing answer from matches…'
 			};
+			console.info('[mcp.tool:answer_question] progress', { phase });
 			context.onToolProgress?.({
 				tool: 'answer_question',
 				phase,
 				label: labels[phase] ?? 'Working…'
 			});
 		}
+	});
+	console.info('[mcp.tool:answer_question] done', {
+		durationMs: Date.now() - answerStart,
+		citationCount: result.citations.length,
+		retrievedCount: result.retrieved.length
 	});
 	return sanitizeMcpToolResult(result);
 }

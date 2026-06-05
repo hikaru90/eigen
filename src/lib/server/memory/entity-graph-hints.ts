@@ -3,6 +3,7 @@ import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityResolutionLog } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
 import { buildEntityAdjacency, neighborEntityIds } from '$lib/server/memory/entity-link-graph';
+import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { ENTITY_RETRY_SIGNAL, type KnownEntityHint } from '$lib/server/memory/entity-extraction';
 
@@ -77,7 +78,29 @@ const SENTENCE_START_PROPER_NOUN_SKIP = new Set([
 	'often'
 ]);
 
+/** Sentence-initial German pronouns — not proper names. */
+const GERMAN_PRONOUNS_AT_START = new Set(['sie', 'ich', 'er', 'es', 'wir', 'ihr', 'du']);
+
 const LEXICAL_HINT_SCAN_LIMIT = 200;
+
+/** Canonical labels that are pronouns or idioms — not useful graph hints. */
+export function isRejectedLexicalEntityLabel(label: string, normalizedText: string): boolean {
+	const lower = label.trim().toLowerCase();
+	if (GERMAN_PRONOUNS_AT_START.has(lower)) return true;
+	if (lower === 'hause' && /\bzu\s+hause\b/i.test(normalizedText)) return true;
+	return false;
+}
+
+/** Whole-token match for single-word labels; phrase match for multi-word labels. */
+export function lexicalLabelAppearsInText(normalizedText: string, label: string): boolean {
+	const labelKey = computeLexicalText(label);
+	if (!labelKey) return false;
+	const labelTokens = labelKey.split(' ').filter((t) => t.length > 0);
+	if (labelTokens.length === 1) {
+		return tokenizeLexicalQuery(normalizedText).includes(labelTokens[0]!);
+	}
+	return computeLexicalText(normalizedText).includes(labelKey);
+}
 
 /**
  * Known-entity hints from graph context (same-thought resolutions + ENTITY_RELATES neighbors).
@@ -168,8 +191,9 @@ export async function loadLexicalCanonicalEntityHints(input: {
 	for (const row of rows) {
 		const label = typeof row.label === 'string' ? row.label.trim() : '';
 		if (label.length < 2) continue;
+		if (isRejectedLexicalEntityLabel(label, input.normalizedText)) continue;
+		if (!lexicalLabelAppearsInText(input.normalizedText, label)) continue;
 		const labelKey = computeLexicalText(label);
-		if (!labelKey || !textKey.includes(labelKey)) continue;
 		const dedupe = `${labelKey}\0${row.entityType}`;
 		if (seen.has(dedupe)) continue;
 		seen.add(dedupe);
@@ -202,6 +226,8 @@ export function loadTextDerivedEntityHints(normalizedText: string): KnownEntityH
 		const isSentenceStart =
 			index === 0 || /[.!?]\s*$/.test(normalizedText.slice(0, index));
 		if (isSentenceStart && SENTENCE_START_PROPER_NOUN_SKIP.has(label.toLowerCase())) continue;
+		if (isSentenceStart && GERMAN_PRONOUNS_AT_START.has(label.toLowerCase())) continue;
+		if (label.toLowerCase() === 'hause' && /\bzu\s*$/i.test(normalizedText.slice(0, index))) continue;
 		addHint(label, 'person');
 	}
 

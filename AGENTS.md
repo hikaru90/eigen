@@ -138,3 +138,10 @@
 - When a **test or eval check fails**, fix the underlying bug (RLS, billing context, enrichment order, LLM config, stale corpus data). Do **not** weaken assertions, skip tests, or add heuristic/fallback paths to green the build. See [`.cursor/rules/fix-root-cause-not-workaround.mdc`](.cursor/rules/fix-root-cause-not-workaround.mdc) and [`no-fallbacks.mdc`](.cursor/rules/no-fallbacks.mdc).
 - **Eval entity checks** depend on real `entity_resolution_log` rows from successful enrichment. Root fixes include: `activity_call_log` inserts under the RLS tenant (`tenantUserAsyncLocal`), eval re-enrich kicks with `billingUserId`, corpus reuse only maps fixtures after entity assert/reenrich, and LLM mention extraction with the existing retry pass (not regex bootstrap after `[]`).
 - Add or update a **unit test** for each invariant you fix so the regression cannot return silently.
+
+## Generalize ingest fixes (no thought-specific patches)
+- Capture, enrichment, retrieval, and entity resolution must work for **every thought any user may ingest** — not only the thought currently in logs, eval output, or the operator’s session.
+- A failing or noisy capture is **evidence of a bug class**, not a specification. Do **not** hardcode fixes keyed on a specific `thought_id`, exact normalized/raw text, eval catalog slug, or one-off corpus row.
+- Do **not** add special-case branches like “if text contains X from this capture, do Y.” Prefer language-level rules, ontology contracts, token/span boundaries, and structural invariants that generalize.
+- Unit tests may use concrete example strings to **illustrate** a class (e.g. German pronouns, substring false positives), but production code must not depend on those exact strings as the fix.
+- If the only fix you can imagine is scoped to one thought, stop and redesign — the pipeline is wrong, not that thought.

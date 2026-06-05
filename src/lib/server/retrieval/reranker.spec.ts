@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { rerankCandidates } from './reranker';
+import { RerankError, rerankCandidates } from './reranker';
 import type { RerankCandidate } from './reranker';
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
@@ -30,22 +30,19 @@ describe('rerankCandidates', () => {
 		expect(result.map((r) => r.id)).toEqual(['c', 'a', 'b']);
 	});
 
-	it('returns original order when LLM returns invalid JSON', async () => {
+	it('throws RerankError when LLM returns invalid JSON', async () => {
 		llmChatCompletionMock.mockResolvedValue(makeResponse('not valid json'));
-		const result = await rerankCandidates('u1', 'query', candidates);
-		expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError);
 	});
 
-	it('returns original order when LLM call fails', async () => {
+	it('throws RerankError when LLM call fails', async () => {
 		llmChatCompletionMock.mockRejectedValue(new Error('LLM error'));
-		const result = await rerankCandidates('u1', 'query', candidates);
-		expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError);
 	});
 
-	it('returns original order when LLM returns non-array JSON', async () => {
+	it('throws RerankError when LLM returns non-array JSON', async () => {
 		llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["a","b"]}'));
-		const result = await rerankCandidates('u1', 'query', candidates);
-		expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError);
 	});
 
 	it('returns input unchanged for single candidate', async () => {

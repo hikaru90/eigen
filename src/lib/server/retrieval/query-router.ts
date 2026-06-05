@@ -10,12 +10,30 @@
  * Uses heuristics first (fast, no LLM cost). Ambiguous queries default to 'local'
  * because the local path also includes graph expansion and handles most cases well.
  *
- * The router is intended for the QA compose layer once global/relational routing
- * is re-scoped beyond MVP. Today it is unit-tested only; production paths always
- * call `searchThoughts` with `CONTEXT_WEIGHTS.default`.
+ * Production `composeAnswer` routes `global` queries to `searchGlobal` when
+ * `community_summary` rows exist; otherwise it falls back to `searchThoughts`.
  */
 
 export type QueryType = 'local' | 'relational' | 'global';
+
+/**
+ * Self-profile / meta-memory queries about the user as a whole (not a named third party).
+ * Checked before relational patterns so "what do I know about me?" stays global.
+ */
+const SELF_PROFILE_PATTERNS = [
+	/\bwhat do you know about me\b/i,
+	/\bwhat do you remember about me\b/i,
+	/\beverything you know about me\b/i,
+	/\btell me what you know about me\b/i,
+	/\bwho am i\b/i,
+	/\bwhat are you storing about me\b/i,
+	/\bwas weiss?t du (alles )?uber mich\b/i,
+	/\bwas wei[sß]t du (alles )?über mich\b/i,
+	/\bwas kennst du (an|über) mich\b/i,
+	/\berzähl mir (alles )?(über )?mich\b/i,
+	/\bwer bin ich\b/i,
+	/\bwas hast du über mich\b/i
+];
 
 /**
  * Global sensemaking patterns: queries that ask about patterns, themes, trends,
@@ -61,7 +79,11 @@ const RELATIONAL_PATTERNS = [
 export function classifyQueryType(query: string): QueryType {
 	const trimmed = query.trim();
 
-	// Relational check FIRST: entity-specific queries take priority over
+	for (const pattern of SELF_PROFILE_PATTERNS) {
+		if (pattern.test(trimmed)) return 'global';
+	}
+
+	// Relational check: entity-specific queries take priority over
 	// broad pattern signals (e.g. "what do I know about Anna?" is relational,
 	// not global, even though it contains "what do I").
 	for (const pattern of RELATIONAL_PATTERNS) {

@@ -7,8 +7,7 @@
  * paths always use `CONTEXT_WEIGHTS.default` unless a caller passes explicit `weights`
  * (e.g. `composeAnswer` input).
  *
- * Global sensemaking (`searchGlobal` + `classifyQueryType` `'global'`) is similarly deferred;
- * see docs/repo-map/retrieval.md § Global retrieval (deferred).
+ * All surfaces use unified `retrieveEvidence`; see docs/repo-map/retrieval.md.
  */
 
 export type RetrievalMode = 'default' | 'relation_centric';

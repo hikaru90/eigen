@@ -1,19 +1,11 @@
 /**
  * LLM-based listwise reranker.
  *
- * Takes the top-k candidates from RRF fusion and re-ranks them using a single
+ * Takes the top-k candidates from weighted merge and re-ranks them using a single
  * LLM prompt that sees both the query and all candidate excerpts together.
- * This allows the model to compare candidates against each other and apply
- * richer reasoning than cosine similarity alone.
  *
- * Context-aware: includes the user's 3 most recent captures as context
- * so the reranker can prefer currently-relevant memories over stale ones.
- *
- * Cost: 1 LLM call per search when reranking is triggered.
- * Only triggered when: topK ≤ 15 (controlled by caller).
- *
- * Returns the input candidates in reranked order.
- * If reranking fails, returns the original order (fail-safe).
+ * Cost: 1 LLM call per retrieval.
+ * Hard-fails on LLM/parse errors (no silent fallback).
  */
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
@@ -29,14 +21,18 @@ export type RecentContext = {
 	normalizedText: string;
 };
 
+export class RerankError extends Error {
+	constructor(message: string, cause?: unknown) {
+		super(message);
+		this.name = 'RerankError';
+		if (cause instanceof Error) this.cause = cause;
+	}
+}
+
 /**
  * Rerank candidates using a single listwise LLM prompt.
  *
- * @param userId - Tenant identifier (for LLM billing).
- * @param query - The original search query.
- * @param candidates - Top-k candidates from RRF fusion.
- * @param recentContext - Optional recent captures for context awareness.
- * @returns Candidates in reranked order. Returns original order on failure.
+ * @throws {RerankError} when the LLM call or response parse fails.
  */
 export async function rerankCandidates<T extends RerankCandidate>(
 	userId: string,
@@ -76,8 +72,9 @@ export async function rerankCandidates<T extends RerankCandidate>(
 		.filter((l) => l !== null)
 		.join('\n');
 
+	let response: unknown;
 	try {
-		const response = await llmChatCompletion({
+		response = await llmChatCompletion({
 			userId,
 			messages: [
 				{
@@ -87,43 +84,51 @@ export async function rerankCandidates<T extends RerankCandidate>(
 				},
 				{ role: 'user', content: prompt }
 			],
-			temperature: 0
+			temperature: 0,
+			logContext: 'retrieval_rerank'
 		});
-
-		const choices = (response as { choices?: unknown }).choices;
-		if (!Array.isArray(choices) || choices.length === 0) return candidates;
-
-		const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
-		if (typeof content !== 'string') return candidates;
-
-		// Parse the ranked ID list.
-		let rankedIds: string[];
-		try {
-			const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-			const parsed = JSON.parse(cleaned) as unknown;
-			if (!Array.isArray(parsed)) return candidates;
-			rankedIds = parsed.filter((v): v is string => typeof v === 'string');
-		} catch {
-			return candidates;
-		}
-
-		// Reorder candidates according to ranked IDs.
-		const indexById = new Map<string, number>();
-		rankedIds.forEach((id, idx) => indexById.set(id, idx));
-
-		const reranked = [...candidates].sort((a, b) => {
-			const rankA = indexById.get(a.id) ?? candidates.length;
-			const rankB = indexById.get(b.id) ?? candidates.length;
-			return rankA - rankB;
-		});
-
-		return reranked;
 	} catch (err) {
-		// Fail-safe: return original order if reranking fails.
-		console.warn('[reranker] reranking failed, returning original order', {
-			userId,
-			message: err instanceof Error ? err.message : String(err)
-		});
-		return candidates;
+		throw new RerankError(
+			`Rerank LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
+			err
+		);
 	}
+
+	const choices = (response as { choices?: unknown }).choices;
+	if (!Array.isArray(choices) || choices.length === 0) {
+		throw new RerankError('Rerank LLM returned no choices');
+	}
+
+	const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
+	if (typeof content !== 'string' || !content.trim()) {
+		throw new RerankError('Rerank LLM returned empty content');
+	}
+
+	let rankedIds: string[];
+	try {
+		const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+		const parsed = JSON.parse(cleaned) as unknown;
+		if (!Array.isArray(parsed)) {
+			throw new RerankError('Rerank LLM response is not a JSON array');
+		}
+		rankedIds = parsed.filter((v): v is string => typeof v === 'string');
+		if (rankedIds.length === 0) {
+			throw new RerankError('Rerank LLM returned an empty ID array');
+		}
+	} catch (err) {
+		if (err instanceof RerankError) throw err;
+		throw new RerankError(
+			`Failed to parse rerank response: ${err instanceof Error ? err.message : String(err)}`,
+			err
+		);
+	}
+
+	const indexById = new Map<string, number>();
+	rankedIds.forEach((id, idx) => indexById.set(id, idx));
+
+	return [...candidates].sort((a, b) => {
+		const rankA = indexById.get(a.id) ?? candidates.length;
+		const rankB = indexById.get(b.id) ?? candidates.length;
+		return rankA - rankB;
+	});
 }

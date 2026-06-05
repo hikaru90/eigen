@@ -13,8 +13,8 @@
  * This is separate from `searchThoughts` (which handles local/relational queries)
  * because it retrieves from `community_summary` rows, not `thought` rows.
  *
- * **Not wired into production callers yet** — `classifyQueryType` and compose-answer
- * still always use `searchThoughts`. See docs/repo-map/retrieval.md § Global retrieval (deferred).
+ * Wired into `composeAnswer` for queries classified as `global` when community
+ * summaries exist. See docs/repo-map/retrieval.md § Global retrieval.
  *
  * Cost: N community LLM calls + 1 reduce LLM call + 1 embedding call.
  * Controlled by `topCommunities` (default 5).
@@ -32,6 +32,65 @@ export type GlobalSearchResult = {
 	/** Community summaries that contributed to the answer, for provenance. */
 	sources: Array<{ communityId: string; level: number; summaryExcerpt: string }>;
 };
+
+/** True when nightly consolidation has produced at least one embedded community summary. */
+export async function hasCommunitySummaries(userId: string): Promise<boolean> {
+	const db = getDb();
+	const rows = await db
+		.select({ id: communitySummary.id })
+		.from(communitySummary)
+		.where(
+			and(
+				eq(communitySummary.userId, userId),
+				isNotNull(communitySummary.summaryEmbedding)
+			)
+		)
+		.limit(1);
+	return rows.length > 0;
+}
+
+export type RelevantCommunitySummary = {
+	communityId: string;
+	level: number;
+	summaryText: string;
+};
+
+/**
+ * Fetch the community summaries most relevant to a query embedding (HNSW cosine),
+ * WITHOUT the map-reduce LLM step. Used as cheap thematic context for blended
+ * profile/global answers in `composeAnswer` (no extra embedding or LLM cost).
+ */
+export async function fetchRelevantCommunitySummaries(params: {
+	userId: string;
+	queryEmbedding: number[];
+	limit?: number;
+}): Promise<RelevantCommunitySummary[]> {
+	const limit = Math.max(1, Math.min(params.limit ?? 6, 20));
+	const vectorLiteral = `[${params.queryEmbedding.join(',')}]`;
+	const db = getDb();
+	const distanceExpr = sql<number>`${communitySummary.summaryEmbedding} <=> ${vectorLiteral}::vector`;
+	const rows = await db
+		.select({
+			communityId: communitySummary.communityId,
+			level: communitySummary.level,
+			summaryText: communitySummary.summaryText,
+			distance: distanceExpr
+		})
+		.from(communitySummary)
+		.where(
+			and(
+				eq(communitySummary.userId, params.userId),
+				isNotNull(communitySummary.summaryEmbedding)
+			)
+		)
+		.orderBy(distanceExpr)
+		.limit(limit);
+	return rows.map((r) => ({
+		communityId: r.communityId,
+		level: r.level,
+		summaryText: r.summaryText
+	}));
+}
 
 /**
  * Generate a global sensemaking answer by querying community summaries.

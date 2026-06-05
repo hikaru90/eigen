@@ -16,7 +16,7 @@
  * (checked via community.updatedAt > summary.generatedAt).
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	graphCommunity,
@@ -27,6 +27,7 @@ import {
 } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
+import { loadCommunityThoughtIds } from './community-bundles';
 
 const SUMMARY_BATCH_SIZE = 20;
 
@@ -134,16 +135,6 @@ async function loadCommunityContext(
 		)
 		.limit(50);
 
-	// Load a sample of thoughts that mention at least one member entity.
-	const memberEntityIds = await db
-		.select({ id: canonicalEntity.id })
-		.from(communityMember)
-		.innerJoin(canonicalEntity, eq(communityMember.canonicalEntityId, canonicalEntity.id))
-		.where(
-			and(eq(communityMember.communityId, communityId), eq(communityMember.userId, userId))
-		)
-		.limit(20);
-
 	const [communityRow] = await db
 		.select({ level: graphCommunity.level })
 		.from(graphCommunity)
@@ -153,36 +144,16 @@ async function loadCommunityContext(
 	let relatedThoughts: string[] = [];
 	let thoughtCount = 0;
 
-	if (memberEntityIds.length > 0) {
-		const entityIds = memberEntityIds.map((e) => e.id);
+	const thoughtIds = await loadCommunityThoughtIds(userId, communityId, 20);
+	thoughtCount = thoughtIds.length;
 
-		// Use raw SQL to find thoughts mentioning these entities via thought.metadata
-		// (entity references are stored there) or via thought text matching.
-		// Simple approach: get thoughts that have category/text related to entity labels.
-		const memberLabels = members.map((m) => m.label.toLowerCase());
-		const allThoughts = await db
-			.select({ normalizedText: thought.normalizedText, createdAt: thought.createdAt })
+	if (thoughtIds.length > 0) {
+		const samples = await db
+			.select({ normalizedText: thought.normalizedText })
 			.from(thought)
-			.where(eq(thought.userId, userId))
-			.orderBy(sql`${thought.createdAt} DESC`)
-			.limit(200);
-
-		// Filter thoughts that mention at least one entity label.
-		const matching = allThoughts.filter((t) =>
-			memberLabels.some((label) => t.normalizedText.toLowerCase().includes(label))
-		);
-
-		thoughtCount = matching.length;
-		const seen = new Set<string>();
-		relatedThoughts = matching
-			.filter((t) => {
-				const key = t.normalizedText.toLowerCase();
-				if (seen.has(key)) return false;
-				seen.add(key);
-				return true;
-			})
-			.slice(0, 5)
-			.map((t) => t.normalizedText.slice(0, 200));
+			.where(and(eq(thought.userId, userId), inArray(thought.id, thoughtIds)))
+			.limit(5);
+		relatedThoughts = samples.map((t) => t.normalizedText.slice(0, 200));
 	}
 
 	return {
@@ -291,9 +262,10 @@ async function runCommunitySummaryBatch(
 			if (typeof content !== 'string' || !content.trim()) continue;
 
 			const summaryText = content.trim().slice(0, 4000);
+			const summaryShort = summaryText.split(/[.!?]/).slice(0, 2).join('. ').trim().slice(0, 500);
 
-			// Embed the summary.
-			const embedding = await createThoughtEmbedding(userId, summaryText);
+			// Embed the short routing summary for ANN.
+			const embedding = await createThoughtEmbedding(userId, summaryShort || summaryText);
 
 			if (!(await communityStillExists(userId, community.id))) {
 				console.warn('[consolidation.summary] stale community skipped (graph was rebuilt)', {
@@ -309,6 +281,7 @@ async function runCommunitySummaryBatch(
 					userId,
 					communityId: community.id,
 					level: community.level,
+					summaryShort: summaryShort || summaryText.slice(0, 500),
 					summaryText,
 					summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 					entityCount: ctx.entityLabels.length,
@@ -317,6 +290,7 @@ async function runCommunitySummaryBatch(
 				.onConflictDoUpdate({
 					target: communitySummary.communityId,
 					set: {
+						summaryShort: summaryShort || summaryText.slice(0, 500),
 						summaryText,
 						summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 						entityCount: ctx.entityLabels.length,

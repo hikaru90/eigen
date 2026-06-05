@@ -131,3 +131,13 @@
 - Given typical system load
 - When retrieval is requested
 - Then p95 response time is <= 8 seconds.
+
+### AC-025 Global Q&A via community summaries (active)
+- Given a user with at least one embedded `community_summary` row from consolidation
+- When `composeAnswer` receives a query classified as `global` (themes, patterns, or self-profile such as “what do you know about me?” / “was weißt du über mich?”)
+- Then retrieval uses `searchGlobal` (community summary map-reduce) instead of `searchThoughts`, and the answer is synthesised from community partial answers without inventing thought `[id]` citations.
+
+### AC-026 Global Q&A fallback without consolidation index (active)
+- Given a user with no embedded `community_summary` rows
+- When `composeAnswer` receives a `global`-classified query
+- Then the system falls back to `searchThoughts` (local hybrid) and logs the fallback; it does not fail silently or substitute a canned profile answer.

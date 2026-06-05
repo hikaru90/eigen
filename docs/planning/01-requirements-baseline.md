@@ -79,9 +79,10 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 3. Persist on submit and return a natural-language "stored result" summary.
 4. Support natural-language post-submit edits from UI and MCP.
 5. Provide list/search/edit MCP operations.
-6. Route retrieval (MVP lock):
-   - Single default mode only: vector-first then graph expansion.
-   - Relation-centric routing, intent classification, and alternate weighting are deferred until explicitly re-scoped.
+6. Route retrieval:
+   - **Default (local/relational):** vector-first hybrid then graph expansion (`searchThoughts`).
+   - **Global sensemaking (Q&A only):** when `classifyQueryType` is `global` and `community_summary` rows exist, `composeAnswer` uses GraphRAG-style `searchGlobal` (community map-reduce). Without summaries, global queries fall back to `searchThoughts`.
+   - Relation-centric alternate weighting remains deferred (AC-011/013).
 7. Apply deterministic context selection weights for the default mode:
    - Default queries: **0.7** on the combined semantic (vector + lexical) RRF score and **0.3** on the graph RRF score (product shorthand: `0.7 vector + 0.3 graph`; see AC-012).
 8. Log all relevant LLM/API calls with transparent pricing details.

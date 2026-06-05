@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
+import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 
 export type LexicalSearchResult = {
 	id: string;
@@ -22,12 +23,8 @@ export type LexicalSearchResult = {
  * still rewards documents that match more tokens.
  */
 export function buildLexicalTsQuery(query: string): string {
-	const tokens = query
-		.normalize('NFKC')
-		.toLowerCase()
-		.split(/[^a-z0-9]+/g)
-		.map((token) => token.trim())
-		.filter((token, index, arr) => token.length >= 3 && arr.indexOf(token) === index)
+	const tokens = tokenizeLexicalQuery(query)
+		.filter((token) => token.length >= 3)
 		.slice(0, 32);
 	return tokens.join(' | ');
 }

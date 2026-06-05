@@ -3,6 +3,7 @@
  */
 import { sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 import {
 	renderCypherQuery,
@@ -325,11 +326,8 @@ function parseRelTypesFromAge(value: unknown): string[] {
 }
 
 function graphQueryTokens(query: string): string[] {
-	return query
-		.toLowerCase()
-		.split(/[^a-z0-9]+/g)
-		.map((token) => token.trim())
-		.filter((token, index, arr) => token.length >= 2 && arr.indexOf(token) === index)
+	return tokenizeLexicalQuery(query)
+		.filter((token) => token.length >= 2)
 		.slice(0, 16);
 }
 

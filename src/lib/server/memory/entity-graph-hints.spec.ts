@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	lexicalLabelAppearsInText,
 	loadIngestKnownEntityHints,
 	loadLexicalCanonicalEntityHints,
 	loadTextDerivedEntityHints
@@ -38,6 +39,32 @@ describe('loadIngestKnownEntityHints', () => {
 			])
 		);
 	});
+
+	it('returns no false positives for German work-from-home note', async () => {
+		limitMock.mockResolvedValue([
+			{ label: 'eu', entityType: 'organization' },
+			{ label: 'Sie', entityType: 'person' },
+			{ label: 'Hause', entityType: 'person' }
+		]);
+
+		const hints = await loadIngestKnownEntityHints({
+			userId: 'u1',
+			normalizedText: 'Sie arbeitet heute von zu Hause aus.'
+		});
+
+		expect(hints).toEqual([]);
+	});
+});
+
+describe('lexicalLabelAppearsInText', () => {
+	it('matches whole tokens only (eu must not match inside heute)', () => {
+		expect(lexicalLabelAppearsInText('Sie arbeitet heute von zu Hause aus.', 'eu')).toBe(false);
+		expect(lexicalLabelAppearsInText('der space ist in der eu hafencity', 'eu')).toBe(true);
+	});
+
+	it('matches multi-word labels as phrases', () => {
+		expect(lexicalLabelAppearsInText('der space ist in der hafen city', 'hafen city')).toBe(true);
+	});
 });
 
 describe('loadLexicalCanonicalEntityHints', () => {
@@ -63,6 +90,11 @@ describe('loadLexicalCanonicalEntityHints', () => {
 });
 
 describe('loadTextDerivedEntityHints', () => {
+	it('does not treat German pronouns or zu Hause as person names', () => {
+		const hints = loadTextDerivedEntityHints('Sie arbeitet heute von zu Hause aus.');
+		expect(hints).toEqual([]);
+	});
+
 	it('returns Jonas and silence hints for the creative-work needle text', () => {
 		const jonasSilence =
 			'Before any creative work, Jonas needs at least 20 minutes of silence — music or noise kills his flow completely.';

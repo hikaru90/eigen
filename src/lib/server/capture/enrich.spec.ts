@@ -42,14 +42,22 @@ vi.mock('$lib/server/graph/age', () => ({
 function makeDb(overrides: Partial<{
 	updateResult: unknown;
 	transactionResult: unknown;
+	createdAt: Date;
 }> = {}) {
 	const updateChain = {
 		set: vi.fn(() => ({
 			where: vi.fn(async () => overrides.updateResult ?? undefined)
 		}))
 	};
+	const selectLimit = vi.fn(async () =>
+		overrides.createdAt ? [{ createdAt: overrides.createdAt }] : [{ createdAt: new Date('2026-06-02T09:00:00.000Z') }]
+	);
+	const selectWhere = vi.fn(() => ({ limit: selectLimit }));
+	const selectFrom = vi.fn(() => ({ where: selectWhere }));
+	const selectFn = vi.fn(() => ({ from: selectFrom }));
 	return {
 		update: vi.fn(() => updateChain),
+		select: selectFn,
 		transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
 			cb({
 				delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
@@ -109,6 +117,23 @@ describe('enrichThought', () => {
 
 		expect(order.indexOf('entities')).toBeGreaterThanOrEqual(0);
 		expect(order.indexOf('temporal')).toBeGreaterThan(order.indexOf('entities'));
+	});
+
+	it('passes thought.createdAt as capturedAt to temporal sync', async () => {
+		const capturedAt = new Date('2026-06-02T09:00:00.000Z');
+		const db = makeDb({ createdAt: capturedAt });
+		getDbMock.mockReturnValue(db);
+
+		await enrichThought('u1', 't1', 'ich würde heute nachmittag die app trennen');
+
+		expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				thoughtId: 't1',
+				capturedAt,
+				timezone: 'UTC'
+			})
+		);
 	});
 
 	it('calls relation extraction and syncs relations to DB and AGE graph', async () => {

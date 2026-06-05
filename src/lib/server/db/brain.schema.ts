@@ -212,6 +212,17 @@ export const thought = pgTable(
 		enrichedAt: timestamp('enriched_at'),
 		/** Incremented each time enrichment re-runs (e.g. relink). */
 		enrichmentVersion: integer('enrichment_version').notNull().default(0),
+		/** Pre-truncated excerpt for listwise rerank (set at enrich). */
+		rerankSnippet: text('rerank_snippet'),
+		/** Communities this thought is most associated with (L2/L3), set at consolidation. */
+		primaryCommunityIds: uuid('primary_community_ids')
+			.array()
+			.notNull()
+			.default(sql`ARRAY[]::uuid[]`),
+		entityCentralityMax: real('entity_centrality_max').notNull().default(0),
+		specificityScore: real('specificity_score').notNull().default(0),
+		recencyBucket: real('recency_bucket').notNull().default(0),
+		bundleRank: real('bundle_rank').notNull().default(0),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -504,6 +515,79 @@ export const entityAlias = pgTable(
 	]
 );
 
+/** Materialized thought→entity links (from enrich); replaces AGE MENTIONS at query time. */
+export const thoughtEntity = pgTable(
+	'thought_entity',
+	{
+		thoughtId: uuid('thought_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		entityId: uuid('entity_id')
+			.notNull()
+			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		salience: real('salience').notNull().default(1),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.thoughtId, t.entityId], name: 'thought_entity_pk' }),
+		index('thought_entity_user_idx').on(t.userId),
+		index('thought_entity_entity_idx').on(t.entityId)
+	]
+);
+
+/** Materialized 1-hop thought neighbors (from thought_relation); replaces AGE RELATES_TO at query time. */
+export const thoughtNeighbor = pgTable(
+	'thought_neighbor',
+	{
+		thoughtId: uuid('thought_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		neighborId: uuid('neighbor_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		weight: real('weight').notNull().default(1),
+		relationType: text('relation_type').notNull().default('RELATES_TO'),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.thoughtId, t.neighborId], name: 'thought_neighbor_pk' }),
+		index('thought_neighbor_user_idx').on(t.userId),
+		index('thought_neighbor_neighbor_idx').on(t.neighborId)
+	]
+);
+
+/** Pre-ranked thoughts per entity for zero-traversal entity expansion. */
+export const entityTopThoughts = pgTable(
+	'entity_top_thoughts',
+	{
+		entityId: uuid('entity_id')
+			.primaryKey()
+			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		thoughtIds: uuid('thought_ids')
+			.array()
+			.notNull()
+			.default(sql`ARRAY[]::uuid[]`),
+		ranks: real('ranks')
+			.array()
+			.notNull()
+			.default(sql`ARRAY[]::real[]`),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [index('entity_top_thoughts_user_idx').on(t.userId)]
+);
+
 /** User-facing API keys for MCP / external tool access. */
 export const userApiKey = pgTable(
 	'user_api_key',
@@ -794,6 +878,8 @@ export const graphCommunity = pgTable(
 		level: integer('level').notNull(),
 		parentCommunityId: uuid('parent_community_id'),
 		memberCount: integer('member_count').notNull().default(0),
+		/** Set when membership changes; triggers incremental bundle/summary refresh. */
+		dirtyAt: timestamp('dirty_at'),
 		detectedAt: timestamp('detected_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -834,6 +920,45 @@ export const communityMember = pgTable(
 );
 
 /**
+ * Materialized community retrieval package — zero-traversal expansion at query time.
+ */
+export const communityBundle = pgTable(
+	'community_bundle',
+	{
+		communityId: uuid('community_id')
+			.primaryKey()
+			.references(() => graphCommunity.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		level: integer('level').notNull(),
+		topThoughtIds: uuid('top_thought_ids')
+			.array()
+			.notNull()
+			.default(sql`ARRAY[]::uuid[]`),
+		topEntityIds: uuid('top_entity_ids')
+			.array()
+			.notNull()
+			.default(sql`ARRAY[]::uuid[]`),
+		adjacentCommunityIds: uuid('adjacent_community_ids')
+			.array()
+			.notNull()
+			.default(sql`ARRAY[]::uuid[]`),
+		payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		index('community_bundle_user_idx').on(t.userId),
+		index('community_bundle_user_level_idx').on(t.userId, t.level)
+	]
+);
+
+export type CommunityBundle = typeof communityBundle.$inferSelect;
+
+/**
  * LLM-generated summaries for each community level.
  * L3 (leaf): factual — entity names, co-occurrence counts, date ranges.
  * L1-L2 (mid): structural — relationship frequency and patterns.
@@ -851,6 +976,8 @@ export const communitySummary = pgTable(
 			.notNull()
 			.references(() => graphCommunity.id, { onDelete: 'cascade' }),
 		level: integer('level').notNull(),
+		/** Short routing summary (1–2 sentences); embedded in summary_embedding for ANN. */
+		summaryShort: text('summary_short'),
 		summaryText: text('summary_text').notNull(),
 		summaryEmbedding: vector('summary_embedding', { dimensions: 1536 }),
 		entityCount: integer('entity_count').notNull().default(0),

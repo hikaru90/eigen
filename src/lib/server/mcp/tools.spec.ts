@@ -15,7 +15,8 @@ const {
 	listThoughtsMock,
 	editStoredThoughtMock,
 	deleteThoughtForUserMock,
-	getDbSelectMock
+	getDbSelectMock,
+	loadTemporalContextByThoughtIdsMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	composeAnswerMock: vi.fn(),
@@ -23,7 +24,25 @@ const {
 	listThoughtsMock: vi.fn(),
 	editStoredThoughtMock: vi.fn(),
 	deleteThoughtForUserMock: vi.fn(),
-	getDbSelectMock: vi.fn()
+	getDbSelectMock: vi.fn(),
+	loadTemporalContextByThoughtIdsMock: vi.fn()
+}));
+
+vi.mock('$lib/server/memory/temporal-context', () => ({
+	loadTemporalContextByThoughtIds: loadTemporalContextByThoughtIdsMock,
+	compactTemporalFieldsForMcp: vi.fn((ctx: { temporalStatus: string; temporalEvents: unknown[] } | undefined, _now: Date) => {
+		if (!ctx || ctx.temporalStatus === 'none') {
+			return { temporalStatus: 'none', temporalSummary: undefined };
+		}
+		return {
+			temporalStatus: ctx.temporalStatus,
+			temporalSummary: '"task" (Jun 2, 2026) — EXPIRED'
+		};
+	}),
+	enhanceSnippetWithTemporalContext: vi.fn(
+		(input: { snippet: string; storedAt: Date; temporalSummary?: string }) =>
+			`${input.snippet} (stored ${input.storedAt.toISOString().slice(0, 10)}${input.temporalSummary ? `; ${input.temporalSummary}` : ''})`
+	)
 }));
 
 vi.mock('$lib/server/retrieval/service', () => ({
@@ -60,6 +79,7 @@ function mockThoughtRow(row: Record<string, unknown> | null) {
 describe('MCP tools', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map());
 	});
 
 	it('rejects invalid search threshold', async () => {
@@ -119,9 +139,10 @@ describe('MCP tools', () => {
 		expect(out.thoughts[0]).toMatchObject({
 			id: 't1',
 			category: 'thought',
-			snippet: 'hello world'
+			snippet: expect.stringContaining('hello world'),
+			temporalStatus: 'none',
+			createdAt: '2024-01-01T00:00:00.000Z'
 		});
-		expect(out.thoughts[0]).toHaveProperty('createdAt');
 	});
 
 	it('runListThoughtsTool forwards detail=full', async () => {
@@ -161,7 +182,8 @@ describe('MCP tools', () => {
 				category: 'thought',
 				score: 0.02,
 				vectorScore: 0.02,
-				graphScore: 0
+				graphScore: 0,
+				createdAt: new Date('2026-06-02T10:00:00.000Z')
 			}
 		]);
 		const out = (await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hello' })) as {
@@ -179,9 +201,50 @@ describe('MCP tools', () => {
 		expect(out.results[0]).toMatchObject({
 			id: 'a',
 			category: 'thought',
-			snippet: 'long normalized text here'
+			temporalStatus: 'none',
+			createdAt: '2026-06-02T10:00:00.000Z'
 		});
+		expect(out.results[0].snippet).toContain('stored 2026-06-02');
 		expect(out.results[0]).not.toHaveProperty('normalizedText');
+	});
+
+	it('runRetrieveThoughtsTool includes temporal expiry fields when events exist', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 'a',
+				normalizedText: 'ich würde heute nachmittag die app trennen',
+				category: 'task',
+				score: 0.02,
+				vectorScore: 0.02,
+				graphScore: 0,
+				createdAt: new Date('2026-06-02T10:00:00.000Z')
+			}
+		]);
+		loadTemporalContextByThoughtIdsMock.mockResolvedValue(
+			new Map([
+				[
+					'a',
+					{
+						temporalStatus: 'expired',
+						temporalEvents: [
+							{
+								kind: 'reminder',
+								semanticSummary: 'separate app',
+								activePeriod: '[2026-06-02T12:00:00.000Z,2026-06-02T18:00:00.000Z)',
+								expired: true
+							}
+						]
+					}
+				]
+			])
+		);
+		const out = (await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'task' })) as {
+			results: Array<Record<string, unknown>>;
+		};
+		expect(out.results[0]).toMatchObject({
+			temporalStatus: 'expired',
+			temporalSummary: expect.stringContaining('EXPIRED')
+		});
 	});
 
 	it('runRetrieveThoughtsTool upgrades relational queries to full mode', async () => {
@@ -194,14 +257,39 @@ describe('MCP tools', () => {
 
 	it('runRetrieveThoughtsTool filters by normalized RRF threshold when provided', async () => {
 		searchThoughtsMock.mockResolvedValue([
-			{ id: 'a', normalizedText: 'A', category: 'thought', score: 0.02, vectorScore: 0.02, graphScore: 0 },
-			{ id: 'b', normalizedText: 'B', category: 'thought', score: 0.008, vectorScore: 0.008, graphScore: 0 }
+			{
+				id: 'a',
+				normalizedText: 'A',
+				category: 'thought',
+				score: 0.02,
+				vectorScore: 0.02,
+				graphScore: 0,
+				createdAt: new Date('2026-06-02T10:00:00.000Z')
+			},
+			{
+				id: 'b',
+				normalizedText: 'B',
+				category: 'thought',
+				score: 0.008,
+				vectorScore: 0.008,
+				graphScore: 0,
+				createdAt: new Date('2026-06-02T10:00:00.000Z')
+			}
 		]);
 		const out = (await runRetrieveThoughtsTool(
 			{ userId: 'u1' },
 			{ query: 'hi', top_k: 5, threshold: 0.5 }
 		)) as { results: Array<{ id: string }> };
-		expect(out.results).toEqual([{ id: 'a', category: 'thought', snippet: 'A', scoreNormalized: expect.any(Number) }]);
+		expect(out.results).toEqual([
+			{
+				id: 'a',
+				category: 'thought',
+				snippet: expect.stringContaining('A'),
+				scoreNormalized: expect.any(Number),
+				createdAt: '2026-06-02T10:00:00.000Z',
+				temporalStatus: 'none'
+			}
+		]);
 	});
 
 	it('runDeleteThoughtTool deletes by thought_id', async () => {

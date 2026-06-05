@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { searchGlobal } from './global';
+import { fetchRelevantCommunitySummaries, hasCommunitySummaries, searchGlobal } from './global';
 
 const { getDbMock, createThoughtEmbeddingMock, llmChatCompletionMock } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
@@ -14,6 +14,51 @@ vi.mock('$lib/server/llm/embedding', () => ({
 vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
 }));
+
+describe('hasCommunitySummaries', () => {
+	it('returns false when no summaries exist', async () => {
+		const limit = vi.fn(async () => []);
+		const where = vi.fn(() => ({ limit }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		await expect(hasCommunitySummaries('u1')).resolves.toBe(false);
+	});
+
+	it('returns true when at least one summary exists', async () => {
+		const limit = vi.fn(async () => [{ id: 'cs1' }]);
+		const where = vi.fn(() => ({ limit }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		await expect(hasCommunitySummaries('u1')).resolves.toBe(true);
+	});
+});
+
+describe('fetchRelevantCommunitySummaries', () => {
+	it('returns ordered summaries from the vector search without calling the LLM', async () => {
+		const limit = vi.fn(async () => [
+			{ communityId: 'c1', level: 0, summaryText: 'Theme one', distance: 0.1 },
+			{ communityId: 'c2', level: 1, summaryText: 'Theme two', distance: 0.2 }
+		]);
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		const out = await fetchRelevantCommunitySummaries({
+			userId: 'u1',
+			queryEmbedding: [0.1, 0.2, 0.3],
+			limit: 5
+		});
+
+		expect(out).toEqual([
+			{ communityId: 'c1', level: 0, summaryText: 'Theme one' },
+			{ communityId: 'c2', level: 1, summaryText: 'Theme two' }
+		]);
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+	});
+});
 
 describe('searchGlobal', () => {
 	beforeEach(() => {

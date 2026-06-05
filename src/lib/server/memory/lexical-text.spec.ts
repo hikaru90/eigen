@@ -9,4 +9,8 @@ describe('computeLexicalText', () => {
 	it('applies NFKC normalization', () => {
 		expect(computeLexicalText('\u2126')).toBe('\u03c9');
 	});
+
+	it('folds German umlauts and eszett for lexical recall', () => {
+		expect(computeLexicalText('Über Weißbrot')).toBe('uber weissbrot');
+	});
 });

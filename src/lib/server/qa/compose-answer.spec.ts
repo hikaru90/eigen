@@ -3,9 +3,12 @@ import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import {
 	composeAnswer,
 	detectContradictions,
+	extractProfileDetailsBlock,
 	extractQuestionSubjectName,
 	extractRetrievalHints,
 	findInvalidCitationIds,
+	findInvalidProfileCitationIds,
+	formatThoughtsForPrompt,
 	narrowComposeContextToQuestionFocus,
 	prioritizePersonNamedThoughts,
 	type RetrievalContextItem
@@ -13,24 +16,35 @@ import {
 
 const {
 	searchThoughtsMock,
+	hasCommunitySummariesMock,
+	fetchRelevantCommunitySummariesMock,
 	llmChatCompletionMock,
 	findTemporalSchedulingConflictsMock,
 	createThoughtEmbeddingMock,
 	createThoughtEmbeddingsMock,
 	lexicalSearchMock,
-	graphOnlySearchByQueryMock
+	graphOnlySearchByQueryMock,
+	dbWhereMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
+	hasCommunitySummariesMock: vi.fn(),
+	fetchRelevantCommunitySummariesMock: vi.fn(),
 	llmChatCompletionMock: vi.fn(),
 	findTemporalSchedulingConflictsMock: vi.fn(),
 	createThoughtEmbeddingMock: vi.fn(),
 	createThoughtEmbeddingsMock: vi.fn(),
 	lexicalSearchMock: vi.fn(),
-	graphOnlySearchByQueryMock: vi.fn()
+	graphOnlySearchByQueryMock: vi.fn(),
+	dbWhereMock: vi.fn()
 }));
 
 vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
+}));
+
+vi.mock('$lib/server/retrieval/global', () => ({
+	hasCommunitySummaries: hasCommunitySummariesMock,
+	fetchRelevantCommunitySummaries: fetchRelevantCommunitySummariesMock
 }));
 
 vi.mock('$lib/server/llm/llm-client', () => ({
@@ -61,7 +75,7 @@ vi.mock('$lib/server/db', () => ({
 	getDb: vi.fn().mockReturnValue({
 		select: vi.fn().mockReturnValue({
 			from: vi.fn().mockReturnValue({
-				where: vi.fn().mockResolvedValue([])
+				where: dbWhereMock
 			})
 		})
 	})
@@ -72,6 +86,8 @@ function chatResponse(content: string) {
 }
 
 const FIXED_DATE = new Date('2026-01-01T00:00:00Z');
+
+const noTemporal = { temporalStatus: 'none' as const, temporalEvents: [] as RetrievalContextItem['temporalEvents'] };
 
 const sampleRetrieval = [
 	{
@@ -120,7 +136,8 @@ describe('prioritizePersonNamedThoughts', () => {
 		vectorScore: score,
 		graphScore: 0,
 		createdAt: FIXED_DATE,
-		isStale: false
+		isStale: false,
+		...noTemporal
 	});
 
 	it('ranks thoughts mentioning the subject ahead of generic productivity notes', () => {
@@ -147,7 +164,8 @@ describe('narrowComposeContextToQuestionFocus', () => {
 				vectorScore: 0.9,
 				graphScore: 0,
 				createdAt: FIXED_DATE,
-				isStale: false
+				isStale: false,
+				...noTemporal
 			},
 			{
 				id: 'b',
@@ -157,7 +175,8 @@ describe('narrowComposeContextToQuestionFocus', () => {
 				vectorScore: 0.5,
 				graphScore: 0,
 				createdAt: FIXED_DATE,
-				isStale: false
+				isStale: false,
+				...noTemporal
 			}
 		]);
 		expect(out.map((i) => i.id)).toEqual(['b']);
@@ -173,7 +192,8 @@ describe('narrowComposeContextToQuestionFocus', () => {
 				vectorScore: 1,
 				graphScore: 0,
 				createdAt: FIXED_DATE,
-				isStale: false
+				isStale: false,
+				...noTemporal
 			},
 			{
 				id: 'b',
@@ -183,7 +203,8 @@ describe('narrowComposeContextToQuestionFocus', () => {
 				vectorScore: 1,
 				graphScore: 0,
 				createdAt: FIXED_DATE,
-				isStale: false
+				isStale: false,
+				...noTemporal
 			}
 		]);
 		expect(out).toHaveLength(1);
@@ -198,9 +219,34 @@ describe('findInvalidCitationIds', () => {
 	});
 });
 
+describe('profile citation validation', () => {
+	it('ignores bracket tokens outside the Details section', () => {
+		const answer = [
+			'Summary: You build Eigen [not-a-real-id].',
+			'Details:',
+			'- You build Eigen [t_001]',
+			'Themes: product work.'
+		].join('\n');
+		expect(findInvalidProfileCitationIds(answer, new Set(['t_001']))).toEqual([]);
+	});
+
+	it('flags invalid ids only inside Details', () => {
+		const answer = 'Summary: Hi\nDetails:\n- Fact [t_999]\nThemes: none';
+		expect(findInvalidProfileCitationIds(answer, new Set(['t_001']))).toEqual(['t_999']);
+	});
+
+	it('extracts the Details block for validation', () => {
+		expect(extractProfileDetailsBlock('Summary: x\nDetails:\n- a [t_1]\nThemes: y')).toBe('- a [t_1]');
+	});
+});
+
 describe('extractRetrievalHints', () => {
 	it('extracts name tokens from short German questions', () => {
 		expect(extractRetrievalHints('Wer ist Clemi?')).toBe('clemi');
+	});
+
+	it('folds German umlauts instead of splitting inside words', () => {
+		expect(extractRetrievalHints('was weißt du über mich?')).toBe('weisst du uber mich');
 	});
 
 	it('returns undefined when hints equal the full normalized question', () => {
@@ -208,9 +254,45 @@ describe('extractRetrievalHints', () => {
 	});
 });
 
+describe('formatThoughtsForPrompt', () => {
+	it('annotates expired temporal events in the thought header', () => {
+		const now = new Date('2026-06-05T00:00:00.000Z');
+		const prompt = formatThoughtsForPrompt(
+			[
+				{
+					id: 't_skate',
+					normalizedText: 'I want to go inline skating today.',
+					category: 'task',
+					score: 0.8,
+					vectorScore: 0.8,
+					graphScore: 0,
+					createdAt: new Date('2026-05-28T00:00:00.000Z'),
+					isStale: false,
+					temporalStatus: 'expired',
+					temporalEvents: [
+						{
+							kind: 'reminder',
+							semanticSummary: 'go inline skating today',
+							activePeriod: '[2026-05-28T00:00:00.000Z,2026-05-29T00:00:00.000Z)',
+							expired: true
+						}
+					]
+				}
+			],
+			now
+		);
+		expect(prompt).toContain('temporal:');
+		expect(prompt).toContain('EXPIRED');
+		expect(prompt).toContain('go inline skating today');
+	});
+});
+
 describe('composeAnswer', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		dbWhereMock.mockResolvedValue([]);
+		hasCommunitySummariesMock.mockResolvedValue(false);
+		fetchRelevantCommunitySummariesMock.mockResolvedValue([]);
 		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
 		findTemporalSchedulingConflictsMock.mockResolvedValue([]);
 		createThoughtEmbeddingMock.mockResolvedValue(new Array(1536).fill(0.1));
@@ -222,6 +304,20 @@ describe('composeAnswer', () => {
 		llmChatCompletionMock.mockResolvedValue(
 			chatResponse('Marcus suggested rice flour [t_001]. Also, Tartine has half-price loaves [t_002].')
 		);
+	});
+
+	it('uses unified retrieval once for self-profile queries', async () => {
+		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
+		llmChatCompletionMock.mockResolvedValue(
+			chatResponse('Marcus suggested rice flour [t_001]. Also, Tartine has half-price loaves [t_002].')
+		);
+
+		const result = await composeAnswer({ userId: 'u1', question: 'was weißt du über mich?' });
+
+		expect(searchThoughtsMock).toHaveBeenCalledTimes(1);
+		expect(fetchRelevantCommunitySummariesMock).not.toHaveBeenCalled();
+		expect(llmChatCompletionMock).toHaveBeenCalled();
+		expect(result.citations.length).toBeGreaterThan(0);
 	});
 
 	it('rejects empty questions before doing any work', async () => {
@@ -253,7 +349,7 @@ describe('composeAnswer', () => {
 		expect(result.conflicts).toBeDefined();
 	});
 
-	it('runs hybrid, hint, lexical, and entity-label retrieval for who-is questions', async () => {
+	it('runs unified retrieval once for who-is questions', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
 				id: 'b',
@@ -271,35 +367,10 @@ describe('composeAnswer', () => {
 			chatResponse('Answer: Clemi is Clemens.\nEvidence:\n- Clemi is Clemens [b]\n\nUnknown:\n- none')
 		);
 		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
-		expect(createThoughtEmbeddingsMock).toHaveBeenCalled();
-		expect(searchThoughtsMock).toHaveBeenCalledTimes(2);
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1);
+		expect(searchThoughtsMock).toHaveBeenCalledTimes(1);
 		expect(searchThoughtsMock).toHaveBeenCalledWith(
 			expect.objectContaining({ query: 'Wer ist Clemi?', queryEmbedding: expect.any(Array) })
-		);
-		expect(searchThoughtsMock).toHaveBeenCalledWith(
-			expect.objectContaining({ query: 'clemi', queryEmbedding: expect.any(Array) })
-		);
-		expect(lexicalSearchMock).toHaveBeenCalledWith(
-			expect.objectContaining({ query: 'clemi' })
-		);
-		expect(graphOnlySearchByQueryMock).toHaveBeenCalledWith(
-			expect.objectContaining({ query: 'clemi' })
-		);
-	});
-
-	it('requests person-anchor lexical search for subject-focused questions', async () => {
-		searchThoughtsMock.mockResolvedValue([]);
-		lexicalSearchMock.mockResolvedValue([]);
-		graphOnlySearchByQueryMock.mockResolvedValue([]);
-		llmChatCompletionMock.mockResolvedValueOnce(
-			chatResponse('Answer: Not in memory.\nEvidence:\n\nUnknown:\n- Jonas needs')
-		);
-		await composeAnswer({
-			userId: 'u1',
-			question: 'What does Jonas need before doing creative work?'
-		});
-		expect(lexicalSearchMock).toHaveBeenCalledWith(
-			expect.objectContaining({ query: 'jonas' })
 		);
 	});
 
@@ -345,6 +416,7 @@ describe('composeAnswer', () => {
 				queryEmbedding: expect.any(Array)
 			})
 		);
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'what about graph weights?');
 	});
 
 	it('uses default topK of 8 when not provided', async () => {
@@ -354,25 +426,17 @@ describe('composeAnswer', () => {
 		);
 	});
 
-	it('merges retrievalQuery search with question search when they differ', async () => {
-		searchThoughtsMock
-			.mockResolvedValueOnce([sampleRetrieval[1]])
-			.mockResolvedValueOnce([sampleRetrieval[0]]);
-		const result = await composeAnswer({
+	it('uses retrievalQuery as the single unified search when provided', async () => {
+		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
+		await composeAnswer({
 			userId: 'u1',
 			question: 'scheduling conflict?',
 			retrievalQuery: 'March schedule conflicts team'
 		});
-		expect(searchThoughtsMock).toHaveBeenCalledTimes(2);
-		expect(searchThoughtsMock).toHaveBeenNthCalledWith(
-			1,
-			expect.objectContaining({ query: 'scheduling conflict?' })
-		);
-		expect(searchThoughtsMock).toHaveBeenNthCalledWith(
-			2,
+		expect(searchThoughtsMock).toHaveBeenCalledTimes(1);
+		expect(searchThoughtsMock).toHaveBeenCalledWith(
 			expect.objectContaining({ query: 'March schedule conflicts team' })
 		);
-		expect(result.retrieved.map((r) => r.id)).toEqual(expect.arrayContaining(['t_001', 't_002']));
 	});
 
 	it('passes a system + user message pair with temperature 0', async () => {
@@ -435,7 +499,7 @@ describe('composeAnswer', () => {
 		expect(userMessage).toContain('id=t_001');
 	});
 
-	it('embeds hint queries separately from the full question', async () => {
+	it('embeds the retrieval query once for compose', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
 				id: 'b',
@@ -452,24 +516,12 @@ describe('composeAnswer', () => {
 		llmChatCompletionMock.mockResolvedValueOnce(
 			chatResponse('Answer: Clemi is Clemens.\nEvidence:\n- Clemi is Clemens [b]\n\nUnknown:\n- none')
 		);
-		createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
-			texts.map((text) =>
-				text.toLowerCase().includes('clemi') && !text.includes('?')
-					? [0.9]
-					: [0.1]
-			)
-		);
 		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
-		expect(createThoughtEmbeddingsMock).toHaveBeenCalledTimes(1);
-		expect(createThoughtEmbeddingsMock).toHaveBeenCalledWith('u1', ['Wer ist Clemi?', 'clemi']);
-		const hintCall = searchThoughtsMock.mock.calls.find(
-			(call) => (call[0] as { query: string }).query === 'clemi'
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1);
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'Wer ist Clemi?');
+		expect(searchThoughtsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ query: 'Wer ist Clemi?', queryEmbedding: expect.any(Array) })
 		);
-		const questionCall = searchThoughtsMock.mock.calls.find(
-			(call) => (call[0] as { query: string }).query === 'Wer ist Clemi?'
-		);
-		expect(hintCall?.[0].queryEmbedding).toEqual([0.9]);
-		expect(questionCall?.[0].queryEmbedding).toEqual([0.1]);
 	});
 
 	it('throws a clear error when the LLM response shape is unexpected', async () => {
@@ -531,6 +583,50 @@ describe('composeAnswer', () => {
 		expect(userMessage).toContain('Graph: entity:Marcus');
 	});
 
+	it('includes expired temporal annotations in the compose prompt', async () => {
+		dbWhereMock.mockResolvedValueOnce([
+			{
+				thoughtId: 't_skate',
+				kind: 'reminder',
+				semanticSummary: 'go inline skating today',
+				activePeriod: '[2026-05-28T00:00:00.000Z,2026-05-29T00:00:00.000Z)'
+			}
+		]);
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 't_skate',
+				normalizedText: 'I want to go inline skating today.',
+				category: 'task',
+				score: 0.9,
+				vectorScore: 0.9,
+				graphScore: 0,
+				metadata: {},
+				createdAt: new Date('2026-05-28T00:00:00.000Z'),
+				memoryType: null
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse(
+				'Answer: Not in memory for today.\nEvidence:\n- As of 2026-05-28 you wanted to go inline skating [t_skate]\n\nUnknown:\n- current skating plans'
+			)
+		);
+
+		const result = await composeAnswer({
+			userId: 'u1',
+			question: 'Do I want to go inline skating today?'
+		});
+
+		expect(result.retrieved[0]?.temporalStatus).toBe('expired');
+		const messages = (
+			llmChatCompletionMock.mock.calls[0][0] as {
+				messages: Array<{ role: string; content: string }>;
+			}
+		).messages;
+		expect(messages[0].content).toContain('EXPIRED');
+		expect(messages[1].content).toContain('temporal:');
+		expect(messages[1].content).toContain('EXPIRED');
+	});
+
 	it('includes temporal graph conflicts in the prompt when detected', async () => {
 		findTemporalSchedulingConflictsMock.mockResolvedValueOnce([
 			{
@@ -561,7 +657,8 @@ describe('detectContradictions', () => {
 		vectorScore: 1,
 		graphScore: 0,
 		createdAt: now,
-		isStale: false
+		isStale: false,
+		...noTemporal
 	});
 
 	it('detects opposing remote-work sentiments without shared subject tokens', () => {

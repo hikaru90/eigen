@@ -48,13 +48,21 @@ function compactThoughtRow(row: Record<string, unknown>) {
 		id: typeof row.id === 'string' ? row.id : undefined,
 		thoughtId: typeof row.thoughtId === 'string' ? row.thoughtId : undefined,
 		category: typeof row.category === 'string' ? row.category : undefined,
-		snippet: text ? snippet(text) : undefined,
+		snippet: text ? snippet(text) : typeof row.snippet === 'string' ? row.snippet : undefined,
 		createdAt:
 			row.createdAt instanceof Date
 				? row.createdAt.toISOString()
 				: typeof row.createdAt === 'string'
 					? row.createdAt
-					: undefined
+					: undefined,
+		temporalStatus:
+			row.temporalStatus === 'none' ||
+			row.temporalStatus === 'active' ||
+			row.temporalStatus === 'expired'
+				? row.temporalStatus
+				: undefined,
+		temporalSummary:
+			typeof row.temporalSummary === 'string' ? row.temporalSummary : undefined
 	};
 }
 
@@ -150,11 +158,15 @@ export function compactToolResultForLlm(
 	}
 
 	if (tool === 'answer_question') {
-		return {
+		const compact: Record<string, unknown> = {
 			answer:
 				typeof obj.answer === 'string' ? snippet(obj.answer, 2_000) : undefined,
 			citationCount: Array.isArray(obj.citations) ? obj.citations.length : 0
 		};
+		if (typeof obj.error === 'string' && obj.error.trim()) {
+			compact.error = snippet(obj.error, 500);
+		}
+		return compact;
 	}
 
 	return result;

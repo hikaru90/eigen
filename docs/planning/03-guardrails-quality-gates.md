@@ -17,6 +17,7 @@ A change is Done only when all items below are satisfied:
 - No unresolved high-severity defects.
 - Behavior changes are documented in contract docs.
 - No forbidden fallback/silent degradation behavior introduced.
+- Ingest/retrieval/enrichment fixes **generalize to arbitrary thoughts** — no thought-id, fixture-text, or single-capture special cases in production code (see **Generalize ingest fixes** in [`AGENTS.md`](../../AGENTS.md)).
 
 ## Risk Classification Rules
 - `critical`:
@@ -57,6 +58,7 @@ A change is Done only when all items below are satisfied:
 - No fallback paths or silent degradation introduced.
 
 ## Non-Negotiable Guardrails
+- **Generalize ingest fixes:** never ship a fix that only works for one captured thought (specific id, exact text, or eval row). Pipeline changes must hold for all ingested thoughts; example strings belong in tests, not as production special cases.
 - No fallbacks.
 - No silent degradation.
 - No hidden bypasses.
