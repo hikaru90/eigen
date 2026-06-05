@@ -7,16 +7,30 @@ const {
 	retrieveThoughtsMock,
 	deleteThoughtMock,
 	answerQuestionMock,
-	getDbMock
-} = vi.hoisted(() => ({
-	llmChatCompletionMock: vi.fn(),
-	logActivityCallMock: vi.fn(),
-	listThoughtsMock: vi.fn(),
-	retrieveThoughtsMock: vi.fn(),
-	deleteThoughtMock: vi.fn(),
-	answerQuestionMock: vi.fn(),
-	getDbMock: vi.fn()
-}));
+	getDbMock,
+	mcpToolMap
+} = vi.hoisted(() => {
+	const listThoughtsMock = vi.fn();
+	const retrieveThoughtsMock = vi.fn();
+	const deleteThoughtMock = vi.fn();
+	const answerQuestionMock = vi.fn();
+	const mcpToolMap = new Map<string, typeof listThoughtsMock>([
+		['list_thoughts', listThoughtsMock],
+		['retrieve_thoughts', retrieveThoughtsMock],
+		['delete_thought', deleteThoughtMock],
+		['answer_question', answerQuestionMock]
+	]);
+	return {
+		llmChatCompletionMock: vi.fn(),
+		logActivityCallMock: vi.fn(),
+		listThoughtsMock,
+		retrieveThoughtsMock,
+		deleteThoughtMock,
+		answerQuestionMock,
+		getDbMock: vi.fn(),
+		mcpToolMap
+	};
+});
 
 vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
@@ -28,19 +42,12 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
 vi.mock('$lib/server/mcp/registry', () => ({
-	MCP_TOOL_MAP: new Map([
-		['list_thoughts', listThoughtsMock],
-		['retrieve_thoughts', retrieveThoughtsMock],
-		['delete_thought', deleteThoughtMock],
-		['answer_question', answerQuestionMock]
-	]),
+	MCP_TOOL_MAP: mcpToolMap,
 	MCP_TOOL_NAMES: ['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'],
 	MCP_TOOL_DEFINITIONS: [],
 	buildAgentToolDescriptionBlock: () => ''
 }));
 
-import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
-import { maxFusedRrfScore } from '$lib/server/retrieval/rrf-scoring';
 import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact';
 import { agentChat } from './agent-loop';
 
@@ -175,8 +182,7 @@ describe('agentChat', () => {
 	});
 
 	it('feeds compact tool results to the LLM on the next turn', async () => {
-		const weights = CONTEXT_WEIGHTS.default;
-		const strongScore = maxFusedRrfScore(weights) * STRONG_RETRIEVE_MATCH_MIN;
+		const strongScore = STRONG_RETRIEVE_MATCH_MIN + 0.1;
 		retrieveThoughtsMock.mockResolvedValue({
 			results: [
 				{ id: 't1', normalizedText: 'x'.repeat(8_000), category: 'thought', score: strongScore },
@@ -207,10 +213,15 @@ describe('agentChat', () => {
 	});
 
 	it('auto-deletes when delete intent has exactly one strong retrieve match', async () => {
-		const weights = CONTEXT_WEIGHTS.default;
-		const strongScore = maxFusedRrfScore(weights) * STRONG_RETRIEVE_MATCH_MIN;
 		retrieveThoughtsMock.mockResolvedValue({
-			results: [{ id: 't-del', normalizedText: 'Buy milk', category: 'task', score: strongScore }]
+			results: [
+				{
+					id: 't-del',
+					normalizedText: 'Buy milk',
+					category: 'task',
+					score: STRONG_RETRIEVE_MATCH_MIN + 0.1
+				}
+			]
 		});
 		deleteThoughtMock.mockResolvedValue({ deleted: true, thoughtId: 't-del' });
 		llmChatCompletionMock.mockResolvedValueOnce(
@@ -230,6 +241,55 @@ describe('agentChat', () => {
 		expect(llmChatCompletionMock).toHaveBeenCalledTimes(1);
 	});
 
+	it('parses thinking blocks, fenced JSON, and brace-matched tool calls', async () => {
+		listThoughtsMock.mockResolvedValue({ thoughts: [] });
+		llmChatCompletionMock
+			.mockResolvedValueOnce({
+				choices: [
+					{
+						message: {
+							content:
+								'<think>Need to list thoughts</think>\n```json\n{"tool":"list_thoughts","arguments":{"limit":1}}\n```'
+						}
+					}
+				]
+			})
+			.mockResolvedValueOnce(llmJson({ answer: 'Listed.' }));
+
+		const events: string[] = [];
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'show thoughts' }],
+			onEvent: (event) => events.push(event.type)
+		});
+
+		expect(events).toContain('thinking');
+		expect(listThoughtsMock).toHaveBeenCalled();
+		expect(result.response).toBe('Listed.');
+	});
+
+	it('surfaces tool handler failures to the model and activity log', async () => {
+		listThoughtsMock.mockRejectedValue(new Error('db unavailable'));
+		llmChatCompletionMock
+			.mockResolvedValueOnce(llmJson({ tool: 'list_thoughts', arguments: { limit: 1 } }))
+			.mockResolvedValueOnce(llmJson({ answer: 'Recovered after tool error.' }));
+
+		const events: Array<{ type: string; failed?: boolean }> = [];
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'list' }],
+			onEvent: (event) => events.push(event)
+		});
+
+		expect(events.some((e) => e.type === 'tool_result' && e.failed)).toBe(true);
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({ operation: 'tool_error.list_thoughts' })
+		);
+		expect(result.response).toBe('Recovered after tool error.');
+	});
+
 	it('returns the max-iteration fallback after too many tool loops', async () => {
 		listThoughtsMock.mockResolvedValue({ thoughts: [] });
 		llmChatCompletionMock.mockResolvedValue(
@@ -242,5 +302,136 @@ describe('agentChat', () => {
 		});
 
 		expect(result.response).toMatch(/too many steps/i);
+	});
+
+	it('parses brace-matched JSON embedded in prose', async () => {
+		listThoughtsMock.mockResolvedValue({ thoughts: [] });
+		llmChatCompletionMock
+			.mockResolvedValueOnce({
+				choices: [
+					{
+						message: {
+							content:
+								'I will list thoughts now. {"tool":"list_thoughts","arguments":{"limit":2}}'
+						}
+					}
+				]
+			})
+			.mockResolvedValueOnce(llmJson({ answer: 'Done.' }));
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'list' }]
+		});
+
+		expect(listThoughtsMock).toHaveBeenCalled();
+		expect(result.response).toBe('Done.');
+	});
+
+	it('treats non-object JSON and objects without tool/answer as final text', async () => {
+		llmChatCompletionMock
+			.mockResolvedValueOnce({ choices: [{ message: { content: '42' } }] })
+			.mockResolvedValueOnce({ choices: [{ message: { content: '{"status":"ok"}' } }] });
+
+		const numeric = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'one' }]
+		});
+		expect(numeric.response).toBe('42');
+
+		const orphan = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'two' }]
+		});
+		expect(orphan.response).toBe('{"status":"ok"}');
+	});
+
+	it('returns fallback when the LLM response has no choices content', async () => {
+		llmChatCompletionMock.mockResolvedValue({ choices: [] });
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'Hello' }]
+		});
+
+		expect(result.response).toMatch(/did not produce a response/i);
+	});
+
+	it('emits preparing label on follow-up iterations and forwards tool progress', async () => {
+		listThoughtsMock.mockImplementation(async (ctx) => {
+			ctx.onToolProgress?.({ tool: 'list_thoughts', phase: 'fetch', label: 'Loading…' });
+			return { thoughts: [] };
+		});
+		llmChatCompletionMock
+			.mockResolvedValueOnce(llmJson({ tool: 'list_thoughts', arguments: { limit: 1 } }))
+			.mockResolvedValueOnce(llmJson({ answer: 'All set.' }));
+
+		const progressLabels: string[] = [];
+		const events: Array<{ type: string; label?: string; phase?: string }> = [];
+		await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'list thoughts' }],
+			onEvent: (event) => {
+				events.push(event);
+				if (event.type === 'agent_progress') progressLabels.push(event.label);
+				if (event.type === 'tool_progress') events.push(event);
+			}
+		});
+
+		expect(progressLabels).toContain('Preparing your reply…');
+		expect(events.some((e) => e.type === 'tool_progress' && e.phase === 'fetch')).toBe(true);
+	});
+
+	it('continues normally when delete handler is missing despite a strong match', async () => {
+		const strongScore = STRONG_RETRIEVE_MATCH_MIN + 0.1;
+		retrieveThoughtsMock.mockResolvedValue({
+			results: [{ id: 't-del', normalizedText: 'Buy milk', category: 'task', score: strongScore }]
+		});
+		mcpToolMap.delete('delete_thought');
+		llmChatCompletionMock
+			.mockResolvedValueOnce(llmJson({ tool: 'retrieve_thoughts', arguments: { query: 'milk' } }))
+			.mockResolvedValueOnce(llmJson({ answer: 'Could not auto-delete.' }));
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'delete the thought about milk' }]
+		});
+
+		expect(deleteThoughtMock).not.toHaveBeenCalled();
+		expect(result.response).toBe('Could not auto-delete.');
+		mcpToolMap.set('delete_thought', deleteThoughtMock);
+	});
+
+	it('handles conversations without a user message for delete-intent detection', async () => {
+		llmChatCompletionMock.mockResolvedValue(llmJson({ answer: 'Noted.' }));
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'assistant', content: 'Earlier reply' }]
+		});
+
+		expect(result.response).toBe('Noted.');
+	});
+
+	it('surfaces non-Error tool failures to the activity log', async () => {
+		listThoughtsMock.mockRejectedValue('db string failure');
+		llmChatCompletionMock
+			.mockResolvedValueOnce(llmJson({ tool: 'list_thoughts', arguments: { limit: 1 } }))
+			.mockResolvedValueOnce(llmJson({ answer: 'Handled.' }));
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'list' }]
+		});
+
+		expect(result.response).toBe('Handled.');
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({
+				operation: 'tool_error.list_thoughts',
+				context: 'limit: 1'
+			})
+		);
 	});
 });

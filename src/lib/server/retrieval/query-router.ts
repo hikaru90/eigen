@@ -10,8 +10,8 @@
  * Uses heuristics first (fast, no LLM cost). Ambiguous queries default to 'local'
  * because the local path also includes graph expansion and handles most cases well.
  *
- * Production `composeAnswer` routes `global` queries to `searchGlobal` when
- * `community_summary` rows exist; otherwise it falls back to `searchThoughts`.
+ * Not wired to production retrieval — all surfaces use unified `retrieveEvidence`.
+ * Kept for eval harness experiments and future routing work.
  */
 
 export type QueryType = 'local' | 'relational' | 'global';

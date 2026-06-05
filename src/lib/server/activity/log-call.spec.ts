@@ -76,4 +76,70 @@ describe('logActivityCall', () => {
 			expect.objectContaining({ groupId: 'g1', durationMs: 342 })
 		);
 	});
+
+	it('truncates context longer than 100 chars', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+		const longContext = 'x'.repeat(101);
+
+		await logActivityCall(db, 'u1', {
+			provider: 'llm',
+			operation: 'chat',
+			baseCostUsd: 0,
+			context: longContext
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ context: `${'x'.repeat(97)}...` })
+		);
+	});
+
+	it('stores short context as-is and null for whitespace-only', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+
+		await logActivityCall(db, 'u1', {
+			provider: 'llm',
+			operation: 'chat',
+			baseCostUsd: 0,
+			context: '  hello  '
+		});
+		expect(values).toHaveBeenCalledWith(expect.objectContaining({ context: '  hello  ' }));
+
+		values.mockClear();
+		await logActivityCall(db, 'u1', {
+			provider: 'llm',
+			operation: 'chat',
+			baseCostUsd: 0,
+			context: '   \t\n  '
+		});
+		expect(values).toHaveBeenCalledWith(expect.objectContaining({ context: null }));
+	});
+
+	it('normalizes gatewayHost with trim and lowercase', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+
+		await logActivityCall(db, 'u1', {
+			provider: 'llm',
+			operation: 'chat',
+			baseCostUsd: 0,
+			gatewayHost: '  Gateway.Example.COM  '
+		});
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ gatewayHost: 'gateway.example.com' })
+		);
+
+		values.mockClear();
+		await logActivityCall(db, 'u1', {
+			provider: 'llm',
+			operation: 'chat',
+			baseCostUsd: 0,
+			gatewayHost: '   '
+		});
+		expect(values).toHaveBeenCalledWith(expect.objectContaining({ gatewayHost: null }));
+	});
 });

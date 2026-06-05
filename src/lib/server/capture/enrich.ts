@@ -2,8 +2,11 @@
  * Async enrichment for already-persisted thought rows.
  *
  * The fast path in `captureThought` persists the raw text, embedding, category,
- * and an Apache AGE provenance anchor (thought id only). This module handles the heavier steps that can run after
- * the HTTP response has been returned to the user:
+ * and an Apache AGE provenance anchor (thought id only). This module handles the heavier steps:
+ *
+ *   - With NDJSON `onProgress`: awaited on the caller's DB connection.
+ *   - Without `onProgress`: scheduled via `scheduleEnrichThought` on a dedicated
+ *     RLS-scoped connection (`withDbUser`).
  *
  *   - thought-to-thought relation extraction + graph sync
  *   - entity mention extraction + canonical resolution + AGE entity edges
@@ -23,7 +26,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { thought } from '$lib/server/db/schema';
-import { getDb } from '$lib/server/db';
+import { getDb, withDbUser } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
@@ -48,6 +51,47 @@ export type EnrichThoughtOptions = {
 	/** Entity hints loaded before persist — threaded into entity extraction. */
 	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
 };
+
+/**
+ * Run enrichment on a dedicated RLS-scoped DB connection (fire-and-forget).
+ * Use when the HTTP handler will release its request connection before enrich finishes.
+ */
+export function scheduleEnrichThought(
+	userId: string,
+	thoughtId: string,
+	normalizedText: string,
+	options?: EnrichThoughtOptions
+): void {
+	void withDbUser(userId, () =>
+		enrichThought(userId, thoughtId, normalizedText, options)
+	).catch((err) => {
+		console.error('[enrich] scheduled enrichment failed', {
+			thoughtId,
+			userId,
+			message: err instanceof Error ? err.message : String(err)
+		});
+	});
+}
+
+/**
+ * Re-run enrichment on a dedicated RLS-scoped DB connection (fire-and-forget).
+ */
+export function scheduleReenrichThought(
+	userId: string,
+	thoughtId: string,
+	normalizedText: string,
+	options?: EnrichThoughtOptions
+): void {
+	void withDbUser(userId, () =>
+		reenrichThought(userId, thoughtId, normalizedText, options)
+	).catch((err) => {
+		console.error('[enrich] scheduled re-enrichment failed', {
+			thoughtId,
+			userId,
+			message: err instanceof Error ? err.message : String(err)
+		});
+	});
+}
 
 /**
  * Run all enrichment steps for a thought that has already been persisted.

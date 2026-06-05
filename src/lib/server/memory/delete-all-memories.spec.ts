@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation';
 import {
 	assertDeleteAllMemoriesConfirmation,
 	deleteAllMemoriesForUser
@@ -22,6 +23,12 @@ describe('deleteAllMemoriesForUser', () => {
 
 	it('rejects wrong confirmation phrase', () => {
 		expect(() => assertDeleteAllMemoriesConfirmation('nope')).toThrow(/exactly match/);
+	});
+
+	it('accepts the exact confirmation phrase', () => {
+		expect(() =>
+			assertDeleteAllMemoriesConfirmation(DELETE_ALL_MEMORIES_CONFIRMATION)
+		).not.toThrow();
 	});
 
 	it('deletes postgres rows then wipes graph', async () => {

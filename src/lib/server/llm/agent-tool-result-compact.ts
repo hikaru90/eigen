@@ -1,7 +1,7 @@
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { stripEmbeddingsFromValue } from '$lib/server/observability/strip-embeddings';
 import {
-	normalizeFusedRrfScore,
+	normalizeRetrievalScore,
 	type RetrievalFusionWeights
 } from '$lib/server/retrieval/rrf-scoring';
 
@@ -76,7 +76,7 @@ function compactRetrieveResults(
 		const score = typeof r.score === 'number' ? r.score : 0;
 		return {
 			...compactThoughtRow(r),
-			scoreNormalized: normalizeFusedRrfScore(score, weights)
+			scoreNormalized: normalizeRetrievalScore(score)
 		};
 	});
 	return {
@@ -100,7 +100,7 @@ export function findUniqueStrongRetrieveMatch(
 		const r = asRecord(row);
 		if (!r || typeof r.id !== 'string') continue;
 		const score = typeof r.score === 'number' ? r.score : 0;
-		const scoreNormalized = normalizeFusedRrfScore(score, weights);
+		const scoreNormalized = normalizeRetrievalScore(score);
 		if (scoreNormalized < STRONG_RETRIEVE_MATCH_MIN) continue;
 		const text =
 			typeof r.normalizedText === 'string'

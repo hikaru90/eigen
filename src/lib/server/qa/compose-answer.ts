@@ -1,17 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought, thoughtRelation } from '$lib/server/db/schema';
-import { graphOnlySearchByQuery } from '$lib/server/graph/age';
-import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding';
+import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
-import { lexicalSearch, type LexicalSearchResult } from '$lib/server/retrieval/lexical';
-import {
-	fetchRelevantCommunitySummaries,
-	hasCommunitySummaries,
-	type RelevantCommunitySummary
-} from '$lib/server/retrieval/global';
-import { classifyQueryType } from '$lib/server/retrieval/query-router';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
@@ -115,17 +107,6 @@ export function extractRetrievalHints(question: string): string | undefined {
 	const normalizedQuestion = tokenizeLexicalQuery(question).join(' ');
 	if (hintQuery === normalizedQuestion) return undefined;
 	return hintQuery;
-}
-
-function mergeSearchHits(a: SearchHit[], b: SearchHit[], topK: number): SearchHit[] {
-	const byId = new Map<string, SearchHit>();
-	for (const hit of [...a, ...b]) {
-		const existing = byId.get(hit.id);
-		if (!existing || hit.score > existing.score) {
-			byId.set(hit.id, hit);
-		}
-	}
-	return [...byId.values()].sort((x, y) => y.score - x.score).slice(0, topK);
 }
 
 // ---------------------------------------------------------------------------
@@ -396,98 +377,6 @@ export function prioritizePersonNamedThoughts(
 	return [...primary, ...rest].slice(0, topK);
 }
 
-const HINT_ANCHOR_SCORE_BOOST = 2;
-
-async function searchHitsFromHintAnchors(input: {
-	userId: string;
-	hintQuery: string;
-	topK: number;
-}): Promise<SearchHit[]> {
-	const limit = Math.max(1, Math.min(input.topK, 100));
-	const [lexicalRows, graphLabelHits] = await Promise.all([
-		lexicalSearch({ userId: input.userId, query: input.hintQuery, limit }),
-		graphOnlySearchByQuery({ userId: input.userId, query: input.hintQuery, limit })
-	]);
-	return hydrateHintAnchorHits(input.userId, graphLabelHits, lexicalRows);
-}
-
-async function hydrateHintAnchorHits(
-	userId: string,
-	graphLabelHits: Array<{ id: string; score: number }>,
-	lexicalRows: LexicalSearchResult[]
-): Promise<SearchHit[]> {
-	const scoreById = new Map<string, { graph: number; lexical: number }>();
-	for (const hit of graphLabelHits) {
-		if (!hit.id) continue;
-		const cur = scoreById.get(hit.id) ?? { graph: 0, lexical: 0 };
-		cur.graph = Math.max(cur.graph, hit.score);
-		scoreById.set(hit.id, cur);
-	}
-	for (const row of lexicalRows) {
-		const cur = scoreById.get(row.id) ?? { graph: 0, lexical: 0 };
-		cur.lexical = Math.max(cur.lexical, row.lexicalScore);
-		scoreById.set(row.id, cur);
-	}
-	const ids = [...scoreById.keys()];
-	if (ids.length === 0) return [];
-
-	const rows = await getDb()
-		.select({
-			id: thought.id,
-			normalizedText: thought.normalizedText,
-			normalizedTextEncrypted: thought.normalizedTextEncrypted,
-			category: thought.category,
-			metadata: thought.metadata,
-			metadataEncrypted: thought.metadataEncrypted,
-			createdAt: thought.createdAt
-		})
-		.from(thought)
-		.where(and(eq(thought.userId, userId), inArray(thought.id, ids)));
-	const decryptedRows = await Promise.all(
-		rows.map(async (row) => {
-			const [normalizedText, metadataJson] = await Promise.all([
-				row.normalizedTextEncrypted
-					? decryptTenantValue({
-							userId,
-							table: 'thought',
-							column: 'normalized_text',
-							ciphertext: row.normalizedTextEncrypted
-						})
-					: Promise.resolve(row.normalizedText),
-				row.metadataEncrypted
-					? decryptTenantValue({
-							userId,
-							table: 'thought',
-							column: 'metadata',
-							ciphertext: row.metadataEncrypted
-						})
-					: Promise.resolve(JSON.stringify(row.metadata ?? {}))
-			]);
-			return { ...row, normalizedText, metadata: JSON.parse(metadataJson) as Record<string, unknown> };
-		})
-	);
-
-	return decryptedRows.map((row) => {
-		const parts = scoreById.get(row.id) ?? { graph: 0, lexical: 0 };
-		const graphScore = parts.graph * HINT_ANCHOR_SCORE_BOOST;
-		const vectorScore = parts.lexical * HINT_ANCHOR_SCORE_BOOST;
-		const baseMeta = (row.metadata as Record<string, unknown>) ?? {};
-		return {
-			id: row.id,
-			normalizedText: row.normalizedText,
-			category: row.category,
-			createdAt: row.createdAt,
-			vectorScore,
-			graphScore,
-			score: vectorScore + graphScore + HINT_ANCHOR_SCORE_BOOST,
-			metadata: {
-				...baseMeta,
-				...(parts.graph > 0 ? { graphProvenance: 'entity:label_match' } : {})
-			}
-		};
-	});
-}
-
 function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
 	if (conflicts.length === 0) return '';
 	const lines = conflicts.map(
@@ -586,11 +475,6 @@ export function findInvalidProfileCitationIds(answer: string, allowedIds: Set<st
 	const details = extractProfileDetailsBlock(answer);
 	if (!details) return [];
 	return findInvalidCitationIds(details, allowedIds).filter((id) => !PROFILE_CITATION_PLACEHOLDERS.has(id));
-}
-
-function extractProfileCitations(answer: string, allowedIds: Set<string>): string[] {
-	const details = extractProfileDetailsBlock(answer);
-	return details ? extractCitations(details, allowedIds) : [];
 }
 
 function extractCitations(answer: string, allowedIds: Set<string>): string[] {
@@ -730,137 +614,6 @@ function prioritizeConflictThoughts(
 		...items.filter((c) => conflictThoughtIds.has(c.id)),
 		...items.filter((c) => !conflictThoughtIds.has(c.id))
 	].slice(0, topK);
-}
-
-/** Broad self/profile ("about me") answers retrieve more thoughts than a focused fact lookup. */
-const PROFILE_TOP_K = 20;
-/** How many community summaries to fold in as thematic background context. */
-const PROFILE_COMMUNITY_LIMIT = 6;
-
-const PROFILE_SYSTEM_PROMPT = [
-	'You answer a broad question about who the user is, using ONLY the provided memory themes and thoughts.',
-	'This is a synthesis task: build a coherent portrait of the person, not a list of two disconnected trivia facts.',
-	'',
-	'Output format (use these exact section headers in this order):',
-	'Summary: <2-4 sentences capturing who the user is and what currently occupies them, grounded in the provided context; no bracket citations here>',
-	'Details:',
-	'- <specific fact, trait, project, or relationship> [thought-id]',
-	'- <specific fact, trait, project, or relationship> [thought-id]',
-	'Themes: <1-2 sentences naming the recurring areas/topics from the memory themes; no bracket citations here>',
-	'',
-	'Rules:',
-	'- Use only information present in the provided themes and thoughts. Do not invent facts, names, jobs, or relationships.',
-	'- Under Details only: end each bullet with [thought-id] using the EXACT id= value from a thought header (copy the full uuid; never write the literal word "id", never invent or shorten ids; never cite a theme line).',
-	'- Give more weight to RECENT thoughts and current activities/projects than to old or one-off trivia; lead the Summary with what currently occupies the user.',
-	'- Prefer substantive facts (work, projects, goals, recurring interests, important relationships) over incidental details.',
-	'- Memory themes are derived background summaries: use them only to frame and connect, never cite them with [id], and never treat them as a source of new specific facts.',
-	'- Do NOT equate or identify different people or names unless a cited thought explicitly states the link.',
-	'- Thoughts marked "STALE (>6 months old)" should be framed with their date as possibly outdated.',
-	'- Thoughts with "temporal: … EXPIRED" must not be presented as current activities; frame as past intent.',
-	'- If the provided context is genuinely thin, say so plainly in Summary rather than padding with speculation.',
-	'- No preamble, no closing remarks, no meta commentary.'
-].join('\n');
-
-function formatCommunitySummariesForPrompt(summaries: RelevantCommunitySummary[]): string {
-	if (summaries.length === 0) return '(no memory themes available)';
-	return summaries.map((s) => `- (L${s.level}) ${s.summaryText.trim()}`).join('\n');
-}
-
-/**
- * Blended answer for broad self/profile ("about me") questions: combines hybrid
- * thought retrieval (vector + lexical + graph, larger top-K) with relevant
- * community summaries as thematic context, then composes one grounded answer.
- */
-async function composeProfileAnswer(params: {
-	input: ComposeAnswerInput;
-	trimmedQuestion: string;
-}): Promise<ComposedAnswer> {
-	const { input, trimmedQuestion } = params;
-	const now = new Date();
-	const overallStart = Date.now();
-	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
-	const topK = Math.max(input.topK ?? PROFILE_TOP_K, PROFILE_TOP_K);
-
-	await input.onProgress?.('embedding');
-	const queryEmbedding = await createThoughtEmbedding(input.userId, trimmedQuestion);
-
-	await input.onProgress?.('searching');
-	const [retrieved, communitySummaries] = await Promise.all([
-		searchThoughts({ userId: input.userId, query: trimmedQuestion, topK, weights, queryEmbedding }),
-		fetchRelevantCommunitySummaries({
-			userId: input.userId,
-			queryEmbedding,
-			limit: PROFILE_COMMUNITY_LIMIT
-		})
-	]);
-
-	let contextItems = retrieved.map((r) => searchHitToContextItem(r, now));
-	contextItems = await hydrateTemporalContextForThoughts({
-		userId: input.userId,
-		items: contextItems,
-		now
-	});
-	const conflicts = mergeConflictPairs(
-		detectContradictions(contextItems),
-		await detectStoredThoughtContradictions({ userId: input.userId, items: contextItems })
-	);
-	console.info('[composeAnswer] profile path retrieval', {
-		userId: input.userId,
-		question: trimmedQuestion,
-		retrievedCount: retrieved.length,
-		communityCount: communitySummaries.length,
-		topK
-	});
-
-	await input.onProgress?.('composing');
-	const allowedIds = new Set(contextItems.map((c) => c.id));
-	const messages: ChatMessage[] = [
-		{ role: 'system', content: PROFILE_SYSTEM_PROMPT },
-		{
-			role: 'user',
-			content:
-				`Question: ${trimmedQuestion}\n\n` +
-				`Memory themes (background context from community summaries; do NOT cite with bracket ids):\n` +
-				`${formatCommunitySummariesForPrompt(communitySummaries)}\n\n` +
-				`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
-				formatConflictsForPrompt(conflicts) +
-				`\n\nWrite the profile using the strict format from the system message. Under Details only, cite each fact with [thought-id] using the exact id= uuid from the thought headers above.`
-		}
-	];
-
-	let answer = '';
-	for (let attempt = 0; attempt < 2; attempt++) {
-		const response = await llmChatCompletion({
-			userId: input.userId,
-			messages,
-			temperature: 0.2,
-			logContext: 'compose_answer_profile'
-		});
-		answer = extractAnswerText(response);
-		const invalidCitations = findInvalidProfileCitationIds(answer, allowedIds);
-		if (invalidCitations.length === 0) break;
-		if (attempt === 1) {
-			throw new Error(
-				`composeAnswer: profile answer cites thought ids not in retrieved context: ${invalidCitations.join(', ')}`
-			);
-		}
-		messages.push({ role: 'assistant', content: answer });
-		messages.push({
-			role: 'user',
-			content:
-				`Invalid citation ids in Details: ${invalidCitations.join(', ')}. ` +
-				`Rewrite the full profile. Under Details only, use bracket citations with exact id= uuids from the Thoughts list. ` +
-				`Do not use the literal word "id" inside brackets. Summary and Themes must have no bracket citations.`
-		});
-	}
-
-	const citations = extractProfileCitations(answer, allowedIds);
-	console.info('[composeAnswer] profile path done', {
-		totalDurationMs: Date.now() - overallStart,
-		citationCount: citations.length,
-		answerChars: answer.length
-	});
-	return { answer, citations, retrieved: contextItems, conflicts };
 }
 
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {

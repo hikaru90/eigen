@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
+import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hints';
 import {
 	captureThought,
 	normalizeThoughtText,
@@ -19,6 +21,8 @@ const {
 	resolveThoughtCategoryMock,
 	enrichThoughtMock,
 	reenrichThoughtMock,
+	scheduleEnrichThoughtMock,
+	scheduleReenrichThoughtMock,
 	applyThoughtEditRequestMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
@@ -31,6 +35,8 @@ const {
 	resolveThoughtCategoryMock: vi.fn(),
 	enrichThoughtMock: vi.fn(),
 	reenrichThoughtMock: vi.fn(),
+	scheduleEnrichThoughtMock: vi.fn(),
+	scheduleReenrichThoughtMock: vi.fn(),
 	applyThoughtEditRequestMock: vi.fn()
 }));
 
@@ -86,7 +92,9 @@ vi.mock('$lib/server/memory/entity-graph-hints', () => ({
  */
 vi.mock('$lib/server/capture/enrich', () => ({
 	enrichThought: enrichThoughtMock,
-	reenrichThought: reenrichThoughtMock
+	reenrichThought: reenrichThoughtMock,
+	scheduleEnrichThought: scheduleEnrichThoughtMock,
+	scheduleReenrichThought: scheduleReenrichThoughtMock
 }));
 
 describe('normalizeThoughtText', () => {
@@ -105,7 +113,13 @@ function makeInsertReturning(value: unknown) {
 	};
 }
 
-function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
+function makeCaptureDb(
+	overrides: {
+		thoughtCountAfterInsert?: number;
+		nearestDuplicate?: { id: string; normalizedText: string; distance: number };
+		dedupFails?: boolean;
+	} = {}
+) {
 	const thoughtCount = overrides.thoughtCountAfterInsert ?? 1;
 	const sessionRow = { id: 'session-1' };
 	const thoughtRow = {
@@ -128,16 +142,22 @@ function makeCaptureDb(overrides: { thoughtCountAfterInsert?: number } = {}) {
 		}),
 		delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
 	};
+	const dedupLimit = vi.fn(async () => {
+		if (overrides.dedupFails) {
+			throw new Error('dedup query failed');
+		}
+		return overrides.nearestDuplicate ? [overrides.nearestDuplicate] : [];
+	});
 	return {
 		insert: vi.fn(() => insertCapture),
 		transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx)),
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				where: vi.fn(() => {
-					const countResult = [{ n: thoughtCount }];
+					const countResult = thoughtCount > 0 ? [{ n: thoughtCount }] : [];
 					return {
 						orderBy: vi.fn().mockReturnValue({
-							limit: vi.fn(async () => [])
+							limit: dedupLimit
 						}),
 						limit: vi.fn(async () => countResult),
 						then: (onfulfilled: (v: typeof countResult) => unknown) =>
@@ -178,18 +198,13 @@ describe('captureThought', () => {
 		);
 	});
 
-	it('schedules enrichThought in background without awaiting', async () => {
+	it('schedules enrichThought on a dedicated connection without awaiting', async () => {
 		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
-		let enrichResolved = false;
-		enrichThoughtMock.mockImplementation(async () => {
-			await new Promise((r) => setTimeout(r, 50));
-			enrichResolved = true;
-		});
 
 		await captureThought('u1', 'raw input');
-		expect(enrichResolved).toBe(false);
-		expect(enrichThoughtMock).toHaveBeenCalledWith(
+		expect(enrichThoughtMock).not.toHaveBeenCalled();
+		expect(scheduleEnrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',
 			'raw input',
@@ -197,7 +212,7 @@ describe('captureThought', () => {
 		);
 	});
 
-	it('emits fast-path phases and schedules background enrichment when onProgress is provided', async () => {
+	it('awaits enrichment when onProgress is provided', async () => {
 		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
 
@@ -209,7 +224,6 @@ describe('captureThought', () => {
 			}
 		});
 
-		// Fast-path phases only; enrichment runs in background.
 		expect(phases).toEqual([
 			'accounting',
 			'ontology',
@@ -223,6 +237,156 @@ describe('captureThought', () => {
 			'thought-1',
 			'raw input',
 			expect.objectContaining({ onProgress: expect.any(Function) })
+		);
+		expect(scheduleEnrichThoughtMock).not.toHaveBeenCalled();
+	});
+
+	it('proceeds when dedup check fails', async () => {
+		const db = makeCaptureDb({ dedupFails: true });
+		getDbMock.mockReturnValue(db);
+
+		const stored = await captureThought('u1', 'raw input');
+
+		expect(stored.id).toBe('thought-1');
+		expect(scheduleEnrichThoughtMock).toHaveBeenCalled();
+	});
+
+	it('records near-duplicate metadata when a close neighbor exists', async () => {
+		const db = makeCaptureDb({
+			nearestDuplicate: {
+				id: 'existing-1',
+				normalizedText: 'raw input duplicate preview text',
+				distance: 0.03
+			}
+		});
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+
+		const metadataCall = vi.mocked(encryptTenantValue).mock.calls.find(
+			(call) => call[0].table === 'thought' && call[0].column === 'metadata'
+		);
+		expect(metadataCall).toBeDefined();
+		const metadata = JSON.parse(metadataCall![0].plaintext) as Record<string, unknown>;
+		expect(metadata.nearDuplicate).toEqual(
+			expect.objectContaining({
+				id: 'existing-1',
+				distance: 0.03,
+				preview: 'raw input duplicate preview text'
+			})
+		);
+	});
+
+	it('decrypts encrypted fields on capture return value', async () => {
+		const thoughtRow = {
+			id: 'thought-1',
+			userId: 'u1',
+			rawText: 'plain',
+			rawTextEncrypted: 'enc:captured raw',
+			normalizedText: 'plain',
+			normalizedTextEncrypted: 'enc:captured normalized',
+			lexicalText: 'captured normalized',
+			category: 'task',
+			metadata: null,
+			metadataEncrypted: 'enc:{"pipeline":"ontology_llm_v1"}'
+		};
+		const insertThought = makeInsertReturning(thoughtRow);
+		const db = makeCaptureDb();
+		db.transaction = vi.fn(async (cb: (txArg: unknown) => unknown) => {
+			const tx = {
+				insert: vi.fn(() => insertThought),
+				delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
+			};
+			return cb(tx);
+		});
+		getDbMock.mockReturnValue(db);
+
+		const stored = await captureThought('u1', 'captured raw');
+
+		expect(stored.rawText).toBe('captured raw');
+		expect(stored.normalizedText).toBe('captured normalized');
+		expect(stored.metadata).toEqual(expect.objectContaining({ pipeline: 'ontology_llm_v1' }));
+	});
+
+	it('omits near-duplicate metadata when closest neighbor is outside threshold', async () => {
+		const db = makeCaptureDb({
+			nearestDuplicate: {
+				id: 'existing-1',
+				normalizedText: 'similar text',
+				distance: 0.2
+			}
+		});
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+
+		const metadataCall = vi.mocked(encryptTenantValue).mock.calls.find(
+			(call) => call[0].table === 'thought' && call[0].column === 'metadata'
+		);
+		const metadata = JSON.parse(metadataCall![0].plaintext) as Record<string, unknown>;
+		expect(metadata.nearDuplicate).toBeUndefined();
+	});
+
+	it('stringifies non-Error dedup failures in the warning log', async () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const db = makeCaptureDb();
+		const dedupLimit = vi.fn(async () => {
+			throw 'dedup string fail';
+		});
+		db.select = vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(() => ({
+					orderBy: vi.fn().mockReturnValue({ limit: dedupLimit }),
+					limit: vi.fn(async () => [{ n: 1 }]),
+					then: (onfulfilled: (v: { n: number }[]) => unknown) =>
+						Promise.resolve([{ n: 1 }]).then(onfulfilled)
+				}))
+			}))
+		}));
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[capture.dedup] dedup check failed, proceeding',
+			expect.objectContaining({ message: 'dedup string fail' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('passes zero thought count to enrichment when count query returns no row', async () => {
+		const db = makeCaptureDb({ thoughtCountAfterInsert: 0 });
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+
+		expect(scheduleEnrichThoughtMock).toHaveBeenCalledWith(
+			'u1',
+			'thought-1',
+			'raw input',
+			expect.objectContaining({ thoughtCountAfterInsert: 0 })
+		);
+	});
+
+	it('passes ingest known entities to category resolution when hints exist', async () => {
+		const hints = [{ label: 'Marcus', entityType: 'person' }];
+		vi.mocked(loadIngestKnownEntityHints).mockResolvedValue(hints);
+		const db = makeCaptureDb();
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+
+		expect(resolveThoughtCategoryMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			normalized: 'raw input',
+			rawText: 'raw input',
+			knownEntities: hints
+		});
+		expect(scheduleEnrichThoughtMock).toHaveBeenCalledWith(
+			'u1',
+			'thought-1',
+			'raw input',
+			expect.objectContaining({ preloadedKnownEntities: hints })
 		);
 	});
 });
@@ -256,7 +420,7 @@ describe('editStoredThought', () => {
 		expect(result).toEqual({ ok: false, reason: 'not_found' });
 	});
 
-	it('updates and returns edited thought, fires reenrichThought', async () => {
+	it('updates and returns edited thought, schedules reenrichThought', async () => {
 		const existing = {
 			id: 't1',
 			userId: 'u1',
@@ -302,12 +466,90 @@ describe('editStoredThought', () => {
 		});
 		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1);
 		expect(upsertThoughtNodeMock).toHaveBeenCalledTimes(1);
-		expect(reenrichThoughtMock).toHaveBeenCalledWith(
+		expect(scheduleReenrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			't1',
 			'make shorter',
 			expect.objectContaining({ thoughtEmbedding: [0.5, 0.5] })
 		);
+		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+	});
+
+	it('merges metadata when existing row has null decrypted metadata', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'Buy milk',
+			metadata: null,
+			metadataEncrypted: 'enc:null',
+			category: 'task',
+			normalizedText: 'Buy milk',
+			lexicalText: 'buy milk'
+		};
+		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		applyThoughtEditRequestMock.mockResolvedValue({
+			rawText: 'Buy milk',
+			status: 'completed',
+			summary: 'Marked complete'
+		});
+
+		const result = await editStoredThought('u1', 't1', 'mark as completed');
+		expect(result.ok).toBe(true);
+	});
+
+	it('merges metadata when existing row has null metadata', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'Buy milk',
+			metadata: null,
+			category: 'task',
+			normalizedText: 'Buy milk',
+			lexicalText: 'buy milk'
+		};
+		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		applyThoughtEditRequestMock.mockResolvedValue({
+			rawText: 'Buy milk',
+			status: 'completed',
+			summary: 'Marked complete'
+		});
+
+		const result = await editStoredThought('u1', 't1', 'mark as completed');
+		expect(result.ok).toBe(true);
 	});
 
 	it('skips re-embed when completion-only edit leaves text unchanged', async () => {
@@ -348,6 +590,7 @@ describe('editStoredThought', () => {
 		expect(result.ok).toBe(true);
 		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+		expect(scheduleReenrichThoughtMock).not.toHaveBeenCalled();
 	});
 
 	it('reports fast-path ingest phases for edits when onProgress is provided', async () => {
@@ -393,6 +636,60 @@ describe('editStoredThought', () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(phases).toEqual(['accounting', 'ontology', 'embedding', 'persist', 'graph']);
+		expect(reenrichThoughtMock).toHaveBeenCalledWith(
+			'u1',
+			't1',
+			'make shorter',
+			expect.objectContaining({ onProgress: expect.any(Function), thoughtEmbedding: [0.5, 0.5] })
+		);
+		expect(scheduleReenrichThoughtMock).not.toHaveBeenCalled();
+	});
+
+	it('decrypts encrypted thought fields when loading existing row', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'plain',
+			rawTextEncrypted: 'enc:hello',
+			normalizedText: 'plain',
+			normalizedTextEncrypted: 'enc:hello',
+			metadata: null,
+			metadataEncrypted: 'enc:{"status":"open"}',
+			category: 'task',
+			lexicalText: 'hello'
+		};
+		const updated = {
+			...existing,
+			rawText: 'make shorter',
+			rawTextEncrypted: 'enc:make shorter',
+			normalizedText: 'make shorter',
+			normalizedTextEncrypted: 'enc:make shorter',
+			lexicalText: 'make shorter',
+			metadata: { status: 'open' }
+		};
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+
+		const result = await editStoredThought('u1', 't1', 'make shorter');
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.thought.rawText).toBe('make shorter');
+		}
 	});
 });
 
@@ -418,7 +715,7 @@ describe('relinkThoughtGraph', () => {
 		expect(result).toEqual({ ok: false, reason: 'not_found' });
 	});
 
-	it('upserts node and fires reenrichThought', async () => {
+	it('upserts node and schedules reenrichThought', async () => {
 		const existing = {
 			id: 't1',
 			userId: 'u1',
@@ -444,7 +741,8 @@ describe('relinkThoughtGraph', () => {
 		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 't1', userId: 'u1' })
 		);
-		expect(reenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello');
+		expect(scheduleReenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello');
+		expect(reenrichThoughtMock).not.toHaveBeenCalled();
 	});
 
 	it('reports fast-path ingest phases when onProgress is provided', async () => {
@@ -476,6 +774,13 @@ describe('relinkThoughtGraph', () => {
 			}
 		});
 		expect(phases).toEqual(['accounting', 'graph']);
+		expect(reenrichThoughtMock).toHaveBeenCalledWith(
+			'u1',
+			't1',
+			'x',
+			expect.objectContaining({ onProgress: expect.any(Function) })
+		);
+		expect(scheduleReenrichThoughtMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -521,39 +826,118 @@ describe('deleteThoughtForUser', () => {
 });
 
 describe('listThoughts', () => {
-	it('clamps limit and applies ordering', async () => {
-		const limitSpy = vi.fn(async () => []);
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						orderBy: vi.fn(() => ({
-							limit: limitSpy
+	function makeListDb(rows: unknown[]) {
+		const limitSpy = vi.fn(async () => rows);
+		return {
+			db: {
+				select: vi.fn(() => ({
+					from: vi.fn(() => ({
+						where: vi.fn(() => ({
+							orderBy: vi.fn(() => ({
+								limit: limitSpy
+							}))
 						}))
 					}))
 				}))
-			}))
+			},
+			limitSpy
 		};
+	}
+
+	it('clamps limit and applies ordering', async () => {
+		const { db, limitSpy } = makeListDb([]);
 		getDbMock.mockReturnValue(db);
 		await listThoughts('u1', { limit: 999 });
 		expect(limitSpy).toHaveBeenCalledWith(100);
 	});
 
 	it('applies cursor branch when cursor is provided', async () => {
-		const limitSpy = vi.fn(async () => []);
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						orderBy: vi.fn(() => ({
-							limit: limitSpy
-						}))
-					}))
-				}))
-			}))
-		};
+		const { db, limitSpy } = makeListDb([]);
 		getDbMock.mockReturnValue(db);
 		await listThoughts('u1', { cursor: { createdAt: new Date('2026-01-01T00:00:00Z'), id: 't1' } });
 		expect(limitSpy).toHaveBeenCalledWith(20);
+	});
+
+	it('returns decrypted full rows', async () => {
+		const createdAt = new Date('2026-06-01T12:00:00.000Z');
+		const { db } = makeListDb([
+			{
+				id: 't1',
+				userId: 'u1',
+				rawText: 'plain',
+				rawTextEncrypted: 'enc:secret raw',
+				normalizedText: 'plain',
+				normalizedTextEncrypted: 'enc:secret normalized',
+				category: 'task',
+				metadata: null,
+				metadataEncrypted: 'enc:{"status":"open"}',
+				memoryType: 'fact',
+				createdAt,
+				updatedAt: createdAt
+			}
+		]);
+		getDbMock.mockReturnValue(db);
+
+		const rows = await listThoughts('u1');
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toEqual(
+			expect.objectContaining({
+				id: 't1',
+				rawText: 'secret raw',
+				normalizedText: 'secret normalized',
+				metadata: { status: 'open' }
+			})
+		);
+	});
+
+	it('returns plain snippet rows without encrypted ciphertext', async () => {
+		const createdAt = new Date('2026-06-01T12:00:00.000Z');
+		const { db } = makeListDb([
+			{
+				id: 't1',
+				normalizedText: 'plain snippet',
+				category: 'task',
+				memoryType: 'fact',
+				createdAt
+			}
+		]);
+		getDbMock.mockReturnValue(db);
+
+		const rows = await listThoughts('u1', { fields: 'snippet', limit: 3 });
+		expect(rows).toEqual([
+			expect.objectContaining({
+				id: 't1',
+				normalizedText: 'plain snippet'
+			})
+		]);
+	});
+
+	it('returns decrypted snippet rows when fields is snippet', async () => {
+		const createdAt = new Date('2026-06-01T12:00:00.000Z');
+		const { db, limitSpy } = makeListDb([
+			{
+				id: 't1',
+				normalizedText: 'plain',
+				normalizedTextEncrypted: 'enc:snippet text',
+				category: 'task',
+				memoryType: 'fact',
+				createdAt
+			}
+		]);
+		getDbMock.mockReturnValue(db);
+
+		const rows = await listThoughts('u1', {
+			fields: 'snippet',
+			limit: 5,
+			cursor: { createdAt, id: 't0' }
+		});
+
+		expect(limitSpy).toHaveBeenCalledWith(5);
+		expect(rows).toEqual([
+			expect.objectContaining({
+				id: 't1',
+				normalizedText: 'snippet text'
+			})
+		]);
 	});
 });

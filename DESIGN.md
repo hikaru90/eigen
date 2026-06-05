@@ -4,8 +4,8 @@
 
 **App Name:** Eigen  
 **Tagline:** Capture. Structure. Remember.  
-**Platform:** Mobile (iOS)  
-**Purpose:** A minimal thought-capture app for quickly logging ideas and notes.
+**Platform:** Web (SvelteKit PWA; responsive mobile + desktop)  
+**Purpose:** Open Brain–style memory infrastructure — capture thoughts, enrich automatically, retrieve and answer via hybrid search and MCP.
 
 ---
 

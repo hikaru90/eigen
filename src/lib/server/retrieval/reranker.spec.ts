@@ -83,4 +83,41 @@ describe('rerankCandidates', () => {
 		expect(result[0]).toEqual(candidates[1]); // b
 		expect(result[1]).toEqual(candidates[0]); // a
 	});
+
+	it('throws RerankError when LLM returns no choices', async () => {
+		llmChatCompletionMock.mockResolvedValue({});
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+			message: 'Rerank LLM returned no choices'
+		});
+	});
+
+	it('throws RerankError when LLM returns blank content', async () => {
+		llmChatCompletionMock.mockResolvedValue({ choices: [{ message: { content: '   ' } }] });
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+			message: 'Rerank LLM returned empty content'
+		});
+	});
+
+	it('throws RerankError when LLM returns an empty ID array', async () => {
+		llmChatCompletionMock.mockResolvedValue(makeResponse('[]'));
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+			message: 'Rerank LLM returned an empty ID array'
+		});
+	});
+
+	it('wraps non-Error LLM failures and parse failures', async () => {
+		llmChatCompletionMock.mockRejectedValueOnce('gateway down');
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+			message: 'Rerank LLM call failed: gateway down'
+		});
+
+		llmChatCompletionMock.mockResolvedValueOnce(makeResponse('["a","b","c"]'));
+		const parseSpy = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+			throw 'bad ids';
+		});
+		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+			message: 'Failed to parse rerank response: bad ids'
+		});
+		parseSpy.mockRestore();
+	});
 });

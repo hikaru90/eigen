@@ -10,11 +10,10 @@ import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
-import { normalizeFusedRrfScore } from '$lib/server/retrieval/rrf-scoring';
+import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
-import { resolveMcpRetrievalMode } from '$lib/server/mcp/resolve-retrieval-mode';
 import { thoughtSnippet } from '$lib/server/mcp/snippet';
 import {
 	compactTemporalFieldsForMcp,
@@ -86,7 +85,7 @@ async function buildMcpThoughtSnippetRows(
 			...(temporalSummary ? { temporalSummary } : {}),
 			...(row.memoryType ? { memoryType: row.memoryType } : {}),
 			...(typeof row.score === 'number'
-				? { scoreNormalized: normalizeFusedRrfScore(row.score, weights) }
+				? { scoreNormalized: normalizeRetrievalScore(row.score) }
 				: {}),
 			snippet: enhanceSnippetWithTemporalContext({
 				snippet: baseSnippet,
@@ -159,16 +158,17 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	}
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
 	const threshold = typeof body.threshold === 'number' ? body.threshold : undefined;
-	const explicitMode =
-		body.mode === 'fast' || body.mode === 'full' ? (body.mode as 'fast' | 'full') : undefined;
 	const detail = parseDetailLevel(body);
 	validateSearchParams({ topK, threshold });
 	const weights = CONTEXT_WEIGHTS.default;
-	const mode = resolveMcpRetrievalMode(query, explicitMode);
 	const effectiveTopK = topK ?? 10;
 
 	const retrieveStart = Date.now();
-	console.info('[mcp.tool:retrieve_thoughts] start', { query, topK: effectiveTopK, mode, threshold: threshold ?? null });
+	console.info('[mcp.tool:retrieve_thoughts] start', {
+		query,
+		topK: effectiveTopK,
+		threshold: threshold ?? null
+	});
 
 	context.onToolProgress?.({
 		tool: 'retrieve_thoughts',
@@ -178,9 +178,7 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	const results = await searchThoughts({
 		userId: context.userId,
 		query,
-		topK: effectiveTopK,
-		weights,
-		mode
+		topK: effectiveTopK
 	});
 	void tryRecordRetrievalQualityEvent({
 		userId: context.userId,
@@ -193,7 +191,7 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 		threshold == null
 			? results
 			: results.filter(
-					(result) => normalizeFusedRrfScore(result.score, weights) >= threshold
+					(result) => normalizeRetrievalScore(result.score) >= threshold
 				);
 
 	if (detail === 'full') {

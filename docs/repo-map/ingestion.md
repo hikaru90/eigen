@@ -22,7 +22,8 @@
 
 - **InputContract:** Non-empty trimmed raw string; authenticated `userId`.
 - **OutputContract:** Stored thought row subset (id, texts, category, metadata).
-- **SideEffects:** Inserts `capture_session` and `thought`; writes embedding vector; updates AGE graph; syncs relations and entities; may refresh ontology; logs activity.
+- **SideEffects:** Inserts `capture_session` and `thought`; writes embedding vector; updates AGE graph; schedules or awaits enrichment (see below); may refresh ontology; logs activity.
+- **Enrichment lifecycle:** Fast path returns the persisted row immediately. When `options.onProgress` is set (NDJSON streaming), `enrichThought` is **awaited** on the caller's reserved DB connection so progress events and `done` include full enrichment. Without `onProgress`, enrichment is **scheduled** via `scheduleEnrichThought` on a dedicated RLS-scoped connection (`withDbUser`).
 - **Invariants:** Lexical text derived deterministically from normalized body; tenant is always `userId`.
 - **ConflictsWith:** None for capture path; MCP and HTTP both call this (intentional dual entry, same canonical implementation).
 
@@ -43,10 +44,16 @@
 - **Purpose:** Re-run relation + entity graph sync without changing stored text; clears outgoing AGE graph edges for that thought first (see file docblock).
 - **FailureMode:** Missing thought → not found path; errors propagate.
 
+### [`src/lib/server/capture/enrich.ts`](../../src/lib/server/capture/enrich.ts)
+
+- **Purpose:** Async enrichment for persisted thoughts (relations, entities, memory type, cues, temporal, link materialization).
+- **PublicSymbols:** `enrichThought`, `reenrichThought`, `scheduleEnrichThought`, `scheduleReenrichThought`.
+- **FailureMode:** `enrichThought` does not throw; per-step failures logged. `scheduleEnrichThought` / `scheduleReenrichThought` run on a dedicated `withDbUser` connection for fire-and-forget paths (JSON submit, MCP, admin reenrich).
+
 ### [`src/routes/api/capture/submit/+server.ts`](../../src/routes/api/capture/submit/+server.ts)
 
 - **Purpose:** Authenticated POST JSON `{ raw }`; optional NDJSON progress stream when `Accept` includes `application/x-ndjson`.
-- **Owns:** Request validation, `runWithTrace` wrapper, error JSON shape.
+- **Owns:** Request validation, `runWithTrace` wrapper, error JSON shape; NDJSON path reserves a dedicated DB connection for fast path **and** awaited enrichment.
 - **PublicSymbols:** `POST` handler.
 - **FailureMode:** 401 unauthenticated; 400 bad JSON / missing `raw`; 500 with `{ error, details }` on pipeline failure.
 

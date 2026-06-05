@@ -14,4 +14,20 @@ describe('embedding-compress (vendored cavemem-style)', () => {
 		const ultra = compress(s, { intensity: 'ultra' });
 		expect(ultra.length).toBeLessThanOrEqual(lite.length);
 	});
+
+	it('defaults to full intensity when options are omitted', () => {
+		const s = 'I think that basically it is very good.';
+		expect(compress(s)).toBe(compress(s, { intensity: 'full' }));
+	});
+
+	it('preserves source casing when abbreviating', () => {
+		expect(compress('Update the CONFIGURATION file.', { intensity: 'full' })).toContain('CONFIG');
+		expect(compress('Update the Configuration file.', { intensity: 'full' })).toContain('Config');
+	});
+
+	it('preserves leading and trailing whitespace padding semantics', () => {
+		expect(compress('\n  hello world  \n', { intensity: 'full' })).toMatch(/^\n/);
+		expect(compress('  hello world  ', { intensity: 'full' })).toMatch(/^ /);
+		expect(compress('   ', { intensity: 'full' })).toBe('   ');
+	});
 });

@@ -63,12 +63,19 @@ function makeSequentialDb(selectQueues: unknown[][]) {
 	let selectIndex = 0;
 	const nextRows = () => selectQueues[selectIndex++] ?? [];
 
-	const limit = vi.fn(async () => nextRows());
-	const orderBy = vi.fn(() => ({ limit }));
-	const innerJoinWhere = vi.fn(() => ({ orderBy }));
-	const innerJoin = vi.fn(() => ({ where: innerJoinWhere }));
-	const where = vi.fn(() => ({ orderBy, innerJoin }));
-	const from = vi.fn(() => ({ where, innerJoin }));
+	const where = vi.fn(() => {
+		const rows = nextRows();
+		return Object.assign(Promise.resolve(rows), {
+			orderBy: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
+			limit: vi.fn(async () => rows),
+			innerJoin: vi.fn(() => ({
+				where: vi.fn(() => ({
+					orderBy: vi.fn(() => ({ limit: vi.fn(async () => rows) }))
+				}))
+			}))
+		});
+	});
+	const from = vi.fn(() => ({ where }));
 
 	return {
 		select: vi.fn(() => ({ from })),
@@ -188,6 +195,7 @@ describe('retrieveEvidence', () => {
 			makeSequentialDb([
 				[{ id: 't1', distance: 0.05 }],
 				[],
+				[],
 				[encryptedRow]
 			])
 		);
@@ -207,10 +215,43 @@ describe('retrieveEvidence', () => {
 		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'fresh query');
 	});
 
+	it('drops hydrated candidates missing from the thought table', async () => {
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[{ id: 'missing', distance: 0.05 }],
+				[],
+				[]
+			])
+		);
+
+		const result = await retrieveEvidence({ userId: 'u1', query: 'ghost' });
+		expect(result).toEqual([]);
+	});
+
+	it('assigns graph provenance for community bundle hits', async () => {
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[],
+				[{ communityId: 'c1', distance: 0.1 }],
+				[{ communityId: 'c1', topThoughtIds: ['t-bundle'] }],
+				[
+					{
+						...thoughtRow,
+						id: 't-bundle',
+						primaryCommunityIds: ['c1', 'c1', 'c1', 'c2']
+					}
+				]
+			])
+		);
+
+		const result = await retrieveEvidence({ userId: 'u1', query: 'theme' });
+		expect(result[0]?.metadata?.graphProvenance).toBe('community_bundle');
+	});
+
 	it('logs salience bump failures without failing retrieval', async () => {
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 		getDbMock.mockReturnValue({
-			...makeSequentialDb([[{ id: 't1', distance: 0.05 }], [], [thoughtRow]]),
+			...makeSequentialDb([[{ id: 't1', distance: 0.05 }], [], [], [thoughtRow]]),
 			update: vi.fn(() => ({
 				set: vi.fn(() => ({
 					where: vi.fn(async () => {
@@ -225,6 +266,129 @@ describe('retrieveEvidence', () => {
 		expect(warnSpy).toHaveBeenCalledWith(
 			'[retrieval.reconsolidation] salience bump failed',
 			expect.objectContaining({ userId: 'u1' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('scores lexical-only hits and assigns entity_expansion provenance', async () => {
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([{ id: 'e1', distance: 0.2 }]);
+		lexicalSearchMock.mockResolvedValue([{ id: 't-lex' }]);
+
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[],
+				[],
+				[{ entityId: 'e1', thoughtIds: ['t-entity'] }],
+				[
+					{ ...thoughtRow, id: 't-lex', primaryCommunityIds: null },
+					{ ...thoughtRow, id: 't-entity', primaryCommunityIds: null }
+				]
+			])
+		);
+
+		const result = await retrieveEvidence({ userId: 'u1', query: 'entity topic' });
+		const byId = Object.fromEntries(result.map((r) => [r.id, r]));
+
+		expect(byId['t-lex']).toBeDefined();
+		expect(byId['t-entity']?.metadata?.graphProvenance).toBe('entity_expansion');
+	});
+
+	it('assigns thought_neighbor provenance and caps neighbors per seed', async () => {
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[{ id: 't-seed', distance: 0.05 }],
+				[],
+				[
+					{ thoughtId: 't-seed', neighborId: 't-n1', weight: 1 },
+					{ thoughtId: 't-seed', neighborId: 't-n2', weight: 1 },
+					{ thoughtId: 't-seed', neighborId: 't-n3', weight: 1 }
+				],
+				[
+					{ ...thoughtRow, id: 't-seed' },
+					{ ...thoughtRow, id: 't-n1' },
+					{ ...thoughtRow, id: 't-n2' }
+				]
+			])
+		);
+
+		const result = await retrieveEvidence({ userId: 'u1', query: 'neighbor graph' });
+		const neighbor = result.find((r) => r.id === 't-n2');
+
+		expect(neighbor?.metadata?.graphProvenance).toBe('thought_neighbor');
+		expect(result.some((r) => r.id === 't-n3')).toBe(false);
+	});
+
+	it('assigns temporal provenance from scheduling conflict hits', async () => {
+		isSchedulingConflictQueryMock.mockReturnValue(true);
+		findTemporalSchedulingConflictsMock.mockResolvedValue([
+			{ thoughtIds: ['t-conflict'] }
+		]);
+
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[],
+				[],
+				[{ ...thoughtRow, id: 't-conflict', primaryCommunityIds: null }]
+			])
+		);
+
+		const result = await retrieveEvidence({
+			userId: 'u1',
+			query: 'scheduling conflict in March'
+		});
+
+		expect(result[0]?.metadata?.graphProvenance).toBe('temporal');
+	});
+
+	it('filters distant entity matches and tolerates sparse row scoring fields', async () => {
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([
+			{ id: 'e-far', distance: 0.9 },
+			{ id: 'e-near', distance: 0.2 }
+		]);
+
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[],
+				[],
+				[{ entityId: 'e-near', thoughtIds: ['t-sparse'] }],
+				[
+					{
+						...thoughtRow,
+						id: 't-sparse',
+						entityCentralityMax: null,
+						specificityScore: null,
+						salienceScore: null,
+						recencyBucket: null,
+						primaryCommunityIds: null,
+						rerankSnippet: null
+					}
+				]
+			])
+		);
+
+		const result = await retrieveEvidence({ userId: 'u1', query: 'sparse fields' });
+		expect(result).toHaveLength(1);
+		expect(result[0]?.normalizedText).toBe('plain text');
+	});
+
+	it('logs string salience bump failures', async () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		getDbMock.mockReturnValue({
+			...makeSequentialDb([[{ id: 't1', distance: 0.05 }], [], [], [thoughtRow]]),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(async () => {
+						throw 'salience down';
+					})
+				}))
+			}))
+		});
+
+		await retrieveEvidence({ userId: 'u1', query: 'hello' });
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[retrieval.reconsolidation] salience bump failed',
+			expect.objectContaining({ message: 'salience down' })
 		);
 		warnSpy.mockRestore();
 	});

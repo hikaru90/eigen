@@ -193,9 +193,7 @@ describe('MCP tools', () => {
 		expect(searchThoughtsMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			query: 'hello',
-			topK: 10,
-			weights: { vector: 0.7, graph: 0.3 },
-			mode: 'fast'
+			topK: 10
 		});
 		expect(out.count).toBe(1);
 		expect(out.results[0]).toMatchObject({
@@ -247,12 +245,14 @@ describe('MCP tools', () => {
 		});
 	});
 
-	it('runRetrieveThoughtsTool upgrades relational queries to full mode', async () => {
+	it('runRetrieveThoughtsTool passes relational queries through to searchThoughts', async () => {
 		searchThoughtsMock.mockResolvedValue([]);
 		await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'Who is Jonas?' });
-		expect(searchThoughtsMock).toHaveBeenCalledWith(
-			expect.objectContaining({ mode: 'full', query: 'Who is Jonas?' })
-		);
+		expect(searchThoughtsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			query: 'Who is Jonas?',
+			topK: 10
+		});
 	});
 
 	it('runRetrieveThoughtsTool filters by normalized RRF threshold when provided', async () => {
@@ -261,8 +261,8 @@ describe('MCP tools', () => {
 				id: 'a',
 				normalizedText: 'A',
 				category: 'thought',
-				score: 0.02,
-				vectorScore: 0.02,
+				score: 0.6,
+				vectorScore: 0.6,
 				graphScore: 0,
 				createdAt: new Date('2026-06-02T10:00:00.000Z')
 			},
@@ -270,8 +270,8 @@ describe('MCP tools', () => {
 				id: 'b',
 				normalizedText: 'B',
 				category: 'thought',
-				score: 0.008,
-				vectorScore: 0.008,
+				score: 0.2,
+				vectorScore: 0.2,
 				graphScore: 0,
 				createdAt: new Date('2026-06-02T10:00:00.000Z')
 			}

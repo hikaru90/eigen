@@ -101,6 +101,10 @@ export async function fetchRelevantCommunitySummaries(params: {
  * @param preferLevel - Prefer summaries at this hierarchy level (0=root, 3=leaf).
  *   Defaults to 1 (theme level) which balances detail with scope per the paper.
  */
+/**
+ * @deprecated Legacy GraphRAG map-reduce path — not wired to production retrieval.
+ * Community ANN in `retrieveEvidence` replaces this for query-time routing.
+ */
 export async function searchGlobal(params: {
 	userId: string;
 	query: string;

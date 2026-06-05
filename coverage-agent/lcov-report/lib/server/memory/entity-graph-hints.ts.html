@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">69.82% </span>
+                <span class="strong">86.2% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>81/116</span>
+                <span class='fraction'>100/116</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">72.72% </span>
+                <span class="strong">78.78% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>48/66</span>
+                <span class='fraction'>52/66</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">70% </span>
+                <span class="strong">90% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>7/10</span>
+                <span class='fraction'>9/10</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">73.95% </span>
+                <span class="strong">91.66% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>71/96</span>
+                <span class='fraction'>88/96</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line medium'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -483,8 +483,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -506,25 +506,22 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -532,12 +529,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -787,12 +787,12 @@ export function lexicalLabelAppearsInText(normalizedText: string, label: string)
  * Known-entity hints from graph context (same-thought resolutions + ENTITY_RELATES neighbors).
  * Does not use embedding similarity.
  */
-export async function <span class="fstat-no" title="function not covered" >loadGraphKnownEntityHints(i</span>nput: {
+export async function loadGraphKnownEntityHints(input: {
 	userId: string;
 	thoughtId: string;
 }): Promise&lt;KnownEntityHint[]&gt; {
-	const <span class="cstat-no" title="statement not covered" >db = getDb();</span>
-	const resolved = <span class="cstat-no" title="statement not covered" >await db</span>
+	const db = getDb();
+	const resolved = await db
 		.select({
 			entityId: entityResolutionLog.canonicalEntityId,
 			label: canonicalEntity.label,
@@ -814,22 +814,22 @@ export async function <span class="fstat-no" title="function not covered" >loadG
 			)
 		);
 &nbsp;
-	const byId = <span class="cstat-no" title="statement not covered" >new Map&lt;string, KnownEntityHint&gt;();</span>
-<span class="cstat-no" title="statement not covered" >	for (const row of resolved) {</span>
-<span class="cstat-no" title="statement not covered" >		if (!row.entityId) <span class="cstat-no" title="statement not covered" >continue;</span></span>
-<span class="cstat-no" title="statement not covered" >		byId.set(row.entityId, { label: row.label, entityType: row.entityType });</span>
+	const byId = new Map&lt;string, KnownEntityHint&gt;();
+	for (const row of resolved) {
+		<span class="missing-if-branch" title="if path not taken" >I</span>if (!row.entityId) <span class="cstat-no" title="statement not covered" >continue;</span>
+		byId.set(row.entityId, { label: row.label, entityType: row.entityType });
 	}
 &nbsp;
-	const seedIds = <span class="cstat-no" title="statement not covered" >[...byId.keys()];</span>
-<span class="cstat-no" title="statement not covered" >	if (seedIds.length === 0) <span class="cstat-no" title="statement not covered" >return [];</span></span>
+	const seedIds = [...byId.keys()];
+	if (seedIds.length === 0) return [];
 &nbsp;
-	const edges = <span class="cstat-no" title="statement not covered" >await fetchEntityEdgesForUser({ userId: input.userId });</span>
-	const <span class="cstat-no" title="statement not covered" >adjacency = buildEntityAdjacency(edges);</span>
-	const <span class="cstat-no" title="statement not covered" >neighborIds = neighborEntityIds(adjacency, seedIds);</span>
+	const edges = await fetchEntityEdgesForUser({ userId: input.userId });
+	const adjacency = buildEntityAdjacency(edges);
+	const neighborIds = neighborEntityIds(adjacency, seedIds);
 &nbsp;
-	const missingNeighborIds = <span class="cstat-no" title="statement not covered" >[...neighborIds].<span class="fstat-no" title="function not covered" >filter((i</span>d) =&gt; <span class="cstat-no" title="statement not covered" >!byId.has(id))</span>.slice(0, GRAPH_HINT_LIMIT);</span>
-<span class="cstat-no" title="statement not covered" >	if (missingNeighborIds.length &gt; 0) {</span>
-		const rows = <span class="cstat-no" title="statement not covered" >await db</span>
+	const missingNeighborIds = [...neighborIds].filter((id) =&gt; !byId.has(id)).slice(0, GRAPH_HINT_LIMIT);
+	<span class="missing-if-branch" title="else path not taken" >E</span>if (missingNeighborIds.length &gt; 0) {
+		const rows = await db
 			.select({
 				id: canonicalEntity.id,
 				label: canonicalEntity.label,
@@ -840,12 +840,12 @@ export async function <span class="fstat-no" title="function not covered" >loadG
 				and(eq(canonicalEntity.userId, input.userId), inArray(canonicalEntity.id, missingNeighborIds))
 			);
 &nbsp;
-<span class="cstat-no" title="statement not covered" >		for (const row of rows) {</span>
-<span class="cstat-no" title="statement not covered" >			byId.set(row.id, { label: row.label, entityType: row.entityType });</span>
+		for (const row of rows) {
+			byId.set(row.id, { label: row.label, entityType: row.entityType });
 		}
 	}
 &nbsp;
-<span class="cstat-no" title="statement not covered" >	return [...byId.values()].slice(0, GRAPH_HINT_LIMIT);</span>
+	return [...byId.values()].slice(0, GRAPH_HINT_LIMIT);
 }
 &nbsp;
 /**
@@ -994,7 +994,7 @@ export async function <span class="fstat-no" title="function not covered" >loadE
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-06-05T11:32:05.174Z
+                at 2026-06-05T11:36:25.014Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

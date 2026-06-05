@@ -89,7 +89,8 @@ export const POST: RequestHandler = async (event) => {
 
 	// The streaming path returns the Response immediately, which causes hooks.server to
 	// release the request-scoped reserved DB connection before captureWork finishes.
-	// We reserve a dedicated connection here that lives for the full pipeline duration.
+	// We reserve a dedicated connection here for the full NDJSON pipeline (fast path +
+	// awaited enrichment when onProgress is set).
 	const captureWork = (async () => {
 		let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null;
 		try {

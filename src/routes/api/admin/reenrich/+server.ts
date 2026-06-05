@@ -19,7 +19,7 @@ import { env } from '$env/dynamic/private';
 import { isNull, eq, and } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
-import { enrichThought } from '$lib/server/capture/enrich';
+import { scheduleEnrichThought } from '$lib/server/capture/enrich';
 
 function getAdminKey(): string | undefined {
 	return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined;
@@ -80,7 +80,7 @@ export const POST: RequestHandler = async (event) => {
 	// overwhelming the LLM gateway with concurrent calls).
 	let enqueued = 0;
 	for (const t of pending) {
-		void enrichThought(t.userId, t.id, t.normalizedText);
+		scheduleEnrichThought(t.userId, t.id, t.normalizedText);
 		enqueued++;
 	}
 

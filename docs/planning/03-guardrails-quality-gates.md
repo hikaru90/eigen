@@ -35,12 +35,14 @@ A change is Done only when all items below are satisfied:
   - Normal tier: 80% lines/branches/functions/statements.
 - Tier glob mapping for CI thresholds:
   - Critical: `src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity}/**`
-  - High: `src/lib/server/{graph,db}/**`, `src/lib/server/auth.ts`, `src/lib/server/auth-form-errors.ts`, `src/routes/**/+server.ts`, `src/routes/**/+page.server.ts`, `src/routes/+layout.server.ts`
+  - High: `src/lib/server/{graph,db}/**`, `src/lib/server/auth.ts`, `src/lib/server/auth-form-errors.ts`, `src/routes/**/+server.ts`, `src/routes/+layout.server.ts`
+  - Note: `src/routes/**/+page.server.ts` is listed here for risk ownership but is **excluded** from enforced coverage thresholds in `vite.config.ts` (load functions are thin data adapters; route `+server.ts` handlers remain enforced).
   - Normal: `src/lib/components/**/*.svelte`, `src/routes/**/*.svelte`
 - Exclusions: generated outputs and scaffolding (`src/lib/paraglide/**`, `src/lib/server/db/auth.schema.ts`, `src/routes/demo/**`, config files, and other non-runtime assets).
 - Coverage report path: `coverage/index.html`.
 
 ## Merge Gates (PR-Level)
+- CI (`.github/workflows/test-coverage.yml`): `npm run lint`, `npm run check`, `npm run test:coverage`, and smoke E2E (`npm run test:e2e:smoke` with Postgres via Docker Compose).
 - All required tests pass for impacted risk level.
 - Lint/type checks pass.
 - No security policy regressions (Better Auth + RLS).

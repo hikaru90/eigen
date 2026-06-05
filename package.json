@@ -22,6 +22,7 @@
 		"test:coverage:watch": "vitest --coverage",
 		"test": "npm run test:unit:run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test",
+		"test:e2e:smoke": "playwright install && playwright test src/routes/demo/playwright/page.svelte.e2e.ts src/routes/e2e/auth.e2e.ts --grep \"redirects unauthenticated user\"",
 		"db:up": "docker compose up -d --build db",
 		"db:wait": "node scripts/wait-for-db.mjs",
 		"db:import-graph-export": "node scripts/import-graph-export-to-age.mjs --from-export",

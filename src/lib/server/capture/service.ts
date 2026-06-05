@@ -16,7 +16,12 @@ import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync
 import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
-import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
+import {
+	enrichThought,
+	reenrichThought,
+	scheduleEnrichThought,
+	scheduleReenrichThought
+} from '$lib/server/capture/enrich';
 import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
@@ -92,14 +97,12 @@ async function decryptThoughtRow<T extends {
 }
 
 /**
- * Fast path: classify → embed → persist → AGE graph provenance anchor → return immediately.
+ * Fast path: classify → embed → persist → AGE graph provenance anchor → return.
  *
- * Heavy enrichment (relation extraction, entity graph sync, memory type
- * classification, cue extraction, ontology eval) runs via `enrichThought`
- * and is awaited before this function returns so the graph is populated eagerly.
- *
- * When the caller provides an `onProgress` callback (NDJSON streaming mode),
- * enrichment phase events are emitted on the open connection.
+ * Heavy enrichment (relations, entities, memory type, cues, temporal, link
+ * materialization) runs via `enrichThought`:
+ * - With `onProgress` (NDJSON streaming): awaited on the caller's DB connection.
+ * - Without `onProgress`: scheduled on a dedicated connection via `scheduleEnrichThought`.
  */
 export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
 	const onProgress = options?.onProgress;
@@ -268,8 +271,11 @@ export async function captureThought(userId: string, rawInput: string, options?:
 			ingestKnownEntities.length > 0 ? ingestKnownEntities : undefined
 	};
 
-	// Background enrichment: persist response returns immediately; graph enrichment may lag.
-	void enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
+	if (onProgress) {
+		await enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
+	} else {
+		scheduleEnrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
+	}
 
 	return decryptedStored;
 }
@@ -437,7 +443,7 @@ export async function editStoredThought(
 			thoughtEmbedding: embedding
 		});
 	} else {
-		void reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
+		scheduleReenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
 			thoughtEmbedding: embedding
 		});
 	}
@@ -485,7 +491,7 @@ export async function relinkThoughtGraph(
 	if (onProgress) {
 		await reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText, { onProgress });
 	} else {
-		void reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText);
+		scheduleReenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText);
 	}
 
 	return {

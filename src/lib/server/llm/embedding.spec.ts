@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	clearQueryEmbeddingCacheForTests
 } from '$lib/server/retrieval/embedding-cache';
-import { createThoughtEmbedding, createThoughtEmbeddings, extractFirstEmbedding } from './embedding';
+import { createThoughtEmbedding, createThoughtEmbeddings, extractEmbeddings, extractFirstEmbedding } from './embedding';
 
 const { llmCreateEmbeddingsMock, embeddingEnv } = vi.hoisted(() => ({
 	llmCreateEmbeddingsMock: vi.fn(),
@@ -119,6 +119,22 @@ describe('createThoughtEmbedding', () => {
 	});
 });
 
+describe('extractEmbeddings', () => {
+	it('throws when response is not an object', () => {
+		expect(() => extractEmbeddings(null)).toThrow(/not an object/);
+	});
+
+	it('throws when data array is empty', () => {
+		expect(() => extractEmbeddings({ data: [] })).toThrow(/empty data/);
+	});
+
+	it('throws when a batch item is invalid', () => {
+		expect(() => extractEmbeddings({ data: [{ embedding: Array.from({ length: 1536 }, () => 0) }, null] })).toThrow(
+			/item 1 is invalid/
+		);
+	});
+});
+
 describe('createThoughtEmbeddings', () => {
 	beforeEach(() => {
 		embeddingEnv.EMBEDDING_COMPRESS_INTENSITY = 'full';
@@ -137,5 +153,26 @@ describe('createThoughtEmbeddings', () => {
 		expect(out).toHaveLength(2);
 		expect(llmCreateEmbeddingsMock).toHaveBeenCalledTimes(1);
 		expect((llmCreateEmbeddingsMock.mock.calls[0][0] as { input: string[] }).input).toHaveLength(2);
+	});
+
+	it('returns an empty array for zero inputs', async () => {
+		await expect(createThoughtEmbeddings('u1', [])).resolves.toEqual([]);
+		expect(llmCreateEmbeddingsMock).not.toHaveBeenCalled();
+	});
+
+	it('delegates single-input batches to createThoughtEmbedding', async () => {
+		llmCreateEmbeddingsMock.mockResolvedValue({
+			data: [{ embedding: Array.from({ length: 1536 }, () => 0.3) }]
+		});
+		const out = await createThoughtEmbeddings('u1', ['solo']);
+		expect(out).toHaveLength(1);
+		expect(llmCreateEmbeddingsMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('throws when gateway returns the wrong batch size', async () => {
+		llmCreateEmbeddingsMock.mockResolvedValue({
+			data: [{ embedding: Array.from({ length: 1536 }, () => 0.1) }]
+		});
+		await expect(createThoughtEmbeddings('u1', ['one', 'two'])).rejects.toThrow(/batch size mismatch/);
 	});
 });

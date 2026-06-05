@@ -42,7 +42,7 @@ describe('extractThoughtMetadata', () => {
 			makeResponse(
 				JSON.stringify({
 					memoryType: ' OPEN_LOOP ',
-					cues: ['  follow up marcus  ', 'x', 'way too long cue phrase that exceeds the maximum allowed cue length for search']
+					cues: ['  follow up marcus  ', 'x', `${'way-too-long-'.repeat(12)}cue`]
 				})
 			)
 		);
@@ -75,7 +75,7 @@ describe('extractThoughtMetadata', () => {
 	});
 
 	it('throws when output is not a JSON object', async () => {
-		llmChatCompletionMock.mockResolvedValue(makeResponse('[]'));
+		llmChatCompletionMock.mockResolvedValue(makeResponse('null'));
 
 		await expect(
 			extractThoughtMetadata({ userId: 'u1', normalizedText: 'text' })

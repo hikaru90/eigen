@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	clearQueryEmbeddingCacheForTests,
 	getCachedQueryEmbedding,
@@ -7,7 +7,12 @@ import {
 
 describe('embedding-cache', () => {
 	beforeEach(() => {
+		vi.useFakeTimers();
 		clearQueryEmbeddingCacheForTests();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it('returns undefined on cache miss', () => {
@@ -25,5 +30,26 @@ describe('embedding-cache', () => {
 		setCachedQueryEmbedding('u2', 'q', [2]);
 		expect(getCachedQueryEmbedding('u1', 'q')).toEqual([1]);
 		expect(getCachedQueryEmbedding('u2', 'q')).toEqual([2]);
+	});
+
+	it('returns undefined for expired entries', () => {
+		setCachedQueryEmbedding('u1', 'stale query', [0.9]);
+		expect(getCachedQueryEmbedding('u1', 'stale query')).toEqual([0.9]);
+
+		vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+		expect(getCachedQueryEmbedding('u1', 'stale query')).toBeUndefined();
+	});
+
+	it('evicts oldest entry when cache exceeds 256 entries', () => {
+		setCachedQueryEmbedding('u1', 'first-query', [1]);
+		for (let i = 0; i < 256; i++) {
+			setCachedQueryEmbedding('u1', `query-${i}`, [i + 2]);
+		}
+		expect(getCachedQueryEmbedding('u1', 'first-query')).toEqual([1]);
+
+		setCachedQueryEmbedding('u1', 'overflow-query', [999]);
+		expect(getCachedQueryEmbedding('u1', 'first-query')).toBeUndefined();
+		expect(getCachedQueryEmbedding('u1', 'query-0')).toEqual([2]);
+		expect(getCachedQueryEmbedding('u1', 'overflow-query')).toEqual([999]);
 	});
 });

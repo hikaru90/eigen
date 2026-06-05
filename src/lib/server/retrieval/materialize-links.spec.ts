@@ -15,25 +15,31 @@ const { getDbMock } = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
 
-function chainSelectRows(rows: unknown[]) {
+function makeDb(handlers: {
+	selectWhere?: unknown;
+	selectOrderLimit?: unknown;
+	insertValues?: ReturnType<typeof vi.fn>;
+}) {
+	const insertValues =
+		handlers.insertValues ??
+		vi.fn(() => ({
+			onConflictDoUpdate: vi.fn(async () => undefined)
+		}));
+
 	return {
-		from: vi.fn(() => ({
-			where: vi.fn(() => ({
-				orderBy: vi.fn(() => ({
-					limit: vi.fn(async () => rows)
-				})),
+		delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+		update: vi.fn(() => ({
+			set: vi.fn(() => ({ where: vi.fn(async () => undefined) }))
+		})),
+		insert: vi.fn(() => ({ values: insertValues })),
+		select: vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(async () => handlers.selectWhere ?? []),
 				innerJoin: vi.fn(() => ({
 					where: vi.fn(() => ({
 						orderBy: vi.fn(() => ({
-							limit: vi.fn(async () => rows)
+							limit: vi.fn(async () => handlers.selectOrderLimit ?? [])
 						}))
-					}))
-				}))
-			})),
-			innerJoin: vi.fn(() => ({
-				where: vi.fn(() => ({
-					orderBy: vi.fn(() => ({
-						limit: vi.fn(async () => rows)
 					}))
 				}))
 			}))
@@ -47,9 +53,8 @@ describe('materialize-links', () => {
 	it('syncThoughtEntityLinks returns 0 when no resolution logs exist', async () => {
 		const deleteWhere = vi.fn(async () => undefined);
 		getDbMock.mockReturnValue({
-			delete: vi.fn(() => ({ where: deleteWhere })),
-			select: vi.fn(() => chainSelectRows([])),
-			insert: vi.fn()
+			...makeDb({ selectWhere: [] }),
+			delete: vi.fn(() => ({ where: deleteWhere }))
 		});
 
 		await expect(syncThoughtEntityLinks('u1', 't1')).resolves.toBe(0);
@@ -57,52 +62,43 @@ describe('materialize-links', () => {
 	});
 
 	it('syncThoughtEntityLinks dedupes entities and keeps max salience', async () => {
-		const insert = vi.fn(async () => undefined);
-		getDbMock.mockReturnValue({
-			delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-			select: vi.fn(() =>
-				chainSelectRows([
+		const insertValues = vi.fn(async () => undefined);
+		getDbMock.mockReturnValue(
+			makeDb({
+				selectWhere: [
 					{ entityId: 'e1', confidence: 'medium' },
 					{ entityId: 'e1', confidence: 'high' },
 					{ entityId: 'e2', confidence: 'low' }
-				])
-			),
-			insert
-		});
+				],
+				insertValues
+			})
+		);
 
 		await expect(syncThoughtEntityLinks('u1', 't1')).resolves.toBe(2);
-		expect(insert).toHaveBeenCalledWith(
-			expect.objectContaining({
-				values: expect.arrayContaining([
-					expect.objectContaining({ entityId: 'e1', salience: 1 }),
-					expect.objectContaining({ entityId: 'e2', salience: 0.4 })
-				])
-			})
+		expect(insertValues).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({ entityId: 'e1', salience: 1 }),
+				expect.objectContaining({ entityId: 'e2', salience: 0.4 })
+			])
 		);
 	});
 
 	it('syncThoughtNeighborLinks returns 0 when no relations exist', async () => {
-		getDbMock.mockReturnValue({
-			delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-			select: vi.fn(() => chainSelectRows([])),
-			insert: vi.fn()
-		});
-
+		getDbMock.mockReturnValue(makeDb({ selectWhere: [] }));
 		await expect(syncThoughtNeighborLinks('u1', 't1')).resolves.toBe(0);
 	});
 
 	it('syncThoughtNeighborLinks inserts neighbor rows', async () => {
-		const insert = vi.fn(async () => undefined);
-		getDbMock.mockReturnValue({
-			delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-			select: vi.fn(() =>
-				chainSelectRows([{ targetThoughtId: 't2', relationType: 'related_to' }])
-			),
-			insert
-		});
+		const insertValues = vi.fn(async () => undefined);
+		getDbMock.mockReturnValue(
+			makeDb({
+				selectWhere: [{ targetThoughtId: 't2', relationType: 'related_to' }],
+				insertValues
+			})
+		);
 
 		await expect(syncThoughtNeighborLinks('u1', 't1')).resolves.toBe(1);
-		expect(insert).toHaveBeenCalled();
+		expect(insertValues).toHaveBeenCalled();
 	});
 
 	it('syncThoughtRerankSnippet trims and caps snippet length', async () => {
@@ -118,77 +114,76 @@ describe('materialize-links', () => {
 	});
 
 	it('rebuildEntityTopThoughtsForThought no-ops without entity links', async () => {
-		getDbMock.mockReturnValue({
-			select: vi.fn(() => chainSelectRows([])),
-			insert: vi.fn()
-		});
-
+		getDbMock.mockReturnValue(makeDb({ selectWhere: [] }));
 		await rebuildEntityTopThoughtsForThought('u1', 't1');
 		expect(getDbMock).toHaveBeenCalledTimes(1);
 	});
 
 	it('rebuildEntityTopThoughtsForEntities upserts ranked thought ids', async () => {
-		const insert = vi.fn(() => ({
+		const insertValues = vi.fn(() => ({
 			onConflictDoUpdate: vi.fn(async () => undefined)
 		}));
-		getDbMock.mockReturnValue({
-			select: vi.fn(() =>
-				chainSelectRows([
+		getDbMock.mockReturnValue(
+			makeDb({
+				selectOrderLimit: [
 					{
 						thoughtId: 't1',
 						salience: 0.9,
 						createdAt: new Date('2026-06-01T00:00:00.000Z'),
 						thoughtSalience: 1.2
 					}
-				])
-			),
-			insert
-		});
+				],
+				insertValues
+			})
+		);
 
 		await rebuildEntityTopThoughtsForEntities('u1', ['e1']);
-		expect(insert).toHaveBeenCalledWith(
+		expect(insertValues).toHaveBeenCalledWith(
 			expect.objectContaining({
-				values: expect.objectContaining({
-					entityId: 'e1',
-					thoughtIds: ['t1']
-				})
+				entityId: 'e1',
+				thoughtIds: ['t1']
 			})
 		);
 	});
 
 	it('materializeRetrievalLinksForThought runs all sync steps', async () => {
-		const insert = vi.fn(async () => undefined);
-		getDbMock.mockReturnValue({
-			delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-			update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
-			select: vi.fn(() => chainSelectRows([])),
-			insert
-		});
-
+		getDbMock.mockReturnValue(makeDb({ selectWhere: [] }));
 		await materializeRetrievalLinksForThought({
 			userId: 'u1',
 			thoughtId: 't1',
 			normalizedText: 'hello world'
 		});
-
 		expect(getDbMock).toHaveBeenCalled();
 	});
 
 	it('backfillRetrievalLinksForUser processes all thoughts and entities', async () => {
-		const insert = vi.fn(() => ({
-			onConflictDoUpdate: vi.fn(async () => undefined)
-		}));
+		let selectCall = 0;
 		getDbMock.mockReturnValue({
 			delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
-			update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
-			select: vi.fn(() =>
-				chainSelectRows([
-					{ id: 't1', normalizedText: 'one' },
-					{ entityId: 'e1' },
-					{ entityId: 'e1' }
-				])
-			),
-			insert
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({ where: vi.fn(async () => undefined) }))
+			})),
+			insert: vi.fn(() => ({
+				values: vi.fn(() => ({
+					onConflictDoUpdate: vi.fn(async () => undefined)
+				}))
+			})),
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(async () => {
+						selectCall++;
+						if (selectCall === 1) return [{ id: 't1', normalizedText: 'one' }];
+						return [{ entityId: 'e1' }, { entityId: 'e1' }];
+					}),
+					innerJoin: vi.fn(() => ({
+						where: vi.fn(() => ({
+							orderBy: vi.fn(() => ({
+								limit: vi.fn(async () => [])
+							}))
+						}))
+					}))
+				}))
+			}))
 		});
 
 		const result = await backfillRetrievalLinksForUser('u1');

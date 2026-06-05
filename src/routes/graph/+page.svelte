@@ -8,7 +8,6 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
-  import * as Popover from "$lib/components/ui/popover";
   import * as Drawer from "$lib/components/ui/drawer";
   import * as Select from "$lib/components/ui/select";
   import {
@@ -20,14 +19,30 @@
     communityCircleFromPositions,
     communityGradientId,
   } from "$lib/graph/community-hull";
-  import Link2 from "@lucide/svelte/icons/link-2";
+  import {
+    deleteGraphEntity,
+    deleteGraphThought,
+    fetchEntityCaptures,
+    fetchEntityForGraphEdit,
+    fetchThoughtForGraphEdit,
+    rearrangeGraph,
+    submitGraphThoughtEdit,
+    submitGraphThoughtRelink,
+    syncGraphEntity,
+    updateGraphEntity,
+  } from "$lib/graph/graph-edit-api";
+  import type {
+    EntityCaptureRow,
+    GraphEntityEditorStored,
+    GraphThoughtEditorStored,
+  } from "$lib/graph/graph-page-types";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
-  import SearchIcon from "@lucide/svelte/icons/search";
   import X from "@lucide/svelte/icons/x";
   import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from "$lib/capture/ingest-phases";
-  import { consumeCaptureNdjsonStream } from "$lib/capture/consume-capture-ndjson";
   import EmbeddingMap from "./EmbeddingMap.svelte";
   import TemporalEvents from "./TemporalEvents.svelte";
+  import GraphFiltersToolbar from "./graph-filters-toolbar.svelte";
+  import GraphOntologyLegendBar from "./graph-ontology-legend-bar.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import type { TemporalEventListItem } from "../api/temporal-events/+server";
 
@@ -71,13 +86,6 @@
   let search = $state("");
   let edgeKind = $state<string>("all");
   let communityLevel = $state<string>("leaf");
-  let searchPopoverOpen = $state(false);
-  let edgePopoverOpen = $state(false);
-  let levelPopoverOpen = $state(false);
-
-  const searchFilterActive = $derived(search.trim().length > 0);
-  const edgeFilterActive = $derived(edgeKind !== "all");
-  const levelFilterActive = $derived(communityLevel !== "leaf");
   let status = $state<string>("");
   let scheduleGraphUpdate: (() => void) | null = null;
   let scheduleGraphResize: (() => void) | null = null;
@@ -127,12 +135,6 @@
     selectedTemporalId = null;
   });
 
-  type GraphThoughtEditorStored = {
-    id: string;
-    rawText: string;
-    normalizedText: string;
-    category: string;
-  };
   let thoughtEditorLoadSeq = 0;
   let thoughtEditorLoading = $state(false);
   let thoughtEditorDraft = $state("");
@@ -142,21 +144,6 @@
   let thoughtEditorDeleteBusy = $state(false);
   let thoughtEditorPhase = $state<CaptureIngestPhase | null>(null);
   let thoughtEditorStored = $state<GraphThoughtEditorStored | null>(null);
-
-  type GraphEntityEditorStored = {
-    id: string;
-    label: string;
-    entityType: string;
-    canonicalKey: string;
-  };
-  type EntityCaptureRow = {
-    id: string;
-    rawText: string;
-    normalizedText: string;
-    category: string;
-    metadata?: Record<string, unknown> | null;
-    createdAt: string;
-  };
 
   function thoughtLifecycleStatus(metadata: unknown): string | null {
     if (!metadata || typeof metadata !== "object") return null;
@@ -204,18 +191,7 @@
     thoughtEditorStored = null;
     void (async () => {
       try {
-        const res = await fetch(`/api/thoughts/${encodeURIComponent(id)}`);
-        if (seq !== thoughtEditorLoadSeq) return;
-        if (!res.ok) {
-          const t = await res.text();
-          throw new Error(t || `Failed to load thought (${res.status})`);
-        }
-        const row = (await res.json()) as {
-          id: string;
-          rawText: string;
-          normalizedText: string;
-          category: string;
-        };
+        const row = await fetchThoughtForGraphEdit(id);
         if (seq !== thoughtEditorLoadSeq) return;
         thoughtEditorDraft = row.rawText;
         thoughtEditorStored = {
@@ -254,15 +230,8 @@
     entityCaptures = [];
     void (async () => {
       try {
-        const res = await fetch(`/api/entities/${encodeURIComponent(id)}/thoughts`);
+        entityCaptures = await fetchEntityCaptures(id);
         if (captureSeq !== entityCapturesLoadSeq) return;
-        if (!res.ok) {
-          const t = await res.text();
-          throw new Error(t || `Failed to load captures (${res.status})`);
-        }
-        const body = (await res.json()) as { thoughts: EntityCaptureRow[] };
-        if (captureSeq !== entityCapturesLoadSeq) return;
-        entityCaptures = body.thoughts ?? [];
       } catch (e) {
         if (captureSeq !== entityCapturesLoadSeq) return;
         entityCapturesErr = e instanceof Error ? e.message : String(e);
@@ -279,13 +248,7 @@
     entityEditorStored = null;
     void (async () => {
       try {
-        const res = await fetch(`/api/entities/${encodeURIComponent(id)}`);
-        if (seq !== entityEditorLoadSeq) return;
-        if (!res.ok) {
-          const t = await res.text();
-          throw new Error(t || `Failed to load node (${res.status})`);
-        }
-        const row = (await res.json()) as GraphEntityEditorStored;
+        const row = await fetchEntityForGraphEdit(id);
         if (seq !== entityEditorLoadSeq) return;
         entityEditorDraft = row.label;
         entityEditorEntityType = row.entityType;
@@ -304,15 +267,8 @@
     entityCapturesLoading = true;
     entityCapturesErr = null;
     try {
-      const res = await fetch(`/api/entities/${encodeURIComponent(entityId)}/thoughts`);
+      entityCaptures = await fetchEntityCaptures(entityId);
       if (captureSeq !== entityCapturesLoadSeq) return;
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `Failed to load captures (${res.status})`);
-      }
-      const body = (await res.json()) as { thoughts: EntityCaptureRow[] };
-      if (captureSeq !== entityCapturesLoadSeq) return;
-      entityCaptures = body.thoughts ?? [];
     } catch (e) {
       if (captureSeq !== entityCapturesLoadSeq) return;
       entityCapturesErr = e instanceof Error ? e.message : String(e);
@@ -328,25 +284,13 @@
     thoughtEditorPhase = null;
     thoughtEditorBusy = true;
     try {
-      const res = await fetch("/api/capture/edit", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/x-ndjson, application/json",
-        },
-        body: JSON.stringify({ thoughtId: id, editRequest: thoughtEditorDraft }),
-      });
-      const contentType = res.headers.get("content-type") ?? "";
-      let thought: GraphThoughtEditorStored;
-      if (contentType.includes("application/x-ndjson")) {
-        thought = await consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (phase) => {
+      const thought = await submitGraphThoughtEdit({
+        thoughtId: id,
+        editRequest: thoughtEditorDraft,
+        onPhase: (phase) => {
           thoughtEditorPhase = phase;
-        });
-      } else {
-        if (!res.ok) throw new Error(await res.text());
-        const j = (await res.json()) as { thought: GraphThoughtEditorStored };
-        thought = j.thought;
-      }
+        },
+      });
       thoughtEditorStored = thought;
       thoughtEditorDraft = thought.rawText;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
@@ -382,28 +326,12 @@
     thoughtEditorPhase = null;
     thoughtEditorRelinkBusy = true;
     try {
-      const res = await fetch("/api/capture/relink", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/x-ndjson, application/json",
-        },
-        body: JSON.stringify({ thoughtId: id }),
-      });
-      if (!res.ok) {
-        throw new Error((await res.text()) || `Relink failed (${res.status})`);
-      }
-      const contentType = res.headers.get("content-type") ?? "";
-      let thought: GraphThoughtEditorStored;
-      if (contentType.includes("application/x-ndjson")) {
-        thought = await consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (phase) => {
+      const thought = await submitGraphThoughtRelink({
+        thoughtId: id,
+        onPhase: (phase) => {
           thoughtEditorPhase = phase;
-        });
-      } else {
-        if (!res.ok) throw new Error(await res.text());
-        const j = (await res.json()) as { thought: GraphThoughtEditorStored };
-        thought = j.thought;
-      }
+        },
+      });
       thoughtEditorStored = thought;
       thoughtEditorDraft = thought.rawText;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
@@ -429,8 +357,7 @@
     thoughtEditorErr = null;
     thoughtEditorDeleteBusy = true;
     try {
-      const res = await fetch(`/api/thoughts/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(await res.text());
+      await deleteGraphThought(id);
       editingThoughtId = null;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
       await invalidateAll();
@@ -447,24 +374,19 @@
     entityEditorErr = null;
     entityEditorBusy = true;
     try {
-      const res = await fetch(`/api/entities/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          label: entityEditorDraft,
-          entityType: entityEditorEntityType.trim() || undefined,
-        }),
+      const entity = await updateGraphEntity({
+        entityId: id,
+        label: entityEditorDraft,
+        entityType: entityEditorEntityType,
       });
-      if (!res.ok) throw new Error(await res.text());
-      const j = (await res.json()) as { entity: GraphEntityEditorStored };
-      entityEditorStored = j.entity;
-      entityEditorDraft = j.entity.label;
-      entityEditorEntityType = j.entity.entityType;
+      entityEditorStored = entity;
+      entityEditorDraft = entity.label;
+      entityEditorEntityType = entity.entityType;
       if (selectedNode?.kind === "Entity" && selectedNode.id === id) {
         selectedNode = {
           ...selectedNode,
-          label: j.entity.label,
-          subtype: j.entity.entityType,
+          label: entity.label,
+          subtype: entity.entityType,
         };
       }
       await refreshGraphAfterRearrange("Entity saved.");
@@ -481,12 +403,8 @@
     entityEditorErr = null;
     entityEditorSyncBusy = true;
     try {
-      const res = await fetch(`/api/entities/${encodeURIComponent(id)}/sync`, { method: "POST" });
-      if (!res.ok) throw new Error(await res.text());
-      const j = (await res.json()) as {
-        repair?: { edgesAdded?: number; repaired?: number };
-      };
-      const added = j.repair?.edgesAdded ?? 0;
+      const repair = await syncGraphEntity(id);
+      const added = repair?.edgesAdded ?? 0;
       await refreshGraphAfterRearrange(
         added > 0
           ? `Entity synced — ${added} relation edge${added === 1 ? "" : "s"} repaired.`
@@ -503,15 +421,7 @@
     graphRearrangeErr = null;
     graphRearrangeBusy = true;
     try {
-      const res = await fetch("/api/graph/rearrange", { method: "POST" });
-      if (!res.ok) throw new Error(await res.text());
-      const j = (await res.json()) as {
-        pruned?: { removed?: number };
-        orphanThoughts?: { removed?: number };
-        duplicatePruned?: { removed?: number };
-        connections?: { removed?: number };
-        repaired?: { edgesAdded?: number };
-      };
+      const j = await rearrangeGraph();
       const removed = j.pruned?.removed ?? 0;
       const orphanThoughtsRemoved = j.orphanThoughts?.removed ?? 0;
       const duplicateRemoved = j.duplicatePruned?.removed ?? 0;
@@ -540,8 +450,7 @@
     entityEditorErr = null;
     entityEditorDeleteBusy = true;
     try {
-      const res = await fetch(`/api/entities/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(await res.text());
+      await deleteGraphEntity(id);
       selectedNode = null;
       await invalidateAll();
     } catch (e) {
@@ -1322,110 +1231,14 @@
             <Tabs.Trigger value="temporal">Timeline</Tabs.Trigger>
           </Tabs.List>
           {#if activeTab === "graph"}
-            <div class="flex shrink-0 items-center gap-1">
-              <Popover.Root bind:open={searchPopoverOpen}>
-                <Popover.Trigger
-                  class="border-border bg-background text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex size-8 shrink-0 items-center justify-center rounded-none border shadow-none transition-colors focus-visible:ring-1 focus-visible:outline-none {searchFilterActive
-                    ? 'ring-primary/40 bg-muted/40 ring-1'
-                    : ''}"
-                  aria-label="Search nodes"
-                  aria-expanded={searchPopoverOpen}
-                >
-                  <SearchIcon
-                    class="size-4 shrink-0 opacity-90"
-                    strokeWidth={1.75}
-                    aria-hidden="true"
-                  />
-                </Popover.Trigger>
-                <Popover.Content
-                  align="start"
-                  side="bottom"
-                  sideOffset={6}
-                  class="w-[min(calc(100vw-2rem),22rem)] gap-2 p-3"
-                >
-                  <Label for="graph-search" class="text-xs">Search nodes</Label>
-                  <Input
-                    id="graph-search"
-                    class="font-mono text-xs"
-                    placeholder="Filter by label, id, or subtype…"
-                    bind:value={search}
-                  />
-                </Popover.Content>
-              </Popover.Root>
-              <Popover.Root bind:open={edgePopoverOpen}>
-                <Popover.Trigger
-                  class="border-border bg-background text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex size-8 shrink-0 items-center justify-center rounded-none border shadow-none transition-colors focus-visible:ring-1 focus-visible:outline-none {edgeFilterActive
-                    ? 'ring-primary/40 bg-muted/40 ring-1'
-                    : ''}"
-                  aria-label="Edge type filter"
-                  aria-expanded={edgePopoverOpen}
-                >
-                  <Link2 class="size-4 shrink-0 opacity-90" strokeWidth={1.75} aria-hidden="true" />
-                </Popover.Trigger>
-                <Popover.Content align="start" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
-                  <Label class="text-xs">Edge type</Label>
-                  <Select.Root type="single" bind:value={edgeKind}>
-                    <Select.Trigger class="w-full font-mono text-xs">
-                      {edgeKind === "all"
-                        ? "All edges"
-                        : edgeKind === "co_mention"
-                          ? "Co-mentioned"
-                          : "Relations"}
-                    </Select.Trigger>
-                    <Select.Content>
-                      <Select.Item value="all">All edges</Select.Item>
-                      <Select.Item value="co_mention">Co-mentioned</Select.Item>
-                      <Select.Item value="entity_relation">Relations</Select.Item>
-                    </Select.Content>
-                  </Select.Root>
-                </Popover.Content>
-              </Popover.Root>
-              <Popover.Root bind:open={levelPopoverOpen}>
-                <Popover.Trigger
-                  class="border-border bg-background text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex size-8 shrink-0 items-center justify-center rounded-none border shadow-none transition-colors focus-visible:ring-1 focus-visible:outline-none {levelFilterActive
-                    ? 'ring-primary/40 bg-muted/40 ring-1'
-                    : ''}"
-                  aria-label="Community level filter"
-                  aria-expanded={levelPopoverOpen}
-                >
-                  <span class="text-[10px] font-semibold">L</span>
-                </Popover.Trigger>
-                <Popover.Content align="start" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
-                  <Label class="text-xs">Community level</Label>
-                  <Select.Root type="single" bind:value={communityLevel}>
-                    <Select.Trigger class="w-full font-mono text-xs">
-                      {communityLevel === "leaf"
-                        ? "Leaf level (default)"
-                        : `L${communityLevel}`}
-                    </Select.Trigger>
-                    <Select.Content>
-                      <Select.Item value="leaf">Leaf level (tightest)</Select.Item>
-                      {#each availableCommunityLevels as level (level)}
-                        <Select.Item value={String(level)}>
-                          L{level}
-                        </Select.Item>
-                      {/each}
-                    </Select.Content>
-                  </Select.Root>
-                </Popover.Content>
-              </Popover.Root>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                class="h-8 shrink-0 font-mono text-[11px]"
-                disabled={graphRearrangeBusy}
-                onclick={() => void submitRearrangeGraph()}
-              >
-                {#if graphRearrangeBusy}
-                  <LoaderCircleIcon
-                    class="mr-1 size-3 shrink-0 animate-spin"
-                    aria-hidden="true"
-                  />
-                {/if}
-                Rearrange graph
-              </Button>
-            </div>
+            <GraphFiltersToolbar
+              bind:search
+              bind:edgeKind
+              bind:communityLevel
+              {availableCommunityLevels}
+              {graphRearrangeBusy}
+              onRearrange={() => void submitRearrangeGraph()}
+            />
             {#if graphRearrangeErr}
               <p class="text-destructive min-w-0 font-mono text-[11px] leading-tight">
                 {graphRearrangeErr}
@@ -1438,53 +1251,7 @@
             {/if}
           {/if}
         </div>
-        <aside
-          class="border-border/80 bg-muted/10 w-full min-w-0 max-w-full rounded-md border px-2 py-1.5"
-          aria-label="Graph ontology legend"
-        >
-          <div
-            bind:this={legendScrollEl}
-            class="min-w-0 w-full max-w-full touch-pan-x overflow-x-auto overscroll-x-contain scroll-pl-2 scroll-pr-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            <div
-              class="text-foreground flex w-max min-w-full flex-nowrap items-center gap-x-2 text-[10px] leading-none"
-            >
-              {#each legendSections as section, si (section.title)}
-                <div class="flex shrink-0 flex-nowrap items-center gap-x-2">
-                  {#if si > 0}
-                    <span class="text-muted-foreground/45 shrink-0 select-none" aria-hidden="true"
-                      >·</span
-                    >
-                  {/if}
-                  <span
-                    class="text-muted-foreground shrink-0 font-semibold tracking-tight"
-                    title={section.title}>{section.title}:</span
-                  >
-                  {#each section.items as item (item.key)}
-                    <span
-                      class="border-border/60 bg-muted/25 text-foreground inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5"
-                      title={item.hint}
-                    >
-                      {#if item.fill}
-                        <span
-                          class="h-2 w-2 shrink-0 rounded-full ring-1 ring-border/60"
-                          style="background-color: {item.fill}"
-                          aria-hidden="true"
-                        ></span>
-                      {:else}
-                        <span
-                          class="bg-muted-foreground/45 h-2 w-2 shrink-0 rounded-sm"
-                          aria-hidden="true"
-                        ></span>
-                      {/if}
-                      <span class="font-medium">{item.label}</span>
-                    </span>
-                  {/each}
-                </div>
-              {/each}
-            </div>
-          </div>
-        </aside>
+        <GraphOntologyLegendBar {legendSections} bind:legendScrollEl />
       </Card.Header>
       <Card.Content class="flex min-h-0 flex-1 flex-col p-0">
         <Tabs.Content

@@ -372,4 +372,125 @@ describe('extractRelations', () => {
 		});
 		expect(out).toEqual([{ targetId: 'prior-remote', relationType: 'contradicts' }]);
 	});
+
+	it('infers contradicts when the temporal neighbor is positive and source is negative', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: vi.fn(async () => [
+								{
+									id: 'prior-positive',
+									normalizedText:
+										'Working from home is great. I am productive, calmer, and love the commute savings.'
+								}
+							])
+						}))
+					}))
+				}))
+			}))
+		});
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: JSON.stringify([]) } }]
+		});
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't-negative',
+			normalizedText:
+				'Remote work is terrible for me. I hate the discipline loss and the home office is awful.'
+		});
+		expect(out).toEqual([{ targetId: 'prior-positive', relationType: 'contradicts' }]);
+	});
+
+	it('matches topic clusters via substring overlap rather than token equality', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: vi.fn(async () => [
+								{
+									id: 'prior-remote',
+									normalizedText: 'My homeworking setup is great and keeps improving every week.'
+								}
+							])
+						}))
+					}))
+				}))
+			}))
+		});
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: JSON.stringify([]) } }]
+		});
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't-negative',
+			normalizedText: 'Remote work is terrible for me and I hate working from home.'
+		});
+		expect(out).toEqual([{ targetId: 'prior-remote', relationType: 'contradicts' }]);
+	});
+
+	it('skips duplicate temporal neighbors already present in semantic candidates', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 't2',
+				normalizedText: 'semantic neighbor about remote work',
+				category: 'task',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0.02,
+				metadata: {}
+			}
+		]);
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: vi.fn(async () => [
+								{ id: 't2', normalizedText: 'semantic neighbor about remote work' },
+								{ id: 't3', normalizedText: 'another temporal neighbor' }
+							])
+						}))
+					}))
+				}))
+			}))
+		});
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: JSON.stringify([{ targetId: 't2', relationType: 'related_to' }]) } }]
+		});
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'remote work planning notes'
+		});
+		expect(out).toEqual([{ targetId: 't2', relationType: 'related_to' }]);
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('drops related_to links when the target id is not a candidate', async () => {
+		searchThoughtsMock.mockResolvedValue([
+			{
+				id: 't2',
+				normalizedText: 'connected thought about planning',
+				category: 'task',
+				score: 1,
+				vectorScore: 1,
+				graphScore: 0.02,
+				metadata: {}
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: JSON.stringify([{ targetId: 'missing-id', relationType: 'related_to' }]) } }]
+		});
+		const out = await extractRelations({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'planning notes for tomorrow'
+		});
+		expect(out).toEqual([]);
+	});
 });

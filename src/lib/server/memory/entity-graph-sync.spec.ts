@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { syncEntityGraphFromThought } from './entity-graph-sync';
+import { syncEntityGraphFromThought, upsertEntityRelationTriples } from './entity-graph-sync';
 
 const {
 	extractEntityGraphBundleMock,
+	extractEntityTriplesMock,
 	resolveOrCreateCanonicalEntityMock,
 	clearEntityResolutionLogsForThoughtMock,
 	loadEntityHintsForThoughtMock,
@@ -14,6 +15,7 @@ const {
 	ensureUserOntologySeededMock
 } = vi.hoisted(() => ({
 	extractEntityGraphBundleMock: vi.fn(),
+	extractEntityTriplesMock: vi.fn(),
 	resolveOrCreateCanonicalEntityMock: vi.fn(),
 	clearEntityResolutionLogsForThoughtMock: vi.fn(),
 	loadEntityHintsForThoughtMock: vi.fn(),
@@ -38,7 +40,8 @@ vi.mock('$lib/server/memory/entity-extraction', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/server/memory/entity-extraction')>();
 	return {
 		...actual,
-		extractEntityGraphBundle: extractEntityGraphBundleMock
+		extractEntityGraphBundle: extractEntityGraphBundleMock,
+		extractEntityTriples: extractEntityTriplesMock
 	};
 });
 
@@ -67,6 +70,7 @@ describe('syncEntityGraphFromThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractEntityGraphBundleMock.mockResolvedValue({ mentions: [], triples: [] });
+		extractEntityTriplesMock.mockResolvedValue([]);
 		clearEntityResolutionLogsForThoughtMock.mockResolvedValue(undefined);
 		getDbMock.mockReturnValue({});
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
@@ -199,5 +203,115 @@ describe('syncEntityGraphFromThought', () => {
 				knownEntities: [{ label: 'Berlin', entityType: 'place' }]
 			})
 		);
+	});
+
+	it('throws when no active entity_type ontology kinds exist', async () => {
+		loadOntologyForUserMock.mockResolvedValue({
+			entityKinds: [],
+			relationKinds: [],
+			entityKindsById: new Map(),
+			entityKindsByKey: new Map(),
+			relationKindsById: new Map(),
+			relationKindsByKey: new Map()
+		});
+		await expect(
+			syncEntityGraphFromThought({
+				userId: 'u1',
+				thoughtId: 't1',
+				normalizedText: 'some text'
+			})
+		).rejects.toThrow(/requires at least one active entity_type kind/);
+	});
+
+	it('continues without hints when graph hint loading fails with a non-Error', async () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		loadEntityHintsForThoughtMock.mockRejectedValue('hint lookup failed');
+		extractEntityGraphBundleMock.mockResolvedValue({ mentions: [], triples: [] });
+		await syncEntityGraphFromThought({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'some text'
+		});
+		expect(extractEntityGraphBundleMock).toHaveBeenCalledWith(
+			expect.objectContaining({ knownEntities: undefined })
+		);
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[entity-graph-sync] graph known-entity hints failed, proceeding without hints',
+			expect.objectContaining({ message: 'hint lookup failed' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('continues without hints when graph hint loading fails with an Error', async () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		loadEntityHintsForThoughtMock.mockRejectedValue(new Error('hint lookup failed'));
+		extractEntityGraphBundleMock.mockResolvedValue({ mentions: [], triples: [] });
+		await syncEntityGraphFromThought({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'some text'
+		});
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[entity-graph-sync] graph known-entity hints failed, proceeding without hints',
+			expect.objectContaining({ message: 'hint lookup failed' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('deduplicates preloaded and graph hints by label', async () => {
+		loadEntityHintsForThoughtMock.mockResolvedValue([{ label: 'Berlin', entityType: 'place' }]);
+		extractEntityGraphBundleMock.mockResolvedValue({ mentions: [], triples: [] });
+		await syncEntityGraphFromThought({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'some text',
+			preloadedKnownEntities: [{ label: ' berlin ', entityType: 'place' }]
+		});
+		expect(extractEntityGraphBundleMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				knownEntities: [{ label: ' berlin ', entityType: 'place' }]
+			})
+		);
+	});
+});
+
+describe('upsertEntityRelationTriples', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		extractEntityTriplesMock.mockResolvedValue([
+			{ subject: 'Sam', object: 'Berlin', predicate: 'located_in', confidence: 0.7 }
+		]);
+	});
+
+	it('extracts triples when none are supplied and writes valid edges', async () => {
+		await upsertEntityRelationTriples({
+			userId: 'u1',
+			normalizedText: 'Sam lives in Berlin',
+			mentions: [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }],
+			surfaceToEntityId: new Map([
+				['Sam', 'id-Sam'],
+				['Berlin', 'id-Berlin']
+			])
+		});
+
+		expect(extractEntityTriplesMock).toHaveBeenCalled();
+		expect(upsertEntityRelationEdgeMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			sourceEntityId: 'id-Sam',
+			targetEntityId: 'id-Berlin',
+			predicate: 'located_in'
+		});
+	});
+
+	it('skips triples whose endpoints are missing from the surface map', async () => {
+		await upsertEntityRelationTriples({
+			userId: 'u1',
+			normalizedText: 'Sam knows Ghost',
+			mentions: [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }],
+			surfaceToEntityId: new Map([['Sam', 'id-Sam']]),
+			triples: [{ subject: 'Sam', object: 'Ghost', predicate: 'knows', confidence: 0.4 }]
+		});
+
+		expect(upsertEntityRelationEdgeMock).not.toHaveBeenCalled();
 	});
 });

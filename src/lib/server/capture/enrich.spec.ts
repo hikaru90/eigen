@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { enrichThought, reenrichThought } from './enrich';
+import { enrichThought, reenrichThought, scheduleEnrichThought, scheduleReenrichThought } from './enrich';
 
 const {
 	getDbMock,
+	withDbUserMock,
 	extractRelationsMock,
 	syncEntityGraphFromThoughtMock,
 	syncTemporalEventsFromThoughtMock,
@@ -10,9 +11,12 @@ const {
 	maybeRefreshUserOntologyMock,
 	upsertThoughtRelationMock,
 	deleteThoughtOutgoingGraphEdgesMock,
-	deleteThoughtOutgoingRelatesToEdgesMock
+	deleteThoughtOutgoingRelatesToEdgesMock,
+	materializeRetrievalLinksForThoughtMock,
+	scheduleIncrementalConsolidationMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
+	withDbUserMock: vi.fn(),
 	extractRelationsMock: vi.fn(),
 	syncEntityGraphFromThoughtMock: vi.fn(),
 	syncTemporalEventsFromThoughtMock: vi.fn(),
@@ -20,10 +24,15 @@ const {
 	maybeRefreshUserOntologyMock: vi.fn(),
 	upsertThoughtRelationMock: vi.fn(),
 	deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
-	deleteThoughtOutgoingRelatesToEdgesMock: vi.fn()
+	deleteThoughtOutgoingRelatesToEdgesMock: vi.fn(),
+	materializeRetrievalLinksForThoughtMock: vi.fn(),
+	scheduleIncrementalConsolidationMock: vi.fn()
 }));
 
-vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
+vi.mock('$lib/server/db', () => ({
+	getDb: getDbMock,
+	withDbUser: withDbUserMock
+}));
 vi.mock('$lib/server/memory/relation-extraction', () => ({ extractRelations: extractRelationsMock }));
 vi.mock('$lib/server/memory/entity-graph-sync', () => ({ syncEntityGraphFromThought: syncEntityGraphFromThoughtMock }));
 vi.mock('$lib/server/memory/temporal-graph-sync', () => ({
@@ -38,19 +47,44 @@ vi.mock('$lib/server/graph/age', () => ({
 	deleteThoughtOutgoingGraphEdges: deleteThoughtOutgoingGraphEdgesMock,
 	deleteThoughtOutgoingRelatesToEdges: deleteThoughtOutgoingRelatesToEdgesMock
 }));
+vi.mock('$lib/server/retrieval/materialize-links', () => ({
+	materializeRetrievalLinksForThought: materializeRetrievalLinksForThoughtMock
+}));
+vi.mock('$lib/server/consolidation/incremental-consolidation', () => ({
+	scheduleIncrementalConsolidation: scheduleIncrementalConsolidationMock
+}));
 
 function makeDb(overrides: Partial<{
 	updateResult: unknown;
 	transactionResult: unknown;
-	createdAt: Date;
+	createdAt: Date | null;
+	updateThrowsOnCall?: number[];
+	updateThrowsReasonOnCall?: Record<number, unknown>;
+	updateThrowsOnEnrichedAtNull?: boolean;
 }> = {}) {
+	let updateCall = 0;
 	const updateChain = {
-		set: vi.fn(() => ({
-			where: vi.fn(async () => overrides.updateResult ?? undefined)
+		set: vi.fn((values: Record<string, unknown>) => ({
+			where: vi.fn(async () => {
+				updateCall += 1;
+				if (overrides.updateThrowsOnEnrichedAtNull && values.enrichedAt === null) {
+					throw new Error('failed to clear enriched_at');
+				}
+				const reason = overrides.updateThrowsReasonOnCall?.[updateCall];
+				if (reason !== undefined) {
+					throw reason;
+				}
+				if (overrides.updateThrowsOnCall?.includes(updateCall)) {
+					throw new Error(`update failed on call ${updateCall}`);
+				}
+				return overrides.updateResult ?? undefined;
+			})
 		}))
 	};
 	const selectLimit = vi.fn(async () =>
-		overrides.createdAt ? [{ createdAt: overrides.createdAt }] : [{ createdAt: new Date('2026-06-02T09:00:00.000Z') }]
+		overrides.createdAt === null
+			? []
+			: [{ createdAt: overrides.createdAt ?? new Date('2026-06-02T09:00:00.000Z') }]
 	);
 	const selectWhere = vi.fn(() => ({ limit: selectLimit }));
 	const selectFrom = vi.fn(() => ({ where: selectWhere }));
@@ -78,6 +112,8 @@ describe('enrichThought', () => {
 			cues: ['cue one', 'cue two']
 		});
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
+		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
+		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
 	});
 
 	it('increments enrichment_version on entry regardless of step outcomes', async () => {
@@ -296,6 +332,333 @@ describe('enrichThought', () => {
 		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled();
 		expect(extractThoughtMetadataMock).toHaveBeenCalled();
 	});
+
+	it('continues when enrichment_version bump fails', async () => {
+		const db = makeDb({ updateThrowsOnCall: [1] });
+		getDbMock.mockReturnValue(db);
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(extractRelationsMock).toHaveBeenCalled();
+	});
+
+	it('falls back to current time when thought row is missing', async () => {
+		const db = makeDb({ createdAt: null });
+		getDbMock.mockReturnValue(db);
+		const before = Date.now();
+
+		await enrichThought('u1', 't1', 'hello world');
+
+		const call = syncTemporalEventsFromThoughtMock.mock.calls[0]?.[0];
+		expect(call?.capturedAt).toBeInstanceOf(Date);
+		expect(call!.capturedAt.getTime()).toBeGreaterThanOrEqual(before);
+	});
+
+	it('logs non-Error rejection reasons from failed steps', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		extractRelationsMock.mockRejectedValue('relations failed');
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] relations step failed',
+			expect.objectContaining({ message: 'relations failed' })
+		);
+		errorSpy.mockRestore();
+	});
+
+	it('continues when clearing enriched_at after entity failure also fails', async () => {
+		const db = makeDb({ updateThrowsOnEnrichedAtNull: true });
+		getDbMock.mockReturnValue(db);
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		const longText =
+			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
+
+		await enrichThought('u1', 't1', longText);
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[enrich] failed to clear enriched_at after entity step failure',
+			expect.objectContaining({ thoughtId: 't1' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('continues when ontology refresh fails', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		maybeRefreshUserOntologyMock.mockRejectedValue(new Error('ontology boom'));
+
+		await enrichThought('u1', 't1', 'hello', { thoughtCountAfterInsert: 10 });
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] ontology refresh failed',
+			expect.objectContaining({ thoughtId: 't1' })
+		);
+		errorSpy.mockRestore();
+	});
+
+	it('continues when retrieval link materialization fails', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		materializeRetrievalLinksForThoughtMock.mockRejectedValue('materialize failed');
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] retrieval link materialization failed',
+			expect.objectContaining({ message: 'materialize failed' })
+		);
+		expect(scheduleIncrementalConsolidationMock).toHaveBeenCalledWith('u1', 't1');
+		errorSpy.mockRestore();
+	});
+
+	it('continues when enriched_at write fails after successful steps', async () => {
+		const db = makeDb({ updateThrowsOnCall: [3] });
+		getDbMock.mockReturnValue(db);
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[enrich] enriched_at write failed (migration pending?)',
+			expect.objectContaining({ thoughtId: 't1' })
+		);
+		expect(scheduleIncrementalConsolidationMock).toHaveBeenCalledWith('u1', 't1');
+		warnSpy.mockRestore();
+	});
+
+	it('omits cues from metadata update when extraction returns none', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
+
+		await enrichThought('u1', 't1', 'hello');
+
+		const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls;
+		const metadataUpdate = setCalls.find(
+			(args: unknown[]) =>
+				args[0] &&
+				typeof args[0] === 'object' &&
+				'memoryType' in (args[0] as Record<string, unknown>)
+		);
+		expect(metadataUpdate?.[0]).toEqual({ memoryType: 'fact' });
+	});
+
+	it('passes preloadedKnownEntities to entity graph sync', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const hints = [{ label: 'Marcus', entityType: 'person' }];
+
+		await enrichThought('u1', 't1', 'hello', { preloadedKnownEntities: hints });
+
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'hello',
+			preloadedKnownEntities: hints
+		});
+	});
+
+	it('passes thoughtEmbedding through relations and temporal sync', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const embedding = [0.1, 0.2, 0.3];
+
+		await enrichThought('u1', 't1', 'hello world', { thoughtEmbedding: embedding });
+
+		expect(extractRelationsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1',
+			normalizedText: 'hello world',
+			embedding
+		});
+		expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				thoughtId: 't1',
+				thoughtEmbedding: embedding
+			})
+		);
+	});
+
+	it('does not fail entity step for short text with zero mentions', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+
+		await enrichThought('u1', 't1', 'hi');
+
+		const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls;
+		const cleared = setCalls.find(
+			(args: unknown[]) =>
+				args[0] &&
+				typeof args[0] === 'object' &&
+				(args[0] as { enrichedAt?: unknown }).enrichedAt === null
+		);
+		expect(cleared).toBeUndefined();
+	});
+
+	it('logs temporal step failure without blocking other steps', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		syncTemporalEventsFromThoughtMock.mockRejectedValue('temporal failed');
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] temporal step failed',
+			expect.objectContaining({ message: 'temporal failed' })
+		);
+		errorSpy.mockRestore();
+	});
+
+	it('logs metadata step failure', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		extractThoughtMetadataMock.mockRejectedValue('metadata failed');
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] metadata step failed',
+			expect.objectContaining({ message: 'metadata failed' })
+		);
+		errorSpy.mockRestore();
+	});
+
+	it('logs non-Error enrichment_version bump failures', async () => {
+		const db = makeDb({ updateThrowsReasonOnCall: { 1: 'version bump failed' } });
+		getDbMock.mockReturnValue(db);
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[enrich] enrichment_version bump failed (migration pending?)',
+			expect.objectContaining({ message: 'version bump failed' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('logs non-Error ontology refresh failures', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		maybeRefreshUserOntologyMock.mockRejectedValue('ontology string fail');
+
+		await enrichThought('u1', 't1', 'hello', { thoughtCountAfterInsert: 10 });
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] ontology refresh failed',
+			expect.objectContaining({ message: 'ontology string fail' })
+		);
+		errorSpy.mockRestore();
+	});
+
+	it('skips retrieval materialization when any enrichment step failed', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		syncTemporalEventsFromThoughtMock.mockRejectedValue(new Error('temporal boom'));
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(materializeRetrievalLinksForThoughtMock).not.toHaveBeenCalled();
+		expect(scheduleIncrementalConsolidationMock).not.toHaveBeenCalled();
+	});
+
+	it('logs non-Error failures when clearing enriched_at after entity failure', async () => {
+		const db = makeDb({ updateThrowsReasonOnCall: { 3: 'clear failed' } });
+		getDbMock.mockReturnValue(db);
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		const longText =
+			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
+
+		await enrichThought('u1', 't1', longText);
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[enrich] failed to clear enriched_at after entity step failure',
+			expect.objectContaining({ message: 'clear failed' })
+		);
+		warnSpy.mockRestore();
+	});
+
+	it('logs non-Error retrieval materialization failures', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		materializeRetrievalLinksForThoughtMock.mockRejectedValue('materialize string fail');
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(errorSpy).toHaveBeenCalledWith(
+			'[enrich] retrieval link materialization failed',
+			expect.objectContaining({ message: 'materialize string fail' })
+		);
+		expect(scheduleIncrementalConsolidationMock).toHaveBeenCalledWith('u1', 't1');
+		errorSpy.mockRestore();
+	});
+
+	it('logs non-Error enriched_at write failures after successful steps', async () => {
+		const db = makeDb({ updateThrowsReasonOnCall: { 3: 'enriched_at write failed' } });
+		getDbMock.mockReturnValue(db);
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+		await enrichThought('u1', 't1', 'hello');
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[enrich] enriched_at write failed (migration pending?)',
+			expect.objectContaining({ message: 'enriched_at write failed' })
+		);
+		expect(scheduleIncrementalConsolidationMock).toHaveBeenCalledWith('u1', 't1');
+		warnSpy.mockRestore();
+	});
+});
+
+describe('scheduleEnrichThought', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
+		extractRelationsMock.mockResolvedValue([]);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
+		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
+		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
+		getDbMock.mockReturnValue(makeDb());
+	});
+
+	it('runs enrichment on a dedicated RLS-scoped connection', async () => {
+		scheduleEnrichThought('u1', 't1', 'hello');
+
+		await vi.waitFor(() => {
+			expect(withDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function));
+		});
+		await vi.waitFor(() => {
+			expect(extractRelationsMock).toHaveBeenCalled();
+		});
+	});
+
+	it('logs when scheduled enrichment fails', async () => {
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		withDbUserMock.mockRejectedValue('scheduled failed');
+
+		scheduleEnrichThought('u1', 't1', 'hello');
+
+		await vi.waitFor(() => {
+			expect(errorSpy).toHaveBeenCalledWith(
+				'[enrich] scheduled enrichment failed',
+				expect.objectContaining({ message: 'scheduled failed' })
+			);
+		});
+		errorSpy.mockRestore();
+	});
 });
 
 describe('reenrichThought', () => {
@@ -340,3 +703,61 @@ describe('reenrichThought', () => {
 		expect(callOrder[1]).toBe('relations');
 	});
 });
+
+describe('scheduleReenrichThought', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
+		extractRelationsMock.mockResolvedValue([]);
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
+		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
+		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
+		getDbMock.mockReturnValue(makeDb());
+	});
+
+	it('runs re-enrichment on a dedicated RLS-scoped connection', async () => {
+		scheduleReenrichThought('u1', 't1', 'hello');
+
+		await vi.waitFor(() => {
+			expect(withDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function));
+		});
+		await vi.waitFor(() => {
+			expect(deleteThoughtOutgoingGraphEdgesMock).toHaveBeenCalledWith({
+				userId: 'u1',
+				thoughtId: 't1'
+			});
+		});
+	});
+
+	it('logs when scheduled re-enrichment fails', async () => {
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		withDbUserMock.mockRejectedValue(new Error('scheduled reenrich failed'));
+
+		scheduleReenrichThought('u1', 't1', 'hello');
+
+		await vi.waitFor(() => {
+			expect(errorSpy).toHaveBeenCalledWith(
+				'[enrich] scheduled re-enrichment failed',
+				expect.objectContaining({ message: 'scheduled reenrich failed' })
+			);
+		});
+		errorSpy.mockRestore();
+	});
+
+	it('logs non-Error when scheduled re-enrichment fails', async () => {
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		withDbUserMock.mockRejectedValue('reenrich string fail');
+
+		scheduleReenrichThought('u1', 't1', 'hello');
+
+		await vi.waitFor(() => {
+			expect(errorSpy).toHaveBeenCalledWith(
+				'[enrich] scheduled re-enrichment failed',
+				expect.objectContaining({ message: 'reenrich string fail' })
+			);
+		});
+		errorSpy.mockRestore();
+	});
+});
+

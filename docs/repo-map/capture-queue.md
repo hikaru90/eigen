@@ -10,7 +10,7 @@ Post-capture **edits** on the stored thought still use a direct NDJSON `fetch` t
 2. Text is cleared immediately; the thought is **enqueued** in IndexedDB (`eigen-capture-queue`).
 3. The queue panel lists each item (preview, status). The active item shows **ingest step progress** via [`IngestPhaseIndicator`](../../src/lib/components/ingest-phase-indicator.svelte) (NDJSON phases from the server).
 4. Each row has a **remove** control (red ✕) that drops **only that item**; removing the in-flight item aborts its submit and continues the queue.
-5. When an item completes, the page shows the latest **stored thought** card; further queued items keep draining **one at a time**.
+5. When an item completes, the page shows the latest **stored thought** card; further queued items keep draining **one at a time**. NDJSON submit **awaits enrichment** before emitting `done`, so the queue item stays in-flight until relations/entities/temporal steps finish (or fail individually).
 6. Reloading the page restores queue state from IndexedDB; the layout runner recovers stuck `processing` rows and resumes drain.
 
 ## Architecture
@@ -28,7 +28,7 @@ sequenceDiagram
   Runner->>Page: snapshot + active + progress
   Runner->>Runner: drainCaptureQueue (serial)
   Runner->>API: submitCaptureRaw (NDJSON)
-  API-->>Runner: progress lines + done
+  API-->>Runner: fast-path + enrichment progress + done
   Runner->>IDB: delete item on success
   Runner->>Page: done / snapshot / idle
   Note over SW: On offline: Background Sync tag eigen-capture-queue-sync

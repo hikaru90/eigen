@@ -22,6 +22,10 @@ describe('isTemporalQuery', () => {
 		expect(isTemporalQuery('What is the project scope?')).toBe(false);
 	});
 
+	it('returns false for whitespace-only queries', () => {
+		expect(isTemporalQuery('   ')).toBe(false);
+	});
+
 	it('detects scheduling and conflict phrasing', () => {
 		expect(isTemporalQuery('Is there a scheduling conflict?')).toBe(true);
 		expect(isTemporalQuery('March schedule conflicts team')).toBe(true);
@@ -90,6 +94,86 @@ describe('filterTemporalEvents', () => {
 		]);
 		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 	});
+
+	it('embeds the query and applies an inferred time range when none is supplied', async () => {
+		const limit = vi.fn(async () => [
+			{
+				id: 'ev1',
+				graphNodeId: null,
+				semanticSummary: 'May planning session',
+				thoughtId: 't1',
+				distance: 0.1
+			}
+		]);
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+		createThoughtEmbeddingMock.mockResolvedValue([0.3, 0.4]);
+
+		const rows = await filterTemporalEvents({
+			userId: 'u1',
+			query: 'events in May 2026'
+		});
+
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'events in May 2026');
+		expect(rows[0]?.eventId).toBe('ev1');
+		expect(rows[0]?.graphNodeId).toBeNull();
+	});
+
+	it('uses explicit queryRange without inferring from text', async () => {
+		const limit = vi.fn(async () => []);
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		await filterTemporalEvents({
+			userId: 'u1',
+			query: 'any query',
+			queryEmbedding: [0.1, 0.2],
+			queryRange: {
+				start: new Date('2026-05-01T00:00:00.000Z'),
+				end: new Date('2026-06-01T00:00:00.000Z')
+			}
+		});
+
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+	});
+
+	it('searches without a time-range filter when no window can be inferred', async () => {
+		const limit = vi.fn(async () => []);
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		await filterTemporalEvents({
+			userId: 'u1',
+			query: 'random thoughts about bread',
+			queryEmbedding: [0.1, 0.2]
+		});
+
+		expect(where).toHaveBeenCalled();
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+	});
+
+	it('honors an explicit null queryRange override', async () => {
+		const limit = vi.fn(async () => []);
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		await filterTemporalEvents({
+			userId: 'u1',
+			query: 'events in May 2026',
+			queryEmbedding: [0.1, 0.2],
+			queryRange: null
+		});
+
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+	});
 });
 
 describe('traverseTemporalContext', () => {
@@ -126,5 +210,28 @@ describe('traverseTemporalContext', () => {
 			limit: 40
 		});
 		expect(rows).toHaveLength(1);
+	});
+
+	it('falls back to eventId when graphNodeId is missing', async () => {
+		expandContextFromTemporalEventSeedsMock.mockResolvedValue([]);
+
+		await traverseTemporalContext({
+			userId: 'u1',
+			seeds: [
+				{
+					eventId: 'ev-only',
+					graphNodeId: null,
+					semanticSummary: 'Meeting',
+					thoughtId: 't1',
+					score: 1
+				}
+			]
+		});
+
+		expect(expandContextFromTemporalEventSeedsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			eventIds: ['ev-only'],
+			limit: 40
+		});
 	});
 });

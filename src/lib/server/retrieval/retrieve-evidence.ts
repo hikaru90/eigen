@@ -360,8 +360,7 @@ export async function retrieveEvidence(params: {
 			specificityScore: thought.specificityScore,
 			recencyBucket: thought.recencyBucket,
 			bundleRank: thought.bundleRank,
-			primaryCommunityIds: thought.primaryCommunityIds,
-			embedding: thought.embedding
+			primaryCommunityIds: thought.primaryCommunityIds
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, params.userId), inArray(thought.id, candidateIds)));

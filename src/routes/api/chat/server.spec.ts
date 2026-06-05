@@ -26,20 +26,35 @@ vi.mock('$lib/server/activity/trace-context', () => ({
 const SESSION_ID = 'sess-1';
 const ASSISTANT_MSG_ID = 'asst-1';
 
-function ndjsonRequest(body: unknown, signal?: AbortSignal) {
+function chatRequest(body: unknown, opts?: { ndjson?: boolean; signal?: AbortSignal }) {
 	return {
 		json: vi.fn(async () => body),
 		headers: {
-			get: (name: string) => (name.toLowerCase() === 'accept' ? 'application/x-ndjson' : null)
+			get: (name: string) =>
+				opts?.ndjson !== false && name.toLowerCase() === 'accept' ? 'application/x-ndjson' : null
 		},
-		signal: signal ?? new AbortController().signal
+		signal: opts?.signal ?? new AbortController().signal
 	};
 }
 
+function ndjsonRequest(body: unknown, signal?: AbortSignal) {
+	return chatRequest(body, { ndjson: true, signal });
+}
+
+function jsonRequest(body: unknown) {
+	return chatRequest(body, { ndjson: false });
+}
+
 function buildMainDb() {
-	const insertValues = vi.fn().mockReturnValue({
-		returning: vi.fn().mockResolvedValue([{ id: SESSION_ID }])
-	});
+	const insertValues = vi
+		.fn()
+		.mockReturnValueOnce({
+			returning: vi.fn().mockResolvedValue([{ id: SESSION_ID }])
+		})
+		.mockReturnValueOnce({})
+		.mockReturnValue({
+			returning: vi.fn().mockResolvedValue([{ id: ASSISTANT_MSG_ID }])
+		});
 	const insert = vi.fn().mockReturnValue({ values: insertValues });
 
 	const whereForSelect = vi.fn().mockReturnValue({
@@ -118,6 +133,78 @@ describe('POST /api/chat', () => {
 				request: ndjsonRequest({ message: '   ' })
 			} as never)
 		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('rejects invalid JSON body', async () => {
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: {
+					json: vi.fn(async () => {
+						throw new SyntaxError('invalid json');
+					}),
+					headers: { get: () => null },
+					signal: new AbortController().signal
+				}
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('returns 404 when sessionId does not exist', async () => {
+		const whereForSelect = vi.fn().mockReturnValue({
+			limit: vi.fn().mockResolvedValue([])
+		});
+		getDbMock.mockReturnValue({
+			insert: vi.fn(),
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({ where: whereForSelect })
+			}),
+			update: vi.fn()
+		});
+
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: ndjsonRequest({ message: 'hello', sessionId: 'missing-session' })
+			} as never)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it('returns JSON response on non-ndjson success', async () => {
+		agentChatMock.mockResolvedValue({
+			response: 'Plain JSON reply.',
+			messages: [{ role: 'assistant', content: 'Plain JSON reply.' }]
+		});
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: jsonRequest({ message: 'hello' })
+		} as never);
+
+		expect(res.headers.get('content-type')).not.toContain('ndjson');
+		expect(await res.json()).toMatchObject({
+			response: 'Plain JSON reply.',
+			sessionId: SESSION_ID,
+			messageId: ASSISTANT_MSG_ID
+		});
+	});
+
+	it('returns 500 JSON when agentChat throws on non-ndjson path', async () => {
+		agentChatMock.mockRejectedValue(new Error('gateway timeout'));
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: jsonRequest({ message: 'hello' })
+		} as never);
+
+		expect(res.status).toBe(500);
+		expect(await res.json()).toMatchObject({
+			response: 'An unexpected error occurred.',
+			sessionId: SESSION_ID,
+			history: []
+		});
+		consoleSpy.mockRestore();
 	});
 
 	it('streams ndjson with done on success', async () => {

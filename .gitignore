@@ -27,6 +27,7 @@ vite.config.ts.timestamp-*
 test-results
 # Coverage
 coverage
+coverage-agent
 # Paraglide
 src/lib/paraglide
 project.inlang/cache/
