@@ -14,7 +14,6 @@
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
   import Cpu from "@lucide/svelte/icons/cpu";
   import HeartPulse from "@lucide/svelte/icons/heart-pulse";
-  import Link2 from "@lucide/svelte/icons/link-2";
 
   const isChatRoute = $derived(page.route.id === "/chat");
 
@@ -151,13 +150,6 @@
         >
           <HeartPulse class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Heartbeat
-        </a>
-        <a
-          href={resolve("/settings/linkedin")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          <Link2 class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
-          LinkedIn
         </a>
         <a
           href={resolve("/settings")}
