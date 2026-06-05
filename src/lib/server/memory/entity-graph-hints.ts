@@ -166,7 +166,7 @@ export async function loadLexicalCanonicalEntityHints(input: {
 	const hints: KnownEntityHint[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {
-		const label = row.label.trim();
+		const label = typeof row.label === 'string' ? row.label.trim() : '';
 		if (label.length < 2) continue;
 		const labelKey = computeLexicalText(label);
 		if (!labelKey || !textKey.includes(labelKey)) continue;
@@ -231,6 +231,29 @@ export function loadTextDerivedEntityHints(normalizedText: string): KnownEntityH
 	}
 
 	return hints.slice(0, GRAPH_HINT_LIMIT);
+}
+
+/**
+ * Pre-ingest entity hints from the capture text and the user's canonical entity index.
+ * Safe before the thought row exists (no thoughtId / graph neighbors).
+ */
+export async function loadIngestKnownEntityHints(input: {
+	userId: string;
+	normalizedText: string;
+}): Promise<KnownEntityHint[]> {
+	const textDerivedHints = loadTextDerivedEntityHints(input.normalizedText);
+	const lexicalHints = await loadLexicalCanonicalEntityHints({
+		userId: input.userId,
+		normalizedText: input.normalizedText
+	});
+
+	const byLabel = new Map<string, KnownEntityHint>();
+	for (const hint of [...textDerivedHints, ...lexicalHints]) {
+		const key = computeLexicalText(hint.label);
+		if (!key || byLabel.has(key)) continue;
+		byLabel.set(key, hint);
+	}
+	return [...byLabel.values()].slice(0, GRAPH_HINT_LIMIT);
 }
 
 /** Graph neighbors for this thought plus lexical matches from the user's entity index. */

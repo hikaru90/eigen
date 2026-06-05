@@ -17,7 +17,8 @@ function sttModelId(): string {
 }
 
 /**
- * Parses transcript text from a dedicated STT body (`{ text }`) or chat completion (`choices[0].message.content`).
+ * Parses transcript text from a dedicated STT body (`{ text }` only).
+ * Chat-completion shaped bodies are rejected — they often contain assistant replies, not verbatim speech.
  */
 export function parseSttTranscript(body: unknown): string {
 	if (!body || typeof body !== 'object') {
@@ -27,12 +28,10 @@ export function parseSttTranscript(body: unknown): string {
 	if (typeof dedicated === 'string' && dedicated.trim()) {
 		return dedicated.trim();
 	}
-	const choices = (body as { choices?: unknown }).choices;
-	if (Array.isArray(choices) && choices[0] && typeof choices[0] === 'object') {
-		const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
-		if (typeof content === 'string' && content.trim()) {
-			return content.trim();
-		}
+	if ('choices' in body) {
+		throw new Error(
+			'STT response used chat completion shape; configure a dedicated /audio/transcriptions model'
+		);
 	}
 	throw new Error('STT response missing transcript text');
 }

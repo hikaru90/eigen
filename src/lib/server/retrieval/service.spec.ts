@@ -307,6 +307,20 @@ describe('searchThoughts', () => {
 		expect(cIdx).toBeLessThan(bIdx);
 	});
 
+	it('fast mode skips graph and entity expansion', async () => {
+		const vectorRows = [
+			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }
+		];
+		const db = makeDb([vectorRows]);
+		getDbMock.mockReturnValue(db);
+		lexicalSearchMock.mockResolvedValue([]);
+
+		await searchThoughts({ userId: 'u1', query: 'x', topK: 5, mode: 'fast' });
+		expect(expandNeighborsByIdsMock).not.toHaveBeenCalled();
+		expect(matchCanonicalEntitiesByEmbeddingMock).not.toHaveBeenCalled();
+		expect(db.limits[0]).toBe(10);
+	});
+
 	it('skips entity expansion when all entity distances exceed the cutoff', async () => {
 		const vectorRows = [
 			{ id: 'a', normalizedText: 'A', category: 'thought', metadata: {}, distance: 0.1 }

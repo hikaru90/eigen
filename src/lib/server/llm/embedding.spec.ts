@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createThoughtEmbedding, extractFirstEmbedding } from './embedding';
+import {
+	clearQueryEmbeddingCacheForTests
+} from '$lib/server/retrieval/embedding-cache';
+import { createThoughtEmbedding, createThoughtEmbeddings, extractFirstEmbedding } from './embedding';
 
 const { llmCreateEmbeddingsMock, embeddingEnv } = vi.hoisted(() => ({
 	llmCreateEmbeddingsMock: vi.fn(),
@@ -60,6 +63,7 @@ describe('createThoughtEmbedding', () => {
 	beforeEach(() => {
 		embeddingEnv.EMBEDDING_COMPRESS_INTENSITY = 'full';
 		llmCreateEmbeddingsMock.mockReset();
+		clearQueryEmbeddingCacheForTests();
 	});
 
 	it('calls embedding client with compressed input and parses first embedding', async () => {
@@ -103,5 +107,35 @@ describe('createThoughtEmbedding', () => {
 	it('throws when EMBEDDING_COMPRESS_INTENSITY is invalid', async () => {
 		embeddingEnv.EMBEDDING_COMPRESS_INTENSITY = 'mega';
 		await expect(createThoughtEmbedding('u1', 'hello')).rejects.toThrow(/lite, full, or ultra/);
+	});
+
+	it('reuses cache on second identical query', async () => {
+		llmCreateEmbeddingsMock.mockResolvedValue({
+			data: [{ embedding: Array.from({ length: 1536 }, () => 0.2) }]
+		});
+		await createThoughtEmbedding('u1', 'hello');
+		await createThoughtEmbedding('u1', 'hello');
+		expect(llmCreateEmbeddingsMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('createThoughtEmbeddings', () => {
+	beforeEach(() => {
+		embeddingEnv.EMBEDDING_COMPRESS_INTENSITY = 'full';
+		llmCreateEmbeddingsMock.mockReset();
+		clearQueryEmbeddingCacheForTests();
+	});
+
+	it('batch embeds multiple texts in one gateway call', async () => {
+		llmCreateEmbeddingsMock.mockResolvedValue({
+			data: [
+				{ embedding: Array.from({ length: 1536 }, () => 0.1) },
+				{ embedding: Array.from({ length: 1536 }, () => 0.2) }
+			]
+		});
+		const out = await createThoughtEmbeddings('u1', ['hello', 'world']);
+		expect(out).toHaveLength(2);
+		expect(llmCreateEmbeddingsMock).toHaveBeenCalledTimes(1);
+		expect((llmCreateEmbeddingsMock.mock.calls[0][0] as { input: string[] }).input).toHaveLength(2);
 	});
 });

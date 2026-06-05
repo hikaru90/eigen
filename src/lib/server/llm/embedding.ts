@@ -1,6 +1,10 @@
 import { env } from '$env/dynamic/private';
 import { compress, type Intensity } from './embedding-compress';
 import { llmCreateEmbeddings } from './llm-client';
+import {
+	getCachedQueryEmbedding,
+	setCachedQueryEmbedding
+} from '$lib/server/retrieval/embedding-cache';
 
 const EMBEDDING_DIMENSIONS = 1536;
 
@@ -55,9 +59,55 @@ export function extractFirstEmbedding(body: unknown): number[] {
 	return toNumberArray((first as { embedding?: unknown }).embedding);
 }
 
-export async function createThoughtEmbedding(userId: string, input: string): Promise<number[]> {
+export function extractEmbeddings(body: unknown): number[][] {
+	if (!body || typeof body !== 'object') {
+		throw new Error('LLM embedding response is not an object');
+	}
+	const data = (body as { data?: unknown }).data;
+	if (!Array.isArray(data) || data.length === 0) {
+		throw new Error('LLM embedding response has empty data');
+	}
+	return data.map((item, index) => {
+		if (!item || typeof item !== 'object') {
+			throw new Error(`LLM embedding response item ${index} is invalid`);
+		}
+		return toNumberArray((item as { embedding?: unknown }).embedding);
+	});
+}
+
+function compressForEmbedding(input: string): string {
 	const intensity = parseEmbeddingCompressIntensity();
-	const payload = compress(input, { intensity });
+	return compress(input, { intensity });
+}
+
+export async function createThoughtEmbedding(userId: string, input: string): Promise<number[]> {
+	const cached = getCachedQueryEmbedding(userId, input);
+	if (cached) return cached;
+
+	const payload = compressForEmbedding(input);
 	const response = await llmCreateEmbeddings({ userId, input: payload });
-	return extractFirstEmbedding(response);
+	const embedding = extractFirstEmbedding(response);
+	setCachedQueryEmbedding(userId, input, embedding);
+	return embedding;
+}
+
+/** Batch embed multiple texts in one gateway call (one rate-limit slot). */
+export async function createThoughtEmbeddings(userId: string, inputs: string[]): Promise<number[][]> {
+	if (inputs.length === 0) return [];
+	if (inputs.length === 1) {
+		return [await createThoughtEmbedding(userId, inputs[0]!)];
+	}
+
+	const payloads = inputs.map((text) => compressForEmbedding(text));
+	const response = await llmCreateEmbeddings({ userId, input: payloads });
+	const embeddings = extractEmbeddings(response);
+	if (embeddings.length !== inputs.length) {
+		throw new Error(
+			`LLM embedding batch size mismatch: expected ${inputs.length}, got ${embeddings.length}`
+		);
+	}
+	for (let i = 0; i < inputs.length; i++) {
+		setCachedQueryEmbedding(userId, inputs[i]!, embeddings[i]!);
+	}
+	return embeddings;
 }

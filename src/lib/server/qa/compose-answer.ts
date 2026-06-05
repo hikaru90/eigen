@@ -2,7 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought, thoughtRelation } from '$lib/server/db/schema';
 import { graphOnlySearchByQuery } from '$lib/server/graph/age';
-import { createThoughtEmbedding } from '$lib/server/llm/embedding';
+import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { lexicalSearch, type LexicalSearchResult } from '$lib/server/retrieval/lexical';
 import { searchThoughts } from '$lib/server/retrieval/service';
@@ -683,12 +683,18 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const retrievalQuery =
 		hintRetrievalQuery && hintRetrievalQuery !== trimmedQuestion ? hintRetrievalQuery : undefined;
 	await input.onProgress?.('embedding');
-	const [queryEmbedding, hintQueryEmbedding] = await Promise.all([
-		createThoughtEmbedding(input.userId, trimmedQuestion),
-		retrievalQuery
-			? createThoughtEmbedding(input.userId, retrievalQuery)
-			: Promise.resolve(undefined as number[] | undefined)
-	]);
+	let queryEmbedding: number[];
+	let hintQueryEmbedding: number[] | undefined;
+	if (retrievalQuery) {
+		const [questionEmb, hintEmb] = await createThoughtEmbeddings(input.userId, [
+			trimmedQuestion,
+			retrievalQuery
+		]);
+		queryEmbedding = questionEmb;
+		hintQueryEmbedding = hintEmb;
+	} else {
+		queryEmbedding = await createThoughtEmbedding(input.userId, trimmedQuestion);
+	}
 	await input.onProgress?.('searching');
 	let retrieved: SearchHit[];
 	if (retrievalQuery) {

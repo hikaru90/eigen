@@ -6,8 +6,7 @@ const {
 	extractRelationsMock,
 	syncEntityGraphFromThoughtMock,
 	syncTemporalEventsFromThoughtMock,
-	classifyMemoryTypeMock,
-	extractCuesMock,
+	extractThoughtMetadataMock,
 	maybeRefreshUserOntologyMock,
 	upsertThoughtRelationMock,
 	deleteThoughtOutgoingGraphEdgesMock,
@@ -17,8 +16,7 @@ const {
 	extractRelationsMock: vi.fn(),
 	syncEntityGraphFromThoughtMock: vi.fn(),
 	syncTemporalEventsFromThoughtMock: vi.fn(),
-	classifyMemoryTypeMock: vi.fn(),
-	extractCuesMock: vi.fn(),
+	extractThoughtMetadataMock: vi.fn(),
 	maybeRefreshUserOntologyMock: vi.fn(),
 	upsertThoughtRelationMock: vi.fn(),
 	deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
@@ -31,8 +29,9 @@ vi.mock('$lib/server/memory/entity-graph-sync', () => ({ syncEntityGraphFromThou
 vi.mock('$lib/server/memory/temporal-graph-sync', () => ({
 	syncTemporalEventsFromThought: syncTemporalEventsFromThoughtMock
 }));
-vi.mock('$lib/server/memory/classify-memory-type', () => ({ classifyMemoryType: classifyMemoryTypeMock }));
-vi.mock('$lib/server/memory/extract-cues', () => ({ extractCues: extractCuesMock }));
+vi.mock('$lib/server/memory/extract-thought-metadata', () => ({
+	extractThoughtMetadata: extractThoughtMetadataMock
+}));
 vi.mock('$lib/server/ontology', () => ({ maybeRefreshUserOntology: maybeRefreshUserOntologyMock }));
 vi.mock('$lib/server/graph/age', () => ({
 	upsertThoughtRelation: upsertThoughtRelationMock,
@@ -66,8 +65,10 @@ describe('enrichThought', () => {
 		extractRelationsMock.mockResolvedValue([]);
 		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
 		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
-		classifyMemoryTypeMock.mockResolvedValue('episode');
-		extractCuesMock.mockResolvedValue(['cue one', 'cue two']);
+		extractThoughtMetadataMock.mockResolvedValue({
+			memoryType: 'episode',
+			cues: ['cue one', 'cue two']
+		});
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
 	});
 
@@ -142,28 +143,19 @@ describe('enrichThought', () => {
 		});
 	});
 
-	it('classifies and persists memory type', async () => {
+	it('extracts and persists bundled metadata (memory type + cues)', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
+		extractThoughtMetadataMock.mockResolvedValue({
+			memoryType: 'decision',
+			cues: ['option B decision', 'choice made']
+		});
 
 		await enrichThought('u1', 't1', 'I decided to go with option B');
 
-		expect(classifyMemoryTypeMock).toHaveBeenCalledWith({
+		expect(extractThoughtMetadataMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			normalizedText: 'I decided to go with option B'
-		});
-	});
-
-	it('extracts and persists cues', async () => {
-		const db = makeDb();
-		getDbMock.mockReturnValue(db);
-		extractCuesMock.mockResolvedValue(['option B decision', 'choice made']);
-
-		await enrichThought('u1', 't1', 'hello world');
-
-		expect(extractCuesMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			normalizedText: 'hello world'
 		});
 	});
 
@@ -277,8 +269,7 @@ describe('enrichThought', () => {
 
 		// Subsequent steps should still run despite relations failure
 		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled();
-		expect(classifyMemoryTypeMock).toHaveBeenCalled();
-		expect(extractCuesMock).toHaveBeenCalled();
+		expect(extractThoughtMetadataMock).toHaveBeenCalled();
 	});
 });
 
@@ -287,8 +278,7 @@ describe('reenrichThought', () => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
 		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
-		classifyMemoryTypeMock.mockResolvedValue('fact');
-		extractCuesMock.mockResolvedValue([]);
+		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
 	});
 

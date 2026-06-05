@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import { page } from "$app/state";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Input } from "$lib/components/ui/input";
@@ -559,6 +560,7 @@
       </Card.Content>
       <Card.Footer class="bg-muted/50 p-4 flex flex-row items-center justify-end gap-2 w-full">
         <VoiceInputButton
+          language={(page.data as { preferredLanguage?: string }).preferredLanguage ?? "en"}
           disabled={loading || loadingSession}
           ontranscript={(text) => {
             input = appendTranscript(input, text);

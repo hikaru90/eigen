@@ -8,7 +8,8 @@ import {
 /** Normalized fused RRF score at or above this counts as a "strong" delete target. */
 export const STRONG_RETRIEVE_MATCH_MIN = 0.45;
 
-const SNIPPET_MAX_CHARS = 200;
+export const THOUGHT_SNIPPET_MAX_CHARS = 200;
+const SNIPPET_MAX_CHARS = THOUGHT_SNIPPET_MAX_CHARS;
 const MAX_CANDIDATES = 20;
 /** Hard cap on JSON length fed back into the agent LLM after a tool call. */
 export const MAX_TOOL_RESULT_JSON_CHARS = 12_000;

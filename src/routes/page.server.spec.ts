@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { load } from './+page.server';
 
 describe('root page server', () => {
-	it('does not redirect authenticated users from landing page', () => {
+	it('redirects authenticated users to capture', () => {
 		const event = { locals: { user: { id: 'u_1' } } } as Parameters<typeof load>[0];
-		expect(load(event)).toEqual({});
+		expect(() => load(event)).toThrow(
+			expect.objectContaining({ status: 302, location: '/capture' })
+		);
 	});
 
-	it('renders landing page for unauthenticated users', () => {
+	it('redirects unauthenticated users to login', () => {
 		const event = { locals: { user: null } } as Parameters<typeof load>[0];
-		expect(load(event)).toEqual({});
+		expect(() => load(event)).toThrow(
+			expect.objectContaining({ status: 302, location: '/login' })
+		);
 	});
 });

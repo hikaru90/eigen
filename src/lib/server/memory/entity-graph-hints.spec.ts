@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadLexicalCanonicalEntityHints, loadTextDerivedEntityHints } from './entity-graph-hints';
+import {
+	loadIngestKnownEntityHints,
+	loadLexicalCanonicalEntityHints,
+	loadTextDerivedEntityHints
+} from './entity-graph-hints';
 
 const { getDbMock, selectMock, fromMock, whereMock, limitMock } = vi.hoisted(() => {
 	const limitMock = vi.fn();
@@ -12,6 +16,29 @@ const { getDbMock, selectMock, fromMock, whereMock, limitMock } = vi.hoisted(() 
 vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
+
+describe('loadIngestKnownEntityHints', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		getDbMock.mockReturnValue({ select: selectMock });
+	});
+
+	it('merges text-derived and lexical hints before persist', async () => {
+		limitMock.mockResolvedValue([{ label: 'Marcus', entityType: 'person' }]);
+
+		const hints = await loadIngestKnownEntityHints({
+			userId: 'u1',
+			normalizedText: 'Marcus needs silence before creative work.'
+		});
+
+		expect(hints).toEqual(
+			expect.arrayContaining([
+				{ label: 'Marcus', entityType: 'person' },
+				{ label: 'silence', entityType: 'concept' }
+			])
+		);
+	});
+});
 
 describe('loadLexicalCanonicalEntityHints', () => {
 	beforeEach(() => {

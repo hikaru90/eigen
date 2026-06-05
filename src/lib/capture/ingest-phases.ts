@@ -66,13 +66,18 @@ export type CaptureIngestPhase = keyof typeof CAPTURE_INGEST_PHASE_COPY;
  *
  * This drives both the step count and the visual layout in IngestPhaseIndicator.
  */
+/** Fast path shown in capture UI — enrichment continues in background after graph. */
 export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
 	'accounting',
 	'ontology',
 	'embedding',
 	'session',
 	'persist',
-	'graph',
+	'graph'
+];
+
+/** Background enrichment phases (not blocking capture "done"). */
+export const CAPTURE_ENRICHMENT_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
 	['relations', 'entities', 'temporal', 'memory_type', 'cues'],
 	'ontology_eval'
 ];

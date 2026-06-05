@@ -4,7 +4,12 @@ import {
 	upsertMentionEdge
 } from '$lib/server/graph/age';
 import { getDb } from '$lib/server/db';
-import { extractEntityMentions, extractEntityTriples } from '$lib/server/memory/entity-extraction';
+import {
+	extractEntityGraphBundle,
+	extractEntityTriples,
+	type ExtractedEntityMention,
+	type ExtractedEntityTriple
+} from '$lib/server/memory/entity-extraction';
 import { resolveOrCreateCanonicalEntity, clearEntityResolutionLogsForThought } from '$lib/server/memory/entity-resolution';
 import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints';
 import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
@@ -20,6 +25,8 @@ export async function syncEntityGraphFromThought(input: {
 	userId: string;
 	thoughtId: string;
 	normalizedText: string;
+	/** Hints computed before persist (lexical + text-derived). */
+	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
 }): Promise<{ mentionCount: number }> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 	const loaded = await loadOntologyForUser(getDb(), input.userId);
@@ -35,11 +42,18 @@ export async function syncEntityGraphFromThought(input: {
 
 	let knownEntities: Array<{ label: string; entityType: string }> = [];
 	try {
-		knownEntities = await loadEntityHintsForThought({
+		const graphHints = await loadEntityHintsForThought({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
 			normalizedText: input.normalizedText
 		});
+		const byLabel = new Map<string, { label: string; entityType: string }>();
+		for (const hint of [...(input.preloadedKnownEntities ?? []), ...graphHints]) {
+			const key = hint.label.trim().toLowerCase();
+			if (!key || byLabel.has(key)) continue;
+			byLabel.set(key, hint);
+		}
+		knownEntities = [...byLabel.values()];
 	} catch (err) {
 		console.warn('[entity-graph-sync] graph known-entity hints failed, proceeding without hints', {
 			thoughtId: input.thoughtId,
@@ -52,7 +66,7 @@ export async function syncEntityGraphFromThought(input: {
 		thoughtId: input.thoughtId
 	});
 
-	const mentions = await extractEntityMentions({
+	const { mentions, triples } = await extractEntityGraphBundle({
 		userId: input.userId,
 		normalizedText: input.normalizedText,
 		ontologyEntityKinds,
@@ -102,7 +116,8 @@ export async function syncEntityGraphFromThought(input: {
 		userId: input.userId,
 		normalizedText: input.normalizedText,
 		mentions,
-		surfaceToEntityId
+		surfaceToEntityId,
+		triples
 	});
 
 	return { mentionCount: mentions.length };
@@ -112,9 +127,9 @@ export async function syncEntityGraphFromThought(input: {
 export async function upsertEntityRelationTriples(input: {
 	userId: string;
 	normalizedText: string;
-	mentions: Awaited<ReturnType<typeof extractEntityMentions>>;
+	mentions: ExtractedEntityMention[];
 	surfaceToEntityId: Map<string, string>;
-	triples?: Awaited<ReturnType<typeof extractEntityTriples>>;
+	triples?: ExtractedEntityTriple[];
 }): Promise<number> {
 	const rawTriples =
 		input.triples ??

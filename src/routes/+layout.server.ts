@@ -7,15 +7,20 @@ import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime';
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	let preferredUiLocale: string | null = null;
+	let preferredLanguage = 'en';
 
 	if (locals.user) {
 		const [pref] = await getDb()
-			.select({ preferredUiLocale: userPreference.preferredUiLocale })
+			.select({
+				preferredUiLocale: userPreference.preferredUiLocale,
+				preferredLanguage: userPreference.preferredLanguage
+			})
 			.from(userPreference)
 			.where(eq(userPreference.userId, locals.user.id))
 			.limit(1);
 
 		preferredUiLocale = normalizeUiLocale(pref?.preferredUiLocale ?? 'en');
+		preferredLanguage = pref?.preferredLanguage ?? 'en';
 		const currentCookie = cookies.get(cookieName);
 		if (currentCookie !== preferredUiLocale) {
 			cookies.set(cookieName, preferredUiLocale, {
@@ -29,6 +34,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
 	return {
 		user: locals.user ?? null,
-		preferredUiLocale
+		preferredUiLocale,
+		preferredLanguage
 	};
 };

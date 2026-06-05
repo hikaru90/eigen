@@ -18,6 +18,7 @@ import {
 	traverseTemporalContext
 } from '$lib/server/retrieval/temporal';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
+import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval/phase-timing';
 
 /** Salience cap — prevents unbounded growth from high-frequency retrieval. */
 const SALIENCE_MAX = 5.0;
@@ -51,7 +52,7 @@ async function bumpAccessAsync(userId: string, ids: string[]): Promise<void> {
 	}
 }
 
-type RetrievalResult = {
+export type RetrievalResult = {
 	id: string;
 	normalizedText: string;
 	category: string;
@@ -65,9 +66,22 @@ type RetrievalResult = {
 
 type RetrievalWeights = { vector: number; graph: number };
 
+export type RetrievalMode = 'fast' | 'full';
+
 const RRF_K = 60;
 
 type GraphHit = { id: string; hits: number; provenance?: string };
+
+type RowStub = {
+	id: string;
+	normalizedText: string;
+	normalizedTextEncrypted?: string | null;
+	category: string;
+	memoryType: string | null;
+	metadata: Record<string, unknown>;
+	metadataEncrypted?: string | null;
+	createdAt: Date;
+};
 
 /** Neighbor + entity-anchored graph expansion merged by hit count. */
 function mergeGraphHitMaps(
@@ -104,6 +118,11 @@ function toVectorLiteral(vector: number[]): string {
 	return `[${vector.join(',')}]`;
 }
 
+function candidateLimitForMode(mode: RetrievalMode, limit: number): number {
+	if (mode === 'fast') return Math.min(limit + 5, 20);
+	return Math.max(limit * 2, 20);
+}
+
 /**
  * Hybrid retrieval over three channels:
  *
@@ -111,12 +130,7 @@ function toVectorLiteral(vector: number[]): string {
  *   - lexical (Postgres ts_rank_cd over precomputed lexical_text)
  *   - graph   (Apache AGE neighbor expansion from semantic seeds)
  *
- * Channels are merged via weighted reciprocal rank fusion. Vector and lexical
- * share the "semantic" weight (`weights.vector`) because lexical is the keyword
- * complement of the embedding signal; graph contributes via `weights.graph`.
- * `weights = {vector: 0, graph: 1}` therefore yields graph-only behavior, and
- * `{vector: 1, graph: 0}` yields the semantic (vector + lexical) channel only,
- * matching the eval harness's preset semantics.
+ * `mode: 'fast'` skips graph, entity, temporal, and connected-only hydration.
  *
  * Pass `queryEmbedding` to skip the embedding LLM call (e.g. when the caller
  * already embedded the same text earlier in the pipeline).
@@ -126,40 +140,22 @@ export async function searchThoughts(params: {
 	query: string;
 	topK?: number;
 	weights?: RetrievalWeights;
+	mode?: RetrievalMode;
 	/** Pre-computed embedding for `query`. Skips the embedding LLM call when provided. */
 	queryEmbedding?: number[];
 }): Promise<RetrievalResult[]> {
+	const timer = createPhaseTimer();
+	const mode: RetrievalMode = params.mode ?? 'full';
 	const topK = params.topK ?? 20;
 	const limit = Math.max(1, Math.min(topK, 100));
 	const weights: RetrievalWeights = params.weights ?? CONTEXT_WEIGHTS.default;
-	const candidateLimit = Math.max(limit * 2, 20);
+	const candidateLimit = candidateLimitForMode(mode, limit);
 
-	const queryEmbedding = params.queryEmbedding ?? await createThoughtEmbedding(params.userId, params.query);
+	timer.mark('embed');
+	const queryEmbedding =
+		params.queryEmbedding ?? (await createThoughtEmbedding(params.userId, params.query));
 
-	// Filter-then-traverse temporal path (Postgres slice → AGE context expansion).
-	const temporalSeeds = isTemporalQuery(params.query)
-		? await filterTemporalEvents({
-				userId: params.userId,
-				query: params.query,
-				queryEmbedding,
-				limit: candidateLimit
-			})
-		: [];
-	const temporalContextHits =
-		temporalSeeds.length > 0
-			? await traverseTemporalContext({
-					userId: params.userId,
-					seeds: temporalSeeds,
-					limit: candidateLimit
-				})
-			: [];
-
-	const vectorLiteral = toVectorLiteral(queryEmbedding);
-	const vectorDistance = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
-
-	const decryptRow = async <T extends { normalizedText: string; normalizedTextEncrypted?: string | null; metadata: Record<string, unknown>; metadataEncrypted?: string | null }>(
-		row: T
-	): Promise<T> => {
+	const decryptRow = async (row: RowStub): Promise<RowStub> => {
 		const [normalizedText, metadataJson] = await Promise.all([
 			row.normalizedTextEncrypted
 				? decryptTenantValue({
@@ -178,10 +174,20 @@ export async function searchThoughts(params: {
 					})
 				: Promise.resolve(JSON.stringify(row.metadata ?? {}))
 		]);
-		return { ...row, normalizedText, metadata: JSON.parse(metadataJson) as Record<string, unknown> };
+		return {
+			...row,
+			normalizedText,
+			metadata: JSON.parse(metadataJson) as Record<string, unknown>
+		};
 	};
 
-	const vectorRows = await getDb()
+	const vectorLiteral = toVectorLiteral(queryEmbedding);
+	const vectorDistance = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`;
+
+	timer.mark('vector');
+	timer.mark('lexical');
+
+	const vectorQuery = getDb()
 		.select({
 			id: thought.id,
 			normalizedText: thought.normalizedText,
@@ -197,125 +203,296 @@ export async function searchThoughts(params: {
 		.where(and(eq(thought.userId, params.userId), isNotNull(thought.embedding)))
 		.orderBy(vectorDistance)
 		.limit(candidateLimit);
-	const decryptedVectorRows = await Promise.all(vectorRows.map((row) => decryptRow(row)));
 
-	const lexicalRows = await lexicalSearch({
+	const lexicalQuery = lexicalSearch({
 		userId: params.userId,
 		query: params.query,
 		limit: candidateLimit
 	});
 
-	const vectorRanks = new Map<string, number>();
-	decryptedVectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));
-	const lexicalRanks = new Map<string, number>();
-	lexicalRows.forEach((row, index) => lexicalRanks.set(row.id, index + 1));
+	let temporalSeeds: Awaited<ReturnType<typeof filterTemporalEvents>> = [];
+	let temporalContextHits: Awaited<ReturnType<typeof traverseTemporalContext>> = [];
+	let entityMatches: Awaited<ReturnType<typeof matchCanonicalEntitiesByEmbedding>> = [];
 
-	// Seed graph expansion from the RRF-fused semantic top so we expand from the
-	// best joint vector+lexical evidence rather than only the vector top.
-	const fusedSemantic = reciprocalRankFusion([
-		decryptedVectorRows.map((row, index) => ({ id: row.id, rank: index + 1 })),
-		lexicalRows.map((row, index) => ({ id: row.id, rank: index + 1 }))
-	]);
-	const semanticSeedIds = [...fusedSemantic.entries()]
-		.sort((a, b) => b[1] - a[1])
-		.slice(0, candidateLimit)
-		.map(([id]) => id);
+	if (mode === 'full') {
+		timer.mark('entity');
+		const [vectorRows, lexicalRows, temporalSeedRows, entityMatchRows] = await Promise.all([
+			vectorQuery,
+			lexicalQuery,
+			isTemporalQuery(params.query)
+				? filterTemporalEvents({
+						userId: params.userId,
+						query: params.query,
+						queryEmbedding,
+						limit: candidateLimit
+					})
+				: Promise.resolve([]),
+			matchCanonicalEntitiesByEmbedding({
+				userId: params.userId,
+				embedding: queryEmbedding,
+				limit: 12
+			})
+		]);
+		temporalSeeds = temporalSeedRows;
+		entityMatches = entityMatchRows;
 
-	const graphNeighbors = await expandNeighborsByIds({
-		userId: params.userId,
-		seedIds: semanticSeedIds,
-		limit: candidateLimit
-	});
+		if (temporalSeeds.length > 0) {
+			temporalContextHits = await traverseTemporalContext({
+				userId: params.userId,
+				seeds: temporalSeeds,
+				limit: candidateLimit
+			});
+		}
 
-	const entityMatches = await matchCanonicalEntitiesByEmbedding({
-		userId: params.userId,
-		embedding: queryEmbedding,
-		limit: 12
-	});
+		const vectorRanks = new Map<string, number>();
+		vectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));
+		const lexicalRanks = new Map<string, number>();
+		lexicalRows.forEach((row, index) => lexicalRanks.set(row.id, index + 1));
 
-	const ENTITY_MATCH_MAX_DISTANCE = 0.48;
-	const entityIds = entityMatches
-		.filter((m) => m.distance < ENTITY_MATCH_MAX_DISTANCE)
-		.map((m) => m.id);
+		const fusedSemantic = reciprocalRankFusion([
+			vectorRows.map((row, index) => ({ id: row.id, rank: index + 1 })),
+			lexicalRows.map((row, index) => ({ id: row.id, rank: index + 1 }))
+		]);
+		const semanticSeedIds = [...fusedSemantic.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, candidateLimit)
+			.map(([id]) => id);
 
-	const entityThoughtHits =
-		entityIds.length > 0
-			? await expandThoughtIdsFromEntitySeeds({
+		timer.mark('graph');
+		const ENTITY_MATCH_MAX_DISTANCE = 0.48;
+		const entityIds = entityMatches
+			.filter((m) => m.distance < ENTITY_MATCH_MAX_DISTANCE)
+			.map((m) => m.id);
+
+		const [graphNeighbors, entityThoughtHits] = await Promise.all([
+			expandNeighborsByIds({
+				userId: params.userId,
+				seedIds: semanticSeedIds,
+				limit: candidateLimit
+			}),
+			entityIds.length > 0
+				? expandThoughtIdsFromEntitySeeds({
+						userId: params.userId,
+						entityIds,
+						limit: candidateLimit
+					})
+				: Promise.resolve([])
+		]);
+
+		const temporalGraphHits = temporalContextHits.map((h) => ({
+			id: h.thoughtId,
+			hits: h.hits,
+			provenance: h.provenance
+		}));
+
+		const mergedGraphHits = mergeGraphHitMaps(
+			mergeGraphHitMaps(graphNeighbors, entityThoughtHits),
+			temporalGraphHits
+		);
+		const graphProvenanceByThoughtId = new Map<string, string>();
+		for (const row of mergedGraphHits) {
+			if (row.provenance) graphProvenanceByThoughtId.set(row.id, row.provenance);
+		}
+
+		const graphRanks = new Map<string, number>();
+		[...mergedGraphHits]
+			.sort((a, b) => b.hits - a.hits)
+			.forEach((neighbor, index) => graphRanks.set(neighbor.id, index + 1));
+
+		const temporalThoughtIds = [
+			...temporalSeeds.map((s) => s.thoughtId),
+			...temporalContextHits.map((h) => h.thoughtId)
+		];
+
+		const schedulingConflicts = isSchedulingConflictQuery(params.query)
+			? await findTemporalSchedulingConflicts({
 					userId: params.userId,
-					entityIds,
-					limit: candidateLimit
+					query: params.query
 				})
 			: [];
-
-	const temporalGraphHits = temporalContextHits.map((h) => ({
-		id: h.thoughtId,
-		hits: h.hits,
-		provenance: h.provenance
-	}));
-
-	const mergedGraphHits = mergeGraphHitMaps(
-		mergeGraphHitMaps(graphNeighbors, entityThoughtHits),
-		temporalGraphHits
-	);
-	const graphProvenanceByThoughtId = new Map<string, string>();
-	for (const row of mergedGraphHits) {
-		if (row.provenance) {
-			graphProvenanceByThoughtId.set(row.id, row.provenance);
+		const conflictThoughtIds = [...new Set(schedulingConflicts.flatMap((c) => c.thoughtIds))];
+		for (const thoughtId of conflictThoughtIds) {
+			graphRanks.set(thoughtId, 1);
+			graphProvenanceByThoughtId.set(
+				thoughtId,
+				graphProvenanceByThoughtId.get(thoughtId) ?? 'temporal:scheduling_conflict'
+			);
 		}
-	}
 
-	// Convert neighbor hit-counts into a deterministic rank list (more shared
-	// seeds => higher rank) so graph contributes to RRF on equal footing.
-	const graphRanks = new Map<string, number>();
-	[...mergedGraphHits]
-		.sort((a, b) => b.hits - a.hits)
-		.forEach((neighbor, index) => graphRanks.set(neighbor.id, index + 1));
+		const semanticIds = new Set<string>([...vectorRanks.keys(), ...lexicalRanks.keys()]);
+		const connectedOnlyIds = [
+			...graphRanks.keys(),
+			...temporalThoughtIds,
+			...conflictThoughtIds
+		].filter((id) => !semanticIds.has(id));
 
-	const temporalThoughtIds = [
-		...temporalSeeds.map((s) => s.thoughtId),
-		...temporalContextHits.map((h) => h.thoughtId)
-	];
+		type RowMeta = {
+			normalizedText: string;
+			category: string;
+			memoryType: string | null;
+			metadata: Record<string, unknown>;
+			createdAt: Date;
+			normalizedTextEncrypted?: string | null;
+			metadataEncrypted?: string | null;
+		};
+		const metaById = new Map<string, RowMeta>();
 
-	const schedulingConflicts = isSchedulingConflictQuery(params.query)
-		? await findTemporalSchedulingConflicts({
-				userId: params.userId,
-				query: params.query
+		const recordMeta = (
+			id: string,
+			source: {
+				normalizedText: string;
+				category: string;
+				memoryType?: string | null;
+				metadata: unknown;
+				createdAt?: Date | null;
+				normalizedTextEncrypted?: string | null;
+				metadataEncrypted?: string | null;
+			},
+			graphProvenance?: string
+		) => {
+			const prev = metaById.get(id);
+			const incomingMeta = (source.metadata as Record<string, unknown>) ?? {};
+			const mergedMeta: Record<string, unknown> = {
+				...(prev?.metadata ?? {}),
+				...incomingMeta,
+				...(graphProvenance ? { graphProvenance } : {})
+			};
+			metaById.set(id, {
+				normalizedText: source.normalizedText,
+				category: source.category,
+				memoryType: source.memoryType ?? prev?.memoryType ?? null,
+				metadata: mergedMeta,
+				createdAt: source.createdAt ?? prev?.createdAt ?? new Date(0),
+				normalizedTextEncrypted: source.normalizedTextEncrypted ?? prev?.normalizedTextEncrypted,
+				metadataEncrypted: source.metadataEncrypted ?? prev?.metadataEncrypted
+			});
+		};
+
+		for (const row of vectorRows) recordMeta(row.id, row);
+		for (const row of lexicalRows) recordMeta(row.id, row);
+
+		timer.mark('hydrate');
+		const connectedRows =
+			connectedOnlyIds.length === 0
+				? []
+				: await getDb()
+						.select({
+							id: thought.id,
+							normalizedText: thought.normalizedText,
+							normalizedTextEncrypted: thought.normalizedTextEncrypted,
+							category: thought.category,
+							memoryType: thought.memoryType,
+							metadata: thought.metadata,
+							metadataEncrypted: thought.metadataEncrypted,
+							createdAt: thought.createdAt
+						})
+						.from(thought)
+						.where(and(eq(thought.userId, params.userId), inArray(thought.id, connectedOnlyIds)));
+
+		for (const row of connectedRows) {
+			recordMeta(row.id, row, graphProvenanceByThoughtId.get(row.id));
+		}
+
+		for (const seed of temporalSeeds) {
+			const existing = metaById.get(seed.thoughtId);
+			const temporalMeta = {
+				temporalEventId: seed.eventId,
+				semanticSummary: seed.semanticSummary,
+				temporalScore: seed.score
+			};
+			if (existing) {
+				metaById.set(seed.thoughtId, {
+					...existing,
+					metadata: { ...existing.metadata, ...temporalMeta }
+				});
+			}
+		}
+
+		for (const [thoughtId, prov] of graphProvenanceByThoughtId) {
+			if (!semanticIds.has(thoughtId) || !prov) continue;
+			const existing = metaById.get(thoughtId);
+			if (!existing) continue;
+			if (!existing.metadata.graphProvenance) {
+				metaById.set(thoughtId, {
+					...existing,
+					metadata: { ...existing.metadata, graphProvenance: prov }
+				});
+			}
+		}
+
+		timer.mark('fuse');
+		const candidateIds = new Set<string>([
+			...vectorRanks.keys(),
+			...lexicalRanks.keys(),
+			...graphRanks.keys(),
+			...temporalThoughtIds,
+			...conflictThoughtIds
+		]);
+
+		const scoredIds = [...candidateIds]
+			.map((id) => {
+				const meta = metaById.get(id);
+				if (!meta) return null;
+				const vectorScore =
+					rrfContribution(vectorRanks.get(id), weights.vector) +
+					rrfContribution(lexicalRanks.get(id), weights.vector);
+				const graphScore = rrfContribution(graphRanks.get(id), weights.graph);
+				const score = vectorScore + graphScore;
+				if (score <= 0) return null;
+				return { id, meta, vectorScore, graphScore, score };
 			})
-		: [];
-	const conflictThoughtIds = [
-		...new Set(schedulingConflicts.flatMap((c) => c.thoughtIds))
-	];
-	for (const thoughtId of conflictThoughtIds) {
-		graphRanks.set(thoughtId, 1);
-		graphProvenanceByThoughtId.set(
-			thoughtId,
-			graphProvenanceByThoughtId.get(thoughtId) ?? 'temporal:scheduling_conflict'
+			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+			.sort((a, b) => b.score - a.score)
+			.slice(0, limit);
+
+		timer.mark('decrypt');
+		const scored = await Promise.all(
+			scoredIds.map(async ({ id, meta, vectorScore, graphScore, score }) => {
+				const decrypted = await decryptRow({
+					id,
+					normalizedText: meta.normalizedText,
+					normalizedTextEncrypted: meta.normalizedTextEncrypted,
+					category: meta.category,
+					memoryType: meta.memoryType,
+					metadata: meta.metadata,
+					metadataEncrypted: meta.metadataEncrypted,
+					createdAt: meta.createdAt
+				});
+				return {
+					id,
+					normalizedText: decrypted.normalizedText,
+					category: decrypted.category,
+					memoryType: decrypted.memoryType,
+					metadata: decrypted.metadata,
+					createdAt: decrypted.createdAt,
+					vectorScore,
+					graphScore,
+					score
+				};
+			})
 		);
+
+		void bumpAccessAsync(
+			params.userId,
+			scored.map((r) => r.id)
+		);
+		logRetrievalPhaseTiming({
+			userId: params.userId,
+			query: params.query,
+			mode,
+			topK: limit,
+			timing: timer.finish()
+		});
+		return scored;
 	}
 
-	const semanticIds = new Set<string>([...vectorRanks.keys(), ...lexicalRanks.keys()]);
-	const connectedOnlyIds = [
-		...graphRanks.keys(),
-		...temporalThoughtIds,
-		...conflictThoughtIds
-	].filter((id) => !semanticIds.has(id));
-	const connectedRows =
-		connectedOnlyIds.length === 0
-			? []
-			: await getDb()
-					.select({
-						id: thought.id,
-						normalizedText: thought.normalizedText,
-						normalizedTextEncrypted: thought.normalizedTextEncrypted,
-						category: thought.category,
-						memoryType: thought.memoryType,
-						metadata: thought.metadata,
-						metadataEncrypted: thought.metadataEncrypted,
-						createdAt: thought.createdAt
-					})
-					.from(thought)
-					.where(and(eq(thought.userId, params.userId), inArray(thought.id, connectedOnlyIds)));
-	const decryptedConnectedRows = await Promise.all(connectedRows.map((row) => decryptRow(row)));
+	// Fast mode: vector + lexical only.
+	const [vectorRows, lexicalRows] = await Promise.all([vectorQuery, lexicalQuery]);
+
+	const vectorRanks = new Map<string, number>();
+	vectorRows.forEach((row, index) => vectorRanks.set(row.id, index + 1));
+	const lexicalRanks = new Map<string, number>();
+	lexicalRows.forEach((row, index) => lexicalRanks.set(row.id, index + 1));
 
 	type RowMeta = {
 		normalizedText: string;
@@ -323,102 +500,99 @@ export async function searchThoughts(params: {
 		memoryType: string | null;
 		metadata: Record<string, unknown>;
 		createdAt: Date;
+		normalizedTextEncrypted?: string | null;
+		metadataEncrypted?: string | null;
 	};
 	const metaById = new Map<string, RowMeta>();
-	const recordMeta = (
-		id: string,
-		source: {
-			normalizedText: string;
-			category: string;
-			memoryType?: string | null;
-			metadata: unknown;
-			createdAt?: Date | null;
-		},
-		graphProvenance?: string
-	) => {
+
+	const recordMeta = (id: string, source: RowMeta) => {
 		const prev = metaById.get(id);
-		const incomingMeta = (source.metadata as Record<string, unknown>) ?? {};
-		const mergedMeta: Record<string, unknown> = {
-			...(prev?.metadata ?? {}),
-			...incomingMeta,
-			...(graphProvenance ? { graphProvenance } : {})
-		};
 		metaById.set(id, {
 			normalizedText: source.normalizedText,
 			category: source.category,
 			memoryType: source.memoryType ?? prev?.memoryType ?? null,
-			metadata: mergedMeta,
-			createdAt: source.createdAt ?? prev?.createdAt ?? new Date(0)
+			metadata: { ...(prev?.metadata ?? {}), ...(source.metadata ?? {}) },
+			createdAt: source.createdAt ?? prev?.createdAt ?? new Date(0),
+			normalizedTextEncrypted: source.normalizedTextEncrypted ?? prev?.normalizedTextEncrypted,
+			metadataEncrypted: source.metadataEncrypted ?? prev?.metadataEncrypted
 		});
 	};
-	for (const row of decryptedVectorRows) recordMeta(row.id, row);
-	for (const row of lexicalRows) recordMeta(row.id, row);
-	for (const row of decryptedConnectedRows)
-		recordMeta(row.id, row, graphProvenanceByThoughtId.get(row.id));
 
-	// Boost thoughts anchored to temporally-matched events (direct seed thoughts).
-	for (const seed of temporalSeeds) {
-		const existing = metaById.get(seed.thoughtId);
-		const temporalMeta = {
-			temporalEventId: seed.eventId,
-			semanticSummary: seed.semanticSummary,
-			temporalScore: seed.score
-		};
-		if (existing) {
-			metaById.set(seed.thoughtId, {
-				...existing,
-				metadata: { ...existing.metadata, ...temporalMeta }
-			});
-		}
+	for (const row of vectorRows) {
+		recordMeta(row.id, {
+			normalizedText: row.normalizedText,
+			category: row.category,
+			memoryType: row.memoryType,
+			metadata: (row.metadata as Record<string, unknown>) ?? {},
+			createdAt: row.createdAt,
+			normalizedTextEncrypted: row.normalizedTextEncrypted,
+			metadataEncrypted: row.metadataEncrypted
+		});
+	}
+	for (const row of lexicalRows) {
+		recordMeta(row.id, {
+			normalizedText: row.normalizedText,
+			category: row.category,
+			memoryType: null,
+			metadata: row.metadata,
+			createdAt: row.createdAt
+		});
 	}
 
-	// Attach graph provenance when the thought was also a semantic hit.
-	for (const [thoughtId, prov] of graphProvenanceByThoughtId) {
-		if (!semanticIds.has(thoughtId) || !prov) continue;
-		const existing = metaById.get(thoughtId);
-		if (!existing) continue;
-		if (!existing.metadata.graphProvenance) {
-			metaById.set(thoughtId, {
-				...existing,
-				metadata: { ...existing.metadata, graphProvenance: prov }
-			});
-		}
-	}
-
-	const candidateIds = new Set<string>([
-		...vectorRanks.keys(),
-		...lexicalRanks.keys(),
-		...graphRanks.keys(),
-		...temporalThoughtIds,
-		...conflictThoughtIds
-	]);
-
-	const scored = [...candidateIds]
+	timer.mark('fuse');
+	const candidateIds = new Set<string>([...vectorRanks.keys(), ...lexicalRanks.keys()]);
+	const scoredIds = [...candidateIds]
 		.map((id) => {
 			const meta = metaById.get(id);
 			if (!meta) return null;
 			const vectorScore =
 				rrfContribution(vectorRanks.get(id), weights.vector) +
 				rrfContribution(lexicalRanks.get(id), weights.vector);
-			const graphScore = rrfContribution(graphRanks.get(id), weights.graph);
-			return {
-				id,
-				normalizedText: meta.normalizedText,
-				category: meta.category,
-				memoryType: meta.memoryType,
-				metadata: meta.metadata,
-				createdAt: meta.createdAt,
-				vectorScore,
-				graphScore,
-				score: vectorScore + graphScore
-			};
+			const score = vectorScore;
+			if (score <= 0) return null;
+			return { id, meta, vectorScore, graphScore: 0, score };
 		})
-		.filter((entry): entry is NonNullable<typeof entry> => entry !== null && entry.score > 0)
+		.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, limit);
 
-	// Reconsolidation: bump salience for returned thoughts (fire-and-forget).
-	void bumpAccessAsync(params.userId, scored.map((r) => r.id));
+	timer.mark('decrypt');
+	const scored = await Promise.all(
+		scoredIds.map(async ({ id, meta, vectorScore, graphScore, score }) => {
+			const decrypted = await decryptRow({
+				id,
+				normalizedText: meta.normalizedText,
+				normalizedTextEncrypted: meta.normalizedTextEncrypted,
+				category: meta.category,
+				memoryType: meta.memoryType,
+				metadata: meta.metadata,
+				metadataEncrypted: meta.metadataEncrypted,
+				createdAt: meta.createdAt
+			});
+			return {
+				id,
+				normalizedText: decrypted.normalizedText,
+				category: decrypted.category,
+				memoryType: decrypted.memoryType,
+				metadata: decrypted.metadata,
+				createdAt: decrypted.createdAt,
+				vectorScore,
+				graphScore,
+				score
+			};
+		})
+	);
 
+	void bumpAccessAsync(
+		params.userId,
+		scored.map((r) => r.id)
+	);
+	logRetrievalPhaseTiming({
+		userId: params.userId,
+		query: params.query,
+		mode,
+		topK: limit,
+		timing: timer.finish()
+	});
 	return scored;
 }

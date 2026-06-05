@@ -27,8 +27,7 @@ import { getDb } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
-import { classifyMemoryType } from '$lib/server/memory/classify-memory-type';
-import { extractCues } from '$lib/server/memory/extract-cues';
+import { extractThoughtMetadata } from '$lib/server/memory/extract-thought-metadata';
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync';
 import { maybeRefreshUserOntology } from '$lib/server/ontology';
 import {
@@ -43,6 +42,8 @@ export type EnrichThoughtOptions = {
 	/** Pre-computed embedding from the fast path — avoids re-embedding the same text. */
 	thoughtEmbedding?: number[];
 	thoughtCountAfterInsert?: number;
+	/** Entity hints loaded before persist — threaded into entity extraction. */
+	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
 };
 
 /**
@@ -57,7 +58,8 @@ export async function enrichThought(
 	normalizedText: string,
 	options?: EnrichThoughtOptions
 ): Promise<void> {
-	const { onProgress, thoughtEmbedding, thoughtCountAfterInsert } = options ?? {};
+	const { onProgress, thoughtEmbedding, thoughtCountAfterInsert, preloadedKnownEntities } =
+		options ?? {};
 	const db = getDb();
 
 	// Bump enrichment version — wrapped in try/catch so a missing column
@@ -81,7 +83,7 @@ export async function enrichThought(
 		phases: ['relations', 'entities', 'temporal', 'memory_type', 'cues']
 	});
 
-	const [relationsResult, entitiesResult, memoryTypeResult, cuesResult] = await Promise.allSettled([
+	const [relationsResult, entitiesResult, metadataResult] = await Promise.allSettled([
 			// ---- Relations -------------------------------------------------------
 			(async () => {
 				await deleteThoughtOutgoingRelatesToEdges({ userId, thoughtId });
@@ -116,7 +118,8 @@ export async function enrichThought(
 				const { mentionCount } = await syncEntityGraphFromThought({
 					userId,
 					thoughtId,
-					normalizedText
+					normalizedText,
+					preloadedKnownEntities
 				});
 				if (mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
 					throw new Error(
@@ -125,18 +128,16 @@ export async function enrichThought(
 				}
 			})(),
 
-			// ---- Memory type -----------------------------------------------------
+			// ---- Memory type + cues (single LLM call) ----------------------------
 			(async () => {
-				const memoryType = await classifyMemoryType({ userId, normalizedText });
-				await db.update(thought).set({ memoryType }).where(eq(thought.id, thoughtId));
-			})(),
-
-			// ---- Cues ------------------------------------------------------------
-			(async () => {
-				const cues = await extractCues({ userId, normalizedText });
-				if (cues.length > 0) {
-					await db.update(thought).set({ cues }).where(eq(thought.id, thoughtId));
-				}
+				const { memoryType, cues } = await extractThoughtMetadata({ userId, normalizedText });
+				await db
+					.update(thought)
+					.set({
+						memoryType,
+						...(cues.length > 0 ? { cues } : {})
+					})
+					.where(eq(thought.id, thoughtId));
 			})()
 		]);
 
@@ -151,8 +152,8 @@ export async function enrichThought(
 	]).then((r) => r[0]);
 
 	// Log failures individually so one bad step doesn't hide others.
-	const stepNames = ['relations', 'entities', 'temporal', 'memory_type', 'cues'] as const;
-	const results = [relationsResult, entitiesResult, temporalResult, memoryTypeResult, cuesResult];
+	const stepNames = ['relations', 'entities', 'temporal', 'metadata'] as const;
+	const results = [relationsResult, entitiesResult, temporalResult, metadataResult];
 	let allOk = true;
 
 	for (let i = 0; i < results.length; i++) {

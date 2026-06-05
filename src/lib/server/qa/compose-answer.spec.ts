@@ -16,6 +16,7 @@ const {
 	llmChatCompletionMock,
 	findTemporalSchedulingConflictsMock,
 	createThoughtEmbeddingMock,
+	createThoughtEmbeddingsMock,
 	lexicalSearchMock,
 	graphOnlySearchByQueryMock
 } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ const {
 	llmChatCompletionMock: vi.fn(),
 	findTemporalSchedulingConflictsMock: vi.fn(),
 	createThoughtEmbeddingMock: vi.fn(),
+	createThoughtEmbeddingsMock: vi.fn(),
 	lexicalSearchMock: vi.fn(),
 	graphOnlySearchByQueryMock: vi.fn()
 }));
@@ -36,7 +38,8 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 }));
 
 vi.mock('$lib/server/llm/embedding', () => ({
-	createThoughtEmbedding: createThoughtEmbeddingMock
+	createThoughtEmbedding: createThoughtEmbeddingMock,
+	createThoughtEmbeddings: createThoughtEmbeddingsMock
 }));
 
 vi.mock('$lib/server/retrieval/lexical', () => ({
@@ -211,6 +214,9 @@ describe('composeAnswer', () => {
 		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
 		findTemporalSchedulingConflictsMock.mockResolvedValue([]);
 		createThoughtEmbeddingMock.mockResolvedValue(new Array(1536).fill(0.1));
+		createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
+			texts.map(() => new Array(1536).fill(0.1))
+		);
 		lexicalSearchMock.mockResolvedValue([]);
 		graphOnlySearchByQueryMock.mockResolvedValue([]);
 		llmChatCompletionMock.mockResolvedValue(
@@ -265,7 +271,7 @@ describe('composeAnswer', () => {
 			chatResponse('Answer: Clemi is Clemens.\nEvidence:\n- Clemi is Clemens [b]\n\nUnknown:\n- none')
 		);
 		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
-		expect(createThoughtEmbeddingMock).toHaveBeenCalled();
+		expect(createThoughtEmbeddingsMock).toHaveBeenCalled();
 		expect(searchThoughtsMock).toHaveBeenCalledTimes(2);
 		expect(searchThoughtsMock).toHaveBeenCalledWith(
 			expect.objectContaining({ query: 'Wer ist Clemi?', queryEmbedding: expect.any(Array) })
@@ -446,13 +452,16 @@ describe('composeAnswer', () => {
 		llmChatCompletionMock.mockResolvedValueOnce(
 			chatResponse('Answer: Clemi is Clemens.\nEvidence:\n- Clemi is Clemens [b]\n\nUnknown:\n- none')
 		);
-		createThoughtEmbeddingMock.mockImplementation(async (_userId: string, text: string) => {
-			return text.toLowerCase().includes('clemi') && !text.includes('?') ? [0.9] : [0.1];
-		});
+		createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
+			texts.map((text) =>
+				text.toLowerCase().includes('clemi') && !text.includes('?')
+					? [0.9]
+					: [0.1]
+			)
+		);
 		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
-		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(2);
-		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'Wer ist Clemi?');
-		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'clemi');
+		expect(createThoughtEmbeddingsMock).toHaveBeenCalledTimes(1);
+		expect(createThoughtEmbeddingsMock).toHaveBeenCalledWith('u1', ['Wer ist Clemi?', 'clemi']);
 		const hintCall = searchThoughtsMock.mock.calls.find(
 			(call) => (call[0] as { query: string }).query === 'clemi'
 		);

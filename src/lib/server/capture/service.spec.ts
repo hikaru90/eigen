@@ -77,10 +77,12 @@ vi.mock('$lib/server/billing/usage-gate', () => ({
 	assertCapturePipelineAffordable: vi.fn(async () => undefined)
 }));
 
+vi.mock('$lib/server/memory/entity-graph-hints', () => ({
+	loadIngestKnownEntityHints: vi.fn(async () => [])
+}));
+
 /**
- * Enrich is fire-and-forget in service.ts. We mock the whole module so service
- * unit tests stay focused on the fast path. Enrichment pipeline is tested
- * separately in enrich.spec.ts.
+ * Enrichment is mocked here; pipeline behavior is tested in enrich.spec.ts.
  */
 vi.mock('$lib/server/capture/enrich', () => ({
 	enrichThought: enrichThoughtMock,
@@ -176,12 +178,17 @@ describe('captureThought', () => {
 		);
 	});
 
-	it('fires enrichThought as a side effect after persist', async () => {
+	it('schedules enrichThought in background without awaiting', async () => {
 		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
+		let enrichResolved = false;
+		enrichThoughtMock.mockImplementation(async () => {
+			await new Promise((r) => setTimeout(r, 50));
+			enrichResolved = true;
+		});
 
 		await captureThought('u1', 'raw input');
-
+		expect(enrichResolved).toBe(false);
 		expect(enrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',
@@ -190,7 +197,7 @@ describe('captureThought', () => {
 		);
 	});
 
-	it('awaits enrichment when onProgress is provided (UI path), emits fast-path phases', async () => {
+	it('emits fast-path phases and schedules background enrichment when onProgress is provided', async () => {
 		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
 
@@ -202,9 +209,7 @@ describe('captureThought', () => {
 			}
 		});
 
-		// Fast-path phases only (enrichment mock does not emit phases).
-		// In production with onProgress, enrichThought is awaited and will add
-		// relations/entities/memory_type/cues phases too.
+		// Fast-path phases only; enrichment runs in background.
 		expect(phases).toEqual([
 			'accounting',
 			'ontology',
@@ -213,7 +218,6 @@ describe('captureThought', () => {
 			'persist',
 			'graph'
 		]);
-		// Verify enrichment was awaited (mock called synchronously before return).
 		expect(enrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',

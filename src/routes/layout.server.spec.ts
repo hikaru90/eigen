@@ -22,7 +22,9 @@ describe('layout server load', () => {
 			select: vi.fn().mockReturnValue({
 				from: vi.fn().mockReturnValue({
 					where: vi.fn().mockReturnValue({
-						limit: vi.fn().mockResolvedValue([{ preferredUiLocale: 'en' }])
+						limit: vi.fn().mockResolvedValue([
+							{ preferredUiLocale: 'en', preferredLanguage: 'de' }
+						])
 					})
 				})
 			})
@@ -31,12 +33,14 @@ describe('layout server load', () => {
 		const cookies = makeCookies();
 		await expect(load({ locals: { user: { id: 'u1' } }, cookies } as never)).resolves.toEqual({
 			user: { id: 'u1' },
-			preferredUiLocale: 'en'
+			preferredUiLocale: 'en',
+			preferredLanguage: 'de'
 		});
 
 		await expect(load({ locals: { user: undefined }, cookies } as never)).resolves.toEqual({
 			user: null,
-			preferredUiLocale: null
+			preferredUiLocale: null,
+			preferredLanguage: 'en'
 		});
 	});
 });

@@ -11,6 +11,7 @@ import {
 } from '$lib/server/graph/age';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
+import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hints';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
@@ -94,13 +95,11 @@ async function decryptThoughtRow<T extends {
  * Fast path: classify → embed → persist → AGE graph provenance anchor → return immediately.
  *
  * Heavy enrichment (relation extraction, entity graph sync, memory type
- * classification, cue extraction, ontology eval) is fired asynchronously
- * via `enrichThought` and does NOT block the response.
+ * classification, cue extraction, ontology eval) runs via `enrichThought`
+ * and is awaited before this function returns so the graph is populated eagerly.
  *
- * If the caller provides an `onProgress` callback, it will receive progress
- * events for the async enrichment phases only when running in the NDJSON
- * streaming mode (where the handler keeps the connection open until the stream
- * is fully flushed). For plain JSON mode, enrichment events are not visible.
+ * When the caller provides an `onProgress` callback (NDJSON streaming mode),
+ * enrichment phase events are emitted on the open connection.
  */
 export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
 	const onProgress = options?.onProgress;
@@ -113,9 +112,23 @@ export async function captureThought(userId: string, rawInput: string, options?:
 	// LLM queue, so running them in parallel just makes one wait behind the other
 	// with no throughput gain. Sequential lets us show the user two distinct steps.
 	await emitProgress(onProgress, 'ontology');
-	const categoryResult = await resolveThoughtCategory({ userId, normalized, rawText: rawInput });
+	const ingestKnownEntities = await loadIngestKnownEntityHints({ userId, normalizedText: normalized });
+	const categoryResult = await resolveThoughtCategory({
+		userId,
+		normalized,
+		rawText: rawInput,
+		knownEntities: ingestKnownEntities.length > 0 ? ingestKnownEntities : undefined
+	});
 	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } = categoryResult;
-	const metadata = { ...baseMeta, categorySource: 'llm', categoryConfidence, categoryAlternatives };
+	const metadata = {
+		...baseMeta,
+		categorySource: 'llm',
+		categoryConfidence,
+		categoryAlternatives,
+		...(ingestKnownEntities.length > 0
+			? { ingestKnownEntityCount: ingestKnownEntities.length }
+			: {})
+	};
 
 	await emitProgress(onProgress, 'embedding');
 	const embedding = await createThoughtEmbedding(userId, normalized);
@@ -247,16 +260,16 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		.where(eq(thought.userId, userId));
 	const thoughtCountAfterInsert = Number(countRow?.n ?? 0);
 
-	const enrichOptions = { onProgress, thoughtEmbedding: embedding, thoughtCountAfterInsert };
+	const enrichOptions = {
+		onProgress,
+		thoughtEmbedding: embedding,
+		thoughtCountAfterInsert,
+		preloadedKnownEntities:
+			ingestKnownEntities.length > 0 ? ingestKnownEntities : undefined
+	};
 
-	if (onProgress) {
-		// UI / NDJSON path: the user is watching progress — run enrichment synchronously
-		// so the graph is fully connected before the "done" event is emitted.
-		await enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
-	} else {
-		// MCP / plain-JSON path: fire-and-forget for fast response.
-		void enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
-	}
+	// Background enrichment: persist response returns immediately; graph enrichment may lag.
+	void enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
 
 	return decryptedStored;
 }
@@ -513,15 +526,61 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 	return { ok: true as const };
 }
 
+async function decryptThoughtSnippetRow<
+	T extends {
+		normalizedText: string;
+		normalizedTextEncrypted?: string | null;
+	}
+>(userId: string, row: T): Promise<T> {
+	const normalizedText = row.normalizedTextEncrypted
+		? await decryptTenantValue({
+				userId,
+				table: 'thought',
+				column: 'normalized_text',
+				ciphertext: row.normalizedTextEncrypted
+			})
+		: row.normalizedText;
+	return { ...row, normalizedText };
+}
+
 export async function listThoughts(
 	userId: string,
 	options?: {
 		limit?: number;
+		fields?: 'snippet' | 'full';
 		cursor?: { createdAt: Date; id: string };
 	}
 ) {
 	const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
+	const fields = options?.fields ?? 'full';
 	const cursor = options?.cursor;
+
+	if (fields === 'snippet') {
+		const rows = await getDb()
+			.select({
+				id: thought.id,
+				normalizedText: thought.normalizedText,
+				normalizedTextEncrypted: thought.normalizedTextEncrypted,
+				category: thought.category,
+				memoryType: thought.memoryType,
+				createdAt: thought.createdAt
+			})
+			.from(thought)
+			.where(
+				and(
+					eq(thought.userId, userId),
+					cursor
+						? or(
+								lt(thought.createdAt, cursor.createdAt),
+								and(eq(thought.createdAt, cursor.createdAt), lt(thought.id, cursor.id))
+							)
+						: undefined
+				)
+			)
+			.orderBy(desc(thought.createdAt), desc(thought.id))
+			.limit(limit);
+		return Promise.all(rows.map((row) => decryptThoughtSnippetRow(userId, row)));
+	}
 
 	const rows = await getDb()
 		.select({

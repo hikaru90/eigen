@@ -102,6 +102,18 @@
 	padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
 }
 
+/* Standalone PWA: fill the viewport with theme background — no letterbox border */
+@media (display-mode: standalone) {
+	html,
+	body {
+		background-color: var(--background);
+		min-height: 100dvh;
+	}
+	body {
+		margin: 0;
+	}
+}
+
 .dark {
 	--background: oklch(0.141 0.005 285.823);
 	--foreground: oklch(0.985 0 0);

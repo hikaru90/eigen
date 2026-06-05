@@ -381,3 +381,131 @@ export async function extractEntityTriples(input: {
 
 	return parseEntityTriples(stripMarkdownJsonFences(extractChatContent(response)), allowed);
 }
+
+type ExtractEntityGraphPass = ExtractEntityMentionsPass;
+
+async function extractEntityGraphOnce(
+	input: {
+		userId: string;
+		normalizedText: string;
+		ontologyEntityKinds: OntologyEntityKindForExtraction[];
+		knownEntities?: KnownEntityHint[];
+	},
+	pass: ExtractEntityGraphPass
+): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
+	const allowed = new Set(input.ontologyEntityKinds.map((k) => k.key));
+	const catalog = input.ontologyEntityKinds
+		.map((k) => `- entityType must be exactly "${k.key}" (${k.name}): ${k.definition}`)
+		.join('\n');
+	const keyUnion = [...allowed].sort().join('|');
+
+	const knownEntitiesBlock =
+		input.knownEntities && input.knownEntities.length > 0
+			? `\nKnown entities already in memory (prefer these surface forms when referring to the same thing):\n${input.knownEntities
+					.map((e) => `- ${e.label} (${e.entityType})`)
+					.join('\n')}`
+			: '';
+
+	const minimumRule =
+		pass === 'retry_minimum'
+			? 'Return at least 2 mentions when the text names people, allergies, food, places, procedures, anatomy, devices, measurements, or institutions. Never return an empty mentions array for substantive notes.'
+			: pass === 'retry_verbatim'
+				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 mentions. Copy surfaces exactly as written in the text.'
+				: 'Include 0–12 mentions. Omit generic pronouns and vague terms.';
+
+	const prompt = [
+		'Return ONLY JSON with this shape:',
+		'{',
+		'  "mentions": [{"surface":"<text as written>","entityType":"<key>","confidence":0.0-1.0}],',
+		'  "triples": [{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]',
+		'}',
+		'',
+		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
+		`For each mention, entityType must be exactly one of: ${keyUnion}`,
+		'Allowed triple predicates: related_to, depends_on, part_of, located_in, knows, works_at.',
+		'Triples must only reference surfaces listed in mentions. Use empty triples array if none.',
+		'Catalog:',
+		catalog,
+		knownEntitiesBlock,
+		minimumRule,
+		`Text:\n${input.normalizedText}`
+	]
+		.filter(Boolean)
+		.join('\n');
+
+	const messages: ChatMessage[] = [
+		{
+			role: 'system',
+			content:
+				'You extract entity mentions and typed edges for a personal memory graph. Return only valid JSON.'
+		},
+		{ role: 'user', content: prompt }
+	];
+
+	const response = await llmChatCompletion({
+		userId: input.userId,
+		messages,
+		temperature: 0
+	});
+	const content = stripMarkdownJsonFences(extractChatContent(response));
+	try {
+		const parsed = JSON.parse(content) as unknown;
+		if (!parsed || typeof parsed !== 'object') {
+			throw new Error('Entity graph bundle output must be a JSON object');
+		}
+		const obj = parsed as { mentions?: unknown; triples?: unknown };
+		const mentions = parseEntityMentions(
+			JSON.stringify(Array.isArray(obj.mentions) ? obj.mentions : []),
+			allowed
+		);
+		const allowedSurfaces = new Set(mentions.map((m) => m.surface));
+		const triples = parseEntityTriples(
+			JSON.stringify(Array.isArray(obj.triples) ? obj.triples : []),
+			allowedSurfaces
+		);
+		return { mentions, triples };
+	} catch (err) {
+		console.warn('[entity-extraction] invalid graph bundle JSON from LLM', {
+			userId: input.userId,
+			pass,
+			message: err instanceof Error ? err.message : String(err)
+		});
+		return { mentions: [], triples: [] };
+	}
+}
+
+/** Single LLM call: entity mentions + typed triples. */
+export async function extractEntityGraphBundle(input: {
+	userId: string;
+	normalizedText: string;
+	ontologyEntityKinds: OntologyEntityKindForExtraction[];
+	knownEntities?: KnownEntityHint[];
+}): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
+	if (input.ontologyEntityKinds.length === 0) {
+		throw new Error('extractEntityGraphBundle requires at least one ontology entity kind');
+	}
+
+	let bundle = await extractEntityGraphOnce(input, 'default');
+	const textLen = input.normalizedText.trim().length;
+	if (bundle.mentions.length === 0 && shouldRetryEntityMentionExtraction(input.normalizedText)) {
+		console.warn('[entity-extraction] zero mentions in graph bundle; retrying with minimum rule', {
+			userId: input.userId,
+			textLen
+		});
+		bundle = await extractEntityGraphOnce(input, 'retry_minimum');
+	}
+	if (bundle.mentions.length === 0 && shouldRetryEntityMentionExtraction(input.normalizedText)) {
+		console.warn('[entity-extraction] zero mentions after minimum retry; retrying verbatim', {
+			userId: input.userId,
+			textLen
+		});
+		bundle = await extractEntityGraphOnce(input, 'retry_verbatim');
+	}
+	if (bundle.mentions.length === 0 && shouldRetryEntityMentionExtraction(input.normalizedText)) {
+		console.warn('[entity-extraction] zero mentions after all graph bundle retries', {
+			userId: input.userId,
+			textLen
+		});
+	}
+	return bundle;
+}

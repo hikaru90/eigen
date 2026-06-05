@@ -350,7 +350,14 @@
       thoughtEditorStored = thought;
       thoughtEditorDraft = thought.rawText;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
-      await invalidateAll();
+      if (selectedNode && selectedNode.id === id) {
+        selectedNode = {
+          ...selectedNode,
+          label: thought.normalizedText.slice(0, 120),
+          subtype: thought.category,
+        };
+      }
+      await refreshGraphAfterRearrange("Thought saved.");
     } catch (e) {
       thoughtEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -453,7 +460,14 @@
       entityEditorStored = j.entity;
       entityEditorDraft = j.entity.label;
       entityEditorEntityType = j.entity.entityType;
-      await invalidateAll();
+      if (selectedNode?.kind === "Entity" && selectedNode.id === id) {
+        selectedNode = {
+          ...selectedNode,
+          label: j.entity.label,
+          subtype: j.entity.entityType,
+        };
+      }
+      await refreshGraphAfterRearrange("Entity saved.");
     } catch (e) {
       entityEditorErr = e instanceof Error ? e.message : String(e);
     } finally {

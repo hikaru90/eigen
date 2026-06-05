@@ -22,10 +22,10 @@ describe('parseSttTranscript', () => {
 		expect(parseSttTranscript({ text: '  hello  ' })).toBe('hello');
 	});
 
-	it('extracts trimmed text from chat completion body', () => {
-		expect(
+	it('rejects chat completion body so assistant replies are not treated as transcripts', () => {
+		expect(() =>
 			parseSttTranscript({ choices: [{ message: { content: '  spoken words  ' } }] })
-		).toBe('spoken words');
+		).toThrow(/chat completion shape/);
 	});
 
 	it('throws when text missing', () => {

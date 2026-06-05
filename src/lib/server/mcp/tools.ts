@@ -14,6 +14,8 @@ import { normalizeFusedRrfScore } from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
+import { resolveMcpRetrievalMode } from '$lib/server/mcp/resolve-retrieval-mode';
+import { thoughtSnippet } from '$lib/server/mcp/snippet';
 
 export type McpToolProgress = {
 	tool: string;
@@ -30,6 +32,11 @@ function asObject(input: unknown): Record<string, unknown> {
 	return input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
 }
 
+function parseDetailLevel(body: Record<string, unknown>): 'snippet' | 'full' {
+	const detail = body.detail;
+	return detail === 'full' ? 'full' : 'snippet';
+}
+
 export async function runCaptureThoughtTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const raw = typeof body.raw === 'string' ? body.raw : '';
@@ -43,11 +50,13 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
 export async function runListThoughtsTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const limit = typeof body.limit === 'number' ? body.limit : 20;
+	const detail = parseDetailLevel(body);
 	const cursorCreatedAt =
 		typeof body.cursor_created_at === 'string' ? new Date(body.cursor_created_at) : undefined;
 	const cursorId = typeof body.cursor_id === 'string' ? body.cursor_id : undefined;
 	const thoughts = await listThoughts(context.userId, {
 		limit,
+		fields: detail === 'full' ? 'full' : 'snippet',
 		cursor:
 			cursorCreatedAt && cursorId
 				? {
@@ -56,7 +65,21 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 					}
 				: undefined
 	});
-	return sanitizeMcpToolResult({ thoughts });
+
+	if (detail === 'full') {
+		return sanitizeMcpToolResult({ count: thoughts.length, thoughts });
+	}
+
+	return sanitizeMcpToolResult({
+		count: thoughts.length,
+		thoughts: thoughts.map((row) => ({
+			id: row.id,
+			category: row.category,
+			snippet: thoughtSnippet(row.normalizedText),
+			createdAt: row.createdAt,
+			...(row.memoryType ? { memoryType: row.memoryType } : {})
+		}))
+	});
 }
 
 export async function runRetrieveThoughtsTool(context: McpToolContext, args: unknown) {
@@ -67,8 +90,14 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	}
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
 	const threshold = typeof body.threshold === 'number' ? body.threshold : undefined;
+	const explicitMode =
+		body.mode === 'fast' || body.mode === 'full' ? (body.mode as 'fast' | 'full') : undefined;
+	const detail = parseDetailLevel(body);
 	validateSearchParams({ topK, threshold });
 	const weights = CONTEXT_WEIGHTS.default;
+	const mode = resolveMcpRetrievalMode(query, explicitMode);
+	const effectiveTopK = topK ?? 10;
+
 	context.onToolProgress?.({
 		tool: 'retrieve_thoughts',
 		phase: 'searching',
@@ -77,14 +106,15 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	const results = await searchThoughts({
 		userId: context.userId,
 		query,
-		topK: topK ?? 20,
-		weights
+		topK: effectiveTopK,
+		weights,
+		mode
 	});
 	void tryRecordRetrievalQualityEvent({
 		userId: context.userId,
 		surface: 'mcp',
 		weights,
-		topKRequested: topK ?? 20,
+		topKRequested: effectiveTopK,
 		results: results.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
 	const filtered =
@@ -93,7 +123,20 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 			: results.filter(
 					(result) => normalizeFusedRrfScore(result.score, weights) >= threshold
 				);
-	return sanitizeMcpToolResult({ results: filtered });
+
+	if (detail === 'full') {
+		return sanitizeMcpToolResult({ count: filtered.length, results: filtered });
+	}
+
+	return sanitizeMcpToolResult({
+		count: filtered.length,
+		results: filtered.map((row) => ({
+			id: row.id,
+			category: row.category,
+			snippet: thoughtSnippet(row.normalizedText),
+			scoreNormalized: normalizeFusedRrfScore(row.score, weights)
+		}))
+	});
 }
 
 export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {

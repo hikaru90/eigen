@@ -62,6 +62,8 @@ export async function resolveThoughtCategory(input: {
 	userId: string;
 	normalized: string;
 	rawText: string;
+	/** Canonical entities referenced in this capture (pre-ingest lexical hints). */
+	knownEntities?: Array<{ label: string; entityType: string }>;
 }): Promise<ResolvedThoughtOntologyKind> {
 	const runStart = Date.now();
 	const userShort = input.userId.length > 8 ? `${input.userId.slice(0, 8)}…` : input.userId;
@@ -115,6 +117,12 @@ export async function resolveThoughtCategory(input: {
 		distributionBlock = `\nRecent category distribution (last ${ONTOLOGY_RECENT_THOUGHT_WINDOW}): ${distLine}`;
 	}
 
+	let knownEntitiesBlock = '';
+	if (input.knownEntities && input.knownEntities.length > 0) {
+		const lines = input.knownEntities.map((e) => `- ${e.label} (${e.entityType})`);
+		knownEntitiesBlock = `\nKnown entities referenced in this capture:\n${lines.join('\n')}`;
+	}
+
 	const prompt = [
 		'Return ONLY JSON with keys: "category" (string), "confidence" (number 0.0–1.0), "alternatives" (array of {key, confidence}).',
 		`"category" must be exactly one of these ontology entity kind keys: ${allowedList}.`,
@@ -124,6 +132,7 @@ export async function resolveThoughtCategory(input: {
 		`Kinds:\n${ontologyBlock}`,
 		sessionContextBlock,
 		distributionBlock,
+		knownEntitiesBlock,
 		`\nNormalized text:\n${input.normalized}`,
 		`Original raw text:\n${input.rawText}`
 	]

@@ -42,11 +42,12 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			properties: {
 				limit: { type: 'number' },
 				cursor_created_at: { type: 'string' },
-				cursor_id: { type: 'string' }
+				cursor_id: { type: 'string' },
+				detail: { type: 'string', enum: ['snippet', 'full'] }
 			}
 		},
 		agentArgumentSchema:
-			'{"limit": "number (optional, default 20)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
+			'{"limit": "number (optional, default 20)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)", "detail": "snippet|full (optional, default snippet)"}',
 		handler: runListThoughtsTool
 	},
 	{
@@ -58,12 +59,14 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			properties: {
 				query: { type: 'string' },
 				top_k: { type: 'number' },
-				threshold: { type: 'number' }
+				threshold: { type: 'number' },
+				mode: { type: 'string', enum: ['fast', 'full'] },
+				detail: { type: 'string', enum: ['snippet', 'full'] }
 			},
 			required: ['query']
 		},
 		agentArgumentSchema:
-			'{"query": "string (required)", "top_k": "number (optional, default 20)", "threshold": "number (optional, 0-1)"}',
+			'{"query": "string (required)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional, default fast; relational queries auto-upgrade to full)", "detail": "snippet|full (optional, default snippet)"}',
 		handler: runRetrieveThoughtsTool
 	},
 	{
