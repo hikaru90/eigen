@@ -5,7 +5,11 @@ import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
 import { userPreference, llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
+import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
+import { listThoughts } from '$lib/server/capture/service';
 import { eq } from 'drizzle-orm';
+
+const RECENT_THOUGHTS_LIMIT = 8;
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
@@ -33,11 +37,27 @@ export const load: PageServerLoad = async (event) => {
 		.where(eq(llmProviderConfig.userId, event.locals.user.id))
 		.limit(1);
 
+	const recentRows = await listThoughts(event.locals.user.id, {
+		fields: 'snippet',
+		limit: RECENT_THOUGHTS_LIMIT
+	});
+	const recentThoughtDetails = await Promise.all(
+		recentRows.map((row) => loadThoughtCaptureResult(event.locals.user!.id, row.id))
+	);
+
 	return {
 		user: event.locals.user,
 		onboardingCompleted: authUser?.onboardingCompleted === true,
 		llmConfigured: !!anyProvider,
-		preferredLanguage: pref?.preferredLanguage ?? 'en'
+		preferredLanguage: pref?.preferredLanguage ?? 'en',
+		recentThoughts: recentRows.map((row) => ({
+			id: row.id,
+			normalizedText: row.normalizedText,
+			category: row.category,
+			memoryType: row.memoryType,
+			createdAt: row.createdAt.toISOString()
+		})),
+		recentThoughtDetails
 	};
 };
 

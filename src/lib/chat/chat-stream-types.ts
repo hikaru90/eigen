@@ -1,3 +1,7 @@
+import { extractCitationIds, stripCitationTokens } from './citation-tokens';
+
+export type ComposedEvidenceLine = { text: string; id?: string };
+
 export type ChatStreamEvent =
 	| { type: 'thinking'; content: string }
 	| { type: 'agent_progress'; label: string }
@@ -227,8 +231,14 @@ function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView 
 							? r.text
 							: '';
 			if (!text.trim()) return null;
+			const id =
+				typeof r.id === 'string'
+					? r.id
+					: typeof r.thoughtId === 'string'
+						? r.thoughtId
+						: undefined;
 			return {
-				id: typeof r.id === 'string' ? r.id : undefined,
+				id,
 				text: text.trim(),
 				category: typeof r.category === 'string' ? r.category : undefined
 			};
@@ -268,33 +278,65 @@ export function coerceToolResultSource(value: unknown): string | undefined {
 
 function salvageMemoryHitsFromBrokenJson(source: string): ToolResultMemoryHit[] {
 	const hits: ToolResultMemoryHit[] = [];
+	const rowRe =
+		/\{[^{}]*?"(?:id|thoughtId)"\s*:\s*"((?:\\.|[^"\\])*)"[^{}]*?"(?:normalizedText|snippet|text)"\s*:\s*"((?:\\.|[^"\\])*)"[^{}]*?\}|\{[^{}]*?"(?:normalizedText|snippet|text)"\s*:\s*"((?:\\.|[^"\\])*)"[^{}]*?"(?:id|thoughtId)"\s*:\s*"((?:\\.|[^"\\])*)"[^{}]*?\}/g;
 	const textRe = /"normalizedText"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+	const snippetRe = /"snippet"\s*:\s*"((?:\\.|[^"\\])*)"/g;
 	const categoryRe = /"category"\s*:\s*"((?:\\.|[^"\\])*)"/g;
-	let textMatch: RegExpExecArray | null;
+	const idRe = /"(?:id|thoughtId)"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+
+	const decodeJsonString = (value: string): string => {
+		try {
+			return JSON.parse(`"${value}"`);
+		} catch {
+			return value;
+		}
+	};
+
+	let rowMatch: RegExpExecArray | null;
+	while ((rowMatch = rowRe.exec(source)) !== null) {
+		const id = decodeJsonString(rowMatch[1] ?? rowMatch[4] ?? '');
+		const text = decodeJsonString(rowMatch[2] ?? rowMatch[3] ?? '');
+		if (text.trim()) {
+			hits.push({ id: id || undefined, text: text.trim() });
+		}
+	}
+	const seenTexts = new Set(hits.map((hit) => hit.text.toLowerCase()));
+
 	const categories: string[] = [];
 	let catMatch: RegExpExecArray | null;
 	while ((catMatch = categoryRe.exec(source)) !== null) {
-		try {
-			categories.push(JSON.parse(`"${catMatch[1]}"`));
-		} catch {
-			categories.push(catMatch[1]);
+		categories.push(decodeJsonString(catMatch[1]));
+	}
+	const ids: string[] = [];
+	let idMatch: RegExpExecArray | null;
+	while ((idMatch = idRe.exec(source)) !== null) {
+		ids.push(decodeJsonString(idMatch[1]));
+	}
+	const texts: string[] = [];
+	let textMatch: RegExpExecArray | null;
+	while ((textMatch = textRe.exec(source)) !== null) {
+		texts.push(decodeJsonString(textMatch[1]));
+	}
+	if (texts.length === 0) {
+		while ((textMatch = snippetRe.exec(source)) !== null) {
+			texts.push(decodeJsonString(textMatch[1]));
 		}
 	}
-	let i = 0;
-	while ((textMatch = textRe.exec(source)) !== null) {
-		let text: string;
-		try {
-			text = JSON.parse(`"${textMatch[1]}"`);
-		} catch {
-			text = textMatch[1];
+	for (let i = 0; i < texts.length; i++) {
+		const text = texts[i]?.trim();
+		if (!text || seenTexts.has(text.toLowerCase())) continue;
+		hits.push({
+			id: ids[i] || undefined,
+			text,
+			category: categories[i]
+		});
+		seenTexts.add(text.toLowerCase());
+	}
+	for (let i = 0; i < hits.length; i++) {
+		if (!hits[i].category && categories[i]) {
+			hits[i] = { ...hits[i], category: categories[i] };
 		}
-		if (text.trim()) {
-			hits.push({
-				text: text.trim(),
-				category: categories[i]
-			});
-		}
-		i += 1;
 	}
 	return hits;
 }
@@ -415,27 +457,21 @@ export function formatToolResultForDisplay(tool: string, preview: string): strin
 	return preview.length > 500 ? `${preview.slice(0, 500)}...` : preview;
 }
 
-const CITATION_TOKEN_RE = /\[([A-Za-z0-9_-]+)\]/g;
-
-function stripCitationTokens(text: string): string {
-	return text.replace(CITATION_TOKEN_RE, '').replace(/\s+/g, ' ').trim();
-}
-
 /** Split composed answer_question text into user-facing answer and evidence lines. */
 export function parseComposedAnswerSections(rawAnswer: string): {
 	answerText: string;
-	evidenceLines: string[];
+	evidenceLines: ComposedEvidenceLine[];
 } {
 	const lines = rawAnswer.split(/\r?\n/);
 	let answerText = '';
-	const evidenceLines: string[] = [];
+	const evidenceLines: ComposedEvidenceLine[] = [];
 	let section: 'none' | 'evidence' | 'unknown' = 'none';
 
 	for (const rawLine of lines) {
 		const line = rawLine.trim();
 		if (!line) continue;
 		if (/^answer\s*:/i.test(line)) {
-			answerText = stripCitationTokens(line.replace(/^answer\s*:/i, '').trim());
+			answerText = line.replace(/^answer\s*:/i, '').trim();
 			section = 'none';
 			continue;
 		}
@@ -448,25 +484,80 @@ export function parseComposedAnswerSections(rawAnswer: string): {
 			continue;
 		}
 		if (section === 'evidence' && /^-\s*/.test(line)) {
-			const cleaned = stripCitationTokens(line.replace(/^-+\s*/, ''));
-			if (cleaned) evidenceLines.push(cleaned);
+			const body = line.replace(/^-+\s*/, '');
+			const cleaned = stripCitationTokens(body);
+			if (cleaned) {
+				evidenceLines.push({ text: cleaned, id: extractCitationIds(body)[0] });
+			}
 		}
 	}
 
 	if (!answerText) {
-		answerText = stripCitationTokens(rawAnswer);
+		answerText = rawAnswer.trim();
 	}
 	return { answerText, evidenceLines };
+}
+
+function retrievedHitsById(retrieved: unknown): Map<string, ToolResultMemoryHit> {
+	const byId = new Map<string, ToolResultMemoryHit>();
+	if (!Array.isArray(retrieved)) return byId;
+	for (const row of retrieved) {
+		if (!row || typeof row !== 'object') continue;
+		const r = row as Record<string, unknown>;
+		if (typeof r.id !== 'string') continue;
+		const text =
+			typeof r.normalizedText === 'string'
+				? r.normalizedText
+				: typeof r.snippet === 'string'
+					? r.snippet
+					: typeof r.text === 'string'
+						? r.text
+						: '';
+		byId.set(r.id, {
+			id: r.id,
+			text,
+			category: typeof r.category === 'string' ? r.category : undefined
+		});
+	}
+	return byId;
+}
+
+function evidenceHitsFromComposedAnswer(
+	answer: string,
+	retrieved?: unknown
+): ToolResultMemoryHit[] {
+	const retrievedById = retrievedHitsById(retrieved);
+	return parseComposedAnswerSections(answer).evidenceLines.map(({ text, id }) => {
+		const fromRetrieved = id ? retrievedById.get(id) : undefined;
+		return {
+			id: id ?? fromRetrieved?.id,
+			text,
+			category: fromRetrieved?.category
+		};
+	});
 }
 
 /** Evidence rows for answer_question tool_result JSON (retrieved + citations). */
 export function evidenceHitsFromAnswerQuestionPayload(preview: string): ToolResultMemoryHit[] {
 	const view = parseToolResultPreview('answer_question', preview);
 	if (view?.kind === 'memories') return view.hits;
-	if (view?.kind === 'text') {
-		return parseComposedAnswerSections(view.text).evidenceLines.map((text) => ({ text }));
+
+	let answerText: string | undefined;
+	let retrieved: unknown;
+	try {
+		const parsed = JSON.parse(preview) as Record<string, unknown>;
+		if (typeof parsed.answer === 'string') answerText = parsed.answer;
+		if (Array.isArray(parsed.retrieved)) retrieved = parsed.retrieved;
+	} catch {
+		// fall through to view.text
 	}
-	return [];
+
+	if (view?.kind === 'text') {
+		answerText = answerText ?? view.text;
+	}
+
+	if (!answerText) return [];
+	return evidenceHitsFromComposedAnswer(answerText, retrieved);
 }
 
 /** Clean final reply text for the answer bubble (no Answer:/Evidence:/Unknown headers). */

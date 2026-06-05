@@ -13,7 +13,8 @@ const {
 	deleteThoughtOutgoingGraphEdgesMock,
 	deleteThoughtOutgoingRelatesToEdgesMock,
 	materializeRetrievalLinksForThoughtMock,
-	scheduleIncrementalConsolidationMock
+	scheduleIncrementalConsolidationMock,
+	syncThoughtNeighborLinksMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	withDbUserMock: vi.fn(),
@@ -26,7 +27,8 @@ const {
 	deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
 	deleteThoughtOutgoingRelatesToEdgesMock: vi.fn(),
 	materializeRetrievalLinksForThoughtMock: vi.fn(),
-	scheduleIncrementalConsolidationMock: vi.fn()
+	scheduleIncrementalConsolidationMock: vi.fn(),
+	syncThoughtNeighborLinksMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -48,7 +50,8 @@ vi.mock('$lib/server/graph/age', () => ({
 	deleteThoughtOutgoingRelatesToEdges: deleteThoughtOutgoingRelatesToEdgesMock
 }));
 vi.mock('$lib/server/retrieval/materialize-links', () => ({
-	materializeRetrievalLinksForThought: materializeRetrievalLinksForThoughtMock
+	materializeRetrievalLinksForThought: materializeRetrievalLinksForThoughtMock,
+	syncThoughtNeighborLinks: syncThoughtNeighborLinksMock
 }));
 vi.mock('$lib/server/consolidation/incremental-consolidation', () => ({
 	scheduleIncrementalConsolidation: scheduleIncrementalConsolidationMock
@@ -113,6 +116,8 @@ describe('enrichThought', () => {
 		});
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
 		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
+		syncThoughtNeighborLinksMock.mockResolvedValue(0);
+		deleteThoughtOutgoingRelatesToEdgesMock.mockResolvedValue(undefined);
 		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
 	});
 
@@ -126,15 +131,17 @@ describe('enrichThought', () => {
 		expect(db.update).toHaveBeenCalled();
 	});
 
-	it('clears outgoing RELATES_TO edges before relation extraction', async () => {
+	it('clears outgoing RELATES_TO edges during scheduled relation extraction', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 
 		await enrichThought('u1', 't1', 'hello world');
 
-		expect(deleteThoughtOutgoingRelatesToEdgesMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			thoughtId: 't1'
+		await vi.waitFor(() => {
+			expect(deleteThoughtOutgoingRelatesToEdgesMock).toHaveBeenCalledWith({
+				userId: 'u1',
+				thoughtId: 't1'
+			});
 		});
 	});
 
@@ -172,7 +179,7 @@ describe('enrichThought', () => {
 		);
 	});
 
-	it('calls relation extraction and syncs relations to DB and AGE graph', async () => {
+	it('awaits relation extraction after core enrich completes', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		extractRelationsMock.mockResolvedValue([
@@ -189,6 +196,7 @@ describe('enrichThought', () => {
 		expect(upsertThoughtRelationMock).toHaveBeenCalledWith(
 			expect.objectContaining({ sourceId: 't1', targetId: 'target-1' })
 		);
+		expect(syncThoughtNeighborLinksMock).toHaveBeenCalledWith('u1', 't1');
 	});
 
 	it('calls entity graph sync', async () => {
@@ -287,7 +295,7 @@ describe('enrichThought', () => {
 	it('does not set enriched_at when a step fails', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
-		extractRelationsMock.mockRejectedValue(new Error('boom'));
+		extractThoughtMetadataMock.mockRejectedValue(new Error('boom'));
 
 		await enrichThought('u1', 't1', 'hello');
 
@@ -324,13 +332,12 @@ describe('enrichThought', () => {
 	it('continues enriching remaining steps when one step throws', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
-		extractRelationsMock.mockRejectedValue(new Error('relations failed'));
+		extractThoughtMetadataMock.mockRejectedValue(new Error('metadata failed'));
 
 		await enrichThought('u1', 't1', 'hello');
 
-		// Subsequent steps should still run despite relations failure
 		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled();
-		expect(extractThoughtMetadataMock).toHaveBeenCalled();
+		expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalled();
 	});
 
 	it('continues when enrichment_version bump fails', async () => {
@@ -339,7 +346,7 @@ describe('enrichThought', () => {
 
 		await enrichThought('u1', 't1', 'hello');
 
-		expect(extractRelationsMock).toHaveBeenCalled();
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled();
 	});
 
 	it('falls back to current time when thought row is missing', async () => {
@@ -354,16 +361,16 @@ describe('enrichThought', () => {
 		expect(call!.capturedAt.getTime()).toBeGreaterThanOrEqual(before);
 	});
 
-	it('logs non-Error rejection reasons from failed steps', async () => {
+	it('logs relation extraction failures without aborting enrich', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-		extractRelationsMock.mockRejectedValue('relations failed');
+		extractRelationsMock.mockRejectedValueOnce(new Error('relations failed'));
 
 		await enrichThought('u1', 't1', 'hello');
 
 		expect(errorSpy).toHaveBeenCalledWith(
-			'[enrich] relations step failed',
+			'[enrich] relation extraction failed',
 			expect.objectContaining({ message: 'relations failed' })
 		);
 		errorSpy.mockRestore();
@@ -464,18 +471,20 @@ describe('enrichThought', () => {
 		});
 	});
 
-	it('passes thoughtEmbedding through relations and temporal sync', async () => {
+	it('passes thoughtEmbedding through scheduled relations and temporal sync', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		const embedding = [0.1, 0.2, 0.3];
 
 		await enrichThought('u1', 't1', 'hello world', { thoughtEmbedding: embedding });
 
-		expect(extractRelationsMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			thoughtId: 't1',
-			normalizedText: 'hello world',
-			embedding
+		await vi.waitFor(() => {
+			expect(extractRelationsMock).toHaveBeenCalledWith({
+				userId: 'u1',
+				thoughtId: 't1',
+				normalizedText: 'hello world',
+				embedding
+			});
 		});
 		expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -666,13 +675,18 @@ describe('reenrichThought', () => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
 		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
+		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
+		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
+		getDbMock.mockReturnValue(makeDb());
 	});
 
 	it('clears outgoing graph edges before enriching', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
+		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
 
 		await reenrichThought('u1', 't1', 'hello world');
 
@@ -680,13 +694,15 @@ describe('reenrichThought', () => {
 			userId: 'u1',
 			thoughtId: 't1'
 		});
-		// Enrichment still runs
-		expect(extractRelationsMock).toHaveBeenCalled();
+		await vi.waitFor(() => {
+			expect(extractRelationsMock).toHaveBeenCalled();
+		});
 	});
 
-	it('runs edge clearing before any enrichment step', async () => {
+	it('runs edge clearing before scheduled relation extraction', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
+		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
 
 		const callOrder: string[] = [];
 		deleteThoughtOutgoingGraphEdgesMock.mockImplementation(async () => {
@@ -699,8 +715,9 @@ describe('reenrichThought', () => {
 
 		await reenrichThought('u1', 't1', 'hello world');
 
-		expect(callOrder[0]).toBe('delete_edges');
-		expect(callOrder[1]).toBe('relations');
+		await vi.waitFor(() => {
+			expect(callOrder).toEqual(['delete_edges', 'relations']);
+		});
 	});
 });
 

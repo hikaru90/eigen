@@ -51,6 +51,24 @@ describe('chat-stream-types', () => {
 		);
 	});
 
+	it('parses list_thoughts snippet rows with ids into memory hits', () => {
+		const raw = JSON.stringify({
+			count: 2,
+			thoughts: [
+				{ id: 't-home', snippet: 'Ich arbeite heute von zu Hause aus.', category: 'thought' },
+				{ id: 't-app', snippet: 'ich würde heute nachmittag gerne noch die app trennen', category: 'idea' }
+			]
+		});
+		const view = resolveToolResultView('list_thoughts', raw, raw);
+		expect(view).toEqual({
+			kind: 'memories',
+			hits: [
+				{ id: 't-home', text: 'Ich arbeite heute von zu Hause aus.', category: 'thought' },
+				{ id: 't-app', text: 'ich würde heute nachmittag gerne noch die app trennen', category: 'idea' }
+			]
+		});
+	});
+
 	it('parses raw JSON displaySummary into memory hits', () => {
 		const raw = JSON.stringify({
 			results: [
@@ -102,17 +120,41 @@ describe('chat-stream-types', () => {
 		expect(view).toEqual({
 			kind: 'memories',
 			hits: [
-				{ text: 'i do like sweet coffee', category: 'emotion' },
-				{ text: 'ich mag kaffee', category: undefined }
+				{ id: '829b4cc7', text: 'i do like sweet coffee', category: 'emotion' },
+				{ id: '5a9ca204', text: 'ich mag kaffee', category: undefined }
 			]
 		});
+	});
+
+	it('parses evidence ids from [id=uuid] citations', () => {
+		const raw =
+			'Answer: You are home. [id=d2af9064-8fbe-490a-856a-ccaee8410516]\nEvidence:\n- You are working from home today. [id=d2af9064-8fbe-490a-856a-ccaee8410516]\nUnknown:\n- none';
+		expect(parseComposedAnswerSections(raw).evidenceLines).toEqual([
+			{
+				text: 'You are working from home today.',
+				id: 'd2af9064-8fbe-490a-856a-ccaee8410516'
+			}
+		]);
+	});
+
+	it('parses evidence ids from [<id=uuid>] citations', () => {
+		const raw =
+			'Answer: You are home. [<id=d2af9064-8fbe-490a-856a-ccaee8410516>]\nEvidence:\n- You are working from home today. [<id=d2af9064-8fbe-490a-856a-ccaee8410516>]\nUnknown:\n- none';
+		expect(parseComposedAnswerSections(raw).evidenceLines).toEqual([
+			{
+				text: 'You are working from home today.',
+				id: 'd2af9064-8fbe-490a-856a-ccaee8410516'
+			}
+		]);
 	});
 
 	it('parses composed answer sections without headers in final text', () => {
 		const raw =
 			'Answer: Annie ist deine Schwester. [id1]\n\nEvidence:\n- Annie ist meine Schwester [id1]\n\nUnknown:\n- none';
-		expect(parseComposedAnswerSections(raw).answerText).toBe('Annie ist deine Schwester.');
-		expect(parseComposedAnswerSections(raw).evidenceLines).toEqual(['Annie ist meine Schwester']);
+		expect(parseComposedAnswerSections(raw).answerText).toBe('Annie ist deine Schwester. [id1]');
+		expect(parseComposedAnswerSections(raw).evidenceLines).toEqual([
+			{ text: 'Annie ist meine Schwester', id: 'id1' }
+		]);
 	});
 
 	it('parseFinalAnswerText uses answer field from tool_result JSON', () => {
@@ -122,8 +164,10 @@ describe('chat-stream-types', () => {
 			citations: ['t1'],
 			retrieved: [{ id: 't1', normalizedText: 'Annie ist meine Schwester', category: 'reference' }]
 		});
-		expect(parseFinalAnswerText('ignored', preview)).toBe('Annie ist deine Schwester.');
-		expect(evidenceHitsFromAnswerQuestionPayload(preview).length).toBeGreaterThan(0);
+		expect(parseFinalAnswerText('ignored', preview)).toBe('Annie ist deine Schwester. [t1]');
+		expect(evidenceHitsFromAnswerQuestionPayload(preview)).toEqual([
+			{ id: 't1', text: 'Annie ist meine Schwester', category: 'reference' }
+		]);
 	});
 
 	it('does not surface raw JSON as text for legacy payloads', () => {

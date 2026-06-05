@@ -8,6 +8,7 @@ import {
 	extractRetrievalHints,
 	findInvalidCitationIds,
 	findInvalidProfileCitationIds,
+	formatComposedAnswerForUser,
 	formatThoughtsForPrompt,
 	narrowComposeContextToQuestionFocus,
 	prioritizePersonNamedThoughts,
@@ -209,6 +210,17 @@ describe('narrowComposeContextToQuestionFocus', () => {
 		]);
 		expect(out).toHaveLength(1);
 		expect(out[0].id).toBe('b');
+	});
+});
+
+describe('formatComposedAnswerForUser', () => {
+	it('normalizes legacy citation tokens to [id=uuid]', () => {
+		expect(
+			formatComposedAnswerForUser(
+				'Answer: Home. [<id=d428954a-aae1-4565-a162-9f38b5536d2e>]\nEvidence:\n- Working from home [t1]\nUnknown:\n- none'
+			)
+		).toContain('[id=d428954a-aae1-4565-a162-9f38b5536d2e]');
+		expect(formatComposedAnswerForUser('Fact [t1] here.')).toBe('Fact [id=t1] here.');
 	});
 });
 

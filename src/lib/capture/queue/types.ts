@@ -1,4 +1,7 @@
 import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson';
+import type { CaptureSubmitResult } from '$lib/capture/capture-result-types';
+
+export type { CaptureSubmitResult };
 
 export const CAPTURE_QUEUE_DB_NAME = 'eigen-capture-queue';
 export const CAPTURE_QUEUE_DB_VERSION = 1;
@@ -19,13 +22,6 @@ export type CaptureQueueItem = {
 	status: CaptureQueueStatus;
 	attempts: number;
 	lastError?: string;
-};
-
-export type CaptureSubmitResult = {
-	id: string;
-	normalizedText: string;
-	category: string;
-	metadata?: Record<string, unknown> | null;
 };
 
 export type CaptureQueueBroadcast =

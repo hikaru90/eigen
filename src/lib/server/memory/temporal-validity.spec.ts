@@ -18,6 +18,13 @@ describe('parseActivePeriodLiteral', () => {
 		expect(bounds.end.toISOString()).toBe(DAY_END);
 	});
 
+	it('parses Postgres driver tsrange format with space-separated timestamps', () => {
+		const pgLiteral = '["2026-05-27 00:00:00","2026-05-27 23:59:59")';
+		const bounds = parseActivePeriodLiteral(pgLiteral);
+		expect(bounds.start.toISOString()).toBe('2026-05-27T00:00:00.000Z');
+		expect(bounds.end.toISOString()).toBe('2026-05-27T23:59:59.000Z');
+	});
+
 	it('throws on invalid literals', () => {
 		expect(() => parseActivePeriodLiteral('not-a-range')).toThrow(/Invalid tsrange literal/);
 	});

@@ -125,6 +125,24 @@ export function formatWhen(item: TemporalEventListItem): string {
 	return fmt.format(start);
 }
 
+export type TemporalStatusFilter = 'open' | 'all';
+
+export function isTemporalEventCompleted(item: TemporalEventListItem): boolean {
+	return item.thoughtStatus === 'completed';
+}
+
+export function filterItemsByStatus(
+	items: TemporalEventListItem[],
+	statusFilter: TemporalStatusFilter
+): TemporalEventListItem[] {
+	if (statusFilter === 'all') return items;
+	return items.filter((item) => !isTemporalEventCompleted(item));
+}
+
+export function completedEventSummaryClass(completed: boolean): string {
+	return completed ? 'opacity-60 line-through' : '';
+}
+
 export function filterItemsByRange(
 	items: TemporalEventListItem[],
 	rangeFilter: 'all' | 'upcoming' | 'past'

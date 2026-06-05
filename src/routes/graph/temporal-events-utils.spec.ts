@@ -4,6 +4,7 @@ import {
 	calendarDateKey,
 	eventDateKeys,
 	eventsOnDay,
+	filterItemsByStatus,
 	formatWhen,
 	groupByKind,
 	localViewDayKey
@@ -27,10 +28,30 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		graphSyncError: null,
 		thoughtId: 't1',
 		thoughtText: 'thought',
+		thoughtCategory: 'task',
+		thoughtStatus: 'open',
 		createdAt: '2026-05-19T00:00:00.000Z',
 		...overrides
 	};
 }
+
+describe('filterItemsByStatus', () => {
+	it('hides completed events when filter is open', () => {
+		const items = [
+			item({ id: 'a', thoughtStatus: 'open' }),
+			item({ id: 'b', thoughtStatus: 'completed' })
+		];
+		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
+	});
+
+	it('includes completed events when filter is all', () => {
+		const items = [
+			item({ id: 'a', thoughtStatus: 'open' }),
+			item({ id: 'b', thoughtStatus: 'completed' })
+		];
+		expect(filterItemsByStatus(items, 'all')).toHaveLength(2);
+	});
+});
 
 function day(year: number, month: number, date: number): Date {
 	return new Date(year, month - 1, date);

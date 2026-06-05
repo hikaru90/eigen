@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RerankError, rerankCandidates } from './reranker';
+import { RerankError, rerankCandidates, shouldSkipRerank } from './reranker';
 import type { RerankCandidate } from './reranker';
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
@@ -57,6 +57,32 @@ describe('rerankCandidates', () => {
 		const result = await rerankCandidates('u1', 'query', candidates);
 		// b first (ranked), then a and c in their relative original order
 		expect(result[0].id).toBe('b');
+	});
+
+	it('returns input unchanged when top score gap is large', async () => {
+		const spread: RerankCandidate[] = [
+			{ id: 'a', normalizedText: 'first', score: 0.95 },
+			{ id: 'b', normalizedText: 'second', score: 0.5 },
+			{ id: 'c', normalizedText: 'third', score: 0.4 }
+		];
+		const result = await rerankCandidates('u1', 'query', spread);
+		expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+	});
+
+	it('shouldSkipRerank detects clear winner', () => {
+		expect(
+			shouldSkipRerank([
+				{ id: 'a', normalizedText: 'x', score: 0.9 },
+				{ id: 'b', normalizedText: 'y', score: 0.5 }
+			])
+		).toBe(true);
+		expect(
+			shouldSkipRerank([
+				{ id: 'a', normalizedText: 'x', score: 0.55 },
+				{ id: 'b', normalizedText: 'y', score: 0.5 }
+			])
+		).toBe(false);
 	});
 
 	it('includes recent context in the prompt when provided', async () => {

@@ -9,6 +9,7 @@
   import Bot from '@lucide/svelte/icons/bot';
   import CheckIcon from '@lucide/svelte/icons/check';
   import ChatMarkdown from '$lib/components/chat-markdown.svelte';
+  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte';
   import {
     toolLabel,
     toolStatusBadgeClasses,
@@ -88,12 +89,7 @@
         {:else}
           <ul class="flex flex-col gap-2.5 list-none m-0 p-0">
             {#each resultView.hits as hit, i (hit.id ?? `${i}:${hit.text}`)}
-              <li class="flex flex-col gap-0.5 rounded-md border border-border bg-muted px-3 py-2">
-                <p class="min-w-0 break-all text-sm leading-snug text-foreground">{hit.text}</p>
-                {#if hit.category}
-                  <span class="text-[11px] capitalize tracking-wide text-muted-foreground">{hit.category}</span>
-                {/if}
-              </li>
+              <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} />
             {/each}
           </ul>
         {/if}

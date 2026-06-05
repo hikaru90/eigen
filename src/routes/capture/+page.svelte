@@ -3,7 +3,9 @@
 	import type { PageData } from './$types';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
 	import CaptureQueueList from '$lib/components/capture-queue-list.svelte';
-	import CaptureQueueStatus from '$lib/components/capture-queue-status.svelte';
+	import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte';
+	import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types';
+	import { deleteCaptureThought, fetchCaptureResult } from '$lib/capture/capture-result-api';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -32,10 +34,16 @@
 
 	const showOnboarding = $derived(!data.onboardingCompleted);
 
+	const RECENT_THOUGHTS_LIMIT = 8;
+
 	let raw = $state('');
 	let editRequest = $state('');
-	let stored = $state<CaptureSubmitResult | null>(null);
-	let showEdit = $state(false);
+	let recentThoughts = $state<CaptureRecentThoughtSnippet[]>(data.recentThoughts);
+	let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
+		Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought]))
+	);
+	let expandedThoughtId = $state<string | null>(null);
+	let editingThoughtId = $state<string | null>(null);
 	let err = $state<string | null>(null);
 
 	let queueUi = $state<CaptureQueueUiState>(initialCaptureQueueUiState());
@@ -54,6 +62,104 @@
 
 	let editAbortController = $state<AbortController | null>(null);
 	let editLoading = $state(false);
+	let deletingThoughtId = $state<string | null>(null);
+	let loadingDetailId = $state<string | null>(null);
+
+	function upsertRecentThought(thought: CaptureSubmitResult) {
+		const existing = recentThoughts.find((row) => row.id === thought.id);
+		const snippet: CaptureRecentThoughtSnippet = {
+			id: thought.id,
+			normalizedText: thought.normalizedText,
+			category: thought.category,
+			memoryType: thought.memoryType,
+			createdAt: existing?.createdAt ?? new Date().toISOString()
+		};
+		thoughtDetails = { ...thoughtDetails, [thought.id]: thought };
+		recentThoughts = [
+			snippet,
+			...recentThoughts.filter((row) => row.id !== thought.id)
+		].slice(0, RECENT_THOUGHTS_LIMIT);
+	}
+
+	function removeRecentThought(thoughtId: string) {
+		recentThoughts = recentThoughts.filter((row) => row.id !== thoughtId);
+		const { [thoughtId]: _removed, ...rest } = thoughtDetails;
+		thoughtDetails = rest;
+		if (expandedThoughtId === thoughtId) expandedThoughtId = null;
+		if (editingThoughtId === thoughtId) {
+			editingThoughtId = null;
+			editRequest = '';
+		}
+	}
+
+	async function ensureThoughtDetail(thoughtId: string) {
+		if (thoughtDetails[thoughtId]) return thoughtDetails[thoughtId];
+		loadingDetailId = thoughtId;
+		try {
+			const thought = await fetchCaptureResult(thoughtId);
+			thoughtDetails = { ...thoughtDetails, [thoughtId]: thought };
+			return thought;
+		} finally {
+			if (loadingDetailId === thoughtId) loadingDetailId = null;
+		}
+	}
+
+	async function expandThought(thoughtId: string) {
+		err = null;
+		expandedThoughtId = thoughtId;
+		try {
+			await ensureThoughtDetail(thoughtId);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+			expandedThoughtId = null;
+		}
+	}
+
+	function collapseThought(thoughtId: string) {
+		if (expandedThoughtId === thoughtId) expandedThoughtId = null;
+		if (editingThoughtId === thoughtId) {
+			editingThoughtId = null;
+			editRequest = '';
+		}
+	}
+
+	async function toggleThoughtEdit(thoughtId: string) {
+		err = null;
+		if (editingThoughtId === thoughtId) {
+			editingThoughtId = null;
+			editRequest = '';
+			return;
+		}
+		try {
+			await ensureThoughtDetail(thoughtId);
+			expandedThoughtId = thoughtId;
+			editingThoughtId = thoughtId;
+			editRequest = '';
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	async function deleteThought(thoughtId: string) {
+		if (
+			!confirm(
+				'Delete this thought permanently? It will be removed from search and the graph. This cannot be undone.'
+			)
+		) {
+			return;
+		}
+		err = null;
+		deletingThoughtId = thoughtId;
+		try {
+			await deleteCaptureThought(thoughtId);
+			removeRecentThought(thoughtId);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+		} finally {
+			if (deletingThoughtId === thoughtId) deletingThoughtId = null;
+		}
+	}
+
 	function appendTranscript(current: string, transcript: string): string {
 		const next = transcript.trim();
 		if (!next) return current;
@@ -149,8 +255,9 @@
 				return;
 			}
 			if (message.type === 'done') {
-				stored = message.thought;
-				showEdit = false;
+				upsertRecentThought(message.thought);
+				expandedThoughtId = message.thought.id;
+				editingThoughtId = null;
 				editRequest = '';
 				progressEvents = [];
 				processingCaptureId = null;
@@ -214,7 +321,8 @@
 	}
 
 	async function submitEditRequest() {
-		if (!stored) return;
+		if (!editingThoughtId) return;
+		const thoughtId = editingThoughtId;
 		err = null;
 		progressEvents = [];
 		editLoading = true;
@@ -224,23 +332,23 @@
 			const res = await fetch('/api/capture/edit', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json', accept: 'application/x-ndjson, application/json' },
-				body: JSON.stringify({ thoughtId: stored.id, editRequest }),
+				body: JSON.stringify({ thoughtId, editRequest }),
 				signal: ac.signal
 			});
 			const contentType = res.headers.get('content-type') ?? '';
 			if (contentType.includes('application/x-ndjson')) {
-				const thought = await consumeCaptureNdjsonStream<NonNullable<typeof stored>>(
+				const thought = await consumeCaptureNdjsonStream<CaptureSubmitResult>(
 					res, pushEvent, ac.signal
 				);
-				stored = thought;
-				showEdit = false;
+				upsertRecentThought(thought);
+				editingThoughtId = null;
 				editRequest = '';
 				return;
 			}
 			if (!res.ok) throw new Error(await res.text());
-			const j = (await res.json()) as { thought: NonNullable<typeof stored> };
-			stored = j.thought;
-			showEdit = false;
+			const j = (await res.json()) as { thought: CaptureSubmitResult };
+			upsertRecentThought(j.thought);
+			editingThoughtId = null;
 			editRequest = '';
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -251,30 +359,11 @@
 			editAbortController = null;
 		}
 	}
-
-	// Pull interesting fields out of metadata for display
-	function getMetaDisplay(s: NonNullable<typeof stored>): Array<{ label: string; value: string }> {
-		const rows: Array<{ label: string; value: string }> = [];
-		const m = s.metadata as Record<string, unknown> | null | undefined;
-		if (!m) return rows;
-		if (typeof m.categoryConfidence === 'number') {
-			rows.push({ label: 'Confidence', value: `${Math.round(m.categoryConfidence * 100)}%` });
-		}
-		if (m.nearDuplicate && typeof m.nearDuplicate === 'object') {
-			const nd = m.nearDuplicate as { distance?: number; preview?: string };
-			if (typeof nd.distance === 'number') {
-				rows.push({ label: 'Near-duplicate', value: `distance ${nd.distance.toFixed(3)}${nd.preview ? ` — "${nd.preview}"` : ''}` });
-			}
-		}
-		return rows;
-	}
 </script>
 
-<div class="mx-auto flex max-w-xl flex-col px-5 pb-8">
-	<header class="text-center"></header>
-
-	<section class="flex-1 space-y-6">
-		<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
+<div class="fixed inset-x-0 top-20 bottom-20 z-0 mx-auto flex max-w-xl flex-col overflow-hidden px-5">
+	<section class="flex min-h-0 flex-1 flex-col gap-4">
+		<Card.Root class="shrink-0 bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
 			<Card.Content class="p-0 w-full">
 				<Label for="thought" class="sr-only">Thought</Label>
 				<Textarea
@@ -309,7 +398,30 @@
 			</Card.Footer>
 		</Card.Root>
 
+		<CaptureRecentThoughts
+			thoughts={recentThoughts}
+			{thoughtDetails}
+			expandedId={expandedThoughtId}
+			editingId={editingThoughtId}
+			{editRequest}
+			{editLoading}
+			deletingId={deletingThoughtId}
+			loadingDetailId={loadingDetailId}
+			editProgressEvents={progressEvents.map((row) => row.event)}
+			pipeline={CAPTURE_PIPELINE}
+			onExpand={(id) => void expandThought(id)}
+			onCollapse={collapseThought}
+			onEdit={(id) => void toggleThoughtEdit(id)}
+			onDelete={(id) => void deleteThought(id)}
+			onEditRequestChange={(value) => {
+				editRequest = value;
+			}}
+			onSubmitEdit={submitEditRequest}
+			onCancelEdit={() => editAbortController?.abort()}
+		/>
+
 		{#if queueActive}
+			<div class="shrink-0 space-y-2">
 			<CaptureQueueList
 				items={queueItems}
 				processingId={processingCaptureId}
@@ -321,81 +433,11 @@
 			{#if offline && pendingCount > 0 && !loading}
 				<p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
 			{/if}
+			</div>
 		{/if}
 
 		{#if err}
-			<p class="text-destructive text-sm">{err}</p>
-		{/if}
-
-		{#if stored}
-			{@const metaRows = getMetaDisplay(stored)}
-			<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4 gap-3 items-start overflow-visible">
-				<Card.Header class="p-0 w-full flex flex-row items-start justify-between gap-2">
-					<Card.Title class="text-sm">Stored thought</Card.Title>
-					<Button
-						type="button"
-						variant="ghost"
-						class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground rounded-none -mt-0.5 shrink-0"
-						onclick={() => { showEdit = !showEdit; if (!showEdit) editRequest = ''; }}
-					>
-						{showEdit ? 'Cancel edit' : 'Edit'}
-					</Button>
-				</Card.Header>
-				<Card.Content class="p-0 space-y-2 text-sm">
-					<p class="text-card-foreground whitespace-pre-wrap">{stored.normalizedText}</p>
-					<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-						<span>Category: <span class="font-medium text-foreground">{stored.category}</span></span>
-						{#each metaRows as row}
-							<span>{row.label}: <span class="font-medium text-foreground">{row.value}</span></span>
-						{/each}
-					</div>
-					<p class="text-muted-foreground text-xs font-mono">{stored.id}</p>
-				</Card.Content>
-			</Card.Root>
-
-			{#if showEdit}
-				{#if editLoading}
-					<div class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none px-4 py-3">
-						<CaptureQueueStatus
-							processing={true}
-							pendingCount={0}
-							events={progressEvents.map((row) => row.event)}
-							pipeline={CAPTURE_PIPELINE}
-						/>
-					</div>
-				{/if}
-				<Card.Root class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible">
-					<Card.Content class="p-4 space-y-2 w-full">
-						<Label for="edit" class="text-sm">Describe your changes in plain language</Label>
-						<Textarea
-							id="edit"
-							bind:value={editRequest}
-							placeholder="Example: Make this shorter and categorize as task."
-							class="min-h-24 text-sm md:text-sm border-2 border-black dark:border-border p-3 bg-background dark:bg-input/30 text-foreground"
-						/>
-					</Card.Content>
-					<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-end gap-2 w-full">
-						{#if editLoading}
-							<Button
-								type="button"
-								variant="ghost"
-								class="rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto text-muted-foreground hover:text-destructive"
-								onclick={() => editAbortController?.abort()}
-							>
-								Cancel
-							</Button>
-						{/if}
-						<Button
-							type="button"
-							class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"
-							disabled={editLoading || !editRequest.trim()}
-							onclick={submitEditRequest}
-						>
-							Submit changes
-						</Button>
-					</Card.Footer>
-				</Card.Root>
-			{/if}
+			<p class="shrink-0 text-destructive text-sm">{err}</p>
 		{/if}
 	</section>
 </div>

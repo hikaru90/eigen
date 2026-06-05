@@ -24,25 +24,47 @@ export type ActivePeriodBounds = {
 	end: Date;
 };
 
-const TSRANGE_LITERAL_RE =
+/** ISO ingest form: `[2026-05-28T00:00:00.000Z,2026-05-29T00:00:00.000Z)` */
+const TSRANGE_ISO_RE =
 	/^([\[\(])(\d{4}-\d{2}-\d{2}T[\d:.]+Z),(\d{4}-\d{2}-\d{2}T[\d:.]+Z)([\]\)])$/;
+
+/** Postgres driver round-trip: `["2026-05-27 00:00:00","2026-05-27 23:59:59")` */
+const TSRANGE_POSTGRES_RE =
+	/^([\[\(])"?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"?,?"?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"?([\]\)])$/;
+
+function parseTsrangeBound(raw: string): Date {
+	const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z';
+	const d = new Date(normalized);
+	if (Number.isNaN(d.getTime())) {
+		throw new Error(`Invalid tsrange date: ${raw}`);
+	}
+	return d;
+}
 
 /**
  * Parse a Postgres `tsrange` literal into concrete Date bounds.
- * Supports half-open `[start,end)` form produced by ingest.
+ * Supports half-open `[start,end)` form produced by ingest and Postgres driver text.
  */
 export function parseActivePeriodLiteral(literal: string): ActivePeriodBounds {
 	const trimmed = literal.trim();
-	const match = TSRANGE_LITERAL_RE.exec(trimmed);
-	if (!match) {
-		throw new Error(`Invalid tsrange literal: ${literal}`);
+	const isoMatch = TSRANGE_ISO_RE.exec(trimmed);
+	if (isoMatch) {
+		const start = new Date(isoMatch[2]);
+		const end = new Date(isoMatch[3]);
+		if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+			throw new Error(`Invalid tsrange dates: ${literal}`);
+		}
+		return { start, end };
 	}
-	const start = new Date(match[2]);
-	const end = new Date(match[3]);
-	if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-		throw new Error(`Invalid tsrange dates: ${literal}`);
+
+	const pgMatch = TSRANGE_POSTGRES_RE.exec(trimmed);
+	if (pgMatch) {
+		const start = parseTsrangeBound(pgMatch[2]);
+		const end = parseTsrangeBound(pgMatch[3]);
+		return { start, end };
 	}
-	return { start, end };
+
+	throw new Error(`Invalid tsrange literal: ${literal}`);
 }
 
 /** True when `now` is at or past the half-open range end (period has ended). */

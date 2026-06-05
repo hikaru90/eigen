@@ -78,7 +78,7 @@ export async function runSalienceCompute(userId: string): Promise<SalienceComput
 				and(
 					eq(thought.userId, userId),
 					eq(thought.memoryType, 'open_loop'),
-					sql`(${thought.metadata}->>'resolvedAt') IS NULL`,
+					sql`(${thought.metadata}->>'status') IS DISTINCT FROM 'completed'`,
 					sql`LEAST(${SALIENCE_MAX}, GREATEST(${thought.salienceScore}, 1.0 + ${OPEN_LOOP_RISE_PER_DAY} * ${openLoopDaysSql()})) <> ${thought.salienceScore}`
 				)
 			)

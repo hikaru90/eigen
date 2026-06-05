@@ -90,4 +90,12 @@
     font-size: 0.75rem;
     line-height: 1.5;
   }
+  .chat-markdown--user :global(.chat-citation) {
+    border-color: color-mix(in srgb, var(--background) 35%, transparent);
+    background: color-mix(in srgb, var(--background) 14%, transparent);
+    color: color-mix(in srgb, var(--background) 72%, transparent);
+  }
+  .chat-markdown--muted :global(.chat-citation) {
+    font-size: 0.62em;
+  }
 </style>

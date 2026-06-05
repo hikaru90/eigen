@@ -18,6 +18,7 @@
   import Square from "@lucide/svelte/icons/square";
   import VoiceInputButton from "$lib/components/voice-input-button.svelte";
   import ChatTimelineStep from "$lib/components/chat-timeline-step.svelte";
+  import ChatErrorMessage from "$lib/components/chat-error-message.svelte";
   import ChatMarkdown from "$lib/components/chat-markdown.svelte";
   import { consumeChatNdjsonStream, type ChatProgressEvent } from "$lib/chat/consume-chat-ndjson";
   import { parseFinalAnswerText } from "$lib/chat/chat-stream-types";
@@ -380,25 +381,21 @@
   role="dialog"
   aria-label="Chat sessions"
 >
-  <div class="flex items-center justify-between px-4 py-3">
-    <span class="text-xs font-medium tracking-widest uppercase text-muted-foreground">History</span>
+  <div class="px-5 pb-3">
     <button
-      class="text-muted-foreground hover:text-foreground rounded p-1 transition-colors"
+      class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
       onclick={() => ($chatSidebarOpen = false)}
       aria-label="Close sidebar"
     >
-      <X class="size-3.5" strokeWidth={1.5} />
+      <X class="size-5" strokeWidth={1.75} />
     </button>
   </div>
 
-  <div class="px-3 pb-3">
-    <button
-      class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-foreground hover:bg-muted transition-colors border border-border"
-      onclick={newSession}
-    >
-      <Plus class="size-3" strokeWidth={1.75} />
+  <div class="px-5 pb-3">
+    <Button variant="outline" size="sm" class="w-full rounded-[4px]" onclick={newSession}>
+      <Plus strokeWidth={1.75} />
       New chat
-    </button>
+    </Button>
   </div>
 
   <div class="mx-3 h-px bg-border"></div>
@@ -436,15 +433,16 @@
 </div>
 
 <div
-  class="fixed inset-x-0 top-20 bottom-28 z-0 mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 px-4 pt-2 pb-2 overflow-x-clip"
+  bind:this={chatEl}
+  class="fixed inset-x-0 top-0 bottom-20 z-0 overflow-y-auto overflow-x-clip"
+  role="log"
+  aria-label="Chat messages"
 >
-  <!-- messages area -->
   <div
-    bind:this={chatEl}
-    class="flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-y-auto px-1 overflow-x-clip -mx-4"
-    role="log"
-    aria-label="Chat messages"
+    class="mx-auto flex min-h-[calc(100dvh-5rem)] w-full min-w-0 max-w-2xl flex-col gap-3 px-4 pt-2 pb-2"
   >
+    <!-- messages area -->
+    <div class="flex min-w-0 flex-1 flex-col gap-1 px-1 -mx-4">
     <div class="mx-4">
       {#if loadingSession}
         <div class="flex flex-1 items-center justify-center">
@@ -511,14 +509,21 @@
             <div
               class="flex min-w-0 max-w-full flex-col items-start gap-1 rounded-md px-3.5 py-2 sm:max-w-[82%]"
             >
-              <ChatMarkdown content={msg.content} />
-              <button
-                class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
-                onclick={() => regenerate(i)}
-                aria-label="Regenerate answer"
-              >
-                <RefreshCw class="size-3" strokeWidth={1.5} />
-              </button>
+              {#if msg.content.startsWith("Error:")}
+                <ChatErrorMessage
+                  message={msg.content.replace(/^Error:\s*/, "")}
+                  class="w-full"
+                />
+              {:else}
+                <ChatMarkdown content={msg.content} />
+                <button
+                  class="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+                  onclick={() => regenerate(i)}
+                  aria-label="Regenerate answer"
+                >
+                  <RefreshCw class="size-3" strokeWidth={1.5} />
+                </button>
+              {/if}
             </div>
           </div>
         {/if}
@@ -542,10 +547,10 @@
         </div>
       {/if}
     </div>
-  </div>
+    </div>
 
-  <!-- input area -->
-  <div class="min-w-0 shrink-0 w-full">
+    <!-- input area -->
+    <div class="sticky bottom-0 z-10 min-w-0 shrink-0 w-full bg-background pt-2">
     <Card.Root
       class="bg-white dark:bg-card min-w-0 w-full overflow-visible border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-x-clip"
     >
@@ -582,5 +587,6 @@
         </Button>
       </Card.Footer>
     </Card.Root>
+    </div>
   </div>
 </div>

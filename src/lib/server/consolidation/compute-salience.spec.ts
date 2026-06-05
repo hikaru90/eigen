@@ -32,4 +32,10 @@ describe('runSalienceCompute', () => {
 		await expect(runSalienceCompute('u1')).resolves.toEqual({ decayed: 1, openLoops: 2 });
 		expect(update).toHaveBeenCalledTimes(2);
 	});
+
+	it('open-loop update filters on metadata.status not resolvedAt', () => {
+		const source = runSalienceCompute.toString();
+		expect(source).toContain("metadata}->>'status'");
+		expect(source).not.toContain("resolvedAt");
+	});
 });

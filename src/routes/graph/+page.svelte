@@ -1218,12 +1218,10 @@
   });
 </script>
 
-<div class="h-screen overflow-hidden pb-5">
-  <Card.Root
-    class="mt-4 flex h-[calc(100vh-7.5rem-1.25rem)] flex-col overflow-hidden bg-transparent shadow-none"
-  >
+<div class="h-dvh overflow-hidden">
+  <Card.Root class="flex h-full flex-col overflow-hidden bg-transparent shadow-none">
     <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <Card.Header class="min-w-0 shrink-0 gap-2 pb-3">
+      <Card.Header class="min-w-0 shrink-0 gap-2 pb-3 pt-20">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <Tabs.List variant="line" class="shrink-0">
             <Tabs.Trigger value="graph">Graph</Tabs.Trigger>

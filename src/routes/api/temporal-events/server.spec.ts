@@ -41,6 +41,10 @@ describe('GET /api/temporal-events', () => {
 				graphSyncError: null,
 				thoughtId: 't-1',
 				thoughtText: 'ich will nächsten mittwoch inline-skaten gehen',
+				thoughtTextEncrypted: null,
+				thoughtCategory: 'task',
+				thoughtMetadata: { status: 'open' },
+				thoughtMetadataEncrypted: null,
 				createdAt: created
 			}
 		]);
@@ -54,9 +58,18 @@ describe('GET /api/temporal-events', () => {
 
 		const res = await GET(mockEvent({ id: 'u1' }));
 		expect(res.status).toBe(200);
-		const body = (await res.json()) as { items: Array<{ id: string; thoughtText: string }> };
+		const body = (await res.json()) as {
+			items: Array<{
+				id: string;
+				thoughtText: string;
+				thoughtCategory: string;
+				thoughtStatus: string;
+			}>;
+		};
 		expect(body.items).toHaveLength(1);
 		expect(body.items[0]?.id).toBe('ev-1');
 		expect(body.items[0]?.thoughtText).toContain('inline-skaten');
+		expect(body.items[0]?.thoughtCategory).toBe('task');
+		expect(body.items[0]?.thoughtStatus).toBe('open');
 	});
 });

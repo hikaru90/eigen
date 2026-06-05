@@ -102,6 +102,31 @@
 	padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
 }
 
+/* Shared memory citation chips in chat answers and evidence cards */
+.chat-citation {
+	display: inline-flex;
+	align-items: center;
+	margin: 0 0.12em;
+	padding: 0.05em 0.35em;
+	border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+	background: color-mix(in srgb, var(--muted) 70%, transparent);
+	color: var(--muted-foreground);
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.68em;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	line-height: 1.35;
+	vertical-align: 0.12em;
+	white-space: nowrap;
+	cursor: default;
+}
+.chat-citation--block {
+	display: inline-flex;
+	margin: 0;
+	font-size: 0.68rem;
+	vertical-align: baseline;
+}
+
 /* Standalone PWA: fill the viewport with theme background — no letterbox border */
 @media (display-mode: standalone) {
 	html,

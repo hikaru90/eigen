@@ -3,6 +3,8 @@ import type { RequestHandler } from './$types';
 import { desc, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { temporalEvent, thought } from '$lib/server/db/schema';
+import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
 const LIST_CAP = 200;
 
@@ -22,8 +24,14 @@ export type TemporalEventListItem = {
 	graphSyncError: string | null;
 	thoughtId: string;
 	thoughtText: string;
+	thoughtCategory: string;
+	thoughtStatus: ThoughtLifecycleStatus;
 	createdAt: string;
 };
+
+function thoughtStatusFromMetadata(metadata: Record<string, unknown>): ThoughtLifecycleStatus {
+	return metadata.status === 'completed' ? 'completed' : 'open';
+}
 
 export type TemporalEventsResponse = {
 	items: TemporalEventListItem[];
@@ -50,6 +58,10 @@ export const GET: RequestHandler = async (event) => {
 			graphSyncError: temporalEvent.graphSyncError,
 			thoughtId: temporalEvent.thoughtId,
 			thoughtText: thought.normalizedText,
+			thoughtTextEncrypted: thought.normalizedTextEncrypted,
+			thoughtCategory: thought.category,
+			thoughtMetadata: thought.metadata,
+			thoughtMetadataEncrypted: thought.metadataEncrypted,
 			createdAt: temporalEvent.createdAt
 		})
 		.from(temporalEvent)
@@ -58,24 +70,49 @@ export const GET: RequestHandler = async (event) => {
 		.orderBy(desc(temporalEvent.startAt))
 		.limit(LIST_CAP);
 
-	const items: TemporalEventListItem[] = rows.map((r) => ({
-		id: r.id,
-		kind: r.kind,
-		semanticSummary: r.semanticSummary,
-		sourceTextSpan: r.sourceTextSpan,
-		timePrecision: r.timePrecision,
-		timezone: r.timezone,
-		isAllDay: r.isAllDay,
-		confidence: r.confidence,
-		startAt: r.startAt?.toISOString() ?? null,
-		endAt: r.endAt?.toISOString() ?? null,
-		activePeriod: String(r.activePeriod),
-		graphSyncStatus: r.graphSyncStatus,
-		graphSyncError: r.graphSyncError,
-		thoughtId: r.thoughtId,
-		thoughtText: r.thoughtText,
-		createdAt: r.createdAt.toISOString()
-	}));
+	const items: TemporalEventListItem[] = await Promise.all(
+		rows.map(async (r) => {
+			const [thoughtText, metadataJson] = await Promise.all([
+				r.thoughtTextEncrypted
+					? decryptTenantValue({
+							userId: user.id,
+							table: 'thought',
+							column: 'normalized_text',
+							ciphertext: r.thoughtTextEncrypted
+						})
+					: Promise.resolve(r.thoughtText),
+				r.thoughtMetadataEncrypted
+					? decryptTenantValue({
+							userId: user.id,
+							table: 'thought',
+							column: 'metadata',
+							ciphertext: r.thoughtMetadataEncrypted
+						})
+					: Promise.resolve(JSON.stringify(r.thoughtMetadata ?? {}))
+			]);
+			const metadata = JSON.parse(metadataJson) as Record<string, unknown>;
+			return {
+				id: r.id,
+				kind: r.kind,
+				semanticSummary: r.semanticSummary,
+				sourceTextSpan: r.sourceTextSpan,
+				timePrecision: r.timePrecision,
+				timezone: r.timezone,
+				isAllDay: r.isAllDay,
+				confidence: r.confidence,
+				startAt: r.startAt?.toISOString() ?? null,
+				endAt: r.endAt?.toISOString() ?? null,
+				activePeriod: String(r.activePeriod),
+				graphSyncStatus: r.graphSyncStatus,
+				graphSyncError: r.graphSyncError,
+				thoughtId: r.thoughtId,
+				thoughtText,
+				thoughtCategory: r.thoughtCategory,
+				thoughtStatus: thoughtStatusFromMetadata(metadata),
+				createdAt: r.createdAt.toISOString()
+			};
+		})
+	);
 
 	return json({ items } satisfies TemporalEventsResponse);
 };

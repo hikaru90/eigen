@@ -42,7 +42,8 @@ vi.mock('$lib/server/memory/entity-resolution', () => ({
 }));
 
 vi.mock('$lib/server/retrieval/reranker', () => ({
-	rerankCandidates: rerankCandidatesMock
+	rerankCandidates: rerankCandidatesMock,
+	shouldSkipRerank: () => false
 }));
 
 vi.mock('$lib/server/crypto/tenant-encryption', () => ({

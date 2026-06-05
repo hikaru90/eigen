@@ -17,7 +17,7 @@ import {
 } from '$lib/server/db/schema';
 import { lexicalSearch } from '$lib/server/retrieval/lexical';
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
-import { rerankCandidates, type RerankCandidate } from '$lib/server/retrieval/reranker';
+import { rerankCandidates, shouldSkipRerank, type RerankCandidate } from '$lib/server/retrieval/reranker';
 import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval/phase-timing';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import {
@@ -36,16 +36,16 @@ const COMMUNITY_ANN_LIMIT = 12;
 const ENTITY_ANN_LIMIT = 20;
 const NEIGHBOR_PER_SEED = 2;
 const MERGE_CANDIDATE_CAP = 80;
-const RERANK_POOL = 60;
+const RERANK_POOL = 15;
 
 const SCORE_WEIGHTS = {
-	thoughtSim: 0.45,
+	thoughtSim: 0.42,
 	communitySim: 0.25,
 	entitySim: 0.1,
 	centrality: 0.08,
 	specificity: 0.05,
 	salience: 0.04,
-	recency: 0.03
+	recency: 0.06
 } as const;
 
 const SALIENCE_MAX = 5.0;
@@ -477,7 +477,9 @@ export async function retrieveEvidence(params: {
 			graphScore: d.graphScore
 		}));
 
-	const reranked = await rerankCandidates(params.userId, params.query, rerankInput);
+	const reranked = shouldSkipRerank(rerankInput)
+		? rerankInput
+		: await rerankCandidates(params.userId, params.query, rerankInput, undefined, limit);
 	const final = reranked.slice(0, limit).map((r) => ({
 		id: r.id,
 		normalizedText:

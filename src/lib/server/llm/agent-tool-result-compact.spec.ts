@@ -402,6 +402,22 @@ describe('agent-tool-result-compact', () => {
 			expect(preview).not.toMatch(/…\[truncated \d+ chars\]/);
 		});
 
+		it('keeps retrieved thoughts in answer_question UI previews', () => {
+			const preview = formatToolResultPreview('answer_question', {
+				answer: 'Answer: Home office. [<id=t1>]\nEvidence:\n- Working from home [t1]\nUnknown:\n- none',
+				citations: ['t1'],
+				retrieved: [{ id: 't1', normalizedText: 'Ich arbeite heute von zu Hause aus.', category: 'thought' }]
+			});
+			const parsed = JSON.parse(preview) as {
+				answer?: string;
+				retrieved?: Array<{ id: string; snippet: string; category: string }>;
+			};
+			expect(parsed.retrieved).toEqual([
+				{ id: 't1', snippet: 'Ich arbeite heute von zu Hause aus.', category: 'thought' }
+			]);
+			expect(parsed.answer).toContain('Evidence:');
+		});
+
 		it('truncates oversized preview JSON via capJsonString', () => {
 			const preview = formatToolResultPreview('custom_tool', {
 				blob: 'z'.repeat(15_000)

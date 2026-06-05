@@ -172,6 +172,15 @@ export function compactToolResultForLlm(
 	return result;
 }
 
+function compactRetrievedThoughtsForPreview(retrieved: unknown): Array<Record<string, unknown>> | undefined {
+	if (!Array.isArray(retrieved)) return undefined;
+	const rows = retrieved
+		.slice(0, MAX_CANDIDATES)
+		.map((row) => compactThoughtRow(asRecord(row) ?? {}))
+		.filter((row) => row.id || row.snippet);
+	return rows.length > 0 ? rows : undefined;
+}
+
 function capJsonString(json: string, maxChars: number): string {
 	if (json.length <= maxChars) return json;
 	return `${json.slice(0, maxChars - 40)}\n…[truncated ${json.length - maxChars + 40} chars]`;
@@ -185,6 +194,19 @@ export function formatToolResultForAgentMessage(tool: string, result: unknown): 
 
 export function formatToolResultPreview(tool: string, result: unknown): string {
 	const compact = compactToolResultForLlm(tool, result);
-	const json = JSON.stringify(compact);
+	let preview: unknown = compact;
+	if (tool === 'answer_question') {
+		const obj = asRecord(stripEmbeddingsFromValue(result));
+		const compactObj = asRecord(compact) ?? {};
+		if (obj) {
+			preview = {
+				...compactObj,
+				answer: typeof obj.answer === 'string' ? obj.answer : compactObj.answer,
+				citations: Array.isArray(obj.citations) ? obj.citations : undefined,
+				retrieved: compactRetrievedThoughtsForPreview(obj.retrieved)
+			};
+		}
+	}
+	const json = JSON.stringify(preview);
 	return capJsonString(json, MAX_TOOL_RESULT_PREVIEW_CHARS);
 }

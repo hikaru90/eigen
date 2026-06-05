@@ -1,14 +1,25 @@
 <script lang="ts">
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
-	import { formatWhen, groupByKind, kindColor, kindLabel, KANBAN_KIND_ORDER } from './temporal-events-utils';
+	import {
+		completedEventSummaryClass,
+		formatWhen,
+		groupByKind,
+		isTemporalEventCompleted,
+		kindColor,
+		kindLabel,
+		KANBAN_KIND_ORDER
+	} from './temporal-events-utils';
+	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
 	type Props = {
 		items: TemporalEventListItem[];
 		selectedItemId: string | null;
+		updatingThoughtId?: string | null;
 		onSelect: (item: TemporalEventListItem) => void;
+		onSetStatus: (thoughtId: string, status: 'open' | 'completed') => void;
 	};
 
-	let { items, selectedItemId, onSelect }: Props = $props();
+	let { items, selectedItemId, updatingThoughtId = null, onSelect, onSetStatus }: Props = $props();
 
 	const columns = $derived.by(() => {
 		const grouped = groupByKind(items);
@@ -49,22 +60,38 @@
 				<ul class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
 					{#each col.items as item (item.id)}
 						<li>
-							<button
-								type="button"
-								class="border-border bg-background hover:bg-muted/30 w-full rounded-md border p-2 text-left transition-colors {selectedItemId ===
+							<div
+								class="border-border bg-background hover:bg-muted/30 w-full rounded-md border p-2 transition-colors {selectedItemId ===
 								item.id
 									? 'ring-primary ring-2'
-									: ''}"
-								onclick={() => onSelect(item)}
+									: ''} {isTemporalEventCompleted(item) ? 'opacity-60' : ''}"
 							>
-								<p class="text-foreground text-xs font-medium leading-snug">
-									{item.semanticSummary}
-								</p>
-								<p class="text-muted-foreground mt-1 font-mono text-[10px]">{formatWhen(item)}</p>
-								<p class="text-muted-foreground/80 mt-1 line-clamp-2 text-[10px]">
-									{item.thoughtText}
-								</p>
-							</button>
+								<div class="flex items-start gap-2">
+									<button
+										type="button"
+										class="min-w-0 flex-1 text-left"
+										onclick={() => onSelect(item)}
+									>
+										<p
+											class="text-foreground text-xs font-medium leading-snug {completedEventSummaryClass(
+												isTemporalEventCompleted(item)
+											)}"
+										>
+											{item.semanticSummary}
+										</p>
+										<p class="text-muted-foreground mt-1 font-mono text-[10px]">{formatWhen(item)}</p>
+										<p class="text-muted-foreground/80 mt-1 line-clamp-2 text-[10px]">
+											{item.thoughtText}
+										</p>
+									</button>
+									<TemporalEventStatusButton
+										{item}
+										{updatingThoughtId}
+										compact
+										onSetStatus={onSetStatus}
+									/>
+								</div>
+							</div>
 						</li>
 					{/each}
 				</ul>

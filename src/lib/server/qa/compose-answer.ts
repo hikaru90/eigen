@@ -21,6 +21,11 @@ import {
 } from '$lib/server/memory/temporal-validity';
 import type { MemoryType } from '$lib/server/db/brain.schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
+import {
+	CITATION_TOKEN_RE,
+	canonicalCitationToken,
+	normalizeCitationTokens
+} from '$lib/chat/citation-tokens';
 
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
@@ -70,7 +75,7 @@ export type ComposeAnswerInput = {
 
 /** User-facing text from a composed Q&A result (used when skipping a second agent LLM turn). */
 export function formatComposedAnswerForUser(answer: string): string {
-	return answer.trim();
+	return normalizeCitationTokens(answer.trim());
 }
 
 type SearchHit = Awaited<ReturnType<typeof searchThoughts>>[number];
@@ -291,7 +296,7 @@ export function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date
 					: '';
 			const graphLine = t.graphProvenance ? `\nGraph: ${t.graphProvenance}` : '';
 			return (
-				`[id=${t.id}] (${t.category}, score=${t.score.toFixed(3)}, stored=${dateStr}${staleFlag}${temporalAnnotation})` +
+				`${canonicalCitationToken(t.id)} (${t.category}, score=${t.score.toFixed(3)}, stored=${dateStr}${staleFlag}${temporalAnnotation})` +
 				`${graphLine}\n${t.normalizedText}`
 			);
 		})
@@ -380,7 +385,8 @@ export function prioritizePersonNamedThoughts(
 function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
 	if (conflicts.length === 0) return '';
 	const lines = conflicts.map(
-		(c) => `  - Thoughts [${c.ids[0]}] and [${c.ids[1]}] may conflict on "${c.subject}": ${c.description}`
+		(c) =>
+			`  - Thoughts ${canonicalCitationToken(c.ids[0])} and ${canonicalCitationToken(c.ids[1])} may conflict on "${c.subject}": ${c.description}`
 	);
 	return (
 		'\n\nDetected potential contradictions (surface these honestly in your answer rather than picking one side):\n' +
@@ -394,21 +400,21 @@ const SYSTEM_PROMPT = [
 	'Required output format (use these exact section headers in this order):',
 	'Answer: <one or two short sentences giving the most direct, decisive answer, using only cited facts>',
 	'Evidence:',
-	'- <fact> [<id>]',
-	'- <fact> [<id>]',
+	'- <fact> [id=<uuid>]',
+	'- <fact> [id=<uuid>]',
 	'Unknown:',
 	'- <facts the question asked for that are NOT in the thoughts, one per line, or "none">',
 	'',
 	'Hard rules:',
-	'- Cite every factual claim with [<id>] using the EXACT id string from the thoughts list (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
-	'- Never cite entry position numbers (e.g. [1], [6]); only cite the full id= value from each thought header.',
+	'- Cite every factual claim with [id=<uuid>] using the EXACT id string from each thought header (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
+	'- Never cite entry position numbers (e.g. [1], [6]); only cite using [id=<uuid>] copied from the thought header.',
 	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
 	'- Do NOT equate or identify different people or names unless a cited thought explicitly states that link (e.g. "Clemi is Annie"). Similar topics, family, or graph edges are NOT enough.',
 	'- If the question names a person, nickname, or entity (e.g. "Clemi"), that name (or an alias written in the thoughts) MUST appear in a cited thought. Otherwise Answer MUST be "Not in memory."',
 	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought.',
 	'- If the thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
 	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses.',
-	'- Every line under Evidence MUST end with at least one [<id>] citation.',
+	'- Every line under Evidence MUST end with at least one [id=<uuid>] citation.',
 	'- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts.',
 	'',
 	'Temporal & staleness rules:',
@@ -448,13 +454,11 @@ function extractAnswerText(response: unknown): string {
 	return content;
 }
 
-const CITATION_PATTERN = /\[([A-Za-z0-9_-]+)\]/g;
-
 /** Citation ids present in answer text that are not in the retrieved allow-list. */
 export function findInvalidCitationIds(answer: string, allowedIds: Set<string>): string[] {
 	const invalid = new Set<string>();
 	let match: RegExpExecArray | null;
-	const re = new RegExp(CITATION_PATTERN);
+	const re = new RegExp(CITATION_TOKEN_RE);
 	while ((match = re.exec(answer)) !== null) {
 		const id = match[1];
 		if (!allowedIds.has(id)) invalid.add(id);
@@ -480,7 +484,7 @@ export function findInvalidProfileCitationIds(answer: string, allowedIds: Set<st
 function extractCitations(answer: string, allowedIds: Set<string>): string[] {
 	const seen = new Set<string>();
 	let match: RegExpExecArray | null;
-	const re = new RegExp(CITATION_PATTERN);
+	const re = new RegExp(CITATION_TOKEN_RE);
 	while ((match = re.exec(answer)) !== null) {
 		const id = match[1];
 		if (allowedIds.has(id)) seen.add(id);

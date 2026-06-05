@@ -12,6 +12,7 @@ import {
 	recoverOrphanedHeartbeatRun,
 	requestHeartbeatRunCancel
 } from './heartbeat-run-ledger';
+import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan';
 import { consolidateForUser, type ConsolidationJobResult } from './runner';
 
 const activeUserRuns = new Map<string, string>();
@@ -21,15 +22,7 @@ export function getInProcessHeartbeatRunId(userId: string): string | null {
 }
 
 async function buildJobPlan(_userId: string): Promise<string[]> {
-	return [
-		'salience_compute',
-		'ontology_prune',
-		'repair_canonical_entity_types',
-		'dedup_canonical_entities',
-		'repair_entity_relations',
-		'community_detection',
-		'community_summaries'
-	];
+	return getHeartbeatJobPlan();
 }
 
 async function executeHeartbeatRun(userId: string, runId: string): Promise<void> {

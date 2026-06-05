@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DELETE, GET } from './+server';
+import { DELETE, GET, PATCH } from './+server';
 
-const { deleteThoughtForUserMock, getDbSelectMock } = vi.hoisted(() => ({
+const { deleteThoughtForUserMock, setThoughtLifecycleStatusMock, getDbSelectMock } = vi.hoisted(() => ({
 	deleteThoughtForUserMock: vi.fn(),
+	setThoughtLifecycleStatusMock: vi.fn(),
 	getDbSelectMock: vi.fn()
 }));
 
 vi.mock('$lib/server/capture/service', () => ({
-	deleteThoughtForUser: deleteThoughtForUserMock
+	deleteThoughtForUser: deleteThoughtForUserMock,
+	setThoughtLifecycleStatus: setThoughtLifecycleStatusMock
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -38,6 +40,71 @@ describe('GET /api/thoughts/[thoughtId]', () => {
 			params: { thoughtId: 't1' }
 		} as never);
 		expect(res.status).toBe(200);
+	});
+});
+
+describe('PATCH /api/thoughts/[thoughtId]', () => {
+	it('requires auth', async () => {
+		await expect(
+			PATCH({
+				locals: { user: null },
+				params: { thoughtId: 't1' },
+				request: new Request('http://localhost', {
+					method: 'PATCH',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ status: 'completed' })
+				})
+			} as never)
+		).rejects.toMatchObject({ status: 401 });
+	});
+
+	it('rejects invalid status', async () => {
+		await expect(
+			PATCH({
+				locals: { user: { id: 'u1' } },
+				params: { thoughtId: 't1' },
+				request: new Request('http://localhost', {
+					method: 'PATCH',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ status: 'done' })
+				})
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('returns 404 when thought is missing', async () => {
+		setThoughtLifecycleStatusMock.mockResolvedValue({ ok: false, reason: 'not_found' });
+		await expect(
+			PATCH({
+				locals: { user: { id: 'u1' } },
+				params: { thoughtId: 't1' },
+				request: new Request('http://localhost', {
+					method: 'PATCH',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ status: 'completed' })
+				})
+			} as never)
+		).rejects.toMatchObject({ status: 404 });
+	});
+
+	it('sets status and returns thought', async () => {
+		setThoughtLifecycleStatusMock.mockResolvedValue({
+			ok: true,
+			thought: { id: 't1', metadata: { status: 'completed', completedAt: '2026-01-01T00:00:00.000Z' } }
+		});
+		const res = await PATCH({
+			locals: { user: { id: 'u1' } },
+			params: { thoughtId: 't1' },
+			request: new Request('http://localhost', {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ status: 'completed' })
+			})
+		} as never);
+		expect(res.status).toBe(200);
+		expect(setThoughtLifecycleStatusMock).toHaveBeenCalledWith('u1', 't1', 'completed');
+		const body = await res.json();
+		expect(body.thought.metadata.status).toBe('completed');
 	});
 });
 

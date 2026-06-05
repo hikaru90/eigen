@@ -8,12 +8,14 @@ const {
 	deleteThoughtMock,
 	answerQuestionMock,
 	getDbMock,
-	mcpToolMap
+	mcpToolMap,
+	routeAgentMessageMock
 } = vi.hoisted(() => {
 	const listThoughtsMock = vi.fn();
 	const retrieveThoughtsMock = vi.fn();
 	const deleteThoughtMock = vi.fn();
 	const answerQuestionMock = vi.fn();
+	const routeAgentMessageMock = vi.fn();
 	const mcpToolMap = new Map<string, typeof listThoughtsMock>([
 		['list_thoughts', listThoughtsMock],
 		['retrieve_thoughts', retrieveThoughtsMock],
@@ -28,12 +30,16 @@ const {
 		deleteThoughtMock,
 		answerQuestionMock,
 		getDbMock: vi.fn(),
-		mcpToolMap
+		mcpToolMap,
+		routeAgentMessageMock
 	};
 });
 
 vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
+}));
+vi.mock('$lib/server/llm/agent-router', () => ({
+	routeAgentMessage: routeAgentMessageMock
 }));
 vi.mock('$lib/server/activity/log-call', () => ({
 	logActivityCall: logActivityCallMock
@@ -62,6 +68,26 @@ describe('agentChat', () => {
 		vi.clearAllMocks();
 		getDbMock.mockReturnValue({});
 		logActivityCallMock.mockResolvedValue(undefined);
+		routeAgentMessageMock.mockResolvedValue({ mode: 'multi_step' });
+	});
+
+	it('retries answer_question once after tool error', async () => {
+		answerQuestionMock
+			.mockRejectedValueOnce(new Error('Invalid tsrange literal'))
+			.mockResolvedValueOnce({ answer: 'You are at home.', citations: [] });
+		routeAgentMessageMock.mockResolvedValue({
+			mode: 'single_tool',
+			tool: 'answer_question',
+			arguments: { question: 'Where am I?' }
+		});
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'Where am I?' }]
+		});
+
+		expect(answerQuestionMock).toHaveBeenCalledTimes(2);
+		expect(result.response).toBe('You are at home.');
 	});
 
 	it('returns a final answer when the model responds with {"answer": "..."}', async () => {
@@ -130,9 +156,11 @@ describe('agentChat', () => {
 			answer: 'You prefer sourdough.',
 			citations: []
 		});
-		llmChatCompletionMock.mockResolvedValue(
-			llmJson({ tool: 'answer_question', arguments: { question: 'What bread?' } })
-		);
+		routeAgentMessageMock.mockResolvedValue({
+			mode: 'single_tool',
+			tool: 'answer_question',
+			arguments: { question: 'What bread?' }
+		});
 
 		const result = await agentChat({
 			userId: 'u1',
@@ -141,6 +169,7 @@ describe('agentChat', () => {
 
 		expect(answerQuestionMock).toHaveBeenCalled();
 		expect(result.response).toBe('You prefer sourdough.');
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
 	});
 
 	it('retries when the model requests an unknown tool', async () => {

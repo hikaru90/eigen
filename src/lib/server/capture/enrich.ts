@@ -4,8 +4,8 @@
  * The fast path in `captureThought` persists the raw text, embedding, category,
  * and an Apache AGE provenance anchor (thought id only). This module handles the heavier steps:
  *
- *   - With NDJSON `onProgress`: awaited on the caller's DB connection.
- *   - Without `onProgress`: scheduled via `scheduleEnrichThought` on a dedicated
+ *   - Capture/edit callers await this module on the request connection.
+ *   - Admin batch re-enrich may still use `scheduleEnrichThought` on a dedicated
  *     RLS-scoped connection (`withDbUser`).
  *
  *   - thought-to-thought relation extraction + graph sync
@@ -14,9 +14,9 @@
  *   - cue bundle generation
  *   - ontology profile refresh trigger
  *
- * Performance: relations, entities, memory type, and cues all run in parallel
- * via Promise.allSettled. A pre-computed embedding is threaded through to avoid
- * re-embedding the same text multiple times.
+ * Performance: entities, memory type, and cues run in parallel via Promise.allSettled.
+ * Relations run after core enrich completes. A pre-computed embedding is threaded
+ * through to avoid re-embedding the same text multiple times.
  *
  * The `enriched_at` timestamp is set only when all parallel steps succeed.
  * `enrichment_version` is always incremented on entry.
@@ -40,7 +40,7 @@ import {
 	upsertThoughtRelation
 } from '$lib/server/graph/age';
 import { thoughtRelation } from '$lib/server/db/schema';
-import { materializeRetrievalLinksForThought } from '$lib/server/retrieval/materialize-links';
+import { materializeRetrievalLinksForThought, syncThoughtNeighborLinks } from '$lib/server/retrieval/materialize-links';
 import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation';
 
 export type EnrichThoughtOptions = {
@@ -127,40 +127,10 @@ export async function enrichThought(
 	// phases as a concurrent cluster rather than four instantaneous sequential steps.
 	await onProgress?.({
 		parallel: true,
-		phases: ['relations', 'entities', 'temporal', 'memory_type', 'cues']
+		phases: ['entities', 'temporal', 'memory_type', 'cues']
 	});
 
-	const [relationsResult, entitiesResult, metadataResult] = await Promise.allSettled([
-			// ---- Relations -------------------------------------------------------
-			(async () => {
-				await deleteThoughtOutgoingRelatesToEdges({ userId, thoughtId });
-				const relations = await extractRelations({ userId, thoughtId, normalizedText, embedding: thoughtEmbedding });
-				await db.transaction(async (tx) => {
-					await tx
-						.delete(thoughtRelation)
-						.where(eq(thoughtRelation.sourceThoughtId, thoughtId));
-					if (relations.length > 0) {
-						await tx.insert(thoughtRelation).values(
-							relations.map((r) => ({
-								userId,
-								sourceThoughtId: thoughtId,
-								targetThoughtId: r.targetId,
-								relationType: r.relationType
-							}))
-						);
-					}
-				});
-				for (const r of relations) {
-					await upsertThoughtRelation({
-						userId,
-						sourceId: thoughtId,
-						targetId: r.targetId,
-						relationType: r.relationType
-					});
-				}
-			})(),
-
-			// ---- Entities --------------------------------------------------------
+	const [entitiesResult, metadataResult] = await Promise.allSettled([
 			(async () => {
 				const { mentionCount } = await syncEntityGraphFromThought({
 					userId,
@@ -208,8 +178,8 @@ export async function enrichThought(
 	]).then((r) => r[0]);
 
 	// Log failures individually so one bad step doesn't hide others.
-	const stepNames = ['relations', 'entities', 'temporal', 'metadata'] as const;
-	const results = [relationsResult, entitiesResult, temporalResult, metadataResult];
+	const stepNames = ['entities', 'temporal', 'metadata'] as const;
+	const results = [entitiesResult, temporalResult, metadataResult];
 	let allOk = true;
 
 	for (let i = 0; i < results.length; i++) {
@@ -281,6 +251,74 @@ export async function enrichThought(
 
 		scheduleIncrementalConsolidation(userId, thoughtId);
 	}
+
+	await onProgress?.({ parallel: false, phase: 'relations' });
+	try {
+		await syncThoughtRelations({ userId, thoughtId, normalizedText, thoughtEmbedding });
+	} catch (err) {
+		console.error('[enrich] relation extraction failed', {
+			thoughtId,
+			message: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+
+async function syncThoughtRelations(input: {
+	userId: string;
+	thoughtId: string;
+	normalizedText: string;
+	thoughtEmbedding?: number[];
+}): Promise<void> {
+	const db = getDb();
+	await deleteThoughtOutgoingRelatesToEdges({ userId: input.userId, thoughtId: input.thoughtId });
+	const relations = await extractRelations({
+		userId: input.userId,
+		thoughtId: input.thoughtId,
+		normalizedText: input.normalizedText,
+		embedding: input.thoughtEmbedding
+	});
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(thoughtRelation)
+			.where(eq(thoughtRelation.sourceThoughtId, input.thoughtId));
+		if (relations.length > 0) {
+			await tx.insert(thoughtRelation).values(
+				relations.map((r) => ({
+					userId: input.userId,
+					sourceThoughtId: input.thoughtId,
+					targetThoughtId: r.targetId,
+					relationType: r.relationType
+				}))
+			);
+		}
+	});
+	for (const r of relations) {
+		await upsertThoughtRelation({
+			userId: input.userId,
+			sourceId: input.thoughtId,
+			targetId: r.targetId,
+			relationType: r.relationType
+		});
+	}
+	await syncThoughtNeighborLinks(input.userId, input.thoughtId);
+}
+
+/** Fire-and-forget relation extraction after core enrich (avoids rerank LLM on capture hot path). */
+export function scheduleRelationEnrichment(
+	userId: string,
+	thoughtId: string,
+	normalizedText: string,
+	thoughtEmbedding?: number[]
+): void {
+	void withDbUser(userId, () =>
+		syncThoughtRelations({ userId, thoughtId, normalizedText, thoughtEmbedding })
+	).catch((err) => {
+		console.error('[enrich] scheduled relation extraction failed', {
+			thoughtId,
+			userId,
+			message: err instanceof Error ? err.message : String(err)
+		});
+	});
 }
 
 /**

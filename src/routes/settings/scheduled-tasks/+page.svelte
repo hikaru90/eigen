@@ -11,12 +11,17 @@
   import Circle from "@lucide/svelte/icons/circle";
   import X from "@lucide/svelte/icons/x";
   import { onDestroy, onMount } from "svelte";
+  import {
+    heartbeatProgressPctFromRun,
+    isHeartbeatRunFullyComplete,
+    type HeartbeatJobResult,
+  } from "$lib/consolidation/heartbeat-progress";
 
   let { data }: { data: PageData } = $props();
 
   type TaskRow = PageData["tasks"][number];
   type StepState = "done" | "failed" | "running" | "pending";
-  type JobResult = { job: string; ok: boolean; detail?: string };
+  type JobResult = HeartbeatJobResult;
   type DisplayRun = {
     runId: string;
     currentJob: string | null;
@@ -87,32 +92,12 @@
     return jobId.replace(/_/g, " ");
   }
 
-  function parseSummaryProgress(detail?: string): { summarized: number; total: number; pending: number } | null {
-    if (!detail) return null;
-    const counts = detail.match(/(\d+) of (\d+) summarized/);
-    if (!counts) return null;
-    const summarized = Number(counts[1]);
-    const total = Number(counts[2]);
-    if (!Number.isFinite(summarized) || !Number.isFinite(total) || total <= 0) return null;
-    const pendingMatch = detail.match(/(\d+) pending/);
-    const pending = pendingMatch ? Number(pendingMatch[1]) : Math.max(0, total - summarized);
-    return { summarized, total, pending };
-  }
-
   function isRunFullyComplete(run: {
     plannedJobs: string[];
     jobs: JobResult[];
     currentJob: string | null;
   }): boolean {
-    if (run.currentJob) return false;
-    if (run.jobs.length !== run.plannedJobs.length) return false;
-    if (run.jobs.some((j) => !j.ok)) return false;
-    const summaryJob = run.jobs.find((j) => j.job === "community_summaries");
-    if (summaryJob) {
-      const parsed = parseSummaryProgress(summaryJob.detail);
-      if (parsed && parsed.pending > 0) return false;
-    }
-    return true;
+    return isHeartbeatRunFullyComplete(run);
   }
 
   function runStatusLabel(run: DisplayRun, task: TaskRow): string {
@@ -122,6 +107,8 @@
       return "Starting…";
     }
     if (task.lastRunStatus === "cancelled" || run.cancelRequested) return "Stopped";
+    if (task.lastRunStatus === "completed") return "Finished";
+    if (task.lastRunStatus === "failed") return "Failed";
     if (!isRunFullyComplete(run)) return "Failed";
     return "Finished";
   }
@@ -134,28 +121,7 @@
     },
     summaryStats?: { summarized: number; total: number } | null
   ): number {
-    const planned = run.plannedJobs.length;
-    if (planned === 0) return 0;
-    const completed = run.jobs.length;
-    const inFlight = run.currentJob ? 0.5 : 0;
-    let pct = ((completed + inFlight) / planned) * 100;
-
-    const summariesJobIndex = run.plannedJobs.indexOf("community_summaries");
-    if (summariesJobIndex >= 0) {
-      if (run.currentJob === "community_summaries" && summaryStats && summaryStats.total > 0) {
-        pct = ((summariesJobIndex + summaryStats.summarized / summaryStats.total) / planned) * 100;
-      } else if (!run.currentJob && completed >= summariesJobIndex + 1) {
-        const summaryJob = run.jobs.find((j) => j.job === "community_summaries");
-        const parsed = parseSummaryProgress(summaryJob?.detail);
-        if (parsed && parsed.total > 0) {
-          pct = ((summariesJobIndex + parsed.summarized / parsed.total) / planned) * 100;
-        }
-      }
-    }
-
-    const rounded = Math.round(pct);
-    if (!isRunFullyComplete(run)) return Math.min(99, rounded);
-    return 100;
+    return heartbeatProgressPctFromRun(run, summaryStats, { capIncompleteAt99: true });
   }
 
   function stepState(run: DisplayRun, jobId: string): StepState {

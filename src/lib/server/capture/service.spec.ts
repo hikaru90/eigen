@@ -5,6 +5,7 @@ import {
 	captureThought,
 	normalizeThoughtText,
 	editStoredThought,
+	setThoughtLifecycleStatus,
 	relinkThoughtGraph,
 	deleteThoughtForUser,
 	listThoughts
@@ -21,9 +22,8 @@ const {
 	resolveThoughtCategoryMock,
 	enrichThoughtMock,
 	reenrichThoughtMock,
-	scheduleEnrichThoughtMock,
-	scheduleReenrichThoughtMock,
-	applyThoughtEditRequestMock
+	applyThoughtEditRequestMock,
+	loadThoughtCaptureResultMock
 } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
 	logActivityCallMock: vi.fn(),
@@ -35,10 +35,23 @@ const {
 	resolveThoughtCategoryMock: vi.fn(),
 	enrichThoughtMock: vi.fn(),
 	reenrichThoughtMock: vi.fn(),
-	scheduleEnrichThoughtMock: vi.fn(),
-	scheduleReenrichThoughtMock: vi.fn(),
-	applyThoughtEditRequestMock: vi.fn()
+	applyThoughtEditRequestMock: vi.fn(),
+	loadThoughtCaptureResultMock: vi.fn()
 }));
+
+const defaultCaptureResult = {
+	id: 'thought-1',
+	normalizedText: 'raw input',
+	category: 'task',
+	metadata: { pipeline: 'ontology_llm_v1', categoryConfidence: 0.9, categoryAlternatives: [] },
+	memoryType: null,
+	cues: [],
+	enrichedAt: null,
+	entities: [],
+	temporalEvents: [],
+	linkedThoughts: [],
+	enrichmentComplete: false
+};
 
 vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
@@ -92,9 +105,11 @@ vi.mock('$lib/server/memory/entity-graph-hints', () => ({
  */
 vi.mock('$lib/server/capture/enrich', () => ({
 	enrichThought: enrichThoughtMock,
-	reenrichThought: reenrichThoughtMock,
-	scheduleEnrichThought: scheduleEnrichThoughtMock,
-	scheduleReenrichThought: scheduleReenrichThoughtMock
+	reenrichThought: reenrichThoughtMock
+}));
+
+vi.mock('$lib/server/capture/capture-result', () => ({
+	loadThoughtCaptureResult: loadThoughtCaptureResultMock
 }));
 
 describe('normalizeThoughtText', () => {
@@ -175,6 +190,10 @@ describe('captureThought', () => {
 		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
 		resolveThoughtCategoryMock.mockResolvedValue({ key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] });
 		enrichThoughtMock.mockResolvedValue(undefined);
+		loadThoughtCaptureResultMock.mockImplementation(async (_userId: string, thoughtId: string) => ({
+			...defaultCaptureResult,
+			id: thoughtId
+		}));
 	});
 
 	it('stores capture session, thought row, and graph node', async () => {
@@ -196,23 +215,30 @@ describe('captureThought', () => {
 				userId: 'u1'
 			})
 		);
-	});
-
-	it('schedules enrichThought on a dedicated connection without awaiting', async () => {
-		const db = makeCaptureDb();
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-		expect(enrichThoughtMock).not.toHaveBeenCalled();
-		expect(scheduleEnrichThoughtMock).toHaveBeenCalledWith(
+		expect(enrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',
 			'raw input',
 			expect.objectContaining({ thoughtEmbedding: [0.1, 0.2, 0.3] })
 		);
+		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 'thought-1');
 	});
 
-	it('awaits enrichment when onProgress is provided', async () => {
+	it('always awaits enrichThought before returning capture result', async () => {
+		const db = makeCaptureDb();
+		getDbMock.mockReturnValue(db);
+
+		await captureThought('u1', 'raw input');
+		expect(enrichThoughtMock).toHaveBeenCalledWith(
+			'u1',
+			'thought-1',
+			'raw input',
+			expect.objectContaining({ thoughtEmbedding: [0.1, 0.2, 0.3] })
+		);
+		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 'thought-1');
+	});
+
+	it('forwards onProgress to enrichment when provided', async () => {
 		const db = makeCaptureDb();
 		getDbMock.mockReturnValue(db);
 
@@ -238,7 +264,6 @@ describe('captureThought', () => {
 			'raw input',
 			expect.objectContaining({ onProgress: expect.any(Function) })
 		);
-		expect(scheduleEnrichThoughtMock).not.toHaveBeenCalled();
 	});
 
 	it('proceeds when dedup check fails', async () => {
@@ -248,7 +273,7 @@ describe('captureThought', () => {
 		const stored = await captureThought('u1', 'raw input');
 
 		expect(stored.id).toBe('thought-1');
-		expect(scheduleEnrichThoughtMock).toHaveBeenCalled();
+		expect(enrichThoughtMock).toHaveBeenCalled();
 	});
 
 	it('records near-duplicate metadata when a close neighbor exists', async () => {
@@ -277,7 +302,7 @@ describe('captureThought', () => {
 		);
 	});
 
-	it('decrypts encrypted fields on capture return value', async () => {
+	it('returns capture result from loadThoughtCaptureResult', async () => {
 		const thoughtRow = {
 			id: 'thought-1',
 			userId: 'u1',
@@ -300,10 +325,14 @@ describe('captureThought', () => {
 			return cb(tx);
 		});
 		getDbMock.mockReturnValue(db);
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			normalizedText: 'captured normalized',
+			metadata: { pipeline: 'ontology_llm_v1' }
+		});
 
 		const stored = await captureThought('u1', 'captured raw');
 
-		expect(stored.rawText).toBe('captured raw');
 		expect(stored.normalizedText).toBe('captured normalized');
 		expect(stored.metadata).toEqual(expect.objectContaining({ pipeline: 'ontology_llm_v1' }));
 	});
@@ -360,7 +389,7 @@ describe('captureThought', () => {
 
 		await captureThought('u1', 'raw input');
 
-		expect(scheduleEnrichThoughtMock).toHaveBeenCalledWith(
+		expect(enrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',
 			'raw input',
@@ -382,7 +411,7 @@ describe('captureThought', () => {
 			rawText: 'raw input',
 			knownEntities: hints
 		});
-		expect(scheduleEnrichThoughtMock).toHaveBeenCalledWith(
+		expect(enrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',
 			'raw input',
@@ -397,6 +426,11 @@ describe('editStoredThought', () => {
 		createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5]);
 		resolveThoughtCategoryMock.mockResolvedValue({ key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] });
 		reenrichThoughtMock.mockResolvedValue(undefined);
+		loadThoughtCaptureResultMock.mockImplementation(async (_userId: string, thoughtId: string) => ({
+			...defaultCaptureResult,
+			id: thoughtId,
+			normalizedText: 'make shorter'
+		}));
 		applyThoughtEditRequestMock.mockImplementation(async (input: { existingRawText: string; editRequest: string }) => ({
 			rawText: input.editRequest.includes('complete') ? input.existingRawText : input.editRequest,
 			status: input.editRequest.includes('complete') ? ('completed' as const) : null,
@@ -420,7 +454,7 @@ describe('editStoredThought', () => {
 		expect(result).toEqual({ ok: false, reason: 'not_found' });
 	});
 
-	it('updates and returns edited thought, schedules reenrichThought', async () => {
+	it('updates and returns edited thought after awaiting reenrichThought', async () => {
 		const existing = {
 			id: 't1',
 			userId: 'u1',
@@ -466,13 +500,13 @@ describe('editStoredThought', () => {
 		});
 		expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1);
 		expect(upsertThoughtNodeMock).toHaveBeenCalledTimes(1);
-		expect(scheduleReenrichThoughtMock).toHaveBeenCalledWith(
+		expect(reenrichThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			't1',
 			'make shorter',
 			expect.objectContaining({ thoughtEmbedding: [0.5, 0.5] })
 		);
-		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1');
 	});
 
 	it('merges metadata when existing row has null decrypted metadata', async () => {
@@ -590,7 +624,7 @@ describe('editStoredThought', () => {
 		expect(result.ok).toBe(true);
 		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 		expect(reenrichThoughtMock).not.toHaveBeenCalled();
-		expect(scheduleReenrichThoughtMock).not.toHaveBeenCalled();
+		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1');
 	});
 
 	it('reports fast-path ingest phases for edits when onProgress is provided', async () => {
@@ -642,10 +676,9 @@ describe('editStoredThought', () => {
 			'make shorter',
 			expect.objectContaining({ onProgress: expect.any(Function), thoughtEmbedding: [0.5, 0.5] })
 		);
-		expect(scheduleReenrichThoughtMock).not.toHaveBeenCalled();
 	});
 
-	it('decrypts encrypted thought fields when loading existing row', async () => {
+	it('returns capture result from loadThoughtCaptureResult after text edit', async () => {
 		const existing = {
 			id: 't1',
 			userId: 'u1',
@@ -684,12 +717,122 @@ describe('editStoredThought', () => {
 			}))
 		};
 		getDbMock.mockReturnValue(db);
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			normalizedText: 'make shorter'
+		});
 
 		const result = await editStoredThought('u1', 't1', 'make shorter');
 		expect(result.ok).toBe(true);
 		if (result.ok) {
-			expect(result.thought.rawText).toBe('make shorter');
+			expect(result.thought.normalizedText).toBe('make shorter');
 		}
+	});
+});
+
+describe('setThoughtLifecycleStatus', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('returns not_found when thought is missing', async () => {
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [])
+					}))
+				}))
+			}))
+		});
+
+		const result = await setThoughtLifecycleStatus('u1', 'missing', 'completed');
+		expect(result).toEqual({ ok: false, reason: 'not_found' });
+	});
+
+	it('sets completed status and completedAt without LLM or re-embed', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'Buy milk',
+			metadata: { status: 'open' },
+			category: 'task',
+			normalizedText: 'Buy milk',
+			lexicalText: 'buy milk'
+		};
+		const updated = { ...existing, metadata: { status: 'completed', completedAt: '2026-01-01T00:00:00.000Z' } };
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			metadata: { status: 'completed', completedAt: '2026-01-01T00:00:00.000Z' }
+		});
+
+		const result = await setThoughtLifecycleStatus('u1', 't1', 'completed');
+		expect(result.ok).toBe(true);
+		expect(applyThoughtEditRequestMock).not.toHaveBeenCalled();
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1');
+	});
+
+	it('reopens and clears completedAt', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'Buy milk',
+			metadata: { status: 'completed', completedAt: '2026-01-01T00:00:00.000Z' },
+			category: 'task',
+			normalizedText: 'Buy milk',
+			lexicalText: 'buy milk'
+		};
+		const updated = { ...existing, metadata: { status: 'open' } };
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			metadata: { status: 'open' }
+		});
+
+		const result = await setThoughtLifecycleStatus('u1', 't1', 'open');
+		expect(result.ok).toBe(true);
+		const updateCall = db.update.mock.results[0]?.value;
+		const setArg = updateCall?.set.mock.calls[0]?.[0];
+		expect(setArg.metadata.status).toBe('open');
+		expect(setArg.metadata.completedAt).toBeUndefined();
 	});
 });
 
@@ -697,6 +840,11 @@ describe('relinkThoughtGraph', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		reenrichThoughtMock.mockResolvedValue(undefined);
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			normalizedText: 'hello'
+		});
 	});
 
 	it('returns not_found when thought does not exist', async () => {
@@ -715,7 +863,7 @@ describe('relinkThoughtGraph', () => {
 		expect(result).toEqual({ ok: false, reason: 'not_found' });
 	});
 
-	it('upserts node and schedules reenrichThought', async () => {
+	it('upserts node and awaits reenrichThought', async () => {
 		const existing = {
 			id: 't1',
 			userId: 'u1',
@@ -738,11 +886,14 @@ describe('relinkThoughtGraph', () => {
 
 		const result = await relinkThoughtGraph('u1', 't1');
 		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.thought.normalizedText).toBe('hello');
+		}
 		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 't1', userId: 'u1' })
 		);
-		expect(scheduleReenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello');
-		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+		expect(reenrichThoughtMock).toHaveBeenCalledWith('u1', 't1', 'hello', expect.any(Object));
+		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1');
 	});
 
 	it('reports fast-path ingest phases when onProgress is provided', async () => {
@@ -780,7 +931,6 @@ describe('relinkThoughtGraph', () => {
 			'x',
 			expect.objectContaining({ onProgress: expect.any(Function) })
 		);
-		expect(scheduleReenrichThoughtMock).not.toHaveBeenCalled();
 	});
 });
 

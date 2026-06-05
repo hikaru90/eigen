@@ -15,15 +15,15 @@ import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hint
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
-import { applyThoughtEditRequest } from '$lib/server/capture/apply-thought-edit';
 import {
-	enrichThought,
-	reenrichThought,
-	scheduleEnrichThought,
-	scheduleReenrichThought
-} from '$lib/server/capture/enrich';
+	applyThoughtEditRequest,
+	type ThoughtLifecycleStatus
+} from '$lib/server/capture/apply-thought-edit';
+import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
+import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
 import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
+import type { CaptureSubmitResult } from '$lib/capture/capture-result-types';
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
@@ -97,14 +97,16 @@ async function decryptThoughtRow<T extends {
 }
 
 /**
- * Fast path: classify → embed → persist → AGE graph provenance anchor → return.
+ * Capture: classify → embed → persist → graph anchor → enrich → relations → return.
  *
- * Heavy enrichment (relations, entities, memory type, cues, temporal, link
- * materialization) runs via `enrichThought`:
- * - With `onProgress` (NDJSON streaming): awaited on the caller's DB connection.
- * - Without `onProgress`: scheduled on a dedicated connection via `scheduleEnrichThought`.
+ * Callers receive a full `CaptureSubmitResult` only after enrichment and relation
+ * sync complete (or fail individually without aborting the request).
  */
-export async function captureThought(userId: string, rawInput: string, options?: CaptureThoughtOptions) {
+export async function captureThought(
+	userId: string,
+	rawInput: string,
+	options?: CaptureThoughtOptions
+): Promise<CaptureSubmitResult> {
 	const onProgress = options?.onProgress;
 	await ensureUserOntologySeeded(getDb(), userId);
 	await emitProgress(onProgress, 'accounting');
@@ -246,9 +248,8 @@ export async function captureThought(userId: string, rawInput: string, options?:
 			});
 		return [t];
 	});
-	const decryptedStored = await decryptThoughtRow(userId, stored);
 
-	// Fast path: sync the AGE graph node (lightweight, no LLM calls).
+	// Sync the AGE graph node (lightweight, no LLM calls).
 	await emitProgress(onProgress, 'graph');
 	await upsertThoughtNode({
 		id: stored.id,
@@ -263,21 +264,15 @@ export async function captureThought(userId: string, rawInput: string, options?:
 		.where(eq(thought.userId, userId));
 	const thoughtCountAfterInsert = Number(countRow?.n ?? 0);
 
-	const enrichOptions = {
+	await enrichThought(userId, stored.id, stored.normalizedText, {
 		onProgress,
 		thoughtEmbedding: embedding,
 		thoughtCountAfterInsert,
 		preloadedKnownEntities:
 			ingestKnownEntities.length > 0 ? ingestKnownEntities : undefined
-	};
+	});
 
-	if (onProgress) {
-		await enrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
-	} else {
-		scheduleEnrichThought(userId, stored.id, stored.normalizedText, enrichOptions);
-	}
-
-	return decryptedStored;
+	return loadThoughtCaptureResult(userId, stored.id);
 }
 
 export type EditStoredThoughtOptions = {
@@ -364,7 +359,7 @@ export async function editStoredThought(
 
 		return {
 			ok: true as const,
-			thought: await decryptThoughtRow(userId, updated!),
+			thought: await loadThoughtCaptureResult(userId, thoughtId),
 			editSummary: applied.summary
 		};
 	}
@@ -437,18 +432,82 @@ export async function editStoredThought(
 		category: updated!.category
 	});
 
-	if (onProgress) {
-		await reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
-			onProgress,
-			thoughtEmbedding: embedding
-		});
-	} else {
-		scheduleReenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
-			thoughtEmbedding: embedding
-		});
+	await reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
+		onProgress,
+		thoughtEmbedding: embedding
+	});
+
+	return {
+		ok: true as const,
+		thought: await loadThoughtCaptureResult(userId, thoughtId),
+		editSummary: applied.summary
+	};
+}
+
+export async function setThoughtLifecycleStatus(
+	userId: string,
+	thoughtId: string,
+	status: ThoughtLifecycleStatus
+) {
+	await ensureUserOntologySeeded(getDb(), userId);
+
+	const [existing] = await getDb()
+		.select()
+		.from(thought)
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+		.limit(1);
+
+	if (!existing) {
+		return { ok: false as const, reason: 'not_found' as const };
 	}
 
-	return { ok: true as const, thought: decryptedUpdated, editSummary: applied.summary };
+	const decryptedExisting = await decryptThoughtRow(userId, existing);
+	const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {};
+	const summary =
+		status === 'completed'
+			? `Marked as completed: "${decryptedExisting.normalizedText.slice(0, 120)}${decryptedExisting.normalizedText.length > 120 ? '…' : ''}"`
+			: 'Reopened';
+
+	const metadataPatch: Record<string, unknown> = {
+		...priorMeta,
+		lastEditRequest: status === 'completed' ? 'mark as completed' : 'reopen',
+		lastEditSummary: summary,
+		status
+	};
+	if (status === 'completed') {
+		metadataPatch.completedAt = new Date().toISOString();
+	} else {
+		delete metadataPatch.completedAt;
+	}
+
+	const [updated] = await getDb()
+		.update(thought)
+		.set({
+			metadata: metadataPatch,
+			metadataEncrypted: await encryptTenantValue({
+				userId,
+				table: 'thought',
+				column: 'metadata',
+				plaintext: JSON.stringify(metadataPatch)
+			}),
+			updatedAt: new Date()
+		})
+		.where(eq(thought.id, thoughtId))
+		.returning({
+			id: thought.id,
+			category: thought.category
+		});
+
+	await upsertThoughtNode({
+		id: updated!.id,
+		userId,
+		category: updated!.category
+	});
+
+	return {
+		ok: true as const,
+		thought: await loadThoughtCaptureResult(userId, thoughtId)
+	};
 }
 
 export type RelinkThoughtGraphOptions = {
@@ -488,23 +547,11 @@ export async function relinkThoughtGraph(
 		category: existing.category
 	});
 
-	if (onProgress) {
-		await reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText, { onProgress });
-	} else {
-		scheduleReenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText);
-	}
+	await reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText, { onProgress });
 
 	return {
 		ok: true as const,
-		thought: {
-			id: decryptedExisting.id,
-			userId: decryptedExisting.userId,
-			rawText: decryptedExisting.rawText,
-			normalizedText: decryptedExisting.normalizedText,
-			lexicalText: decryptedExisting.lexicalText,
-			category: decryptedExisting.category,
-			metadata: decryptedExisting.metadata as Record<string, unknown>
-		}
+		thought: await loadThoughtCaptureResult(userId, thoughtId)
 	};
 }
 

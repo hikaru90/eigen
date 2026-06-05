@@ -395,7 +395,10 @@ async function resolveRoutingRuleById(ruleId: string, apiKey: string, baseUrl: s
 	return resolved;
 }
 
-async function chatRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
+async function chatRoutingConfig(
+	config: ResolvedLlmConfig,
+	ruleOverride?: string
+): Promise<RoutingConfig> {
 	// OpenRouter: use direct model name, no routing rules
 	if (config.provider === 'openrouter') {
 		const model = config.modelChat?.trim() || env.LLM_MODEL_CHAT?.trim();
@@ -407,7 +410,7 @@ async function chatRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConf
 		return { model };
 	}
 	// EUrouter: resolve via routing rule or env model override
-	const ruleId = config.ruleChat;
+	const ruleId = ruleOverride?.trim() || config.ruleChat;
 	const model = env.LLM_MODEL_CHAT?.trim();
 	if (model) return { ...(ruleId ? { ruleId } : {}), model };
 	if (ruleId) return resolveRoutingRuleById(ruleId, config.apiKey, config.baseUrl);
@@ -448,6 +451,8 @@ export async function llmChatCompletion(input: {
 	maxTokens?: number;
 	/** Dev/server observability only; appears in logs to disambiguate parallel chat uses. */
 	logContext?: string;
+	/** Override chat routing rule (e.g. LLM_RULE_ROUTER for the agent router judge). */
+	routingRuleId?: string;
 }): Promise<unknown> {
 	return withPlatformBilling(
 		input.userId,
@@ -462,11 +467,12 @@ async function llmChatCompletionInner(input: {
 	temperature?: number;
 	maxTokens?: number;
 	logContext?: string;
+	routingRuleId?: string;
 }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
 	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/chat/completions`;
-	const routing = await chatRoutingConfig(config);
+	const routing = await chatRoutingConfig(config, input.routingRuleId);
 	const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_');
 	const messages = sanitizeChatMessages(input.messages);
 

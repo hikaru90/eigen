@@ -10,12 +10,14 @@ import {
 } from '$lib/server/mcp/registry';
 import type { McpToolContext } from '$lib/server/mcp/tools';
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
+import { formatToolResultForDisplay } from '$lib/chat/chat-stream-types';
 import {
 	formatComposedAnswerForUser,
 	type ComposedAnswer
 } from '$lib/server/qa/compose-answer';
 import { redactForLog } from '$lib/server/observability/redact-for-log';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
+import { routeAgentMessage } from '$lib/server/llm/agent-router';
 import {
 	findUniqueStrongRetrieveMatch,
 	formatToolResultForAgentMessage,
@@ -27,54 +29,25 @@ const MAX_ITERATIONS = 10;
 
 const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock();
 
-const SYSTEM_PROMPT = [
-	'You are an AI assistant for the user\'s personal memory store (PostgreSQL with vector embeddings and an Apache AGE property graph). You have the same MCP tools as the external memory server.',
+/** Slim prompt for multi-step agent iterations only (router handles first-hop tool choice). */
+const AGENT_SYSTEM_PROMPT = [
+	'You are an AI assistant for the user\'s personal memory store. You have MCP tools to capture, search, edit, delete, and answer from stored thoughts.',
 	'',
-	'=== COMPLETION / "I DID SOMETHING" (check memories first) ===',
-	'When the user reports they did, finished, completed, bought, attended, or otherwise accomplished something — do NOT capture a new thought first. Call retrieve_thoughts with a query that describes what they did (hybrid semantic + graph search). From the results, find stored tasks, reminders, or notes that plausibly match.',
-	'- Strong match (especially category task or clear semantic overlap): call edit_thought with edit_request like "mark as completed" or "mark done" and briefly note what you updated in your final answer.',
-	'- Match that should leave memory but is obsolete as an open item: same as above (mark complete via edit_thought).',
-	'- User clearly wants it gone, duplicate, or a mistaken capture: call delete_thought instead.',
-	'- No reasonable match: say so in your final answer; only use capture_thought if they also want it logged as a new memory.',
-	'- Multiple plausible matches: update the best single match or ask which one in your final answer — do not edit/delete several without clear intent.',
-	'',
-	'=== DEFAULT: ANSWER / Q&A ===',
-	'When the user asks a question, wants information from their memories, or is chatting without clearly asking to store, edit, or delete — call answer_question with their message as `question` (rephrase for retrieval if helpful). Use the tool result to ground your final {"answer": "..."} with citations when available. Skip this default when the COMPLETION rules above apply.',
-	'Planning and task questions ("what do I need to do", "what\'s on my list", "what should I focus on today") MUST use answer_question — not list_thoughts or retrieve_thoughts alone. Those search tools omit temporal expiry context needed for relative dates like "today" / "heute".',
-	'',
-	'=== OTHER TOOLS ===',
-	'- retrieve_thoughts: hybrid semantic, lexical, and graph search — required before edit/delete when matching an accomplishment to an existing memory; not for open-ended planning or Q&A (use answer_question).',
-	'- list_thoughts: browse recent thoughts or find thought IDs when you need raw ids before edit/delete — not for answering what the user should do today.',
-	'- capture_thought: store a new note, task, idea, or fact — only when the user clearly wants to remember something new.',
-	'- edit_thought: change text, mark tasks or thoughts complete, fix typos — use thought_id from list/retrieve when the user did not give an ID.',
-	'- delete_thought: permanently remove a thought by thought_id; use list/retrieve first if the target is ambiguous.',
-	'',
-	'=== TOOL CALLING FORMAT ===',
-	'Respond with a JSON object only. Two formats:',
-	'',
-	'To call a tool:',
+	'Respond with JSON only. To call a tool:',
 	'{"tool": "<tool_name>", "arguments": {<args>}}',
-	'',
-	'To give the final answer after you are done with tools:',
+	'When done:',
 	'{"answer": "<your response>"}',
 	'',
 	'=== AVAILABLE TOOLS ===',
 	TOOL_DESCRIPTION_BLOCK,
 	'',
-	'=== BEHAVIOR RULES ===',
-	'- Completion reports ("I did X", "finished Y", "got the Z done") always use retrieve_thoughts before capture_thought or answer_question.',
-	'- Default to answer_question for questions and conversation about the user\'s memories; do not capture unless they clearly want to store something new.',
-	'- Do not use list_thoughts or retrieve_thoughts to answer planning/task questions — answer_question applies temporal validity (EXPIRED vs ACTIVE) so old "today/heute" tasks are not treated as due now.',
-	'- Use capture_thought only when the user explicitly asks to remember, save, or log a new thought — never as the first step when they report completing something.',
-	'- Use retrieve_thoughts only for accomplishment matching, explicit search requests, or disambiguation before edit/delete — not for "what should I do" style questions.',
-	'- For edit_thought or delete_thought without a thought_id: call retrieve_thoughts (preferred) or list_thoughts first, then act.',
-	'- You may call multiple tools in sequence (e.g. search then edit) before the final answer.',
-	'- Call retrieve_thoughts at most once per user message unless they explicitly ask for another search.',
-	'- After a tool result, call another tool if more work is needed, otherwise {"answer": "..."}.',
-	'- TRACEABILITY: Never claim a thought was updated or deleted unless the matching tool succeeded in this turn. In your final answer, cite thought id (short prefix), the summary field from tool results, and before/after text or status when edit_thought ran.',
-	'- If a tool errors, explain clearly in your final answer.',
-	'- Do not invent tool names or argument keys.',
-	'- Output ONLY the JSON object. No greetings, no markdown fences.'
+	'=== RULES ===',
+	'- Completion reports: retrieve_thoughts first, then edit_thought to mark done or delete_thought if user wants removal.',
+	'- Questions and planning: answer_question (not retrieve_thoughts alone).',
+	'- Capture only when user explicitly wants to save something new.',
+	'- Never claim an edit/delete succeeded unless the tool succeeded in this turn.',
+	'- If a tool errors, explain in your final answer.',
+	'- Output ONLY the JSON object.'
 ].join('\n');
 
 type AgentResponse = {
@@ -103,16 +76,13 @@ function parseResponse(text: string): AgentResponse {
 	const { thinking, rest } = extractThinking(text);
 	let trimmed = rest.trim();
 
-	// Strip markdown code fences (```json ... ```) if the LLM wraps the JSON.
 	const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)```\s*$/);
 	if (fenceMatch) {
 		trimmed = fenceMatch[1].trim();
 	}
 
-	// Strip trailing backticks and any content after them (LLM sometimes appends ``` after JSON)
 	trimmed = trimmed.replace(/```[\s\S]*$/, '').trim();
 
-	// Find the first complete JSON object by scanning for balanced braces
 	function tryParseJson(str: string): unknown {
 		try {
 			return JSON.parse(str);
@@ -123,7 +93,6 @@ function parseResponse(text: string): AgentResponse {
 
 	let parsed: unknown = tryParseJson(trimmed);
 
-	// If direct parse fails, try extracting the first JSON object by brace matching
 	if (!parsed) {
 		const firstBrace = trimmed.indexOf('{');
 		if (firstBrace >= 0) {
@@ -182,6 +151,197 @@ export type AgentChatResult = {
 	messages: ChatMessage[];
 };
 
+type ToolExecutionContext = {
+	userId: string;
+	ctx: McpToolContext;
+	deleteIntent: boolean;
+	onEvent?: (event: ChatStreamEvent) => void;
+	db?: ReturnType<typeof getDb>;
+	assistantContentForHistory?: string;
+};
+
+async function executeAgentToolCall(input: {
+	tool: string;
+	arguments: Record<string, unknown>;
+	exec: ToolExecutionContext;
+}): Promise<{ done: true; response: string; messages?: ChatMessage[] } | { done: false; result: unknown; assistantContent: string }> {
+	const { tool, arguments: args, exec } = input;
+	const handler = MCP_TOOL_MAP.get(tool);
+	if (!handler) {
+		return {
+			done: false,
+			result: { error: `Tool "${tool}" is not available. Available: ${MCP_TOOL_NAMES.join(', ')}` },
+			assistantContent: JSON.stringify({ tool, arguments: args })
+		};
+	}
+
+	exec.onEvent?.({ type: 'tool_call', tool, arguments: args });
+	console.info('[agent-loop] tool start', { tool, arguments: args });
+	exec.onEvent?.({ type: 'tool_executing', tool });
+
+	const toolStart = Date.now();
+	let result: unknown;
+	try {
+		result = sanitizeMcpToolResult(await handler(exec.ctx, args));
+
+		if (
+			exec.deleteIntent &&
+			tool === 'retrieve_thoughts' &&
+			result &&
+			typeof result === 'object' &&
+			Array.isArray((result as { results?: unknown[] }).results)
+		) {
+			const retrieveResults = (result as { results: unknown[] }).results;
+			const strongMatch = findUniqueStrongRetrieveMatch(retrieveResults);
+			if (strongMatch) {
+				const deleteHandler = MCP_TOOL_MAP.get('delete_thought');
+				if (deleteHandler) {
+					exec.onEvent?.({
+						type: 'tool_call',
+						tool: 'delete_thought',
+						arguments: { thought_id: strongMatch.id }
+					});
+					exec.onEvent?.({ type: 'tool_executing', tool: 'delete_thought' });
+					const deleteStart = Date.now();
+					const deleteResult = await deleteHandler(exec.ctx, { thought_id: strongMatch.id });
+					const deletePreview = formatToolResultPreview('delete_thought', deleteResult);
+					exec.onEvent?.({ type: 'tool_result', tool: 'delete_thought', preview: deletePreview });
+					await logActivityCall(exec.db ?? getDb(), exec.userId, {
+						provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+						operation: 'tool_call.delete_thought',
+						baseCostUsd: 0,
+						context: `auto after retrieve: ${strongMatch.id}`,
+						durationMs: Date.now() - deleteStart
+					});
+					return {
+						done: true,
+						response: `Deleted 1 thought (${strongMatch.id.slice(0, 8)}…): ${strongMatch.snippet}`
+					};
+				}
+			}
+		}
+
+		const preview = formatToolResultPreview(tool, result);
+		exec.onEvent?.({ type: 'tool_result', tool, preview });
+		console.info('[agent-loop] tool done', {
+			tool,
+			durationMs: Date.now() - toolStart,
+			result: formatToolResultPreview(tool, redactForLog(result))
+		});
+		await logActivityCall(exec.db ?? getDb(), exec.userId, {
+			provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+			operation: `tool_call.${tool}`,
+			baseCostUsd: 0,
+			context: Object.entries(args)
+				.map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`)
+				.join(', '),
+			durationMs: Date.now() - toolStart
+		});
+
+		if (
+			tool === 'answer_question' &&
+			result &&
+			typeof result === 'object' &&
+			'answer' in result &&
+			typeof (result as ComposedAnswer).answer === 'string'
+		) {
+			return {
+				done: true,
+				response: formatComposedAnswerForUser((result as ComposedAnswer).answer)
+			};
+		}
+	} catch (err) {
+		console.error('[agent-loop] tool error', {
+			tool,
+			error: err instanceof Error ? err.message : String(err)
+		});
+		result = { error: err instanceof Error ? err.message : String(err) };
+		const errorPreview = formatToolResultPreview(tool, result);
+		exec.onEvent?.({ type: 'tool_result', tool, preview: errorPreview, failed: true });
+		await logActivityCall(exec.db ?? getDb(), exec.userId, {
+			provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+			operation: `tool_error.${tool}`,
+			baseCostUsd: 0,
+			context: Object.entries(args)
+				.map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`)
+				.join(', '),
+			durationMs: Date.now() - toolStart
+		});
+	}
+
+	return {
+		done: false,
+		result,
+		assistantContent: exec.assistantContentForHistory ?? JSON.stringify({ tool, arguments: args })
+	};
+}
+
+function formatSingleToolResponse(tool: string, result: unknown): string {
+	if (
+		tool === 'answer_question' &&
+		result &&
+		typeof result === 'object' &&
+		'answer' in result &&
+		typeof (result as ComposedAnswer).answer === 'string'
+	) {
+		return formatComposedAnswerForUser((result as ComposedAnswer).answer);
+	}
+	const preview = formatToolResultPreview(tool, result);
+	return formatToolResultForDisplay(tool, preview);
+}
+
+async function runSingleToolPath(input: {
+	userId: string;
+	tool: string;
+	arguments: Record<string, unknown>;
+	exec: ToolExecutionContext;
+	userMessages: ChatMessage[];
+}): Promise<AgentChatResult> {
+	const maxAttempts = input.tool === 'answer_question' ? 2 : 1;
+	let lastResult: unknown;
+
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		const outcome = await executeAgentToolCall({
+			tool: input.tool,
+			arguments: input.arguments,
+			exec: input.exec
+		});
+
+		if (outcome.done) {
+			return {
+				response: outcome.response,
+				messages: [
+					...input.userMessages,
+					{ role: 'assistant', content: outcome.response }
+				]
+			};
+		}
+
+		lastResult = outcome.result;
+		const hasError =
+			lastResult &&
+			typeof lastResult === 'object' &&
+			'error' in lastResult &&
+			typeof (lastResult as { error?: unknown }).error === 'string';
+
+		if (!hasError || attempt === maxAttempts - 1) {
+			break;
+		}
+		console.info('[agent-loop] retrying tool after error', { tool: input.tool, attempt: attempt + 1 });
+	}
+
+	return {
+		response: formatSingleToolResponse(input.tool, lastResult),
+		messages: [
+			...input.userMessages,
+			{
+				role: 'assistant',
+				content: formatSingleToolResponse(input.tool, lastResult)
+			}
+		]
+	};
+}
+
 export async function agentChat(input: {
 	userId: string;
 	messages: ChatMessage[];
@@ -199,14 +359,38 @@ export async function agentChat(input: {
 			});
 		}
 	};
-	const messages: ChatMessage[] = [
-		{ role: 'system', content: SYSTEM_PROMPT },
-		...input.messages
-	];
 
 	const lastUserMessage =
 		[...input.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
 	const deleteIntent = isDeleteIntent(lastUserMessage);
+
+	const exec: ToolExecutionContext = {
+		userId: input.userId,
+		ctx,
+		deleteIntent,
+		onEvent: input.onEvent,
+		db: input.db
+	};
+
+	input.onEvent?.({ type: 'agent_progress', label: 'Planning next step…' });
+	const route = await routeAgentMessage({ userId: input.userId, userMessage: lastUserMessage });
+
+	if (route.mode === 'single_tool') {
+		console.info('[agent-loop] single-tool path', { tool: route.tool });
+		return runSingleToolPath({
+			userId: input.userId,
+			tool: route.tool,
+			arguments: route.arguments,
+			exec,
+			userMessages: input.messages
+		});
+	}
+
+	console.info('[agent-loop] multi-step path');
+	const messages: ChatMessage[] = [
+		{ role: 'system', content: AGENT_SYSTEM_PROMPT },
+		...input.messages
+	];
 
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		console.error('[agent-loop] iteration', { iteration, messageCount: messages.length });
@@ -233,8 +417,7 @@ export async function agentChat(input: {
 		console.info('[agent-loop] llm request done', { iteration, durationMs: Date.now() - llmStart });
 
 		const response = raw as { choices?: Array<{ message?: { content?: string } }> };
-		const content =
-			response?.choices?.[0]?.message?.content?.trim() ?? '';
+		const content = response?.choices?.[0]?.message?.content?.trim() ?? '';
 
 		if (!content) {
 			console.error('[agent-loop] LLM returned empty content');
@@ -249,7 +432,6 @@ export async function agentChat(input: {
 		}
 
 		if (parsed.type === 'tool_call') {
-			input.onEvent?.({ type: 'tool_call', tool: parsed.tool, arguments: parsed.arguments });
 			const handler = MCP_TOOL_MAP.get(parsed.tool);
 			if (!handler) {
 				console.error('[agent-loop] unknown tool requested', { tool: parsed.tool });
@@ -261,117 +443,21 @@ export async function agentChat(input: {
 				continue;
 			}
 
-			console.info('[agent-loop] tool start', { tool: parsed.tool, arguments: parsed.arguments });
-			input.onEvent?.({ type: 'tool_executing', tool: parsed.tool });
-			let result: unknown;
-			const toolStart = Date.now();
-			try {
-				result = sanitizeMcpToolResult(await handler(ctx, parsed.arguments));
+			const outcome = await executeAgentToolCall({
+				tool: parsed.tool,
+				arguments: parsed.arguments,
+				exec: { ...exec, assistantContentForHistory: content }
+			});
 
-				if (
-					deleteIntent &&
-					parsed.tool === 'retrieve_thoughts' &&
-					result &&
-					typeof result === 'object' &&
-					Array.isArray((result as { results?: unknown[] }).results)
-				) {
-					const retrieveResults = (result as { results: unknown[] }).results;
-					const strongMatch = findUniqueStrongRetrieveMatch(retrieveResults);
-					if (strongMatch) {
-						const deleteHandler = MCP_TOOL_MAP.get('delete_thought');
-						if (deleteHandler) {
-							input.onEvent?.({
-								type: 'tool_call',
-								tool: 'delete_thought',
-								arguments: { thought_id: strongMatch.id }
-							});
-							input.onEvent?.({ type: 'tool_executing', tool: 'delete_thought' });
-							const deleteStart = Date.now();
-							const deleteResult = await deleteHandler(ctx, {
-								thought_id: strongMatch.id
-							});
-							const deletePreview = formatToolResultPreview('delete_thought', deleteResult);
-							input.onEvent?.({
-								type: 'tool_result',
-								tool: 'delete_thought',
-								preview: deletePreview
-							});
-							console.error('[agent-loop] auto-deleted after single strong match', {
-								thoughtId: strongMatch.id
-							});
-							await logActivityCall(input.db ?? getDb(), input.userId, {
-								provider: AGENT_TOOL_ACTIVITY_PROVIDER,
-								operation: 'tool_call.delete_thought',
-								baseCostUsd: 0,
-								context: `auto after retrieve: ${strongMatch.id}`,
-								durationMs: Date.now() - deleteStart
-							});
-							const responseText = `Deleted 1 thought (${strongMatch.id.slice(0, 8)}…): ${strongMatch.snippet}`;
-							messages.push({ role: 'assistant', content });
-							messages.push({
-								role: 'user',
-								content: `Tool result for retrieve_thoughts:\n${formatToolResultForAgentMessage('retrieve_thoughts', result)}\n\nTool result for delete_thought:\n${formatToolResultForAgentMessage('delete_thought', deleteResult)}`
-							});
-							return { response: responseText, messages };
-						}
-					}
-				}
-
-				const preview = formatToolResultPreview(parsed.tool, result);
-				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview });
-				console.info('[agent-loop] tool done', {
-					tool: parsed.tool,
-					durationMs: Date.now() - toolStart,
-					result: formatToolResultPreview(parsed.tool, redactForLog(result))
-				});
-				const toolCallContext = parsed.arguments && typeof parsed.arguments === 'object'
-					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
-					: '';
-				await logActivityCall(input.db ?? getDb(), input.userId, {
-					provider: AGENT_TOOL_ACTIVITY_PROVIDER,
-					operation: `tool_call.${parsed.tool}`,
-					baseCostUsd: 0,
-					context: toolCallContext,
-					durationMs: Date.now() - toolStart
-				});
-
-				if (
-					parsed.tool === 'answer_question' &&
-					result &&
-					typeof result === 'object' &&
-					'answer' in result &&
-					typeof (result as ComposedAnswer).answer === 'string'
-				) {
-					const composed = result as ComposedAnswer;
-					const responseText = formatComposedAnswerForUser(composed.answer);
-					messages.push({ role: 'assistant', content });
-					messages.push({
-						role: 'user',
-						content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, result)}`
-					});
-					return { response: responseText, messages };
-				}
-			} catch (err) {
-				console.error('[agent-loop] tool error', { tool: parsed.tool, error: err instanceof Error ? err.message : String(err) });
-				result = { error: err instanceof Error ? err.message : String(err) };
-				const errorPreview = formatToolResultPreview(parsed.tool, result);
-				input.onEvent?.({ type: 'tool_result', tool: parsed.tool, preview: errorPreview, failed: true });
-				const toolErrorContext = parsed.arguments && typeof parsed.arguments === 'object'
-					? Object.entries(parsed.arguments).map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`).join(', ')
-					: '';
-				await logActivityCall(input.db ?? getDb(), input.userId, {
-					provider: AGENT_TOOL_ACTIVITY_PROVIDER,
-					operation: `tool_error.${parsed.tool}`,
-					baseCostUsd: 0,
-					context: toolErrorContext,
-					durationMs: Date.now() - toolStart
-				});
+			if (outcome.done) {
+				messages.push({ role: 'assistant', content });
+				return { response: outcome.response, messages };
 			}
 
 			messages.push({ role: 'assistant', content });
 			messages.push({
 				role: 'user',
-				content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, result)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`
+				content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`
 			});
 			continue;
 		}

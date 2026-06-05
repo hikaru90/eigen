@@ -4,7 +4,7 @@
  * Takes the top-k candidates from weighted merge and re-ranks them using a single
  * LLM prompt that sees both the query and all candidate excerpts together.
  *
- * Cost: 1 LLM call per retrieval.
+ * Cost: 1 LLM call per retrieval (skipped when unnecessary).
  * Hard-fails on LLM/parse errors (no silent fallback).
  */
 
@@ -29,6 +29,14 @@ export class RerankError extends Error {
 	}
 }
 
+/** Skip LLM rerank when fusion scores already separate winners clearly. */
+export function shouldSkipRerank(candidates: RerankCandidate[]): boolean {
+	if (candidates.length <= 1) return true;
+	const sorted = [...candidates].sort((a, b) => b.score - a.score);
+	const gap = sorted[0].score - sorted[1].score;
+	return gap >= 0.15;
+}
+
 /**
  * Rerank candidates using a single listwise LLM prompt.
  *
@@ -38,9 +46,13 @@ export async function rerankCandidates<T extends RerankCandidate>(
 	userId: string,
 	query: string,
 	candidates: T[],
-	recentContext?: RecentContext[]
+	recentContext?: RecentContext[],
+	topK = 8
 ): Promise<T[]> {
 	if (candidates.length <= 1) return candidates;
+	if (shouldSkipRerank(candidates)) return candidates;
+
+	const returnCount = Math.max(1, Math.min(topK, candidates.length));
 
 	const contextBlock =
 		recentContext && recentContext.length > 0
@@ -65,9 +77,9 @@ export async function rerankCandidates<T extends RerankCandidate>(
 		'Candidates to rerank (most to least useful for answering the query):',
 		candidateBlock,
 		'',
-		'Return ONLY a JSON array of IDs in order from most to least relevant.',
+		`Return ONLY a JSON array of up to ${returnCount} IDs in order from most to least relevant.`,
 		'Example: ["id-3", "id-1", "id-2"]',
-		'Include ALL candidate IDs. Do not omit any.'
+		'Omit IDs that are not useful for the query.'
 	]
 		.filter((l) => l !== null)
 		.join('\n');

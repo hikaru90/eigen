@@ -10,6 +10,7 @@ import {
 	type ConsolidationJobResult,
 	type ConsolidationRunResult
 } from './runner';
+import { heartbeatProgressPctFromRun } from '$lib/consolidation/heartbeat-progress';
 import type { CommunitySummaryStats } from './community-summaries';
 
 export type HeartbeatRunSnapshot = {
@@ -276,24 +277,17 @@ export function heartbeatProgressPct(
 	snapshot: HeartbeatRunSnapshot,
 	summaryStats?: CommunitySummaryStats | null
 ): number {
-	const planned = snapshot.plannedJobs.length;
-	if (planned === 0) return snapshot.status === 'running' ? 0 : 100;
-	const completed = snapshot.jobs.length;
-	const inFlight = snapshot.currentJob ? 0.5 : 0;
-	let pct = ((completed + inFlight) / planned) * 100;
-
-	if (
-		snapshot.currentJob === 'community_summaries' &&
-		summaryStats &&
-		summaryStats.total > 0
-	) {
-		const summariesJobIndex = snapshot.plannedJobs.indexOf('community_summaries');
-		const priorJobs = summariesJobIndex >= 0 ? summariesJobIndex : completed;
-		const summariesFraction = summaryStats.summarized / summaryStats.total;
-		pct = ((priorJobs + summariesFraction) / planned) * 100;
+	if (snapshot.plannedJobs.length === 0) {
+		return snapshot.status === 'running' ? 0 : 100;
 	}
-
-	return Math.min(100, Math.round(pct));
+	return heartbeatProgressPctFromRun(
+		{
+			plannedJobs: snapshot.plannedJobs,
+			jobs: snapshot.jobs,
+			currentJob: snapshot.currentJob
+		},
+		summaryStats
+	);
 }
 
 export function isHeartbeatRunActive(status: HeartbeatRunStatus): boolean {
