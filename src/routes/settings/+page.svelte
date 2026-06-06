@@ -6,6 +6,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import * as Tabs from '$lib/components/ui/tabs';
 	import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -22,6 +23,7 @@
 	} from '$lib/push/client';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let activeTab = $state('display');
 	let themePreference = $state('system');
 
 	let exportBusy = $state(false);
@@ -61,19 +63,19 @@
 		setTimeout(() => (deletePhraseCopied = false), 2000);
 	}
 
-	async function exportThoughtsCsv() {
+	async function exportMemoryZip() {
 		if (exportBusy) return;
 		exportBusy = true;
 		exportError = null;
 		try {
-			const res = await fetch('/api/thoughts/export');
+			const res = await fetch('/api/memory/export');
 			if (!res.ok) {
 				throw new Error(`Export failed (${res.status})`);
 			}
 			const blob = await res.blob();
 			const disposition = res.headers.get('content-disposition') ?? '';
 			const filenameMatch = disposition.match(/filename="([^"]+)"/);
-			const filename = filenameMatch?.[1] ?? 'thoughts-export.csv';
+			const filename = filenameMatch?.[1] ?? 'eigen-memory-export.zip';
 			const url = URL.createObjectURL(blob);
 			const anchor = document.createElement('a');
 			anchor.href = url;
@@ -214,227 +216,266 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl space-y-4 px-4 pb-8 pt-4">
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">{m.settings_theme_title()}</h3>
-		<p class="text-muted-foreground mt-0.5 text-xs">{m.settings_theme_description()}</p>
-		<div class="mt-2 space-y-1">
-			<Label for="theme-mode">{m.settings_theme_mode()}</Label>
-			<select
-				id="theme-mode"
-				class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-				value={themePreference}
-				onchange={(event) => updateThemePreference((event.currentTarget as HTMLSelectElement).value)}
-			>
-				<option value="system">{m.settings_theme_system()}</option>
-				<option value="light">{m.settings_theme_light()}</option>
-				<option value="dark">{m.settings_theme_dark()}</option>
-			</select>
-		</div>
-	</div>
-
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">{m.settings_display_language_title()}</h3>
-		<p class="text-muted-foreground mt-0.5 text-xs">{m.settings_display_language_description()}</p>
-		<form method="post" action="?/updateUiLocale" use:enhance class="mt-2 space-y-2">
-			<div class="space-y-1">
-				<Label for="ui-locale">{m.settings_display_language_label()}</Label>
-				<select
-					id="ui-locale"
-					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-					name="preferredUiLocale"
-				>
-					{#each data.uiLocaleOptions as option}
-						<option
-							value={option.value}
-							selected={option.value === (data.preferredUiLocale ?? getLocale())}
-						>
-							{option.label} ({option.value})
-						</option>
-					{/each}
-				</select>
-			</div>
-			<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-				{m.settings_display_language_save()}
-			</Button>
-			{#if form?.uiLocaleMessage}
-				<p class="text-muted-foreground text-xs">{form.uiLocaleMessage}</p>
-			{/if}
-		</form>
-	</div>
-
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">{m.settings_transcription_language_title()}</h3>
-		<form method="post" action="?/updateLanguage" use:enhance class="mt-2 space-y-2">
-			<div class="space-y-1">
-				<Label for="lang">{m.settings_transcription_language_label()}</Label>
-				<select
-					id="lang"
-					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-					name="preferredLanguage"
-				>
-					{#each data.languageOptions as option}
-						<option value={option.value} selected={option.value === data.preferredLanguage}>
-							{option.label} ({option.value})
-						</option>
-					{/each}
-				</select>
-			</div>
-			<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-				{m.settings_transcription_language_save()}
-			</Button>
-			{#if form?.settingsMessage}
-				<p class="text-muted-foreground text-xs">{form.settingsMessage}</p>
-			{/if}
-		</form>
-	</div>
-
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">Speech recognition quality</h3>
-		<p class="text-muted-foreground mt-0.5 text-xs">Low = faster/smaller, High = larger/better accuracy.</p>
-		<form method="post" action="?/updateQuality" use:enhance onsubmit={confirmQualityChange} class="mt-2 space-y-2">
-			<div class="space-y-1">
-				<Label for="quality">Quality level</Label>
-				<select
-					id="quality"
-					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-					name="preferredTranscriptionQuality"
-				>
-					{#each data.qualityOptions as option}
-						<option value={option.value} selected={option.value === data.preferredTranscriptionQuality}>
-							{option.label} ({option.sizeMb} MB)
-						</option>
-					{/each}
-				</select>
-			</div>
-			<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Save quality</Button>
-			{#if form?.qualityMessage}
-				<p class="text-muted-foreground text-xs">{form.qualityMessage}</p>
-			{/if}
-		</form>
-	</div>
-
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">Change email</h3>
-		<form method="post" action="?/changeEmail" use:enhance class="mt-2 space-y-2">
-			<div class="space-y-1">
-				<Label for="newEmail">New email</Label>
-				<input
-					id="newEmail"
-					type="email"
-					name="newEmail"
-					placeholder="you@example.com"
-					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-				/>
-			</div>
-			<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update email</Button>
-			{#if form?.emailMessage}
-				<p class="text-muted-foreground text-xs">{form.emailMessage}</p>
-			{/if}
-		</form>
-	</div>
-
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">Change password</h3>
-		<form method="post" action="?/changePassword" use:enhance class="mt-2 space-y-2">
-			<div class="space-y-1">
-				<Label for="cur">Current password</Label>
-				<input
-					id="cur"
-					type="password"
-					name="currentPassword"
-					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-				/>
-			</div>
-			<div class="space-y-1">
-				<Label for="newpw">New password</Label>
-				<input
-					id="newpw"
-					type="password"
-					name="newPassword"
-					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
-				/>
-			</div>
-			<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update password</Button>
-			{#if form?.passwordMessage}
-				<p class="text-muted-foreground text-xs">{form.passwordMessage}</p>
-			{/if}
-		</form>
-	</div>
-
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">Push notifications</h3>
-		<p class="text-muted-foreground mt-0.5 text-xs">
-			Requires a registered service worker (reload once after opening the app). Install as a PWA for
-			the best experience on macOS.
+<div class="mx-auto max-w-2xl space-y-6 px-5 pb-8 pt-16">
+	<div>
+		<h1 class="text-lg font-semibold tracking-tight">Account settings</h1>
+		<p class="text-muted-foreground mt-1 text-xs">
+			Display, speech, profile, notifications, and data for your account.
 		</p>
-		{#if !pushSupport.supported}
-			<p class="text-muted-foreground mt-2 text-xs">{pushSupport.reason}</p>
-		{:else}
-			<p class="text-muted-foreground mt-2 text-xs">
-				Permission: {pushSupport.permission}. Registered devices: {pushSubscriptionCount}.
-			</p>
-			<div class="mt-2 flex flex-wrap gap-2">
-				{#if !pushSubscribed}
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						class="rounded-[4px]"
-						disabled={pushBusy || pushSupport.permission === 'denied'}
-						onclick={() => void enablePush()}
+	</div>
+
+	<Tabs.Root bind:value={activeTab} class="space-y-4">
+		<Tabs.List class="h-auto w-full flex-wrap">
+			<Tabs.Trigger value="display">Display</Tabs.Trigger>
+			<Tabs.Trigger value="speech">Speech</Tabs.Trigger>
+			<Tabs.Trigger value="profile">Profile</Tabs.Trigger>
+			<Tabs.Trigger value="notifications">Notifications</Tabs.Trigger>
+			<Tabs.Trigger value="export">Export</Tabs.Trigger>
+			<Tabs.Trigger value="danger">Danger zone</Tabs.Trigger>
+		</Tabs.List>
+
+		<Tabs.Content value="display" class="space-y-4">
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">{m.settings_theme_title()}</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">{m.settings_theme_description()}</p>
+				<div class="mt-2 space-y-1">
+					<Label for="theme-mode">{m.settings_theme_mode()}</Label>
+					<select
+						id="theme-mode"
+						class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+						value={themePreference}
+						onchange={(event) =>
+							updateThemePreference((event.currentTarget as HTMLSelectElement).value)}
 					>
-						{pushBusy ? 'Working…' : 'Enable push'}
+						<option value="system">{m.settings_theme_system()}</option>
+						<option value="light">{m.settings_theme_light()}</option>
+						<option value="dark">{m.settings_theme_dark()}</option>
+					</select>
+				</div>
+			</div>
+
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">{m.settings_display_language_title()}</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">{m.settings_display_language_description()}</p>
+				<form method="post" action="?/updateUiLocale" use:enhance class="mt-2 space-y-2">
+					<div class="space-y-1">
+						<Label for="ui-locale">{m.settings_display_language_label()}</Label>
+						<select
+							id="ui-locale"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+							name="preferredUiLocale"
+						>
+							{#each data.uiLocaleOptions as option}
+								<option
+									value={option.value}
+									selected={option.value === (data.preferredUiLocale ?? getLocale())}
+								>
+									{option.label} ({option.value})
+								</option>
+							{/each}
+						</select>
+					</div>
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+						{m.settings_display_language_save()}
 					</Button>
+					{#if form?.uiLocaleMessage}
+						<p class="text-muted-foreground text-xs">{form.uiLocaleMessage}</p>
+					{/if}
+				</form>
+			</div>
+
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Onboarding</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">Show the welcome tour again.</p>
+				<form method="post" action="?/resetOnboarding" use:enhance class="mt-2 space-y-2">
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+						Restart onboarding
+					</Button>
+					{#if form?.onboardingMessage}
+						<p class="text-destructive text-xs">{form.onboardingMessage}</p>
+					{/if}
+				</form>
+			</div>
+		</Tabs.Content>
+
+		<Tabs.Content value="speech" class="space-y-4">
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">{m.settings_transcription_language_title()}</h3>
+				<form method="post" action="?/updateLanguage" use:enhance class="mt-2 space-y-2">
+					<div class="space-y-1">
+						<Label for="lang">{m.settings_transcription_language_label()}</Label>
+						<select
+							id="lang"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+							name="preferredLanguage"
+						>
+							{#each data.languageOptions as option}
+								<option value={option.value} selected={option.value === data.preferredLanguage}>
+									{option.label} ({option.value})
+								</option>
+							{/each}
+						</select>
+					</div>
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+						{m.settings_transcription_language_save()}
+					</Button>
+					{#if form?.settingsMessage}
+						<p class="text-muted-foreground text-xs">{form.settingsMessage}</p>
+					{/if}
+				</form>
+			</div>
+
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Speech recognition quality</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">
+					Low = faster/smaller, High = larger/better accuracy.
+				</p>
+				<form
+					method="post"
+					action="?/updateQuality"
+					use:enhance
+					onsubmit={confirmQualityChange}
+					class="mt-2 space-y-2"
+				>
+					<div class="space-y-1">
+						<Label for="quality">Quality level</Label>
+						<select
+							id="quality"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+							name="preferredTranscriptionQuality"
+						>
+							{#each data.qualityOptions as option}
+								<option
+									value={option.value}
+									selected={option.value === data.preferredTranscriptionQuality}
+								>
+									{option.label} ({option.sizeMb} MB)
+								</option>
+							{/each}
+						</select>
+					</div>
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Save quality</Button>
+					{#if form?.qualityMessage}
+						<p class="text-muted-foreground text-xs">{form.qualityMessage}</p>
+					{/if}
+				</form>
+			</div>
+		</Tabs.Content>
+
+		<Tabs.Content value="profile" class="space-y-4">
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Change email</h3>
+				<form method="post" action="?/changeEmail" use:enhance class="mt-2 space-y-2">
+					<div class="space-y-1">
+						<Label for="newEmail">New email</Label>
+						<input
+							id="newEmail"
+							type="email"
+							name="newEmail"
+							placeholder="you@example.com"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+						/>
+					</div>
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update email</Button>
+					{#if form?.emailMessage}
+						<p class="text-muted-foreground text-xs">{form.emailMessage}</p>
+					{/if}
+				</form>
+			</div>
+
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Change password</h3>
+				<form method="post" action="?/changePassword" use:enhance class="mt-2 space-y-2">
+					<div class="space-y-1">
+						<Label for="cur">Current password</Label>
+						<input
+							id="cur"
+							type="password"
+							name="currentPassword"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+						/>
+					</div>
+					<div class="space-y-1">
+						<Label for="newpw">New password</Label>
+						<input
+							id="newpw"
+							type="password"
+							name="newPassword"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+						/>
+					</div>
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update password</Button>
+					{#if form?.passwordMessage}
+						<p class="text-muted-foreground text-xs">{form.passwordMessage}</p>
+					{/if}
+				</form>
+			</div>
+		</Tabs.Content>
+
+		<Tabs.Content value="notifications" class="space-y-4">
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Push notifications</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">
+					Requires a registered service worker (reload once after opening the app). Install as a PWA for
+					the best experience on macOS.
+				</p>
+				{#if !pushSupport.supported}
+					<p class="text-muted-foreground mt-2 text-xs">{pushSupport.reason}</p>
 				{:else}
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						class="rounded-[4px]"
-						disabled={pushBusy}
-						onclick={() => void disablePush()}
-					>
-						{pushBusy ? 'Working…' : 'Disable push'}
-					</Button>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						class="rounded-[4px]"
-						disabled={pushBusy}
-						onclick={() => void sendTestPush()}
-					>
-						{pushBusy ? 'Sending…' : 'Send test notification'}
-					</Button>
+					<p class="text-muted-foreground mt-2 text-xs">
+						Permission: {pushSupport.permission}. Registered devices: {pushSubscriptionCount}.
+					</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#if !pushSubscribed}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="rounded-[4px]"
+								disabled={pushBusy || pushSupport.permission === 'denied'}
+								onclick={() => void enablePush()}
+							>
+								{pushBusy ? 'Working…' : 'Enable push'}
+							</Button>
+						{:else}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="rounded-[4px]"
+								disabled={pushBusy}
+								onclick={() => void disablePush()}
+							>
+								{pushBusy ? 'Working…' : 'Disable push'}
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="rounded-[4px]"
+								disabled={pushBusy}
+								onclick={() => void sendTestPush()}
+							>
+								{pushBusy ? 'Sending…' : 'Send test notification'}
+							</Button>
+						{/if}
+					</div>
+				{/if}
+				{#if pushMessage}
+					<p class="text-muted-foreground mt-2 text-xs">{pushMessage}</p>
+				{/if}
+				{#if pushError}
+					<p class="text-destructive mt-2 text-xs">{pushError}</p>
 				{/if}
 			</div>
-		{/if}
-		{#if pushMessage}
-			<p class="text-muted-foreground mt-2 text-xs">{pushMessage}</p>
-		{/if}
-		{#if pushError}
-			<p class="text-destructive mt-2 text-xs">{pushError}</p>
-		{/if}
-	</div>
+		</Tabs.Content>
 
-	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-xs font-semibold">Onboarding</h3>
-		<p class="text-muted-foreground mt-0.5 text-xs">Show the welcome tour again.</p>
-		<form method="post" action="?/resetOnboarding" use:enhance class="mt-2 space-y-2">
-			<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-				Restart onboarding
-			</Button>
-			{#if form?.onboardingMessage}
-				<p class="text-destructive text-xs">{form.onboardingMessage}</p>
-			{/if}
-		</form>
-	</div>
-
+		<Tabs.Content value="export" class="space-y-4">
 	<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
 		<h3 class="text-xs font-semibold">Data export</h3>
 		<p class="text-muted-foreground mt-0.5 text-xs">
-			Download all captured thoughts as a CSV file (id, timestamps, category, text, status).
+			Download all memory data as a ZIP: thoughts, entities, relations, temporal events, and graph
+			structure (CSV files plus graph.json).
 		</p>
 		<div class="mt-2">
 			<Button
@@ -443,37 +484,41 @@
 				size="sm"
 				class="rounded-[4px]"
 				disabled={exportBusy}
-				onclick={() => void exportThoughtsCsv()}
+				onclick={() => void exportMemoryZip()}
 			>
-				{exportBusy ? 'Exporting…' : 'Export thoughts as CSV'}
+				{exportBusy ? 'Exporting…' : 'Export all memory data'}
 			</Button>
 			{#if exportError}
 				<p class="text-destructive mt-2 text-xs">{exportError}</p>
 			{/if}
 		</div>
 	</div>
+		</Tabs.Content>
 
-	<div class="border-destructive/30 rounded-xl border bg-muted px-3.5 py-3 text-sm">
-		<h3 class="text-destructive text-xs font-semibold">Danger zone</h3>
-		<p class="text-muted-foreground mt-0.5 text-xs">
-			Permanently delete all captured thoughts, entities, temporal events, and your memory graph for
-			this account. Settings, API keys, and chat history are not removed.
-		</p>
-		<div class="mt-2">
-			<Button
-				type="button"
-				variant="destructive"
-				size="sm"
-				class="rounded-[4px]"
-				onclick={openDeleteMemoriesDialog}
-			>
-				Delete all my memories
-			</Button>
-			{#if deleteSuccess}
-				<p class="text-muted-foreground mt-2 text-xs">{deleteSuccess}</p>
-			{/if}
-		</div>
-	</div>
+		<Tabs.Content value="danger" class="space-y-4">
+			<div class="border-destructive/30 rounded-xl border bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-destructive text-xs font-semibold">Delete all memories</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">
+					Permanently delete all captured thoughts, entities, temporal events, and your memory graph for
+					this account. Settings, API keys, and chat history are not removed.
+				</p>
+				<div class="mt-2">
+					<Button
+						type="button"
+						variant="destructive"
+						size="sm"
+						class="rounded-[4px]"
+						onclick={openDeleteMemoriesDialog}
+					>
+						Delete all my memories
+					</Button>
+					{#if deleteSuccess}
+						<p class="text-muted-foreground mt-2 text-xs">{deleteSuccess}</p>
+					{/if}
+				</div>
+			</div>
+		</Tabs.Content>
+	</Tabs.Root>
 </div>
 
 <AlertDialog.Root bind:open={deleteDialogOpen}>

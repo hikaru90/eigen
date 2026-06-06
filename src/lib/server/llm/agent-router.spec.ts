@@ -38,6 +38,12 @@ describe('ROUTER_SYSTEM_PROMPT', () => {
 	it('lists all MCP tools compactly', () => {
 		expect(ROUTER_SYSTEM_PROMPT).toContain('answer_question');
 		expect(ROUTER_SYSTEM_PROMPT).toContain('multi_step');
-		expect(ROUTER_SYSTEM_PROMPT.length).toBeLessThan(2500);
+		expect(ROUTER_SYSTEM_PROMPT.length).toBeLessThan(3500);
+	});
+
+	it('forbids routing questions to capture_thought', () => {
+		expect(ROUTER_SYSTEM_PROMPT).toContain('Never route questions to capture_thought');
+		expect(ROUTER_SYSTEM_PROMPT).toContain('Wie koche ich Japanese-Glazed Salmon?');
+		expect(ROUTER_SYSTEM_PROMPT).toContain('prefer answer_question');
 	});
 });

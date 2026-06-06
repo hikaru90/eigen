@@ -3,6 +3,7 @@ import { getDb } from '$lib/server/db';
 import { temporalEvent } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { expandContextFromTemporalEventSeeds } from '$lib/server/graph/age';
+import type { QueryIntent } from '$lib/server/retrieval/classify-query-intent';
 
 export type TemporalFilterResult = {
 	eventId: string;
@@ -10,87 +11,34 @@ export type TemporalFilterResult = {
 	semanticSummary: string;
 	thoughtId: string;
 	score: number;
+	startAt: Date | null;
 };
 
-const TEMPORAL_QUERY_PATTERNS = [
-	/\bwhen\b/i,
-	/\bdeadline\b/i,
-	/\bdue\b/i,
-	/\bschedul(?:e|ing)\b/i,
-	/\bappointment\b/i,
-	/\bconflict\b/i,
-	/\bclash\b/i,
-	/\boverlap\b/i,
-	/\blast (week|month|year|time)\b/i,
-	/\bnext (week|month|year|friday|monday)\b/i,
-	/\bin \d{4}\b/,
-	/\b(between|from|until|before|after)\b/i,
-	/\b(timeline|timeframe|time frame|period)\b/i
-];
+export type TemporalEventSeed = {
+	eventId: string;
+	thoughtId: string;
+	semanticSummary: string;
+	startAt: Date | null;
+	activePeriod: string;
+};
 
-/** Heuristic: does this query need temporal filtering? */
-export function isTemporalQuery(query: string): boolean {
-	const trimmed = query.trim();
-	if (!trimmed) return false;
-	return TEMPORAL_QUERY_PATTERNS.some((p) => p.test(trimmed));
+export type TemporalQueryIntent = Pick<QueryIntent, 'temporal' | 'kind' | 'timeWindow'>;
+
+/** True when LLM query intent marks the question as temporal. */
+export function isTemporalQuery(intent?: TemporalQueryIntent | null): boolean {
+	return intent?.temporal === true;
 }
 
-/**
- * Parse a coarse query range from natural language (v1 heuristics).
- * Returns null when no explicit window is inferred — caller may use semantic-only filter.
- */
-const MONTH_NAMES = [
-	'january',
-	'february',
-	'march',
-	'april',
-	'may',
-	'june',
-	'july',
-	'august',
-	'september',
-	'october',
-	'november',
-	'december'
-] as const;
+/** Time window from LLM query intent (no string parsing). */
+export function resolveQueryTimeRange(intent?: TemporalQueryIntent | null): { start: Date; end: Date } | null {
+	return intent?.timeWindow ?? null;
+}
 
+/** @deprecated Use resolveQueryTimeRange with LLM intent. */
 export function inferQueryTimeRange(
-	query: string,
-	referenceDate: Date = new Date()
+	_query: string,
+	_referenceDate: Date = new Date()
 ): { start: Date; end: Date } | null {
-	const monthYear = query.match(
-		/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/i
-	);
-	if (monthYear) {
-		const monthIdx = MONTH_NAMES.indexOf(monthYear[1].toLowerCase() as (typeof MONTH_NAMES)[number]);
-		const year = Number(monthYear[2]);
-		return {
-			start: new Date(Date.UTC(year, monthIdx, 1)),
-			end: new Date(Date.UTC(year, monthIdx + 1, 1))
-		};
-	}
-
-	const monthOnly = query.match(
-		/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
-	);
-	if (monthOnly) {
-		const monthIdx = MONTH_NAMES.indexOf(monthOnly[1].toLowerCase() as (typeof MONTH_NAMES)[number]);
-		const year = referenceDate.getUTCFullYear();
-		return {
-			start: new Date(Date.UTC(year, monthIdx, 1)),
-			end: new Date(Date.UTC(year, monthIdx + 1, 1))
-		};
-	}
-
-	const yearMatch = query.match(/\b(20\d{2})\b/);
-	if (yearMatch) {
-		const year = Number(yearMatch[1]);
-		return {
-			start: new Date(Date.UTC(year, 0, 1)),
-			end: new Date(Date.UTC(year + 1, 0, 1))
-		};
-	}
-
 	return null;
 }
 
@@ -115,7 +63,7 @@ export async function filterTemporalEvents(input: {
 	const vectorLiteral = toVectorLiteral(queryEmbedding);
 	const distance = sql<number>`${temporalEvent.embedding} <=> ${vectorLiteral}::vector`;
 
-	const range = input.queryRange ?? inferQueryTimeRange(input.query);
+	const range = input.queryRange ?? null;
 	const rangeLiteral = range
 		? `[${range.start.toISOString()},${range.end.toISOString()})`
 		: null;
@@ -126,6 +74,7 @@ export async function filterTemporalEvents(input: {
 			graphNodeId: temporalEvent.graphNodeId,
 			semanticSummary: temporalEvent.semanticSummary,
 			thoughtId: temporalEvent.thoughtId,
+			startAt: temporalEvent.startAt,
 			distance
 		})
 		.from(temporalEvent)
@@ -146,7 +95,51 @@ export async function filterTemporalEvents(input: {
 		graphNodeId: row.graphNodeId,
 		semanticSummary: row.semanticSummary,
 		thoughtId: row.thoughtId,
+		startAt: row.startAt,
 		score: 1 / (index + 1)
+	}));
+}
+
+/**
+ * Semantic match on temporal_event rows, ordered chronologically by start_at.
+ */
+export async function fetchTemporalEventSeeds(input: {
+	userId: string;
+	query: string;
+	queryEmbedding: number[];
+	limit?: number;
+}): Promise<TemporalEventSeed[]> {
+	const limit = Math.max(1, Math.min(input.limit ?? 24, 100));
+	const db = getDb();
+	const vectorLiteral = toVectorLiteral(input.queryEmbedding);
+	const distance = sql<number>`${temporalEvent.embedding} <=> ${vectorLiteral}::vector`;
+
+	const rows = await db
+		.select({
+			id: temporalEvent.id,
+			thoughtId: temporalEvent.thoughtId,
+			semanticSummary: temporalEvent.semanticSummary,
+			startAt: temporalEvent.startAt,
+			activePeriod: temporalEvent.activePeriod,
+			distance
+		})
+		.from(temporalEvent)
+		.where(and(eq(temporalEvent.userId, input.userId), isNotNull(temporalEvent.embedding)))
+		.orderBy(distance)
+		.limit(limit * 3);
+
+	const sorted = [...rows].sort((a, b) => {
+		const aTime = a.startAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+		const bTime = b.startAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+		return aTime - bTime;
+	});
+
+	return sorted.slice(0, limit).map((row) => ({
+		eventId: row.id,
+		thoughtId: row.thoughtId,
+		semanticSummary: row.semanticSummary,
+		startAt: row.startAt,
+		activePeriod: row.activePeriod
 	}));
 }
 
@@ -170,3 +163,5 @@ export async function traverseTemporalContext(input: {
 		limit: input.limit ?? 40
 	});
 }
+
+export type TemporalSearchHit = TemporalFilterResult;

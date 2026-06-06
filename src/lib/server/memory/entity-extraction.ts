@@ -1,7 +1,10 @@
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 import {
+	ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
 	ENTITY_EXTRACTION_OMIT_RULES,
+	ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
+	ENTITY_EXTRACTION_TYPE_GUIDANCE,
 	filterAcceptedEntityMentions
 } from '$lib/server/memory/entity-mention-filter';
 
@@ -64,63 +67,23 @@ function clampConfidence(value: unknown): number {
 	return Math.min(1, Math.max(0, value));
 }
 
-/** Map common model drift to seeded ontology `entity_type` keys (always lowercase in DB). */
-const ENTITY_TYPE_SYNONYMS: Record<string, string> = {
-	org: 'organization',
-	orgs: 'organization',
-	tech: 'technology',
-	location: 'place',
-	locations: 'place',
-	device: 'technology',
-	equipment: 'technology',
-	tool: 'technology',
-	procedure: 'event',
-	procedures: 'event',
-	surgery: 'event',
-	anatomy: 'place',
-	landmark: 'place',
-	landmarks: 'place',
-	institution: 'organization',
-	medical_device: 'technology',
-	system: 'technology',
-	abstract: 'concept',
-	topic: 'concept',
-	theme: 'concept',
-	idea: 'concept',
-	human: 'person',
-	individual: 'person',
-	character: 'person',
-	name: 'person',
-	audio: 'concept',
-	sound: 'concept'
-};
-
 /** Retry entity extraction when the first pass returns nothing on substantive notes. */
 export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH = 120;
 
-/** Shorter notes that still name people, allergies, or multiple proper nouns. */
+/** Minimum length for retry on shorter notes (length gate only — not semantic). */
 export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT = 50;
 
-/** Substantive notes that should not end with zero entity mentions after retries. */
-export const ENTITY_RETRY_SIGNAL =
-	/\b(?:allergic|allergy|birthday|born|works at|located in|met with|called|named|needs?|requires?)\b/i;
-
-/** Whether a second LLM pass is warranted after zero mentions on the first pass. */
+/** Whether a second LLM pass is warranted after zero mentions on the first pass (length only). */
 export function shouldRetryEntityMentionExtraction(normalizedText: string): boolean {
-	const text = normalizedText.trim();
-	const len = text.length;
+	const len = normalizedText.trim().length;
 	if (len === 0) return false;
 	if (len >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH) return true;
-	if (len < ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT) return false;
-	if (ENTITY_RETRY_SIGNAL.test(text)) return true;
-	if (/(?:^|[.!?]\s+)[A-Z][a-z]{2,}/.test(text)) return true;
-	if (/\b[A-Z][a-z]{2,}\b.*\b[A-Z][a-z]{2,}\b/.test(text)) return true;
-	return false;
+	return len >= ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT;
 }
 
 /**
- * Resolve LLM `entityType` to a canonical key present in `allowed`.
- * Models often return Title Case or shorthand ("org") that would otherwise be filtered out.
+ * Resolve LLM `entityType` to a canonical key present in `allowed` (exact / case-insensitive match only).
+ * XXX REMOVED — ENTITY_TYPE_SYNONYMS code re-typing of LLM output. LLM must return ontology keys.
  */
 export function resolveEntityTypeKey(raw: string, allowed: Set<string>): string | null {
 	const trimmed = raw.trim();
@@ -130,8 +93,6 @@ export function resolveEntityTypeKey(raw: string, allowed: Set<string>): string 
 	for (const key of allowed) {
 		if (key.toLowerCase() === lower) return key;
 	}
-	const mapped = ENTITY_TYPE_SYNONYMS[lower];
-	if (mapped && allowed.has(mapped)) return mapped;
 	return null;
 }
 
@@ -176,31 +137,16 @@ export function parseEntityMentions(
 const MIN_TRIPLE_CONFIDENCE_DEFAULT = 0.55;
 const MIN_TRIPLE_CONFIDENCE_RELATED_TO = 0.75;
 
-function lexicalContextSupportsTriple(
-	triple: ExtractedEntityTriple,
-	normalizedText: string
-): boolean {
-	const text = normalizedText.toLowerCase();
-	const subject = triple.subject.trim().toLowerCase();
-	const object = triple.object.trim().toLowerCase();
-	if (!subject || !object) return false;
-	return text.includes(subject) && text.includes(object);
-}
-
-/** Post-LLM gate before writing ENTITY_RELATES edges. */
+/** Post-LLM gate before writing ENTITY_RELATES edges (confidence only — LLM judged the triple). */
 export function acceptEntityTriple(
 	triple: ExtractedEntityTriple,
-	normalizedText: string
+	_normalizedText: string
 ): boolean {
 	const minConfidence =
 		triple.predicate === 'related_to'
 			? MIN_TRIPLE_CONFIDENCE_RELATED_TO
 			: MIN_TRIPLE_CONFIDENCE_DEFAULT;
-	if (triple.confidence < minConfidence) return false;
-	if (triple.predicate === 'related_to') {
-		return lexicalContextSupportsTriple(triple, normalizedText);
-	}
-	return true;
+	return triple.confidence >= minConfidence;
 }
 
 export function filterAcceptedEntityTriples(input: {
@@ -276,9 +222,9 @@ async function extractEntityMentionsOnce(
 		'Return ONLY JSON.',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes (including procedures, anatomy, devices, and institutions when they are concrete spans in the text).',
 		...ENTITY_EXTRACTION_OMIT_RULES,
+		...ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
 		`For each item, entityType must be exactly one of these keys, copied verbatim in lowercase ASCII (no other strings): ${keyUnion}`,
-		'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics, artifact for documents, event for time-bounded occurrences or procedures.',
-		'Never invent entityType labels such as procedure, anatomy, device, or landmark — map them to the keys above.',
+		...ENTITY_EXTRACTION_TYPE_GUIDANCE,
 		'Schema: [{"surface":"<text as written>","entityType":"<one of the keys above>","confidence":0.0-1.0}]',
 		'Catalog:',
 		catalog,
@@ -428,9 +374,12 @@ async function extractEntityGraphOnce(
 		'',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
 		...ENTITY_EXTRACTION_OMIT_RULES,
+		...ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
 		`For each mention, entityType must be exactly one of: ${keyUnion}`,
+		...ENTITY_EXTRACTION_TYPE_GUIDANCE,
 		'Allowed triple predicates: related_to, depends_on, part_of, located_in, knows, works_at.',
 		'Triples must only reference surfaces listed in mentions. Use empty triples array if none.',
+		...ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
 		'Catalog:',
 		catalog,
 		knownEntitiesBlock,
@@ -444,7 +393,7 @@ async function extractEntityGraphOnce(
 		{
 			role: 'system',
 			content:
-				'You extract entity mentions and typed edges for a personal memory graph. Return only valid JSON.'
+				'You extract entity mentions and typed edges for a personal memory graph. Keep multi-word titles and recipe names as single surfaces; use person only for human beings. Return only valid JSON.'
 		},
 		{ role: 'user', content: prompt }
 	];

@@ -8,6 +8,7 @@
   import {
     evidenceHitsFromAnswerQuestionPayload,
     formatToolArgumentsSummary,
+    parseFinalAnswerText,
     resolveToolResultView,
     type ChatTimelineKind,
     type ToolResultMemoryHit,
@@ -55,7 +56,15 @@
     return [];
   });
 
-  /** answer_question prose is rendered once in the final assistant bubble (citations styled there). */
+  const answerQuestionProse = $derived(
+    kind === "tool_result" &&
+      tool === "answer_question" &&
+      !failed &&
+      content.trim().length > 0
+      ? parseFinalAnswerText("", content).trim()
+      : "",
+  );
+
   const showToolResultText = $derived(
     kind === "tool_result" &&
       tool !== "answer_question" &&
@@ -93,6 +102,12 @@
       </p>
     {/if}
   </div>
+
+  {#if kind === "tool_result" && answerQuestionProse}
+    <div class="pl-1">
+      <ChatMarkdown content={answerQuestionProse} />
+    </div>
+  {/if}
 
   {#if kind === "tool_result" && memoryHits.length > 0}
     <ul class="flex flex-col gap-2 list-none m-0 p-0 pl-1">

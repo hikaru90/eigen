@@ -53,32 +53,12 @@ describe('shouldRetryEntityMentionExtraction', () => {
 		expect(shouldRetryEntityMentionExtraction('   ')).toBe(false);
 	});
 
-	it('retries notes that start a new sentence with a capitalized word', () => {
-		expect(
-			shouldRetryEntityMentionExtraction(
-				'Done. Marcus called about dinner plans for next week soon enough.'
-			)
-		).toBe(true);
+	it('retries medium-length notes (length gate only)', () => {
+		expect(shouldRetryEntityMentionExtraction('a'.repeat(60))).toBe(true);
 	});
 
-	it('retries notes with two capitalized tokens', () => {
-		expect(
-			shouldRetryEntityMentionExtraction(
-				'Marcus Berlin lunch meeting next week planning session today now.'
-			)
-		).toBe(true);
-	});
-
-	it('does not retry medium-length notes without retry signals', () => {
-		expect(shouldRetryEntityMentionExtraction('a'.repeat(60))).toBe(false);
-	});
-
-	it('does not retry medium-length all-lowercase notes without retry signals', () => {
-		expect(
-			shouldRetryEntityMentionExtraction(
-				'the team discussed plans for next week and agreed on several details today.'
-			)
-		).toBe(false);
+	it('does not retry notes below short length threshold', () => {
+		expect(shouldRetryEntityMentionExtraction('a'.repeat(40))).toBe(false);
 	});
 });
 
@@ -89,26 +69,10 @@ describe('resolveEntityTypeKey', () => {
 		expect(resolveEntityTypeKey('TECHNOLOGY', allowed)).toBe('technology');
 	});
 
-	it('maps common shorthand to canonical keys', () => {
+	it('returns null for shorthand drift — LLM must return ontology keys', () => {
 		const allowed = new Set(['organization', 'technology', 'place']);
-		expect(resolveEntityTypeKey('org', allowed)).toBe('organization');
-		expect(resolveEntityTypeKey('device', allowed)).toBe('technology');
-		expect(resolveEntityTypeKey('location', allowed)).toBe('place');
-	});
-
-	it('maps operative-note drift (procedure, anatomy) to allowed keys', () => {
-		const allowed = new Set(['person', 'place', 'technology', 'organization', 'concept', 'event']);
-		expect(resolveEntityTypeKey('procedure', allowed)).toBe('event');
-		expect(resolveEntityTypeKey('anatomy', allowed)).toBe('place');
-		expect(resolveEntityTypeKey('landmark', allowed)).toBe('place');
-	});
-
-	it('maps abstract and human drift to concept and person', () => {
-		const allowed = new Set(['person', 'concept']);
-		expect(resolveEntityTypeKey('abstract', allowed)).toBe('concept');
-		expect(resolveEntityTypeKey('topic', allowed)).toBe('concept');
-		expect(resolveEntityTypeKey('human', allowed)).toBe('person');
-		expect(resolveEntityTypeKey('individual', allowed)).toBe('person');
+		expect(resolveEntityTypeKey('org', allowed)).toBeNull();
+		expect(resolveEntityTypeKey('device', allowed)).toBeNull();
 	});
 
 	it('returns null for empty or whitespace-only input', () => {
@@ -143,22 +107,20 @@ describe('parseEntityMentions', () => {
 		expect(out).toEqual([{ surface: 'StealthArray', entityType: 'technology', confidence: 0.9 }]);
 	});
 
-	it('keeps surgical spans when the model uses procedure/anatomy labels', () => {
+	it('drops mentions when entityType is not an exact ontology key', () => {
 		const allowed = new Set(['person', 'place', 'technology', 'organization', 'concept', 'event']);
 		const out = parseEntityMentions(
 			JSON.stringify([
 				{ surface: 'MIS TLIF', entityType: 'procedure', confidence: 0.9 },
-				{ surface: 'L4 transverse processes', entityType: 'anatomy', confidence: 0.85 },
 				{ surface: 'StealthArray navigation', entityType: 'technology', confidence: 0.8 }
 			]),
 			allowed
 		);
-		expect(out).toHaveLength(3);
-		expect(out[0]).toMatchObject({ surface: 'MIS TLIF', entityType: 'event' });
-		expect(out[1]).toMatchObject({ surface: 'L4 transverse processes', entityType: 'place' });
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ surface: 'StealthArray navigation', entityType: 'technology' });
 	});
 
-	it('keeps mentions when the model uses abstract or human labels', () => {
+	it('drops human/abstract drift labels without synonym remapping', () => {
 		const allowed = new Set(['person', 'concept']);
 		const out = parseEntityMentions(
 			JSON.stringify([
@@ -167,9 +129,7 @@ describe('parseEntityMentions', () => {
 			]),
 			allowed
 		);
-		expect(out).toHaveLength(2);
-		expect(out[0]).toMatchObject({ surface: 'Jonas', entityType: 'person' });
-		expect(out[1]).toMatchObject({ surface: 'silence', entityType: 'concept' });
+		expect(out).toEqual([]);
 	});
 
 	it('parses and filters types not in the ontology key set', () => {
@@ -204,12 +164,12 @@ describe('parseEntityMentions', () => {
 		expect(out.map((m) => m.confidence)).toEqual([1, 0, 0, 0]);
 	});
 
-	it('drops greeting surfaces after parse', () => {
+	it('keeps all LLM mentions — greeting filtering is prompt-only', () => {
 		const out = parseEntityMentions(
 			'[{"surface":"Hallo","entityType":"person","confidence":0.9},{"surface":"Alex","entityType":"person","confidence":0.95}]',
 			ALLOWED_TEST_KEYS
 		);
-		expect(out).toEqual([{ surface: 'Alex', entityType: 'person', confidence: 0.95 }]);
+		expect(out).toHaveLength(2);
 	});
 
 	it('throws when JSON is not an array', () => {
@@ -232,20 +192,11 @@ describe('parseEntityMentions', () => {
 });
 
 describe('acceptEntityTriple', () => {
-	it('rejects low-confidence related_to without lexical support', () => {
+	it('accepts high-confidence related_to without lexical substring gate', () => {
 		expect(
 			acceptEntityTriple(
 				{ subject: 'Sam', object: 'Mars', predicate: 'related_to', confidence: 0.9 },
 				'sam met alex in berlin'
-			)
-		).toBe(false);
-	});
-
-	it('accepts related_to when both endpoints appear in text', () => {
-		expect(
-			acceptEntityTriple(
-				{ subject: 'Sam', object: 'Berlin', predicate: 'related_to', confidence: 0.8 },
-				'sam traveled to berlin'
 			)
 		).toBe(true);
 	});
@@ -279,7 +230,7 @@ describe('acceptEntityTriple', () => {
 });
 
 describe('filterAcceptedEntityTriples', () => {
-	it('filters invalid triples from a batch', () => {
+	it('filters triples below confidence floors only', () => {
 		const out = filterAcceptedEntityTriples({
 			normalizedText: 'sam in berlin',
 			triples: [
@@ -287,8 +238,7 @@ describe('filterAcceptedEntityTriples', () => {
 				{ subject: 'Sam', object: 'Mars', predicate: 'related_to', confidence: 0.9 }
 			]
 		});
-		expect(out).toHaveLength(1);
-		expect(out[0].predicate).toBe('located_in');
+		expect(out).toHaveLength(2);
 	});
 });
 
@@ -586,6 +536,27 @@ describe('extractEntityMentions', () => {
 		warnSpy.mockRestore();
 	});
 
+	it('includes surface-integrity and type guidance in the default pass prompt', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			chatResponse('[{"surface":"Miso Glazed Salmon","entityType":"artifact","confidence":0.9}]')
+		);
+
+		await extractEntityMentions({
+			userId: 'u1',
+			normalizedText: '# Miso Glazed Salmon\n* miso paste',
+			ontologyEntityKinds: [
+				...ONTOLOGY_KINDS_FOR_TESTS,
+				{ key: 'artifact', name: 'Artifact', definition: 'A created object' }
+			]
+		});
+
+		const prompt = String(llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]?.content);
+		expect(prompt).toContain('Miso Glazed Salmon');
+		expect(prompt).toContain('Markdown headings');
+		expect(prompt).toContain('artifact for documents/recipes/named dishes');
+		expect(prompt).toContain('Use person only when the text clearly refers to a human being');
+	});
+
 	it('includes knownEntities in the default pass prompt', async () => {
 		llmChatCompletionMock.mockResolvedValue(
 			chatResponse('[{"surface":"Jonas","entityType":"person","confidence":0.9}]')
@@ -750,6 +721,28 @@ describe('extractEntityGraphBundle', () => {
 		});
 
 		expect(out).toEqual({ mentions: [], triples: [] });
+	});
+
+	it('includes surface-integrity, type guidance, and part_of triple rules in the graph bundle prompt', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			graphBundleResponse([{ surface: 'Herb Roast Chicken', entityType: 'artifact', confidence: 0.9 }])
+		);
+
+		await extractEntityGraphBundle({
+			userId: 'u1',
+			normalizedText: '# Herb Roast Chicken\n* two lemons',
+			ontologyEntityKinds: [
+				...ONTOLOGY_KINDS_FOR_TESTS,
+				{ key: 'artifact', name: 'Artifact', definition: 'A created object' }
+			]
+		});
+
+		const prompt = String(llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]?.content);
+		expect(prompt).toContain('Herb Roast Chicken');
+		expect(prompt).toContain('part_of triples');
+		expect(prompt).toContain('artifact for documents/recipes/named dishes');
+		const systemPrompt = String(llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content);
+		expect(systemPrompt).toContain('Keep multi-word titles and recipe names as single surfaces');
 	});
 
 	it('includes knownEntities in the graph bundle prompt', async () => {

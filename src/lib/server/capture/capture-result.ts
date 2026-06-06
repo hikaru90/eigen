@@ -58,7 +58,8 @@ export async function loadThoughtCaptureResult(
 			memoryType: thought.memoryType,
 			cues: thought.cues,
 			enrichedAt: thought.enrichedAt,
-			enrichQueueStatus: thought.enrichQueueStatus
+			enrichQueueStatus: thought.enrichQueueStatus,
+			enrichQueueError: thought.enrichQueueError
 		})
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -158,6 +159,7 @@ export async function loadThoughtCaptureResult(
 		})),
 		linkedThoughts,
 		enrichmentComplete: row.enrichedAt !== null,
-		queueStatus: row.enrichQueueStatus ?? null
+		queueStatus: row.enrichQueueStatus ?? null,
+		queueError: row.enrichQueueError ?? null
 	};
 }

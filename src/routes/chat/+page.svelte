@@ -176,7 +176,10 @@
 
   function pushStreamEvent(
     event: ChatProgressEvent,
-    ctx: { lastAnswerQuestionPreview: { current: string | undefined } },
+    ctx: {
+      lastAnswerQuestionPreview: { current: string | undefined };
+      answerShownInTimeline: { current: boolean };
+    },
   ) {
     streamEventsReceived = true;
     agentStatus = null;
@@ -229,6 +232,10 @@
       const preview = event.preview ?? "";
       if (event.tool === "answer_question") {
         ctx.lastAnswerQuestionPreview.current = preview;
+        if (event.failed !== true) {
+          const prose = parseFinalAnswerText("", preview).trim();
+          if (prose) ctx.answerShownInTimeline.current = true;
+        }
       }
       messages.push({
         role: "assistant",
@@ -276,7 +283,10 @@
         throw new Error(errBody?.message ?? `HTTP ${res.status}`);
       }
 
-      const streamCtx = { lastAnswerQuestionPreview: { current: undefined as string | undefined } };
+      const streamCtx = {
+        lastAnswerQuestionPreview: { current: undefined as string | undefined },
+        answerShownInTimeline: { current: false },
+      };
       const done = await consumeChatNdjsonStream(
         res,
         (event) => pushStreamEvent(event, streamCtx),
@@ -291,7 +301,9 @@
       }
       if (done.sessionId) activeSessionId = done.sessionId;
       if (done.sessionId && browser) localStorage.setItem(STORAGE_KEY, done.sessionId);
-      messages.push({ role: "assistant", variant: "text", content: responseText });
+      if (!streamCtx.answerShownInTimeline.current) {
+        messages.push({ role: "assistant", variant: "text", content: responseText });
+      }
       loadSessions();
     } catch (err) {
       if ((err as Error)?.name === "AbortError") {

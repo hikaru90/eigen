@@ -1,0 +1,36 @@
+---
+description: Never use regex/keyword heuristics for semantic classification — LLM is the judge
+alwaysApply: true
+---
+
+# No String Heuristics for Semantic Decisions
+
+**Never** use regex, keyword lists, stop-word filters, substring rules, or string pattern matching in application code to decide **what something means** (entity type, thought category, intent, temporal scope, person vs place, contradictions, edit intent, retrieval mode, etc.).
+
+## Non-negotiable
+
+- Do **not** classify capture text with capitalized-word regex (e.g. Title Case → `person`).
+- Do **not** route retrieval or Q&A with query keyword patterns (`when`, `who`, `conflict`, `delete`, …).
+- Do **not** infer sentiment, topic, location, or contradiction from keyword lists in code.
+- Do **not** short-circuit ingest/edit flows with regex intent detectors — always call the LLM.
+- Do **not** add synonym maps that **re-type** LLM output (e.g. `org` → `organization`, `idea` → `fact`). Accept exact ontology keys from the model; retry or fail if invalid.
+
+## Required approach
+
+- **LLM as judge** for every semantic label, intent, and relationship.
+- Pass structured ontology catalogs and explicit JSON schemas in prompts.
+- Post-LLM code may only: parse JSON, validate schema shape, trim IDs, enforce numeric bounds, and map to DB columns **without changing meaning**.
+
+## Allowed (not semantic classification)
+
+- Lexical indexing (`lexical_text`, tsvector, BM25, token overlap for **search**, not typing).
+- Embedding similarity for retrieval and entity resolution.
+- Graph traversal from persisted LLM-extracted structure.
+- Format/contract validation (UUID trim, `top_k` bounds, required JSON keys).
+- Secret redaction and embedding strip (observability boundaries).
+
+## Review checklist
+
+- Does new code use `.test()`, `.match()`, or keyword `Set`s to decide entity type, category, intent, or retrieval path?
+- If yes → remove and replace with an LLM call (or delete the branch).
+- Are removed heuristics marked with `XXX REMOVED` and a pointer to this rule?

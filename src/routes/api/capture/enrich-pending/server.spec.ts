@@ -1,0 +1,45 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET } from './+server';
+
+const { listPendingEnrichThoughtIdsMock, scheduleCaptureEnrichWorkerMock } = vi.hoisted(() => ({
+	listPendingEnrichThoughtIdsMock: vi.fn(),
+	scheduleCaptureEnrichWorkerMock: vi.fn()
+}));
+
+vi.mock('$lib/server/capture/enrich-pending', () => ({
+	listPendingEnrichThoughtIds: listPendingEnrichThoughtIdsMock
+}));
+
+vi.mock('$lib/server/capture/capture-enrich-worker', () => ({
+	scheduleCaptureEnrichWorker: scheduleCaptureEnrichWorkerMock
+}));
+
+describe('GET /api/capture/enrich-pending', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('requires auth', async () => {
+		await expect(GET({ locals: { user: null } } as never)).rejects.toMatchObject({ status: 401 });
+	});
+
+	it('returns pending thought ids', async () => {
+		listPendingEnrichThoughtIdsMock.mockResolvedValue(['t1', 't2']);
+		const res = await GET({ locals: { user: { id: 'u1' } } } as never);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toEqual({ thoughtIds: ['t1', 't2'] });
+	});
+
+	it('schedules enrich worker when queue is non-empty', async () => {
+		listPendingEnrichThoughtIdsMock.mockResolvedValue(['t1']);
+		await GET({ locals: { user: { id: 'u1' } } } as never);
+		expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1');
+	});
+
+	it('does not schedule worker when queue is empty', async () => {
+		listPendingEnrichThoughtIdsMock.mockResolvedValue([]);
+		await GET({ locals: { user: { id: 'u1' } } } as never);
+		expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled();
+	});
+});

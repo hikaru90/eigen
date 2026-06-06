@@ -1,28 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { pruneMock, repairMock, checkConnectionsMock, pruneDuplicateMock, pruneOrphanThoughtsMock } =
-	vi.hoisted(() => ({
-	pruneMock: vi.fn(),
-	repairMock: vi.fn(),
-	checkConnectionsMock: vi.fn(),
-	pruneDuplicateMock: vi.fn(),
-	pruneOrphanThoughtsMock: vi.fn()
+const { runGraphRearrangeMock } = vi.hoisted(() => ({
+	runGraphRearrangeMock: vi.fn()
 }));
 
-vi.mock('$lib/server/consolidation/check-entity-graph-connections', () => ({
-	checkEntityGraphConnectionsForUser: checkConnectionsMock
-}));
-vi.mock('$lib/server/consolidation/prune-orphan-thought-nodes', () => ({
-	pruneOrphanThoughtNodesForUser: pruneOrphanThoughtsMock
-}));
-vi.mock('$lib/server/consolidation/prune-duplicate-thought-relation-edges', () => ({
-	pruneDuplicateThoughtRelationEdgesForUser: pruneDuplicateMock
-}));
-vi.mock('$lib/server/consolidation/prune-suspicious-entity-edges', () => ({
-	pruneSuspiciousEntityEdgesForUser: pruneMock
-}));
-vi.mock('$lib/server/consolidation/repair-entity-relations', () => ({
-	repairEntityRelationsForUser: repairMock
+vi.mock('$lib/server/graph/run-graph-rearrange', () => ({
+	runGraphRearrangeForUser: runGraphRearrangeMock
 }));
 
 import { POST } from './+server';
@@ -30,17 +13,20 @@ import { POST } from './+server';
 describe('POST /api/graph/rearrange', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		pruneMock.mockResolvedValue({ scanned: 1, removed: 0 });
-		pruneOrphanThoughtsMock.mockResolvedValue({ graphThoughts: 0, orphanThoughts: 0, removed: 0 });
-		pruneDuplicateMock.mockResolvedValue({ scanned: 1, flagged: 0, removed: 0 });
-		checkConnectionsMock.mockResolvedValue({ scanned: 1, flagged: 0, removed: 0 });
-		repairMock.mockResolvedValue({
-			scanned: 0,
-			gaps: 0,
-			processed: 0,
-			repaired: 0,
-			edgesAdded: 0,
-			suspiciousEdgesRemoved: 0
+		runGraphRearrangeMock.mockResolvedValue({
+			pruned: { scanned: 1, removed: 0 },
+			orphanThoughts: { graphThoughts: 0, orphanThoughts: 0, removed: 0 },
+			orphanEntities: { graphEntities: 0, orphanEntities: 0, removed: 0 },
+			duplicatePruned: { scanned: 1, flagged: 0, removed: 0 },
+			connections: { scanned: 1, flagged: 0, removed: 0 },
+			repaired: {
+				scanned: 0,
+				gaps: 0,
+				processed: 0,
+				repaired: 0,
+				edgesAdded: 0,
+				suspiciousEdgesRemoved: 0
+			}
 		});
 	});
 
@@ -50,15 +36,58 @@ describe('POST /api/graph/rearrange', () => {
 		});
 	});
 
-	it('runs prune and repair for any signed-in user', async () => {
+	it('runs rearrange for any signed-in user', async () => {
 		const res = await POST({
-			locals: { user: { id: 'u1', email: 'a@b.com' } }
+			locals: { user: { id: 'u1', email: 'a@b.com' } },
+			request: { headers: { get: () => '' }, signal: { addEventListener: () => {} } }
 		} as never);
 		expect(res.status).toBe(200);
-		expect(pruneMock).toHaveBeenCalledWith('u1');
-		expect(pruneOrphanThoughtsMock).toHaveBeenCalledWith('u1');
-		expect(pruneDuplicateMock).toHaveBeenCalledWith('u1');
-		expect(checkConnectionsMock).toHaveBeenCalledWith('u1');
-		expect(repairMock).toHaveBeenCalledWith('u1');
+		expect(runGraphRearrangeMock).toHaveBeenCalledWith('u1');
+	});
+
+	it('streams ndjson when Accept includes application/x-ndjson', async () => {
+		const phases: string[] = [];
+		runGraphRearrangeMock.mockImplementation(async (_userId: string, onProgress?: (phase: string) => void) => {
+			await onProgress?.('prune_weak_edges');
+			await onProgress?.('repair_relations');
+			return {
+				pruned: { scanned: 1, removed: 0 },
+				orphanThoughts: { graphThoughts: 0, orphanThoughts: 0, removed: 0 },
+				orphanEntities: { graphEntities: 0, orphanEntities: 0, removed: 0 },
+				duplicatePruned: { scanned: 1, flagged: 0, removed: 0 },
+				connections: { scanned: 1, flagged: 0, removed: 0 },
+				repaired: {
+					scanned: 0,
+					gaps: 0,
+					processed: 0,
+					repaired: 0,
+					edgesAdded: 0,
+					suspiciousEdgesRemoved: 0
+				}
+			};
+		});
+
+		const res = await POST({
+			locals: { user: { id: 'u1', email: 'a@b.com' } },
+			request: {
+				headers: {
+					get: (name: string) => (name.toLowerCase() === 'accept' ? 'application/x-ndjson' : null)
+				},
+				signal: { addEventListener: () => {} }
+			}
+		} as never);
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toContain('application/x-ndjson');
+		const text = await res.text();
+		const lines = text
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line) as { type: string; phase?: string });
+		for (const line of lines) {
+			if (line.type === 'progress' && line.phase) phases.push(line.phase);
+		}
+		expect(phases).toEqual(['prune_weak_edges', 'repair_relations']);
+		expect(lines.at(-1)).toMatchObject({ type: 'done' });
 	});
 });

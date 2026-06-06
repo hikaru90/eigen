@@ -421,6 +421,49 @@ describe('llm client retries', () => {
 		}
 	});
 
+	it('pipelines in-flight requests when overlapping callers do not await prior completions', async () => {
+		vi.resetModules();
+		vi.useFakeTimers();
+		try {
+			mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '1000';
+			const pendingResolvers: Array<(value: Response) => void> = [];
+			const fetchMock = vi.fn(
+				() =>
+					new Promise<Response>((resolve) => {
+						pendingResolvers.push(resolve);
+					})
+			);
+			vi.stubGlobal('fetch', fetchMock);
+
+			const { llmChatCompletion: chat } = await import('./llm-client');
+			const okBody = {
+				usage: { prompt_tokens: 1, completion_tokens: 1 },
+				choices: [{ message: { content: 'ok' } }]
+			};
+
+			const first = chat({ userId: 'u1', messages: [{ role: 'user', content: '1' }] });
+			await vi.advanceTimersByTimeAsync(0);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			const second = chat({ userId: 'u1', messages: [{ role: 'user', content: '2' }] });
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+			expect(pendingResolvers).toHaveLength(2);
+
+			const third = chat({ userId: 'u1', messages: [{ role: 'user', content: '3' }] });
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(fetchMock).toHaveBeenCalledTimes(3);
+			expect(pendingResolvers).toHaveLength(3);
+
+			for (const resolve of pendingResolvers) {
+				resolve(response(true, 200, okBody));
+			}
+			await Promise.all([first, second, third]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('resolves chat routing rule via /routing-rules when model env is empty', async () => {
 		vi.resetModules();
 		mockEnv.LLM_MODEL_CHAT = '';

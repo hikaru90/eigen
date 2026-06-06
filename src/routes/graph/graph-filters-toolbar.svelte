@@ -123,6 +123,6 @@
 		{#if graphRearrangeBusy}
 			<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
 		{/if}
-		Rearrange graph
+		Rearrange and clean up graph
 	</Button>
 </div>

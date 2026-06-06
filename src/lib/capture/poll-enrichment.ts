@@ -7,6 +7,7 @@ export const BACKGROUND_ENRICH_TIMEOUT_MS = 5 * 60 * 1000;
 export function pollUntilEnrichmentComplete(input: {
 	thoughtId: string;
 	onUpdate: (thought: Awaited<ReturnType<typeof fetchCaptureResult>>) => void;
+	onTimeout?: (thoughtId: string) => void;
 	pollMs?: number;
 	timeoutMs?: number;
 }): () => void {
@@ -25,7 +26,10 @@ export function pollUntilEnrichmentComplete(input: {
 		} catch {
 			// Transient poll errors — retry until timeout.
 		}
-		if (Date.now() - startedAt >= timeoutMs) return;
+		if (Date.now() - startedAt >= timeoutMs) {
+			input.onTimeout?.(input.thoughtId);
+			return;
+		}
 		timer = setTimeout(() => {
 			void tick();
 		}, pollMs);

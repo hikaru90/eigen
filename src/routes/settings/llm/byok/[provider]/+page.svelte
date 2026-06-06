@@ -124,7 +124,7 @@
 					type="text"
 					name="modelEmbedding"
 					bind:value={modelEmbedding}
-					placeholder="qwen/qwen3-embedding-4b"
+					placeholder="qwen/qwen3-embedding-8b"
 					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
 				/>
 			</div>

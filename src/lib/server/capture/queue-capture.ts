@@ -3,7 +3,7 @@
  * Tier 2 (background enrich) and tier 3 (overnight consolidation) add vectors, links, and
  * community artifacts on the same row — see docs/planning/ingest-retrieval-timing.md.
  */
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { captureSession, thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
@@ -27,6 +27,8 @@ export type QueueCaptureOptions = {
 	source?: CaptureSource;
 	/** When true, skip scheduling background worker (eval inline enrich). */
 	skipWorker?: boolean;
+	/** Override thought.createdAt (e.g. backdated haystack session date from external driver). */
+	capturedAt?: Date;
 };
 
 async function resolvePlaceholderOntologyKindId(userId: string): Promise<string> {
@@ -91,6 +93,7 @@ export async function queueCapture(
 		})
 		.returning({ id: captureSession.id });
 
+	const capturedAt = options?.capturedAt;
 	const [stored] = await db
 		.insert(thought)
 		.values({
@@ -105,7 +108,8 @@ export async function queueCapture(
 			metadata: { encrypted: true, captureSessionId: sessionRow.id, queueTier: 'pending_enrich' },
 			metadataEncrypted,
 			enrichQueueStatus: 'pending',
-			captureSource: source
+			captureSource: source,
+			...(capturedAt ? { createdAt: capturedAt, updatedAt: capturedAt } : {})
 		})
 		.returning({ id: thought.id });
 
@@ -196,4 +200,86 @@ export async function countPendingEnrichRows(userId: string): Promise<number> {
 		.from(thought)
 		.where(and(eq(thought.userId, userId), eq(thought.enrichQueueStatus, 'pending')));
 	return Number(row?.n ?? 0);
+}
+
+/** Default age before a stuck `processing` row is requeued as `pending`. */
+export const STALE_ENRICH_PROCESSING_MAX_AGE_MS = 10 * 60 * 1000;
+
+const STALE_RECOVERY_NOTE = 'Enrichment interrupted before completion (stale processing recovery)';
+
+/**
+ * Reset enrich rows left in `processing` after a worker crash or hang.
+ * Returns the number of rows requeued.
+ */
+export async function recoverStaleEnrichProcessingRows(
+	userId: string,
+	maxAgeMs: number = STALE_ENRICH_PROCESSING_MAX_AGE_MS
+): Promise<number> {
+	const cutoff = new Date(Date.now() - maxAgeMs);
+	const db = getDb();
+	const stale = await db
+		.select({ id: thought.id })
+		.from(thought)
+		.where(
+			and(
+				eq(thought.userId, userId),
+				eq(thought.enrichQueueStatus, 'processing'),
+				lt(thought.updatedAt, cutoff)
+			)
+		);
+
+	if (stale.length === 0) return 0;
+
+	await db
+		.update(thought)
+		.set({
+			enrichQueueStatus: 'pending' satisfies EnrichQueueStatus,
+			enrichQueueError: STALE_RECOVERY_NOTE
+		})
+		.where(
+			and(
+				eq(thought.userId, userId),
+				inArray(
+					thought.id,
+					stale.map((row) => row.id)
+				)
+			)
+		);
+
+	return stale.length;
+}
+
+const RETRYABLE_ENRICH_STATUSES: EnrichQueueStatus[] = ['pending', 'processing', 'failed'];
+
+/** Re-queue one thought for background enrich (user-initiated retry). */
+export async function requeueEnrichThought(
+	userId: string,
+	thoughtId: string
+): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'not_retryable' }> {
+	const db = getDb();
+	const [existing] = await db
+		.select({ id: thought.id, enrichQueueStatus: thought.enrichQueueStatus })
+		.from(thought)
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+		.limit(1);
+
+	if (!existing) {
+		return { ok: false, reason: 'not_found' };
+	}
+
+	const status = existing.enrichQueueStatus;
+	if (!status || !RETRYABLE_ENRICH_STATUSES.includes(status)) {
+		return { ok: false, reason: 'not_retryable' };
+	}
+
+	await db
+		.update(thought)
+		.set({
+			enrichQueueStatus: 'pending' satisfies EnrichQueueStatus,
+			enrichQueueError: null
+		})
+		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)));
+
+	scheduleCaptureEnrichWorker(userId);
+	return { ok: true };
 }

@@ -58,6 +58,8 @@ import {
 	resolveIngestRetryMax
 } from './ingest-retry';
 import { storedTextReflectsEdit } from './edit-verification';
+import { mapWithConcurrency, resolveEvalEntryConcurrency } from './concurrency';
+import { collectNextWave } from './eval-waves';
 import {
 	EvalRunStoppedError,
 	assertEvalRunNotStopped,
@@ -248,6 +250,14 @@ async function runCaptureEntry(input: {
 	if (!rawText.trim()) {
 		throw new Error('capture entry missing rawText');
 	}
+	const capturedAtRaw = input.entry.inputJson.createdAt;
+	const capturedAt =
+		typeof capturedAtRaw === 'string' && capturedAtRaw.trim()
+			? new Date(capturedAtRaw)
+			: undefined;
+	if (capturedAt && Number.isNaN(capturedAt.getTime())) {
+		throw new Error(`capture entry has invalid createdAt: ${capturedAtRaw}`);
+	}
 	const fixtureRef = input.entry.fixtureRef ?? 'unknown';
 	const billing = evalBillingOpts(input.operatorUserId);
 
@@ -268,6 +278,7 @@ async function runCaptureEntry(input: {
 		() =>
 			captureThought(input.evalUserId, rawText, {
 				awaitEnrichment: false,
+				...(capturedAt ? { capturedAt } : {}),
 				onProgress: async (ev) => {
 					const phases = ev.parallel ? ev.phases.join(',') : ev.phase;
 					await appendEvalEvent({
@@ -894,19 +905,39 @@ export async function executeEvalRun(input: {
 				const pending = entries.filter((e) => e.status !== 'completed' && e.status !== 'failed');
 				if (pending.length === 0) break;
 
-				const entry = pending[0]!;
+				const wave = collectNextWave(pending);
+				const waveLabel =
+					wave.length === 1
+						? `step ${wave[0]!.ordinal + 1}/${total}: ${wave[0]!.kind} ${wave[0]!.fixtureRef ?? ''}`
+						: `wave ${wave[0]!.ordinal + 1}-${wave[wave.length - 1]!.ordinal + 1}/${total}: ` +
+							`${wave.length}× ${String(wave[0]!.inputJson?.parallelWave ?? wave[0]!.kind)}`;
+
 				await appendEvalEvent({
 					operatorUserId: input.operatorUserId,
 					runId: input.runId,
-					entryId: entry.id,
-					message: `step ${entry.ordinal + 1}/${total}: ${entry.kind} ${entry.fixtureRef ?? ''}`
+					entryId: wave.length === 1 ? wave[0]!.id : undefined,
+					message: waveLabel
 				});
-				await runOneEntry({
-					operatorUserId: input.operatorUserId,
-					runId: input.runId,
-					entry,
-					evalUserId: run.evalUserId,
-					corpusFixtureMap
+
+				const waveId = wave[0]!.inputJson?.parallelWave;
+				const entryConcurrency =
+					typeof waveId === 'string' && waveId.trim()
+						? resolveEvalEntryConcurrency()
+						: 1;
+				await mapWithConcurrency(wave, entryConcurrency, async (entry) => {
+					await appendEvalEvent({
+						operatorUserId: input.operatorUserId,
+						runId: input.runId,
+						entryId: entry.id,
+						message: `entry start: ${entry.kind} ${entry.fixtureRef ?? ''}`
+					});
+					await runOneEntry({
+						operatorUserId: input.operatorUserId,
+						runId: input.runId,
+						entry,
+						evalUserId: run.evalUserId,
+						corpusFixtureMap
+					});
 				});
 				entries = await listEvalEntries(input.operatorUserId, input.runId);
 			}

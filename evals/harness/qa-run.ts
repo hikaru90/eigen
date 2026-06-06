@@ -8,6 +8,110 @@ export function expandQa(qa: EvalQaRecord): ExpandedEvalEntry[] {
 	return expandQaEntries([qa]);
 }
 
+function qasHaveEdits(qas: EvalQaRecord[]): boolean {
+	return qas.some((qa) => Boolean(qa.edit));
+}
+
+function appendCaptureEntries(input: {
+	entries: ExpandedEvalEntry[];
+	captureByFixture: Map<string, QaCapture>;
+	corpus: Map<string, { rawText?: string } | undefined>;
+	goal: string;
+	startOrdinal: number;
+}): number {
+	let ordinal = input.startOrdinal;
+	for (const cap of input.captureByFixture.values()) {
+		const thought = input.corpus.get(cap.fixtureId);
+		const rawText = cap.rawText ?? thought?.rawText;
+		if (!rawText) {
+			throw new Error(`[eval] unknown capture ${cap.fixtureId}`);
+		}
+		input.entries.push({
+			ordinal: ordinal++,
+			kind: 'capture',
+			fixtureRef: cap.fixtureId,
+			inputJson: {
+				rawText,
+				goal: input.goal,
+				...(cap.createdAt ? { createdAt: cap.createdAt } : {})
+			},
+			expectedJson: {}
+		});
+	}
+	return ordinal;
+}
+
+function expandQaEntriesPhased(
+	qas: EvalQaRecord[],
+	captureByFixture: Map<string, QaCapture>,
+	corpus: Map<string, { rawText?: string } | undefined>,
+	goal: string
+): ExpandedEvalEntry[] {
+	const entries: ExpandedEvalEntry[] = [];
+	let ordinal = appendCaptureEntries({
+		entries,
+		captureByFixture,
+		corpus,
+		goal,
+		startOrdinal: 0
+	});
+
+	for (const qa of qas) {
+		const checks = checksBeforeEdit(qa);
+		entries.push({
+			ordinal: ordinal++,
+			kind: 'check',
+			fixtureRef: `${qa.id}_check`,
+			inputJson: {
+				qaId: qa.id,
+				checks,
+				fixtureIds: qa.captures.map((c) => c.fixtureId),
+				parallelWave: 'check'
+			},
+			expectedJson: {}
+		});
+	}
+
+	for (const qa of qas) {
+		if (!qa.retrievalQuery) continue;
+		const checks = checksBeforeEdit(qa);
+		entries.push({
+			ordinal: ordinal++,
+			kind: 'retrieval',
+			fixtureRef: `${qa.id}_retrieval`,
+			inputJson: {
+				query: qa.retrievalQuery,
+				category: qa.tags.includes('haystack') ? 'entity_relation' : 'hybrid',
+				parallelWave: 'retrieval'
+			},
+			expectedJson: {
+				relevant: qa.retrievalRelevant,
+				minNdcgAt10: checks.retrieval?.minNdcgAt10 ?? 0.5,
+				needleFixtureId: checks.retrieval?.needleFixtureId,
+				needleTopK: checks.retrieval?.needleTopK ?? 5,
+				requireSalienceBump: checks.learning?.requireSalienceBump ?? false,
+				minAccessCount: checks.learning?.minAccessCount
+			}
+		});
+	}
+
+	for (const qa of qas) {
+		entries.push({
+			ordinal: ordinal++,
+			kind: 'answer',
+			fixtureRef: qa.id,
+			inputJson: {
+				question: qa.question,
+				...(qa.retrievalQuery ? { retrievalQuery: qa.retrievalQuery } : {}),
+				parallelWave: 'answer'
+			},
+			expectedJson: { acceptance: qa.acceptance }
+		});
+	}
+
+	return entries;
+}
+
 /** Expand one or more Q&A tests: shared captures (deduped) then per-QA steps. */
 export function expandQaEntries(qas: EvalQaRecord[]): ExpandedEvalEntry[] {
 	if (qas.length === 0) {
@@ -36,24 +140,17 @@ export function expandQaEntries(qas: EvalQaRecord[]): ExpandedEvalEntry[] {
 			? `Answer eval: ${qas[0]!.question}`
 			: `Answer eval batch: ${qas.length} questions`;
 
-	for (const cap of captureByFixture.values()) {
-		const thought = corpus.get(cap.fixtureId);
-		const rawText = cap.rawText ?? thought?.rawText;
-		if (!rawText) {
-			throw new Error(`[eval] unknown capture ${cap.fixtureId}`);
-		}
-		entries.push({
-			ordinal: ordinal++,
-			kind: 'capture',
-			fixtureRef: cap.fixtureId,
-			inputJson: {
-				rawText,
-				goal,
-				...(cap.createdAt ? { createdAt: cap.createdAt } : {})
-			},
-			expectedJson: {}
-		});
+	if (qas.length > 1 && !qasHaveEdits(qas)) {
+		return expandQaEntriesPhased(qas, captureByFixture, corpus, goal);
 	}
+
+	ordinal = appendCaptureEntries({
+		entries,
+		captureByFixture,
+		corpus,
+		goal,
+		startOrdinal: ordinal
+	});
 
 	const editedFixtures = new Set<string>();
 

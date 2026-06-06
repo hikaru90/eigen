@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evidenceHitsFromAnswerQuestionPayload } from './chat-stream-types';
+import { evidenceHitsFromAnswerQuestionPayload, parseFinalAnswerText } from './chat-stream-types';
 import {
 	compactChatIntermediateSteps,
 	normalizeChatDisplay,
@@ -94,6 +94,30 @@ describe('normalizeChatDisplay', () => {
 		]);
 		expect(out).toHaveLength(1);
 	});
+
+	it('drops duplicate final text after answer_question timeline tool_result', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: To cook salmon, whisk miso glaze and broil. [salmon-id]\nEvidence:\n- Recipe steps [salmon-id]\nUnknown:\n- none'
+		});
+		const out = normalizeChatDisplay([
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_result',
+				tool: 'answer_question',
+				label: 'Tool result · answer_question',
+				content: preview
+			},
+			{
+				role: 'assistant',
+				variant: 'text',
+				content: 'To cook salmon, whisk miso glaze and broil. [salmon-id]'
+			}
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ variant: 'timeline', kind: 'tool_result', tool: 'answer_question' });
+	});
 });
 
 describe('sessionMessagesToChatEntries', () => {
@@ -179,7 +203,40 @@ describe('sessionMessagesToChatEntries', () => {
 			(e) => e.role === 'assistant' && e.variant === 'timeline' && e.kind === 'tool_result'
 		);
 		expect(result && result.variant === 'timeline' && result.content).toBe(preview);
-		expect(evidenceHitsFromAnswerQuestionPayload(preview).length).toBe(1);
+		expect(evidenceHitsFromAnswerQuestionPayload(preview).length).toBe(0);
+	});
+
+	it('tool_step answer_question reload yields parseable answer prose from preview JSON', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: To cook Japanese-Glazed Salmon, whisk a miso glaze and broil. [salmon-id]\nEvidence:\n- Recipe [salmon-id]\nUnknown:\n- none',
+			citations: ['salmon-id'],
+			retrieved: [
+				{
+					id: 'salmon-id',
+					normalizedText: 'Recipe: Japanese Miso-Glazed Salmon.',
+					category: 'observation'
+				}
+			]
+		});
+		const out = sessionMessagesToChatEntries([
+			{
+				role: 'assistant',
+				content: preview,
+				metadata: {
+					variant: 'tool_step',
+					tool: 'answer_question',
+					arguments: { question: 'Wie koche ich Japanese-Glazed Salmon?' }
+				}
+			}
+		]);
+		const result = out.find(
+			(e) => e.role === 'assistant' && e.variant === 'timeline' && e.kind === 'tool_result'
+		);
+		expect(result && result.variant === 'timeline' && result.content).toBe(preview);
+		expect(parseFinalAnswerText('', preview)).toBe(
+			'To cook Japanese-Glazed Salmon, whisk a miso glaze and broil. [salmon-id]'
+		);
 	});
 
 	it('expands tool_step into call / executing / result timeline rows', () => {

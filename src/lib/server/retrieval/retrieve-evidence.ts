@@ -22,7 +22,11 @@ import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import {
 	filterTemporalEvents,
+	fetchTemporalEventSeeds,
 	isTemporalQuery,
+	resolveQueryTimeRange,
+	traverseTemporalContext,
+	type TemporalQueryIntent,
 	type TemporalSearchHit
 } from '$lib/server/retrieval/temporal';
 import {
@@ -226,6 +230,7 @@ export async function retrieveEvidence(params: {
 	query: string;
 	topK?: number;
 	queryEmbedding?: number[];
+	temporalIntent?: TemporalQueryIntent | null;
 }): Promise<RetrievalResult[]> {
 	const timer = createPhaseTimer();
 	const limit = Math.max(1, Math.min(params.topK ?? 12, 100));
@@ -265,22 +270,37 @@ export async function retrieveEvidence(params: {
 
 	const communityQuery = fetchCommunityAnn(params.userId, queryEmbedding, COMMUNITY_ANN_LIMIT);
 
-	const temporalQuery = isTemporalQuery(params.query)
+	const temporalEnabled = isTemporalQuery(params.temporalIntent);
+	const queryRange = resolveQueryTimeRange(params.temporalIntent);
+
+	const temporalQuery = temporalEnabled
 		? filterTemporalEvents({
 				userId: params.userId,
 				query: params.query,
 				queryEmbedding,
+				queryRange,
 				limit: 15
 			})
 		: Promise.resolve([] as TemporalSearchHit[]);
 
-	const [vectorRows, lexicalRows, entityMatches, communities, temporalHits] = await Promise.all([
-		vectorQuery,
-		lexicalQuery,
-		entityQuery,
-		communityQuery,
-		temporalQuery
-	]);
+	const temporalSeedQuery = temporalEnabled
+		? fetchTemporalEventSeeds({
+				userId: params.userId,
+				query: params.query,
+				queryEmbedding,
+				limit: 20
+			})
+		: Promise.resolve([]);
+
+	const [vectorRows, lexicalRows, entityMatches, communities, temporalHits, temporalSeeds] =
+		await Promise.all([
+			vectorQuery,
+			lexicalQuery,
+			entityQuery,
+			communityQuery,
+			temporalQuery,
+			temporalSeedQuery
+		]);
 
 	const candidates = new Map<string, ScoredCandidate>();
 
@@ -313,6 +333,20 @@ export async function retrieveEvidence(params: {
 	}
 	for (const hit of temporalHits) {
 		addCandidate(hit.thoughtId, 'temporal');
+	}
+	for (const seed of temporalSeeds) {
+		addCandidate(seed.thoughtId, 'temporal');
+	}
+
+	if (temporalEnabled && temporalHits.length > 0) {
+		const expanded = await traverseTemporalContext({
+			userId: params.userId,
+			seeds: temporalHits,
+			limit: 40
+		});
+		for (const row of expanded) {
+			addCandidate(row.thoughtId, 'temporal');
+		}
 	}
 
 	const ENTITY_MATCH_MAX_DISTANCE = 0.48;
@@ -476,6 +510,9 @@ export async function retrieveEvidence(params: {
 				seenCommunityIds.set(cid, (seenCommunityIds.get(cid) ?? 0) + 1);
 			}
 
+			const temporalBoost =
+				temporalEnabled && c.sources.has('temporal') ? 0.18 : 0;
+
 			const score =
 				SCORE_WEIGHTS.thoughtSim * thoughtSim +
 				SCORE_WEIGHTS.communitySim * communitySim +
@@ -486,7 +523,8 @@ export async function retrieveEvidence(params: {
 					Math.min((row.salienceScore ?? 1) / SALIENCE_MAX, 1) *
 					direct +
 				SCORE_WEIGHTS.recency * (row.recencyBucket ?? 0) * direct -
-				redundancyPenalty(c, seenCommunityIds);
+				redundancyPenalty(c, seenCommunityIds) +
+				temporalBoost;
 
 			return {
 				candidate: c,

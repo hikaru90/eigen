@@ -28,11 +28,16 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				raw: { type: 'string' }
+				raw: { type: 'string' },
+				captured_at: {
+					type: 'string',
+					description: 'Optional ISO-8601 capture time for backdated memories (temporal anchoring).'
+				}
 			},
 			required: ['raw']
 		},
-		agentArgumentSchema: '{"raw": "string (required) — the text to store"}',
+		agentArgumentSchema:
+			'{"raw": "string (required) — the text to store", "captured_at": "string (optional ISO-8601) — when the memory occurred"}',
 		handler: runCaptureThoughtTool
 	},
 	{
@@ -107,11 +112,16 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			type: 'object',
 			properties: {
 				question: { type: 'string' },
-				top_k: { type: 'number' }
+				top_k: { type: 'number' },
+				reference_time: {
+					type: 'string',
+					description: 'Optional ISO-8601 reference time for temporal validity (defaults to now).'
+				}
 			},
 			required: ['question']
 		},
-		agentArgumentSchema: '{"question": "string (required)", "top_k": "number (optional)"}',
+		agentArgumentSchema:
+			'{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions"}',
 		handler: runAnswerQuestionTool
 	}
 ];

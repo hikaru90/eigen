@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { filterTemporalEvents, inferQueryTimeRange, isTemporalQuery, traverseTemporalContext } from './temporal';
+import { filterTemporalEvents, inferQueryTimeRange, isTemporalQuery, resolveQueryTimeRange, traverseTemporalContext } from './temporal';
 
 const { getDbMock, createThoughtEmbeddingMock, expandContextFromTemporalEventSeedsMock } =
 	vi.hoisted(() => ({
@@ -17,44 +17,35 @@ vi.mock('$lib/server/graph/age', () => ({
 }));
 
 describe('isTemporalQuery', () => {
-	it('detects when/deadline phrasing', () => {
-		expect(isTemporalQuery('When did the saltwater sensor testing start?')).toBe(true);
-		expect(isTemporalQuery('What is the project scope?')).toBe(false);
+	it('returns true when LLM intent marks temporal', () => {
+		expect(isTemporalQuery({ temporal: true, kind: 'ordering', timeWindow: null })).toBe(true);
 	});
 
-	it('returns false for whitespace-only queries', () => {
-		expect(isTemporalQuery('   ')).toBe(false);
+	it('returns false when intent is absent or non-temporal', () => {
+		expect(isTemporalQuery(null)).toBe(false);
+		expect(isTemporalQuery({ temporal: false, kind: 'none', timeWindow: null })).toBe(false);
+	});
+});
+
+describe('resolveQueryTimeRange', () => {
+	it('returns time window from LLM intent', () => {
+		const window = {
+			start: new Date('2026-05-01T00:00:00.000Z'),
+			end: new Date('2026-06-01T00:00:00.000Z')
+		};
+		expect(resolveQueryTimeRange({ temporal: true, kind: 'absolute', timeWindow: window })).toEqual(
+			window
+		);
 	});
 
-	it('detects scheduling and conflict phrasing', () => {
-		expect(isTemporalQuery('Is there a scheduling conflict?')).toBe(true);
-		expect(isTemporalQuery('March schedule conflicts team')).toBe(true);
+	it('returns null when intent has no window', () => {
+		expect(resolveQueryTimeRange({ temporal: true, kind: 'ordering', timeWindow: null })).toBeNull();
 	});
 });
 
 describe('inferQueryTimeRange', () => {
-	it('parses a calendar year window', () => {
-		const range = inferQueryTimeRange('events in 2026');
-		expect(range).not.toBeNull();
-		expect(range?.start.toISOString()).toBe('2026-01-01T00:00:00.000Z');
-		expect(range?.end.toISOString()).toBe('2027-01-01T00:00:00.000Z');
-	});
-
-	it('parses month + year', () => {
-		const range = inferQueryTimeRange('events in May 2026');
-		expect(range).not.toBeNull();
-		expect(range?.start.getUTCMonth()).toBe(4);
-	});
-
-	it('returns null when no explicit window is found', () => {
-		expect(inferQueryTimeRange('random thoughts about bread')).toBeNull();
-	});
-
-	it('parses month name without year using reference date', () => {
-		const range = inferQueryTimeRange('March schedule conflicts team', new Date('2026-05-01T00:00:00Z'));
-		expect(range).not.toBeNull();
-		expect(range?.start.getUTCMonth()).toBe(2);
-		expect(range?.start.getUTCFullYear()).toBe(2026);
+	it('always returns null — query time windows come from LLM intent', () => {
+		expect(inferQueryTimeRange('events in 2026')).toBeNull();
 	});
 });
 

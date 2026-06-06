@@ -197,6 +197,30 @@ export async function deleteEntityVertexFromGraph(input: {
 	});
 }
 
+/** Removes incoming thought→thought links so DETACH DELETE does not fail on dense graphs. */
+export async function deleteThoughtIncomingRelatesToEdges(input: {
+	userId: string;
+	thoughtId: string;
+}): Promise<void> {
+	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
+	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_incoming_relates_to', async () => {
+		await runAgeCypher(
+			renderCypherQuery(
+				`
+			MATCH (:Thought {user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(t:Thought {id: $thought_id, user_id: $user_id})
+			DELETE r
+			RETURN 1 AS ok
+			`,
+				{
+					thought_id: thoughtId,
+					user_id: input.userId
+				}
+			),
+			'ok agtype'
+		);
+	});
+}
+
 /** Removes the thought vertex and every attached edge (including incoming thought links). */
 export async function deleteThoughtVertexFromGraph(input: {
 	userId: string;
@@ -219,6 +243,31 @@ export async function deleteThoughtVertexFromGraph(input: {
 			'ok agtype'
 		);
 	});
+}
+
+/**
+ * Full AGE cleanup when a thought is deleted: detach edges first, remove the vertex,
+ * then drop any linked temporal Event nodes.
+ */
+export async function removeThoughtGraphArtifacts(input: {
+	userId: string;
+	thoughtId: string;
+	temporalEventGraphIds?: string[];
+}): Promise<void> {
+	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
+	await deleteThoughtOutgoingGraphEdges({ userId: input.userId, thoughtId });
+	await deleteThoughtIncomingRelatesToEdges({ userId: input.userId, thoughtId });
+	await deleteThoughtVertexFromGraph({ userId: input.userId, thoughtId });
+
+	if (await thoughtExistsInGraph(input.userId, thoughtId)) {
+		throw new Error(`Thought graph vertex still exists after delete: ${thoughtId}`);
+	}
+
+	for (const eventId of input.temporalEventGraphIds ?? []) {
+		const trimmed = eventId.trim();
+		if (!trimmed) continue;
+		await deleteEventNodeFromGraph({ userId: input.userId, eventId: trimmed });
+	}
 }
 
 /** Wipes every vertex for the tenant graph (Thought, Entity, Event, and attached edges). */
@@ -628,6 +677,56 @@ export async function fetchEntityEdgesForUser(input: {
 				predicate: typeof row.predicate === 'string' ? row.predicate : 'related_to'
 			}))
 			.filter((r) => r.sourceId && r.targetId);
+	});
+}
+
+/** All thought→event OCCURS_IN edges for memory export (no LIMIT). */
+export async function fetchOccursInEdgesForUser(input: {
+	userId: string;
+}): Promise<Array<{ thoughtId: string; eventId: string }>> {
+	return runGraphQueryWithRetry(input.userId, 'age.fetch_occurs_in_edges', async () => {
+		const rows = await runAgeCypher(
+			renderCypherQuery(
+				`
+			MATCH (t:Thought {user_id: $user_id})-[r:OCCURS_IN {user_id: $user_id}]->(e:Event {user_id: $user_id})
+			RETURN t.id AS thought_id, e.id AS event_id
+			`,
+				{ user_id: input.userId }
+			),
+			'thought_id agtype, event_id agtype'
+		);
+
+		return (rows ?? [])
+			.map((row) => ({
+				thoughtId: typeof row.thought_id === 'string' ? row.thought_id : '',
+				eventId: typeof row.event_id === 'string' ? row.event_id : ''
+			}))
+			.filter((r) => r.thoughtId && r.eventId);
+	});
+}
+
+/** All event→entity INVOLVES edges for memory export (no LIMIT). */
+export async function fetchInvolvesEdgesForUser(input: {
+	userId: string;
+}): Promise<Array<{ eventId: string; entityId: string }>> {
+	return runGraphQueryWithRetry(input.userId, 'age.fetch_involves_edges', async () => {
+		const rows = await runAgeCypher(
+			renderCypherQuery(
+				`
+			MATCH (e:Event {user_id: $user_id})-[r:INVOLVES {user_id: $user_id}]->(n:Entity {user_id: $user_id})
+			RETURN e.id AS event_id, n.id AS entity_id
+			`,
+				{ user_id: input.userId }
+			),
+			'event_id agtype, entity_id agtype'
+		);
+
+		return (rows ?? [])
+			.map((row) => ({
+				eventId: typeof row.event_id === 'string' ? row.event_id : '',
+				entityId: typeof row.entity_id === 'string' ? row.entity_id : ''
+			}))
+			.filter((r) => r.eventId && r.entityId);
 	});
 }
 

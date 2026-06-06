@@ -27,6 +27,12 @@ const POINT_RADIUS = 0.028;
 const HIGHLIGHT_RADIUS = 0.048;
 const HIGHLIGHT_COLOR = 0xfbbf24;
 
+/** Counter-scale world-space spheres so apparent dot size stays fixed while the camera dollies. */
+export function screenSpacePointScale(distance: number, referenceDistance: number): number {
+	if (!(referenceDistance > 0) || !Number.isFinite(distance)) return 1;
+	return distance / referenceDistance;
+}
+
 /** Match /graph force layout: text at x=12, y=4 beside the node circle. */
 const LABEL_MARGIN_LEFT_PX = 12;
 const LABEL_MARGIN_TOP_PX = 4;
@@ -137,7 +143,25 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const raycaster = new THREE.Raycaster();
 	raycaster.params.Points = { threshold: POINT_RADIUS * 2 };
 	const pointer = new THREE.Vector2();
+	const worldPos = new THREE.Vector3();
+	const referenceDistance = camera.position.distanceTo(controls.target);
 	let animationFrame = 0;
+
+	function updateScreenSpacePointScales() {
+		for (const mesh of pointMeshes) {
+			mesh.getWorldPosition(worldPos);
+			const scale = screenSpacePointScale(camera.position.distanceTo(worldPos), referenceDistance);
+			mesh.scale.setScalar(scale);
+		}
+
+		if (highlightGroup.visible) {
+			const scale = screenSpacePointScale(
+				camera.position.distanceTo(highlightGroup.position),
+				referenceDistance
+			);
+			highlightGroup.scale.setScalar(scale);
+		}
+	}
 
 	function setSelectedId(id: string | null) {
 		for (const mesh of pointMeshes) {
@@ -202,6 +226,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	function animate() {
 		animationFrame = requestAnimationFrame(animate);
 		controls.update();
+		updateScreenSpacePointScales();
 		renderer.render(scene, camera);
 		labelRenderer.render(scene, camera);
 	}

@@ -39,13 +39,8 @@ describe('rankCandidates', () => {
 });
 
 describe('selectRetrievalModeFromQuery', () => {
-	it('uses relation-centric for relationship-style queries', () => {
-		expect(selectRetrievalModeFromQuery('What is the relationship between A and B?')).toBe(
-			'relation_centric'
-		);
-	});
-
-	it('uses default otherwise', () => {
+	it('always returns default — mode selection is LLM-judged when wired', () => {
+		expect(selectRetrievalModeFromQuery('What is the relationship between A and B?')).toBe('default');
 		expect(selectRetrievalModeFromQuery('Where did I store my grocery list?')).toBe('default');
 	});
 });

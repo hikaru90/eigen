@@ -24,7 +24,7 @@ Eigenmesh builds memory in three layers. The same `thought` row gains capabiliti
 | **2 — Enrich** | Background worker (seconds–minutes, FIFO per user) | Category, **embedding** (semantic vector), entities, temporal events, `memory_type`, `cues[]`, `thought_entity`, `thought_neighbor`, `enriched_at` | **Semantic search** (vector ANN) plus richer graph links |
 | **3 — Consolidation** | Nightly heartbeat + incremental dirty refresh | `community_detection`, `community_summary`, `community_bundle`, salience/recency features, `entity_top_thoughts` backfill, ontology prune/dedup | **Community routing** — “which cluster of memories is this question about?” then expand top thoughts in that cluster |
 
-**Code:** tier 1 [`queue-capture.ts`](../../src/lib/server/capture/queue-capture.ts); tier 2 [`enrich-queued-thought.ts`](../../src/lib/server/capture/enrich-queued-thought.ts) + [`capture-enrich-worker.ts`](../../src/lib/server/capture/capture-enrich-worker.ts); tier 3 [`src/lib/server/consolidation/`](../../src/lib/server/consolidation/) (`HEARTBEAT_JOB_PLAN`: community summaries, bundles, salience, etc.).
+**Code:** tier 1 [`queue-capture.ts`](../../src/lib/server/capture/queue-capture.ts); tier 2 [`enrich-queued-thought.ts`](../../src/lib/server/capture/enrich-queued-thought.ts) + [`enrich-queue-drain.ts`](../../src/lib/server/capture/enrich-queue-drain.ts) + [`capture-enrich-worker.ts`](../../src/lib/server/capture/capture-enrich-worker.ts); tier 3 [`src/lib/server/consolidation/`](../../src/lib/server/consolidation/) (`HEARTBEAT_JOB_PLAN`: community summaries, bundles, salience, etc.).
 
 UI queue uses [`CAPTURE_FAST_PIPELINE`](../../src/lib/capture/ingest-phases.ts) for tier-1 progress; [`pollUntilEnrichmentComplete`](../../src/lib/capture/poll-enrichment.ts) refreshes the stored card when tier 2 sets `enriched_at`.
 
@@ -49,7 +49,7 @@ Eval harness queues tier-1 capture immediately (`awaitEnrichment: false`) and ve
 | **`[composeAnswer]`** | `embedding`, `searching`, `composing`, `totalDurationMs` |
 | **`[retrieval.retrieveEvidence]`** | Phase marks + `totalMs` (marks are tail timings from phase start → finish, not isolated step durations) |
 
-**Per-user LLM queue:** successive LLM/embedding calls for the same user are spaced by `LLM_MIN_REQUEST_INTERVAL_MS` (default **1000 ms**). Ingest runs many sequential calls; queue spacing adds seconds on top of model latency.
+**Per-user LLM queue:** successive LLM/embedding **starts** for the same user are spaced by `LLM_MIN_REQUEST_INTERVAL_MS` (default **1000 ms**). The queue slot resolves before the HTTP response returns, so multiple gateway calls can be **in flight** at once (e.g. `Promise.all` in enrich prefetch). Orchestration pools (enrich drain, eval waves) always run with bounded concurrency via [`orchestration-concurrency.ts`](../../src/lib/server/orchestration-concurrency.ts) — default **8**, overridable by `CAPTURE_ENRICH_CONCURRENCY` or `LLM_ORCHESTRATION_CONCURRENCY`.
 
 ---
 

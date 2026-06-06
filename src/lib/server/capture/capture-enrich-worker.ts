@@ -2,8 +2,7 @@
  * Background worker: drain pending enrich queue per user.
  */
 import { withDbUser } from '$lib/server/db';
-import { claimNextPendingThought } from '$lib/server/capture/queue-capture';
-import { enrichQueuedThought } from '$lib/server/capture/enrich-queued-thought';
+import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain';
 
 const activeWorkers = new Map<string, Promise<void>>();
 
@@ -12,11 +11,7 @@ export function scheduleCaptureEnrichWorker(userId: string): void {
 
 	const work = withDbUser(userId, async () => {
 		try {
-			for (;;) {
-				const claimed = await claimNextPendingThought(userId);
-				if (!claimed) break;
-				await enrichQueuedThought(userId, claimed.id);
-			}
+			await drainCaptureEnrichQueue(userId);
 		} finally {
 			activeWorkers.delete(userId);
 		}

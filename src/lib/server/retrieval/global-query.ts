@@ -3,8 +3,8 @@
  * Language-agnostic: global sensemaking vs local factual recall.
  */
 
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content';
+import { classifyQueryIntent } from '$lib/server/retrieval/classify-query-intent';
 
 export type RetrievalScope = 'global' | 'local';
 
@@ -36,29 +36,6 @@ export async function classifyRetrievalScope(params: {
 	userId: string;
 	query: string;
 }): Promise<RetrievalScope> {
-	const query = params.query.trim();
-	if (!query) {
-		throw new Error('classifyRetrievalScope: query must be non-empty');
-	}
-
-	const messages: ChatMessage[] = [
-		{ role: 'system', content: RETRIEVAL_SCOPE_CLASSIFIER_PROMPT },
-		{ role: 'user', content: query }
-	];
-
-	const raw = await llmChatCompletion({
-		userId: params.userId,
-		messages,
-		temperature: 0,
-		logContext: 'retrieval_scope_classifier'
-	});
-
-	const content =
-		(raw as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content?.trim() ??
-		'';
-	if (!content) {
-		throw new Error('retrieval scope classifier: empty LLM response');
-	}
-
-	return parseRetrievalScopeResponse(content);
+	const intent = await classifyQueryIntent(params);
+	return intent.scope;
 }

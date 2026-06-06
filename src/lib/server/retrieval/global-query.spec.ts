@@ -9,20 +9,16 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
 }));
 
-function chatResponse(content: string) {
-	return { choices: [{ message: { content } }] };
-}
-
 describe('parseRetrievalScopeResponse', () => {
-	it('parses global and local scopes from JSON', () => {
+	it('parses scope from JSON', () => {
 		expect(parseRetrievalScopeResponse('{"scope":"global"}')).toBe('global');
 		expect(parseRetrievalScopeResponse('{"scope":"local"}')).toBe('local');
 		expect(parseRetrievalScopeResponse('```json\n{"scope":"global"}\n```')).toBe('global');
 	});
 
-	it('throws on invalid scope values', () => {
+	it('rejects invalid scope', () => {
 		expect(() => parseRetrievalScopeResponse('{"scope":"maybe"}')).toThrow(
-			'scope must be "global" or "local"'
+			/scope must be "global" or "local"/
 		);
 		expect(() => parseRetrievalScopeResponse('not json')).toThrow();
 	});
@@ -34,7 +30,20 @@ describe('classifyRetrievalScope', () => {
 	});
 
 	it('returns global when the LLM classifies a thematic self-profile question', async () => {
-		llmChatCompletionMock.mockResolvedValue(chatResponse('{"scope":"global"}'));
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [
+				{
+					message: {
+						content: JSON.stringify({
+							scope: 'global',
+							temporal: false,
+							kind: 'none',
+							entityHints: []
+						})
+					}
+				}
+			]
+		});
 
 		await expect(
 			classifyRetrievalScope({ userId: 'u1', query: 'was weißt du über mich?' })
@@ -43,17 +52,26 @@ describe('classifyRetrievalScope', () => {
 		expect(llmChatCompletionMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId: 'u1',
-				temperature: 0,
-				logContext: 'retrieval_scope_classifier',
-				messages: expect.arrayContaining([
-					expect.objectContaining({ role: 'user', content: 'was weißt du über mich?' })
-				])
+				logContext: 'query_intent_classifier'
 			})
 		);
 	});
 
 	it('returns local when the LLM classifies a named-entity lookup', async () => {
-		llmChatCompletionMock.mockResolvedValue(chatResponse('{"scope":"local"}'));
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [
+				{
+					message: {
+						content: JSON.stringify({
+							scope: 'local',
+							temporal: false,
+							kind: 'none',
+							entityHints: ['Clemmy']
+						})
+					}
+				}
+			]
+		});
 
 		await expect(
 			classifyRetrievalScope({ userId: 'u1', query: 'Wer ist Clemmy?' })

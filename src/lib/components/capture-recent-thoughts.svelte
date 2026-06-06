@@ -10,15 +10,22 @@
 	import { Label } from '$lib/components/ui/label';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import {
+		recentThoughtPrimaryLabel,
+		recentThoughtSecondaryLabel
+	} from '$lib/capture/recent-thought-display';
 
 	let {
 		thoughts,
 		thoughtDetails,
+		enrichingThoughtIds = new Set<string>(),
 		expandedId = null,
 		editingId = null,
 		editRequest = '',
 		editLoading = false,
 		deletingId = null,
+		retryingId = null,
 		loadingDetailId = null,
 		editProgressEvents = [],
 		pipeline,
@@ -26,17 +33,20 @@
 		onCollapse,
 		onEdit,
 		onDelete,
+		onRetry,
 		onEditRequestChange,
 		onSubmitEdit,
 		onCancelEdit
 	}: {
 		thoughts: CaptureRecentThoughtSnippet[];
 		thoughtDetails: Record<string, CaptureSubmitResult>;
+		enrichingThoughtIds?: ReadonlySet<string>;
 		expandedId?: string | null;
 		editingId?: string | null;
 		editRequest?: string;
 		editLoading?: boolean;
 		deletingId?: string | null;
+		retryingId?: string | null;
 		loadingDetailId?: string | null;
 		editProgressEvents?: ProgressEvent[];
 		pipeline: readonly CaptureIngestPhase[];
@@ -44,6 +54,7 @@
 		onCollapse: (thoughtId: string) => void;
 		onEdit: (thoughtId: string) => void;
 		onDelete: (thoughtId: string) => void;
+		onRetry: (thoughtId: string) => void;
 		onEditRequestChange: (value: string) => void;
 		onSubmitEdit: () => void;
 		onCancelEdit: () => void;
@@ -70,6 +81,34 @@
 			onExpand(snippetId);
 		}
 	}
+
+	function enrichListStatus(
+		thoughtId: string,
+		detail: CaptureSubmitResult | undefined
+	): { label: string; spinning: boolean; failed: boolean } | null {
+		if (detail?.queueStatus === 'failed') {
+			return { label: 'Indexing failed', spinning: false, failed: true };
+		}
+		if (detail?.queueStatus === 'pending') {
+			return { label: 'Waiting to index', spinning: false, failed: false };
+		}
+		if (detail?.queueStatus === 'processing') {
+			return { label: 'Indexing now', spinning: true, failed: false };
+		}
+		if (!enrichingThoughtIds.has(thoughtId)) return null;
+		return { label: 'Indexing in background', spinning: true, failed: false };
+	}
+
+	function showRetryAction(
+		thoughtId: string,
+		detail: CaptureSubmitResult | undefined,
+		enrichStatus: ReturnType<typeof enrichListStatus>
+	): boolean {
+		if (detail?.queueStatus === 'failed') return true;
+		if (detail?.queueStatus === 'pending' || detail?.queueStatus === 'processing') return true;
+		if (!enrichStatus) return false;
+		return !detail?.enrichmentComplete;
+	}
 </script>
 
 {#if thoughts.length > 0}
@@ -80,6 +119,8 @@
 				{@const detail = thoughtDetails[snippet.id]}
 				{@const expanded = expandedId === snippet.id}
 				{@const loadingDetail = loadingDetailId === snippet.id}
+				{@const enrichStatus = enrichListStatus(snippet.id, detail)}
+				{@const secondary = recentThoughtSecondaryLabel(detail, snippet)}
 				<Card.Root
 					class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[4px_4px_0px_0px_#000] dark:shadow-none p-4 gap-3 items-start overflow-visible"
 				>
@@ -106,9 +147,29 @@
 									<div
 										class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
 									>
-										<span class="font-medium text-foreground">{snippet.category}</span>
-										{#if snippet.memoryType}
-											<span>{snippet.memoryType}</span>
+										<span class="font-medium text-foreground">
+											{recentThoughtPrimaryLabel(detail, snippet)}
+										</span>
+										{#if secondary}
+											<span>{secondary}</span>
+										{/if}
+										{#if enrichStatus}
+											<span
+												class="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 {enrichStatus.failed
+													? 'border-destructive/40 bg-destructive/10 text-destructive'
+													: 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'}"
+											>
+												{#if enrichStatus.spinning}
+													<LoaderCircleIcon
+														class="size-3 shrink-0 animate-spin"
+														aria-hidden="true"
+													/>
+												{/if}
+												{enrichStatus.label}
+											</span>
+											{#if enrichStatus.failed && detail?.queueError}
+												<span class="text-destructive">{detail.queueError}</span>
+											{/if}
 										{/if}
 										<span class="ml-auto">{formatWhen(snippet.createdAt)}</span>
 									</div>
@@ -116,6 +177,20 @@
 							</div>
 						</button>
 						<div class="flex items-center gap-1 shrink-0 -mt-0.5">
+							{#if showRetryAction(snippet.id, detail, enrichStatus)}
+								<Button
+									type="button"
+									variant="ghost"
+									class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground rounded-none"
+									disabled={retryingId === snippet.id}
+									onclick={(e) => {
+										e.stopPropagation();
+										onRetry(snippet.id);
+									}}
+								>
+									{retryingId === snippet.id ? 'Retrying…' : 'Retry'}
+								</Button>
+							{/if}
 							<Button
 								type="button"
 								variant="ghost"

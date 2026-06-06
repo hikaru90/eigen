@@ -6,7 +6,13 @@
 	import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte';
 	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
 	import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types';
-	import { deleteCaptureThought, fetchCaptureResult } from '$lib/capture/capture-result-api';
+	import {
+		deleteCaptureThought,
+		fetchCaptureResult,
+		retryCaptureEnrich
+	} from '$lib/capture/capture-result-api';
+	import { upsertRecentThoughtList } from '$lib/capture/upsert-recent-thought-list';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -30,6 +36,7 @@
 		type CaptureQueueUiState
 	} from '$lib/capture/queue/ui-state';
 	import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment';
+	import { pollCaptureRecentSync } from '$lib/capture/poll-capture-recent-sync';
 
 	let { data }: { data: PageData } = $props();
 
@@ -64,9 +71,20 @@
 	let editAbortController = $state<AbortController | null>(null);
 	let editLoading = $state(false);
 	let deletingThoughtId = $state<string | null>(null);
+	let deleteDialogOpen = $state(false);
+	let deleteTargetId = $state<string | null>(null);
+	let retryingThoughtId = $state<string | null>(null);
 	let loadingDetailId = $state<string | null>(null);
 	const enrichPollCancelByThoughtId = new Map<string, () => void>();
 	let backgroundEnrichingIds = $state<string[]>([]);
+	const enrichingThoughtIds = $derived(
+		new Set([
+			...backgroundEnrichingIds,
+			...Object.values(thoughtDetails)
+				.filter((thought) => !thought.enrichmentComplete)
+				.map((thought) => thought.id)
+		])
+	);
 
 	function startBackgroundEnrichPoll(thoughtId: string) {
 		enrichPollCancelByThoughtId.get(thoughtId)?.();
@@ -76,31 +94,32 @@
 			onUpdate: (thought) => {
 				upsertRecentThought(thought);
 				if (thought.enrichmentComplete) {
-					backgroundEnrichingIds = backgroundEnrichingIds.filter((id) => id !== thoughtId);
-					enrichPollCancelByThoughtId.delete(thoughtId);
+					cancelEnrichPoll(thoughtId);
 				}
+			},
+			onTimeout: () => {
+				cancelEnrichPoll(thoughtId);
 			}
 		});
 		enrichPollCancelByThoughtId.set(thoughtId, cancel);
 	}
 
-	function upsertRecentThought(thought: CaptureSubmitResult) {
-		const existing = recentThoughts.find((row) => row.id === thought.id);
-		const snippet: CaptureRecentThoughtSnippet = {
-			id: thought.id,
-			normalizedText: thought.normalizedText,
-			category: thought.category,
-			memoryType: thought.memoryType,
-			createdAt: existing?.createdAt ?? new Date().toISOString()
-		};
+	function upsertRecentThought(thought: CaptureSubmitResult, options?: { pinToTop?: boolean }) {
 		thoughtDetails = { ...thoughtDetails, [thought.id]: thought };
-		recentThoughts = [
-			snippet,
-			...recentThoughts.filter((row) => row.id !== thought.id)
-		].slice(0, RECENT_THOUGHTS_LIMIT);
+		recentThoughts = upsertRecentThoughtList(recentThoughts, thought, {
+			pinToTop: options?.pinToTop,
+			limit: RECENT_THOUGHTS_LIMIT
+		});
+	}
+
+	function cancelEnrichPoll(thoughtId: string) {
+		enrichPollCancelByThoughtId.get(thoughtId)?.();
+		enrichPollCancelByThoughtId.delete(thoughtId);
+		backgroundEnrichingIds = backgroundEnrichingIds.filter((id) => id !== thoughtId);
 	}
 
 	function removeRecentThought(thoughtId: string) {
+		cancelEnrichPoll(thoughtId);
 		recentThoughts = recentThoughts.filter((row) => row.id !== thoughtId);
 		const { [thoughtId]: _removed, ...rest } = thoughtDetails;
 		thoughtDetails = rest;
@@ -159,23 +178,41 @@
 		}
 	}
 
-	async function deleteThought(thoughtId: string) {
-		if (
-			!confirm(
-				'Delete this thought permanently? It will be removed from search and the graph. This cannot be undone.'
-			)
-		) {
-			return;
-		}
+	function openDeleteDialog(thoughtId: string) {
+		err = null;
+		deleteTargetId = thoughtId;
+		deleteDialogOpen = true;
+	}
+
+	async function confirmDeleteThought() {
+		if (!deleteTargetId) return;
+		const thoughtId = deleteTargetId;
 		err = null;
 		deletingThoughtId = thoughtId;
 		try {
 			await deleteCaptureThought(thoughtId);
 			removeRecentThought(thoughtId);
+			deleteDialogOpen = false;
+			deleteTargetId = null;
 		} catch (e) {
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
 			if (deletingThoughtId === thoughtId) deletingThoughtId = null;
+		}
+	}
+
+	async function retryEnrichThought(thoughtId: string) {
+		err = null;
+		retryingThoughtId = thoughtId;
+		try {
+			await retryCaptureEnrich(thoughtId);
+			startBackgroundEnrichPoll(thoughtId);
+			const thought = await fetchCaptureResult(thoughtId);
+			upsertRecentThought(thought);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+		} finally {
+			if (retryingThoughtId === thoughtId) retryingThoughtId = null;
 		}
 	}
 
@@ -240,6 +277,26 @@
 
 	onMount(() => {
 		void reconcileQueueState(false);
+		for (const thought of Object.values(thoughtDetails)) {
+			if (!thought.enrichmentComplete) {
+				startBackgroundEnrichPoll(thought.id);
+			}
+		}
+
+		const cancelRecentSync = pollCaptureRecentSync({
+			limit: RECENT_THOUGHTS_LIMIT,
+			getState: () => ({ snippets: recentThoughts, details: thoughtDetails }),
+			onSync: ({ snippets, details, newThoughtIds }) => {
+				recentThoughts = snippets;
+				thoughtDetails = details;
+				for (const thoughtId of newThoughtIds) {
+					const thought = details[thoughtId];
+					if (thought && !thought.enrichmentComplete) {
+						startBackgroundEnrichPoll(thoughtId);
+					}
+				}
+			}
+		});
 
 		const unsub = subscribeCaptureQueue((message) => {
 			if (message.type === 'snapshot') {
@@ -274,7 +331,7 @@
 				return;
 			}
 			if (message.type === 'done') {
-				upsertRecentThought(message.thought);
+				upsertRecentThought(message.thought, { pinToTop: true });
 				expandedThoughtId = message.thought.id;
 				editingThoughtId = null;
 				editRequest = '';
@@ -318,6 +375,7 @@
 		};
 		window.addEventListener('keydown', onKey);
 		return () => {
+			cancelRecentSync();
 			unsub();
 			window.removeEventListener('keydown', onKey);
 			for (const cancel of enrichPollCancelByThoughtId.values()) cancel();
@@ -425,18 +483,21 @@
 		<CaptureRecentThoughts
 			thoughts={recentThoughts}
 			{thoughtDetails}
+			enrichingThoughtIds={enrichingThoughtIds}
 			expandedId={expandedThoughtId}
 			editingId={editingThoughtId}
 			{editRequest}
 			{editLoading}
 			deletingId={deletingThoughtId}
+			retryingId={retryingThoughtId}
 			loadingDetailId={loadingDetailId}
 			editProgressEvents={progressEvents.map((row) => row.event)}
 			pipeline={CAPTURE_PIPELINE}
 			onExpand={(id) => void expandThought(id)}
 			onCollapse={collapseThought}
 			onEdit={(id) => void toggleThoughtEdit(id)}
-			onDelete={(id) => void deleteThought(id)}
+			onDelete={openDeleteDialog}
+			onRetry={(id) => void retryEnrichThought(id)}
 			onEditRequestChange={(value) => {
 				editRequest = value;
 			}}
@@ -467,3 +528,33 @@
 </div>
 
 <CaptureOnboardingOverlay open={showOnboarding} llmConfigured={data.llmConfigured} />
+
+<AlertDialog.Root
+	bind:open={deleteDialogOpen}
+	onOpenChange={(open) => {
+		if (!open && !deletingThoughtId) deleteTargetId = null;
+	}}
+>
+	<AlertDialog.Content class="max-w-sm rounded-none border-2 border-black dark:border-border">
+		<AlertDialog.Header>
+			<AlertDialog.Title>Delete this thought?</AlertDialog.Title>
+			<AlertDialog.Description>
+				It will be removed from search and the graph permanently. This cannot be undone.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel class="rounded-none" disabled={deletingThoughtId !== null}>
+				Cancel
+			</AlertDialog.Cancel>
+			<Button
+				type="button"
+				variant="destructive"
+				class="rounded-none"
+				disabled={deletingThoughtId !== null}
+				onclick={() => void confirmDeleteThought()}
+			>
+				{deletingThoughtId ? 'Deleting…' : 'Delete'}
+			</Button>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

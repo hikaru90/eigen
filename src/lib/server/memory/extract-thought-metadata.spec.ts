@@ -56,9 +56,9 @@ describe('extractThoughtMetadata', () => {
 		expect(result.cues).toEqual(['follow up marcus']);
 	});
 
-	it('maps idea drift to fact', () => {
-		expect(normalizeMemoryType('idea')).toBe('fact');
-		expect(normalizeMemoryType('Idea')).toBe('fact');
+	it('returns null for drift labels without synonym remapping', () => {
+		expect(normalizeMemoryType('idea')).toBeNull();
+		expect(normalizeMemoryType('task')).toBeNull();
 	});
 
 	it('throws when memoryType is invalid', async () => {

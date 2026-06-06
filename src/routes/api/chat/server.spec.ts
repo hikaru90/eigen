@@ -234,6 +234,40 @@ describe('POST /api/chat', () => {
 		expect(last.response).toBe('You like sweet coffee.');
 	});
 
+	it('streams parsed answer_question prose in done.response', async () => {
+		const composedAnswer =
+			'Answer: To cook salmon, whisk miso glaze and broil. [salmon-id]\nEvidence:\n- Recipe steps [salmon-id]\nUnknown:\n- none';
+		const preview = JSON.stringify({
+			answer: composedAnswer,
+			citations: ['salmon-id'],
+			retrieved: [{ id: 'salmon-id', snippet: 'Recipe: salmon', category: 'observation' }]
+		});
+		agentChatMock.mockImplementation(async (input: { onEvent?: (e: unknown) => void }) => {
+			input.onEvent?.({
+				type: 'tool_call',
+				tool: 'answer_question',
+				arguments: { question: 'how to cook salmon?' }
+			});
+			input.onEvent?.({ type: 'tool_executing', tool: 'answer_question' });
+			input.onEvent?.({ type: 'tool_result', tool: 'answer_question', preview });
+			return { response: composedAnswer, messages: [] };
+		});
+
+		const streamDb = buildStreamDb();
+		const insertMock = streamDb.insert as ReturnType<typeof vi.fn>;
+		createScopedDrizzleMock.mockReturnValue(streamDb);
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ message: 'how to cook salmon?' })
+		} as never);
+
+		const lines = await readNdjsonLines(res);
+		const done = lines.find((l) => l.type === 'done');
+		expect(done?.response).toBe('To cook salmon, whisk miso glaze and broil. [salmon-id]');
+		expect(insertMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+	});
+
 	it('streams ndjson error line when agentChat throws', async () => {
 		agentChatMock.mockRejectedValue(new Error('embedding failed'));
 		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);

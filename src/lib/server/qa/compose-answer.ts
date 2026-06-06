@@ -3,11 +3,19 @@ import { getDb } from '$lib/server/db';
 import { thought, thoughtRelation } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
-import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { hasCommunitySummaries, searchGlobal, type GlobalSearchResult } from '$lib/server/retrieval/global';
-import { classifyRetrievalScope } from '$lib/server/retrieval/global-query';
+import { classifyQueryIntent } from '$lib/server/retrieval/classify-query-intent';
+import { fetchTemporalEventSeeds } from '$lib/server/retrieval/temporal';
+import {
+	formatComputedTimelineForPrompt,
+	solveTemporalQuestion
+} from '$lib/server/qa/temporal-solver';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
+import {
+	COMPOSE_ANSWER_RELEVANCE_MIN,
+	normalizeRetrievalScore
+} from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import {
 	findTemporalSchedulingConflicts,
@@ -31,6 +39,8 @@ import {
 
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
+const DEFAULT_COMPOSE_TOP_K = 8;
+const TEMPORAL_COMPOSE_TOP_K = 18;
 
 export type RetrievalContextItem = {
 	id: string;
@@ -81,6 +91,8 @@ export type ComposeAnswerInput = {
 	retrievalQuery?: string;
 	topK?: number;
 	weights?: { vector: number; graph: number };
+	/** As-of time for temporal validity annotations (defaults to wall clock now). */
+	referenceTime?: Date;
 	onProgress?: (phase: ComposeAnswerProgressPhase) => void | Promise<void>;
 };
 
@@ -91,145 +103,20 @@ export function formatComposedAnswerForUser(answer: string): string {
 
 type SearchHit = Awaited<ReturnType<typeof searchThoughts>>[number];
 
-const RETRIEVAL_HINT_STOPWORDS = new Set([
-	'wer',
-	'ist',
-	'was',
-	'wie',
-	'wo',
-	'wann',
-	'warum',
-	'who',
-	'what',
-	'when',
-	'where',
-	'why',
-	'how',
-	'is',
-	'are',
-	'the',
-	'a',
-	'an',
-	'to',
-	'now'
-]);
-
-/** Focused tokens for a second retrieval pass (names, codes) on short questions. */
-export function extractRetrievalHints(question: string): string | undefined {
-	const tokens = tokenizeLexicalQuery(question).filter((t) => t.length >= 2);
-	const hints = tokens.filter((t) => !RETRIEVAL_HINT_STOPWORDS.has(t));
-	if (hints.length === 0) return undefined;
-	const hintQuery = hints.join(' ');
-	const normalizedQuestion = tokenizeLexicalQuery(question).join(' ');
-	if (hintQuery === normalizedQuestion) return undefined;
-	return hintQuery;
-}
-
-// ---------------------------------------------------------------------------
-// Contradiction detection (sentiment / location updates — not scheduling)
-// ---------------------------------------------------------------------------
-
-const POLARITY_POSITIVE = /\b(love|great|excellent|amazing|wonderful|perfect|fantastic|good|enjoy|like|productive|calmer)\b/i;
-const POLARITY_NEGATIVE = /\b(hate|terrible|awful|horrible|dreadful|bad|dislike|can't stand|waste|discipline)\b/i;
-const LOCATION_PATTERN = /\b(?:live|living|moved|move)\s+(?:in|to)\s+([A-Z][a-zA-Z]+)/;
-
-/** Topic clusters: if both thoughts touch the same cluster, treat as the same subject for sentiment conflicts. */
-const TOPIC_CLUSTERS: readonly string[][] = [
-	['remote', 'work', 'wfh', 'office', 'commute', 'home', 'working']
-];
-
-function normalizeTopicTokens(text: string): Set<string> {
-	return new Set(
-		text
-			.toLowerCase()
-			.replace(/[^a-z0-9\s]/g, ' ')
-			.split(/\s+/)
-			.filter((t) => t.length >= 3)
-	);
-}
-
-function sharedTopicCluster(aText: string, bText: string): string | undefined {
-	const aTokens = normalizeTopicTokens(aText);
-	const bTokens = normalizeTopicTokens(bText);
-	for (const cluster of TOPIC_CLUSTERS) {
-		const aHit = cluster.some((term) => aTokens.has(term) || aText.toLowerCase().includes(term));
-		const bHit = cluster.some((term) => bTokens.has(term) || bText.toLowerCase().includes(term));
-		if (aHit && bHit) return cluster[0];
-	}
+/**
+ * XXX REMOVED — stop-word filtered retrieval hint extraction.
+ * Second-pass retrieval tokens must be LLM-judged if needed.
+ */
+export function extractRetrievalHints(_question: string): string | undefined {
 	return undefined;
 }
 
-function extractSubjectKey(text: string): string {
-	return text
-		.toLowerCase()
-		.replace(/[^a-z0-9\s]/g, ' ')
-		.split(/\s+/)
-		.filter((t) => t.length > 3)
-		.slice(0, 4)
-		.join(' ');
-}
-
-export function detectContradictions(items: RetrievalContextItem[]): ConflictPair[] {
-	const conflicts: ConflictPair[] = [];
-
-	const locationBySubject = new Map<string, Array<{ id: string; location: string; createdAt: Date }>>();
-	for (const item of items) {
-		const locMatch = LOCATION_PATTERN.exec(item.normalizedText);
-		if (locMatch) {
-			const location = locMatch[1];
-			const key = 'location';
-			if (!locationBySubject.has(key)) locationBySubject.set(key, []);
-			locationBySubject.get(key)!.push({ id: item.id, location, createdAt: item.createdAt });
-		}
-	}
-	for (const [, entries] of locationBySubject) {
-		if (entries.length < 2) continue;
-		const sorted = [...entries].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-		const first = sorted[0];
-		const last = sorted[sorted.length - 1];
-		if (first.location !== last.location) {
-			conflicts.push({
-				ids: [first.id, last.id],
-				subject: 'location',
-				description: `Earlier thought says "${first.location}", later thought says "${last.location}"`
-			});
-		}
-	}
-
-	for (let i = 0; i < items.length; i++) {
-		for (let j = i + 1; j < items.length; j++) {
-			const a = items[i];
-			const b = items[j];
-			const aPos = POLARITY_POSITIVE.test(a.normalizedText);
-			const aNeg = POLARITY_NEGATIVE.test(a.normalizedText);
-			const bPos = POLARITY_POSITIVE.test(b.normalizedText);
-			const bNeg = POLARITY_NEGATIVE.test(b.normalizedText);
-
-			if (!((aPos && bNeg) || (aNeg && bPos))) continue;
-
-			const aKey = extractSubjectKey(a.normalizedText);
-			const bKey = extractSubjectKey(b.normalizedText);
-			const aWords = new Set(aKey.split(' '));
-			const bWords = new Set(bKey.split(' '));
-			const shared = [...aWords].filter((w) => bWords.has(w));
-			const topic = shared.length >= 1 ? shared[0] : sharedTopicCluster(a.normalizedText, b.normalizedText);
-			if (!topic) continue;
-
-			conflicts.push({
-				ids: [a.id, b.id],
-				subject: topic,
-				description: `These thoughts appear to hold opposing views about "${topic}"`
-			});
-		}
-	}
-
-	const seen = new Set<string>();
-	return conflicts.filter((c) => {
-		const key = [...c.ids].sort().join('::');
-		if (seen.has(key)) return false;
-		seen.add(key);
-		return true;
-	});
+/**
+ * XXX REMOVED — regex/keyword contradiction detection (polarity, location, topic clusters).
+ * Contradictions come from persisted thought_relation rows (LLM ingest) only.
+ */
+export function detectContradictions(_items: RetrievalContextItem[]): ConflictPair[] {
+	return [];
 }
 
 function mergeConflictPairs(a: ConflictPair[], b: ConflictPair[]): ConflictPair[] {
@@ -272,19 +159,12 @@ export async function detectStoredThoughtContradictions(input: {
 	const conflicts: ConflictPair[] = [];
 
 	for (const row of rows) {
-		if (!row.relationType.toLowerCase().includes('contradict')) continue;
+		if (row.relationType !== 'contradicts') continue;
 		if (!idSet.has(row.sourceThoughtId) || !idSet.has(row.targetThoughtId)) continue;
-		const a = byId.get(row.sourceThoughtId);
-		const b = byId.get(row.targetThoughtId);
-		if (!a || !b) continue;
-		const topic =
-			sharedTopicCluster(a.normalizedText, b.normalizedText) ??
-			extractSubjectKey(a.normalizedText).split(' ')[0] ??
-			'this topic';
 		conflicts.push({
 			ids: [row.sourceThoughtId, row.targetThoughtId],
-			subject: topic,
-			description: `Stored memory links mark these thoughts as contradictory about "${topic}"`
+			subject: 'stored relation',
+			description: 'Stored memory links mark these thoughts as contradictory'
 		});
 	}
 
@@ -314,83 +194,40 @@ export function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date
 		.join('\n\n');
 }
 
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** XXX REMOVED — person-focused question regex family and context narrowing heuristics. */
+export function thoughtTextMentionsToken(_text: string, _token: string): boolean {
+	return false;
 }
 
-/** Whole-word (or hyphenated) match so hint tokens like "to" do not match inside "today". */
-export function thoughtTextMentionsToken(text: string, token: string): boolean {
-	const normalized = token.trim().toLowerCase();
-	if (normalized.length < 2) return false;
-	const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(normalized)}(?:[^a-z0-9]|$)`, 'i');
-	return re.test(text);
+export function questionFocusTokens(_question: string): string[] {
+	return [];
 }
 
-export function questionFocusTokens(question: string): string[] {
-	const hintQuery = extractRetrievalHints(question);
-	if (!hintQuery) return [];
-	return hintQuery.split(/\s+/).filter((t) => t.length >= 2);
+export function isIdentityLookupQuestion(_question: string): boolean {
+	return false;
 }
 
-/** "Who is X" / "Wer ist X" — identity lookup, not broad topic search. */
-export function isIdentityLookupQuestion(question: string): boolean {
-	return /^(who|wer)\s+(is|ist)\s+\S/i.test(question.trim());
-}
-
-/**
- * Person named in a focused fact question (allergy, needs, contact preference, etc.).
- * Returns a lowercase token suitable for lexical/graph anchoring.
- */
-export function extractQuestionSubjectName(question: string): string | undefined {
-	const trimmed = question.trim();
-	const patterns = [
-		/^(?:who|wer)\s+(?:is|ist)\s+([A-Za-z][A-Za-z'-]{1,})\b/i,
-		/^what\s+is\s+([A-Za-z][A-Za-z'-]{1,})\s+/i,
-		/^what\s+does\s+([A-Za-z][A-Za-z'-]{1,})\s+/i,
-		/^how\s+(?:do|does|can|should)\s+(?:i|we)\s+(?:reach|contact)\s+([A-Za-z][A-Za-z'-]{1,})\b/i
-	];
-	for (const pattern of patterns) {
-		const match = pattern.exec(trimmed);
-		const name = match?.[1]?.replace(/[^A-Za-z'-]/g, '').toLowerCase();
-		if (name && name.length >= 2) return name;
-	}
+export function extractQuestionSubjectName(_question: string): string | undefined {
 	return undefined;
 }
 
-export function isPersonFocusedQuestion(question: string): boolean {
-	return isIdentityLookupQuestion(question) || extractQuestionSubjectName(question) !== undefined;
+export function isPersonFocusedQuestion(_question: string): boolean {
+	return false;
 }
 
-/** For identity questions, only thoughts that mention the asked-for name belong in the compose prompt. */
 export function narrowComposeContextToQuestionFocus(
-	question: string,
+	_question: string,
 	items: RetrievalContextItem[]
 ): RetrievalContextItem[] {
-	if (!isPersonFocusedQuestion(question)) return items;
-	const subject = extractQuestionSubjectName(question);
-	const tokens = subject ? [subject, ...questionFocusTokens(question)] : questionFocusTokens(question);
-	const uniqueTokens = [...new Set(tokens)];
-	if (uniqueTokens.length === 0) return items;
-	const filtered = items.filter((item) =>
-		uniqueTokens.some((token) => thoughtTextMentionsToken(item.normalizedText, token))
-	);
-	if (isIdentityLookupQuestion(question)) return filtered;
-	return filtered.length > 0 ? filtered : items;
+	return items;
 }
 
-/** Boost thoughts that mention the question's subject person before slicing to topK. */
 export function prioritizePersonNamedThoughts(
-	question: string,
+	_question: string,
 	items: RetrievalContextItem[],
 	topK: number
 ): RetrievalContextItem[] {
-	const subject = extractQuestionSubjectName(question);
-	if (!subject) return items.slice(0, topK);
-	const mentionsSubject = (item: RetrievalContextItem) =>
-		thoughtTextMentionsToken(item.normalizedText, subject);
-	const primary = items.filter(mentionsSubject);
-	const rest = items.filter((item) => !mentionsSubject(item));
-	return [...primary, ...rest].slice(0, topK);
+	return items.slice(0, topK);
 }
 
 function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
@@ -430,14 +267,17 @@ const SYSTEM_PROMPT = [
 	'',
 	'Temporal & staleness rules:',
 	'- "STALE (>6 months old)" is age-based: present with storage date and caveat it may be outdated.',
-	'- "temporal: … EXPIRED" means the thought\'s time-bound period has ended — do NOT state as current plans',
-	'  or present intent. Frame as past: "As of <stored date>, you noted …".',
-	'- For questions about now/today/current plans with only EXPIRED temporal evidence, Answer must say current',
+	'- "temporal: … EXPIRED" means the thought\'s time-bound period has ended relative to the reference time.',
+	'- For questions about past events, ordering, elapsed time, or "when did X happen", EXPIRED is expected —',
+	'  use those dates as authoritative historical facts in your Answer.',
+	'- For present-tense / now / current plans questions with only EXPIRED evidence, Answer must say current',
 	'  status is unknown or not in memory for the present.',
+	'- Do NOT state EXPIRED past events as current plans or present intent.',
 	'- For questions about current state (where do I live, am I happy at work, etc.) with only STALE evidence,',
 	'  state explicitly that the most recent memory is from <date> and current status is unknown.',
 	'- If two thoughts give conflicting timestamps for the same fact, present the most recent as current and',
 	'  note the earlier one as a prior state.',
+	'- When a Computed timeline section is present, Answer MUST follow it for event ordering and day counts.',
 	'',
 	'Contradiction rules:',
 	'- If the detected contradictions section is present, you MUST surface the conflict in your answer.',
@@ -649,11 +489,13 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	}
 
 	const overallStart = Date.now();
-	const now = new Date();
+	const now = input.referenceTime ?? new Date();
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
-	const topK = input.topK ?? 8;
 	const retrievalQuery = input.retrievalQuery?.trim() || trimmedQuestion;
-	const scope = await classifyRetrievalScope({ userId: input.userId, query: trimmedQuestion });
+	const queryIntent = await classifyQueryIntent({ userId: input.userId, query: trimmedQuestion });
+	const scope = queryIntent.scope;
+	const effectiveTopK =
+		input.topK ?? (queryIntent.temporal ? TEMPORAL_COMPOSE_TOP_K : DEFAULT_COMPOSE_TOP_K);
 	let retrievalPath: ComposedAnswer['retrievalPath'] = scope === 'global' ? 'global_fallback' : 'local';
 
 	if (scope === 'global') {
@@ -693,20 +535,29 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	});
 
 	phaseStart = Date.now();
-	console.info('[composeAnswer] phase=searching start', { topK, retrievalQuery });
+	console.info('[composeAnswer] phase=searching start', {
+		topK: effectiveTopK,
+		retrievalQuery,
+		temporal: queryIntent.temporal,
+		temporalKind: queryIntent.kind
+	});
 	await input.onProgress?.('searching');
-	const retrieved = await searchThoughts({
+	const searchResults = await searchThoughts({
 		userId: input.userId,
 		query: retrievalQuery,
-		topK,
+		topK: effectiveTopK,
 		weights,
-		queryEmbedding
+		queryEmbedding,
+		temporalIntent: queryIntent
 	});
+	const retrieved = searchResults.filter(
+		(r) => normalizeRetrievalScore(r.score) >= COMPOSE_ANSWER_RELEVANCE_MIN
+	);
 	void tryRecordRetrievalQualityEvent({
 		userId: input.userId,
 		surface: 'compose_answer',
 		weights,
-		topKRequested: topK,
+		topKRequested: effectiveTopK,
 		results: retrieved.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore }))
 	});
 
@@ -726,14 +577,30 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		conflictThoughtIds: [...conflictThoughtIdSet],
 		now
 	});
-	contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, topK);
-	contextItems = prioritizePersonNamedThoughts(trimmedQuestion, contextItems, topK);
+	contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, effectiveTopK);
+	contextItems = prioritizePersonNamedThoughts(trimmedQuestion, contextItems, effectiveTopK);
 	contextItems = narrowComposeContextToQuestionFocus(trimmedQuestion, contextItems);
 	contextItems = await hydrateTemporalContextForThoughts({
 		userId: input.userId,
 		items: contextItems,
 		now
 	});
+
+	const temporalSeeds =
+		queryIntent.temporal && (queryIntent.kind === 'ordering' || queryIntent.kind === 'duration')
+			? await fetchTemporalEventSeeds({
+					userId: input.userId,
+					query: retrievalQuery,
+					queryEmbedding,
+					limit: 24
+				})
+			: [];
+	const solverResult = solveTemporalQuestion({
+		kind: queryIntent.kind,
+		entityHints: queryIntent.entityHints,
+		seeds: temporalSeeds
+	});
+	const computedTimelineBlock = formatComputedTimelineForPrompt(solverResult);
 
 	const conflicts = mergeConflictPairs(
 		detectContradictions(contextItems),
@@ -754,6 +621,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 			content:
 				`Question: ${trimmedQuestion}\n\n` +
 				`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
+				computedTimelineBlock +
 				formatTemporalConflictsForPrompt(schedulingConflicts) +
 				formatConflictsForPrompt(conflicts) +
 				`\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
@@ -784,11 +652,18 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		);
 	}
 	const citations = extractCitations(answer, allowedIds);
+	const citedIds = new Set(citations);
 	console.info('[composeAnswer] done', {
 		totalDurationMs: Date.now() - overallStart,
 		citationCount: citations.length,
 		answerChars: answer.length,
 		retrievalPath
 	});
-	return { answer, citations, retrieved: contextItems, conflicts, retrievalPath };
+	return {
+		answer,
+		citations,
+		retrieved: contextItems.filter((c) => citedIds.has(c.id)),
+		conflicts,
+		retrievalPath
+	};
 }

@@ -724,7 +724,7 @@ export const llmProviderConfig = pgTable('llm_provider_config', {
 	ruleEmbedding: text('rule_embedding'),
 	/** OpenRouter only: model name for chat completions (e.g. openai/gpt-4o). */
 	modelChat: text('model_chat'),
-	/** OpenRouter only: model name for embeddings (e.g. openai/text-embedding-3-small). */
+	/** OpenRouter only: model name for embeddings (e.g. qwen/qwen3-embedding-8b). */
 	modelEmbedding: text('model_embedding'),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()

@@ -54,15 +54,12 @@ export function neighborEntityIds(
 	return neighbors;
 }
 
-/** Name overlap required before graph adjacency alone may merge a mention into an existing node. */
+/**
+ * Exact lexical key match only. XXX REMOVED — substring nickname merge heuristic.
+ * Entity merge beyond exact match uses embedding similarity in entity-resolution.
+ */
 export function hasLexicalMergeEvidence(mentionKey: string, candidateCanonicalKey: string): boolean {
-	if (!mentionKey || !candidateCanonicalKey) return false;
-	if (mentionKey === candidateCanonicalKey) return true;
-	const shorter =
-		mentionKey.length <= candidateCanonicalKey.length ? mentionKey : candidateCanonicalKey;
-	const longer =
-		mentionKey.length <= candidateCanonicalKey.length ? candidateCanonicalKey : mentionKey;
-	return shorter.length >= 3 && longer.includes(shorter);
+	return Boolean(mentionKey && candidateCanonicalKey && mentionKey === candidateCanonicalKey);
 }
 
 export function scoreGraphLinkCandidate(input: {
@@ -89,15 +86,7 @@ export function scoreGraphLinkCandidate(input: {
 			break;
 		}
 	}
-	const shorter =
-		input.mentionKey.length <= input.candidateCanonicalKey.length
-			? input.mentionKey
-			: input.candidateCanonicalKey;
-	const longer =
-		input.mentionKey.length <= input.candidateCanonicalKey.length
-			? input.candidateCanonicalKey
-			: input.mentionKey;
-	if (shorter.length >= 3 && longer.includes(shorter)) {
+	if (input.mentionKey === input.candidateCanonicalKey) {
 		score += 2;
 	}
 	return score;

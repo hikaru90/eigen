@@ -9,13 +9,15 @@ const {
 	answerQuestionMock,
 	getDbMock,
 	mcpToolMap,
-	routeAgentMessageMock
+	routeAgentMessageMock,
+	classifyChatIntentMock
 } = vi.hoisted(() => {
 	const listThoughtsMock = vi.fn();
 	const retrieveThoughtsMock = vi.fn();
 	const deleteThoughtMock = vi.fn();
 	const answerQuestionMock = vi.fn();
 	const routeAgentMessageMock = vi.fn();
+	const classifyChatIntentMock = vi.fn();
 	const mcpToolMap = new Map<string, typeof listThoughtsMock>([
 		['list_thoughts', listThoughtsMock],
 		['retrieve_thoughts', retrieveThoughtsMock],
@@ -31,7 +33,8 @@ const {
 		answerQuestionMock,
 		getDbMock: vi.fn(),
 		mcpToolMap,
-		routeAgentMessageMock
+		routeAgentMessageMock,
+		classifyChatIntentMock
 	};
 });
 
@@ -40,6 +43,9 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 }));
 vi.mock('$lib/server/llm/agent-router', () => ({
 	routeAgentMessage: routeAgentMessageMock
+}));
+vi.mock('$lib/server/llm/classify-chat-intent', () => ({
+	classifyChatIntent: classifyChatIntentMock
 }));
 vi.mock('$lib/server/activity/log-call', () => ({
 	logActivityCall: logActivityCallMock
@@ -69,6 +75,7 @@ describe('agentChat', () => {
 		getDbMock.mockReturnValue({});
 		logActivityCallMock.mockResolvedValue(undefined);
 		routeAgentMessageMock.mockResolvedValue({ mode: 'multi_step' });
+		classifyChatIntentMock.mockResolvedValue('capture');
 	});
 
 	it('retries answer_question once after tool error', async () => {
@@ -172,6 +179,55 @@ describe('agentChat', () => {
 		expect(llmChatCompletionMock).not.toHaveBeenCalled();
 	});
 
+	it('overrides misrouted capture_thought to answer_question when classifier says answer', async () => {
+		const question = 'Wie koche ich Japanese-Glazed Salmon?';
+		answerQuestionMock.mockResolvedValue({
+			answer: 'Glaze with mirin and soy, then broil.',
+			citations: []
+		});
+		routeAgentMessageMock.mockResolvedValue({
+			mode: 'single_tool',
+			tool: 'capture_thought',
+			arguments: { raw: 'How to cook Japanese-glazed salmon' }
+		});
+		classifyChatIntentMock.mockResolvedValue('answer');
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: question }]
+		});
+
+		expect(classifyChatIntentMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			userMessage: question
+		});
+		expect(answerQuestionMock).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ question })
+		);
+		expect(result.response).toBe('Glaze with mirin and soy, then broil.');
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+	});
+
+	it('escalates misrouted capture_thought to multi_step when classifier says manage', async () => {
+		routeAgentMessageMock.mockResolvedValue({
+			mode: 'single_tool',
+			tool: 'capture_thought',
+			arguments: { raw: 'delete the salmon note' }
+		});
+		classifyChatIntentMock.mockResolvedValue('manage');
+		llmChatCompletionMock.mockResolvedValue(llmJson({ answer: 'Removed the note.' }));
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'delete the salmon note' }]
+		});
+
+		expect(classifyChatIntentMock).toHaveBeenCalled();
+		expect(answerQuestionMock).not.toHaveBeenCalled();
+		expect(result.response).toBe('Removed the note.');
+	});
+
 	it('retries when the model requests an unknown tool', async () => {
 		llmChatCompletionMock
 			.mockResolvedValueOnce(
@@ -241,7 +297,7 @@ describe('agentChat', () => {
 		expect(toolResultMessage?.content).not.toContain('x'.repeat(500));
 	});
 
-	it('auto-deletes when delete intent has exactly one strong retrieve match', async () => {
+	it('does not auto-delete from regex delete intent — agent LLM must call delete_thought', async () => {
 		retrieveThoughtsMock.mockResolvedValue({
 			results: [
 				{
@@ -252,22 +308,22 @@ describe('agentChat', () => {
 				}
 			]
 		});
-		deleteThoughtMock.mockResolvedValue({ deleted: true, thoughtId: 't-del' });
 		llmChatCompletionMock.mockResolvedValueOnce(
 			llmJson({ tool: 'retrieve_thoughts', arguments: { query: 'milk' } })
 		);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			llmJson({ tool: 'delete_thought', arguments: { thought_id: 't-del' } })
+		);
+		deleteThoughtMock.mockResolvedValue({ deleted: true, thoughtId: 't-del' });
+		llmChatCompletionMock.mockResolvedValueOnce(llmJson({ response: 'Deleted the milk note.' }));
 
 		const result = await agentChat({
 			userId: 'u1',
 			messages: [{ role: 'user', content: 'delete the thought about milk' }]
 		});
 
-		expect(deleteThoughtMock).toHaveBeenCalledWith(
-			expect.objectContaining({ userId: 'u1' }),
-			{ thought_id: 't-del' }
-		);
+		expect(deleteThoughtMock).toHaveBeenCalled();
 		expect(result.response).toMatch(/deleted/i);
-		expect(llmChatCompletionMock).toHaveBeenCalledTimes(1);
 	});
 
 	it('parses thinking blocks, fenced JSON, and brace-matched tool calls', async () => {

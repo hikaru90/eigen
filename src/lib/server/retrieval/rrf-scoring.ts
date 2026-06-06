@@ -6,6 +6,9 @@ export type RetrievalFusionWeights = { vector: number; graph: number };
 /** Max weighted-merge score (`retrieveEvidence` SCORE_WEIGHTS sum to 1.0). */
 export const MAX_RETRIEVAL_MERGE_SCORE = 1;
 
+/** Minimum normalized score for a thought to enter Q&A context. */
+export const COMPOSE_ANSWER_RELEVANCE_MIN = 0.22;
+
 /** Maps weighted-merge scores to [0, 1] for MCP `threshold` filtering. */
 export function normalizeRetrievalScore(score: number): number {
 	if (MAX_RETRIEVAL_MERGE_SCORE <= 0) return 0;

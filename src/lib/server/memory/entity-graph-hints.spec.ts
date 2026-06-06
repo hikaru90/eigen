@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-	isRejectedLexicalEntityLabel,
 	lexicalLabelAppearsInText,
 	loadEntityHintsForThought,
 	loadGraphKnownEntityHints,
@@ -29,22 +28,13 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
 
-describe('isRejectedLexicalEntityLabel', () => {
-	it('rejects German pronouns, greetings, and zu Hause idiom labels', () => {
-		expect(isRejectedLexicalEntityLabel('sie', 'Sie arbeitet heute.')).toBe(true);
-		expect(isRejectedLexicalEntityLabel('Hallo', 'Hallo Alex')).toBe(true);
-		expect(isRejectedLexicalEntityLabel('Hause', 'Sie arbeitet von zu Hause aus.')).toBe(true);
-		expect(isRejectedLexicalEntityLabel('Marcus', 'Marcus works here.')).toBe(false);
-	});
-});
-
 describe('loadIngestKnownEntityHints', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		getDbMock.mockReturnValue({ select: selectMock });
 	});
 
-	it('merges text-derived and lexical hints before persist', async () => {
+	it('returns lexical canonical hints only (no text-derived regex hints)', async () => {
 		limitMock.mockResolvedValue([{ label: 'Marcus', entityType: 'person' }]);
 
 		const hints = await loadIngestKnownEntityHints({
@@ -52,12 +42,7 @@ describe('loadIngestKnownEntityHints', () => {
 			normalizedText: 'Marcus needs silence before creative work.'
 		});
 
-		expect(hints).toEqual(
-			expect.arrayContaining([
-				{ label: 'Marcus', entityType: 'person' },
-				{ label: 'silence', entityType: 'concept' }
-			])
-		);
+		expect(hints).toEqual([{ label: 'Marcus', entityType: 'person' }]);
 	});
 
 	it('deduplicates hints by lexical label key', async () => {
@@ -71,11 +56,10 @@ describe('loadIngestKnownEntityHints', () => {
 		expect(hints.filter((h) => h.label === 'Marcus')).toHaveLength(1);
 	});
 
-	it('returns no false positives for German work-from-home note', async () => {
+	it('matches lexical labels that appear as whole tokens in text', async () => {
 		limitMock.mockResolvedValue([
 			{ label: 'eu', entityType: 'organization' },
-			{ label: 'Sie', entityType: 'person' },
-			{ label: 'Hause', entityType: 'person' }
+			{ label: 'Sie', entityType: 'person' }
 		]);
 
 		const hints = await loadIngestKnownEntityHints({
@@ -83,7 +67,7 @@ describe('loadIngestKnownEntityHints', () => {
 			normalizedText: 'Sie arbeitet heute von zu Hause aus.'
 		});
 
-		expect(hints).toEqual([]);
+		expect(hints).toEqual([{ label: 'Sie', entityType: 'person' }]);
 	});
 });
 
@@ -291,81 +275,8 @@ describe('loadEntityHintsForThought', () => {
 });
 
 describe('loadTextDerivedEntityHints', () => {
-	it('does not treat greetings as person names', () => {
-		const hints = loadTextDerivedEntityHints("Hallo, ich bin's, Alex.");
-		expect(hints).toEqual([{ label: 'Alex', entityType: 'person' }]);
-	});
-
-	it('does not treat German pronouns or zu Hause as person names', () => {
-		const hints = loadTextDerivedEntityHints('Sie arbeitet heute von zu Hause aus.');
-		expect(hints).toEqual([]);
-	});
-
-	it('returns only proper nouns when retry signal is absent', () => {
-		const hints = loadTextDerivedEntityHints('Alice visited the museum yesterday.');
-		expect(hints).toEqual([{ label: 'Alice', entityType: 'person' }]);
-	});
-
-	it('skips sentence-start adverbs and short labels', () => {
-		const hints = loadTextDerivedEntityHints('Before lunch, Ana met with Bob.');
-		expect(hints).toEqual(
-			expect.arrayContaining([
-				{ label: 'Ana', entityType: 'person' },
-				{ label: 'Bob', entityType: 'person' }
-			])
-		);
-		expect(hints.some((h) => h.label === 'Before')).toBe(false);
-	});
-
-	it('extracts requirement nouns from needs/requires patterns', () => {
-		const hints = loadTextDerivedEntityHints('The team requires approval of budget before launch.');
-
-		expect(hints).toEqual(expect.arrayContaining([{ label: 'budget', entityType: 'concept' }]));
-	});
-
-	it('filters stop words from the needs window scan', () => {
-		const hints = loadTextDerivedEntityHints('Jonas needs quiet work before dinner.');
-
-		expect(hints).toEqual(
-			expect.arrayContaining([
-				{ label: 'Jonas', entityType: 'person' },
-				{ label: 'quiet', entityType: 'concept' },
-				{ label: 'dinner', entityType: 'concept' }
-			])
-		);
-		expect(hints.some((h) => h.label === 'work')).toBe(false);
-		expect(hints.some((h) => h.label === 'before')).toBe(false);
-	});
-
-	it('deduplicates repeated proper nouns in text-derived hints', () => {
-		const hints = loadTextDerivedEntityHints('Marcus met Marcus for lunch.');
-		expect(hints.filter((h) => h.label === 'Marcus')).toHaveLength(1);
-	});
-
-	it('returns Jonas and silence hints for the creative-work needle text', () => {
-		const jonasSilence =
-			'Before any creative work, Jonas needs at least 20 minutes of silence — music or noise kills his flow completely.';
-
-		const hints = loadTextDerivedEntityHints(jonasSilence);
-
-		expect(hints).toEqual(
-			expect.arrayContaining([
-				{ label: 'Jonas', entityType: 'person' },
-				{ label: 'silence', entityType: 'concept' }
-			])
-		);
-	});
-
-	it('returns Marcus and walnut hints for allergy notes', () => {
-		const hints = loadTextDerivedEntityHints(
-			"Marcus is allergic to walnuts. Don't bring the walnut levain to next dinner."
-		);
-
-		expect(hints).toEqual(
-			expect.arrayContaining([
-				{ label: 'Marcus', entityType: 'person' },
-				{ label: 'walnuts', entityType: 'concept' }
-			])
-		);
+	it('always returns empty — text-derived entity typing removed (LLM only)', () => {
+		expect(loadTextDerivedEntityHints("Hallo, ich bin's, Alex.")).toEqual([]);
+		expect(loadTextDerivedEntityHints('Recipe: Classic Margherita Pizza.')).toEqual([]);
 	});
 });

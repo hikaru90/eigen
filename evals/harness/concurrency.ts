@@ -1,6 +1,8 @@
 /**
  * Bounded parallel map for eval harness scripts (seed, relation wiring, etc.).
  */
+import { resolveEvalEntryConcurrency as resolveEvalEntryConcurrencyShared } from '$lib/server/orchestration-concurrency';
+
 export async function mapWithConcurrency<T, R>(
 	items: readonly T[],
 	concurrency: number,
@@ -47,4 +49,15 @@ export function resolveSeedConcurrency(cliValue?: number): number {
 /** `EVAL_RELATION_WIRE_CONCURRENCY` or default 16. */
 export function resolveRelationWireConcurrency(): number {
 	return parsePositiveInt(process.env.EVAL_RELATION_WIRE_CONCURRENCY, 'EVAL_RELATION_WIRE_CONCURRENCY') ?? 16;
+}
+
+/** Eval entry waves — delegates to shared orchestration resolver. */
+export function resolveEvalEntryConcurrency(cliValue?: number): number {
+	if (cliValue != null) {
+		if (!Number.isFinite(cliValue) || cliValue < 1 || !Number.isInteger(cliValue)) {
+			throw new Error(`[eval] entry concurrency must be a positive integer, got: ${cliValue}`);
+		}
+		return cliValue;
+	}
+	return resolveEvalEntryConcurrencyShared();
 }

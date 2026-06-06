@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { embeddingMapLabelText } from './embedding-map-3d';
+import { embeddingMapLabelText, screenSpacePointScale } from './embedding-map-3d';
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
 
 function item(overrides: Partial<EmbeddingSnapshotItem> = {}): EmbeddingSnapshotItem {
@@ -12,6 +12,20 @@ function item(overrides: Partial<EmbeddingSnapshotItem> = {}): EmbeddingSnapshot
 		...overrides
 	};
 }
+
+describe('screenSpacePointScale', () => {
+	it('is unity at the reference camera distance', () => {
+		expect(screenSpacePointScale(2.4, 2.4)).toBe(1);
+	});
+
+	it('shrinks world radius when the camera moves closer', () => {
+		expect(screenSpacePointScale(1.2, 2.4)).toBe(0.5);
+	});
+
+	it('grows world radius when the camera moves farther', () => {
+		expect(screenSpacePointScale(4.8, 2.4)).toBe(2);
+	});
+});
 
 describe('embeddingMapLabelText', () => {
 	it('uses label when present', () => {

@@ -1,7 +1,7 @@
 {
 	"name": "eigen",
 	"private": true,
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"license": "Apache-2.0",
 	"type": "module",
 	"engines": {
@@ -40,7 +40,6 @@
 		"eval:smoke": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",
 		"eval:reset-fixture": "vite-node --config evals/vite.config.ts evals/reset-fixture.ts",
-		"eval:longmemeval": "vite-node --config evals/vite.config.ts evals/longmemeval/run.ts",
 		"measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts"
 	},
 	"devDependencies": {
@@ -99,6 +98,7 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@vite-pwa/sveltekit": "^1.1.0",
 		"d3": "^7.9.0",
+		"fflate": "^0.8.3",
 		"isomorphic-dompurify": "^3.14.0",
 		"marked": "^18.0.4",
 		"three": "^0.184.0",

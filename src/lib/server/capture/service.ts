@@ -1,14 +1,10 @@
 import { and, desc, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
-import { captureSession, thought, thoughtRelation } from '$lib/server/db/schema';
+import { captureSession, temporalEvent, thought, thoughtEntity, thoughtRelation } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
-import {
-	deleteThoughtOutgoingGraphEdges,
-	deleteThoughtVertexFromGraph,
-	upsertThoughtNode,
-	upsertThoughtRelation
-} from '$lib/server/graph/age';
+import { removeThoughtGraphArtifacts, upsertThoughtNode, upsertThoughtRelation } from '$lib/server/graph/age';
+import { pruneCanonicalEntitiesWithNoThoughtLinks } from '$lib/server/memory/canonical-entity-admin';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hints';
@@ -250,6 +246,8 @@ export type CaptureThoughtOptions = {
 	 */
 	awaitEnrichment?: boolean;
 	source?: CaptureSource;
+	/** Override thought.createdAt for temporal anchoring at enrich (external drivers, eval fixtures). */
+	capturedAt?: Date;
 };
 
 async function decryptThoughtRow<T extends {
@@ -316,7 +314,8 @@ export async function captureThought(
 
 	const queued = await queueCapture(userId, rawInput, {
 		source,
-		skipWorker: awaitEnrichment
+		skipWorker: awaitEnrichment,
+		capturedAt: options?.capturedAt
 	});
 
 	if (awaitEnrichment) {
@@ -617,8 +616,9 @@ export async function relinkThoughtGraph(
 }
 
 /**
- * Removes a thought from the AGE graph first (so a failed DB step can be repaired with relink),
- * then deletes the Postgres row (cascades `thought_relation` and `entity_resolution_log`).
+ * Removes a thought from AGE (edges, vertex, linked events), deletes the Postgres row
+ * (cascades `thought_relation`, `entity_resolution_log`, `thought_entity`, `temporal_event`),
+ * then prunes canonical entities that were only linked to this thought.
  */
 export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 	await ensureUserOntologySeeded(getDb(), userId);
@@ -633,9 +633,27 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 		return { ok: false as const, reason: 'not_found' as const };
 	}
 
-	await deleteThoughtVertexFromGraph({ userId, thoughtId: existing.id });
+	const linkedEntityRows = await getDb()
+		.select({ entityId: thoughtEntity.entityId })
+		.from(thoughtEntity)
+		.where(and(eq(thoughtEntity.userId, userId), eq(thoughtEntity.thoughtId, existing.id)));
+	const linkedEntityIds = linkedEntityRows.map((row) => row.entityId);
+
+	const temporalRows = await getDb()
+		.select({ id: temporalEvent.id, graphNodeId: temporalEvent.graphNodeId })
+		.from(temporalEvent)
+		.where(and(eq(temporalEvent.userId, userId), eq(temporalEvent.thoughtId, existing.id)));
+	const temporalEventGraphIds = temporalRows.map((row) => row.graphNodeId?.trim() || row.id);
+
+	await removeThoughtGraphArtifacts({
+		userId,
+		thoughtId: existing.id,
+		temporalEventGraphIds
+	});
 
 	await getDb().delete(thought).where(and(eq(thought.id, existing.id), eq(thought.userId, userId)));
+
+	await pruneCanonicalEntitiesWithNoThoughtLinks(userId, linkedEntityIds);
 
 	return { ok: true as const };
 }

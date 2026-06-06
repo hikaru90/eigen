@@ -2,18 +2,10 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityResolutionLog, temporalEvent, thought } from '$lib/server/db/schema';
 import { findTemporalSchedulingConflictsInGraph } from '$lib/server/graph/age';
-import { inferQueryTimeRange, isTemporalQuery } from '$lib/server/retrieval/temporal';
+import { inferQueryTimeRange } from '$lib/server/retrieval/temporal';
 
 const PERSON_ENTITY_TYPES = new Set(['person']);
 const PLACE_ENTITY_TYPES = new Set(['place', 'location', 'city', 'geo', 'region']);
-
-const SCHEDULING_CONFLICT_QUERY_PATTERNS = [
-	/\bconflict\b/i,
-	/\bclash\b/i,
-	/\boverlap\b/i,
-	/\bscheduling\b/i,
-	/\bdouble[- ]book/i
-];
 
 export type TemporalSchedulingConflict = {
 	personEntityId: string;
@@ -29,11 +21,12 @@ export type TemporalSchedulingConflict = {
 	description: string;
 };
 
-/** Scheduling / overlap questions should use the temporal graph path. */
-export function isSchedulingConflictQuery(query: string): boolean {
-	const trimmed = query.trim();
-	if (!trimmed) return false;
-	return SCHEDULING_CONFLICT_QUERY_PATTERNS.some((p) => p.test(trimmed)) || isTemporalQuery(trimmed);
+/**
+ * XXX REMOVED — SCHEDULING_CONFLICT_QUERY_PATTERNS keyword routing.
+ * Scheduling-conflict retrieval must be LLM-judged, not regex-triggered.
+ */
+export function isSchedulingConflictQuery(_query: string): boolean {
+	return false;
 }
 
 type EntityOnThought = {
@@ -87,11 +80,10 @@ function pickPlaces(entities: EntityOnThought[]): EntityOnThought[] {
 	return entities.filter((e) => PLACE_ENTITY_TYPES.has(e.entityType));
 }
 
-function pickPlaceLabel(entities: EntityOnThought[], summary: string): string {
+function pickPlaceLabel(entities: EntityOnThought[], _summary: string): string {
 	const places = pickPlaces(entities);
 	if (places.length > 0) return places[0]!.label;
-	const fromSummary = summary.match(/\b(in|to)\s+([A-Z][a-zA-Z]+)/);
-	return fromSummary?.[2] ?? 'unknown location';
+	return 'unknown location';
 }
 
 async function findMandatoryThoughtsForPerson(input: {
@@ -107,7 +99,7 @@ async function findMandatoryThoughtsForPerson(input: {
 			and(
 				eq(entityResolutionLog.userId, input.userId),
 				eq(entityResolutionLog.canonicalEntityId, input.personEntityId),
-				sql`${thought.normalizedText} ~* 'mandatory'`
+				sql`false`
 			)
 		);
 

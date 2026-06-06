@@ -46,8 +46,10 @@ export type TemporalSchedulingConflictGraphHit = {
 export const GRAPH_ADAPTER_OPERATIONS = [
 	'upsertThoughtNode',
 	'deleteThoughtOutgoingGraphEdges',
+	'deleteThoughtIncomingRelatesToEdges',
 	'deleteEntityVertexFromGraph',
 	'deleteThoughtVertexFromGraph',
+	'removeThoughtGraphArtifacts',
 	'deleteAllUserGraphVertices',
 	'upsertThoughtRelation',
 	'expandNeighborsByIds',

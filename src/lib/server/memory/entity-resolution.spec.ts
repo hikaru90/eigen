@@ -170,7 +170,7 @@ describe('resolveOrCreateCanonicalEntity', () => {
 		});
 	});
 
-	it('merges via graph context when a co-mentioned neighbor links to one candidate with lexical overlap', async () => {
+	it('merges via graph context when mention key exactly matches canonical key', async () => {
 		fetchEntityEdgesForUserMock.mockResolvedValue([
 			{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'located_in' }
 		]);
@@ -188,7 +188,7 @@ describe('resolveOrCreateCanonicalEntity', () => {
 		const out = await resolveOrCreateCanonicalEntity({
 			userId: 'u1',
 			thoughtId: 't1',
-			surface: 'Sam',
+			surface: 'Samuel',
 			entityType: 'person',
 			confidence: 0.4,
 			coMentionEntityIds: ['e-berlin']

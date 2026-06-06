@@ -1,6 +1,12 @@
 import { and, desc, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, entityAlias, entityResolutionLog, thought } from '$lib/server/db/schema';
+import {
+	canonicalEntity,
+	entityAlias,
+	entityResolutionLog,
+	thought,
+	thoughtEntity
+} from '$lib/server/db/schema';
 import { deleteEntityVertexFromGraph, upsertEntityNode, upsertMentionEdge } from '$lib/server/graph/age';
 import {
 	activeEntityTypeKindKeys,
@@ -197,6 +203,29 @@ export async function syncCanonicalEntityVertexToGraph(
 		});
 	}
 	return { ok: true };
+}
+
+/** Removes canonical entities (and AGE vertices) that no longer have any thought links. */
+export async function pruneCanonicalEntitiesWithNoThoughtLinks(
+	userId: string,
+	candidateEntityIds: string[]
+): Promise<number> {
+	const uniqueIds = [...new Set(candidateEntityIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	if (uniqueIds.length === 0) return 0;
+
+	const stillLinked = await getDb()
+		.selectDistinct({ entityId: thoughtEntity.entityId })
+		.from(thoughtEntity)
+		.where(and(eq(thoughtEntity.userId, userId), inArray(thoughtEntity.entityId, uniqueIds)));
+	const stillLinkedSet = new Set(stillLinked.map((row) => row.entityId));
+
+	let removed = 0;
+	for (const entityId of uniqueIds) {
+		if (stillLinkedSet.has(entityId)) continue;
+		const result = await deleteCanonicalEntityForUser(userId, entityId);
+		if (result.ok) removed++;
+	}
+	return removed;
 }
 
 export async function deleteCanonicalEntityForUser(

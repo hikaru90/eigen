@@ -180,7 +180,7 @@ describe('extractRelations', () => {
 		expect(llmChatCompletionMock).not.toHaveBeenCalled();
 	});
 
-	it('filters related_to when source and candidate share no lexical overlap', async () => {
+	it('keeps LLM related_to without post-hoc lexical overlap filter', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
 				id: 't2',
@@ -200,7 +200,7 @@ describe('extractRelations', () => {
 			thoughtId: 't1',
 			normalizedText: 'bought groceries after lunch'
 		});
-		expect(out).toEqual([]);
+		expect(out).toEqual([{ targetId: 't2', relationType: 'related_to' }]);
 	});
 
 	it('returns empty when only self is retrieved', async () => {
@@ -342,7 +342,7 @@ describe('extractRelations', () => {
 		expect(out).toEqual([]);
 	});
 
-	it('infers contradicts for temporal neighbors when LLM returns no links', async () => {
+	it('does not inject contradicts from sentiment heuristics when LLM returns no links', async () => {
 		searchThoughtsMock.mockResolvedValue([]);
 		getDbMock.mockReturnValue({
 			select: vi.fn(() => ({
@@ -370,41 +370,10 @@ describe('extractRelations', () => {
 			normalizedText:
 				'Working from home is actually great. I am more productive, calmer, and the commute savings are real.'
 		});
-		expect(out).toEqual([{ targetId: 'prior-remote', relationType: 'contradicts' }]);
+		expect(out).toEqual([]);
 	});
 
-	it('infers contradicts when the temporal neighbor is positive and source is negative', async () => {
-		searchThoughtsMock.mockResolvedValue([]);
-		getDbMock.mockReturnValue({
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						orderBy: vi.fn(() => ({
-							limit: vi.fn(async () => [
-								{
-									id: 'prior-positive',
-									normalizedText:
-										'Working from home is great. I am productive, calmer, and love the commute savings.'
-								}
-							])
-						}))
-					}))
-				}))
-			}))
-		});
-		llmChatCompletionMock.mockResolvedValue({
-			choices: [{ message: { content: JSON.stringify([]) } }]
-		});
-		const out = await extractRelations({
-			userId: 'u1',
-			thoughtId: 't-negative',
-			normalizedText:
-				'Remote work is terrible for me. I hate the discipline loss and the home office is awful.'
-		});
-		expect(out).toEqual([{ targetId: 'prior-positive', relationType: 'contradicts' }]);
-	});
-
-	it('matches topic clusters via substring overlap rather than token equality', async () => {
+	it('skips removed topic-cluster contradicts heuristic', async () => {
 		searchThoughtsMock.mockResolvedValue([]);
 		getDbMock.mockReturnValue({
 			select: vi.fn(() => ({
@@ -430,7 +399,7 @@ describe('extractRelations', () => {
 			thoughtId: 't-negative',
 			normalizedText: 'Remote work is terrible for me and I hate working from home.'
 		});
-		expect(out).toEqual([{ targetId: 'prior-remote', relationType: 'contradicts' }]);
+		expect(out).toEqual([]);
 	});
 
 	it('skips duplicate temporal neighbors already present in semantic candidates', async () => {
@@ -471,7 +440,7 @@ describe('extractRelations', () => {
 		expect(llmChatCompletionMock).toHaveBeenCalledTimes(1);
 	});
 
-	it('drops related_to links when the target id is not a candidate', async () => {
+	it('returns LLM relations even when target id was not in candidate list', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
 				id: 't2',
@@ -491,6 +460,6 @@ describe('extractRelations', () => {
 			thoughtId: 't1',
 			normalizedText: 'planning notes for tomorrow'
 		});
-		expect(out).toEqual([]);
+		expect(out).toEqual([{ targetId: 'missing-id', relationType: 'related_to' }]);
 	});
 });

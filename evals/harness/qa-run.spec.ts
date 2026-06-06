@@ -111,11 +111,38 @@ describe('expandQa', () => {
 });
 
 describe('expandQaEntries', () => {
-	it('dedupes captures and runs all answers', () => {
+	it('dedupes captures and batches checks then answers for multi-QA runs without edits', () => {
 		const entries = expandQaEntries([sampleQa, secondQa]);
 		expect(entries.filter((e) => e.kind === 'capture')).toHaveLength(2);
 		expect(entries.filter((e) => e.kind === 'answer')).toHaveLength(2);
-		expect(entries.at(-1)?.fixtureRef).toBe('qa_test_2');
+		expect(entries.map((e) => e.kind)).toEqual([
+			'capture',
+			'capture',
+			'check',
+			'check',
+			'answer',
+			'answer'
+		]);
+		expect(entries.filter((e) => e.inputJson.parallelWave === 'check')).toHaveLength(2);
+		expect(entries.filter((e) => e.inputJson.parallelWave === 'answer')).toHaveLength(2);
+	});
+
+	it('batches retrieval entries into a parallel wave when multi-QA has retrieval', () => {
+		const entries = expandQaEntries([
+			retrievalQa,
+			{ ...secondQa, id: 'qa_retrieval_2', retrievalQuery: 'rice flour', tags: ['recall'] }
+		]);
+		expect(entries.map((e) => e.kind)).toEqual([
+			'capture',
+			'capture',
+			'check',
+			'check',
+			'retrieval',
+			'retrieval',
+			'answer',
+			'answer'
+		]);
+		expect(entries.filter((e) => e.inputJson.parallelWave === 'retrieval')).toHaveLength(2);
 	});
 
 	it('inserts fixture reset edit before a later QA when a shared fixture was edited', () => {

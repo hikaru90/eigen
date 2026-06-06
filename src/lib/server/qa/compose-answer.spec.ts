@@ -19,7 +19,8 @@ const {
 	searchThoughtsMock,
 	hasCommunitySummariesMock,
 	searchGlobalMock,
-	classifyRetrievalScopeMock,
+	classifyQueryIntentMock,
+	fetchTemporalEventSeedsMock,
 	fetchRelevantCommunitySummariesMock,
 	llmChatCompletionMock,
 	findTemporalSchedulingConflictsMock,
@@ -32,7 +33,8 @@ const {
 	searchThoughtsMock: vi.fn(),
 	hasCommunitySummariesMock: vi.fn(),
 	searchGlobalMock: vi.fn(),
-	classifyRetrievalScopeMock: vi.fn(),
+	classifyQueryIntentMock: vi.fn(),
+	fetchTemporalEventSeedsMock: vi.fn(),
 	fetchRelevantCommunitySummariesMock: vi.fn(),
 	llmChatCompletionMock: vi.fn(),
 	findTemporalSchedulingConflictsMock: vi.fn(),
@@ -47,9 +49,17 @@ vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
 }));
 
-vi.mock('$lib/server/retrieval/global-query', () => ({
-	classifyRetrievalScope: classifyRetrievalScopeMock
+vi.mock('$lib/server/retrieval/classify-query-intent', () => ({
+	classifyQueryIntent: classifyQueryIntentMock
 }));
+
+vi.mock('$lib/server/retrieval/temporal', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/retrieval/temporal')>();
+	return {
+		...actual,
+		fetchTemporalEventSeeds: fetchTemporalEventSeedsMock
+	};
+});
 
 vi.mock('$lib/server/retrieval/global', () => ({
 	hasCommunitySummaries: hasCommunitySummariesMock,
@@ -125,15 +135,9 @@ const sampleRetrieval = [
 ];
 
 describe('extractQuestionSubjectName', () => {
-	it('extracts Marcus from allergy questions', () => {
-		expect(extractQuestionSubjectName('what is Marcus allergic to')).toBe('marcus');
-		expect(extractQuestionSubjectName('what is Marcus allergic to now')).toBe('marcus');
-	});
-
-	it('extracts Jonas from need questions', () => {
-		expect(extractQuestionSubjectName('What does Jonas need before doing creative work?')).toBe(
-			'jonas'
-		);
+	it('returns undefined — subject extraction is LLM-judged', () => {
+		expect(extractQuestionSubjectName('what is Marcus allergic to')).toBeUndefined();
+		expect(extractQuestionSubjectName('What does Jonas need before doing creative work?')).toBeUndefined();
 	});
 });
 
@@ -150,7 +154,7 @@ describe('prioritizePersonNamedThoughts', () => {
 		...noTemporal
 	});
 
-	it('ranks thoughts mentioning the subject ahead of generic productivity notes', () => {
+	it('preserves retrieval order without person-name boosting', () => {
 		const ordered = prioritizePersonNamedThoughts(
 			'What does Jonas need before doing creative work?',
 			[
@@ -159,12 +163,12 @@ describe('prioritizePersonNamedThoughts', () => {
 			],
 			8
 		);
-		expect(ordered[0]?.id).toBe('b');
+		expect(ordered[0]?.id).toBe('a');
 	});
 });
 
 describe('narrowComposeContextToQuestionFocus', () => {
-	it('drops haystack noise for Marcus allergy questions when the allergy note is present', () => {
+	it('passes through all items without regex narrowing', () => {
 		const out = narrowComposeContextToQuestionFocus('what is Marcus allergic to', [
 			{
 				id: 'a',
@@ -189,10 +193,10 @@ describe('narrowComposeContextToQuestionFocus', () => {
 				...noTemporal
 			}
 		]);
-		expect(out.map((i) => i.id)).toEqual(['b']);
+		expect(out.map((i) => i.id)).toEqual(['a', 'b']);
 	});
 
-	it('keeps only thoughts that mention the question name token', () => {
+	it('does not filter by question name token', () => {
 		const out = narrowComposeContextToQuestionFocus('Wer ist Clemi?', [
 			{
 				id: 'a',
@@ -217,8 +221,7 @@ describe('narrowComposeContextToQuestionFocus', () => {
 				...noTemporal
 			}
 		]);
-		expect(out).toHaveLength(1);
-		expect(out[0].id).toBe('b');
+		expect(out).toHaveLength(2);
 	});
 });
 
@@ -262,16 +265,9 @@ describe('profile citation validation', () => {
 });
 
 describe('extractRetrievalHints', () => {
-	it('extracts name tokens from short German questions', () => {
-		expect(extractRetrievalHints('Wer ist Clemi?')).toBe('clemi');
-	});
-
-	it('folds German umlauts instead of splitting inside words', () => {
-		expect(extractRetrievalHints('was weißt du über mich?')).toBe('weisst du uber mich');
-	});
-
-	it('returns undefined when hints equal the full normalized question', () => {
-		expect(extractRetrievalHints('clemi')).toBeUndefined();
+	it('always returns undefined — hint extraction removed', () => {
+		expect(extractRetrievalHints('Wer ist Clemi?')).toBeUndefined();
+		expect(extractRetrievalHints('was weißt du über mich?')).toBeUndefined();
 	});
 });
 
@@ -309,11 +305,20 @@ describe('formatThoughtsForPrompt', () => {
 });
 
 describe('composeAnswer', () => {
+	const localIntent = {
+		scope: 'local' as const,
+		temporal: false,
+		kind: 'none' as const,
+		entityHints: [] as string[],
+		timeWindow: null
+	};
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		dbWhereMock.mockResolvedValue([]);
 		hasCommunitySummariesMock.mockResolvedValue(false);
-		classifyRetrievalScopeMock.mockResolvedValue('local');
+		classifyQueryIntentMock.mockResolvedValue(localIntent);
+		fetchTemporalEventSeedsMock.mockResolvedValue([]);
 		searchGlobalMock.mockResolvedValue({
 			answer: 'You care about family and creative work.',
 			communitiesUsed: 2,
@@ -334,7 +339,7 @@ describe('composeAnswer', () => {
 	});
 
 	it('uses searchGlobal for self-profile queries when community summaries exist', async () => {
-		classifyRetrievalScopeMock.mockResolvedValue('global');
+		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
 		hasCommunitySummariesMock.mockResolvedValue(true);
 		searchGlobalMock.mockResolvedValue({
 			answer: 'You are family-oriented and value creative work.',
@@ -358,7 +363,7 @@ describe('composeAnswer', () => {
 	});
 
 	it('uses searchGlobal for "what am I about?" when summaries exist', async () => {
-		classifyRetrievalScopeMock.mockResolvedValue('global');
+		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
 		hasCommunitySummariesMock.mockResolvedValue(true);
 
 		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
@@ -370,7 +375,7 @@ describe('composeAnswer', () => {
 
 	it('falls back to searchThoughts for global queries without community summaries (AC-026)', async () => {
 		const logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-		classifyRetrievalScopeMock.mockResolvedValue('global');
+		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
 
 		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
 
@@ -439,7 +444,7 @@ describe('composeAnswer', () => {
 		);
 	});
 
-	it('omits unrelated retrieved thoughts from the compose prompt for named-entity questions', async () => {
+	it('excludes low-score retrieval hits from compose prompt', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{
 				id: '38b31459-ba6a-4e59-ac4e-1bf3039d142b',
@@ -461,8 +466,8 @@ describe('composeAnswer', () => {
 				messages: Array<{ role: string; content: string }>;
 			}
 		).messages[1].content;
-		expect(userMsg).toContain('(no thoughts retrieved)');
 		expect(userMsg).not.toContain('annie');
+		expect(userMsg).toContain('(no thoughts retrieved)');
 	});
 
 	it('forwards topK, weights, and trimmed question to searchThoughts', async () => {
@@ -726,7 +731,7 @@ describe('detectContradictions', () => {
 		...noTemporal
 	});
 
-	it('detects opposing remote-work sentiments without shared subject tokens', () => {
+	it('returns empty — regex contradiction detection removed', () => {
 		const conflicts = detectContradictions([
 			base(
 				'a',
@@ -737,7 +742,6 @@ describe('detectContradictions', () => {
 				'Working from home is actually great. I am more productive, calmer, and the commute savings are real.'
 			)
 		]);
-		expect(conflicts).toHaveLength(1);
-		expect(conflicts[0]?.ids).toEqual(['a', 'b']);
+		expect(conflicts).toEqual([]);
 	});
 });

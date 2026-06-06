@@ -19,6 +19,7 @@
     COMMUNITY_HULL_GRADIENT,
     communityCircleFromPositions,
     communityGradientId,
+    communityHullFillOpacityForZoom,
   } from "$lib/graph/community-hull";
   import {
     deleteGraphEntity,
@@ -40,10 +41,16 @@
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import X from "@lucide/svelte/icons/x";
   import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from "$lib/capture/ingest-phases";
+  import { pollUntilEnrichmentComplete } from "$lib/capture/poll-enrichment";
+  import { subscribeCaptureQueue } from "$lib/capture/queue";
+  import { pollGraphEnrichRefresh } from "$lib/graph/poll-graph-enrich-refresh";
   import EmbeddingMap from "./EmbeddingMap.svelte";
   import TemporalEvents from "./TemporalEvents.svelte";
   import GraphFiltersToolbar from "./graph-filters-toolbar.svelte";
   import GraphOntologyLegendBar from "./graph-ontology-legend-bar.svelte";
+  import GraphRearrangeStatus from "./GraphRearrangeStatus.svelte";
+  import type { GraphRearrangePhase } from "$lib/graph/graph-rearrange-phases";
+  import type { GraphRearrangeResult } from "$lib/graph/graph-edit-api";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import type { TemporalEventListItem } from "../api/temporal-events/+server";
 
@@ -92,9 +99,18 @@
   let scheduleGraphResize: (() => void) | null = null;
   let scheduleGraphRelayout: (() => void) | null = null;
   let graphRearrangeBusy = $state(false);
+  let graphRearrangeComplete = $state(false);
   let graphRearrangeErr = $state<string | null>(null);
+  let graphRearrangeResult = $state<GraphRearrangeResult | null>(null);
+  let graphRearrangePhaseEvents = $state<GraphRearrangePhase[]>([]);
+  let graphRearrangeStartedAt = $state<number | null>(null);
   let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
   let scheduleRestorePreEntityZoom: (() => void) | null = null;
+  let schedulePreserveGraphZoom: (() => void) | null = null;
+  let scheduleMarkEnrichGraphUpdate: (() => void) | null = null;
+  /** Entity node ids that should pop in on the next graph paint after tier-2 enrich. */
+  let pendingPopInNodeIds = new Set<string>();
+  let entityIdsBeforeEnrichRefresh: Set<string> | null = null;
   let selectedNode = $state<(typeof data.snapshot.nodes)[number] | null>(null);
   let selectedCommunityId = $state<string | null>(null);
   let nodeDrawerOpen = $state(false);
@@ -320,6 +336,24 @@
     status = message;
   }
 
+  let enrichGraphRefreshInFlight = false;
+
+  async function refreshGraphAfterEnrichment() {
+    if (enrichGraphRefreshInFlight) return;
+    enrichGraphRefreshInFlight = true;
+    try {
+      schedulePreserveGraphZoom?.();
+      scheduleMarkEnrichGraphUpdate?.();
+      entityIdsBeforeEnrichRefresh = new Set(
+        data.snapshot.nodes.filter((n) => n.kind === "Entity").map((n) => n.id),
+      );
+      await invalidateAll();
+      status = "Memory indexed — graph updated.";
+    } finally {
+      enrichGraphRefreshInFlight = false;
+    }
+  }
+
   async function submitThoughtRelinkFromGraph() {
     const id = editingThoughtId ?? "";
     if (!id) return;
@@ -418,21 +452,36 @@
     }
   }
 
+  function dismissGraphRearrangeStatus() {
+    graphRearrangeResult = null;
+    graphRearrangeComplete = false;
+    graphRearrangePhaseEvents = [];
+    graphRearrangeStartedAt = null;
+  }
+
   async function submitRearrangeGraph() {
     graphRearrangeErr = null;
+    graphRearrangeResult = null;
+    graphRearrangeComplete = false;
+    graphRearrangePhaseEvents = [];
+    graphRearrangeStartedAt = Date.now();
     graphRearrangeBusy = true;
     try {
-      const j = await rearrangeGraph();
-      const removed = j.pruned?.removed ?? 0;
-      const orphanThoughtsRemoved = j.orphanThoughts?.removed ?? 0;
-      const duplicateRemoved = j.duplicatePruned?.removed ?? 0;
-      const invalidRemoved = j.connections?.removed ?? 0;
-      const added = j.repaired?.edgesAdded ?? 0;
-      await refreshGraphAfterRearrange(
-        `Graph rearranged — ${removed} weak edge${removed === 1 ? "" : "s"} pruned, ${orphanThoughtsRemoved} orphan thought${orphanThoughtsRemoved === 1 ? "" : "s"} removed, ${duplicateRemoved} duplicate-driven edge${duplicateRemoved === 1 ? "" : "s"} removed, ${invalidRemoved} illogical relation edge${invalidRemoved === 1 ? "" : "s"} removed, ${added} edge${added === 1 ? "" : "s"} added.`,
-      );
+      const j = await rearrangeGraph({
+        onPhase: (phase) => {
+          graphRearrangePhaseEvents = [...graphRearrangePhaseEvents, phase];
+        },
+      });
+      graphRearrangeResult = j;
+      graphRearrangeComplete = true;
+      await invalidateAll();
+      queueMicrotask(() => {
+        scheduleGraphUpdate?.();
+        scheduleGraphRelayout?.();
+      });
     } catch (e) {
       graphRearrangeErr = e instanceof Error ? e.message : String(e);
+      dismissGraphRearrangeStatus();
     } finally {
       graphRearrangeBusy = false;
     }
@@ -587,6 +636,13 @@
   $effect(() => {
     data.snapshot;
     data.communities;
+    if (entityIdsBeforeEnrichRefresh) {
+      const after = new Set(
+        data.snapshot.nodes.filter((n) => n.kind === "Entity").map((n) => n.id),
+      );
+      pendingPopInNodeIds = new Set([...after].filter((id) => !entityIdsBeforeEnrichRefresh!.has(id)));
+      entityIdsBeforeEnrichRefresh = null;
+    }
     queueMicrotask(() => scheduleGraphUpdate?.());
   });
 
@@ -601,6 +657,29 @@
   });
 
   onMount(() => {
+    const enrichPollCancel = pollGraphEnrichRefresh({
+      onEnrichComplete: () => refreshGraphAfterEnrichment(),
+    });
+    const fastEnrichPollCancelByThoughtId = new Map<string, () => void>();
+    const unsubCaptureQueue = subscribeCaptureQueue((message) => {
+      if (message.type !== "done") return;
+      if (message.thought.enrichmentComplete) {
+        void refreshGraphAfterEnrichment();
+        return;
+      }
+      const thoughtId = message.thought.id;
+      fastEnrichPollCancelByThoughtId.get(thoughtId)?.();
+      const cancel = pollUntilEnrichmentComplete({
+        thoughtId,
+        onUpdate: (thought) => {
+          if (!thought.enrichmentComplete) return;
+          fastEnrichPollCancelByThoughtId.delete(thoughtId);
+          void refreshGraphAfterEnrichment();
+        },
+      });
+      fastEnrichPollCancelByThoughtId.set(thoughtId, cancel);
+    });
+
     const origHtmlOverflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = "hidden";
 
@@ -681,11 +760,17 @@
         .attr("class", "graph-community-chrome")
         .attr("pointer-events", "none");
 
+      function applyCommunityHullZoomOpacity(scale = 1) {
+        const opacity = communityHullFillOpacityForZoom(scale);
+        communityFillSelection.select("circle").attr("fill-opacity", opacity);
+      }
+
       const zoom = d3
         .zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.15, 8])
         .on("zoom", (event) => {
           gZoom.attr("transform", event.transform.toString());
+          applyCommunityHullZoomOpacity(event.transform.k);
         });
       svg.call(zoom);
       svg.on("click.details-clear", (event) => {
@@ -696,6 +781,53 @@
 
       let preEntityZoomTransform: ReturnType<typeof d3.zoomIdentity> | null = null;
       let focusSessionBaseK: number | null = null;
+      let pendingEnrichGraphUpdate = false;
+      let preservedGraphZoomTransform: ReturnType<typeof d3.zoomIdentity> | null = null;
+
+      function preserveGraphZoom() {
+        const svgEl = svg.node();
+        if (!svgEl) return;
+        preservedGraphZoomTransform = d3.zoomTransform(svgEl).copy();
+      }
+
+      function restorePreservedGraphZoom() {
+        if (!preservedGraphZoomTransform) return;
+        const t = preservedGraphZoomTransform;
+        preservedGraphZoomTransform = null;
+        svg.interrupt("zoom-preserve");
+        svg.call(zoom.transform, t);
+      }
+
+      function linkEndpointId(endpoint: string | SimNode) {
+        return typeof endpoint === "string" ? endpoint : endpoint.id;
+      }
+
+      /** Place newly enriched entities near existing neighbors so the viewport does not jump. */
+      function seedPopInNodePositions(nodes: SimNode[], links: SimLink[], popInIds: Set<string>) {
+        if (popInIds.size === 0) return;
+        const byId = new Map(nodes.map((n) => [n.id, n]));
+        for (const node of nodes) {
+          if (!popInIds.has(node.id)) continue;
+          if (Number.isFinite(node.x) && Number.isFinite(node.y)) continue;
+          const neighbors: SimNode[] = [];
+          for (const link of links) {
+            const sourceId = linkEndpointId(link.source);
+            const targetId = linkEndpointId(link.target);
+            if (sourceId === node.id) {
+              const target = byId.get(targetId);
+              if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) neighbors.push(target);
+            } else if (targetId === node.id) {
+              const source = byId.get(sourceId);
+              if (source && Number.isFinite(source.x) && Number.isFinite(source.y)) neighbors.push(source);
+            }
+          }
+          if (neighbors.length === 0) continue;
+          const cx = neighbors.reduce((sum, n) => sum + (n.x ?? 0), 0) / neighbors.length;
+          const cy = neighbors.reduce((sum, n) => sum + (n.y ?? 0), 0) / neighbors.length;
+          node.x = cx + (Math.random() - 0.5) * 24;
+          node.y = cy + (Math.random() - 0.5) * 24;
+        }
+      }
 
       function restorePreEntityZoom() {
         const svgEl = svg.node();
@@ -848,7 +980,7 @@
       function applyHighlight(selectedId: string | null) {
         nodeSelection.each(function (d) {
           const sel = d3.select(this);
-          const circle = sel.select<SVGCircleElement>("circle");
+          const circle = sel.select<SVGCircleElement>(".graph-node-core, circle");
           const on = selectedId !== null && d.id === selectedId;
           circle
             .attr("stroke-width", on ? 3.2 : 1)
@@ -913,6 +1045,10 @@
           .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
           .select("circle")
           .attr("r", (d) => d.r);
+        const svgEl = svg.node();
+        if (svgEl) {
+          applyCommunityHullZoomOpacity(d3.zoomTransform(svgEl).k);
+        }
 
         communityChromeSelection = gCommunityChrome
           .selectAll<SVGGElement, CommunityHull>("g.community-hull-chrome")
@@ -1108,29 +1244,84 @@
             (exit) => exit.remove(),
           );
 
+        const popInIds = pendingPopInNodeIds;
+
         nodeSelection = gNodes
           .selectAll<SVGGElement, SimNode>("g.graph-node")
           .data(nodes, (d) => d.id)
           .join(
             (enter) => {
               const g = enter.append("g").attr("class", "graph-node");
-              g.append("circle")
-                .attr("r", nodeRadius)
-                .attr("fill", nodeFill)
-                .attr("stroke", "currentColor")
-                .attr("stroke-width", 1);
-              g.append("title").text((d) => `${d.kind}: ${d.label || d.id}\n${d.subtype}`);
-              g.append("text")
-                .attr("x", 12)
-                .attr("y", 4)
-                .attr("class", "fill-foreground text-[10px] font-mono")
-                .text(labelText);
+              g.each(function (d) {
+                const node = d3.select(this);
+                const inner = node.append("g").attr("class", "graph-node-inner");
+                const shouldPop = popInIds.has(d.id);
+                if (shouldPop) {
+                  inner
+                    .append("circle")
+                    .attr("class", "graph-node-flash-bg")
+                    .attr("r", nodeRadius(d))
+                    .attr("fill", "#28F97F")
+                    .attr("stroke", "none")
+                    .attr("opacity", 0);
+                  inner
+                    .append("circle")
+                    .attr("class", "graph-node-reveal-ring")
+                    .attr("r", nodeRadius(d))
+                    .attr("fill", "none")
+                    .attr("stroke", "#28F97F")
+                    .attr("stroke-width", 2)
+                    .attr("opacity", 0);
+                }
+                inner
+                  .append("circle")
+                  .attr("class", "graph-node-core")
+                  .attr("r", nodeRadius(d))
+                  .attr("fill", nodeFill(d))
+                  .attr("stroke", "currentColor")
+                  .attr("stroke-width", 1);
+                node.append("title").text(`${d.kind}: ${d.label || d.id}\n${d.subtype}`);
+                inner
+                  .append("text")
+                  .attr("x", 12)
+                  .attr("y", 4)
+                  .attr("class", "fill-foreground text-[10px] font-mono")
+                  .text(labelText(d));
+                if (shouldPop) {
+                  inner.attr("opacity", 0).attr("transform", "scale(0.08)");
+                  inner
+                    .transition("graph-node-pop")
+                    .duration(520)
+                    .ease(d3.easeCubicOut)
+                    .attr("opacity", 1)
+                    .attr("transform", "scale(1)");
+                  inner
+                    .select(".graph-node-flash-bg")
+                    .transition("graph-node-flash")
+                    .duration(520)
+                    .attr("opacity", 0.85)
+                    .attr("r", nodeRadius(d) + 5)
+                    .transition()
+                    .attr("opacity", 0);
+                  inner
+                    .select(".graph-node-reveal-ring")
+                    .transition("graph-node-ring")
+                    .duration(520)
+                    .attr("opacity", 0.95)
+                    .attr("r", nodeRadius(d) + 24)
+                    .transition()
+                    .attr("opacity", 0);
+                }
+              });
               return g;
             },
             (update) => {
               update.select("title").text((d) => `${d.kind}: ${d.label || d.id}\n${d.subtype}`);
-              update.select("text").text(labelText);
-              update.select("circle").attr("r", nodeRadius).attr("fill", nodeFill);
+              update.select(".graph-node-inner text").text(labelText);
+              update
+                .select(".graph-node-core")
+                .attr("r", nodeRadius)
+                .attr("fill", nodeFill);
               return update;
             },
             (exit) => exit.remove(),
@@ -1168,10 +1359,20 @@
           simulation.force("x", d3.forceX<SimNode>(dims.w / 2).strength(0.08));
           simulation.force("y", d3.forceY<SimNode>(dims.h / 2).strength(0.08));
           simulation.force("collision", d3.forceCollide<SimNode>().radius(40));
-          simulation.alpha(0.35).restart();
+          if (pendingEnrichGraphUpdate) {
+            seedPopInNodePositions(nodes, links, popInIds);
+            pendingEnrichGraphUpdate = false;
+            simulation.alpha(0.12).restart();
+            restorePreservedGraphZoom();
+          } else {
+            simulation.alpha(0.35).restart();
+          }
         }
 
         applyHighlight(selectedNode?.id ?? null);
+        if (popInIds.size > 0) {
+          pendingPopInNodeIds = new Set();
+        }
         status = `${nodes.length} nodes · ${links.length} edges (live AGE graph)`;
       }
 
@@ -1188,6 +1389,10 @@
       scheduleGraphRelayout = () => {
         if (!simulation) return;
         simulation.alpha(1).restart();
+      };
+      schedulePreserveGraphZoom = preserveGraphZoom;
+      scheduleMarkEnrichGraphUpdate = () => {
+        pendingEnrichGraphUpdate = true;
       };
       scheduleApplyHighlight = (id) => applyHighlight(id);
       scheduleRestorePreEntityZoom = scheduleRestorePreEntityZoomInner;
@@ -1208,12 +1413,20 @@
 
       teardown = () => {
         cancelled = true;
+        enrichPollCancel();
+        unsubCaptureQueue();
+        for (const cancel of fastEnrichPollCancelByThoughtId.values()) cancel();
+        fastEnrichPollCancelByThoughtId.clear();
         document.documentElement.style.overflow = origHtmlOverflow;
         scheduleGraphUpdate = null;
         scheduleGraphResize = null;
         scheduleGraphRelayout = null;
+        schedulePreserveGraphZoom = null;
+        scheduleMarkEnrichGraphUpdate = null;
         scheduleApplyHighlight = null;
         scheduleRestorePreEntityZoom = null;
+        preservedGraphZoomTransform = null;
+        pendingEnrichGraphUpdate = false;
         preEntityZoomTransform = null;
         focusSessionBaseK = null;
         simulation?.stop();
@@ -1264,10 +1477,24 @@
           value="graph"
           class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
         >
-          <div class="relative min-h-0 w-full flex-1">
+          <div class="relative min-h-0 w-full flex-1 bg-transparent">
+            {#if graphRearrangeBusy || graphRearrangeResult}
+              <div class="pointer-events-none absolute top-3 left-3 z-10 w-[min(calc(100%-1.5rem),24rem)]">
+                <div class="pointer-events-auto">
+                  <GraphRearrangeStatus
+                    busy={graphRearrangeBusy}
+                    complete={graphRearrangeComplete}
+                    phaseEvents={graphRearrangePhaseEvents}
+                    result={graphRearrangeResult}
+                    startedAt={graphRearrangeStartedAt}
+                    onDismiss={dismissGraphRearrangeStatus}
+                  />
+                </div>
+              </div>
+            {/if}
             <div
               bind:this={rootEl}
-              class="text-foreground h-full min-h-0 w-full"
+              class="text-foreground h-full min-h-0 w-full bg-transparent"
               role="img"
               aria-label="Interactive graph visualization"
             ></div>

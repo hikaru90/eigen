@@ -20,7 +20,14 @@ describe('applyThoughtEditRequest', () => {
 		vi.clearAllMocks();
 	});
 
-	it('marks complete without LLM when request is completion-only', async () => {
+	it('uses LLM for completion-only requests (no regex shortcut)', async () => {
+		mockLlmContent(
+			JSON.stringify({
+				rawText: 'Buy milk',
+				status: 'completed',
+				summary: 'Marked as completed.'
+			})
+		);
 		const out = await applyThoughtEditRequest({
 			userId: 'u1',
 			existingRawText: 'Buy milk',
@@ -28,23 +35,9 @@ describe('applyThoughtEditRequest', () => {
 			category: 'task',
 			editRequest: 'mark as completed'
 		});
-		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+		expect(llmChatCompletionMock).toHaveBeenCalled();
 		expect(out.rawText).toBe('Buy milk');
 		expect(out.status).toBe('completed');
-		expect(out.summary).toContain('Marked as completed');
-	});
-
-	it('truncates long normalized text in completion-only summary with ellipsis', async () => {
-		const longText = 'a'.repeat(130);
-		const out = await applyThoughtEditRequest({
-			userId: 'u1',
-			existingRawText: longText,
-			existingNormalizedText: longText,
-			category: 'task',
-			editRequest: 'done'
-		});
-		expect(out.summary).toContain('…');
-		expect(out.summary).not.toContain(longText);
 	});
 
 	it('throws when edit request is empty', async () => {

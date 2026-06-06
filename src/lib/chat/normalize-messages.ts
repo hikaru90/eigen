@@ -1,4 +1,4 @@
-import { looksLikeRawToolJson } from './chat-stream-types';
+import { looksLikeRawToolJson, parseFinalAnswerText } from './chat-stream-types';
 
 export type ChatToolCallEntry = {
 	role: 'assistant';
@@ -108,7 +108,7 @@ function hasTimelineEntries(entries: ChatDisplayEntry[]): boolean {
 /** Collapse duplicate tool cards and drop redundant final text after Q&A compose. */
 export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEntry[] {
 	if (hasTimelineEntries(entries)) {
-		return entries.filter((entry, i, arr) => {
+		const filtered = entries.filter((entry, i, arr) => {
 			if (entry.role !== 'assistant' || entry.variant !== 'timeline' || entry.kind !== 'tool_progress') {
 				return true;
 			}
@@ -120,6 +120,26 @@ export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEn
 				prev.label === entry.label
 			);
 		});
+
+		const out: ChatDisplayEntry[] = [];
+		for (const entry of filtered) {
+			const prev = out.at(-1);
+			if (
+				entry.role === 'assistant' &&
+				entry.variant === 'text' &&
+				prev?.role === 'assistant' &&
+				prev.variant === 'timeline' &&
+				prev.kind === 'tool_result' &&
+				prev.tool === 'answer_question' &&
+				prev.content &&
+				normalizeAnswerText(parseFinalAnswerText('', prev.content)) ===
+					normalizeAnswerText(entry.content)
+			) {
+				continue;
+			}
+			out.push(entry);
+		}
+		return out;
 	}
 
 	const merged = mergeToolCallPairs(entries);

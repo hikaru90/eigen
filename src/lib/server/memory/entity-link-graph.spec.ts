@@ -8,9 +8,9 @@ import {
 } from './entity-link-graph';
 
 describe('entity-link-graph', () => {
-	it('hasLexicalMergeEvidence accepts substring nicknames and rejects unrelated names', () => {
-		expect(hasLexicalMergeEvidence('sam', 'samuel')).toBe(true);
-		expect(hasLexicalMergeEvidence('anni', 'annie')).toBe(true);
+	it('hasLexicalMergeEvidence requires exact lexical key match only', () => {
+		expect(hasLexicalMergeEvidence('sam', 'sam')).toBe(true);
+		expect(hasLexicalMergeEvidence('sam', 'samuel')).toBe(false);
 		expect(hasLexicalMergeEvidence('alex', 'annie')).toBe(false);
 	});
 
@@ -154,17 +154,17 @@ describe('entity-link-graph', () => {
 		expect(withCoMention - withoutCoMention).toBe(3);
 	});
 
-	it('scores substring match when mention is longer than canonical key', () => {
+	it('scores exact lexical key match only (no substring bonus)', () => {
 		const score = scoreGraphLinkCandidate({
 			candidateId: 'e-sam',
 			candidateEntityType: 'person',
 			candidateCanonicalKey: 'sam',
-			mentionEntityType: 'location',
-			mentionKey: 'samuel',
+			mentionEntityType: 'person',
+			mentionKey: 'sam',
 			coMentionEntityIds: new Set(),
 			neighborEntityIds: new Set()
 		});
-		expect(score).toBe(2);
+		expect(score).toBe(4);
 	});
 
 	it('skips co-mention self-match when candidate is also in co-mention set', () => {
@@ -179,7 +179,7 @@ describe('entity-link-graph', () => {
 			coMentionEntityIds: new Set(['e-samuel']),
 			neighborEntityIds: neighbors
 		});
-		expect(score).toBe(9);
+		expect(score).toBe(7);
 	});
 
 	it('reuses adjacency sets when linking multiple edges for the same node', () => {
@@ -200,7 +200,7 @@ describe('entity-link-graph', () => {
 		expect(adj.get('e-b')?.has('e-c')).toBe(true);
 	});
 
-	it('does not add substring bonus when shared prefix is shorter than three chars', () => {
+	it('does not add lexical bonus without exact key match', () => {
 		const score = scoreGraphLinkCandidate({
 			candidateId: 'e-al',
 			candidateEntityType: 'person',

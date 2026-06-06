@@ -31,12 +31,14 @@ export async function searchThoughts(params: {
 	weights?: { vector: number; graph: number };
 	mode?: RetrievalMode;
 	queryEmbedding?: number[];
+	temporalIntent?: import('$lib/server/retrieval/temporal').TemporalQueryIntent | null;
 }): Promise<RetrievalResult[]> {
 	return retrieveEvidence({
 		userId: params.userId,
 		query: params.query,
 		topK: params.topK,
-		queryEmbedding: params.queryEmbedding
+		queryEmbedding: params.queryEmbedding,
+		temporalIntent: params.temporalIntent
 	});
 }
 

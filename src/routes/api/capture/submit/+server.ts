@@ -8,6 +8,7 @@ import {
 } from '$lib/server/billing/insufficient-credits';
 import { captureThought } from '$lib/server/capture/service';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
+import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 import { appSql, appDbAsyncLocal, createScopedDrizzle, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
 
@@ -50,13 +51,25 @@ export const POST: RequestHandler = async (event) => {
 		typeof body === 'object' && body && 'raw' in body ? String((body as { raw?: unknown }).raw) : '';
 	if (!raw.trim()) error(400, 'raw is required');
 
+	let capturedAt: Date | undefined;
+	try {
+		capturedAt =
+			typeof body === 'object' && body
+				? parseOptionalIsoTimestamp((body as { captured_at?: unknown }).captured_at, 'captured_at')
+				: undefined;
+	} catch (err) {
+		error(400, err instanceof Error ? err.message : 'Invalid captured_at');
+	}
+
+	const captureOpts = { source: 'ui' as const, ...(capturedAt ? { capturedAt } : {}) };
+
 	const accept = event.request.headers?.get('accept') ?? '';
 	const streamNdjson = accept.includes('application/x-ndjson');
 
 	if (!streamNdjson) {
 		try {
 			const thought = await runWithTrace(crypto.randomUUID(), () =>
-				captureThought(user.id, raw, { source: 'ui' })
+				captureThought(user.id, raw, captureOpts)
 			);
 			return json({ thought });
 		} catch (err) {
@@ -100,7 +113,7 @@ export const POST: RequestHandler = async (event) => {
 			const scopedDb = createScopedDrizzle(reserved);
 			const thought = await appDbAsyncLocal.run(scopedDb, () =>
 				runWithTrace(crypto.randomUUID(), () =>
-					captureThought(user.id, raw, { source: 'ui', onProgress })
+					captureThought(user.id, raw, { ...captureOpts, onProgress })
 				)
 			);
 			writeRaw({ type: 'done', thought });

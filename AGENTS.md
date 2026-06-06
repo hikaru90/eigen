@@ -80,6 +80,13 @@
 - Enforce tenant isolation with Row Level Security.
 - Use `user_id` as the tenancy key for isolation in MVP.
 
+## LLM as judge (no string heuristics)
+
+- **Never** use regex, keyword lists, stop-word filters, or substring rules in code to decide semantic meaning (entity type, category, intent, temporal scope, contradictions, retrieval mode, edit routing, etc.).
+- **Always** use an LLM call with ontology catalog + JSON schema for those decisions. See [`.cursor/rules/no-string-heuristics.mdc`](.cursor/rules/no-string-heuristics.mdc).
+- Post-LLM code may parse JSON, validate contracts, and persist — not re-type or re-route based on string patterns.
+- **Allowed without LLM:** lexical search indexing, embedding similarity, graph traversal on persisted structure, ID/format validation, redaction.
+
 ## Memory indexing and tool hygiene
 - **Lexical recall:** persist a deterministic **precomputed search surface** on each thought (e.g. `thought.lexical_text`: NFKC-folded, lowercased, whitespace-collapsed from normalized body). Use it to build `tsvector` and/or BM25-style keyword retrieval alongside `pgvector`, so short phrases, names, and codes are not lost to embedding-only search.
 - **Strict MCP / ingest contracts:** validate entity IDs (non-empty after trim, no interior whitespace), numeric bounds such as search `threshold` in `[0, 1]` and non-negative integer `top_k`, and reject ambiguous argument shapes at the boundary before any DB or LLM work.

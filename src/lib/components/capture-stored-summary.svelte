@@ -120,6 +120,10 @@
 			<p class="text-xs text-blue-700 dark:text-blue-400">
 				Queue: {thought.queueStatus === 'pending' ? 'waiting for indexing' : 'indexing now'}
 			</p>
+		{:else if thought.queueStatus === 'failed'}
+			<p class="text-xs text-destructive">
+				Indexing failed{thought.queueError ? `: ${thought.queueError}` : ''}
+			</p>
 		{:else if !thought.enrichmentComplete}
 			<p class="text-xs text-amber-700 dark:text-amber-400">
 				Saved — indexing entities and links in the background. Keyword search on the text works now;

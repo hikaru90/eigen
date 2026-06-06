@@ -16,11 +16,12 @@ export const MAX_TOOL_RESULT_JSON_CHARS = 12_000;
 /** Cap on streamed tool_result preview payloads shown in chat UI. */
 export const MAX_TOOL_RESULT_PREVIEW_CHARS = 8_000;
 
-const DELETE_INTENT_RE =
-	/\b(delete|remove|erase|drop|get rid of|throw away|discard)\b/i;
-
-export function isDeleteIntent(userMessage: string): boolean {
-	return DELETE_INTENT_RE.test(userMessage.trim());
+/**
+ * XXX REMOVED — DELETE_INTENT_RE keyword detection for auto-delete routing.
+ * Delete intent must be judged by the agent LLM via tool selection.
+ */
+export function isDeleteIntent(_userMessage: string): boolean {
+	return false;
 }
 
 function snippet(text: string, max = SNIPPET_MAX_CHARS): string {
@@ -199,11 +200,24 @@ export function formatToolResultPreview(tool: string, result: unknown): string {
 		const obj = asRecord(stripEmbeddingsFromValue(result));
 		const compactObj = asRecord(compact) ?? {};
 		if (obj) {
+			const citationIds = new Set(
+				Array.isArray(obj.citations)
+					? obj.citations.filter((id): id is string => typeof id === 'string')
+					: []
+			);
+			const retrievedRaw = Array.isArray(obj.retrieved) ? obj.retrieved : [];
+			const citedRetrieved =
+				citationIds.size > 0
+					? retrievedRaw.filter((row) => {
+							const r = asRecord(row);
+							return r && typeof r.id === 'string' && citationIds.has(r.id);
+						})
+					: [];
 			preview = {
 				...compactObj,
 				answer: typeof obj.answer === 'string' ? obj.answer : compactObj.answer,
 				citations: Array.isArray(obj.citations) ? obj.citations : undefined,
-				retrieved: compactRetrievedThoughtsForPreview(obj.retrieved)
+				retrieved: compactRetrievedThoughtsForPreview(citedRetrieved)
 			};
 		}
 	}

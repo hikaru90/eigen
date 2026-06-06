@@ -234,26 +234,11 @@ export const POST: RequestHandler = async (event) => {
 					)
 				);
 
-				const storedSteps = compactChatIntermediateSteps(intermediateSteps);
 				let lastAnswerQuestionPreview: string | undefined;
 				for (const step of intermediateSteps) {
 					if (step.metadata.variant === 'tool_result' && step.metadata.tool === 'answer_question') {
 						lastAnswerQuestionPreview = step.content;
 					}
-				}
-				let lastPersistedMessageId = '';
-				for (const step of storedSteps) {
-					const [row] = await scopedDb
-						.insert(chatMessage)
-						.values({
-							sessionId,
-							userId: user.id,
-							role: 'assistant',
-							content: step.content,
-							metadata: step.metadata
-						})
-						.returning({ id: chatMessage.id });
-					lastPersistedMessageId = row?.id ?? lastPersistedMessageId;
 				}
 				const rawResponse =
 					typeof result.response === 'string' && result.response.trim().length > 0
@@ -261,6 +246,18 @@ export const POST: RequestHandler = async (event) => {
 						: 'The assistant did not produce a response.';
 				const responseText = parseFinalAnswerText(rawResponse, lastAnswerQuestionPreview);
 				const messageId = await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
+				sendTerminal({ type: 'done', response: responseText, sessionId, messageId });
+
+				const storedSteps = compactChatIntermediateSteps(intermediateSteps);
+				for (const step of storedSteps) {
+					await scopedDb.insert(chatMessage).values({
+						sessionId,
+						userId: user.id,
+						role: 'assistant',
+						content: step.content,
+						metadata: step.metadata
+					});
+				}
 				if (isFirstMessage) {
 					const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
 					await scopedDb
@@ -268,7 +265,6 @@ export const POST: RequestHandler = async (event) => {
 						.set({ title })
 						.where(eq(chatSession.id, sessionId));
 				}
-				sendTerminal({ type: 'done', response: responseText, sessionId, messageId });
 			} catch (err) {
 				const details = collectErrorMessages(err);
 				const msg = details[0] ?? 'An unexpected error occurred.';

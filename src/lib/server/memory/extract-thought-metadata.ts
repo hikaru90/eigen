@@ -20,40 +20,17 @@ function isMemoryType(value: unknown): value is MemoryType {
 	return typeof value === 'string' && (VALID_MEMORY_TYPES as string[]).includes(value);
 }
 
-/** Map common model drift to canonical memory type keys. */
-const MEMORY_TYPE_SYNONYMS: Record<string, MemoryType> = {
-	'open loop': 'open_loop',
-	'open-loop': 'open_loop',
-	openloop: 'open_loop',
-	task: 'open_loop',
-	todo: 'open_loop',
-	action_item: 'open_loop',
-	idea: 'fact',
-	reference: 'fact',
-	note: 'fact',
-	tip: 'fact',
-	technique: 'fact',
-	event: 'episode',
-	experience: 'episode',
-	worry: 'concern',
-	risk: 'concern',
-	anxiety: 'concern',
-	habit: 'preference',
-	tendency: 'preference',
-	observation: 'pattern',
-	recurring: 'pattern',
-	choice: 'decision',
-	resolution: 'decision'
-};
-
-/** Normalize LLM memoryType output; returns null when no canonical key matches. */
+/** Normalize LLM memoryType output; returns null when no canonical key matches (exact / case-insensitive only). */
 export function normalizeMemoryType(raw: unknown): MemoryType | null {
 	if (typeof raw !== 'string') return null;
 	const trimmed = raw.trim().toLowerCase();
 	if (!trimmed) return null;
 	const underscored = trimmed.replace(/[\s-]+/g, '_');
 	if (isMemoryType(underscored)) return underscored;
-	return MEMORY_TYPE_SYNONYMS[trimmed] ?? MEMORY_TYPE_SYNONYMS[underscored] ?? null;
+	for (const key of VALID_MEMORY_TYPES) {
+		if (key.toLowerCase() === underscored) return key;
+	}
+	return null;
 }
 
 function parseMetadataFields(obj: { memoryType?: unknown; cues?: unknown }): ThoughtMetadataExtraction {

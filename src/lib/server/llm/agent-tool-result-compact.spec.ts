@@ -16,23 +16,8 @@ import {
 
 describe('agent-tool-result-compact', () => {
 	describe('isDeleteIntent', () => {
-		it.each([
-			'please delete the note about groceries',
-			'remove that thought',
-			'erase my capture',
-			'drop the entry',
-			'get rid of the old note',
-			'throw away that memory',
-			'discard the draft'
-		])('detects delete intent: %s', (message) => {
-			expect(isDeleteIntent(message)).toBe(true);
-		});
-
-		it('trims whitespace before matching', () => {
-			expect(isDeleteIntent('  \n delete this  ')).toBe(true);
-		});
-
-		it('returns false for non-delete messages', () => {
+		it('always returns false — delete intent is agent LLM-judged', () => {
+			expect(isDeleteIntent('please delete the note about groceries')).toBe(false);
 			expect(isDeleteIntent('what did I capture yesterday?')).toBe(false);
 		});
 	});
@@ -402,11 +387,14 @@ describe('agent-tool-result-compact', () => {
 			expect(preview).not.toMatch(/…\[truncated \d+ chars\]/);
 		});
 
-		it('keeps retrieved thoughts in answer_question UI previews', () => {
+		it('keeps only cited retrieved thoughts in answer_question UI previews', () => {
 			const preview = formatToolResultPreview('answer_question', {
 				answer: 'Answer: Home office. [<id=t1>]\nEvidence:\n- Working from home [t1]\nUnknown:\n- none',
 				citations: ['t1'],
-				retrieved: [{ id: 't1', normalizedText: 'Ich arbeite heute von zu Hause aus.', category: 'thought' }]
+				retrieved: [
+					{ id: 't1', normalizedText: 'Ich arbeite heute von zu Hause aus.', category: 'thought' },
+					{ id: 't2', normalizedText: 'ich bin alex', category: 'reference' }
+				]
 			});
 			const parsed = JSON.parse(preview) as {
 				answer?: string;

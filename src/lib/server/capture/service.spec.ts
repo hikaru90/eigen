@@ -19,8 +19,8 @@ const {
 	createThoughtEmbeddingMock,
 	upsertThoughtNodeMock,
 	upsertThoughtRelationMock,
-	deleteThoughtOutgoingGraphEdgesMock,
-	deleteThoughtVertexFromGraphMock,
+	removeThoughtGraphArtifactsMock,
+	pruneCanonicalEntitiesWithNoThoughtLinksMock,
 	resolveThoughtCategoryMock,
 	enrichThoughtMock,
 	reenrichThoughtMock,
@@ -33,8 +33,8 @@ const {
 	createThoughtEmbeddingMock: vi.fn(),
 	upsertThoughtNodeMock: vi.fn(),
 	upsertThoughtRelationMock: vi.fn(),
-	deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
-	deleteThoughtVertexFromGraphMock: vi.fn(),
+	removeThoughtGraphArtifactsMock: vi.fn(),
+	pruneCanonicalEntitiesWithNoThoughtLinksMock: vi.fn(),
 	resolveThoughtCategoryMock: vi.fn(),
 	enrichThoughtMock: vi.fn(),
 	reenrichThoughtMock: vi.fn(),
@@ -86,8 +86,11 @@ vi.mock('$lib/server/llm/embedding', () => ({
 vi.mock('$lib/server/graph/age', () => ({
 	upsertThoughtNode: upsertThoughtNodeMock,
 	upsertThoughtRelation: upsertThoughtRelationMock,
-	deleteThoughtOutgoingGraphEdges: deleteThoughtOutgoingGraphEdgesMock,
-	deleteThoughtVertexFromGraph: deleteThoughtVertexFromGraphMock
+	removeThoughtGraphArtifacts: removeThoughtGraphArtifactsMock
+}));
+
+vi.mock('$lib/server/memory/canonical-entity-admin', () => ({
+	pruneCanonicalEntitiesWithNoThoughtLinks: pruneCanonicalEntitiesWithNoThoughtLinksMock
 }));
 
 vi.mock('$lib/server/ontology', () => ({
@@ -795,29 +798,49 @@ describe('deleteThoughtForUser', () => {
 
 		const result = await deleteThoughtForUser('u1', 'missing');
 		expect(result).toEqual({ ok: false, reason: 'not_found' });
-		expect(deleteThoughtVertexFromGraphMock).not.toHaveBeenCalled();
+		expect(removeThoughtGraphArtifactsMock).not.toHaveBeenCalled();
 	});
 
-	it('deletes AGE graph vertex then Postgres row', async () => {
+	it('removes graph artifacts, deletes Postgres row, and prunes orphan entities', async () => {
 		const deleteWhere = vi.fn(async () => undefined);
-		const db = {
-			select: vi.fn(() => ({
+		const select = vi
+			.fn()
+			.mockReturnValueOnce({
 				from: vi.fn(() => ({
 					where: vi.fn(() => ({
 						limit: vi.fn(async () => [{ id: 't1' }])
 					}))
 				}))
-			})),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					where: vi.fn(async () => [{ entityId: 'e1' }, { entityId: 'e2' }])
+				}))
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					where: vi.fn(async () => [{ id: 'ev1', graphNodeId: 'ev-graph-1' }])
+				}))
+			});
+		const db = {
+			select,
 			delete: vi.fn(() => ({
 				where: deleteWhere
 			}))
 		};
 		getDbMock.mockReturnValue(db);
+		removeThoughtGraphArtifactsMock.mockResolvedValue(undefined);
+		pruneCanonicalEntitiesWithNoThoughtLinksMock.mockResolvedValue(2);
 
 		const result = await deleteThoughtForUser('u1', 't1');
 		expect(result).toEqual({ ok: true });
-		expect(deleteThoughtVertexFromGraphMock).toHaveBeenCalledWith({ userId: 'u1', thoughtId: 't1' });
+		expect(removeThoughtGraphArtifactsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			thoughtId: 't1',
+			temporalEventGraphIds: ['ev-graph-1']
+		});
 		expect(deleteWhere).toHaveBeenCalled();
+		expect(pruneCanonicalEntitiesWithNoThoughtLinksMock).toHaveBeenCalledWith('u1', ['e1', 'e2']);
 	});
 });
 

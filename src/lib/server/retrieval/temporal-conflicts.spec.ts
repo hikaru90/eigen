@@ -20,16 +20,12 @@ vi.mock('$lib/server/graph/age', () => ({
 }));
 
 describe('isSchedulingConflictQuery', () => {
-	it('detects scheduling conflict phrasing', () => {
+	it('always returns false — scheduling-conflict routing is LLM-judged', () => {
 		expect(isSchedulingConflictQuery('Is there a scheduling conflict I should know about?')).toBe(
-			true
+			false
 		);
 		expect(isSchedulingConflictQuery('What is the capital of France?')).toBe(false);
-	});
-
-	it('rejects empty queries and accepts temporal-only phrasing', () => {
 		expect(isSchedulingConflictQuery('   ')).toBe(false);
-		expect(isSchedulingConflictQuery('What is due in 2026?')).toBe(true);
 	});
 });
 
@@ -224,7 +220,7 @@ describe('findTemporalSchedulingConflictsInPostgres', () => {
 		expect(conflicts).toEqual([]);
 	});
 
-	it('derives place labels from summaries when entity places are absent', async () => {
+	it('uses place entities from resolution log (not summary regex)', async () => {
 		const executeMock = vi.fn().mockResolvedValueOnce([
 			{
 				event1Id: 'ev1',
@@ -241,7 +237,9 @@ describe('findTemporalSchedulingConflictsInPostgres', () => {
 				innerJoin: vi.fn().mockReturnValue({
 					where: vi.fn().mockResolvedValue([
 						{ thoughtId: 't1', entityId: 'ent-tom', label: 'Tom', entityType: 'person' },
-						{ thoughtId: 't2', entityId: 'ent-tom', label: 'Tom', entityType: 'person' }
+						{ thoughtId: 't1', entityId: 'ent-lisbon', label: 'Lisbon', entityType: 'place' },
+						{ thoughtId: 't2', entityId: 'ent-tom', label: 'Tom', entityType: 'person' },
+						{ thoughtId: 't2', entityId: 'ent-berlin', label: 'Berlin', entityType: 'place' }
 					])
 				})
 			})

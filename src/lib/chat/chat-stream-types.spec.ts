@@ -170,6 +170,50 @@ describe('chat-stream-types', () => {
 		]);
 	});
 
+	it('shows only cited evidence for answer_question when retrieved has unrelated rows', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: Whisk miso, mirin, and sake; marinate salmon then broil.\nEvidence:\n- Japanese Miso-Glazed Salmon recipe with miso glaze [salmon-id]\nUnknown:\n- none',
+			citations: ['salmon-id'],
+			retrieved: [
+				{
+					id: 'salmon-id',
+					normalizedText: 'Recipe: Japanese Miso-Glazed Salmon. Ingredients: four 6-oz salmon fillets…',
+					category: 'observation'
+				},
+				{ id: 'alex-1', normalizedText: 'ich bin alex', category: 'reference' },
+				{ id: 'alex-2', normalizedText: 'ich bin Alex', category: 'reference' },
+				{ id: 'annie-1', normalizedText: 'annie ist meine schwester', category: 'memory' }
+			]
+		});
+		expect(evidenceHitsFromAnswerQuestionPayload(preview)).toEqual([
+			{
+				id: 'salmon-id',
+				text: 'Japanese Miso-Glazed Salmon recipe with miso glaze',
+				category: 'observation'
+			}
+		]);
+	});
+
+	it('returns no evidence cards when answer has no Evidence lines', () => {
+		const preview = JSON.stringify({
+			answer: 'Answer: ok',
+			retrieved: [{ id: 'a', normalizedText: 'memory hit', category: 'thought' }]
+		});
+		expect(evidenceHitsFromAnswerQuestionPayload(preview)).toEqual([]);
+	});
+
+	it('parseFinalAnswerText extracts salmon answer prose from tool_result preview JSON', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: To cook Japanese-Glazed Salmon, whisk a miso glaze, marinate salmon fillets for 30 minutes, then broil until caramelized and sprinkle with sesame seeds [id=be4377c5-97f1-4a52-9792-f0ff32c8369b].\n\nEvidence:\n- Recipe: Japanese Miso-Glazed Salmon. [id=be4377c5-97f1-4a52-9792-f0ff32c8369b]\n\nUnknown:\n- none',
+			citations: ['be4377c5-97f1-4a52-9792-f0ff32c8369b']
+		});
+		expect(parseFinalAnswerText('', preview)).toBe(
+			'To cook Japanese-Glazed Salmon, whisk a miso glaze, marinate salmon fillets for 30 minutes, then broil until caramelized and sprinkle with sesame seeds [id=be4377c5-97f1-4a52-9792-f0ff32c8369b].'
+		);
+	});
+
 	it('does not surface raw JSON as text for legacy payloads', () => {
 		const raw = JSON.stringify({
 			results: [{ normalizedText: 'i do like sweet coffee' }]

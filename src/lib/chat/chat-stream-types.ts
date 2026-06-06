@@ -201,8 +201,10 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 		if (parsed.deleted) return { kind: 'text', text: 'Thought deleted.' };
 	}
 
-	const memoryHits = memoryHitsFromPayload(parsed);
-	if (memoryHits) return memoryHits;
+	if (tool !== 'answer_question') {
+		const memoryHits = memoryHitsFromPayload(parsed);
+		if (memoryHits) return memoryHits;
+	}
 
 	if (typeof parsed.answer === 'string' && parsed.answer.trim()) {
 		return { kind: 'text', text: parsed.answer.trim() };
@@ -537,11 +539,8 @@ function evidenceHitsFromComposedAnswer(
 	});
 }
 
-/** Evidence rows for answer_question tool_result JSON (retrieved + citations). */
+/** Evidence rows for answer_question tool_result JSON (cited Evidence lines only). */
 export function evidenceHitsFromAnswerQuestionPayload(preview: string): ToolResultMemoryHit[] {
-	const view = parseToolResultPreview('answer_question', preview);
-	if (view?.kind === 'memories') return view.hits;
-
 	let answerText: string | undefined;
 	let retrieved: unknown;
 	try {
@@ -549,11 +548,8 @@ export function evidenceHitsFromAnswerQuestionPayload(preview: string): ToolResu
 		if (typeof parsed.answer === 'string') answerText = parsed.answer;
 		if (Array.isArray(parsed.retrieved)) retrieved = parsed.retrieved;
 	} catch {
-		// fall through to view.text
-	}
-
-	if (view?.kind === 'text') {
-		answerText = answerText ?? view.text;
+		const view = parseToolResultPreview('answer_question', preview);
+		if (view?.kind === 'text') answerText = view.text;
 	}
 
 	if (!answerText) return [];

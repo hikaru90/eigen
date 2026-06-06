@@ -17,7 +17,8 @@ import {
 } from '$lib/server/qa/compose-answer';
 import { redactForLog } from '$lib/server/observability/redact-for-log';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
-import { routeAgentMessage } from '$lib/server/llm/agent-router';
+import { routeAgentMessage, type AgentRouteResult } from '$lib/server/llm/agent-router';
+import { classifyChatIntent } from '$lib/server/llm/classify-chat-intent';
 import {
 	findUniqueStrongRetrieveMatch,
 	formatToolResultForAgentMessage,
@@ -43,8 +44,9 @@ const AGENT_SYSTEM_PROMPT = [
 	'',
 	'=== RULES ===',
 	'- Completion reports: retrieve_thoughts first, then edit_thought to mark done or delete_thought if user wants removal.',
-	'- Questions and planning: answer_question (not retrieve_thoughts alone).',
-	'- Capture only when user explicitly wants to save something new.',
+	'- Any question (how/what/when/who/why, any language): answer_question — never capture_thought for questions.',
+	'- capture_thought only when the user explicitly asks to save/remember/note something new.',
+	'- When unsure between capture and answer, prefer answer_question.',
 	'- Never claim an edit/delete succeeded unless the tool succeeded in this turn.',
 	'- If a tool errors, explain in your final answer.',
 	'- Output ONLY the JSON object.'
@@ -375,12 +377,30 @@ export async function agentChat(input: {
 	input.onEvent?.({ type: 'agent_progress', label: 'Planning next step…' });
 	const route = await routeAgentMessage({ userId: input.userId, userMessage: lastUserMessage });
 
-	if (route.mode === 'single_tool') {
-		console.info('[agent-loop] single-tool path', { tool: route.tool });
+	let resolvedRoute: AgentRouteResult = route;
+	if (route.mode === 'single_tool' && route.tool === 'capture_thought') {
+		const intent = await classifyChatIntent({ userId: input.userId, userMessage: lastUserMessage });
+		console.info('[agent-loop] capture gate', {
+			intent,
+			userMessagePreview: lastUserMessage.slice(0, 80)
+		});
+		if (intent === 'answer') {
+			resolvedRoute = {
+				mode: 'single_tool',
+				tool: 'answer_question',
+				arguments: { question: lastUserMessage }
+			};
+		} else if (intent === 'manage') {
+			resolvedRoute = { mode: 'multi_step' };
+		}
+	}
+
+	if (resolvedRoute.mode === 'single_tool') {
+		console.info('[agent-loop] single-tool path', { tool: resolvedRoute.tool });
 		return runSingleToolPath({
 			userId: input.userId,
-			tool: route.tool,
-			arguments: route.arguments,
+			tool: resolvedRoute.tool,
+			arguments: resolvedRoute.arguments,
 			exec,
 			userMessages: input.messages
 		});

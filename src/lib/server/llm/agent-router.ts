@@ -21,9 +21,11 @@ export const ROUTER_SYSTEM_PROMPT = [
 	'{"mode":"multi_step"}',
 	'',
 	'Routing:',
-	'- Questions about memories → answer_question with {"question":"<user message or rephrased>"}',
-	'- Explicit save/remember/capture → capture_thought with {"raw":"<text to store>"}',
+	'- Any question (how/what/when/who/why, in any language) → answer_question with {"question":"<user message>"}',
+	'- Never route questions to capture_thought — e.g. "Wie koche ich Japanese-Glazed Salmon?" is answer_question, not capture.',
+	'- capture_thought ONLY when the user explicitly asks to save/remember/note something (e.g. "remember that…", "save this:", "note to self").',
 	'- Completion reports, edit/delete without id, or any sequence needing search then act → multi_step',
+	'- When unsure between capture and answer, prefer answer_question.',
 	'',
 	`Valid tool names: ${MCP_TOOL_NAMES.join(', ')}`
 ].join('\n');

@@ -11,19 +11,6 @@ export type AppliedThoughtEdit = {
 	summary: string;
 };
 
-const COMPLETE_ONLY_PATTERN =
-	/\b(mark(\s+as)?\s+)?(done|complete|completed|finished)\b|^(done|completed|finished)\.?$/i;
-
-const TEXT_CHANGE_HINT =
-	/\b(change|rewrite|replace|reword|fix|typo|update\s+text|edit\s+to|should\s+say|make\s+it)\b/i;
-
-function isCompletionOnlyRequest(editRequest: string): boolean {
-	const trimmed = editRequest.trim();
-	if (!trimmed) return false;
-	if (TEXT_CHANGE_HINT.test(trimmed)) return false;
-	return COMPLETE_ONLY_PATTERN.test(trimmed);
-}
-
 function parseAppliedEditJson(text: string, fallbackRaw: string): AppliedThoughtEdit {
 	let trimmed = text.trim();
 	const fence = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)```\s*$/);
@@ -61,14 +48,6 @@ export async function applyThoughtEditRequest(input: {
 	const editRequest = input.editRequest.trim();
 	if (!editRequest) {
 		throw new Error('editRequest is required');
-	}
-
-	if (isCompletionOnlyRequest(editRequest)) {
-		return {
-			rawText: input.existingRawText,
-			status: 'completed',
-			summary: `Marked as completed (text unchanged): "${input.existingNormalizedText.slice(0, 120)}${input.existingNormalizedText.length > 120 ? '…' : ''}"`
-		};
 	}
 
 	const messages: ChatMessage[] = [

@@ -5,6 +5,7 @@ import type { AppDatabase } from '$lib/server/db';
 import type { WithEvalDbOptions } from './eval-context';
 import { logEval, withEvalDb } from './eval-context';
 import { mapWithConcurrency } from './concurrency';
+import { resolveEnrichmentKickConcurrency } from '$lib/server/orchestration-concurrency';
 import { EVAL_ENRICHMENT_TIMEOUT_MS_DEFAULT } from './eval-config';
 import type { QaChecks } from './qa-types';
 
@@ -21,16 +22,6 @@ export function resolveEnrichmentTimeoutMs(): number {
 	const parsed = Number(raw);
 	if (!Number.isFinite(parsed) || parsed < 1) {
 		throw new Error(`EVAL_ENRICHMENT_TIMEOUT_MS must be a positive number, got: ${raw}`);
-	}
-	return parsed;
-}
-
-function resolveEnrichmentKickConcurrency(): number {
-	const raw = process.env.EVAL_ENRICHMENT_KICK_CONCURRENCY?.trim();
-	if (!raw) return 4;
-	const parsed = Number(raw);
-	if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
-		throw new Error(`EVAL_ENRICHMENT_KICK_CONCURRENCY must be a positive integer, got: ${raw}`);
 	}
 	return parsed;
 }

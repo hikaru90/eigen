@@ -32,6 +32,7 @@ import {
 	markEnrichQueueComplete,
 	markEnrichQueueFailed
 } from '$lib/server/capture/queue-capture';
+import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain';
 
 export type EnrichQueuedThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
@@ -264,14 +265,9 @@ async function encryptMetadataPatch(
 }
 
 /** Drain all pending rows for a user (eval / admin). */
-export async function processCaptureEnrichQueue(userId: string): Promise<number> {
-	const { claimNextPendingThought } = await import('$lib/server/capture/queue-capture');
-	let processed = 0;
-	for (;;) {
-		const claimed = await claimNextPendingThought(userId);
-		if (!claimed) break;
-		await enrichQueuedThought(userId, claimed.id);
-		processed += 1;
-	}
-	return processed;
+export async function processCaptureEnrichQueue(
+	userId: string,
+	options?: { concurrency?: number }
+): Promise<number> {
+	return drainCaptureEnrichQueue(userId, options);
 }

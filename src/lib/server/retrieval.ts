@@ -35,10 +35,10 @@ export function rankCandidates(candidates: ScoredCandidate[], mode: RetrievalMod
 	return [...candidates].sort((a, b) => combinedScore(b, mode) - combinedScore(a, mode));
 }
 
-export function selectRetrievalModeFromQuery(query: string): RetrievalMode {
-	const q = query.toLowerCase();
-	const relationHints =
-		/\b(who|related|connection|between|graph|depends|blocked by|parent of|child of)\b/.test(q) ||
-		q.includes('relationship');
-	return relationHints ? 'relation_centric' : 'default';
+/**
+ * XXX REMOVED — keyword-based relation_centric mode selection.
+ * Retrieval mode must be LLM-judged when wired to production paths.
+ */
+export function selectRetrievalModeFromQuery(_query: string): RetrievalMode {
+	return 'default';
 }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	consolidateCanonicalEntityAliasesForUser,
 	deleteCanonicalEntityForUser,
+	pruneCanonicalEntitiesWithNoThoughtLinks,
 	getCanonicalEntityForUser,
 	listThoughtsMentioningCanonicalEntity,
 	repairCanonicalEntityTypesForUser,
@@ -279,6 +280,33 @@ describe('canonical-entity-admin', () => {
 			thoughtId: 't2',
 			entityId: 'ent-1'
 		});
+	});
+
+	it('pruneCanonicalEntitiesWithNoThoughtLinks deletes entities with no remaining thought links', async () => {
+		getDbMock
+			.mockReturnValueOnce({
+				selectDistinct: vi.fn(() => ({
+					from: vi.fn(() => ({
+						where: vi.fn(async () => [{ entityId: 'e-shared' }])
+					}))
+				}))
+			})
+			.mockReturnValueOnce({
+				select: vi.fn(() => ({
+					from: vi.fn(() => ({
+						where: vi.fn(() => chainLimit([entityRow]))
+					}))
+				}))
+			})
+			.mockReturnValueOnce({
+				delete: vi.fn(() => ({
+					where: vi.fn(async () => undefined)
+				}))
+			});
+
+		const removed = await pruneCanonicalEntitiesWithNoThoughtLinks('u1', ['e-shared', 'e-orphan']);
+		expect(removed).toBe(1);
+		expect(deleteEntityVertexFromGraphMock).toHaveBeenCalledTimes(1);
 	});
 
 	it('deleteCanonicalEntityForUser removes graph vertex and postgres row', async () => {

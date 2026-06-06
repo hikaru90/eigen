@@ -1,4 +1,6 @@
 import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
+import { consumeGraphRearrangeNdjsonStream } from '$lib/graph/consume-graph-rearrange-ndjson';
+import type { GraphRearrangePhase } from '$lib/graph/graph-rearrange-phases';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import type {
 	EntityCaptureRow,
@@ -125,13 +127,26 @@ export async function deleteGraphEntity(entityId: string): Promise<void> {
 export type GraphRearrangeResult = {
 	pruned?: { removed?: number };
 	orphanThoughts?: { removed?: number };
+	orphanEntities?: { removed?: number };
 	duplicatePruned?: { removed?: number };
 	connections?: { removed?: number };
 	repaired?: { edgesAdded?: number };
 };
 
-export async function rearrangeGraph(): Promise<GraphRearrangeResult> {
-	const res = await fetch('/api/graph/rearrange', { method: 'POST' });
+export async function rearrangeGraph(input?: {
+	onPhase?: (phase: GraphRearrangePhase) => void;
+}): Promise<GraphRearrangeResult> {
+	const res = await fetch('/api/graph/rearrange', {
+		method: 'POST',
+		headers: { accept: 'application/x-ndjson, application/json' }
+	});
+	const contentType = res.headers.get('content-type') ?? '';
+	if (contentType.includes('application/x-ndjson')) {
+		return consumeGraphRearrangeNdjsonStream(res, (phase) => {
+			input?.onPhase?.(phase);
+		});
+	}
 	if (!res.ok) throw new Error(await res.text());
-	return (await res.json()) as GraphRearrangeResult;
+	const j = (await res.json()) as GraphRearrangeResult & { ok?: true };
+	return j;
 }

@@ -9,6 +9,7 @@ import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
+import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
@@ -103,7 +104,11 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
 	if (!raw.trim()) {
 		throw new Error('raw is required');
 	}
-	const stored = await captureThought(context.userId, raw, { source: 'mcp' });
+	const capturedAt = parseOptionalIsoTimestamp(body.captured_at, 'captured_at');
+	const stored = await captureThought(context.userId, raw, {
+		source: 'mcp',
+		...(capturedAt ? { capturedAt } : {})
+	});
 	return sanitizeMcpToolResult({
 		thoughtId: stored.id,
 		status: stored.queueStatus ?? 'queued',
@@ -308,12 +313,14 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 		throw new Error('question is required');
 	}
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
+	const referenceTime = parseOptionalIsoTimestamp(body.reference_time, 'reference_time');
 	const answerStart = Date.now();
 	console.info('[mcp.tool:answer_question] start', { question, topK: topK ?? null });
 	const result = await composeAnswer({
 		userId: context.userId,
 		question,
 		...(topK != null ? { topK } : {}),
+		...(referenceTime ? { referenceTime } : {}),
 		onProgress: async (phase) => {
 			const labels: Record<string, string> = {
 				embedding: 'Embedding your question…',
