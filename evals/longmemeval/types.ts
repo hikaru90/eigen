@@ -27,6 +27,8 @@ export type LongMemEvalRunCli = {
 	offset: number;
 	resume: boolean;
 	runEval: boolean;
+	/** Skip generation; only run evaluate_qa.py on --output. */
+	scoreOnly: boolean;
 	evalMetricModel: string;
 	granularity: 'session' | 'turn' | 'user-turn';
 };

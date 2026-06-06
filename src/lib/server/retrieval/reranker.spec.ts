@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RerankError, rerankCandidates, shouldSkipRerank } from './reranker';
+import {
+	RerankError,
+	extractJsonArraysFromText,
+	rerankCandidates,
+	resolveRankedIds,
+	shouldSkipRerank
+} from './reranker';
 import type { RerankCandidate } from './reranker';
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
@@ -42,6 +48,12 @@ describe('rerankCandidates', () => {
 
 	it('throws RerankError when LLM returns non-array JSON', async () => {
 		llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["a","b"]}'));
+		const result = await rerankCandidates('u1', 'query', candidates);
+		expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+	});
+
+	it('throws RerankError when LLM returns JSON without any ID arrays', async () => {
+		llmChatCompletionMock.mockResolvedValue(makeResponse('{"reason": "none relevant"}'));
 		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError);
 	});
 
@@ -103,6 +115,23 @@ describe('rerankCandidates', () => {
 		expect(result.map((r) => r.id)).toEqual(['c', 'b', 'a']);
 	});
 
+	it('parses JSON arrays followed by explanatory prose', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			makeResponse(
+				'["id-2", "id-1"]\n\nWait, let me reconsider...\n\n["id-2"]\n\nActually neither helps:\n\n[]'
+			)
+		);
+		const two = candidates.slice(0, 2);
+		const result = await rerankCandidates('u1', 'query', two);
+		expect(result.map((r) => r.id)).toEqual(['b', 'a']);
+	});
+
+	it('maps prompt-style placeholder IDs to candidate positions', async () => {
+		llmChatCompletionMock.mockResolvedValue(makeResponse('["id-3", "id-1"]'));
+		const result = await rerankCandidates('u1', 'query', candidates);
+		expect(result.map((r) => r.id)).toEqual(['c', 'a', 'b']);
+	});
+
 	it('preserves all candidate fields in output', async () => {
 		llmChatCompletionMock.mockResolvedValue(makeResponse('["b","a","c"]'));
 		const result = await rerankCandidates('u1', 'query', candidates);
@@ -131,19 +160,25 @@ describe('rerankCandidates', () => {
 		});
 	});
 
+	it('extractJsonArraysFromText finds multiple arrays in chatty output', () => {
+		expect(
+			extractJsonArraysFromText('["id-2"]\n\nReasoning...\n\n["id-1"]')
+		).toEqual([['id-2'], ['id-1']]);
+	});
+
+	it('resolveRankedIds accepts numeric and placeholder IDs', () => {
+		expect(resolveRankedIds(['id-2', 1], candidates)).toEqual(['b', 'a']);
+	});
+
 	it('wraps non-Error LLM failures and parse failures', async () => {
 		llmChatCompletionMock.mockRejectedValueOnce('gateway down');
 		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
 			message: 'Rerank LLM call failed: gateway down'
 		});
 
-		llmChatCompletionMock.mockResolvedValueOnce(makeResponse('["a","b","c"]'));
-		const parseSpy = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
-			throw 'bad ids';
-		});
+		llmChatCompletionMock.mockResolvedValueOnce(makeResponse('not valid json'));
 		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
-			message: 'Failed to parse rerank response: bad ids'
+			message: 'Rerank LLM response is not a JSON array'
 		});
-		parseSpy.mockRestore();
 	});
 });

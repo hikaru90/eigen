@@ -6,9 +6,16 @@ import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { hasCommunitySummaries, searchGlobal, type GlobalSearchResult } from '$lib/server/retrieval/global';
 import { classifyQueryIntent } from '$lib/server/retrieval/classify-query-intent';
+import {
+	mergeQuestionEntityHints,
+	shouldUseDeterministicSolverAnswer
+} from '$lib/server/retrieval/query-entity-hints';
 import { fetchTemporalEventSeeds } from '$lib/server/retrieval/temporal';
 import {
+	allowsComputedTimelineCitation,
+	COMPUTED_TIMELINE_CITATION_ID,
 	formatComputedTimelineForPrompt,
+	formatSolverAnswer,
 	solveTemporalQuestion
 } from '$lib/server/qa/temporal-solver';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
@@ -278,6 +285,7 @@ const SYSTEM_PROMPT = [
 	'- If two thoughts give conflicting timestamps for the same fact, present the most recent as current and',
 	'  note the earlier one as a prior state.',
 	'- When a Computed timeline section is present, Answer MUST follow it for event ordering and day counts.',
+	`- Cite solver-derived ordering or day-count facts with [id=${COMPUTED_TIMELINE_CITATION_ID}] (not a thought uuid).`,
 	'',
 	'Contradiction rules:',
 	'- If the detected contradictions section is present, you MUST surface the conflict in your answer.',
@@ -493,6 +501,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
 	const retrievalQuery = input.retrievalQuery?.trim() || trimmedQuestion;
 	const queryIntent = await classifyQueryIntent({ userId: input.userId, query: trimmedQuestion });
+	const entityHints = mergeQuestionEntityHints(queryIntent.entityHints, trimmedQuestion);
 	const scope = queryIntent.scope;
 	const effectiveTopK =
 		input.topK ?? (queryIntent.temporal ? TEMPORAL_COMPOSE_TOP_K : DEFAULT_COMPOSE_TOP_K);
@@ -592,15 +601,23 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 					userId: input.userId,
 					query: retrievalQuery,
 					queryEmbedding,
-					limit: 24
+					limit: 24,
+					entityHints
 				})
 			: [];
 	const solverResult = solveTemporalQuestion({
 		kind: queryIntent.kind,
-		entityHints: queryIntent.entityHints,
+		entityHints,
 		seeds: temporalSeeds
 	});
 	const computedTimelineBlock = formatComputedTimelineForPrompt(solverResult);
+	const deterministicAnswer = shouldUseDeterministicSolverAnswer({
+		intentKind: queryIntent.kind,
+		solverResult,
+		question: trimmedQuestion
+	})
+		? formatSolverAnswer(solverResult)
+		: null;
 
 	const conflicts = mergeConflictPairs(
 		detectContradictions(contextItems),
@@ -614,37 +631,51 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		schedulingConflictCount: schedulingConflicts.length
 	});
 
-	const messages: ChatMessage[] = [
-		{ role: 'system', content: SYSTEM_PROMPT },
-		{
-			role: 'user',
-			content:
-				`Question: ${trimmedQuestion}\n\n` +
-				`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
-				computedTimelineBlock +
-				formatTemporalConflictsForPrompt(schedulingConflicts) +
-				formatConflictsForPrompt(conflicts) +
-				`\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
-		}
-	];
-	phaseStart = Date.now();
-	console.info('[composeAnswer] phase=composing start', {
-		thoughtCount: contextItems.length,
-		promptChars: messages.reduce((n, m) => n + m.content.length, 0)
-	});
-	for (const message of messages) {
-		console.log(`[composeAnswer] prompt ${message.role}:\n${message.content}`);
-	}
-	await input.onProgress?.('composing');
-	const response = await llmChatCompletion({
-		userId: input.userId,
-		messages,
-		temperature: 0,
-		logContext: 'compose_answer'
-	});
-	console.info('[composeAnswer] phase=composing done', { durationMs: Date.now() - phaseStart });
-	const answer = extractAnswerText(response);
 	const allowedIds = new Set(contextItems.map((c) => c.id));
+	if (allowsComputedTimelineCitation(solverResult)) {
+		allowedIds.add(COMPUTED_TIMELINE_CITATION_ID);
+	}
+	for (const event of solverResult.events) {
+		allowedIds.add(event.thoughtId);
+	}
+
+	let answer: string;
+	if (deterministicAnswer) {
+		console.info('[composeAnswer] phase=composing skipped — deterministic temporal solver answer');
+		await input.onProgress?.('composing');
+		answer = deterministicAnswer;
+	} else {
+		const messages: ChatMessage[] = [
+			{ role: 'system', content: SYSTEM_PROMPT },
+			{
+				role: 'user',
+				content:
+					`Question: ${trimmedQuestion}\n\n` +
+					`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
+					computedTimelineBlock +
+					formatTemporalConflictsForPrompt(schedulingConflicts) +
+					formatConflictsForPrompt(conflicts) +
+					`\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`
+			}
+		];
+		phaseStart = Date.now();
+		console.info('[composeAnswer] phase=composing start', {
+			thoughtCount: contextItems.length,
+			promptChars: messages.reduce((n, m) => n + m.content.length, 0)
+		});
+		for (const message of messages) {
+			console.log(`[composeAnswer] prompt ${message.role}:\n${message.content}`);
+		}
+		await input.onProgress?.('composing');
+		const response = await llmChatCompletion({
+			userId: input.userId,
+			messages,
+			temperature: 0,
+			logContext: 'compose_answer'
+		});
+		console.info('[composeAnswer] phase=composing done', { durationMs: Date.now() - phaseStart });
+		answer = extractAnswerText(response);
+	}
 	const invalidCitations = findInvalidCitationIds(answer, allowedIds);
 	if (invalidCitations.length > 0) {
 		throw new Error(

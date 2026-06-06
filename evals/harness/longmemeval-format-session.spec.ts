@@ -4,9 +4,22 @@ import {
 	formatSessionAsCapture,
 	formatTurnAsCapture,
 	instanceToCaptureItems,
+	parseLongMemEvalSessionDate,
 	sanitizeQuestionIdForUserId
 } from '../longmemeval/format-session';
 import type { LongMemEvalInstance } from '../longmemeval/types';
+
+describe('parseLongMemEvalSessionDate', () => {
+	it('parses slash dates with weekday and time', () => {
+		const parsed = parseLongMemEvalSessionDate('2023/05/28 (Sun) 07:17');
+		expect(parsed.toISOString()).toBe('2023-05-28T07:17:00.000Z');
+	});
+
+	it('parses ISO date-only strings at noon UTC', () => {
+		const parsed = parseLongMemEvalSessionDate('2023-03-01');
+		expect(parsed.toISOString()).toBe('2023-03-01T12:00:00.000Z');
+	});
+});
 
 describe('formatSessionAsCapture', () => {
 	it('formats turns with session date and id', () => {
@@ -33,7 +46,11 @@ describe('instanceToCaptureItems', () => {
 			haystack_sessions: [[{ role: 'user', content: 'fact' }]]
 		};
 		expect(instanceToCaptureItems(instance, 'session')).toEqual([
-			{ id: 's1', rawText: expect.stringContaining('User: fact') }
+			{
+				id: 's1',
+				rawText: expect.stringContaining('User: fact'),
+				capturedAt: parseLongMemEvalSessionDate('2023-03-01')
+			}
 		]);
 	});
 
@@ -54,7 +71,11 @@ describe('instanceToCaptureItems', () => {
 			]
 		};
 		expect(instanceToCaptureItems(instance)).toEqual([
-			{ id: 's1_1', rawText: formatTurnAsCapture('2023-03-01', 's1', { role: 'user', content: 'fact' }) }
+			{
+				id: 's1_1',
+				rawText: formatTurnAsCapture('2023-03-01', 's1', { role: 'user', content: 'fact' }),
+				capturedAt: parseLongMemEvalSessionDate('2023-03-01')
+			}
 		]);
 	});
 });

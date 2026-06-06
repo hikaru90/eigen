@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+	allowsComputedTimelineCitation,
+	COMPUTED_TIMELINE_CITATION_ID,
 	calendarDaysBetweenExclusive,
 	calendarDaysBetweenInclusive,
 	eventMatchesEntityHint,
+	formatComputedTimelineForPrompt,
+	formatSolverAnswer,
+	scoreEntityHintMatch,
 	seedsToTimelineEvents,
 	solveTemporalQuestion,
 	type TemporalSolverResult
@@ -67,6 +72,19 @@ describe('solveTemporalQuestion ordering', () => {
 		expect(result.ordering?.latest.thoughtId).toBe('6e22a9db');
 	});
 
+	it('webinar before Effective Time Management workshop', () => {
+		const result = solveTemporalQuestion({
+			kind: 'ordering',
+			entityHints: ['Effective Time Management', 'Data Analysis using Python'],
+			seeds: [
+				seed('webinar', 'Participated in Data Analysis using Python webinar', '2023-03-28'),
+				seed('workshop', 'Workshop on Effective Time Management at community center', '2023-05-27')
+			]
+		});
+		expect(result.ordering?.earliest.thoughtId).toBe('webinar');
+		expect(result.ordering?.latest.thoughtId).toBe('workshop');
+	});
+
 	it('tomatoes before marigolds', () => {
 		const result = solveTemporalQuestion({
 			kind: 'ordering',
@@ -114,6 +132,48 @@ describe('eventMatchesEntityHint', () => {
 		expect(eventMatchesEntityHint('User purchased Samsung Galaxy S22', 'Samsung Galaxy S22')).toBe(true);
 		expect(eventMatchesEntityHint('Marigold seeds arrived', 'marigolds')).toBe(true);
 	});
+
+	it('prefers stronger matches for Rachel vs mortgage pre-approval', () => {
+		const rachel = scoreEntityHintMatch('Started working with Rachel on February 15th', 'Rachel');
+		const mortgage = scoreEntityHintMatch(
+			'User got pre-approved for a mortgage on February 10th',
+			'Rachel'
+		);
+		expect(rachel).toBeGreaterThan(mortgage);
+	});
+});
+
+describe('formatSolverAnswer', () => {
+	it('emits deterministic ordering answer', () => {
+		const result = solveTemporalQuestion({
+			kind: 'ordering',
+			entityHints: ['tomatoes', 'marigolds'],
+			seeds: [
+				seed('f859cd45', 'Starting tomato seeds indoors since February 20th', '2023-02-20'),
+				seed('7a92186a', 'Marigold seeds arrived and began germinating', '2023-03-03')
+			]
+		});
+		const answer = formatSolverAnswer(result);
+		expect(answer).toMatch(/tomato.*came first/i);
+		expect(answer).toContain('[id=computed]');
+		expect(answer).toContain('f859cd45');
+	});
+
+	it('emits deterministic duration answer', () => {
+		const result = solveTemporalQuestion({
+			kind: 'duration',
+			entityHints: ['Rachel', 'house they loved'],
+			seeds: [
+				seed('5edd1f50', 'Started working with Rachel', '2022-02-15'),
+				seed('2a2b2686', 'Saw a house they loved', '2022-03-01'),
+				seed('mortgage', 'User got pre-approved for a mortgage', '2022-02-10'),
+				seed('offer', 'User will submit the offer today', '2022-03-02')
+			]
+		});
+		const answer = formatSolverAnswer(result);
+		expect(answer).toContain('14 calendar days');
+		expect(answer).toContain('Rachel');
+	});
 });
 
 describe('seedsToTimelineEvents', () => {
@@ -126,12 +186,42 @@ describe('seedsToTimelineEvents', () => {
 	});
 });
 
+describe('formatComputedTimelineForPrompt', () => {
+	it('documents the computed citation token for high-confidence results', () => {
+		const result = solveTemporalQuestion({
+			kind: 'duration',
+			entityHints: ['Effective Communication in the Workplace', 'team meeting'],
+			seeds: [
+				seed('b84f3fdc', 'Workshop on Effective Communication in the Workplace', '2023-01-10'),
+				seed('96797297', 'Team meeting scheduled', '2023-01-17')
+			]
+		});
+		expect(allowsComputedTimelineCitation(result)).toBe(true);
+		const block = formatComputedTimelineForPrompt(result);
+		expect(block).toContain(`[id=${COMPUTED_TIMELINE_CITATION_ID}]`);
+		expect(block).toContain('7 calendar days');
+	});
+});
+
 describe('low confidence fallthrough', () => {
 	it('returns unsupported when only one event', () => {
 		const result: TemporalSolverResult = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['a', 'b'],
 			seeds: [seed('only', 'single event', '2023-01-01')]
+		});
+		expect(result.confidence).toBe('low');
+		expect(result.kind).toBe('unsupported');
+	});
+
+	it('does not fall back to unrelated events when fewer than two hints match', () => {
+		const result = solveTemporalQuestion({
+			kind: 'duration',
+			entityHints: ['Rachel', 'house they loved'],
+			seeds: [
+				seed('mortgage', 'User got pre-approved for a mortgage', '2022-02-10'),
+				seed('offer', 'User will submit the offer today', '2022-03-02')
+			]
 		});
 		expect(result.confidence).toBe('low');
 		expect(result.kind).toBe('unsupported');

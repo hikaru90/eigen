@@ -118,12 +118,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
 
 	let rankedIds: string[];
 	try {
-		const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-		const parsed = JSON.parse(cleaned) as unknown;
-		if (!Array.isArray(parsed)) {
-			throw new RerankError('Rerank LLM response is not a JSON array');
-		}
-		rankedIds = parsed.filter((v): v is string => typeof v === 'string');
+		rankedIds = parseRankedIdsFromRerankResponse(content, candidates);
 		if (rankedIds.length === 0) {
 			throw new RerankError('Rerank LLM returned an empty ID array');
 		}
@@ -143,4 +138,94 @@ export async function rerankCandidates<T extends RerankCandidate>(
 		const rankB = indexById.get(b.id) ?? candidates.length;
 		return rankA - rankB;
 	});
+}
+
+function stripMarkdownFences(text: string): string {
+	return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+}
+
+/** Collect every top-level JSON array in model output (handles trailing prose / revisions). */
+export function extractJsonArraysFromText(text: string): unknown[][] {
+	const cleaned = stripMarkdownFences(text);
+	const arrays: unknown[][] = [];
+
+	try {
+		const whole = JSON.parse(cleaned) as unknown;
+		if (Array.isArray(whole)) return [whole];
+	} catch {
+		// Model often prefixes valid JSON with explanation — scan for bracket-balanced arrays.
+	}
+
+	for (let i = 0; i < cleaned.length; i++) {
+		if (cleaned[i] !== '[') continue;
+		let depth = 0;
+		for (let j = i; j < cleaned.length; j++) {
+			const ch = cleaned[j];
+			if (ch === '[') depth++;
+			else if (ch === ']') {
+				depth--;
+				if (depth === 0) {
+					try {
+						const parsed = JSON.parse(cleaned.slice(i, j + 1)) as unknown;
+						if (Array.isArray(parsed)) arrays.push(parsed);
+					} catch {
+						// ignore malformed fragments
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	return arrays;
+}
+
+/** Map literal IDs or prompt-style placeholders (e.g. id-2, 2) to candidate IDs. */
+export function resolveRankedIds(rawIds: unknown[], candidates: RerankCandidate[]): string[] {
+	const idSet = new Set(candidates.map((c) => c.id));
+	const resolved: string[] = [];
+	const seen = new Set<string>();
+
+	for (const raw of rawIds) {
+		let id: string | undefined;
+
+		if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= candidates.length) {
+			id = candidates[raw - 1].id;
+		} else if (typeof raw === 'string') {
+			if (idSet.has(raw)) {
+				id = raw;
+			} else {
+				const match = raw.match(/^id-(\d+)$/i) ?? raw.match(/^(\d+)$/);
+				if (match) {
+					const idx = Number(match[1]) - 1;
+					if (idx >= 0 && idx < candidates.length) id = candidates[idx].id;
+				}
+			}
+		}
+
+		if (id && !seen.has(id)) {
+			seen.add(id);
+			resolved.push(id);
+		}
+	}
+
+	return resolved;
+}
+
+function parseRankedIdsFromRerankResponse(
+	content: string,
+	candidates: RerankCandidate[]
+): string[] {
+	const arrays = extractJsonArraysFromText(content);
+	if (arrays.length === 0) {
+		throw new RerankError('Rerank LLM response is not a JSON array');
+	}
+
+	// Prefer the last array that resolves to known candidates (models often revise downward).
+	for (let i = arrays.length - 1; i >= 0; i--) {
+		const resolved = resolveRankedIds(arrays[i], candidates);
+		if (resolved.length > 0) return resolved;
+	}
+
+	return [];
 }

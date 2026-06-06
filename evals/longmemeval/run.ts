@@ -4,8 +4,7 @@
  */
 import 'dotenv/config';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { dirname } from 'node:path';
 import { queueCapture } from '$lib/server/capture/queue-capture';
 import { processCaptureEnrichQueue } from '$lib/server/capture/enrich-queued-thought';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
@@ -16,12 +15,21 @@ import {
 	type ThoughtEnrichmentTarget
 } from '../harness/wait-enrichment';
 import { parseLongMemEvalCli } from './cli';
-import { corpusUserIdForQuestion, instanceToCaptureItems } from './format-session';
+import {
+	corpusUserIdForQuestion,
+	instanceToCaptureItems,
+	parseLongMemEvalSessionDate
+} from './format-session';
 import { loadLongMemEvalDataset } from './load-dataset';
 import {
 	ensureLongMemEvalOperatorReady,
 	LONGMEMEVAL_OPERATOR_USER_ID
 } from './ensure-operator';
+import {
+	assertScoringReady,
+	preflightLongMemEvalScoring,
+	runLongMemEvalScoring
+} from './scoring';
 import type { LongMemEvalHypothesis, LongMemEvalInstance, LongMemEvalRunCli } from './types';
 
 function loadExistingHypothesisIds(outputPath: string): Set<string> {
@@ -70,7 +78,8 @@ async function runInstance(
 			for (const item of captureItems) {
 				const queued = await queueCapture(corpusUserId, item.rawText, {
 					source: 'eval',
-					skipWorker: true
+					skipWorker: true,
+					capturedAt: item.capturedAt
 				});
 				ids.push(queued.thoughtId);
 			}
@@ -108,17 +117,44 @@ async function runInstance(
 	);
 
 	logEval(`${instance.question_id}: answering via composeAnswer`);
+	const referenceTime = parseLongMemEvalSessionDate(instance.question_date);
 	const composed = await withEvalDb(
 		corpusUserId,
-		() => composeAnswer({ userId: corpusUserId, question: instance.question }),
+		() =>
+			composeAnswer({
+				userId: corpusUserId,
+				question: instance.question,
+				referenceTime
+			}),
 		billing
 	);
 
 	return composed.answer;
 }
 
+function ensureScoringReady(cli: LongMemEvalRunCli): void {
+	if (!cli.runEval) return;
+	const preflight = preflightLongMemEvalScoring();
+	assertScoringReady(preflight, cli.evalMetricModel);
+	logEval(
+		`scoring preflight ok (python=${preflight.python}, judge script=${preflight.evalScript})`
+	);
+}
+
 async function main(): Promise<void> {
 	const cli = parseLongMemEvalCli(process.argv.slice(2));
+	ensureScoringReady(cli);
+
+	if (cli.scoreOnly) {
+		logEval(`score-only: hyp=${cli.outputPath}, ref=${cli.datasetPath}`);
+		runLongMemEvalScoring({
+			evalMetricModel: cli.evalMetricModel,
+			outputPath: cli.outputPath,
+			datasetPath: cli.datasetPath
+		});
+		return;
+	}
+
 	await ensureOperatorUser();
 
 	const dataset = loadLongMemEvalDataset(cli.datasetPath);
@@ -150,16 +186,12 @@ async function main(): Promise<void> {
 	}
 
 	if (cli.runEval) {
-		const evalScript = resolve(import.meta.dirname, '../../../longmemeval/evaluate_qa.py');
-		logEval(`running ${evalScript} (model=${cli.evalMetricModel})`);
-		const result = spawnSync(
-			'python3',
-			[evalScript, '--input', cli.outputPath, '--model', cli.evalMetricModel],
-			{ stdio: 'inherit' }
-		);
-		if (result.status !== 0) {
-			throw new Error(`evaluate_qa.py exited with status ${result.status ?? 'unknown'}`);
-		}
+		logEval(`running evaluate_qa.py (model=${cli.evalMetricModel})`);
+		runLongMemEvalScoring({
+			evalMetricModel: cli.evalMetricModel,
+			outputPath: cli.outputPath,
+			datasetPath: cli.datasetPath
+		});
 	}
 }
 

@@ -1,6 +1,7 @@
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { parseLlmJsonPayload, stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 import {
+	applyCaptureAnchoredMentions,
 	parseTemporalMentions,
 	type ExtractedTemporalMention
 } from '$lib/server/memory/temporal-normalize';
@@ -41,16 +42,23 @@ Return ONLY a JSON array. Each element:
 {
   "surface": "verbatim phrase from text",
   "kind": "deadline|appointment|milestone|period|reminder|inferred_event",
-  "startAt": "ISO-8601 UTC",
+  "startAt": "ISO-8601 UTC (best estimate; overridden when relativeSpec is set)",
   "endAt": "ISO-8601 UTC or omit",
   "timePrecision": "exact|day|week|month|fuzzy",
   "timezone": "IANA timezone",
   "isAllDay": boolean,
   "recurrenceRule": "optional iCal RRULE string or omit",
   "confidence": 0-1,
-  "semanticSummary": "short natural-language summary"
+  "semanticSummary": "short natural-language summary",
+  "relativeSpec": optional object for relative phrases — code computes the final date from capture time ${capturedIso}:
+    { "dateAnchor": "capture_time", "relativeMonthsPast": N } for "N months ago"
+    { "dateAnchor": "capture_time", "relativeWeeksPast": N } for "N weeks ago"
+    { "dateAnchor": "capture_time", "relativeDaysPast": N } for "N days ago"
+    { "dateAnchor": "capture_time", "lastWeekdayBeforeCapture": "saturday" } for "last Saturday"
+    { "dateAnchor": "explicit", "calendarDate": "YYYY-MM-DD" } for explicit dates (March 15th → year from context)
+    { "dateAnchor": "explicit", "calendarMonth": 2, "calendarMonthPart": "mid" } for "mid-February"
 }
-Resolve relative dates against capture time ${capturedIso} in timezone ${input.timezone}.
+Always set relativeSpec when the phrase is relative to capture time. Use calendarDate for explicit calendar dates in the text.
 Text may be in any language (e.g. German "nächsten Mittwoch" = next Wednesday).
 If no temporal content exists, return [].`;
 
@@ -77,5 +85,5 @@ If no temporal content exists, return [].`;
 		// use stripped raw content for array parser below
 	}
 
-	return parseTemporalMentions(content);
+	return applyCaptureAnchoredMentions(parseTemporalMentions(content), input.capturedAt);
 }

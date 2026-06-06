@@ -3,6 +3,7 @@ import { getDb } from '$lib/server/db';
 import { temporalEvent } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { expandContextFromTemporalEventSeeds } from '$lib/server/graph/age';
+import { scoreEntityHintMatch } from '$lib/server/qa/temporal-solver';
 import type { QueryIntent } from '$lib/server/retrieval/classify-query-intent';
 
 export type TemporalFilterResult = {
@@ -103,16 +104,26 @@ export async function filterTemporalEvents(input: {
 /**
  * Semantic match on temporal_event rows, ordered chronologically by start_at.
  */
+function entityHintMatchScore(summary: string, hints: string[]): number {
+	let best = 0;
+	for (const hint of hints) {
+		best = Math.max(best, scoreEntityHintMatch(summary, hint));
+	}
+	return best;
+}
+
 export async function fetchTemporalEventSeeds(input: {
 	userId: string;
 	query: string;
 	queryEmbedding: number[];
 	limit?: number;
+	entityHints?: string[];
 }): Promise<TemporalEventSeed[]> {
 	const limit = Math.max(1, Math.min(input.limit ?? 24, 100));
 	const db = getDb();
 	const vectorLiteral = toVectorLiteral(input.queryEmbedding);
 	const distance = sql<number>`${temporalEvent.embedding} <=> ${vectorLiteral}::vector`;
+	const entityHints = input.entityHints ?? [];
 
 	const rows = await db
 		.select({
@@ -126,9 +137,14 @@ export async function fetchTemporalEventSeeds(input: {
 		.from(temporalEvent)
 		.where(and(eq(temporalEvent.userId, input.userId), isNotNull(temporalEvent.embedding)))
 		.orderBy(distance)
-		.limit(limit * 3);
+		.limit(limit * 4);
 
 	const sorted = [...rows].sort((a, b) => {
+		if (entityHints.length > 0) {
+			const aHint = entityHintMatchScore(a.semanticSummary, entityHints);
+			const bHint = entityHintMatchScore(b.semanticSummary, entityHints);
+			if (aHint !== bHint) return bHint - aHint;
+		}
 		const aTime = a.startAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
 		const bTime = b.startAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
 		return aTime - bTime;

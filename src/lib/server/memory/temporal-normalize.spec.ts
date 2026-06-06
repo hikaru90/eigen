@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	applyCaptureAnchoredMentions,
 	buildActivePeriodLiteral,
 	parseTemporalMentions,
 	resolveTemporalBounds
@@ -114,6 +115,28 @@ describe('resolveTemporalBounds', () => {
 				semanticSummary: 'bad'
 			})
 		).toThrow(/Invalid temporal startAt/);
+	});
+});
+
+describe('applyCaptureAnchoredMentions', () => {
+	it('overrides startAt from relativeSpec', () => {
+		const capturedAt = new Date('2023-05-28T07:17:00.000Z');
+		const out = applyCaptureAnchoredMentions(
+			parseTemporalMentions(
+				`[{
+					"surface":"two months ago",
+					"kind":"appointment",
+					"startAt":"2023-05-28T00:00:00.000Z",
+					"timePrecision":"day",
+					"timezone":"UTC",
+					"confidence":1,
+					"semanticSummary":"Data Analysis using Python webinar two months ago",
+					"relativeSpec":{"dateAnchor":"capture_time","relativeMonthsPast":2}
+				}]`
+			),
+			capturedAt
+		);
+		expect(out[0]?.startAt.slice(0, 10)).toBe('2023-03-28');
 	});
 });
 

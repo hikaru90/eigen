@@ -1,12 +1,10 @@
 import { resolve } from 'node:path';
+import { resolveLongMemEvalRoot } from './paths';
 import type { LongMemEvalRunCli } from './types';
 
-const DEFAULT_DATASET = resolve(
-	import.meta.dirname,
-	'../../../longmemeval/data/longmemeval_oracle.json'
-);
+const DEFAULT_DATASET = resolve(resolveLongMemEvalRoot(), 'data/longmemeval_oracle.json');
 
-const DEFAULT_OUTPUT_DIR = resolve(import.meta.dirname, '../../../longmemeval/runs');
+const DEFAULT_OUTPUT_DIR = resolve(resolveLongMemEvalRoot(), 'runs');
 
 function usage(): never {
 	console.error(`Usage: npm run eval:longmemeval -- [options]
@@ -17,8 +15,9 @@ Options:
   --limit N          Process at most N instances (after --offset)
   --offset N         Skip the first N instances
   --resume           Skip question_ids already present in --output
-  --no-eval          Skip LongMemEval evaluate_qa.py after generation
-  --eval-model NAME  Judge model for evaluate_qa.py (default: gpt-4o)
+  --score-only       Skip generation; only run evaluate_qa.py on --output
+  --no-eval          Skip longmemeval/src/evaluation/evaluate_qa.py after generation
+  --eval-model NAME  Judge model for evaluate_qa.py (default: gpt-4o; e.g. gpt-4o-mini)
   --granularity MODE  session | turn | user-turn (default: user-turn)
 `);
 	process.exit(1);
@@ -31,6 +30,7 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
 	let offset = 0;
 	let resume = false;
 	let runEval = true;
+	let scoreOnly = false;
 	let evalMetricModel = 'gpt-4o';
 	let granularity: LongMemEvalRunCli['granularity'] = 'user-turn';
 
@@ -50,6 +50,9 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
 			offset = parsed;
 		} else if (arg === '--resume') {
 			resume = true;
+		} else if (arg === '--score-only') {
+			scoreOnly = true;
+			runEval = true;
 		} else if (arg === '--no-eval') {
 			runEval = false;
 		} else if (arg === '--eval-model') {
@@ -66,6 +69,11 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
 		}
 	}
 
+	if (scoreOnly && !outputPath) {
+		console.error('--score-only requires --output PATH to an existing hypothesis JSONL');
+		usage();
+	}
+
 	if (!outputPath) {
 		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 		outputPath = resolve(DEFAULT_OUTPUT_DIR, `eigen-${stamp}.jsonl`);
@@ -78,6 +86,7 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
 		offset,
 		resume,
 		runEval,
+		scoreOnly,
 		evalMetricModel,
 		granularity
 	};

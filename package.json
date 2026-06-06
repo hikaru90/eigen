@@ -40,6 +40,7 @@
 		"eval:smoke": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",
 		"eval:reset-fixture": "vite-node --config evals/vite.config.ts evals/reset-fixture.ts",
+		"eval:longmemeval": "vite-node --config evals/vite.config.ts evals/longmemeval/run.ts",
 		"measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts"
 	},
 	"devDependencies": {

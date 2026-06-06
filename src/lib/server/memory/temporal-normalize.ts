@@ -1,4 +1,9 @@
 import type { TemporalEventKind, TemporalTimePrecision } from '$lib/server/db/brain.schema';
+import {
+	parseRelativeSpec,
+	resolveAnchoredStartAt,
+	type TemporalRelativeSpec
+} from '$lib/server/memory/temporal-relative-resolve';
 
 export type ExtractedTemporalMention = {
 	surface: string;
@@ -13,6 +18,8 @@ export type ExtractedTemporalMention = {
 	recurrenceRule?: string;
 	confidence: number;
 	semanticSummary: string;
+	/** Structured relative-date spec — startAt is overridden by deterministic anchor math when set. */
+	relativeSpec?: TemporalRelativeSpec;
 };
 
 const ALLOWED_KINDS = new Set<TemporalEventKind>([
@@ -132,6 +139,7 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
 				typeof (entry as { semanticSummary?: unknown }).semanticSummary === 'string'
 					? (entry as { semanticSummary: string }).semanticSummary.trim()
 					: surface;
+			const relativeSpec = parseRelativeSpec((entry as { relativeSpec?: unknown }).relativeSpec);
 
 			if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return null;
 			if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return null;
@@ -146,8 +154,25 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
 				isAllDay,
 				recurrenceRule,
 				confidence,
-				semanticSummary: semanticSummary || surface
+				semanticSummary: semanticSummary || surface,
+				...(relativeSpec ? { relativeSpec } : {})
 			};
 		})
 		.filter((v): v is ExtractedTemporalMention => v !== null);
+}
+
+/** Apply capture-anchored relative date math to LLM-extracted mentions. */
+export function applyCaptureAnchoredMentions(
+	mentions: ExtractedTemporalMention[],
+	capturedAt: Date
+): ExtractedTemporalMention[] {
+	return mentions.map((mention) => {
+		if (!mention.relativeSpec) return mention;
+		const start = resolveAnchoredStartAt({
+			startAt: mention.startAt,
+			capturedAt,
+			relativeSpec: mention.relativeSpec
+		});
+		return { ...mention, startAt: start.toISOString() };
+	});
 }

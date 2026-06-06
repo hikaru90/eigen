@@ -39,4 +39,31 @@ describe('parseQueryIntentResponse', () => {
 			parseQueryIntentResponse(JSON.stringify({ scope: 'hybrid', temporal: false, kind: 'none', entityHints: [] }))
 		).toThrow(/scope must be/);
 	});
+
+	it('treats invalid or placeholder time window bounds as omitted', () => {
+		const intent = parseQueryIntentResponse(
+			JSON.stringify({
+				scope: 'local',
+				temporal: true,
+				kind: 'ordering',
+				entityHints: ['event A', 'event B'],
+				timeWindowStart: 'omit',
+				timeWindowEnd: 'unknown'
+			})
+		);
+		expect(intent.timeWindow).toBeNull();
+	});
+
+	it('ignores a lone valid window bound without the pair', () => {
+		const intent = parseQueryIntentResponse(
+			JSON.stringify({
+				scope: 'local',
+				temporal: true,
+				kind: 'absolute',
+				entityHints: [],
+				timeWindowStart: '2023-06-01T00:00:00.000Z'
+			})
+		);
+		expect(intent.timeWindow).toBeNull();
+	});
 });

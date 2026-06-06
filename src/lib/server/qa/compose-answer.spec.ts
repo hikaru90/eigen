@@ -559,6 +559,79 @@ describe('composeAnswer', () => {
 		);
 	});
 
+	it('returns deterministic duration answer without calling compose LLM', async () => {
+		classifyQueryIntentMock.mockResolvedValue({
+			scope: 'local',
+			temporal: true,
+			kind: 'duration',
+			entityHints: ['workshop', 'team meeting'],
+			timeWindow: null
+		});
+		fetchTemporalEventSeedsMock.mockResolvedValue([
+			{
+				eventId: 'ev-1',
+				thoughtId: 't_001',
+				semanticSummary: 'Workshop on Effective Communication in the Workplace',
+				startAt: new Date('2023-01-10T00:00:00.000Z'),
+				activePeriod: '[2023-01-10T00:00:00.000Z,2023-01-11T00:00:00.000Z)'
+			},
+			{
+				eventId: 'ev-2',
+				thoughtId: 't_002',
+				semanticSummary: 'Team meeting scheduled',
+				startAt: new Date('2023-01-17T00:00:00.000Z'),
+				activePeriod: '[2023-01-17T00:00:00.000Z,2023-01-18T00:00:00.000Z)'
+			}
+		]);
+
+		const result = await composeAnswer({
+			userId: 'u1',
+			question: 'How many days between the workshop and the team meeting?'
+		});
+
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+		expect(result.answer).toContain('7 calendar days');
+		expect(result.citations).toEqual(expect.arrayContaining(['t_001', 't_002', 'computed']));
+	});
+
+	it('does not bypass compose LLM for misclassified ordering on fact-lookup questions', async () => {
+		classifyQueryIntentMock.mockResolvedValue({
+			scope: 'local',
+			temporal: true,
+			kind: 'ordering',
+			entityHints: ['first service', 'GPS system'],
+			timeWindow: null
+		});
+		fetchTemporalEventSeedsMock.mockResolvedValue([
+			{
+				eventId: 'ev-1',
+				thoughtId: 't_svc',
+				semanticSummary: 'Car first service on March 15th',
+				startAt: new Date('2023-03-15T00:00:00.000Z'),
+				activePeriod: '[2023-03-15T00:00:00.000Z,2023-03-16T00:00:00.000Z)'
+			},
+			{
+				eventId: 'ev-2',
+				thoughtId: 't_gps',
+				semanticSummary: 'GPS system issue on March 22nd',
+				startAt: new Date('2023-03-22T00:00:00.000Z'),
+				activePeriod: '[2023-03-22T00:00:00.000Z,2023-03-23T00:00:00.000Z)'
+			}
+		]);
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse(
+				'Answer: GPS system not functioning correctly.\nEvidence:\n- GPS issue [id=t_gps]\n\nUnknown:\n- none'
+			)
+		);
+
+		await composeAnswer({
+			userId: 'u1',
+			question: 'What was the first issue I had with my new car after its first service?'
+		});
+
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(1);
+	});
+
 	it('does not number thoughts with # prefixes in the compose prompt', async () => {
 		await composeAnswer({ userId: 'u1', question: 'why rice flour' });
 		const userMessage = (

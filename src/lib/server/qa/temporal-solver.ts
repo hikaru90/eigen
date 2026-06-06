@@ -13,6 +13,9 @@ export type SolverTimelineEvent = {
 	startAt: Date;
 };
 
+/** Reserved citation id for solver-derived ordering/duration facts in compose prompts. */
+export const COMPUTED_TIMELINE_CITATION_ID = 'computed';
+
 export type TemporalSolverResult = {
 	kind: 'ordering' | 'duration' | 'unsupported';
 	confidence: 'high' | 'low';
@@ -47,18 +50,33 @@ function normalizeLabel(value: string): string {
 
 /** Match LLM-provided entity hints to event summaries (hints come from classifier, not query regex). */
 export function eventMatchesEntityHint(summary: string, hint: string): boolean {
+	return scoreEntityHintMatch(summary, hint) > 0;
+}
+
+/** Higher score = stronger hint-to-summary match (used to pick best event per hint). */
+export function scoreEntityHintMatch(summary: string, hint: string): number {
 	const s = normalizeLabel(summary);
 	const h = normalizeLabel(hint);
-	if (!h) return false;
-	if (s.includes(h) || h.includes(s)) return true;
+	if (!h) return 0;
+	if (s === h) return 200;
+	if (s.includes(h)) return 150 + Math.min(h.length, 40);
+	if (h.includes(s) && s.length >= 3) return 120 + Math.min(s.length, 30);
 	const summaryWords = s.split(/\s+/).filter((w) => w.length >= 3);
 	const hintWords = h.split(/\s+/).filter((w) => w.length >= 3);
+	let matchedHintWords = 0;
 	for (const hintWord of hintWords) {
 		for (const word of summaryWords) {
-			if (word.startsWith(hintWord) || hintWord.startsWith(word)) return true;
+			if (word.startsWith(hintWord) || hintWord.startsWith(word)) {
+				matchedHintWords++;
+				break;
+			}
 		}
 	}
-	return false;
+	if (hintWords.length > 0 && matchedHintWords === hintWords.length) {
+		return 80 + matchedHintWords * 10;
+	}
+	if (matchedHintWords > 0) return 40 + matchedHintWords * 5;
+	return 0;
 }
 
 export function resolveEventStartAt(seed: TemporalEventSeed): Date | null {
@@ -92,14 +110,30 @@ function pickEventsForHints(
 	entityHints: string[]
 ): SolverTimelineEvent[] {
 	if (entityHints.length === 0) return events;
+
 	const matched: SolverTimelineEvent[] = [];
+	const usedThoughtIds = new Set<string>();
+
 	for (const hint of entityHints) {
-		const hit = events.find((e) => eventMatchesEntityHint(e.label, hint));
-		if (hit && !matched.some((m) => m.thoughtId === hit.thoughtId)) {
-			matched.push(hit);
+		let best: { event: SolverTimelineEvent; score: number } | null = null;
+		for (const event of events) {
+			if (usedThoughtIds.has(event.thoughtId)) continue;
+			const score = scoreEntityHintMatch(event.label, hint);
+			if (score > 0 && (!best || score > best.score)) {
+				best = { event, score };
+			}
+		}
+		if (best) {
+			matched.push(best.event);
+			usedThoughtIds.add(best.event.thoughtId);
 		}
 	}
-	const pool = matched.length > 0 ? matched : events;
+
+	if (entityHints.length >= 2 && matched.length < 2) {
+		return [];
+	}
+
+	const pool = matched.length >= 2 ? matched : matched.length > 0 ? matched : events;
 	return [...pool].sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 }
 
@@ -120,9 +154,6 @@ export function solveTemporalQuestion(input: {
 		}
 		const earliest = pool[0]!;
 		const latest = pool[pool.length - 1]!;
-		if (entityHintsRequirePair(input.entityHints) && pool.length < input.entityHints.length) {
-			return { kind: 'unsupported', confidence: 'low', events: timeline };
-		}
 		return {
 			kind: 'ordering',
 			confidence: 'high',
@@ -156,15 +187,16 @@ export function solveTemporalQuestion(input: {
 	return { kind: 'unsupported', confidence: 'low', events: timeline };
 }
 
-function entityHintsRequirePair(hints: string[]): boolean {
-	return hints.length >= 2;
+export function allowsComputedTimelineCitation(result: TemporalSolverResult): boolean {
+	return result.confidence === 'high' && result.events.length > 0;
 }
 
 export function formatComputedTimelineForPrompt(result: TemporalSolverResult): string {
-	if (result.confidence !== 'high') return '';
+	if (!allowsComputedTimelineCitation(result)) return '';
 
 	const lines: string[] = [
-		'Computed timeline (from temporal_event ledger — use these dates for Answer):'
+		'Computed timeline (from temporal_event ledger — use these dates for Answer):',
+		`Cite derived ordering or day-count conclusions with [id=${COMPUTED_TIMELINE_CITATION_ID}].`
 	];
 
 	for (const event of result.events) {
@@ -189,4 +221,49 @@ export function formatComputedTimelineForPrompt(result: TemporalSolverResult): s
 	}
 
 	return `\n\n${lines.join('\n')}\n`;
+}
+
+function formatIsoDate(date: Date): string {
+	return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Deterministic compose output when the solver has high confidence.
+ * Avoids LLM reordering or day-count errors on ordering/duration questions.
+ */
+export function formatSolverAnswer(result: TemporalSolverResult): string | null {
+	if (!allowsComputedTimelineCitation(result)) return null;
+
+	if (result.kind === 'ordering' && result.ordering) {
+		const { earliest, latest } = result.ordering;
+		if (earliest.thoughtId === latest.thoughtId) return null;
+		const earliestDate = formatIsoDate(earliest.startAt);
+		const latestDate = formatIsoDate(latest.startAt);
+		return [
+			`Answer: "${earliest.label}" came first (${earliestDate}) [id=${COMPUTED_TIMELINE_CITATION_ID}].`,
+			'Evidence:',
+			`- ${earliest.label} (${earliestDate}) [id=${earliest.thoughtId}]`,
+			`- ${latest.label} (${latestDate}) [id=${latest.thoughtId}]`,
+			`- Ordering: "${earliest.label}" before "${latest.label}" [id=${COMPUTED_TIMELINE_CITATION_ID}]`,
+			'Unknown:',
+			'- none'
+		].join('\n');
+	}
+
+	if (result.kind === 'duration' && result.durationDays) {
+		const { exclusive, from, to } = result.durationDays;
+		const fromDate = formatIsoDate(from.startAt);
+		const toDate = formatIsoDate(to.startAt);
+		return [
+			`Answer: ${exclusive} calendar days passed between "${from.label}" (${fromDate}) and "${to.label}" (${toDate}) [id=${COMPUTED_TIMELINE_CITATION_ID}].`,
+			'Evidence:',
+			`- ${from.label} (${fromDate}) [id=${from.thoughtId}]`,
+			`- ${to.label} (${toDate}) [id=${to.thoughtId}]`,
+			`- Duration: ${exclusive} calendar days (exclusive) between the two events [id=${COMPUTED_TIMELINE_CITATION_ID}]`,
+			'Unknown:',
+			'- none'
+		].join('\n');
+	}
+
+	return null;
 }
