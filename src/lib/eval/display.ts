@@ -1,3 +1,4 @@
+import { filterGraphVizEdgesToNodes } from '$lib/graph/sanitize-viz-snapshot';
 import type { EvalEntrySummary, EvalRunListItem } from './types';
 
 const KIND_LABELS: Record<string, string> = {
@@ -198,6 +199,28 @@ export function formatPercent(percent: number): string {
 	return `${percent}%`;
 }
 
+/** True when all scorable points are earned and no steps are still pending. */
+export function isRunScorePassing(
+	score: Pick<RunScoreSummary, 'earned' | 'possible' | 'pendingSteps' | 'percent'>
+): boolean {
+	if (score.pendingSteps > 0) return false;
+	if (score.possible === 0) return false;
+	return score.percent >= 100;
+}
+
+/**
+ * Prefer score-based pass/fail for display and run finalization.
+ * Keeps `running` from the stored row; otherwise aligns status with points.
+ */
+export function resolveRunStatusFromScore(
+	storedStatus: string,
+	score: RunScoreSummary | null
+): string {
+	if (storedStatus === 'running') return 'running';
+	if (!score || score.possible === 0) return storedStatus;
+	return isRunScorePassing(score) ? 'completed' : 'failed';
+}
+
 export function aggregateRunScores(entries: EvalEntrySummary[]): RunScoreSummary {
 	const byKind = new Map<string, EvalEntrySummary[]>();
 	for (const entry of entries) {
@@ -294,6 +317,9 @@ export function formatRunOptionLabel(run: EvalRunListItem): string {
 	if (run.status === 'failed') {
 		return `${when} — ${title} — failed`;
 	}
+	if (run.status === 'stopped') {
+		return `${when} — ${title} — stopped`;
+	}
 	if (run.entryCount > 0) {
 		const outcome =
 			run.failedCount > 0
@@ -362,9 +388,11 @@ export function parseEvalGraphSnapshot(raw: unknown): EvalGraphSnapshotView | nu
 
 	if (nodes.length === 0) return null;
 
+	const sanitized = filterGraphVizEdgesToNodes(nodes, edges);
+
 	return {
-		nodes,
-		edges,
+		nodes: sanitized.nodes,
+		edges: sanitized.edges,
 		capturedAt: typeof o.capturedAt === 'string' ? o.capturedAt : undefined
 	};
 }

@@ -103,8 +103,12 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
 	if (!raw.trim()) {
 		throw new Error('raw is required');
 	}
-	const stored = await captureThought(context.userId, raw);
-	return sanitizeMcpToolResult({ thoughtId: stored.id, thought: stored });
+	const stored = await captureThought(context.userId, raw, { source: 'mcp' });
+	return sanitizeMcpToolResult({
+		thoughtId: stored.id,
+		status: stored.queueStatus ?? 'queued',
+		thought: stored
+	});
 }
 
 export async function runListThoughtsTool(context: McpToolContext, args: unknown) {

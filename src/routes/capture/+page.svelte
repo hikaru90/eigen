@@ -4,13 +4,14 @@
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
 	import CaptureQueueList from '$lib/components/capture-queue-list.svelte';
 	import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte';
+	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
 	import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types';
 	import { deleteCaptureThought, fetchCaptureResult } from '$lib/capture/capture-result-api';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
-	import { CAPTURE_PIPELINE } from '$lib/capture/ingest-phases';
+	import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from '$lib/capture/ingest-phases';
 	import { consumeCaptureNdjsonStream, type ProgressEvent } from '$lib/capture/consume-capture-ndjson';
 	import {
 		cancelCaptureQueueItem,
@@ -28,7 +29,7 @@
 		shouldAcceptCaptureProgress,
 		type CaptureQueueUiState
 	} from '$lib/capture/queue/ui-state';
-	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
+	import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment';
 
 	let { data }: { data: PageData } = $props();
 
@@ -64,6 +65,24 @@
 	let editLoading = $state(false);
 	let deletingThoughtId = $state<string | null>(null);
 	let loadingDetailId = $state<string | null>(null);
+	const enrichPollCancelByThoughtId = new Map<string, () => void>();
+	let backgroundEnrichingIds = $state<string[]>([]);
+
+	function startBackgroundEnrichPoll(thoughtId: string) {
+		enrichPollCancelByThoughtId.get(thoughtId)?.();
+		backgroundEnrichingIds = [...new Set([...backgroundEnrichingIds, thoughtId])];
+		const cancel = pollUntilEnrichmentComplete({
+			thoughtId,
+			onUpdate: (thought) => {
+				upsertRecentThought(thought);
+				if (thought.enrichmentComplete) {
+					backgroundEnrichingIds = backgroundEnrichingIds.filter((id) => id !== thoughtId);
+					enrichPollCancelByThoughtId.delete(thoughtId);
+				}
+			}
+		});
+		enrichPollCancelByThoughtId.set(thoughtId, cancel);
+	}
 
 	function upsertRecentThought(thought: CaptureSubmitResult) {
 		const existing = recentThoughts.find((row) => row.id === thought.id);
@@ -267,6 +286,9 @@
 					activeCaptureId: null,
 					recentlyActivatedId: null
 				};
+				if (!message.thought.enrichmentComplete) {
+					startBackgroundEnrichPoll(message.thought.id);
+				}
 				void reconcileQueueState(false, { respectProcessingSuppress: true });
 				return;
 			}
@@ -298,6 +320,8 @@
 		return () => {
 			unsub();
 			window.removeEventListener('keydown', onKey);
+			for (const cancel of enrichPollCancelByThoughtId.values()) cancel();
+			enrichPollCancelByThoughtId.clear();
 		};
 	});
 
@@ -426,7 +450,7 @@
 				items={queueItems}
 				processingId={processingCaptureId}
 				events={progressEvents}
-				pipeline={CAPTURE_PIPELINE}
+				pipeline={CAPTURE_FAST_PIPELINE}
 				startMs={captureStartMs}
 				oncancel={(id) => void cancelQueuedItem(id)}
 			/>

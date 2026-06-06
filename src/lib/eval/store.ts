@@ -1,4 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { APP_VERSION } from '$lib/app-version';
+import { aggregateRunScores, resolveRunStatusFromScore } from './display';
 import {
 	evalEntry,
 	evalEvent,
@@ -8,6 +10,7 @@ import {
 	type EvalEntryStatus,
 	type EvalRunStatus
 } from '$lib/server/db/brain.schema';
+import { activityCallLog } from '$lib/server/db/brain.schema';
 import { getDb, withDbUser } from '$lib/server/db';
 import { evalCorpusUserId } from '../../../evals/harness/eval-config';
 import type { EvalEntrySummary, EvalRunListItem, EvalRunSummary, EvalSynthesis } from './types';
@@ -35,7 +38,7 @@ export async function createEvalRun(input: {
 				label: input.label,
 				scenarioId: input.scenarioId ?? null,
 				status: 'draft',
-				configJson: input.config ?? {}
+				configJson: { appVersion: APP_VERSION, ...(input.config ?? {}) }
 			})
 			.returning({ id: evalRun.id });
 
@@ -244,6 +247,48 @@ export async function listEvalEvents(
 	});
 }
 
+/** Align stored run status with point-based score (fixes legacy anyFailed finalization). */
+export async function reconcileEvalRunStatus(
+	operatorUserId: string,
+	runId: string
+): Promise<boolean> {
+	const detail = await loadEvalRunDetail(operatorUserId, runId);
+	if (!detail) return false;
+	if (detail.run.status === 'running' || detail.run.status === 'draft') return false;
+
+	const score = aggregateRunScores(detail.entries);
+	const resolved = resolveRunStatusFromScore(detail.run.status, score);
+	if (resolved === detail.run.status) return false;
+
+	await updateEvalRunStatus(operatorUserId, runId, {
+		status: resolved as EvalRunStatus
+	});
+	return true;
+}
+
+/** Patch finished runs for the current release so lists/overview match earned points. */
+export async function reconcileVersionEvalRuns(operatorUserId: string): Promise<number> {
+	return withDbUser(operatorUserId, async (db) => {
+		const runs = await db
+			.select({ id: evalRun.id })
+			.from(evalRun)
+			.where(
+				and(
+					eq(evalRun.userId, operatorUserId),
+					sql`${evalRun.configJson}->>'appVersion' = ${APP_VERSION}`,
+					inArray(evalRun.status, ['failed', 'completed'])
+				)
+			)
+			.orderBy(desc(evalRun.createdAt));
+
+		let updated = 0;
+		for (const run of runs) {
+			if (await reconcileEvalRunStatus(operatorUserId, run.id)) updated += 1;
+		}
+		return updated;
+	});
+}
+
 export async function listEvalRuns(
 	operatorUserId: string,
 	limit = 100
@@ -307,11 +352,40 @@ export async function getLatestEvalRun(operatorUserId: string) {
 	});
 }
 
+async function loadEvalRunLlmTiming(
+	evalUserId: string,
+	runId: string
+): Promise<Record<string, { count: number; totalMs: number }>> {
+	return withDbUser(evalUserId, async (db) => {
+		const llmCalls = await db
+			.select({
+				operation: activityCallLog.operation,
+				durationMs: activityCallLog.durationMs
+			})
+			.from(activityCallLog)
+			.where(eq(activityCallLog.groupId, runId));
+
+		return llmCalls.reduce(
+			(acc, row) => {
+				const ms = typeof row.durationMs === 'number' ? row.durationMs : null;
+				const op = String(row.operation ?? '');
+				if (!op || ms == null) return acc;
+				const cur = acc[op] ?? { count: 0, totalMs: 0 };
+				cur.count += 1;
+				cur.totalMs += ms;
+				acc[op] = cur;
+				return acc;
+			},
+			{} as Record<string, { count: number; totalMs: number }>
+		);
+	});
+}
+
 export async function loadEvalRunDetail(
 	operatorUserId: string,
 	runId: string
-): Promise<{ run: EvalRunSummary; entries: EvalEntrySummary[] } | null> {
-	return withDbUser(operatorUserId, async (db) => {
+): Promise<{ run: EvalRunSummary & { timing?: unknown }; entries: EvalEntrySummary[] } | null> {
+	const base = await withDbUser(operatorUserId, async (db) => {
 		const [run] = await db.select().from(evalRun).where(eq(evalRun.id, runId));
 		if (!run) return null;
 
@@ -324,36 +398,60 @@ export async function loadEvalRunDetail(
 		const passedCount = entries.filter((e) => e.passed === true).length;
 		const failedCount = entries.filter((e) => e.passed === false).length;
 
-		return {
-			run: {
-				id: run.id,
-				label: run.label,
-				scenarioId: run.scenarioId,
-				status: run.status,
-				evalUserId: run.evalUserId,
-				startedAt: run.startedAt?.toISOString() ?? null,
-				finishedAt: run.finishedAt?.toISOString() ?? null,
-				error: run.error,
-				synthesis: (run.synthesisJson as EvalSynthesis | null) ?? null,
-				entryCount: entries.length,
-				passedCount,
-				failedCount
+		const entryDurationByKind = entries.reduce(
+			(acc, e) => {
+				const ms = typeof e.durationMs === 'number' ? e.durationMs : null;
+				if (ms == null) return acc;
+				const key = e.kind;
+				const cur = acc[key] ?? { count: 0, totalMs: 0 };
+				cur.count += 1;
+				cur.totalMs += ms;
+				acc[key] = cur;
+				return acc;
 			},
-			entries: entries.map((e) => ({
-				id: e.id,
-				ordinal: e.ordinal,
-				kind: e.kind,
-				fixtureRef: e.fixtureRef,
-				status: e.status,
-				passed: e.passed,
-				durationMs: e.durationMs,
-				error: e.error,
-				input: e.inputJson as Record<string, unknown>,
-				expected: e.expectedJson as Record<string, unknown>,
-				result: (e.resultJson as Record<string, unknown> | null) ?? null
-			}))
-		};
+			{} as Record<string, { count: number; totalMs: number }>
+		);
+
+		return { run, entries, passedCount, failedCount, entryDurationByKind };
 	});
+
+	if (!base) return null;
+
+	const llmDurationByOperation = await loadEvalRunLlmTiming(base.run.evalUserId, runId);
+
+	return {
+		run: {
+			id: base.run.id,
+			label: base.run.label,
+			scenarioId: base.run.scenarioId,
+			status: base.run.status,
+			evalUserId: base.run.evalUserId,
+			startedAt: base.run.startedAt?.toISOString() ?? null,
+			finishedAt: base.run.finishedAt?.toISOString() ?? null,
+			error: base.run.error,
+			synthesis: (base.run.synthesisJson as EvalSynthesis | null) ?? null,
+			entryCount: base.entries.length,
+			passedCount: base.passedCount,
+			failedCount: base.failedCount,
+			timing: {
+				entryDurationByKind: base.entryDurationByKind,
+				llmDurationByOperation
+			}
+		},
+		entries: base.entries.map((e) => ({
+			id: e.id,
+			ordinal: e.ordinal,
+			kind: e.kind,
+			fixtureRef: e.fixtureRef,
+			status: e.status,
+			passed: e.passed,
+			durationMs: e.durationMs,
+			error: e.error,
+			input: e.inputJson as Record<string, unknown>,
+			expected: e.expectedJson as Record<string, unknown>,
+			result: (e.resultJson as Record<string, unknown> | null) ?? null
+		}))
+	};
 }
 
 /** Bypass RLS for eval harness bootstrap (create eval corpus / operator user row). */

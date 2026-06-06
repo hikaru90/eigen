@@ -5,6 +5,8 @@ import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { searchThoughts } from '$lib/server/retrieval/service';
+import { hasCommunitySummaries, searchGlobal, type GlobalSearchResult } from '$lib/server/retrieval/global';
+import { classifyRetrievalScope } from '$lib/server/retrieval/global-query';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import {
@@ -53,12 +55,21 @@ export type ConflictPair = {
 	description: string;
 };
 
+export type GlobalSource = {
+	communityId: string;
+	level: number;
+	summaryExcerpt: string;
+};
+
 export type ComposedAnswer = {
 	answer: string;
 	citations: string[];
 	retrieved: RetrievalContextItem[];
 	/** Contradiction pairs detected among retrieved thoughts, if any. */
 	conflicts: ConflictPair[];
+	/** Present when searchGlobal was used (AC-025). */
+	globalSources?: GlobalSource[];
+	retrievalPath?: 'local' | 'global' | 'global_fallback';
 };
 
 export type ComposeAnswerProgressPhase = 'embedding' | 'searching' | 'composing';
@@ -620,6 +631,17 @@ function prioritizeConflictThoughts(
 	].slice(0, topK);
 }
 
+function globalSearchResultToComposed(result: GlobalSearchResult): ComposedAnswer {
+	return {
+		answer: formatComposedAnswerForUser(result.answer),
+		citations: [],
+		retrieved: [],
+		conflicts: [],
+		globalSources: result.sources,
+		retrievalPath: 'global'
+	};
+}
+
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {
 	const trimmedQuestion = input.question.trim();
 	if (trimmedQuestion.length === 0) {
@@ -631,6 +653,31 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
 	const topK = input.topK ?? 8;
 	const retrievalQuery = input.retrievalQuery?.trim() || trimmedQuestion;
+	const scope = await classifyRetrievalScope({ userId: input.userId, query: trimmedQuestion });
+	let retrievalPath: ComposedAnswer['retrievalPath'] = scope === 'global' ? 'global_fallback' : 'local';
+
+	if (scope === 'global') {
+		if (await hasCommunitySummaries(input.userId)) {
+			console.info('[composeAnswer] path=global start', {
+				userId: input.userId,
+				question: trimmedQuestion
+			});
+			await input.onProgress?.('searching');
+			const phaseStart = Date.now();
+			const global = await searchGlobal({ userId: input.userId, query: trimmedQuestion });
+			await input.onProgress?.('composing');
+			console.info('[composeAnswer] path=global done', {
+				durationMs: Date.now() - phaseStart,
+				totalDurationMs: Date.now() - overallStart,
+				communitiesUsed: global.communitiesUsed
+			});
+			return globalSearchResultToComposed(global);
+		}
+		console.info('[composeAnswer] path=global_fallback: no community summaries', {
+			userId: input.userId,
+			question: trimmedQuestion
+		});
+	}
 
 	let phaseStart = Date.now();
 	console.info('[composeAnswer] phase=embedding start', {
@@ -740,7 +787,8 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	console.info('[composeAnswer] done', {
 		totalDurationMs: Date.now() - overallStart,
 		citationCount: citations.length,
-		answerChars: answer.length
+		answerChars: answer.length,
+		retrievalPath
 	});
-	return { answer, citations, retrieved: contextItems, conflicts };
+	return { answer, citations, retrieved: contextItems, conflicts, retrievalPath };
 }

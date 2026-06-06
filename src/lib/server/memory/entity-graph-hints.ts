@@ -6,6 +6,7 @@ import { buildEntityAdjacency, neighborEntityIds } from '$lib/server/memory/enti
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { ENTITY_RETRY_SIGNAL, type KnownEntityHint } from '$lib/server/memory/entity-extraction';
+import { isRejectedEntitySurface } from '$lib/server/memory/entity-mention-filter';
 
 const GRAPH_HINT_LIMIT = 12;
 
@@ -87,6 +88,7 @@ const LEXICAL_HINT_SCAN_LIMIT = 200;
 export function isRejectedLexicalEntityLabel(label: string, normalizedText: string): boolean {
 	const lower = label.trim().toLowerCase();
 	if (GERMAN_PRONOUNS_AT_START.has(lower)) return true;
+	if (isRejectedEntitySurface(label)) return true;
 	if (lower === 'hause' && /\bzu\s+hause\b/i.test(normalizedText)) return true;
 	return false;
 }
@@ -227,6 +229,7 @@ export function loadTextDerivedEntityHints(normalizedText: string): KnownEntityH
 			index === 0 || /[.!?]\s*$/.test(normalizedText.slice(0, index));
 		if (isSentenceStart && SENTENCE_START_PROPER_NOUN_SKIP.has(label.toLowerCase())) continue;
 		if (isSentenceStart && GERMAN_PRONOUNS_AT_START.has(label.toLowerCase())) continue;
+		if (isRejectedEntitySurface(label)) continue;
 		if (label.toLowerCase() === 'hause' && /\bzu\s*$/i.test(normalizedText.slice(0, index))) continue;
 		addHint(label, 'person');
 	}

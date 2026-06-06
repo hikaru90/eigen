@@ -19,6 +19,7 @@
  */
 import { billingUserAsyncLocal } from '$lib/server/billing/context';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
+import { extractBatchChatContent, parseBatchJsonArray } from '$lib/server/llm/batch-json';
 import { EVAL_JUDGE_USER_ID } from './eval-config';
 
 export type FidelityVerdict = {
@@ -144,4 +145,104 @@ export async function judgeCaptureFidelity(input: {
 		score: validScore,
 		rationale
 	};
+}
+
+export type BatchFidelityInput = {
+	id: string;
+	rawText: string;
+	normalizedText: string;
+	category: string;
+};
+
+function parseFidelityItem(id: string, value: unknown): FidelityVerdict & { id: string } {
+	if (!value || typeof value !== 'object') {
+		throw new Error(`capture-fidelity batch item ${id}: parsed JSON is not an object`);
+	}
+	const obj = value as Record<string, unknown>;
+	const score = obj.score;
+	const rationale = obj.rationale;
+	if (
+		typeof score !== 'number' ||
+		!Number.isInteger(score) ||
+		score < 1 ||
+		score > 5
+	) {
+		throw new Error(
+			`capture-fidelity batch item ${id}: invalid score value: ${JSON.stringify(score)}`
+		);
+	}
+	if (typeof rationale !== 'string' || rationale.trim().length === 0) {
+		throw new Error(`capture-fidelity batch item ${id}: missing rationale`);
+	}
+	const validScore = score as FidelityVerdict['score'];
+	return {
+		id,
+		faithful: validScore >= 4,
+		score: validScore,
+		rationale
+	};
+}
+
+/** Judge capture fidelity for multiple thoughts in one LLM call. */
+export async function judgeCaptureFidelityBatch(input: {
+	items: BatchFidelityInput[];
+	billingUserId?: string;
+}): Promise<Map<string, FidelityVerdict>> {
+	if (input.items.length === 0) return new Map();
+	if (input.items.length === 1) {
+		const item = input.items[0]!;
+		const verdict = await judgeCaptureFidelity({
+			rawText: item.rawText,
+			normalizedText: item.normalizedText,
+			category: item.category,
+			billingUserId: input.billingUserId
+		});
+		return new Map([[item.id, verdict]]);
+	}
+
+	const itemBlocks = input.items.map((item) =>
+		[
+			`--- id: ${item.id} ---`,
+			buildUserMessage({
+				rawText: item.rawText,
+				normalizedText: item.normalizedText,
+				category: item.category
+			})
+		].join('\n')
+	);
+
+	const expectedIds = input.items.map((i) => i.id);
+	const userPrompt = [
+		'Rate each capture independently. Return ONLY a JSON array.',
+		'Each element must have: "id" (string), "score" (1-5 integer), "rationale" (one sentence).',
+		'Captures:',
+		itemBlocks.join('\n\n')
+	].join('\n');
+
+	const messages: ChatMessage[] = [
+		{ role: 'system', content: SYSTEM_PROMPT },
+		{ role: 'user', content: userPrompt }
+	];
+
+	const callLlm = () =>
+		llmChatCompletion({
+			userId: EVAL_JUDGE_USER_ID,
+			messages,
+			temperature: 0
+		});
+	const billingUserId = input.billingUserId?.trim();
+	const response = billingUserId
+		? await billingUserAsyncLocal.run(billingUserId, callLlm)
+		: await callLlm();
+
+	const content = extractBatchChatContent(response, 'capture-fidelity batch');
+	const parsed = parseBatchJsonArray(content, expectedIds, 'capture-fidelity batch', (id, value) =>
+		parseFidelityItem(id, value)
+	);
+	const out = new Map<string, FidelityVerdict>();
+	for (const [id, row] of parsed) {
+		const { id: _id, ...verdict } = row;
+		out.set(id, verdict);
+	}
+	return out;
 }

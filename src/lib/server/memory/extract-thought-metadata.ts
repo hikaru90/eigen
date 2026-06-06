@@ -20,6 +20,50 @@ function isMemoryType(value: unknown): value is MemoryType {
 	return typeof value === 'string' && (VALID_MEMORY_TYPES as string[]).includes(value);
 }
 
+/** Map common model drift to canonical memory type keys. */
+const MEMORY_TYPE_SYNONYMS: Record<string, MemoryType> = {
+	'open loop': 'open_loop',
+	'open-loop': 'open_loop',
+	openloop: 'open_loop',
+	task: 'open_loop',
+	todo: 'open_loop',
+	action_item: 'open_loop',
+	idea: 'fact',
+	reference: 'fact',
+	note: 'fact',
+	tip: 'fact',
+	technique: 'fact',
+	event: 'episode',
+	experience: 'episode',
+	worry: 'concern',
+	risk: 'concern',
+	anxiety: 'concern',
+	habit: 'preference',
+	tendency: 'preference',
+	observation: 'pattern',
+	recurring: 'pattern',
+	choice: 'decision',
+	resolution: 'decision'
+};
+
+/** Normalize LLM memoryType output; returns null when no canonical key matches. */
+export function normalizeMemoryType(raw: unknown): MemoryType | null {
+	if (typeof raw !== 'string') return null;
+	const trimmed = raw.trim().toLowerCase();
+	if (!trimmed) return null;
+	const underscored = trimmed.replace(/[\s-]+/g, '_');
+	if (isMemoryType(underscored)) return underscored;
+	return MEMORY_TYPE_SYNONYMS[trimmed] ?? MEMORY_TYPE_SYNONYMS[underscored] ?? null;
+}
+
+function parseMetadataFields(obj: { memoryType?: unknown; cues?: unknown }): ThoughtMetadataExtraction {
+	const memoryType = normalizeMemoryType(obj.memoryType);
+	if (!memoryType) {
+		throw new Error('extractThoughtMetadata: invalid memoryType');
+	}
+	return { memoryType, cues: parseCues(obj.cues) };
+}
+
 function extractChatContent(response: unknown): string {
 	if (!response || typeof response !== 'object') {
 		throw new Error('extractThoughtMetadata: response is not an object');
@@ -95,13 +139,5 @@ export async function extractThoughtMetadata(input: {
 	if (!parsed || typeof parsed !== 'object') {
 		throw new Error('extractThoughtMetadata: output must be a JSON object');
 	}
-	const obj = parsed as { memoryType?: unknown; cues?: unknown };
-	const rawType = obj.memoryType;
-	if (typeof rawType !== 'string' || !isMemoryType(rawType.trim().toLowerCase())) {
-		throw new Error('extractThoughtMetadata: invalid memoryType');
-	}
-	return {
-		memoryType: rawType.trim().toLowerCase() as MemoryType,
-		cues: parseCues(obj.cues)
-	};
+	return parseMetadataFields(parsed as { memoryType?: unknown; cues?: unknown });
 }

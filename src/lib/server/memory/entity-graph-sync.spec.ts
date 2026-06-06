@@ -12,6 +12,7 @@ const {
 	upsertMentionEdgeMock,
 	getDbMock,
 	loadOntologyForUserMock,
+	createThoughtEmbeddingsMock,
 	ensureUserOntologySeededMock
 } = vi.hoisted(() => ({
 	extractEntityGraphBundleMock: vi.fn(),
@@ -24,7 +25,8 @@ const {
 	upsertMentionEdgeMock: vi.fn(),
 	getDbMock: vi.fn(),
 	loadOntologyForUserMock: vi.fn(),
-	ensureUserOntologySeededMock: vi.fn()
+	ensureUserOntologySeededMock: vi.fn(),
+	createThoughtEmbeddingsMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -60,6 +62,10 @@ vi.mock('$lib/server/graph/age', () => ({
 	upsertMentionEdge: upsertMentionEdgeMock
 }));
 
+vi.mock('$lib/server/llm/embedding', () => ({
+	createThoughtEmbeddings: createThoughtEmbeddingsMock
+}));
+
 describe('syncEntityGraphFromThought', () => {
 	// Mock entity_type kind rows (real-world entity types, not thought categories)
 	const entityTypeRows = [
@@ -75,6 +81,9 @@ describe('syncEntityGraphFromThought', () => {
 		getDbMock.mockReturnValue({});
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
 		loadEntityHintsForThoughtMock.mockResolvedValue([]);
+		createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
+			texts.map(() => [0.1, 0.2])
+		);
 		loadOntologyForUserMock.mockResolvedValue({
 			entityKinds: entityTypeRows,
 			relationKinds: [],

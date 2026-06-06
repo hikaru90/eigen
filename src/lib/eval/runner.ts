@@ -9,6 +9,11 @@ import {
 import type { EvalEntrySummary } from './types';
 import { loadEvalRunDetail } from './store';
 import { recoverOrphanedEvalRun } from '../../../evals/harness/stale-recovery';
+import {
+	clearEvalRunStopRequest,
+	isEvalRunStopRequested,
+	requestEvalRunStop
+} from './run-cancel';
 
 let activeRunId: string | null = null;
 
@@ -17,6 +22,15 @@ export type EvalRunMode = 'smoke' | 'all' | 'qa';
 export function getActiveEvalRunId(): string | null {
 	return activeRunId;
 }
+
+/** Request cooperative stop for the in-process eval runner. Returns false if run is not active here. */
+export function stopActiveEvalRun(runId: string): boolean {
+	if (activeRunId !== runId) return false;
+	requestEvalRunStop(runId);
+	return true;
+}
+
+export { clearEvalRunStopRequest, isEvalRunStopRequested };
 
 export { recoverOrphanedEvalRun };
 
@@ -94,6 +108,7 @@ async function launchRun(input: {
 			});
 		})
 		.finally(() => {
+			clearEvalRunStopRequest(runId);
 			activeRunId = null;
 		});
 

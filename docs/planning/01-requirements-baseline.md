@@ -77,12 +77,11 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
    - Transcription execution target: browser runtime.
    - Backend accepts transcript text, never raw audio for transcription.
 3. Persist on submit and return a natural-language "stored result" summary.
+   - **Three memory tiers:** (1) hot — full text + `lexical_text` only (~tens of ms, `enrich_queue_status=pending`); (2) background enrich — same row in place (classify, embed, entities, graph links); (3) overnight consolidation — community detection, summaries, bundles, salience (see [`docs/repo-map/ingestion.md`](../repo-map/ingestion.md)). MCP capture must not block on tier 2 or 3.
+   - **Enrichment context:** every enrich LLM call receives user context via `loadEnrichmentContext` (ontology, profile, entities, recent thoughts, community summaries when available) — never row text alone. See [`docs/repo-map/ingestion.md`](../repo-map/ingestion.md).
 4. Support natural-language post-submit edits from UI and MCP.
 5. Provide list/search/edit MCP operations.
-6. Route retrieval:
-   - **Default (local/relational):** vector-first hybrid then graph expansion (`searchThoughts`).
-   - **Global sensemaking (Q&A only):** when `classifyQueryType` is `global` and `community_summary` rows exist, `composeAnswer` uses GraphRAG-style `searchGlobal` (community map-reduce). Without summaries, global queries fall back to `searchThoughts`.
-   - Relation-centric alternate weighting remains deferred (AC-011/013).
+6. Route retrieval through unified `retrieveEvidence` (vector + lexical + precomputed graph artifacts). Unenriched rows are searchable via lexical full text; semantic ANN after enrich completes on the same row.
 7. Apply deterministic context selection weights for the default mode:
    - Default queries: **0.7** on the combined semantic (vector + lexical) RRF score and **0.3** on the graph RRF score (product shorthand: `0.7 vector + 0.3 graph`; see AC-012).
 8. Log all relevant LLM/API calls with transparent pricing details.
@@ -96,8 +95,9 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - Deterministic retry policy: exactly 3 retries for every LLM call.
   - On final failure, return clear, easy-to-understand error.
 - Performance:
-  - MVP relaxed p95 target: capture (text submit) <= 8s, retrieval <= 8s.
-  - MVP relaxed p95 target: capture (voice + browser transcription) <= 12s on target devices.
+  - Tier 1 capture (text persist + return): target <= 500ms p95; full enrich runs asynchronously.
+  - Retrieval: MVP relaxed p95 target <= 8s.
+  - Voice + browser transcription: MVP relaxed p95 target <= 12s on target devices.
 - Client capability:
   - Must detect unsupported browsers/devices and fail with explicit actionable guidance.
 - Security:

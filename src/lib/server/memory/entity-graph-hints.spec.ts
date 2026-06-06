@@ -30,8 +30,9 @@ vi.mock('$lib/server/db', () => ({
 }));
 
 describe('isRejectedLexicalEntityLabel', () => {
-	it('rejects German pronouns and zu Hause idiom labels', () => {
+	it('rejects German pronouns, greetings, and zu Hause idiom labels', () => {
 		expect(isRejectedLexicalEntityLabel('sie', 'Sie arbeitet heute.')).toBe(true);
+		expect(isRejectedLexicalEntityLabel('Hallo', 'Hallo Alex')).toBe(true);
 		expect(isRejectedLexicalEntityLabel('Hause', 'Sie arbeitet von zu Hause aus.')).toBe(true);
 		expect(isRejectedLexicalEntityLabel('Marcus', 'Marcus works here.')).toBe(false);
 	});
@@ -290,6 +291,11 @@ describe('loadEntityHintsForThought', () => {
 });
 
 describe('loadTextDerivedEntityHints', () => {
+	it('does not treat greetings as person names', () => {
+		const hints = loadTextDerivedEntityHints("Hallo, ich bin's, Alex.");
+		expect(hints).toEqual([{ label: 'Alex', entityType: 'person' }]);
+	});
+
 	it('does not treat German pronouns or zu Hause as person names', () => {
 		const hints = loadTextDerivedEntityHints('Sie arbeitet heute von zu Hause aus.');
 		expect(hints).toEqual([]);

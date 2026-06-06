@@ -49,7 +49,38 @@
   let streamEventsReceived = $state(false);
   let streamAbortReason = $state<"user" | "timeout" | null>(null);
   let agentStatus = $state<string | null>(null);
-  let chatEl: HTMLDivElement | undefined;
+  let messagesEl: HTMLDivElement | undefined;
+  let chatPanelEl: HTMLDivElement | undefined;
+
+  function handleChatPanelWheel(e: WheelEvent) {
+    const el = messagesEl;
+    if (!el) return;
+
+    const target = e.target;
+    if (target instanceof HTMLElement) {
+      const textarea = target.closest("textarea");
+      if (textarea instanceof HTMLTextAreaElement && textarea.scrollHeight > textarea.clientHeight) {
+        const { scrollTop, clientHeight, scrollHeight } = textarea;
+        if (e.deltaY < 0 && scrollTop > 0) return;
+        if (e.deltaY > 0 && scrollTop + clientHeight < scrollHeight) return;
+      }
+    }
+
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) return;
+
+    if (target instanceof Node && el.contains(target)) {
+      const atTop = el.scrollTop <= 0;
+      const atBottom = el.scrollTop >= maxScroll - 1;
+      if (e.deltaY > 0 && !atBottom) return;
+      if (e.deltaY < 0 && !atTop) return;
+    }
+
+    const next = Math.max(0, Math.min(maxScroll, el.scrollTop + e.deltaY));
+    if (next === el.scrollTop) return;
+    el.scrollTop = next;
+    e.preventDefault();
+  }
 
   function appendTranscript(current: string, transcript: string): string {
     const next = transcript.trim();
@@ -61,7 +92,7 @@
   const STORAGE_KEY = "chat-active-session-id";
 
   function scrollToBottom() {
-    const el = chatEl;
+    const el = messagesEl;
     if (!el) return;
     requestAnimationFrame(() => {
       el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
@@ -343,7 +374,9 @@
 
   onMount(() => {
     const origHtmlOverflow = document.documentElement.style.overflow;
+    const origBodyOverflow = document.body.style.overflow;
     document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
     window.scrollTo({ top: 0, behavior: "instant" });
 
     void (async () => {
@@ -357,8 +390,13 @@
       }
     })();
 
+    const panel = chatPanelEl;
+    panel?.addEventListener("wheel", handleChatPanelWheel, { passive: false });
+
     return () => {
+      panel?.removeEventListener("wheel", handleChatPanelWheel);
       document.documentElement.style.overflow = origHtmlOverflow;
+      document.body.style.overflow = origBodyOverflow;
     };
   });
 </script>
@@ -433,17 +471,17 @@
 </div>
 
 <div
-  bind:this={chatEl}
-  class="fixed inset-x-0 top-0 bottom-20 z-0 overflow-y-auto overflow-x-clip"
-  role="log"
-  aria-label="Chat messages"
+  bind:this={chatPanelEl}
+  class="fixed inset-x-0 top-0 bottom-20 z-0 overflow-hidden"
 >
   <div
-    class="mx-auto flex min-h-[calc(100dvh-5rem)] w-full min-w-0 max-w-2xl flex-col gap-3 px-4 pt-2 pb-2"
+    bind:this={messagesEl}
+    class="absolute inset-0 overflow-y-auto overflow-x-clip"
+    role="log"
+    aria-label="Chat messages"
   >
-    <!-- messages area -->
-    <div class="flex min-w-0 flex-1 flex-col gap-1 px-1 -mx-4">
-    <div class="mx-4">
+    <div class="mx-auto flex min-h-full w-full min-w-0 max-w-2xl flex-col px-4 pt-20 pb-52">
+      <div class="flex flex-1 flex-col gap-1 px-1 py-3">
       {#if loadingSession}
         <div class="flex flex-1 items-center justify-center">
           <LoaderCircleIcon class="text-muted-foreground size-4 animate-spin" />
@@ -546,13 +584,15 @@
           </div>
         </div>
       {/if}
+      </div>
     </div>
-    </div>
+  </div>
 
-    <!-- input area -->
-    <div class="sticky bottom-0 z-10 min-w-0 shrink-0 w-full bg-background pt-2">
+  <!-- input area (pinned, outside scroll flow) -->
+  <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+    <div class="pointer-events-auto mx-auto min-w-0 w-full max-w-2xl px-4 pb-2 pt-2 bg-background">
     <Card.Root
-      class="bg-white dark:bg-card min-w-0 w-full overflow-visible border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-x-clip"
+      class="bg-white dark:bg-card min-w-0 w-full overflow-visible border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none gap-[6px] items-start overflow-x-clip"
     >
       <Card.Content class="min-w-0 p-0 w-full">
         <Textarea

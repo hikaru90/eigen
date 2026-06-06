@@ -101,10 +101,6 @@ export async function fetchRelevantCommunitySummaries(params: {
  * @param preferLevel - Prefer summaries at this hierarchy level (0=root, 3=leaf).
  *   Defaults to 1 (theme level) which balances detail with scope per the paper.
  */
-/**
- * @deprecated Legacy GraphRAG map-reduce path — not wired to production retrieval.
- * Community ANN in `retrieveEvidence` replaces this for query-time routing.
- */
 export async function searchGlobal(params: {
 	userId: string;
 	query: string;
@@ -246,22 +242,29 @@ export async function searchGlobal(params: {
 		'If the answers conflict, note the tension.'
 	].join('\n');
 
-	const reduceResponse = await llmChatCompletion({
-		userId,
-		messages: [
-			{
-				role: 'system',
-				content: 'You synthesise memory-based insights into clear, honest answers.'
-			},
-			{ role: 'user', content: reducePrompt }
-		],
-		temperature: 0.3
-	});
+	let reduceResponse: unknown;
+	try {
+		reduceResponse = await llmChatCompletion({
+			userId,
+			messages: [
+				{
+					role: 'system',
+					content: 'You synthesise memory-based insights into clear, honest answers.'
+				},
+				{ role: 'user', content: reducePrompt }
+			],
+			temperature: 0.3
+		});
+	} catch (err) {
+		throw new Error(
+			`searchGlobal: reduce step failed: ${err instanceof Error ? err.message : String(err)}`
+		);
+	}
 
 	const reduceChoices = (reduceResponse as { choices?: unknown }).choices;
 	const finalAnswer = Array.isArray(reduceChoices) && reduceChoices.length > 0
 		? ((reduceChoices[0] as { message?: { content?: unknown } }).message?.content as string ?? '').trim()
-		: partialAnswers[0].text;
+		: partialAnswers[0]!.text;
 
 	return {
 		answer: finalAnswer,

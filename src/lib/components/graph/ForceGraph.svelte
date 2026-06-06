@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { filterGraphVizEdgesToNodes, resolveForceLinks } from '$lib/graph/sanitize-viz-snapshot';
 	import { nodeFillForGraph, customEntityFillsFromLegendSections, type GraphLegendSection } from '$lib/graph/graph-ontology-legend';
 
 	type GraphVizNode = {
@@ -197,14 +198,9 @@
 			const dims = resizeSvg() ?? layout;
 			if (!dims) return;
 
-			const simNodes: SimNode[] = nodes.map((n) => simNodeFromSnapshot(n));
-			const simLinks: SimLink[] = edges.map((e) => ({
-				id: e.id,
-				source: e.sourceId,
-				target: e.targetId,
-				relationType: e.relationType,
-				kind: e.kind
-			}));
+			const sanitized = filterGraphVizEdgesToNodes(nodes, edges);
+			const simNodes: SimNode[] = sanitized.nodes.map((n) => simNodeFromSnapshot(n));
+			const simLinks: SimLink[] = resolveForceLinks(simNodes, sanitized.edges);
 
 			let linkSel = gLinks
 				.selectAll<SVGGElement, SimLink>('g')

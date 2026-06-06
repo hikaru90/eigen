@@ -23,7 +23,8 @@ export type McpToolDefinition = {
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'capture_thought',
-		description: 'Capture and store a raw thought (use when the user wants to remember something new).',
+		description:
+			'Capture and store a raw thought (use when the user wants to remember something new). Tier 1: returns immediately after text persist; keyword (full-text) recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links on the same row. Tier 3 (overnight): community summaries and bundles. Use answer_question or retrieve_thoughts for recall.',
 		inputSchema: {
 			type: 'object',
 			properties: {

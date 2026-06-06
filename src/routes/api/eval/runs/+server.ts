@@ -29,7 +29,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return json({ error: 'Evaluation already running', runId: getActiveEvalRunId() }, { status: 409 });
 	}
 
-	let mode: EvalRunMode = 'smoke';
+	let mode: EvalRunMode = 'all';
 	let qaId: string | undefined;
 	let freshCorpus = false;
 	try {
@@ -42,7 +42,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 		if (body.freshCorpus === true) freshCorpus = true;
 	} catch {
-		// default smoke
+		// default all (active catalog questions)
 	}
 
 	await insertEvalUserRow(locals.user.id, locals.user.name ?? 'Eval operator');

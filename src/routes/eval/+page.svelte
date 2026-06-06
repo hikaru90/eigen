@@ -29,7 +29,6 @@
 
   let { data }: { data: PageData } = $props();
 
-  let runMode = $state<'smoke' | 'all'>('smoke');
   let running = $state(false);
   let activeRunId = $state<string | null>(null);
   let selectedRunId = $state<string | null>(null);
@@ -39,6 +38,7 @@
   let viewedEntries = $state<EvalEntrySummary[]>([]);
   let events = $state<Array<{ message: string; createdAt: string; level: string }>>([]);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let stopping = $state(false);
 
   $effect(() => {
     selectedRunId = data.selectedRunId;
@@ -53,6 +53,8 @@
   const completedCount = $derived(
     entries.filter((e) => e.status === 'completed' || e.status === 'failed').length
   );
+  const runningCount = $derived(entries.filter((e) => e.status === 'running').length);
+  const pendingCount = $derived(entries.filter((e) => e.status === 'pending').length);
   const progressPct = $derived(
     entries.length > 0 ? Math.round((completedCount / entries.length) * 100) : 0
   );
@@ -64,26 +66,30 @@
 
   const activeQaItems = $derived(data.qaItems.filter((item) => !item.tags.includes('inactive')));
 
-  const smokeQa = $derived(
-    activeQaItems.find((q) => q.id === 'qa_smoke_dinner') ?? activeQaItems[0] ?? null
-  );
-
   const runPreview = $derived(
-    runMode === 'smoke'
-      ? smokeQa
-        ? { label: 'Smoke test', questions: [smokeQa], captureCount: smokeQa.captures.length }
-        : null
-      : activeQaItems.length > 0
-        ? {
-            label: 'All questions',
-            questions: activeQaItems,
-            captureCount: new Set(activeQaItems.flatMap((q) => q.captures.map((c) => c.fixtureId))).size
-          }
-        : null
+    activeQaItems.length > 0
+      ? {
+          label: 'Active questions',
+          questions: activeQaItems,
+          captureCount: new Set(activeQaItems.flatMap((q) => q.captures.map((c) => c.fixtureId))).size
+        }
+      : null
   );
 
   const captureEntries = $derived(entries.filter((e) => e.kind === 'capture'));
   const runScore = $derived(aggregateRunScores(entries));
+
+  const timing = $derived(run?.timing as
+    | {
+        entryDurationByKind?: Record<string, { count: number; totalMs: number }>;
+        llmDurationByOperation?: Record<string, { count: number; totalMs: number }>;
+      }
+    | undefined);
+
+  function avgMs(summary: { count: number; totalMs: number } | undefined): number | null {
+    if (!summary || summary.count <= 0) return null;
+    return Math.round(summary.totalMs / summary.count);
+  }
 
   const entriesByCategory = $derived(
     runScore.categories.map((cat) => ({
@@ -96,6 +102,7 @@
     if (entry.status === 'running') return 'Ingesting now…';
     if (entry.status === 'failed') return 'Failed';
     if (entry.status === 'completed' && entry.result?.reused === true) return 'Reused';
+    if (entry.status === 'completed' && entry.result?.enrichQueued === true) return 'Stored (enrich queued)';
     if (entry.status === 'completed' && entry.passed === false) return 'Stored (check failed)';
     if (entry.status === 'completed') return 'Stored';
     return 'Queued';
@@ -139,12 +146,28 @@
   }
 
   async function startRun() {
-    await startEvalRequest({ mode: runMode });
+    await startEvalRequest({ mode: 'all' });
   }
 
   async function startQaRun(qaId: string, freshCorpus = false) {
     activeTab = 'runs';
     await startEvalRequest({ mode: 'qa', qaId, freshCorpus });
+  }
+
+  async function stopRun() {
+    if (!activeRunId || stopping) return;
+    stopping = true;
+    try {
+      const res = await fetch(`/api/eval/runs/${activeRunId}/stop`, { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        alert(body.error ?? 'Failed to stop run');
+        return;
+      }
+      await pollRun();
+    } finally {
+      stopping = false;
+    }
   }
 
   async function pollRun() {
@@ -157,7 +180,11 @@
       const runBody = await runRes.json();
       liveRun = runBody.run ?? null;
       liveEntries = runBody.entries ?? [];
-      if (runBody.run?.status === 'completed' || runBody.run?.status === 'failed') {
+      const terminal =
+        runBody.run?.status === 'completed' ||
+        runBody.run?.status === 'failed' ||
+        runBody.run?.status === 'stopped';
+      if (terminal && runBody.active !== true) {
         running = false;
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = undefined;
@@ -230,30 +257,24 @@
     <Card.Header>
       <Card.Title class="text-base">Run eval</Card.Title>
       <Card.Description>
-        Smoke test runs one question from the catalog. All questions runs every entry in Questions &amp; answers.
+        Runs every active question from Questions &amp; answers (deactivate rows there for a single-question smoke run).
         Previously ingested fixtures are reused automatically unless you reset the corpus.
       </Card.Description>
     </Card.Header>
     <Card.Content class="space-y-4">
-      <div class="flex flex-wrap items-end gap-3">
-        <label class="grid gap-1 text-sm">
-          <span class="text-muted-foreground">Run type</span>
-          <select
-            class="border-input bg-background min-w-48 rounded-md border px-3 py-2 text-sm"
-            bind:value={runMode}
-            disabled={running || activeQaItems.length === 0}
-          >
-            <option value="smoke">Smoke test (1 question)</option>
-            <option value="all">All questions ({activeQaItems.length})</option>
-          </select>
-        </label>
+      <div class="flex flex-wrap items-center gap-3">
         <Button disabled={running || activeQaItems.length === 0} onclick={startRun}>
           {running ? 'Running…' : 'Start run'}
         </Button>
+        {#if running && activeRunId}
+          <Button variant="destructive" disabled={stopping} onclick={stopRun}>
+            {stopping ? 'Stopping…' : 'Stop run'}
+          </Button>
+        {/if}
         <Button
           variant="outline"
           disabled={running || activeQaItems.length === 0}
-          onclick={() => startEvalRequest({ mode: runMode, freshCorpus: true })}
+          onclick={() => startEvalRequest({ mode: 'all', freshCorpus: true })}
         >
           Reset corpus &amp; start
         </Button>
@@ -319,7 +340,9 @@
                 {/if}
               </p>
             {:else if running && run}
-              <p class="text-primary pb-2 text-xs font-medium">Live run in progress…</p>
+              <p class="text-primary pb-2 text-xs font-medium">
+                {run.status === 'stopped' ? 'Stopping… finishing current step' : 'Live run in progress…'}
+              </p>
             {/if}
           </div>
         {:else}
@@ -400,7 +423,9 @@
                 Waiting…
               {/if}
             </span>
-            <span>{completedCount} of {entries.length} steps · {progressPct}%</span>
+            <span>
+              {completedCount} done · {runningCount} active · {pendingCount} queued — {completedCount} of {entries.length} steps ({progressPct}%)
+            </span>
           </div>
           <div class="bg-muted h-2 overflow-hidden rounded-full">
             <div
@@ -451,6 +476,33 @@ Waiting for events…{/if}</pre>
               updates as they finish.
             </p>
           {/if}
+        {/if}
+        {#if timing}
+          <div class="grid gap-2 sm:grid-cols-2">
+            <div class="rounded-lg border p-3">
+              <p class="text-muted-foreground text-xs font-medium">Average step time (ms)</p>
+              <div class="mt-2 space-y-1 text-sm">
+                {#each Object.entries(timing.entryDurationByKind ?? {}) as [kind, stats] (kind)}
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-mono text-xs">{kind}</span>
+                    <span class="font-mono text-xs">{avgMs(stats) ?? '—'}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <div class="rounded-lg border p-3">
+              <p class="text-muted-foreground text-xs font-medium">Average LLM call time (ms)</p>
+              <div class="mt-2 max-h-40 space-y-1 overflow-y-auto text-sm">
+                {#each Object.entries(timing.llmDurationByOperation ?? {}) as [op, stats] (op)}
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="truncate font-mono text-[10px]">{op}</span>
+                    <span class="shrink-0 font-mono text-xs">{avgMs(stats) ?? '—'}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
         {/if}
       </Card.Header>
       <Card.Content class="space-y-3">

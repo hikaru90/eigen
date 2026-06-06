@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { retrieveEvidence } from './retrieve-evidence';
+import { normalizeLexicalRank, retrieveEvidence } from './retrieve-evidence';
 
 const {
 	createThoughtEmbeddingMock,
@@ -271,9 +271,53 @@ describe('retrieveEvidence', () => {
 		warnSpy.mockRestore();
 	});
 
+	it('normalizeLexicalRank maps strong FTS ranks into vector-comparable similarity', () => {
+		expect(normalizeLexicalRank(0.4)).toBe(1);
+		expect(normalizeLexicalRank(0)).toBe(0);
+	});
+
+	it('ranks tier-1 lexical hits above entity expansion-only noise', async () => {
+		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([{ id: 'e1', distance: 0.2 }]);
+		lexicalSearchMock.mockResolvedValue([{ id: 't-hot', lexicalScore: 0.4 }]);
+
+		getDbMock.mockReturnValue(
+			makeSequentialDb([
+				[{ id: 't-vector-noise', distance: 0.35 }],
+				[],
+				[{ entityId: 'e1', thoughtIds: ['t-entity-noise'] }],
+				[],
+				[
+					{ ...thoughtRow, id: 't-hot', primaryCommunityIds: null, entityCentralityMax: 0 },
+					{
+						...thoughtRow,
+						id: 't-entity-noise',
+						normalizedText: 'unrelated enriched memory',
+						entityCentralityMax: 0.95,
+						salienceScore: 4.5,
+						recencyBucket: 0.95,
+						specificityScore: 0.9
+					},
+					{
+						...thoughtRow,
+						id: 't-vector-noise',
+						entityCentralityMax: 0.85,
+						salienceScore: 3
+					}
+				]
+			])
+		);
+
+		const result = await retrieveEvidence({
+			userId: 'u1',
+			query: 'zephyr helsinki lighthouse codeword'
+		});
+
+		expect(result[0]?.id).toBe('t-hot');
+	});
+
 	it('scores lexical-only hits and assigns entity_expansion provenance', async () => {
 		matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([{ id: 'e1', distance: 0.2 }]);
-		lexicalSearchMock.mockResolvedValue([{ id: 't-lex' }]);
+		lexicalSearchMock.mockResolvedValue([{ id: 't-lex', lexicalScore: 0.2 }]);
 
 		getDbMock.mockReturnValue(
 			makeSequentialDb([

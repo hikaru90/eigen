@@ -102,11 +102,19 @@ describe('MCP tools', () => {
 		expect(editStoredThoughtMock).not.toHaveBeenCalled();
 	});
 
-	it('runCaptureThoughtTool persists raw and returns id+thought', async () => {
-		captureThoughtMock.mockResolvedValue({ id: 't1', normalizedText: 'hi' });
+	it('runCaptureThoughtTool persists raw and returns id+status+thought', async () => {
+		captureThoughtMock.mockResolvedValue({
+			id: 't1',
+			normalizedText: 'hi',
+			queueStatus: 'pending'
+		});
 		const out = await runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi' });
-		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi');
-		expect(out).toEqual({ thoughtId: 't1', thought: { id: 't1', normalizedText: 'hi' } });
+		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi', { source: 'mcp' });
+		expect(out).toEqual({
+			thoughtId: 't1',
+			status: 'pending',
+			thought: { id: 't1', normalizedText: 'hi', queueStatus: 'pending' }
+		});
 	});
 
 	it('runCaptureThoughtTool rejects empty/whitespace raw and non-object args', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAPTURE_PIPELINE } from './ingest-phases';
+import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from './ingest-phases';
 import {
 	captureQueueStatusLine,
 	captureQueueStatusText,
@@ -9,16 +9,20 @@ import {
 } from './capture-progress';
 
 describe('capture-progress', () => {
-	it('counts pipeline steps', () => {
+	it('counts full pipeline steps', () => {
 		expect(totalPipelineSteps(CAPTURE_PIPELINE)).toBe(CAPTURE_PIPELINE.length);
 	});
 
-	it('maps progress event to pipeline index', () => {
+	it('counts fast pipeline steps', () => {
+		expect(totalPipelineSteps(CAPTURE_FAST_PIPELINE)).toBe(CAPTURE_FAST_PIPELINE.length);
+	});
+
+	it('maps progress event to fast pipeline index', () => {
 		const idx = pipelineStepIndexFromEvent(
-			{ parallel: false, phase: 'embedding' },
-			CAPTURE_PIPELINE
+			{ parallel: false, phase: 'persist' },
+			CAPTURE_FAST_PIPELINE
 		);
-		expect(idx).toBe(CAPTURE_PIPELINE.indexOf('embedding'));
+		expect(idx).toBe(CAPTURE_FAST_PIPELINE.indexOf('persist'));
 	});
 
 	it('labels parallel progress', () => {

@@ -204,6 +204,14 @@ describe('parseEntityMentions', () => {
 		expect(out.map((m) => m.confidence)).toEqual([1, 0, 0, 0]);
 	});
 
+	it('drops greeting surfaces after parse', () => {
+		const out = parseEntityMentions(
+			'[{"surface":"Hallo","entityType":"person","confidence":0.9},{"surface":"Alex","entityType":"person","confidence":0.95}]',
+			ALLOWED_TEST_KEYS
+		);
+		expect(out).toEqual([{ surface: 'Alex', entityType: 'person', confidence: 0.95 }]);
+	});
+
 	it('throws when JSON is not an array', () => {
 		expect(() => parseEntityMentions('{"surface":"A"}', ALLOWED_TEST_KEYS)).toThrow(/must be a JSON array/);
 	});
@@ -592,6 +600,7 @@ describe('extractEntityMentions', () => {
 
 		const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]?.content;
 		expect(String(prompt)).toContain('Known entities already in memory');
+		expect(String(prompt)).toContain('Never replace a name in the text');
 		expect(String(prompt)).toContain('Jonas (person)');
 	});
 

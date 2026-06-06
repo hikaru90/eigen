@@ -26,7 +26,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 	persist: {
 		title: 'Saving to Postgres',
 		description:
-			'Writing normalized text, category, lexical search surface, and the embedding into your isolated thought row.'
+			'Writing normalized text and lexical search surface into your isolated thought row. Indexing runs in the background.'
 	},
 	graph: {
 		title: 'Syncing memory graph',
@@ -66,20 +66,23 @@ export type CaptureIngestPhase = keyof typeof CAPTURE_INGEST_PHASE_COPY;
  *
  * This drives both the step count and the visual layout in IngestPhaseIndicator.
  */
-/** Full capture pipeline — `done` fires only after all steps complete. */
-export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
+/** Tier 1 queue path — text-only persist, background enrich. */
+export const CAPTURE_FAST_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
 	'accounting',
-	'ontology',
-	'embedding',
 	'session',
 	'persist',
-	'graph',
+	'graph'
+];
+
+/** Full capture pipeline including awaited enrichment (eval / legacy). */
+export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
+	...CAPTURE_FAST_PIPELINE,
 	['entities', 'temporal', 'memory_type', 'cues'],
 	'relations',
 	'ontology_eval'
 ];
 
-/** @deprecated Use CAPTURE_PIPELINE — enrichment is no longer background-only. */
+/** @deprecated Use CAPTURE_FAST_PIPELINE for UI queue progress. */
 export const CAPTURE_ENRICHMENT_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
 	['entities', 'temporal', 'memory_type', 'cues'],
 	'relations',

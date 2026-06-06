@@ -94,7 +94,91 @@ type ScoredCandidate = {
 	communityDistance?: number;
 	entityDistance?: number;
 	bundleRank?: number;
+	/** Postgres `ts_rank_cd` when surfaced by lexical FTS. */
+	lexicalScore?: number;
 };
+
+/** Map raw FTS rank to a thought-similarity scale comparable with vector cosine sim. */
+export function normalizeLexicalRank(raw: number): number {
+	if (raw <= 0) return 0;
+	return Math.min(1, raw * 2.5);
+}
+
+function candidateHasDirectRelevance(candidate: ScoredCandidate): boolean {
+	return candidate.sources.has('lexical') || candidate.sources.has('vector');
+}
+
+function computeThoughtSimilarity(candidate: ScoredCandidate): number {
+	const vectorSim =
+		candidate.vectorDistance !== undefined
+			? cosineSimilarityFromDistance(candidate.vectorDistance)
+			: undefined;
+	const lexicalSim =
+		candidate.lexicalScore !== undefined && candidate.lexicalScore > 0
+			? normalizeLexicalRank(candidate.lexicalScore)
+			: undefined;
+
+	if (vectorSim !== undefined && lexicalSim !== undefined) {
+		return Math.max(vectorSim, lexicalSim);
+	}
+	if (lexicalSim !== undefined) return lexicalSim;
+	if (vectorSim !== undefined) return vectorSim;
+	return candidate.sources.has('lexical') ? 0.35 : 0.2;
+}
+
+/** Graph/community features apply only when the row also matched the query directly. */
+function directRelevanceMultiplier(candidate: ScoredCandidate): number {
+	return candidateHasDirectRelevance(candidate) ? 1 : 0;
+}
+
+const LEXICAL_RERANK_RESERVE = 5;
+
+function buildRerankPool<T extends { candidate: ScoredCandidate; score: number }>(
+	scored: T[]
+): T[] {
+	const byScore = [...scored].sort((a, b) => b.score - a.score);
+	const byLexical = [...scored]
+		.filter((e) => e.candidate.sources.has('lexical'))
+		.sort(
+			(a, b) => (b.candidate.lexicalScore ?? 0) - (a.candidate.lexicalScore ?? 0)
+		);
+
+	const pool: T[] = [];
+	const seen = new Set<string>();
+
+	for (const entry of byLexical.slice(0, LEXICAL_RERANK_RESERVE)) {
+		if (seen.has(entry.candidate.id)) continue;
+		pool.push(entry);
+		seen.add(entry.candidate.id);
+	}
+	for (const entry of byScore) {
+		if (pool.length >= RERANK_POOL) break;
+		if (seen.has(entry.candidate.id)) continue;
+		pool.push(entry);
+		seen.add(entry.candidate.id);
+	}
+	return pool;
+}
+
+function prioritizeMergeCandidates(candidates: Map<string, ScoredCandidate>): ScoredCandidate[] {
+	const lexical: ScoredCandidate[] = [];
+	const vector: ScoredCandidate[] = [];
+	const rest: ScoredCandidate[] = [];
+
+	for (const c of candidates.values()) {
+		if (c.sources.has('lexical')) lexical.push(c);
+		else if (c.sources.has('vector')) vector.push(c);
+		else rest.push(c);
+	}
+
+	lexical.sort((a, b) => (b.lexicalScore ?? 0) - (a.lexicalScore ?? 0));
+	vector.sort(
+		(a, b) =>
+			(a.vectorDistance ?? Infinity) - (b.vectorDistance ?? Infinity)
+	);
+
+	return [...lexical, ...vector, ...rest].slice(0, MERGE_CANDIDATE_CAP);
+}
 
 function redundancyPenalty(
 	candidate: ScoredCandidate,
@@ -215,6 +299,9 @@ export async function retrieveEvidence(params: {
 				patch.entityDistance
 			);
 		if (patch?.bundleRank !== undefined) existing.bundleRank = patch.bundleRank;
+		if (patch?.lexicalScore !== undefined) {
+			existing.lexicalScore = Math.max(existing.lexicalScore ?? 0, patch.lexicalScore);
+		}
 		candidates.set(id, existing);
 	};
 
@@ -222,7 +309,7 @@ export async function retrieveEvidence(params: {
 		addCandidate(row.id, 'vector', { vectorDistance: row.distance });
 	}
 	for (const row of lexicalRows) {
-		addCandidate(row.id, 'lexical');
+		addCandidate(row.id, 'lexical', { lexicalScore: row.lexicalScore });
 	}
 	for (const hit of temporalHits) {
 		addCandidate(hit.thoughtId, 'temporal');
@@ -329,7 +416,7 @@ export async function retrieveEvidence(params: {
 		}
 	}
 
-	const candidateList = [...candidates.values()].slice(0, MERGE_CANDIDATE_CAP);
+	const candidateList = prioritizeMergeCandidates(candidates);
 	const candidateIds = candidateList.map((c) => c.id);
 	if (candidateIds.length === 0) {
 		logRetrievalPhaseTiming({
@@ -374,18 +461,16 @@ export async function retrieveEvidence(params: {
 			const row = rowById.get(c.id);
 			if (!row) return null;
 
-			const thoughtSim =
-				c.vectorDistance !== undefined
-					? cosineSimilarityFromDistance(c.vectorDistance)
-					: c.sources.has('lexical')
-						? 0.35
-						: 0.2;
+			const direct = directRelevanceMultiplier(c);
+			const thoughtSim = computeThoughtSimilarity(c);
 			const communitySim =
 				c.communityDistance !== undefined
-					? cosineSimilarityFromDistance(c.communityDistance)
+					? cosineSimilarityFromDistance(c.communityDistance) * direct
 					: 0;
 			const entitySim =
-				c.entityDistance !== undefined ? cosineSimilarityFromDistance(c.entityDistance) : 0;
+				c.entityDistance !== undefined
+					? cosineSimilarityFromDistance(c.entityDistance) * direct
+					: 0;
 
 			for (const cid of row.primaryCommunityIds ?? []) {
 				seenCommunityIds.set(cid, (seenCommunityIds.get(cid) ?? 0) + 1);
@@ -395,10 +480,12 @@ export async function retrieveEvidence(params: {
 				SCORE_WEIGHTS.thoughtSim * thoughtSim +
 				SCORE_WEIGHTS.communitySim * communitySim +
 				SCORE_WEIGHTS.entitySim * entitySim +
-				SCORE_WEIGHTS.centrality * (row.entityCentralityMax ?? 0) +
-				SCORE_WEIGHTS.specificity * (row.specificityScore ?? 0) +
-				SCORE_WEIGHTS.salience * Math.min((row.salienceScore ?? 1) / SALIENCE_MAX, 1) +
-				SCORE_WEIGHTS.recency * (row.recencyBucket ?? 0) -
+				SCORE_WEIGHTS.centrality * (row.entityCentralityMax ?? 0) * direct +
+				SCORE_WEIGHTS.specificity * (row.specificityScore ?? 0) * direct +
+				SCORE_WEIGHTS.salience *
+					Math.min((row.salienceScore ?? 1) / SALIENCE_MAX, 1) *
+					direct +
+				SCORE_WEIGHTS.recency * (row.recencyBucket ?? 0) * direct -
 				redundancyPenalty(c, seenCommunityIds);
 
 			return {
@@ -409,13 +496,13 @@ export async function retrieveEvidence(params: {
 				graphScore: entitySim + (row.entityCentralityMax ?? 0) * 0.5
 			};
 		})
-		.filter((e): e is NonNullable<typeof e> => e !== null)
-		.sort((a, b) => b.score - a.score)
-		.slice(0, RERANK_POOL);
+		.filter((e): e is NonNullable<typeof e> => e !== null);
+
+	const rerankPool = buildRerankPool(scored);
 
 	timer.mark('decrypt');
 	const decrypted = await Promise.all(
-		scored.map(async ({ row, score, vectorScore, graphScore, candidate }) => {
+		rerankPool.map(async ({ row, score, vectorScore, graphScore, candidate }) => {
 			const [normalizedText, metadataJson] = await Promise.all([
 				row.normalizedTextEncrypted
 					? decryptTenantValue({

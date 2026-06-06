@@ -12,6 +12,8 @@ import {
 } from './service';
 
 const {
+	queueCaptureMock,
+	enrichQueuedThoughtMock,
 	getDbMock,
 	logActivityCallMock,
 	createThoughtEmbeddingMock,
@@ -22,6 +24,7 @@ const {
 	resolveThoughtCategoryMock,
 	enrichThoughtMock,
 	reenrichThoughtMock,
+	scheduleEnrichThoughtMock,
 	applyThoughtEditRequestMock,
 	loadThoughtCaptureResultMock
 } = vi.hoisted(() => ({
@@ -35,8 +38,11 @@ const {
 	resolveThoughtCategoryMock: vi.fn(),
 	enrichThoughtMock: vi.fn(),
 	reenrichThoughtMock: vi.fn(),
+	scheduleEnrichThoughtMock: vi.fn(),
 	applyThoughtEditRequestMock: vi.fn(),
-	loadThoughtCaptureResultMock: vi.fn()
+	loadThoughtCaptureResultMock: vi.fn(),
+	queueCaptureMock: vi.fn(),
+	enrichQueuedThoughtMock: vi.fn()
 }));
 
 const defaultCaptureResult = {
@@ -50,7 +56,8 @@ const defaultCaptureResult = {
 	entities: [],
 	temporalEvents: [],
 	linkedThoughts: [],
-	enrichmentComplete: false
+	enrichmentComplete: false,
+	queueStatus: 'pending' as const
 };
 
 vi.mock('$lib/server/db', () => ({
@@ -105,11 +112,20 @@ vi.mock('$lib/server/memory/entity-graph-hints', () => ({
  */
 vi.mock('$lib/server/capture/enrich', () => ({
 	enrichThought: enrichThoughtMock,
-	reenrichThought: reenrichThoughtMock
+	reenrichThought: reenrichThoughtMock,
+	scheduleEnrichThought: scheduleEnrichThoughtMock
 }));
 
 vi.mock('$lib/server/capture/capture-result', () => ({
 	loadThoughtCaptureResult: loadThoughtCaptureResultMock
+}));
+
+vi.mock('$lib/server/capture/queue-capture', () => ({
+	queueCapture: queueCaptureMock
+}));
+
+vi.mock('$lib/server/capture/enrich-queued-thought', () => ({
+	enrichQueuedThought: enrichQueuedThoughtMock
 }));
 
 describe('normalizeThoughtText', () => {
@@ -187,61 +203,44 @@ function makeCaptureDb(
 describe('captureThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2, 0.3]);
-		resolveThoughtCategoryMock.mockResolvedValue({ key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] });
-		enrichThoughtMock.mockResolvedValue(undefined);
+		queueCaptureMock.mockResolvedValue({
+			thoughtId: 'thought-1',
+			status: 'queued',
+			normalizedText: 'raw input'
+		});
+		enrichQueuedThoughtMock.mockResolvedValue(undefined);
 		loadThoughtCaptureResultMock.mockImplementation(async (_userId: string, thoughtId: string) => ({
 			...defaultCaptureResult,
 			id: thoughtId
 		}));
 	});
 
-	it('stores capture session, thought row, and graph node', async () => {
-		const db = makeCaptureDb();
-		getDbMock.mockReturnValue(db);
-
+	it('queues capture and schedules background enrich by default', async () => {
 		const stored = await captureThought('u1', 'raw input');
 
 		expect(stored.id).toBe('thought-1');
-		expect(resolveThoughtCategoryMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			normalized: 'raw input',
-			rawText: 'raw input'
+		expect(queueCaptureMock).toHaveBeenCalledWith('u1', 'raw input', {
+			source: 'api',
+			skipWorker: false
 		});
-		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'raw input');
-		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				id: 'thought-1',
-				userId: 'u1'
-			})
-		);
-		expect(enrichThoughtMock).toHaveBeenCalledWith(
-			'u1',
-			'thought-1',
-			'raw input',
-			expect.objectContaining({ thoughtEmbedding: [0.1, 0.2, 0.3] })
-		);
+		expect(enrichQueuedThoughtMock).not.toHaveBeenCalled();
 		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 'thought-1');
 	});
 
-	it('always awaits enrichThought before returning capture result', async () => {
-		const db = makeCaptureDb();
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-		expect(enrichThoughtMock).toHaveBeenCalledWith(
+	it('awaits enrichQueuedThought when awaitEnrichment is true', async () => {
+		await captureThought('u1', 'raw input', { awaitEnrichment: true });
+		expect(queueCaptureMock).toHaveBeenCalledWith('u1', 'raw input', {
+			source: 'api',
+			skipWorker: true
+		});
+		expect(enrichQueuedThoughtMock).toHaveBeenCalledWith(
 			'u1',
 			'thought-1',
-			'raw input',
-			expect.objectContaining({ thoughtEmbedding: [0.1, 0.2, 0.3] })
+			expect.objectContaining({ onProgress: undefined })
 		);
-		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 'thought-1');
 	});
 
-	it('forwards onProgress to enrichment when provided', async () => {
-		const db = makeCaptureDb();
-		getDbMock.mockReturnValue(db);
-
+	it('emits tier-1 progress events on queue path', async () => {
 		const phases: string[] = [];
 		await captureThought('u1', 'raw input', {
 			onProgress: async (e) => {
@@ -250,81 +249,10 @@ describe('captureThought', () => {
 			}
 		});
 
-		expect(phases).toEqual([
-			'accounting',
-			'ontology',
-			'embedding',
-			'session',
-			'persist',
-			'graph'
-		]);
-		expect(enrichThoughtMock).toHaveBeenCalledWith(
-			'u1',
-			'thought-1',
-			'raw input',
-			expect.objectContaining({ onProgress: expect.any(Function) })
-		);
-	});
-
-	it('proceeds when dedup check fails', async () => {
-		const db = makeCaptureDb({ dedupFails: true });
-		getDbMock.mockReturnValue(db);
-
-		const stored = await captureThought('u1', 'raw input');
-
-		expect(stored.id).toBe('thought-1');
-		expect(enrichThoughtMock).toHaveBeenCalled();
-	});
-
-	it('records near-duplicate metadata when a close neighbor exists', async () => {
-		const db = makeCaptureDb({
-			nearestDuplicate: {
-				id: 'existing-1',
-				normalizedText: 'raw input duplicate preview text',
-				distance: 0.03
-			}
-		});
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-
-		const metadataCall = vi.mocked(encryptTenantValue).mock.calls.find(
-			(call) => call[0].table === 'thought' && call[0].column === 'metadata'
-		);
-		expect(metadataCall).toBeDefined();
-		const metadata = JSON.parse(metadataCall![0].plaintext) as Record<string, unknown>;
-		expect(metadata.nearDuplicate).toEqual(
-			expect.objectContaining({
-				id: 'existing-1',
-				distance: 0.03,
-				preview: 'raw input duplicate preview text'
-			})
-		);
+		expect(phases).toEqual(['accounting', 'session', 'persist', 'graph']);
 	});
 
 	it('returns capture result from loadThoughtCaptureResult', async () => {
-		const thoughtRow = {
-			id: 'thought-1',
-			userId: 'u1',
-			rawText: 'plain',
-			rawTextEncrypted: 'enc:captured raw',
-			normalizedText: 'plain',
-			normalizedTextEncrypted: 'enc:captured normalized',
-			lexicalText: 'captured normalized',
-			category: 'task',
-			metadata: null,
-			metadataEncrypted: 'enc:{"pipeline":"ontology_llm_v1"}'
-		};
-		const insertThought = makeInsertReturning(thoughtRow);
-		const db = makeCaptureDb();
-		db.transaction = vi.fn(async (cb: (txArg: unknown) => unknown) => {
-			const tx = {
-				insert: vi.fn(() => insertThought),
-				delete: vi.fn(() => ({ where: vi.fn(async () => []) }))
-			};
-			return cb(tx);
-		});
-		getDbMock.mockReturnValue(db);
 		loadThoughtCaptureResultMock.mockResolvedValue({
 			...defaultCaptureResult,
 			normalizedText: 'captured normalized',
@@ -335,88 +263,6 @@ describe('captureThought', () => {
 
 		expect(stored.normalizedText).toBe('captured normalized');
 		expect(stored.metadata).toEqual(expect.objectContaining({ pipeline: 'ontology_llm_v1' }));
-	});
-
-	it('omits near-duplicate metadata when closest neighbor is outside threshold', async () => {
-		const db = makeCaptureDb({
-			nearestDuplicate: {
-				id: 'existing-1',
-				normalizedText: 'similar text',
-				distance: 0.2
-			}
-		});
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-
-		const metadataCall = vi.mocked(encryptTenantValue).mock.calls.find(
-			(call) => call[0].table === 'thought' && call[0].column === 'metadata'
-		);
-		const metadata = JSON.parse(metadataCall![0].plaintext) as Record<string, unknown>;
-		expect(metadata.nearDuplicate).toBeUndefined();
-	});
-
-	it('stringifies non-Error dedup failures in the warning log', async () => {
-		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-		const db = makeCaptureDb();
-		const dedupLimit = vi.fn(async () => {
-			throw 'dedup string fail';
-		});
-		db.select = vi.fn(() => ({
-			from: vi.fn(() => ({
-				where: vi.fn(() => ({
-					orderBy: vi.fn().mockReturnValue({ limit: dedupLimit }),
-					limit: vi.fn(async () => [{ n: 1 }]),
-					then: (onfulfilled: (v: { n: number }[]) => unknown) =>
-						Promise.resolve([{ n: 1 }]).then(onfulfilled)
-				}))
-			}))
-		}));
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-
-		expect(warnSpy).toHaveBeenCalledWith(
-			'[capture.dedup] dedup check failed, proceeding',
-			expect.objectContaining({ message: 'dedup string fail' })
-		);
-		warnSpy.mockRestore();
-	});
-
-	it('passes zero thought count to enrichment when count query returns no row', async () => {
-		const db = makeCaptureDb({ thoughtCountAfterInsert: 0 });
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-
-		expect(enrichThoughtMock).toHaveBeenCalledWith(
-			'u1',
-			'thought-1',
-			'raw input',
-			expect.objectContaining({ thoughtCountAfterInsert: 0 })
-		);
-	});
-
-	it('passes ingest known entities to category resolution when hints exist', async () => {
-		const hints = [{ label: 'Marcus', entityType: 'person' }];
-		vi.mocked(loadIngestKnownEntityHints).mockResolvedValue(hints);
-		const db = makeCaptureDb();
-		getDbMock.mockReturnValue(db);
-
-		await captureThought('u1', 'raw input');
-
-		expect(resolveThoughtCategoryMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			normalized: 'raw input',
-			rawText: 'raw input',
-			knownEntities: hints
-		});
-		expect(enrichThoughtMock).toHaveBeenCalledWith(
-			'u1',
-			'thought-1',
-			'raw input',
-			expect.objectContaining({ preloadedKnownEntities: hints })
-		);
 	});
 });
 

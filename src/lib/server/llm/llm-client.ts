@@ -552,7 +552,7 @@ async function llmChatCompletionInner(input: {
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				gatewayHost,
-				operation: `llm.chat.success(attempt=${attempt})`,
+				operation: `llm.chat.${logCtx}.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
 				context: firstUserMessage,
 				durationMs: attemptMs
@@ -571,7 +571,7 @@ async function llmChatCompletionInner(input: {
 			await logActivityCall(db, input.userId, {
 				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
 				gatewayHost,
-				operation: `llm.chat.error(attempt=${attempt})`,
+				operation: `llm.chat.${logCtx}.error(attempt=${attempt})`,
 				baseCostUsd: 0,
 				context: firstUserMessage,
 				durationMs: Date.now() - attemptStart

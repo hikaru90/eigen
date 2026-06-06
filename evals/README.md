@@ -14,7 +14,7 @@ npm run eval -- --fresh-corpus   # wipe corpus tenant and re-ingest everything
 npm run eval:reset-fixture -- --fixture ec_jonas_silence   # delete one corpus thought so next run re-captures it
 ```
 
-Dev UI: `/eval` — manage the **Questions & answers** catalog. Use **Run** on a row to execute one question (`mode: qa`), or use the Runs tab for smoke/all. **Reset corpus & start** wipes the shared eval tenant before ingesting.
+Dev UI: `/eval` — manage the **Questions & answers** catalog. Use **Run** on a row to execute one question (`mode: qa`), or use the Runs tab for smoke/all. **Reset corpus & start** wipes the shared eval tenant before ingesting. **Stop run** cancels the in-process runner without restarting dev (finishes the current step, then exits).
 
 ## Persistent corpus
 

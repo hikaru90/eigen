@@ -1,0 +1,39 @@
+---
+description: Chat page scroll/input layout — do not regress dual-scroll or moving composer
+globs: src/routes/chat/**
+alwaysApply: false
+---
+
+# Chat page scroll layout
+
+When editing `src/routes/chat/+page.svelte`, preserve this layout contract.
+
+## Required behavior
+
+1. **One scroll surface** — only `messagesEl` scrolls. The page/body must not scroll (`overflow: hidden` on `html` + `body` in `onMount`).
+2. **Composer never moves** — the input card is pinned outside the scroll flow (`absolute bottom-0`, not `sticky` inside a scroll parent).
+3. **Wheel anywhere on the panel** — scrolling must work when the cursor is over padding, empty space, or the composer overlay, not only over message text. Keep `handleChatPanelWheel` on `chatPanelEl` (`passive: false`).
+4. **Textarea exception** — when the textarea has overflow, wheel scrolls the textarea first; only at its bounds does wheel scroll messages.
+
+## DOM structure (do not collapse)
+
+```
+chatPanelEl  fixed inset-x-0 top-0 bottom-20 overflow-hidden
+├── messagesEl  absolute inset-0 overflow-y-auto   ← sole scroll container; scrollToBottom targets this
+│   └── inner content  pt-20 pb-52 (pb clears pinned composer)
+└── input overlay  absolute bottom-0 z-10 (outside messagesEl)
+```
+
+## Do not
+
+- Put `overflow-y-auto` on `chatPanelEl` or the page wrapper (causes double scroll + composer drift).
+- Put the composer **inside** `messagesEl` with `sticky` (composer moves while scrolling).
+- Replace panel-wide wheel forwarding with a narrow inner scroll region only (wheel stops working off message text).
+- Remove or shrink `pb-52` on message content without compensating for composer height (last messages hide under input).
+- Change `scrollToBottom` to target anything other than `messagesEl`.
+
+## Safe changes
+
+- Padding/spacing **inside** message bubbles or the `px-1 py-3` message list wrapper.
+- `pt-20` top inset for header clearance.
+- Composer styling inside its pinned overlay div.

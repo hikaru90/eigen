@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildEntityAdjacency,
+	hasLexicalMergeEvidence,
 	neighborEntityIds,
 	pickGraphMergeWinner,
 	scoreGraphLinkCandidate
 } from './entity-link-graph';
 
 describe('entity-link-graph', () => {
+	it('hasLexicalMergeEvidence accepts substring nicknames and rejects unrelated names', () => {
+		expect(hasLexicalMergeEvidence('sam', 'samuel')).toBe(true);
+		expect(hasLexicalMergeEvidence('anni', 'annie')).toBe(true);
+		expect(hasLexicalMergeEvidence('alex', 'annie')).toBe(false);
+	});
+
 	it('scores neighbor + type match above isolated candidate', () => {
 		const adj = buildEntityAdjacency([{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1 }]);
 		const neighbors = neighborEntityIds(adj, ['e-berlin']);

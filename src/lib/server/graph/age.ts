@@ -1,8 +1,10 @@
 /**
  * Apache AGE graph adapter (OpenCypher via `ag_catalog.cypher` on `AGE_GRAPH_NAME`).
  */
-import { sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { filterGraphVizEdgesToNodes } from '$lib/graph/sanitize-viz-snapshot';
 import { getDb } from '$lib/server/db';
+import { canonicalEntity } from '$lib/server/db/schema';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 import {
@@ -469,7 +471,37 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			if (s && t) pushEdge(s, t, rt, 'entity_relation');
 		}
 
-		return { nodes, edges };
+		const referencedIds = new Set<string>();
+		for (const edge of edges) {
+			referencedIds.add(edge.sourceId);
+			referencedIds.add(edge.targetId);
+		}
+		const missingIds = [...referencedIds].filter((id) => !seenNode.has(id));
+		if (missingIds.length > 0) {
+			const supplemental = await getDb()
+				.select({
+					id: canonicalEntity.id,
+					label: canonicalEntity.label,
+					entityType: canonicalEntity.entityType
+				})
+				.from(canonicalEntity)
+				.where(
+					and(eq(canonicalEntity.userId, input.userId), inArray(canonicalEntity.id, missingIds))
+				);
+			for (const row of supplemental) {
+				const id = String(row.id);
+				if (!id || seenNode.has(id)) continue;
+				seenNode.add(id);
+				nodes.push({
+					id,
+					kind: 'Entity',
+					label: row.label,
+					subtype: row.entityType
+				});
+			}
+		}
+
+		return filterGraphVizEdgesToNodes(nodes, edges);
 	});
 }
 

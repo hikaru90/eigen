@@ -18,6 +18,8 @@ import {
 const {
 	searchThoughtsMock,
 	hasCommunitySummariesMock,
+	searchGlobalMock,
+	classifyRetrievalScopeMock,
 	fetchRelevantCommunitySummariesMock,
 	llmChatCompletionMock,
 	findTemporalSchedulingConflictsMock,
@@ -29,6 +31,8 @@ const {
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	hasCommunitySummariesMock: vi.fn(),
+	searchGlobalMock: vi.fn(),
+	classifyRetrievalScopeMock: vi.fn(),
 	fetchRelevantCommunitySummariesMock: vi.fn(),
 	llmChatCompletionMock: vi.fn(),
 	findTemporalSchedulingConflictsMock: vi.fn(),
@@ -43,8 +47,13 @@ vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
 }));
 
+vi.mock('$lib/server/retrieval/global-query', () => ({
+	classifyRetrievalScope: classifyRetrievalScopeMock
+}));
+
 vi.mock('$lib/server/retrieval/global', () => ({
 	hasCommunitySummaries: hasCommunitySummariesMock,
+	searchGlobal: searchGlobalMock,
 	fetchRelevantCommunitySummaries: fetchRelevantCommunitySummariesMock
 }));
 
@@ -304,6 +313,12 @@ describe('composeAnswer', () => {
 		vi.clearAllMocks();
 		dbWhereMock.mockResolvedValue([]);
 		hasCommunitySummariesMock.mockResolvedValue(false);
+		classifyRetrievalScopeMock.mockResolvedValue('local');
+		searchGlobalMock.mockResolvedValue({
+			answer: 'You care about family and creative work.',
+			communitiesUsed: 2,
+			sources: [{ communityId: 'c1', level: 0, summaryExcerpt: 'Family themes…' }]
+		});
 		fetchRelevantCommunitySummariesMock.mockResolvedValue([]);
 		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
 		findTemporalSchedulingConflictsMock.mockResolvedValue([]);
@@ -318,18 +333,56 @@ describe('composeAnswer', () => {
 		);
 	});
 
-	it('uses unified retrieval once for self-profile queries', async () => {
-		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
-		llmChatCompletionMock.mockResolvedValue(
-			chatResponse('Marcus suggested rice flour [t_001]. Also, Tartine has half-price loaves [t_002].')
-		);
+	it('uses searchGlobal for self-profile queries when community summaries exist', async () => {
+		classifyRetrievalScopeMock.mockResolvedValue('global');
+		hasCommunitySummariesMock.mockResolvedValue(true);
+		searchGlobalMock.mockResolvedValue({
+			answer: 'You are family-oriented and value creative work.',
+			communitiesUsed: 2,
+			sources: [{ communityId: 'c1', level: 0, summaryExcerpt: 'Family and creativity…' }]
+		});
 
 		const result = await composeAnswer({ userId: 'u1', question: 'was weißt du über mich?' });
 
+		expect(searchGlobalMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			query: 'was weißt du über mich?'
+		});
+		expect(searchThoughtsMock).not.toHaveBeenCalled();
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+		expect(result.retrievalPath).toBe('global');
+		expect(result.citations).toEqual([]);
+		expect(result.globalSources).toHaveLength(1);
+		expect(result.answer).toContain('family-oriented');
+	});
+
+	it('uses searchGlobal for "what am I about?" when summaries exist', async () => {
+		classifyRetrievalScopeMock.mockResolvedValue('global');
+		hasCommunitySummariesMock.mockResolvedValue(true);
+
+		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
+
+		expect(searchGlobalMock).toHaveBeenCalled();
+		expect(searchThoughtsMock).not.toHaveBeenCalled();
+		expect(result.retrievalPath).toBe('global');
+	});
+
+	it('falls back to searchThoughts for global queries without community summaries (AC-026)', async () => {
+		const logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+		classifyRetrievalScopeMock.mockResolvedValue('global');
+
+		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
+
+		expect(searchGlobalMock).not.toHaveBeenCalled();
 		expect(searchThoughtsMock).toHaveBeenCalledTimes(1);
-		expect(fetchRelevantCommunitySummariesMock).not.toHaveBeenCalled();
-		expect(llmChatCompletionMock).toHaveBeenCalled();
-		expect(result.citations.length).toBeGreaterThan(0);
+		expect(result.retrievalPath).toBe('global_fallback');
+		expect(logSpy).toHaveBeenCalledWith(
+			'[composeAnswer] path=global_fallback: no community summaries',
+			expect.objectContaining({ userId: 'u1', question: 'what am I about?' })
+		);
+
+		logSpy.mockRestore();
 	});
 
 	it('rejects empty questions before doing any work', async () => {

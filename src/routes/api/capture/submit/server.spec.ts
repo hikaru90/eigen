@@ -60,7 +60,7 @@ describe('POST /api/capture/submit', () => {
 			locals: { user: { id: 'u1' } },
 			request: { json: vi.fn(async () => ({ raw: 'hello' })) }
 		} as never);
-		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hello');
+		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hello', { source: 'ui' });
 		expect(res.status).toBe(200);
 	});
 
@@ -93,6 +93,27 @@ describe('POST /api/capture/submit', () => {
 			.map((l) => JSON.parse(l) as { type: string });
 		expect(lines.some((l) => l.type === 'progress')).toBe(true);
 		expect(lines.some((l) => l.type === 'done')).toBe(true);
+	});
+
+	it('streams done with queued thought when enrichment is incomplete', async () => {
+		captureThoughtMock.mockResolvedValue({
+			id: 't1',
+			enrichmentComplete: false,
+			queueStatus: 'pending'
+		});
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: ndjsonRequest({ raw: 'hello' })
+		} as never);
+		const lines = (await res.text())
+			.trim()
+			.split('\n')
+			.filter(Boolean)
+			.map((l) => JSON.parse(l) as { type: string; thought?: { queueStatus?: string } });
+		const done = lines.find((l) => l.type === 'done');
+		expect(done).toBeDefined();
+		expect(done?.thought).toMatchObject({ id: 't1', queueStatus: 'pending' });
+		expect(lines.some((l) => l.type === 'enrich_scheduled')).toBe(false);
 	});
 
 	it('streams ndjson error line when captureThought throws', async () => {

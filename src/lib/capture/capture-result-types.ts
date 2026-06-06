@@ -38,4 +38,6 @@ export type CaptureSubmitResult = {
 	temporalEvents: CaptureTemporalSummary[];
 	linkedThoughts: CaptureLinkedThought[];
 	enrichmentComplete: boolean;
+	/** Tiered ingest queue state (null on legacy rows). */
+	queueStatus: 'pending' | 'processing' | 'complete' | 'failed' | null;
 };

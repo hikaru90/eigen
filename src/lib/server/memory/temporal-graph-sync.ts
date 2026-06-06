@@ -8,7 +8,7 @@ import {
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { extractTemporalMentions } from '$lib/server/memory/temporal-extraction';
-import { resolveTemporalBounds } from '$lib/server/memory/temporal-normalize';
+import { resolveTemporalBounds, type ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize';
 import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker';
 
 const DEFAULT_TIMEZONE = 'UTC';
@@ -24,17 +24,21 @@ export async function syncTemporalEventsFromThought(input: {
 	thoughtEmbedding?: number[];
 	capturedAt?: Date;
 	timezone?: string;
+	/** Pre-fetched LLM extraction (batch ingest). Skips extractTemporalMentions when set. */
+	precomputedMentions?: ExtractedTemporalMention[];
 }): Promise<void> {
 	const db = getDb();
 	const capturedAt = input.capturedAt ?? new Date();
 	const timezone = input.timezone?.trim() || DEFAULT_TIMEZONE;
 
-	const mentions = await extractTemporalMentions({
-		userId: input.userId,
-		normalizedText: input.normalizedText,
-		capturedAt,
-		timezone
-	});
+	const mentions =
+		input.precomputedMentions ??
+		(await extractTemporalMentions({
+			userId: input.userId,
+			normalizedText: input.normalizedText,
+			capturedAt,
+			timezone
+		}));
 
 	// Replace prior temporal rows: enqueue AGE graph deletes, then remove Postgres ledger rows.
 	const existing = await db

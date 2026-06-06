@@ -1,10 +1,11 @@
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
-import { createThoughtEmbedding } from '$lib/server/llm/embedding';
+import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, entityAlias, entityResolutionLog } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
 import {
 	buildEntityAdjacency,
+	hasLexicalMergeEvidence,
 	neighborEntityIds,
 	pickGraphMergeWinner,
 	scoreGraphLinkCandidate,
@@ -193,6 +194,8 @@ export async function resolveOrCreateCanonicalEntity(input: {
 	confidence: number;
 	/** Entities already resolved in the same thought — graph context for linking. */
 	coMentionEntityIds?: string[];
+	/** Precomputed surface embedding (batch prefetch during entity sync). */
+	precomputedEmbedding?: number[];
 }): Promise<ResolveCanonicalResult> {
 	const key = canonicalKeyFromSurface(input.surface);
 	const confStr = input.confidence.toFixed(4);
@@ -264,7 +267,10 @@ export async function resolveOrCreateCanonicalEntity(input: {
 	});
 	const graphPick = pickGraphMergeWinner(graphCandidates);
 
-	if (graphPick.kind === 'winner') {
+	if (
+		graphPick.kind === 'winner' &&
+		hasLexicalMergeEvidence(key, graphPick.candidate.canonicalKey)
+	) {
 		const winner = graphPick.candidate;
 		const [aliasExists] = await getDb()
 			.select({ id: entityAlias.id })
@@ -302,7 +308,8 @@ export async function resolveOrCreateCanonicalEntity(input: {
 		};
 	}
 
-	const embedding = await createThoughtEmbedding(input.userId, input.surface);
+	const embedding =
+		input.precomputedEmbedding ?? (await createThoughtEmbedding(input.userId, input.surface));
 
 	if (graphPick.kind === 'ambiguous') {
 		const [created] = await getDb()

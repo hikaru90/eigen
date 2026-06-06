@@ -11,6 +11,7 @@ import {
 	type ExtractedEntityTriple
 } from '$lib/server/memory/entity-extraction';
 import { resolveOrCreateCanonicalEntity, clearEntityResolutionLogsForThought } from '$lib/server/memory/entity-resolution';
+import { createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints';
 import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
@@ -27,6 +28,8 @@ export async function syncEntityGraphFromThought(input: {
 	normalizedText: string;
 	/** Hints computed before persist (lexical + text-derived). */
 	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
+	/** Pre-fetched LLM extraction (batch ingest). Skips extractEntityGraphBundle when set. */
+	precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
 }): Promise<{ mentionCount: number }> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 	const loaded = await loadOntologyForUser(getDb(), input.userId);
@@ -66,12 +69,14 @@ export async function syncEntityGraphFromThought(input: {
 		thoughtId: input.thoughtId
 	});
 
-	const { mentions, triples } = await extractEntityGraphBundle({
-		userId: input.userId,
-		normalizedText: input.normalizedText,
-		ontologyEntityKinds,
-		knownEntities: knownEntities.length > 0 ? knownEntities : undefined
-	});
+	const { mentions, triples } = input.precomputedEntityGraph
+		? input.precomputedEntityGraph
+		: await extractEntityGraphBundle({
+				userId: input.userId,
+				normalizedText: input.normalizedText,
+				ontologyEntityKinds,
+				knownEntities: knownEntities.length > 0 ? knownEntities : undefined
+			});
 
 	if (mentions.length === 0) {
 		console.warn('[entity-graph-sync] zero entity mentions extracted', {
@@ -84,14 +89,25 @@ export async function syncEntityGraphFromThought(input: {
 	const surfaceToEntityId = new Map<string, string>();
 	const coMentionEntityIds: string[] = [];
 
+	const uniqueSurfaces = [...new Set(mentions.map((m) => m.surface.trim()).filter(Boolean))];
+	const prefetchedEmbeddings =
+		uniqueSurfaces.length > 0
+			? await createThoughtEmbeddings(input.userId, uniqueSurfaces)
+			: [];
+	const embeddingBySurface = new Map(
+		uniqueSurfaces.map((surface, index) => [surface, prefetchedEmbeddings[index]!])
+	);
+
 	for (const mention of mentions) {
+		const surfaceKey = mention.surface.trim();
 		const resolved = await resolveOrCreateCanonicalEntity({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
 			surface: mention.surface,
 			entityType: mention.entityType,
 			confidence: mention.confidence,
-			coMentionEntityIds: [...coMentionEntityIds]
+			coMentionEntityIds: [...coMentionEntityIds],
+			precomputedEmbedding: embeddingBySurface.get(surfaceKey)
 		});
 
 		surfaceToEntityId.set(mention.surface.trim(), resolved.entityId);

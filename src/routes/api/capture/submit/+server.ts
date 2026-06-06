@@ -55,7 +55,9 @@ export const POST: RequestHandler = async (event) => {
 
 	if (!streamNdjson) {
 		try {
-			const thought = await runWithTrace(crypto.randomUUID(), () => captureThought(user.id, raw));
+			const thought = await runWithTrace(crypto.randomUUID(), () =>
+				captureThought(user.id, raw, { source: 'ui' })
+			);
 			return json({ thought });
 		} catch (err) {
 			const details = collectErrorMessages(err);
@@ -89,8 +91,7 @@ export const POST: RequestHandler = async (event) => {
 
 	// The streaming path returns the Response immediately, which causes hooks.server to
 	// release the request-scoped reserved DB connection before captureWork finishes.
-	// We reserve a dedicated connection here for the full NDJSON pipeline (fast path +
-	// awaited enrichment when onProgress is set).
+	// Reserve a dedicated connection for tier-1 queue insert (returns before background enrich).
 	const captureWork = (async () => {
 		let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null;
 		try {
@@ -99,7 +100,7 @@ export const POST: RequestHandler = async (event) => {
 			const scopedDb = createScopedDrizzle(reserved);
 			const thought = await appDbAsyncLocal.run(scopedDb, () =>
 				runWithTrace(crypto.randomUUID(), () =>
-					captureThought(user.id, raw, { onProgress })
+					captureThought(user.id, raw, { source: 'ui', onProgress })
 				)
 			);
 			writeRaw({ type: 'done', thought });

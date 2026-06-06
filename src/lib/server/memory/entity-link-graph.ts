@@ -54,6 +54,17 @@ export function neighborEntityIds(
 	return neighbors;
 }
 
+/** Name overlap required before graph adjacency alone may merge a mention into an existing node. */
+export function hasLexicalMergeEvidence(mentionKey: string, candidateCanonicalKey: string): boolean {
+	if (!mentionKey || !candidateCanonicalKey) return false;
+	if (mentionKey === candidateCanonicalKey) return true;
+	const shorter =
+		mentionKey.length <= candidateCanonicalKey.length ? mentionKey : candidateCanonicalKey;
+	const longer =
+		mentionKey.length <= candidateCanonicalKey.length ? candidateCanonicalKey : mentionKey;
+	return shorter.length >= 3 && longer.includes(shorter);
+}
+
 export function scoreGraphLinkCandidate(input: {
 	candidateId: string;
 	candidateEntityType: string;

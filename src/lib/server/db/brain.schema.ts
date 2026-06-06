@@ -160,6 +160,12 @@ export const memoryTypeEnum = [
 ] as const;
 export type MemoryType = (typeof memoryTypeEnum)[number];
 
+export const enrichQueueStatusEnum = ['pending', 'processing', 'complete', 'failed'] as const;
+export type EnrichQueueStatus = (typeof enrichQueueStatusEnum)[number];
+
+export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval'] as const;
+export type CaptureSource = (typeof captureSourceEnum)[number];
+
 export const thought = pgTable(
 	'thought',
 	{
@@ -210,6 +216,12 @@ export const thought = pgTable(
 		 * has completed for this thought row. null = enrichment pending.
 		 */
 		enrichedAt: timestamp('enriched_at'),
+		/** Background enrich worker queue state (null = legacy row pre-tiered ingest). */
+		enrichQueueStatus: text('enrich_queue_status').$type<EnrichQueueStatus>(),
+		/** Set when enrich_queue_status is failed after retry exhaustion. */
+		enrichQueueError: text('enrich_queue_error'),
+		/** Surface that queued this row (mcp, ui, api, eval). */
+		captureSource: text('capture_source').$type<CaptureSource>(),
 		/** Incremented each time enrichment re-runs (e.g. relink). */
 		enrichmentVersion: integer('enrichment_version').notNull().default(0),
 		/** Pre-truncated excerpt for listwise rerank (set at enrich). */
@@ -237,6 +249,7 @@ export const thought = pgTable(
 		index('thought_cues_gin_idx').using('gin', t.cues),
 		index('thought_salience_idx').on(t.userId, t.salienceScore),
 		index('thought_enriched_idx').on(t.userId, t.enrichedAt),
+		index('thought_enrich_queue_idx').on(t.userId, t.enrichQueueStatus),
 		foreignKey({
 			columns: [t.userId, t.category],
 			foreignColumns: [ontologyEntityKind.userId, ontologyEntityKind.key],

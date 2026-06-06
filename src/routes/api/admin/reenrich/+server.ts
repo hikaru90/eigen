@@ -19,7 +19,7 @@ import { env } from '$env/dynamic/private';
 import { isNull, eq, and } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
-import { scheduleEnrichThought } from '$lib/server/capture/enrich';
+import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker';
 
 function getAdminKey(): string | undefined {
 	return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined;
@@ -76,14 +76,20 @@ export const POST: RequestHandler = async (event) => {
 		return json({ ok: true, enqueued: 0, message: 'No unenriched thoughts found.' });
 	}
 
-	// Fire enrichment for each thought (intentionally sequential to avoid
-	// overwhelming the LLM gateway with concurrent calls).
+	// Re-queue enrichment and kick the background worker per affected user.
 	let enqueued = 0;
+	const userIds = new Set<string>();
 	for (const t of pending) {
-		scheduleEnrichThought(t.userId, t.id, t.normalizedText);
+		await db
+			.update(thought)
+			.set({ enrichQueueStatus: 'pending', enrichQueueError: null })
+			.where(eq(thought.id, t.id));
+		userIds.add(t.userId);
 		enqueued++;
 	}
+	for (const userId of userIds) {
+		scheduleCaptureEnrichWorker(userId);
+	}
 
-	const userIds = [...new Set(pending.map((t) => t.userId))];
-	return json({ ok: true, enqueued, userIds });
+	return json({ ok: true, enqueued, userIds: [...userIds] });
 };

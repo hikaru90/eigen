@@ -127,7 +127,7 @@ describe('llm client retries', () => {
 			expect.anything(),
 			'u1',
 			expect.objectContaining({
-				operation: 'llm.chat.success(attempt=1)',
+				operation: 'llm.chat.chat.success(attempt=1)',
 				baseCostUsd: 0,
 				gatewayHost: 'example.test'
 			})
@@ -155,7 +155,7 @@ describe('llm client retries', () => {
 			'u1',
 			expect.objectContaining({
 				provider: 'eurouter',
-				operation: 'llm.chat.success(attempt=1)',
+				operation: 'llm.chat.chat.success(attempt=1)',
 				gatewayHost: 'example.test'
 			})
 		);
@@ -1265,7 +1265,7 @@ describe('llm client response parsing and options', () => {
 		expect(logActivityCallMock).toHaveBeenCalledWith(
 			expect.anything(),
 			'u1',
-			expect.objectContaining({ operation: 'llm.chat.error(attempt=1)' })
+			expect.objectContaining({ operation: 'llm.chat.chat.error(attempt=1)' })
 		);
 	});
 
@@ -1339,7 +1339,7 @@ describe('llm client response parsing and options', () => {
 		expect(logActivityCallMock).toHaveBeenCalledWith(
 			expect.anything(),
 			'u1',
-			expect.objectContaining({ operation: 'llm.chat.error(attempt=1)', context: '' })
+			expect.objectContaining({ operation: 'llm.chat.chat.error(attempt=1)', context: '' })
 		);
 	});
 

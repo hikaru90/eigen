@@ -4,6 +4,8 @@
 
 **Embeddings boundary:** Capture/edit may **write** embeddings to Postgres; `listThoughts` and tool returns must **not** select or expose vector columns. See [embeddings-db-only-boundary.md](../planning/embeddings-db-only-boundary.md).
 
+**Timing / LLM step breakdown:** [ingest-retrieval-timing.md](../planning/ingest-retrieval-timing.md) (`npm run measure:ingest` for a live sample).
+
 ## CompetingSystems
 
 - **Runtime graph:** Apache AGE (`AGE_GRAPH_NAME`, default `eigen_graph`) via [`src/lib/server/graph/age.ts`](../../src/lib/server/graph/age.ts). See **C001** (resolved) in [conflicts.md](./conflicts.md).
@@ -21,11 +23,29 @@
 #### `captureThought(userId, rawInput, options?)`
 
 - **InputContract:** Non-empty trimmed raw string; authenticated `userId`.
-- **OutputContract:** Stored thought row subset (id, texts, category, metadata).
-- **SideEffects:** Inserts `capture_session` and `thought`; writes embedding vector; updates AGE graph; schedules or awaits enrichment (see below); may refresh ontology; logs activity.
-- **Enrichment lifecycle:** Fast path returns the persisted row immediately. When `options.onProgress` is set (NDJSON streaming), `enrichThought` is **awaited** on the caller's reserved DB connection so progress events and `done` include full enrichment. Without `onProgress`, enrichment is **scheduled** via `scheduleEnrichThought` on a dedicated RLS-scoped connection (`withDbUser`).
-- **Invariants:** Lexical text derived deterministically from normalized body; tenant is always `userId`.
-- **ConflictsWith:** None for capture path; MCP and HTTP both call this (intentional dual entry, same canonical implementation).
+- **OutputContract:** Stored thought row subset (id, texts, category, metadata, `queueStatus`, `enrichmentComplete`).
+- **SideEffects:** Tier 1 — `queueCapture` inserts row; schedules background enrich worker. Eval harness uses default async enrich and waits at the check step. Pass `awaitEnrichment: true` only for tests that need inline tier 2 on the caller connection.
+- **Enrichment lifecycle:** Default capture returns in ~tens of ms after text persist. Background worker claims pending rows FIFO, loads `loadEnrichmentContext`, runs `enrichQueuedThought` in place on the same row. NDJSON streaming emits tier-1 progress only, then `done` (with `queueStatus: pending` when enrich not yet complete). UI may poll until `enrichmentComplete`.
+- **Invariants:** One Postgres row per capture; lexical text at insert; tenant is always `userId`.
+
+### Tier 1 — [`queue-capture.ts`](../../src/lib/server/capture/queue-capture.ts)
+
+- **PublicSymbols:** `queueCapture`, `claimNextPendingThought`, `markEnrichQueueComplete`, `markEnrichQueueFailed`.
+- **Purpose:** Hot path text-only insert; row is the queue.
+
+### Tier 2 — enrich worker + context
+
+- [`enrichment-context.ts`](../../src/lib/server/capture/enrichment-context.ts) — `loadEnrichmentContext(userId, thoughtId, normalizedText)` bundles ontology, profile, entity hints, recent thoughts, community summaries (tier 3 when available) before any enrich LLM call.
+- [`enrich-queued-thought.ts`](../../src/lib/server/capture/enrich-queued-thought.ts) — `enrichQueuedThought`, `processCaptureEnrichQueue`.
+- [`capture-enrich-worker.ts`](../../src/lib/server/capture/capture-enrich-worker.ts) — `scheduleCaptureEnrichWorker` (per-user deduped worker).
+
+### Tier 3 — consolidation (overnight + incremental)
+
+Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on the capture hot path.
+
+- [`src/lib/consolidation/heartbeat-job-plan.ts`](../../src/lib/consolidation/heartbeat-job-plan.ts) — ordered jobs: salience, ontology prune, entity dedup/repair, **community_detection**, **community_summaries**, **community_bundles**, retrieval link backfill, thought retrieval features.
+- [`incremental-consolidation.ts`](../../src/lib/server/consolidation/incremental-consolidation.ts) — dirty-community refresh after tier-2 enrich (not only nightly).
+- **Purpose:** cluster related thoughts, generate short routing summaries + embeddings, precompute `community_bundle` top-thought lists and salience/recency features used at query time. See [retrieval.md](./retrieval.md) § Memory tiers.
 
 ### Canonical dedup lifecycle
 
@@ -46,14 +66,14 @@
 
 ### [`src/lib/server/capture/enrich.ts`](../../src/lib/server/capture/enrich.ts)
 
-- **Purpose:** Async enrichment for persisted thoughts (relations, entities, memory type, cues, temporal, link materialization).
+- **Purpose:** Async enrichment steps for persisted thoughts (relations, entities, memory type, cues, temporal, link materialization). Tier 2 worker calls `enrichQueuedThought`; edit/relink paths call `enrichThought` / `reenrichThought` directly.
 - **PublicSymbols:** `enrichThought`, `reenrichThought`, `scheduleEnrichThought`, `scheduleReenrichThought`.
-- **FailureMode:** `enrichThought` does not throw; per-step failures logged. `scheduleEnrichThought` / `scheduleReenrichThought` run on a dedicated `withDbUser` connection for fire-and-forget paths (JSON submit, MCP, admin reenrich).
+- **FailureMode:** `enrichThought` does not throw; per-step failures logged. `scheduleEnrichThought` / `scheduleReenrichThought` remain for legacy edit fire-and-forget; new captures use the enrich worker.
 
 ### [`src/routes/api/capture/submit/+server.ts`](../../src/routes/api/capture/submit/+server.ts)
 
 - **Purpose:** Authenticated POST JSON `{ raw }`; optional NDJSON progress stream when `Accept` includes `application/x-ndjson`.
-- **Owns:** Request validation, `runWithTrace` wrapper, error JSON shape; NDJSON path reserves a dedicated DB connection for fast path **and** awaited enrichment.
+- **Owns:** Request validation, `runWithTrace` wrapper, error JSON shape; NDJSON path reserves a dedicated DB connection for tier-1 queue insert only.
 - **PublicSymbols:** `POST` handler.
 - **FailureMode:** 401 unauthenticated; 400 bad JSON / missing `raw`; 500 with `{ error, details }` on pipeline failure.
 

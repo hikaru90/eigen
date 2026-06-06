@@ -14,6 +14,7 @@
     nodeFillForGraph,
     customEntityFillsFromLegendSections,
   } from "$lib/graph/graph-ontology-legend";
+  import { filterGraphVizEdgesToNodes, resolveForceLinks } from "$lib/graph/sanitize-viz-snapshot";
   import {
     COMMUNITY_HULL_GRADIENT,
     communityCircleFromPositions,
@@ -1049,12 +1050,21 @@
           norm(n.id).includes(q) ||
           norm(n.subtype).includes(q);
 
+        const rawNodeIds = new Set(rawNodes.map((n) => n.id));
         const visibleIds = new Set(rawNodes.filter(nodeMatch).map((n) => n.id));
         if (q.length > 0) {
-          for (const e of vizCtx.snapshot.edges) {
-            if (visibleIds.has(e.sourceId) || visibleIds.has(e.targetId)) {
-              visibleIds.add(e.sourceId);
-              visibleIds.add(e.targetId);
+          let expanded = true;
+          while (expanded) {
+            expanded = false;
+            for (const e of vizCtx.snapshot.edges) {
+              if (visibleIds.has(e.sourceId) && rawNodeIds.has(e.targetId) && !visibleIds.has(e.targetId)) {
+                visibleIds.add(e.targetId);
+                expanded = true;
+              }
+              if (visibleIds.has(e.targetId) && rawNodeIds.has(e.sourceId) && !visibleIds.has(e.sourceId)) {
+                visibleIds.add(e.sourceId);
+                expanded = true;
+              }
             }
           }
         }
@@ -1067,13 +1077,11 @@
           if (edgeKind !== "all" && e.kind !== edgeKind) return false;
           return visibleIds.has(e.sourceId) && visibleIds.has(e.targetId);
         };
-        const links: SimLink[] = vizCtx.snapshot.edges.filter(edgeFilter).map((e) => ({
-          id: e.id,
-          source: e.sourceId,
-          target: e.targetId,
-          relationType: e.relationType,
-          kind: e.kind,
-        }));
+        const safeEdges = filterGraphVizEdgesToNodes(
+          vizCtx.snapshot.nodes,
+          vizCtx.snapshot.edges.filter(edgeFilter),
+        ).edges;
+        const links: SimLink[] = resolveForceLinks(nodes, safeEdges);
 
         linkSelection = gLinks
           .selectAll<SVGGElement, SimLink>("g")

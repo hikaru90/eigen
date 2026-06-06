@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { APP_VERSION } from '$lib/app-version';
 import { withDbUser } from '$lib/server/db';
-import { aggregateQaScores, formatPointsLine } from './display';
+import { aggregateQaScores, formatPointsLine, resolveRunStatusFromScore } from './display';
 import type { EvalQaRecord } from './qa-store';
 import { listEvalQa } from './qa-store';
 import { loadEvalRunDetail } from './store';
@@ -23,7 +23,8 @@ async function findLatestRunForQa(
 		const result = await db.execute(sql`
 			SELECT er.id, er.status, er.label
 			FROM eval_run er
-			WHERE er.scenario_id = ${qaId}
+			WHERE er.config_json->>'appVersion' = ${APP_VERSION}
+			  AND (er.scenario_id = ${qaId}
 			   OR er.label = ${'qa:' + qaId}
 			   OR er.label = ${'smoke:' + qaId}
 			   OR er.id IN (
@@ -31,16 +32,10 @@ async function findLatestRunForQa(
 			     FROM eval_entry ee
 			     WHERE ee.input_json->>'qaId' = ${qaId}
 			        OR ee.fixture_ref LIKE ${qaId + '%'}
-			   )
+			   ))
 			ORDER BY
-			  (CASE WHEN er.label LIKE 'qa:%' OR er.label LIKE 'smoke:%' THEN 0 ELSE 1 END),
-			  (CASE
-			    WHEN er.status = 'completed' THEN 0
-			    WHEN er.status = 'failed' THEN 1
-			    WHEN er.status = 'running' THEN 2
-			    ELSE 3
-			  END),
-			  er.created_at DESC
+			  er.created_at DESC,
+			  (CASE WHEN er.label LIKE 'qa:%' OR er.label LIKE 'smoke:%' THEN 0 ELSE 1 END)
 			LIMIT 1
 		`);
 		const rows = Array.isArray(result) ? result : (result.rows ?? []);
@@ -82,7 +77,7 @@ async function buildTestResult(
 		tags: qa.tags,
 		active: !qa.tags.includes('inactive'),
 		runId: meta.id,
-		runStatus: meta.status,
+		runStatus: resolveRunStatusFromScore(meta.status, score),
 		runLabel: meta.label,
 		scoreLine: score ? formatPointsLine(score.earned, score.possible) : null,
 		scorePercent: score?.percent ?? null

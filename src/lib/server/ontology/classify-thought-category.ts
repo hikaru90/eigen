@@ -17,7 +17,7 @@ export type ResolvedThoughtOntologyKind = {
 	alternatives: Array<{ key: string; confidence: number }>;
 };
 
-async function loadUserOntologyProfileRow(userId: string) {
+export async function loadUserOntologyProfileRow(userId: string) {
 	const [row] = await getDb()
 		.select({ profile: userOntology.profile })
 		.from(userOntology)
@@ -27,7 +27,7 @@ async function loadUserOntologyProfileRow(userId: string) {
 }
 
 /** Last N thoughts with their categories (session context for classifier). */
-async function loadRecentThoughtsContext(
+export async function loadRecentThoughtsContext(
 	userId: string,
 	limit: number
 ): Promise<Array<{ normalizedText: string; category: string }>> {
@@ -40,7 +40,7 @@ async function loadRecentThoughtsContext(
 }
 
 /** Category distribution across the last N thoughts for a soft prior. */
-async function loadCategoryDistribution(
+export async function loadCategoryDistribution(
 	userId: string,
 	limit: number
 ): Promise<Map<string, number>> {

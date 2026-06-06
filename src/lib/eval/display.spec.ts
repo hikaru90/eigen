@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	aggregateQaScores,
 	aggregateRunScores,
+	isRunScorePassing,
+	resolveRunStatusFromScore,
 	entriesForQa,
 	formatRunOptionLabel,
 	humanizeCheckAssertion,
@@ -106,6 +108,41 @@ describe('eval display', () => {
 		expect(summary.categories).toHaveLength(2);
 	});
 
+	it('treats full points as passing even when entry.passed flags differ', () => {
+		const score = aggregateRunScores([
+			{
+				id: 'c1',
+				ordinal: 0,
+				kind: 'capture',
+				fixtureRef: 'ec_a',
+				status: 'completed',
+				passed: false,
+				durationMs: 1,
+				error: null,
+				input: {},
+				expected: {},
+				result: { fidelityScore: 5 }
+			},
+			{
+				id: 'chk',
+				ordinal: 1,
+				kind: 'check',
+				fixtureRef: 'qa_one_check',
+				status: 'completed',
+				passed: true,
+				durationMs: 1,
+				error: null,
+				input: { qaId: 'qa_one' },
+				expected: {},
+				result: {
+					assertions: [{ id: 'g_a', passed: true, fixtureId: 'ec_a' }]
+				}
+			}
+		]);
+		expect(isRunScorePassing(score)).toBe(true);
+		expect(resolveRunStatusFromScore('failed', score)).toBe('completed');
+	});
+
 	it('formats run labels for dropdown', () => {
 		expect(humanRunLabel('smoke:qa_smoke_dinner')).toContain('Smoke test');
 		const run: EvalRunListItem = {
@@ -195,7 +232,10 @@ describe('eval display', () => {
 
 	it('parses graph snapshot from check result', () => {
 		const snap = parseEvalGraphSnapshot({
-			nodes: [{ id: 't1', kind: 'Thought', label: 'hello', subtype: 'observation' }],
+			nodes: [
+				{ id: 't1', kind: 'Thought', label: 'hello', subtype: 'observation' },
+				{ id: 'ent1', kind: 'Entity', label: 'Acme', subtype: 'organization' }
+			],
 			edges: [
 				{
 					id: 'e1',
@@ -207,8 +247,24 @@ describe('eval display', () => {
 			],
 			capturedAt: '2026-05-19T12:00:00.000Z'
 		});
-		expect(snap?.nodes).toHaveLength(1);
+		expect(snap?.nodes).toHaveLength(2);
 		expect(snap?.edges).toHaveLength(1);
 		expect(snap?.capturedAt).toBe('2026-05-19T12:00:00.000Z');
+	});
+
+	it('drops graph edges whose endpoints are missing from stored snapshot', () => {
+		const snap = parseEvalGraphSnapshot({
+			nodes: [{ id: 't1', kind: 'Thought', label: 'hello', subtype: 'observation' }],
+			edges: [
+				{
+					id: 'e1',
+					sourceId: 't1',
+					targetId: '1c995bbf-a909-488e-b9ad-b113adf17fac',
+					relationType: 'mentions',
+					kind: 'mention'
+				}
+			]
+		});
+		expect(snap?.edges).toEqual([]);
 	});
 });

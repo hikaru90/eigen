@@ -55,7 +55,8 @@ describe('loadThoughtCaptureResult', () => {
 			metadataEncrypted: 'enc:{"categoryConfidence":0.82}',
 			memoryType: 'open_loop',
 			cues: ['header fix'],
-			enrichedAt
+			enrichedAt,
+			enrichQueueStatus: 'complete'
 		};
 
 		getDbMock.mockReturnValue({
@@ -121,7 +122,8 @@ describe('loadThoughtCaptureResult', () => {
 					preview: 'linked thought preview text'
 				}
 			],
-			enrichmentComplete: true
+			enrichmentComplete: true,
+			queueStatus: 'complete'
 		});
 		expect(result).not.toHaveProperty('embedding');
 	});

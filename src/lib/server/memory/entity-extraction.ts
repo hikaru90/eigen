@@ -1,5 +1,9 @@
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import {
+	ENTITY_EXTRACTION_OMIT_RULES,
+	filterAcceptedEntityMentions
+} from '$lib/server/memory/entity-mention-filter';
 
 export type ExtractedEntityMention = {
 	surface: string;
@@ -161,11 +165,12 @@ export function parseEntityMentions(
 
 	if (parsed.length > 0 && mentions.length === 0) {
 		console.warn('[entity-extraction] all LLM mentions dropped (invalid entityType?)', {
-			rawEntityTypes
+			rawEntityTypes,
+			allowedEntityTypes: [...allowedEntityKindKeys].sort()
 		});
 	}
 
-	return mentions;
+	return filterAcceptedEntityMentions(mentions);
 }
 
 const MIN_TRIPLE_CONFIDENCE_DEFAULT = 0.55;
@@ -255,21 +260,22 @@ async function extractEntityMentionsOnce(
 
 	const knownEntitiesBlock =
 		input.knownEntities && input.knownEntities.length > 0
-			? `\nKnown entities already in memory (prefer these surface forms when referring to the same thing):\n${input.knownEntities
+			? `\nKnown entities already in memory. Include a mention ONLY when the text clearly names or refers to that entity. Never replace a name in the text with a different known entity:\n${input.knownEntities
 					.map((e) => `- ${e.label} (${e.entityType})`)
 					.join('\n')}`
 			: '';
 
 	const minimumRule =
 		pass === 'retry_minimum'
-			? 'Return at least 2 items when the text names people, allergies, food, places, procedures, anatomy, devices, measurements, or institutions. Never return an empty array for substantive notes.'
+			? 'Return at least 2 items when the text names people, allergies, food, places, procedures, anatomy, devices, measurements, or institutions. Never return an empty array for substantive notes. Still omit greetings and interjections.'
 			: pass === 'retry_verbatim'
-				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 items. Copy surfaces exactly as written in the text.'
+				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 items. Copy surfaces exactly as written in the text. Still omit greetings and interjections.'
 				: 'Include 0–12 items. Omit generic pronouns and vague terms.';
 
 	const prompt = [
 		'Return ONLY JSON.',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes (including procedures, anatomy, devices, and institutions when they are concrete spans in the text).',
+		...ENTITY_EXTRACTION_OMIT_RULES,
 		`For each item, entityType must be exactly one of these keys, copied verbatim in lowercase ASCII (no other strings): ${keyUnion}`,
 		'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics, artifact for documents, event for time-bounded occurrences or procedures.',
 		'Never invent entityType labels such as procedure, anatomy, device, or landmark — map them to the keys above.',
@@ -401,16 +407,16 @@ async function extractEntityGraphOnce(
 
 	const knownEntitiesBlock =
 		input.knownEntities && input.knownEntities.length > 0
-			? `\nKnown entities already in memory (prefer these surface forms when referring to the same thing):\n${input.knownEntities
+			? `\nKnown entities already in memory. Include a mention ONLY when the text clearly names or refers to that entity. Never replace a name in the text with a different known entity:\n${input.knownEntities
 					.map((e) => `- ${e.label} (${e.entityType})`)
 					.join('\n')}`
 			: '';
 
 	const minimumRule =
 		pass === 'retry_minimum'
-			? 'Return at least 2 mentions when the text names people, allergies, food, places, procedures, anatomy, devices, measurements, or institutions. Never return an empty mentions array for substantive notes.'
+			? 'Return at least 2 mentions when the text names people, allergies, food, places, procedures, anatomy, devices, measurements, or institutions. Never return an empty mentions array for substantive notes. Still omit greetings and interjections.'
 			: pass === 'retry_verbatim'
-				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 mentions. Copy surfaces exactly as written in the text.'
+				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 mentions. Copy surfaces exactly as written in the text. Still omit greetings and interjections.'
 				: 'Include 0–12 mentions. Omit generic pronouns and vague terms.';
 
 	const prompt = [
@@ -421,6 +427,7 @@ async function extractEntityGraphOnce(
 		'}',
 		'',
 		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
+		...ENTITY_EXTRACTION_OMIT_RULES,
 		`For each mention, entityType must be exactly one of: ${keyUnion}`,
 		'Allowed triple predicates: related_to, depends_on, part_of, located_in, knows, works_at.',
 		'Triples must only reference surfaces listed in mentions. Use empty triples array if none.',

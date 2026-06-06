@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { extractThoughtMetadata } from './extract-thought-metadata';
+import { extractThoughtMetadata, normalizeMemoryType } from './extract-thought-metadata';
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
 	llmChatCompletionMock: vi.fn()
@@ -54,6 +54,11 @@ describe('extractThoughtMetadata', () => {
 
 		expect(result.memoryType).toBe('open_loop');
 		expect(result.cues).toEqual(['follow up marcus']);
+	});
+
+	it('maps idea drift to fact', () => {
+		expect(normalizeMemoryType('idea')).toBe('fact');
+		expect(normalizeMemoryType('Idea')).toBe('fact');
 	});
 
 	it('throws when memoryType is invalid', async () => {

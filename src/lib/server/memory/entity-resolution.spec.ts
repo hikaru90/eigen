@@ -170,7 +170,7 @@ describe('resolveOrCreateCanonicalEntity', () => {
 		});
 	});
 
-	it('merges via graph context when a co-mentioned neighbor links to one candidate', async () => {
+	it('merges via graph context when a co-mentioned neighbor links to one candidate with lexical overlap', async () => {
 		fetchEntityEdgesForUserMock.mockResolvedValue([
 			{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'located_in' }
 		]);
@@ -200,6 +200,38 @@ describe('resolveOrCreateCanonicalEntity', () => {
 			decision: 'merged',
 			metadata: expect.objectContaining({ reason: 'graph_context_match' })
 		});
+	});
+
+	it('creates a new entity when graph neighbor lacks lexical overlap with the mention', async () => {
+		fetchEntityEdgesForUserMock.mockResolvedValue([
+			{ sourceId: 'e-hallo', targetId: 'e-annie', weight: 1, predicate: 'related_to' }
+		]);
+		const db = buildDb({
+			selects: [
+				[],
+				[],
+				[{ id: 'e-annie', canonicalKey: 'annie', label: 'annie', entityType: 'person' }]
+			],
+			inserts: [[{ id: 'new-alex', canonicalKey: 'alex' }], 'void', 'void']
+		});
+		getDbMock.mockReturnValue(db);
+		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+
+		const out = await resolveOrCreateCanonicalEntity({
+			userId: 'u1',
+			thoughtId: 't1',
+			surface: 'Alex',
+			entityType: 'person',
+			confidence: 0.9,
+			coMentionEntityIds: ['e-hallo']
+		});
+
+		expect(out).toEqual({
+			entityId: 'new-alex',
+			canonicalKey: 'alex',
+			decision: 'created'
+		});
+		expect(createThoughtEmbeddingMock).toHaveBeenCalled();
 	});
 
 	it('creates a new entity when graph candidates are ambiguous', async () => {

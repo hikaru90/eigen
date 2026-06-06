@@ -116,9 +116,14 @@
 			</div>
 		{/if}
 
-		{#if !thought.enrichmentComplete}
+		{#if thought.queueStatus === 'pending' || thought.queueStatus === 'processing'}
+			<p class="text-xs text-blue-700 dark:text-blue-400">
+				Queue: {thought.queueStatus === 'pending' ? 'waiting for indexing' : 'indexing now'}
+			</p>
+		{:else if !thought.enrichmentComplete}
 			<p class="text-xs text-amber-700 dark:text-amber-400">
-				Entity linking did not fully complete — use Edit or Relink on the graph to retry.
+				Saved — indexing entities and links in the background. Keyword search on the text works now;
+				semantic search after indexing completes.
 			</p>
 		{/if}
 

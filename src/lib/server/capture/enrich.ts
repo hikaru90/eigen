@@ -4,9 +4,8 @@
  * The fast path in `captureThought` persists the raw text, embedding, category,
  * and an Apache AGE provenance anchor (thought id only). This module handles the heavier steps:
  *
- *   - Capture/edit callers await this module on the request connection.
- *   - Admin batch re-enrich may still use `scheduleEnrichThought` on a dedicated
- *     RLS-scoped connection (`withDbUser`).
+ *   - Capture/edit callers await this module on the request connection when `awaitEnrichment`.
+ *   - Default capture schedules enrichment on a dedicated RLS-scoped connection (`withDbUser`).
  *
  *   - thought-to-thought relation extraction + graph sync
  *   - entity mention extraction + canonical resolution + AGE entity edges
@@ -25,12 +24,21 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
+import type { IngestPhase, IngestPhaseTimer } from '$lib/server/capture/phase-timing';
 import { thought } from '$lib/server/db/schema';
 import { getDb, withDbUser } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
-import { extractThoughtMetadata } from '$lib/server/memory/extract-thought-metadata';
+import {
+	extractThoughtMetadata,
+	type ThoughtMetadataExtraction
+} from '$lib/server/memory/extract-thought-metadata';
+import type {
+	ExtractedEntityMention,
+	ExtractedEntityTriple
+} from '$lib/server/memory/entity-extraction';
+import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize';
 import { getTemporalAnchorTimezone } from '$lib/server/memory/temporal-anchor-timezone';
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync';
 import { maybeRefreshUserOntology } from '$lib/server/ontology';
@@ -50,6 +58,13 @@ export type EnrichThoughtOptions = {
 	thoughtCountAfterInsert?: number;
 	/** Entity hints loaded before persist — threaded into entity extraction. */
 	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
+	/** Pre-fetched batch LLM results — skip redundant extraction calls. */
+	precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
+	precomputedMetadata?: ThoughtMetadataExtraction;
+	precomputedTemporalMentions?: ExtractedTemporalMention[];
+	ingestTimer?: IngestPhaseTimer;
+	/** When true, relation extraction runs fire-and-forget after core enrich (background capture). */
+	deferRelations?: boolean;
 };
 
 /**
@@ -105,17 +120,31 @@ export async function enrichThought(
 	normalizedText: string,
 	options?: EnrichThoughtOptions
 ): Promise<void> {
-	const { onProgress, thoughtEmbedding, thoughtCountAfterInsert, preloadedKnownEntities } =
-		options ?? {};
+	const {
+		onProgress,
+		thoughtEmbedding,
+		thoughtCountAfterInsert,
+		preloadedKnownEntities,
+		precomputedEntityGraph,
+		precomputedMetadata,
+		precomputedTemporalMentions,
+		ingestTimer,
+		deferRelations = false
+	} = options ?? {};
 	const db = getDb();
+	const time =
+		ingestTimer?.time.bind(ingestTimer) ??
+		(async <T>(_phase: IngestPhase, fn: () => Promise<T>) => fn());
 
 	// Bump enrichment version — wrapped in try/catch so a missing column
 	// (e.g. migration not yet applied) does not silently block all enrichment steps.
 	try {
-		await db
-			.update(thought)
-			.set({ enrichmentVersion: sql`${thought.enrichmentVersion} + 1` })
-			.where(eq(thought.id, thoughtId));
+		await time('enrich_bump_version', () =>
+			db
+				.update(thought)
+				.set({ enrichmentVersion: sql`${thought.enrichmentVersion} + 1` })
+				.where(eq(thought.id, thoughtId))
+		);
 	} catch (err) {
 		console.warn('[enrich] enrichment_version bump failed (migration pending?)', {
 			thoughtId,
@@ -130,56 +159,91 @@ export async function enrichThought(
 		phases: ['entities', 'temporal', 'memory_type', 'cues']
 	});
 
-	const [entitiesResult, metadataResult] = await Promise.allSettled([
-			(async () => {
-				const { mentionCount } = await syncEntityGraphFromThought({
+	const [entitiesResult, metadataResult, temporalResult] = await Promise.allSettled([
+		time('enrich_entities', async () => {
+			const { mentionCount } = await syncEntityGraphFromThought({
+				userId,
+				thoughtId,
+				normalizedText,
+				preloadedKnownEntities,
+				precomputedEntityGraph
+			});
+			if (mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
+				throw new Error(
+					`entity graph sync produced zero mentions (${normalizedText.trim().length} chars)`
+				);
+			}
+		}),
+
+		time('enrich_metadata', async () => {
+			const { memoryType, cues } =
+				precomputedMetadata ?? (await extractThoughtMetadata({ userId, normalizedText }));
+			await db
+				.update(thought)
+				.set({
+					memoryType,
+					...(cues.length > 0 ? { cues } : {})
+				})
+				.where(eq(thought.id, thoughtId));
+		}),
+
+		(async () => {
+			const [thoughtRow] = await db
+				.select({ createdAt: thought.createdAt })
+				.from(thought)
+				.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+				.limit(1);
+			const capturedAt = thoughtRow?.createdAt ?? new Date();
+
+			if (precomputedTemporalMentions !== undefined) {
+				return time('enrich_temporal', () =>
+					syncTemporalEventsFromThought({
+						userId,
+						thoughtId,
+						normalizedText,
+						thoughtEmbedding,
+						capturedAt,
+						timezone: getTemporalAnchorTimezone(userId),
+						precomputedMentions: precomputedTemporalMentions
+					})
+				);
+			}
+
+			// Temporal graph sync reads entity_resolution_log when extracting inline — defer until after entities.
+			return undefined;
+		})()
+	]);
+
+	let temporalFollowUp: PromiseSettledResult<void> | undefined;
+	if (precomputedTemporalMentions === undefined) {
+		const [thoughtRow] = await db
+			.select({ createdAt: thought.createdAt })
+			.from(thought)
+			.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+			.limit(1);
+		const capturedAt = thoughtRow?.createdAt ?? new Date();
+
+		temporalFollowUp = await Promise.allSettled([
+			time('enrich_temporal', () =>
+				syncTemporalEventsFromThought({
 					userId,
 					thoughtId,
 					normalizedText,
-					preloadedKnownEntities
-				});
-				if (mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
-					throw new Error(
-						`entity graph sync produced zero mentions (${normalizedText.trim().length} chars)`
-					);
-				}
-			})(),
-
-			// ---- Memory type + cues (single LLM call) ----------------------------
-			(async () => {
-				const { memoryType, cues } = await extractThoughtMetadata({ userId, normalizedText });
-				await db
-					.update(thought)
-					.set({
-						memoryType,
-						...(cues.length > 0 ? { cues } : {})
-					})
-					.where(eq(thought.id, thoughtId));
-			})()
-		]);
-
-	// Temporal graph sync reads entity_resolution_log — run after entity step completes.
-	const [thoughtRow] = await db
-		.select({ createdAt: thought.createdAt })
-		.from(thought)
-		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
-		.limit(1);
-	const capturedAt = thoughtRow?.createdAt ?? new Date();
-
-	const temporalResult = await Promise.allSettled([
-		syncTemporalEventsFromThought({
-			userId,
-			thoughtId,
-			normalizedText,
-			thoughtEmbedding,
-			capturedAt,
-			timezone: getTemporalAnchorTimezone(userId)
-		})
-	]).then((r) => r[0]);
+					thoughtEmbedding,
+					capturedAt,
+					timezone: getTemporalAnchorTimezone(userId)
+				})
+			)
+		]).then((r) => r[0]);
+	}
 
 	// Log failures individually so one bad step doesn't hide others.
 	const stepNames = ['entities', 'temporal', 'metadata'] as const;
-	const results = [entitiesResult, temporalResult, metadataResult];
+	const results = [
+		entitiesResult,
+		precomputedTemporalMentions !== undefined ? temporalResult : temporalFollowUp,
+		metadataResult
+	];
 	let allOk = true;
 
 	for (let i = 0; i < results.length; i++) {
@@ -209,11 +273,13 @@ export async function enrichThought(
 	// ---- Ontology eval (sequential — depends on thought count) ---------------
 	if (thoughtCountAfterInsert !== undefined) {
 		try {
-			await maybeRefreshUserOntology({
-				userId,
-				thoughtCountAfterInsert,
-				onBeforeEval: async () => { await onProgress?.({ parallel: false, phase: 'ontology_eval' }); }
-			});
+			await time('ontology_eval', () =>
+				maybeRefreshUserOntology({
+					userId,
+					thoughtCountAfterInsert,
+					onBeforeEval: async () => { await onProgress?.({ parallel: false, phase: 'ontology_eval' }); }
+				})
+			);
 		} catch (err) {
 			console.error('[enrich] ontology refresh failed', {
 				thoughtId,
@@ -225,11 +291,13 @@ export async function enrichThought(
 	// ---- Mark enriched -------------------------------------------------------
 	if (allOk) {
 		try {
-			await materializeRetrievalLinksForThought({
-				userId,
-				thoughtId,
-				normalizedText
-			});
+			await time('materialize_links', () =>
+				materializeRetrievalLinksForThought({
+					userId,
+					thoughtId,
+					normalizedText
+				})
+			);
 		} catch (err) {
 			console.error('[enrich] retrieval link materialization failed', {
 				thoughtId,
@@ -238,10 +306,12 @@ export async function enrichThought(
 		}
 
 		try {
-			await db
-				.update(thought)
-				.set({ enrichedAt: new Date() })
-				.where(eq(thought.id, thoughtId));
+			await time('mark_enriched', () =>
+				db
+					.update(thought)
+					.set({ enrichedAt: new Date() })
+					.where(eq(thought.id, thoughtId))
+			);
 		} catch (err) {
 			console.warn('[enrich] enriched_at write failed (migration pending?)', {
 				thoughtId,
@@ -252,9 +322,16 @@ export async function enrichThought(
 		scheduleIncrementalConsolidation(userId, thoughtId);
 	}
 
+	if (deferRelations) {
+		scheduleRelationEnrichment(userId, thoughtId, normalizedText, thoughtEmbedding);
+		return;
+	}
+
 	await onProgress?.({ parallel: false, phase: 'relations' });
 	try {
-		await syncThoughtRelations({ userId, thoughtId, normalizedText, thoughtEmbedding });
+		await time('enrich_relations', () =>
+			syncThoughtRelations({ userId, thoughtId, normalizedText, thoughtEmbedding, ingestTimer })
+		);
 	} catch (err) {
 		console.error('[enrich] relation extraction failed', {
 			thoughtId,
@@ -268,39 +345,48 @@ async function syncThoughtRelations(input: {
 	thoughtId: string;
 	normalizedText: string;
 	thoughtEmbedding?: number[];
+	ingestTimer?: IngestPhaseTimer;
 }): Promise<void> {
 	const db = getDb();
+	const time =
+		input.ingestTimer?.time.bind(input.ingestTimer) ??
+		(async <T>(_phase: IngestPhase, fn: () => Promise<T>) => fn());
+
 	await deleteThoughtOutgoingRelatesToEdges({ userId: input.userId, thoughtId: input.thoughtId });
-	const relations = await extractRelations({
-		userId: input.userId,
-		thoughtId: input.thoughtId,
-		normalizedText: input.normalizedText,
-		embedding: input.thoughtEmbedding
-	});
-	await db.transaction(async (tx) => {
-		await tx
-			.delete(thoughtRelation)
-			.where(eq(thoughtRelation.sourceThoughtId, input.thoughtId));
-		if (relations.length > 0) {
-			await tx.insert(thoughtRelation).values(
-				relations.map((r) => ({
-					userId: input.userId,
-					sourceThoughtId: input.thoughtId,
-					targetThoughtId: r.targetId,
-					relationType: r.relationType
-				}))
-			);
-		}
-	});
-	for (const r of relations) {
-		await upsertThoughtRelation({
+	const relations = await time('relations_extract', () =>
+		extractRelations({
 			userId: input.userId,
-			sourceId: input.thoughtId,
-			targetId: r.targetId,
-			relationType: r.relationType
+			thoughtId: input.thoughtId,
+			normalizedText: input.normalizedText,
+			embedding: input.thoughtEmbedding
+		})
+	);
+	await time('relations_persist', async () => {
+		await db.transaction(async (tx) => {
+			await tx
+				.delete(thoughtRelation)
+				.where(eq(thoughtRelation.sourceThoughtId, input.thoughtId));
+			if (relations.length > 0) {
+				await tx.insert(thoughtRelation).values(
+					relations.map((r) => ({
+						userId: input.userId,
+						sourceThoughtId: input.thoughtId,
+						targetThoughtId: r.targetId,
+						relationType: r.relationType
+					}))
+				);
+			}
 		});
-	}
-	await syncThoughtNeighborLinks(input.userId, input.thoughtId);
+		for (const r of relations) {
+			await upsertThoughtRelation({
+				userId: input.userId,
+				sourceId: input.thoughtId,
+				targetId: r.targetId,
+				relationType: r.relationType
+			});
+		}
+		await syncThoughtNeighborLinks(input.userId, input.thoughtId);
+	});
 }
 
 /** Fire-and-forget relation extraction after core enrich (avoids rerank LLM on capture hot path). */

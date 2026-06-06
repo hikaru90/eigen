@@ -6,20 +6,37 @@
 
 **Query-time baseline (historical):** [retrieval-baseline.md](./retrieval-baseline.md)
 
-## Fast retrieval architecture
+**Timing / LLM step breakdown:** [ingest-retrieval-timing.md](../planning/ingest-retrieval-timing.md)
 
-**Ingest/background (precompute):**
+## Memory tiers and retrieval
+
+See [ingest-retrieval-timing.md § Three memory tiers](../planning/ingest-retrieval-timing.md#three-memory-tiers-capture--recall).
+
+| Tier | Recall at query time |
+|------|----------------------|
+| **1 — Hot** | FTS on `lexical_text` (+ `cues[]` after tier 2) |
+| **2 — Enrich** | pgvector ANN on `thought.embedding`; `thought_entity`, `thought_neighbor` |
+| **3 — Consolidation** | `community_summary` ANN + `community_bundle.top_thought_ids`; salience / recency features on `thought` |
+
+**Precomputed artifacts:**
 
 | Artifact | Table / field | Built when |
 |----------|---------------|------------|
-| Entity links | `thought_entity` | Enrich |
-| Thought neighbors | `thought_neighbor` | Enrich |
-| Entity → top thoughts | `entity_top_thoughts` | Enrich + consolidation |
-| Community bundles | `community_bundle` | Consolidation + incremental |
-| Routing summary | `community_summary.summary_short` + embedding | Consolidation |
-| Thought features | `thought.primary_community_ids`, centrality, specificity, recency | Consolidation |
+| Keyword surface | `thought.lexical_text` | Tier 1 (capture) |
+| Entity links | `thought_entity` | Tier 2 (enrich) |
+| Thought neighbors | `thought_neighbor` | Tier 2 (enrich) |
+| Entity → top thoughts | `entity_top_thoughts` | Tier 2 + tier 3 backfill |
+| Community bundles | `community_bundle` | Tier 3 (nightly + incremental) |
+| Routing summary | `community_summary.summary_short` + embedding | Tier 3 |
+| Thought features | `thought.primary_community_ids`, centrality, specificity, recency | Tier 3 |
 
-**Query time (`retrieveEvidence`):** embed once → parallel ANN/FTS → bundle/key fetch → weighted merge → rerank top 60. **No live AGE reads.**
+**Query time (`retrieveEvidence`):** embed query once → parallel ANN + FTS + community ANN → bundle/key fetch → weighted merge → rerank top pool → return top K. **No live AGE reads.**
+
+Tier-1 rows (`enriched_at IS NULL`, no embedding) are intended to surface via **FTS only**. Vector ANN requires `embedding IS NOT NULL`. Same row gains tier 2/3 fields over time — no invalidation.
+
+### Hot-path FTS priority
+
+Tier-1 rows match immediately at SQL. Fusion in [`retrieveEvidence`](../../src/lib/server/retrieval/retrieve-evidence.ts) uses `ts_rank_cd` for thought similarity, zeros graph/community/salience bonuses on expansion-only candidates (no direct lexical or vector hit), and reserves top lexical rows in the rerank pool so keyword matches reach `answer_question` before tier 2 embeds the row.
 
 Apache AGE remains for ingest writes and `/graph` visualization only.
 
@@ -77,8 +94,8 @@ Apache AGE remains for ingest writes and `/graph` visualization only.
 
 ### [`src/lib/server/qa/compose-answer.ts`](../../src/lib/server/qa/compose-answer.ts)
 
-- **Purpose:** Grounded QA: one `searchThoughts` / `retrieveEvidence` call, then compose LLM.
-- **DependsOn:** `searchThoughts`; temporal validity helpers in [`temporal-validity.ts`](../../src/lib/server/memory/temporal-validity.ts).
+- **Purpose:** Grounded QA: global queries → `searchGlobal`; local queries → `searchThoughts` / `retrieveEvidence`, then compose LLM with thought citations.
+- **DependsOn:** `searchThoughts`, `searchGlobal`, `classifyRetrievalScope`, `hasCommunitySummaries`; temporal validity helpers in [`temporal-validity.ts`](../../src/lib/server/memory/temporal-validity.ts).
 
 ### [`src/lib/server/retrieval/quality-telemetry.ts`](../../src/lib/server/retrieval/quality-telemetry.ts)
 
@@ -86,17 +103,19 @@ Apache AGE remains for ingest writes and `/graph` visualization only.
 
 ### [`src/lib/server/retrieval/global.ts`](../../src/lib/server/retrieval/global.ts)
 
-- **Purpose:** GraphRAG map-reduce over `community_summary` (legacy). **Not wired** to production.
+- **Purpose:** GraphRAG map-reduce over `community_summary` for global sensemaking queries.
+- **Status:** Wired into `composeAnswer` when `classifyRetrievalScope()` returns `global` and `hasCommunitySummaries()` is true (AC-025). Falls back to unified thought retrieval when no summaries (AC-026).
 
-### [`src/lib/server/retrieval/query-router.ts`](../../src/lib/server/retrieval/query-router.ts)
+### [`src/lib/server/retrieval/global-query.ts`](../../src/lib/server/retrieval/global-query.ts)
 
-- **Purpose:** Heuristic classifier (`local` | `relational` | `global`). Not used for retrieval routing.
+- **Purpose:** LLM `classifyRetrievalScope()` — language-agnostic global vs local intent (no regex/heuristics).
 
-## Community routing (unified)
+## Community routing (unified + global)
 
-- **L1** community ANN selects routing communities (`summary_short` embedding).
-- **L2/L3** `community_bundle.top_thought_ids` expand evidence without graph traversal.
-- `searchGlobal` map-reduce remains unwired.
+- **Local retrieval:** L1 community ANN in `retrieveEvidence` selects routing communities; `community_bundle.top_thought_ids` expand evidence.
+- **Global Q&A (AC-025):** `composeAnswer` routes theme/profile queries to `searchGlobal` map-reduce over `community_summary` text when summaries exist.
+- **Fallback (AC-026):** global query without summaries → unified `searchThoughts` + explicit log.
+- **Scope routing:** `classifyRetrievalScope()` LLM call decides global vs local before retrieval (any language).
 
 ## Reranking
 
