@@ -41,10 +41,7 @@ export function graphRearrangeProgressPercent(
 	complete: boolean
 ): number {
 	if (complete) return 100;
-	if (phaseEvents.length === 0) return 0;
-	const active = phaseEvents.at(-1);
-	if (!active) return 0;
-	const index = GRAPH_REARRANGE_PIPELINE.indexOf(active);
-	if (index < 0) return 0;
-	return Math.round(((index + 1) / GRAPH_REARRANGE_PIPELINE.length) * 100);
+	// Only count finished steps — the latest event marks the step currently running.
+	const completedCount = Math.max(0, phaseEvents.length - 1);
+	return Math.round((completedCount / GRAPH_REARRANGE_PIPELINE.length) * 100);
 }

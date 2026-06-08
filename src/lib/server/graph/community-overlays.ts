@@ -3,7 +3,8 @@ import { getDb } from '$lib/server/db';
 import { communityMember, communitySummary, canonicalEntity, graphCommunity } from '$lib/server/db/schema';
 import {
 	communityLevelIntent,
-	communityLevelLabel
+	communityLevelLabel,
+	isCommunityDbLevel
 } from '$lib/server/consolidation/community-levels';
 
 export type GraphCommunityOverlay = {
@@ -89,7 +90,7 @@ export async function fetchGraphCommunityOverlays(userId: string): Promise<Graph
 	);
 	const labelByEntity = new Map(entities.map((row) => [row.id, row.label] as const));
 
-	return communities.map((c) => {
+	return communities.filter((c) => isCommunityDbLevel(c.level)).map((c) => {
 		const memberEntityIds = byCommunity.get(c.id) ?? [];
 		const memberLabels = memberEntityIds
 			.map((id) => labelByEntity.get(id))

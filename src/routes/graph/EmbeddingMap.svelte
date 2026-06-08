@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
-	import { nodeFillForGraph, customEntityFillsFromLegendSections } from '$lib/graph/graph-ontology-legend';
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import {
+		customEntityFillsFromLegendSections,
+		filterNodesByEntityTypes,
+		nodeFillForGraph,
+		type GraphLegendSection
+	} from '$lib/graph/graph-ontology-legend';
+	import GraphEntityKindsLegend from './graph-entity-kinds-legend.svelte';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import type { GraphLegendSection } from '$lib/graph/graph-ontology-legend';
 	import {
 		canRunUmap,
 		centerAndScaleCoords3d,
@@ -17,6 +20,7 @@
 
 	type Props = {
 		graphLegendSections: GraphLegendSection[];
+		visibleEntityTypes?: Set<string>;
 		/** When false the tab panel is hidden — defer fetch/UMAP until visible so layout has size. */
 		visible?: boolean;
 		onSelectItem?: (item: EmbeddingSnapshotItem | null) => void;
@@ -25,22 +29,30 @@
 
 	let {
 		graphLegendSections,
+		visibleEntityTypes = $bindable(new Set<string>()),
 		visible = true,
 		onSelectItem,
 		selectedItemId = null
 	}: Props = $props();
 
-	type LegendEntry = { subtype: string; fill: string };
-
 	type Phase =
 		| { kind: 'idle' }
 		| { kind: 'loading' }
 		| { kind: 'projecting'; epoch: number; totalEpochs: number }
-		| { kind: 'ready'; count: number; thoughtCount: number; entityCount: number; legendEntries: LegendEntry[] }
+		| { kind: 'ready'; count: number }
 		| { kind: 'error'; message: string };
 
 	let phase = $state<Phase>({ kind: 'idle' });
 	let rootEl: HTMLDivElement | undefined;
+	let snapshotItems = $state<EmbeddingSnapshotItem[]>([]);
+
+	const embeddingStats = $derived.by(() => {
+		if (phase.kind !== 'ready' || snapshotItems.length === 0) return '';
+		const filtered = filterNodesByEntityTypes(snapshotItems, visibleEntityTypes);
+		const thoughtCount = filtered.filter((item) => item.kind === 'Thought').length;
+		const entityCount = filtered.filter((item) => item.kind === 'Entity').length;
+		return `${thoughtCount} thoughts · ${entityCount} entities`;
+	});
 
 	const MAX_FETCH_RETRIES = 3;
 
@@ -63,7 +75,6 @@
 	let teardown: (() => void) | undefined;
 	let mapHandle: EmbeddingMap3dHandle | null = null;
 	let pipelineStarted = false;
-	let legendExpanded = $state(false);
 
 	$effect(() => {
 		if (!visible || pipelineStarted) return;
@@ -90,12 +101,13 @@
 
 			if (cancelled) return;
 
+			snapshotItems = items;
+
 			if (items.length === 0) {
-				phase = { kind: 'ready', count: 0, thoughtCount: 0, entityCount: 0, legendEntries: [] };
+				phase = { kind: 'ready', count: 0 };
 				return;
 			}
 
-			// ── UMAP projection (3D) ───────────────────────────────────────────
 			const embeddings = l2NormalizeEmbeddings(items);
 			const nNeighbors = computeUmapNeighbors(items.length);
 			const nEpochs = items.length > 200 ? 300 : 500;
@@ -136,7 +148,6 @@
 				return;
 			}
 
-			// ── Three.js render ──────────────────────────────────────────────────
 			if (cancelled || !rootEl) return;
 
 			const customFills = customEntityFillsFromLegendSections(graphLegendSections);
@@ -155,6 +166,7 @@
 				onSelectItem
 			});
 			mapHandle.setSelectedId(selectedItemId ?? null);
+			mapHandle.setVisibleSubtypes(visibleEntityTypes);
 
 			const ro = new ResizeObserver(() => {
 				mapHandle?.resize();
@@ -162,27 +174,7 @@
 			ro.observe(rootEl);
 			queueMicrotask(() => mapHandle?.resize());
 
-			// Build legend from observed subtypes
-			const seenKeys = new Set<string>();
-			const legendEntries: LegendEntry[] = [];
-			for (const item of items) {
-				if (!seenKeys.has(item.subtype)) {
-					seenKeys.add(item.subtype);
-					legendEntries.push({
-						subtype: item.subtype,
-						fill: nodeFillForGraph(item.kind, item.subtype, customFills)
-					});
-				}
-			}
-			legendEntries.sort((a, b) => a.subtype.localeCompare(b.subtype));
-
-			phase = {
-				kind: 'ready',
-				count: items.length,
-				thoughtCount: items.filter((i) => i.kind === 'Thought').length,
-				entityCount: items.filter((i) => i.kind === 'Entity').length,
-				legendEntries
-			};
+			phase = { kind: 'ready', count: items.length };
 
 			teardown = () => {
 				cancelled = true;
@@ -198,6 +190,7 @@
 			teardown?.();
 			teardown = undefined;
 			pipelineStarted = false;
+			snapshotItems = [];
 		};
 	});
 
@@ -209,6 +202,11 @@
 	$effect(() => {
 		const id = selectedItemId ?? null;
 		queueMicrotask(() => mapHandle?.setSelectedId(id));
+	});
+
+	$effect(() => {
+		const types = visibleEntityTypes;
+		queueMicrotask(() => mapHandle?.setVisibleSubtypes(types));
 	});
 </script>
 
@@ -253,67 +251,24 @@
 
 	<div
 		bind:this={rootEl}
-		class="text-foreground relative h-full min-h-0 w-full overflow-hidden"
+		class="text-foreground relative isolate z-0 h-full min-h-0 w-full overflow-hidden"
 		role="img"
 		aria-label="Embedding map — 3D UMAP projection of your thoughts and entities"
 	></div>
 
 	{#if phase.kind === 'ready' && phase.count > 0}
-		<aside
-			class="border-border/60 bg-background/90 pointer-events-none absolute bottom-16 left-3 z-0 w-[min(calc(100vw-1.5rem),11rem)] rounded-md border px-1 py-1 backdrop-blur-sm {legendExpanded
-				? 'h-56'
-				: ''}"
-			aria-label="Embedding map legend"
+		<div
+			class="pointer-events-none absolute bottom-16 left-3 z-20 w-[min(calc(100vw-1.5rem),11rem)] shrink-0"
 		>
-			<div
-				class="text-foreground pointer-events-auto flex min-h-0 flex-col gap-1 text-[10px] leading-none {legendExpanded
-					? 'h-full'
-					: ''}"
-			>
-				<button
-					type="button"
-					class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex h-6 w-full shrink-0 items-center gap-0.5 rounded-sm text-left transition-colors focus-visible:ring-1 focus-visible:outline-none"
-					aria-expanded={legendExpanded}
-					aria-controls="embedding-map-legend-panel"
-					onclick={() => (legendExpanded = !legendExpanded)}
-				>
-					{#if legendExpanded}
-						<ChevronDown class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
-					{:else}
-						<ChevronRight class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
-					{/if}
-					<span class="truncate font-semibold tracking-tight">Legend</span>
-				</button>
+			<GraphEntityKindsLegend
+				bind:visibleEntityTypes
+				legendSections={graphLegendSections}
+				graphStats={embeddingStats}
+				panelId="embedding-map-legend-panel"
+			/>
+		</div>
 
-				{#if legendExpanded}
-					<div id="embedding-map-legend-panel" class="flex min-h-0 flex-1 flex-col gap-1">
-						<div class="relative min-h-0 flex-1 overflow-hidden">
-							<ul class="absolute inset-0 flex flex-col gap-0.5 overflow-y-auto" role="list">
-								{#each phase.legendEntries as entry (entry.subtype)}
-									<li class="min-w-0">
-										<span
-											class="border-border/60 bg-muted/25 text-foreground inline-flex w-full min-w-0 items-center gap-1 rounded border px-1 py-px"
-										>
-											<span
-												class="h-2 w-2 shrink-0 rounded-full ring-1 ring-border/60"
-												style="background-color: {entry.fill}"
-												aria-hidden="true"
-											></span>
-											<span class="truncate font-mono font-medium">{entry.subtype}</span>
-										</span>
-									</li>
-								{/each}
-							</ul>
-						</div>
-						<p class="text-muted-foreground shrink-0 font-mono text-[9px] leading-tight tabular-nums">
-							{phase.thoughtCount} thoughts · {phase.entityCount} entities
-						</p>
-					</div>
-				{/if}
-			</div>
-		</aside>
-
-		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-12 left-1/2 z-0 -translate-x-1/2 whitespace-nowrap text-[9px]">
+		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-12 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9px]">
 			Drag to orbit · shift-drag or two-finger drag to pan · pinch or scroll to zoom · click a dot to inspect
 		</p>
 	{/if}

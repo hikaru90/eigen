@@ -3,13 +3,17 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
+	import {
+		COMMUNITY_LEAF_LEVEL,
+		communityLevelFilterLabel
+	} from '$lib/graph/community-levels';
 	import Link2 from '@lucide/svelte/icons/link-2';
 	import SearchIcon from '@lucide/svelte/icons/search';
 
 	let {
 		search = $bindable(''),
 		edgeKind = $bindable('all'),
-		communityLevel = $bindable('leaf'),
+		communityLevel = $bindable(String(COMMUNITY_LEAF_LEVEL)),
 		availableCommunityLevels
 	}: {
 		search?: string;
@@ -24,7 +28,7 @@
 
 	const searchFilterActive = $derived(search.trim().length > 0);
 	const edgeFilterActive = $derived(edgeKind !== 'all');
-	const levelFilterActive = $derived(communityLevel !== 'leaf');
+	const levelFilterActive = $derived(communityLevel !== String(COMMUNITY_LEAF_LEVEL));
 </script>
 
 <div class="flex shrink-0 items-center gap-1">
@@ -100,12 +104,11 @@
 			<Label class="text-xs">Community level</Label>
 			<Select.Root type="single" bind:value={communityLevel}>
 				<Select.Trigger class="w-full font-mono text-xs">
-					{communityLevel === 'leaf' ? 'L2 leaf (default)' : `L${communityLevel}`}
+					{communityLevelFilterLabel(Number.parseInt(communityLevel, 10))}
 				</Select.Trigger>
 				<Select.Content>
-					<Select.Item value="leaf">L2 leaf (tightest)</Select.Item>
 					{#each availableCommunityLevels as level (level)}
-						<Select.Item value={String(level)}>L{level}</Select.Item>
+						<Select.Item value={String(level)}>{communityLevelFilterLabel(level)}</Select.Item>
 					{/each}
 				</Select.Content>
 			</Select.Root>

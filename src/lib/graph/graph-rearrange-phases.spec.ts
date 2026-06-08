@@ -6,10 +6,10 @@ describe('graphRearrangeProgressPercent', () => {
 		expect(graphRearrangeProgressPercent([], false)).toBe(0);
 	});
 
-	it('returns step-based percent while phases stream in', () => {
-		expect(graphRearrangeProgressPercent(['prune_weak_edges'], false)).toBe(17);
+	it('counts only completed steps while the active step is still running', () => {
+		expect(graphRearrangeProgressPercent(['prune_weak_edges'], false)).toBe(0);
 		expect(graphRearrangeProgressPercent(['prune_weak_edges', 'prune_orphan_thoughts'], false)).toBe(
-			33
+			17
 		);
 		expect(
 			graphRearrangeProgressPercent(
@@ -23,7 +23,7 @@ describe('graphRearrangeProgressPercent', () => {
 				],
 				false
 			)
-		).toBe(100);
+		).toBe(83);
 	});
 
 	it('returns 100 when complete', () => {

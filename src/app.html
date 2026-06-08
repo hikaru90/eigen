@@ -12,7 +12,7 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
-		<meta name="theme-color" content="#e8ede5" />
+		<meta name="theme-color" content="#e8ede5" id="theme-color-meta" />
 		<meta name="description" content="Self-hostable memory infrastructure" />
 		<link rel="manifest" href="/manifest.webmanifest" />
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -36,12 +36,17 @@
 				} else {
 					document.documentElement.style.colorScheme = "light";
 				}
-				var themeMeta = document.querySelector('meta[name="theme-color"]');
+				var themeMeta = document.getElementById("theme-color-meta");
 				if (themeMeta) {
-					themeMeta.setAttribute(
-						"content",
-						isDark ? "oklch(0.141 0.005 285.823)" : "#e8ede5"
-					);
+					themeMeta.setAttribute("content", isDark ? "#09090b" : "#e8ede5");
+				}
+				var isStandalone =
+					window.matchMedia("(display-mode: standalone)").matches ||
+					window.matchMedia("(display-mode: fullscreen)").matches ||
+					window.matchMedia("(display-mode: minimal-ui)").matches ||
+					window.navigator.standalone === true;
+				if (isStandalone) {
+					document.documentElement.classList.add("pwa-standalone");
 				}
 			})();
 		</script>

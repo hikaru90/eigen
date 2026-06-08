@@ -21,6 +21,7 @@ export type CreateEmbeddingMap3dOptions = {
 export type EmbeddingMap3dHandle = {
 	resize: () => void;
 	setSelectedId: (id: string | null) => void;
+	setVisibleSubtypes: (visibleTypes: ReadonlySet<string>) => void;
 	dispose: () => void;
 };
 
@@ -115,13 +116,14 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	labelRenderer.domElement.style.pointerEvents = 'none';
 	container.appendChild(labelRenderer.domElement);
 
-	const stackLayer = (el: HTMLElement) => {
+	const stackLayer = (el: HTMLElement, zIndex: number) => {
 		el.style.position = 'absolute';
 		el.style.top = '0';
 		el.style.left = '0';
+		el.style.zIndex = String(zIndex);
 	};
-	stackLayer(renderer.domElement);
-	stackLayer(labelRenderer.domElement);
+	stackLayer(renderer.domElement, 0);
+	stackLayer(labelRenderer.domElement, 1);
 
 	const controls = new OrbitControls(camera, renderer.domElement);
 	controls.enablePan = true;
@@ -212,7 +214,10 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		}
 	}
 
+	let currentSelectedId: string | null = null;
+
 	function setSelectedId(id: string | null) {
+		currentSelectedId = id;
 		for (const mesh of pointMeshes) {
 			const on = id !== null && mesh.userData.itemId === id;
 			const mat = mesh.material as THREE.MeshBasicMaterial;
@@ -229,13 +234,34 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		}
 
 		const target = pointMeshes.find((m) => m.userData.itemId === id);
-		if (!target) {
+		if (!target || !target.visible) {
 			highlightGroup.visible = false;
 			return;
 		}
 
 		highlightGroup.position.copy(target.position);
 		highlightGroup.visible = true;
+	}
+
+	function setVisibleSubtypes(visibleTypes: ReadonlySet<string>) {
+		const showAll = visibleTypes.size === 0;
+		for (const mesh of pointMeshes) {
+			const item = mesh.userData.item as EmbeddingSnapshotItem;
+			const visible = showAll || visibleTypes.has(item.subtype);
+			mesh.visible = visible;
+			const labelEl = labelByItemId.get(mesh.userData.itemId as string);
+			if (labelEl) {
+				labelEl.style.display = visible ? '' : 'none';
+			}
+		}
+
+		if (currentSelectedId !== null) {
+			const selectedMesh = pointMeshes.find((m) => m.userData.itemId === currentSelectedId);
+			if (!selectedMesh?.visible) {
+				setSelectedId(null);
+				onSelectItem?.(null);
+			}
+		}
 	}
 
 	function resize() {
@@ -351,6 +377,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	return {
 		resize,
 		setSelectedId,
+		setVisibleSubtypes,
 		dispose() {
 			cancelAnimationFrame(animationFrame);
 			renderer.domElement.removeEventListener('pointerdown', onPointerDown);

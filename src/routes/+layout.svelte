@@ -84,12 +84,12 @@
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const syncThemeColorMeta = () => {
-      const meta = document.querySelector('meta[name="theme-color"]');
+      const meta = document.getElementById("theme-color-meta");
       if (!meta) return;
-      const bg = getComputedStyle(document.documentElement)
-        .getPropertyValue("--background")
+      const themeColor = getComputedStyle(document.documentElement)
+        .getPropertyValue("--theme-color")
         .trim();
-      if (bg) meta.setAttribute("content", bg);
+      if (themeColor) meta.setAttribute("content", themeColor);
     };
 
     const applyTheme = (isDark: boolean) => {
@@ -125,7 +125,7 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome}>
+<div class="bg-background min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome}>
   {#if !hideAppChrome}
     <AppHeader />
   {/if}
@@ -139,7 +139,7 @@
   >
     <div class="relative flex flex-row items-center gap-2 px-2 pb-safe">
       <div
-        class="pointer-events-none bg-linear-to-t absolute -top-6 right-0 bottom-0 left-0 -z-10 w-full from-background to-transparent dark:from-black dark:to-black/0"
+        class="pointer-events-none absolute inset-x-0 -top-24 bottom-0 -z-10 bg-linear-to-t from-background to-transparent"
       ></div>
       {#each bottomNavItems as item}
         <div class={cn("relative", item.variant === "primary" ? "grow" : "")}>

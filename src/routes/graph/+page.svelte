@@ -15,14 +15,21 @@
   import {
     nodeFillForGraph,
     customEntityFillsFromLegendSections,
+    filterNodesByEntityTypes,
   } from "$lib/graph/graph-ontology-legend";
   import { filterGraphVizEdgesToNodes, resolveForceLinks } from "$lib/graph/sanitize-viz-snapshot";
   import {
     COMMUNITY_HULL_GRADIENT,
     communityCircleFromPositions,
     communityGradientId,
+    communityHullChromeStyleForLevel,
+    communityHullFill,
     communityHullFillOpacityForZoom,
   } from "$lib/graph/community-hull";
+  import {
+    canonicalCommunityLevels,
+    COMMUNITY_LEAF_LEVEL,
+  } from "$lib/graph/community-levels";
   import {
     deleteGraphEntity,
     deleteGraphThought,
@@ -65,6 +72,10 @@
     get legendSections() {
       return data.graphLegendSections ?? [];
     },
+    get selectedCommunityLevel(): number | null {
+      const parsed = Number.parseInt(communityLevel, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    },
   };
 
   /** Which tab is visible: graph, embedding map, or temporal events timeline. */
@@ -99,7 +110,8 @@
   let rootEl: HTMLDivElement | undefined;
   let search = $state("");
   let edgeKind = $state<string>("all");
-  let communityLevel = $state<string>("leaf");
+  let visibleEntityTypes = $state<Set<string>>(new Set());
+  let communityLevel = $state<string>(String(COMMUNITY_LEAF_LEVEL));
   let status = $state<string>("");
   let graphStats = $state<string>("");
   let scheduleGraphUpdate: (() => void) | null = null;
@@ -109,6 +121,7 @@
   let scheduleRestorePreEntityZoom: (() => void) | null = null;
   let schedulePreserveGraphZoom: (() => void) | null = null;
   let scheduleMarkEnrichGraphUpdate: (() => void) | null = null;
+  let scheduleUpdateCommunityHulls: (() => void) | null = null;
   /** Entity node ids that should pop in on the next graph paint after tier-2 enrich. */
   let pendingPopInNodeIds = new Set<string>();
   let entityIdsBeforeEnrichRefresh: Set<string> | null = null;
@@ -524,17 +537,10 @@
   const legendCustomEntityFills = $derived(
     customEntityFillsFromLegendSections(data.graphLegendSections ?? []),
   );
-  const availableCommunityLevels = $derived.by(() => {
-    const unique = [...new Set((data.communities ?? []).map((c) => c.level))];
-    return unique.sort((a, b) => b - a);
-  });
-  const selectedCommunityLevel = $derived.by(() => {
-    if (communityLevel === "leaf") {
-      return availableCommunityLevels[0] ?? null;
-    }
-    const parsed = Number.parseInt(communityLevel, 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  });
+  const availableCommunityLevels = $derived.by(() =>
+    canonicalCommunityLevels((data.communities ?? []).map((c) => c.level)),
+  );
+  const selectedCommunityLevel = $derived.by(() => vizCtx.selectedCommunityLevel);
   const communityEvidenceById = $derived.by(() => {
     const edgeMap = new Map<string, number>();
     for (const edge of data.snapshot.edges) {
@@ -609,6 +615,7 @@
   $effect(() => {
     search;
     edgeKind;
+    visibleEntityTypes;
     queueMicrotask(() => scheduleGraphUpdate?.());
   });
 
@@ -633,6 +640,24 @@
   $effect(() => {
     if (selectedNode !== null) return;
     queueMicrotask(() => scheduleRestorePreEntityZoom?.());
+  });
+
+  $effect(() => {
+    const levels = availableCommunityLevels;
+    if (communityLevel === "leaf") {
+      communityLevel = String(COMMUNITY_LEAF_LEVEL);
+    } else if (levels.length > 0 && !levels.some((l) => String(l) === communityLevel)) {
+      communityLevel = String(levels[0]);
+    }
+    data.communities;
+    const level = selectedCommunityLevel;
+    if (selectedCommunityId && level !== null) {
+      const selected = (data.communities ?? []).find((c) => c.id === selectedCommunityId);
+      if (selected && selected.level !== level) {
+        selectedCommunityId = null;
+      }
+    }
+    queueMicrotask(() => scheduleUpdateCommunityHulls?.());
   });
 
   onMount(() => {
@@ -740,8 +765,9 @@
         .attr("pointer-events", "none");
 
       function applyCommunityHullZoomOpacity(scale = 1) {
-        const opacity = communityHullFillOpacityForZoom(scale);
-        communityFillSelection.select("circle").attr("fill-opacity", opacity);
+        communityFillSelection
+          .select("circle")
+          .attr("fill-opacity", (d) => communityHullFillOpacityForZoom(scale, d.level));
       }
 
       const zoom = d3
@@ -976,7 +1002,7 @@
           if (Number.isFinite(x) && Number.isFinite(y)) posById.set(n.id, { x, y });
         }
 
-        const activeLevel = selectedCommunityLevel;
+        const activeLevel = vizCtx.selectedCommunityLevel;
         if (activeLevel === null) return [];
         const hulls: CommunityHull[] = [];
         for (const community of vizCtx.communities) {
@@ -1013,9 +1039,7 @@
           .join(
             (enter) => {
               const g = enter.append("g").attr("class", "community-hull-fill");
-              g.append("circle")
-                .attr("fill", `url(#${communityGradientId()})`)
-                .attr("stroke", "none");
+              g.append("circle").attr("stroke", "none");
               return g;
             },
             (update) => update,
@@ -1023,7 +1047,8 @@
           )
           .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
           .select("circle")
-          .attr("r", (d) => d.r);
+          .attr("r", (d) => d.r)
+          .attr("fill", (d) => communityHullFill(d.level));
         const svgEl = svg.node();
         if (svgEl) {
           applyCommunityHullZoomOpacity(d3.zoomTransform(svgEl).k);
@@ -1067,7 +1092,13 @@
           .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
           .each(function (d) {
             const g = d3.select(this);
-            g.select("circle.community-hull-border").attr("r", d.r);
+            const chrome = communityHullChromeStyleForLevel(d.level);
+            g.select("circle.community-hull-border")
+              .attr("r", d.r)
+              .attr("stroke", chrome.stroke)
+              .attr("stroke-width", chrome.strokeWidth)
+              .attr("stroke-dasharray", chrome.strokeDasharray)
+              .attr("stroke-opacity", chrome.strokeOpacity);
             const labelWrap = g.select("g.community-hull-label-wrap");
             labelWrap.attr("transform", `translate(0, ${-(d.r + 8)})`);
             const label = labelWrap.select("text.community-hull-label").text(d.name);
@@ -1158,6 +1189,7 @@
         const rawNodes: SimNode[] = vizCtx.snapshot.nodes
           .filter((n) => n.kind === "Entity")
           .map((n) => simNodeFromSnapshot(n));
+        const typeFiltered = filterNodesByEntityTypes(rawNodes, visibleEntityTypes);
         const q = norm(search);
         const nodeMatch = (n: SimNode) =>
           q.length === 0 ||
@@ -1165,8 +1197,8 @@
           norm(n.id).includes(q) ||
           norm(n.subtype).includes(q);
 
-        const rawNodeIds = new Set(rawNodes.map((n) => n.id));
-        const visibleIds = new Set(rawNodes.filter(nodeMatch).map((n) => n.id));
+        const rawNodeIds = new Set(typeFiltered.map((n) => n.id));
+        const visibleIds = new Set(typeFiltered.filter(nodeMatch).map((n) => n.id));
         if (q.length > 0) {
           let expanded = true;
           while (expanded) {
@@ -1184,7 +1216,7 @@
           }
         }
 
-        const nodes = rawNodes.filter((n) => visibleIds.has(n.id));
+        const nodes = typeFiltered.filter((n) => visibleIds.has(n.id));
         if (selectedNode && !visibleIds.has(selectedNode.id)) {
           selectedNode = null;
         }
@@ -1375,6 +1407,9 @@
       };
       scheduleApplyHighlight = (id) => applyHighlight(id);
       scheduleRestorePreEntityZoom = scheduleRestorePreEntityZoomInner;
+      scheduleUpdateCommunityHulls = () => {
+        updateCommunityHulls(simulation?.nodes() ?? []);
+      };
 
       let lastGraphResizeHeight: number | null = null;
 
@@ -1404,6 +1439,7 @@
         scheduleMarkEnrichGraphUpdate = null;
         scheduleApplyHighlight = null;
         scheduleRestorePreEntityZoom = null;
+        scheduleUpdateCommunityHulls = null;
         preservedGraphZoomTransform = null;
         pendingEnrichGraphUpdate = false;
         preEntityZoomTransform = null;
@@ -1426,23 +1462,23 @@
         aria-label="Graph view tabs"
       >
         <Tabs.List
-          class="bg-white dark:bg-card pointer-events-auto !p-0 flex h-8 w-fit shrink-0 items-stretch gap-0 rounded-none border-2 border-black shadow-[4px_4px_0px_0px_#000] dark:border-border dark:shadow-none"
+          class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 w-fit shrink-0 items-stretch gap-1 rounded-full border border-white/80 p-0.5"
         >
           <Tabs.Trigger
             value="graph"
-            class="!h-full !px-2 rounded-none text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
             Graph
           </Tabs.Trigger>
           <Tabs.Trigger
             value="embeddings"
-            class="!h-full !px-2 rounded-none text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
             Embedding Map
           </Tabs.Trigger>
           <Tabs.Trigger
             value="temporal"
-            class="!h-full !px-2 rounded-none text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
             Timeline
           </Tabs.Trigger>
@@ -1465,7 +1501,7 @@
               aria-label="Graph legend and filters"
             >
               <div class="w-[min(calc(100vw-1.5rem),11rem)] shrink-0">
-                <GraphEntityKindsLegend {legendSections} {graphStats} />
+                <GraphEntityKindsLegend bind:visibleEntityTypes {legendSections} {graphStats} />
               </div>
               <div class="pointer-events-auto flex shrink-0 flex-col items-end gap-1">
                 <GraphFiltersToolbar
@@ -1493,6 +1529,7 @@
             <EmbeddingMap
               visible={activeTab === "embeddings"}
               graphLegendSections={data.graphLegendSections ?? []}
+              bind:visibleEntityTypes
               onSelectItem={handleEmbeddingSelect}
               selectedItemId={selectedNode?.id ?? null}
             />

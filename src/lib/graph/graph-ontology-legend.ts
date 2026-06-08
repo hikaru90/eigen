@@ -78,11 +78,25 @@ export function customEntityFillsFromLegendSections(
 	for (const section of sections) {
 		if (section.title !== 'Your ontology: entity kinds') continue;
 		for (const item of section.items) {
-			const key = item.key.replace(/^onto-entity-/, '');
+			const key = entityKindKeyFromLegendItem(item.key);
 			if (item.fill) map.set(key, item.fill);
 		}
 	}
 	return map;
+}
+
+/** Strip `onto-entity-` prefix from legend item keys to match node.subtype. */
+export function entityKindKeyFromLegendItem(key: string): string {
+	return key.replace(/^onto-entity-/, '');
+}
+
+/** Empty visibleTypes = show all; otherwise keep nodes whose subtype is in the set. */
+export function filterNodesByEntityTypes<T extends { subtype: string }>(
+	nodes: T[],
+	visibleTypes: ReadonlySet<string>
+): T[] {
+	if (visibleTypes.size === 0) return nodes;
+	return nodes.filter((n) => visibleTypes.has(n.subtype));
 }
 
 export type GraphLegendItem = {

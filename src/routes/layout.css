@@ -22,6 +22,8 @@
 		color-scheme: light;
 		/* Eigen — DESIGN.md (light) */
 		--background: #e8ede5;
+		/* Hex for meta theme-color — Android PWA title bar does not accept oklch(). */
+		--theme-color: #e8ede5;
 		--foreground: #111111;
 		--card: #ffffff;
 		--card-foreground: #111111;
@@ -62,6 +64,7 @@
 
 	body {
 		@apply bg-background font-sans text-foreground antialiased;
+		margin: 0;
 	}
 
 	button:not(:disabled),
@@ -128,19 +131,34 @@
 }
 
 /* Standalone PWA: fill the viewport with theme background — no letterbox border */
-@media (display-mode: standalone) {
+@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
 	html,
 	body {
 		background-color: var(--background);
 		min-height: 100dvh;
 	}
-	body {
-		margin: 0;
-	}
+}
+
+html.pwa-standalone,
+html.pwa-standalone body {
+	background-color: var(--background);
+	min-height: 100dvh;
+}
+
+/* Paint the webview top edge to match theme-color (Android title bar seam). */
+html.pwa-standalone::before {
+	content: '';
+	position: fixed;
+	inset: 0 0 auto 0;
+	height: max(env(safe-area-inset-top, 0px), 1px);
+	background-color: var(--theme-color);
+	z-index: 9999;
+	pointer-events: none;
 }
 
 .dark {
 	--background: oklch(0.141 0.005 285.823);
+	--theme-color: #09090b;
 	--foreground: oklch(0.985 0 0);
 	--card: oklch(0.21 0.006 285.885);
 	--card-foreground: oklch(0.985 0 0);

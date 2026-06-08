@@ -1,16 +1,19 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import type { CaptureRecentThoughtSnippet, CaptureSubmitResult } from '$lib/capture/capture-result-types';
 	import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson';
 	import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 	import CaptureQueueStatus from '$lib/components/capture-queue-status.svelte';
 	import CaptureStoredSummary from '$lib/components/capture-stored-summary.svelte';
-	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import PencilLine from '@lucide/svelte/icons/pencil-line';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import X from '@lucide/svelte/icons/x';
 	import {
 		recentThoughtPrimaryLabel,
 		recentThoughtSecondaryLabel
@@ -79,7 +82,24 @@
 			onCollapse(snippetId);
 		} else {
 			onExpand(snippetId);
+			void scrollEntryToTop(snippetId);
 		}
+	}
+
+	const entryElements = new Map<string, HTMLElement>();
+
+	function entryAnchor(node: HTMLElement, thoughtId: string) {
+		entryElements.set(thoughtId, node);
+		return {
+			destroy() {
+				entryElements.delete(thoughtId);
+			}
+		};
+	}
+
+	async function scrollEntryToTop(thoughtId: string) {
+		await tick();
+		entryElements.get(thoughtId)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 	}
 
 	function enrichListStatus(
@@ -109,22 +129,27 @@
 		if (!enrichStatus) return false;
 		return !detail?.enrichmentComplete;
 	}
+
+	const tabEntryClass =
+		'flex flex-col overflow-visible rounded-2xl border border-white/80 bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card';
+	const tabTriggerClass =
+		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
 </script>
 
 {#if thoughts.length > 0}
-	<div class="flex min-h-0 flex-1 flex-col gap-2">
-		<h2 class="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</h2>
-		<div class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+	<div class="flex flex-col gap-2">
+		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</h2>
+		<div class="flex flex-col gap-2 pr-1">
 			{#each thoughts as snippet (snippet.id)}
 				{@const detail = thoughtDetails[snippet.id]}
 				{@const expanded = expandedId === snippet.id}
 				{@const loadingDetail = loadingDetailId === snippet.id}
 				{@const enrichStatus = enrichListStatus(snippet.id, detail)}
 				{@const secondary = recentThoughtSecondaryLabel(detail, snippet)}
-				<Card.Root
-					class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[4px_4px_0px_0px_#000] dark:shadow-none p-4 gap-3 items-start overflow-visible"
-				>
-					<Card.Header class="p-0 w-full flex flex-row items-start justify-between gap-2">
+				<div class="{tabEntryClass} min-w-0" use:entryAnchor={snippet.id}>
+					<div
+						class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
+					>
 						<button
 							type="button"
 							class="flex min-w-0 flex-1 items-start gap-2 text-left"
@@ -133,15 +158,21 @@
 							onclick={() => toggleThought(snippet.id, expanded)}
 						>
 							{#if expanded}
-								<ChevronDown class="size-4 shrink-0 text-muted-foreground mt-0.5" aria-hidden="true" />
+								<ChevronDown
+									class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+									aria-hidden="true"
+								/>
 							{:else}
-								<ChevronRight class="size-4 shrink-0 text-muted-foreground mt-0.5" aria-hidden="true" />
+								<ChevronRight
+									class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+									aria-hidden="true"
+								/>
 							{/if}
 							<div class="min-w-0 flex-1">
 								{#if expanded}
-									<Card.Title class="text-sm">Stored thought</Card.Title>
+									<p class="text-sm font-medium">Stored thought</p>
 								{:else}
-									<p class="text-sm text-card-foreground line-clamp-2 whitespace-pre-wrap">
+									<p class="line-clamp-2 whitespace-pre-wrap text-sm">
 										{snippet.normalizedText}
 									</p>
 									<div
@@ -176,12 +207,12 @@
 								{/if}
 							</div>
 						</button>
-						<div class="flex items-center gap-1 shrink-0 -mt-0.5">
+						<div class="-mt-0.5 flex shrink-0 items-center gap-1">
 							{#if showRetryAction(snippet.id, detail, enrichStatus)}
 								<Button
 									type="button"
 									variant="ghost"
-									class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground rounded-none"
+									class="h-auto rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
 									disabled={retryingId === snippet.id}
 									onclick={(e) => {
 										e.stopPropagation();
@@ -194,88 +225,100 @@
 							<Button
 								type="button"
 								variant="ghost"
-								class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground rounded-none"
+								class="h-auto rounded-full p-1.5 text-muted-foreground hover:text-foreground"
+								aria-label={editingId === snippet.id ? 'Cancel edit' : 'Edit'}
 								onclick={(e) => {
 									e.stopPropagation();
 									onEdit(snippet.id);
 								}}
 							>
-								{editingId === snippet.id ? 'Cancel edit' : 'Edit'}
+								{#if editingId === snippet.id}
+									<X class="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+								{:else}
+									<PencilLine class="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+								{/if}
 							</Button>
 							<Button
 								type="button"
 								variant="ghost"
-								class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive rounded-none"
+								class="h-auto rounded-full p-1.5 text-muted-foreground hover:text-destructive"
+								aria-label={deletingId === snippet.id ? 'Deleting…' : 'Delete'}
 								disabled={deletingId === snippet.id}
 								onclick={(e) => {
 									e.stopPropagation();
 									onDelete(snippet.id);
 								}}
 							>
-								{deletingId === snippet.id ? 'Deleting…' : 'Delete'}
+								{#if deletingId === snippet.id}
+									<LoaderCircleIcon class="size-3.5 animate-spin" aria-hidden="true" />
+								{:else}
+									<Trash2 class="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+								{/if}
 							</Button>
 						</div>
-					</Card.Header>
+					</div>
 
 					{#if expanded}
-						{#if loadingDetail || !detail}
-							<p class="text-sm text-muted-foreground">Loading thought details…</p>
-						{:else}
-							<CaptureStoredSummary thought={detail} embedded />
-						{/if}
-
-						{#if editingId === snippet.id}
-							{#if editLoading}
-								<div
-									class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border -mx-4 px-4 py-3 mt-3"
-								>
-									<CaptureQueueStatus
-										processing={true}
-										pendingCount={0}
-										events={editProgressEvents}
-										{pipeline}
-									/>
-								</div>
+						<div class="space-y-3 border-t border-white/80 px-3 pb-3 pt-2 dark:border-white/20">
+							{#if loadingDetail || !detail}
+								<p class="text-sm text-muted-foreground">Loading thought details…</p>
+							{:else}
+								<CaptureStoredSummary thought={detail} embedded />
 							{/if}
-							<div class="border-t-2 border-black dark:border-border -mx-4 mt-3">
-								<div class="px-4 pt-4 space-y-2">
-									<Label for="edit-{snippet.id}" class="text-sm">
-										Describe your changes in plain language
-									</Label>
-									<Textarea
-										id="edit-{snippet.id}"
-										value={editRequest}
-										oninput={(e) => onEditRequestChange(e.currentTarget.value)}
-										placeholder="Example: Make this shorter and categorize as task."
-										class="min-h-24 text-sm md:text-sm border-2 border-black dark:border-border p-3 bg-background dark:bg-input/30 text-foreground"
-									/>
-								</div>
-								<div
-									class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-end gap-2"
-								>
-									{#if editLoading}
+
+							{#if editingId === snippet.id}
+								{#if editLoading}
+									<div
+										class="-mx-3 border-t border-white/80 bg-white/10 px-3 py-3 dark:border-white/20 dark:bg-white/5"
+									>
+										<CaptureQueueStatus
+											processing={true}
+											pendingCount={0}
+											events={editProgressEvents}
+											{pipeline}
+										/>
+									</div>
+								{/if}
+								<div class="-mx-3 mt-3 border-t border-white/80 dark:border-white/20">
+									<div class="space-y-2 px-3 pt-4">
+										<Label for="edit-{snippet.id}" class="text-sm">
+											Describe your changes in plain language
+										</Label>
+										<Textarea
+											id="edit-{snippet.id}"
+											value={editRequest}
+											oninput={(e) => onEditRequestChange(e.currentTarget.value)}
+											placeholder="Example: Make this shorter and categorize as task."
+											class="min-h-24 border border-white/80 bg-white/20 p-3 text-sm text-foreground shadow-none backdrop-blur-sm dark:border-white/20 dark:bg-white/10 md:text-sm"
+										/>
+									</div>
+									<div
+										class="flex flex-row items-center justify-end gap-2 border-t border-white/80 bg-white/10 p-3 dark:border-white/20 dark:bg-white/5"
+									>
+										{#if editLoading}
+											<Button
+												type="button"
+												variant="ghost"
+												class="h-auto rounded-full px-4 py-2 text-sm font-medium leading-5 text-muted-foreground hover:text-destructive"
+												onclick={onCancelEdit}
+											>
+												Cancel
+											</Button>
+										{/if}
 										<Button
 											type="button"
-											variant="ghost"
-											class="rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto text-muted-foreground hover:text-destructive"
-											onclick={onCancelEdit}
+											class="h-auto rounded-full border-0 bg-black px-4 py-2 text-sm font-medium leading-5 text-white hover:bg-black/90 dark:bg-foreground dark:text-background dark:hover:bg-foreground/90"
+											disabled={editLoading || !editRequest.trim()}
+											onclick={onSubmitEdit}
 										>
-											Cancel
+											Submit changes
 										</Button>
-									{/if}
-									<Button
-										type="button"
-										class="bg-black text-white rounded-none px-4 py-2 text-sm font-medium leading-5 h-auto border-0 hover:bg-black/90"
-										disabled={editLoading || !editRequest.trim()}
-										onclick={onSubmitEdit}
-									>
-										Submit changes
-									</Button>
+									</div>
 								</div>
-							</div>
-						{/if}
+							{/if}
+						</div>
 					{/if}
-				</Card.Root>
+				</div>
 			{/each}
 		</div>
 	</div>

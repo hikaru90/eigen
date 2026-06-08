@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mergeGraphLegendWithUserOntology } from './graph-ontology-legend';
+import {
+	entityKindKeyFromLegendItem,
+	filterNodesByEntityTypes,
+	mergeGraphLegendWithUserOntology
+} from './graph-ontology-legend';
 
 describe('mergeGraphLegendWithUserOntology', () => {
 	it('includes only active entity kinds and relations', () => {
@@ -29,5 +33,45 @@ describe('mergeGraphLegendWithUserOntology', () => {
 			relationKinds: []
 		});
 		expect(merged).toEqual([]);
+	});
+});
+
+describe('entityKindKeyFromLegendItem', () => {
+	it('strips onto-entity- prefix', () => {
+		expect(entityKindKeyFromLegendItem('onto-entity-person')).toBe('person');
+	});
+
+	it('returns key unchanged when prefix absent', () => {
+		expect(entityKindKeyFromLegendItem('person')).toBe('person');
+	});
+});
+
+describe('filterNodesByEntityTypes', () => {
+	const nodes = [
+		{ id: '1', subtype: 'person' },
+		{ id: '2', subtype: 'place' },
+		{ id: '3', subtype: 'other' }
+	];
+
+	it('returns all nodes when visibleTypes is empty', () => {
+		expect(filterNodesByEntityTypes(nodes, new Set())).toEqual(nodes);
+	});
+
+	it('keeps only nodes matching selected types', () => {
+		expect(filterNodesByEntityTypes(nodes, new Set(['person']))).toEqual([{ id: '1', subtype: 'person' }]);
+	});
+
+	it('supports multiple selected types', () => {
+		expect(filterNodesByEntityTypes(nodes, new Set(['person', 'place']))).toEqual([
+			{ id: '1', subtype: 'person' },
+			{ id: '2', subtype: 'place' }
+		]);
+	});
+
+	it('excludes orphan subtypes when filter is active', () => {
+		expect(filterNodesByEntityTypes(nodes, new Set(['person']))).not.toContainEqual({
+			id: '3',
+			subtype: 'other'
+		});
 	});
 });

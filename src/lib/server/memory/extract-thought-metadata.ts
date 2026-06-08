@@ -14,6 +14,18 @@ const VALID_MEMORY_TYPES: MemoryType[] = [
 	'pattern'
 ];
 
+const MEMORY_TYPE_KEY_UNION = VALID_MEMORY_TYPES.join('|');
+
+export class InvalidMemoryTypeError extends Error {
+	readonly raw: string;
+
+	constructor(raw: string) {
+		super(`extractThoughtMetadata: invalid memoryType "${raw}"`);
+		this.name = 'InvalidMemoryTypeError';
+		this.raw = raw;
+	}
+}
+
 const MIN_CUE_LENGTH = 3;
 const MAX_CUE_LENGTH = 80;
 const MAX_CUES = 5;
@@ -35,10 +47,18 @@ export function normalizeMemoryType(raw: unknown): MemoryType | null {
 	return null;
 }
 
-function parseMetadataFields(obj: { memoryType?: unknown; cues?: unknown }): ThoughtMetadataExtraction {
-	const memoryType = normalizeMemoryType(obj.memoryType);
+function readMemoryTypeRaw(obj: Record<string, unknown>): unknown {
+	if ('memoryType' in obj) return obj.memoryType;
+	if ('memory_type' in obj) return obj.memory_type;
+	return undefined;
+}
+
+function parseMetadataFields(obj: Record<string, unknown>): ThoughtMetadataExtraction {
+	const raw = readMemoryTypeRaw(obj);
+	const memoryType = normalizeMemoryType(raw);
 	if (!memoryType) {
-		throw new Error('extractThoughtMetadata: invalid memoryType');
+		const label = typeof raw === 'string' ? raw.trim() : raw === undefined ? '' : String(raw);
+		throw new InvalidMemoryTypeError(label || '(missing)');
 	}
 	return { memoryType, cues: parseCues(obj.cues) };
 }
@@ -72,19 +92,33 @@ export type ThoughtMetadataExtraction = {
 	cues: string[];
 };
 
-/**
- * Single LLM call: memory type classification + search cue phrases.
- */
-export async function extractThoughtMetadata(input: {
-	userId: string;
-	normalizedText: string;
-	groundingProfile?: GroundingProfileForEnrichment;
-}): Promise<ThoughtMetadataExtraction> {
+type ExtractThoughtMetadataPass = 'default' | 'retry_strict';
+
+async function extractThoughtMetadataOnce(
+	input: {
+		userId: string;
+		normalizedText: string;
+		groundingProfile?: GroundingProfileForEnrichment;
+	},
+	pass: ExtractThoughtMetadataPass,
+	rejectedMemoryType?: string
+): Promise<ThoughtMetadataExtraction> {
 	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
+	const strictRule =
+		pass === 'retry_strict'
+			? [
+					rejectedMemoryType
+						? `Your previous memoryType "${rejectedMemoryType}" was rejected.`
+						: 'Your previous memoryType was rejected.',
+					`memoryType must be copied exactly from this list with no other strings: ${MEMORY_TYPE_KEY_UNION}.`,
+					'Do not use thought category keys or free-form labels.'
+				].join(' ')
+			: '';
+
 	const prompt = [
 		'Return ONLY JSON with this shape:',
 		'{',
-		'  "memoryType": "episode|fact|decision|concern|open_loop|preference|pattern",',
+		`  "memoryType": "${MEMORY_TYPE_KEY_UNION}",`,
 		'  "cues": ["2-8 word search phrase", "..."]',
 		'}',
 		'',
@@ -98,6 +132,7 @@ export async function extractThoughtMetadata(input: {
 		'  pattern    — a recurring observation about oneself or a situation',
 		'',
 		'cues — 3 to 5 short search phrases (2–8 words) for how someone might find this note later.',
+		strictRule,
 		'',
 		groundingBlock,
 		`Note: ${input.normalizedText}`
@@ -111,7 +146,7 @@ export async function extractThoughtMetadata(input: {
 			{
 				role: 'system',
 				content:
-					'You classify personal memory notes and generate search cues. Return only valid JSON.'
+					'You classify personal memory notes and generate search cues. memoryType must always be an exact key from the list in the user message. Return only valid JSON.'
 			},
 			{ role: 'user', content: prompt }
 		],
@@ -123,5 +158,26 @@ export async function extractThoughtMetadata(input: {
 	if (!parsed || typeof parsed !== 'object') {
 		throw new Error('extractThoughtMetadata: output must be a JSON object');
 	}
-	return parseMetadataFields(parsed as { memoryType?: unknown; cues?: unknown });
+	return parseMetadataFields(parsed as Record<string, unknown>);
+}
+
+/**
+ * Single LLM call: memory type classification + search cue phrases.
+ * Retries once with a strict ontology reminder when the model returns a drift label.
+ */
+export async function extractThoughtMetadata(input: {
+	userId: string;
+	normalizedText: string;
+	groundingProfile?: GroundingProfileForEnrichment;
+}): Promise<ThoughtMetadataExtraction> {
+	try {
+		return await extractThoughtMetadataOnce(input, 'default');
+	} catch (err) {
+		if (!(err instanceof InvalidMemoryTypeError)) throw err;
+		console.warn('[extract-thought-metadata] invalid type on first pass; retrying strict', {
+			userId: input.userId,
+			rejected: err.raw
+		});
+		return extractThoughtMetadataOnce(input, 'retry_strict', err.raw);
+	}
 }

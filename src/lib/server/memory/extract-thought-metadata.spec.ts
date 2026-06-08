@@ -61,14 +61,36 @@ describe('extractThoughtMetadata', () => {
 		expect(normalizeMemoryType('task')).toBeNull();
 	});
 
-	it('throws when memoryType is invalid', async () => {
+	it('accepts memory_type as a JSON key alias', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			makeResponse(JSON.stringify({ memory_type: 'fact', cues: ['standing truth'] }))
+		);
+
+		const result = await extractThoughtMetadata({ userId: 'u1', normalizedText: 'text' });
+		expect(result.memoryType).toBe('fact');
+	});
+
+	it('retries with strict prompt when first pass returns drift label', async () => {
+		llmChatCompletionMock
+			.mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
+			.mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'open_loop', cues: ['follow up'] })));
+
+		const result = await extractThoughtMetadata({ userId: 'u1', normalizedText: 'Need to follow up.' });
+
+		expect(result.memoryType).toBe('open_loop');
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(2);
+		expect(llmChatCompletionMock.mock.calls[1]?.[0]?.messages?.[1]?.content).toContain('task');
+	});
+
+	it('throws when memoryType is invalid on both passes', async () => {
 		llmChatCompletionMock.mockResolvedValue(
 			makeResponse(JSON.stringify({ memoryType: 'unknown', cues: [] }))
 		);
 
 		await expect(
 			extractThoughtMetadata({ userId: 'u1', normalizedText: 'text' })
-		).rejects.toThrow(/invalid memoryType/);
+		).rejects.toThrow(/invalid memoryType "unknown"/);
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(2);
 	});
 
 	it('throws when response has no choices', async () => {

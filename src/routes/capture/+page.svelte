@@ -457,8 +457,8 @@
 	}
 </script>
 
-<div class="fixed inset-x-0 top-20 bottom-20 z-0 mx-auto flex max-w-xl flex-col overflow-hidden px-5">
-	<section class="flex min-h-0 flex-1 flex-col gap-4">
+<div class="fixed inset-x-0 top-20 bottom-0 z-0 mx-auto flex max-w-xl flex-col overflow-hidden">
+	<div class="shrink-0 space-y-4 px-5">
 		{#if data.showRegroundNudge}
 			<div class="shrink-0 rounded-xl border border-border bg-muted/60 px-3.5 py-3 text-xs">
 				<p class="text-foreground leading-relaxed">
@@ -512,7 +512,7 @@
 			</Card.Root>
 		{/if}
 
-		<Card.Root class="shrink-0 bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
+		<Card.Root class="shrink-0 bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible">
 			<Card.Content class="p-0 w-full">
 				<Label for="thought" class="sr-only">Thought</Label>
 				<Textarea
@@ -546,52 +546,58 @@
 				</div>
 			</Card.Footer>
 		</Card.Root>
+	</div>
 
-		<CaptureRecentThoughts
-			thoughts={recentThoughts}
-			{thoughtDetails}
-			enrichingThoughtIds={enrichingThoughtIds}
-			expandedId={expandedThoughtId}
-			editingId={editingThoughtId}
-			{editRequest}
-			{editLoading}
-			deletingId={deletingThoughtId}
-			retryingId={retryingThoughtId}
-			loadingDetailId={loadingDetailId}
-			editProgressEvents={progressEvents.map((row) => row.event)}
-			pipeline={CAPTURE_PIPELINE}
-			onExpand={(id) => void expandThought(id)}
-			onCollapse={collapseThought}
-			onEdit={(id) => void toggleThoughtEdit(id)}
-			onDelete={openDeleteDialog}
-			onRetry={(id) => void retryEnrichThought(id)}
-			onEditRequestChange={(value) => {
-				editRequest = value;
-			}}
-			onSubmitEdit={submitEditRequest}
-			onCancelEdit={() => editAbortController?.abort()}
-		/>
+	<div class="relative min-h-0 flex-1">
+		<div class="absolute inset-0 overflow-y-auto px-5">
+			<section class="flex flex-col gap-4 pt-6 pb-28">
+				<CaptureRecentThoughts
+					thoughts={recentThoughts}
+					{thoughtDetails}
+					enrichingThoughtIds={enrichingThoughtIds}
+					expandedId={expandedThoughtId}
+					editingId={editingThoughtId}
+					{editRequest}
+					{editLoading}
+					deletingId={deletingThoughtId}
+					retryingId={retryingThoughtId}
+					loadingDetailId={loadingDetailId}
+					editProgressEvents={progressEvents.map((row) => row.event)}
+					pipeline={CAPTURE_PIPELINE}
+					onExpand={(id) => void expandThought(id)}
+					onCollapse={collapseThought}
+					onEdit={(id) => void toggleThoughtEdit(id)}
+					onDelete={openDeleteDialog}
+					onRetry={(id) => void retryEnrichThought(id)}
+					onEditRequestChange={(value) => {
+						editRequest = value;
+					}}
+					onSubmitEdit={submitEditRequest}
+					onCancelEdit={() => editAbortController?.abort()}
+				/>
 
-		{#if queueActive}
-			<div class="shrink-0 space-y-2">
-			<CaptureQueueList
-				items={queueItems}
-				processingId={processingCaptureId}
-				events={progressEvents}
-				pipeline={CAPTURE_FAST_PIPELINE}
-				startMs={captureStartMs}
-				oncancel={(id) => void cancelQueuedItem(id)}
-			/>
-			{#if offline && pendingCount > 0 && !loading}
-				<p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
-			{/if}
-			</div>
-		{/if}
+				{#if queueActive}
+					<div class="space-y-2">
+						<CaptureQueueList
+							items={queueItems}
+							processingId={processingCaptureId}
+							events={progressEvents}
+							pipeline={CAPTURE_FAST_PIPELINE}
+							startMs={captureStartMs}
+							oncancel={(id) => void cancelQueuedItem(id)}
+						/>
+						{#if offline && pendingCount > 0 && !loading}
+							<p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
+						{/if}
+					</div>
+				{/if}
 
-		{#if err}
-			<p class="shrink-0 text-destructive text-sm">{err}</p>
-		{/if}
-	</section>
+				{#if err}
+					<p class="text-destructive text-sm">{err}</p>
+				{/if}
+			</section>
+		</div>
+	</div>
 </div>
 
 <CaptureOnboardingOverlay
