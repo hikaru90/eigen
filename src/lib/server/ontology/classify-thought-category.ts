@@ -4,6 +4,8 @@ import { getDb } from '$lib/server/db';
 import { thought, userOntology } from '$lib/server/db/schema';
 import { loadOntologyForUser, validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db';
 import { ontologyKindsPromptBlock, parseOntologyProfileJson } from './types';
+import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 import { extractChatContent, userMessage } from './llm-json';
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants';
 
@@ -64,6 +66,7 @@ export async function resolveThoughtCategory(input: {
 	rawText: string;
 	/** Canonical entities referenced in this capture (pre-ingest lexical hints). */
 	knownEntities?: Array<{ label: string; entityType: string }>;
+	groundingProfile?: GroundingProfileForEnrichment;
 }): Promise<ResolvedThoughtOntologyKind> {
 	const runStart = Date.now();
 	const userShort = input.userId.length > 8 ? `${input.userId.slice(0, 8)}…` : input.userId;
@@ -123,12 +126,15 @@ export async function resolveThoughtCategory(input: {
 		knownEntitiesBlock = `\nKnown entities referenced in this capture:\n${lines.join('\n')}`;
 	}
 
+	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
+
 	const prompt = [
 		'Return ONLY JSON with keys: "category" (string), "confidence" (number 0.0–1.0), "alternatives" (array of {key, confidence}).',
 		`"category" must be exactly one of these ontology entity kind keys: ${allowedList}.`,
 		'"confidence" is how certain you are about the primary category (1.0 = definitive, 0.0 = pure guess).',
 		'"alternatives" lists other plausible category keys with their confidence scores (omit if none). Max 3.',
 		'Pick the single best-matching kind for the capture text using the definitions below.',
+		groundingBlock,
 		`Kinds:\n${ontologyBlock}`,
 		sessionContextBlock,
 		distributionBlock,

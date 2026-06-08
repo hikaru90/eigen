@@ -7,6 +7,7 @@ const {
 	runRetrieveThoughtsToolMock,
 	runEditThoughtToolMock,
 	runDeleteThoughtToolMock,
+	runManageTemporalEventToolMock,
 	runAnswerQuestionToolMock
 } = vi.hoisted(() => ({
 	runCaptureThoughtToolMock: vi.fn(),
@@ -14,6 +15,7 @@ const {
 	runRetrieveThoughtsToolMock: vi.fn(),
 	runEditThoughtToolMock: vi.fn(),
 	runDeleteThoughtToolMock: vi.fn(),
+	runManageTemporalEventToolMock: vi.fn(),
 	runAnswerQuestionToolMock: vi.fn()
 }));
 
@@ -23,6 +25,7 @@ vi.mock('$lib/server/mcp/tools', () => ({
 	runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
 	runEditThoughtTool: runEditThoughtToolMock,
 	runDeleteThoughtTool: runDeleteThoughtToolMock,
+	runManageTemporalEventTool: runManageTemporalEventToolMock,
 	runAnswerQuestionTool: runAnswerQuestionToolMock
 }));
 

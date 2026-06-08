@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { validateNonEmptyEntityId, validateSearchParams } from './mcp-args';
+import {
+	readDeleteLookupQueryFromToolArgs,
+	readThoughtIdFromToolArgs,
+	tryReadThoughtIdFromToolArgs,
+	validateNonEmptyEntityId,
+	validateSearchParams
+} from './mcp-args';
 
 describe('validateNonEmptyEntityId', () => {
 	it('returns trimmed id', () => {
@@ -17,6 +23,38 @@ describe('validateNonEmptyEntityId', () => {
 	it('rejects null or undefined values explicitly', () => {
 		expect(() => validateNonEmptyEntityId(null, 'user_id')).toThrow(/value is required/);
 		expect(() => validateNonEmptyEntityId(undefined, 'user_id')).toThrow(/value is required/);
+	});
+});
+
+describe('readThoughtIdFromToolArgs', () => {
+	it('reads thought_id, thoughtId, and id aliases', () => {
+		expect(readThoughtIdFromToolArgs({ thought_id: 't1' })).toBe('t1');
+		expect(readThoughtIdFromToolArgs({ thoughtId: 't2' })).toBe('t2');
+		expect(readThoughtIdFromToolArgs({ id: 't3' })).toBe('t3');
+	});
+
+	it('prefers thought_id over id when both are present', () => {
+		expect(readThoughtIdFromToolArgs({ thought_id: 'canonical', id: 'other' })).toBe('canonical');
+	});
+
+	it('falls back to id when thought_id is whitespace-only', () => {
+		expect(readThoughtIdFromToolArgs({ thought_id: '   ', id: 't-fallback' })).toBe('t-fallback');
+	});
+
+	it('throws when no usable id key is present', () => {
+		expect(() => readThoughtIdFromToolArgs({})).toThrow(/whitespace-only|value is required/);
+	});
+
+	it('tryReadThoughtIdFromToolArgs returns null for prose descriptions', () => {
+		expect(tryReadThoughtIdFromToolArgs({ thought_id: 'Japanese glazed salmon recipe' })).toBeNull();
+		expect(tryReadThoughtIdFromToolArgs({ thought_id: 't1' })).toBe('t1');
+	});
+
+	it('readDeleteLookupQueryFromToolArgs returns trimmed lookup text', () => {
+		expect(
+			readDeleteLookupQueryFromToolArgs({ thought_id: '  Japanese glazed salmon recipe  ' })
+		).toBe('Japanese glazed salmon recipe');
+		expect(readDeleteLookupQueryFromToolArgs({})).toBeNull();
 	});
 });
 

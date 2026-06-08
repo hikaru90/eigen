@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import type { TemporalHintBinding } from '$lib/server/retrieval/resolve-temporal-hint-bindings';
 import {
 	allowsComputedTimelineCitation,
 	COMPUTED_TIMELINE_CITATION_ID,
 	calendarDaysBetweenExclusive,
+	calendarMonthsBetweenExclusive,
 	calendarDaysBetweenInclusive,
-	eventMatchesEntityHint,
 	formatComputedTimelineForPrompt,
 	formatSolverAnswer,
-	scoreEntityHintMatch,
 	seedsToTimelineEvents,
 	solveTemporalQuestion,
 	type TemporalSolverResult
@@ -18,7 +18,7 @@ function seed(
 	thoughtId: string,
 	summary: string,
 	startAt: string,
-	activePeriod?: string
+	kind: 'milestone' | 'inferred_event' = 'milestone'
 ): TemporalEventSeed {
 	const iso = `${startAt}T00:00:00.000Z`;
 	return {
@@ -26,8 +26,17 @@ function seed(
 		thoughtId,
 		semanticSummary: summary,
 		startAt: new Date(iso),
-		activePeriod: activePeriod ?? `[${iso},${iso.replace('T00:', 'T23:')})`
+		activePeriod: `[${iso},${iso.replace('T00:', 'T23:')})`,
+		kind
 	};
+}
+
+function hintBindings(pairs: Array<[string, string]>): TemporalHintBinding[] {
+	return pairs.map(([hint, thoughtId]) => ({
+		hint,
+		eventId: `ev-${thoughtId}`,
+		thoughtId
+	}));
 }
 
 describe('calendarDaysBetweenExclusive', () => {
@@ -58,24 +67,33 @@ describe('calendarDaysBetweenExclusive', () => {
 });
 
 describe('solveTemporalQuestion ordering', () => {
-	it('Dell XPS 13 before Samsung Galaxy S22', () => {
+	it('Samsung Galaxy S22 before Dell XPS 13 (acquisition dates)', () => {
 		const result = solveTemporalQuestion({
 			kind: 'ordering',
 			entityHints: ['Samsung Galaxy S22', 'Dell XPS 13'],
+			hintBindings: hintBindings([
+				['Samsung Galaxy S22', 'samsung'],
+				['Dell XPS 13', 'dell']
+			]),
 			seeds: [
-				seed('251d4e4e', 'User pre-ordered Dell XPS 13 laptop', '2023-01-28'),
-				seed('6e22a9db', 'User purchased Samsung Galaxy S22', '2023-02-20')
+				seed('preorder', 'User pre-ordered Dell XPS 13 laptop', '2023-01-28', 'inferred_event'),
+				seed('dell', 'Dell XPS 13 laptop arrived on February 25th', '2023-02-25'),
+				seed('samsung', 'User purchased Samsung Galaxy S22', '2023-02-20')
 			]
 		});
 		expect(result.confidence).toBe('high');
-		expect(result.ordering?.earliest.thoughtId).toBe('251d4e4e');
-		expect(result.ordering?.latest.thoughtId).toBe('6e22a9db');
+		expect(result.ordering?.earliest.thoughtId).toBe('samsung');
+		expect(result.ordering?.latest.thoughtId).toBe('dell');
 	});
 
 	it('webinar before Effective Time Management workshop', () => {
 		const result = solveTemporalQuestion({
 			kind: 'ordering',
 			entityHints: ['Effective Time Management', 'Data Analysis using Python'],
+			hintBindings: hintBindings([
+				['Effective Time Management', 'workshop'],
+				['Data Analysis using Python', 'webinar']
+			]),
 			seeds: [
 				seed('webinar', 'Participated in Data Analysis using Python webinar', '2023-03-28'),
 				seed('workshop', 'Workshop on Effective Time Management at community center', '2023-05-27')
@@ -89,6 +107,10 @@ describe('solveTemporalQuestion ordering', () => {
 		const result = solveTemporalQuestion({
 			kind: 'ordering',
 			entityHints: ['tomatoes', 'marigolds'],
+			hintBindings: hintBindings([
+				['tomatoes', 'f859cd45'],
+				['marigolds', '7a92186a']
+			]),
 			seeds: [
 				seed('f859cd45', 'Starting tomato seeds indoors since February 20th', '2023-02-20'),
 				seed('7a92186a', 'Marigold seeds arrived and began germinating', '2023-03-03')
@@ -104,6 +126,10 @@ describe('solveTemporalQuestion duration', () => {
 		const result = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['Effective Communication in the Workplace', 'team meeting'],
+			hintBindings: hintBindings([
+				['Effective Communication in the Workplace', 'b84f3fdc'],
+				['team meeting', '96797297']
+			]),
 			seeds: [
 				seed('b84f3fdc', 'Workshop on Effective Communication in the Workplace', '2023-01-10'),
 				seed('96797297', 'Team meeting scheduled', '2023-01-17')
@@ -117,6 +143,10 @@ describe('solveTemporalQuestion duration', () => {
 		const result = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['Rachel', 'house they loved'],
+			hintBindings: hintBindings([
+				['Rachel', '5edd1f50'],
+				['house they loved', '2a2b2686']
+			]),
 			seeds: [
 				seed('5edd1f50', 'Started working with Rachel', '2022-02-15'),
 				seed('2a2b2686', 'Saw a house they loved', '2022-03-01')
@@ -127,19 +157,22 @@ describe('solveTemporalQuestion duration', () => {
 	});
 });
 
-describe('eventMatchesEntityHint', () => {
-	it('matches classifier hints to summaries', () => {
-		expect(eventMatchesEntityHint('User purchased Samsung Galaxy S22', 'Samsung Galaxy S22')).toBe(true);
-		expect(eventMatchesEntityHint('Marigold seeds arrived', 'marigolds')).toBe(true);
-	});
-
-	it('prefers stronger matches for Rachel vs mortgage pre-approval', () => {
-		const rachel = scoreEntityHintMatch('Started working with Rachel on February 15th', 'Rachel');
-		const mortgage = scoreEntityHintMatch(
-			'User got pre-approved for a mortgage on February 10th',
-			'Rachel'
-		);
-		expect(rachel).toBeGreaterThan(mortgage);
+describe('solveTemporalQuestion German ordering', () => {
+	it('orders Fahrrad before Auto when LLM bindings map German hints to events', () => {
+		const result = solveTemporalQuestion({
+			kind: 'ordering',
+			entityHints: ['Fahrrad', 'Auto'],
+			hintBindings: hintBindings([
+				['Fahrrad', 'bike'],
+				['Auto', 'car']
+			]),
+			seeds: [
+				seed('bike', 'Fahrradreparatur Mitte Februar', '2023-02-15'),
+				seed('car', 'Autowäsche für Toyota Corolla am 27. Februar', '2023-02-27')
+			]
+		});
+		expect(result.confidence).toBe('high');
+		expect(result.ordering?.earliest.thoughtId).toBe('bike');
 	});
 });
 
@@ -148,6 +181,10 @@ describe('formatSolverAnswer', () => {
 		const result = solveTemporalQuestion({
 			kind: 'ordering',
 			entityHints: ['tomatoes', 'marigolds'],
+			hintBindings: hintBindings([
+				['tomatoes', 'f859cd45'],
+				['marigolds', '7a92186a']
+			]),
 			seeds: [
 				seed('f859cd45', 'Starting tomato seeds indoors since February 20th', '2023-02-20'),
 				seed('7a92186a', 'Marigold seeds arrived and began germinating', '2023-03-03')
@@ -163,6 +200,10 @@ describe('formatSolverAnswer', () => {
 		const result = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['Rachel', 'house they loved'],
+			hintBindings: hintBindings([
+				['Rachel', '5edd1f50'],
+				['house they loved', '2a2b2686']
+			]),
 			seeds: [
 				seed('5edd1f50', 'Started working with Rachel', '2022-02-15'),
 				seed('2a2b2686', 'Saw a house they loved', '2022-03-01'),
@@ -191,6 +232,10 @@ describe('formatComputedTimelineForPrompt', () => {
 		const result = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['Effective Communication in the Workplace', 'team meeting'],
+			hintBindings: hintBindings([
+				['Effective Communication in the Workplace', 'b84f3fdc'],
+				['team meeting', '96797297']
+			]),
 			seeds: [
 				seed('b84f3fdc', 'Workshop on Effective Communication in the Workplace', '2023-01-10'),
 				seed('96797297', 'Team meeting scheduled', '2023-01-17')
@@ -208,16 +253,21 @@ describe('low confidence fallthrough', () => {
 		const result: TemporalSolverResult = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['a', 'b'],
+			hintBindings: hintBindings([
+				['a', 'only'],
+				['b', 'missing']
+			]),
 			seeds: [seed('only', 'single event', '2023-01-01')]
 		});
 		expect(result.confidence).toBe('low');
 		expect(result.kind).toBe('unsupported');
 	});
 
-	it('does not fall back to unrelated events when fewer than two hints match', () => {
+	it('does not fall back to unrelated events when LLM bindings are incomplete', () => {
 		const result = solveTemporalQuestion({
 			kind: 'duration',
 			entityHints: ['Rachel', 'house they loved'],
+			hintBindings: [],
 			seeds: [
 				seed('mortgage', 'User got pre-approved for a mortgage', '2022-02-10'),
 				seed('offer', 'User will submit the offer today', '2022-03-02')
@@ -225,5 +275,72 @@ describe('low confidence fallthrough', () => {
 		});
 		expect(result.confidence).toBe('low');
 		expect(result.kind).toBe('unsupported');
+	});
+});
+
+describe('solveTemporalQuestion count', () => {
+	it('counts events before anchor', () => {
+		const result = solveTemporalQuestion({
+			kind: 'count',
+			entityHints: ["Run for the Cure"],
+			hintBindings: hintBindings([["Run for the Cure", 'run']]),
+			seeds: [
+				seed('walk', "Walk for Hunger charity 5K on February 21st", '2023-02-21'),
+				seed('coastal', 'Coastal Cleanup charity event on March 7th', '2023-03-07'),
+				seed('dance', 'Dance for a Cause charity event on May 1st', '2023-05-01'),
+				seed('golf', 'Charity golf tournament on July 17th', '2023-07-17'),
+				seed('run', "Run for the Cure event on October 15th", '2023-10-15')
+			]
+		});
+		expect(result.confidence).toBe('high');
+		expect(result.count?.value).toBe(4);
+	});
+});
+
+describe('solveTemporalQuestion lookback', () => {
+	it('computes months ago from reference time', () => {
+		const result = solveTemporalQuestion({
+			kind: 'lookback',
+			entityHints: ['Airbnb in San Francisco'],
+			hintBindings: hintBindings([['Airbnb in San Francisco', 'book']]),
+			seeds: [
+				seed('book', 'Booked Airbnb in Haight-Ashbury for wedding', '2022-12-27')
+			],
+			referenceTime: new Date('2023-05-27T01:55:00.000Z'),
+			durationUnit: 'months'
+		});
+		expect(result.confidence).toBe('high');
+		expect(result.lookback?.value).toBe(5);
+	});
+});
+
+describe('solveTemporalQuestion span', () => {
+	it('computes years and months between career milestones', () => {
+		const result = solveTemporalQuestion({
+			kind: 'span',
+			entityHints: ['working professionally', 'NovaTech'],
+			hintBindings: hintBindings([
+				['working professionally', 'career'],
+				['NovaTech', 'nova']
+			]),
+			seeds: [
+				seed('career', 'Started working professionally', '2014-05-01'),
+				seed('nova', 'Started working at NovaTech', '2019-02-01')
+			]
+		});
+		expect(result.confidence).toBe('high');
+		expect(result.span?.years).toBe(4);
+		expect(result.span?.months).toBe(9);
+	});
+});
+
+describe('calendarMonthsBetweenExclusive', () => {
+	it('Dec 27 to May 27 = 5 months', () => {
+		expect(
+			calendarMonthsBetweenExclusive(
+				new Date('2022-12-27T00:00:00.000Z'),
+				new Date('2023-05-27T00:00:00.000Z')
+			)
+		).toBe(5);
 	});
 });

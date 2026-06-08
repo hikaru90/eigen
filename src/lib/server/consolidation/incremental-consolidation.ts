@@ -102,6 +102,14 @@ export async function refreshDirtyCommunitiesForUser(userId: string): Promise<{
 				: 1;
 		if (entityChurn >= MEMBERSHIP_CHURN_THRESHOLD) {
 			needsSummaryRefresh = true;
+			await db
+				.delete(communitySummary)
+				.where(
+					and(
+						eq(communitySummary.userId, userId),
+						eq(communitySummary.communityId, community.id)
+					)
+				);
 		}
 	}
 

@@ -98,7 +98,7 @@ export async function fetchRelevantCommunitySummaries(params: {
  * @param userId - Tenant identifier.
  * @param query - Natural language question requiring global understanding.
  * @param topCommunities - How many community summaries to retrieve (default 5).
- * @param preferLevel - Prefer summaries at this hierarchy level (0=root, 3=leaf).
+ * @param preferLevel - Prefer summaries at this hierarchy level (0=root, 2=leaf).
  *   Defaults to 1 (theme level) which balances detail with scope per the paper.
  */
 export async function searchGlobal(params: {

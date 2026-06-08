@@ -6,6 +6,7 @@
  */
 
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { getDb } from '$lib/server/db';
 import {
@@ -216,7 +217,7 @@ async function fetchCommunityAnn(
 		.where(
 			and(
 				eq(communitySummary.userId, userId),
-				eq(communitySummary.level, 1),
+				eq(communitySummary.level, COMMUNITY_MID_LEVEL),
 				isNotNull(communitySummary.summaryEmbedding)
 			)
 		)
@@ -289,7 +290,7 @@ export async function retrieveEvidence(params: {
 				query: params.query,
 				queryEmbedding,
 				limit: 20
-			})
+			}).then((result) => result.seeds)
 		: Promise.resolve([]);
 
 	const [vectorRows, lexicalRows, entityMatches, communities, temporalHits, temporalSeeds] =

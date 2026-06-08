@@ -132,6 +132,14 @@ describe('rerankCandidates', () => {
 		expect(result.map((r) => r.id)).toEqual(['c', 'a', 'b']);
 	});
 
+	it('maps id-prefixed uuid strings from the rerank LLM', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			makeResponse('["id-a", "id-b"]')
+		);
+		const result = await rerankCandidates('u1', 'query', candidates.slice(0, 2));
+		expect(result.map((r) => r.id)).toEqual(['a', 'b']);
+	});
+
 	it('preserves all candidate fields in output', async () => {
 		llmChatCompletionMock.mockResolvedValue(makeResponse('["b","a","c"]'));
 		const result = await rerankCandidates('u1', 'query', candidates);
@@ -153,11 +161,10 @@ describe('rerankCandidates', () => {
 		});
 	});
 
-	it('throws RerankError when LLM returns an empty ID array', async () => {
+	it('keeps fusion order when the LLM returns an empty ID array', async () => {
 		llmChatCompletionMock.mockResolvedValue(makeResponse('[]'));
-		await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
-			message: 'Rerank LLM returned an empty ID array'
-		});
+		const result = await rerankCandidates('u1', 'query', candidates);
+		expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c']);
 	});
 
 	it('extractJsonArraysFromText finds multiple arrays in chatty output', () => {
@@ -168,6 +175,10 @@ describe('rerankCandidates', () => {
 
 	it('resolveRankedIds accepts numeric and placeholder IDs', () => {
 		expect(resolveRankedIds(['id-2', 1], candidates)).toEqual(['b', 'a']);
+	});
+
+	it('resolveRankedIds accepts id-prefixed uuid strings', () => {
+		expect(resolveRankedIds(['id-a', 'id-c'], candidates)).toEqual(['a', 'c']);
 	});
 
 	it('wraps non-Error LLM failures and parse failures', async () => {

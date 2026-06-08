@@ -59,6 +59,11 @@ Return ONLY a JSON array. Each element:
     { "dateAnchor": "explicit", "calendarMonth": 2, "calendarMonthPart": "mid" } for "mid-February"
 }
 Always set relativeSpec when the phrase is relative to capture time. Use calendarDate for explicit calendar dates in the text.
+For devices, products, or purchases: emit the possession/acquisition milestone (arrived, received, got, purchased) as kind "milestone" with that date. Do not emit a separate pre-order milestone when an arrival or purchase date is also stated — use only the acquisition date.
+For book/media completion: "finished X two weeks ago" or "finished X last weekend" → kind "milestone" with relativeSpec anchored to capture time (relativeWeeksPast or lastWeekdayBeforeCapture).
+For malfunctions and repairs: appliance breakdown or repair shop visits → kind "milestone" with resolved date (relativeSpec when relative to capture time).
+For lodging: distinguish booking/reservation date (booked, reserved → kind "milestone") from payment deadlines or booking deadlines (kind "deadline" only — do not use deadline as the booking date).
+For gardening/seeds: "started X since DATE" or "started seeds on DATE" → kind "milestone" with calendarDate at the start date (when planting began, not when seeds arrived).
 Text may be in any language (e.g. German "nächsten Mittwoch" = next Wednesday).
 If no temporal content exists, return [].`;
 

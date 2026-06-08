@@ -126,9 +126,36 @@ export function formatWhen(item: TemporalEventListItem): string {
 }
 
 export type TemporalStatusFilter = 'open' | 'all';
+export type TemporalRangeFilter = 'relevant' | 'upcoming' | 'past' | 'all';
+
+export const AGENDA_SECTION_ORDER = [
+	'today',
+	'tomorrow',
+	'this_week',
+	'later',
+	'past',
+	'unscheduled'
+] as const;
+
+export type AgendaSection = (typeof AGENDA_SECTION_ORDER)[number];
+
+export const AGENDA_SECTION_LABELS: Record<AgendaSection, string> = {
+	today: 'Today',
+	tomorrow: 'Tomorrow',
+	this_week: 'This week',
+	later: 'Later',
+	past: 'Past',
+	unscheduled: 'No date'
+};
 
 export function isTemporalEventCompleted(item: TemporalEventListItem): boolean {
+	if (item.lifecycleStatus === 'completed') return true;
+	if (item.lifecycleStatus === 'cancelled' || item.lifecycleStatus === 'dismissed') return true;
 	return item.thoughtStatus === 'completed';
+}
+
+export function isTemporalEventOpen(item: TemporalEventListItem): boolean {
+	return item.lifecycleStatus === 'open';
 }
 
 export function filterItemsByStatus(
@@ -136,16 +163,18 @@ export function filterItemsByStatus(
 	statusFilter: TemporalStatusFilter
 ): TemporalEventListItem[] {
 	if (statusFilter === 'all') return items;
-	return items.filter((item) => !isTemporalEventCompleted(item));
+	return items.filter((item) => isTemporalEventOpen(item));
 }
 
 export function completedEventSummaryClass(completed: boolean): string {
 	return completed ? 'opacity-60 line-through' : '';
 }
 
+const RELEVANT_LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function filterItemsByRange(
 	items: TemporalEventListItem[],
-	rangeFilter: 'all' | 'upcoming' | 'past'
+	rangeFilter: TemporalRangeFilter
 ): TemporalEventListItem[] {
 	const now = Date.now();
 	return items.filter((item) => {
@@ -153,8 +182,90 @@ export function filterItemsByRange(
 		const start = item.startAt ? new Date(item.startAt).getTime() : 0;
 		const end = item.endAt ? new Date(item.endAt).getTime() : start;
 		if (rangeFilter === 'upcoming') return end >= now;
-		return start < now;
+		if (rangeFilter === 'past') return start < now;
+		// relevant: still active (end >= now) OR starts within the next 7 days
+		return end >= now || (start >= now && start <= now + RELEVANT_LOOKAHEAD_MS);
 	});
+}
+
+export function filterItemsByKinds(
+	items: TemporalEventListItem[],
+	kinds: string[]
+): TemporalEventListItem[] {
+	if (kinds.length === 0) return items;
+	const set = new Set(kinds);
+	return items.filter((item) => set.has(item.kind));
+}
+
+function startOfLocalDayMs(day: Date, timeZone: string): number {
+	const fmt = new Intl.DateTimeFormat('en-CA', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit'
+	});
+	const key = fmt.format(day);
+	const [y, m, d] = key.split('-').map(Number);
+	return Date.UTC(y, m - 1, d);
+}
+
+function localDayKeyFromIso(iso: string, timeZone: string): string {
+	return new Intl.DateTimeFormat('en-CA', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit'
+	}).format(new Date(iso));
+}
+
+export function agendaSectionForItem(
+	item: TemporalEventListItem,
+	now: Date,
+	timeZone: string
+): AgendaSection {
+	if (!item.startAt) return 'unscheduled';
+	const nowMs = now.getTime();
+	const startMs = new Date(item.startAt).getTime();
+	const endMs = item.endAt ? new Date(item.endAt).getTime() : startMs;
+
+	if (endMs < nowMs) return 'past';
+
+	const todayKey = localDayKeyFromIso(now.toISOString(), timeZone);
+	const startKey = localDayKeyFromIso(item.startAt, timeZone);
+	if (startKey === todayKey) return 'today';
+
+	const tomorrow = new Date(now);
+	tomorrow.setDate(tomorrow.getDate() + 1);
+	const tomorrowKey = localDayKeyFromIso(tomorrow.toISOString(), timeZone);
+	if (startKey === tomorrowKey) return 'tomorrow';
+
+	const weekEnd = startOfLocalDayMs(now, timeZone) + 7 * 24 * 60 * 60 * 1000;
+	if (startMs < weekEnd) return 'this_week';
+
+	return 'later';
+}
+
+export function groupByAgendaSection(
+	items: TemporalEventListItem[],
+	timeZone: string,
+	now = new Date()
+): Map<AgendaSection, TemporalEventListItem[]> {
+	const map = new Map<AgendaSection, TemporalEventListItem[]>();
+	for (const section of AGENDA_SECTION_ORDER) {
+		map.set(section, []);
+	}
+	for (const item of items) {
+		const section = agendaSectionForItem(item, now, timeZone);
+		map.get(section)!.push(item);
+	}
+	for (const [, list] of map) {
+		list.sort((a, b) => {
+			const as = a.startAt ? new Date(a.startAt).getTime() : Number.MAX_SAFE_INTEGER;
+			const bs = b.startAt ? new Date(b.startAt).getTime() : Number.MAX_SAFE_INTEGER;
+			return as - bs;
+		});
+	}
+	return map;
 }
 
 export function eventRangeMs(item: TemporalEventListItem): { start: number; end: number } | null {

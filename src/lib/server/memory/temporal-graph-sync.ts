@@ -14,6 +14,7 @@ import {
 	type ExtractedTemporalMention
 } from '$lib/server/memory/temporal-normalize';
 import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker';
+import { syncReminderScheduleForEvent } from '$lib/server/memory/event-reminder-schedule';
 
 const DEFAULT_TIMEZONE = 'UTC';
 
@@ -135,6 +136,19 @@ export async function syncTemporalEventsFromThought(input: {
 				.returning({ id: graphSyncJob.id });
 
 			insertedJobIds.push(job.id);
+
+			void syncReminderScheduleForEvent({
+				userId: input.userId,
+				temporalEventId: row.id,
+				kind: mention.kind,
+				startAt: bounds.start,
+				lifecycleStatus: 'open'
+			}).catch((err) => {
+				console.error('[temporal-graph-sync] reminder schedule failed', {
+					temporalEventId: row.id,
+					message: err instanceof Error ? err.message : String(err)
+				});
+			});
 		}
 	});
 

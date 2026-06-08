@@ -7,7 +7,6 @@ import {
 	findUniqueStrongRetrieveMatch,
 	formatToolResultForAgentMessage,
 	formatToolResultPreview,
-	isDeleteIntent,
 	MAX_TOOL_RESULT_JSON_CHARS,
 	MAX_TOOL_RESULT_PREVIEW_CHARS,
 	STRONG_RETRIEVE_MATCH_MIN,
@@ -15,13 +14,6 @@ import {
 } from './agent-tool-result-compact';
 
 describe('agent-tool-result-compact', () => {
-	describe('isDeleteIntent', () => {
-		it('always returns false — delete intent is agent LLM-judged', () => {
-			expect(isDeleteIntent('please delete the note about groceries')).toBe(false);
-			expect(isDeleteIntent('what did I capture yesterday?')).toBe(false);
-		});
-	});
-
 	describe('findUniqueStrongRetrieveMatch', () => {
 		const weights = CONTEXT_WEIGHTS.default;
 		const strongScore = STRONG_RETRIEVE_MATCH_MIN + 0.1;

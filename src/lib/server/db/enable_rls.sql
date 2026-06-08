@@ -57,6 +57,14 @@ CREATE POLICY user_ontology_isolation ON user_ontology
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE user_grounding_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_grounding_profile FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_grounding_profile_isolation ON user_grounding_profile;
+CREATE POLICY user_grounding_profile_isolation ON user_grounding_profile
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE ontology_entity_kind ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ontology_entity_kind FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS ontology_entity_kind_isolation ON ontology_entity_kind;
@@ -201,6 +209,14 @@ ALTER TABLE graph_sync_job ENABLE ROW LEVEL SECURITY;
 ALTER TABLE graph_sync_job FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS graph_sync_job_isolation ON graph_sync_job;
 CREATE POLICY graph_sync_job_isolation ON graph_sync_job
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE event_reminder_schedule ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_reminder_schedule FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS event_reminder_schedule_isolation ON event_reminder_schedule;
+CREATE POLICY event_reminder_schedule_isolation ON event_reminder_schedule
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));

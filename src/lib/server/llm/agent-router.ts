@@ -25,6 +25,7 @@ export const ROUTER_SYSTEM_PROMPT = [
 	'- Never route questions to capture_thought — e.g. "Wie koche ich Japanese-Glazed Salmon?" is answer_question, not capture.',
 	'- capture_thought ONLY when the user explicitly asks to save/remember/note something (e.g. "remember that…", "save this:", "note to self").',
 	'- Completion reports, edit/delete without id, or any sequence needing search then act → multi_step',
+	'- delete_thought requires a persisted thought UUID — never route delete-by-description to delete_thought; use multi_step or retrieve_thoughts first.',
 	'- When unsure between capture and answer, prefer answer_question.',
 	'',
 	`Valid tool names: ${MCP_TOOL_NAMES.join(', ')}`

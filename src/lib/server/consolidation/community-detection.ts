@@ -3,7 +3,7 @@
  *
  * Fetches entity-entity edges from the AGE graph, runs the Leiden community detection
  * algorithm, then persists:
- *   - graph_community rows (4 levels: L3 leaf → L0 root)
+ *   - graph_community rows (3 levels: L2 leaf → L0 root)
  *   - community_member rows (entity → community membership per level)
  *
  * Should be triggered by the nightly consolidation runner on every heartbeat.
@@ -18,11 +18,17 @@ import { eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { graphCommunity, communityMember, canonicalEntity } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
+import {
+	COMMUNITY_HIERARCHY_DEPTH,
+	COMMUNITY_LEAF_LEVEL,
+	COMMUNITY_LEVEL_SCHEMA,
+	COMMUNITY_ROOT_LEVEL
+} from './community-levels';
 import { detectCommunities, type CommunityHierarchy } from './leiden';
 
 export type CommunityDetectionResult = {
 	entityCount: number;
-	communityCounts: number[];  // per level, index 0 = L3
+	communityCounts: number[];  // per level, index 0 = leaf (L2)
 	totalCommunities: number;
 	/** False when Leiden partition matches persisted membership (no DB rewrite). */
 	changed: boolean;
@@ -30,15 +36,15 @@ export type CommunityDetectionResult = {
 };
 
 /** DB level values in leaf→root order (matches hierarchy.levels indexing). */
-const LEVEL_SCHEMA_INDEX = [3, 2, 1, 0] as const;
+const LEVEL_SCHEMA_INDEX = COMMUNITY_LEVEL_SCHEMA;
 const LOW_DENSITY_THRESHOLD = 0.015;
 const HIGH_ISOLATION_THRESHOLD = 0.6;
 const HIGH_COMPONENT_THRESHOLD = 6;
 
 export type CommunityGraphHealth = {
 	edgePolicy: 'entity_relates_only';
-	leafLevel: 3;
-	rootLevel: 0;
+	leafLevel: typeof COMMUNITY_LEAF_LEVEL;
+	rootLevel: typeof COMMUNITY_ROOT_LEVEL;
 	componentCount: number;
 	isolatedNodeCount: number;
 	isolatedNodeRatio: number;
@@ -106,8 +112,8 @@ function buildGraphHealth(input: {
 
 	return {
 		edgePolicy: 'entity_relates_only',
-		leafLevel: 3,
-		rootLevel: 0,
+		leafLevel: COMMUNITY_LEAF_LEVEL,
+		rootLevel: COMMUNITY_ROOT_LEVEL,
 		componentCount,
 		isolatedNodeCount,
 		isolatedNodeRatio,
@@ -208,8 +214,8 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 	const nodeIds = entities.map((e) => e.id);
 	const emptyHealth: CommunityGraphHealth = {
 		edgePolicy: 'entity_relates_only',
-		leafLevel: 3,
-		rootLevel: 0,
+		leafLevel: COMMUNITY_LEAF_LEVEL,
+		rootLevel: COMMUNITY_ROOT_LEVEL,
 		componentCount: nodeIds.length > 0 ? nodeIds.length : 0,
 		isolatedNodeCount: nodeIds.length,
 		isolatedNodeRatio: nodeIds.length > 0 ? 1 : 0,
@@ -239,8 +245,8 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 	const edges = await fetchEntityEdgesForUser({ userId });
 	const graphHealth = buildGraphHealth({ nodeIds, edges });
 
-	// Run Leiden community detection (4 levels).
-	const hierarchy = detectCommunities(nodeIds, edges, 4);
+	// Run Leiden community detection (3 levels: L2 leaf → L0 root).
+	const hierarchy = detectCommunities(nodeIds, edges, COMMUNITY_HIERARCHY_DEPTH);
 	const nextFingerprint = buildHierarchyFingerprint(hierarchy);
 	const storedFingerprint = await loadStoredMembershipFingerprint(userId);
 
@@ -260,8 +266,7 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 	await db.delete(graphCommunity).where(eq(graphCommunity.userId, userId));
 
 	// Persist communities and memberships for each level.
-	// L3 = level 3 (leaf), L0 = level 0 (root).
-	// hierarchy.levels[0] = L3, hierarchy.levels[3] = L0.
+	// L2 = leaf, L0 = root. hierarchy.levels[0] = leaf, hierarchy.levels[2] = root.
 	const communityCounts: number[] = [];
 
 	// We need to build parent relationships between levels.
@@ -270,7 +275,7 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 
 	for (let i = 0; i < hierarchy.levels.length; i++) {
 		const level = hierarchy.levels[i];
-		const dbLevel = LEVEL_SCHEMA_INDEX[i]; // 3, 2, 1, 0
+		const dbLevel = LEVEL_SCHEMA_INDEX[i];
 
 		// Determine parent community UUIDs from level i+1 (coarser).
 		// The "parent" of a community at level i is the community that the same

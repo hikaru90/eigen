@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { filterTemporalEvents, inferQueryTimeRange, isTemporalQuery, resolveQueryTimeRange, traverseTemporalContext } from './temporal';
+import {
+	fetchTemporalEventSeedsForHints,
+	filterTemporalEvents,
+	inferQueryTimeRange,
+	isTemporalQuery,
+	resolveQueryTimeRange,
+	traverseTemporalContext
+} from './temporal';
 
-const { getDbMock, createThoughtEmbeddingMock, expandContextFromTemporalEventSeedsMock } =
+const { getDbMock, createThoughtEmbeddingMock, expandContextFromTemporalEventSeedsMock, resolveTemporalHintBindingsMock } =
 	vi.hoisted(() => ({
 		getDbMock: vi.fn(),
 		createThoughtEmbeddingMock: vi.fn(),
-		expandContextFromTemporalEventSeedsMock: vi.fn()
+		expandContextFromTemporalEventSeedsMock: vi.fn(),
+		resolveTemporalHintBindingsMock: vi.fn()
 	}));
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
@@ -14,6 +22,17 @@ vi.mock('$lib/server/llm/embedding', () => ({
 }));
 vi.mock('$lib/server/graph/age', () => ({
 	expandContextFromTemporalEventSeeds: expandContextFromTemporalEventSeedsMock
+}));
+vi.mock('$lib/server/retrieval/resolve-temporal-hint-bindings', () => ({
+	resolveTemporalHintBindings: resolveTemporalHintBindingsMock,
+	candidatesFromTemporalSeeds: (seeds: Array<{ eventId: string; thoughtId: string; semanticSummary: string; startAt: Date | null; kind: string }>) =>
+		seeds.map((seed) => ({
+			eventId: seed.eventId,
+			thoughtId: seed.thoughtId,
+			semanticSummary: seed.semanticSummary,
+			startAt: seed.startAt?.toISOString() ?? null,
+			kind: seed.kind
+		}))
 }));
 
 describe('isTemporalQuery', () => {
@@ -224,5 +243,125 @@ describe('traverseTemporalContext', () => {
 			eventIds: ['ev-only'],
 			limit: 40
 		});
+	});
+});
+
+describe('fetchTemporalEventSeedsForHints', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2]);
+		resolveTemporalHintBindingsMock.mockResolvedValue([
+			{ hint: 'bike', eventId: 'ev-bike', thoughtId: 't-bike' },
+			{ hint: 'car', eventId: 'ev-car', thoughtId: 't-car' }
+		]);
+	});
+
+	it('merges per-hint results so both anchors are retained', async () => {
+		const bikeRow = {
+			id: 'ev-bike',
+			thoughtId: 't-bike',
+			semanticSummary: 'Bike repairs in mid-February',
+			startAt: new Date('2023-02-15T00:00:00.000Z'),
+			activePeriod: '[2023-02-15,2023-02-16)',
+			kind: 'milestone' as const,
+			distance: 0.1
+		};
+		const carRow = {
+			id: 'ev-car',
+			thoughtId: 't-car',
+			semanticSummary: 'Car wash for Toyota Corolla on February 27th',
+			startAt: new Date('2023-02-27T00:00:00.000Z'),
+			activePeriod: '[2023-02-27,2023-02-28)',
+			kind: 'milestone' as const,
+			distance: 0.5
+		};
+		const decoys = Array.from({ length: 50 }, (_, i) => ({
+			id: `ev-decoy-${i}`,
+			thoughtId: `t-decoy-${i}`,
+			semanticSummary: `Unrelated event ${i}`,
+			startAt: new Date('2023-01-01T00:00:00.000Z'),
+			activePeriod: '[2023-01-01,2023-01-02)',
+			kind: 'inferred_event' as const,
+			distance: 0.2 + i * 0.01
+		}));
+
+		let call = 0;
+		const limit = vi.fn(async () => {
+			call++;
+			if (call === 1) return decoys;
+			if (call === 2) return [bikeRow, ...decoys.slice(0, 5)];
+			return [carRow, ...decoys.slice(0, 5)];
+		});
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
+		const result = await fetchTemporalEventSeedsForHints({
+			userId: 'u1',
+			query: 'Which vehicle did I take care of first in February, the bike or the car?',
+			queryEmbedding: [0.5, 0.6],
+			entityHints: ['bike', 'car'],
+			limit: 24,
+			limitPerHint: 8
+		});
+
+		const thoughtIds = result.seeds.map((s) => s.thoughtId);
+		expect(thoughtIds).toContain('t-bike');
+		expect(thoughtIds).toContain('t-car');
+		expect(resolveTemporalHintBindingsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				question: 'Which vehicle did I take care of first in February, the bike or the car?',
+				kind: 'none'
+			})
+		);
+	});
+
+	it('runs per-hint embedding search for a single entity hint', async () => {
+		const airbnbRow = {
+			id: 'ev-airbnb',
+			thoughtId: 't-airbnb',
+			semanticSummary: 'Booked Airbnb in Haight-Ashbury for wedding',
+			startAt: new Date('2022-12-27T00:00:00.000Z'),
+			activePeriod: '[2022-12-27,2022-12-28)',
+			kind: 'milestone' as const,
+			distance: 0.1
+		};
+		const decoys = Array.from({ length: 20 }, (_, i) => ({
+			id: `ev-decoy-${i}`,
+			thoughtId: `t-decoy-${i}`,
+			semanticSummary: `Unrelated event ${i}`,
+			startAt: new Date('2023-01-01T00:00:00.000Z'),
+			activePeriod: '[2023-01-01,2023-01-02)',
+			kind: 'inferred_event' as const,
+			distance: 0.2 + i * 0.01
+		}));
+
+		let call = 0;
+		const limit = vi.fn(async () => {
+			call++;
+			if (call === 1) return decoys;
+			return [airbnbRow, ...decoys.slice(0, 3)];
+		});
+		const orderBy = vi.fn(() => ({ limit }));
+		const where = vi.fn(() => ({ orderBy }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+		resolveTemporalHintBindingsMock.mockResolvedValue([
+			{ hint: 'Airbnb in San Francisco', eventId: 'ev-airbnb', thoughtId: 't-airbnb' }
+		]);
+
+		const result = await fetchTemporalEventSeedsForHints({
+			userId: 'u1',
+			query: 'How many months ago did I book the Airbnb in San Francisco?',
+			queryEmbedding: [0.5, 0.6],
+			entityHints: ['Airbnb in San Francisco'],
+			kind: 'lookback',
+			limit: 24
+		});
+
+		expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'Airbnb in San Francisco');
+		expect(result.seeds.map((s) => s.thoughtId)).toContain('t-airbnb');
+		expect(result.candidatesByHint).toHaveLength(1);
 	});
 });

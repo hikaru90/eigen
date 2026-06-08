@@ -21,6 +21,7 @@ const {
 	searchGlobalMock,
 	classifyQueryIntentMock,
 	fetchTemporalEventSeedsMock,
+	resolveTemporalHintBindingsMock,
 	fetchRelevantCommunitySummariesMock,
 	llmChatCompletionMock,
 	findTemporalSchedulingConflictsMock,
@@ -35,6 +36,7 @@ const {
 	searchGlobalMock: vi.fn(),
 	classifyQueryIntentMock: vi.fn(),
 	fetchTemporalEventSeedsMock: vi.fn(),
+	resolveTemporalHintBindingsMock: vi.fn(),
 	fetchRelevantCommunitySummariesMock: vi.fn(),
 	llmChatCompletionMock: vi.fn(),
 	findTemporalSchedulingConflictsMock: vi.fn(),
@@ -53,11 +55,24 @@ vi.mock('$lib/server/retrieval/classify-query-intent', () => ({
 	classifyQueryIntent: classifyQueryIntentMock
 }));
 
+vi.mock('$lib/server/retrieval/resolve-temporal-hint-bindings', () => ({
+	resolveTemporalHintBindings: resolveTemporalHintBindingsMock,
+	candidatesFromTemporalSeeds: (seeds: Array<{ eventId: string; thoughtId: string; semanticSummary: string; startAt: Date | null; kind: string }>) =>
+		seeds.map((seed) => ({
+			eventId: seed.eventId,
+			thoughtId: seed.thoughtId,
+			semanticSummary: seed.semanticSummary,
+			startAt: seed.startAt?.toISOString() ?? null,
+			kind: seed.kind
+		}))
+}));
+
 vi.mock('$lib/server/retrieval/temporal', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/server/retrieval/temporal')>();
 	return {
 		...actual,
-		fetchTemporalEventSeeds: fetchTemporalEventSeedsMock
+		fetchTemporalEventSeeds: fetchTemporalEventSeedsMock,
+		fetchTemporalEventSeedsForHints: fetchTemporalEventSeedsMock
 	};
 });
 
@@ -310,7 +325,9 @@ describe('composeAnswer', () => {
 		temporal: false,
 		kind: 'none' as const,
 		entityHints: [] as string[],
-		timeWindow: null
+		timeWindow: null,
+		durationUnit: null,
+		comparativeOrdering: false
 	};
 
 	beforeEach(() => {
@@ -318,7 +335,8 @@ describe('composeAnswer', () => {
 		dbWhereMock.mockResolvedValue([]);
 		hasCommunitySummariesMock.mockResolvedValue(false);
 		classifyQueryIntentMock.mockResolvedValue(localIntent);
-		fetchTemporalEventSeedsMock.mockResolvedValue([]);
+		fetchTemporalEventSeedsMock.mockResolvedValue({ seeds: [], candidatesByHint: [] });
+		resolveTemporalHintBindingsMock.mockResolvedValue([]);
 		searchGlobalMock.mockResolvedValue({
 			answer: 'You care about family and creative work.',
 			communitiesUsed: 2,
@@ -559,29 +577,51 @@ describe('composeAnswer', () => {
 		);
 	});
 
+	it('strips disallowed computed citations instead of failing the answer', async () => {
+		llmChatCompletionMock.mockResolvedValueOnce(
+			chatResponse(
+				'Answer: 4 days between events [id=t_001].\nEvidence:\n- Event A [id=t_001]\n- Event B [id=t_002]\n- Difference is 4 days [computed]\n\nUnknown:\n- none'
+			)
+		);
+		const result = await composeAnswer({ userId: 'u1', question: 'how many days between?' });
+		expect(result.answer).not.toContain('computed');
+		expect(result.answer).toContain('[id=t_001]');
+	});
+
 	it('returns deterministic duration answer without calling compose LLM', async () => {
 		classifyQueryIntentMock.mockResolvedValue({
 			scope: 'local',
 			temporal: true,
 			kind: 'duration',
 			entityHints: ['workshop', 'team meeting'],
-			timeWindow: null
+			timeWindow: null,
+			durationUnit: 'days',
+			comparativeOrdering: false
 		});
-		fetchTemporalEventSeedsMock.mockResolvedValue([
-			{
-				eventId: 'ev-1',
-				thoughtId: 't_001',
-				semanticSummary: 'Workshop on Effective Communication in the Workplace',
-				startAt: new Date('2023-01-10T00:00:00.000Z'),
-				activePeriod: '[2023-01-10T00:00:00.000Z,2023-01-11T00:00:00.000Z)'
-			},
-			{
-				eventId: 'ev-2',
-				thoughtId: 't_002',
-				semanticSummary: 'Team meeting scheduled',
-				startAt: new Date('2023-01-17T00:00:00.000Z'),
-				activePeriod: '[2023-01-17T00:00:00.000Z,2023-01-18T00:00:00.000Z)'
-			}
+		fetchTemporalEventSeedsMock.mockResolvedValue({
+			seeds: [
+				{
+					eventId: 'ev-1',
+					thoughtId: 't_001',
+					semanticSummary: 'Workshop on Effective Communication in the Workplace',
+					startAt: new Date('2023-01-10T00:00:00.000Z'),
+					activePeriod: '[2023-01-10T00:00:00.000Z,2023-01-11T00:00:00.000Z)',
+					kind: 'milestone'
+				},
+				{
+					eventId: 'ev-2',
+					thoughtId: 't_002',
+					semanticSummary: 'Team meeting scheduled',
+					startAt: new Date('2023-01-17T00:00:00.000Z'),
+					activePeriod: '[2023-01-17T00:00:00.000Z,2023-01-18T00:00:00.000Z)',
+					kind: 'milestone'
+				}
+			],
+			candidatesByHint: [[], []]
+		});
+		resolveTemporalHintBindingsMock.mockResolvedValue([
+			{ hint: 'workshop', eventId: 'ev-1', thoughtId: 't_001' },
+			{ hint: 'team meeting', eventId: 'ev-2', thoughtId: 't_002' }
 		]);
 
 		const result = await composeAnswer({
@@ -594,30 +634,106 @@ describe('composeAnswer', () => {
 		expect(result.citations).toEqual(expect.arrayContaining(['t_001', 't_002', 'computed']));
 	});
 
+	it('passes question and kind to resolveTemporalHintBindings', async () => {
+		classifyQueryIntentMock.mockResolvedValue({
+			scope: 'local',
+			temporal: true,
+			kind: 'duration',
+			entityHints: ['Walk for Hunger', 'Coastal Cleanup'],
+			timeWindow: null,
+			durationUnit: 'days',
+			comparativeOrdering: false
+		});
+		fetchTemporalEventSeedsMock.mockResolvedValue({
+			seeds: [
+				{
+					eventId: 'ev-walk',
+					thoughtId: 't_walk',
+					semanticSummary: 'Walk for Hunger charity 5K',
+					startAt: new Date('2023-02-21T00:00:00.000Z'),
+					activePeriod: '[2023-02-21T00:00:00.000Z,2023-02-22T00:00:00.000Z)',
+					kind: 'milestone'
+				},
+				{
+					eventId: 'ev-coastal',
+					thoughtId: 't_coastal',
+					semanticSummary: 'Coastal Cleanup charity event',
+					startAt: new Date('2023-03-07T00:00:00.000Z'),
+					activePeriod: '[2023-03-07T00:00:00.000Z,2023-03-08T00:00:00.000Z)',
+					kind: 'milestone'
+				}
+			],
+			candidatesByHint: [
+				[
+					{
+						eventId: 'ev-walk',
+						thoughtId: 't_walk',
+						semanticSummary: 'Walk for Hunger charity 5K',
+						startAt: '2023-02-21T00:00:00.000Z',
+						kind: 'milestone'
+					}
+				],
+				[
+					{
+						eventId: 'ev-coastal',
+						thoughtId: 't_coastal',
+						semanticSummary: 'Coastal Cleanup charity event',
+						startAt: '2023-03-07T00:00:00.000Z',
+						kind: 'milestone'
+					}
+				]
+			]
+		});
+		resolveTemporalHintBindingsMock.mockResolvedValue([
+			{ hint: 'Walk for Hunger', eventId: 'ev-walk', thoughtId: 't_walk' },
+			{ hint: 'Coastal Cleanup', eventId: 'ev-coastal', thoughtId: 't_coastal' }
+		]);
+
+		const question =
+			"How many days had passed between the 'Walk for Hunger' event and the 'Coastal Cleanup' event?";
+		await composeAnswer({ userId: 'u1', question });
+
+		expect(resolveTemporalHintBindingsMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				question,
+				kind: 'duration',
+				hints: ['Walk for Hunger', 'Coastal Cleanup'],
+				candidatesByHint: expect.any(Array)
+			})
+		);
+	});
+
 	it('does not bypass compose LLM for misclassified ordering on fact-lookup questions', async () => {
 		classifyQueryIntentMock.mockResolvedValue({
 			scope: 'local',
 			temporal: true,
 			kind: 'ordering',
 			entityHints: ['first service', 'GPS system'],
-			timeWindow: null
+			timeWindow: null,
+			durationUnit: null,
+			comparativeOrdering: false
 		});
-		fetchTemporalEventSeedsMock.mockResolvedValue([
-			{
-				eventId: 'ev-1',
-				thoughtId: 't_svc',
-				semanticSummary: 'Car first service on March 15th',
-				startAt: new Date('2023-03-15T00:00:00.000Z'),
-				activePeriod: '[2023-03-15T00:00:00.000Z,2023-03-16T00:00:00.000Z)'
-			},
-			{
-				eventId: 'ev-2',
-				thoughtId: 't_gps',
-				semanticSummary: 'GPS system issue on March 22nd',
-				startAt: new Date('2023-03-22T00:00:00.000Z'),
-				activePeriod: '[2023-03-22T00:00:00.000Z,2023-03-23T00:00:00.000Z)'
-			}
-		]);
+		fetchTemporalEventSeedsMock.mockResolvedValue({
+			seeds: [
+				{
+					eventId: 'ev-1',
+					thoughtId: 't_svc',
+					semanticSummary: 'Car first service on March 15th',
+					startAt: new Date('2023-03-15T00:00:00.000Z'),
+					activePeriod: '[2023-03-15T00:00:00.000Z,2023-03-16T00:00:00.000Z)',
+					kind: 'milestone'
+				},
+				{
+					eventId: 'ev-2',
+					thoughtId: 't_gps',
+					semanticSummary: 'GPS system issue on March 22nd',
+					startAt: new Date('2023-03-22T00:00:00.000Z'),
+					activePeriod: '[2023-03-22T00:00:00.000Z,2023-03-23T00:00:00.000Z)',
+					kind: 'milestone'
+				}
+			],
+			candidatesByHint: [[], []]
+		});
 		llmChatCompletionMock.mockResolvedValueOnce(
 			chatResponse(
 				'Answer: GPS system not functioning correctly.\nEvidence:\n- GPS issue [id=t_gps]\n\nUnknown:\n- none'

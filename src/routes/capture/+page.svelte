@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
+	import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte';
+	import { enhance } from '$app/forms';
 	import CaptureQueueList from '$lib/components/capture-queue-list.svelte';
 	import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte';
 	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
@@ -37,15 +39,27 @@
 	} from '$lib/capture/queue/ui-state';
 	import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment';
 	import { pollCaptureRecentSync } from '$lib/capture/poll-capture-recent-sync';
+	import { captureInputDraft } from '$lib/stores/page-input-drafts';
+	import { get } from 'svelte/store';
 
 	let { data }: { data: PageData } = $props();
 
 	const showOnboarding = $derived(!data.onboardingCompleted);
+	const captureBlocked = $derived(!data.captureAllowed);
+	let localWalletCredits = $state(data.walletAvailableCredits);
+
+	$effect(() => {
+		localWalletCredits = data.walletAvailableCredits;
+	});
 
 	const RECENT_THOUGHTS_LIMIT = 8;
 
-	let raw = $state('');
+	let raw = $state(get(captureInputDraft));
 	let editRequest = $state('');
+
+	$effect(() => {
+		captureInputDraft.set(raw);
+	});
 	let recentThoughts = $state<CaptureRecentThoughtSnippet[]>(data.recentThoughts);
 	let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
 		Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought]))
@@ -445,6 +459,59 @@
 
 <div class="fixed inset-x-0 top-20 bottom-20 z-0 mx-auto flex max-w-xl flex-col overflow-hidden px-5">
 	<section class="flex min-h-0 flex-1 flex-col gap-4">
+		{#if data.showRegroundNudge}
+			<div class="shrink-0 rounded-xl border border-border bg-muted/60 px-3.5 py-3 text-xs">
+				<p class="text-foreground leading-relaxed">
+					It has been a while since your grounding conversation. A quick refresh helps Eigen stay aligned
+					with who you are now.
+				</p>
+				<div class="mt-2 flex flex-wrap gap-2">
+					<Button href="/chat?mode=grounding&refresh=1" size="sm" class="rounded-[4px] text-xs">
+						Update profile
+					</Button>
+					<form method="post" action="?/dismissRegroundNudge" use:enhance>
+						<Button type="submit" variant="ghost" size="sm" class="rounded-[4px] text-xs">
+							Dismiss
+						</Button>
+					</form>
+				</div>
+			</div>
+		{/if}
+
+		{#if captureBlocked}
+			<Card.Root class="shrink-0 border-2 border-black dark:border-border">
+				<Card.Header>
+					<Card.Title class="text-sm">Before your first capture</Card.Title>
+				</Card.Header>
+				<Card.Content class="space-y-3 text-xs">
+					{#if data.captureGateReason === 'insufficient_credits' && data.billingMode === 'platform_credits'}
+						<p class="text-muted-foreground leading-relaxed">
+							Add Eigen credits to run capture and enrichment (minimum {data.minCaptureCredits.toLocaleString()}
+							credits).
+						</p>
+						<CreditsTopUpPanel
+							compact
+							availableCredits={localWalletCredits}
+							paypalConfigured={data.paypalConfigured}
+							paypalClientId={data.paypalClientId}
+							paypalSdkUrl={data.paypalSdkUrl}
+							onBalanceUpdated={(credits) => {
+								localWalletCredits = credits;
+							}}
+						/>
+					{:else if data.captureGateReason === 'grounding_required'}
+						<p class="text-muted-foreground leading-relaxed">
+							Complete a short getting-to-know-you chat so Eigen can classify thoughts in a way that fits
+							you.
+						</p>
+						<Button href="/chat?mode=grounding" class="w-full rounded-[4px] text-xs">
+							Continue grounding conversation
+						</Button>
+					{/if}
+				</Card.Content>
+			</Card.Root>
+		{/if}
+
 		<Card.Root class="shrink-0 bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-[2px] gap-[6px] items-start overflow-visible">
 			<Card.Content class="p-0 w-full">
 				<Label for="thought" class="sr-only">Thought</Label>
@@ -471,7 +538,7 @@
 					<Button
 						type="button"
 						class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
-						disabled={!raw.trim()}
+						disabled={!raw.trim() || captureBlocked || loading}
 						onclick={capture}
 					>
 						Capture
@@ -527,7 +594,17 @@
 	</section>
 </div>
 
-<CaptureOnboardingOverlay open={showOnboarding} llmConfigured={data.llmConfigured} />
+<CaptureOnboardingOverlay
+	open={showOnboarding}
+	billingMode={data.billingMode}
+	walletAvailableCredits={localWalletCredits}
+	minCaptureCredits={data.minCaptureCredits}
+	paypalConfigured={data.paypalConfigured}
+	paypalClientId={data.paypalClientId}
+	paypalSdkUrl={data.paypalSdkUrl}
+	groundingCompleted={data.groundingCompleted}
+	creditsGatePassed={data.creditsGatePassed || localWalletCredits >= data.minCaptureCredits}
+/>
 
 <AlertDialog.Root
 	bind:open={deleteDialogOpen}

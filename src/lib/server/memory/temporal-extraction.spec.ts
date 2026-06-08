@@ -72,4 +72,41 @@ describe('extractTemporalMentions', () => {
 			})
 		).rejects.toThrow(/no choices/);
 	});
+
+	it('prompt prefers acquisition milestone over pre-order for devices', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			llmContent(
+				`[{"surface":"pre-ordered the laptop on January 28th","kind":"milestone","startAt":"2023-01-28T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Dell XPS 13 laptop arrived on February 25th","relativeSpec":{"dateAnchor":"explicit","calendarDate":"2023-02-25"}}]`
+			)
+		);
+
+		await extractTemporalMentions({
+			userId: 'u1',
+			normalizedText:
+				'I pre-ordered the laptop on January 28th, and it finally arrived on February 25th after a delay',
+			capturedAt: new Date('2023-03-15T10:31:00.000Z'),
+			timezone: 'UTC'
+		});
+
+		const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+		expect(prompt).toContain('possession/acquisition milestone');
+		expect(prompt).toContain('Do not emit a separate pre-order milestone');
+	});
+
+	it('prompt covers book completion, malfunctions, lodging, and seed-start dates', async () => {
+		llmChatCompletionMock.mockResolvedValue(llmContent('[]'));
+
+		await extractTemporalMentions({
+			userId: 'u1',
+			normalizedText: 'placeholder',
+			capturedAt: new Date('2023-05-27T12:00:00.000Z'),
+			timezone: 'UTC'
+		});
+
+		const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string;
+		expect(prompt).toContain('finished X two weeks ago');
+		expect(prompt).toContain('malfunctions and repairs');
+		expect(prompt).toContain('booking/reservation date');
+		expect(prompt).toContain('started X since DATE');
+	});
 });

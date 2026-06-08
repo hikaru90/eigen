@@ -7,21 +7,21 @@
 
 	type Props = {
 		item: TemporalEventListItem;
-		updatingThoughtId?: string | null;
+		updatingEventId?: string | null;
 		compact?: boolean;
-		onSetStatus: (thoughtId: string, status: 'open' | 'completed') => void;
+		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void;
 	};
 
-	let { item, updatingThoughtId = null, compact = false, onSetStatus }: Props = $props();
+	let { item, updatingEventId = null, compact = false, onQuickAction }: Props = $props();
 
 	const completed = $derived(isTemporalEventCompleted(item));
-	const busy = $derived(updatingThoughtId === item.thoughtId);
+	const busy = $derived(updatingEventId === item.id);
 
 	function handleClick(event: MouseEvent) {
 		event.stopPropagation();
 		event.preventDefault();
 		if (busy) return;
-		onSetStatus(item.thoughtId, completed ? 'open' : 'completed');
+		onQuickAction(item.id, completed ? 'reopen' : 'mark_done');
 	}
 </script>
 

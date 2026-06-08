@@ -27,7 +27,7 @@ import {
 } from '$lib/server/memory/entity-extraction';
 import { extractThoughtMetadata, type ThoughtMetadataExtraction } from '$lib/server/memory/extract-thought-metadata';
 import { extractTemporalMentions } from '$lib/server/memory/temporal-extraction';
-import { getTemporalAnchorTimezone } from '$lib/server/memory/temporal-anchor-timezone';
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 import {
 	markEnrichQueueComplete,
 	markEnrichQueueFailed
@@ -94,12 +94,15 @@ async function prefetchEnrichExtractions(input: {
 			? knownEntities.map((e) => ({ label: e.label, entityType: e.entityType }))
 			: undefined;
 
+	const anchorTimezone = await getUserPreferredTimezone(userId);
+
 	const [category, embedding, entityGraph, metadata, temporalMentions] = await Promise.all([
 		resolveThoughtCategory({
 			userId,
 			normalized: normalizedText,
 			rawText,
-			knownEntities: knownEntityArg
+			knownEntities: knownEntityArg,
+			groundingProfile: context.groundingProfile
 		}),
 		createThoughtEmbedding(userId, normalizedText),
 		ontologyEntityKinds.length > 0
@@ -107,15 +110,20 @@ async function prefetchEnrichExtractions(input: {
 					userId,
 					normalizedText,
 					ontologyEntityKinds,
-					knownEntities: knownEntityArg
+					knownEntities: knownEntityArg,
+					groundingProfile: context.groundingProfile
 				})
 			: Promise.resolve({ mentions: [], triples: [] }),
-		extractThoughtMetadata({ userId, normalizedText }),
+		extractThoughtMetadata({
+			userId,
+			normalizedText,
+			groundingProfile: context.groundingProfile
+		}),
 		extractTemporalMentions({
 			userId,
 			normalizedText,
 			capturedAt,
-			timezone: getTemporalAnchorTimezone(userId)
+			timezone: anchorTimezone
 		})
 	]);
 

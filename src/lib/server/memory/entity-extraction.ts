@@ -7,6 +7,8 @@ import {
 	ENTITY_EXTRACTION_TYPE_GUIDANCE,
 	filterAcceptedEntityMentions
 } from '$lib/server/memory/entity-mention-filter';
+import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 
 export type ExtractedEntityMention = {
 	surface: string;
@@ -342,6 +344,7 @@ async function extractEntityGraphOnce(
 		normalizedText: string;
 		ontologyEntityKinds: OntologyEntityKindForExtraction[];
 		knownEntities?: KnownEntityHint[];
+		groundingProfile?: GroundingProfileForEnrichment;
 	},
 	pass: ExtractEntityGraphPass
 ): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
@@ -365,6 +368,8 @@ async function extractEntityGraphOnce(
 				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 mentions. Copy surfaces exactly as written in the text. Still omit greetings and interjections.'
 				: 'Include 0–12 mentions. Omit generic pronouns and vague terms.';
 
+	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
+
 	const prompt = [
 		'Return ONLY JSON with this shape:',
 		'{',
@@ -372,6 +377,7 @@ async function extractEntityGraphOnce(
 		'  "triples": [{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]',
 		'}',
 		'',
+		groundingBlock,
 		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
 		...ENTITY_EXTRACTION_OMIT_RULES,
 		...ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
@@ -436,6 +442,7 @@ export async function extractEntityGraphBundle(input: {
 	normalizedText: string;
 	ontologyEntityKinds: OntologyEntityKindForExtraction[];
 	knownEntities?: KnownEntityHint[];
+	groundingProfile?: GroundingProfileForEnrichment;
 }): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
 	if (input.ontologyEntityKinds.length === 0) {
 		throw new Error('extractEntityGraphBundle requires at least one ontology entity kind');

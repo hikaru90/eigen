@@ -4,10 +4,13 @@ import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-provi
 import { getDb } from '$lib/server/db';
 import {
 	buildAgentToolDescriptionBlock,
+	buildGroundingAgentToolDescriptionBlock,
+	GROUNDING_TOOL_NAMES,
 	MCP_TOOL_DEFINITIONS,
 	MCP_TOOL_MAP,
 	MCP_TOOL_NAMES
 } from '$lib/server/mcp/registry';
+import type { ChatSessionMode } from '$lib/server/db/brain.schema';
 import type { McpToolContext } from '$lib/server/mcp/tools';
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
 import { formatToolResultForDisplay } from '$lib/chat/chat-stream-types';
@@ -17,18 +20,71 @@ import {
 } from '$lib/server/qa/compose-answer';
 import { redactForLog } from '$lib/server/observability/redact-for-log';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
+import { readThoughtIdFromToolArgs, tryReadThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args';
 import { routeAgentMessage, type AgentRouteResult } from '$lib/server/llm/agent-router';
 import { classifyChatIntent } from '$lib/server/llm/classify-chat-intent';
+import { classifyDeleteIntent } from '$lib/server/llm/classify-delete-intent';
 import {
 	findUniqueStrongRetrieveMatch,
 	formatToolResultForAgentMessage,
-	formatToolResultPreview,
-	isDeleteIntent
+	formatToolResultPreview
 } from '$lib/server/llm/agent-tool-result-compact';
+import { retrieveThoughtRowsForDeleteRequest } from '$lib/server/retrieval/retrieve-for-delete';
+import {
+	buildDeleteTargetCandidates,
+	resolveDeleteTargets,
+	type DeleteTargetCandidate
+} from '$lib/server/retrieval/resolve-delete-target';
 
 const MAX_ITERATIONS = 10;
 
+const DELETE_NOT_FOUND_RESPONSE =
+	'I could not find a stored thought matching your delete request, so nothing was deleted.';
+
 const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock();
+const GROUNDING_TOOL_DESCRIPTION_BLOCK = buildGroundingAgentToolDescriptionBlock();
+
+const GROUNDING_SYSTEM_PROMPT = [
+	'You are a warm, thoughtful interviewer helping a new user of a personal memory app understand themselves.',
+	'Your goal is to learn who they are: identity, work, values, relationships, psychology, and daily routines.',
+	'Ask one question at a time. Follow up naturally on their answers — this is a conversation, not a form.',
+	'',
+	'Per user message — strict workflow:',
+	'1. If they shared personal context: ONE capture_grounding call with every relevant facet in a single facets array.',
+	'2. Then respond with {"answer": "<warm reply and optional next question>"} — never chain multiple capture_grounding calls in one turn.',
+	'3. When 4+ distinct facet areas are saved: call complete_grounding_session, then {"answer": "<brief closing>"}.',
+	'',
+	'Facet keys: identity, work, values, relationships, psychology, routines.',
+	'Grounding data stays private to this user and improves how their thoughts are classified.',
+	'',
+	'Respond with JSON only. To call a tool:',
+	'{"tool": "<tool_name>", "arguments": {<args>}}',
+	'To speak to the user (required after every capture_grounding, and for opening questions):',
+	'{"answer": "<your message>"}',
+	'',
+	'=== AVAILABLE TOOLS ===',
+	GROUNDING_TOOL_DESCRIPTION_BLOCK,
+	'',
+	'=== RULES ===',
+	'- Only use capture_grounding and complete_grounding_session.',
+	'- At most one capture_grounding per user message.',
+	'- Never invent facts the user did not share.',
+	'- Output ONLY the JSON object.'
+].join('\n');
+
+function buildGroundingCaptureFollowUp(tool: string, result: unknown): string {
+	const compact = formatToolResultForAgentMessage(tool, result);
+	const obj = result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+	const facetCount = typeof obj.facetCount === 'number' ? obj.facetCount : 0;
+	const suggestComplete = obj.suggestComplete === true;
+	let text = `Tool result for ${tool}:\n${compact}\n\n`;
+	text += `Saved ${facetCount} facet area(s). You MUST respond with {"answer": "<your reply>"} now — do NOT call capture_grounding again until the user sends another message.`;
+	if (suggestComplete) {
+		text +=
+			' Enough facets are saved — on your next turn you may call complete_grounding_session if the conversation feels complete.';
+	}
+	return text;
+}
 
 /** Slim prompt for multi-step agent iterations only (router handles first-hop tool choice). */
 const AGENT_SYSTEM_PROMPT = [
@@ -44,6 +100,7 @@ const AGENT_SYSTEM_PROMPT = [
 	'',
 	'=== RULES ===',
 	'- Completion reports: retrieve_thoughts first, then edit_thought to mark done or delete_thought if user wants removal.',
+	'- Delete by description: retrieve_thoughts first, then delete_thought with UUID id(s) from results — never pass titles or prose as thought_id. Call delete_thought once per id when removing multiple thoughts.',
 	'- Any question (how/what/when/who/why, any language): answer_question — never capture_thought for questions.',
 	'- capture_thought only when the user explicitly asks to save/remember/note something new.',
 	'- When unsure between capture and answer, prefer answer_question.',
@@ -157,17 +214,202 @@ type ToolExecutionContext = {
 	userId: string;
 	ctx: McpToolContext;
 	deleteIntent: boolean;
+	deleteRequest: string;
 	onEvent?: (event: ChatStreamEvent) => void;
 	db?: ReturnType<typeof getDb>;
 	assistantContentForHistory?: string;
 };
+
+function normalizeAgentToolArgs(tool: string, args: Record<string, unknown>): Record<string, unknown> {
+	if (tool !== 'delete_thought' && tool !== 'edit_thought') return args;
+	try {
+		const thoughtId = readThoughtIdFromToolArgs(args);
+		return { ...args, thought_id: thoughtId };
+	} catch {
+		return args;
+	}
+}
+
+function resolveDeleteRoute(
+	deleteIntent: boolean,
+	route: AgentRouteResult,
+	userMessage: string
+): AgentRouteResult {
+	if (!deleteIntent || route.mode !== 'single_tool') return route;
+
+	if (route.tool === 'delete_thought') {
+		if (tryReadThoughtIdFromToolArgs(route.arguments)) return route;
+		return { mode: 'single_tool', tool: 'retrieve_thoughts', arguments: {} };
+	}
+
+	return { mode: 'multi_step' };
+}
+
+function formatDeletedThoughtsResponse(deleted: DeleteTargetCandidate[]): string {
+	if (deleted.length === 1) {
+		const t = deleted[0];
+		return `Deleted 1 thought (${t.thoughtId.slice(0, 8)}…): ${t.snippet}`;
+	}
+	const lines = deleted.map((t) => `- ${t.thoughtId.slice(0, 8)}…: ${t.snippet}`);
+	return `Deleted ${deleted.length} thoughts:\n${lines.join('\n')}`;
+}
+
+async function runMatchedDeletes(input: {
+	exec: ToolExecutionContext;
+	targets: DeleteTargetCandidate[];
+}): Promise<{ done: true; response: string }> {
+	if (input.targets.length === 0) {
+		return { done: true, response: DELETE_NOT_FOUND_RESPONSE };
+	}
+
+	const deleteHandler = MCP_TOOL_MAP.get('delete_thought');
+	if (!deleteHandler) {
+		return { done: true, response: DELETE_NOT_FOUND_RESPONSE };
+	}
+
+	const deleted: DeleteTargetCandidate[] = [];
+	const failed: Array<{ thoughtId: string; error: string }> = [];
+
+	for (const target of input.targets) {
+		input.exec.onEvent?.({
+			type: 'tool_call',
+			tool: 'delete_thought',
+			arguments: { thought_id: target.thoughtId }
+		});
+		input.exec.onEvent?.({ type: 'tool_executing', tool: 'delete_thought' });
+		const deleteStart = Date.now();
+		try {
+			const deleteResult = await deleteHandler(input.exec.ctx, { thought_id: target.thoughtId });
+			const deletePreview = formatToolResultPreview('delete_thought', deleteResult);
+			input.exec.onEvent?.({ type: 'tool_result', tool: 'delete_thought', preview: deletePreview });
+			await logActivityCall(input.exec.db ?? getDb(), input.exec.userId, {
+				provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+				operation: 'tool_call.delete_thought',
+				baseCostUsd: 0,
+				context: `auto after retrieve: ${target.thoughtId}`,
+				durationMs: Date.now() - deleteStart
+			});
+			deleted.push(target);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			const errorPreview = formatToolResultPreview('delete_thought', { error: message });
+			input.exec.onEvent?.({
+				type: 'tool_result',
+				tool: 'delete_thought',
+				preview: errorPreview,
+				failed: true
+			});
+			await logActivityCall(input.exec.db ?? getDb(), input.exec.userId, {
+				provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+				operation: 'tool_error.delete_thought',
+				baseCostUsd: 0,
+				context: `auto after retrieve: ${target.thoughtId}`,
+				durationMs: Date.now() - deleteStart
+			});
+			failed.push({ thoughtId: target.thoughtId, error: message });
+		}
+	}
+
+	if (deleted.length === 0) {
+		const detail = failed.map((f) => `${f.thoughtId.slice(0, 8)}…: ${f.error}`).join('; ');
+		return {
+			done: true,
+			response: `Could not delete any matching thoughts. ${detail}`
+		};
+	}
+
+	let response = formatDeletedThoughtsResponse(deleted);
+	if (failed.length > 0) {
+		const detail = failed.map((f) => `${f.thoughtId.slice(0, 8)}…: ${f.error}`).join('; ');
+		response = `${response}\n\nFailed to delete ${failed.length}: ${detail}`;
+	}
+	return { done: true, response };
+}
+
+async function tryCompleteDeleteAfterRetrieve(
+	exec: ToolExecutionContext,
+	retrieveResults: unknown[]
+): Promise<{ done: true; response: string }> {
+	const uniqueStrong = findUniqueStrongRetrieveMatch(retrieveResults);
+	if (uniqueStrong) {
+		return runMatchedDeletes({
+			exec,
+			targets: [
+				{
+					thoughtId: uniqueStrong.id,
+					snippet: uniqueStrong.snippet,
+					scoreNormalized: 1
+				}
+			]
+		});
+	}
+
+	const candidates = buildDeleteTargetCandidates(retrieveResults);
+	if (candidates.length === 0) {
+		return { done: true, response: DELETE_NOT_FOUND_RESPONSE };
+	}
+
+	const resolved = await resolveDeleteTargets({
+		userId: exec.userId,
+		deleteRequest: exec.deleteRequest,
+		candidates
+	});
+	if (resolved.length === 0) {
+		return { done: true, response: DELETE_NOT_FOUND_RESPONSE };
+	}
+
+	return runMatchedDeletes({ exec, targets: resolved });
+}
+
+async function runDeleteSemanticRetrieveAndComplete(
+	exec: ToolExecutionContext
+): Promise<{ done: true; response: string }> {
+	const deleteRequest = exec.deleteRequest.trim();
+	if (!deleteRequest) {
+		return { done: true, response: DELETE_NOT_FOUND_RESPONSE };
+	}
+
+	exec.onEvent?.({
+		type: 'tool_call',
+		tool: 'retrieve_thoughts',
+		arguments: { delete_request: deleteRequest }
+	});
+	exec.onEvent?.({ type: 'tool_executing', tool: 'retrieve_thoughts' });
+
+	const retrieveStart = Date.now();
+	const { queries, results } = await retrieveThoughtRowsForDeleteRequest({
+		userId: exec.userId,
+		deleteRequest
+	});
+
+	await logActivityCall(exec.db ?? getDb(), exec.userId, {
+		provider: AGENT_TOOL_ACTIVITY_PROVIDER,
+		operation: 'tool_call.retrieve_thoughts',
+		baseCostUsd: 0,
+		context: `delete search: ${queries.join('; ').slice(0, 120)}`,
+		durationMs: Date.now() - retrieveStart
+	});
+
+	return tryCompleteDeleteAfterRetrieve(exec, results);
+}
 
 async function executeAgentToolCall(input: {
 	tool: string;
 	arguments: Record<string, unknown>;
 	exec: ToolExecutionContext;
 }): Promise<{ done: true; response: string; messages?: ChatMessage[] } | { done: false; result: unknown; assistantContent: string }> {
-	const { tool, arguments: args, exec } = input;
+	const { tool, exec } = input;
+	const args = normalizeAgentToolArgs(tool, input.arguments);
+
+	if (
+		exec.deleteIntent &&
+		exec.deleteRequest.trim() &&
+		(tool === 'retrieve_thoughts' ||
+			(tool === 'delete_thought' && !tryReadThoughtIdFromToolArgs(args)))
+	) {
+		return runDeleteSemanticRetrieveAndComplete(exec);
+	}
+
 	const handler = MCP_TOOL_MAP.get(tool);
 	if (!handler) {
 		return {
@@ -185,43 +427,6 @@ async function executeAgentToolCall(input: {
 	let result: unknown;
 	try {
 		result = sanitizeMcpToolResult(await handler(exec.ctx, args));
-
-		if (
-			exec.deleteIntent &&
-			tool === 'retrieve_thoughts' &&
-			result &&
-			typeof result === 'object' &&
-			Array.isArray((result as { results?: unknown[] }).results)
-		) {
-			const retrieveResults = (result as { results: unknown[] }).results;
-			const strongMatch = findUniqueStrongRetrieveMatch(retrieveResults);
-			if (strongMatch) {
-				const deleteHandler = MCP_TOOL_MAP.get('delete_thought');
-				if (deleteHandler) {
-					exec.onEvent?.({
-						type: 'tool_call',
-						tool: 'delete_thought',
-						arguments: { thought_id: strongMatch.id }
-					});
-					exec.onEvent?.({ type: 'tool_executing', tool: 'delete_thought' });
-					const deleteStart = Date.now();
-					const deleteResult = await deleteHandler(exec.ctx, { thought_id: strongMatch.id });
-					const deletePreview = formatToolResultPreview('delete_thought', deleteResult);
-					exec.onEvent?.({ type: 'tool_result', tool: 'delete_thought', preview: deletePreview });
-					await logActivityCall(exec.db ?? getDb(), exec.userId, {
-						provider: AGENT_TOOL_ACTIVITY_PROVIDER,
-						operation: 'tool_call.delete_thought',
-						baseCostUsd: 0,
-						context: `auto after retrieve: ${strongMatch.id}`,
-						durationMs: Date.now() - deleteStart
-					});
-					return {
-						done: true,
-						response: `Deleted 1 thought (${strongMatch.id.slice(0, 8)}…): ${strongMatch.snippet}`
-					};
-				}
-			}
-		}
 
 		const preview = formatToolResultPreview(tool, result);
 		exec.onEvent?.({ type: 'tool_result', tool, preview });
@@ -250,6 +455,20 @@ async function executeAgentToolCall(input: {
 			return {
 				done: true,
 				response: formatComposedAnswerForUser((result as ComposedAnswer).answer)
+			};
+		}
+
+		if (
+			tool === 'complete_grounding_session' &&
+			result &&
+			typeof result === 'object' &&
+			'redirectTo' in result
+		) {
+			const r = result as { redirectTo?: string; initialCompleted?: boolean };
+			const redirect = typeof r.redirectTo === 'string' ? r.redirectTo : '/capture';
+			return {
+				done: true,
+				response: `Grounding complete. You can start capturing thoughts at ${redirect}.`
 			};
 		}
 	} catch (err) {
@@ -344,7 +563,7 @@ async function runSingleToolPath(input: {
 	};
 }
 
-export async function agentChat(input: {
+async function runGroundingAgentLoop(input: {
 	userId: string;
 	messages: ChatMessage[];
 	onEvent?: (event: ChatStreamEvent) => void;
@@ -362,14 +581,137 @@ export async function agentChat(input: {
 		}
 	};
 
+	const exec: ToolExecutionContext = {
+		userId: input.userId,
+		ctx,
+		deleteIntent: false,
+		deleteRequest: '',
+		onEvent: input.onEvent,
+		db: input.db
+	};
+
+	const messages: ChatMessage[] = [
+		{ role: 'system', content: GROUNDING_SYSTEM_PROMPT },
+		...input.messages
+	];
+
+	let groundingCapturedThisTurn = false;
+
+	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+		input.onEvent?.({
+			type: 'agent_progress',
+			label: iteration === 0 ? 'Starting conversation…' : 'Listening…'
+		});
+
+		const raw = await llmChatCompletion({
+			userId: input.userId,
+			messages,
+			temperature: 0.3,
+			logContext: `grounding_iter_${iteration}`
+		});
+
+		const response = raw as { choices?: Array<{ message?: { content?: string } }> };
+		const content = response?.choices?.[0]?.message?.content?.trim() ?? '';
+		if (!content) {
+			return { response: 'The assistant did not produce a response.', messages };
+		}
+
+		const parsed = parseResponse(content);
+		if (parsed.thinking) {
+			input.onEvent?.({ type: 'thinking', content: parsed.thinking });
+		}
+
+		if (parsed.type === 'tool_call') {
+			if (!(GROUNDING_TOOL_NAMES as readonly string[]).includes(parsed.tool)) {
+				messages.push({ role: 'assistant', content });
+				messages.push({
+					role: 'user',
+					content: `Error: tool "${parsed.tool}" is not available in grounding mode. Use: ${GROUNDING_TOOL_NAMES.join(', ')}`
+				});
+				continue;
+			}
+
+			if (parsed.tool === 'capture_grounding' && groundingCapturedThisTurn) {
+				messages.push({ role: 'assistant', content });
+				messages.push({
+					role: 'user',
+					content:
+						'capture_grounding was already called for this user message. Respond with JSON only: {"answer": "<your conversational reply or next question>"}. Do not call capture_grounding again until the user replies.'
+				});
+				continue;
+			}
+
+			const outcome = await executeAgentToolCall({
+				tool: parsed.tool,
+				arguments: parsed.arguments,
+				exec: { ...exec, assistantContentForHistory: content }
+			});
+
+			if (outcome.done) {
+				messages.push({ role: 'assistant', content });
+				return { response: outcome.response, messages };
+			}
+
+			if (parsed.tool === 'capture_grounding') {
+				groundingCapturedThisTurn = true;
+			}
+
+			messages.push({ role: 'assistant', content });
+			messages.push({
+				role: 'user',
+				content:
+					parsed.tool === 'capture_grounding'
+						? buildGroundingCaptureFollowUp(parsed.tool, outcome.result)
+						: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\nContinue the conversation or call complete_grounding_session when ready.`
+			});
+			continue;
+		}
+
+		messages.push({ role: 'assistant', content });
+		return { response: parsed.content, messages };
+	}
+
+	return {
+		response: 'The grounding conversation took too many steps. Please try again.',
+		messages
+	};
+}
+
+export async function agentChat(input: {
+	userId: string;
+	messages: ChatMessage[];
+	onEvent?: (event: ChatStreamEvent) => void;
+	db?: ReturnType<typeof getDb>;
+	mode?: ChatSessionMode;
+}): Promise<AgentChatResult> {
+	if (input.mode === 'grounding') {
+		return runGroundingAgentLoop(input);
+	}
+
+	const ctx: McpToolContext = {
+		userId: input.userId,
+		onToolProgress: (event) => {
+			input.onEvent?.({
+				type: 'tool_progress',
+				tool: event.tool,
+				phase: event.phase,
+				label: event.label
+			});
+		}
+	};
+
 	const lastUserMessage =
 		[...input.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-	const deleteIntent = isDeleteIntent(lastUserMessage);
+	const deleteIntent = await classifyDeleteIntent({
+		userId: input.userId,
+		userMessage: lastUserMessage
+	});
 
 	const exec: ToolExecutionContext = {
 		userId: input.userId,
 		ctx,
 		deleteIntent,
+		deleteRequest: lastUserMessage,
 		onEvent: input.onEvent,
 		db: input.db
 	};
@@ -377,8 +719,12 @@ export async function agentChat(input: {
 	input.onEvent?.({ type: 'agent_progress', label: 'Planning next step…' });
 	const route = await routeAgentMessage({ userId: input.userId, userMessage: lastUserMessage });
 
-	let resolvedRoute: AgentRouteResult = route;
-	if (route.mode === 'single_tool' && route.tool === 'capture_thought') {
+	let resolvedRoute: AgentRouteResult = resolveDeleteRoute(deleteIntent, route, lastUserMessage);
+	if (
+		!deleteIntent &&
+		resolvedRoute.mode === 'single_tool' &&
+		resolvedRoute.tool === 'capture_thought'
+	) {
 		const intent = await classifyChatIntent({ userId: input.userId, userMessage: lastUserMessage });
 		console.info('[agent-loop] capture gate', {
 			intent,

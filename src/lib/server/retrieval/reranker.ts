@@ -5,7 +5,7 @@
  * LLM prompt that sees both the query and all candidate excerpts together.
  *
  * Cost: 1 LLM call per retrieval (skipped when unnecessary).
- * Hard-fails on LLM/parse errors (no silent fallback).
+ * Falls back to fusion order when the LLM returns no usable IDs.
  */
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
@@ -79,7 +79,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
 		'',
 		`Return ONLY a JSON array of up to ${returnCount} IDs in order from most to least relevant.`,
 		'Example: ["id-3", "id-1", "id-2"]',
-		'Omit IDs that are not useful for the query.'
+		'If every candidate is weak, still return your best-guess ordering — never return an empty array.'
 	]
 		.filter((l) => l !== null)
 		.join('\n');
@@ -120,7 +120,11 @@ export async function rerankCandidates<T extends RerankCandidate>(
 	try {
 		rankedIds = parseRankedIdsFromRerankResponse(content, candidates);
 		if (rankedIds.length === 0) {
-			throw new RerankError('Rerank LLM returned an empty ID array');
+			console.warn(
+				'[rerank] LLM returned no resolvable candidate IDs; keeping fusion order',
+				{ query, response: content.trim().slice(0, 200) }
+			);
+			return candidates;
 		}
 	} catch (err) {
 		if (err instanceof RerankError) throw err;
@@ -195,10 +199,15 @@ export function resolveRankedIds(rawIds: unknown[], candidates: RerankCandidate[
 			if (idSet.has(raw)) {
 				id = raw;
 			} else {
-				const match = raw.match(/^id-(\d+)$/i) ?? raw.match(/^(\d+)$/);
-				if (match) {
-					const idx = Number(match[1]) - 1;
-					if (idx >= 0 && idx < candidates.length) id = candidates[idx].id;
+				const idPrefixed = raw.match(/^id-(.+)$/i);
+				if (idPrefixed && idSet.has(idPrefixed[1])) {
+					id = idPrefixed[1];
+				} else {
+					const match = raw.match(/^id-(\d+)$/i) ?? raw.match(/^(\d+)$/);
+					if (match) {
+						const idx = Number(match[1]) - 1;
+						if (idx >= 0 && idx < candidates.length) id = candidates[idx].id;
+					}
 				}
 			}
 		}

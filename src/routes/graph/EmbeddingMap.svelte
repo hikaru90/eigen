@@ -2,6 +2,8 @@
 	import { tick } from 'svelte';
 	import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
 	import { nodeFillForGraph, customEntityFillsFromLegendSections } from '$lib/graph/graph-ontology-legend';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import type { GraphLegendSection } from '$lib/graph/graph-ontology-legend';
 	import {
@@ -61,6 +63,7 @@
 	let teardown: (() => void) | undefined;
 	let mapHandle: EmbeddingMap3dHandle | null = null;
 	let pipelineStarted = false;
+	let legendExpanded = $state(false);
 
 	$effect(() => {
 		if (!visible || pipelineStarted) return;
@@ -256,29 +259,62 @@
 	></div>
 
 	{#if phase.kind === 'ready' && phase.count > 0}
-		<div
-			class="border-border/60 bg-background/90 pointer-events-none absolute bottom-8 left-3 max-w-[190px] rounded-md border px-3 py-2 backdrop-blur-sm"
+		<aside
+			class="border-border/60 bg-background/90 pointer-events-none absolute bottom-16 left-3 z-0 w-[min(calc(100vw-1.5rem),11rem)] rounded-md border px-1 py-1 backdrop-blur-sm {legendExpanded
+				? 'h-56'
+				: ''}"
 			aria-label="Embedding map legend"
 		>
-			<p class="text-muted-foreground mb-2 text-[9px] font-semibold uppercase tracking-wide">
-				{phase.thoughtCount} thoughts · {phase.entityCount} entities
-			</p>
-			<div class="space-y-1">
-				{#each phase.legendEntries as entry (entry.subtype)}
-					<div class="flex items-center gap-1.5">
-						<span
-							class="inline-block size-2 shrink-0 rounded-full ring-1 ring-black/10"
-							style="background-color: {entry.fill}"
-							aria-hidden="true"
-						></span>
-						<span class="text-foreground/75 truncate font-mono text-[10px]">{entry.subtype}</span>
-					</div>
-				{/each}
-			</div>
-		</div>
+			<div
+				class="text-foreground pointer-events-auto flex min-h-0 flex-col gap-1 text-[10px] leading-none {legendExpanded
+					? 'h-full'
+					: ''}"
+			>
+				<button
+					type="button"
+					class="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex h-6 w-full shrink-0 items-center gap-0.5 rounded-sm text-left transition-colors focus-visible:ring-1 focus-visible:outline-none"
+					aria-expanded={legendExpanded}
+					aria-controls="embedding-map-legend-panel"
+					onclick={() => (legendExpanded = !legendExpanded)}
+				>
+					{#if legendExpanded}
+						<ChevronDown class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
+					{:else}
+						<ChevronRight class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
+					{/if}
+					<span class="truncate font-semibold tracking-tight">Legend</span>
+				</button>
 
-		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px]">
-			Drag to orbit · scroll to zoom · click a dot to inspect · labels show entity/thought names · proximity is approximate
+				{#if legendExpanded}
+					<div id="embedding-map-legend-panel" class="flex min-h-0 flex-1 flex-col gap-1">
+						<div class="relative min-h-0 flex-1 overflow-hidden">
+							<ul class="absolute inset-0 flex flex-col gap-0.5 overflow-y-auto" role="list">
+								{#each phase.legendEntries as entry (entry.subtype)}
+									<li class="min-w-0">
+										<span
+											class="border-border/60 bg-muted/25 text-foreground inline-flex w-full min-w-0 items-center gap-1 rounded border px-1 py-px"
+										>
+											<span
+												class="h-2 w-2 shrink-0 rounded-full ring-1 ring-border/60"
+												style="background-color: {entry.fill}"
+												aria-hidden="true"
+											></span>
+											<span class="truncate font-mono font-medium">{entry.subtype}</span>
+										</span>
+									</li>
+								{/each}
+							</ul>
+						</div>
+						<p class="text-muted-foreground shrink-0 font-mono text-[9px] leading-tight tabular-nums">
+							{phase.thoughtCount} thoughts · {phase.entityCount} entities
+						</p>
+					</div>
+				{/if}
+			</div>
+		</aside>
+
+		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-12 left-1/2 z-0 -translate-x-1/2 whitespace-nowrap text-[9px]">
+			Drag to orbit · shift-drag or two-finger drag to pan · pinch or scroll to zoom · click a dot to inspect
 		</p>
 	{/if}
 </div>

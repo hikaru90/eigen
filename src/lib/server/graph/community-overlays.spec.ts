@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { formatCommunityGraphName } from './community-overlays';
 
 describe('formatCommunityGraphName', () => {
-	it('uses member labels', () => {
+	it('prefers summary title over member labels', () => {
+		expect(
+			formatCommunityGraphName({
+				level: 2,
+				summaryShort: 'Family dinners and routines',
+				memberLabels: ['Lilli', 'Pizza', 'Abend']
+			})
+		).toBe('Family dinners and routines');
+	});
+
+	it('falls back to member labels when no summary', () => {
 		expect(
 			formatCommunityGraphName({
 				level: 2,
@@ -11,14 +21,14 @@ describe('formatCommunityGraphName', () => {
 		).toBe('Lilli, Pizza, Abend');
 	});
 
-	it('truncates long member lists', () => {
+	it('truncates long titles', () => {
 		expect(
 			formatCommunityGraphName({
 				level: 2,
-				memberLabels: ['Very Long Entity Name Here', 'Another One', 'Third'],
+				summaryShort: 'Very Long Thematic Community Title Here',
 				maxLen: 20
 			})
-		).toBe('Very Long Entity Na…');
+		).toBe('Very Long Thematic …');
 	});
 
 	it('falls back to cluster level', () => {

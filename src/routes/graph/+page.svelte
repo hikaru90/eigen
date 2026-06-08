@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { PageData } from "./$types";
   import { invalidateAll } from "$app/navigation";
+  import { page } from "$app/state";
   import { onMount } from "svelte";
+  import * as AlertDialog from "$lib/components/ui/alert-dialog";
   import * as Card from "$lib/components/ui/card";
   import * as Tabs from "$lib/components/ui/tabs";
   import { Button } from "$lib/components/ui/button";
@@ -27,7 +29,6 @@
     fetchEntityCaptures,
     fetchEntityForGraphEdit,
     fetchThoughtForGraphEdit,
-    rearrangeGraph,
     submitGraphThoughtEdit,
     submitGraphThoughtRelink,
     syncGraphEntity,
@@ -47,10 +48,7 @@
   import EmbeddingMap from "./EmbeddingMap.svelte";
   import TemporalEvents from "./TemporalEvents.svelte";
   import GraphFiltersToolbar from "./graph-filters-toolbar.svelte";
-  import GraphOntologyLegendBar from "./graph-ontology-legend-bar.svelte";
-  import GraphRearrangeStatus from "./GraphRearrangeStatus.svelte";
-  import type { GraphRearrangePhase } from "$lib/graph/graph-rearrange-phases";
-  import type { GraphRearrangeResult } from "$lib/graph/graph-edit-api";
+  import GraphEntityKindsLegend from "./graph-entity-kinds-legend.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import type { TemporalEventListItem } from "../api/temporal-events/+server";
 
@@ -74,9 +72,17 @@
   /** Mount embedding map only after first visit so projection runs in a sized panel. */
   let embeddingsTabOpened = $state(false);
   let selectedTemporalId = $state<string | null>(null);
+  const initialTemporalEventId = $derived(page.url.searchParams.get("event"));
 
   $effect(() => {
     if (activeTab === "embeddings") embeddingsTabOpened = true;
+  });
+
+  onMount(() => {
+    const tab = page.url.searchParams.get("tab");
+    if (tab === "temporal") activeTab = "temporal";
+    const eventId = page.url.searchParams.get("event");
+    if (eventId) selectedTemporalId = eventId;
   });
 
   const legendSections = $derived(data.graphLegendSections ?? []);
@@ -95,15 +101,10 @@
   let edgeKind = $state<string>("all");
   let communityLevel = $state<string>("leaf");
   let status = $state<string>("");
+  let graphStats = $state<string>("");
   let scheduleGraphUpdate: (() => void) | null = null;
   let scheduleGraphResize: (() => void) | null = null;
   let scheduleGraphRelayout: (() => void) | null = null;
-  let graphRearrangeBusy = $state(false);
-  let graphRearrangeComplete = $state(false);
-  let graphRearrangeErr = $state<string | null>(null);
-  let graphRearrangeResult = $state<GraphRearrangeResult | null>(null);
-  let graphRearrangePhaseEvents = $state<GraphRearrangePhase[]>([]);
-  let graphRearrangeStartedAt = $state<number | null>(null);
   let scheduleApplyHighlight: ((id: string | null) => void) | null = null;
   let scheduleRestorePreEntityZoom: (() => void) | null = null;
   let schedulePreserveGraphZoom: (() => void) | null = null;
@@ -182,6 +183,25 @@
   let entityEditorSyncBusy = $state(false);
   let entityEditorDeleteBusy = $state(false);
   let entityEditorStored = $state<GraphEntityEditorStored | null>(null);
+  let graphDeleteDialogOpen = $state(false);
+  let graphDeleteTarget = $state<"thought" | "entity" | null>(null);
+
+  const graphDeleteDialogCopy = $derived.by(() => {
+    if (graphDeleteTarget === "entity") {
+      return {
+        title: "Delete this entity?",
+        description:
+          "It will be removed from the graph and canonical store permanently. This cannot be undone.",
+      };
+    }
+    return {
+      title: "Delete this capture?",
+      description:
+        "It will be removed from search and the graph permanently. This cannot be undone.",
+    };
+  });
+
+  const graphDeleteBusy = $derived(thoughtEditorDeleteBusy || entityEditorDeleteBusy);
 
   const thoughtIngestStatus = $derived(
     thoughtEditorPhase
@@ -379,21 +399,38 @@
     }
   }
 
-  async function submitThoughtDeleteFromGraph() {
-    const id = editingThoughtId ?? "";
-    if (!id) return;
-    if (
-      !confirm(
-        "Delete this node permanently? It will be removed from search and the graph. This cannot be undone.",
-      )
-    ) {
+  function openGraphThoughtDeleteDialog() {
+    if (!(editingThoughtId ?? "")) return;
+    graphDeleteTarget = "thought";
+    graphDeleteDialogOpen = true;
+  }
+
+  function openGraphEntityDeleteDialog() {
+    if (selectedNode?.kind !== "Entity") return;
+    graphDeleteTarget = "entity";
+    graphDeleteDialogOpen = true;
+  }
+
+  async function confirmGraphNodeDelete() {
+    if (graphDeleteTarget === "thought") {
+      await executeThoughtDeleteFromGraph();
       return;
     }
+    if (graphDeleteTarget === "entity") {
+      await executeEntityDeleteFromGraph();
+    }
+  }
+
+  async function executeThoughtDeleteFromGraph() {
+    const id = editingThoughtId ?? "";
+    if (!id) return;
     thoughtEditorErr = null;
     thoughtEditorDeleteBusy = true;
     try {
       await deleteGraphThought(id);
       editingThoughtId = null;
+      graphDeleteDialogOpen = false;
+      graphDeleteTarget = null;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
       await invalidateAll();
     } catch (e) {
@@ -452,56 +489,16 @@
     }
   }
 
-  function dismissGraphRearrangeStatus() {
-    graphRearrangeResult = null;
-    graphRearrangeComplete = false;
-    graphRearrangePhaseEvents = [];
-    graphRearrangeStartedAt = null;
-  }
-
-  async function submitRearrangeGraph() {
-    graphRearrangeErr = null;
-    graphRearrangeResult = null;
-    graphRearrangeComplete = false;
-    graphRearrangePhaseEvents = [];
-    graphRearrangeStartedAt = Date.now();
-    graphRearrangeBusy = true;
-    try {
-      const j = await rearrangeGraph({
-        onPhase: (phase) => {
-          graphRearrangePhaseEvents = [...graphRearrangePhaseEvents, phase];
-        },
-      });
-      graphRearrangeResult = j;
-      graphRearrangeComplete = true;
-      await invalidateAll();
-      queueMicrotask(() => {
-        scheduleGraphUpdate?.();
-        scheduleGraphRelayout?.();
-      });
-    } catch (e) {
-      graphRearrangeErr = e instanceof Error ? e.message : String(e);
-      dismissGraphRearrangeStatus();
-    } finally {
-      graphRearrangeBusy = false;
-    }
-  }
-
-  async function submitEntityDeleteFromGraph() {
+  async function executeEntityDeleteFromGraph() {
     const id = selectedNode?.kind === "Entity" ? selectedNode.id : "";
     if (!id) return;
-    if (
-      !confirm(
-        "Delete this node permanently? It will be removed from the graph and canonical store. This cannot be undone.",
-      )
-    ) {
-      return;
-    }
     entityEditorErr = null;
     entityEditorDeleteBusy = true;
     try {
       await deleteGraphEntity(id);
       selectedNode = null;
+      graphDeleteDialogOpen = false;
+      graphDeleteTarget = null;
       await invalidateAll();
     } catch (e) {
       entityEditorErr = e instanceof Error ? e.message : String(e);
@@ -509,24 +506,6 @@
       entityEditorDeleteBusy = false;
     }
   }
-
-  let legendScrollEl: HTMLDivElement | undefined = $state();
-
-  $effect(() => {
-    const el = legendScrollEl;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) return;
-      if (el.scrollWidth <= el.clientWidth + 1) return;
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        return;
-      }
-      el.scrollLeft += e.deltaY;
-      e.preventDefault();
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  });
 
   const nodeById = $derived(new Map(data.snapshot.nodes.map((n) => [n.id, n])));
 
@@ -1373,7 +1352,7 @@
         if (popInIds.size > 0) {
           pendingPopInNodeIds = new Set();
         }
-        status = `${nodes.length} nodes · ${links.length} edges (live AGE graph)`;
+        graphStats = `${nodes.length} nodes · ${links.length} edges`;
       }
 
       function resizeGraph() {
@@ -1440,69 +1419,75 @@
 </script>
 
 <div class="h-dvh overflow-hidden">
-  <Card.Root class="flex h-full flex-col overflow-hidden bg-transparent shadow-none">
-    <Tabs.Root bind:value={activeTab} class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <Card.Header class="min-w-0 shrink-0 gap-2 pb-3 pt-20">
-        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <Tabs.List variant="line" class="shrink-0">
-            <Tabs.Trigger value="graph">Graph</Tabs.Trigger>
-            <Tabs.Trigger value="embeddings">Embedding Map</Tabs.Trigger>
-            <Tabs.Trigger value="temporal">Timeline</Tabs.Trigger>
-          </Tabs.List>
-          {#if activeTab === "graph"}
-            <GraphFiltersToolbar
-              bind:search
-              bind:edgeKind
-              bind:communityLevel
-              {availableCommunityLevels}
-              {graphRearrangeBusy}
-              onRearrange={() => void submitRearrangeGraph()}
-            />
-            {#if graphRearrangeErr}
-              <p class="text-destructive min-w-0 font-mono text-[11px] leading-tight">
-                {graphRearrangeErr}
-              </p>
-            {/if}
-            {#if status}
-              <p class="text-muted-foreground min-w-0 font-mono text-[11px] leading-tight">
-                {status}
-              </p>
-            {/if}
-          {/if}
-        </div>
-        <GraphOntologyLegendBar {legendSections} bind:legendScrollEl />
-      </Card.Header>
-      <Card.Content class="flex min-h-0 flex-1 flex-col p-0">
+  <Card.Root class="relative flex h-full flex-col overflow-hidden bg-transparent shadow-none">
+    <Tabs.Root bind:value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        class="pointer-events-none fixed top-16 right-0 left-0 z-30 flex justify-center"
+        aria-label="Graph view tabs"
+      >
+        <Tabs.List
+          class="bg-white dark:bg-card pointer-events-auto !p-0 flex h-8 w-fit shrink-0 items-stretch gap-0 rounded-none border-2 border-black shadow-[4px_4px_0px_0px_#000] dark:border-border dark:shadow-none"
+        >
+          <Tabs.Trigger
+            value="graph"
+            class="!h-full !px-2 rounded-none text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+          >
+            Graph
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="embeddings"
+            class="!h-full !px-2 rounded-none text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+          >
+            Embedding Map
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="temporal"
+            class="!h-full !px-2 rounded-none text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+          >
+            Timeline
+          </Tabs.Trigger>
+        </Tabs.List>
+      </div>
+      <Card.Content class="flex h-full min-h-0 flex-1 flex-col p-0">
         <Tabs.Content
           value="graph"
-          class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
+          class="relative h-full min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
         >
-          <div class="relative min-h-0 w-full flex-1 bg-transparent">
-            {#if graphRearrangeBusy || graphRearrangeResult}
-              <div class="pointer-events-none absolute top-3 left-3 z-10 w-[min(calc(100%-1.5rem),24rem)]">
-                <div class="pointer-events-auto">
-                  <GraphRearrangeStatus
-                    busy={graphRearrangeBusy}
-                    complete={graphRearrangeComplete}
-                    phaseEvents={graphRearrangePhaseEvents}
-                    result={graphRearrangeResult}
-                    startedAt={graphRearrangeStartedAt}
-                    onDismiss={dismissGraphRearrangeStatus}
-                  />
-                </div>
-              </div>
-            {/if}
+          <div class="relative h-full min-h-0 w-full flex-1 bg-transparent">
             <div
               bind:this={rootEl}
               class="text-foreground h-full min-h-0 w-full bg-transparent"
               role="img"
               aria-label="Interactive graph visualization"
             ></div>
+            <div
+              class="pointer-events-none absolute right-3 bottom-16 left-3 z-10 flex items-end justify-between gap-3"
+              aria-label="Graph legend and filters"
+            >
+              <div class="w-[min(calc(100vw-1.5rem),11rem)] shrink-0">
+                <GraphEntityKindsLegend {legendSections} {graphStats} />
+              </div>
+              <div class="pointer-events-auto flex shrink-0 flex-col items-end gap-1">
+                <GraphFiltersToolbar
+                  bind:search
+                  bind:edgeKind
+                  bind:communityLevel
+                  {availableCommunityLevels}
+                />
+                {#if status}
+                  <p
+                    class="text-muted-foreground border-border/60 bg-background/85 rounded-md border px-2 py-1 font-mono text-[11px] leading-tight backdrop-blur-sm"
+                  >
+                    {status}
+                  </p>
+                {/if}
+              </div>
+            </div>
           </div>
         </Tabs.Content>
         <Tabs.Content
           value="embeddings"
-          class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
+          class="relative z-0 h-full min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
         >
           {#if embeddingsTabOpened}
             <EmbeddingMap
@@ -1515,9 +1500,14 @@
         </Tabs.Content>
         <Tabs.Content
           value="temporal"
-          class="relative min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
+          class="relative h-full min-h-0 flex-1 pt-24 data-[state=active]:flex data-[state=active]:flex-col"
         >
-          <TemporalEvents onSelectItem={handleTemporalSelect} selectedItemId={selectedTemporalId} />
+          <TemporalEvents
+            onSelectItem={handleTemporalSelect}
+            selectedItemId={selectedTemporalId}
+            initialEventId={initialTemporalEventId}
+            userTimeZone={data.preferredTimezone}
+          />
         </Tabs.Content>
       </Card.Content>
     </Tabs.Root>
@@ -1782,7 +1772,7 @@
                     entityEditorSyncBusy ||
                     entityEditorDeleteBusy ||
                     entityEditorLoading}
-                  onclick={() => void submitEntityDeleteFromGraph()}
+                  onclick={() => openGraphEntityDeleteDialog()}
                 >
                   {#if entityEditorDeleteBusy}
                     <LoaderCircleIcon
@@ -1919,7 +1909,7 @@
                         disabled={thoughtEditorBusy ||
                           thoughtEditorRelinkBusy ||
                           thoughtEditorDeleteBusy}
-                        onclick={() => void submitThoughtDeleteFromGraph()}
+                        onclick={() => openGraphThoughtDeleteDialog()}
                       >
                         Delete capture
                       </Button>
@@ -1933,4 +1923,30 @@
       {/if}
     </Drawer.Content>
   </Drawer.Root>
+
+  <AlertDialog.Root
+    bind:open={graphDeleteDialogOpen}
+    onOpenChange={(open) => {
+      if (!open && !graphDeleteBusy) graphDeleteTarget = null;
+    }}
+  >
+    <AlertDialog.Content class="max-w-sm rounded-none border-2 border-black dark:border-border">
+      <AlertDialog.Header>
+        <AlertDialog.Title>{graphDeleteDialogCopy.title}</AlertDialog.Title>
+        <AlertDialog.Description>{graphDeleteDialogCopy.description}</AlertDialog.Description>
+      </AlertDialog.Header>
+      <AlertDialog.Footer>
+        <AlertDialog.Cancel class="rounded-none" disabled={graphDeleteBusy}>Cancel</AlertDialog.Cancel>
+        <Button
+          type="button"
+          variant="destructive"
+          class="rounded-none"
+          disabled={graphDeleteBusy}
+          onclick={() => void confirmGraphNodeDelete()}
+        >
+          {graphDeleteBusy ? "Deleting…" : "Delete"}
+        </Button>
+      </AlertDialog.Footer>
+    </AlertDialog.Content>
+  </AlertDialog.Root>
 </div>

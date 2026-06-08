@@ -1,9 +1,12 @@
 import {
 	runAnswerQuestionTool,
+	runCaptureGroundingTool,
 	runCaptureThoughtTool,
+	runCompleteGroundingSessionTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
 	runListThoughtsTool,
+	runManageTemporalEventTool,
 	runRetrieveThoughtsTool,
 	type McpToolContext
 } from '$lib/server/mcp/tools';
@@ -93,7 +96,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	},
 	{
 		name: 'delete_thought',
-		description: 'Permanently delete a stored thought by ID.',
+		description: 'Permanently delete one stored thought by ID. For multiple deletions, call once per thought id.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -101,8 +104,32 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			},
 			required: ['thought_id']
 		},
-		agentArgumentSchema: '{"thought_id": "string (required)"}',
+		agentArgumentSchema:
+			'{"thought_id": "string (required) — UUID from retrieve_thoughts results, never a title or description"}',
 		handler: runDeleteThoughtTool
+	},
+	{
+		name: 'manage_temporal_event',
+		description:
+			'Manage a calendar/temporal event by ID: mark done, cancel, reschedule, or apply a natural-language instruction.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				event_id: { type: 'string' },
+				action: {
+					type: 'string',
+					enum: ['mark_done', 'reopen', 'cancel', 'dismiss', 'delete']
+				},
+				instruction: {
+					type: 'string',
+					description: 'Natural-language instruction, e.g. move to tomorrow at 3pm'
+				}
+			},
+			required: ['event_id']
+		},
+		agentArgumentSchema:
+			'{"event_id": "string (required)", "action": "mark_done|reopen|cancel|dismiss|delete (optional)", "instruction": "string (optional NL reschedule/snooze)"}',
+		handler: runManageTemporalEventTool
 	},
 	{
 		name: 'answer_question',
@@ -123,8 +150,52 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		agentArgumentSchema:
 			'{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions"}',
 		handler: runAnswerQuestionTool
+	},
+	{
+		name: 'capture_grounding',
+		description:
+			'Persist incremental user self-knowledge during a grounding conversation (work, identity, values, relationships, psychology, routines).',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				facets: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							key: { type: 'string' },
+							content: { type: 'string' }
+						},
+						required: ['key', 'content']
+					}
+				},
+				session_note: { type: 'string' }
+			},
+			required: ['facets']
+		},
+		agentArgumentSchema:
+			'{"facets": [{"key": "work|identity|values|relationships|psychology|routines", "content": "string"}], "session_note": "string (optional)"}',
+		handler: runCaptureGroundingTool
+	},
+	{
+		name: 'complete_grounding_session',
+		description:
+			'Mark the grounding conversation complete when enough self-knowledge has been captured. Unlocks capture for first-time users.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				synthesis: {
+					type: 'string',
+					description: 'Optional final portrait paragraph summarizing the user.'
+				}
+			}
+		},
+		agentArgumentSchema: '{"synthesis": "string (optional) — final user portrait"}',
+		handler: runCompleteGroundingSessionTool
 	}
 ];
+
+export const GROUNDING_TOOL_NAMES = ['capture_grounding', 'complete_grounding_session'] as const;
 
 export const MCP_TOOL_MAP = new Map<string, McpToolHandler>(
 	MCP_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler])
@@ -136,4 +207,12 @@ export function buildAgentToolDescriptionBlock(): string {
 	return MCP_TOOL_DEFINITIONS.map(
 		(t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`
 	).join('\n\n');
+}
+
+export function buildGroundingAgentToolDescriptionBlock(): string {
+	return MCP_TOOL_DEFINITIONS.filter((t) =>
+		(GROUNDING_TOOL_NAMES as readonly string[]).includes(t.name)
+	)
+		.map((t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`)
+		.join('\n\n');
 }

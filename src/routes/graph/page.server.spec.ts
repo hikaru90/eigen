@@ -6,8 +6,16 @@ const { fetchSnapshotMock, fetchCommunitiesMock } = vi.hoisted(() => ({
 	fetchCommunitiesMock: vi.fn()
 }));
 
+const { getDbMock } = vi.hoisted(() => ({
+	getDbMock: vi.fn()
+}));
+
 vi.mock('$lib/server/db', () => ({
-	getDb: vi.fn(() => ({}))
+	getDb: getDbMock
+}));
+
+vi.mock('$lib/server/memory/user-timezone', () => ({
+	getUserPreferredTimezone: vi.fn().mockResolvedValue('UTC')
 }));
 
 vi.mock('$lib/server/graph/age', () => ({
@@ -36,6 +44,13 @@ describe('graph page server', () => {
 	});
 
 	it('returns snapshot for signed-in user', async () => {
+		const limit = vi.fn().mockResolvedValue([
+			{ eventNotificationsEnabled: false, eventReminderLeadMinutes: 10 }
+		]);
+		const where = vi.fn(() => ({ limit }));
+		const from = vi.fn(() => ({ where }));
+		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
+
 		fetchSnapshotMock.mockResolvedValueOnce({ nodes: [], edges: [] });
 		fetchCommunitiesMock.mockResolvedValueOnce([]);
 		const data = await load({

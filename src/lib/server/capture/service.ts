@@ -26,7 +26,6 @@ import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
 import { queueCapture } from '$lib/server/capture/queue-capture';
 import { enrichQueuedThought } from '$lib/server/capture/enrich-queued-thought';
 import type { CaptureSource } from '$lib/server/db/schema';
-import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types';
 

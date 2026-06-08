@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	runCaptureGroundingTool,
 	runCaptureThoughtTool,
+	runCompleteGroundingSessionTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
 	runListThoughtsTool,
@@ -16,7 +18,9 @@ const {
 	editStoredThoughtMock,
 	deleteThoughtForUserMock,
 	getDbSelectMock,
-	loadTemporalContextByThoughtIdsMock
+	loadTemporalContextByThoughtIdsMock,
+	mergeGroundingFacetsMock,
+	completeGroundingSessionMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	composeAnswerMock: vi.fn(),
@@ -25,7 +29,9 @@ const {
 	editStoredThoughtMock: vi.fn(),
 	deleteThoughtForUserMock: vi.fn(),
 	getDbSelectMock: vi.fn(),
-	loadTemporalContextByThoughtIdsMock: vi.fn()
+	loadTemporalContextByThoughtIdsMock: vi.fn(),
+	mergeGroundingFacetsMock: vi.fn(),
+	completeGroundingSessionMock: vi.fn()
 }));
 
 vi.mock('$lib/server/memory/temporal-context', () => ({
@@ -64,6 +70,11 @@ vi.mock('$lib/server/db', () => ({
 	getDb: () => ({
 		select: getDbSelectMock
 	})
+}));
+
+vi.mock('$lib/server/grounding/profile', () => ({
+	mergeGroundingFacets: mergeGroundingFacetsMock,
+	completeGroundingSession: completeGroundingSessionMock
 }));
 
 function mockThoughtRow(row: Record<string, unknown> | null) {
@@ -307,6 +318,22 @@ describe('MCP tools', () => {
 		expect(out).toEqual({ deleted: true, thoughtId: 't1' });
 	});
 
+	it('runDeleteThoughtTool accepts id alias from compact retrieve candidates', async () => {
+		deleteThoughtForUserMock.mockResolvedValue({ ok: true });
+		const out = await runDeleteThoughtTool(
+			{ userId: 'u1' },
+			{ id: '829b4cc7-ee30-403f-975b-f4663f52eb00' }
+		);
+		expect(deleteThoughtForUserMock).toHaveBeenCalledWith(
+			'u1',
+			'829b4cc7-ee30-403f-975b-f4663f52eb00'
+		);
+		expect(out).toEqual({
+			deleted: true,
+			thoughtId: '829b4cc7-ee30-403f-975b-f4663f52eb00'
+		});
+	});
+
 	it('runAnswerQuestionTool calls composeAnswer and returns result', async () => {
 		composeAnswerMock.mockResolvedValue({
 			answer: 'Some answer.',
@@ -318,5 +345,38 @@ describe('MCP tools', () => {
 			expect.objectContaining({ userId: 'u1', question: 'what is X?' })
 		);
 		expect(out.answer).toBe('Some answer.');
+	});
+
+	it('runCaptureGroundingTool persists facets', async () => {
+		mergeGroundingFacetsMock.mockResolvedValue({
+			narrativeSummary: 'Portrait',
+			facets: { work: 'Engineer' },
+			initialCompletedAt: null,
+			lastSessionAt: null,
+			sessionCount: 0
+		});
+		const out = await runCaptureGroundingTool(
+			{ userId: 'u1' },
+			{ facets: [{ key: 'work', content: 'Engineer' }] }
+		);
+		expect(mergeGroundingFacetsMock).toHaveBeenCalled();
+		expect(out).toMatchObject({ ok: true, facetCount: 1, suggestComplete: false });
+		expect(out).not.toHaveProperty('embedding');
+	});
+
+	it('runCompleteGroundingSessionTool completes session', async () => {
+		completeGroundingSessionMock.mockResolvedValue({
+			initialCompleted: true,
+			redirectTo: '/capture',
+			snapshot: { facets: { work: 'Engineer' }, sessionCount: 1 }
+		});
+		const out = await runCompleteGroundingSessionTool(
+			{ userId: 'u1' },
+			{ synthesis: 'You are an engineer.' }
+		);
+		expect(completeGroundingSessionMock).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'u1', synthesis: 'You are an engineer.' })
+		);
+		expect(out).toMatchObject({ ok: true, initialCompleted: true, redirectTo: '/capture' });
 	});
 });

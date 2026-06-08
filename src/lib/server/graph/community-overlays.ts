@@ -1,6 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { communityMember, communitySummary, canonicalEntity, graphCommunity } from '$lib/server/db/schema';
+import {
+	communityLevelIntent,
+	communityLevelLabel
+} from '$lib/server/consolidation/community-levels';
 
 export type GraphCommunityOverlay = {
 	id: string;
@@ -16,10 +20,16 @@ export { communityCircleFromPositions } from '$lib/graph/community-hull';
 
 export function formatCommunityGraphName(input: {
 	level: number;
+	summaryShort?: string | null;
+	summaryText?: string | null;
 	memberLabels?: string[];
 	maxLen?: number;
 }): string {
 	const maxLen = input.maxLen ?? 48;
+	const title = input.summaryShort?.trim() || input.summaryText?.trim();
+	if (title) {
+		return title.length > maxLen ? `${title.slice(0, maxLen - 1)}…` : title;
+	}
 	const members = (input.memberLabels ?? []).map((l) => l.trim()).filter(Boolean);
 	if (members.length > 0) {
 		const joined = members.slice(0, 3).join(', ');
@@ -28,19 +38,7 @@ export function formatCommunityGraphName(input: {
 	return `Cluster L${input.level}`;
 }
 
-export function communityLevelLabel(level: number): string {
-	if (level === 3) return 'L3 (Leaf)';
-	if (level === 2) return 'L2 (Sub-domain)';
-	if (level === 1) return 'L1 (Domain)';
-	return 'L0 (Root)';
-}
-
-export function communityLevelIntent(level: number): string {
-	if (level === 3) return 'tight operational groups';
-	if (level === 2) return 'sub-domain thematic lanes';
-	if (level === 1) return 'domain-level structure';
-	return 'broad worldview partitions';
-}
+export { communityLevelLabel, communityLevelIntent };
 
 export async function fetchGraphCommunityOverlays(userId: string): Promise<GraphCommunityOverlay[]> {
 	const db = getDb();
@@ -62,6 +60,7 @@ export async function fetchGraphCommunityOverlays(userId: string): Promise<Graph
 		db
 			.select({
 				communityId: communitySummary.communityId,
+				summaryShort: communitySummary.summaryShort,
 				summaryText: communitySummary.summaryText
 			})
 			.from(communitySummary)
@@ -80,7 +79,13 @@ export async function fetchGraphCommunityOverlays(userId: string): Promise<Graph
 	}
 
 	const summaryByCommunity = new Map(
-		summaries.map((row) => [row.communityId, row.summaryText] as const)
+		summaries.map(
+			(row) =>
+				[
+					row.communityId,
+					{ short: row.summaryShort, text: row.summaryText }
+				] as const
+		)
 	);
 	const labelByEntity = new Map(entities.map((row) => [row.id, row.label] as const));
 
@@ -89,13 +94,19 @@ export async function fetchGraphCommunityOverlays(userId: string): Promise<Graph
 		const memberLabels = memberEntityIds
 			.map((id) => labelByEntity.get(id))
 			.filter((label): label is string => typeof label === 'string' && label.trim().length > 0);
+		const summary = summaryByCommunity.get(c.id);
 		return {
 			id: c.id,
 			level: c.level,
 			levelLabel: communityLevelLabel(c.level),
 			levelIntent: communityLevelIntent(c.level),
-			name: formatCommunityGraphName({ level: c.level, memberLabels }),
-			description: summaryByCommunity.get(c.id)?.trim() || null,
+			name: formatCommunityGraphName({
+				level: c.level,
+				summaryShort: summary?.short,
+				summaryText: summary?.text,
+				memberLabels
+			}),
+			description: summary?.text?.trim() || null,
 			memberEntityIds
 		};
 	});

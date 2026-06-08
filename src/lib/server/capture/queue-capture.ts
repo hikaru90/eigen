@@ -10,7 +10,7 @@ import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { upsertThoughtNode } from '$lib/server/graph/age';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
-import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate';
+import { assertCaptureAllowed } from '$lib/server/onboarding/capture-gate';
 import { normalizeThoughtText } from '$lib/server/capture/service';
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker';
 
@@ -51,7 +51,7 @@ export async function queueCapture(
 	rawInput: string,
 	options?: QueueCaptureOptions
 ): Promise<QueueCaptureResult> {
-	await assertCapturePipelineAffordable(userId);
+	await assertCaptureAllowed(userId);
 	const { normalized, metadata } = normalizeThoughtText(rawInput);
 	const lexicalText = computeLexicalText(normalized);
 	const ontologyEntityKindId = await resolvePlaceholderOntologyKindId(userId);

@@ -1,11 +1,11 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { isInsufficientCreditsError, insufficientCreditsPayload } from '$lib/server/billing/insufficient-credits';
 import {
-	billingErrorHttpStatus,
-	billingErrorJsonBody,
-	isInsufficientCreditsError,
-	insufficientCreditsPayload
-} from '$lib/server/billing/insufficient-credits';
+	captureGateHttpStatus,
+	captureGateJsonBody,
+	isCaptureGateError
+} from '$lib/server/onboarding/capture-gate';
 import { captureThought } from '$lib/server/capture/service';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso';
@@ -77,8 +77,8 @@ export const POST: RequestHandler = async (event) => {
 			const message = details[0] ?? 'Failed to capture thought';
 			console.error('capture submit failed', { userId: user.id, message, details });
 			return json(
-				{ ...billingErrorJsonBody(err, message), details },
-				{ status: billingErrorHttpStatus(err) }
+				{ ...captureGateJsonBody(err, message), details },
+				{ status: captureGateHttpStatus(err) }
 			);
 		}
 	}
@@ -125,7 +125,11 @@ export const POST: RequestHandler = async (event) => {
 				type: 'error',
 				error: message,
 				details,
-				...(isInsufficientCreditsError(err) ? insufficientCreditsPayload(err) : {})
+				...(isCaptureGateError(err)
+					? { code: 'grounding_required' }
+					: isInsufficientCreditsError(err)
+						? insufficientCreditsPayload(err)
+						: {})
 			});
 		} finally {
 			if (reserved) {

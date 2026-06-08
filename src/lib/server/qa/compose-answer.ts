@@ -5,12 +5,16 @@ import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { hasCommunitySummaries, searchGlobal, type GlobalSearchResult } from '$lib/server/retrieval/global';
-import { classifyQueryIntent } from '$lib/server/retrieval/classify-query-intent';
+import { classifyQueryIntent, type TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent';
 import {
 	mergeQuestionEntityHints,
 	shouldUseDeterministicSolverAnswer
 } from '$lib/server/retrieval/query-entity-hints';
-import { fetchTemporalEventSeeds } from '$lib/server/retrieval/temporal';
+import {
+	candidatesFromTemporalSeeds,
+	resolveTemporalHintBindings
+} from '$lib/server/retrieval/resolve-temporal-hint-bindings';
+import { fetchTemporalEventSeeds, fetchTemporalEventSeedsForHints, type TemporalSeedsFetchResult } from '$lib/server/retrieval/temporal';
 import {
 	allowsComputedTimelineCitation,
 	COMPUTED_TIMELINE_CITATION_ID,
@@ -41,13 +45,54 @@ import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import {
 	CITATION_TOKEN_RE,
 	canonicalCitationToken,
-	normalizeCitationTokens
+	normalizeCitationTokens,
+	replaceCitationTokens
 } from '$lib/chat/citation-tokens';
 
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
 const DEFAULT_COMPOSE_TOP_K = 8;
 const TEMPORAL_COMPOSE_TOP_K = 18;
+const TEMPORAL_SOLVER_KINDS: TemporalQuestionKind[] = [
+	'ordering',
+	'multi_ordering',
+	'duration',
+	'count',
+	'lookback',
+	'span'
+];
+
+async function fetchTemporalSeedsForCompose(input: {
+	userId: string;
+	query: string;
+	queryEmbedding: number[];
+	entityHints: string[];
+	kind: TemporalQuestionKind;
+	usePerHint: boolean;
+}): Promise<TemporalSeedsFetchResult> {
+	const seedLimit = input.kind === 'count' ? 100 : 24;
+	if (input.usePerHint && input.entityHints.length >= 1) {
+		return fetchTemporalEventSeedsForHints({
+			userId: input.userId,
+			query: input.query,
+			queryEmbedding: input.queryEmbedding,
+			limit: seedLimit,
+			entityHints: input.entityHints,
+			kind: input.kind
+		});
+	}
+	return fetchTemporalEventSeeds({
+		userId: input.userId,
+		query: input.query,
+		queryEmbedding: input.queryEmbedding,
+		limit: seedLimit,
+		entityHints: input.entityHints
+	});
+}
+
+function shouldUsePerHintTemporalSeeds(kind: TemporalQuestionKind, hintCount: number): boolean {
+	return hintCount >= 1 && TEMPORAL_SOLVER_KINDS.includes(kind);
+}
 
 export type RetrievalContextItem = {
 	id: string;
@@ -284,8 +329,7 @@ const SYSTEM_PROMPT = [
 	'  state explicitly that the most recent memory is from <date> and current status is unknown.',
 	'- If two thoughts give conflicting timestamps for the same fact, present the most recent as current and',
 	'  note the earlier one as a prior state.',
-	'- When a Computed timeline section is present, Answer MUST follow it for event ordering and day counts.',
-	`- Cite solver-derived ordering or day-count facts with [id=${COMPUTED_TIMELINE_CITATION_ID}] (not a thought uuid).`,
+	'- Do not use [id=computed] unless a "Computed timeline" section appears in the user message.',
 	'',
 	'Contradiction rules:',
 	'- If the detected contradictions section is present, you MUST surface the conflict in your answer.',
@@ -293,6 +337,23 @@ const SYSTEM_PROMPT = [
 	'  contradiction. The user should be aware their stored beliefs conflict.',
 	'- If temporal scheduling conflicts from the memory graph are listed, connect the cited thoughts in your Answer.'
 ].join('\n');
+
+const COMPUTED_TIMELINE_PROMPT_SUFFIX = [
+	'Computed timeline rules (only when that section is present in the user message):',
+	'- Answer MUST follow the Computed timeline for event ordering and day counts.',
+	`- Cite solver-derived ordering or day-count facts with [id=${COMPUTED_TIMELINE_CITATION_ID}] (not a thought uuid).`
+].join('\n');
+
+function buildComposeSystemPrompt(allowComputedCitation: boolean): string {
+	if (!allowComputedCitation) return SYSTEM_PROMPT;
+	return `${SYSTEM_PROMPT}\n\n${COMPUTED_TIMELINE_PROMPT_SUFFIX}`;
+}
+
+function stripDisallowedComputedCitations(answer: string): string {
+	return replaceCitationTokens(answer, (id, match) =>
+		id === COMPUTED_TIMELINE_CITATION_ID ? '' : match
+	);
+}
 
 function extractAnswerText(response: unknown): string {
 	if (!response || typeof response !== 'object') {
@@ -501,7 +562,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const weights = input.weights ?? CONTEXT_WEIGHTS.default;
 	const retrievalQuery = input.retrievalQuery?.trim() || trimmedQuestion;
 	const queryIntent = await classifyQueryIntent({ userId: input.userId, query: trimmedQuestion });
-	const entityHints = mergeQuestionEntityHints(queryIntent.entityHints, trimmedQuestion);
+	const entityHints = mergeQuestionEntityHints(queryIntent.entityHints);
 	const scope = queryIntent.scope;
 	const effectiveTopK =
 		input.topK ?? (queryIntent.temporal ? TEMPORAL_COMPOSE_TOP_K : DEFAULT_COMPOSE_TOP_K);
@@ -595,26 +656,76 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		now
 	});
 
-	const temporalSeeds =
-		queryIntent.temporal && (queryIntent.kind === 'ordering' || queryIntent.kind === 'duration')
-			? await fetchTemporalEventSeeds({
+	const temporalFetch =
+		queryIntent.temporal && TEMPORAL_SOLVER_KINDS.includes(queryIntent.kind)
+			? await fetchTemporalSeedsForCompose({
 					userId: input.userId,
 					query: retrievalQuery,
 					queryEmbedding,
-					limit: 24,
-					entityHints
+					entityHints,
+					kind: queryIntent.kind,
+					usePerHint: shouldUsePerHintTemporalSeeds(queryIntent.kind, entityHints.length)
+				})
+			: { seeds: [], candidatesByHint: [] };
+	const temporalSeeds = temporalFetch.seeds;
+	const hintBindings =
+		entityHints.length > 0 && temporalSeeds.length > 0
+			? await resolveTemporalHintBindings({
+					userId: input.userId,
+					question: trimmedQuestion,
+					kind: queryIntent.kind,
+					hints: entityHints,
+					candidates: candidatesFromTemporalSeeds(temporalSeeds),
+					candidatesByHint: temporalFetch.candidatesByHint
 				})
 			: [];
-	const solverResult = solveTemporalQuestion({
+	let solverResult = solveTemporalQuestion({
 		kind: queryIntent.kind,
 		entityHints,
-		seeds: temporalSeeds
+		seeds: temporalSeeds,
+		hintBindings,
+		referenceTime: now,
+		durationUnit: queryIntent.durationUnit
 	});
+	if (
+		solverResult.confidence === 'low' &&
+		entityHints.length >= 1 &&
+		temporalSeeds.length > 0
+	) {
+		const retryFetch = await fetchTemporalSeedsForCompose({
+			userId: input.userId,
+			query: retrievalQuery,
+			queryEmbedding,
+			entityHints,
+			kind: queryIntent.kind,
+			usePerHint: true
+		});
+		const retrySeeds = retryFetch.seeds;
+		const retryBindings = await resolveTemporalHintBindings({
+			userId: input.userId,
+			question: trimmedQuestion,
+			kind: queryIntent.kind,
+			hints: entityHints,
+			candidates: candidatesFromTemporalSeeds(retrySeeds),
+			candidatesByHint: retryFetch.candidatesByHint
+		});
+		const retryResult = solveTemporalQuestion({
+			kind: queryIntent.kind,
+			entityHints,
+			seeds: retrySeeds,
+			hintBindings: retryBindings,
+			referenceTime: now,
+			durationUnit: queryIntent.durationUnit
+		});
+		if (retryResult.confidence === 'high') {
+			solverResult = retryResult;
+		}
+	}
 	const computedTimelineBlock = formatComputedTimelineForPrompt(solverResult);
 	const deterministicAnswer = shouldUseDeterministicSolverAnswer({
 		intentKind: queryIntent.kind,
 		solverResult,
-		question: trimmedQuestion
+		comparativeOrdering: queryIntent.comparativeOrdering
 	})
 		? formatSolverAnswer(solverResult)
 		: null;
@@ -628,11 +739,17 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		retrievedCount: retrieved.length,
 		contextCount: contextItems.length,
 		conflictCount: conflicts.length,
-		schedulingConflictCount: schedulingConflicts.length
+		schedulingConflictCount: schedulingConflicts.length,
+		temporalSolverKind: solverResult.kind,
+		temporalSolverConfidence: solverResult.confidence,
+		temporalSeedCount: temporalSeeds.length,
+		temporalEntityHintCount: entityHints.length,
+		temporalBypassUsed: Boolean(deterministicAnswer)
 	});
 
+	const allowComputedCitation = allowsComputedTimelineCitation(solverResult);
 	const allowedIds = new Set(contextItems.map((c) => c.id));
-	if (allowsComputedTimelineCitation(solverResult)) {
+	if (allowComputedCitation) {
 		allowedIds.add(COMPUTED_TIMELINE_CITATION_ID);
 	}
 	for (const event of solverResult.events) {
@@ -646,7 +763,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		answer = deterministicAnswer;
 	} else {
 		const messages: ChatMessage[] = [
-			{ role: 'system', content: SYSTEM_PROMPT },
+			{ role: 'system', content: buildComposeSystemPrompt(allowComputedCitation) },
 			{
 				role: 'user',
 				content:
@@ -677,7 +794,15 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		answer = extractAnswerText(response);
 	}
 	const invalidCitations = findInvalidCitationIds(answer, allowedIds);
-	if (invalidCitations.length > 0) {
+	if (
+		invalidCitations.length > 0 &&
+		invalidCitations.every((id) => id === COMPUTED_TIMELINE_CITATION_ID)
+	) {
+		console.warn(
+			'[composeAnswer] stripping disallowed computed timeline citations from LLM answer'
+		);
+		answer = stripDisallowedComputedCitations(answer);
+	} else if (invalidCitations.length > 0) {
 		throw new Error(
 			`composeAnswer: answer cites thought ids not in retrieved context: ${invalidCitations.join(', ')}`
 		);

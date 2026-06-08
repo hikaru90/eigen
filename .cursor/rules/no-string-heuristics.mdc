@@ -5,13 +5,14 @@ alwaysApply: true
 
 # No String Heuristics for Semantic Decisions
 
-**Never** use regex, keyword lists, stop-word filters, substring rules, or string pattern matching in application code to decide **what something means** (entity type, thought category, intent, temporal scope, person vs place, contradictions, edit intent, retrieval mode, etc.).
+**Never** use regex, keyword lists, stop-word filters, substring rules, lexical folding, word overlap, prefix matching, or any static string analysis in application code to decide **what something means** (entity type, thought category, intent, temporal scope, hint-to-event binding, person vs place, contradictions, edit intent, retrieval mode, etc.). This applies in **every language**.
 
 ## Non-negotiable
 
 - Do **not** classify capture text with capitalized-word regex (e.g. Title Case → `person`).
 - Do **not** route retrieval or Q&A with query keyword patterns (`when`, `who`, `conflict`, `delete`, …).
 - Do **not** infer sentiment, topic, location, or contradiction from keyword lists in code.
+- Do **not** bind entity hints to events with substring/word-overlap scoring (e.g. `scoreEntityHintMatch`, `.includes()`, `foldLexicalChars` for meaning).
 - Do **not** short-circuit ingest/edit flows with regex intent detectors — always call the LLM.
 - Do **not** add synonym maps that **re-type** LLM output (e.g. `org` → `organization`, `idea` → `fact`). Accept exact ontology keys from the model; retry or fail if invalid.
 
@@ -31,6 +32,6 @@ alwaysApply: true
 
 ## Review checklist
 
-- Does new code use `.test()`, `.match()`, or keyword `Set`s to decide entity type, category, intent, or retrieval path?
-- If yes → remove and replace with an LLM call (or delete the branch).
+- Does new code use `.test()`, `.match()`, `.includes()`, `.startsWith()`, word overlap, or keyword `Set`s to decide entity type, category, intent, hint binding, or retrieval path?
+- If yes → remove and replace with an LLM call (or embedding retrieval only — not string scoring).
 - Are removed heuristics marked with `XXX REMOVED` and a pointer to this rule?

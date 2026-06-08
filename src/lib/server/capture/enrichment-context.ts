@@ -14,6 +14,8 @@ import {
 } from '$lib/server/ontology/classify-thought-category';
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants';
 import type { OntologyProfileV2 } from '$lib/server/ontology/types';
+import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile';
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 import {
 	loadEntityHintsForThought,
 	loadIngestKnownEntityHints
@@ -34,6 +36,7 @@ export type EnrichmentContext = {
 	rawText: string;
 	ontology: LoadedUserOntology;
 	profile: OntologyProfileV2;
+	groundingProfile: GroundingProfileForEnrichment;
 	knownEntities: KnownEntityHint[];
 	recentThoughts: Array<{ normalizedText: string; category: string }>;
 	categoryDistribution: Map<string, number>;
@@ -43,6 +46,7 @@ export type EnrichmentContext = {
 		recentThoughtCount: number;
 		communitySummaryCount: number;
 		hasProfileNotes: boolean;
+		hasGroundingProfile: boolean;
 	};
 };
 
@@ -102,10 +106,19 @@ export async function loadEnrichmentContext(input: {
 }): Promise<EnrichmentContext> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 
-	const [ontology, profile, textHints, graphHints, recentThoughts, categoryDistribution, communityExcerpts] =
-		await Promise.all([
+	const [
+		ontology,
+		profile,
+		groundingProfile,
+		textHints,
+		graphHints,
+		recentThoughts,
+		categoryDistribution,
+		communityExcerpts
+	] = await Promise.all([
 			loadOntologyForUser(getDb(), input.userId),
 			loadUserOntologyProfileRow(input.userId),
+			loadGroundingProfileForEnrichment(input.userId),
 			loadIngestKnownEntityHints({ userId: input.userId, normalizedText: input.normalizedText }),
 			loadEntityHintsForThought({
 				userId: input.userId,
@@ -132,6 +145,7 @@ export async function loadEnrichmentContext(input: {
 	const hasProfileNotes =
 		(typeof profile.summary === 'string' && profile.summary.trim().length > 0) ||
 		(profile.kindGuidance !== undefined && Object.keys(profile.kindGuidance).length > 0);
+	const hasGroundingProfile = groundingProfile != null;
 
 	console.info('[enrichment-context] loaded', {
 		userId: input.userId.slice(0, 8),
@@ -139,7 +153,8 @@ export async function loadEnrichmentContext(input: {
 		knownEntityCount: knownEntities.length,
 		recentThoughtCount: recentThoughts.length,
 		communitySummaryCount: communityExcerpts.length,
-		hasProfileNotes
+		hasProfileNotes,
+		hasGroundingProfile
 	});
 
 	return {
@@ -149,6 +164,7 @@ export async function loadEnrichmentContext(input: {
 		rawText: input.rawText,
 		ontology,
 		profile,
+		groundingProfile,
 		knownEntities,
 		recentThoughts,
 		categoryDistribution,
@@ -157,7 +173,8 @@ export async function loadEnrichmentContext(input: {
 			knownEntityCount: knownEntities.length,
 			recentThoughtCount: recentThoughts.length,
 			communitySummaryCount: communityExcerpts.length,
-			hasProfileNotes
+			hasProfileNotes,
+			hasGroundingProfile
 		}
 	};
 }

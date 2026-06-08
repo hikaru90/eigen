@@ -30,49 +30,55 @@ After sign-up you land on **Capture** (`/capture`).
 
 ### 2. Welcome tour (first visit)
 
-On your first visit to Capture, a **Welcome to Eigen** overlay appears until you finish or skip it. You can reopen it later from **Settings → Onboarding → Restart onboarding**.
+On your first visit to Capture, a **Welcome to Eigen** overlay walks you through setup. You can reopen it from **Settings → Display → Restart onboarding**.
 
-The tour has **five steps**:
+The tour has **four steps**:
 
-| Step | Topic | What you learn |
+| Step | Topic | What you do |
 |------|--------|----------------|
-| 1 | **Capture** | Drop thoughts in raw form — type or use **Dictate** (browser speech-to-text). No filing, tagging, or structure required at capture time. |
-| 2 | **Activity** | A transparent log of processing steps and usage-related detail so you can see what ran. |
-| 3 | **Settings** | Theme, language, and transcription defaults. |
-| 4 | **LLM provider** | Optional BYOK setup (EUrouter or OpenRouter). **Managed users can skip this step** — see below. |
-| 5 | **Ready** | Click **Get started** to dismiss the tour. |
+| 1 | **Welcome** | What Eigen is and what happens next |
+| 2 | **Credits** | PayPal top-up (platform credits) — or skip if you use BYOK in Settings |
+| 3 | **Grounding** | Start the getting-to-know-you chat at `/chat?mode=grounding` |
+| 4 | **Ready** | **Get started** (only when credits and grounding are complete) |
 
-You can **Skip tour** at any time from the top of the overlay.
+Both **credits** (for platform billing) and **grounding** are required before your first capture.
 
-Behind the scenes, Eigen also seeds a default cognitive ontology for your account on first load. There is no separate ontology interview.
+Behind the scenes, Eigen seeds a default cognitive ontology on first load. Grounding is a separate, explicit conversation about who you are.
 
 ### 3. Billing: platform credits (default for managed)
 
 Managed deployments bill LLM usage through an **Eigen wallet** (platform credits), not your personal gateway account.
 
-Default billing mode is **Eigen platform credits** (`platform_credits`). Capture, chat, and embeddings draw from your wallet balance using the operator’s shared gateway credentials — you do not paste API keys during onboarding.
+Default billing mode is **Eigen platform credits** (`platform_credits`). Capture, chat, grounding, and embeddings draw from your wallet using the operator’s shared gateway credentials.
 
-**Before your first capture succeeds**, add credit:
+**Before your first capture succeeds**, add credit (also available in the onboarding overlay):
 
-1. Open **Settings → LLM** (`/settings/llm`).
-2. Stay on the **Credits** tab.
-3. Enter an amount in **Eigen credits** (minimum 1,000 credits = $1 USD) and complete checkout via **PayPal** (when the operator has configured PayPal on the deployment). PayPal charges USD only; there is no billing currency setting in the UI.
+1. Open **Settings → LLM** (`/settings/llm`) or use the onboarding credits step.
+2. Enter an amount in **Eigen credits** (minimum 1,000 credits = $1 USD) and complete checkout via **PayPal** (when configured).
 
-Each LLM call is logged in **Activity** with cost detail (transparent per-call billing).
+Each LLM call is logged in **Activity** with cost detail.
 
 Full payment and wallet behavior: [`docs/payments.md`](../payments.md).
 
-### 4. Optional: bring your own key (BYOK)
+### 4. Grounding conversation (required)
 
-If you prefer to bill your own gateway directly:
+Open **Getting to know you** from the onboarding overlay or go to `/chat?mode=grounding`.
+
+Eigen asks about your work, values, relationships, and how you think. Answers are stored in your **grounding profile** and used to classify captures. The chat uses a small amount of wallet credit.
+
+Manage or delete your profile later at **Settings → Grounding profile** (`/settings/grounding`).
+
+### 5. Optional: bring your own key (BYOK)
+
+BYOK is **not** part of the welcome tour. To use your own gateway:
 
 1. Open **Settings → LLM → BYOK**.
-2. Configure **EUrouter** or **OpenRouter** (base URL, API key, and model or rule IDs as required by that provider).
-3. On the **Billing method** section, switch to **Bring your own key (BYOK)** and save.
+2. Configure **EUrouter** or **OpenRouter**.
+3. Switch **Billing method** to **Bring your own key (BYOK)** and save.
 
-The onboarding tour’s step 4 is a shortcut to the same BYOK form; it is not required for managed users on platform credits.
+BYOK skips the credits gate but **grounding is still required** before capture.
 
-### 5. Start capturing
+### 6. Start capturing
 
 Return to **Capture**, type or dictate a thought, and submit. Ingest runs automatically; progress appears in the capture UI and full detail in **Activity**.
 

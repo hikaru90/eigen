@@ -9,7 +9,14 @@ export type ChatStreamEvent =
 	| { type: 'tool_executing'; tool: string }
 	| { type: 'tool_progress'; tool: string; phase: string; label: string }
 	| { type: 'tool_result'; tool: string; preview: string; failed?: boolean }
-	| { type: 'done'; response: string; sessionId: string; messageId: string }
+	| {
+			type: 'done';
+			response: string;
+			sessionId: string;
+			messageId: string;
+			groundingComplete?: boolean;
+			redirectTo?: string;
+	  }
 	| { type: 'error'; error: string; details?: string[] };
 
 /** In-tool step labels streamed while a tool handler is still running. */
@@ -40,7 +47,13 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
 	retrieve_thoughts: { title: 'Searching your memories', category: 'search', icon: 'search' },
 	answer_question: { title: 'Answering your question', category: 'compose', icon: 'sparkles' },
 	edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
-	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' }
+	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' },
+	capture_grounding: { title: 'Saving your profile', category: 'write', icon: 'save' },
+	complete_grounding_session: {
+		title: 'Completing grounding',
+		category: 'write',
+		icon: 'sparkles'
+	}
 };
 
 const UNKNOWN_TOOL_VISUAL: ChatToolVisual = {
@@ -94,7 +107,7 @@ export function formatToolArgumentsSummary(
 	}
 
 	if (tool === 'edit_thought') {
-		const id = args.thoughtId ?? args.id;
+		const id = args.thought_id ?? args.thoughtId ?? args.id;
 		const instruction = args.instruction ?? args.edit ?? args.request;
 		const parts: string[] = [];
 		if (typeof id === 'string' && id.trim()) parts.push(`Thought ${id.slice(0, 8)}…`);
@@ -106,7 +119,7 @@ export function formatToolArgumentsSummary(
 	}
 
 	if (tool === 'delete_thought') {
-		const id = args.thoughtId ?? args.id;
+		const id = args.thought_id ?? args.thoughtId ?? args.id;
 		if (typeof id === 'string' && id.trim()) return `Thought ${id.slice(0, 8)}…`;
 	}
 

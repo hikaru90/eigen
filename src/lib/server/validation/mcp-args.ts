@@ -2,6 +2,41 @@
  * Strict contracts for MCP tool args and similar surfaces (entity IDs, search bounds).
  */
 
+const THOUGHT_ID_ARG_KEYS = ['thought_id', 'thoughtId', 'id'] as const;
+
+/** Accept canonical MCP keys and common LLM aliases from compact retrieve candidates. */
+export function readThoughtIdFromToolArgs(
+	body: Record<string, unknown>,
+	name = 'thought_id'
+): string {
+	for (const key of THOUGHT_ID_ARG_KEYS) {
+		const value = body[key];
+		if (typeof value === 'string' && value.trim() !== '') {
+			return validateNonEmptyEntityId(value, name);
+		}
+	}
+	return validateNonEmptyEntityId(undefined, name);
+}
+
+export function tryReadThoughtIdFromToolArgs(body: Record<string, unknown>): string | null {
+	try {
+		return readThoughtIdFromToolArgs(body);
+	} catch {
+		return null;
+	}
+}
+
+/** Raw lookup text the model passed when it mistook a description for thought_id. */
+export function readDeleteLookupQueryFromToolArgs(body: Record<string, unknown>): string | null {
+	for (const key of THOUGHT_ID_ARG_KEYS) {
+		const value = body[key];
+		if (typeof value === 'string' && value.trim() !== '') {
+			return value.trim();
+		}
+	}
+	return null;
+}
+
 export function validateNonEmptyEntityId(value: string | undefined | null, name: string): string {
 	if (value == null) {
 		throw new Error(`Invalid ${name}: value is required`);

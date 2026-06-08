@@ -1,27 +1,21 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
 	import Link2 from '@lucide/svelte/icons/link-2';
-	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import SearchIcon from '@lucide/svelte/icons/search';
 
 	let {
 		search = $bindable(''),
 		edgeKind = $bindable('all'),
 		communityLevel = $bindable('leaf'),
-		availableCommunityLevels,
-		graphRearrangeBusy,
-		onRearrange
+		availableCommunityLevels
 	}: {
 		search?: string;
 		edgeKind?: string;
 		communityLevel?: string;
 		availableCommunityLevels: number[];
-		graphRearrangeBusy: boolean;
-		onRearrange: () => void;
 	} = $props();
 
 	let searchPopoverOpen = $state(false);
@@ -34,7 +28,12 @@
 </script>
 
 <div class="flex shrink-0 items-center gap-1">
-	<Popover.Root bind:open={searchPopoverOpen}>
+	<Popover.Root
+		bind:open={searchPopoverOpen}
+		onOpenChange={(open) => {
+			if (!open) search = '';
+		}}
+	>
 		<Popover.Trigger
 			class="border-border bg-background text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex size-8 shrink-0 items-center justify-center rounded-none border shadow-none transition-colors focus-visible:ring-1 focus-visible:outline-none {searchFilterActive
 				? 'ring-primary/40 bg-muted/40 ring-1'
@@ -45,8 +44,8 @@
 			<SearchIcon class="size-4 shrink-0 opacity-90" strokeWidth={1.75} aria-hidden="true" />
 		</Popover.Trigger>
 		<Popover.Content
-			align="start"
-			side="bottom"
+			align="end"
+			side="top"
 			sideOffset={6}
 			class="w-[min(calc(100vw-2rem),22rem)] gap-2 p-3"
 		>
@@ -69,7 +68,7 @@
 		>
 			<Link2 class="size-4 shrink-0 opacity-90" strokeWidth={1.75} aria-hidden="true" />
 		</Popover.Trigger>
-		<Popover.Content align="start" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
+		<Popover.Content align="end" side="top" sideOffset={6} class="w-64 gap-2 p-3">
 			<Label class="text-xs">Edge type</Label>
 			<Select.Root type="single" bind:value={edgeKind}>
 				<Select.Trigger class="w-full font-mono text-xs">
@@ -97,14 +96,14 @@
 		>
 			<span class="text-[10px] font-semibold">L</span>
 		</Popover.Trigger>
-		<Popover.Content align="start" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
+		<Popover.Content align="end" side="top" sideOffset={6} class="w-64 gap-2 p-3">
 			<Label class="text-xs">Community level</Label>
 			<Select.Root type="single" bind:value={communityLevel}>
 				<Select.Trigger class="w-full font-mono text-xs">
-					{communityLevel === 'leaf' ? 'Leaf level (default)' : `L${communityLevel}`}
+					{communityLevel === 'leaf' ? 'L2 leaf (default)' : `L${communityLevel}`}
 				</Select.Trigger>
 				<Select.Content>
-					<Select.Item value="leaf">Leaf level (tightest)</Select.Item>
+					<Select.Item value="leaf">L2 leaf (tightest)</Select.Item>
 					{#each availableCommunityLevels as level (level)}
 						<Select.Item value={String(level)}>L{level}</Select.Item>
 					{/each}
@@ -112,17 +111,4 @@
 			</Select.Root>
 		</Popover.Content>
 	</Popover.Root>
-	<Button
-		type="button"
-		size="sm"
-		variant="outline"
-		class="h-8 shrink-0 font-mono text-[11px]"
-		disabled={graphRearrangeBusy}
-		onclick={onRearrange}
-	>
-		{#if graphRearrangeBusy}
-			<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
-		{/if}
-		Rearrange and clean up graph
-	</Button>
 </div>

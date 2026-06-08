@@ -3,46 +3,87 @@ import type { Actions, PageServerLoad } from './$types';
 import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
-import { userPreference, llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
+import { userPreference } from '$lib/server/db/schema';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { loadRecentCaptureThoughts } from '$lib/server/capture/load-recent-capture-thoughts';
 import { eq } from 'drizzle-orm';
+import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate';
+import { getOrCreateWallet } from '$lib/server/billing/wallet';
+import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits';
+import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$lib/server/billing/paypal';
+import {
+	isInitialGroundingComplete,
+	loadGroundingProfileRow
+} from '$lib/server/grounding/profile';
+import { shouldShowRegroundNudge } from '$lib/server/grounding/nudge';
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
 		throw redirect(302, '/login');
 	}
-	await ensureUserOntologySeeded(getDb(), event.locals.user.id);
-	const [pref] = await getDb()
-		.select({
-			preferredLanguage: userPreference.preferredLanguage
-		})
-		.from(userPreference)
-		.where(eq(userPreference.userId, event.locals.user.id))
-		.limit(1);
+	const userId = event.locals.user.id;
+	await ensureUserOntologySeeded(getDb(), userId);
 
-	const [authUser] = await authDb
-		.select({ onboardingCompleted: user.onboardingCompleted })
-		.from(user)
-		.where(eq(user.id, event.locals.user.id))
-		.limit(1);
+	const [pref, authUser, captureGate, wallet, grounding] = await Promise.all([
+		getDb()
+			.select({ preferredLanguage: userPreference.preferredLanguage, billingMode: userPreference.billingMode })
+			.from(userPreference)
+			.where(eq(userPreference.userId, userId))
+			.limit(1)
+			.then((rows) => rows[0]),
+		authDb
+			.select({ onboardingCompleted: user.onboardingCompleted })
+			.from(user)
+			.where(eq(user.id, userId))
+			.limit(1)
+			.then((rows) => rows[0]),
+		checkCaptureAllowed(userId),
+		getOrCreateWallet(userId),
+		loadGroundingProfileRow(userId)
+	]);
 
-	// llmConfigured: at least one provider row exists with credentials
-	const [anyProvider] = await getDb()
-		.select({ userId: llmProviderConfig.userId })
-		.from(llmProviderConfig)
-		.where(eq(llmProviderConfig.userId, event.locals.user.id))
-		.limit(1);
+	let paypalConfigured = false;
+	let paypalClientId: string | null = null;
+	let paypalSdkUrl: string | null = null;
+	try {
+		paypalClientId = getPayPalClientId();
+		paypalSdkUrl = getPayPalWebSdkUrl();
+		getPayPalClientSecret();
+		paypalConfigured = true;
+	} catch {
+		paypalConfigured = false;
+	}
 
-	const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(
-		event.locals.user.id
-	);
+	const billingMode = (pref?.billingMode ?? 'platform_credits') as 'platform_credits' | 'byok';
+	const groundingCompleted = isInitialGroundingComplete(grounding);
+	const creditsGatePassed =
+		billingMode === 'byok' || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS;
+
+	const regroundDismissed =
+		event.cookies.get('eigen_reground_dismissed') === '1';
+	const showRegroundNudge = await shouldShowRegroundNudge({
+		userId,
+		grounding,
+		dismissed: regroundDismissed
+	});
+
+	const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(userId);
 
 	return {
 		user: event.locals.user,
 		onboardingCompleted: authUser?.onboardingCompleted === true,
-		llmConfigured: !!anyProvider,
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
+		billingMode,
+		walletAvailableCredits: wallet.availableCredits,
+		minCaptureCredits: MIN_CAPTURE_PIPELINE_CREDITS,
+		paypalConfigured,
+		paypalClientId,
+		paypalSdkUrl,
+		groundingCompleted,
+		creditsGatePassed,
+		captureAllowed: captureGate.allowed,
+		captureGateReason: captureGate.allowed ? null : captureGate.reason,
+		showRegroundNudge,
 		recentThoughts,
 		recentThoughtDetails
 	};
@@ -54,6 +95,16 @@ export const actions: Actions = {
 			return fail(401, { message: 'Unauthorized' });
 		}
 
+		const gate = await checkCaptureAllowed(event.locals.user.id);
+		if (!gate.allowed) {
+			return fail(400, {
+				message:
+					gate.reason === 'grounding_required'
+						? 'Complete the grounding conversation before finishing onboarding.'
+						: 'Add credits before finishing onboarding.'
+			});
+		}
+
 		await authDb
 			.update(user)
 			.set({ onboardingCompleted: true })
@@ -62,68 +113,16 @@ export const actions: Actions = {
 		return { ok: true as const };
 	},
 
-	saveLlmConfig: async (event) => {
+	dismissRegroundNudge: async (event) => {
 		if (!event.locals.user) {
-			return fail(401, { llmMessage: 'Unauthorized' });
+			return fail(401, { message: 'Unauthorized' });
 		}
-
-		const formData = await event.request.formData();
-		const provider = formData.get('provider')?.toString().trim() ?? 'eurouter';
-		const baseUrl = formData.get('baseUrl')?.toString().trim() ?? '';
-		const apiKey = formData.get('apiKey')?.toString().trim() ?? '';
-		const ruleChat = formData.get('ruleChat')?.toString().trim() || null;
-		const ruleEmbedding = formData.get('ruleEmbedding')?.toString().trim() || null;
-		const modelChat = formData.get('modelChat')?.toString().trim() || null;
-		const modelEmbedding = formData.get('modelEmbedding')?.toString().trim() || null;
-
-		if (provider !== 'eurouter' && provider !== 'openrouter') {
-			return fail(400, { llmMessage: 'Invalid provider.' });
-		}
-		if (!baseUrl) {
-			return fail(400, { llmMessage: 'Base URL is required.' });
-		}
-		if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-			return fail(400, { llmMessage: 'Base URL must start with http:// or https://' });
-		}
-		if (!apiKey) {
-			return fail(400, { llmMessage: 'API key is required.' });
-		}
-
-		const db = getDb();
-		await db
-			.insert(llmProviderConfig)
-			.values({
-				userId: event.locals.user.id,
-				provider,
-				baseUrl: baseUrl.replace(/\/$/, ''),
-				apiKey,
-				ruleChat,
-				ruleEmbedding,
-				modelChat,
-				modelEmbedding
-			})
-			.onConflictDoUpdate({
-				target: [llmProviderConfig.userId, llmProviderConfig.provider],
-				set: {
-					baseUrl: baseUrl.replace(/\/$/, ''),
-					apiKey,
-					ruleChat,
-					ruleEmbedding,
-					modelChat,
-					modelEmbedding,
-					updatedAt: new Date()
-				}
-			});
-
-		// Also set this as the active provider
-		await db
-			.insert(llmActiveProvider)
-			.values({ userId: event.locals.user.id, provider })
-			.onConflictDoUpdate({
-				target: llmActiveProvider.userId,
-				set: { provider, updatedAt: new Date() }
-			});
-
-		return { llmConfigSaved: true as const };
+		event.cookies.set('eigen_reground_dismissed', '1', {
+			path: '/',
+			maxAge: 60 * 60 * 24 * 30,
+			httpOnly: true,
+			sameSite: 'lax'
+		});
+		return { dismissed: true as const };
 	}
 };

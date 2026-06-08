@@ -10,11 +10,17 @@ describe('capture-onboarding-overlay.svelte', () => {
 	});
 
 	it('steps through onboarding flow when open', async () => {
-		render(CaptureOnboardingOverlay, { open: true });
+		render(CaptureOnboardingOverlay, { open: true, billingMode: 'byok', groundingCompleted: true });
 		await expect.element(page.getByText('Step 1 of 4')).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Next' }).click();
 		await expect.element(page.getByText('Step 2 of 4')).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Back' }).click();
 		await expect.element(page.getByText('Step 1 of 4')).toBeInTheDocument();
+	});
+
+	it('does not show BYOK credential forms', async () => {
+		render(CaptureOnboardingOverlay, { open: true });
+		await page.getByRole('button', { name: 'Next' }).click();
+		await expect.element(page.getByText('API key')).not.toBeInTheDocument();
 	});
 });

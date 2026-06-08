@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MOUSE, TOUCH } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
@@ -36,6 +37,44 @@ export function screenSpacePointScale(distance: number, referenceDistance: numbe
 /** Match /graph force layout: text at x=12, y=4 beside the node circle. */
 const LABEL_MARGIN_LEFT_PX = 12;
 const LABEL_MARGIN_TOP_PX = 4;
+const CLICK_DRAG_THRESHOLD_PX = 4;
+const WHEEL_DELTA_PIXEL = 0;
+
+export type EmbeddingMapWheelInput = {
+	ctrlKey: boolean;
+	metaKey: boolean;
+	shiftKey: boolean;
+	deltaX: number;
+	deltaY: number;
+	deltaMode: number;
+};
+
+export type EmbeddingMapWheelMode = 'pan' | 'zoom';
+
+/** Pinch (ctrl/meta wheel) zooms; shift or trackpad two-finger drag pans; mouse wheel zooms. */
+export function embeddingMapWheelMode(input: EmbeddingMapWheelInput): EmbeddingMapWheelMode {
+	if (input.ctrlKey || input.metaKey) return 'zoom';
+	if (input.shiftKey) return 'pan';
+	if (
+		input.deltaMode === WHEEL_DELTA_PIXEL &&
+		(Math.abs(input.deltaX) > 0 || Math.abs(input.deltaY) > 0)
+	) {
+		return 'pan';
+	}
+	return 'zoom';
+}
+
+export function embeddingMapShouldSuppressSelectionClick(input: {
+	dragged: boolean;
+	shiftKey: boolean;
+}): boolean {
+	return input.dragged || input.shiftKey;
+}
+
+/** Wheel/trackpad deltas are opposite OrbitControls' drag pan axis on macOS — invert for natural grab-pan. */
+export function embeddingMapWheelPanDeltas(deltaX: number, deltaY: number): { x: number; y: number } {
+	return { x: -deltaX, y: -deltaY };
+}
 
 function parseCssColor(color: string): THREE.Color {
 	return new THREE.Color(color);
@@ -85,6 +124,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	stackLayer(labelRenderer.domElement);
 
 	const controls = new OrbitControls(camera, renderer.domElement);
+	controls.enablePan = true;
 	controls.enableDamping = true;
 	controls.dampingFactor = 0.08;
 	controls.rotateSpeed = 0.65;
@@ -92,6 +132,15 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	controls.panSpeed = 0.75;
 	controls.minDistance = 0.4;
 	controls.maxDistance = 8;
+	controls.mouseButtons = {
+		LEFT: MOUSE.ROTATE,
+		MIDDLE: MOUSE.DOLLY,
+		RIGHT: MOUSE.PAN
+	};
+	controls.touches = {
+		ONE: TOUCH.ROTATE,
+		TWO: TOUCH.DOLLY_PAN
+	};
 
 	const pointMeshes: THREE.Mesh[] = [];
 	const labelByItemId = new Map<string, HTMLDivElement>();
@@ -199,15 +248,69 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		labelRenderer.setSize(w, h);
 	}
 
-	function onPointerDown() {
-		renderer.domElement.style.cursor = 'grabbing';
+	let pointerDownX = 0;
+	let pointerDownY = 0;
+	let pointerDragged = false;
+	let shiftKeyHeld = false;
+
+	function updateCanvasCursor() {
+		if (pointerDragged) {
+			renderer.domElement.style.cursor = shiftKeyHeld ? 'move' : 'grabbing';
+			return;
+		}
+		renderer.domElement.style.cursor = shiftKeyHeld ? 'move' : 'grab';
 	}
 
-	function onPointerUp() {
-		renderer.domElement.style.cursor = 'grab';
+	function onPointerDown(event: PointerEvent) {
+		pointerDownX = event.clientX;
+		pointerDownY = event.clientY;
+		pointerDragged = false;
+		shiftKeyHeld = event.shiftKey;
+		updateCanvasCursor();
+	}
+
+	function onPointerMove(event: PointerEvent) {
+		if (pointerDragged) return;
+		const dx = event.clientX - pointerDownX;
+		const dy = event.clientY - pointerDownY;
+		if (Math.hypot(dx, dy) >= CLICK_DRAG_THRESHOLD_PX) {
+			pointerDragged = true;
+			updateCanvasCursor();
+		}
+	}
+
+	function onPointerUp(event: PointerEvent) {
+		shiftKeyHeld = event.shiftKey;
+		updateCanvasCursor();
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		if (event.key !== 'Shift') return;
+		shiftKeyHeld = true;
+		updateCanvasCursor();
+	}
+
+	function onKeyUp(event: KeyboardEvent) {
+		if (event.key !== 'Shift') return;
+		shiftKeyHeld = false;
+		updateCanvasCursor();
+	}
+
+	function onWheelCapture(event: WheelEvent) {
+		if (embeddingMapWheelMode(event) !== 'pan') return;
+		event.preventDefault();
+		event.stopImmediatePropagation();
+		const { x, y } = embeddingMapWheelPanDeltas(event.deltaX, event.deltaY);
+		controls.pan(x, y);
+		controls.update();
 	}
 
 	function onClick(event: MouseEvent) {
+		if (embeddingMapShouldSuppressSelectionClick({ dragged: pointerDragged, shiftKey: event.shiftKey })) {
+			pointerDragged = false;
+			return;
+		}
+
 		const rect = renderer.domElement.getBoundingClientRect();
 		pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
 		pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -218,9 +321,11 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			const hit = hits[0].object as THREE.Mesh;
 			const item = hit.userData.item as EmbeddingSnapshotItem;
 			onSelectItem?.(item);
+			pointerDragged = false;
 			return;
 		}
 		onSelectItem?.(null);
+		pointerDragged = false;
 	}
 
 	function animate() {
@@ -232,8 +337,13 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	}
 
 	renderer.domElement.addEventListener('pointerdown', onPointerDown);
+	renderer.domElement.addEventListener('pointermove', onPointerMove);
 	renderer.domElement.addEventListener('pointerup', onPointerUp);
+	renderer.domElement.addEventListener('pointercancel', onPointerUp);
+	renderer.domElement.addEventListener('wheel', onWheelCapture, { capture: true, passive: false });
 	renderer.domElement.addEventListener('click', onClick);
+	window.addEventListener('keydown', onKeyDown);
+	window.addEventListener('keyup', onKeyUp);
 
 	resize();
 	animate();
@@ -244,8 +354,13 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		dispose() {
 			cancelAnimationFrame(animationFrame);
 			renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+			renderer.domElement.removeEventListener('pointermove', onPointerMove);
 			renderer.domElement.removeEventListener('pointerup', onPointerUp);
+			renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+			renderer.domElement.removeEventListener('wheel', onWheelCapture, { capture: true });
 			renderer.domElement.removeEventListener('click', onClick);
+			window.removeEventListener('keydown', onKeyDown);
+			window.removeEventListener('keyup', onKeyUp);
 			controls.dispose();
 			sphereGeometry.dispose();
 			highlightGeometry.dispose();

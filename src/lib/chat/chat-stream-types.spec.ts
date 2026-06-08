@@ -26,6 +26,12 @@ describe('chat-stream-types', () => {
 		).toBe('how do I like my coffee');
 	});
 
+	it('summarizes delete_thought thought_id argument', () => {
+		expect(
+			formatToolArgumentsSummary('delete_thought', { thought_id: '829b4cc7-ee30-403f-975b-f4663f52eb00' })
+		).toBe('Thought 829b4cc7…');
+	});
+
 	it('formats tool error results for display', () => {
 		const preview = JSON.stringify({ error: 'Thought not found' });
 		expect(isToolResultFailed(preview)).toBe(true);

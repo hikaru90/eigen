@@ -8,7 +8,8 @@ const {
 	loadCategoryDistributionMock,
 	loadIngestKnownEntityHintsMock,
 	loadEntityHintsForThoughtMock,
-	getDbMock
+	getDbMock,
+	loadGroundingProfileForEnrichmentMock
 } = vi.hoisted(() => ({
 	ensureUserOntologySeededMock: vi.fn(),
 	loadOntologyForUserMock: vi.fn(),
@@ -17,7 +18,8 @@ const {
 	loadCategoryDistributionMock: vi.fn(),
 	loadIngestKnownEntityHintsMock: vi.fn(),
 	loadEntityHintsForThoughtMock: vi.fn(),
-	getDbMock: vi.fn()
+	getDbMock: vi.fn(),
+	loadGroundingProfileForEnrichmentMock: vi.fn()
 }));
 
 vi.mock('$lib/server/ontology-db', () => ({
@@ -40,6 +42,10 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
 
+vi.mock('$lib/server/grounding/profile', () => ({
+	loadGroundingProfileForEnrichment: loadGroundingProfileForEnrichmentMock
+}));
+
 import { loadEnrichmentContext } from './enrichment-context';
 
 describe('loadEnrichmentContext', () => {
@@ -55,6 +61,7 @@ describe('loadEnrichmentContext', () => {
 		loadCategoryDistributionMock.mockResolvedValue(new Map());
 		loadIngestKnownEntityHintsMock.mockResolvedValue([]);
 		loadEntityHintsForThoughtMock.mockResolvedValue([]);
+		loadGroundingProfileForEnrichmentMock.mockResolvedValue(null);
 		getDbMock.mockReturnValue({
 			select: vi.fn().mockReturnValue({
 				from: vi.fn().mockReturnValue({

@@ -1,6 +1,8 @@
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import type { MemoryType } from '$lib/server/db/brain.schema';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 
 const VALID_MEMORY_TYPES: MemoryType[] = [
 	'episode',
@@ -76,7 +78,9 @@ export type ThoughtMetadataExtraction = {
 export async function extractThoughtMetadata(input: {
 	userId: string;
 	normalizedText: string;
+	groundingProfile?: GroundingProfileForEnrichment;
 }): Promise<ThoughtMetadataExtraction> {
+	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
 	const prompt = [
 		'Return ONLY JSON with this shape:',
 		'{',
@@ -95,8 +99,11 @@ export async function extractThoughtMetadata(input: {
 		'',
 		'cues — 3 to 5 short search phrases (2–8 words) for how someone might find this note later.',
 		'',
+		groundingBlock,
 		`Note: ${input.normalizedText}`
-	].join('\n');
+	]
+		.filter((line) => line.length > 0)
+		.join('\n');
 
 	const response = await llmChatCompletion({
 		userId: input.userId,

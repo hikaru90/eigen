@@ -12,6 +12,7 @@ import {
 	thought,
 	thoughtEntity
 } from '$lib/server/db/schema';
+import { COMMUNITY_MID_LEVEL } from './community-levels';
 
 const TOP_THOUGHTS_PER_COMMUNITY = 20;
 const TOP_ENTITIES_PER_COMMUNITY = 10;
@@ -158,13 +159,15 @@ export async function buildCommunityBundle(
 	return true;
 }
 
-/** Build bundles for all communities at levels 1–3 (evidence levels). */
+/** Build bundles for all communities at domain + leaf levels (L1–L2). */
 export async function buildAllCommunityBundles(userId: string): Promise<CommunityBundleBuildResult> {
 	const db = getDb();
 	const communities = await db
 		.select({ id: graphCommunity.id })
 		.from(graphCommunity)
-		.where(and(eq(graphCommunity.userId, userId), sql`${graphCommunity.level} >= 1`));
+		.where(
+			and(eq(graphCommunity.userId, userId), sql`${graphCommunity.level} >= ${COMMUNITY_MID_LEVEL}`)
+		);
 
 	let built = 0;
 	let skipped = 0;

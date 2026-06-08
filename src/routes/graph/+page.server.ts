@@ -2,8 +2,11 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/age';
 import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays';
+import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { userPreference } from '$lib/server/db/schema';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend';
 
 export const load: PageServerLoad = async (event) => {
@@ -34,5 +37,23 @@ export const load: PageServerLoad = async (event) => {
 		edgeLimit: 1200
 	});
 	const communities = await fetchGraphCommunityOverlays(userId);
-	return { user: event.locals.user, snapshot, graphLegendSections, communities };
+	const preferredTimezone = await getUserPreferredTimezone(userId);
+	const [pref] = await getDb()
+		.select({
+			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
+			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes
+		})
+		.from(userPreference)
+		.where(eq(userPreference.userId, userId))
+		.limit(1);
+
+	return {
+		user: event.locals.user,
+		snapshot,
+		graphLegendSections,
+		communities,
+		preferredTimezone,
+		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
+		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10
+	};
 };

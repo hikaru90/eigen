@@ -267,6 +267,20 @@
       "when": 1749744000000,
       "tag": "0038_enrich_queue_status",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1749830400000,
+      "tag": "0039_temporal_event_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1749916800000,
+      "tag": "0040_grounding_profile",
+      "breakpoints": true
     }
   ]
 }

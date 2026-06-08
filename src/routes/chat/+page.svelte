@@ -1,13 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import { goto } from "$app/navigation";
   import { page } from "$app/state";
+  import type { PageData } from "./$types";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Input } from "$lib/components/ui/input";
   import * as Card from "$lib/components/ui/card";
   import { Separator } from "$lib/components/ui/separator";
   import { chatSidebarOpen } from "$lib/stores/chat-sidebar";
+  import { chatInputDraft } from "$lib/stores/page-input-drafts";
+  import { get } from "svelte/store";
   import SendHorizontal from "@lucide/svelte/icons/send-horizontal";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
@@ -30,6 +34,11 @@
 
   type ChatEntry = ChatDisplayEntry;
 
+  let { data }: { data: PageData } = $props();
+
+  const isGroundingMode = $derived(page.url.searchParams.get("mode") === "grounding");
+  let groundingBootstrapped = $state(false);
+
   type SessionListItem = {
     id: string;
     title: string;
@@ -42,8 +51,12 @@
   let activeSessionId = $state<string | null>(null);
   let messages = $state<ChatEntry[]>([]);
   let displayMessages = $derived(normalizeChatDisplay(messages));
-  let input = $state("");
+  let input = $state(get(chatInputDraft));
   let loading = $state(false);
+
+  $effect(() => {
+    chatInputDraft.set(input);
+  });
   let loadingSession = $state(false);
   let abortController = $state<AbortController | null>(null);
   let streamEventsReceived = $state(false);
@@ -249,13 +262,19 @@
     }
   }
 
-  async function sendStreaming(text: string) {
+  async function sendStreaming(
+    text: string,
+    options?: { bootstrap?: boolean },
+  ) {
     loading = true;
     streamEventsReceived = false;
     streamAbortReason = null;
     agentStatus = null;
 
-    const body: Record<string, unknown> = { message: text };
+    const body: Record<string, unknown> = options?.bootstrap
+      ? { bootstrap: true, mode: "grounding" }
+      : { message: text };
+    if (isGroundingMode) body.mode = "grounding";
     if (activeSessionId) body.sessionId = activeSessionId;
 
     const ac = new AbortController();
@@ -304,7 +323,15 @@
       if (!streamCtx.answerShownInTimeline.current) {
         messages.push({ role: "assistant", variant: "text", content: responseText });
       }
-      loadSessions();
+      if (done.groundingComplete) {
+        const redirectTo =
+          typeof done.redirectTo === "string" && done.redirectTo.trim()
+            ? done.redirectTo.trim()
+            : "/capture";
+        await goto(redirectTo);
+        return;
+      }
+      if (!isGroundingMode) loadSessions();
     } catch (err) {
       if ((err as Error)?.name === "AbortError") {
         if (streamAbortReason === "timeout") {
@@ -377,6 +404,11 @@
     abortController.abort();
   }
 
+  function stopGrounding() {
+    stop();
+    void goto("/capture");
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -392,6 +424,15 @@
     window.scrollTo({ top: 0, behavior: "instant" });
 
     void (async () => {
+      if (isGroundingMode) {
+        activeSessionId = null;
+        messages = [];
+        if (!groundingBootstrapped) {
+          groundingBootstrapped = true;
+          await sendStreaming("", { bootstrap: true });
+        }
+        return;
+      }
       await loadSessions();
       const storedId = browser ? localStorage.getItem(STORAGE_KEY) : null;
       const match = storedId ? sessions.find((s) => s.id === storedId) : null;
@@ -413,8 +454,34 @@
   });
 </script>
 
+{#if isGroundingMode}
+  <div
+    class="fixed inset-x-0 top-20 z-30 border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm"
+    role="region"
+    aria-label="Grounding conversation"
+  >
+    <div class="mx-auto flex w-full max-w-2xl items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-sm font-medium text-foreground">Getting to know you</h1>
+        <p class="text-muted-foreground mt-0.5 text-xs leading-relaxed">
+          A short conversation so Eigen can understand who you are and classify your thoughts better.
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        class="shrink-0 rounded-[4px] text-xs"
+        onclick={stopGrounding}
+      >
+        Stop
+      </Button>
+    </div>
+  </div>
+{/if}
+
 <!-- sidebar backdrop -->
-{#if $chatSidebarOpen}
+{#if $chatSidebarOpen && !isGroundingMode}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -424,6 +491,7 @@
 {/if}
 
 <!-- sidebar panel -->
+{#if !isGroundingMode}
 <div
   class="fixed left-0 top-0 z-60 flex h-full w-64 flex-col bg-white dark:bg-card pt-safe border-r border-border transition-transform duration-200 {$chatSidebarOpen
     ? 'translate-x-0'
@@ -481,10 +549,11 @@
     {/each}
   </div>
 </div>
+{/if}
 
 <div
   bind:this={chatPanelEl}
-  class="fixed inset-x-0 top-0 bottom-20 z-0 overflow-hidden"
+  class="fixed inset-x-0 bottom-20 z-0 overflow-hidden {isGroundingMode ? 'top-[10.25rem]' : 'top-0'}"
 >
   <div
     bind:this={messagesEl}
@@ -492,17 +561,25 @@
     role="log"
     aria-label="Chat messages"
   >
-    <div class="mx-auto flex min-h-full w-full min-w-0 max-w-2xl flex-col px-4 pt-20 pb-52">
+    <div
+      class="mx-auto flex min-h-full w-full min-w-0 max-w-2xl flex-col px-4 pb-52 {isGroundingMode
+        ? 'pt-3'
+        : 'pt-20'}"
+    >
       <div class="flex flex-1 flex-col gap-1 px-1 py-3">
       {#if loadingSession}
         <div class="flex flex-1 items-center justify-center">
           <LoaderCircleIcon class="text-muted-foreground size-4 animate-spin" />
         </div>
-      {:else if messages.length === 0 && !loading}
+      {:else if messages.length === 0 && !loading && !isGroundingMode}
         <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p class="text-muted-foreground max-w-xs text-sm tracking-wide">
             Ask about your memories, manage thoughts, or save something new when you want to.
           </p>
+        </div>
+      {:else if messages.length === 0 && loading && isGroundingMode}
+        <div class="flex flex-1 items-center justify-center">
+          <LoaderCircleIcon class="text-muted-foreground size-4 animate-spin" />
         </div>
       {/if}
 
@@ -610,7 +687,9 @@
         <Textarea
           bind:value={input}
           onkeydown={handleKeydown}
-          placeholder="Ask a question about your memories..."
+          placeholder={isGroundingMode
+            ? "Share about yourself — work, values, what matters to you…"
+            : "Ask a question about your memories..."}
           class="min-w-0 w-full break-all border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-base md:text-base min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
           disabled={loading || loadingSession}
         />

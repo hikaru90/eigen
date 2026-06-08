@@ -226,7 +226,7 @@ export const thought = pgTable(
 		enrichmentVersion: integer('enrichment_version').notNull().default(0),
 		/** Pre-truncated excerpt for listwise rerank (set at enrich). */
 		rerankSnippet: text('rerank_snippet'),
-		/** Communities this thought is most associated with (L2/L3), set at consolidation. */
+		/** Communities this thought is most associated with (L1–L2), set at consolidation. */
 		primaryCommunityIds: uuid('primary_community_ids')
 			.array()
 			.notNull()
@@ -450,6 +450,14 @@ export const userPreference = pgTable(
 		billingMode: text('billing_mode').$type<BillingMode>().notNull().default('platform_credits'),
 		/** ISO 4217 currency code fallback when PayPal does not infer checkout currency. */
 		defaultBillingCurrency: text('default_billing_currency').notNull().default('USD'),
+		/** IANA timezone for temporal anchoring, agenda grouping, and reminders. */
+		preferredTimezone: text('preferred_timezone'),
+		eventNotificationsEnabled: boolean('event_notifications_enabled').notNull().default(false),
+		eventReminderLeadMinutes: integer('event_reminder_lead_minutes').notNull().default(10),
+		eventReminderKinds: jsonb('event_reminder_kinds')
+			.$type<string[]>()
+			.notNull()
+			.default(['appointment', 'reminder', 'deadline']),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())
@@ -480,6 +488,26 @@ export const userOntology = pgTable(
 	},
 	(t) => [index('user_ontology_updated_idx').on(t.updatedAt)]
 );
+
+/**
+ * Explicit user self-knowledge from grounding conversations (work, values, psychology, etc.).
+ */
+export const userGroundingProfile = pgTable('user_grounding_profile', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	narrativeSummaryEncrypted: text('narrative_summary_encrypted'),
+	facets: jsonb('facets').$type<Record<string, string>>().notNull().default({}),
+	initialCompletedAt: timestamp('initial_completed_at'),
+	lastSessionAt: timestamp('last_session_at'),
+	sessionCount: integer('session_count').notNull().default(0),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull()
+});
+
+export type UserGroundingProfile = InferSelectModel<typeof userGroundingProfile>;
 
 /** Canonical entities for Graphiti-style resolution (per-tenant). */
 export const canonicalEntity = pgTable(
@@ -628,6 +656,9 @@ export type UserApiKey = InferSelectModel<typeof userApiKey>;
 /**
  * A single chat conversation session.
  */
+export const chatSessionModeEnum = ['default', 'grounding'] as const;
+export type ChatSessionMode = (typeof chatSessionModeEnum)[number];
+
 export const chatSession = pgTable(
 	'chat_session',
 	{
@@ -636,6 +667,7 @@ export const chatSession = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		title: text('title').notNull().default(''),
+		mode: text('mode', { enum: chatSessionModeEnum }).notNull().default('default'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -776,6 +808,14 @@ export const temporalEventKindEnum = [
 ] as const;
 export type TemporalEventKind = (typeof temporalEventKindEnum)[number];
 
+export const temporalEventLifecycleStatusEnum = [
+	'open',
+	'completed',
+	'cancelled',
+	'dismissed'
+] as const;
+export type TemporalEventLifecycleStatus = (typeof temporalEventLifecycleStatusEnum)[number];
+
 export const temporalTimePrecisionEnum = ['exact', 'day', 'week', 'month', 'fuzzy'] as const;
 export type TemporalTimePrecision = (typeof temporalTimePrecisionEnum)[number];
 
@@ -815,6 +855,12 @@ export const temporalEvent = pgTable(
 		endAt: timestamp('end_at'),
 		graphSyncStatus: text('graph_sync_status').notNull().default('pending'),
 		graphSyncError: text('graph_sync_error'),
+		lifecycleStatus: text('lifecycle_status')
+			.$type<TemporalEventLifecycleStatus>()
+			.notNull()
+			.default('open'),
+		lifecycleUpdatedAt: timestamp('lifecycle_updated_at').defaultNow().notNull(),
+		snoozedUntil: timestamp('snoozed_until'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -823,6 +869,7 @@ export const temporalEvent = pgTable(
 	},
 	(t) => [
 		index('temporal_event_user_idx').on(t.userId),
+		index('temporal_event_lifecycle_idx').on(t.userId, t.lifecycleStatus),
 		index('temporal_event_thought_idx').on(t.thoughtId),
 		index('temporal_event_active_period_idx').using('gist', t.activePeriod),
 		index('temporal_event_lexical_tsv_idx').using('gin', t.lexicalTsv),
@@ -832,6 +879,44 @@ export const temporalEvent = pgTable(
 );
 
 export type TemporalEvent = typeof temporalEvent.$inferSelect;
+
+export const eventReminderScheduleStatusEnum = [
+	'pending',
+	'sent',
+	'skipped',
+	'cancelled'
+] as const;
+export type EventReminderScheduleStatus = (typeof eventReminderScheduleStatusEnum)[number];
+
+/** Durable reminder fire times for proactive push notifications. */
+export const eventReminderSchedule = pgTable(
+	'event_reminder_schedule',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		temporalEventId: uuid('temporal_event_id')
+			.notNull()
+			.references(() => temporalEvent.id, { onDelete: 'cascade' }),
+		fireAt: timestamp('fire_at').notNull(),
+		leadMinutes: integer('lead_minutes').notNull(),
+		status: text('status').$type<EventReminderScheduleStatus>().notNull().default('pending'),
+		sentAt: timestamp('sent_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		uniqueIndex('event_reminder_schedule_event_lead_uidx').on(t.temporalEventId, t.leadMinutes),
+		index('event_reminder_schedule_fire_idx').on(t.status, t.fireAt),
+		index('event_reminder_schedule_user_idx').on(t.userId)
+	]
+);
+
+export type EventReminderSchedule = typeof eventReminderSchedule.$inferSelect;
 
 export const graphSyncJobStatusEnum = ['pending', 'processing', 'completed', 'failed'] as const;
 export type GraphSyncJobStatus = (typeof graphSyncJobStatusEnum)[number];
@@ -877,7 +962,7 @@ export type GraphSyncJob = typeof graphSyncJob.$inferSelect;
 
 /**
  * Hierarchical entity communities detected by the Leiden algorithm over the
- * AGE entity graph. Level 0 = root (broadest), level 3 = leaf (tightest).
+ * AGE entity graph. Level 0 = root (broadest), level 2 = leaf (tightest).
  * Generated by the nightly consolidation job.
  */
 export const graphCommunity = pgTable(
@@ -887,7 +972,7 @@ export const graphCommunity = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		/** 0 = root/interpretive, 1-2 = mid/structural, 3 = leaf/factual */
+		/** 0 = root/interpretive, 1 = domain/structural, 2 = leaf/factual */
 		level: integer('level').notNull(),
 		parentCommunityId: uuid('parent_community_id'),
 		memberCount: integer('member_count').notNull().default(0),
@@ -973,8 +1058,8 @@ export type CommunityBundle = typeof communityBundle.$inferSelect;
 
 /**
  * LLM-generated summaries for each community level.
- * L3 (leaf): factual — entity names, co-occurrence counts, date ranges.
- * L1-L2 (mid): structural — relationship frequency and patterns.
+ * L2 (leaf): factual — concrete themes from member thoughts.
+ * L1 (domain): structural — synthesised from child leaf reports.
  * L0 (root): interpretive — personal patterns, written in second person.
  * summaryEmbedding enables HNSW search for global sensemaking queries.
  */

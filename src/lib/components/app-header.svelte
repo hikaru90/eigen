@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dev } from "$app/environment";
   import { base, resolve } from "$app/paths";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -16,6 +17,9 @@
   import HeartPulse from "@lucide/svelte/icons/heart-pulse";
 
   const isChatRoute = $derived(page.route.id === "/chat");
+  const isGroundingChat = $derived(
+    isChatRoute && page.url.searchParams.get("mode") === "grounding",
+  );
 
   let menuOpen = $state(false);
 
@@ -88,7 +92,7 @@
     class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 bg-linear-to-b from-background to-transparent"
   ></div>
   <div class="relative z-10 mx-auto flex w-full items-center justify-between pb-3">
-    {#if isChatRoute}
+    {#if isChatRoute && !isGroundingChat}
       <button
         class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
         onclick={() => chatSidebarOpen.update((v) => !v)}
@@ -137,13 +141,15 @@
           <Cpu class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           LLM
         </a>
-        <a
-          href={resolve("/eval")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          <ClipboardCheck class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
-          Evals
-        </a>
+        {#if dev}
+          <a
+            href={resolve("/eval")}
+            class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            <ClipboardCheck class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+            Evals
+          </a>
+        {/if}
         <a
           href={resolve("/settings/scheduled-tasks")}
           class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"

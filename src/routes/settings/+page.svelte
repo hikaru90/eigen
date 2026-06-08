@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 	import { Button } from '$lib/components/ui/button';
@@ -12,6 +13,11 @@
 	import { getLocale } from '$lib/paraglide/runtime';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import Check from '@lucide/svelte/icons/check';
+	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import { rearrangeGraph } from '$lib/graph/graph-edit-api';
+	import type { GraphRearrangeResult } from '$lib/graph/graph-edit-api';
+	import type { GraphRearrangePhase } from '$lib/graph/graph-rearrange-phases';
+	import GraphRearrangeStatus from '../graph/GraphRearrangeStatus.svelte';
 	import {
 		getPushSupportState,
 		getExistingPushSubscription,
@@ -45,6 +51,13 @@
 	let pushError = $state<string | null>(null);
 	let pushSubscribed = $state(false);
 	let pushSubscriptionCount = $state(data.pushSubscriptionCount);
+
+	let graphRearrangeBusy = $state(false);
+	let graphRearrangeComplete = $state(false);
+	let graphRearrangeErr = $state<string | null>(null);
+	let graphRearrangeResult = $state<GraphRearrangeResult | null>(null);
+	let graphRearrangePhaseEvents = $state<GraphRearrangePhase[]>([]);
+	let graphRearrangeStartedAt = $state<number | null>(null);
 
 	const deleteConfirmationValid = $derived(
 		deleteConfirmation.trim() === DELETE_ALL_MEMORIES_CONFIRMATION
@@ -203,6 +216,37 @@
 		void refreshPushState();
 	});
 
+	function dismissGraphRearrangeStatus() {
+		graphRearrangeResult = null;
+		graphRearrangeComplete = false;
+		graphRearrangePhaseEvents = [];
+		graphRearrangeStartedAt = null;
+	}
+
+	async function submitRearrangeGraph() {
+		graphRearrangeErr = null;
+		graphRearrangeResult = null;
+		graphRearrangeComplete = false;
+		graphRearrangePhaseEvents = [];
+		graphRearrangeStartedAt = Date.now();
+		graphRearrangeBusy = true;
+		try {
+			const result = await rearrangeGraph({
+				onPhase: (phase) => {
+					graphRearrangePhaseEvents = [...graphRearrangePhaseEvents, phase];
+				}
+			});
+			graphRearrangeResult = result;
+			graphRearrangeComplete = true;
+			await invalidateAll();
+		} catch (e) {
+			graphRearrangeErr = e instanceof Error ? e.message : String(e);
+			dismissGraphRearrangeStatus();
+		} finally {
+			graphRearrangeBusy = false;
+		}
+	}
+
 	function confirmQualityChange(event: SubmitEvent) {
 		const formElement = event.currentTarget as HTMLFormElement;
 		const selectedQuality =
@@ -220,7 +264,7 @@
 	<div>
 		<h1 class="text-lg font-semibold tracking-tight">Account settings</h1>
 		<p class="text-muted-foreground mt-1 text-xs">
-			Display, speech, profile, notifications, and data for your account.
+			Display, speech, profile, notifications, graph, and data for your account.
 		</p>
 	</div>
 
@@ -230,6 +274,7 @@
 			<Tabs.Trigger value="speech">Speech</Tabs.Trigger>
 			<Tabs.Trigger value="profile">Profile</Tabs.Trigger>
 			<Tabs.Trigger value="notifications">Notifications</Tabs.Trigger>
+			<Tabs.Trigger value="graph">Graph</Tabs.Trigger>
 			<Tabs.Trigger value="export">Export</Tabs.Trigger>
 			<Tabs.Trigger value="danger">Danger zone</Tabs.Trigger>
 		</Tabs.List>
@@ -295,6 +340,16 @@
 						<p class="text-destructive text-xs">{form.onboardingMessage}</p>
 					{/if}
 				</form>
+			</div>
+
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Grounding profile</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">
+					View or update the self-knowledge Eigen uses to classify your thoughts.
+				</p>
+				<Button href="/settings/grounding" variant="outline" size="sm" class="mt-2 rounded-[4px]">
+					Manage grounding profile
+				</Button>
 			</div>
 		</Tabs.Content>
 
@@ -466,6 +521,109 @@
 				{/if}
 				{#if pushError}
 					<p class="text-destructive mt-2 text-xs">{pushError}</p>
+				{/if}
+			</div>
+
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Event reminders</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs">
+					Proactive push notifications before appointments, deadlines, and reminders. Requires push
+					enabled above.
+				</p>
+				<form method="post" action="?/updateEventNotifications" use:enhance class="mt-3 space-y-3">
+					<div class="space-y-1">
+						<Label for="preferredTimezone">Timezone (IANA)</Label>
+						<Input
+							id="preferredTimezone"
+							name="preferredTimezone"
+							placeholder="e.g. America/New_York"
+							value={data.preferredTimezone}
+							class="h-9 font-mono text-xs"
+						/>
+					</div>
+					<label class="flex items-center gap-2 text-xs">
+						<input
+							type="checkbox"
+							name="eventNotificationsEnabled"
+							checked={data.eventNotificationsEnabled}
+							class="size-3.5"
+						/>
+						Enable event reminders
+					</label>
+					<div class="space-y-1">
+						<Label for="eventReminderLeadMinutes">Remind me (minutes before)</Label>
+						<Input
+							id="eventReminderLeadMinutes"
+							name="eventReminderLeadMinutes"
+							type="number"
+							min="1"
+							max="1440"
+							value={data.eventReminderLeadMinutes}
+							class="h-9 w-24 font-mono text-xs"
+						/>
+					</div>
+					<fieldset class="space-y-1">
+						<legend class="text-xs font-medium">Notify for kinds</legend>
+						<div class="mt-1 flex flex-wrap gap-3">
+							{#each ['appointment', 'reminder', 'deadline', 'milestone', 'period', 'inferred_event'] as kind (kind)}
+								<label class="flex items-center gap-1.5 font-mono text-[11px] capitalize">
+									<input
+										type="checkbox"
+										name="kind_{kind}"
+										checked={data.eventReminderKinds.includes(kind)}
+										class="size-3.5"
+									/>
+									{kind.replace('_', ' ')}
+								</label>
+							{/each}
+						</div>
+					</fieldset>
+					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+						Save event reminders
+					</Button>
+					{#if form?.eventNotificationsMessage}
+						<p class="text-muted-foreground text-xs">{form.eventNotificationsMessage}</p>
+					{/if}
+				</form>
+			</div>
+		</Tabs.Content>
+
+		<Tabs.Content value="graph" class="space-y-4">
+			<div class="rounded-xl bg-muted px-3.5 py-3 text-sm">
+				<h3 class="text-xs font-semibold">Rearrange and clean up graph</h3>
+				<p class="text-muted-foreground mt-0.5 text-xs leading-relaxed">
+					Prune weak edges, remove orphan nodes, and repair missing entity relations across your
+					memory graph. Run this when the graph feels cluttered or after bulk imports.
+				</p>
+				<div class="mt-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="rounded-[4px]"
+						disabled={graphRearrangeBusy}
+						onclick={() => void submitRearrangeGraph()}
+					>
+						{#if graphRearrangeBusy}
+							<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+						{/if}
+						{graphRearrangeBusy ? 'Cleaning up…' : 'Rearrange and clean up graph'}
+					</Button>
+					{#if graphRearrangeErr}
+						<p class="text-destructive mt-2 text-xs">{graphRearrangeErr}</p>
+					{/if}
+				</div>
+				{#if graphRearrangeBusy || graphRearrangeResult}
+					<div class="border-border/60 mt-3 rounded-lg border bg-background/80 px-1">
+						<GraphRearrangeStatus
+							busy={graphRearrangeBusy}
+							complete={graphRearrangeComplete}
+							phaseEvents={graphRearrangePhaseEvents}
+							result={graphRearrangeResult}
+							startedAt={graphRearrangeStartedAt}
+							onDismiss={dismissGraphRearrangeStatus}
+						/>
+					</div>
 				{/if}
 			</div>
 		</Tabs.Content>

@@ -71,7 +71,11 @@ export const load: PageServerLoad = async (event) => {
 		.select({
 			preferredLanguage: userPreference.preferredLanguage,
 			preferredUiLocale: userPreference.preferredUiLocale,
-			preferredTranscriptionQuality: userPreference.preferredTranscriptionQuality
+			preferredTranscriptionQuality: userPreference.preferredTranscriptionQuality,
+			preferredTimezone: userPreference.preferredTimezone,
+			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
+			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
+			eventReminderKinds: userPreference.eventReminderKinds
 		})
 		.from(userPreference)
 		.where(eq(userPreference.userId, event.locals.user.id))
@@ -87,6 +91,12 @@ export const load: PageServerLoad = async (event) => {
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
 		preferredUiLocale: pref?.preferredUiLocale ?? 'en',
 		preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low',
+		preferredTimezone: pref?.preferredTimezone ?? '',
+		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
+		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
+		eventReminderKinds: Array.isArray(pref?.eventReminderKinds)
+			? pref.eventReminderKinds
+			: ['appointment', 'reminder', 'deadline'],
 		languageOptions: LANGUAGE_OPTIONS,
 		uiLocaleOptions: UI_LOCALE_OPTIONS,
 		qualityOptions: QUALITY_OPTIONS,
@@ -234,6 +244,60 @@ export const actions: Actions = {
 		} catch (error) {
 			return fail(400, {
 				passwordMessage: getSafeErrorMessage(error, 'Unable to change password.')
+			});
+		}
+	},
+
+	updateEventNotifications: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { eventNotificationsMessage: 'You must be signed in.' });
+		}
+
+		const formData = await event.request.formData();
+		const preferredTimezone = formData.get('preferredTimezone')?.toString().trim() ?? '';
+		const eventNotificationsEnabled = formData.get('eventNotificationsEnabled') === 'on';
+		const leadRaw = formData.get('eventReminderLeadMinutes')?.toString().trim() ?? '10';
+		const eventReminderLeadMinutes = Number.parseInt(leadRaw, 10);
+		if (!Number.isFinite(eventReminderLeadMinutes) || eventReminderLeadMinutes < 1) {
+			return fail(400, {
+				eventNotificationsMessage: 'Reminder lead time must be at least 1 minute.'
+			});
+		}
+
+		const kindFields = ['appointment', 'reminder', 'deadline', 'milestone', 'period', 'inferred_event'];
+		const eventReminderKinds = kindFields.filter((k) => formData.get(`kind_${k}`) === 'on');
+
+		try {
+			await getDb()
+				.insert(userPreference)
+				.values({
+					userId: event.locals.user.id,
+					preferredTimezone: preferredTimezone || null,
+					eventNotificationsEnabled,
+					eventReminderLeadMinutes,
+					eventReminderKinds
+				})
+				.onConflictDoUpdate({
+					target: userPreference.userId,
+					set: {
+						preferredTimezone: preferredTimezone || null,
+						eventNotificationsEnabled,
+						eventReminderLeadMinutes,
+						eventReminderKinds,
+						updatedAt: new Date()
+					}
+				});
+			return {
+				eventNotificationsMessage: eventNotificationsEnabled
+					? `Event reminders enabled (${eventReminderLeadMinutes} min before).`
+					: 'Event reminder settings saved.'
+			};
+		} catch (error) {
+			return fail(400, {
+				eventNotificationsMessage: getSafeErrorMessage(
+					error,
+					'Unable to save event notification settings.'
+				)
 			});
 		}
 	},

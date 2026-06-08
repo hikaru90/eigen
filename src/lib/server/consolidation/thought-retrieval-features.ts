@@ -11,6 +11,7 @@ import {
 	thought,
 	thoughtEntity
 } from '$lib/server/db/schema';
+import { COMMUNITY_EVIDENCE_MIN_LEVEL } from './community-levels';
 
 const RECENCY_HALF_LIFE_DAYS = 90;
 
@@ -36,7 +37,7 @@ export async function computeThoughtRetrievalFeatures(userId: string): Promise<n
 	const degreeByEntity = new Map(entityDegrees.map((r) => [r.entityId, r.degree]));
 	const maxDegree = Math.max(1, ...entityDegrees.map((r) => r.degree));
 
-	// Community membership: entity → communities (L2/L3 evidence levels).
+	// Community membership: entity → communities at leaf + domain levels (L1–L2).
 	const members = await db
 		.select({
 			entityId: communityMember.canonicalEntityId,
@@ -46,7 +47,10 @@ export async function computeThoughtRetrievalFeatures(userId: string): Promise<n
 		.from(communityMember)
 		.innerJoin(graphCommunity, eq(communityMember.communityId, graphCommunity.id))
 		.where(
-			and(eq(communityMember.userId, userId), sql`${graphCommunity.level} >= 2`)
+			and(
+				eq(communityMember.userId, userId),
+				sql`${graphCommunity.level} >= ${COMMUNITY_EVIDENCE_MIN_LEVEL}`
+			)
 		);
 
 	const communitiesByEntity = new Map<string, string[]>();

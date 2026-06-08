@@ -5,7 +5,7 @@ import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
 import { appDbAsyncLocal, appSql, createScopedDrizzle, getDb, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
-import { chatSession, chatMessage } from '$lib/server/db/brain.schema';
+import { chatSession, chatMessage, type ChatSessionMode } from '$lib/server/db/brain.schema';
 import { eq, sql } from 'drizzle-orm';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 
@@ -33,21 +33,37 @@ function collectErrorMessages(input: unknown): string[] {
 	return parts.filter((v, i, arr) => v && arr.indexOf(v) === i);
 }
 
-async function getOrCreateSession(db: ReturnType<typeof getDb>, userId: string, sessionId: string | null) {
+const GROUNDING_BOOTSTRAP_USER_MESSAGE =
+	'Please begin the grounding conversation with a warm opening question.';
+
+function parseChatSessionMode(value: unknown): ChatSessionMode {
+	return value === 'grounding' ? 'grounding' : 'default';
+}
+
+async function getOrCreateSession(
+	db: ReturnType<typeof getDb>,
+	userId: string,
+	sessionId: string | null,
+	mode: ChatSessionMode
+): Promise<{ sessionId: string; mode: ChatSessionMode }> {
 	if (!sessionId) {
 		const [s] = await db
 			.insert(chatSession)
-			.values({ userId })
-			.returning({ id: chatSession.id });
-		return s.id;
+			.values({
+				userId,
+				mode,
+				title: mode === 'grounding' ? 'Getting to know you' : ''
+			})
+			.returning({ id: chatSession.id, mode: chatSession.mode });
+		return { sessionId: s.id, mode: s.mode };
 	}
 	const [existing] = await db
-		.select({ id: chatSession.id })
+		.select({ id: chatSession.id, mode: chatSession.mode })
 		.from(chatSession)
 		.where(eq(chatSession.id, sessionId))
 		.limit(1);
 	if (!existing) error(404, 'Session not found');
-	return sessionId;
+	return { sessionId, mode: existing.mode };
 }
 
 async function persistAssistantMessage(db: ReturnType<typeof getDb>, sessionId: string, userId: string, content: string, metadata?: Record<string, unknown> | null) {
@@ -75,13 +91,22 @@ export const POST: RequestHandler = async (event) => {
 
 	const b =
 		typeof body === 'object' && body
-			? (body as { message?: unknown; history?: unknown; sessionId?: unknown })
+			? (body as {
+					message?: unknown;
+					history?: unknown;
+					sessionId?: unknown;
+					mode?: unknown;
+					bootstrap?: unknown;
+				})
 			: {};
+	const bootstrap = b.bootstrap === true;
 	const message = typeof b.message === 'string' ? b.message.trim() : '';
-	if (!message) {
+	const requestedMode = parseChatSessionMode(b.mode);
+	if (!message && !bootstrap) {
 		console.error('[api/chat] empty message');
 		error(400, 'message is required');
 	}
+	const agentUserMessage = bootstrap ? GROUNDING_BOOTSTRAP_USER_MESSAGE : message;
 
 	const rawHistory = Array.isArray(b.history) ? b.history : [];
 	const history: ChatMessage[] = [];
@@ -97,20 +122,29 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const db = getDb();
-	const sessionId = await getOrCreateSession(db, user.id, typeof b.sessionId === 'string' && b.sessionId.trim() ? b.sessionId.trim() : null);
+	const sessionKey =
+		typeof b.sessionId === 'string' && b.sessionId.trim() ? b.sessionId.trim() : null;
+	const { sessionId, mode: sessionMode } = await getOrCreateSession(
+		db,
+		user.id,
+		sessionKey,
+		requestedMode
+	);
 
-	await db.insert(chatMessage).values({
-		sessionId,
-		userId: user.id,
-		role: 'user',
-		content: message
-	});
+	if (!bootstrap) {
+		await db.insert(chatMessage).values({
+			sessionId,
+			userId: user.id,
+			role: 'user',
+			content: message
+		});
+	}
 
 	const countResult = await db
 		.select({ count: sql<number>`count(*)::int` })
 		.from(chatMessage)
 		.where(eq(chatMessage.sessionId, sessionId));
-	const isFirstMessage = countResult[0]?.count === 1;
+	const isFirstMessage = bootstrap || countResult[0]?.count === 1;
 
 	const accept = event.request.headers?.get('accept') ?? '';
 	const streamNdjson = accept.includes('application/x-ndjson');
@@ -222,7 +256,8 @@ export const POST: RequestHandler = async (event) => {
 					runWithTrace(crypto.randomUUID(), () =>
 						agentChat({
 							userId: user.id,
-							messages: [...history, { role: 'user', content: message }],
+							messages: [...history, { role: 'user', content: agentUserMessage }],
+							mode: sessionMode,
 							onEvent: (evt) => {
 								if (!streamClosed) {
 									writeLine(evt);
@@ -246,7 +281,18 @@ export const POST: RequestHandler = async (event) => {
 						: 'The assistant did not produce a response.';
 				const responseText = parseFinalAnswerText(rawResponse, lastAnswerQuestionPreview);
 				const messageId = await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
-				sendTerminal({ type: 'done', response: responseText, sessionId, messageId });
+				const groundingComplete = intermediateSteps.some(
+					(step) =>
+						step.metadata.variant === 'tool_result' &&
+						step.metadata.tool === 'complete_grounding_session'
+				);
+				sendTerminal({
+					type: 'done',
+					response: responseText,
+					sessionId,
+					messageId,
+					...(groundingComplete ? { groundingComplete: true, redirectTo: '/capture' } : {})
+				});
 
 				const storedSteps = compactChatIntermediateSteps(intermediateSteps);
 				for (const step of storedSteps) {
@@ -258,7 +304,7 @@ export const POST: RequestHandler = async (event) => {
 						metadata: step.metadata
 					});
 				}
-				if (isFirstMessage) {
+				if (isFirstMessage && !bootstrap && message.length > 0) {
 					const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
 					await scopedDb
 						.update(chatSession)
@@ -303,16 +349,23 @@ export const POST: RequestHandler = async (event) => {
 		});
 	}
 
-	console.error('[api/chat] starting agentChat', { userId: user.id, userMessage: message.slice(0, 100) });
+	console.error('[api/chat] starting agentChat', {
+		userId: user.id,
+		userMessage: agentUserMessage.slice(0, 100),
+		mode: sessionMode
+	});
 	try {
-		const result = await runWithTrace(crypto.randomUUID(), () => agentChat({
-			userId: user.id,
-			messages: [...history, { role: 'user', content: message }]
-		}));
+		const result = await runWithTrace(crypto.randomUUID(), () =>
+			agentChat({
+				userId: user.id,
+				messages: [...history, { role: 'user', content: agentUserMessage }],
+				mode: sessionMode
+			})
+		);
 
 		const messageId = await persistAssistantMessage(db, sessionId, user.id, result.response);
 
-		if (isFirstMessage) {
+		if (isFirstMessage && !bootstrap && message.length > 0) {
 			const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
 			await db
 				.update(chatSession)

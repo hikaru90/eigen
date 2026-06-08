@@ -16,14 +16,6 @@ export const MAX_TOOL_RESULT_JSON_CHARS = 12_000;
 /** Cap on streamed tool_result preview payloads shown in chat UI. */
 export const MAX_TOOL_RESULT_PREVIEW_CHARS = 8_000;
 
-/**
- * XXX REMOVED — DELETE_INTENT_RE keyword detection for auto-delete routing.
- * Delete intent must be judged by the agent LLM via tool selection.
- */
-export function isDeleteIntent(_userMessage: string): boolean {
-	return false;
-}
-
 function snippet(text: string, max = SNIPPET_MAX_CHARS): string {
 	const trimmed = text.trim();
 	if (trimmed.length <= max) return trimmed;

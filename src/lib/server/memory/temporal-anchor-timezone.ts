@@ -1,8 +1,8 @@
 /**
- * IANA timezone used to resolve relative dates ("heute", "today") at capture.
- * User-specific timezone preference is not stored yet; override via env for operators.
+ * Sync fallback IANA timezone when user preference is unavailable (e.g. tests).
+ * Prefer {@link getUserPreferredTimezone} in async server paths.
  */
-export function getTemporalAnchorTimezone(_userId?: string): string {
+export function getTemporalAnchorTimezone(): string {
 	const fromEnv = process.env.TEMPORAL_ANCHOR_TZ?.trim();
 	return fromEnv || 'UTC';
 }

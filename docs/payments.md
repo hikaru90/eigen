@@ -11,6 +11,8 @@ Eigen bills LLM usage in two modes. Wallet top-ups use PayPal when the operator 
 
 Users switch mode on **Settings → LLM** under **Billing method**.
 
+**Onboarding:** Platform-credits users top up via PayPal before first capture. The required **grounding conversation** (`/chat?mode=grounding`) also bills the wallet like any other chat session.
+
 ## Wallet model (Eigen credits)
 
 Users see **Eigen platform credits** only in Settings — not EUR, USD, or cent amounts. Internally:

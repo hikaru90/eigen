@@ -13,8 +13,21 @@ import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso';
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval';
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
-import { validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args';
+import {
+	readThoughtIdFromToolArgs,
+	validateNonEmptyEntityId,
+	validateSearchParams
+} from '$lib/server/validation/mcp-args';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
+import {
+	completeGroundingSession,
+	mergeGroundingFacets
+} from '$lib/server/grounding/profile';
+import {
+	GROUNDING_FACET_KEYS,
+	GROUNDING_SUGGEST_COMPLETE_FACET_COUNT,
+	type GroundingFacetKey
+} from '$lib/server/grounding/constants';
 import { thoughtSnippet } from '$lib/server/mcp/snippet';
 import {
 	compactTemporalFieldsForMcp,
@@ -239,10 +252,7 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 
 export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
-	const thoughtId = validateNonEmptyEntityId(
-		typeof body.thought_id === 'string' ? body.thought_id : '',
-		'thought_id'
-	);
+	const thoughtId = readThoughtIdFromToolArgs(body);
 	const result = await deleteThoughtForUser(context.userId, thoughtId);
 	if (!result.ok) {
 		throw new Error('Thought not found');
@@ -252,10 +262,7 @@ export async function runDeleteThoughtTool(context: McpToolContext, args: unknow
 
 export async function runEditThoughtTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
-	const thoughtId = validateNonEmptyEntityId(
-		typeof body.thought_id === 'string' ? body.thought_id : '',
-		'thought_id'
-	);
+	const thoughtId = readThoughtIdFromToolArgs(body);
 	const editRequest = typeof body.edit_request === 'string' ? body.edit_request.trim() : '';
 	if (!editRequest) {
 		throw new Error('edit_request is required');
@@ -306,6 +313,52 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 	});
 }
 
+function readEventIdFromToolArgs(body: Record<string, unknown>): string {
+	const raw =
+		(typeof body.event_id === 'string' ? body.event_id : null) ??
+		(typeof body.temporal_event_id === 'string' ? body.temporal_event_id : null);
+	const id = raw?.trim() ?? '';
+	if (!id || /\s/.test(id)) {
+		throw new Error('Invalid event_id: must be a non-empty id without whitespace');
+	}
+	return id;
+}
+
+export async function runManageTemporalEventTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const eventId = readEventIdFromToolArgs(body);
+	const action = typeof body.action === 'string' ? body.action.trim() : '';
+	const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : '';
+
+	const {
+		applyNlTemporalEventAction,
+		applyQuickTemporalEventAction,
+		deleteTemporalEventForUser
+	} = await import('$lib/server/memory/temporal-event-service');
+
+	if (action === 'delete') {
+		const result = await deleteTemporalEventForUser(context.userId, eventId);
+		return sanitizeMcpToolResult({ eventId, ...result });
+	}
+
+	const quickActions = new Set(['mark_done', 'reopen', 'cancel', 'dismiss']);
+	if (action && quickActions.has(action)) {
+		const result = await applyQuickTemporalEventAction(
+			context.userId,
+			eventId,
+			action as 'mark_done' | 'reopen' | 'cancel' | 'dismiss'
+		);
+		return sanitizeMcpToolResult({ eventId, ...result });
+	}
+
+	if (instruction) {
+		const result = await applyNlTemporalEventAction(context.userId, eventId, instruction);
+		return sanitizeMcpToolResult({ eventId, ...result });
+	}
+
+	throw new Error('Provide action (mark_done|reopen|cancel|dismiss|delete) or instruction');
+}
+
 export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const question = typeof body.question === 'string' ? body.question.trim() : '';
@@ -341,4 +394,61 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 		retrievedCount: result.retrieved.length
 	});
 	return sanitizeMcpToolResult(result);
+}
+
+function parseGroundingFacetsArg(body: Record<string, unknown>): Array<{ key: string; content: string }> {
+	const raw = body.facets;
+	if (!Array.isArray(raw) || raw.length === 0) {
+		throw new Error('facets is required and must be a non-empty array');
+	}
+	const facets: Array<{ key: string; content: string }> = [];
+	for (const item of raw) {
+		if (!item || typeof item !== 'object') {
+			throw new Error('Each facet must be an object with key and content');
+		}
+		const o = item as Record<string, unknown>;
+		if (typeof o.key !== 'string' || typeof o.content !== 'string') {
+			throw new Error('Each facet must have string key and content');
+		}
+		facets.push({ key: o.key, content: o.content });
+	}
+	return facets;
+}
+
+export async function runCaptureGroundingTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const facets = parseGroundingFacetsArg(body);
+	const sessionNote = typeof body.session_note === 'string' ? body.session_note.trim() : undefined;
+	const snapshot = await mergeGroundingFacets({
+		userId: context.userId,
+		facets: facets as Array<{ key: GroundingFacetKey; content: string }>,
+		synthesizeNarrative: false,
+		...(sessionNote ? { sessionNote } : {})
+	});
+	const facetKeys = Object.keys(snapshot.facets);
+	const facetCount = facetKeys.length;
+	return sanitizeMcpToolResult({
+		ok: true,
+		facetKeys,
+		facetCount,
+		suggestComplete: facetCount >= GROUNDING_SUGGEST_COMPLETE_FACET_COUNT,
+		initialCompleted: snapshot.initialCompletedAt != null,
+		allowedFacetKeys: [...GROUNDING_FACET_KEYS]
+	});
+}
+
+export async function runCompleteGroundingSessionTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const synthesis = typeof body.synthesis === 'string' ? body.synthesis.trim() : undefined;
+	const result = await completeGroundingSession({
+		userId: context.userId,
+		...(synthesis ? { synthesis } : {})
+	});
+	return sanitizeMcpToolResult({
+		ok: true,
+		initialCompleted: result.initialCompleted,
+		redirectTo: result.redirectTo,
+		facetCount: Object.keys(result.snapshot.facets).length,
+		sessionCount: result.snapshot.sessionCount
+	});
 }

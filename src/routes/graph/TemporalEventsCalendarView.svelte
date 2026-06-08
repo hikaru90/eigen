@@ -93,7 +93,7 @@
 					{day.getDate()}
 				</span>
 				<div class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-					{#each dayEvents.slice(0, 3) as ev (ev.id)}
+					{#each dayEvents as ev (ev.id)}
 						<button
 							type="button"
 							class="truncate rounded px-1 py-0.5 text-left font-mono text-[9px] leading-tight text-white {selectedItemId ===
@@ -107,11 +107,6 @@
 							{ev.semanticSummary}
 						</button>
 					{/each}
-					{#if dayEvents.length > 3}
-						<span class="text-muted-foreground px-1 font-mono text-[9px]">
-							+{dayEvents.length - 3} more
-						</span>
-					{/if}
 				</div>
 			</div>
 		{/each}

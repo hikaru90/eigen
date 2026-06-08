@@ -39,7 +39,7 @@ import type {
 	ExtractedEntityTriple
 } from '$lib/server/memory/entity-extraction';
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize';
-import { getTemporalAnchorTimezone } from '$lib/server/memory/temporal-anchor-timezone';
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync';
 import { maybeRefreshUserOntology } from '$lib/server/ontology';
 import {
@@ -196,6 +196,7 @@ export async function enrichThought(
 			const capturedAt = thoughtRow?.createdAt ?? new Date();
 
 			if (precomputedTemporalMentions !== undefined) {
+				const timezone = await getUserPreferredTimezone(userId);
 				return time('enrich_temporal', () =>
 					syncTemporalEventsFromThought({
 						userId,
@@ -203,7 +204,7 @@ export async function enrichThought(
 						normalizedText,
 						thoughtEmbedding,
 						capturedAt,
-						timezone: getTemporalAnchorTimezone(userId),
+						timezone,
 						precomputedMentions: precomputedTemporalMentions
 					})
 				);
@@ -222,6 +223,7 @@ export async function enrichThought(
 			.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 			.limit(1);
 		const capturedAt = thoughtRow?.createdAt ?? new Date();
+		const timezone = await getUserPreferredTimezone(userId);
 
 		temporalFollowUp = await Promise.allSettled([
 			time('enrich_temporal', () =>
@@ -231,7 +233,7 @@ export async function enrichThought(
 					normalizedText,
 					thoughtEmbedding,
 					capturedAt,
-					timezone: getTemporalAnchorTimezone(userId)
+					timezone
 				})
 			)
 		]).then((r) => r[0]);

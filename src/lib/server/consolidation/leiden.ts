@@ -3,15 +3,15 @@
  *
  * This is a simplified Louvain/Leiden-inspired modularity-maximizing algorithm
  * suitable for the entity graphs in this system (typically 10–5000 nodes).
- * It produces hierarchical community assignments at 4 levels (L3→L0).
+ * It produces hierarchical community assignments at 3 levels (L2→L0).
  *
  * Algorithm outline:
- *   1. Start with each node in its own community (L3 = leaf).
+ *   1. Start with each node in its own community (leaf = L2).
  *   2. For each node, greedily move it to the neighbor community that maximises
  *      modularity gain (ΔQ > 0). Repeat until no improvement.
- *   3. Aggregate communities into super-nodes and repeat (L2, L1, L0).
+ *   3. Aggregate communities into super-nodes and repeat (L1, L0).
  *
- * Output: Map<nodeId, communityId[]> where index 0 = L3 (leaf), index 3 = L0 (root).
+ * Output: hierarchy.levels where index 0 = leaf (L2), index 2 = root (L0).
  *
  * References:
  *   Blondel et al. (2008) "Fast unfolding of communities in large networks" (Louvain)
@@ -28,7 +28,7 @@ export type CommunityLevel = {
 };
 
 export type CommunityHierarchy = {
-	/** L3 = leaf (tightest), L0 = root (broadest). Index 0 in array = L3. */
+	/** Leaf (tightest) → root (broadest). Index 0 in array = leaf (L2). */
 	levels: CommunityLevel[];
 };
 
@@ -223,10 +223,10 @@ function buildSuperGraph(
 }
 
 /**
- * Detect hierarchical communities using a 4-level Louvain algorithm.
+ * Detect hierarchical communities using a 3-level Louvain algorithm.
  *
- * Returns levels where index 0 = L3 (leaf, most granular)
- * and index 3 = L0 (root, most abstract).
+ * Returns levels where index 0 = leaf (L2, most granular)
+ * and index 2 = root (L0, most abstract).
  *
  * If nodes.length < 2 or there are no edges, returns a trivial hierarchy
  * where every node is its own community at all levels.
@@ -234,7 +234,7 @@ function buildSuperGraph(
 export function detectCommunities(
 	nodes: string[],
 	edges: Edge[],
-	levels = 4
+	levels = 3
 ): CommunityHierarchy {
 	if (nodes.length < 2) {
 		// Trivial: each node is its own community at all levels.
@@ -247,7 +247,7 @@ export function detectCommunities(
 
 	const hierarchy: CommunityLevel[] = [];
 
-	// L3 → L0: run Louvain on increasingly coarse graphs.
+	// Leaf → root: run Louvain on increasingly coarse graphs.
 	let currentNodes = nodes;
 	let currentEdges = edges;
 
@@ -260,7 +260,7 @@ export function detectCommunities(
 			louvainLevel(currentNodes, currentEdges);
 
 		if (level === 0) {
-			// L3: direct node → community mapping.
+			// Leaf: direct node → community mapping.
 			hierarchy.push({ membership: new Map(levelMembership), communities: new Map(
 				[...levelCommunities].map(([cId, members]) => [cId, new Set(members)])
 			)});

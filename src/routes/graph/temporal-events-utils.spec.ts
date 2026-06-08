@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+	agendaSectionForItem,
 	buildMonthGrid,
 	calendarDateKey,
 	eventDateKeys,
 	eventsOnDay,
+	filterItemsByRange,
 	filterItemsByStatus,
 	formatWhen,
+	groupByAgendaSection,
 	groupByKind,
 	localViewDayKey
 } from './temporal-events-utils';
@@ -30,6 +33,8 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		thoughtText: 'thought',
 		thoughtCategory: 'task',
 		thoughtStatus: 'open',
+		lifecycleStatus: 'open',
+		snoozedUntil: null,
 		createdAt: '2026-05-19T00:00:00.000Z',
 		...overrides
 	};
@@ -38,8 +43,16 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 describe('filterItemsByStatus', () => {
 	it('hides completed events when filter is open', () => {
 		const items = [
-			item({ id: 'a', thoughtStatus: 'open' }),
-			item({ id: 'b', thoughtStatus: 'completed' })
+			item({ id: 'a', lifecycleStatus: 'open' }),
+			item({ id: 'b', lifecycleStatus: 'completed' })
+		];
+		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
+	});
+
+	it('hides cancelled events when filter is open', () => {
+		const items = [
+			item({ id: 'a', lifecycleStatus: 'open' }),
+			item({ id: 'b', lifecycleStatus: 'cancelled' })
 		];
 		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
 	});
@@ -145,5 +158,35 @@ describe('groupByKind', () => {
 describe('buildMonthGrid', () => {
 	it('returns 42 cells for a month grid', () => {
 		expect(buildMonthGrid(new Date(2026, 4, 1))).toHaveLength(42);
+	});
+});
+
+describe('filterItemsByRange', () => {
+	it('relevant includes upcoming and near-future items', () => {
+		const now = new Date('2026-05-20T12:00:00.000Z');
+		const items = [
+			item({ id: 'past', startAt: '2026-05-01T00:00:00.000Z', endAt: '2026-05-02T00:00:00.000Z' }),
+			item({ id: 'soon', startAt: '2026-05-25T00:00:00.000Z', endAt: '2026-05-26T00:00:00.000Z' })
+		];
+		vi.useFakeTimers();
+		vi.setSystemTime(now);
+		expect(filterItemsByRange(items, 'relevant').map((i) => i.id)).toEqual(['soon']);
+		vi.useRealTimers();
+	});
+});
+
+describe('groupByAgendaSection', () => {
+	it('places same-day events in today section', () => {
+		const now = new Date('2026-05-20T12:00:00.000Z');
+		const todayItem = item({
+			id: 'today',
+			startAt: '2026-05-20T14:00:00.000Z',
+			endAt: '2026-05-20T15:00:00.000Z',
+			timePrecision: 'exact',
+			isAllDay: false
+		});
+		const map = groupByAgendaSection([todayItem], 'UTC', now);
+		expect(map.get('today')).toHaveLength(1);
+		expect(agendaSectionForItem(todayItem, now, 'UTC')).toBe('today');
 	});
 });

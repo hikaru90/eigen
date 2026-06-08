@@ -3,22 +3,37 @@
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import CalendarIcon from '@lucide/svelte/icons/calendar';
-	import ListIcon from '@lucide/svelte/icons/list';
-	import Columns3Icon from '@lucide/svelte/icons/columns-3';
+	import LayoutListIcon from '@lucide/svelte/icons/layout-list';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import * as Select from '$lib/components/ui/select';
 	import * as Tabs from '$lib/components/ui/tabs';
-	import { filterItemsByRange, filterItemsByStatus, type TemporalStatusFilter } from './temporal-events-utils';
+	import { Button } from '$lib/components/ui/button';
+	import {
+		filterItemsByKinds,
+		filterItemsByRange,
+		filterItemsByStatus,
+		KANBAN_KIND_ORDER,
+		kindLabel,
+		type TemporalRangeFilter,
+		type TemporalStatusFilter
+	} from './temporal-events-utils';
 	import TemporalEventDetail from './TemporalEventDetail.svelte';
-	import TemporalEventsListView from './TemporalEventsListView.svelte';
+	import TemporalEventsAgendaView from './TemporalEventsAgendaView.svelte';
 	import TemporalEventsCalendarView from './TemporalEventsCalendarView.svelte';
-	import TemporalEventsKanbanView from './TemporalEventsKanbanView.svelte';
 
 	type Props = {
 		onSelectItem?: (item: TemporalEventListItem | null) => void;
 		selectedItemId?: string | null;
+		initialEventId?: string | null;
+		userTimeZone?: string;
 	};
 
-	let { onSelectItem, selectedItemId = null }: Props = $props();
+	let {
+		onSelectItem,
+		selectedItemId = null,
+		initialEventId = null,
+		userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+	}: Props = $props();
 
 	type Phase =
 		| { kind: 'idle' }
@@ -27,15 +42,21 @@
 		| { kind: 'error'; message: string };
 
 	let phase = $state<Phase>({ kind: 'idle' });
-	let rangeFilter = $state<'all' | 'upcoming' | 'past'>('all');
+	let rangeFilter = $state<TemporalRangeFilter>('relevant');
 	let statusFilter = $state<TemporalStatusFilter>('open');
-	let layoutView = $state<'list' | 'calendar' | 'kanban'>('list');
-	let updatingThoughtId = $state<string | null>(null);
+	let kindFilter = $state<string[]>([]);
+	let layoutView = $state<'agenda' | 'calendar'>('agenda');
+	let updatingEventId = $state<string | null>(null);
+	let actionBusy = $state(false);
 	let actionError = $state<string | null>(null);
+	let lastActionSummary = $state<string | null>(null);
 
 	const filteredItems = $derived(
 		phase.kind === 'ready'
-			? filterItemsByRange(filterItemsByStatus(phase.items, statusFilter), rangeFilter)
+			? filterItemsByKinds(
+					filterItemsByRange(filterItemsByStatus(phase.items, statusFilter), rangeFilter),
+					kindFilter
+				)
 			: []
 	);
 
@@ -45,65 +66,123 @@
 		phase.kind === 'ready' ? (filteredItems.find((i) => i.id === selectedItemId) ?? null) : null
 	);
 
-	onMount(() => {
-		let cancelled = false;
-		(async () => {
-			phase = { kind: 'loading' };
-			try {
-				const res = await fetch('/api/temporal-events');
-				if (!res.ok) {
-					const text = await res.text();
-					throw new Error(`${res.status}: ${text || 'unknown error'}`);
-				}
-				const body = (await res.json()) as { items: TemporalEventListItem[] };
-				if (cancelled) return;
-				phase = { kind: 'ready', items: body.items };
-			} catch (err) {
-				if (cancelled) return;
-				phase = {
-					kind: 'error',
-					message: err instanceof Error ? err.message : String(err)
-				};
+	async function loadEvents() {
+		phase = { kind: 'loading' };
+		actionError = null;
+		try {
+			const params = new URLSearchParams({
+				range: rangeFilter,
+				status: statusFilter
+			});
+			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
+			const res = await fetch(`/api/temporal-events?${params}`);
+			if (!res.ok) {
+				const text = await res.text();
+				throw new Error(`${res.status}: ${text || 'unknown error'}`);
 			}
-		})();
-		return () => {
-			cancelled = true;
-		};
+			const body = (await res.json()) as { items: TemporalEventListItem[] };
+			phase = { kind: 'ready', items: body.items };
+			if (initialEventId && body.items.some((i) => i.id === initialEventId)) {
+				onSelectItem?.(body.items.find((i) => i.id === initialEventId) ?? null);
+			}
+		} catch (err) {
+			phase = {
+				kind: 'error',
+				message: err instanceof Error ? err.message : String(err)
+			};
+		}
+	}
+
+	onMount(() => {
+		void loadEvents();
 	});
 
 	function selectItem(item: TemporalEventListItem) {
+		lastActionSummary = null;
 		onSelectItem?.(selectedItemId === item.id ? null : item);
 	}
 
-	function applyThoughtStatusLocally(thoughtId: string, status: 'open' | 'completed') {
+	function applyItemLocally(updated: TemporalEventListItem) {
 		if (phase.kind !== 'ready') return;
 		phase = {
 			kind: 'ready',
-			items: phase.items.map((item) =>
-				item.thoughtId === thoughtId ? { ...item, thoughtStatus: status } : item
-			)
+			items: phase.items.map((item) => (item.id === updated.id ? updated : item))
 		};
 	}
 
-	async function setThoughtStatus(thoughtId: string, status: 'open' | 'completed') {
+	async function postEventAction(
+		eventId: string,
+		body: { action?: string; instruction?: string }
+	) {
 		actionError = null;
-		updatingThoughtId = thoughtId;
+		lastActionSummary = null;
+		actionBusy = true;
+		updatingEventId = eventId;
 		try {
-			const res = await fetch(`/api/thoughts/${thoughtId}`, {
-				method: 'PATCH',
+			const res = await fetch(`/api/temporal-events/${eventId}/action`, {
+				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ status })
+				body: JSON.stringify(body)
 			});
 			if (!res.ok) {
 				const text = await res.text();
 				throw new Error(text || `Request failed (${res.status})`);
 			}
-			applyThoughtStatusLocally(thoughtId, status);
+			const result = (await res.json()) as { item: TemporalEventListItem; summary: string };
+			applyItemLocally(result.item);
+			lastActionSummary = result.summary;
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
-			updatingThoughtId = null;
+			actionBusy = false;
+			updatingEventId = null;
 		}
+	}
+
+	function onQuickAction(
+		eventId: string,
+		action: 'mark_done' | 'reopen' | 'cancel' | 'dismiss'
+	) {
+		void postEventAction(eventId, { action });
+	}
+
+	function onInstruction(eventId: string, instruction: string) {
+		void postEventAction(eventId, { instruction });
+	}
+
+	async function onDelete(eventId: string) {
+		actionError = null;
+		actionBusy = true;
+		try {
+			const res = await fetch(`/api/temporal-events/${eventId}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const text = await res.text();
+				throw new Error(text || `Request failed (${res.status})`);
+			}
+			const result = (await res.json()) as { summary: string };
+			if (phase.kind === 'ready') {
+				phase = {
+					kind: 'ready',
+					items: phase.items.filter((i) => i.id !== eventId)
+				};
+			}
+			lastActionSummary = result.summary;
+			if (selectedItemId === eventId) onSelectItem?.(null);
+		} catch (err) {
+			actionError = err instanceof Error ? err.message : String(err);
+		} finally {
+			actionBusy = false;
+		}
+	}
+
+	function toggleKind(kind: string) {
+		kindFilter = kindFilter.includes(kind)
+			? kindFilter.filter((k) => k !== kind)
+			: [...kindFilter, kind];
+	}
+
+	function onFilterChange() {
+		void loadEvents();
 	}
 </script>
 
@@ -111,34 +190,54 @@
 	<div class="border-border flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
 		<Tabs.Root bind:value={layoutView} class="shrink-0">
 			<Tabs.List variant="line" class="h-8">
-				<Tabs.Trigger value="list" class="gap-1 px-2 text-xs">
-					<ListIcon class="size-3.5" aria-hidden="true" />
-					List
+				<Tabs.Trigger value="agenda" class="gap-1 px-2 text-xs">
+					<LayoutListIcon class="size-3.5" aria-hidden="true" />
+					Agenda
 				</Tabs.Trigger>
 				<Tabs.Trigger value="calendar" class="gap-1 px-2 text-xs">
 					<CalendarIcon class="size-3.5" aria-hidden="true" />
 					Calendar
 				</Tabs.Trigger>
-				<Tabs.Trigger value="kanban" class="gap-1 px-2 text-xs">
-					<Columns3Icon class="size-3.5" aria-hidden="true" />
-					Kanban
-				</Tabs.Trigger>
 			</Tabs.List>
 		</Tabs.Root>
 
-		<span class="text-muted-foreground hidden text-xs sm:inline">Filter</span>
-		<Select.Root type="single" bind:value={rangeFilter}>
+		<Select.Root
+			type="single"
+			value={rangeFilter}
+			onValueChange={(v) => {
+				if (v) {
+					rangeFilter = v as TemporalRangeFilter;
+					onFilterChange();
+				}
+			}}
+		>
 			<Select.Trigger class="h-8 w-[9rem] font-mono text-xs">
-				{rangeFilter === 'all' ? 'All' : rangeFilter === 'upcoming' ? 'Upcoming' : 'Past'}
+				{rangeFilter === 'all'
+					? 'All'
+					: rangeFilter === 'relevant'
+						? 'Relevant'
+						: rangeFilter === 'upcoming'
+							? 'Upcoming'
+							: 'Past'}
 			</Select.Trigger>
 			<Select.Content>
-				<Select.Item value="all">All</Select.Item>
+				<Select.Item value="relevant">Relevant</Select.Item>
 				<Select.Item value="upcoming">Upcoming</Select.Item>
 				<Select.Item value="past">Past</Select.Item>
+				<Select.Item value="all">All</Select.Item>
 			</Select.Content>
 		</Select.Root>
 
-		<Select.Root type="single" bind:value={statusFilter}>
+		<Select.Root
+			type="single"
+			value={statusFilter}
+			onValueChange={(v) => {
+				if (v) {
+					statusFilter = v as TemporalStatusFilter;
+					onFilterChange();
+				}
+			}}
+		>
 			<Select.Trigger class="h-8 w-[9.5rem] font-mono text-xs">
 				{statusFilter === 'open' ? 'Open' : 'Show completed'}
 			</Select.Trigger>
@@ -148,10 +247,50 @@
 			</Select.Content>
 		</Select.Root>
 
+		<Button
+			type="button"
+			variant="outline"
+			size="icon"
+			class="size-8"
+			title="Refresh"
+			onclick={() => loadEvents()}
+		>
+			<RefreshCwIcon class="size-3.5" aria-hidden="true" />
+			<span class="sr-only">Refresh</span>
+		</Button>
+
 		{#if phase.kind === 'ready'}
 			<span class="text-muted-foreground ml-auto font-mono text-[11px]">
 				{filteredItems.length} events
 			</span>
+		{/if}
+	</div>
+
+	<div class="border-border flex shrink-0 flex-wrap gap-1 border-b px-3 py-1.5">
+		{#each KANBAN_KIND_ORDER as kind (kind)}
+			<button
+				type="button"
+				class="rounded-full border px-2 py-0.5 font-mono text-[10px] transition-colors {kindFilter.includes(
+					kind
+				)
+					? 'border-primary bg-primary/10 text-foreground'
+					: 'border-border text-muted-foreground hover:bg-muted/50'}"
+				onclick={() => toggleKind(kind)}
+			>
+				{kindLabel(kind)}
+			</button>
+		{/each}
+		{#if kindFilter.length > 0}
+			<button
+				type="button"
+				class="text-muted-foreground px-2 py-0.5 font-mono text-[10px] underline"
+				onclick={() => {
+					kindFilter = [];
+					onFilterChange();
+				}}
+			>
+				Clear kinds
+			</button>
 		{/if}
 	</div>
 
@@ -183,27 +322,20 @@
 		</div>
 	{:else if phase.kind === 'ready'}
 		<div class="flex min-h-0 flex-1 flex-col">
-			{#if layoutView === 'list'}
-				<TemporalEventsListView
+			{#if layoutView === 'agenda'}
+				<TemporalEventsAgendaView
 					items={filteredItems}
 					{selectedItemId}
-					{updatingThoughtId}
+					{updatingEventId}
+					timeZone={userTimeZone}
 					onSelect={selectItem}
-					onSetStatus={setThoughtStatus}
+					onQuickAction={onQuickAction}
 				/>
-			{:else if layoutView === 'calendar'}
+			{:else}
 				<TemporalEventsCalendarView
 					items={filteredItems}
 					{selectedItemId}
 					onSelect={selectItem}
-				/>
-			{:else}
-				<TemporalEventsKanbanView
-					items={filteredItems}
-					{selectedItemId}
-					{updatingThoughtId}
-					onSelect={selectItem}
-					onSetStatus={setThoughtStatus}
 				/>
 			{/if}
 		</div>
@@ -215,8 +347,12 @@
 		{#if selectedItem}
 			<TemporalEventDetail
 				item={selectedItem}
-				{updatingThoughtId}
-				onSetStatus={setThoughtStatus}
+				{updatingEventId}
+				{actionBusy}
+				{lastActionSummary}
+				{onQuickAction}
+				{onInstruction}
+				{onDelete}
 			/>
 		{/if}
 	{/if}

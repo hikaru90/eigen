@@ -1,22 +1,16 @@
 /**
  * Community summary generation job.
  *
- * For each community without an up-to-date summary, generates an LLM summary
- * tailored to its level in the hierarchy:
+ * GraphRAG-style bottom-up reports: each community gets a thematic title and
+ * summary (not an entity keyword list). Higher levels incorporate child
+ * community summaries when available.
  *
- *   L3 (leaf, level=3): Factual — entity names, co-occurrence counts, date ranges.
- *   L1-L2 (mid, level=1-2): Structural — relationship frequency and patterns.
- *   L0 (root, level=0): Interpretive — personal patterns, written in 2nd person.
- *
- * After generating each summary, embeds it (1536d vector) for HNSW semantic search.
- * Community summaries are the primary index for global sensemaking queries.
- *
- * Cost note: summary generation is one LLM chat call + one embedding call per
- * community. Run only for communities that changed since last generation
- * (checked via community.updatedAt > summary.generatedAt).
+ * After generating each summary, embeds the title + short routing text (1536d)
+ * for HNSW semantic search. Community summaries are the primary index for
+ * global sensemaking queries.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	graphCommunity,
@@ -28,6 +22,11 @@ import {
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { loadCommunityThoughtIds } from './community-bundles';
+import {
+	COMMUNITY_HIERARCHY_DEPTH,
+	COMMUNITY_LEAF_LEVEL,
+	COMMUNITY_MID_LEVEL
+} from './community-levels';
 
 const SUMMARY_BATCH_SIZE = 20;
 
@@ -89,22 +88,40 @@ export async function getCommunitySummaryStats(userId: string): Promise<Communit
 		.select({ n: sql<number>`count(*)::int` })
 		.from(graphCommunity)
 		.leftJoin(communitySummary, eq(communitySummary.communityId, graphCommunity.id))
-		.where(and(eq(graphCommunity.userId, userId), isNull(communitySummary.communityId)));
+		.where(and(eq(graphCommunity.userId, userId), sql`${communitySummary.communityId} IS NULL`));
 	const pending = pendingRow?.n ?? 0;
 	return { total, pending, summarized: total - pending };
 }
 
-const SUMMARY_SYSTEM =
-	'You summarize clusters of related memories for semantic search. Be concise and factual. Output only the summary text — no preamble, labels, or markdown.';
+const SUMMARY_SYSTEM = [
+	'You write GraphRAG-style community reports for a personal knowledge graph.',
+	'Each community is a cluster of related entities and memories discovered by graph structure.',
+	'Respond with JSON only: {"title":"...","summary":"..."}',
+	'- title: 3–8 word thematic label. Never a comma-separated list of entity names.',
+	'- summary: 2–3 concise sentences describing what unifies this cluster thematically.',
+	'Write in the same language as the thought samples when present; otherwise English.'
+].join(' ');
 
 function summaryTaskForLevel(level: number): string {
-	if (level === 3) {
-		return 'Summarize this leaf cluster: key entities, types, and factual themes. Up to 2 short sentences.';
+	if (level === COMMUNITY_LEAF_LEVEL) {
+		return [
+			'Leaf cluster (finest granularity).',
+			'Describe the concrete topic this tight entity group represents.',
+			'Ground the summary in the thought samples; mention key themes, not a name dump.'
+		].join(' ');
 	}
-	if (level === 1 || level === 2) {
-		return 'Summarize this mid-level cluster: main topics, strongest entity ties, and recurring links. Up to 3 short sentences.';
+	if (level === COMMUNITY_MID_LEVEL) {
+		return [
+			'Domain cluster (mid-level).',
+			'Synthesize the child community reports below into one domain-level theme.',
+			'Highlight recurring relationships and topics across the sub-clusters.'
+		].join(' ');
 	}
-	return 'Summarize this root cluster: overarching themes and patterns across these thoughts, in second person (you/your). Up to 3 short sentences.';
+	return [
+		'Root cluster (broadest).',
+		'Synthesize the child domain reports into overarching personal themes.',
+		'Write the summary in second person (you/your) as interpretive sensemaking.'
+	].join(' ');
 }
 
 type CommunityContext = {
@@ -114,7 +131,40 @@ type CommunityContext = {
 	entityTypes: string[];
 	relatedThoughts: string[];
 	thoughtCount: number;
+	childSummaries: string[];
 };
+
+async function loadChildCommunitySummaries(
+	userId: string,
+	communityId: string,
+	limit = 8
+): Promise<string[]> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			title: communitySummary.summaryShort,
+			summary: communitySummary.summaryText
+		})
+		.from(graphCommunity)
+		.innerJoin(communitySummary, eq(communitySummary.communityId, graphCommunity.id))
+		.where(
+			and(
+				eq(graphCommunity.userId, userId),
+				eq(graphCommunity.parentCommunityId, communityId),
+				isNotNull(communitySummary.summaryText)
+			)
+		)
+		.limit(limit);
+
+	return rows
+		.map((row) => {
+			const title = row.title?.trim();
+			const body = row.summary.trim();
+			if (title && body) return `${title}: ${body}`;
+			return title || body;
+		})
+		.filter((text) => text.length > 0);
+}
 
 async function loadCommunityContext(
 	userId: string,
@@ -122,7 +172,6 @@ async function loadCommunityContext(
 ): Promise<CommunityContext> {
 	const db = getDb();
 
-	// Load member entities.
 	const members = await db
 		.select({
 			label: canonicalEntity.label,
@@ -141,6 +190,8 @@ async function loadCommunityContext(
 		.where(eq(graphCommunity.id, communityId))
 		.limit(1);
 
+	const level = communityRow?.level ?? COMMUNITY_LEAF_LEVEL;
+
 	let relatedThoughts: string[] = [];
 	let thoughtCount = 0;
 
@@ -152,43 +203,81 @@ async function loadCommunityContext(
 			.select({ normalizedText: thought.normalizedText })
 			.from(thought)
 			.where(and(eq(thought.userId, userId), inArray(thought.id, thoughtIds)))
-			.limit(5);
-		relatedThoughts = samples.map((t) => t.normalizedText.slice(0, 200));
+			.limit(8);
+		relatedThoughts = samples.map((t) => t.normalizedText.slice(0, 300));
 	}
+
+	const childSummaries =
+		level < COMMUNITY_LEAF_LEVEL
+			? await loadChildCommunitySummaries(userId, communityId)
+			: [];
 
 	return {
 		communityId,
-		level: communityRow?.level ?? 3,
+		level,
 		entityLabels: members.map((m) => m.label),
 		entityTypes: [...new Set(members.map((m) => m.entityType))],
 		relatedThoughts,
-		thoughtCount
+		thoughtCount,
+		childSummaries
 	};
 }
 
 function buildSummaryPrompt(ctx: CommunityContext): string {
-	const entityList = ctx.entityLabels.slice(0, 20).join(', ');
+	const entityList = ctx.entityLabels.slice(0, 12).join(', ');
 	const typeList = ctx.entityTypes.join(', ');
 	const thoughtSamples = ctx.relatedThoughts
 		.map((t, i) => `${i + 1}. ${t}`)
 		.join('\n');
+	const childBlock =
+		ctx.childSummaries.length > 0
+			? ['Child community reports:', ...ctx.childSummaries.map((s, i) => `${i + 1}. ${s}`)].join(
+					'\n'
+				)
+			: '';
 
 	return [
 		summaryTaskForLevel(ctx.level),
 		'',
-		`Entities (${ctx.entityLabels.length}): ${entityList || 'none'}`,
-		`Types: ${typeList || 'none'}`,
-		`Thought samples (${ctx.thoughtCount} total):`,
-		thoughtSamples || '(none)'
-	].join('\n');
+		`Entity count: ${ctx.entityLabels.length}`,
+		entityList ? `Sample entities (context only — do not list in title): ${entityList}` : '',
+		typeList ? `Entity types: ${typeList}` : '',
+		`Thought count: ${ctx.thoughtCount}`,
+		thoughtSamples ? `Thought samples:\n${thoughtSamples}` : '',
+		childBlock
+	]
+		.filter((line) => line.length > 0)
+		.join('\n');
+}
+
+type ParsedCommunityReport = {
+	title: string;
+	summary: string;
+};
+
+function parseCommunityReport(content: string): ParsedCommunityReport | null {
+	const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+	try {
+		const parsed = JSON.parse(cleaned) as { title?: unknown; summary?: unknown };
+		const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+		const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+		if (!title || !summary) return null;
+		return { title: title.slice(0, 120), summary: summary.slice(0, 4000) };
+	} catch {
+		const trimmed = cleaned.trim();
+		if (!trimmed) return null;
+		const firstSentence = trimmed.split(/[.!?]/)[0]?.trim() ?? trimmed;
+		return {
+			title: firstSentence.slice(0, 80),
+			summary: trimmed.slice(0, 4000)
+		};
+	}
 }
 
 /**
  * Generate and persist summaries for communities that don't have one yet.
  * Processes communities in batches until none are pending, cancel is requested,
  * or a batch makes no progress.
- *
- * Returns generation stats for UI reporting.
  */
 export async function runCommunitySummaryGeneration(
 	userId: string,
@@ -222,13 +311,12 @@ async function runCommunitySummaryBatch(
 		return { total: 0, summarized: 0, generated: 0, pending: 0 };
 	}
 
-	// Find communities without summaries (batch window for LLM work).
 	const communities = await db
 		.select({ id: graphCommunity.id, level: graphCommunity.level, memberCount: graphCommunity.memberCount })
 		.from(graphCommunity)
 		.where(eq(graphCommunity.userId, userId))
-		.orderBy(sql`${graphCommunity.level} DESC`) // leaf first, then up
-		.limit(batchSize * 4);
+		.orderBy(sql`${graphCommunity.level} DESC`)
+		.limit(batchSize * COMMUNITY_HIERARCHY_DEPTH);
 
 	const existingSummaryIds = await db
 		.select({ communityId: communitySummary.communityId })
@@ -252,7 +340,7 @@ async function runCommunitySummaryBatch(
 					{ role: 'user', content: prompt }
 				],
 				temperature: 0,
-				maxTokens: 120,
+				maxTokens: 280,
 				logContext: 'community_summary'
 			});
 
@@ -261,11 +349,14 @@ async function runCommunitySummaryBatch(
 			const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
 			if (typeof content !== 'string' || !content.trim()) continue;
 
-			const summaryText = content.trim().slice(0, 4000);
-			const summaryShort = summaryText.split(/[.!?]/).slice(0, 2).join('. ').trim().slice(0, 500);
+			const report = parseCommunityReport(content);
+			if (!report) continue;
 
-			// Embed the short routing summary for ANN.
-			const embedding = await createThoughtEmbedding(userId, summaryShort || summaryText);
+			const summaryShort = report.title.slice(0, 500);
+			const summaryText = report.summary;
+			const embeddingSource = `${summaryShort}. ${summaryText}`.slice(0, 2000);
+
+			const embedding = await createThoughtEmbedding(userId, embeddingSource);
 
 			if (!(await communityStillExists(userId, community.id))) {
 				console.warn('[consolidation.summary] stale community skipped (graph was rebuilt)', {
@@ -274,14 +365,13 @@ async function runCommunitySummaryBatch(
 				continue;
 			}
 
-			// Upsert summary.
 			await db
 				.insert(communitySummary)
 				.values({
 					userId,
 					communityId: community.id,
 					level: community.level,
-					summaryShort: summaryShort || summaryText.slice(0, 500),
+					summaryShort,
 					summaryText,
 					summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 					entityCount: ctx.entityLabels.length,
@@ -290,7 +380,7 @@ async function runCommunitySummaryBatch(
 				.onConflictDoUpdate({
 					target: communitySummary.communityId,
 					set: {
-						summaryShort: summaryShort || summaryText.slice(0, 500),
+						summaryShort,
 						summaryText,
 						summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
 						entityCount: ctx.entityLabels.length,
@@ -305,7 +395,6 @@ async function runCommunitySummaryBatch(
 				communityId: community.id,
 				message: dbErrorMessage(err)
 			});
-			// Continue with next community.
 		}
 	}
 

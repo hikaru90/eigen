@@ -71,9 +71,10 @@
 - **MCP:** post-commit changes continue to go through explicit MCP edit tools where applicable.
 
 ## Ontology Policy
-- Do not run an onboarding interview at first-use for ontology setup.
-- Start from a simple baseline ontology (thought/task/idea/reference/date/person).
-- Re-evaluate ontology after 10 captured thoughts (subject to acceptable compute cost).
+- Start from a simple baseline ontology (seeded silently on first load — no manual ontology setup).
+- **Required grounding conversation** before first capture: users complete a getting-to-know-you chat (`/chat?mode=grounding`) that persists a `user_grounding_profile` used in enrichment/classification.
+- Periodic opt-in re-grounding nudges (90 days or every 100 thoughts); never block capture after initial completion.
+- Re-evaluate ontology labeling profile after 10 captured thoughts (subject to acceptable compute cost).
 
 ## Security Baseline
 - Use Better Auth.
@@ -82,10 +83,11 @@
 
 ## LLM as judge (no string heuristics)
 
-- **Never** use regex, keyword lists, stop-word filters, or substring rules in code to decide semantic meaning (entity type, category, intent, temporal scope, contradictions, retrieval mode, edit routing, etc.).
+- **Never** use regex, keyword lists, stop-word filters, substring rules, lexical folding, word overlap, prefix matching, or any static string analysis in application code to decide semantic meaning (entity type, category, intent, temporal scope, hint-to-event binding, contradictions, retrieval mode, edit routing, etc.). This applies in **every language** — do not substitute English- or German-specific string tricks for an LLM call.
 - **Always** use an LLM call with ontology catalog + JSON schema for those decisions. See [`.cursor/rules/no-string-heuristics.mdc`](.cursor/rules/no-string-heuristics.mdc).
-- Post-LLM code may parse JSON, validate contracts, and persist — not re-type or re-route based on string patterns.
-- **Allowed without LLM:** lexical search indexing, embedding similarity, graph traversal on persisted structure, ID/format validation, redaction.
+- Post-LLM code may parse JSON, validate contracts, trim whitespace, and persist — not re-type, re-route, or **match meaning** based on string patterns.
+- **Examples of forbidden patterns:** `scoreEntityHintMatch`, parsing quoted phrases from questions, `.includes()` / `.startsWith()` to decide whether a hint refers to an event, capitalized-word heuristics, `foldLexicalChars` for semantic binding (folding is allowed only for **lexical search indexing**, not meaning).
+- **Allowed without LLM:** embedding similarity for **retrieval ranking**, lexical indexing (`lexical_text`, tsvector, BM25), graph traversal on persisted structure, ID/format validation, redaction.
 
 ## Memory indexing and tool hygiene
 - **Lexical recall:** persist a deterministic **precomputed search surface** on each thought (e.g. `thought.lexical_text`: NFKC-folded, lowercased, whitespace-collapsed from normalized body). Use it to build `tsvector` and/or BM25-style keyword retrieval alongside `pgvector`, so short phrases, names, and codes are not lost to embedding-only search.
