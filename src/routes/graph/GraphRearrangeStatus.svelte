@@ -8,7 +8,8 @@
 		GRAPH_REARRANGE_PHASE_COPY,
 		GRAPH_REARRANGE_PIPELINE,
 		graphRearrangeProgressPercent,
-		type GraphRearrangePhase
+		type GraphRearrangePhase,
+		type GraphRearrangeTaskProgress
 	} from '$lib/graph/graph-rearrange-phases';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -18,6 +19,7 @@
 		busy,
 		complete,
 		phaseEvents,
+		activeTask,
 		result,
 		startedAt,
 		onDismiss
@@ -25,6 +27,7 @@
 		busy: boolean;
 		complete: boolean;
 		phaseEvents: GraphRearrangePhase[];
+		activeTask: GraphRearrangeTaskProgress | null;
 		result: GraphRearrangeResult | null;
 		startedAt: number | null;
 		onDismiss: () => void;
@@ -32,7 +35,7 @@
 
 	const summaryLines = $derived(result ? graphRearrangeSummaryLines(result) : []);
 	const hadChanges = $derived(result ? graphRearrangeHadChanges(result) : false);
-	const progress = $derived(graphRearrangeProgressPercent(phaseEvents, complete));
+	const progress = $derived(graphRearrangeProgressPercent(phaseEvents, complete, activeTask));
 	const activePhase = $derived(complete ? null : (phaseEvents.at(-1) ?? null));
 	const donePhases = $derived(complete ? phaseEvents : phaseEvents.slice(0, -1));
 	const activeStepIndex = $derived.by(() => {
@@ -120,9 +123,14 @@
 					{/if}
 				</div>
 				<p class="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-					{activePhase
-						? GRAPH_REARRANGE_PHASE_COPY[activePhase].description
-						: 'Preparing to prune weak edges, remove orphan nodes, and repair entity relations.'}
+					{#if activePhase === 'repair_relations' && activeTask && activeTask.total > 0}
+						Processing thought {activeTask.processed} of {activeTask.total} with missing
+						entity relations.
+					{:else if activePhase}
+						{GRAPH_REARRANGE_PHASE_COPY[activePhase].description}
+					{:else}
+						Preparing to prune weak edges, remove orphan nodes, and repair entity relations.
+					{/if}
 				</p>
 			</div>
 		</div>

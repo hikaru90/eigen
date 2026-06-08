@@ -324,6 +324,43 @@ function readEventIdFromToolArgs(body: Record<string, unknown>): string {
 	return id;
 }
 
+export async function runListTemporalEventsTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const range =
+		typeof body.range === 'string' ? body.range.trim() : 'relevant';
+	const status = typeof body.status === 'string' ? body.status.trim() : 'open';
+	const { listTemporalEventsForUser } = await import('$lib/server/memory/temporal-event-list');
+
+	const allowedRange = new Set(['relevant', 'upcoming', 'past', 'all']);
+	const allowedStatus = new Set(['open', 'all']);
+
+	const { items, nextCursor } = await listTemporalEventsForUser({
+		userId: context.userId,
+		range: allowedRange.has(range) ? (range as 'relevant' | 'upcoming' | 'past' | 'all') : 'relevant',
+		status: allowedStatus.has(status) ? (status as 'open' | 'all') : 'open',
+		includeOpenLoops: body.include_open_loops !== false
+	});
+
+	return sanitizeMcpToolResult({
+		items: items.map((item) => ({
+			id: item.id,
+			itemType: item.itemType,
+			kind: item.kind,
+			semanticSummary: item.semanticSummary,
+			startAt: item.startAt,
+			endAt: item.endAt,
+			lifecycleStatus: item.lifecycleStatus,
+			snoozedUntil: item.snoozedUntil,
+			durationMinutes: item.durationMinutes,
+			energyLevel: item.energyLevel,
+			priorityQuadrant: item.priorityQuadrant,
+			contextTags: item.contextTags,
+			thoughtId: item.thoughtId
+		})),
+		nextCursor
+	});
+}
+
 export async function runManageTemporalEventTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const eventId = readEventIdFromToolArgs(body);
@@ -333,8 +370,27 @@ export async function runManageTemporalEventTool(context: McpToolContext, args: 
 	const {
 		applyNlTemporalEventAction,
 		applyQuickTemporalEventAction,
+		applyStructuredRescheduleAction,
+		applyStructuredSnoozeAction,
 		deleteTemporalEventForUser
 	} = await import('$lib/server/memory/temporal-event-service');
+
+	const startAt = typeof body.start_at === 'string' ? body.start_at.trim() : '';
+	const endAt = typeof body.end_at === 'string' ? body.end_at.trim() : '';
+	const snoozedUntil = typeof body.snoozed_until === 'string' ? body.snoozed_until.trim() : '';
+
+	if (action === 'reschedule' && startAt) {
+		const result = await applyStructuredRescheduleAction(context.userId, eventId, {
+			startAt,
+			endAt: endAt || null
+		});
+		return sanitizeMcpToolResult({ eventId, ...result });
+	}
+
+	if (action === 'snooze' && snoozedUntil) {
+		const result = await applyStructuredSnoozeAction(context.userId, eventId, snoozedUntil);
+		return sanitizeMcpToolResult({ eventId, ...result });
+	}
 
 	if (action === 'delete') {
 		const result = await deleteTemporalEventForUser(context.userId, eventId);

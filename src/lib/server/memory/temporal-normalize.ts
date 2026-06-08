@@ -1,4 +1,9 @@
-import type { TemporalEventKind, TemporalTimePrecision } from '$lib/server/db/brain.schema';
+import type {
+	TemporalEnergyLevel,
+	TemporalEventKind,
+	TemporalPriorityQuadrant,
+	TemporalTimePrecision
+} from '$lib/server/db/brain.schema';
 import {
 	parseRelativeSpec,
 	resolveAnchoredStartAt,
@@ -16,11 +21,25 @@ export type ExtractedTemporalMention = {
 	timezone: string;
 	isAllDay: boolean;
 	recurrenceRule?: string;
+	durationMinutes?: number;
+	energyLevel?: TemporalEnergyLevel;
+	priorityQuadrant?: TemporalPriorityQuadrant;
+	contextTags?: string[];
+	/** Verbatim phrase of parent task in the same capture (resolved to parent_event_id on persist). */
+	parentSurface?: string;
 	confidence: number;
 	semanticSummary: string;
 	/** Structured relative-date spec — startAt is overridden by deterministic anchor math when set. */
 	relativeSpec?: TemporalRelativeSpec;
 };
+
+const ALLOWED_ENERGY = new Set<TemporalEnergyLevel>(['light', 'medium', 'deep']);
+const ALLOWED_QUADRANTS = new Set<TemporalPriorityQuadrant>([
+	'urgent_important',
+	'not_urgent_important',
+	'urgent_not_important',
+	'neither'
+]);
 
 const ALLOWED_KINDS = new Set<TemporalEventKind>([
 	'deadline',
@@ -140,6 +159,31 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
 					? (entry as { semanticSummary: string }).semanticSummary.trim()
 					: surface;
 			const relativeSpec = parseRelativeSpec((entry as { relativeSpec?: unknown }).relativeSpec);
+			const durationRaw = (entry as { durationMinutes?: unknown }).durationMinutes;
+			const durationMinutes =
+				typeof durationRaw === 'number' && durationRaw > 0 ? Math.round(durationRaw) : undefined;
+			const energyRaw = (entry as { energyLevel?: unknown }).energyLevel;
+			const energyLevel =
+				typeof energyRaw === 'string' && ALLOWED_ENERGY.has(energyRaw as TemporalEnergyLevel)
+					? (energyRaw as TemporalEnergyLevel)
+					: undefined;
+			const quadrantRaw = (entry as { priorityQuadrant?: unknown }).priorityQuadrant;
+			const priorityQuadrant =
+				typeof quadrantRaw === 'string' &&
+				ALLOWED_QUADRANTS.has(quadrantRaw as TemporalPriorityQuadrant)
+					? (quadrantRaw as TemporalPriorityQuadrant)
+					: undefined;
+			const contextTagsRaw = (entry as { contextTags?: unknown }).contextTags;
+			const contextTags = Array.isArray(contextTagsRaw)
+				? contextTagsRaw
+						.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+						.map((t) => t.trim())
+				: undefined;
+			const parentSurfaceRaw = (entry as { parentSurface?: unknown }).parentSurface;
+			const parentSurface =
+				typeof parentSurfaceRaw === 'string' && parentSurfaceRaw.trim()
+					? parentSurfaceRaw.trim()
+					: undefined;
 
 			if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return null;
 			if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return null;
@@ -155,7 +199,12 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
 				recurrenceRule,
 				confidence,
 				semanticSummary: semanticSummary || surface,
-				...(relativeSpec ? { relativeSpec } : {})
+				...(relativeSpec ? { relativeSpec } : {}),
+				...(durationMinutes != null ? { durationMinutes } : {}),
+				...(energyLevel ? { energyLevel } : {}),
+				...(priorityQuadrant ? { priorityQuadrant } : {}),
+				...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
+				...(parentSurface ? { parentSurface } : {})
 			};
 		})
 		.filter((v): v is ExtractedTemporalMention => v !== null);

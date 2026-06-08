@@ -48,6 +48,11 @@ Return ONLY a JSON array. Each element:
   "timezone": "IANA timezone",
   "isAllDay": boolean,
   "recurrenceRule": "optional iCal RRULE string or omit",
+  "durationMinutes": optional positive integer estimate,
+  "energyLevel": optional "light"|"medium"|"deep",
+  "priorityQuadrant": optional "urgent_important"|"not_urgent_important"|"urgent_not_important"|"neither",
+  "contextTags": optional string array e.g. ["@home","@computer"],
+  "parentSurface": optional verbatim phrase if this is a subtask of another mention in the same text,
   "confidence": 0-1,
   "semanticSummary": "short natural-language summary",
   "relativeSpec": optional object for relative phrases — code computes the final date from capture time ${capturedIso}:

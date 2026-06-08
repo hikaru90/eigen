@@ -1,14 +1,14 @@
 import type { GraphRearrangeResult } from '$lib/graph/graph-edit-api';
-import type { GraphRearrangePhase } from '$lib/graph/graph-rearrange-phases';
+import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases';
 
 export type GraphRearrangeNdjsonLine =
-	| { type: 'progress'; phase: GraphRearrangePhase }
+	| ({ type: 'progress' } & GraphRearrangeProgressEvent)
 	| { type: 'done'; result: GraphRearrangeResult }
 	| { type: 'error'; error: string };
 
 export async function consumeGraphRearrangeNdjsonStream(
 	res: Response,
-	onProgress: (phase: GraphRearrangePhase) => void
+	onProgress: (event: GraphRearrangeProgressEvent) => void
 ): Promise<GraphRearrangeResult> {
 	const reader = res.body?.getReader();
 	if (!reader) {
@@ -29,7 +29,11 @@ export async function consumeGraphRearrangeNdjsonStream(
 				if (!line) continue;
 				const obj = JSON.parse(line) as GraphRearrangeNdjsonLine;
 				if (obj.type === 'progress') {
-					onProgress(obj.phase);
+					onProgress({
+						phase: obj.phase,
+						...(obj.processed !== undefined ? { processed: obj.processed } : {}),
+						...(obj.total !== undefined ? { total: obj.total } : {})
+					});
 					continue;
 				}
 				if (obj.type === 'error') {

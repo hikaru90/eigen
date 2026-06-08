@@ -4,6 +4,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import { isTemporalEventCompleted } from './temporal-events-utils';
+	import { m } from '$lib/paraglide/messages.js';
 
 	type Props = {
 		item: TemporalEventListItem;
@@ -31,8 +32,8 @@
 		class="text-muted-foreground hover:text-foreground hover:bg-muted/60 flex size-7 shrink-0 items-center justify-center rounded-md border border-border transition-colors disabled:opacity-50 {completed
 			? 'bg-muted/40 text-green-600 dark:text-green-500'
 			: ''}"
-		title={completed ? 'Reopen' : 'Mark done'}
-		aria-label={completed ? 'Reopen' : 'Mark done'}
+		title={completed ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
+		aria-label={completed ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
 		disabled={busy}
 		onclick={handleClick}
 	>
@@ -54,6 +55,6 @@
 		{#if busy}
 			<LoaderCircleIcon class="size-3.5 animate-spin" aria-hidden="true" />
 		{/if}
-		{completed ? 'Reopen' : 'Mark done'}
+		{completed ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
 	</Button>
 {/if}

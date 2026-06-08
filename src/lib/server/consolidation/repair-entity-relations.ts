@@ -29,6 +29,7 @@ export type RepairEntityRelationsResult = {
 export type RepairEntityRelationsOptions = {
 	batchSize?: number;
 	shouldCancel?: () => boolean | Promise<boolean>;
+	onProgress?: (detail: { processed: number; total: number }) => void | Promise<void>;
 };
 
 type CoMentionEntity = {
@@ -293,6 +294,8 @@ export async function repairEntityRelationsForUser(
 	let repaired = 0;
 	let edgesAdded = 0;
 
+	await options?.onProgress?.({ processed: 0, total: processingBudget });
+
 	for (const row of prioritized.slice(0, processingBudget)) {
 		if (options?.shouldCancel && (await options.shouldCancel())) break;
 		processed++;
@@ -306,6 +309,8 @@ export async function repairEntityRelationsForUser(
 			repaired++;
 			edgesAdded += added;
 		}
+
+		await options?.onProgress?.({ processed, total: processingBudget });
 	}
 
 	return {

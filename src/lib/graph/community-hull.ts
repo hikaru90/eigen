@@ -23,6 +23,9 @@ import { COMMUNITY_LEAF_LEVEL } from './community-levels';
 
 export { COMMUNITY_LEAF_LEVEL };
 
+/** Brand mesh accent — mesh.svg / DESIGN.md; community borders and label chips. */
+export const COMMUNITY_HULL_ACCENT = '#28F97F';
+
 /** White radial hull fill — leaf (L2) only; pair with zoom-scaled opacity. */
 export const COMMUNITY_HULL_GRADIENT = {
 	center: 'oklch(1 0 0 / 0.88)',
@@ -51,12 +54,27 @@ export function communityHullFill(level: number): string {
 
 export function communityHullChromeStyleForLevel(level: number): CommunityHullChromeStyle {
 	if (level === COMMUNITY_LEAF_LEVEL) {
-		return { stroke: '#ffffff', strokeWidth: 1.25, strokeDasharray: '3 4', strokeOpacity: 1 };
+		return {
+			stroke: COMMUNITY_HULL_ACCENT,
+			strokeWidth: 1.25,
+			strokeDasharray: '3 4',
+			strokeOpacity: 1
+		};
 	}
 	if (level === 1) {
-		return { stroke: '#ffffff', strokeWidth: 1.5, strokeDasharray: '8 5', strokeOpacity: 0.75 };
+		return {
+			stroke: COMMUNITY_HULL_ACCENT,
+			strokeWidth: 1.5,
+			strokeDasharray: '8 5',
+			strokeOpacity: 0.75
+		};
 	}
-	return { stroke: '#ffffff', strokeWidth: 2, strokeDasharray: '14 8', strokeOpacity: 0.55 };
+	return {
+		stroke: COMMUNITY_HULL_ACCENT,
+		strokeWidth: 2,
+		strokeDasharray: '14 8',
+		strokeOpacity: 0.55
+	};
 }
 
 /** Fade leaf hull fills when zoomed in so large communities do not read as a solid white page. */

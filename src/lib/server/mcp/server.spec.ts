@@ -24,9 +24,12 @@ vi.mock('./tools', () => ({
 	runListThoughtsTool: vi.fn(),
 	runEditThoughtTool: vi.fn(),
 	runDeleteThoughtTool: vi.fn(),
+	runListTemporalEventsTool: vi.fn(),
 	runManageTemporalEventTool: vi.fn(),
 	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
-	runAnswerQuestionTool: vi.fn()
+	runAnswerQuestionTool: vi.fn(),
+	runCaptureGroundingTool: vi.fn(),
+	runCompleteGroundingSessionTool: vi.fn()
 }));
 
 describe('createMcpServer', () => {
@@ -42,6 +45,7 @@ describe('createMcpServer', () => {
 				'retrieve_thoughts',
 				'edit_thought',
 				'delete_thought',
+				'list_temporal_events',
 				'manage_temporal_event',
 				'answer_question'
 			])

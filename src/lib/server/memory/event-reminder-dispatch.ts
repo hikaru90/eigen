@@ -92,10 +92,7 @@ export async function dispatchDueEventReminders(now = new Date()): Promise<Dispa
 		}
 
 		const title = KIND_LABELS[row.kind] ?? 'Event';
-		const body =
-			missedBy > 60_000
-				? `Starting soon: ${row.semanticSummary}`
-				: row.semanticSummary;
+		const body = `In ${row.leadMinutes} min · ${row.semanticSummary}`;
 		const url = `/graph?tab=temporal&event=${row.temporalEventId}`;
 		const tag = `event-${row.temporalEventId}-${row.leadMinutes}`;
 

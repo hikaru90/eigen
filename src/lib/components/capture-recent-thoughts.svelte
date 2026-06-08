@@ -131,7 +131,7 @@
 	}
 
 	const tabEntryClass =
-		'flex flex-col overflow-visible rounded-2xl border border-white/80 bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card';
+		'flex flex-col overflow-visible bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card';
 	const tabTriggerClass =
 		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
 </script>
@@ -159,12 +159,12 @@
 						>
 							{#if expanded}
 								<ChevronDown
-									class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+									class="mt-0.5 size-4 shrink-0 text-black dark:text-foreground"
 									aria-hidden="true"
 								/>
 							{:else}
 								<ChevronRight
-									class="mt-0.5 size-4 shrink-0 text-muted-foreground"
+									class="mt-0.5 size-4 shrink-0 text-black dark:text-foreground"
 									aria-hidden="true"
 								/>
 							{/if}
@@ -225,7 +225,7 @@
 							<Button
 								type="button"
 								variant="ghost"
-								class="h-auto rounded-full p-1.5 text-muted-foreground hover:text-foreground"
+								class="h-auto rounded-full p-1.5 text-black hover:text-black/70 dark:text-foreground dark:hover:text-foreground/70"
 								aria-label={editingId === snippet.id ? 'Cancel edit' : 'Edit'}
 								onclick={(e) => {
 									e.stopPropagation();
@@ -233,15 +233,15 @@
 								}}
 							>
 								{#if editingId === snippet.id}
-									<X class="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+									<X class="size-4" strokeWidth={2} aria-hidden="true" />
 								{:else}
-									<PencilLine class="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+									<PencilLine class="size-4" strokeWidth={2} aria-hidden="true" />
 								{/if}
 							</Button>
 							<Button
 								type="button"
 								variant="ghost"
-								class="h-auto rounded-full p-1.5 text-muted-foreground hover:text-destructive"
+								class="h-auto rounded-full p-1.5 text-destructive hover:text-destructive/80"
 								aria-label={deletingId === snippet.id ? 'Deleting…' : 'Delete'}
 								disabled={deletingId === snippet.id}
 								onclick={(e) => {
@@ -250,9 +250,9 @@
 								}}
 							>
 								{#if deletingId === snippet.id}
-									<LoaderCircleIcon class="size-3.5 animate-spin" aria-hidden="true" />
+									<LoaderCircleIcon class="size-4 animate-spin" aria-hidden="true" />
 								{:else}
-									<Trash2 class="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+									<Trash2 class="size-4" strokeWidth={2} aria-hidden="true" />
 								{/if}
 							</Button>
 						</div>

@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/dispatch-reminders
  *
- * Fire due event reminder push notifications. Authenticated with X-Admin-Key
+ * Fire due event reminder and daily summary push notifications. Authenticated with X-Admin-Key
  * (same pattern as consolidation). Scheduled via pg_cron → pg_net
  * (see scripts/ensure-reminder-cron.mjs).
  */
@@ -9,6 +9,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
+import { dispatchDueDailySummaries } from '$lib/server/memory/daily-summary-dispatch';
 import { dispatchDueEventReminders } from '$lib/server/memory/event-reminder-dispatch';
 
 function getAdminKey(): string | undefined {
@@ -23,6 +24,9 @@ export const POST: RequestHandler = async (event) => {
 		error(401, 'Unauthorized');
 	}
 
-	const result = await dispatchDueEventReminders();
-	return json({ ok: true, ...result });
+	const [eventReminders, dailySummaries] = await Promise.all([
+		dispatchDueEventReminders(),
+		dispatchDueDailySummaries()
+	]);
+	return json({ ok: true, eventReminders, dailySummaries });
 };

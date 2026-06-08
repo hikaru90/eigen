@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { and, eq } from 'drizzle-orm';
 import { APIError } from 'better-auth/api';
@@ -7,6 +7,17 @@ import { authDb } from '$lib/server/db/auth-db';
 import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
 import { userPreference, pushSubscription } from '$lib/server/db/schema';
+import {
+	ianaFromOffsetMinutes,
+	nearestOptionOffset,
+	offsetMinutesFromStoredTimezone,
+	DEFAULT_TIMEZONE_OFFSET_MINUTES
+} from '$lib/i18n/timezone-offset';
+import {
+	formatMinutesLocal,
+	parseTimeLocalToMinutes
+} from '$lib/server/memory/timeline-today-server';
+import { resyncAllReminderSchedulesForUser } from '$lib/server/memory/resync-event-reminders';
 import { normalizeUiLocale, UI_LOCALE_OPTIONS } from '$lib/i18n/ui-locale';
 import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime';
 
@@ -75,7 +86,10 @@ export const load: PageServerLoad = async (event) => {
 			preferredTimezone: userPreference.preferredTimezone,
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
-			eventReminderKinds: userPreference.eventReminderKinds
+			eventReminderKinds: userPreference.eventReminderKinds,
+			dailyWorkMinutes: userPreference.dailyWorkMinutes,
+			dailySummaryEnabled: userPreference.dailySummaryEnabled,
+			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal
 		})
 		.from(userPreference)
 		.where(eq(userPreference.userId, event.locals.user.id))
@@ -91,16 +105,21 @@ export const load: PageServerLoad = async (event) => {
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
 		preferredUiLocale: pref?.preferredUiLocale ?? 'en',
 		preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low',
-		preferredTimezone: pref?.preferredTimezone ?? '',
+		preferredTimezoneOffsetMinutes: pref?.preferredTimezone
+			? offsetMinutesFromStoredTimezone(pref.preferredTimezone)
+			: null,
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
 		eventReminderKinds: Array.isArray(pref?.eventReminderKinds)
 			? pref.eventReminderKinds
-			: ['appointment', 'reminder', 'deadline'],
+			: ['appointment', 'reminder', 'deadline', 'inferred_event'],
 		languageOptions: LANGUAGE_OPTIONS,
 		uiLocaleOptions: UI_LOCALE_OPTIONS,
 		qualityOptions: QUALITY_OPTIONS,
-		pushSubscriptionCount: pushRows.length
+		pushSubscriptionCount: pushRows.length,
+		dailyWorkMinutes: pref?.dailyWorkMinutes ?? 480,
+		dailySummaryEnabled: pref?.dailySummaryEnabled ?? false,
+		dailySummaryTimeLocal: formatMinutesLocal(pref?.dailySummaryMinutesLocal ?? 480)
 	};
 };
 
@@ -129,7 +148,7 @@ export const actions: Actions = {
 			});
 			throw redirect(303, '/settings');
 		} catch (error) {
-			if (error instanceof Response) throw error;
+			if (isRedirect(error)) throw error;
 			return fail(400, {
 				uiLocaleMessage: getSafeErrorMessage(error, 'Unable to save display language.')
 			});
@@ -254,7 +273,12 @@ export const actions: Actions = {
 		}
 
 		const formData = await event.request.formData();
-		const preferredTimezone = formData.get('preferredTimezone')?.toString().trim() ?? '';
+		const offsetRaw = formData.get('timezoneOffsetMinutes')?.toString().trim() ?? '';
+		const parsedOffset = Number.parseInt(offsetRaw, 10);
+		const offsetMinutes = Number.isFinite(parsedOffset)
+			? nearestOptionOffset(parsedOffset)
+			: DEFAULT_TIMEZONE_OFFSET_MINUTES;
+		const preferredTimezone = ianaFromOffsetMinutes(offsetMinutes);
 		const eventNotificationsEnabled = formData.get('eventNotificationsEnabled') === 'on';
 		const leadRaw = formData.get('eventReminderLeadMinutes')?.toString().trim() ?? '10';
 		const eventReminderLeadMinutes = Number.parseInt(leadRaw, 10);
@@ -266,6 +290,22 @@ export const actions: Actions = {
 
 		const kindFields = ['appointment', 'reminder', 'deadline', 'milestone', 'period', 'inferred_event'];
 		const eventReminderKinds = kindFields.filter((k) => formData.get(`kind_${k}`) === 'on');
+		const dailyRaw = formData.get('dailyWorkMinutes')?.toString().trim() ?? '480';
+		const dailyWorkMinutes = Number.parseInt(dailyRaw, 10);
+		if (!Number.isFinite(dailyWorkMinutes) || dailyWorkMinutes < 60 || dailyWorkMinutes > 960) {
+			return fail(400, {
+				eventNotificationsMessage: 'Daily work capacity must be between 60 and 960 minutes.'
+			});
+		}
+
+		const dailySummaryEnabled = formData.get('dailySummaryEnabled') === 'on';
+		const dailySummaryTimeLocal = formData.get('dailySummaryTimeLocal')?.toString().trim() ?? '08:00';
+		const dailySummaryMinutesLocal = parseTimeLocalToMinutes(dailySummaryTimeLocal);
+		if (dailySummaryMinutesLocal === null) {
+			return fail(400, {
+				eventNotificationsMessage: 'Daily summary time must be HH:MM (24-hour).'
+			});
+		}
 
 		try {
 			await getDb()
@@ -275,7 +315,10 @@ export const actions: Actions = {
 					preferredTimezone: preferredTimezone || null,
 					eventNotificationsEnabled,
 					eventReminderLeadMinutes,
-					eventReminderKinds
+					eventReminderKinds,
+					dailyWorkMinutes,
+					dailySummaryEnabled,
+					dailySummaryMinutesLocal
 				})
 				.onConflictDoUpdate({
 					target: userPreference.userId,
@@ -284,13 +327,18 @@ export const actions: Actions = {
 						eventNotificationsEnabled,
 						eventReminderLeadMinutes,
 						eventReminderKinds,
+						dailyWorkMinutes,
+						dailySummaryEnabled,
+						dailySummaryMinutesLocal,
 						updatedAt: new Date()
 					}
 				});
+
+			const synced = await resyncAllReminderSchedulesForUser(event.locals.user.id);
 			return {
 				eventNotificationsMessage: eventNotificationsEnabled
-					? `Event reminders enabled (${eventReminderLeadMinutes} min before).`
-					: 'Event reminder settings saved.'
+					? `Event reminders enabled (${eventReminderLeadMinutes} min before). Synced ${synced} event(s).`
+					: `Event reminders disabled. Cleared schedules for ${synced} event(s).`
 			};
 		} catch (error) {
 			return fail(400, {

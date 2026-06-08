@@ -7,9 +7,10 @@
 	import {
 		completedEventSummaryClass,
 		formatWhen,
-		isTemporalEventCompleted,
-		kindLabel
+		isTemporalEventCompleted
 	} from './temporal-events-utils';
+	import { graphKindLabel } from '$lib/graph/graph-i18n';
+	import { m } from '$lib/paraglide/messages.js';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
 	type Props = {
@@ -17,6 +18,9 @@
 		updatingEventId?: string | null;
 		actionBusy?: boolean;
 		lastActionSummary?: string | null;
+		eventNotificationsEnabled?: boolean;
+		eventReminderLeadMinutes?: number;
+		eventReminderKinds?: string[];
 		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen' | 'cancel' | 'dismiss') => void;
 		onInstruction: (eventId: string, instruction: string) => void;
 		onDelete: (eventId: string) => void;
@@ -27,6 +31,9 @@
 		updatingEventId = null,
 		actionBusy = false,
 		lastActionSummary = null,
+		eventNotificationsEnabled = false,
+		eventReminderLeadMinutes = 10,
+		eventReminderKinds = [],
 		onQuickAction,
 		onInstruction,
 		onDelete
@@ -36,6 +43,12 @@
 
 	const completed = $derived(isTemporalEventCompleted(item));
 	const busy = $derived(actionBusy || updatingEventId === item.id);
+	const pushReminderScheduled = $derived(
+		eventNotificationsEnabled &&
+			!completed &&
+			!!item.startAt &&
+			eventReminderKinds.includes(item.kind)
+	);
 
 	function submitInstruction() {
 		const text = instruction.trim();
@@ -48,17 +61,17 @@
 <div
 	class="border-border bg-muted/20 shrink-0 border-t px-4 py-3"
 	role="region"
-	aria-label="Selected event details"
+	aria-label={m.graph_temporal_detail_aria()}
 >
 	<div class="mb-3 flex flex-wrap items-center justify-between gap-2">
 		{#if completed}
 			<span
 				class="text-muted-foreground rounded-sm border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
 			>
-				Done
+				{m.graph_temporal_done()}
 			</span>
 		{:else}
-			<span class="text-muted-foreground font-mono text-[10px] uppercase">Open</span>
+			<span class="text-muted-foreground font-mono text-[10px] uppercase">{m.graph_temporal_status_open()}</span>
 		{/if}
 		<div class="flex flex-wrap items-center gap-2">
 			<TemporalEventStatusButton
@@ -75,7 +88,7 @@
 					disabled={busy}
 					onclick={() => onQuickAction(item.id, 'cancel')}
 				>
-					Cancel
+					{m.graph_temporal_cancel()}
 				</Button>
 			{/if}
 			<Button
@@ -84,11 +97,11 @@
 				size="icon"
 				class="size-8"
 				disabled={busy}
-				title="Remove event"
+				title={m.graph_temporal_remove_event()}
 				onclick={() => onDelete(item.id)}
 			>
 				<Trash2Icon class="size-3.5" aria-hidden="true" />
-				<span class="sr-only">Remove event</span>
+				<span class="sr-only">{m.graph_temporal_remove_event()}</span>
 			</Button>
 		</div>
 	</div>
@@ -102,7 +115,7 @@
 	>
 		<Input
 			bind:value={instruction}
-			placeholder="Tell the assistant… move to tomorrow, snooze, reschedule"
+			placeholder={m.graph_temporal_instruction_placeholder()}
 			class="h-8 flex-1 text-sm"
 			disabled={busy}
 		/>
@@ -110,7 +123,7 @@
 			{#if busy}
 				<LoaderCircleIcon class="size-3.5 animate-spin" aria-hidden="true" />
 			{/if}
-			Apply
+			{m.graph_temporal_apply()}
 		</Button>
 	</form>
 
@@ -120,7 +133,7 @@
 
 	<dl class="grid gap-x-4 gap-y-2 font-mono text-[11px] sm:grid-cols-2">
 		<div class="sm:col-span-2">
-			<dt class="text-muted-foreground text-[10px] uppercase">Summary</dt>
+			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_drawer_summary()}</dt>
 			<dd
 				class="text-foreground text-sm font-sans font-medium {completedEventSummaryClass(completed)}"
 			>
@@ -128,29 +141,78 @@
 			</dd>
 		</div>
 		<div>
-			<dt class="text-muted-foreground text-[10px] uppercase">When</dt>
+			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_when()}</dt>
 			<dd class="text-foreground">{formatWhen(item)}</dd>
 		</div>
 		<div>
-			<dt class="text-muted-foreground text-[10px] uppercase">Kind</dt>
-			<dd class="text-foreground">{kindLabel(item.kind)}</dd>
+			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_kind()}</dt>
+			<dd class="text-foreground">{graphKindLabel(item.kind)}</dd>
 		</div>
+		{#if pushReminderScheduled}
+			<div class="sm:col-span-2">
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_push_notify()}</dt>
+				<dd class="text-foreground">
+					{m.graph_timeline_push_reminder({ minutes: eventReminderLeadMinutes })}
+				</dd>
+			</div>
+		{:else if eventNotificationsEnabled && item.startAt && !completed}
+			<div class="sm:col-span-2">
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_push_notify()}</dt>
+				<dd class="text-muted-foreground">{m.graph_timeline_push_kind_excluded()}</dd>
+			</div>
+		{/if}
 		{#if item.sourceTextSpan}
 			<div>
-				<dt class="text-muted-foreground text-[10px] uppercase">Phrase</dt>
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_phrase()}</dt>
 				<dd class="text-foreground">"{item.sourceTextSpan}"</dd>
 			</div>
 		{/if}
 		<div>
-			<dt class="text-muted-foreground text-[10px] uppercase">Precision</dt>
+			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_precision()}</dt>
 			<dd class="text-foreground">{item.timePrecision}</dd>
 		</div>
 		<div>
-			<dt class="text-muted-foreground text-[10px] uppercase">Graph</dt>
+			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_graph()}</dt>
 			<dd class="text-foreground">{item.graphSyncStatus}</dd>
 		</div>
+		{#if item.snoozedUntil}
+			<div>
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_snooze_until()}</dt>
+				<dd class="text-foreground">{formatWhen({ ...item, startAt: item.snoozedUntil })}</dd>
+			</div>
+		{/if}
+		{#if item.recurrenceRule}
+			<div class="sm:col-span-2">
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_recurrence()}</dt>
+				<dd class="text-foreground break-all font-sans text-xs">{item.recurrenceRule}</dd>
+			</div>
+		{/if}
+		{#if item.energyLevel}
+			<div>
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_energy()}</dt>
+				<dd class="text-foreground">{item.energyLevel}</dd>
+			</div>
+		{/if}
+		{#if item.durationMinutes}
+			<div>
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_duration()}</dt>
+				<dd class="text-foreground">{m.graph_timeline_duration_min({ minutes: item.durationMinutes })}</dd>
+			</div>
+		{/if}
+		{#if item.contextTags?.length}
+			<div class="sm:col-span-2">
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_contexts()}</dt>
+				<dd class="text-foreground">{item.contextTags.join(', ')}</dd>
+			</div>
+		{/if}
+		{#if item.recurrenceRule && item.kind === 'reminder'}
+			<div>
+				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_habit()}</dt>
+				<dd class="text-foreground">{m.graph_timeline_habit()}</dd>
+			</div>
+		{/if}
 		<div class="sm:col-span-2">
-			<dt class="text-muted-foreground text-[10px] uppercase">Source thought</dt>
+			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_source_thought()}</dt>
 			<dd class="text-foreground font-sans text-xs leading-relaxed">{item.thoughtText}</dd>
 		</div>
 	</dl>

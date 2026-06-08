@@ -5,8 +5,8 @@
 		entityKindKeyFromLegendItem,
 		type GraphLegendSection
 	} from '$lib/graph/graph-ontology-legend';
-
-	const ENTITY_KINDS_TITLE = 'Your ontology: entity kinds';
+	import { GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE } from '$lib/graph/graph-i18n';
+	import { m } from '$lib/paraglide/messages.js';
 
 	let {
 		legendSections,
@@ -21,7 +21,7 @@
 	} = $props();
 
 	const entityKindsSection = $derived(
-		legendSections.find((s) => s.title === ENTITY_KINDS_TITLE) ?? null
+		legendSections.find((s) => s.title === GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE) ?? null
 	);
 
 	const entityItems = $derived(entityKindsSection?.items ?? []);
@@ -53,7 +53,7 @@
 		(hasEntities || graphStats.trim().length > 0)
 			? 'max-h-56'
 			: ''}"
-		aria-label="Entity type filter"
+		aria-label={m.graph_aria_entity_type_filter()}
 	>
 		<div
 			class="text-foreground pointer-events-auto flex min-h-0 w-full flex-col justify-end text-[10px] leading-none"
@@ -121,7 +121,7 @@
 					{:else}
 						<ChevronUp class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
 					{/if}
-					<span class="truncate font-semibold tracking-tight">Filter</span>
+					<span class="truncate font-semibold tracking-tight">{m.graph_filter()}</span>
 					{#if filterActive}
 						<span
 							class="bg-primary/15 text-primary shrink-0 rounded px-1 font-mono text-[9px] tabular-nums"
@@ -137,7 +137,7 @@
 							class="text-primary hover:text-primary/80 focus-visible:ring-ring/50 shrink-0 rounded-sm font-medium focus-visible:ring-1 focus-visible:outline-none"
 							onclick={clearEntityTypeFilter}
 						>
-							Show all
+							{m.graph_show_all()}
 						</button>
 					{/if}
 				</div>

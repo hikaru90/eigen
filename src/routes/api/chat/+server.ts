@@ -36,6 +36,15 @@ function collectErrorMessages(input: unknown): string[] {
 const GROUNDING_BOOTSTRAP_USER_MESSAGE =
 	'Please begin the grounding conversation with a warm opening question.';
 
+const BRIEFING_BOOTSTRAP_MESSAGES: Record<string, string> = {
+	morning:
+		'Give my morning briefing: today\'s agenda, top 3 priorities, and open loops. Use list_temporal_events and retrieve_thoughts. Be calm and concise.',
+	evening:
+		'Give my evening review: what was completed today, what rolls over, and gentle suggestions for tomorrow. Use list_temporal_events.',
+	weekly:
+		'Give my weekly review: completions this week, overdue debt, patterns, and 2–3 focus suggestions for next week. Use list_temporal_events and retrieve_thoughts.'
+};
+
 function parseChatSessionMode(value: unknown): ChatSessionMode {
 	return value === 'grounding' ? 'grounding' : 'default';
 }
@@ -97,16 +106,23 @@ export const POST: RequestHandler = async (event) => {
 					sessionId?: unknown;
 					mode?: unknown;
 					bootstrap?: unknown;
+					briefingPeriod?: unknown;
 				})
 			: {};
 	const bootstrap = b.bootstrap === true;
 	const message = typeof b.message === 'string' ? b.message.trim() : '';
 	const requestedMode = parseChatSessionMode(b.mode);
+	const briefingPeriod =
+		typeof b.briefingPeriod === 'string' ? b.briefingPeriod.trim() : '';
 	if (!message && !bootstrap) {
 		console.error('[api/chat] empty message');
 		error(400, 'message is required');
 	}
-	const agentUserMessage = bootstrap ? GROUNDING_BOOTSTRAP_USER_MESSAGE : message;
+	const agentUserMessage = bootstrap
+		? briefingPeriod && BRIEFING_BOOTSTRAP_MESSAGES[briefingPeriod]
+			? BRIEFING_BOOTSTRAP_MESSAGES[briefingPeriod]
+			: GROUNDING_BOOTSTRAP_USER_MESSAGE
+		: message;
 
 	const rawHistory = Array.isArray(b.history) ? b.history : [];
 	const history: ChatMessage[] = [];

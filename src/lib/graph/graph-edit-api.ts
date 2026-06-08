@@ -1,6 +1,6 @@
 import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson';
 import { consumeGraphRearrangeNdjsonStream } from '$lib/graph/consume-graph-rearrange-ndjson';
-import type { GraphRearrangePhase } from '$lib/graph/graph-rearrange-phases';
+import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import type {
 	EntityCaptureRow,
@@ -134,7 +134,7 @@ export type GraphRearrangeResult = {
 };
 
 export async function rearrangeGraph(input?: {
-	onPhase?: (phase: GraphRearrangePhase) => void;
+	onProgress?: (event: GraphRearrangeProgressEvent) => void;
 }): Promise<GraphRearrangeResult> {
 	const res = await fetch('/api/graph/rearrange', {
 		method: 'POST',
@@ -142,8 +142,8 @@ export async function rearrangeGraph(input?: {
 	});
 	const contentType = res.headers.get('content-type') ?? '';
 	if (contentType.includes('application/x-ndjson')) {
-		return consumeGraphRearrangeNdjsonStream(res, (phase) => {
-			input?.onPhase?.(phase);
+		return consumeGraphRearrangeNdjsonStream(res, (event) => {
+			input?.onProgress?.(event);
 		});
 	}
 	if (!res.ok) throw new Error(await res.text());

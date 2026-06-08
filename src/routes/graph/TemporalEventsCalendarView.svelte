@@ -7,9 +7,10 @@
 		buildMonthGrid,
 		dayKey,
 		eventsOnDay,
-		kindColor,
-		kindLabel
+		kindColor
 	} from './temporal-events-utils';
+	import { graphIntlLocale, graphKindLabel, graphWeekdayLabels } from '$lib/graph/graph-i18n';
+	import { m } from '$lib/paraglide/messages.js';
 
 	type Props = {
 		items: TemporalEventListItem[];
@@ -27,11 +28,13 @@
 	}
 
 	const monthLabel = $derived(
-		new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(viewMonth)
+		new Intl.DateTimeFormat(graphIntlLocale(), { month: 'long', year: 'numeric' }).format(
+			viewMonth
+		)
 	);
 
 	const gridDays = $derived(buildMonthGrid(viewMonth));
-	const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+	const weekdayLabels = $derived(graphWeekdayLabels());
 
 	function isCurrentMonth(day: Date): boolean {
 		return day.getMonth() === viewMonth.getMonth();
@@ -51,12 +54,12 @@
 	<div class="border-border flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
 		<Button type="button" variant="outline" size="icon" class="size-8" onclick={() => shiftMonth(-1)}>
 			<ChevronLeft class="size-4" aria-hidden="true" />
-			<span class="sr-only">Previous month</span>
+			<span class="sr-only">{m.graph_temporal_calendar_prev_month()}</span>
 		</Button>
 		<p class="text-foreground text-sm font-medium">{monthLabel}</p>
 		<Button type="button" variant="outline" size="icon" class="size-8" onclick={() => shiftMonth(1)}>
 			<ChevronRight class="size-4" aria-hidden="true" />
-			<span class="sr-only">Next month</span>
+			<span class="sr-only">{m.graph_temporal_calendar_next_month()}</span>
 		</Button>
 	</div>
 
@@ -73,7 +76,7 @@
 	<div
 		class="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 overflow-y-auto"
 		role="grid"
-		aria-label="Calendar month view"
+		aria-label={m.graph_temporal_calendar_aria()}
 	>
 		{#each gridDays as day (dayKey(day))}
 			{@const dayEvents = eventsOnDay(items, day)}
@@ -101,7 +104,7 @@
 								? 'ring-2 ring-foreground ring-offset-1'
 								: ''}"
 							style="background-color: {kindColor(ev.kind)}"
-							title="{kindLabel(ev.kind)}: {ev.semanticSummary}"
+							title="{graphKindLabel(ev.kind)}: {ev.semanticSummary}"
 							onclick={() => onSelect(ev)}
 						>
 							{ev.semanticSummary}

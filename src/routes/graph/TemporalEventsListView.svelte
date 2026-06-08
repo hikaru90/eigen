@@ -12,12 +12,12 @@
 	type Props = {
 		items: TemporalEventListItem[];
 		selectedItemId: string | null;
-		updatingThoughtId?: string | null;
+		updatingEventId?: string | null;
 		onSelect: (item: TemporalEventListItem) => void;
-		onSetStatus: (thoughtId: string, status: 'open' | 'completed') => void;
+		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void;
 	};
 
-	let { items, selectedItemId, updatingThoughtId = null, onSelect, onSetStatus }: Props = $props();
+	let { items, selectedItemId, updatingEventId = null, onSelect, onQuickAction }: Props = $props();
 </script>
 
 <ul class="min-h-0 flex-1 overflow-y-auto" role="listbox" aria-label="Temporal events list">
@@ -66,7 +66,7 @@
 					<p class="text-muted-foreground/80 line-clamp-1 text-[11px]">{item.thoughtText}</p>
 				</div>
 			</button>
-			<TemporalEventStatusButton {item} {updatingThoughtId} compact onSetStatus={onSetStatus} />
+			<TemporalEventStatusButton {item} {updatingEventId} compact onQuickAction={onQuickAction} />
 			{#if item.graphSyncStatus !== 'synced'}
 				<span
 					class="text-destructive shrink-0 font-mono text-[10px]"

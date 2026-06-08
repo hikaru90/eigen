@@ -1,15 +1,15 @@
 <script lang="ts">
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import {
-		AGENDA_SECTION_LABELS,
 		AGENDA_SECTION_ORDER,
 		completedEventSummaryClass,
 		formatWhen,
 		groupByAgendaSection,
 		isTemporalEventCompleted,
-		kindColor,
-		kindLabel
+		kindColor
 	} from './temporal-events-utils';
+	import { graphAgendaSectionLabel, graphKindLabel } from '$lib/graph/graph-i18n';
+	import { m } from '$lib/paraglide/messages.js';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
 	type Props = {
@@ -36,14 +36,14 @@
 	);
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto" role="listbox" aria-label="Agenda">
+<div class="min-h-0 flex-1 overflow-y-auto" role="listbox" aria-label={m.graph_temporal_aria_agenda()}>
 	{#each visibleSections as section (section)}
 		{@const sectionItems = grouped.get(section) ?? []}
 		<section class="border-border border-b last:border-b-0">
 			<h3
 				class="text-muted-foreground bg-muted/30 sticky top-0 z-10 border-b border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide"
 			>
-				{AGENDA_SECTION_LABELS[section]}
+				{graphAgendaSectionLabel(section)}
 				<span class="text-muted-foreground/70 ml-1">({sectionItems.length})</span>
 			</h3>
 			<ul>
@@ -78,7 +78,7 @@
 									<span
 										class="text-muted-foreground shrink-0 font-mono text-[10px] uppercase tracking-wide"
 									>
-										{kindLabel(item.kind)}
+										{graphKindLabel(item.kind)}
 									</span>
 									{#if isTemporalEventCompleted(item)}
 										<span

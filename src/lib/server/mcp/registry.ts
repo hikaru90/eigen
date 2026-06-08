@@ -6,6 +6,7 @@ import {
 	runDeleteThoughtTool,
 	runEditThoughtTool,
 	runListThoughtsTool,
+	runListTemporalEventsTool,
 	runManageTemporalEventTool,
 	runRetrieveThoughtsTool,
 	type McpToolContext
@@ -109,6 +110,25 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		handler: runDeleteThoughtTool
 	},
 	{
+		name: 'list_temporal_events',
+		description:
+			'List temporal events and open-loop tasks for the timeline (agenda, deadlines, appointments).',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				range: {
+					type: 'string',
+					enum: ['relevant', 'upcoming', 'past', 'all']
+				},
+				status: { type: 'string', enum: ['open', 'all'] },
+				include_open_loops: { type: 'boolean' }
+			}
+		},
+		agentArgumentSchema:
+			'{"range": "relevant|upcoming|past|all (optional)", "status": "open|all (optional)", "include_open_loops": "boolean (optional, default true)"}',
+		handler: runListTemporalEventsTool
+	},
+	{
 		name: 'manage_temporal_event',
 		description:
 			'Manage a calendar/temporal event by ID: mark done, cancel, reschedule, or apply a natural-language instruction.',
@@ -118,8 +138,11 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 				event_id: { type: 'string' },
 				action: {
 					type: 'string',
-					enum: ['mark_done', 'reopen', 'cancel', 'dismiss', 'delete']
+					enum: ['mark_done', 'reopen', 'cancel', 'dismiss', 'delete', 'reschedule', 'snooze']
 				},
+				start_at: { type: 'string', description: 'ISO-8601 start for structured reschedule' },
+				end_at: { type: 'string', description: 'ISO-8601 end for structured reschedule' },
+				snoozed_until: { type: 'string', description: 'ISO-8601 instant for structured snooze' },
 				instruction: {
 					type: 'string',
 					description: 'Natural-language instruction, e.g. move to tomorrow at 3pm'

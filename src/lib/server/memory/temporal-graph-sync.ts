@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { refreshFocusRanksForUser } from '$lib/server/memory/temporal-event-list';
 import { getDb } from '$lib/server/db';
 import {
 	graphSyncJob,
@@ -81,6 +82,7 @@ export async function syncTemporalEventsFromThought(input: {
 		input.thoughtEmbedding ?? (await createThoughtEmbedding(input.userId, input.normalizedText));
 
 	const insertedJobIds: string[] = [];
+	const insertedBySurface = new Map<string, string>();
 
 	await db.transaction(async (tx) => {
 		for (const mention of mentions) {
@@ -100,6 +102,10 @@ export async function syncTemporalEventsFromThought(input: {
 					timezone: mention.timezone,
 					isAllDay: mention.isAllDay,
 					recurrenceRule: mention.recurrenceRule ?? null,
+					durationMinutes: mention.durationMinutes ?? null,
+					energyLevel: mention.energyLevel ?? null,
+					priorityQuadrant: mention.priorityQuadrant ?? null,
+					contextTags: mention.contextTags ?? null,
 					confidence: mention.confidence,
 					semanticSummary: mention.semanticSummary,
 					embedding,
@@ -108,13 +114,16 @@ export async function syncTemporalEventsFromThought(input: {
 					parseMetadata: {
 						startAt: mention.startAt,
 						endAt: mention.endAt ?? null,
-						capturedAt: capturedAt.toISOString()
+						capturedAt: capturedAt.toISOString(),
+						...(mention.contextTags ? { contextTags: mention.contextTags } : {})
 					},
 					startAt: bounds.start,
 					endAt: bounds.end,
 					graphSyncStatus: 'pending'
 				})
 				.returning({ id: temporalEvent.id });
+
+			insertedBySurface.set(mention.surface, row.id);
 
 			const payload = {
 				temporalEventId: row.id,
@@ -150,6 +159,24 @@ export async function syncTemporalEventsFromThought(input: {
 				});
 			});
 		}
+
+		for (const mention of mentions) {
+			if (!mention.parentSurface) continue;
+			const childId = insertedBySurface.get(mention.surface);
+			const parentId = insertedBySurface.get(mention.parentSurface);
+			if (!childId || !parentId) continue;
+			await tx
+				.update(temporalEvent)
+				.set({ parentEventId: parentId })
+				.where(eq(temporalEvent.id, childId));
+		}
+	});
+
+	void refreshFocusRanksForUser(input.userId, timezone).catch((err) => {
+		console.error('[temporal-graph-sync] focus rank refresh failed', {
+			thoughtId: input.thoughtId,
+			message: err instanceof Error ? err.message : String(err)
+		});
 	});
 
 	// Immediate post-commit sync attempt (non-blocking for enrich overall).

@@ -2,13 +2,15 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { userPreference } from '$lib/server/db/schema';
 
-const DEFAULT_REMINDER_KINDS = ['appointment', 'reminder', 'deadline'] as const;
+const DEFAULT_REMINDER_KINDS = ['appointment', 'reminder', 'deadline', 'inferred_event'] as const;
 
 export type UserEventNotificationPrefs = {
 	preferredTimezone: string;
 	eventNotificationsEnabled: boolean;
 	eventReminderLeadMinutes: number;
 	eventReminderKinds: string[];
+	dailySummaryEnabled: boolean;
+	dailySummaryMinutesLocal: number;
 };
 
 export async function getUserPreferredTimezone(userId: string): Promise<string> {
@@ -22,7 +24,7 @@ export async function getUserPreferredTimezone(userId: string): Promise<string> 
 	if (fromPref) return fromPref;
 
 	const fromEnv = process.env.TEMPORAL_ANCHOR_TZ?.trim();
-	return fromEnv || 'UTC';
+	return fromEnv || 'Europe/Berlin';
 }
 
 export async function getUserEventNotificationPrefs(
@@ -33,7 +35,9 @@ export async function getUserEventNotificationPrefs(
 			preferredTimezone: userPreference.preferredTimezone,
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
-			eventReminderKinds: userPreference.eventReminderKinds
+			eventReminderKinds: userPreference.eventReminderKinds,
+			dailySummaryEnabled: userPreference.dailySummaryEnabled,
+			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal
 		})
 		.from(userPreference)
 		.where(eq(userPreference.userId, userId))
@@ -41,7 +45,7 @@ export async function getUserEventNotificationPrefs(
 
 	const preferredTimezone = pref?.preferredTimezone?.trim()
 		? pref.preferredTimezone.trim()
-		: process.env.TEMPORAL_ANCHOR_TZ?.trim() || 'UTC';
+		: process.env.TEMPORAL_ANCHOR_TZ?.trim() || 'Europe/Berlin';
 
 	const kinds = Array.isArray(pref?.eventReminderKinds)
 		? pref.eventReminderKinds.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
@@ -51,6 +55,8 @@ export async function getUserEventNotificationPrefs(
 		preferredTimezone,
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
-		eventReminderKinds: kinds.length > 0 ? kinds : [...DEFAULT_REMINDER_KINDS]
+		eventReminderKinds: kinds.length > 0 ? kinds : [...DEFAULT_REMINDER_KINDS],
+		dailySummaryEnabled: pref?.dailySummaryEnabled ?? false,
+		dailySummaryMinutesLocal: pref?.dailySummaryMinutesLocal ?? 480
 	};
 }

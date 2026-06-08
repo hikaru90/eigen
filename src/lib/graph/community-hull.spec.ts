@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	COMMUNITY_HULL_ACCENT,
 	COMMUNITY_LEAF_LEVEL,
 	communityCircleFromPositions,
 	communityHullChromeStyleForLevel,
@@ -38,6 +39,9 @@ describe('communityHullChromeStyleForLevel', () => {
 		const leaf = communityHullChromeStyleForLevel(COMMUNITY_LEAF_LEVEL);
 		const domain = communityHullChromeStyleForLevel(1);
 		const root = communityHullChromeStyleForLevel(0);
+		expect(leaf.stroke).toBe(COMMUNITY_HULL_ACCENT);
+		expect(domain.stroke).toBe(COMMUNITY_HULL_ACCENT);
+		expect(root.stroke).toBe(COMMUNITY_HULL_ACCENT);
 		expect(leaf.strokeWidth).toBeLessThan(domain.strokeWidth);
 		expect(domain.strokeWidth).toBeLessThan(root.strokeWidth);
 		expect(leaf.strokeDasharray).not.toBe(root.strokeDasharray);

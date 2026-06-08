@@ -281,6 +281,27 @@
       "when": 1749916800000,
       "tag": "0040_grounding_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1750003200000,
+      "tag": "0041_temporal_event_task_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1750089600000,
+      "tag": "0042_user_daily_work_minutes",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1750176000000,
+      "tag": "0043_daily_summary_notifications",
+      "breakpoints": true
     }
   ]
 }

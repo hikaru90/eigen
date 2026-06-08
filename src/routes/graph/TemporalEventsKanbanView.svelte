@@ -14,12 +14,12 @@
 	type Props = {
 		items: TemporalEventListItem[];
 		selectedItemId: string | null;
-		updatingThoughtId?: string | null;
+		updatingEventId?: string | null;
 		onSelect: (item: TemporalEventListItem) => void;
-		onSetStatus: (thoughtId: string, status: 'open' | 'completed') => void;
+		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void;
 	};
 
-	let { items, selectedItemId, updatingThoughtId = null, onSelect, onSetStatus }: Props = $props();
+	let { items, selectedItemId, updatingEventId = null, onSelect, onQuickAction }: Props = $props();
 
 	const columns = $derived.by(() => {
 		const grouped = groupByKind(items);
@@ -86,9 +86,9 @@
 									</button>
 									<TemporalEventStatusButton
 										{item}
-										{updatingThoughtId}
+										updatingEventId={updatingEventId}
 										compact
-										onSetStatus={onSetStatus}
+										onQuickAction={onQuickAction}
 									/>
 								</div>
 							</div>

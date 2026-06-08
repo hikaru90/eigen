@@ -37,7 +37,10 @@
   let { data }: { data: PageData } = $props();
 
   const isGroundingMode = $derived(page.url.searchParams.get("mode") === "grounding");
+  const isBriefingMode = $derived(page.url.searchParams.get("mode") === "briefing");
+  const briefingPeriod = $derived(page.url.searchParams.get("period") ?? "morning");
   let groundingBootstrapped = $state(false);
+  let briefingBootstrapped = $state(false);
 
   type SessionListItem = {
     id: string;
@@ -272,9 +275,12 @@
     agentStatus = null;
 
     const body: Record<string, unknown> = options?.bootstrap
-      ? { bootstrap: true, mode: "grounding" }
+      ? isBriefingMode
+        ? { bootstrap: true, briefingPeriod }
+        : { bootstrap: true, mode: "grounding" }
       : { message: text };
     if (isGroundingMode) body.mode = "grounding";
+    if (isBriefingMode && options?.bootstrap) body.briefingPeriod = briefingPeriod;
     if (activeSessionId) body.sessionId = activeSessionId;
 
     const ac = new AbortController();
@@ -424,6 +430,15 @@
     window.scrollTo({ top: 0, behavior: "instant" });
 
     void (async () => {
+      if (isBriefingMode) {
+        activeSessionId = null;
+        messages = [];
+        if (!briefingBootstrapped) {
+          briefingBootstrapped = true;
+          await sendStreaming("", { bootstrap: true });
+        }
+        return;
+      }
       if (isGroundingMode) {
         activeSessionId = null;
         messages = [];
@@ -453,6 +468,27 @@
     };
   });
 </script>
+
+{#if isBriefingMode}
+  <div
+    class="fixed inset-x-0 top-20 z-30 border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm"
+    role="region"
+    aria-label="Timeline briefing"
+  >
+    <div class="mx-auto w-full max-w-2xl">
+      <h1 class="text-sm font-medium text-foreground">
+        {briefingPeriod === "evening"
+          ? "Evening review"
+          : briefingPeriod === "weekly"
+            ? "Weekly review"
+            : "Morning briefing"}
+      </h1>
+      <p class="text-muted-foreground mt-0.5 text-xs leading-relaxed">
+        Your assistant summarizes agenda, priorities, and open loops from your timeline.
+      </p>
+    </div>
+  </div>
+{/if}
 
 {#if isGroundingMode}
   <div
@@ -553,7 +589,9 @@
 
 <div
   bind:this={chatPanelEl}
-  class="fixed inset-x-0 bottom-20 z-0 overflow-hidden {isGroundingMode ? 'top-[10.25rem]' : 'top-0'}"
+  class="fixed inset-x-0 bottom-20 z-30 overflow-hidden {isGroundingMode || isBriefingMode
+    ? 'top-[10.25rem]'
+    : 'top-0'}"
 >
   <div
     bind:this={messagesEl}
@@ -587,10 +625,14 @@
         {#if msg.role === "user"}
           <!-- User message: right-aligned, Klein Blue bg, clean pill -->
           <div class="group flex min-w-0 w-full flex-row-reverse items-end gap-3 py-0.5">
-            <div class="flex min-w-0 max-w-[72%] flex-col items-end gap-1">
+            <div class="flex min-w-0 max-w-[72%] flex-col items-end gap-1 overflow-visible">
               <div
-                class="min-w-0 rounded-[16px] rounded-br-none bg-foreground px-3.5 py-2 text-background"
+                class="relative min-w-0 overflow-visible rounded-none bg-foreground px-3.5 py-2 text-background"
               >
+                <span
+                  class="pointer-events-none absolute top-0 right-0 h-0 w-0 translate-x-full border-t-8 border-t-foreground border-r-6 border-r-transparent"
+                  aria-hidden="true"
+                ></span>
                 <ChatMarkdown content={msg.content} tone="user" />
               </div>
               <button

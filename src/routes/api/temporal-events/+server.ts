@@ -37,12 +37,14 @@ export const GET: RequestHandler = async (event) => {
 	const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
 	const cursorStartAt = url.searchParams.get('cursorStartAt');
 	const cursorId = url.searchParams.get('cursorId');
+	const includeOpenLoops = url.searchParams.get('includeOpenLoops') !== 'false';
 
 	const { items, nextCursor } = await listTemporalEventsForUser({
 		userId: user.id,
 		range: range ?? 'relevant',
 		status: status ?? 'open',
 		kinds,
+		includeOpenLoops,
 		limit: Number.isFinite(limit) ? limit : undefined,
 		cursorStartAt,
 		cursorId

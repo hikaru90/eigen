@@ -33,8 +33,13 @@ export const POST: RequestHandler = async (event) => {
 
 	const rearrangeWork = (async () => {
 		try {
-			const result = await runGraphRearrangeForUser(user.id, async (phase) => {
-				writeRaw({ type: 'progress', phase });
+			const result = await runGraphRearrangeForUser(user.id, async (event) => {
+				writeRaw({
+					type: 'progress',
+					phase: event.phase,
+					...(event.processed !== undefined ? { processed: event.processed } : {}),
+					...(event.total !== undefined ? { total: event.total } : {})
+				});
 			});
 			writeRaw({ type: 'done', result });
 		} catch (err) {

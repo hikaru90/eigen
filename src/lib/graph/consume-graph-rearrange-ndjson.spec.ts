@@ -21,12 +21,39 @@ describe('consumeGraphRearrangeNdjsonStream', () => {
 			}
 		});
 		const res = new Response(body, { headers: { 'content-type': 'application/x-ndjson' } });
-		const phases: string[] = [];
-		const result = await consumeGraphRearrangeNdjsonStream(res, (phase) => {
-			phases.push(phase);
+		const events: Array<{ phase: string; processed?: number; total?: number }> = [];
+		const result = await consumeGraphRearrangeNdjsonStream(res, (event) => {
+			events.push(event);
 		});
-		expect(phases).toEqual(['prune_weak_edges', 'repair_relations']);
+		expect(events).toEqual([
+			{ phase: 'prune_weak_edges' },
+			{ phase: 'repair_relations' }
+		]);
 		expect(result).toEqual({ pruned: { removed: 1 }, repaired: { edgesAdded: 2 } });
+	});
+
+	it('streams granular repair task progress', async () => {
+		const encoder = new TextEncoder();
+		const body = new ReadableStream({
+			start(controller) {
+				controller.enqueue(
+					encoder.encode(
+						'{"type":"progress","phase":"repair_relations","processed":2,"total":5}\n'
+					)
+				);
+				controller.enqueue(
+					encoder.encode('{"type":"done","result":{"repaired":{"processed":2}}}\n')
+				);
+				controller.close();
+			}
+		});
+		const res = new Response(body, { headers: { 'content-type': 'application/x-ndjson' } });
+		const events: Array<{ phase: string; processed?: number; total?: number }> = [];
+		const result = await consumeGraphRearrangeNdjsonStream(res, (event) => {
+			events.push(event);
+		});
+		expect(events).toEqual([{ phase: 'repair_relations', processed: 2, total: 5 }]);
+		expect(result).toEqual({ repaired: { processed: 2 } });
 	});
 
 	it('throws on error lines', async () => {

@@ -46,10 +46,15 @@ describe('POST /api/graph/rearrange', () => {
 	});
 
 	it('streams ndjson when Accept includes application/x-ndjson', async () => {
-		const phases: string[] = [];
-		runGraphRearrangeMock.mockImplementation(async (_userId: string, onProgress?: (phase: string) => void) => {
-			await onProgress?.('prune_weak_edges');
-			await onProgress?.('repair_relations');
+		const progressLines: Array<{ phase?: string; processed?: number; total?: number }> = [];
+		runGraphRearrangeMock.mockImplementation(
+			async (
+				_userId: string,
+				onProgress?: (event: { phase: string; processed?: number; total?: number }) => void
+			) => {
+			await onProgress?.({ phase: 'prune_weak_edges' });
+			await onProgress?.({ phase: 'repair_relations', processed: 1, total: 3 });
+			await onProgress?.({ phase: 'repair_relations', processed: 3, total: 3 });
 			return {
 				pruned: { scanned: 1, removed: 0 },
 				orphanThoughts: { graphThoughts: 0, orphanThoughts: 0, removed: 0 },
@@ -85,9 +90,19 @@ describe('POST /api/graph/rearrange', () => {
 			.split('\n')
 			.map((line) => JSON.parse(line) as { type: string; phase?: string });
 		for (const line of lines) {
-			if (line.type === 'progress' && line.phase) phases.push(line.phase);
+			if (line.type === 'progress') {
+				progressLines.push({
+					phase: line.phase,
+					processed: (line as { processed?: number }).processed,
+					total: (line as { total?: number }).total
+				});
+			}
 		}
-		expect(phases).toEqual(['prune_weak_edges', 'repair_relations']);
+		expect(progressLines).toEqual([
+			{ phase: 'prune_weak_edges' },
+			{ phase: 'repair_relations', processed: 1, total: 3 },
+			{ phase: 'repair_relations', processed: 3, total: 3 }
+		]);
 		expect(lines.at(-1)).toMatchObject({ type: 'done' });
 	});
 });

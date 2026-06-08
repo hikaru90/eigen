@@ -317,6 +317,70 @@ export async function applyNlTemporalEventAction(
 	return { ok: true, item, summary: applied.summary };
 }
 
+export async function applyStructuredRescheduleAction(
+	userId: string,
+	eventId: string,
+	input: { startAt: string; endAt?: string | null }
+): Promise<TemporalEventActionResult> {
+	const row = await loadEventRow(userId, eventId);
+	if (!row) {
+		throw new Error('Event not found');
+	}
+
+	const startAt = new Date(input.startAt);
+	if (Number.isNaN(startAt.getTime())) {
+		throw new Error('Invalid startAt');
+	}
+	const endAt = input.endAt ? new Date(input.endAt) : null;
+	if (endAt && Number.isNaN(endAt.getTime())) {
+		throw new Error('Invalid endAt');
+	}
+
+	const summary = `Rescheduled "${row.semanticSummary}" to ${startAt.toISOString()}.`;
+	await applyLifecycleAndBoundsPatch(userId, eventId, {
+		action: 'reschedule',
+		lifecycleStatus: 'open',
+		startAt: startAt.toISOString(),
+		endAt: endAt?.toISOString() ?? null,
+		snoozedUntil: null,
+		summary
+	});
+
+	const item = await loadListItem(userId, eventId);
+	if (!item) throw new Error('Event not found after update');
+
+	return { ok: true, item, summary };
+}
+
+export async function applyStructuredSnoozeAction(
+	userId: string,
+	eventId: string,
+	snoozedUntil: string
+): Promise<TemporalEventActionResult> {
+	const row = await loadEventRow(userId, eventId);
+	if (!row) {
+		throw new Error('Event not found');
+	}
+
+	const until = new Date(snoozedUntil);
+	if (Number.isNaN(until.getTime())) {
+		throw new Error('Invalid snoozedUntil');
+	}
+
+	const summary = `Snoozed "${row.semanticSummary}" until ${until.toISOString()}.`;
+	await applyLifecycleAndBoundsPatch(userId, eventId, {
+		action: 'snooze',
+		lifecycleStatus: 'open',
+		snoozedUntil: until.toISOString(),
+		summary
+	});
+
+	const item = await loadListItem(userId, eventId);
+	if (!item) throw new Error('Event not found after update');
+
+	return { ok: true, item, summary };
+}
+
 export async function deleteTemporalEventForUser(
 	userId: string,
 	eventId: string

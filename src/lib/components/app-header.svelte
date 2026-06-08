@@ -162,7 +162,7 @@
           class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
         >
           <Settings class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
-          Account settings
+          Settings
         </a>
         {#if user?.email}
           <div class="mt-1 truncate border-t border-black/10 px-3 pt-3 text-xs text-muted-foreground dark:border-white/10">

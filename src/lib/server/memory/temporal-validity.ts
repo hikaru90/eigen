@@ -2,8 +2,8 @@
  * Temporal validity helpers for Q&A context annotation.
  *
  * Uses stored `temporal_event.active_period` bounds from ingest. Recurring events
- * (`recurrenceRule`) are evaluated against the stored window only — full RRULE
- * expansion is out of scope for v1.
+ * (`recurrenceRule`) use the stored window for Q&A validity; week-view UI expands
+ * RRULE via `expandRruleOccurrences` in `$lib/graph/temporal-rrule`.
  */
 
 export type TemporalEventValidityInput = {

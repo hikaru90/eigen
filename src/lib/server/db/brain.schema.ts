@@ -458,6 +458,13 @@ export const userPreference = pgTable(
 			.$type<string[]>()
 			.notNull()
 			.default(['appointment', 'reminder', 'deadline']),
+		/** Daily scheduling capacity for plan-week guardrails (default 8h). */
+		dailyWorkMinutes: integer('daily_work_minutes').notNull().default(480),
+		/** Morning timeline summary push at this local time (minutes from midnight). */
+		dailySummaryEnabled: boolean('daily_summary_enabled').notNull().default(false),
+		dailySummaryMinutesLocal: integer('daily_summary_minutes_local').notNull().default(480),
+		/** YYYY-MM-DD in preferred timezone — last daily summary push sent. */
+		lastDailySummaryLocalDate: text('last_daily_summary_local_date'),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())
@@ -819,6 +826,17 @@ export type TemporalEventLifecycleStatus = (typeof temporalEventLifecycleStatusE
 export const temporalTimePrecisionEnum = ['exact', 'day', 'week', 'month', 'fuzzy'] as const;
 export type TemporalTimePrecision = (typeof temporalTimePrecisionEnum)[number];
 
+export const temporalEnergyLevelEnum = ['light', 'medium', 'deep'] as const;
+export type TemporalEnergyLevel = (typeof temporalEnergyLevelEnum)[number];
+
+export const temporalPriorityQuadrantEnum = [
+	'urgent_important',
+	'not_urgent_important',
+	'urgent_not_important',
+	'neither'
+] as const;
+export type TemporalPriorityQuadrant = (typeof temporalPriorityQuadrantEnum)[number];
+
 /**
  * Structured temporal facts extracted from thoughts. `active_period` is the
  * canonical overlap key for timeline slicing; AGE `Event` nodes mirror these rows.
@@ -861,6 +879,12 @@ export const temporalEvent = pgTable(
 			.default('open'),
 		lifecycleUpdatedAt: timestamp('lifecycle_updated_at').defaultNow().notNull(),
 		snoozedUntil: timestamp('snoozed_until'),
+		durationMinutes: integer('duration_minutes'),
+		energyLevel: text('energy_level').$type<TemporalEnergyLevel>(),
+		priorityQuadrant: text('priority_quadrant').$type<TemporalPriorityQuadrant>(),
+		contextTags: text('context_tags').array(),
+		parentEventId: uuid('parent_event_id'),
+		focusRank: integer('focus_rank'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

@@ -8,6 +8,7 @@
 		type GraphLegendSection
 	} from '$lib/graph/graph-ontology-legend';
 	import GraphEntityKindsLegend from './graph-entity-kinds-legend.svelte';
+	import { m } from '$lib/paraglide/messages.js';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import {
 		canRunUmap,
@@ -51,7 +52,7 @@
 		const filtered = filterNodesByEntityTypes(snapshotItems, visibleEntityTypes);
 		const thoughtCount = filtered.filter((item) => item.kind === 'Thought').length;
 		const entityCount = filtered.filter((item) => item.kind === 'Entity').length;
-		return `${thoughtCount} thoughts · ${entityCount} entities`;
+		return m.graph_embedding_stats({ thoughts: thoughtCount, entities: entityCount });
 	});
 
 	const MAX_FETCH_RETRIES = 3;
@@ -215,15 +216,17 @@
 	{#if phase.kind === 'loading'}
 		<div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
 			<LoaderCircleIcon class="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
-			<p class="text-muted-foreground text-sm">Fetching embeddings…</p>
+			<p class="text-muted-foreground text-sm">{m.graph_embedding_fetching()}</p>
 		</div>
 
 	{:else if phase.kind === 'projecting'}
 		<div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
 			<LoaderCircleIcon class="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
 			<div class="text-center">
-				<p class="text-foreground text-sm font-medium">Projecting to 3D…</p>
-				<p class="text-muted-foreground mt-1 text-xs">Epoch {phase.epoch} / {phase.totalEpochs}</p>
+				<p class="text-foreground text-sm font-medium">{m.graph_embedding_projecting()}</p>
+				<p class="text-muted-foreground mt-1 text-xs">
+					{m.graph_embedding_epoch({ current: phase.epoch, total: phase.totalEpochs })}
+				</p>
 				<div class="bg-muted mt-2 h-1.5 w-48 overflow-hidden rounded-full">
 					<div
 						class="bg-primary h-full rounded-full transition-all duration-150"
@@ -232,20 +235,20 @@
 				</div>
 			</div>
 			<p class="text-muted-foreground/60 max-w-xs text-center text-[10px] leading-relaxed">
-				UMAP is computing a 3D layout from your embedding vectors in the browser.
+				{m.graph_embedding_umap_hint()}
 			</p>
 		</div>
 
 	{:else if phase.kind === 'error'}
 		<div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-8">
-			<p class="text-destructive text-center text-sm font-medium">Projection failed</p>
+			<p class="text-destructive text-center text-sm font-medium">{m.graph_embedding_failed()}</p>
 			<p class="text-muted-foreground text-center text-xs">{phase.message}</p>
 		</div>
 
 	{:else if phase.kind === 'ready' && phase.count === 0}
 		<div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2">
-			<p class="text-muted-foreground text-sm">No embeddings found.</p>
-			<p class="text-muted-foreground/70 text-xs">Capture some thoughts — embeddings are computed during ingest.</p>
+			<p class="text-muted-foreground text-sm">{m.graph_embedding_empty()}</p>
+			<p class="text-muted-foreground/70 text-xs">{m.graph_embedding_empty_hint()}</p>
 		</div>
 	{/if}
 
@@ -253,7 +256,7 @@
 		bind:this={rootEl}
 		class="text-foreground relative isolate z-0 h-full min-h-0 w-full overflow-hidden"
 		role="img"
-		aria-label="Embedding map — 3D UMAP projection of your thoughts and entities"
+		aria-label={m.graph_embedding_aria()}
 	></div>
 
 	{#if phase.kind === 'ready' && phase.count > 0}
@@ -269,7 +272,7 @@
 		</div>
 
 		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-12 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9px]">
-			Drag to orbit · shift-drag or two-finger drag to pan · pinch or scroll to zoom · click a dot to inspect
+			{m.graph_embedding_controls()}
 		</p>
 	{/if}
 </div>

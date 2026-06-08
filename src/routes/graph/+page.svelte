@@ -19,6 +19,7 @@
   } from "$lib/graph/graph-ontology-legend";
   import { filterGraphVizEdgesToNodes, resolveForceLinks } from "$lib/graph/sanitize-viz-snapshot";
   import {
+    COMMUNITY_HULL_ACCENT,
     COMMUNITY_HULL_GRADIENT,
     communityCircleFromPositions,
     communityGradientId,
@@ -58,6 +59,11 @@
   import GraphEntityKindsLegend from "./graph-entity-kinds-legend.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import type { TemporalEventListItem } from "../api/temporal-events/+server";
+  import {
+    GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE,
+    graphEntitySyncStatusMessage,
+  } from "$lib/graph/graph-i18n";
+  import { m } from "$lib/paraglide/messages.js";
 
   let { data }: { data: PageData } = $props();
 
@@ -98,7 +104,7 @@
 
   const legendSections = $derived(data.graphLegendSections ?? []);
   const ontologyEntityKindSelectOptions = $derived.by(() => {
-    const sec = legendSections.find((s) => s.title === "Your ontology: entity kinds");
+    const sec = legendSections.find((s) => s.title === GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE);
     return (
       sec?.items.map((i) => ({
         value: i.key.replace(/^onto-entity-/, ""),
@@ -202,15 +208,13 @@
   const graphDeleteDialogCopy = $derived.by(() => {
     if (graphDeleteTarget === "entity") {
       return {
-        title: "Delete this entity?",
-        description:
-          "It will be removed from the graph and canonical store permanently. This cannot be undone.",
+        title: m.graph_delete_entity_title(),
+        description: m.graph_delete_entity_description(),
       };
     }
     return {
-      title: "Delete this capture?",
-      description:
-        "It will be removed from search and the graph permanently. This cannot be undone.",
+      title: m.graph_delete_capture_title(),
+      description: m.graph_delete_capture_description(),
     };
   });
 
@@ -220,8 +224,8 @@
     thoughtEditorPhase
       ? CAPTURE_INGEST_PHASE_COPY[thoughtEditorPhase]
       : {
-          title: "Working…",
-          description: "Running the same ingest steps as on Capture.",
+          title: m.graph_working_title(),
+          description: m.graph_working_description(),
         },
   );
 
@@ -351,7 +355,7 @@
           subtype: thought.category,
         };
       }
-      await refreshGraphAfterRearrange("Thought saved.");
+      await refreshGraphAfterRearrange(m.graph_status_thought_saved());
     } catch (e) {
       thoughtEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -381,7 +385,7 @@
         data.snapshot.nodes.filter((n) => n.kind === "Entity").map((n) => n.id),
       );
       await invalidateAll();
-      status = "Memory indexed — graph updated.";
+      status = m.graph_status_memory_indexed();
     } finally {
       enrichGraphRefreshInFlight = false;
     }
@@ -403,7 +407,7 @@
       thoughtEditorStored = thought;
       thoughtEditorDraft = thought.rawText;
       if (selectedNode?.kind === "Entity") await reloadEntityCaptures(selectedNode.id);
-      await refreshGraphAfterRearrange("Capture relinked to graph — layout refreshed.");
+      await refreshGraphAfterRearrange(m.graph_status_capture_relinked());
     } catch (e) {
       thoughtEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -474,7 +478,7 @@
           subtype: entity.entityType,
         };
       }
-      await refreshGraphAfterRearrange("Entity saved.");
+      await refreshGraphAfterRearrange(m.graph_status_entity_saved());
     } catch (e) {
       entityEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -490,11 +494,7 @@
     try {
       const repair = await syncGraphEntity(id);
       const added = repair?.edgesAdded ?? 0;
-      await refreshGraphAfterRearrange(
-        added > 0
-          ? `Entity synced — ${added} relation edge${added === 1 ? "" : "s"} repaired.`
-          : "Entity synced to graph — layout refreshed.",
-      );
+      await refreshGraphAfterRearrange(graphEntitySyncStatusMessage(added));
     } catch (e) {
       entityEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -1063,7 +1063,7 @@
               g.append("circle")
                 .attr("class", "community-hull-border")
                 .attr("fill", "none")
-                .attr("stroke", "#ffffff")
+                .attr("stroke", COMMUNITY_HULL_ACCENT)
                 .attr("stroke-width", 1.25)
                 .attr("stroke-dasharray", "3 4")
                 .attr("pointer-events", "none");
@@ -1074,7 +1074,7 @@
               labelWrap
                 .append("rect")
                 .attr("class", "community-hull-label-bg")
-                .attr("fill", "#ffffff")
+                .attr("fill", COMMUNITY_HULL_ACCENT)
                 .attr("rx", 3);
               labelWrap
                 .append("text")
@@ -1384,7 +1384,7 @@
         if (popInIds.size > 0) {
           pendingPopInNodeIds = new Set();
         }
-        graphStats = `${nodes.length} nodes · ${links.length} edges`;
+        graphStats = m.graph_stats_nodes_edges({ nodes: nodes.length, edges: links.length });
       }
 
       function resizeGraph() {
@@ -1459,28 +1459,28 @@
     <Tabs.Root bind:value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
         class="pointer-events-none fixed top-16 right-0 left-0 z-30 flex justify-center"
-        aria-label="Graph view tabs"
+        aria-label={m.graph_aria_view_tabs()}
       >
         <Tabs.List
-          class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 w-fit shrink-0 items-stretch gap-1 rounded-full border border-white/80 p-0.5"
+          class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 p-0.5"
         >
           <Tabs.Trigger
             value="graph"
-            class="!h-full rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
-            Graph
+            {m.graph_tab_graph()}
           </Tabs.Trigger>
           <Tabs.Trigger
             value="embeddings"
-            class="!h-full rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
-            Embedding Map
+            {m.graph_tab_embeddings()}
           </Tabs.Trigger>
           <Tabs.Trigger
             value="temporal"
-            class="!h-full rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
-            Timeline
+            {m.graph_tab_timeline()}
           </Tabs.Trigger>
         </Tabs.List>
       </div>
@@ -1494,11 +1494,11 @@
               bind:this={rootEl}
               class="text-foreground h-full min-h-0 w-full bg-transparent"
               role="img"
-              aria-label="Interactive graph visualization"
+              aria-label={m.graph_aria_visualization()}
             ></div>
             <div
               class="pointer-events-none absolute right-3 bottom-16 left-3 z-10 flex items-end justify-between gap-3"
-              aria-label="Graph legend and filters"
+              aria-label={m.graph_aria_legend_filters()}
             >
               <div class="w-[min(calc(100vw-1.5rem),11rem)] shrink-0">
                 <GraphEntityKindsLegend bind:visibleEntityTypes {legendSections} {graphStats} />
@@ -1544,6 +1544,10 @@
             selectedItemId={selectedTemporalId}
             initialEventId={initialTemporalEventId}
             userTimeZone={data.preferredTimezone}
+            userName={data.user.name}
+            eventNotificationsEnabled={data.eventNotificationsEnabled}
+            eventReminderLeadMinutes={data.eventReminderLeadMinutes}
+            eventReminderKinds={data.eventReminderKinds}
           />
         </Tabs.Content>
       </Card.Content>
@@ -1559,9 +1563,7 @@
       class="border-border max-h-[min(92dvh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!"
     >
       {#if selectedCommunity && activeTab !== "temporal"}
-        <Drawer.Description class="sr-only">
-          Community summary for the selected graph cluster.
-        </Drawer.Description>
+        <Drawer.Description class="sr-only">{m.graph_drawer_community_sr()}</Drawer.Description>
         <div
           class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10"
           data-vaul-no-drag
@@ -1569,7 +1571,7 @@
           <div class="flex items-start justify-between gap-3">
             <Drawer.Header class="min-w-0 flex-1 space-y-1 p-0 text-left">
               <p class="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
-                Community
+                {m.graph_drawer_community()}
               </p>
               <Drawer.Title class="text-foreground text-sm font-semibold">
                 {selectedCommunity.name || "—"}
@@ -1578,46 +1580,46 @@
                 class="text-muted-foreground grid gap-x-4 gap-y-1 pt-1 font-mono text-[11px] sm:grid-cols-2"
               >
                 <div class="contents">
-                  <dt class="text-muted-foreground/80">Level</dt>
+                  <dt class="text-muted-foreground/80">{m.graph_drawer_level()}</dt>
                   <dd class="text-foreground truncate">{selectedCommunity.levelLabel}</dd>
                 </div>
                 <div class="contents">
-                  <dt class="text-muted-foreground/80">Scope</dt>
+                  <dt class="text-muted-foreground/80">{m.graph_drawer_scope()}</dt>
                   <dd class="text-foreground truncate">{selectedCommunity.levelIntent}</dd>
                 </div>
                 <div class="contents sm:col-span-2">
-                  <dt class="text-muted-foreground/80">Members</dt>
+                  <dt class="text-muted-foreground/80">{m.graph_drawer_members()}</dt>
                   <dd class="text-foreground truncate">
-                    {selectedCommunity.memberEntityIds.length} entities
+                    {m.graph_community_member_count({
+                      count: selectedCommunity.memberEntityIds.length,
+                    })}
                   </dd>
                 </div>
               </dl>
             </Drawer.Header>
             <Drawer.Close
               class="text-destructive hover:text-destructive/80 shrink-0 rounded-md p-1.5 transition-colors focus-visible:ring-ring/50 focus-visible:ring-1 focus-visible:outline-none"
-              aria-label="Close"
+              aria-label={m.graph_close()}
             >
               <X class="size-4.5" strokeWidth={1.75} aria-hidden="true" />
             </Drawer.Close>
           </div>
           <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
             <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-              Summary
+              {m.graph_drawer_summary()}
             </p>
             {#if selectedCommunity.description}
               <p class="text-foreground text-sm leading-relaxed whitespace-pre-wrap">
                 {selectedCommunity.description}
               </p>
             {:else}
-              <p class="text-muted-foreground text-sm">
-                No summary generated yet. Run the overnight heartbeat to build community summaries.
-              </p>
+              <p class="text-muted-foreground text-sm">{m.graph_no_community_summary()}</p>
             {/if}
           </div>
           {#if selectedCommunityMembers.length > 0}
             <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
               <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-                Entities ({selectedCommunityMembers.length})
+                {m.graph_drawer_entities({ count: selectedCommunityMembers.length })}
               </p>
               <ul class="max-h-40 space-y-1.5 overflow-y-auto font-mono text-[11px]">
                 {#each selectedCommunityMembers as member (member.id)}
@@ -1634,9 +1636,7 @@
           {/if}
         </div>
       {:else if selectedNode && activeTab !== "temporal"}
-        <Drawer.Description class="sr-only">
-          Details and edits for the selected graph or embedding-map node.
-        </Drawer.Description>
+        <Drawer.Description class="sr-only">{m.graph_drawer_node_sr()}</Drawer.Description>
         <div
           class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10"
           data-vaul-no-drag
@@ -1644,7 +1644,7 @@
           <div class="flex items-start justify-between gap-3">
             <Drawer.Header class="min-w-0 flex-1 space-y-1 p-0 text-left">
               <p class="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
-                Node
+                {m.graph_drawer_node()}
               </p>
               <Drawer.Title class="text-foreground truncate text-sm font-semibold">
                 {selectedNode.label || "—"}
@@ -1653,11 +1653,11 @@
                 class="text-muted-foreground grid gap-x-4 gap-y-1 pt-1 font-mono text-[11px] sm:grid-cols-2"
               >
                 <div class="contents">
-                  <dt class="text-muted-foreground/80">Kind</dt>
+                  <dt class="text-muted-foreground/80">{m.graph_drawer_kind()}</dt>
                   <dd class="text-foreground truncate">{selectedNode.kind}</dd>
                 </div>
                 <div class="contents">
-                  <dt class="text-muted-foreground/80">Ontology</dt>
+                  <dt class="text-muted-foreground/80">{m.graph_drawer_ontology()}</dt>
                   <dd class="text-foreground flex items-center gap-1.5 truncate">
                     {#if selectedNode.subtype}
                       <span
@@ -1670,14 +1670,14 @@
                   </dd>
                 </div>
                 <div class="contents sm:col-span-2">
-                  <dt class="text-muted-foreground/80">Id</dt>
+                  <dt class="text-muted-foreground/80">{m.graph_drawer_id()}</dt>
                   <dd class="text-foreground truncate">{selectedNode.id}</dd>
                 </div>
               </dl>
             </Drawer.Header>
             <Drawer.Close
               class="text-destructive hover:text-destructive/80 shrink-0 rounded-md p-1.5 transition-colors focus-visible:ring-ring/50 focus-visible:ring-1 focus-visible:outline-none"
-              aria-label="Close"
+              aria-label={m.graph_close()}
             >
               <X class="size-4.5" strokeWidth={1.75} aria-hidden="true" />
             </Drawer.Close>
@@ -1685,7 +1685,7 @@
           {#if selectedEdges.length > 0}
             <div class="mt-3 border-t border-black/5 pt-3 pb-3 dark:border-white/10">
               <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-                Connections ({selectedEdges.length})
+                {m.graph_drawer_connections({ count: selectedEdges.length })}
               </p>
               <ul class="max-h-32 space-y-1.5 overflow-y-auto font-mono text-[11px]">
                 {#each selectedEdges as e (e.id)}
@@ -1710,19 +1710,19 @@
           {/if}
           <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
             <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-              Edit
+              {m.graph_drawer_edit()}
             </p>
             {#if entityEditorLoading}
               <div class="text-muted-foreground flex items-center gap-2 text-xs">
                 <LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
-                Loading…
+                {m.graph_loading()}
               </div>
             {:else}
               {#if entityEditorErr}
                 <p class="text-destructive text-xs">{entityEditorErr}</p>
               {/if}
               <div class="space-y-2">
-                <Label for="graph-entity-label" class="text-xs">Label</Label>
+                <Label for="graph-entity-label" class="text-xs">{m.graph_label()}</Label>
                 <Input
                   id="graph-entity-label"
                   bind:value={entityEditorDraft}
@@ -1731,7 +1731,7 @@
                 />
               </div>
               <div class="mt-3 space-y-2">
-                <Label for="graph-entity-type" class="text-xs">Ontology kind key</Label>
+                <Label for="graph-entity-type" class="text-xs">{m.graph_ontology_kind_key()}</Label>
                 {#if ontologyEntityKindSelectOptions.length > 0}
                   <Select.Root type="single" bind:value={entityEditorEntityType}>
                     <Select.Trigger
@@ -1776,7 +1776,7 @@
                       aria-hidden="true"
                     />
                   {/if}
-                  Save
+                  {m.graph_save()}
                 </Button>
                 <Button
                   type="button"
@@ -1792,12 +1792,11 @@
                       aria-hidden="true"
                     />
                   {/if}
-                  Rearrange in graph
+                  {m.graph_rearrange_in_graph()}
                 </Button>
               </div>
               <p class="text-muted-foreground mt-2 text-[10px] leading-relaxed">
-                Rearrange writes the saved row for this node back to the graph store so layout and
-                edges stay consistent.
+                {m.graph_rearrange_entity_hint()}
               </p>
               <div class="border-destructive/25 mt-4 border-t pt-3">
                 <Button
@@ -1817,32 +1816,30 @@
                       aria-hidden="true"
                     />
                   {/if}
-                  Delete
+                  {m.graph_delete()}
                 </Button>
               </div>
               {#if entityEditorStored && !entityEditorBusy && !entityEditorSyncBusy && !entityEditorDeleteBusy}
                 <div class="text-muted-foreground mt-2 space-y-0.5 font-mono text-[10px]">
                   <p>
-                    <span class="text-muted-foreground/80">Canonical key</span>
+                    <span class="text-muted-foreground/80">{m.graph_canonical_key()}</span>
                     <span class="text-foreground"> · {entityEditorStored.canonicalKey}</span>
                   </p>
                 </div>
               {/if}
               <div class="mt-4 border-t border-black/5 pt-3 dark:border-white/10">
                 <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-                  Supporting captures (Postgres)
+                  {m.graph_supporting_captures()}
                 </p>
                 {#if entityCapturesLoading}
                   <div class="text-muted-foreground flex items-center gap-2 text-xs">
                     <LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
-                    Loading…
+                    {m.graph_loading()}
                   </div>
                 {:else if entityCapturesErr}
                   <p class="text-destructive text-xs">{entityCapturesErr}</p>
                 {:else if entityCaptures.length === 0}
-                  <p class="text-muted-foreground text-xs">
-                    No linked captures for this entity yet.
-                  </p>
+                  <p class="text-muted-foreground text-xs">{m.graph_no_linked_captures()}</p>
                 {:else}
                   <ul class="max-h-40 space-y-2 overflow-y-auto">
                     {#each entityCaptures as cap (cap.id)}
@@ -1852,7 +1849,7 @@
                           <span class="text-muted-foreground font-mono text-[10px]">
                             {cap.category}
                             {#if thoughtLifecycleStatus(cap.metadata) === "completed"}
-                              <span class="text-accent ml-1">· completed</span>
+                              <span class="text-accent ml-1">{m.graph_capture_completed()}</span>
                             {/if}
                           </span>
                           <Button
@@ -1862,7 +1859,7 @@
                             class="h-7 shrink-0 text-xs"
                             onclick={() => (editingThoughtId = cap.id)}
                           >
-                            {editingThoughtId === cap.id ? "Editing" : "Edit"}
+                            {editingThoughtId === cap.id ? m.graph_editing() : m.graph_edit()}
                           </Button>
                         </div>
                       </li>
@@ -1873,19 +1870,19 @@
               {#if editingThoughtId}
                 <div class="mt-4 border-t border-black/5 pt-3 dark:border-white/10">
                   <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
-                    Edit capture
+                    {m.graph_edit_capture()}
                   </p>
                   {#if thoughtEditorLoading}
                     <div class="text-muted-foreground flex items-center gap-2 text-xs">
                       <LoaderCircleIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />
-                      Loading…
+                      {m.graph_loading()}
                     </div>
                   {:else}
                     {#if thoughtEditorErr}
                       <p class="text-destructive text-xs">{thoughtEditorErr}</p>
                     {/if}
                     <div class="space-y-2">
-                      <Label for="graph-thought-body" class="text-xs">Raw text</Label>
+                      <Label for="graph-thought-body" class="text-xs">{m.graph_raw_text()}</Label>
                       <Textarea
                         id="graph-thought-body"
                         bind:value={thoughtEditorDraft}
@@ -1907,7 +1904,7 @@
                           !thoughtEditorDraft.trim()}
                         onclick={() => void submitThoughtUpdateFromGraph()}
                       >
-                        Save
+                        {m.graph_save()}
                       </Button>
                       <Button
                         type="button"
@@ -1924,7 +1921,7 @@
                             aria-hidden="true"
                           />
                         {/if}
-                        Rearrange in graph
+                        {m.graph_rearrange_in_graph()}
                       </Button>
                       <Button
                         type="button"
@@ -1935,7 +1932,7 @@
                           thoughtEditorDeleteBusy}
                         onclick={() => (editingThoughtId = null)}
                       >
-                        Cancel
+                        {m.graph_cancel()}
                       </Button>
                     </div>
                     <div class="border-destructive/25 mt-3 border-t pt-3">
@@ -1948,7 +1945,7 @@
                           thoughtEditorDeleteBusy}
                         onclick={() => openGraphThoughtDeleteDialog()}
                       >
-                        Delete capture
+                        {m.graph_delete_capture()}
                       </Button>
                     </div>
                   {/if}
@@ -1973,7 +1970,9 @@
         <AlertDialog.Description>{graphDeleteDialogCopy.description}</AlertDialog.Description>
       </AlertDialog.Header>
       <AlertDialog.Footer>
-        <AlertDialog.Cancel class="rounded-none" disabled={graphDeleteBusy}>Cancel</AlertDialog.Cancel>
+        <AlertDialog.Cancel class="rounded-none" disabled={graphDeleteBusy}
+          >{m.graph_dialog_cancel()}</AlertDialog.Cancel
+        >
         <Button
           type="button"
           variant="destructive"
@@ -1981,7 +1980,7 @@
           disabled={graphDeleteBusy}
           onclick={() => void confirmGraphNodeDelete()}
         >
-          {graphDeleteBusy ? "Deleting…" : "Delete"}
+          {graphDeleteBusy ? m.graph_dialog_deleting() : m.graph_dialog_delete()}
         </Button>
       </AlertDialog.Footer>
     </AlertDialog.Content>

@@ -4,7 +4,7 @@ import { pruneOrphanEntityNodesForUser } from '$lib/server/consolidation/prune-o
 import { pruneOrphanThoughtNodesForUser } from '$lib/server/consolidation/prune-orphan-thought-nodes';
 import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges';
 import { repairEntityRelationsForUser } from '$lib/server/consolidation/repair-entity-relations';
-import type { GraphRearrangePhase } from '$lib/graph/graph-rearrange-phases';
+import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases';
 
 export type GraphRearrangeRunResult = {
 	pruned: Awaited<ReturnType<typeof pruneSuspiciousEntityEdgesForUser>>;
@@ -17,25 +17,29 @@ export type GraphRearrangeRunResult = {
 
 export async function runGraphRearrangeForUser(
 	userId: string,
-	onProgress?: (phase: GraphRearrangePhase) => void | Promise<void>
+	onProgress?: (event: GraphRearrangeProgressEvent) => void | Promise<void>
 ): Promise<GraphRearrangeRunResult> {
-	await onProgress?.('prune_weak_edges');
+	await onProgress?.({ phase: 'prune_weak_edges' });
 	const pruned = await pruneSuspiciousEntityEdgesForUser(userId);
 
-	await onProgress?.('prune_orphan_thoughts');
+	await onProgress?.({ phase: 'prune_orphan_thoughts' });
 	const orphanThoughts = await pruneOrphanThoughtNodesForUser(userId);
 
-	await onProgress?.('prune_orphan_entities');
+	await onProgress?.({ phase: 'prune_orphan_entities' });
 	const orphanEntities = await pruneOrphanEntityNodesForUser(userId);
 
-	await onProgress?.('prune_duplicate_edges');
+	await onProgress?.({ phase: 'prune_duplicate_edges' });
 	const duplicatePruned = await pruneDuplicateThoughtRelationEdgesForUser(userId);
 
-	await onProgress?.('check_connections');
+	await onProgress?.({ phase: 'check_connections' });
 	const connections = await checkEntityGraphConnectionsForUser(userId);
 
-	await onProgress?.('repair_relations');
-	const repaired = await repairEntityRelationsForUser(userId);
+	await onProgress?.({ phase: 'repair_relations' });
+	const repaired = await repairEntityRelationsForUser(userId, {
+		onProgress: async (task) => {
+			await onProgress?.({ phase: 'repair_relations', ...task });
+		}
+	});
 
 	return { pruned, orphanThoughts, orphanEntities, duplicatePruned, connections, repaired };
 }
