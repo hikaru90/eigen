@@ -4,6 +4,37 @@ import { extractChatContent } from '$lib/server/ontology/llm-json';
 
 export type ThoughtLifecycleStatus = 'open' | 'completed';
 
+const LIFECYCLE_COMPLETE_COMMANDS = [
+	'mark as completed',
+	'mark as complete',
+	'mark complete',
+	'mark as done'
+] as const;
+
+const LIFECYCLE_OPEN_COMMANDS = ['reopen', 'mark as open'] as const;
+
+/**
+ * Recognize explicit lifecycle edit commands (MCP/UI protocol).
+ * Not semantic classification of thought content — only routes known status verbs.
+ */
+export function parseLifecycleEditRequest(editRequest: string): ThoughtLifecycleStatus | null {
+	const trimmed = editRequest.trim();
+	if (!trimmed) return null;
+	const lower = trimmed.toLowerCase();
+
+	for (const command of LIFECYCLE_COMPLETE_COMMANDS) {
+		if (lower === command || lower.startsWith(`${command} `) || lower.startsWith(`${command}—`) || lower.startsWith(`${command}-`)) {
+			return 'completed';
+		}
+	}
+	for (const command of LIFECYCLE_OPEN_COMMANDS) {
+		if (lower === command || lower.startsWith(`${command} `)) {
+			return 'open';
+		}
+	}
+	return null;
+}
+
 export type AppliedThoughtEdit = {
 	rawText: string;
 	/** When set, merged into thought.metadata.status */

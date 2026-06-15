@@ -7,13 +7,15 @@ export type EditPhase =
 	| 'encrypt_metadata'
 	| 'persist_metadata'
 	| 'upsert_graph_node'
+	| 'remove_graph_artifacts'
 	| 'load_result'
 	| 'normalize_text'
 	| 'classify_category'
 	| 'embedding'
 	| 'encrypt_columns'
 	| 'persist_text_change'
-	| 'reenrich';
+	| 'reenrich'
+	| 'lifecycle_status';
 
 export type EditPhaseEntry = { phase: EditPhase; ms: number };
 
@@ -84,7 +86,7 @@ export function createEditPhaseTimer(logCtx: EditLogContext): EditPhaseTimer {
 
 export function logEditComplete(input: {
 	logCtx: EditLogContext;
-	path: 'metadata_only' | 'full_reenrich';
+	path: 'lifecycle_only' | 'metadata_only' | 'full_reenrich';
 	textChanged: boolean;
 	nextStatus: string;
 	editSummary: string;

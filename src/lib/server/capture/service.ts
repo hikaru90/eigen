@@ -13,6 +13,7 @@ import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/on
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import {
 	applyThoughtEditRequest,
+	parseLifecycleEditRequest,
 	type ThoughtLifecycleStatus
 } from '$lib/server/capture/apply-thought-edit';
 import {
@@ -344,6 +345,38 @@ export type EditStoredThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
 
+/** Archived/completed thoughts leave the AGE graph; reopen restores the anchor node only. */
+async function applyThoughtGraphForLifecycleStatus(input: {
+	userId: string;
+	thoughtId: string;
+	category: string;
+	status: ThoughtLifecycleStatus;
+}): Promise<void> {
+	if (input.status === 'completed') {
+		const temporalRows = await getDb()
+			.select({ id: temporalEvent.id, graphNodeId: temporalEvent.graphNodeId })
+			.from(temporalEvent)
+			.where(
+				and(eq(temporalEvent.userId, input.userId), eq(temporalEvent.thoughtId, input.thoughtId))
+			);
+		const temporalEventGraphIds = (Array.isArray(temporalRows) ? temporalRows : []).map(
+			(row) => row.graphNodeId?.trim() || row.id
+		);
+		await removeThoughtGraphArtifacts({
+			userId: input.userId,
+			thoughtId: input.thoughtId,
+			temporalEventGraphIds
+		});
+		return;
+	}
+
+	await upsertThoughtNode({
+		id: input.thoughtId,
+		userId: input.userId,
+		category: input.category
+	});
+}
+
 export async function editStoredThought(
 	userId: string,
 	thoughtId: string,
@@ -380,6 +413,37 @@ export async function editStoredThought(
 		const decryptedExisting = await timer.time('decrypt_existing', async () =>
 			decryptThoughtRow(userId, existing)
 		);
+
+		const lifecycleStatus = parseLifecycleEditRequest(editRequest);
+		if (lifecycleStatus) {
+			console.info('[capture.edit] lifecycle fast path', { ...logCtx, lifecycleStatus });
+			const lifecycleResult = await timer.time('lifecycle_status', async () =>
+				setThoughtLifecycleStatus(userId, thoughtId, lifecycleStatus)
+			);
+			if (!lifecycleResult.ok) {
+				console.error('[capture.edit] not found', logCtx);
+				return lifecycleResult;
+			}
+			const lifecycleMeta = (lifecycleResult.thought.metadata as Record<string, unknown>) ?? {};
+			const editSummary =
+				typeof lifecycleMeta.lastEditSummary === 'string'
+					? lifecycleMeta.lastEditSummary
+					: 'Status updated';
+			logEditComplete({
+				logCtx,
+				path: 'lifecycle_only',
+				textChanged: false,
+				nextStatus: lifecycleStatus,
+				editSummary,
+				timing: timer.finish()
+			});
+			return {
+				ok: true as const,
+				thought: lifecycleResult.thought,
+				editSummary
+			};
+		}
+
 		const applied = await timer.time('llm_apply_edit', async () =>
 			applyThoughtEditRequest({
 				userId,
@@ -392,17 +456,28 @@ export async function editStoredThought(
 
 		const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {};
 		const editedRaw = applied.rawText;
-		const textChanged = editedRaw !== decryptedExisting.rawText;
+		const rawTextChanged = editedRaw !== decryptedExisting.rawText;
+		const normalizedUnchanged =
+			normalizeThoughtText(editedRaw).normalized === decryptedExisting.normalizedText;
 		const priorStatus = typeof priorMeta.status === 'string' ? priorMeta.status : 'open';
 		const nextStatus = applied.status ?? priorStatus;
+		const statusOnlyChange = nextStatus !== priorStatus && normalizedUnchanged;
+		const textChanged = rawTextChanged && !statusOnlyChange;
 
 		console.info('[capture.edit] llm outcome', {
 			...logCtx,
+			rawTextChanged,
+			normalizedUnchanged,
+			statusOnlyChange,
 			textChanged,
 			priorStatus,
 			nextStatus,
 			editSummary: applied.summary
 		});
+
+		if (statusOnlyChange && rawTextChanged) {
+			console.warn('[capture.edit] ignored LLM rawText rewrite on status-only change', logCtx);
+		}
 
 		const metadataPatch: Record<string, unknown> = {
 			...priorMeta,
@@ -450,13 +525,24 @@ export async function editStoredThought(
 			});
 
 			await emitProgress(onProgress, 'graph');
-			await timer.time('upsert_graph_node', async () => {
-				await upsertThoughtNode({
-					id: updated.id,
-					userId,
-					category: updated.category
+			if (nextStatus === 'completed') {
+				await timer.time('remove_graph_artifacts', async () => {
+					await applyThoughtGraphForLifecycleStatus({
+						userId,
+						thoughtId,
+						category: updated.category,
+						status: 'completed'
+					});
 				});
-			});
+			} else {
+				await timer.time('upsert_graph_node', async () => {
+					await upsertThoughtNode({
+						id: updated.id,
+						userId,
+						category: updated.category
+					});
+				});
+			}
 
 			const resultThought = await timer.time('load_result', async () =>
 				loadThoughtCaptureResult(userId, thoughtId)
@@ -656,10 +742,16 @@ export async function setThoughtLifecycleStatus(
 			category: thought.category
 		});
 
-	await upsertThoughtNode({
-		id: updated!.id,
+	if (!updated) {
+		throw new Error(`setThoughtLifecycleStatus: persist returned no row for thought ${thoughtId}`);
+	}
+
+	console.info('[capture.edit.lifecycle] graph sync', { userId, thoughtId, status });
+	await applyThoughtGraphForLifecycleStatus({
 		userId,
-		category: updated!.category
+		thoughtId: updated.id,
+		category: updated.category,
+		status
 	});
 
 	return {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyThoughtEditRequest } from './apply-thought-edit';
+import { applyThoughtEditRequest, parseLifecycleEditRequest } from './apply-thought-edit';
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
 	llmChatCompletionMock: vi.fn()
@@ -14,6 +14,26 @@ function mockLlmContent(content: string) {
 		choices: [{ message: { content } }]
 	});
 }
+
+describe('parseLifecycleEditRequest', () => {
+	it('recognizes mark-as-completed commands including suffix notes', () => {
+		expect(parseLifecycleEditRequest('mark as completed')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark as complete')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark complete')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark as done')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark as completed — fixed language detection')).toBe('completed');
+	});
+
+	it('recognizes reopen commands', () => {
+		expect(parseLifecycleEditRequest('reopen')).toBe('open');
+		expect(parseLifecycleEditRequest('mark as open')).toBe('open');
+	});
+
+	it('returns null for substantive edit requests', () => {
+		expect(parseLifecycleEditRequest('change to oat milk')).toBeNull();
+		expect(parseLifecycleEditRequest('fix typo in title')).toBeNull();
+	});
+});
 
 describe('applyThoughtEditRequest', () => {
 	beforeEach(() => {

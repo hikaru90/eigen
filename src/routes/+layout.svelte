@@ -8,7 +8,7 @@
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
   import "./layout.css";
-  import favicon from "$lib/assets/favicon.svg";
+  import favicon from "$lib/assets/favicon.png";
   import { cn } from "$lib/utils";
   import AppHeader from "$lib/components/app-header.svelte";
   import { startCaptureQueueRunner } from "$lib/capture/queue";

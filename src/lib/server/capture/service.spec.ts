@@ -98,9 +98,13 @@ vi.mock('$lib/server/ontology', () => ({
 	maybeRefreshUserOntology: vi.fn()
 }));
 
-vi.mock('$lib/server/capture/apply-thought-edit', () => ({
-	applyThoughtEditRequest: applyThoughtEditRequestMock
-}));
+vi.mock('$lib/server/capture/apply-thought-edit', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/capture/apply-thought-edit')>();
+	return {
+		...actual,
+		applyThoughtEditRequest: applyThoughtEditRequestMock
+	};
+});
 
 vi.mock('$lib/server/billing/usage-gate', () => ({
 	assertCapturePipelineAffordable: vi.fn(async () => undefined)
@@ -395,6 +399,7 @@ describe('editStoredThought', () => {
 
 		const result = await editStoredThought('u1', 't1', 'mark as completed');
 		expect(result.ok).toBe(true);
+		expect(applyThoughtEditRequestMock).not.toHaveBeenCalled();
 	});
 
 	it('merges metadata when existing row has null metadata', async () => {
@@ -433,6 +438,7 @@ describe('editStoredThought', () => {
 
 		const result = await editStoredThought('u1', 't1', 'mark as completed');
 		expect(result.ok).toBe(true);
+		expect(applyThoughtEditRequestMock).not.toHaveBeenCalled();
 	});
 
 	it('skips re-embed when completion-only edit leaves text unchanged', async () => {
@@ -471,9 +477,54 @@ describe('editStoredThought', () => {
 
 		const result = await editStoredThought('u1', 't1', 'mark as completed');
 		expect(result.ok).toBe(true);
+		expect(applyThoughtEditRequestMock).not.toHaveBeenCalled();
 		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+		expect(upsertThoughtNodeMock).not.toHaveBeenCalled();
+		expect(removeThoughtGraphArtifactsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'u1', thoughtId: 't1' })
+		);
 		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1');
+	});
+
+	it('skips reenrich when LLM rewrites raw text but normalized body is unchanged on status change', async () => {
+		const existing = {
+			id: 't1',
+			userId: 'u1',
+			rawText: 'Buy  milk',
+			metadata: { status: 'open' },
+			category: 'task',
+			normalizedText: 'Buy milk',
+			lexicalText: 'buy milk'
+		};
+		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
+		const db = {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [existing])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [updated])
+					}))
+				}))
+			}))
+		};
+		getDbMock.mockReturnValue(db);
+		applyThoughtEditRequestMock.mockResolvedValue({
+			rawText: 'Buy milk',
+			status: 'completed',
+			summary: 'Marked complete'
+		});
+
+		const result = await editStoredThought('u1', 't1', 'please shorten and mark done');
+		expect(result.ok).toBe(true);
+		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
+		expect(reenrichThoughtMock).not.toHaveBeenCalled();
 	});
 
 	it('reports fast-path ingest phases for edits when onProgress is provided', async () => {
@@ -639,6 +690,10 @@ describe('setThoughtLifecycleStatus', () => {
 		expect(applyThoughtEditRequestMock).not.toHaveBeenCalled();
 		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
 		expect(reenrichThoughtMock).not.toHaveBeenCalled();
+		expect(upsertThoughtNodeMock).not.toHaveBeenCalled();
+		expect(removeThoughtGraphArtifactsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'u1', thoughtId: 't1' })
+		);
 		expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1');
 	});
 
@@ -678,6 +733,10 @@ describe('setThoughtLifecycleStatus', () => {
 
 		const result = await setThoughtLifecycleStatus('u1', 't1', 'open');
 		expect(result.ok).toBe(true);
+		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 't1', userId: 'u1', category: 'task' })
+		);
+		expect(removeThoughtGraphArtifactsMock).not.toHaveBeenCalled();
 		const updateCall = db.update.mock.results[0]?.value;
 		const setArg = updateCall?.set.mock.calls[0]?.[0];
 		expect(setArg.metadata.status).toBe('open');
