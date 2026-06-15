@@ -29,9 +29,25 @@ export const POST: RequestHandler = async (event) => {
 	const streamNdjson = accept.includes('application/x-ndjson');
 
 	if (!streamNdjson) {
-		const result = await runWithTrace(crypto.randomUUID(), () => editStoredThought(user.id, thoughtId, editRequest));
-		if (!result.ok) error(404, 'Thought not found');
-		return json({ thought: result.thought });
+		try {
+			const result = await runWithTrace(crypto.randomUUID(), () =>
+				editStoredThought(user.id, thoughtId, editRequest)
+			);
+			if (!result.ok) error(404, 'Thought not found');
+			return json({ thought: result.thought });
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && typeof err.status === 'number') {
+				throw err;
+			}
+			const message = err instanceof Error ? err.message : 'Failed to update thought';
+			console.error('[capture.edit.api] failed', {
+				userId: user.id,
+				thoughtId,
+				message,
+				stack: err instanceof Error ? err.stack : undefined
+			});
+			error(500, message);
+		}
 	}
 
 	const encoder = new TextEncoder();
@@ -71,7 +87,12 @@ export const POST: RequestHandler = async (event) => {
 			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to update thought';
-			console.error('capture edit failed', { userId: user.id, thoughtId, message });
+			console.error('[capture.edit.api] stream failed', {
+				userId: user.id,
+				thoughtId,
+				message,
+				stack: err instanceof Error ? err.stack : undefined
+			});
 			writeRaw({ type: 'error', error: message, details: [] });
 		} finally {
 			if (reserved) {
@@ -83,7 +104,13 @@ export const POST: RequestHandler = async (event) => {
 	})();
 
 	editWork.catch((err) => {
-		console.error('capture edit: editWork rejected', err);
+		const message = err instanceof Error ? err.message : String(err);
+		console.error('[capture.edit.api] editWork rejected', {
+			userId: user.id,
+			thoughtId,
+			message,
+			stack: err instanceof Error ? err.stack : undefined
+		});
 		writer.close().catch(() => {});
 	});
 

@@ -122,6 +122,15 @@ export async function runGraphQueryWithRetry<T>(
 			return result;
 		} catch (err) {
 			lastError = err;
+			const message = err instanceof Error ? err.message : String(err);
+			console.error('[age] query attempt failed', {
+				userId,
+				operation,
+				attempt,
+				context: context ?? null,
+				message,
+				stack: err instanceof Error ? err.stack : undefined
+			});
 			await logActivityCall(getDb(), userId, {
 				provider: 'apache_age',
 				operation: `${operation}.error(attempt=${attempt})`,
@@ -132,7 +141,17 @@ export async function runGraphQueryWithRetry<T>(
 		}
 	}
 
-	throw lastError instanceof Error
-		? lastError
-		: new Error(`Apache AGE graph operation failed after ${maxAttempts} attempts`);
+	const message =
+		lastError instanceof Error
+			? lastError.message
+			: `Apache AGE graph operation failed after ${maxAttempts} attempts`;
+	console.error('[age] query exhausted retries', {
+		userId,
+		operation,
+		maxAttempts,
+		context: context ?? null,
+		message,
+		stack: lastError instanceof Error ? lastError.stack : undefined
+	});
+	throw lastError instanceof Error ? lastError : new Error(message);
 }

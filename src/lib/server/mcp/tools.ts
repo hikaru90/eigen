@@ -267,50 +267,76 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 	if (!editRequest) {
 		throw new Error('edit_request is required');
 	}
-	const [existing] = await getDb()
-		.select({
-			id: thought.id,
-			rawText: thought.rawText,
-			normalizedText: thought.normalizedText,
-			category: thought.category,
-			metadata: thought.metadata
-		})
-		.from(thought)
-		.where(and(eq(thought.id, thoughtId), eq(thought.userId, context.userId)))
-		.limit(1);
 
-	if (!existing) {
-		throw new Error('Thought not found');
-	}
-
-	const priorMeta = (existing.metadata as Record<string, unknown>) ?? {};
-	const before = {
-		thoughtId: existing.id,
-		rawText: existing.rawText,
-		normalizedText: existing.normalizedText,
-		category: existing.category,
-		status: typeof priorMeta.status === 'string' ? priorMeta.status : 'open'
-	};
-
-	const updated = await editStoredThought(context.userId, thoughtId, editRequest);
-	if (!updated.ok) {
-		throw new Error('Thought not found');
-	}
-
-	const afterMeta = (updated.thought.metadata as Record<string, unknown>) ?? {};
-	return sanitizeMcpToolResult({
-		thought: updated.thought,
-		thoughtId: updated.thought.id,
-		editRequest,
-		summary: updated.editSummary,
-		before,
-		after: {
-			rawText: updated.thought.rawText,
-			normalizedText: updated.thought.normalizedText,
-			category: updated.thought.category,
-			status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
-		}
+	console.info('[mcp.edit_thought] start', {
+		userId: context.userId,
+		thoughtId,
+		editRequestPreview: editRequest.slice(0, 120)
 	});
+
+	try {
+		const [existing] = await getDb()
+			.select({
+				id: thought.id,
+				rawText: thought.rawText,
+				normalizedText: thought.normalizedText,
+				category: thought.category,
+				metadata: thought.metadata
+			})
+			.from(thought)
+			.where(and(eq(thought.id, thoughtId), eq(thought.userId, context.userId)))
+			.limit(1);
+
+		if (!existing) {
+			console.error('[mcp.edit_thought] not found', { userId: context.userId, thoughtId });
+			throw new Error('Thought not found');
+		}
+
+		const priorMeta = (existing.metadata as Record<string, unknown>) ?? {};
+		const before = {
+			thoughtId: existing.id,
+			rawText: existing.rawText,
+			normalizedText: existing.normalizedText,
+			category: existing.category,
+			status: typeof priorMeta.status === 'string' ? priorMeta.status : 'open'
+		};
+
+		const updated = await editStoredThought(context.userId, thoughtId, editRequest);
+		if (!updated.ok) {
+			console.error('[mcp.edit_thought] edit returned not_found', { userId: context.userId, thoughtId });
+			throw new Error('Thought not found');
+		}
+
+		const afterMeta = (updated.thought.metadata as Record<string, unknown>) ?? {};
+		console.info('[mcp.edit_thought] ok', {
+			userId: context.userId,
+			thoughtId,
+			summary: updated.editSummary,
+			status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
+		});
+		return sanitizeMcpToolResult({
+			thought: updated.thought,
+			thoughtId: updated.thought.id,
+			editRequest,
+			summary: updated.editSummary,
+			before,
+			after: {
+				rawText: updated.thought.rawText,
+				normalizedText: updated.thought.normalizedText,
+				category: updated.thought.category,
+				status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
+			}
+		});
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.error('[mcp.edit_thought] failed', {
+			userId: context.userId,
+			thoughtId,
+			message,
+			stack: err instanceof Error ? err.stack : undefined
+		});
+		throw err;
+	}
 }
 
 function readEventIdFromToolArgs(body: Record<string, unknown>): string {

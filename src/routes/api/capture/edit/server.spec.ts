@@ -214,7 +214,10 @@ describe('POST /api/capture/edit', () => {
 			request: ndjsonRequest({ thoughtId: 't1', editRequest: 'fix' })
 		} as never);
 		await res.text();
-		expect(consoleSpy).toHaveBeenCalledWith('capture edit: editWork rejected', expect.any(Error));
+		expect(consoleSpy).toHaveBeenCalledWith(
+			'[capture.edit.api] editWork rejected',
+			expect.objectContaining({ userId: 'u1', thoughtId: 't1', message: 'release failed' })
+		);
 		consoleSpy.mockRestore();
 	});
 

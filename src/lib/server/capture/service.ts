@@ -15,6 +15,12 @@ import {
 	applyThoughtEditRequest,
 	type ThoughtLifecycleStatus
 } from '$lib/server/capture/apply-thought-edit';
+import {
+	createEditPhaseTimer,
+	logEditComplete,
+	logEditFailure,
+	truncateEditPreview
+} from '$lib/server/capture/edit-phase-timing';
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
 import {
 	createIngestPhaseTimer,
@@ -345,162 +351,255 @@ export async function editStoredThought(
 	options?: EditStoredThoughtOptions
 ) {
 	const onProgress = options?.onProgress;
-	await ensureUserOntologySeeded(getDb(), userId);
-	await emitProgress(onProgress, 'accounting');
+	const logCtx = { userId, thoughtId };
+	const timer = createEditPhaseTimer(logCtx);
+	const editRequestPreview = truncateEditPreview(editRequest);
 
-	const [existing] = await getDb()
-		.select()
-		.from(thought)
-		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
-		.limit(1);
+	console.info('[capture.edit] start', { ...logCtx, editRequestPreview });
 
-	if (!existing) {
-		return { ok: false as const, reason: 'not_found' as const };
-	}
+	try {
+		await timer.time('ensure_ontology_seeded', async () => {
+			await ensureUserOntologySeeded(getDb(), userId);
+		});
+		await emitProgress(onProgress, 'accounting');
 
-	const decryptedExisting = await decryptThoughtRow(userId, existing);
-	const applied = await applyThoughtEditRequest({
-		userId,
-		existingRawText: decryptedExisting.rawText,
-		existingNormalizedText: decryptedExisting.normalizedText,
-		category: decryptedExisting.category,
-		editRequest
-	});
+		const existing = await timer.time('load_existing', async () => {
+			const [row] = await getDb()
+				.select()
+				.from(thought)
+				.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+				.limit(1);
+			return row ?? null;
+		});
 
-	const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {};
-	const editedRaw = applied.rawText;
-	const textChanged = editedRaw !== decryptedExisting.rawText;
-	const priorStatus = typeof priorMeta.status === 'string' ? priorMeta.status : 'open';
-	const nextStatus = applied.status ?? priorStatus;
+		if (!existing) {
+			console.error('[capture.edit] not found', logCtx);
+			return { ok: false as const, reason: 'not_found' as const };
+		}
 
-	const metadataPatch: Record<string, unknown> = {
-		...priorMeta,
-		lastEditRequest: editRequest.trim(),
-		lastEditSummary: applied.summary,
-		status: nextStatus,
-		...(nextStatus === 'completed' ? { completedAt: new Date().toISOString() } : {})
-	};
-
-	if (!textChanged) {
-		await emitProgress(onProgress, 'persist');
-		const [updated] = await getDb()
-			.update(thought)
-			.set({
-				metadata: metadataPatch,
-				metadataEncrypted: await encryptTenantValue({
-					userId,
-					table: 'thought',
-					column: 'metadata',
-					plaintext: JSON.stringify(metadataPatch)
-				}),
-				updatedAt: new Date()
+		const decryptedExisting = await timer.time('decrypt_existing', async () =>
+			decryptThoughtRow(userId, existing)
+		);
+		const applied = await timer.time('llm_apply_edit', async () =>
+			applyThoughtEditRequest({
+				userId,
+				existingRawText: decryptedExisting.rawText,
+				existingNormalizedText: decryptedExisting.normalizedText,
+				category: decryptedExisting.category,
+				editRequest
 			})
-			.where(eq(thought.id, thoughtId))
-			.returning({
-				id: thought.id,
-				userId: thought.userId,
-				rawText: thought.rawText,
-				rawTextEncrypted: thought.rawTextEncrypted,
-				normalizedText: thought.normalizedText,
-				normalizedTextEncrypted: thought.normalizedTextEncrypted,
-				lexicalText: thought.lexicalText,
-				category: thought.category,
-				metadata: thought.metadata,
-				metadataEncrypted: thought.metadataEncrypted
+		);
+
+		const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {};
+		const editedRaw = applied.rawText;
+		const textChanged = editedRaw !== decryptedExisting.rawText;
+		const priorStatus = typeof priorMeta.status === 'string' ? priorMeta.status : 'open';
+		const nextStatus = applied.status ?? priorStatus;
+
+		console.info('[capture.edit] llm outcome', {
+			...logCtx,
+			textChanged,
+			priorStatus,
+			nextStatus,
+			editSummary: applied.summary
+		});
+
+		const metadataPatch: Record<string, unknown> = {
+			...priorMeta,
+			lastEditRequest: editRequest.trim(),
+			lastEditSummary: applied.summary,
+			status: nextStatus,
+			...(nextStatus === 'completed' ? { completedAt: new Date().toISOString() } : {})
+		};
+
+		if (!textChanged) {
+			await emitProgress(onProgress, 'persist');
+			const updated = await timer.time('persist_metadata', async () => {
+				const metadataEncrypted = await timer.time('encrypt_metadata', async () =>
+					encryptTenantValue({
+						userId,
+						table: 'thought',
+						column: 'metadata',
+						plaintext: JSON.stringify(metadataPatch)
+					})
+				);
+				const [row] = await getDb()
+					.update(thought)
+					.set({
+						metadata: metadataPatch,
+						metadataEncrypted,
+						updatedAt: new Date()
+					})
+					.where(eq(thought.id, thoughtId))
+					.returning({
+						id: thought.id,
+						userId: thought.userId,
+						rawText: thought.rawText,
+						rawTextEncrypted: thought.rawTextEncrypted,
+						normalizedText: thought.normalizedText,
+						normalizedTextEncrypted: thought.normalizedTextEncrypted,
+						lexicalText: thought.lexicalText,
+						category: thought.category,
+						metadata: thought.metadata,
+						metadataEncrypted: thought.metadataEncrypted
+					});
+				if (!row) {
+					throw new Error(`persist_metadata returned no row for thought ${thoughtId}`);
+				}
+				return row;
 			});
 
+			await emitProgress(onProgress, 'graph');
+			await timer.time('upsert_graph_node', async () => {
+				await upsertThoughtNode({
+					id: updated.id,
+					userId,
+					category: updated.category
+				});
+			});
+
+			const resultThought = await timer.time('load_result', async () =>
+				loadThoughtCaptureResult(userId, thoughtId)
+			);
+
+			logEditComplete({
+				logCtx,
+				path: 'metadata_only',
+				textChanged,
+				nextStatus,
+				editSummary: applied.summary,
+				timing: timer.finish()
+			});
+
+			return {
+				ok: true as const,
+				thought: resultThought,
+				editSummary: applied.summary
+			};
+		}
+
+		const { normalized, metadata: baseMeta } = await timer.time('normalize_text', async () =>
+			normalizeThoughtText(editedRaw)
+		);
+		await emitProgress(onProgress, 'ontology');
+		const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } =
+			await timer.time('classify_category', async () =>
+				resolveThoughtCategory({
+					userId,
+					normalized,
+					rawText: editedRaw
+				})
+			);
+		const metadata = {
+			...metadataPatch,
+			...baseMeta,
+			categorySource: 'llm',
+			categoryConfidence,
+			categoryAlternatives
+		};
+		const lexicalText = computeLexicalText(normalized);
+		await emitProgress(onProgress, 'embedding');
+		const embedding = await timer.time('embedding', async () =>
+			createThoughtEmbedding(userId, normalized)
+		);
+		const [rawTextEncrypted, normalizedTextEncrypted, metadataEncrypted] = await timer.time(
+			'encrypt_columns',
+			async () =>
+				Promise.all([
+					encryptTenantValue({ userId, table: 'thought', column: 'raw_text', plaintext: editedRaw }),
+					encryptTenantValue({ userId, table: 'thought', column: 'normalized_text', plaintext: normalized }),
+					encryptTenantValue({
+						userId,
+						table: 'thought',
+						column: 'metadata',
+						plaintext: JSON.stringify(metadata)
+					})
+				])
+		);
+
+		await emitProgress(onProgress, 'persist');
+		const updated = await timer.time('persist_text_change', async () => {
+			const [row] = await getDb()
+				.update(thought)
+				.set({
+					rawText: editedRaw,
+					rawTextEncrypted,
+					normalizedText: normalized,
+					normalizedTextEncrypted,
+					lexicalText,
+					embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
+					category,
+					ontologyEntityKindId,
+					enrichedAt: null,
+					metadata,
+					metadataEncrypted,
+					updatedAt: new Date()
+				})
+				.where(eq(thought.id, thoughtId))
+				.returning({
+					id: thought.id,
+					userId: thought.userId,
+					rawText: thought.rawText,
+					rawTextEncrypted: thought.rawTextEncrypted,
+					normalizedText: thought.normalizedText,
+					normalizedTextEncrypted: thought.normalizedTextEncrypted,
+					lexicalText: thought.lexicalText,
+					category: thought.category,
+					metadata: thought.metadata,
+					metadataEncrypted: thought.metadataEncrypted
+				});
+			if (!row) {
+				throw new Error(`persist_text_change returned no row for thought ${thoughtId}`);
+			}
+			return row;
+		});
+		const decryptedUpdated = await timer.time('decrypt_updated', async () =>
+			decryptThoughtRow(userId, updated)
+		);
+
 		await emitProgress(onProgress, 'graph');
-		await upsertThoughtNode({
-			id: updated!.id,
-			userId,
-			category: updated!.category
+		await timer.time('upsert_graph_node', async () => {
+			await upsertThoughtNode({
+				id: updated.id,
+				userId,
+				category: updated.category
+			});
+		});
+
+		await timer.time('reenrich', async () => {
+			await reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
+				onProgress,
+				thoughtEmbedding: embedding
+			});
+		});
+
+		const resultThought = await timer.time('load_result', async () =>
+			loadThoughtCaptureResult(userId, thoughtId)
+		);
+
+		logEditComplete({
+			logCtx,
+			path: 'full_reenrich',
+			textChanged,
+			nextStatus,
+			editSummary: applied.summary,
+			timing: timer.finish()
 		});
 
 		return {
 			ok: true as const,
-			thought: await loadThoughtCaptureResult(userId, thoughtId),
+			thought: resultThought,
 			editSummary: applied.summary
 		};
+	} catch (err) {
+		logEditFailure({
+			logCtx,
+			err,
+			timing: timer.finish(),
+			editRequestPreview
+		});
+		throw err;
 	}
-
-	const { normalized, metadata: baseMeta } = normalizeThoughtText(editedRaw);
-	await emitProgress(onProgress, 'ontology');
-	const { key: category, ontologyEntityKindId, confidence: categoryConfidence, alternatives: categoryAlternatives } =
-		await resolveThoughtCategory({
-			userId,
-			normalized,
-			rawText: editedRaw
-		});
-	const metadata = {
-		...metadataPatch,
-		...baseMeta,
-		categorySource: 'llm',
-		categoryConfidence,
-		categoryAlternatives
-	};
-	const lexicalText = computeLexicalText(normalized);
-	await emitProgress(onProgress, 'embedding');
-	const embedding = await createThoughtEmbedding(userId, normalized);
-	const [rawTextEncrypted, normalizedTextEncrypted, metadataEncrypted] = await Promise.all([
-		encryptTenantValue({ userId, table: 'thought', column: 'raw_text', plaintext: editedRaw }),
-		encryptTenantValue({ userId, table: 'thought', column: 'normalized_text', plaintext: normalized }),
-		encryptTenantValue({
-			userId,
-			table: 'thought',
-			column: 'metadata',
-			plaintext: JSON.stringify(metadata)
-		})
-	]);
-
-	await emitProgress(onProgress, 'persist');
-	const [updated] = await getDb()
-		.update(thought)
-		.set({
-			rawText: editedRaw,
-			rawTextEncrypted,
-			normalizedText: normalized,
-			normalizedTextEncrypted,
-			lexicalText,
-			embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
-			category,
-			ontologyEntityKindId,
-			enrichedAt: null,
-			metadata,
-			metadataEncrypted,
-			updatedAt: new Date()
-		})
-		.where(eq(thought.id, thoughtId))
-		.returning({
-			id: thought.id,
-			userId: thought.userId,
-			rawText: thought.rawText,
-			rawTextEncrypted: thought.rawTextEncrypted,
-			normalizedText: thought.normalizedText,
-			normalizedTextEncrypted: thought.normalizedTextEncrypted,
-			lexicalText: thought.lexicalText,
-			category: thought.category,
-			metadata: thought.metadata,
-			metadataEncrypted: thought.metadataEncrypted
-		});
-	const decryptedUpdated = await decryptThoughtRow(userId, updated!);
-
-	await emitProgress(onProgress, 'graph');
-	await upsertThoughtNode({
-		id: updated!.id,
-		userId,
-		category: updated!.category
-	});
-
-	await reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
-		onProgress,
-		thoughtEmbedding: embedding
-	});
-
-	return {
-		ok: true as const,
-		thought: await loadThoughtCaptureResult(userId, thoughtId),
-		editSummary: applied.summary
-	};
 }
 
 export async function setThoughtLifecycleStatus(
