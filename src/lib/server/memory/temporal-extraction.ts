@@ -37,7 +37,9 @@ export async function extractTemporalMentions(input: {
 	timezone: string;
 }): Promise<ExtractedTemporalMention[]> {
 	const capturedIso = input.capturedAt.toISOString();
+	const anchorTz = input.timezone.trim();
 	const system = `You extract temporal facts from personal memory text.
+The capture happened at ${capturedIso} in timezone ${anchorTz}. Always set "timezone" to "${anchorTz}" unless the text explicitly names a different place/timezone.
 Return ONLY a JSON array. Each element:
 {
   "surface": "verbatim phrase from text",

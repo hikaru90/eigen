@@ -48,6 +48,8 @@ export type TemporalEventListItem = {
 	thoughtStatus: ThoughtLifecycleStatus;
 	memoryType: string | null;
 	projectLabel: string | null;
+	completedAt: string | null;
+	lifecycleUpdatedAt: string | null;
 	createdAt: string;
 };
 
@@ -77,6 +79,11 @@ export function thoughtIdFromOpenLoopItemId(itemId: string): string | null {
 
 function thoughtStatusFromMetadata(metadata: Record<string, unknown>): ThoughtLifecycleStatus {
 	return metadata.status === 'completed' ? 'completed' : 'open';
+}
+
+function completedAtFromMetadata(metadata: Record<string, unknown>): string | null {
+	const raw = metadata.completedAt;
+	return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
 async function loadProjectLabelsByThoughtId(
@@ -165,7 +172,8 @@ async function listOpenLoopThoughtsForUser(
 			memoryType: thought.memoryType,
 			metadata: thought.metadata,
 			metadataEncrypted: thought.metadataEncrypted,
-			createdAt: thought.createdAt
+			createdAt: thought.createdAt,
+			updatedAt: thought.updatedAt
 		})
 		.from(thought)
 		.where(and(...conditions))
@@ -195,6 +203,7 @@ async function listOpenLoopThoughtsForUser(
 		const metadata = JSON.parse(metadataJson) as Record<string, unknown>;
 		const thoughtStatus = thoughtStatusFromMetadata(metadata);
 		if (status === 'open' && thoughtStatus !== 'open') continue;
+		const completedAt = completedAtFromMetadata(metadata);
 
 		const summary =
 			thoughtText.length > 120 ? `${thoughtText.slice(0, 117).trim()}…` : thoughtText.trim();
@@ -229,6 +238,8 @@ async function listOpenLoopThoughtsForUser(
 			thoughtStatus,
 			memoryType: r.memoryType,
 			projectLabel: null,
+			completedAt,
+			lifecycleUpdatedAt: r.updatedAt.toISOString(),
 			createdAt: r.createdAt.toISOString()
 		});
 	}
@@ -264,6 +275,8 @@ function mapEventRow(
 		thoughtCategory: string;
 		thoughtStatus: ThoughtLifecycleStatus;
 		memoryType: string | null;
+		completedAt: string | null;
+		lifecycleUpdatedAt: Date | null;
 		createdAt: Date;
 	}
 ): TemporalEventListItem {
@@ -297,6 +310,8 @@ function mapEventRow(
 		thoughtStatus: r.thoughtStatus,
 		memoryType: r.memoryType,
 		projectLabel: null,
+		completedAt: r.completedAt,
+		lifecycleUpdatedAt: r.lifecycleUpdatedAt?.toISOString() ?? null,
 		createdAt: r.createdAt.toISOString()
 	};
 }
@@ -346,6 +361,7 @@ export async function listTemporalEventsForUser(
 			graphSyncStatus: temporalEvent.graphSyncStatus,
 			graphSyncError: temporalEvent.graphSyncError,
 			lifecycleStatus: temporalEvent.lifecycleStatus,
+			lifecycleUpdatedAt: temporalEvent.lifecycleUpdatedAt,
 			snoozedUntil: temporalEvent.snoozedUntil,
 			recurrenceRule: temporalEvent.recurrenceRule,
 			durationMinutes: temporalEvent.durationMinutes,
@@ -395,7 +411,9 @@ export async function listTemporalEventsForUser(
 				...r,
 				thoughtText,
 				thoughtStatus: thoughtStatusFromMetadata(metadata),
-				memoryType: r.thoughtMemoryType
+				memoryType: r.thoughtMemoryType,
+				completedAt: completedAtFromMetadata(metadata),
+				lifecycleUpdatedAt: r.lifecycleUpdatedAt
 			});
 		})
 	);
@@ -442,6 +460,7 @@ export async function getTemporalEventListItemById(
 			graphSyncStatus: temporalEvent.graphSyncStatus,
 			graphSyncError: temporalEvent.graphSyncError,
 			lifecycleStatus: temporalEvent.lifecycleStatus,
+			lifecycleUpdatedAt: temporalEvent.lifecycleUpdatedAt,
 			snoozedUntil: temporalEvent.snoozedUntil,
 			recurrenceRule: temporalEvent.recurrenceRule,
 			durationMinutes: temporalEvent.durationMinutes,
@@ -490,7 +509,9 @@ export async function getTemporalEventListItemById(
 		...r,
 		thoughtText,
 		thoughtStatus: thoughtStatusFromMetadata(metadata),
-		memoryType: r.thoughtMemoryType
+		memoryType: r.thoughtMemoryType,
+		completedAt: completedAtFromMetadata(metadata),
+		lifecycleUpdatedAt: r.lifecycleUpdatedAt
 	});
 }
 

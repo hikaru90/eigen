@@ -381,10 +381,17 @@ export async function runListTemporalEventsTool(context: McpToolContext, args: u
 			energyLevel: item.energyLevel,
 			priorityQuadrant: item.priorityQuadrant,
 			contextTags: item.contextTags,
+			projectLabel: item.projectLabel,
 			thoughtId: item.thoughtId
 		})),
 		nextCursor
 	});
+}
+
+export async function runListProjectsTool(context: McpToolContext, _args: unknown) {
+	const { listProjectsForUser } = await import('$lib/server/memory/project-list');
+	const projects = await listProjectsForUser(context.userId);
+	return sanitizeMcpToolResult({ projects });
 }
 
 export async function runManageTemporalEventTool(context: McpToolContext, args: unknown) {

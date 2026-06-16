@@ -5,8 +5,10 @@ import { getDb } from '$lib/server/db';
 import {
 	canonicalEntity,
 	entityResolutionLog,
+	projectProfile,
 	temporalEvent,
 	thought,
+	thoughtEntity,
 	thoughtRelation
 } from '$lib/server/db/schema';
 
@@ -69,7 +71,8 @@ export async function loadThoughtCaptureResult(
 		throw new Error(`loadThoughtCaptureResult: thought not found (${thoughtId})`);
 	}
 
-	const [normalizedText, metadata, entityRows, temporalRows, relationRows] = await Promise.all([
+	const [normalizedText, metadata, entityRows, temporalRows, relationRows, projectRows, nextActionRows] =
+		await Promise.all([
 		decryptNormalizedText(userId, row),
 		decryptThoughtMetadata(userId, row),
 		getDb()
@@ -101,7 +104,26 @@ export async function loadThoughtCaptureResult(
 			.from(thoughtRelation)
 			.where(
 				and(eq(thoughtRelation.userId, userId), eq(thoughtRelation.sourceThoughtId, thoughtId))
+			),
+		getDb()
+			.select({ label: canonicalEntity.label })
+			.from(thoughtEntity)
+			.innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
+			.where(
+				and(
+					eq(thoughtEntity.userId, userId),
+					eq(thoughtEntity.thoughtId, thoughtId),
+					eq(canonicalEntity.entityType, 'project')
+				)
 			)
+			.limit(1),
+		getDb()
+			.select({ projectEntityId: projectProfile.projectEntityId })
+			.from(projectProfile)
+			.where(
+				and(eq(projectProfile.userId, userId), eq(projectProfile.nextActionThoughtId, thoughtId))
+			)
+			.limit(1)
 	]);
 
 	const entities = entityRows
@@ -159,6 +181,8 @@ export async function loadThoughtCaptureResult(
 		})),
 		linkedThoughts,
 		enrichmentComplete: row.enrichedAt !== null,
+		gtdProjectLabel: projectRows[0]?.label ?? null,
+		gtdIsNextAction: nextActionRows.length > 0,
 		queueStatus: row.enrichQueueStatus ?? null,
 		queueError: row.enrichQueueError ?? null
 	};

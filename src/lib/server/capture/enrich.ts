@@ -50,6 +50,7 @@ import {
 import { thoughtRelation } from '$lib/server/db/schema';
 import { materializeRetrievalLinksForThought, syncThoughtNeighborLinks } from '$lib/server/retrieval/materialize-links';
 import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation';
+import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment';
 
 export type EnrichThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
@@ -302,6 +303,33 @@ export async function enrichThought(
 			);
 		} catch (err) {
 			console.error('[enrich] retrieval link materialization failed', {
+				thoughtId,
+				message: err instanceof Error ? err.message : String(err)
+			});
+		}
+
+		try {
+			const [thoughtRow] = await db
+				.select({
+					memoryType: thought.memoryType,
+					category: thought.category
+				})
+				.from(thought)
+				.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+				.limit(1);
+			if (thoughtRow) {
+				await time('enrich_gtd_assignment', () =>
+					applyGtdAssignment({
+						userId,
+						thoughtId,
+						normalizedText,
+						memoryType: thoughtRow.memoryType,
+						category: thoughtRow.category
+					})
+				);
+			}
+		} catch (err) {
+			console.error('[enrich] GTD project assignment failed', {
 				thoughtId,
 				message: err instanceof Error ? err.message : String(err)
 			});

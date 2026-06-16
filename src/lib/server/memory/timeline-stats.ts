@@ -1,11 +1,9 @@
-import { and, eq, gte, lt, lte } from 'drizzle-orm';
+import { and, eq, gte, lte } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { temporalEvent } from '$lib/server/db/schema';
-import {
-	listTemporalEventsForUser,
-	type TemporalEventListItem
-} from '$lib/server/memory/temporal-event-list';
-import { overdueDebtMinutes } from '$lib/graph/timeline-overdue';
+import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list';
+import { priorDayOverdueCount, overdueDebtMinutes } from '$lib/graph/timeline-overdue';
+import { completedTodayCount } from '$lib/graph/timeline-completed-today';
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 import { isOpenTodoToday } from '$lib/server/memory/timeline-today-server';
 
@@ -13,6 +11,7 @@ export type TimelineStats = {
 	completionsThisWeek: number;
 	streakDays: number;
 	overdueDebtMinutes: number;
+	overdueCount: number;
 	todoTodayCount: number;
 	doneTodayCount: number;
 	estimatedMinutesToday: number;
@@ -27,26 +26,10 @@ function startOfWeek(date: Date): Date {
 	return d;
 }
 
-function startOfLocalDay(date: Date, timeZone: string): Date {
-	const parts = new Intl.DateTimeFormat('en-US', {
-		timeZone,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit'
-	}).formatToParts(date);
-	const year = Number(parts.find((p) => p.type === 'year')?.value);
-	const month = Number(parts.find((p) => p.type === 'month')?.value);
-	const day = Number(parts.find((p) => p.type === 'day')?.value);
-	return new Date(Date.UTC(year, month - 1, day));
-}
-
 export async function computeTimelineStatsForUser(userId: string): Promise<TimelineStats> {
 	const now = new Date();
 	const timeZone = await getUserPreferredTimezone(userId);
 	const weekStart = startOfWeek(now);
-	const todayStart = startOfLocalDay(now, timeZone);
-	const todayEnd = new Date(todayStart);
-	todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
 
 	const completionsThisWeek = await getDb()
 		.select({ id: temporalEvent.id })
@@ -92,17 +75,12 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 		includeOpenLoops: true
 	});
 
-	const doneTodayRows = await getDb()
-		.select({ id: temporalEvent.id })
-		.from(temporalEvent)
-		.where(
-			and(
-				eq(temporalEvent.userId, userId),
-				eq(temporalEvent.lifecycleStatus, 'completed'),
-				gte(temporalEvent.lifecycleUpdatedAt, todayStart),
-				lt(temporalEvent.lifecycleUpdatedAt, todayEnd)
-			)
-		);
+	const { items: allItems } = await listTemporalEventsForUser({
+		userId,
+		status: 'all',
+		range: 'all',
+		includeOpenLoops: true
+	});
 
 	const todoToday = openItems.filter((item) => isOpenTodoToday(item, now, timeZone));
 
@@ -110,8 +88,9 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 		completionsThisWeek: completionsThisWeek.length,
 		streakDays,
 		overdueDebtMinutes: overdueDebtMinutes(openItems, now),
+		overdueCount: priorDayOverdueCount(openItems, timeZone, now),
 		todoTodayCount: todoToday.length,
-		doneTodayCount: doneTodayRows.length,
+		doneTodayCount: completedTodayCount(allItems, timeZone, now),
 		estimatedMinutesToday: todoToday.reduce((sum, item) => sum + (item.durationMinutes ?? 30), 0)
 	};
 }

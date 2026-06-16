@@ -19,6 +19,13 @@ import { syncReminderScheduleForEvent } from '$lib/server/memory/event-reminder-
 
 const DEFAULT_TIMEZONE = 'UTC';
 
+/** LLM often returns UTC; persist the user's anchor timezone for display and day boundaries. */
+function resolvePersistedTimezone(mentionTimezone: string, userTimezone: string): string {
+	const mention = mentionTimezone?.trim();
+	if (!mention || mention === 'UTC' || mention === 'Etc/UTC') return userTimezone;
+	return mention;
+}
+
 /**
  * Extract temporal facts from a thought, persist to Postgres, enqueue AGE graph sync jobs.
  * Postgres is the ledger; graph sync runs post-commit via the outbox worker.
@@ -99,7 +106,7 @@ export async function syncTemporalEventsFromThought(input: {
 					kind: mention.kind,
 					activePeriod: bounds.activePeriodLiteral,
 					timePrecision: mention.timePrecision,
-					timezone: mention.timezone,
+					timezone: resolvePersistedTimezone(mention.timezone, timezone),
 					isAllDay: mention.isAllDay,
 					recurrenceRule: mention.recurrenceRule ?? null,
 					durationMinutes: mention.durationMinutes ?? null,

@@ -8,6 +8,7 @@ import {
 	type GroundingFacetKey
 } from '$lib/server/grounding/constants';
 import { synthesizeGroundingNarrative } from '$lib/server/grounding/synthesize-narrative';
+import { seedProjectsFromGrounding } from '$lib/server/grounding/seed-projects';
 import type {
 	GroundingProfileForEnrichment,
 	GroundingProfileSnapshot
@@ -218,6 +219,14 @@ export async function completeGroundingSession(input: {
 		.returning();
 
 	const snapshot = await rowToSnapshot(input.userId, row);
+
+	if (mergedFacets.projects?.trim()) {
+		await seedProjectsFromGrounding({
+			userId: input.userId,
+			projectsFacetText: mergedFacets.projects
+		});
+	}
+
 	return {
 		initialCompleted: !wasComplete,
 		redirectTo: '/capture',

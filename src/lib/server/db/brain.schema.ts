@@ -586,6 +586,36 @@ export const thoughtEntity = pgTable(
 	]
 );
 
+export const projectStatusValues = ['active', 'someday', 'completed'] as const;
+export type ProjectStatus = (typeof projectStatusValues)[number];
+
+/** GTD project metadata keyed by canonical project entity. */
+export const projectProfile = pgTable(
+	'project_profile',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectEntityId: uuid('project_entity_id')
+			.notNull()
+			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+		status: text('status', { enum: projectStatusValues }).notNull().default('active'),
+		nextActionThoughtId: uuid('next_action_thought_id').references(() => thought.id, {
+			onDelete: 'set null'
+		}),
+		designatedAt: timestamp('designated_at'),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectEntityId], name: 'project_profile_pk' }),
+		index('project_profile_user_idx').on(t.userId),
+		index('project_profile_next_action_idx').on(t.nextActionThoughtId)
+	]
+);
+
 /** Materialized 1-hop thought neighbors (from thought_relation); replaces AGE RELATES_TO at query time. */
 export const thoughtNeighbor = pgTable(
 	'thought_neighbor',

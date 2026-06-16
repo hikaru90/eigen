@@ -80,6 +80,18 @@
 			linkedThoughts={thought.linkedThoughts}
 		/>
 
+		{#if thought.gtdProjectLabel}
+			<p class="text-xs text-muted-foreground">
+				{#if thought.gtdIsNextAction}
+					Next action for project:
+					<span class="font-medium text-foreground">{thought.gtdProjectLabel}</span>
+				{:else}
+					Linked to project:
+					<span class="font-medium text-foreground">{thought.gtdProjectLabel}</span>
+				{/if}
+			</p>
+		{/if}
+
 		{#if thought.temporalEvents.length > 0}
 			<div class="space-y-1.5">
 				<p class="text-xs font-medium text-foreground">Temporal</p>

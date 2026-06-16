@@ -7,6 +7,7 @@ import {
 	runEditThoughtTool,
 	runListThoughtsTool,
 	runListTemporalEventsTool,
+	runListProjectsTool,
 	runManageTemporalEventTool,
 	runRetrieveThoughtsTool,
 	type McpToolContext
@@ -129,6 +130,17 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		handler: runListTemporalEventsTool
 	},
 	{
+		name: 'list_projects',
+		description:
+			'List GTD projects with designated next actions, status, and open-loop counts for the timeline.',
+		inputSchema: {
+			type: 'object',
+			properties: {}
+		},
+		agentArgumentSchema: '{}',
+		handler: runListProjectsTool
+	},
+	{
 		name: 'manage_temporal_event',
 		description:
 			'Manage a calendar/temporal event by ID: mark done, cancel, reschedule, or apply a natural-language instruction.',
@@ -197,7 +209,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			required: ['facets']
 		},
 		agentArgumentSchema:
-			'{"facets": [{"key": "work|identity|values|relationships|psychology|routines", "content": "string"}], "session_note": "string (optional)"}',
+			'{"facets": [{"key": "work|identity|values|relationships|psychology|routines|projects", "content": "string"}], "session_note": "string (optional)"}',
 		handler: runCaptureGroundingTool
 	},
 	{

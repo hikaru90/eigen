@@ -78,9 +78,9 @@
 		</Button>
 	</div>
 
-	<div class="min-h-0 flex-1 overflow-auto p-2">
-		<div class="relative min-w-[48rem]">
-			<div class="grid grid-cols-[3rem_repeat(7,1fr)] gap-px">
+	<div class="min-h-0 flex-1 overflow-x-auto overflow-y-auto p-1 sm:p-2">
+		<div class="relative w-full min-w-[min(100%,42rem)] sm:min-w-[48rem]">
+			<div class="grid grid-cols-[2.25rem_repeat(7,minmax(2.75rem,1fr))] gap-px sm:grid-cols-[3rem_repeat(7,1fr)]">
 				<div class="bg-muted/20"></div>
 				{#each weekDays as day, i (day.toISOString())}
 					<div
@@ -111,7 +111,7 @@
 			</div>
 
 			<div
-				class="pointer-events-none absolute inset-0 grid grid-cols-[3rem_repeat(7,1fr)]"
+				class="pointer-events-none absolute inset-0 grid grid-cols-[2.25rem_repeat(7,minmax(2.75rem,1fr))] sm:grid-cols-[3rem_repeat(7,1fr)]"
 				style="top: 2.25rem; height: {gridHeightPx}px"
 			>
 				<div></div>

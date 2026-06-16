@@ -9,6 +9,11 @@ export function graphIntlLocale(): string {
 	return getLocale() === 'de' ? 'de-DE' : 'en-US';
 }
 
+/** German UI uses 24-hour clock; English keeps 12-hour AM/PM. */
+export function graphUsesHour12(): boolean {
+	return getLocale() !== 'de';
+}
+
 export function graphCommunityLevelLabel(level: number): string {
 	if (level === COMMUNITY_LEAF_LEVEL) return m.graph_community_l2();
 	if (level === 1) return m.graph_community_l1();

@@ -12,6 +12,10 @@ vi.mock('$lib/server/capture/service', () => ({
 	setThoughtLifecycleStatus: setThoughtLifecycleStatusMock
 }));
 
+vi.mock('$lib/server/memory/project-next-action', () => ({
+	clearNextActionIfCompleted: vi.fn(async () => undefined)
+}));
+
 vi.mock('$lib/server/db', () => ({
 	getDb: () => ({
 		select: getDbSelectMock

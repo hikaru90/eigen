@@ -38,6 +38,8 @@ export type CaptureSubmitResult = {
 	temporalEvents: CaptureTemporalSummary[];
 	linkedThoughts: CaptureLinkedThought[];
 	enrichmentComplete: boolean;
+	gtdProjectLabel: string | null;
+	gtdIsNextAction: boolean;
 	/** Tiered ingest queue state (null on legacy rows). */
 	queueStatus: 'pending' | 'processing' | 'complete' | 'failed' | null;
 	/** Present when queueStatus is failed or after stale recovery. */

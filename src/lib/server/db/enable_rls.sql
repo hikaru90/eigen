@@ -89,6 +89,14 @@ CREATE POLICY canonical_entity_isolation ON canonical_entity
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE project_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_profile FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS project_profile_isolation ON project_profile;
+CREATE POLICY project_profile_isolation ON project_profile
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE entity_alias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entity_alias FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS entity_alias_isolation ON entity_alias;

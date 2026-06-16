@@ -80,6 +80,8 @@ describe('loadThoughtCaptureResult', () => {
 						}
 					]))
 				.mockReturnValueOnce(makeAwaitableChain([{ targetThoughtId: 't2', relationType: 'related_to' }]))
+				.mockReturnValueOnce(makeLimitChain([{ label: 'Eigen Mesh' }]))
+				.mockReturnValueOnce(makeLimitChain([{ projectEntityId: 'e1' }]))
 				.mockReturnValueOnce(makeAwaitableChain([
 						{
 							id: 't2',
@@ -123,7 +125,10 @@ describe('loadThoughtCaptureResult', () => {
 				}
 			],
 			enrichmentComplete: true,
-			queueStatus: 'complete'
+			gtdProjectLabel: 'Eigen Mesh',
+			gtdIsNextAction: true,
+			queueStatus: 'complete',
+			queueError: null
 		});
 		expect(result).not.toHaveProperty('embedding');
 	});
@@ -165,6 +170,8 @@ describe('loadThoughtCaptureResult', () => {
 				)
 				.mockReturnValueOnce(makeAwaitableChain([]))
 				.mockReturnValueOnce(makeAwaitableChain([]))
+				.mockReturnValueOnce(makeLimitChain([]))
+				.mockReturnValueOnce(makeLimitChain([]))
 		});
 
 		const result = await loadThoughtCaptureResult('u1', 't1');

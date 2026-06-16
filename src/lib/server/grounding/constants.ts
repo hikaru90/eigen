@@ -5,7 +5,8 @@ export const GROUNDING_FACET_KEYS = [
 	'values',
 	'relationships',
 	'psychology',
-	'routines'
+	'routines',
+	'projects'
 ] as const;
 
 export type GroundingFacetKey = (typeof GROUNDING_FACET_KEYS)[number];

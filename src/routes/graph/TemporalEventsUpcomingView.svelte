@@ -11,6 +11,7 @@
 		timeZone: string;
 		onSelect: (item: TemporalEventListItem) => void;
 		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void;
+		onLongPress?: (item: TemporalEventListItem) => void;
 	};
 
 	let {
@@ -19,7 +20,8 @@
 		updatingEventId = null,
 		timeZone,
 		onSelect,
-		onQuickAction
+		onQuickAction,
+		onLongPress
 	}: Props = $props();
 
 	const viewItems = $derived(filterItemsForUpcomingView(items, timeZone));
@@ -47,6 +49,7 @@
 							{updatingEventId}
 							onSelect={onSelect}
 							onQuickAction={onQuickAction}
+							{onLongPress}
 						/>
 					{/each}
 				</ul>

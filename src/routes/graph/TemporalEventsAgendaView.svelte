@@ -88,7 +88,7 @@
 										</span>
 									{/if}
 								</div>
-								<p class="text-muted-foreground font-mono text-[11px]">{formatWhen(item)}</p>
+								<p class="text-muted-foreground font-mono text-[11px]">{formatWhen(item, timeZone)}</p>
 								<p class="text-muted-foreground/80 line-clamp-1 text-[11px]">{item.thoughtText}</p>
 							</div>
 						</button>

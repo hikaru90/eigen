@@ -81,7 +81,7 @@
 		{#each gridDays as day (dayKey(day))}
 			{@const dayEvents = eventsOnDay(items, day)}
 			<div
-				class="border-border flex min-h-[4.5rem] flex-col border-b border-r p-1 last:border-r-0 {isCurrentMonth(
+				class="border-border flex min-h-[3rem] flex-col border-b border-r p-0.5 last:border-r-0 sm:min-h-[4.5rem] sm:p-1 {isCurrentMonth(
 					day
 				)
 					? 'bg-background'

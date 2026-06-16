@@ -13,6 +13,7 @@ import {
 import { resolveOrCreateCanonicalEntity, clearEntityResolutionLogsForThought } from '$lib/server/memory/entity-resolution';
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints';
+import { loadGtdProjectOptions } from '$lib/server/memory/extract-gtd-assignment';
 import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 
@@ -56,7 +57,24 @@ export async function syncEntityGraphFromThought(input: {
 			if (!key || byLabel.has(key)) continue;
 			byLabel.set(key, hint);
 		}
-		knownEntities = [...byLabel.values()];
+		try {
+			const projectEntities = await loadGtdProjectOptions(input.userId);
+			for (const project of projectEntities) {
+				const key = project.label.trim().toLowerCase();
+				if (!key || byLabel.has(key)) continue;
+				byLabel.set(key, { label: project.label, entityType: 'project' });
+			}
+		} catch (err) {
+			console.warn('[entity-graph-sync] project known-entity prefetch failed', {
+				thoughtId: input.thoughtId,
+				message: err instanceof Error ? err.message : String(err)
+			});
+		}
+		knownEntities = [...byLabel.values()].sort((a, b) => {
+			if (a.entityType === 'project' && b.entityType !== 'project') return -1;
+			if (b.entityType === 'project' && a.entityType !== 'project') return 1;
+			return a.label.localeCompare(b.label);
+		});
 	} catch (err) {
 		console.warn('[entity-graph-sync] graph known-entity hints failed, proceeding without hints', {
 			thoughtId: input.thoughtId,

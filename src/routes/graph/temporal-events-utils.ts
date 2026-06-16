@@ -5,8 +5,9 @@ import {
 	parseAbsolute,
 	toCalendarDate
 } from '@internationalized/date';
-import { graphIntlLocale } from '$lib/graph/graph-i18n';
+import { graphIntlLocale, graphUsesHour12 } from '$lib/graph/graph-i18n';
 import { expandRruleOccurrences } from '$lib/graph/temporal-rrule';
+import { filterCompletedTodayItems } from '$lib/graph/timeline-completed-today';
 type TemporalPriorityQuadrant =
 	| 'urgent_important'
 	| 'not_urgent_important'
@@ -131,9 +132,26 @@ export function localViewDayBoundsMs(day: Date): { start: number; end: number } 
 	return { start, end };
 }
 
-export function formatWhen(item: TemporalEventListItem): string {
+function displayTimeZone(item: TemporalEventListItem, viewerTimeZone?: string): string {
+	const viewer = viewerTimeZone?.trim();
+	if (viewer) return viewer;
+	const eventTz = eventTimeZone(item);
+	if (eventTz === 'UTC' || eventTz === 'Etc/UTC') return getLocalTimeZone();
+	return eventTz;
+}
+
+function dateTimeFormatOptions(timeZone: string): Intl.DateTimeFormatOptions {
+	return {
+		dateStyle: 'medium',
+		timeStyle: 'short',
+		timeZone,
+		hour12: graphUsesHour12()
+	};
+}
+
+export function formatWhen(item: TemporalEventListItem, viewerTimeZone?: string): string {
 	if (!item.startAt) return '—';
-	const tz = eventTimeZone(item);
+	const tz = displayTimeZone(item, viewerTimeZone);
 	const start = new Date(item.startAt);
 	const end = item.endAt ? new Date(item.endAt) : null;
 
@@ -150,11 +168,7 @@ export function formatWhen(item: TemporalEventListItem): string {
 		return fmt.format(start);
 	}
 
-	const fmt = new Intl.DateTimeFormat(graphIntlLocale(), {
-		dateStyle: 'medium',
-		timeStyle: 'short',
-		timeZone: tz
-	});
+	const fmt = new Intl.DateTimeFormat(graphIntlLocale(), dateTimeFormatOptions(tz));
 	if (end && end.getTime() - start.getTime() > 36 * 60 * 60 * 1000) {
 		return `${fmt.format(start)} – ${fmt.format(end)}`;
 	}
@@ -191,7 +205,7 @@ export function isTemporalEventCompleted(item: TemporalEventListItem): boolean {
 }
 
 export function isTemporalEventOpen(item: TemporalEventListItem): boolean {
-	return item.lifecycleStatus === 'open';
+	return !isTemporalEventCompleted(item);
 }
 
 export function filterItemsByStatus(
@@ -215,7 +229,10 @@ export function filterItemsByRange(
 	const now = Date.now();
 	return items.filter((item) => {
 		if (rangeFilter === 'all') return true;
-		const start = item.startAt ? new Date(item.startAt).getTime() : 0;
+		if (!item.startAt) {
+			return rangeFilter === 'relevant' || rangeFilter === 'upcoming';
+		}
+		const start = new Date(item.startAt).getTime();
 		const end = item.endAt ? new Date(item.endAt).getTime() : start;
 		if (rangeFilter === 'upcoming') return end >= now;
 		if (rangeFilter === 'past') return start < now;
@@ -260,15 +277,16 @@ export function agendaSectionForItem(
 	timeZone: string
 ): AgendaSection {
 	if (!item.startAt) return 'unscheduled';
+
+	const todayKey = localDayKeyFromIso(now.toISOString(), timeZone);
+	const startKey = localDayKeyFromIso(item.startAt, timeZone);
+	if (startKey === todayKey) return 'today';
+
 	const nowMs = now.getTime();
 	const startMs = new Date(item.startAt).getTime();
 	const endMs = item.endAt ? new Date(item.endAt).getTime() : startMs;
 
 	if (endMs < nowMs) return 'past';
-
-	const todayKey = localDayKeyFromIso(now.toISOString(), timeZone);
-	const startKey = localDayKeyFromIso(item.startAt, timeZone);
-	if (startKey === todayKey) return 'today';
 
 	const tomorrow = new Date(now);
 	tomorrow.setDate(tomorrow.getDate() + 1);
@@ -414,8 +432,7 @@ export function splitTodayFocusAndLater(
 	timeZone: string,
 	now = new Date()
 ): { focus: TemporalEventListItem[]; later: TemporalEventListItem[] } {
-	const viewItems = filterItemsForTodayView(items, timeZone, now);
-	const openItems = viewItems.filter((item) => !isTemporalEventCompleted(item));
+	const openItems = filterTodayTodoOpenItems(items, timeZone, now);
 	const focus = selectFocusItems(openItems, timeZone, TODAY_FOCUS_MAX, now);
 	const focusIds = new Set(focus.map((item) => item.id));
 	const later = openItems.filter((item) => !focusIds.has(item.id));
@@ -552,6 +569,16 @@ export function placementsForWeek(
 	return placements;
 }
 
+export {
+	filterOverdueItems,
+	filterPriorDayOverdueItems,
+	isOverdueItem,
+	isPriorDayOverdue,
+	isScheduledForToday,
+	overdueCount,
+	priorDayOverdueCount
+} from '$lib/graph/timeline-overdue';
+
 export function overdueDebtMinutes(items: TemporalEventListItem[], now = new Date()): number {
 	return items
 		.filter(
@@ -564,9 +591,19 @@ export function overdueDebtMinutes(items: TemporalEventListItem[], now = new Dat
 		.reduce((sum, i) => sum + (i.durationMinutes ?? DEFAULT_EVENT_DURATION_MIN), 0);
 }
 
+export function filterItemsCompletedToday(
+	items: TemporalEventListItem[],
+	timeZone: string,
+	now = new Date()
+): TemporalEventListItem[] {
+	return filterCompletedTodayItems(items, timeZone, now);
+}
+
 export { WEEK_GRID_START_HOUR, WEEK_GRID_END_HOUR };
 
-export type TimelineShellView = 'today' | 'upcoming' | 'week' | 'agenda' | 'matrix';
+export type TimelineShellView = 'today' | 'upcoming' | 'projects' | 'week' | 'agenda' | 'matrix';
+
+export type TodaySegment = 'todo' | 'done' | 'overdue';
 
 export function filterItemsForTodayView(
 	items: TemporalEventListItem[],
@@ -582,6 +619,17 @@ export function filterItemsForTodayView(
 		}
 		return false;
 	});
+}
+
+/** Open items shown in the today "todo" tab (includes today's overdue — prior days use the overdue tab). */
+export function filterTodayTodoOpenItems(
+	items: TemporalEventListItem[],
+	timeZone: string,
+	now = new Date()
+): TemporalEventListItem[] {
+	return filterItemsForTodayView(items, timeZone, now).filter(
+		(item) => !isTemporalEventCompleted(item)
+	);
 }
 
 export function filterItemsForUpcomingView(

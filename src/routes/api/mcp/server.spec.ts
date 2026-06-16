@@ -7,16 +7,24 @@ const {
 	runRetrieveThoughtsToolMock,
 	runEditThoughtToolMock,
 	runDeleteThoughtToolMock,
+	runListTemporalEventsToolMock,
+	runListProjectsToolMock,
 	runManageTemporalEventToolMock,
-	runAnswerQuestionToolMock
+	runAnswerQuestionToolMock,
+	runCaptureGroundingToolMock,
+	runCompleteGroundingSessionToolMock
 } = vi.hoisted(() => ({
 	runCaptureThoughtToolMock: vi.fn(),
 	runListThoughtsToolMock: vi.fn(),
 	runRetrieveThoughtsToolMock: vi.fn(),
 	runEditThoughtToolMock: vi.fn(),
 	runDeleteThoughtToolMock: vi.fn(),
+	runListTemporalEventsToolMock: vi.fn(),
+	runListProjectsToolMock: vi.fn(),
 	runManageTemporalEventToolMock: vi.fn(),
-	runAnswerQuestionToolMock: vi.fn()
+	runAnswerQuestionToolMock: vi.fn(),
+	runCaptureGroundingToolMock: vi.fn(),
+	runCompleteGroundingSessionToolMock: vi.fn()
 }));
 
 vi.mock('$lib/server/mcp/tools', () => ({
@@ -25,8 +33,12 @@ vi.mock('$lib/server/mcp/tools', () => ({
 	runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
 	runEditThoughtTool: runEditThoughtToolMock,
 	runDeleteThoughtTool: runDeleteThoughtToolMock,
+	runListTemporalEventsTool: runListTemporalEventsToolMock,
+	runListProjectsTool: runListProjectsToolMock,
 	runManageTemporalEventTool: runManageTemporalEventToolMock,
-	runAnswerQuestionTool: runAnswerQuestionToolMock
+	runAnswerQuestionTool: runAnswerQuestionToolMock,
+	runCaptureGroundingTool: runCaptureGroundingToolMock,
+	runCompleteGroundingSessionTool: runCompleteGroundingSessionToolMock
 }));
 
 function makeRequest(body: unknown, method = 'POST'): Request {

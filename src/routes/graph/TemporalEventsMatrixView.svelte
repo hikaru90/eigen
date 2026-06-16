@@ -35,7 +35,7 @@
 </script>
 
 <div
-	class="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-y-auto p-2 sm:grid-cols-2"
+	class="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-2 overflow-y-auto p-2 sm:grid-cols-2"
 	role="region"
 	aria-label={m.graph_timeline_matrix_aria()}
 >
@@ -55,16 +55,21 @@
 					{#each quadrantItems as item (item.id)}
 						<li>
 							<div
-								class="border-border bg-background hover:bg-muted/30 flex w-full items-start gap-2 rounded-md border p-2 transition-colors {selectedItemId ===
+								role="button"
+								tabindex="0"
+								class="border-border bg-background hover:bg-muted/30 flex w-full cursor-pointer items-start gap-2 rounded-md border p-2 transition-colors {selectedItemId ===
 								item.id
 									? 'ring-primary ring-2'
 									: ''}"
+								onclick={() => onSelect(item)}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										onSelect(item);
+									}
+								}}
 							>
-								<button
-									type="button"
-									class="min-w-0 flex-1 text-left"
-									onclick={() => onSelect(item)}
-								>
+								<div class="min-w-0 flex-1 text-left">
 									<p
 										class="text-foreground text-xs font-medium {completedEventSummaryClass(
 											isTemporalEventCompleted(item)
@@ -73,7 +78,7 @@
 										{item.semanticSummary}
 									</p>
 									<p class="text-muted-foreground mt-0.5 font-mono text-[10px]">{formatWhen(item)}</p>
-								</button>
+								</div>
 								<TemporalEventStatusButton
 									{item}
 									{updatingEventId}

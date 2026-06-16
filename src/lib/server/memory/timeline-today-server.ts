@@ -1,4 +1,5 @@
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list';
+import { isScheduledForToday } from '$lib/graph/timeline-overdue';
 
 export function localDayKey(iso: string, timeZone: string): string {
 	return new Intl.DateTimeFormat('en-CA', {
@@ -44,10 +45,5 @@ export function isOpenTodoToday(
 ): boolean {
 	if (item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed') return false;
 	if (item.snoozedUntil && new Date(item.snoozedUntil).getTime() > now.getTime()) return false;
-	if (!item.startAt) return true;
-	const todayKey = localDayKey(now.toISOString(), timeZone);
-	const startKey = localDayKey(item.startAt, item.timezone?.trim() || timeZone);
-	if (startKey === todayKey) return true;
-	const endMs = item.endAt ? new Date(item.endAt).getTime() : new Date(item.startAt).getTime();
-	return endMs >= now.getTime() && startKey === todayKey;
+	return isScheduledForToday(item, timeZone, now);
 }

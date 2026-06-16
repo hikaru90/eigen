@@ -4,6 +4,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import XIcon from '@lucide/svelte/icons/x';
 	import {
 		completedEventSummaryClass,
 		formatWhen,
@@ -15,6 +16,7 @@
 
 	type Props = {
 		item: TemporalEventListItem;
+		timeZone?: string;
 		updatingEventId?: string | null;
 		actionBusy?: boolean;
 		lastActionSummary?: string | null;
@@ -24,10 +26,12 @@
 		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen' | 'cancel' | 'dismiss') => void;
 		onInstruction: (eventId: string, instruction: string) => void;
 		onDelete: (eventId: string) => void;
+		onClose?: () => void;
 	};
 
 	let {
 		item,
+		timeZone,
 		updatingEventId = null,
 		actionBusy = false,
 		lastActionSummary = null,
@@ -36,7 +40,8 @@
 		eventReminderKinds = [],
 		onQuickAction,
 		onInstruction,
-		onDelete
+		onDelete,
+		onClose
 	}: Props = $props();
 
 	let instruction = $state('');
@@ -59,20 +64,22 @@
 </script>
 
 <div
-	class="border-border bg-muted/20 shrink-0 border-t px-4 py-3"
+	class="border-border bg-muted/20 max-h-[min(45vh,22rem)] shrink-0 overflow-y-auto border-t px-4 py-3"
 	role="region"
 	aria-label={m.graph_temporal_detail_aria()}
 >
 	<div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-		{#if completed}
-			<span
-				class="text-muted-foreground rounded-sm border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
-			>
-				{m.graph_temporal_done()}
-			</span>
-		{:else}
-			<span class="text-muted-foreground font-mono text-[10px] uppercase">{m.graph_temporal_status_open()}</span>
-		{/if}
+		<div class="flex flex-wrap items-center gap-2">
+			{#if completed}
+				<span
+					class="text-muted-foreground rounded-sm border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
+				>
+					{m.graph_temporal_done()}
+				</span>
+			{:else}
+				<span class="text-muted-foreground font-mono text-[10px] uppercase">{m.graph_temporal_status_open()}</span>
+			{/if}
+		</div>
 		<div class="flex flex-wrap items-center gap-2">
 			<TemporalEventStatusButton
 				{item}
@@ -103,6 +110,19 @@
 				<Trash2Icon class="size-3.5" aria-hidden="true" />
 				<span class="sr-only">{m.graph_temporal_remove_event()}</span>
 			</Button>
+			{#if onClose}
+				<Button
+					type="button"
+					variant="outline"
+					size="icon"
+					class="size-8"
+					title={m.graph_close()}
+					onclick={() => onClose()}
+				>
+					<XIcon class="size-3.5" aria-hidden="true" />
+					<span class="sr-only">{m.graph_close()}</span>
+				</Button>
+			{/if}
 		</div>
 	</div>
 
@@ -142,7 +162,7 @@
 		</div>
 		<div>
 			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_when()}</dt>
-			<dd class="text-foreground">{formatWhen(item)}</dd>
+			<dd class="text-foreground">{formatWhen(item, timeZone)}</dd>
 		</div>
 		<div>
 			<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_temporal_kind()}</dt>
@@ -178,7 +198,7 @@
 		{#if item.snoozedUntil}
 			<div>
 				<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_snooze_until()}</dt>
-				<dd class="text-foreground">{formatWhen({ ...item, startAt: item.snoozedUntil })}</dd>
+				<dd class="text-foreground">{formatWhen({ ...item, startAt: item.snoozedUntil }, timeZone)}</dd>
 			</div>
 		{/if}
 		{#if item.recurrenceRule}

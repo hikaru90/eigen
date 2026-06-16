@@ -11,6 +11,9 @@ import {
 	filterSnoozedItems,
 	filterItemsForTodayView,
 	filterItemsForUpcomingView,
+	filterItemsCompletedToday,
+	filterTodayTodoOpenItems,
+	filterOverdueItems,
 	formatWhen,
 	groupByAgendaSection,
 	groupByKind,
@@ -54,6 +57,8 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		parentEventId: null,
 		memoryType: null,
 		projectLabel: null,
+		completedAt: null,
+		lifecycleUpdatedAt: null,
 		createdAt: '2026-05-19T00:00:00.000Z',
 		...overrides
 	};
@@ -82,6 +87,19 @@ describe('filterItemsByStatus', () => {
 			item({ id: 'b', thoughtStatus: 'completed' })
 		];
 		expect(filterItemsByStatus(items, 'all')).toHaveLength(2);
+	});
+
+	it('hides open loops completed via thoughtStatus when filter is open', () => {
+		const items = [
+			item({ id: 'a', itemType: 'open_loop', thoughtStatus: 'open', lifecycleStatus: 'open' }),
+			item({
+				id: 'b',
+				itemType: 'open_loop',
+				thoughtStatus: 'completed',
+				lifecycleStatus: 'open'
+			})
+		];
+		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
 	});
 });
 
@@ -161,6 +179,88 @@ describe('formatWhen', () => {
 		expect(label).toMatch(/May/);
 		expect(label).toMatch(/20/);
 	});
+
+	it('formats timed events in viewer timezone', () => {
+		const ev = item({
+			timePrecision: 'exact',
+			isAllDay: false,
+			timezone: 'UTC',
+			startAt: '2026-06-16T16:01:00.000Z'
+		});
+		const berlin = formatWhen(ev, 'Europe/Berlin');
+		expect(berlin).toMatch(/18:01|6:01/);
+	});
+});
+
+describe('filterTodayTodoOpenItems', () => {
+	it('includes overdue items still scheduled for today', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const overdueToday = item({
+			id: 'late',
+			startAt: '2026-06-16T08:00:00.000Z',
+			endAt: '2026-06-16T09:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const upcoming = item({
+			id: 'soon',
+			startAt: '2026-06-16T20:00:00.000Z',
+			endAt: '2026-06-16T21:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const todos = filterTodayTodoOpenItems([overdueToday, upcoming], 'Europe/Berlin', now);
+		expect(todos.map((i) => i.id)).toEqual(['late', 'soon']);
+	});
+
+	it('matches splitTodayFocusAndLater open item count', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const overdue = item({
+			id: 'late',
+			startAt: '2026-06-16T08:00:00.000Z',
+			endAt: '2026-06-16T09:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const upcoming = item({
+			id: 'soon',
+			startAt: '2026-06-16T20:00:00.000Z',
+			endAt: '2026-06-16T21:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const todos = filterTodayTodoOpenItems([overdue, upcoming], 'Europe/Berlin', now);
+		const { focus, later } = splitTodayFocusAndLater([overdue, upcoming], 'Europe/Berlin', now);
+		expect(focus.length + later.length).toBe(todos.length);
+	});
+});
+
+describe('splitTodayFocusAndLater', () => {
+	it('keeps overdue-today items in today todo lists', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const overdue = item({
+			id: 'late',
+			startAt: '2026-06-16T08:00:00.000Z',
+			endAt: '2026-06-16T09:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const upcoming = item({
+			id: 'soon',
+			startAt: '2026-06-16T20:00:00.000Z',
+			endAt: '2026-06-16T21:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const { focus, later } = splitTodayFocusAndLater([overdue, upcoming], 'Europe/Berlin', now);
+		expect(focus.map((i) => i.id).concat(later.map((i) => i.id))).toEqual(['late', 'soon']);
+	});
+});
+
+describe('agendaSectionForItem', () => {
+	it('keeps today calendar items in today even after end time passes', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const overdueToday = item({
+			startAt: '2026-06-16T08:00:00.000Z',
+			endAt: '2026-06-16T09:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		expect(agendaSectionForItem(overdueToday, now, 'Europe/Berlin')).toBe('today');
+	});
 });
 
 describe('groupByKind', () => {
@@ -191,6 +291,13 @@ describe('filterItemsByRange', () => {
 		vi.setSystemTime(now);
 		expect(filterItemsByRange(items, 'relevant').map((i) => i.id)).toEqual(['soon']);
 		vi.useRealTimers();
+	});
+
+	it('keeps unscheduled open loops in relevant and upcoming ranges', () => {
+		const unscheduled = item({ id: 'loop', startAt: null, endAt: null, itemType: 'open_loop' });
+		expect(filterItemsByRange([unscheduled], 'relevant').map((i) => i.id)).toEqual(['loop']);
+		expect(filterItemsByRange([unscheduled], 'upcoming').map((i) => i.id)).toEqual(['loop']);
+		expect(filterItemsByRange([unscheduled], 'past').map((i) => i.id)).toEqual([]);
 	});
 });
 
@@ -353,5 +460,25 @@ describe('overdueDebtMinutes', () => {
 			})
 		];
 		expect(overdueDebtMinutes(items, now)).toBe(90);
+	});
+});
+
+describe('filterOverdueItems', () => {
+	it('returns open items with past end or start times', () => {
+		const now = new Date('2026-06-08T12:00:00.000Z');
+		const items = [
+			item({
+				id: 'overdue',
+				endAt: '2026-06-07T12:00:00.000Z',
+				lifecycleStatus: 'open'
+			}),
+			item({
+				id: 'future',
+				startAt: '2026-06-09T10:00:00.000Z',
+				endAt: '2026-06-09T12:00:00.000Z',
+				lifecycleStatus: 'open'
+			})
+		];
+		expect(filterOverdueItems(items, now).map((i) => i.id)).toEqual(['overdue']);
 	});
 });

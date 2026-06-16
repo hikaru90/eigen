@@ -11,6 +11,13 @@ describe('validateGroundingFacetInput', () => {
 		expect(result[0].key).toBe('work');
 	});
 
+	it('accepts projects facet key', () => {
+		const result = validateGroundingFacetInput([
+			{ key: 'projects', content: 'Eigen Mesh — next: ship header' }
+		]);
+		expect(result[0].key).toBe('projects');
+	});
+
 	it('rejects unknown facet keys', () => {
 		expect(() =>
 			validateGroundingFacetInput([{ key: 'hobbies', content: 'Running' }])
