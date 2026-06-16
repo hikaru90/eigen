@@ -45,6 +45,7 @@
   type SessionListItem = {
     id: string;
     title: string;
+    mode?: string;
     createdAt: string;
     updatedAt: string;
     messageCount: number;
@@ -410,8 +411,13 @@
     abortController.abort();
   }
 
-  function stopGrounding() {
+  async function stopGrounding() {
     stop();
+    try {
+      await fetch("/api/grounding/skip", { method: "POST" });
+    } catch {
+      // ignore and continue redirect
+    }
     void goto("/capture");
   }
 
@@ -440,11 +446,18 @@
         return;
       }
       if (isGroundingMode) {
-        activeSessionId = null;
-        messages = [];
-        if (!groundingBootstrapped) {
-          groundingBootstrapped = true;
-          await sendStreaming("", { bootstrap: true });
+        await loadSessions();
+        const groundingSession = sessions.find((s) => s.mode === "grounding");
+        if (groundingSession) {
+          activeSessionId = groundingSession.id;
+          await loadSessionMessages(groundingSession.id);
+        } else {
+          activeSessionId = null;
+          messages = [];
+          if (!groundingBootstrapped) {
+            groundingBootstrapped = true;
+            await sendStreaming("", { bootstrap: true });
+          }
         }
         return;
       }

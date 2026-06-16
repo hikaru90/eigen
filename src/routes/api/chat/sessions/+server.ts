@@ -28,6 +28,7 @@ export const GET: RequestHandler = async (event) => {
 		.select({
 			id: chatSession.id,
 			title: chatSession.title,
+			mode: chatSession.mode,
 			createdAt: chatSession.createdAt,
 			updatedAt: chatSession.updatedAt,
 			messageCount: sql<number>`count(${chatMessage.id})::int`,
