@@ -42,6 +42,8 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		parentEventId: null,
 		memoryType: null,
 		projectLabel: null,
+		completedAt: null,
+		lifecycleUpdatedAt: null,
 		createdAt: '2026-05-19T00:00:00.000Z',
 		...overrides
 	};

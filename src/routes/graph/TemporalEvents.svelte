@@ -23,7 +23,6 @@
 		filterItemsForUpcomingView,
 		filterTodayTodoOpenItems,
 		filterPriorDayOverdueItems,
-		filterOverdueItems,
 		filterSnoozedItems,
 		isOpenLoopItemId,
 		KANBAN_KIND_ORDER,
@@ -64,7 +63,6 @@
 		selectedItemId = null,
 		initialEventId = null,
 		userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
-		userName = null,
 		eventNotificationsEnabled = false,
 		eventReminderLeadMinutes = 10,
 		eventReminderKinds = ['appointment', 'reminder', 'deadline', 'inferred_event']
@@ -168,6 +166,8 @@
 			filteredItems.length === 0 &&
 			!(shellView === 'today' && todaySegment !== 'todo')
 	);
+
+	const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0);
 
 	const visibleListCount = $derived(
 		shellView === 'today' && todaySegment === 'done'
@@ -734,7 +734,6 @@
 			<TemporalEventsProjectsView
 				{selectedItemId}
 				onSelect={selectItem}
-				onQuickAction={onQuickAction}
 			/>
 		</div>
 	{:else if showGlobalEmpty}
@@ -794,7 +793,6 @@
 					timeZone={userTimeZone}
 					onSelect={selectItem}
 					onQuickAction={onQuickAction}
-					onLongPress={openProjectAssign}
 				/>
 			{:else if shellView === 'matrix'}
 				<TemporalEventsMatrixView

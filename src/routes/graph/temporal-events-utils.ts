@@ -127,8 +127,8 @@ export function eventDateKeys(item: TemporalEventListItem): { startKey: string; 
 export function localViewDayBoundsMs(day: Date): { start: number; end: number } {
 	const tz = getLocalTimeZone();
 	const cd = fromDate(day, tz);
-	const start = cd.toDate(tz).getTime();
-	const end = cd.add({ days: 1 }).toDate(tz).getTime();
+	const start = cd.toDate().getTime();
+	const end = cd.add({ days: 1 }).toDate().getTime();
 	return { start, end };
 }
 

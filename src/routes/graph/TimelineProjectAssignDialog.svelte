@@ -7,7 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages.js';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
-	import type { ProjectListItem } from '../../api/timeline/projects/+server';
+	import type { ProjectListItem } from '$lib/server/memory/project-list';
 
 	type Props = {
 		open: boolean;

@@ -50,10 +50,17 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
 	decryptTenantValue: decryptTenantValueMock
 }));
 
-vi.mock('$lib/server/retrieval/temporal', () => ({
-	isTemporalQuery: isTemporalQueryMock,
-	filterTemporalEvents: filterTemporalEventsMock
-}));
+vi.mock('$lib/server/retrieval/temporal', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/retrieval/temporal')>();
+	return {
+		...actual,
+		isTemporalQuery: isTemporalQueryMock,
+		filterTemporalEvents: filterTemporalEventsMock,
+		resolveQueryTimeRange: vi.fn(() => null),
+		fetchTemporalEventSeeds: vi.fn(async () => ({ seeds: [] })),
+		traverseTemporalContext: vi.fn(async () => [])
+	};
+});
 
 vi.mock('$lib/server/retrieval/temporal-conflicts', () => ({
 	isSchedulingConflictQuery: isSchedulingConflictQueryMock,

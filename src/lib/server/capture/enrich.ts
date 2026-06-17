@@ -22,7 +22,6 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm';
-import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
 import type { IngestPhase, IngestPhaseTimer } from '$lib/server/capture/phase-timing';
 import { thought } from '$lib/server/db/schema';
@@ -242,15 +241,19 @@ export async function enrichThought(
 
 	// Log failures individually so one bad step doesn't hide others.
 	const stepNames = ['entities', 'temporal', 'metadata'] as const;
-	const results = [
+	const temporalStepResult: PromiseSettledResult<void> =
+		precomputedTemporalMentions !== undefined
+			? temporalResult
+			: (temporalFollowUp ?? { status: 'fulfilled', value: undefined });
+	const results: PromiseSettledResult<void>[] = [
 		entitiesResult,
-		precomputedTemporalMentions !== undefined ? temporalResult : temporalFollowUp,
+		temporalStepResult,
 		metadataResult
 	];
 	let allOk = true;
 
 	for (let i = 0; i < results.length; i++) {
-		const r = results[i];
+		const r = results[i]!;
 		if (r.status === 'rejected') {
 			allOk = false;
 			console.error(`[enrich] ${stepNames[i]} step failed`, {

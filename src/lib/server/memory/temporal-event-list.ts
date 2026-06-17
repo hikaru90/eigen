@@ -4,6 +4,7 @@ import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/ser
 import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
 import type {
 	TemporalEnergyLevel,
+	TemporalEventKind,
 	TemporalEventLifecycleStatus,
 	TemporalPriorityQuadrant
 } from '$lib/server/db/brain.schema';
@@ -327,7 +328,7 @@ export async function listTemporalEventsForUser(
 		conditions.push(eq(temporalEvent.lifecycleStatus, 'open'));
 	}
 
-	const kinds = query.kinds?.filter((k) => k.trim());
+	const kinds = query.kinds?.filter((k) => k.trim()) as TemporalEventKind[] | undefined;
 	if (kinds && kinds.length > 0) {
 		conditions.push(inArray(temporalEvent.kind, kinds));
 	}

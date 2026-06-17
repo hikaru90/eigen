@@ -11,7 +11,6 @@ import {
 	filterSnoozedItems,
 	filterItemsForTodayView,
 	filterItemsForUpcomingView,
-	filterItemsCompletedToday,
 	filterTodayTodoOpenItems,
 	filterOverdueItems,
 	formatWhen,

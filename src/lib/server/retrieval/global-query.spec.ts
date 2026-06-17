@@ -38,6 +38,7 @@ describe('classifyRetrievalScope', () => {
 							scope: 'global',
 							temporal: false,
 							kind: 'none',
+							comparativeOrdering: false,
 							entityHints: []
 						})
 					}
@@ -66,6 +67,7 @@ describe('classifyRetrievalScope', () => {
 							scope: 'local',
 							temporal: false,
 							kind: 'none',
+							comparativeOrdering: false,
 							entityHints: ['Clemmy']
 						})
 					}

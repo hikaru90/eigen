@@ -15,7 +15,6 @@ import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring';
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry';
 import {
 	readThoughtIdFromToolArgs,
-	validateNonEmptyEntityId,
 	validateSearchParams
 } from '$lib/server/validation/mcp-args';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
@@ -73,7 +72,7 @@ async function buildMcpThoughtSnippetRows(
 	Array<{
 		id: string;
 		category: string;
-		createdAt: Date;
+		createdAt: string;
 		snippet: string;
 		temporalStatus: 'none' | 'active' | 'expired';
 		temporalSummary?: string;
@@ -321,7 +320,6 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 			summary: updated.editSummary,
 			before,
 			after: {
-				rawText: updated.thought.rawText,
 				normalizedText: updated.thought.normalizedText,
 				category: updated.thought.category,
 				status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
@@ -388,7 +386,7 @@ export async function runListTemporalEventsTool(context: McpToolContext, args: u
 	});
 }
 
-export async function runListProjectsTool(context: McpToolContext, _args: unknown) {
+export async function runListProjectsTool(context: McpToolContext) {
 	const { listProjectsForUser } = await import('$lib/server/memory/project-list');
 	const projects = await listProjectsForUser(context.userId);
 	return sanitizeMcpToolResult({ projects });

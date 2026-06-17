@@ -65,7 +65,7 @@
 			{#if alternatives.length > 0}
 				<div class="flex flex-wrap items-center gap-1.5 text-xs">
 					<span class="text-muted-foreground">Also considered:</span>
-					{#each alternatives as alt}
+					{#each alternatives as alt (alt.key)}
 						<span class="rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground">
 							{alt.key}
 							<span class="opacity-70">({Math.round(alt.confidence * 100)}%)</span>
@@ -96,7 +96,7 @@
 			<div class="space-y-1.5">
 				<p class="text-xs font-medium text-foreground">Temporal</p>
 				<ul class="space-y-1 text-xs text-muted-foreground">
-					{#each thought.temporalEvents as event}
+					{#each thought.temporalEvents as event (event.id)}
 						<li>
 							<span class="font-medium text-foreground">{event.kind}</span>
 							— {event.semanticSummary}
@@ -120,7 +120,7 @@
 				</button>
 				{#if cuesExpanded}
 					<ul class="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-						{#each thought.cues as cue}
+						{#each thought.cues as cue (cue)}
 							<li class="rounded-sm border border-border px-1.5 py-0.5">{cue}</li>
 						{/each}
 					</ul>

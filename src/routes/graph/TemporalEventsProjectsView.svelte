@@ -1,17 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
-	import type { ProjectListItem } from '../../api/timeline/projects/+server';
+	import type { ProjectListItem } from '$lib/server/memory/project-list';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import { m } from '$lib/paraglide/messages.js';
 
 	type Props = {
 		selectedItemId: string | null;
 		onSelect: (item: TemporalEventListItem) => void;
-		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void;
 	};
 
-	let { selectedItemId, onSelect, onQuickAction }: Props = $props();
+	let { selectedItemId, onSelect }: Props = $props();
 
 	type Phase =
 		| { kind: 'loading' }
@@ -80,6 +79,8 @@
 			thoughtStatus: 'open',
 			memoryType: 'open_loop',
 			projectLabel: project.label,
+			completedAt: null,
+			lifecycleUpdatedAt: null,
 			createdAt: new Date().toISOString()
 		});
 	}

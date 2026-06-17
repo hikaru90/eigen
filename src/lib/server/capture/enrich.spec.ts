@@ -174,7 +174,7 @@ describe('enrichThought', () => {
 				userId: 'u1',
 				thoughtId: 't1',
 				capturedAt,
-				timezone: 'UTC'
+				timezone: 'Europe/Berlin'
 			})
 		);
 	});

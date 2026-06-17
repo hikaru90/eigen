@@ -13,6 +13,7 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Button } from '$lib/components/ui/button';
+	import { SvelteDate } from 'svelte/reactivity';
 
 	type Props = {
 		items: TemporalEventListItem[];
@@ -24,7 +25,7 @@
 
 	let { items, selectedItemId, timeZone, onSelect, onReschedule }: Props = $props();
 
-	let weekAnchor = $state(new Date());
+	let weekAnchor = $state(new SvelteDate());
 	let dragEventId = $state<string | null>(null);
 
 	const weekStart = $derived(weekStartMonday(weekAnchor));
@@ -43,17 +44,15 @@
 	const gridHeightPx = (WEEK_GRID_END_HOUR - WEEK_GRID_START_HOUR) * rowHeightPx;
 
 	function shiftWeek(delta: number) {
-		const d = new Date(weekAnchor);
-		d.setDate(d.getDate() + delta * 7);
-		weekAnchor = d;
+		weekAnchor = new SvelteDate(weekAnchor.getTime() + delta * 7 * 24 * 60 * 60 * 1000);
 	}
 
 	function dropOnCell(dayIndex: number, hour: number) {
 		if (!dragEventId) return;
 		const day = weekDays[dayIndex];
-		const start = new Date(day);
+		const start = new SvelteDate(day);
 		start.setHours(hour, 0, 0, 0);
-		const end = new Date(start.getTime() + 60 * 60 * 1000);
+		const end = new SvelteDate(start.getTime() + 60 * 60 * 1000);
 		onReschedule(dragEventId, start.toISOString(), end.toISOString());
 		dragEventId = null;
 	}
