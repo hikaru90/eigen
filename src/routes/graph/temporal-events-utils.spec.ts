@@ -192,6 +192,24 @@ describe('formatWhen', () => {
 });
 
 describe('filterTodayTodoOpenItems', () => {
+	it('includes prior-day overdue items alongside today open items', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const overdueYesterday = item({
+			id: 'yesterday',
+			startAt: '2026-06-15T08:00:00.000Z',
+			endAt: '2026-06-15T09:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const upcoming = item({
+			id: 'soon',
+			startAt: '2026-06-16T20:00:00.000Z',
+			endAt: '2026-06-16T21:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const todos = filterTodayTodoOpenItems([overdueYesterday, upcoming], 'Europe/Berlin', now);
+		expect(todos.map((i) => i.id)).toEqual(['soon', 'yesterday']);
+	});
+
 	it('includes overdue items still scheduled for today', () => {
 		const now = new Date('2026-06-16T17:00:00.000Z');
 		const overdueToday = item({

@@ -8,6 +8,7 @@ import {
 import { graphIntlLocale, graphUsesHour12 } from '$lib/graph/graph-i18n';
 import { expandRruleOccurrences } from '$lib/graph/temporal-rrule';
 import { filterCompletedTodayItems } from '$lib/graph/timeline-completed-today';
+import { filterPriorDayOverdueItems } from '$lib/graph/timeline-overdue';
 type TemporalPriorityQuadrant =
 	| 'urgent_important'
 	| 'not_urgent_important'
@@ -621,15 +622,40 @@ export function filterItemsForTodayView(
 	});
 }
 
-/** Open items shown in the today "todo" tab (includes today's overdue — prior days use the overdue tab). */
+/** Merge prior-day overdue rows that may have been loaded outside the main list query. */
+export function mergePriorDayOverdueIntoItems(
+	items: TemporalEventListItem[],
+	priorDayOverdue: TemporalEventListItem[]
+): TemporalEventListItem[] {
+	const seen = new Set(items.map((i) => i.id));
+	const merged = [...items];
+	for (const item of priorDayOverdue) {
+		if (!seen.has(item.id)) {
+			merged.push(item);
+			seen.add(item.id);
+		}
+	}
+	return merged;
+}
+
+/** Open items shown in the today "todo" tab (today's schedule plus prior-day overdue). */
 export function filterTodayTodoOpenItems(
 	items: TemporalEventListItem[],
 	timeZone: string,
 	now = new Date()
 ): TemporalEventListItem[] {
-	return filterItemsForTodayView(items, timeZone, now).filter(
+	const todayOpen = filterItemsForTodayView(items, timeZone, now).filter(
 		(item) => !isTemporalEventCompleted(item)
 	);
+	const seen = new Set(todayOpen.map((i) => i.id));
+	const merged = [...todayOpen];
+	for (const item of filterPriorDayOverdueItems(items, timeZone, now)) {
+		if (!seen.has(item.id)) {
+			merged.push(item);
+			seen.add(item.id);
+		}
+	}
+	return merged;
 }
 
 export function filterItemsForUpcomingView(

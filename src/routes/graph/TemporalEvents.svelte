@@ -22,6 +22,7 @@
 		filterItemsForTodayView,
 		filterItemsForUpcomingView,
 		filterTodayTodoOpenItems,
+		mergePriorDayOverdueIntoItems,
 		filterPriorDayOverdueItems,
 		filterSnoozedItems,
 		isOpenLoopItemId,
@@ -114,7 +115,10 @@
 	const displayItems = $derived(filterActiveItems(filteredItems));
 	const snoozedItems = $derived(filterSnoozedItems(filteredItems));
 
-	const todayTodoItems = $derived(filterTodayTodoOpenItems(displayItems, userTimeZone));
+	const todayTodoSourceItems = $derived(
+		mergePriorDayOverdueIntoItems(displayItems, overdueItems)
+	);
+	const todayTodoItems = $derived(filterTodayTodoOpenItems(todayTodoSourceItems, userTimeZone));
 
 	const shellViewItems = $derived(
 		shellView === 'today'
@@ -752,7 +756,7 @@
 		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
 			{#if shellView === 'today'}
 				<TemporalEventsTodayView
-					items={displayItems}
+					items={todayTodoSourceItems}
 					{doneItems}
 					{doneLoading}
 					{overdueItems}

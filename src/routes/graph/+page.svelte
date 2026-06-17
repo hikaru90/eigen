@@ -1458,7 +1458,7 @@
   <Card.Root class="relative flex h-full flex-col overflow-hidden bg-transparent shadow-none">
     <Tabs.Root bind:value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
-        class="pointer-events-none fixed top-16 right-0 left-0 z-30 flex justify-center"
+        class="pointer-events-none fixed inset-x-0 bottom-20 z-30 flex justify-center"
         aria-label={m.graph_aria_view_tabs()}
       >
         <Tabs.List
@@ -1497,7 +1497,7 @@
               aria-label={m.graph_aria_visualization()}
             ></div>
             <div
-              class="pointer-events-none absolute right-3 bottom-16 left-3 z-10 flex items-end justify-between gap-3"
+              class="pointer-events-none absolute right-3 bottom-32 left-3 z-10 flex items-end justify-between gap-3"
               aria-label={m.graph_aria_legend_filters()}
             >
               <div class="w-[min(calc(100vw-1.5rem),11rem)] shrink-0">
@@ -1537,7 +1537,7 @@
         </Tabs.Content>
         <Tabs.Content
           value="temporal"
-          class="relative h-full min-h-0 flex-1 pt-24 data-[state=active]:flex data-[state=active]:flex-col"
+          class="relative h-full min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
         >
           <TemporalEvents
             onSelectItem={handleTemporalSelect}

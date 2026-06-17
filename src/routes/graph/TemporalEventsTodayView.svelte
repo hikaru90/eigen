@@ -41,13 +41,7 @@
 <div class="min-h-0 flex-1 overflow-y-auto pb-4" role="listbox" aria-label={m.graph_timeline_today_aria()}>
 	{#if segment === 'todo'}
 		{#if focus.length === 0 && later.length === 0}
-			{#if overdueItems.length > 0}
-				<p class="text-muted-foreground px-4 py-8 text-center text-sm">
-					{m.graph_timeline_todo_all_overdue({ count: overdueItems.length })}
-				</p>
-			{:else}
-				<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_focus_empty()}</p>
-			{/if}
+			<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_focus_empty()}</p>
 		{:else}
 			{#if focus.length > 0}
 				<section class="border-border border-b">
