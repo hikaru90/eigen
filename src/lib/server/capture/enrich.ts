@@ -50,6 +50,8 @@ import { thoughtRelation } from '$lib/server/db/schema';
 import { materializeRetrievalLinksForThought, syncThoughtNeighborLinks } from '$lib/server/retrieval/materialize-links';
 import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation';
 import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment';
+import { reconcileUserProjects } from '$lib/server/memory/reconcile-user-projects';
+import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question';
 
 export type EnrichThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
@@ -159,16 +161,18 @@ export async function enrichThought(
 		phases: ['entities', 'temporal', 'memory_type', 'cues']
 	});
 
+	let projectLikeEntities: Array<{ entityId: string; label: string }> = [];
 	const [entitiesResult, metadataResult, temporalResult] = await Promise.allSettled([
 		time('enrich_entities', async () => {
-			const { mentionCount } = await syncEntityGraphFromThought({
+			const entitySync = await syncEntityGraphFromThought({
 				userId,
 				thoughtId,
 				normalizedText,
 				preloadedKnownEntities,
 				precomputedEntityGraph
 			});
-			if (mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
+			projectLikeEntities = entitySync.projectLikeEntities;
+			if (entitySync.mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
 				throw new Error(
 					`entity graph sync produced zero mentions (${normalizedText.trim().length} chars)`
 				);
@@ -292,6 +296,15 @@ export async function enrichThought(
 				message: err instanceof Error ? err.message : String(err)
 			});
 		}
+
+		try {
+			await maybeNotifyGroundingQuestionPush(userId, thoughtCountAfterInsert);
+		} catch (err) {
+			console.error('[enrich] grounding question notify failed', {
+				thoughtId,
+				message: err instanceof Error ? err.message : String(err)
+			});
+		}
 	}
 
 	// ---- Mark enriched -------------------------------------------------------
@@ -321,13 +334,15 @@ export async function enrichThought(
 				.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 				.limit(1);
 			if (thoughtRow) {
+				const graphHubHints = projectLikeEntities;
 				await time('enrich_gtd_assignment', () =>
 					applyGtdAssignment({
 						userId,
 						thoughtId,
 						normalizedText,
 						memoryType: thoughtRow.memoryType,
-						category: thoughtRow.category
+						category: thoughtRow.category,
+						graphHubHints
 					})
 				);
 			}
@@ -336,6 +351,17 @@ export async function enrichThought(
 				thoughtId,
 				message: err instanceof Error ? err.message : String(err)
 			});
+		}
+
+		if (projectLikeEntities.length > 0) {
+			try {
+				await time('reconcile_projects', () => reconcileUserProjects(userId));
+			} catch (err) {
+				console.error('[enrich] project reconciliation failed', {
+					thoughtId,
+					message: err instanceof Error ? err.message : String(err)
+				});
+			}
 		}
 
 		try {

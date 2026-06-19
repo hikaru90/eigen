@@ -7,13 +7,14 @@
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages.js';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
+	import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
 
 	type Props = {
 		open: boolean;
 		item: TemporalEventListItem | null;
 		onClose: () => void;
-		onAssigned: (payload: { thoughtId: string; projectLabel: string }) => void;
+		onAssigned: (payload: AssignProjectResponse & { thoughtId: string }) => void;
 	};
 
 	let { open = $bindable(false), item, onClose, onAssigned }: Props = $props();
@@ -89,8 +90,8 @@
 				const text = await res.text();
 				throw new Error(text || `Request failed (${res.status})`);
 			}
-			const body = (await res.json()) as { projectLabel: string };
-			onAssigned({ thoughtId: item.thoughtId, projectLabel: body.projectLabel });
+			const body = (await res.json()) as AssignProjectResponse;
+			onAssigned({ thoughtId: item.thoughtId, ...body });
 			open = false;
 			onClose();
 		} catch (err) {

@@ -14,7 +14,6 @@
 		paypalConfigured = false,
 		paypalClientId = null as string | null,
 		paypalSdkUrl = null as string | null,
-		groundingCompleted = false,
 		creditsGatePassed = false
 	}: {
 		open: boolean;
@@ -24,26 +23,26 @@
 		paypalConfigured?: boolean;
 		paypalClientId?: string | null;
 		paypalSdkUrl?: string | null;
-		groundingCompleted?: boolean;
 		creditsGatePassed?: boolean;
 	} = $props();
 
 	let step = $state(0);
-	const lastStep = 3;
+	const lastStep = 2;
+	let wasOpen = $state(false);
 
 	let localWalletCredits = $state(0);
 
 	$effect(() => {
-		if (open) {
+		if (open && !wasOpen) {
 			step = 0;
 			localWalletCredits = walletAvailableCredits;
 		}
+		wasOpen = open;
 	});
 
 	const creditsOk = $derived(
 		billingMode === 'byok' || localWalletCredits >= minCaptureCredits || creditsGatePassed
 	);
-	const bothGatesPassed = $derived(creditsOk && groundingCompleted);
 
 	const completeOnboardingEnhance: SubmitFunction = () =>
 		async ({ result, update }) => {
@@ -76,8 +75,8 @@
 				{#if step === 0}
 					<p class="text-xs leading-relaxed">
 						Eigen is your personal memory — capture raw thoughts, and the system organizes them for
-						you. Before your first capture, add credits (or use BYOK in Settings) and have a short
-						<strong>getting-to-know-you</strong> conversation so classification fits who you are.
+						you. Before your first capture, add credits (or use BYOK in Settings) so enrichment can
+						run.
 					</p>
 				{:else if step === 1}
 					<p class="text-xs leading-relaxed">
@@ -104,31 +103,12 @@
 							<p class="text-xs text-green-600 dark:text-green-400">Enough credits to capture.</p>
 						{/if}
 					{/if}
-				{:else if step === 2}
-					<p class="text-xs leading-relaxed">
-						Next, a brief chat helps Eigen understand your work, values, and how you think — so
-						thought categories and entities match <em>you</em>, not a generic template.
-					</p>
-					{#if groundingCompleted}
-						<p class="text-xs text-green-600 dark:text-green-400">Grounding conversation complete.</p>
-					{:else}
-						<Button href="/chat?mode=grounding" class="w-full rounded-[4px] text-xs">
-							Start getting-to-know-you chat
-						</Button>
-						<p class="text-muted-foreground text-[10px] leading-relaxed">
-							Uses a few credits from your wallet. Takes about 5–10 minutes.
-						</p>
-					{/if}
 				{:else}
 					<p class="text-xs leading-relaxed">
-						{#if bothGatesPassed}
+						{#if creditsOk}
 							You are set. Drop thoughts on Capture — type or dictate. No filing or tags required.
 						{:else}
-							Complete the steps above before capturing: {#if !creditsOk}add credits{/if}
-							{#if !creditsOk && !groundingCompleted}
-								and
-							{/if}
-							{#if !groundingCompleted}finish the grounding chat{/if}.
+							Add credits above before capturing.
 						{/if}
 					</p>
 				{/if}
@@ -145,7 +125,7 @@
 
 				{#if step < lastStep}
 					<Button type="button" class="rounded-[4px] text-xs" onclick={() => (step += 1)}>Next</Button>
-				{:else if bothGatesPassed}
+				{:else if creditsOk}
 					<form method="post" action="?/completeOnboarding" use:enhance={completeOnboardingEnhance}>
 						<Button type="submit" class="rounded-[4px] text-xs">Get started</Button>
 					</form>

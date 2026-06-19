@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
+	import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import {
 		filterActiveItems,
@@ -514,9 +515,13 @@
 		overdueItems = overdueItems.map(patch);
 	}
 
-	function onProjectAssigned(payload: { thoughtId: string; projectLabel: string }) {
-		applyProjectLabelLocally(payload.thoughtId, payload.projectLabel);
-		lastActionSummary = m.graph_timeline_assign_project_success({ project: payload.projectLabel });
+	function onProjectAssigned(payload: AssignProjectResponse & { thoughtId: string }) {
+		if (payload.isGtdProject) {
+			applyProjectLabelLocally(payload.thoughtId, payload.projectLabel);
+		}
+		lastActionSummary = payload.eligible
+			? m.graph_timeline_assign_project_success({ project: payload.projectLabel })
+			: m.graph_timeline_assign_project_linked_hub({ name: payload.projectLabel });
 		closeProjectAssign();
 		bumpStats();
 	}

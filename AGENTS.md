@@ -13,6 +13,16 @@
 
 - For **scoped ownership** of ingestion, retrieval, auth, and UI—and for **documented overlaps** between systems—read [`docs/repo-map/index.md`](docs/repo-map/index.md) before architecture-heavy answers or cross-cutting edits. Open contradictions are listed in [`docs/repo-map/conflicts.md`](docs/repo-map/conflicts.md). Update the smallest affected layer when behavior changes ([`docs/repo-map/maintenance.md`](docs/repo-map/maintenance.md)).
 
+## Working with the user (diagnose before fixing)
+
+The user values being heard and understood over speed. A real fix starts with a shared understanding of what went wrong — reached through conversation, not a rushed patch. Follow this whenever the user reports that something is broken, wrong, or low quality.
+
+- **When the user expresses frustration or says the work was bad, treat that as a signal to slow down, not speed up.** Acknowledge the frustration sincerely (briefly, without groveling) and make clear you are taking it seriously. The user is not being mean — they genuinely want an answer.
+- **Diagnose and explain root cause first. Do not jump to a plan or to code.** When the user pastes a log, a bad output, or a specific problem, your first job is to investigate and explain *which system failed and why*, citing the actual files and lines. Name the failing layers in order of severity. Only propose a fix after the user has the explanation and agrees on the diagnosis.
+- **Do not confuse a request to understand with a request to implement.** "This is bad / what went wrong?" means *explain it to me first*. Wait for the user to explicitly ask for a plan or for execution before producing one.
+- **Answer the actual question.** If the user asks "what went wrong?", deliver a direct, thorough answer to that question — not a redirect, not a summary, not a plan. Match the depth of the request.
+- **Generalize the problem.** A single bad output is evidence of a bug *class*, not a one-off to paper over. Understand the underlying failure so the fix holds for every input, per the no-fallbacks and generalize-ingest-fixes guardrails below.
+
 ---
 
 # Project Guardrails: Test-First SvelteKit Open Brain
@@ -72,8 +82,7 @@
 
 ## Ontology Policy
 - Start from a simple baseline ontology (seeded silently on first load — no manual ontology setup).
-- **Required grounding conversation** before first capture: users complete a getting-to-know-you chat (`/chat?mode=grounding`) that persists a `user_grounding_profile` used in enrichment/classification.
-- Periodic opt-in re-grounding nudges (90 days or every 100 thoughts); never block capture after initial completion.
+- **Optional grounding profile:** users may answer occasional, dismissible questions on Capture that persist a `user_grounding_profile` used as supplementary enrichment context. Grounding never blocks capture, never replaces retrieval in Q&A, and is not required before first capture.
 - Re-evaluate ontology labeling profile after 10 captured thoughts (subject to acceptable compute cost).
 
 ## Security Baseline
@@ -89,7 +98,17 @@
 - **Examples of forbidden patterns:** `scoreEntityHintMatch`, parsing quoted phrases from questions, `.includes()` / `.startsWith()` to decide whether a hint refers to an event, capitalized-word heuristics, `foldLexicalChars` for semantic binding (folding is allowed only for **lexical search indexing**, not meaning).
 - **Allowed without LLM:** embedding similarity for **retrieval ranking**, lexical indexing (`lexical_text`, tsvector, BM25), graph traversal on persisted structure, ID/format validation, redaction.
 
-## Memory indexing and tool hygiene
+## GTD projects (LLM judge — non-negotiable)
+
+A row in the **Projects** tab is a **GTD body of work**, not a graph entity that happens to be mentioned often.
+
+- **Never** promote something to a GTD project using structural rules alone: mention/link counts, co-mention edges, entity–entity adjacency, ontology `entity_type` buckets (`organization`, `concept`, `artifact`, …), or “this hub has ≥ N linked thoughts.”
+- **Always** use an **LLM judge** (ontology + JSON schema) to decide whether a hub is a multi-step initiative the user is running, with linked thought summaries and graph context as **input to the prompt** — not as a substitute for the judge.
+- Graph entities (ingredients, people, products, book titles, domains, abbreviations) may be **mentioned** in capture and appear in the knowledge graph; that does **not** make them GTD projects. An LLM would reject “roasted garlic,” “schwester,” or “eu” as projects; code must not promote them because a counter crossed 2.
+- **Forbidden:** bulk scans that insert `project_profile` for every entity passing a numeric threshold; treating co-mentioned entities from one capture as separate auto-projects; demoting/promoting based on string patterns or entity-type allowlists for **meaning**.
+- **Required:** explicit LLM promotion/demotion (and merge/dedup of variants like Eigen/EigenMesh) before a hub appears in Projects; post-LLM code only validates JSON, persists, and relinks — it does not re-decide “is this a project?”
+- **Regression tests** must include negative cases: ingredients, relatives, single tasks, and frequently co-mentioned concepts must **not** become GTD projects without a positive LLM promotion decision.
+
 - **Lexical recall:** persist a deterministic **precomputed search surface** on each thought (e.g. `thought.lexical_text`: NFKC-folded, lowercased, whitespace-collapsed from normalized body). Use it to build `tsvector` and/or BM25-style keyword retrieval alongside `pgvector`, so short phrases, names, and codes are not lost to embedding-only search.
 - **Strict MCP / ingest contracts:** validate entity IDs (non-empty after trim, no interior whitespace), numeric bounds such as search `threshold` in `[0, 1]` and non-negative integer `top_k`, and reject ambiguous argument shapes at the boundary before any DB or LLM work.
 - **Observability without leaks:** when logging or emitting telemetry for tool calls, configs, or errors, run payloads through a **secret redaction** pass (keys like `api_key`, `*_token`, `*_secret`, `password`, etc.) so usage transparency never ships raw credentials.

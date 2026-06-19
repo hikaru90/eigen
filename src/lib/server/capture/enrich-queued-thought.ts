@@ -6,6 +6,7 @@ import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { resolveThoughtCategory } from '$lib/server/ontology';
+import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split';
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich';
 import {
 	loadEnrichmentContext,
@@ -164,10 +165,20 @@ export async function enrichQueuedThought(
 
 			const { rawText, normalizedText } = await decryptQueuedRow(userId, row);
 
+			await onProgress?.({ parallel: false, phase: 'content_split' });
+			const splitApplied = await time('content_split', () =>
+				applyCaptureContentSplitIfNeeded({ userId, thoughtId, rawText })
+			);
+
 			const context =
 				options?.context ??
 				(await time('load_enrichment_context', () =>
-					loadEnrichmentContext({ userId, thoughtId, normalizedText, rawText })
+					loadEnrichmentContext({
+						userId,
+						thoughtId,
+						normalizedText: splitApplied.normalizedText,
+						rawText: splitApplied.rawText
+					})
 				));
 
 			await onProgress?.({ parallel: false, phase: 'ontology' });
@@ -222,7 +233,16 @@ export async function enrichQueuedThought(
 				deferRelations: false
 			};
 
-			await enrichThought(userId, thoughtId, normalizedText, enrichOpts);
+			await enrichThought(userId, thoughtId, splitApplied.normalizedText, enrichOpts);
+
+			const [enrichedRow] = await getDb()
+				.select({ enrichedAt: thought.enrichedAt })
+				.from(thought)
+				.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+				.limit(1);
+			if (!enrichedRow?.enrichedAt) {
+				throw new Error('Enrichment finished without setting enriched_at');
+			}
 		});
 
 		await markEnrichQueueComplete(thoughtId);

@@ -5,6 +5,9 @@
 		formatNearDuplicate,
 		parseCategoryAlternatives
 	} from '$lib/capture/capture-result-display';
+	import {
+		captureIndexingDetailMessage
+	} from '$lib/capture/capture-indexing-status';
 	import CaptureEntityConnections from '$lib/components/capture-entity-connections.svelte';
 	import CaptureAttachedFiles from '$lib/components/capture-attached-files.svelte';
 	import * as Card from '$lib/components/ui/card';
@@ -18,6 +21,7 @@
 		onToggleEdit,
 		onDelete,
 		onUnlinkFile,
+		onNoteUpdated,
 		deleteBusy = false
 	}: {
 		thought: CaptureSubmitResult;
@@ -28,6 +32,7 @@
 		onToggleEdit?: () => void;
 		onDelete?: () => void;
 		onUnlinkFile?: (fileId: string) => void;
+		onNoteUpdated?: () => void | Promise<void>;
 		deleteBusy?: boolean;
 	} = $props();
 
@@ -36,6 +41,7 @@
 	const confidence = $derived(categoryConfidencePercent(thought.metadata));
 	const alternatives = $derived(parseCategoryAlternatives(thought.metadata));
 	const nearDuplicate = $derived(formatNearDuplicate(thought.metadata));
+	const indexingMessage = $derived(captureIndexingDetailMessage(thought));
 </script>
 
 {#snippet summaryBody()}
@@ -83,7 +89,11 @@
 			linkedThoughts={thought.linkedThoughts}
 		/>
 
-		<CaptureAttachedFiles files={thought.attachedFiles ?? []} onUnlink={onUnlinkFile} />
+		<CaptureAttachedFiles
+			files={thought.attachedFiles ?? []}
+			onUnlink={onUnlinkFile}
+			onUpdated={onNoteUpdated}
+		/>
 
 		{#if thought.gtdProjectLabel}
 			<p class="text-xs text-muted-foreground">
@@ -133,18 +143,16 @@
 			</div>
 		{/if}
 
-		{#if thought.queueStatus === 'pending' || thought.queueStatus === 'processing'}
-			<p class="text-xs text-blue-700 dark:text-blue-400">
-				Queue: {thought.queueStatus === 'pending' ? 'waiting for indexing' : 'indexing now'}
-			</p>
-		{:else if thought.queueStatus === 'failed'}
-			<p class="text-xs text-destructive">
-				Indexing failed{thought.queueError ? `: ${thought.queueError}` : ''}
-			</p>
-		{:else if !thought.enrichmentComplete}
-			<p class="text-xs text-amber-700 dark:text-amber-400">
-				Saved — indexing entities and links in the background. Keyword search on the text works now;
-				semantic search after indexing completes.
+		{#if indexingMessage}
+			<p
+				class="text-xs {thought.queueStatus === 'failed' ||
+				(thought.queueStatus === 'complete' && !thought.enrichmentComplete)
+					? 'text-destructive'
+					: thought.queueStatus === 'pending' || thought.queueStatus === 'processing'
+						? 'text-blue-700 dark:text-blue-400'
+						: 'text-amber-700 dark:text-amber-400'}"
+			>
+				{indexingMessage}
 			</p>
 		{/if}
 

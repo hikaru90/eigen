@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema';
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -23,8 +23,17 @@ export type TextFileAttachmentPreview = {
 	updatedAt: string;
 };
 
-export type TextFileSearchHit = TextFileRecord & {
+export type TextFileSearchHit = {
+	id: string;
+	title: string;
+	preview: string;
 	lexicalScore: number;
+	updatedAt: string;
+};
+
+export type TextFileLinkedThought = {
+	id: string;
+	normalizedText: string;
 };
 
 function assertNonEmptyBody(body: string): string {
@@ -256,7 +265,13 @@ export async function searchTextFiles(
 	return Promise.all(
 		rows.map(async (row) => {
 			const file = await decryptTextFileRow(userId, row);
-			return { ...file, lexicalScore: row.lexicalScore ?? 0 };
+			return {
+				id: file.id,
+				title: file.title,
+				preview: toPreview(file.body),
+				lexicalScore: row.lexicalScore ?? 0,
+				updatedAt: file.updatedAt
+			};
 		})
 	);
 }
@@ -345,4 +360,88 @@ export async function listTextFilesForThought(
 			};
 		})
 	);
+}
+
+export async function listTextFilesForThoughtIds(
+	userId: string,
+	thoughtIds: string[]
+): Promise<Map<string, TextFileAttachmentPreview[]>> {
+	const uniqueIds = [...new Set(thoughtIds.filter((id) => id.trim().length > 0))];
+	const result = new Map<string, TextFileAttachmentPreview[]>();
+	if (uniqueIds.length === 0) return result;
+
+	const rows = await getDb()
+		.select({
+			thoughtId: thoughtTextFile.thoughtId,
+			id: textFile.id,
+			title: textFile.title,
+			bodyText: textFile.bodyText,
+			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			updatedAt: textFile.updatedAt
+		})
+		.from(thoughtTextFile)
+		.innerJoin(textFile, eq(thoughtTextFile.textFileId, textFile.id))
+		.where(
+			and(eq(thoughtTextFile.userId, userId), inArray(thoughtTextFile.thoughtId, uniqueIds))
+		)
+		.orderBy(desc(textFile.updatedAt), desc(textFile.id));
+
+	const previews = await Promise.all(
+		rows.map(async (row) => {
+			const body = row.bodyTextEncrypted
+				? await decryptTenantValue({
+						userId,
+						table: 'text_file',
+						column: 'body_text',
+						ciphertext: row.bodyTextEncrypted
+					})
+				: row.bodyText;
+			return {
+				thoughtId: row.thoughtId,
+				file: {
+					id: row.id,
+					title: row.title,
+					preview: toPreview(body),
+					updatedAt: row.updatedAt.toISOString()
+				} satisfies TextFileAttachmentPreview
+			};
+		})
+	);
+
+	for (const { thoughtId, file } of previews) {
+		const list = result.get(thoughtId) ?? [];
+		list.push(file);
+		result.set(thoughtId, list);
+	}
+
+	return result;
+}
+
+export async function listThoughtsForTextFile(
+	userId: string,
+	textFileId: string
+): Promise<TextFileLinkedThought[]> {
+	const [file] = await getDb()
+		.select({ id: textFile.id })
+		.from(textFile)
+		.where(and(eq(textFile.id, textFileId), eq(textFile.userId, userId)))
+		.limit(1);
+	if (!file) return [];
+
+	const rows = await getDb()
+		.select({
+			id: thought.id,
+			normalizedText: thought.normalizedText
+		})
+		.from(thoughtTextFile)
+		.innerJoin(thought, eq(thoughtTextFile.thoughtId, thought.id))
+		.where(
+			and(eq(thoughtTextFile.userId, userId), eq(thoughtTextFile.textFileId, textFileId))
+		)
+		.orderBy(desc(thought.createdAt), desc(thought.id));
+
+	return rows.map((row) => ({
+		id: row.id,
+		normalizedText: row.normalizedText
+	}));
 }

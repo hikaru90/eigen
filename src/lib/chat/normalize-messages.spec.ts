@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evidenceHitsFromAnswerQuestionPayload, parseFinalAnswerText } from './chat-stream-types';
 import {
+	collapseToolTimelineSteps,
 	compactChatIntermediateSteps,
 	normalizeChatDisplay,
 	sessionMessagesToChatEntries,
@@ -95,7 +96,7 @@ describe('normalizeChatDisplay', () => {
 		expect(out).toHaveLength(1);
 	});
 
-	it('drops duplicate final text after answer_question timeline tool_result', () => {
+	it('keeps final text bubble and hides duplicate prose on answer_question timeline', () => {
 		const preview = JSON.stringify({
 			answer:
 				'Answer: To cook salmon, whisk miso glaze and broil. [salmon-id]\nEvidence:\n- Recipe steps [salmon-id]\nUnknown:\n- none'
@@ -115,8 +116,82 @@ describe('normalizeChatDisplay', () => {
 				content: 'To cook salmon, whisk miso glaze and broil. [salmon-id]'
 			}
 		]);
+		expect(out).toHaveLength(2);
+		expect(out[0]).toMatchObject({
+			variant: 'timeline',
+			kind: 'tool_result',
+			tool: 'answer_question',
+			hideProse: true
+		});
+		expect(out[1]).toMatchObject({ variant: 'text' });
+	});
+});
+
+describe('collapseToolTimelineSteps', () => {
+	it('merges tool run steps into one row', () => {
+		const out = collapseToolTimelineSteps([
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_call',
+				tool: 'answer_question',
+				label: 'Tool call · answer_question',
+				arguments: { question: 'who am I?' }
+			},
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_executing',
+				tool: 'answer_question',
+				label: 'Executing tool · answer_question'
+			},
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_progress',
+				tool: 'answer_question',
+				label: 'Searching your memories…'
+			},
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_result',
+				tool: 'answer_question',
+				label: 'Tool result · answer_question',
+				content: '{"answer":"Answer: ok"}'
+			}
+		]);
 		expect(out).toHaveLength(1);
-		expect(out[0]).toMatchObject({ variant: 'timeline', kind: 'tool_result', tool: 'answer_question' });
+		expect(out[0]).toMatchObject({
+			kind: 'tool_result',
+			tool: 'answer_question',
+			content: '{"answer":"Answer: ok"}'
+		});
+	});
+
+	it('keeps in-progress tool as a single progress row', () => {
+		const out = collapseToolTimelineSteps([
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_call',
+				tool: 'retrieve_thoughts',
+				label: 'Tool call · retrieve_thoughts'
+			},
+			{
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_progress',
+				tool: 'retrieve_thoughts',
+				label: 'Searching your memories…'
+			}
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({
+			kind: 'tool_progress',
+			tool: 'retrieve_thoughts',
+			label: 'Searching your memories…'
+		});
 	});
 });
 

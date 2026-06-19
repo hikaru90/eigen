@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import type { PageData } from './$types';
+	import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
 	import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte';
 	import { enhance } from '$app/forms';
@@ -40,6 +42,7 @@
 	} from '$lib/capture/queue/ui-state';
 	import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment';
 	import { pollCaptureRecentSync } from '$lib/capture/poll-capture-recent-sync';
+	import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh';
 	import { unlinkTextFileFromThought } from '$lib/text-files/api';
 	import { captureInputDraft } from '$lib/stores/page-input-drafts';
 	import { get } from 'svelte/store';
@@ -48,6 +51,39 @@
 
 	const showOnboarding = $derived(!data.onboardingCompleted);
 	const captureBlocked = $derived(!data.captureAllowed);
+
+	type GroundingQuestionPayload = { facetKey: string; question: string } | null;
+	let groundingQuestion = $state<GroundingQuestionPayload>(null);
+	let groundingQuestionDismissed = $state(false);
+
+	$effect(() => {
+		data.groundingQuestionEligible;
+		groundingQuestionDismissed = false;
+		groundingQuestion = null;
+		if (!data.groundingQuestionEligible) return;
+		void (async () => {
+			try {
+				const res = await fetch('/api/grounding/question');
+				if (!res.ok) return;
+				const payload = (await res.json()) as {
+					question?: { facetKey: string; question: string } | null;
+				};
+				if (payload.question?.question) {
+					groundingQuestion = payload.question;
+					if (page.url.searchParams.get('grounding') === '1') {
+						queueMicrotask(() => {
+							document.getElementById('grounding-question')?.scrollIntoView({
+								behavior: 'smooth',
+								block: 'nearest'
+							});
+						});
+					}
+				}
+			} catch {
+				// optional card — ignore fetch errors
+			}
+		})();
+	});
 	let localWalletCredits = $state(data.walletAvailableCredits);
 
 	$effect(() => {
@@ -95,14 +131,7 @@
 	let attachTargetThoughtId = $state<string | null>(null);
 	const enrichPollCancelByThoughtId = new Map<string, () => void>();
 	let backgroundEnrichingIds = $state<string[]>([]);
-	const enrichingThoughtIds = $derived(
-		new Set([
-			...backgroundEnrichingIds,
-			...Object.values(thoughtDetails)
-				.filter((thought) => !thought.enrichmentComplete)
-				.map((thought) => thought.id)
-		])
-	);
+	const enrichingThoughtIds = $derived(new Set(backgroundEnrichingIds));
 
 	function startBackgroundEnrichPoll(thoughtId: string) {
 		enrichPollCancelByThoughtId.get(thoughtId)?.();
@@ -317,6 +346,9 @@
 
 	onMount(() => {
 		void reconcileQueueState(false);
+		void fetchEnrichPendingSnapshot().catch(() => {
+			// Best-effort: kick tier-2 worker for pending/stale rows after reload.
+		});
 		for (const thought of Object.values(thoughtDetails)) {
 			if (!thought.enrichmentComplete) {
 				startBackgroundEnrichPoll(thought.id);
@@ -485,25 +517,20 @@
 
 <div class="fixed inset-x-0 top-20 bottom-0 z-0 mx-auto flex max-w-xl flex-col overflow-hidden">
 	<div class="shrink-0 space-y-4 px-5">
-		{#if data.showRegroundNudge}
-			<div class="shrink-0 rounded-xl border border-border bg-muted/60 px-3.5 py-3 text-xs">
-				<p class="text-foreground leading-relaxed">
-					It has been a while since your grounding conversation. A quick refresh helps Eigen stay aligned
-					with who you are now.
-				</p>
-				<div class="mt-2 flex flex-wrap gap-2">
-					<Button href="/chat?mode=grounding&refresh=1" size="sm" class="rounded-[4px] text-xs">
-						Update profile
-					</Button>
-					<form method="post" action="?/dismissRegroundNudge" use:enhance>
-						<Button type="submit" variant="ghost" size="sm" class="rounded-[4px] text-xs">
-							Dismiss
-						</Button>
-					</form>
-				</div>
-			</div>
+		{#if groundingQuestion && !groundingQuestionDismissed}
+			<GroundingQuestionCard
+				facetKey={groundingQuestion.facetKey}
+				question={groundingQuestion.question}
+				onDismiss={() => {
+					groundingQuestionDismissed = true;
+					groundingQuestion = null;
+				}}
+				onSaved={() => {
+					groundingQuestionDismissed = true;
+					groundingQuestion = null;
+				}}
+			/>
 		{/if}
-
 		{#if captureBlocked}
 			<Card.Root class="shrink-0 border-2 border-black dark:border-border">
 				<Card.Header>
@@ -525,14 +552,6 @@
 								localWalletCredits = credits;
 							}}
 						/>
-					{:else if data.captureGateReason === 'grounding_required'}
-						<p class="text-muted-foreground leading-relaxed">
-							Complete a short getting-to-know-you chat so Eigen can classify thoughts in a way that fits
-							you.
-						</p>
-						<Button href="/chat?mode=grounding" class="w-full rounded-[4px] text-xs">
-							Continue grounding conversation
-						</Button>
 					{/if}
 				</Card.Content>
 			</Card.Root>
@@ -545,7 +564,7 @@
 					id="thought"
 					bind:value={raw}
 					placeholder="Enter your thought…"
-					class="min-h-[128px] p-6 text-base md:text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
+					class="min-h-[128px] max-h-[min(45dvh,360px)] overflow-y-auto p-6 text-base md:text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
 				/>
 			</Card.Content>
 			<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full">
@@ -596,6 +615,7 @@
 					onDelete={openDeleteDialog}
 					onAttach={openAttachDialog}
 					onUnlinkFile={(thoughtId, fileId) => void unlinkAttachedFile(thoughtId, fileId)}
+					onNoteUpdated={(thoughtId) => refreshThoughtDetail(thoughtId)}
 					onRetry={(id) => void retryEnrichThought(id)}
 					onEditRequestChange={(value) => {
 						editRequest = value;
@@ -636,7 +656,6 @@
 	paypalConfigured={data.paypalConfigured}
 	paypalClientId={data.paypalClientId}
 	paypalSdkUrl={data.paypalSdkUrl}
-	groundingCompleted={data.groundingCompleted}
 	creditsGatePassed={data.creditsGatePassed || localWalletCredits >= data.minCaptureCredits}
 />
 

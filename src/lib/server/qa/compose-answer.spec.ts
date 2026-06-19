@@ -9,7 +9,12 @@ import {
 	findInvalidCitationIds,
 	findInvalidProfileCitationIds,
 	formatComposedAnswerForUser,
+	formatCommunityThemesForPrompt,
+	formatGroundingProfileForCompose,
 	formatThoughtsForPrompt,
+	formatTextFilesForPrompt,
+	GROUNDING_PROFILE_CITATION_ID,
+	insufficientMemoryAnswer,
 	narrowComposeContextToQuestionFocus,
 	prioritizePersonNamedThoughts,
 	type RetrievalContextItem
@@ -17,12 +22,12 @@ import {
 
 const {
 	searchThoughtsMock,
-	hasCommunitySummariesMock,
-	searchGlobalMock,
+	searchTextFilesMock,
 	classifyQueryIntentMock,
 	fetchTemporalEventSeedsMock,
 	resolveTemporalHintBindingsMock,
 	fetchRelevantCommunitySummariesMock,
+	loadGroundingProfileForEnrichmentMock,
 	llmChatCompletionMock,
 	findTemporalSchedulingConflictsMock,
 	createThoughtEmbeddingMock,
@@ -32,12 +37,12 @@ const {
 	dbWhereMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
-	hasCommunitySummariesMock: vi.fn(),
-	searchGlobalMock: vi.fn(),
+	searchTextFilesMock: vi.fn(),
 	classifyQueryIntentMock: vi.fn(),
 	fetchTemporalEventSeedsMock: vi.fn(),
 	resolveTemporalHintBindingsMock: vi.fn(),
 	fetchRelevantCommunitySummariesMock: vi.fn(),
+	loadGroundingProfileForEnrichmentMock: vi.fn(),
 	llmChatCompletionMock: vi.fn(),
 	findTemporalSchedulingConflictsMock: vi.fn(),
 	createThoughtEmbeddingMock: vi.fn(),
@@ -49,6 +54,10 @@ const {
 
 vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
+}));
+
+vi.mock('$lib/server/text-files/service', () => ({
+	searchTextFiles: searchTextFilesMock
 }));
 
 vi.mock('$lib/server/retrieval/classify-query-intent', () => ({
@@ -77,9 +86,11 @@ vi.mock('$lib/server/retrieval/temporal', async (importOriginal) => {
 });
 
 vi.mock('$lib/server/retrieval/global', () => ({
-	hasCommunitySummaries: hasCommunitySummariesMock,
-	searchGlobal: searchGlobalMock,
 	fetchRelevantCommunitySummaries: fetchRelevantCommunitySummariesMock
+}));
+
+vi.mock('$lib/server/grounding/profile', () => ({
+	loadGroundingProfileForEnrichment: loadGroundingProfileForEnrichmentMock
 }));
 
 vi.mock('$lib/server/llm/llm-client', () => ({
@@ -319,6 +330,48 @@ describe('formatThoughtsForPrompt', () => {
 	});
 });
 
+describe('compose prompt helpers', () => {
+	it('marks community themes as non-evidence', () => {
+		const block = formatCommunityThemesForPrompt([
+			{ communityId: 'c1', level: 1, summaryText: 'Work and travel themes.' }
+		]);
+		expect(block).toContain('[theme-1]');
+		expect(block).toContain('NOT evidence');
+	});
+
+	it('formats grounding profile with profile citation hint', () => {
+		const block = formatGroundingProfileForCompose(
+			'User grounding profile (supplementary background about the user — not a substitute for retrieved thoughts):\n- work: SPACE Hamburg'
+		);
+		expect(block).toContain('SPACE Hamburg');
+		expect(block).toContain(GROUNDING_PROFILE_CITATION_ID);
+	});
+
+	it('insufficientMemoryAnswer uses Not in memory contract', () => {
+		expect(insufficientMemoryAnswer('what am I about?')).toContain('Answer: Not in memory.');
+	});
+});
+
+describe('formatTextFilesForPrompt', () => {
+	it('returns empty string when no files', () => {
+		expect(formatTextFilesForPrompt([])).toBe('');
+	});
+
+	it('formats file id, title, and preview', () => {
+		const block = formatTextFilesForPrompt([
+			{
+				id: 'f1',
+				title: 'Carbonara',
+				preview: 'Boil pasta…',
+				lexicalScore: 0.3,
+				updatedAt: '2026-06-01T12:00:00.000Z'
+			}
+		]);
+		expect(block).toContain('file=f1');
+		expect(block).toContain('Boil pasta');
+	});
+});
+
 describe('composeAnswer', () => {
 	const localIntent = {
 		scope: 'local' as const,
@@ -333,17 +386,13 @@ describe('composeAnswer', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		dbWhereMock.mockResolvedValue([]);
-		hasCommunitySummariesMock.mockResolvedValue(false);
 		classifyQueryIntentMock.mockResolvedValue(localIntent);
+		loadGroundingProfileForEnrichmentMock.mockResolvedValue(null);
 		fetchTemporalEventSeedsMock.mockResolvedValue({ seeds: [], candidatesByHint: [] });
 		resolveTemporalHintBindingsMock.mockResolvedValue([]);
-		searchGlobalMock.mockResolvedValue({
-			answer: 'You care about family and creative work.',
-			communitiesUsed: 2,
-			sources: [{ communityId: 'c1', level: 0, summaryExcerpt: 'Family themes…' }]
-		});
 		fetchRelevantCommunitySummariesMock.mockResolvedValue([]);
 		searchThoughtsMock.mockResolvedValue(sampleRetrieval);
+		searchTextFilesMock.mockResolvedValue([]);
 		findTemporalSchedulingConflictsMock.mockResolvedValue([]);
 		createThoughtEmbeddingMock.mockResolvedValue(new Array(1536).fill(0.1));
 		createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
@@ -352,60 +401,91 @@ describe('composeAnswer', () => {
 		lexicalSearchMock.mockResolvedValue([]);
 		graphOnlySearchByQueryMock.mockResolvedValue([]);
 		llmChatCompletionMock.mockResolvedValue(
-			chatResponse('Marcus suggested rice flour [t_001]. Also, Tartine has half-price loaves [t_002].')
+			chatResponse(
+				'Answer: Marcus suggested rice flour.\nEvidence:\n- Rice flour suggestion [id=t_001]\n- Tartine loaves [id=t_002]\nUnknown:\n- none'
+			)
 		);
 	});
 
-	it('uses searchGlobal for self-profile queries when community summaries exist', async () => {
+	it('uses unified retrieval for global-scope queries (no searchGlobal map-reduce)', async () => {
 		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
-		hasCommunitySummariesMock.mockResolvedValue(true);
-		searchGlobalMock.mockResolvedValue({
-			answer: 'You are family-oriented and value creative work.',
-			communitiesUsed: 2,
-			sources: [{ communityId: 'c1', level: 0, summaryExcerpt: 'Family and creativity…' }]
-		});
+		fetchRelevantCommunitySummariesMock.mockResolvedValue([
+			{ communityId: 'c1', level: 1, summaryText: 'Family and creativity themes.' }
+		]);
+		llmChatCompletionMock.mockResolvedValue(
+			chatResponse(
+				'Answer: You value family and creative work.\nEvidence:\n- Family matters [t_001]\nUnknown:\n- none'
+			)
+		);
 
 		const result = await composeAnswer({ userId: 'u1', question: 'was weißt du über mich?' });
 
-		expect(searchGlobalMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			query: 'was weißt du über mich?'
+		expect(searchThoughtsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'u1', query: 'was weißt du über mich?', topK: 16 })
+		);
+		expect(createThoughtEmbeddingMock).toHaveBeenCalled();
+		expect(llmChatCompletionMock).toHaveBeenCalled();
+		expect(result.retrievalPath).toBe('global');
+		const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
+			(m: { role: string }) => m.role === 'user'
+		);
+		expect(userMessage.content).toContain('[theme-1]');
+		expect(userMessage.content).toContain('NOT evidence');
+	});
+
+	it('uses unified retrieval for "what am I about?" with higher topK', async () => {
+		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
+
+		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
+
+		expect(searchThoughtsMock).toHaveBeenCalledWith(expect.objectContaining({ topK: 16 }));
+		expect(result.retrievalPath).toBe('global');
+	});
+
+	it('includes grounding profile in compose prompt when retrieved thoughts exist', async () => {
+		loadGroundingProfileForEnrichmentMock.mockResolvedValue({
+			narrativeSummary: '',
+			facets: { work: 'Codes at SPACE Hamburg every day' }
 		});
-		expect(searchThoughtsMock).not.toHaveBeenCalled();
-		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
-		expect(llmChatCompletionMock).not.toHaveBeenCalled();
-		expect(result.retrievalPath).toBe('global');
-		expect(result.citations).toEqual([]);
-		expect(result.globalSources).toHaveLength(1);
-		expect(result.answer).toContain('family-oriented');
-	});
-
-	it('uses searchGlobal for "what am I about?" when summaries exist', async () => {
-		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
-		hasCommunitySummariesMock.mockResolvedValue(true);
-
-		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
-
-		expect(searchGlobalMock).toHaveBeenCalled();
-		expect(searchThoughtsMock).not.toHaveBeenCalled();
-		expect(result.retrievalPath).toBe('global');
-	});
-
-	it('falls back to searchThoughts for global queries without community summaries (AC-026)', async () => {
-		const logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-		classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' });
-
-		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
-
-		expect(searchGlobalMock).not.toHaveBeenCalled();
-		expect(searchThoughtsMock).toHaveBeenCalledTimes(1);
-		expect(result.retrievalPath).toBe('global_fallback');
-		expect(logSpy).toHaveBeenCalledWith(
-			'[composeAnswer] path=global_fallback: no community summaries',
-			expect.objectContaining({ userId: 'u1', question: 'what am I about?' })
+		llmChatCompletionMock.mockResolvedValue(
+			chatResponse(
+				`Answer: You work at SPACE Hamburg.\nEvidence:\n- Daily work at SPACE Hamburg [id=t_001]\nUnknown:\n- none`
+			)
 		);
 
-		logSpy.mockRestore();
+		const result = await composeAnswer({ userId: 'u1', question: 'where do I work?' });
+
+		const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
+			(m: { role: string }) => m.role === 'user'
+		);
+		expect(userMessage.content).toContain('SPACE Hamburg');
+		expect(result.citations).not.toContain(GROUNDING_PROFILE_CITATION_ID);
+	});
+
+	it('does not answer from grounding profile alone when nothing is retrieved', async () => {
+		loadGroundingProfileForEnrichmentMock.mockResolvedValue({
+			narrativeSummary: '',
+			facets: { work: 'Codes at SPACE Hamburg every day' }
+		});
+		searchThoughtsMock.mockResolvedValue([]);
+		searchTextFilesMock.mockResolvedValue([]);
+
+		const result = await composeAnswer({ userId: 'u1', question: 'where do I work?' });
+
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+		expect(result.answer).toContain('Not in memory.');
+		expect(result.citations).toEqual([]);
+	});
+
+	it('returns honest insufficient-memory answer without LLM when nothing is retrieved', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		searchTextFilesMock.mockResolvedValue([]);
+
+		const result = await composeAnswer({ userId: 'u1', question: 'what am I about?' });
+
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+		expect(result.answer).toContain('Not in memory.');
+		expect(result.citations).toEqual([]);
 	});
 
 	it('rejects empty questions before doing any work', async () => {
@@ -413,7 +493,30 @@ describe('composeAnswer', () => {
 			'composeAnswer: question must be non-empty'
 		);
 		expect(searchThoughtsMock).not.toHaveBeenCalled();
+		expect(searchTextFilesMock).not.toHaveBeenCalled();
 		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+	});
+
+	it('includes lexical text file hits in the compose prompt', async () => {
+		searchTextFilesMock.mockResolvedValue([
+			{
+				id: 'f1',
+				title: 'Carbonara recipe',
+				preview: '200g spaghetti, guanciale, eggs…',
+				lexicalScore: 0.42,
+				updatedAt: '2026-01-01T00:00:00.000Z'
+			}
+		]);
+		await composeAnswer({ userId: 'u1', question: 'carbonara recipe' });
+		expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
+			query: 'carbonara recipe',
+			topK: 5
+		});
+		const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
+			(m: { role: string }) => m.role === 'user'
+		);
+		expect(userMessage.content).toContain('file=f1');
+		expect(userMessage.content).toContain('200g spaghetti');
 	});
 
 	it('emits onProgress for embedding, searching, and composing', async () => {
@@ -430,7 +533,7 @@ describe('composeAnswer', () => {
 
 	it('returns an answer with citations from the retrieved set', async () => {
 		const result = await composeAnswer({ userId: 'u1', question: 'what about rice flour?' });
-		expect(result.answer).toContain('[t_001]');
+		expect(result.answer).toContain('[id=t_001]');
 		expect(result.citations).toEqual(expect.arrayContaining(['t_001', 't_002']));
 		expect(result.retrieved).toHaveLength(2);
 		expect(result.retrieved[0].id).toBe('t_001');
@@ -475,17 +578,9 @@ describe('composeAnswer', () => {
 				createdAt: FIXED_DATE
 			}
 		]);
-		llmChatCompletionMock.mockResolvedValueOnce(
-			chatResponse('Answer: Not in memory.\nEvidence:\n\nUnknown:\n- Wer ist Clemi?')
-		);
-		await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
-		const userMsg = (
-			llmChatCompletionMock.mock.calls[0][0] as {
-				messages: Array<{ role: string; content: string }>;
-			}
-		).messages[1].content;
-		expect(userMsg).not.toContain('annie');
-		expect(userMsg).toContain('(no thoughts retrieved)');
+		const result = await composeAnswer({ userId: 'u1', question: 'Wer ist Clemi?' });
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
+		expect(result.answer).toContain('Not in memory.');
 	});
 
 	it('forwards topK, weights, and trimmed question to searchThoughts', async () => {
@@ -544,24 +639,20 @@ describe('composeAnswer', () => {
 		expect(args.messages[1].content).toContain('id=t_002');
 	});
 
-	it('communicates the no-thoughts case to the prompt without crashing', async () => {
+	it('communicates the no-thoughts case without calling compose LLM', async () => {
 		searchThoughtsMock.mockResolvedValueOnce([]);
-		llmChatCompletionMock.mockResolvedValueOnce(
-			chatResponse('I do not have enough information to answer.')
-		);
 		const result = await composeAnswer({ userId: 'u1', question: 'totally novel question' });
+		expect(llmChatCompletionMock).not.toHaveBeenCalled();
 		expect(result.retrieved).toEqual([]);
 		expect(result.citations).toEqual([]);
-		expect(result.answer).toContain('do not have enough');
-		const userMessage = (
-			llmChatCompletionMock.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> }
-		).messages[1].content;
-		expect(userMessage).toContain('(no thoughts retrieved)');
+		expect(result.answer).toContain('Not in memory.');
 	});
 
 	it('throws when the answer cites ids outside the retrieved set', async () => {
-		llmChatCompletionMock.mockResolvedValueOnce(
-			chatResponse('Some claim [t_001] but also a hallucinated [t_999].')
+		llmChatCompletionMock.mockResolvedValue(
+			chatResponse(
+				'Answer: Some claim.\nEvidence:\n- Claim [id=t_001]\n- Hallucinated [id=t_999]\nUnknown:\n- none'
+			)
 		);
 		await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(
 			'cites thought ids not in retrieved context'
@@ -569,8 +660,8 @@ describe('composeAnswer', () => {
 	});
 
 	it('throws when the answer cites list position numbers instead of thought ids', async () => {
-		llmChatCompletionMock.mockResolvedValueOnce(
-			chatResponse('Answer: Jonas needs silence.\nEvidence:\n- Needs silence [6]\n\nUnknown:\n- none')
+		llmChatCompletionMock.mockResolvedValue(
+			chatResponse('Answer: Jonas needs silence.\nEvidence:\n- Needs silence [6]\nUnknown:\n- none')
 		);
 		await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(
 			'cites thought ids not in retrieved context: 6'
@@ -578,9 +669,9 @@ describe('composeAnswer', () => {
 	});
 
 	it('strips disallowed computed citations instead of failing the answer', async () => {
-		llmChatCompletionMock.mockResolvedValueOnce(
+		llmChatCompletionMock.mockResolvedValue(
 			chatResponse(
-				'Answer: 4 days between events [id=t_001].\nEvidence:\n- Event A [id=t_001]\n- Event B [id=t_002]\n- Difference is 4 days [computed]\n\nUnknown:\n- none'
+				'Answer: 4 days between events [id=t_001].\nEvidence:\n- Event A [id=t_001]\n- Event B [id=t_002]\n- Difference is 4 days [id=computed]\nUnknown:\n- none'
 			)
 		);
 		const result = await composeAnswer({ userId: 'u1', question: 'how many days between?' });
@@ -734,9 +825,9 @@ describe('composeAnswer', () => {
 			],
 			candidatesByHint: [[], []]
 		});
-		llmChatCompletionMock.mockResolvedValueOnce(
+		llmChatCompletionMock.mockResolvedValue(
 			chatResponse(
-				'Answer: GPS system not functioning correctly.\nEvidence:\n- GPS issue [id=t_gps]\n\nUnknown:\n- none'
+				'Answer: GPS system not functioning correctly.\nEvidence:\n- GPS issue [id=t_gps]\nUnknown:\n- none'
 			)
 		);
 

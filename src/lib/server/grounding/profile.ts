@@ -1,5 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { chatSession } from '$lib/server/db/brain.schema';
 import { userGroundingProfile } from '$lib/server/db/schema';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import {
@@ -8,7 +9,6 @@ import {
 	type GroundingFacetKey
 } from '$lib/server/grounding/constants';
 import { synthesizeGroundingNarrative } from '$lib/server/grounding/synthesize-narrative';
-import { seedProjectsFromGrounding } from '$lib/server/grounding/seed-projects';
 import type {
 	GroundingProfileForEnrichment,
 	GroundingProfileSnapshot
@@ -100,16 +100,14 @@ export async function loadGroundingProfileForEnrichment(
 	};
 }
 
-export function isInitialGroundingComplete(snapshot: GroundingProfileSnapshot | null): boolean {
-	return snapshot?.initialCompletedAt != null;
-}
-
 export async function mergeGroundingFacets(input: {
 	userId: string;
 	facets: Array<{ key: GroundingFacetKey; content: string }>;
 	sessionNote?: string;
-	/** When false (default for incremental chat saves), only merge facets — no LLM synthesis. */
+	/** When false (default for incremental saves), only merge facets — no LLM synthesis. */
 	synthesizeNarrative?: boolean;
+	/** When true, bump lastSessionAt and sessionCount (e.g. after answering an optional question). */
+	recordSession?: boolean;
 }): Promise<GroundingProfileSnapshot> {
 	const validated = validateGroundingFacetInput(input.facets);
 	const [existingRow] = await getDb()
@@ -141,13 +139,18 @@ export async function mergeGroundingFacets(input: {
 		});
 	}
 
+	const now = input.recordSession === true ? new Date() : null;
+	const sessionCount =
+		input.recordSession === true ? (existing?.sessionCount ?? 0) + 1 : (existing?.sessionCount ?? 0);
+
 	const [row] = await getDb()
 		.insert(userGroundingProfile)
 		.values({
 			userId: input.userId,
 			narrativeSummaryEncrypted,
 			facets: mergedFacets,
-			sessionCount: existing?.sessionCount ?? 0
+			sessionCount,
+			...(now ? { lastSessionAt: now } : {})
 		})
 		.onConflictDoUpdate({
 			target: userGroundingProfile.userId,
@@ -156,7 +159,9 @@ export async function mergeGroundingFacets(input: {
 					? { narrativeSummaryEncrypted }
 					: {}),
 				facets: mergedFacets,
-				updatedAt: new Date()
+				...(input.recordSession === true
+					? { lastSessionAt: now, sessionCount, updatedAt: now }
+					: { updatedAt: new Date() })
 			}
 		})
 		.returning();
@@ -164,76 +169,23 @@ export async function mergeGroundingFacets(input: {
 	return rowToSnapshot(input.userId, row);
 }
 
-export async function completeGroundingSession(input: {
+export async function saveGroundingQuestionAnswer(input: {
 	userId: string;
-	synthesis?: string;
-}): Promise<{ initialCompleted: boolean; redirectTo: string; snapshot: GroundingProfileSnapshot }> {
-	const existing = await loadGroundingProfileRow(input.userId);
-	let narrativeSummary = existing?.narrativeSummary ?? '';
-	const mergedFacets = { ...(existing?.facets ?? {}) };
-
-	if (input.synthesis?.trim()) {
-		narrativeSummary = input.synthesis.trim().slice(0, 4000);
-	} else if (Object.keys(mergedFacets).length > 0) {
-		narrativeSummary = await synthesizeGroundingNarrative({
-			userId: input.userId,
-			facets: mergedFacets,
-			priorNarrative: narrativeSummary || undefined
-		});
-	}
-
-	const narrativeSummaryEncrypted =
-		narrativeSummary.length > 0
-			? await encryptTenantValue({
-					userId: input.userId,
-					table: GROUNDING_TABLE,
-					column: NARRATIVE_COLUMN,
-					plaintext: narrativeSummary
-				})
-			: null;
-
-	const now = new Date();
-	const wasComplete = existing?.initialCompletedAt != null;
-	const initialCompletedAt = wasComplete ? existing!.initialCompletedAt! : now;
-
-	const [row] = await getDb()
-		.insert(userGroundingProfile)
-		.values({
-			userId: input.userId,
-			narrativeSummaryEncrypted,
-			facets: mergedFacets,
-			initialCompletedAt,
-			lastSessionAt: now,
-			sessionCount: 1
-		})
-		.onConflictDoUpdate({
-			target: userGroundingProfile.userId,
-			set: {
-				...(narrativeSummaryEncrypted ? { narrativeSummaryEncrypted } : {}),
-				initialCompletedAt,
-				lastSessionAt: now,
-				sessionCount: (existing?.sessionCount ?? 0) + 1,
-				updatedAt: now
-			}
-		})
-		.returning();
-
-	const snapshot = await rowToSnapshot(input.userId, row);
-
-	if (mergedFacets.projects?.trim()) {
-		await seedProjectsFromGrounding({
-			userId: input.userId,
-			projectsFacetText: mergedFacets.projects
-		});
-	}
-
-	return {
-		initialCompleted: !wasComplete,
-		redirectTo: '/capture',
-		snapshot
-	};
+	facetKey: GroundingFacetKey;
+	answer: string;
+}): Promise<GroundingProfileSnapshot> {
+	return mergeGroundingFacets({
+		userId: input.userId,
+		facets: [{ key: input.facetKey, content: input.answer }],
+		synthesizeNarrative: true,
+		recordSession: true
+	});
 }
 
 export async function deleteGroundingProfile(userId: string): Promise<void> {
-	await getDb().delete(userGroundingProfile).where(eq(userGroundingProfile.userId, userId));
+	const db = getDb();
+	await db
+		.delete(chatSession)
+		.where(and(eq(chatSession.userId, userId), eq(chatSession.mode, 'grounding')));
+	await db.delete(userGroundingProfile).where(eq(userGroundingProfile.userId, userId));
 }

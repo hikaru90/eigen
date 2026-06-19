@@ -6,6 +6,7 @@ import { thought } from '$lib/server/db/schema';
 import { deleteThoughtForUser, setThoughtLifecycleStatus } from '$lib/server/capture/service';
 import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
 import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action';
+import { listTextFilesForThought } from '$lib/server/text-files/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 
@@ -66,7 +67,8 @@ export const GET: RequestHandler = async (event) => {
 		normalizedText,
 		category: row.category,
 		metadata: JSON.parse(metadataJson) as Record<string, unknown>,
-		updatedAt: row.updatedAt
+		updatedAt: row.updatedAt,
+		attachedFiles: await listTextFilesForThought(user.id, thoughtId)
 	});
 };
 

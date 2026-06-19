@@ -66,6 +66,14 @@ vi.mock('$lib/server/llm/embedding', () => ({
 	createThoughtEmbeddings: createThoughtEmbeddingsMock
 }));
 
+vi.mock('$lib/server/memory/project-list', () => ({
+	loadEligibleGtdProjects: vi.fn(async () => [])
+}));
+
+vi.mock('$lib/server/memory/promote-eligible-project-hubs', () => ({
+	evaluateHubsForGtdPromotion: vi.fn(async () => 0)
+}));
+
 describe('syncEntityGraphFromThought', () => {
 	// Mock entity_type kind rows (real-world entity types, not thought categories)
 	const entityTypeRows = [
@@ -101,7 +109,7 @@ describe('syncEntityGraphFromThought', () => {
 			thoughtId: 't1',
 			normalizedText: 'a quiet thought'
 		});
-		expect(result).toEqual({ mentionCount: 0 });
+		expect(result).toEqual({ mentionCount: 0, projectLikeEntities: [] });
 		expect(clearEntityResolutionLogsForThoughtMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			thoughtId: 't1'

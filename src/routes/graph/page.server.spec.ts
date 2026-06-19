@@ -14,10 +14,6 @@ vi.mock('$lib/server/db', () => ({
 	getDb: getDbMock
 }));
 
-vi.mock('$lib/server/memory/user-timezone', () => ({
-	getUserPreferredTimezone: vi.fn().mockResolvedValue('UTC')
-}));
-
 vi.mock('$lib/server/graph/age', () => ({
 	fetchGraphVisualizationSnapshot: fetchSnapshotMock
 }));
@@ -40,23 +36,27 @@ vi.mock('$lib/server/ontology-db', () => ({
 
 describe('graph page server', () => {
 	it('redirects unauthenticated user', async () => {
-		await expect(load({ locals: { user: null } } as never)).rejects.toMatchObject({ status: 302 });
+		await expect(load({ locals: { user: null }, url: new URL('http://localhost/graph') } as never)).rejects.toMatchObject({ status: 302 });
+	});
+
+	it('redirects legacy temporal tab to /timeline', async () => {
+		await expect(
+			load({
+				locals: { user: { id: 'u1', email: 'a@b.c' } },
+				url: new URL('http://localhost/graph?tab=temporal&event=ev1')
+			} as never)
+		).rejects.toMatchObject({ status: 302, location: '/timeline?event=ev1' });
 	});
 
 	it('returns snapshot for signed-in user', async () => {
-		const limit = vi.fn().mockResolvedValue([
-			{ eventNotificationsEnabled: false, eventReminderLeadMinutes: 10 }
-		]);
-		const where = vi.fn(() => ({ limit }));
-		const from = vi.fn(() => ({ where }));
-		getDbMock.mockReturnValue({ select: vi.fn(() => ({ from })) });
-
+		getDbMock.mockReturnValue({});
 		fetchSnapshotMock.mockResolvedValueOnce({ nodes: [], edges: [] });
 		fetchCommunitiesMock.mockResolvedValueOnce([]);
 		const data = await load({
 			locals: {
 				user: { id: 'u1', email: 'a@b.c' }
-			}
+			},
+			url: new URL('http://localhost/graph')
 		} as never);
 		expect(data).toBeTruthy();
 		if (!data) return;

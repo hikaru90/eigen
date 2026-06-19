@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
-  import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import type { PageData } from "./$types";
   import { Button } from "$lib/components/ui/button";
@@ -32,14 +31,14 @@
     type ChatDisplayEntry,
   } from "$lib/chat/normalize-messages";
 
-  type ChatEntry = ChatDisplayEntry;
+  type ChatEntry = ChatDisplayEntry & { _key?: string };
+
+  type TimelineEntry = Extract<ChatDisplayEntry, { variant: "timeline" }>;
 
   let { data }: { data: PageData } = $props();
 
-  const isGroundingMode = $derived(page.url.searchParams.get("mode") === "grounding");
   const isBriefingMode = $derived(page.url.searchParams.get("mode") === "briefing");
   const briefingPeriod = $derived(page.url.searchParams.get("period") ?? "morning");
-  let groundingBootstrapped = $state(false);
   let briefingBootstrapped = $state(false);
 
   type SessionListItem = {
@@ -68,6 +67,44 @@
   let agentStatus = $state<string | null>(null);
   let messagesEl: HTMLDivElement | undefined;
   let chatPanelEl: HTMLDivElement | undefined;
+
+  let messageSeq = 0;
+  function appendMessage(entry: ChatDisplayEntry) {
+    messageSeq += 1;
+    messages.push({ ...entry, _key: `m-${messageSeq}` });
+  }
+
+  function appendUserMessage(text: string) {
+    messageSeq += 1;
+    messages.push({ role: "user", content: text, _key: `m-${messageSeq}` });
+  }
+
+  function upsertToolTimeline(entry: TimelineEntry) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.variant === "timeline" && m.tool === entry.tool) {
+        if (m.kind === "tool_result" && entry.kind !== "tool_result") {
+          break;
+        }
+        messages[i] = { ...m, ...entry, _key: m._key };
+        return;
+      }
+    }
+    appendMessage(entry);
+  }
+
+  let streamingStatus = $derived.by(() => {
+    if (!loading) return null;
+    if (!streamEventsReceived) return "Connecting…";
+    if (agentStatus) return agentStatus;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.variant === "timeline" && (m.label?.trim() ?? "")) {
+        return m.label;
+      }
+    }
+    return "Working…";
+  });
 
   function handleChatPanelWheel(e: WheelEvent) {
     const el = messagesEl;
@@ -149,7 +186,10 @@
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       if (!res.ok) throw new Error("Failed to load session");
       const json = await res.json();
-      messages = sessionMessagesToChatEntries(json.messages ?? []);
+      messages = sessionMessagesToChatEntries(json.messages ?? []).map((entry, idx) => ({
+        ...entry,
+        _key: `loaded-${sessionId}-${idx}`,
+      }));
     } catch {
       messages = [];
     } finally {
@@ -191,22 +231,27 @@
     }
   }
 
+  function streamEventLabel(event: ChatProgressEvent, fallback: string): string {
+    const label = "label" in event ? event.label : undefined;
+    return typeof label === "string" && label.trim() ? label : fallback;
+  }
+
   function pushStreamEvent(
     event: ChatProgressEvent,
     ctx: {
       lastAnswerQuestionPreview: { current: string | undefined };
-      answerShownInTimeline: { current: boolean };
     },
   ) {
     streamEventsReceived = true;
-    agentStatus = null;
 
     if (event.type === "thinking") {
-      messages.push({ role: "assistant", variant: "thinking", content: event.content });
+      agentStatus = null;
+      appendMessage({ role: "assistant", variant: "thinking", content: event.content });
       return;
     }
     if (event.type === "agent_progress") {
-      messages.push({
+      agentStatus = event.label;
+      appendMessage({
         role: "assistant",
         variant: "timeline",
         kind: "llm_progress",
@@ -215,28 +260,31 @@
       return;
     }
     if (event.type === "tool_call") {
-      messages.push({
+      agentStatus = null;
+      upsertToolTimeline({
         role: "assistant",
         variant: "timeline",
         kind: "tool_call",
         tool: event.tool,
-        label: `Tool call · ${event.tool}`,
+        label: streamEventLabel(event, `Tool call · ${event.tool}`),
         arguments: event.arguments ?? {},
       });
       return;
     }
     if (event.type === "tool_executing") {
-      messages.push({
+      agentStatus = null;
+      upsertToolTimeline({
         role: "assistant",
         variant: "timeline",
         kind: "tool_executing",
         tool: event.tool,
-        label: `Executing tool · ${event.tool}`,
+        label: streamEventLabel(event, `Executing tool · ${event.tool}`),
       });
       return;
     }
     if (event.type === "tool_progress") {
-      messages.push({
+      agentStatus = event.label;
+      upsertToolTimeline({
         role: "assistant",
         variant: "timeline",
         kind: "tool_progress",
@@ -246,20 +294,17 @@
       return;
     }
     if (event.type === "tool_result") {
+      agentStatus = null;
       const preview = event.preview ?? "";
       if (event.tool === "answer_question") {
         ctx.lastAnswerQuestionPreview.current = preview;
-        if (event.failed !== true) {
-          const prose = parseFinalAnswerText("", preview).trim();
-          if (prose) ctx.answerShownInTimeline.current = true;
-        }
       }
-      messages.push({
+      upsertToolTimeline({
         role: "assistant",
         variant: "timeline",
         kind: "tool_result",
         tool: event.tool,
-        label: `Tool result · ${event.tool}`,
+        label: streamEventLabel(event, `Tool result · ${event.tool}`),
         content: preview,
         failed: event.failed === true,
       });
@@ -276,11 +321,8 @@
     agentStatus = null;
 
     const body: Record<string, unknown> = options?.bootstrap
-      ? isBriefingMode
-        ? { bootstrap: true, briefingPeriod }
-        : { bootstrap: true, mode: "grounding" }
+      ? { bootstrap: true, briefingPeriod }
       : { message: text };
-    if (isGroundingMode) body.mode = "grounding";
     if (isBriefingMode && options?.bootstrap) body.briefingPeriod = briefingPeriod;
     if (activeSessionId) body.sessionId = activeSessionId;
 
@@ -311,7 +353,6 @@
 
       const streamCtx = {
         lastAnswerQuestionPreview: { current: undefined as string | undefined },
-        answerShownInTimeline: { current: false },
       };
       const done = await consumeChatNdjsonStream(
         res,
@@ -327,31 +368,23 @@
       }
       if (done.sessionId) activeSessionId = done.sessionId;
       if (done.sessionId && browser) localStorage.setItem(STORAGE_KEY, done.sessionId);
-      if (!streamCtx.answerShownInTimeline.current) {
-        messages.push({ role: "assistant", variant: "text", content: responseText });
+      if (responseText) {
+        appendMessage({ role: "assistant", variant: "text", content: responseText });
       }
-      if (done.groundingComplete) {
-        const redirectTo =
-          typeof done.redirectTo === "string" && done.redirectTo.trim()
-            ? done.redirectTo.trim()
-            : "/capture";
-        await goto(redirectTo);
-        return;
-      }
-      if (!isGroundingMode) loadSessions();
+      loadSessions();
     } catch (err) {
       if ((err as Error)?.name === "AbortError") {
         if (streamAbortReason === "timeout") {
-          messages.push({
+          appendMessage({
             role: "assistant",
             variant: "text",
             content: "Error: Request timed out after 2 minutes.",
           });
         } else {
-          messages.push({ role: "assistant", variant: "text", content: "Stopped." });
+          appendMessage({ role: "assistant", variant: "text", content: "Stopped." });
         }
       } else {
-        messages.push({
+        appendMessage({
           role: "assistant",
           variant: "text",
           content: `Error: ${err instanceof Error ? err.message : String(err)}`,
@@ -367,7 +400,7 @@
 
   function resend(text: string) {
     if (loading) return;
-    messages.push({ role: "user", content: text } satisfies ChatEntry);
+    appendUserMessage(text);
     sendStreaming(text);
   }
 
@@ -400,7 +433,7 @@
     if (!text || loading) return;
 
     input = "";
-    messages.push({ role: "user", content: text } satisfies ChatEntry);
+    appendUserMessage(text);
 
     await sendStreaming(text);
   }
@@ -409,16 +442,6 @@
     if (!abortController) return;
     streamAbortReason = "user";
     abortController.abort();
-  }
-
-  async function stopGrounding() {
-    stop();
-    try {
-      await fetch("/api/grounding/skip", { method: "POST" });
-    } catch {
-      // ignore and continue redirect
-    }
-    void goto("/capture");
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -445,25 +468,10 @@
         }
         return;
       }
-      if (isGroundingMode) {
-        await loadSessions();
-        const groundingSession = sessions.find((s) => s.mode === "grounding");
-        if (groundingSession) {
-          activeSessionId = groundingSession.id;
-          await loadSessionMessages(groundingSession.id);
-        } else {
-          activeSessionId = null;
-          messages = [];
-          if (!groundingBootstrapped) {
-            groundingBootstrapped = true;
-            await sendStreaming("", { bootstrap: true });
-          }
-        }
-        return;
-      }
       await loadSessions();
       const storedId = browser ? localStorage.getItem(STORAGE_KEY) : null;
       const match = storedId ? sessions.find((s) => s.id === storedId) : null;
+      if (storedId && !match && browser) localStorage.removeItem(STORAGE_KEY);
       if (match) {
         await selectSession(match.id);
       } else if (sessions.length > 0) {
@@ -503,106 +511,74 @@
   </div>
 {/if}
 
-{#if isGroundingMode}
+<!-- sidebar: only in DOM while open (no invisible overlay stealing clicks) -->
+{#if $chatSidebarOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-x-0 top-20 z-30 border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm"
-    role="region"
-    aria-label="Grounding conversation"
+    class="fixed inset-0 z-50 cursor-pointer bg-black/20"
+    onclick={() => ($chatSidebarOpen = false)}
+  ></div>
+  <div
+    class="fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-white pt-safe dark:bg-card"
+    role="dialog"
+    aria-label="Chat sessions"
   >
-    <div class="mx-auto flex w-full max-w-2xl items-start justify-between gap-3">
-      <div class="min-w-0 flex-1">
-        <h1 class="text-sm font-medium text-foreground">Getting to know you</h1>
-        <p class="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-          A short conversation so Eigen can understand who you are and classify your thoughts better.
-        </p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        class="shrink-0 rounded-[4px] text-xs"
-        onclick={stopGrounding}
+    <div class="px-5 pb-3">
+      <button
+        class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+        onclick={() => ($chatSidebarOpen = false)}
+        aria-label="Close sidebar"
       >
-        Stop
+        <X class="size-5" strokeWidth={1.75} />
+      </button>
+    </div>
+
+    <div class="px-5 pb-3">
+      <Button variant="outline" size="sm" class="w-full rounded-[4px]" onclick={newSession}>
+        <Plus strokeWidth={1.75} />
+        New chat
       </Button>
+    </div>
+
+    <div class="mx-3 h-px bg-border"></div>
+
+    <div class="flex-1 overflow-y-auto px-2 py-2">
+      {#if sessions.length === 0}
+        <p class="text-muted-foreground px-2 py-8 text-center text-xs">No conversations yet</p>
+      {/if}
+      {#each sessions as s (s.id)}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="group flex w-full cursor-pointer items-start gap-2 rounded px-2.5 py-2 text-left transition-colors {s.id ===
+          activeSessionId
+            ? 'bg-muted'
+            : 'hover:bg-muted/50'}"
+          onclick={() => selectSession(s.id)}
+        >
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-xs leading-snug text-foreground">
+              {s.title?.trim() || "Untitled"}
+            </p>
+            <p class="text-muted-foreground mt-0.5 text-[10px]">{formatDate(s.updatedAt)}</p>
+          </div>
+          <button
+            class="invisible shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive group-hover:visible"
+            onclick={(e) => deleteSession(s.id, e)}
+            aria-label="Delete session"
+          >
+            <Trash2 class="size-3" strokeWidth={1.5} />
+          </button>
+        </div>
+      {/each}
     </div>
   </div>
 {/if}
 
-<!-- sidebar backdrop -->
-{#if $chatSidebarOpen && !isGroundingMode}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="fixed inset-0 z-60 cursor-pointer bg-black/20"
-    onclick={() => ($chatSidebarOpen = false)}
-  ></div>
-{/if}
-
-<!-- sidebar panel -->
-{#if !isGroundingMode}
-<div
-  class="fixed left-0 top-0 z-60 flex h-full w-64 flex-col bg-white dark:bg-card pt-safe border-r border-border transition-transform duration-200 {$chatSidebarOpen
-    ? 'translate-x-0'
-    : '-translate-x-full'}"
-  role="dialog"
-  aria-label="Chat sessions"
->
-  <div class="px-5 pb-3">
-    <button
-      class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-      onclick={() => ($chatSidebarOpen = false)}
-      aria-label="Close sidebar"
-    >
-      <X class="size-5" strokeWidth={1.75} />
-    </button>
-  </div>
-
-  <div class="px-5 pb-3">
-    <Button variant="outline" size="sm" class="w-full rounded-[4px]" onclick={newSession}>
-      <Plus strokeWidth={1.75} />
-      New chat
-    </Button>
-  </div>
-
-  <div class="mx-3 h-px bg-border"></div>
-
-  <div class="flex-1 overflow-y-auto px-2 py-2">
-    {#if sessions.length === 0}
-      <p class="text-muted-foreground px-2 py-8 text-center text-xs">No conversations yet</p>
-    {/if}
-    {#each sessions as s (s.id)}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="group flex w-full items-start gap-2 rounded px-2.5 py-2 text-left cursor-pointer transition-colors {s.id ===
-        activeSessionId
-          ? 'bg-muted'
-          : 'hover:bg-muted/50'}"
-        onclick={() => selectSession(s.id)}
-      >
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-xs text-foreground leading-snug">
-            {s.title?.trim() || "Untitled"}
-          </p>
-          <p class="text-muted-foreground mt-0.5 text-[10px]">{formatDate(s.updatedAt)}</p>
-        </div>
-        <button
-          class="invisible group-hover:visible text-muted-foreground hover:text-destructive shrink-0 rounded p-0.5 transition-colors"
-          onclick={(e) => deleteSession(s.id, e)}
-          aria-label="Delete session"
-        >
-          <Trash2 class="size-3" strokeWidth={1.5} />
-        </button>
-      </div>
-    {/each}
-  </div>
-</div>
-{/if}
-
 <div
   bind:this={chatPanelEl}
-  class="fixed inset-x-0 bottom-20 z-30 overflow-hidden {isGroundingMode || isBriefingMode
+  class="fixed inset-x-0 bottom-20 z-30 overflow-hidden {isBriefingMode
     ? 'top-[10.25rem]'
     : 'top-0'}"
 >
@@ -612,29 +588,21 @@
     role="log"
     aria-label="Chat messages"
   >
-    <div
-      class="mx-auto flex min-h-full w-full min-w-0 max-w-2xl flex-col px-4 pb-52 {isGroundingMode
-        ? 'pt-3'
-        : 'pt-20'}"
-    >
+    <div class="mx-auto flex min-h-full w-full min-w-0 max-w-2xl flex-col px-4 pb-52 pt-20">
       <div class="flex flex-1 flex-col gap-1 px-1 py-3">
       {#if loadingSession}
         <div class="flex flex-1 items-center justify-center">
           <LoaderCircleIcon class="text-muted-foreground size-4 animate-spin" />
         </div>
-      {:else if messages.length === 0 && !loading && !isGroundingMode}
+      {:else if messages.length === 0 && !loading}
         <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p class="text-muted-foreground max-w-xs text-sm tracking-wide">
             Ask about your memories, manage thoughts, or save something new when you want to.
           </p>
         </div>
-      {:else if messages.length === 0 && loading && isGroundingMode}
-        <div class="flex flex-1 items-center justify-center">
-          <LoaderCircleIcon class="text-muted-foreground size-4 animate-spin" />
-        </div>
       {/if}
 
-      {#each displayMessages as msg, i (i)}
+      {#each displayMessages as msg, i (`chat-msg-${i}`)}
         {#if msg.role === "user"}
           <!-- User message: right-aligned, Klein Blue bg, clean pill -->
           <div class="group flex min-w-0 w-full flex-row-reverse items-end gap-3 py-0.5">
@@ -685,6 +653,11 @@
             arguments={msg.arguments}
             content={msg.content}
             failed={msg.failed}
+            hideProse={msg.hideProse}
+            running={loading &&
+              i === displayMessages.length - 1 &&
+              msg.kind !== "tool_result" &&
+              msg.kind !== "llm_progress"}
           />
         {:else if msg.variant === "text"}
           <div class="group flex min-w-0 w-full flex-row items-start gap-0 py-1">
@@ -711,20 +684,13 @@
         {/if}
       {/each}
 
-      {#if loading && agentStatus}
-        <div class="min-w-0 py-0.5">
-          <p class="flex min-w-0 items-start gap-1.5 text-sm leading-normal text-muted-foreground">
-            <LoaderCircleIcon class="mt-0.5 size-3.5 shrink-0 animate-spin" />
-            <span class="min-w-0 wrap-break-word">{agentStatus}</span>
-          </p>
-        </div>
-      {:else if loading && !streamEventsReceived}
+      {#if loading && streamingStatus}
         <div class="min-w-0 py-1">
           <div
-            class="flex min-w-0 items-start gap-1.5 text-sm leading-normal text-muted-foreground"
+            class="flex min-w-0 items-start gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm leading-normal text-muted-foreground"
           >
             <LoaderCircleIcon class="mt-0.5 size-3.5 shrink-0 animate-spin" />
-            <span>Connecting…</span>
+            <span class="min-w-0 wrap-break-word">{streamingStatus}</span>
           </div>
         </div>
       {/if}
@@ -732,9 +698,9 @@
     </div>
   </div>
 
-  <!-- input area (pinned, outside scroll flow) -->
+  <!-- input area (pinned, outside scroll flow — see .cursor/rules/chat-scroll-layout.mdc) -->
   <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10">
-    <div class="pointer-events-auto mx-auto min-w-0 w-full max-w-2xl px-4 pb-2 pt-2 bg-background">
+    <div class="pointer-events-auto mx-auto min-w-0 w-full max-w-2xl bg-background px-4 pb-2 pt-2">
     <Card.Root
       class="bg-white dark:bg-card min-w-0 w-full overflow-visible border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-x-clip"
     >
@@ -742,10 +708,8 @@
         <Textarea
           bind:value={input}
           onkeydown={handleKeydown}
-          placeholder={isGroundingMode
-            ? "Share about yourself — work, values, what matters to you…"
-            : "Ask a question about your memories..."}
-          class="min-w-0 w-full break-all border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-base md:text-base min-h-[72px] resize-none text-foreground placeholder:text-muted-foreground"
+          placeholder="Ask a question about your memories..."
+          class="min-w-0 w-full break-all border-0 bg-transparent shadow-none focus-visible:ring-0 p-4 text-base md:text-base min-h-[72px] max-h-[min(40dvh,280px)] overflow-y-auto resize-none text-foreground placeholder:text-muted-foreground"
           disabled={loading || loadingSession}
         />
       </Card.Content>

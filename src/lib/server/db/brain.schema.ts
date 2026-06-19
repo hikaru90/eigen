@@ -643,6 +643,9 @@ export const thoughtEntity = pgTable(
 export const projectStatusValues = ['active', 'someday', 'completed'] as const;
 export type ProjectStatus = (typeof projectStatusValues)[number];
 
+export const projectProfileSourceValues = ['grounding', 'capture', 'manual'] as const;
+export type ProjectProfileSource = (typeof projectProfileSourceValues)[number];
+
 /** GTD project metadata keyed by canonical project entity. */
 export const projectProfile = pgTable(
 	'project_profile',
@@ -654,6 +657,7 @@ export const projectProfile = pgTable(
 			.notNull()
 			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
 		status: text('status', { enum: projectStatusValues }).notNull().default('active'),
+		source: text('source', { enum: projectProfileSourceValues }).notNull().default('capture'),
 		nextActionThoughtId: uuid('next_action_thought_id').references(() => thought.id, {
 			onDelete: 'set null'
 		}),

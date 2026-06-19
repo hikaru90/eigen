@@ -2,7 +2,7 @@ import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 
 export function groundingProfilePromptBlock(profile: GroundingProfileForEnrichment): string {
 	if (!profile) return '';
-	const lines: string[] = ['User grounding profile (explicit self-knowledge — highest priority):'];
+	const lines: string[] = ['User grounding profile (supplementary background about the user — not a substitute for retrieved thoughts):'];
 	if (profile.narrativeSummary.trim().length > 0) {
 		lines.push(profile.narrativeSummary.trim());
 	}

@@ -5,6 +5,8 @@ import {
 	getTextFile,
 	linkTextFileToThought,
 	listTextFilesForThought,
+	listTextFilesForThoughtIds,
+	listThoughtsForTextFile,
 	searchTextFiles,
 	unlinkTextFileFromThought,
 	updateTextFile
@@ -177,6 +179,95 @@ describe('text-files service', () => {
 			}))
 		});
 		expect(await unlinkTextFileFromThought('u1', 't1', 'f1')).toBe(false);
+	});
+
+	it('listTextFilesForThoughtIds groups attachments by thought', async () => {
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					innerJoin: vi.fn(() => ({
+						where: vi.fn(() => ({
+							orderBy: vi.fn(async () => [
+								{
+									thoughtId: 't1',
+									id: 'f1',
+									title: 'Doc',
+									bodyText: '',
+									bodyTextEncrypted: 'enc:recipe body',
+									updatedAt: new Date('2026-06-05T12:00:00.000Z')
+								},
+								{
+									thoughtId: 't2',
+									id: 'f2',
+									title: 'Other',
+									bodyText: '',
+									bodyTextEncrypted: 'enc:other',
+									updatedAt: new Date('2026-06-05T12:00:00.000Z')
+								}
+							])
+						}))
+					}))
+				}))
+			}))
+		});
+
+		const map = await listTextFilesForThoughtIds('u1', ['t1', 't2']);
+		expect(map.get('t1')).toEqual([
+			{
+				id: 'f1',
+				title: 'Doc',
+				preview: 'recipe body',
+				updatedAt: '2026-06-05T12:00:00.000Z'
+			}
+		]);
+		expect(map.get('t2')).toHaveLength(1);
+	});
+
+	it('listThoughtsForTextFile returns empty when note missing', async () => {
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [])
+					}))
+				}))
+			}))
+		});
+
+		const rows = await listThoughtsForTextFile('u1', 'missing');
+		expect(rows).toEqual([]);
+	});
+
+	it('listThoughtsForTextFile returns linked thought snippets', async () => {
+		let selectCall = 0;
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => {
+				selectCall += 1;
+				if (selectCall === 1) {
+					return {
+						from: vi.fn(() => ({
+							where: vi.fn(() => ({
+								limit: vi.fn(async () => [{ id: 'f1' }])
+							}))
+						}))
+					};
+				}
+				return {
+					from: vi.fn(() => ({
+						innerJoin: vi.fn(() => ({
+							where: vi.fn(() => ({
+								orderBy: vi.fn(async () => [
+									{ id: 't1', normalizedText: 'Buy groceries' }
+								])
+							}))
+						}))
+					}))
+				};
+			})
+		});
+
+		const rows = await listThoughtsForTextFile('u1', 'f1');
+		expect(rows).toEqual([{ id: 't1', normalizedText: 'Buy groceries' }]);
 	});
 
 	it('searchTextFiles returns empty for blank query tokens', async () => {

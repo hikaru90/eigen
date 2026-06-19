@@ -54,11 +54,10 @@
   import { subscribeCaptureQueue } from "$lib/capture/queue";
   import { pollGraphEnrichRefresh } from "$lib/graph/poll-graph-enrich-refresh";
   import EmbeddingMap from "./EmbeddingMap.svelte";
-  import TemporalEvents from "./TemporalEvents.svelte";
   import GraphFiltersToolbar from "./graph-filters-toolbar.svelte";
   import GraphEntityKindsLegend from "./graph-entity-kinds-legend.svelte";
+  import ThoughtLinkedNotes from "$lib/components/thought-linked-notes.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
-  import type { TemporalEventListItem } from "../api/temporal-events/+server";
   import {
     GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE,
     graphEntitySyncStatusMessage,
@@ -84,22 +83,13 @@
     },
   };
 
-  /** Which tab is visible: graph, embedding map, or temporal events timeline. */
-  let activeTab = $state<"graph" | "embeddings" | "temporal">("graph");
+  /** Which tab is visible: graph or embedding map. */
+  let activeTab = $state<"graph" | "embeddings">("graph");
   /** Mount embedding map only after first visit so projection runs in a sized panel. */
   let embeddingsTabOpened = $state(false);
-  let selectedTemporalId = $state<string | null>(null);
-  const initialTemporalEventId = $derived(page.url.searchParams.get("event"));
 
   $effect(() => {
     if (activeTab === "embeddings") embeddingsTabOpened = true;
-  });
-
-  onMount(() => {
-    const tab = page.url.searchParams.get("tab");
-    if (tab === "temporal") activeTab = "temporal";
-    const eventId = page.url.searchParams.get("event");
-    if (eventId) selectedTemporalId = eventId;
   });
 
   const legendSections = $derived(data.graphLegendSections ?? []);
@@ -141,8 +131,7 @@
   });
 
   $effect(() => {
-    nodeDrawerOpen =
-      (selectedNode !== null || selectedCommunity !== null) && activeTab !== "temporal";
+    nodeDrawerOpen = selectedNode !== null || selectedCommunity !== null;
   });
 
   function onNodeDrawerOpenChange(open: boolean) {
@@ -158,19 +147,8 @@
       selectedNode = null;
       return;
     }
-    selectedTemporalId = null;
     selectedNode = { id: item.id, kind: item.kind, label: item.label, subtype: item.subtype };
   }
-
-  function handleTemporalSelect(item: TemporalEventListItem | null) {
-    selectedTemporalId = item?.id ?? null;
-    if (item) selectedNode = null;
-  }
-
-  $effect(() => {
-    if (activeTab === "temporal") return;
-    selectedTemporalId = null;
-  });
 
   let thoughtEditorLoadSeq = 0;
   let thoughtEditorLoading = $state(false);
@@ -253,6 +231,7 @@
           rawText: row.rawText,
           normalizedText: row.normalizedText,
           category: row.category,
+          attachedFiles: row.attachedFiles ?? [],
         };
       } catch (e) {
         if (seq !== thoughtEditorLoadSeq) return;
@@ -265,6 +244,18 @@
 
   $effect(() => {
     const n = selectedNode;
+    if (n?.kind === "Thought") {
+      editingThoughtId = n.id;
+      entityEditorDraft = "";
+      entityEditorEntityType = "";
+      entityEditorErr = null;
+      entityEditorStored = null;
+      entityEditorLoading = false;
+      entityCaptures = [];
+      entityCapturesErr = null;
+      entityCapturesLoading = false;
+      return;
+    }
     editingThoughtId = null;
     if (!n || n.kind !== "Entity") {
       entityEditorDraft = "";
@@ -661,6 +652,21 @@
   });
 
   onMount(() => {
+    const thoughtId = page.url.searchParams.get("thought")?.trim();
+    if (thoughtId) {
+      const hit = data.snapshot.nodes.find(
+        (node) => node.id === thoughtId && node.kind === "Thought",
+      );
+      selectedNode =
+        hit ??
+        ({
+          id: thoughtId,
+          kind: "Thought",
+          label: thoughtId,
+          subtype: "",
+        } as (typeof data.snapshot.nodes)[number]);
+    }
+
     const enrichPollCancel = pollGraphEnrichRefresh({
       onEnrichComplete: () => refreshGraphAfterEnrichment(),
     });
@@ -1154,7 +1160,6 @@
         const prev = selectedNode;
         const hit = vizCtx.snapshot.nodes.find((n) => n.id === d.id && n.kind === "Entity");
         selectedNode = hit ?? null;
-        if (hit) selectedTemporalId = null;
         if (hit) {
           if (!prev) {
             const svgEl = svg.node();
@@ -1476,12 +1481,6 @@
           >
             {m.graph_tab_embeddings()}
           </Tabs.Trigger>
-          <Tabs.Trigger
-            value="temporal"
-            class="!h-full !rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
-          >
-            {m.graph_tab_timeline()}
-          </Tabs.Trigger>
         </Tabs.List>
       </div>
       <Card.Content class="flex h-full min-h-0 flex-1 flex-col p-0">
@@ -1538,22 +1537,6 @@
             />
           {/if}
         </Tabs.Content>
-        <Tabs.Content
-          value="temporal"
-          class="relative h-full min-h-0 flex-1 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
-        >
-          <TemporalEvents
-            visible={activeTab === "temporal"}
-            onSelectItem={handleTemporalSelect}
-            selectedItemId={selectedTemporalId}
-            initialEventId={initialTemporalEventId}
-            userTimeZone={data.preferredTimezone}
-            userName={data.user.name}
-            eventNotificationsEnabled={data.eventNotificationsEnabled}
-            eventReminderLeadMinutes={data.eventReminderLeadMinutes}
-            eventReminderKinds={data.eventReminderKinds}
-          />
-        </Tabs.Content>
       </Card.Content>
     </Tabs.Root>
   </Card.Root>
@@ -1566,7 +1549,7 @@
     <Drawer.Content
       class="border-border max-h-[min(92dvh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!"
     >
-      {#if selectedCommunity && activeTab !== "temporal"}
+      {#if selectedCommunity}
         <Drawer.Description class="sr-only">{m.graph_drawer_community_sr()}</Drawer.Description>
         <div
           class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10"
@@ -1639,7 +1622,7 @@
             </div>
           {/if}
         </div>
-      {:else if selectedNode && activeTab !== "temporal"}
+      {:else if selectedNode}
         <Drawer.Description class="sr-only">{m.graph_drawer_node_sr()}</Drawer.Description>
         <div
           class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-10"
@@ -1712,6 +1695,7 @@
               </ul>
             </div>
           {/if}
+          {#if selectedNode.kind === "Entity"}
           <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
             <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
               {m.graph_drawer_edit()}
@@ -1845,7 +1829,7 @@
                 {:else if entityCaptures.length === 0}
                   <p class="text-muted-foreground text-xs">{m.graph_no_linked_captures()}</p>
                 {:else}
-                  <ul class="max-h-40 space-y-2 overflow-y-auto">
+                  <ul class="max-h-48 space-y-2 overflow-y-auto">
                     {#each entityCaptures as cap (cap.id)}
                       <li class="rounded-md border border-black/5 p-2 dark:border-white/10">
                         <p class="text-foreground line-clamp-2 text-xs">{cap.rawText}</p>
@@ -1866,12 +1850,17 @@
                             {editingThoughtId === cap.id ? m.graph_editing() : m.graph_edit()}
                           </Button>
                         </div>
+                        <ThoughtLinkedNotes files={cap.attachedFiles ?? []} compact />
                       </li>
                     {/each}
                   </ul>
                 {/if}
               </div>
-              {#if editingThoughtId}
+            {/if}
+          </div>
+          {/if}
+
+          {#if editingThoughtId}
                 <div class="mt-4 border-t border-black/5 pt-3 dark:border-white/10">
                   <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
                     {m.graph_edit_capture()}
@@ -1885,6 +1874,11 @@
                     {#if thoughtEditorErr}
                       <p class="text-destructive text-xs">{thoughtEditorErr}</p>
                     {/if}
+                    {#if selectedNode?.kind === "Thought" && thoughtEditorStored}
+                      <p class="text-foreground mb-3 whitespace-pre-wrap text-xs">
+                        {thoughtEditorStored.normalizedText}
+                      </p>
+                    {/if}
                     <div class="space-y-2">
                       <Label for="graph-thought-body" class="text-xs">{m.graph_raw_text()}</Label>
                       <Textarea
@@ -1897,6 +1891,7 @@
                           thoughtEditorDeleteBusy}
                       />
                     </div>
+                    <ThoughtLinkedNotes files={thoughtEditorStored?.attachedFiles ?? []} />
                     <div class="mt-3 flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -1927,6 +1922,7 @@
                         {/if}
                         {m.graph_rearrange_in_graph()}
                       </Button>
+                      {#if selectedNode?.kind === "Entity"}
                       <Button
                         type="button"
                         size="sm"
@@ -1938,6 +1934,7 @@
                       >
                         {m.graph_cancel()}
                       </Button>
+                      {/if}
                     </div>
                     <div class="border-destructive/25 mt-3 border-t pt-3">
                       <Button
@@ -1955,8 +1952,6 @@
                   {/if}
                 </div>
               {/if}
-            {/if}
-          </div>
         </div>
       {/if}
     </Drawer.Content>

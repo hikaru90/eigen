@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
+import { canonicalEntity, projectProfile, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
 import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
 import type {
 	TemporalEnergyLevel,
@@ -101,13 +101,14 @@ async function loadProjectLabelsByThoughtId(
 		})
 		.from(thoughtEntity)
 		.innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
-		.where(
+		.innerJoin(
+			projectProfile,
 			and(
-				eq(thoughtEntity.userId, userId),
-				inArray(thoughtEntity.thoughtId, thoughtIds),
-				eq(canonicalEntity.entityType, 'project')
+				eq(projectProfile.projectEntityId, canonicalEntity.id),
+				eq(projectProfile.userId, userId)
 			)
 		)
+		.where(and(eq(thoughtEntity.userId, userId), inArray(thoughtEntity.thoughtId, thoughtIds)))
 		.orderBy(desc(thoughtEntity.salience));
 
 	const map = new Map<string, string>();

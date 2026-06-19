@@ -9,10 +9,6 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 	llmChatCompletion: llmChatCompletionMock
 }));
 
-vi.mock('$lib/server/grounding/profile', () => ({
-	loadGroundingProfileForEnrichment: vi.fn(async () => null)
-}));
-
 vi.mock('$lib/server/memory/project-next-action', () => ({
 	linkThoughtToProject: vi.fn(async () => undefined),
 	designateNextAction: vi.fn(async () => undefined)

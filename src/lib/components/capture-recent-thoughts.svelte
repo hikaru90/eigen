@@ -18,6 +18,10 @@
 		recentThoughtPrimaryLabel,
 		recentThoughtSecondaryLabel
 	} from '$lib/capture/recent-thought-display';
+	import {
+		captureIndexingListStatus,
+		captureIndexingRetryEligible
+	} from '$lib/capture/capture-indexing-status';
 
 	let {
 		thoughts,
@@ -62,6 +66,7 @@
 		onRetry: (thoughtId: string) => void;
 		onAttach?: (thoughtId: string) => void;
 		onUnlinkFile?: (thoughtId: string, fileId: string) => void;
+		onNoteUpdated?: (thoughtId: string) => void | Promise<void>;
 		onEditRequestChange: (value: string) => void;
 		onSubmitEdit: () => void;
 		onCancelEdit: () => void;
@@ -110,17 +115,7 @@
 		thoughtId: string,
 		detail: CaptureSubmitResult | undefined
 	): { label: string; spinning: boolean; failed: boolean } | null {
-		if (detail?.queueStatus === 'failed') {
-			return { label: 'Indexing failed', spinning: false, failed: true };
-		}
-		if (detail?.queueStatus === 'pending') {
-			return { label: 'Waiting to index', spinning: false, failed: false };
-		}
-		if (detail?.queueStatus === 'processing') {
-			return { label: 'Indexing now', spinning: true, failed: false };
-		}
-		if (!enrichingThoughtIds.has(thoughtId)) return null;
-		return { label: 'Indexing in background', spinning: true, failed: false };
+		return captureIndexingListStatus(detail, enrichingThoughtIds.has(thoughtId));
 	}
 
 	function showRetryAction(
@@ -128,10 +123,7 @@
 		detail: CaptureSubmitResult | undefined,
 		enrichStatus: ReturnType<typeof enrichListStatus>
 	): boolean {
-		if (detail?.queueStatus === 'failed') return true;
-		if (detail?.queueStatus === 'pending' || detail?.queueStatus === 'processing') return true;
-		if (!enrichStatus) return false;
-		return !detail?.enrichmentComplete;
+		return captureIndexingRetryEligible(detail, enrichStatus);
 	}
 
 	const tabEntryClass =
@@ -272,6 +264,9 @@
 									embedded
 									onUnlinkFile={
 										onUnlinkFile ? (fileId) => onUnlinkFile(snippet.id, fileId) : undefined
+									}
+									onNoteUpdated={
+										onNoteUpdated ? () => onNoteUpdated(snippet.id) : undefined
 									}
 								/>
 								{#if onAttach}

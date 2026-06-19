@@ -48,6 +48,14 @@ vi.mock('$lib/server/llm/embedding', () => ({
 	)
 }));
 
+vi.mock('$lib/server/memory/project-list', () => ({
+	loadEligibleGtdProjects: vi.fn(async () => [])
+}));
+
+vi.mock('$lib/server/memory/promote-eligible-project-hubs', () => ({
+	evaluateHubsForGtdPromotion: vi.fn(async () => 0)
+}));
+
 describe('syncEntityGraphFromThought precomputed path', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();

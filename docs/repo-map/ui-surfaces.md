@@ -4,7 +4,7 @@
 
 ## CompetingSystems
 
-- **Demo routes vs product:** [`src/routes/demo/`](../../src/routes/demo/) contains Paraglide and Playwright demos — not the memory product surface. Prefer [`capture`](../../src/routes/capture/), [`graph`](../../src/routes/graph/), [`chat`](../../src/routes/chat/), [`activity`](../../src/routes/activity/), [`settings`](../../src/routes/settings/) for product behavior.
+- **Demo routes vs product:** [`src/routes/demo/`](../../src/routes/demo/) contains Paraglide and Playwright demos — not the memory product surface. Prefer [`capture`](../../src/routes/capture/), [`graph`](../../src/routes/graph/), [`timeline`](../../src/routes/timeline/), [`notes`](../../src/routes/notes/), [`chat`](../../src/routes/chat/), [`activity`](../../src/routes/activity/), [`settings`](../../src/routes/settings/) for product behavior.
 
 ## Route map (high level)
 
@@ -12,7 +12,9 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 
 - **[`/`](../../src/routes/+page.svelte)** — Landing / home. Load: [`+page.server.ts`](../../src/routes/+page.server.ts).
 - **`/capture`** — Primary thought capture and post-capture edit UI. **New submits** use the client capture queue ([capture-queue.md](./capture-queue.md)); **edits** `fetch` `/api/capture/edit`. Load: [`capture/+page.server.ts`](../../src/routes/capture/+page.server.ts).
-- **`/graph`** — Graph visualization and ontology admin actions. Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (AGE graph snapshot, ontology legend, community overlays with multi-level semantics).
+- **`/graph`** — Force-directed graph visualization and embedding map (two in-page tabs). Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (AGE graph snapshot, ontology legend, community overlays). Legacy `/graph?tab=temporal` redirects to `/timeline`.
+- **`/timeline`** — GTD timeline (today, projects, review, agenda, etc.). Load: [`timeline/+page.server.ts`](../../src/routes/timeline/+page.server.ts) (timezone and event-notification prefs). UI components live under [`src/routes/timeline/`](../../src/routes/timeline/).
+- **`/notes`** — User text-note library (list, search, create, edit, delete). Load: [`notes/+page.server.ts`](../../src/routes/notes/+page.server.ts) (auth only; data via `/api/text-files`).
 - **`/chat`** — Memory assistant UI (default: `answer_question`; completion reports search via `retrieve_thoughts` then `edit_thought`/`delete_thought`; full MCP tool surface) backed by [`/api/chat`](../../src/routes/api/chat/+server.ts) and session routes.
 - **`/activity`** — Usage / activity views. Load: [`activity/+page.server.ts`](../../src/routes/activity/+page.server.ts).
 - **`/settings`** — User settings (language, theme, LLM provider, **push notifications**). Load: [`settings/+page.server.ts`](../../src/routes/settings/+page.server.ts).

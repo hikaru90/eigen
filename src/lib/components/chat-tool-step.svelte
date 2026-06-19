@@ -88,7 +88,7 @@
           <p class="text-sm text-muted-foreground">No matching memories.</p>
         {:else}
           <ul class="flex flex-col gap-2.5 list-none m-0 p-0">
-            {#each resultView.hits as hit, i (hit.id ?? `${i}:${hit.text}`)}
+      {#each resultView.hits as hit, i (`${i}:${hit.id ?? hit.text}`)}
               <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} />
             {/each}
           </ul>

@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-	runCaptureGroundingTool,
 	runCaptureThoughtTool,
-	runCompleteGroundingSessionTool,
 	runCreateTextFileTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
@@ -20,9 +18,8 @@ const {
 	deleteThoughtForUserMock,
 	getDbSelectMock,
 	loadTemporalContextByThoughtIdsMock,
-	mergeGroundingFacetsMock,
-	completeGroundingSessionMock,
-	createTextFileMock
+	createTextFileMock,
+	searchTextFilesMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	composeAnswerMock: vi.fn(),
@@ -32,9 +29,8 @@ const {
 	deleteThoughtForUserMock: vi.fn(),
 	getDbSelectMock: vi.fn(),
 	loadTemporalContextByThoughtIdsMock: vi.fn(),
-	mergeGroundingFacetsMock: vi.fn(),
-	completeGroundingSessionMock: vi.fn(),
-	createTextFileMock: vi.fn()
+	createTextFileMock: vi.fn(),
+	searchTextFilesMock: vi.fn()
 }));
 
 vi.mock('$lib/server/memory/temporal-context', () => ({
@@ -75,13 +71,9 @@ vi.mock('$lib/server/db', () => ({
 	})
 }));
 
-vi.mock('$lib/server/grounding/profile', () => ({
-	mergeGroundingFacets: mergeGroundingFacetsMock,
-	completeGroundingSession: completeGroundingSessionMock
-}));
-
 vi.mock('$lib/server/text-files/service', () => ({
-	createTextFile: createTextFileMock
+	createTextFile: createTextFileMock,
+	searchTextFiles: searchTextFilesMock
 }));
 
 function mockThoughtRow(row: Record<string, unknown> | null) {
@@ -98,6 +90,7 @@ describe('MCP tools', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map());
+		searchTextFilesMock.mockResolvedValue([]);
 	});
 
 	it('rejects invalid search threshold', async () => {
@@ -352,39 +345,6 @@ describe('MCP tools', () => {
 			expect.objectContaining({ userId: 'u1', question: 'what is X?' })
 		);
 		expect(out.answer).toBe('Some answer.');
-	});
-
-	it('runCaptureGroundingTool persists facets', async () => {
-		mergeGroundingFacetsMock.mockResolvedValue({
-			narrativeSummary: 'Portrait',
-			facets: { work: 'Engineer' },
-			initialCompletedAt: null,
-			lastSessionAt: null,
-			sessionCount: 0
-		});
-		const out = await runCaptureGroundingTool(
-			{ userId: 'u1' },
-			{ facets: [{ key: 'work', content: 'Engineer' }] }
-		);
-		expect(mergeGroundingFacetsMock).toHaveBeenCalled();
-		expect(out).toMatchObject({ ok: true, facetCount: 1, suggestComplete: false });
-		expect(out).not.toHaveProperty('embedding');
-	});
-
-	it('runCompleteGroundingSessionTool completes session', async () => {
-		completeGroundingSessionMock.mockResolvedValue({
-			initialCompleted: true,
-			redirectTo: '/capture',
-			snapshot: { facets: { work: 'Engineer' }, sessionCount: 1 }
-		});
-		const out = await runCompleteGroundingSessionTool(
-			{ userId: 'u1' },
-			{ synthesis: 'You are an engineer.' }
-		);
-		expect(completeGroundingSessionMock).toHaveBeenCalledWith(
-			expect.objectContaining({ userId: 'u1', synthesis: 'You are an engineer.' })
-		);
-		expect(out).toMatchObject({ ok: true, initialCompleted: true, redirectTo: '/capture' });
 	});
 
 	it('runCreateTextFileTool returns sanitized payload without embedding', async () => {

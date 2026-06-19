@@ -339,7 +339,7 @@
 			</div>
 			<div>
 				<h2 class="text-sm font-semibold">Appearance</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Theme, language, onboarding, and grounding.</p>
+				<p class="text-muted-foreground mt-0.5 text-xs">Theme, language, and onboarding.</p>
 			</div>
 		</div>
 
@@ -414,20 +414,6 @@
 						<p class="text-destructive text-xs">{form.onboardingMessage}</p>
 					{/if}
 				</form>
-			</Card.Content>
-		</Card.Root>
-
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Grounding profile</Card.Title>
-				<Card.Description>
-					View or update the self-knowledge Eigen uses to classify your thoughts.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<Button href="/settings/grounding" variant="outline" size="sm" class="rounded-[4px]">
-					Manage grounding profile
-				</Button>
 			</Card.Content>
 		</Card.Root>
 		</Tabs.Content>

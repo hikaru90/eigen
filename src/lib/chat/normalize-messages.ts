@@ -1,4 +1,4 @@
-import { looksLikeRawToolJson, parseFinalAnswerText } from './chat-stream-types';
+import { looksLikeRawToolJson, parseFinalAnswerText, toolLabel } from './chat-stream-types';
 
 export type ChatToolCallEntry = {
 	role: 'assistant';
@@ -38,6 +38,8 @@ export type ChatTimelineEntry = {
 	/** Raw tool_result JSON for evidence rendering. */
 	content?: string;
 	failed?: boolean;
+	/** When a matching final text bubble follows, hide duplicate prose here. */
+	hideProse?: boolean;
 };
 
 export type ChatDisplayEntry =
@@ -105,6 +107,79 @@ function hasTimelineEntries(entries: ChatDisplayEntry[]): boolean {
 	return entries.some((e) => e.role === 'assistant' && e.variant === 'timeline');
 }
 
+const TOOL_RUN_TIMELINE_KINDS = new Set<ChatTimelineKind>([
+	'tool_call',
+	'tool_executing',
+	'tool_progress',
+	'tool_result'
+]);
+
+/** One visible row per tool run — avoids a flash of separate call/execute/progress/result lines. */
+export function collapseToolTimelineSteps(entries: ChatDisplayEntry[]): ChatDisplayEntry[] {
+	const out: ChatDisplayEntry[] = [];
+	let i = 0;
+	while (i < entries.length) {
+		const entry = entries[i]!;
+		if (
+			entry.role !== 'assistant' ||
+			entry.variant !== 'timeline' ||
+			!entry.tool ||
+			!TOOL_RUN_TIMELINE_KINDS.has(entry.kind)
+		) {
+			out.push(entry);
+			i += 1;
+			continue;
+		}
+
+		const tool = entry.tool;
+		let j = i;
+		while (j + 1 < entries.length) {
+			const next = entries[j + 1];
+			if (
+				next?.role === 'assistant' &&
+				next.variant === 'timeline' &&
+				next.tool === tool &&
+				TOOL_RUN_TIMELINE_KINDS.has(next.kind)
+			) {
+				j += 1;
+			} else {
+				break;
+			}
+		}
+
+		const slice = entries.slice(i, j + 1) as ChatTimelineEntry[];
+		const result = slice.find((e) => e.kind === 'tool_result');
+		const toolCall = slice.find((e) => e.kind === 'tool_call');
+		const latestProgress = [...slice]
+			.reverse()
+			.find((e) => e.kind === 'tool_progress' || e.kind === 'tool_executing');
+
+		if (result) {
+			out.push({
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_result',
+				tool,
+				label: toolLabel(tool),
+				content: result.content,
+				failed: result.failed,
+				arguments: toolCall?.arguments
+			});
+		} else {
+			out.push({
+				role: 'assistant',
+				variant: 'timeline',
+				kind: 'tool_progress',
+				tool,
+				label: latestProgress?.label ?? toolLabel(tool),
+				arguments: toolCall?.arguments
+			});
+		}
+		i = j + 1;
+	}
+	return out;
+}
+
 /** Collapse duplicate tool cards and drop redundant final text after Q&A compose. */
 export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEntry[] {
 	if (hasTimelineEntries(entries)) {
@@ -121,8 +196,10 @@ export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEn
 			);
 		});
 
+		const collapsed = collapseToolTimelineSteps(filtered);
+
 		const out: ChatDisplayEntry[] = [];
-		for (const entry of filtered) {
+		for (const entry of collapsed) {
 			const prev = out.at(-1);
 			if (
 				entry.role === 'assistant' &&
@@ -135,6 +212,8 @@ export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEn
 				normalizeAnswerText(parseFinalAnswerText('', prev.content)) ===
 					normalizeAnswerText(entry.content)
 			) {
+				out[out.length - 1] = { ...prev, hideProse: true };
+				out.push(entry);
 				continue;
 			}
 			out.push(entry);

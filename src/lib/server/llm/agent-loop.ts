@@ -4,8 +4,6 @@ import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-provi
 import { getDb } from '$lib/server/db';
 import {
 	buildAgentToolDescriptionBlock,
-	buildGroundingAgentToolDescriptionBlock,
-	GROUNDING_TOOL_NAMES,
 	isMcpExposedTool,
 	MCP_TOOL_DEFINITIONS,
 	MCP_TOOL_MAP,
@@ -43,50 +41,6 @@ const DELETE_NOT_FOUND_RESPONSE =
 	'I could not find a stored thought matching your delete request, so nothing was deleted.';
 
 const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock();
-const GROUNDING_TOOL_DESCRIPTION_BLOCK = buildGroundingAgentToolDescriptionBlock();
-
-const GROUNDING_SYSTEM_PROMPT = [
-	'You are a warm, thoughtful interviewer helping a new user of a personal memory app understand themselves.',
-	'Your goal is to learn who they are: identity, work, values, relationships, psychology, daily routines, and active projects.',
-	'Ask one question at a time. Follow up naturally on their answers — this is a conversation, not a form.',
-	'For projects (GTD): ask what they are actively working on, the desired outcome, and the concrete next action for each project.',
-	'',
-	'Per user message — strict workflow:',
-	'1. If they shared personal context: ONE capture_grounding call with every relevant facet in a single facets array.',
-	'2. Then respond with {"answer": "<warm reply and optional next question>"} — never chain multiple capture_grounding calls in one turn.',
-	'3. When 4+ distinct facet areas are saved: call complete_grounding_session, then {"answer": "<brief closing>"}.',
-	'',
-	'Facet keys: identity, work, values, relationships, psychology, routines, projects.',
-	'Grounding data stays private to this user and improves how their thoughts are classified.',
-	'',
-	'Respond with JSON only. To call a tool:',
-	'{"tool": "<tool_name>", "arguments": {<args>}}',
-	'To speak to the user (required after every capture_grounding, and for opening questions):',
-	'{"answer": "<your message>"}',
-	'',
-	'=== AVAILABLE TOOLS ===',
-	GROUNDING_TOOL_DESCRIPTION_BLOCK,
-	'',
-	'=== RULES ===',
-	'- Only use capture_grounding and complete_grounding_session.',
-	'- At most one capture_grounding per user message.',
-	'- Never invent facts the user did not share.',
-	'- Output ONLY the JSON object.'
-].join('\n');
-
-function buildGroundingCaptureFollowUp(tool: string, result: unknown): string {
-	const compact = formatToolResultForAgentMessage(tool, result);
-	const obj = result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
-	const facetCount = typeof obj.facetCount === 'number' ? obj.facetCount : 0;
-	const suggestComplete = obj.suggestComplete === true;
-	let text = `Tool result for ${tool}:\n${compact}\n\n`;
-	text += `Saved ${facetCount} facet area(s). You MUST respond with {"answer": "<your reply>"} now — do NOT call capture_grounding again until the user sends another message.`;
-	if (suggestComplete) {
-		text +=
-			' Enough facets are saved — on your next turn you may call complete_grounding_session if the conversation feels complete.';
-	}
-	return text;
-}
 
 /** Slim prompt for multi-step agent iterations only (router handles first-hop tool choice). */
 const AGENT_SYSTEM_PROMPT = [
@@ -399,9 +353,8 @@ async function executeAgentToolCall(input: {
 	tool: string;
 	arguments: Record<string, unknown>;
 	exec: ToolExecutionContext;
-	allowInternalTools?: boolean;
 }): Promise<{ done: true; response: string; messages?: ChatMessage[] } | { done: false; result: unknown; assistantContent: string }> {
-	const { tool, exec, allowInternalTools = false } = input;
+	const { tool, exec } = input;
 	const args = normalizeAgentToolArgs(tool, input.arguments);
 
 	if (
@@ -414,8 +367,7 @@ async function executeAgentToolCall(input: {
 	}
 
 	const handler = MCP_TOOL_MAP.get(tool);
-	const groundingTool = (GROUNDING_TOOL_NAMES as readonly string[]).includes(tool);
-	const allowed = isMcpExposedTool(tool) || (allowInternalTools && groundingTool);
+	const allowed = isMcpExposedTool(tool);
 	if (!handler || !allowed) {
 		return {
 			done: false,
@@ -460,20 +412,6 @@ async function executeAgentToolCall(input: {
 			return {
 				done: true,
 				response: formatComposedAnswerForUser((result as ComposedAnswer).answer)
-			};
-		}
-
-		if (
-			tool === 'complete_grounding_session' &&
-			result &&
-			typeof result === 'object' &&
-			'redirectTo' in result
-		) {
-			const r = result as { redirectTo?: string; initialCompleted?: boolean };
-			const redirect = typeof r.redirectTo === 'string' ? r.redirectTo : '/capture';
-			return {
-				done: true,
-				response: `Grounding complete. You can start capturing thoughts at ${redirect}.`
 			};
 		}
 	} catch (err) {
@@ -568,121 +506,6 @@ async function runSingleToolPath(input: {
 	};
 }
 
-async function runGroundingAgentLoop(input: {
-	userId: string;
-	messages: ChatMessage[];
-	onEvent?: (event: ChatStreamEvent) => void;
-	db?: ReturnType<typeof getDb>;
-}): Promise<AgentChatResult> {
-	const ctx: McpToolContext = {
-		userId: input.userId,
-		onToolProgress: (event) => {
-			input.onEvent?.({
-				type: 'tool_progress',
-				tool: event.tool,
-				phase: event.phase,
-				label: event.label
-			});
-		}
-	};
-
-	const exec: ToolExecutionContext = {
-		userId: input.userId,
-		ctx,
-		deleteIntent: false,
-		deleteRequest: '',
-		onEvent: input.onEvent,
-		db: input.db
-	};
-
-	const messages: ChatMessage[] = [
-		{ role: 'system', content: GROUNDING_SYSTEM_PROMPT },
-		...input.messages
-	];
-
-	let groundingCapturedThisTurn = false;
-
-	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-		input.onEvent?.({
-			type: 'agent_progress',
-			label: iteration === 0 ? 'Starting conversation…' : 'Listening…'
-		});
-
-		const raw = await llmChatCompletion({
-			userId: input.userId,
-			messages,
-			temperature: 0.3,
-			logContext: `grounding_iter_${iteration}`
-		});
-
-		const response = raw as { choices?: Array<{ message?: { content?: string } }> };
-		const content = response?.choices?.[0]?.message?.content?.trim() ?? '';
-		if (!content) {
-			return { response: 'The assistant did not produce a response.', messages };
-		}
-
-		const parsed = parseResponse(content);
-		if (parsed.thinking) {
-			input.onEvent?.({ type: 'thinking', content: parsed.thinking });
-		}
-
-		if (parsed.type === 'tool_call') {
-			if (!(GROUNDING_TOOL_NAMES as readonly string[]).includes(parsed.tool)) {
-				messages.push({ role: 'assistant', content });
-				messages.push({
-					role: 'user',
-					content: `Error: tool "${parsed.tool}" is not available in grounding mode. Use: ${GROUNDING_TOOL_NAMES.join(', ')}`
-				});
-				continue;
-			}
-
-			if (parsed.tool === 'capture_grounding' && groundingCapturedThisTurn) {
-				messages.push({ role: 'assistant', content });
-				messages.push({
-					role: 'user',
-					content:
-						'capture_grounding was already called for this user message. Respond with JSON only: {"answer": "<your conversational reply or next question>"}. Do not call capture_grounding again until the user replies.'
-				});
-				continue;
-			}
-
-			const outcome = await executeAgentToolCall({
-				tool: parsed.tool,
-				arguments: parsed.arguments,
-				exec: { ...exec, assistantContentForHistory: content },
-				allowInternalTools: true
-			});
-
-			if (outcome.done) {
-				messages.push({ role: 'assistant', content });
-				return { response: outcome.response, messages };
-			}
-
-			if (parsed.tool === 'capture_grounding') {
-				groundingCapturedThisTurn = true;
-			}
-
-			messages.push({ role: 'assistant', content });
-			messages.push({
-				role: 'user',
-				content:
-					parsed.tool === 'capture_grounding'
-						? buildGroundingCaptureFollowUp(parsed.tool, outcome.result)
-						: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\nContinue the conversation or call complete_grounding_session when ready.`
-			});
-			continue;
-		}
-
-		messages.push({ role: 'assistant', content });
-		return { response: parsed.content, messages };
-	}
-
-	return {
-		response: 'The grounding conversation took too many steps. Please try again.',
-		messages
-	};
-}
-
 export async function agentChat(input: {
 	userId: string;
 	messages: ChatMessage[];
@@ -690,10 +513,6 @@ export async function agentChat(input: {
 	db?: ReturnType<typeof getDb>;
 	mode?: ChatSessionMode;
 }): Promise<AgentChatResult> {
-	if (input.mode === 'grounding') {
-		return runGroundingAgentLoop(input);
-	}
-
 	const ctx: McpToolContext = {
 		userId: input.userId,
 		onToolProgress: (event) => {

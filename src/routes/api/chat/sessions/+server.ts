@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDb } from '$lib/server/db';
 import { chatSession, chatMessage } from '$lib/server/db/brain.schema';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, sql, and } from 'drizzle-orm';
 
 export const GET: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -36,7 +36,7 @@ export const GET: RequestHandler = async (event) => {
 		})
 		.from(chatSession)
 		.leftJoin(chatMessage, eq(chatMessage.sessionId, chatSession.id))
-		.where(eq(chatSession.userId, user.id))
+		.where(and(eq(chatSession.userId, user.id), eq(chatSession.mode, 'default')))
 		.groupBy(chatSession.id)
 		.orderBy(desc(chatSession.updatedAt))
 		.limit(50);

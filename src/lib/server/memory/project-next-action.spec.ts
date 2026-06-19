@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearNextActionIfCompleted, designateNextAction } from './project-next-action';
 
-const { getDbMock, upsertMentionEdgeMock, ensureProjectProfileMock } = vi.hoisted(() => ({
+const { getDbMock, upsertMentionEdgeMock } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
-	upsertMentionEdgeMock: vi.fn(async () => undefined),
-	ensureProjectProfileMock: vi.fn(async () => undefined)
+	upsertMentionEdgeMock: vi.fn(async () => undefined)
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -13,10 +12,6 @@ vi.mock('$lib/server/db', () => ({
 
 vi.mock('$lib/server/graph/age', () => ({
 	upsertMentionEdge: upsertMentionEdgeMock
-}));
-
-vi.mock('$lib/server/memory/project-list', () => ({
-	ensureProjectProfile: ensureProjectProfileMock
 }));
 
 function makeLimitChain(rows: unknown[]) {
@@ -31,9 +26,9 @@ function makeLimitChain(rows: unknown[]) {
 describe('project-next-action', () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it('designateNextAction links thought to project', async () => {
+	it('designateNextAction links thought to GTD project profile', async () => {
 		getDbMock.mockReturnValue({
-			select: vi.fn().mockReturnValue(makeLimitChain([{ id: 'project-1' }])),
+			select: vi.fn().mockReturnValue(makeLimitChain([{ projectEntityId: 'project-1' }])),
 			insert: vi.fn(() => ({
 				values: vi.fn(() => ({
 					onConflictDoNothing: vi.fn(async () => undefined),
@@ -43,7 +38,6 @@ describe('project-next-action', () => {
 		});
 
 		await designateNextAction('u1', 'project-1', 'thought-1');
-		expect(ensureProjectProfileMock).toHaveBeenCalledWith('u1', 'project-1', 'active');
 		expect(upsertMentionEdgeMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			thoughtId: 'thought-1',

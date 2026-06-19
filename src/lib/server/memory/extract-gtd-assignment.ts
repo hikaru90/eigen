@@ -1,9 +1,7 @@
-import { and, eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
-import { canonicalEntity, projectProfile, type ProjectStatus } from '$lib/server/db/schema';
-import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile';
+import { type ProjectStatus } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
 import {
 	designateNextAction,
 	linkThoughtToProject
@@ -36,27 +34,13 @@ function extractChatContent(response: unknown): string {
 	return content;
 }
 
+/** @deprecated Use loadEligibleGtdProjects from project-list. */
 export async function loadGtdProjectOptions(userId: string): Promise<GtdProjectOption[]> {
-	const rows = await getDb()
-		.select({
-			entityId: canonicalEntity.id,
-			label: canonicalEntity.label,
-			status: projectProfile.status
-		})
-		.from(canonicalEntity)
-		.leftJoin(
-			projectProfile,
-			and(
-				eq(projectProfile.projectEntityId, canonicalEntity.id),
-				eq(projectProfile.userId, userId)
-			)
-		)
-		.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.entityType, 'project')));
-
+	const rows = await loadEligibleGtdProjects(userId);
 	return rows.map((row) => ({
 		entityId: row.entityId,
 		label: row.label,
-		status: (row.status ?? 'active') as ProjectStatus
+		status: row.status
 	}));
 }
 
@@ -86,7 +70,7 @@ export async function extractGtdAssignment(input: {
 	userId: string;
 	normalizedText: string;
 	projects: GtdProjectOption[];
-	groundingProjectsFacet?: string | null;
+	graphHubHints?: Array<{ entityId: string; label: string }>;
 }): Promise<GtdAssignmentExtraction> {
 	if (input.projects.length === 0) {
 		return { projectEntityId: null, isNextAction: false };
@@ -94,6 +78,9 @@ export async function extractGtdAssignment(input: {
 
 	const projectCatalog = input.projects
 		.map((p) => `- ${p.entityId}: ${p.label} (${p.status})`)
+		.join('\n');
+	const hubHints = input.graphHubHints
+		?.map((h) => `- ${h.entityId}: ${h.label}`)
 		.join('\n');
 
 	const prompt = [
@@ -109,9 +96,7 @@ export async function extractGtdAssignment(input: {
 		'',
 		'Project catalog:',
 		projectCatalog,
-		input.groundingProjectsFacet?.trim()
-			? `\nGrounding projects context:\n${input.groundingProjectsFacet.trim()}`
-			: '',
+		hubHints ? `\nGraph hub hints for this note:\n${hubHints}` : '',
 		'',
 		`Note: ${input.normalizedText}`
 	]
@@ -142,22 +127,20 @@ export async function applyGtdAssignment(input: {
 	normalizedText: string;
 	memoryType: string | null;
 	category: string;
+	graphHubHints?: Array<{ entityId: string; label: string }>;
 }): Promise<GtdAssignmentResult | null> {
 	if (input.memoryType !== 'open_loop' && input.category !== 'task') {
 		return null;
 	}
 
-	const projects = (await loadGtdProjectOptions(input.userId)).filter((p) => p.status === 'active');
+	const projects = await loadEligibleGtdProjects(input.userId);
 	if (projects.length === 0) return null;
-
-	const grounding = await loadGroundingProfileForEnrichment(input.userId);
-	const groundingProjectsFacet = grounding?.facets.projects ?? null;
 
 	const assignment = await extractGtdAssignment({
 		userId: input.userId,
 		normalizedText: input.normalizedText,
 		projects,
-		groundingProjectsFacet
+		graphHubHints: input.graphHubHints
 	});
 
 	if (!assignment.projectEntityId) {

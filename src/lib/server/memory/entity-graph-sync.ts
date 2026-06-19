@@ -3,7 +3,9 @@ import {
 	upsertEntityRelationEdge,
 	upsertMentionEdge
 } from '$lib/server/graph/age';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { canonicalEntity } from '$lib/server/db/schema';
 import {
 	extractEntityGraphBundle,
 	extractEntityTriples,
@@ -13,9 +15,12 @@ import {
 import { resolveOrCreateCanonicalEntity, clearEntityResolutionLogsForThought } from '$lib/server/memory/entity-resolution';
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints';
-import { loadGtdProjectOptions } from '$lib/server/memory/extract-gtd-assignment';
+import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
 import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
+import { evaluateHubsForGtdPromotion } from '$lib/server/memory/promote-eligible-project-hubs';
+import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
+import { computeLexicalText } from '$lib/server/memory/lexical-text';
 
 /**
  * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → AGE graph.
@@ -31,7 +36,10 @@ export async function syncEntityGraphFromThought(input: {
 	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
 	/** Pre-fetched LLM extraction (batch ingest). Skips extractEntityGraphBundle when set. */
 	precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
-}): Promise<{ mentionCount: number }> {
+}): Promise<{
+	mentionCount: number;
+	projectLikeEntities: Array<{ entityId: string; label: string }>;
+}> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 	const loaded = await loadOntologyForUser(getDb(), input.userId);
 
@@ -58,7 +66,7 @@ export async function syncEntityGraphFromThought(input: {
 			byLabel.set(key, hint);
 		}
 		try {
-			const projectEntities = await loadGtdProjectOptions(input.userId);
+			const projectEntities = await loadEligibleGtdProjects(input.userId);
 			for (const project of projectEntities) {
 				const key = project.label.trim().toLowerCase();
 				if (!key || byLabel.has(key)) continue;
@@ -101,11 +109,12 @@ export async function syncEntityGraphFromThought(input: {
 			thoughtId: input.thoughtId,
 			textLen: input.normalizedText.trim().length
 		});
-		return { mentionCount: 0 };
+		return { mentionCount: 0, projectLikeEntities: [] };
 	}
 
 	const surfaceToEntityId = new Map<string, string>();
 	const coMentionEntityIds: string[] = [];
+	const projectLikeEntities: Array<{ entityId: string; label: string }> = [];
 
 	const uniqueSurfaces = [...new Set(mentions.map((m) => m.surface.trim()).filter(Boolean))];
 	const prefetchedEmbeddings =
@@ -118,33 +127,67 @@ export async function syncEntityGraphFromThought(input: {
 
 	for (const mention of mentions) {
 		const surfaceKey = mention.surface.trim();
-		const resolved = await resolveOrCreateCanonicalEntity({
-			userId: input.userId,
-			thoughtId: input.thoughtId,
-			surface: mention.surface,
-			entityType: mention.entityType,
-			confidence: mention.confidence,
-			coMentionEntityIds: [...coMentionEntityIds],
-			precomputedEmbedding: embeddingBySurface.get(surfaceKey)
-		});
+		let entityId: string;
+		let canonicalKey: string;
+		let entityTypeForNode = mention.entityType;
 
-		surfaceToEntityId.set(mention.surface.trim(), resolved.entityId);
-		coMentionEntityIds.push(resolved.entityId);
+		if (mention.entityType === 'project') {
+			const identity = await resolveProjectIdentity({
+				userId: input.userId,
+				surfaceLabel: mention.surface,
+				thoughtId: input.thoughtId,
+				mode: 'promote'
+			});
+			entityId = identity.entityId;
+			const [entityRow] = await getDb()
+				.select({
+					canonicalKey: canonicalEntity.canonicalKey,
+					entityType: canonicalEntity.entityType,
+					label: canonicalEntity.label
+				})
+				.from(canonicalEntity)
+				.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, entityId)))
+				.limit(1);
+			canonicalKey = entityRow?.canonicalKey ?? computeLexicalText(identity.canonicalLabel);
+			entityTypeForNode = entityRow?.entityType ?? identity.hubEntityType;
+			projectLikeEntities.push({
+				entityId,
+				label: entityRow?.label ?? identity.canonicalLabel
+			});
+		} else {
+			const resolved = await resolveOrCreateCanonicalEntity({
+				userId: input.userId,
+				thoughtId: input.thoughtId,
+				surface: mention.surface,
+				entityType: mention.entityType,
+				confidence: mention.confidence,
+				coMentionEntityIds: [...coMentionEntityIds],
+				precomputedEmbedding: embeddingBySurface.get(surfaceKey)
+			});
+			entityId = resolved.entityId;
+			canonicalKey = resolved.canonicalKey;
+		}
+
+		surfaceToEntityId.set(mention.surface.trim(), entityId);
+		coMentionEntityIds.push(entityId);
 
 		await upsertEntityNode({
-			id: resolved.entityId,
+			id: entityId,
 			userId: input.userId,
-			canonicalKey: resolved.canonicalKey,
+			canonicalKey,
 			label: mention.surface.trim(),
-			entityType: mention.entityType
+			entityType: entityTypeForNode
 		});
 
 		await upsertMentionEdge({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
-			entityId: resolved.entityId
+			entityId
 		});
 	}
+
+	const linkedEntityIds = [...new Set(surfaceToEntityId.values())];
+	await evaluateHubsForGtdPromotion(input.userId, linkedEntityIds);
 
 	await upsertEntityRelationTriples({
 		userId: input.userId,
@@ -154,7 +197,7 @@ export async function syncEntityGraphFromThought(input: {
 		triples
 	});
 
-	return { mentionCount: mentions.length };
+	return { mentionCount: mentions.length, projectLikeEntities };
 }
 
 /** Writes ENTITY_RELATES edges for extracted triples. Returns count of edges upserted. */

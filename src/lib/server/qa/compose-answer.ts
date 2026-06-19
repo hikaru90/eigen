@@ -4,8 +4,14 @@ import { thought, thoughtRelation } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { searchThoughts } from '$lib/server/retrieval/service';
-import { hasCommunitySummaries, searchGlobal, type GlobalSearchResult } from '$lib/server/retrieval/global';
+import { searchTextFiles, type TextFileSearchHit } from '$lib/server/text-files/service';
+import {
+	fetchRelevantCommunitySummaries,
+	type RelevantCommunitySummary
+} from '$lib/server/retrieval/global';
 import { classifyQueryIntent, type TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent';
+import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile';
+import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
 import {
 	mergeQuestionEntityHints,
 	shouldUseDeterministicSolverAnswer
@@ -49,9 +55,14 @@ import {
 	replaceCitationTokens
 } from '$lib/chat/citation-tokens';
 
+/** Reserved citation id for explicit user grounding profile facts in compose prompts. */
+export const GROUNDING_PROFILE_CITATION_ID = 'profile';
+
 /** Thoughts older than this threshold (in ms) are considered potentially stale. */
 const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
 const DEFAULT_COMPOSE_TOP_K = 8;
+/** Broader recall for corpus-wide questions (still uses retrieveEvidence + cited compose). */
+const GLOBAL_COMPOSE_TOP_K = 16;
 const TEMPORAL_COMPOSE_TOP_K = 18;
 const TEMPORAL_SOLVER_KINDS: TemporalQuestionKind[] = [
 	'ordering',
@@ -117,21 +128,13 @@ export type ConflictPair = {
 	description: string;
 };
 
-export type GlobalSource = {
-	communityId: string;
-	level: number;
-	summaryExcerpt: string;
-};
-
 export type ComposedAnswer = {
 	answer: string;
 	citations: string[];
 	retrieved: RetrievalContextItem[];
 	/** Contradiction pairs detected among retrieved thoughts, if any. */
 	conflicts: ConflictPair[];
-	/** Present when searchGlobal was used (AC-025). */
-	globalSources?: GlobalSource[];
-	retrievalPath?: 'local' | 'global' | 'global_fallback';
+	retrievalPath?: 'local' | 'global';
 };
 
 export type ComposeAnswerProgressPhase = 'embedding' | 'searching' | 'composing';
@@ -246,6 +249,52 @@ export function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date
 		.join('\n\n');
 }
 
+const TEXT_FILE_COMPOSE_TOP_K = 5;
+
+export function formatTextFilesForPrompt(files: TextFileSearchHit[]): string {
+	if (files.length === 0) return '';
+	return (
+		'\n\nText notes (attached documents — keyword match, no embedding):\n' +
+		files
+			.map((f) => {
+				const dateStr = f.updatedAt.slice(0, 10);
+				const title = f.title.trim() || 'Untitled note';
+				return `file=${f.id} (${title}, score=${f.lexicalScore.toFixed(3)}, updated=${dateStr})\n${f.preview}`;
+			})
+			.join('\n\n')
+	);
+}
+
+/** Non-authoritative thematic hints from consolidation (routing only — not citable evidence). */
+export function formatCommunityThemesForPrompt(themes: RelevantCommunitySummary[]): string {
+	if (themes.length === 0) return '';
+	const lines = themes.map(
+		(t, i) => `[theme-${i + 1}] (level ${t.level}) ${t.summaryText.trim()}`
+	);
+	return (
+		'\n\nMemory themes (routing hints only — NOT evidence; cite thoughts or [id=profile]):\n' +
+		lines.join('\n')
+	);
+}
+
+export function formatGroundingProfileForCompose(profileBlock: string): string {
+	if (!profileBlock.trim()) return '';
+	return (
+		`\n\n${profileBlock.trim()}\n` +
+		`Cite explicit profile facts with [id=${GROUNDING_PROFILE_CITATION_ID}].`
+	);
+}
+
+/** Deterministic answer when retrieval and profile provide no composable evidence. */
+export function insufficientMemoryAnswer(question: string): string {
+	return [
+		'Answer: Not in memory.',
+		'Evidence:',
+		'Unknown:',
+		`- ${question.trim()}`
+	].join('\n');
+}
+
 /** XXX REMOVED — person-focused question regex family and context narrowing heuristics. */
 export function thoughtTextMentionsToken(_text: string, _token: string): boolean {
 	return false;
@@ -295,7 +344,7 @@ function formatConflictsForPrompt(conflicts: ConflictPair[]): string {
 }
 
 const SYSTEM_PROMPT = [
-	'You answer the user question STRICTLY from the provided thoughts.',
+	'You answer the user question STRICTLY from the provided retrieved thoughts. When a supplementary user grounding profile is present, you may use it only to clarify or disambiguate facts that are already supported by retrieved thoughts — never as the sole evidence source.',
 	'',
 	'Required output format (use these exact section headers in this order):',
 	'Answer: <one or two short sentences giving the most direct, decisive answer, using only cited facts>',
@@ -307,15 +356,21 @@ const SYSTEM_PROMPT = [
 	'',
 	'Hard rules:',
 	'- Cite every factual claim with [id=<uuid>] using the EXACT id string from each thought header (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
-	'- Never cite entry position numbers (e.g. [1], [6]); only cite using [id=<uuid>] copied from the thought header.',
-	'- Use only facts that appear verbatim or as a direct paraphrase in the thoughts. Do not add interpretation, do not extrapolate, do not infer motives or job titles.',
+	'- Never cite entry position numbers (e.g. [1], [6], "clusters 3 and 4"); only cite using [id=<uuid>] or [id=profile] as specified below.',
+	'- Use only facts that appear verbatim or as a direct paraphrase in the retrieved thoughts. The grounding profile may clarify retrieved facts but must not introduce new claims.',
 	'- Do NOT equate or identify different people or names unless a cited thought explicitly states that link (e.g. "Clemi is Annie"). Similar topics, family, or graph edges are NOT enough.',
 	'- If the question names a person, nickname, or entity (e.g. "Clemi"), that name (or an alias written in the thoughts) MUST appear in a cited thought. Otherwise Answer MUST be "Not in memory."',
-	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought.',
-	'- If the thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
-	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses.',
-	'- Every line under Evidence MUST end with at least one [id=<uuid>] citation.',
-	'- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts.',
+	'- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought or profile.',
+	'- If the retrieved thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
+	'- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses or synthesize patterns across unrelated clusters.',
+	'- Every line under Evidence MUST end with at least one [id=<uuid>] or [id=profile] citation.',
+	'- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts or memory themes.',
+	'- Memory themes (if present) are routing hints only — never cite them and never treat them as evidence.',
+	'',
+	'Grounding profile rules (only when retrieved thoughts exist AND a profile section is present):',
+	'- Profile facts may clarify or disambiguate retrieved thoughts but must not be the sole basis for an answer.',
+	`- Cite profile facts with [id=${GROUNDING_PROFILE_CITATION_ID}] (not a thought uuid).`,
+	'- If a thought contradicts the profile on self-knowledge, prefer the retrieved thought with its date in Evidence.',
 	'',
 	'Temporal & staleness rules:',
 	'- "STALE (>6 months old)" is age-based: present with storage date and caveat it may be outdated.',
@@ -540,17 +595,6 @@ function prioritizeConflictThoughts(
 	].slice(0, topK);
 }
 
-function globalSearchResultToComposed(result: GlobalSearchResult): ComposedAnswer {
-	return {
-		answer: formatComposedAnswerForUser(result.answer),
-		citations: [],
-		retrieved: [],
-		conflicts: [],
-		globalSources: result.sources,
-		retrievalPath: 'global'
-	};
-}
-
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {
 	const trimmedQuestion = input.question.trim();
 	if (trimmedQuestion.length === 0) {
@@ -564,38 +608,26 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	const queryIntent = await classifyQueryIntent({ userId: input.userId, query: trimmedQuestion });
 	const entityHints = mergeQuestionEntityHints(queryIntent.entityHints);
 	const scope = queryIntent.scope;
+	const retrievalPath: ComposedAnswer['retrievalPath'] = scope === 'global' ? 'global' : 'local';
 	const effectiveTopK =
-		input.topK ?? (queryIntent.temporal ? TEMPORAL_COMPOSE_TOP_K : DEFAULT_COMPOSE_TOP_K);
-	let retrievalPath: ComposedAnswer['retrievalPath'] = scope === 'global' ? 'global_fallback' : 'local';
+		input.topK ??
+		(queryIntent.temporal
+			? TEMPORAL_COMPOSE_TOP_K
+			: scope === 'global'
+				? GLOBAL_COMPOSE_TOP_K
+				: DEFAULT_COMPOSE_TOP_K);
 
-	if (scope === 'global') {
-		if (await hasCommunitySummaries(input.userId)) {
-			console.info('[composeAnswer] path=global start', {
-				userId: input.userId,
-				question: trimmedQuestion
-			});
-			await input.onProgress?.('searching');
-			const phaseStart = Date.now();
-			const global = await searchGlobal({ userId: input.userId, query: trimmedQuestion });
-			await input.onProgress?.('composing');
-			console.info('[composeAnswer] path=global done', {
-				durationMs: Date.now() - phaseStart,
-				totalDurationMs: Date.now() - overallStart,
-				communitiesUsed: global.communitiesUsed
-			});
-			return globalSearchResultToComposed(global);
-		}
-		console.info('[composeAnswer] path=global_fallback: no community summaries', {
-			userId: input.userId,
-			question: trimmedQuestion
-		});
-	}
+	const groundingProfile = await loadGroundingProfileForEnrichment(input.userId);
+	const profilePromptBlock = groundingProfilePromptBlock(groundingProfile);
+	const hasGroundingProfile = profilePromptBlock.trim().length > 0;
 
 	let phaseStart = Date.now();
 	console.info('[composeAnswer] phase=embedding start', {
 		userId: input.userId,
 		question: trimmedQuestion,
-		retrievalQuery
+		retrievalQuery,
+		retrievalPath,
+		hasGroundingProfile
 	});
 	await input.onProgress?.('embedding');
 	const queryEmbedding = await createThoughtEmbedding(input.userId, retrievalQuery);
@@ -612,14 +644,26 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		temporalKind: queryIntent.kind
 	});
 	await input.onProgress?.('searching');
-	const searchResults = await searchThoughts({
-		userId: input.userId,
-		query: retrievalQuery,
-		topK: effectiveTopK,
-		weights,
-		queryEmbedding,
-		temporalIntent: queryIntent
-	});
+	const communityThemesPromise =
+		scope === 'global'
+			? fetchRelevantCommunitySummaries({
+					userId: input.userId,
+					queryEmbedding,
+					limit: 6
+				})
+			: Promise.resolve([]);
+	const [searchResults, textFileHits, communityThemes] = await Promise.all([
+		searchThoughts({
+			userId: input.userId,
+			query: retrievalQuery,
+			topK: effectiveTopK,
+			weights,
+			queryEmbedding,
+			temporalIntent: queryIntent
+		}),
+		searchTextFiles(input.userId, { query: retrievalQuery, topK: TEXT_FILE_COMPOSE_TOP_K }),
+		communityThemesPromise
+	]);
 	const retrieved = searchResults.filter(
 		(r) => normalizeRetrievalScore(r.score) >= COMPOSE_ANSWER_RELEVANCE_MIN
 	);
@@ -737,6 +781,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 	console.info('[composeAnswer] phase=searching done', {
 		durationMs: Date.now() - phaseStart,
 		retrievedCount: retrieved.length,
+		textFileCount: textFileHits.length,
 		contextCount: contextItems.length,
 		conflictCount: conflicts.length,
 		schedulingConflictCount: schedulingConflicts.length,
@@ -756,11 +801,23 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 		allowedIds.add(event.thoughtId);
 	}
 
+	const profileBlock = formatGroundingProfileForCompose(profilePromptBlock);
+	const communityThemeBlock = formatCommunityThemesForPrompt(communityThemes);
+	const hasRetrievedEvidence = contextItems.length > 0 || textFileHits.length > 0;
+	const hasComposableEvidence = hasRetrievedEvidence;
+	if (hasRetrievedEvidence && hasGroundingProfile) {
+		allowedIds.add(GROUNDING_PROFILE_CITATION_ID);
+	}
+
 	let answer: string;
 	if (deterministicAnswer) {
 		console.info('[composeAnswer] phase=composing skipped — deterministic temporal solver answer');
 		await input.onProgress?.('composing');
 		answer = deterministicAnswer;
+	} else if (!hasComposableEvidence) {
+		console.info('[composeAnswer] phase=composing skipped — no retrieved thoughts or text files');
+		await input.onProgress?.('composing');
+		answer = insufficientMemoryAnswer(trimmedQuestion);
 	} else {
 		const messages: ChatMessage[] = [
 			{ role: 'system', content: buildComposeSystemPrompt(allowComputedCitation) },
@@ -768,7 +825,10 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 				role: 'user',
 				content:
 					`Question: ${trimmedQuestion}\n\n` +
+					profileBlock +
 					`Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
+					formatTextFilesForPrompt(textFileHits) +
+					communityThemeBlock +
 					computedTimelineBlock +
 					formatTemporalConflictsForPrompt(schedulingConflicts) +
 					formatConflictsForPrompt(conflicts) +

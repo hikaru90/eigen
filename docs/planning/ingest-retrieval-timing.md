@@ -204,11 +204,13 @@ In the sample ingest above, nested `relations_extract` retrieval logged **22 ms 
 
 ## Q&A (`composeAnswer`)
 
-1. **Embedding** — query embed (logged)
-2. **Searching** — one `searchThoughts` + conflict/temporal hydration + contradiction detection
-3. **Composing** — **1× chat** with retrieved thoughts
+1. **Intent** — `classifyQueryIntent` (scope global/local, temporal kind)
+2. **Grounding profile** — load `user_grounding_profile` when present
+3. **Embedding** — query embed (logged)
+4. **Searching** — `searchThoughts` (+ text files; global scope also fetches community theme hints)
+5. **Composing** — **1× chat** with strict Answer/Evidence/Unknown format and citations (`[id=<uuid>]`, `[id=profile]`, or `[id=computed]`)
 
-**Typical Q&A: 2–3 LLM calls** (1 embed + 0–1 rerank + 1 compose). Compose is often the single slowest step when the prompt is large.
+**Typical Q&A: 2–3 LLM calls** (1 intent classify + 1 embed + 0–1 rerank + 1 compose). Global-scope queries no longer run serial map-reduce over community summaries.
 
 ---
 

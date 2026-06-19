@@ -110,13 +110,14 @@ export async function loadThoughtCaptureResult(
 			.select({ label: canonicalEntity.label })
 			.from(thoughtEntity)
 			.innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
-			.where(
+			.innerJoin(
+				projectProfile,
 				and(
-					eq(thoughtEntity.userId, userId),
-					eq(thoughtEntity.thoughtId, thoughtId),
-					eq(canonicalEntity.entityType, 'project')
+					eq(projectProfile.projectEntityId, canonicalEntity.id),
+					eq(projectProfile.userId, userId)
 				)
 			)
+			.where(and(eq(thoughtEntity.userId, userId), eq(thoughtEntity.thoughtId, thoughtId)))
 			.limit(1),
 		getDb()
 			.select({ projectEntityId: projectProfile.projectEntityId })

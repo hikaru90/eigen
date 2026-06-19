@@ -15,6 +15,17 @@ Goal: keep [`README.md`](../../README.md) (L0), [`index.md`](./index.md) (L1), d
 
 Apply map updates in the **same chat or editing session** as the code change so the repo never sits in a long-lived “doc drift” state.
 
+## GTD timeline UI
+
+- **Route:** `/timeline` owns the GTD timeline shell (formerly a tab on `/graph`). Push deep links and legacy `/graph?tab=temporal` redirect to `/timeline`.
+- **Graph route:** `/graph` is graph visualization + embedding map only.
+
+## GTD projects vs graph entity kind `project`
+
+- **Graph hub:** any `canonical_entity` with thought mentions (ontology `entity_type` may be org, product, etc.).
+- **GTD project (Projects tab):** requires a `project_profile` row created only after `judgeGtdProjectHub` approves the hub as a multi-step initiative. Structural counts gate *when* to call the LLM, not *what* is a project. `listProjectsForUser` runs `auditGtdProjectProfiles` to demote false positives.
+- Identity resolution, LLM promotion, and reconciliation live in `resolve-project-identity.ts`, `judge-gtd-project.ts`, `maybe-promote-gtd-project.ts`, and `reconcile-user-projects.ts`.
+
 ## What not to do
 
 - Do not duplicate long explanations across L2 files; **link** to the canonical file in code instead.

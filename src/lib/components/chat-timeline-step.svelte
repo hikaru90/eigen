@@ -22,6 +22,7 @@
     content?: string;
     failed?: boolean;
     running?: boolean;
+    hideProse?: boolean;
   };
 
   let {
@@ -32,6 +33,7 @@
     content = "",
     failed = false,
     running = false,
+    hideProse = false,
   }: Props = $props();
 
   const argSummary = $derived(
@@ -60,6 +62,7 @@
     kind === "tool_result" &&
       tool === "answer_question" &&
       !failed &&
+      !hideProse &&
       content.trim().length > 0
       ? parseFinalAnswerText("", content).trim()
       : "",
@@ -111,7 +114,7 @@
 
   {#if kind === "tool_result" && memoryHits.length > 0}
     <ul class="flex flex-col gap-2 list-none m-0 p-0 pl-1">
-      {#each memoryHits as hit, i (hit.id ?? `${i}:${hit.text}`)}
+      {#each memoryHits as hit, i (`${i}:${hit.id ?? hit.text}`)}
         <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} />
       {/each}
     </ul>

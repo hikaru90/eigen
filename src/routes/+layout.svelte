@@ -7,12 +7,15 @@
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
+  import FileText from "@lucide/svelte/icons/file-text";
   import "./layout.css";
   import favicon from "$lib/assets/favicon.png";
   import { cn } from "$lib/utils";
   import AppHeader from "$lib/components/app-header.svelte";
   import { startCaptureQueueRunner } from "$lib/capture/queue";
   import { getLocale, setLocale } from "$lib/paraglide/runtime";
+  import { m } from "$lib/paraglide/messages.js";
 
   let { children } = $props();
 
@@ -39,25 +42,39 @@
 
   const bottomNavItems = $derived([
     {
-      label: "Graph",
+      label: m.nav_graph(),
       href: "/graph",
       icon: Network,
       active: currentPath.includes("/graph"),
-      variant: "secondary",
+      variant: "secondary" as const,
     },
     {
-      label: "Capture",
+      label: m.nav_timeline(),
+      href: "/timeline",
+      icon: CalendarDays,
+      active: currentPath.includes("/timeline"),
+      variant: "secondary" as const,
+    },
+    {
+      label: m.nav_capture(),
       href: "/capture",
       icon: Plus,
       active: currentPath.includes("/capture"),
-      variant: "primary",
+      variant: "primary" as const,
     },
     {
-      label: "Chat",
+      label: m.nav_notes(),
+      href: "/notes",
+      icon: FileText,
+      active: currentPath.includes("/notes"),
+      variant: "secondary" as const,
+    },
+    {
+      label: m.nav_chat(),
       href: "/chat",
       icon: MessageSquareText,
       active: currentPath.includes("/chat"),
-      variant: "secondary",
+      variant: "secondary" as const,
     },
   ]);
 
@@ -137,7 +154,7 @@
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
-    <div class="relative flex flex-row items-center gap-2 px-2 pb-safe">
+    <div class="relative flex flex-row items-center gap-1 px-1.5 pb-safe">
       <div
         class="pointer-events-none absolute inset-x-0 -top-24 bottom-0 -z-10 bg-linear-to-t from-background to-transparent"
       ></div>
@@ -149,13 +166,13 @@
               "flex items-center justify-center rounded-full py-3",
               item.variant === "primary"
                 ? "bg-primary text-primary-foreground shadow-md grow"
-                : "px-6 text-foreground hover:bg-black/10 dark:text-white dark:hover:bg-white/10",
+                : "px-3 text-foreground hover:bg-black/10 dark:text-white dark:hover:bg-white/10",
             )}
             aria-label={item.label}
           >
             <item.icon class="size-5" strokeWidth={1.75} />
           </a>
-          {#if item.href === currentPath}
+          {#if item.active}
             <div class="absolute -bottom-2 flex h-0 w-full items-center justify-center">
               <div class="bg-foreground absolute size-2 rounded-full dark:bg-white"></div>
             </div>

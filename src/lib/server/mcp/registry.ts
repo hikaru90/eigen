@@ -1,8 +1,6 @@
 import {
 	runAnswerQuestionTool,
-	runCaptureGroundingTool,
 	runCaptureThoughtTool,
-	runCompleteGroundingSessionTool,
 	runCreateTextFileTool,
 	runDeleteTextFileTool,
 	runDeleteThoughtTool,
@@ -30,7 +28,7 @@ export type McpToolDefinition = {
 	/** Human-readable argument summary for the chat agent system prompt. */
 	agentArgumentSchema: string;
 	handler: McpToolHandler;
-	/** When false, tool is for in-app grounding chat only — not HTTP MCP clients. */
+	/** When false, tool is not exposed to HTTP MCP clients. */
 	exposeInMcp?: boolean;
 };
 
@@ -73,7 +71,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'retrieve_thoughts',
 		description:
-			'Search stored thoughts using hybrid semantic, lexical, and graph retrieval — use first when the user reports doing something so you can match and update existing tasks or notes.',
+			'Search stored thoughts (hybrid semantic, lexical, graph) and attached text notes (lexical keyword only — recipes, templates, reference documents). Use first when matching existing tasks or notes.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -259,7 +257,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	},
 	{
 		name: 'search_text_files',
-		description: 'Lexical keyword search over user text notes (not semantic thought retrieval).',
+		description:
+			'Lexical keyword search over user text notes (recipes, templates, pasted reference). No embeddings — use retrieve_thoughts for hybrid thought + note search.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -300,54 +299,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		agentArgumentSchema:
 			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
 		handler: runUnlinkTextFileFromThoughtTool
-	},
-	{
-		name: 'capture_grounding',
-		description:
-			'Persist incremental user self-knowledge during a grounding conversation (work, identity, values, relationships, psychology, routines).',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				facets: {
-					type: 'array',
-					items: {
-						type: 'object',
-						properties: {
-							key: { type: 'string' },
-							content: { type: 'string' }
-						},
-						required: ['key', 'content']
-					}
-				},
-				session_note: { type: 'string' }
-			},
-			required: ['facets']
-		},
-		agentArgumentSchema:
-			'{"facets": [{"key": "work|identity|values|relationships|psychology|routines|projects", "content": "string"}], "session_note": "string (optional)"}',
-		handler: runCaptureGroundingTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'complete_grounding_session',
-		description:
-			'Mark the grounding conversation complete when enough self-knowledge has been captured. Unlocks capture for first-time users.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				synthesis: {
-					type: 'string',
-					description: 'Optional final portrait paragraph summarizing the user.'
-				}
-			}
-		},
-		agentArgumentSchema: '{"synthesis": "string (optional) — final user portrait"}',
-		handler: runCompleteGroundingSessionTool,
-		exposeInMcp: false
 	}
 ];
-
-export const GROUNDING_TOOL_NAMES = ['capture_grounding', 'complete_grounding_session'] as const;
 
 export const MCP_EXPOSED_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInMcp !== false);
 
@@ -369,12 +322,4 @@ export function buildAgentToolDescriptionBlock(): string {
 	return MCP_EXPOSED_TOOL_DEFINITIONS.map(
 		(t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`
 	).join('\n\n');
-}
-
-export function buildGroundingAgentToolDescriptionBlock(): string {
-	return MCP_TOOL_DEFINITIONS.filter((t) =>
-		(GROUNDING_TOOL_NAMES as readonly string[]).includes(t.name)
-	)
-		.map((t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`)
-		.join('\n\n');
 }

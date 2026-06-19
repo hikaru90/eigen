@@ -9,6 +9,7 @@ export type IngestPhase =
 	| 'persist_dedup'
 	| 'persist_insert'
 	| 'graph_anchor'
+	| 'content_split'
 	| 'enrich_bump_version'
 	| 'enrich_entities'
 	| 'enrich_metadata'

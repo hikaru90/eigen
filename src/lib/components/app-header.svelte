@@ -17,9 +17,6 @@
   import HeartPulse from "@lucide/svelte/icons/heart-pulse";
 
   const isChatRoute = $derived(page.route.id === "/chat");
-  const isGroundingChat = $derived(
-    isChatRoute && page.url.searchParams.get("mode") === "grounding",
-  );
 
   let menuOpen = $state(false);
 
@@ -92,7 +89,7 @@
     class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 bg-linear-to-b from-background to-transparent"
   ></div>
   <div class="relative z-10 mx-auto flex w-full items-center justify-between pb-3">
-    {#if isChatRoute && !isGroundingChat}
+    {#if isChatRoute}
       <button
         class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
         onclick={() => chatSidebarOpen.update((v) => !v)}

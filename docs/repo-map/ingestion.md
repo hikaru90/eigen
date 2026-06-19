@@ -106,10 +106,12 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 ### Text files (attachments)
 
 - **Purpose:** User-scoped text notes stored in `text_file` — **not** thoughts. No enrich queue, embedding, or graph pipeline.
+- **Automatic split on enrich:** During background enrich, an LLM judge (`split-capture-content.ts`) partitions capture input when appropriate: a concise **thought** (intent, pointer, summary line) plus an optional linked **text note** for reference material (recipes, templates, procedures, transcripts, pasted bodies). Split is based on **content role**, not message length — a moderate-length recipe may become thought + note so the document can be edited and linked from other thoughts later. Short atomic notes stay `thought_only`.
+- **Manual link (optional):** Capture UI “Attach note” and MCP `link_text_file_to_thought` for operator/agent linking after the fact.
 - **Linking:** `thought_text_file` join table; deleting a thought removes links only; notes remain in the user's library.
 - **Service:** [`src/lib/server/text-files/service.ts`](../../src/lib/server/text-files/service.ts)
 - **MCP:** `create_text_file`, `list_text_files`, `get_text_file`, `update_text_file`, `delete_text_file`, `search_text_files`, `link_text_file_to_thought`, `unlink_text_file_from_thought`
-- **Retrieval:** Not mixed into `retrieve_thoughts` / `answer_question` in v1; attached previews appear on thought detail (`attachedFiles`).
+- **Retrieval:** Lexical keyword search via `searchTextFiles` / MCP `search_text_files` and `retrieve_thoughts` (`textFiles` hits). Included in `composeAnswer` context (no embeddings on `text_file`). Full body via `get_text_file`.
 
 ## Related but not canonical for “ingest contract”
 

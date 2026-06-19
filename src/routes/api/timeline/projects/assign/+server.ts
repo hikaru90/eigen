@@ -11,6 +11,9 @@ export type AssignProjectRequest = {
 export type AssignProjectResponse = {
 	projectEntityId: string;
 	projectLabel: string;
+	eligible: boolean;
+	created: boolean;
+	isGtdProject: boolean;
 };
 
 export const POST: RequestHandler = async (event) => {

@@ -316,6 +316,13 @@
       "when": 1750348800000,
       "tag": "0045_text_file",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1750435200000,
+      "tag": "0046_project_profile_source",
+      "breakpoints": true
     }
   ]
 }

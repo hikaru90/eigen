@@ -132,12 +132,12 @@
 - When retrieval is requested
 - Then p95 response time is <= 8 seconds.
 
-### AC-025 Global Q&A via community summaries (active)
-- Given a user with at least one embedded `community_summary` row from consolidation
-- When `composeAnswer` receives a query classified as `global` (themes, patterns, or self-profile such as “what do you know about me?” / “was weißt du über mich?”)
-- Then retrieval uses `searchGlobal` (community summary map-reduce) instead of `searchThoughts`, and the answer is synthesised from community partial answers without inventing thought `[id]` citations.
+### AC-025 Unified Q&A with grounding profile and cited compose (active)
+- Given a signed-in user with a `user_grounding_profile` and/or stored thoughts
+- When `composeAnswer` receives any query (local or global scope)
+- Then retrieval uses `retrieveEvidence` via `searchThoughts`, injects the grounding profile when present, and the answer is composed with strict `Answer` / `Evidence` / `Unknown` sections and citations (`[id=<uuid>]` or `[id=profile]`). Community summaries are routing hints only — never the sole answer source.
 
-### AC-026 Global Q&A fallback without consolidation index (active)
-- Given a user with no embedded `community_summary` rows
-- When `composeAnswer` receives a `global`-classified query
-- Then the system falls back to `searchThoughts` (local hybrid) and logs the fallback; it does not fail silently or substitute a canned profile answer.
+### AC-026 Global-scope Q&A uses broader retrieval (active)
+- Given a query classified as `global` scope
+- When `composeAnswer` runs
+- Then it uses a higher `topK`, fetches non-authoritative community theme hints for the compose prompt, and still returns cited thought- or profile-based answers (never uncited map-reduce synthesis).

@@ -22,7 +22,8 @@ vi.mock('$lib/server/capture/capture-enrich-worker', () => ({
 
 import {
 	recoverStaleEnrichProcessingRows,
-	requeueEnrichThought
+	requeueEnrichThought,
+	requeueOrphanedCompleteEnrichRows
 } from './queue-capture';
 
 describe('recoverStaleEnrichProcessingRows', () => {
@@ -86,11 +87,13 @@ describe('requeueEnrichThought', () => {
 		expect(result).toEqual({ ok: false, reason: 'not_found' });
 	});
 
-	it('returns not_retryable for complete rows', async () => {
+	it('returns not_retryable for complete rows with enriched_at', async () => {
 		selectMock.mockReturnValue({
 			from: vi.fn().mockReturnValue({
 				where: vi.fn().mockReturnValue({
-					limit: vi.fn().mockResolvedValue([{ id: 't1', enrichQueueStatus: 'complete' }])
+					limit: vi.fn().mockResolvedValue([
+						{ id: 't1', enrichQueueStatus: 'complete', enrichedAt: new Date() }
+					])
 				})
 			})
 		});
@@ -103,7 +106,7 @@ describe('requeueEnrichThought', () => {
 		selectMock.mockReturnValue({
 			from: vi.fn().mockReturnValue({
 				where: vi.fn().mockReturnValue({
-					limit: vi.fn().mockResolvedValue([{ id: 't1', enrichQueueStatus: 'failed' }])
+					limit: vi.fn().mockResolvedValue([{ id: 't1', enrichQueueStatus: 'failed', enrichedAt: null }])
 				})
 			})
 		});
@@ -116,5 +119,65 @@ describe('requeueEnrichThought', () => {
 		const result = await requeueEnrichThought('u1', 't1');
 		expect(result).toEqual({ ok: true });
 		expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1');
+	});
+
+	it('requeues complete rows missing enriched_at', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn().mockReturnValue({
+				where: vi.fn().mockReturnValue({
+					limit: vi.fn().mockResolvedValue([
+						{ id: 't1', enrichQueueStatus: 'complete', enrichedAt: null }
+					])
+				})
+			})
+		});
+		updateMock.mockReturnValue({
+			set: vi.fn().mockReturnValue({
+				where: vi.fn().mockResolvedValue(undefined)
+			})
+		});
+
+		const result = await requeueEnrichThought('u1', 't1');
+		expect(result).toEqual({ ok: true });
+		expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1');
+	});
+});
+
+describe('requeueOrphanedCompleteEnrichRows', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		getDbMock.mockReturnValue({
+			select: selectMock,
+			update: updateMock
+		});
+	});
+
+	it('returns 0 when no orphaned rows', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn().mockReturnValue({
+				where: vi.fn().mockResolvedValue([])
+			})
+		});
+
+		const requeued = await requeueOrphanedCompleteEnrichRows('u1');
+		expect(requeued).toBe(0);
+		expect(updateMock).not.toHaveBeenCalled();
+	});
+
+	it('requeues complete rows without enriched_at', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn().mockReturnValue({
+				where: vi.fn().mockResolvedValue([{ id: 't1' }])
+			})
+		});
+		updateMock.mockReturnValue({
+			set: vi.fn().mockReturnValue({
+				where: vi.fn().mockResolvedValue(undefined)
+			})
+		});
+
+		const requeued = await requeueOrphanedCompleteEnrichRows('u1');
+		expect(requeued).toBe(1);
+		expect(updateMock).toHaveBeenCalled();
 	});
 });

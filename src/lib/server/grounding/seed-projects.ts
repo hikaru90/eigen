@@ -1,10 +1,12 @@
 import { captureThought } from '$lib/server/capture/service';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
-import { upsertProjectEntity } from '$lib/server/memory/project-entity';
 import type { ProjectStatus } from '$lib/server/db/schema';
-import { ensureProjectProfile } from '$lib/server/memory/project-list';
+import { judgeGtdProjectHub } from '$lib/server/memory/judge-gtd-project';
+import { maybePromoteHubToGtdProject } from '$lib/server/memory/maybe-promote-gtd-project';
 import { designateNextAction } from '$lib/server/memory/project-next-action';
+import { reconcileUserProjects } from '$lib/server/memory/reconcile-user-projects';
+import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
 
 const PROJECT_STATUS_KEYS = ['active', 'someday', 'completed'] as const;
 
@@ -57,7 +59,8 @@ export async function extractProjectsFromGroundingFacet(
 		'  ]',
 		'}',
 		'',
-		'Extract active projects and their next actions from the grounding text below.',
+		'Extract active projects and their next actions from the text below.',
+		'Merge duplicate names for the same initiative into one project row.',
 		'Use status "active" unless the text clearly marks someday or completed.',
 		'',
 		projectsFacetText
@@ -95,20 +98,40 @@ export async function seedProjectsFromGrounding(input: {
 
 	const projects = await extractProjectsFromGroundingFacet(input.userId, text);
 	let nextActionCount = 0;
+	let projectCount = 0;
 
 	for (const project of projects) {
-		const entityId = await upsertProjectEntity(input.userId, project.name);
-		await ensureProjectProfile(input.userId, entityId, project.status ?? 'active');
+		const resolution = await resolveProjectIdentity({
+			userId: input.userId,
+			surfaceLabel: project.name,
+			mode: 'seed'
+		});
+
+		const judgment = await judgeGtdProjectHub(input.userId, resolution.entityId, { force: true });
+		if (!judgment?.isGtdProject) continue;
+
+		const promoted = await maybePromoteHubToGtdProject({
+			userId: input.userId,
+			entityId: resolution.entityId,
+			source: 'capture',
+			status: project.status ?? 'active',
+			forceJudge: true
+		});
+		if (!promoted) continue;
+
+		projectCount += 1;
 
 		if (project.nextActionText?.trim()) {
 			const captured = await captureThought(input.userId, project.nextActionText.trim(), {
 				source: 'api',
 				awaitEnrichment: true
 			});
-			await designateNextAction(input.userId, entityId, captured.id);
+			await designateNextAction(input.userId, resolution.entityId, captured.id);
 			nextActionCount += 1;
 		}
 	}
 
-	return { projectCount: projects.length, nextActionCount };
+	await reconcileUserProjects(input.userId);
+
+	return { projectCount, nextActionCount };
 }

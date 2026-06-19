@@ -38,7 +38,7 @@ The tour has **four steps**:
 |------|--------|----------------|
 | 1 | **Welcome** | What Eigen is and what happens next |
 | 2 | **Credits** | PayPal top-up (platform credits) — or skip if you use BYOK in Settings |
-| 3 | **Grounding** | Start the getting-to-know-you chat at `/chat?mode=grounding` |
+| 3 | **Grounding** | Start the getting-to-know-you chat at `/grounding` |
 | 4 | **Ready** | **Get started** (only when credits and grounding are complete) |
 
 Both **credits** (for platform billing) and **grounding** are required before your first capture.
@@ -62,7 +62,7 @@ Full payment and wallet behavior: [`docs/payments.md`](../payments.md).
 
 ### 4. Grounding conversation (required)
 
-Open **Getting to know you** from the onboarding overlay or go to `/chat?mode=grounding`.
+Open **Getting to know you** from the onboarding overlay or go to `/grounding`.
 
 Eigen asks about your work, values, relationships, and how you think. Answers are stored in your **grounding profile** and used to classify captures. The chat uses a small amount of wallet credit.
 

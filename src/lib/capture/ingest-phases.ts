@@ -8,6 +8,11 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 		title: 'Opening capture session',
 		description: 'Creating a capture record that ties this submission to the stored thought row.'
 	},
+	content_split: {
+		title: 'Partitioning capture',
+		description:
+			'Deciding what stays as the memory thought vs what is stored as a separate editable note (recipes, templates, transcripts, pasted reference text).'
+	},
 	ontology: {
 		title: 'Classifying category',
 		description:
@@ -77,6 +82,7 @@ export const CAPTURE_FAST_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhas
 /** Full capture pipeline including awaited enrichment (eval / legacy). */
 export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
 	...CAPTURE_FAST_PIPELINE,
+	'content_split',
 	['entities', 'temporal', 'memory_type', 'cues'],
 	'relations',
 	'ontology_eval'
@@ -84,6 +90,7 @@ export const CAPTURE_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> 
 
 /** @deprecated Use CAPTURE_FAST_PIPELINE for UI queue progress. */
 export const CAPTURE_ENRICHMENT_PIPELINE: Array<CaptureIngestPhase | CaptureIngestPhase[]> = [
+	'content_split',
 	['entities', 'temporal', 'memory_type', 'cues'],
 	'relations',
 	'ontology_eval'

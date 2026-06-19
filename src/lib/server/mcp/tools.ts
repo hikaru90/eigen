@@ -18,15 +18,6 @@ import {
 	validateSearchParams
 } from '$lib/server/validation/mcp-args';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
-import {
-	completeGroundingSession,
-	mergeGroundingFacets
-} from '$lib/server/grounding/profile';
-import {
-	GROUNDING_FACET_KEYS,
-	GROUNDING_SUGGEST_COMPLETE_FACET_COUNT,
-	type GroundingFacetKey
-} from '$lib/server/grounding/constants';
 import { thoughtSnippet } from '$lib/server/mcp/snippet';
 import {
 	compactTemporalFieldsForMcp,
@@ -206,11 +197,14 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 		phase: 'searching',
 		label: 'Searching your memories…'
 	});
-	const results = await searchThoughts({
-		userId: context.userId,
-		query,
-		topK: effectiveTopK
-	});
+	const [results, textFiles] = await Promise.all([
+		searchThoughts({
+			userId: context.userId,
+			query,
+			topK: effectiveTopK
+		}),
+		searchTextFiles(context.userId, { query, topK: effectiveTopK })
+	]);
 	void tryRecordRetrievalQualityEvent({
 		userId: context.userId,
 		surface: 'mcp',
@@ -226,7 +220,11 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 				);
 
 	if (detail === 'full') {
-		const out = sanitizeMcpToolResult({ count: filtered.length, results: filtered });
+		const out = sanitizeMcpToolResult({
+			count: filtered.length,
+			results: filtered,
+			textFiles
+		});
 		console.info('[mcp.tool:retrieve_thoughts] done', {
 			durationMs: Date.now() - retrieveStart,
 			resultCount: filtered.length
@@ -250,7 +248,8 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 
 	const out = sanitizeMcpToolResult({
 		count: snippetRows.length,
-		results: snippetRows
+		results: snippetRows,
+		textFiles
 	});
 	console.info('[mcp.tool:retrieve_thoughts] done', {
 		durationMs: Date.now() - retrieveStart,
@@ -577,61 +576,4 @@ export async function runUnlinkTextFileFromThoughtTool(context: McpToolContext, 
 	const unlinked = await unlinkTextFileFromThought(context.userId, thoughtId, textFileId);
 	if (!unlinked) throw new Error('Attachment link not found');
 	return sanitizeMcpToolResult({ unlinked: true, thoughtId, textFileId });
-}
-
-function parseGroundingFacetsArg(body: Record<string, unknown>): Array<{ key: string; content: string }> {
-	const raw = body.facets;
-	if (!Array.isArray(raw) || raw.length === 0) {
-		throw new Error('facets is required and must be a non-empty array');
-	}
-	const facets: Array<{ key: string; content: string }> = [];
-	for (const item of raw) {
-		if (!item || typeof item !== 'object') {
-			throw new Error('Each facet must be an object with key and content');
-		}
-		const o = item as Record<string, unknown>;
-		if (typeof o.key !== 'string' || typeof o.content !== 'string') {
-			throw new Error('Each facet must have string key and content');
-		}
-		facets.push({ key: o.key, content: o.content });
-	}
-	return facets;
-}
-
-export async function runCaptureGroundingTool(context: McpToolContext, args: unknown) {
-	const body = asObject(args);
-	const facets = parseGroundingFacetsArg(body);
-	const sessionNote = typeof body.session_note === 'string' ? body.session_note.trim() : undefined;
-	const snapshot = await mergeGroundingFacets({
-		userId: context.userId,
-		facets: facets as Array<{ key: GroundingFacetKey; content: string }>,
-		synthesizeNarrative: false,
-		...(sessionNote ? { sessionNote } : {})
-	});
-	const facetKeys = Object.keys(snapshot.facets);
-	const facetCount = facetKeys.length;
-	return sanitizeMcpToolResult({
-		ok: true,
-		facetKeys,
-		facetCount,
-		suggestComplete: facetCount >= GROUNDING_SUGGEST_COMPLETE_FACET_COUNT,
-		initialCompleted: snapshot.initialCompletedAt != null,
-		allowedFacetKeys: [...GROUNDING_FACET_KEYS]
-	});
-}
-
-export async function runCompleteGroundingSessionTool(context: McpToolContext, args: unknown) {
-	const body = asObject(args);
-	const synthesis = typeof body.synthesis === 'string' ? body.synthesis.trim() : undefined;
-	const result = await completeGroundingSession({
-		userId: context.userId,
-		...(synthesis ? { synthesis } : {})
-	});
-	return sanitizeMcpToolResult({
-		ok: true,
-		initialCompleted: result.initialCompleted,
-		redirectTo: result.redirectTo,
-		facetCount: Object.keys(result.snapshot.facets).length,
-		sessionCount: result.snapshot.sessionCount
-	});
 }

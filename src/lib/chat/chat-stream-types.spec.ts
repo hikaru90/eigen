@@ -209,6 +209,17 @@ describe('chat-stream-types', () => {
 		expect(evidenceHitsFromAnswerQuestionPayload(preview)).toEqual([]);
 	});
 
+	it('allows duplicate profile citation ids in evidence rows', () => {
+		const preview = JSON.stringify({
+			answer:
+				'Answer: You work in Hamburg. [profile]\nEvidence:\n- Work location: SPACE Hamburg [profile]\n- Role: founder [profile]\nUnknown:\n- none',
+			retrieved: [{ id: 'profile', normalizedText: 'grounding', category: 'profile' }]
+		});
+		const hits = evidenceHitsFromAnswerQuestionPayload(preview);
+		expect(hits.length).toBeGreaterThanOrEqual(2);
+		expect(hits.every((h) => h.id === 'profile')).toBe(true);
+	});
+
 	it('parseFinalAnswerText extracts salmon answer prose from tool_result preview JSON', () => {
 		const preview = JSON.stringify({
 			answer:

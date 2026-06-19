@@ -8,7 +8,6 @@ const {
 	retrieveThoughtRowsForDeleteRequestMock,
 	deleteThoughtMock,
 	answerQuestionMock,
-	captureGroundingMock,
 	getDbMock,
 	mcpToolMap,
 	routeAgentMessageMock,
@@ -20,7 +19,6 @@ const {
 	const retrieveThoughtRowsForDeleteRequestMock = vi.fn();
 	const deleteThoughtMock = vi.fn();
 	const answerQuestionMock = vi.fn();
-	const captureGroundingMock = vi.fn();
 	const routeAgentMessageMock = vi.fn();
 	const classifyChatIntentMock = vi.fn();
 	const classifyDeleteIntentMock = vi.fn();
@@ -28,8 +26,7 @@ const {
 		['list_thoughts', listThoughtsMock],
 		['retrieve_thoughts', retrieveThoughtsMock],
 		['delete_thought', deleteThoughtMock],
-		['answer_question', answerQuestionMock],
-		['capture_grounding', captureGroundingMock]
+		['answer_question', answerQuestionMock]
 	]);
 	return {
 		llmChatCompletionMock: vi.fn(),
@@ -39,7 +36,6 @@ const {
 		retrieveThoughtRowsForDeleteRequestMock,
 		deleteThoughtMock,
 		answerQuestionMock,
-		captureGroundingMock,
 		getDbMock: vi.fn(),
 		mcpToolMap,
 		routeAgentMessageMock,
@@ -74,8 +70,6 @@ vi.mock('$lib/server/mcp/registry', () => ({
 	MCP_TOOL_NAMES: ['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'],
 	MCP_TOOL_DEFINITIONS: [],
 	buildAgentToolDescriptionBlock: () => '',
-	buildGroundingAgentToolDescriptionBlock: () => '',
-	GROUNDING_TOOL_NAMES: ['capture_grounding', 'complete_grounding_session'],
 	isMcpExposedTool: (name: string) =>
 		['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'].includes(name)
 }));
@@ -815,44 +809,5 @@ describe('agentChat', () => {
 				context: 'limit: 1'
 			})
 		);
-	});
-
-	it('grounding mode allows one capture_grounding per user turn then requires answer', async () => {
-		captureGroundingMock.mockResolvedValue({
-			ok: true,
-			facetKeys: ['work', 'routines'],
-			facetCount: 2,
-			suggestComplete: false
-		});
-		llmChatCompletionMock
-			.mockResolvedValueOnce(
-				llmJson({
-					tool: 'capture_grounding',
-					arguments: {
-						facets: [{ key: 'work', content: 'Codes at SPACE Hamburg' }]
-					}
-				})
-			)
-			.mockResolvedValueOnce(
-				llmJson({
-					tool: 'capture_grounding',
-					arguments: {
-						facets: [{ key: 'routines', content: 'Cooks in the evening' }]
-					}
-				})
-			)
-			.mockResolvedValueOnce(
-				llmJson({ answer: 'Thanks — what matters most to you outside of work?' })
-			);
-
-		const result = await agentChat({
-			userId: 'u1',
-			mode: 'grounding',
-			messages: [{ role: 'user', content: 'I code at SPACE Hamburg and cook at night.' }]
-		});
-
-		expect(captureGroundingMock).toHaveBeenCalledTimes(1);
-		expect(result.response).toBe('Thanks — what matters most to you outside of work?');
-		expect(routeAgentMessageMock).not.toHaveBeenCalled();
 	});
 });

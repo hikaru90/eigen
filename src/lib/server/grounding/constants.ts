@@ -19,11 +19,8 @@ export const GROUNDING_FACET_MAX_CHARS = 2000;
 /** Max chars for synthesized narrative summary. */
 export const GROUNDING_NARRATIVE_MAX_CHARS = 4000;
 
-/** Days without a grounding session before showing a re-grounding nudge. */
-export const GROUNDING_REGROUND_DAYS = 90;
+/** Capture count interval before showing an optional grounding question card. */
+export const GROUNDING_QUESTION_CAPTURE_INTERVAL = 10;
 
-/** Thought count interval for re-grounding nudge (after initial completion). */
-export const GROUNDING_REGROUND_THOUGHT_INTERVAL = 100;
-
-/** Distinct facets captured before suggesting complete_grounding_session. */
-export const GROUNDING_SUGGEST_COMPLETE_FACET_COUNT = 4;
+/** Minimum days between optional grounding question prompts. */
+export const GROUNDING_QUESTION_MIN_DAYS = 7;

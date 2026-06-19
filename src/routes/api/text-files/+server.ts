@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createTextFile, listTextFiles } from '$lib/server/text-files/service';
+import { createTextFile, listTextFiles, searchTextFiles } from '$lib/server/text-files/service';
 
 function parseLimit(url: URL): number {
 	const raw = url.searchParams.get('limit');
@@ -27,6 +27,13 @@ function parseCursor(url: URL): { updatedAt: Date; id: string } | undefined {
 export const GET: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	if (!user) error(401, 'Unauthorized');
+
+	const query = event.url.searchParams.get('q')?.trim() ?? '';
+	if (query) {
+		const topK = parseLimit(event.url);
+		const results = await searchTextFiles(user.id, { query, topK });
+		return json({ count: results.length, results });
+	}
 
 	const files = await listTextFiles(user.id, {
 		limit: parseLimit(event.url),

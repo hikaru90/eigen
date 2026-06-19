@@ -2,7 +2,6 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, projectProfile, thoughtEntity } from '$lib/server/db/schema';
 import { upsertMentionEdge } from '$lib/server/graph/age';
-import { ensureProjectProfile } from '$lib/server/memory/project-list';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 
 export async function designateNextAction(
@@ -13,22 +12,14 @@ export async function designateNextAction(
 	const entityId = validateNonEmptyEntityId(projectEntityId, 'projectEntityId');
 	const tid = validateNonEmptyEntityId(thoughtId, 'thoughtId');
 
-	const [entity] = await getDb()
-		.select({ id: canonicalEntity.id })
-		.from(canonicalEntity)
-		.where(
-			and(
-				eq(canonicalEntity.userId, userId),
-				eq(canonicalEntity.id, entityId),
-				eq(canonicalEntity.entityType, 'project')
-			)
-		)
+	const [profile] = await getDb()
+		.select({ projectEntityId: projectProfile.projectEntityId })
+		.from(projectProfile)
+		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, entityId)))
 		.limit(1);
-	if (!entity) {
-		throw new Error(`designateNextAction: project entity ${entityId} not found for user`);
+	if (!profile) {
+		throw new Error(`designateNextAction: GTD project ${entityId} not found for user`);
 	}
-
-	await ensureProjectProfile(userId, entityId, 'active');
 
 	await getDb()
 		.insert(thoughtEntity)
@@ -89,5 +80,4 @@ export async function linkThoughtToProject(
 		.onConflictDoNothing();
 
 	await upsertMentionEdge({ userId, thoughtId: tid, entityId });
-	await ensureProjectProfile(userId, entityId);
 }

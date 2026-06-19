@@ -99,8 +99,13 @@ const SUMMARY_SYSTEM = [
 	'Respond with JSON only: {"title":"...","summary":"..."}',
 	'- title: 3–8 word thematic label. Never a comma-separated list of entity names.',
 	'- summary: 2–3 concise sentences describing what unifies this cluster thematically.',
+	'Do NOT assert biographical facts about the user (primary workplace, job title, personality, identity).',
+	'Describe thematic cohesion of entities and memories — do not promote a place or object entity into a life-fact about the user.',
 	'Write in the same language as the thought samples when present; otherwise English.'
 ].join(' ');
+
+/** Exported for unit tests — community summary LLM system prompt. */
+export const COMMUNITY_SUMMARY_SYSTEM_PROMPT = SUMMARY_SYSTEM;
 
 function summaryTaskForLevel(level: number): string {
 	if (level === COMMUNITY_LEAF_LEVEL) {

@@ -96,8 +96,8 @@ Apache AGE remains for ingest writes and `/graph` visualization only.
 
 ### [`src/lib/server/qa/compose-answer.ts`](../../src/lib/server/qa/compose-answer.ts)
 
-- **Purpose:** Grounded QA: global queries → `searchGlobal`; local queries → `searchThoughts` / `retrieveEvidence`, then compose LLM with thought citations.
-- **DependsOn:** `searchThoughts`, `searchGlobal`, `classifyRetrievalScope`, `hasCommunitySummaries`; temporal validity helpers in [`temporal-validity.ts`](../../src/lib/server/memory/temporal-validity.ts).
+- **Purpose:** Grounded QA: all queries → `searchThoughts` / `retrieveEvidence`, grounding profile when present, strict cited compose. Global scope uses higher `topK` and non-authoritative community theme hints — not `searchGlobal` map-reduce.
+- **DependsOn:** `searchThoughts`, `fetchRelevantCommunitySummaries`, `classifyQueryIntent`, `loadGroundingProfileForEnrichment`; temporal validity helpers in [`temporal-validity.ts`](../../src/lib/server/memory/temporal-validity.ts).
 
 ### [`src/lib/server/retrieval/quality-telemetry.ts`](../../src/lib/server/retrieval/quality-telemetry.ts)
 
@@ -105,8 +105,8 @@ Apache AGE remains for ingest writes and `/graph` visualization only.
 
 ### [`src/lib/server/retrieval/global.ts`](../../src/lib/server/retrieval/global.ts)
 
-- **Purpose:** GraphRAG map-reduce over `community_summary` for global sensemaking queries.
-- **Status:** Wired into `composeAnswer` when `classifyRetrievalScope()` returns `global` and `hasCommunitySummaries()` is true (AC-025). Falls back to unified thought retrieval when no summaries (AC-026).
+- **Purpose:** `fetchRelevantCommunitySummaries` for non-authoritative theme hints in global-scope compose; `searchGlobal` map-reduce retained for reference/tests but **not** used by `composeAnswer`.
+- **Status:** Community routing at query time lives in `retrieveEvidence` (bundle expansion). Compose uses theme hints only.
 
 ### [`src/lib/server/retrieval/global-query.ts`](../../src/lib/server/retrieval/global-query.ts)
 
@@ -114,10 +114,9 @@ Apache AGE remains for ingest writes and `/graph` visualization only.
 
 ## Community routing (unified + global)
 
-- **Local retrieval:** L1 community ANN in `retrieveEvidence` selects routing communities; `community_bundle.top_thought_ids` expand evidence.
-- **Global Q&A (AC-025):** `composeAnswer` routes theme/profile queries to `searchGlobal` map-reduce over `community_summary` text when summaries exist.
-- **Fallback (AC-026):** global query without summaries → unified `searchThoughts` + explicit log.
-- **Scope routing:** `classifyRetrievalScope()` LLM call decides global vs local before retrieval (any language).
+- **All Q&A:** `retrieveEvidence` (vector + lexical + community bundle + entity + neighbor) → strict cited compose with optional grounding profile.
+- **Global scope:** higher compose `topK` + `fetchRelevantCommunitySummaries` as non-authoritative theme hints in the prompt (AC-026).
+- **Scope routing:** `classifyQueryIntent()` LLM call sets `scope` global vs local before retrieval (any language).
 
 ## Reranking
 

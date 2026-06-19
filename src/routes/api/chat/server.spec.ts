@@ -49,7 +49,7 @@ function buildMainDb() {
 	const insertValues = vi
 		.fn()
 		.mockReturnValueOnce({
-			returning: vi.fn().mockResolvedValue([{ id: SESSION_ID }])
+			returning: vi.fn().mockResolvedValue([{ id: SESSION_ID, mode: 'default' }])
 		})
 		.mockReturnValueOnce({})
 		.mockReturnValue({
@@ -73,7 +73,7 @@ function buildMainDb() {
 	});
 
 	whereForSelect.mockReturnValueOnce({
-		limit: vi.fn().mockResolvedValue([{ id: SESSION_ID }])
+		limit: vi.fn().mockResolvedValue([{ id: SESSION_ID, mode: 'default' }])
 	});
 	whereForSelect.mockResolvedValue([{ count: 1 }]);
 
@@ -118,6 +118,15 @@ describe('POST /api/chat', () => {
 				release: vi.fn().mockResolvedValue(undefined)
 			})
 		);
+	});
+
+	it('rejects bootstrap without briefingPeriod', async () => {
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: ndjsonRequest({ bootstrap: true })
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
 	});
 
 	it('requires auth', async () => {

@@ -3,8 +3,7 @@ import type { RequestHandler } from './$types';
 import { isInsufficientCreditsError, insufficientCreditsPayload } from '$lib/server/billing/insufficient-credits';
 import {
 	captureGateHttpStatus,
-	captureGateJsonBody,
-	isCaptureGateError
+	captureGateJsonBody
 } from '$lib/server/onboarding/capture-gate';
 import { captureThought } from '$lib/server/capture/service';
 import type { CaptureProgressEvent } from '$lib/server/capture/service';
@@ -125,11 +124,7 @@ export const POST: RequestHandler = async (event) => {
 				type: 'error',
 				error: message,
 				details,
-				...(isCaptureGateError(err)
-					? { code: 'grounding_required' }
-					: isInsufficientCreditsError(err)
-						? insufficientCreditsPayload(err)
-						: {})
+				...(isInsufficientCreditsError(err) ? insufficientCreditsPayload(err) : {})
 			});
 		} finally {
 			if (reserved) {

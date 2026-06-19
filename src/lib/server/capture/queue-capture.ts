@@ -3,7 +3,7 @@
  * Tier 2 (background enrich) and tier 3 (overnight consolidation) add vectors, links, and
  * community artifacts on the same row — see docs/planning/ingest-retrieval-timing.md.
  */
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { captureSession, thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
@@ -249,6 +249,44 @@ export async function recoverStaleEnrichProcessingRows(
 	return stale.length;
 }
 
+/**
+ * Re-queue rows marked complete without enriched_at (orphaned tier-2 state).
+ * Returns the number of rows requeued.
+ */
+export async function requeueOrphanedCompleteEnrichRows(userId: string): Promise<number> {
+	const db = getDb();
+	const orphaned = await db
+		.select({ id: thought.id })
+		.from(thought)
+		.where(
+			and(
+				eq(thought.userId, userId),
+				eq(thought.enrichQueueStatus, 'complete' satisfies EnrichQueueStatus),
+				isNull(thought.enrichedAt)
+			)
+		);
+
+	if (orphaned.length === 0) return 0;
+
+	await db
+		.update(thought)
+		.set({
+			enrichQueueStatus: 'pending' satisfies EnrichQueueStatus,
+			enrichQueueError: null
+		})
+		.where(
+			and(
+				eq(thought.userId, userId),
+				inArray(
+					thought.id,
+					orphaned.map((row) => row.id)
+				)
+			)
+		);
+
+	return orphaned.length;
+}
+
 const RETRYABLE_ENRICH_STATUSES: EnrichQueueStatus[] = ['pending', 'processing', 'failed'];
 
 /** Re-queue one thought for background enrich (user-initiated retry). */
@@ -258,7 +296,11 @@ export async function requeueEnrichThought(
 ): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'not_retryable' }> {
 	const db = getDb();
 	const [existing] = await db
-		.select({ id: thought.id, enrichQueueStatus: thought.enrichQueueStatus })
+		.select({
+			id: thought.id,
+			enrichQueueStatus: thought.enrichQueueStatus,
+			enrichedAt: thought.enrichedAt
+		})
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 		.limit(1);
@@ -268,7 +310,8 @@ export async function requeueEnrichThought(
 	}
 
 	const status = existing.enrichQueueStatus;
-	if (!status || !RETRYABLE_ENRICH_STATUSES.includes(status)) {
+	const orphanedComplete = status === 'complete' && existing.enrichedAt == null;
+	if (!orphanedComplete && (!status || !RETRYABLE_ENRICH_STATUSES.includes(status))) {
 		return { ok: false, reason: 'not_retryable' };
 	}
 

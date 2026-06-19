@@ -108,7 +108,7 @@ describe('enrichThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] });
 		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		extractThoughtMetadataMock.mockResolvedValue({
 			memoryType: 'episode',
@@ -151,6 +151,7 @@ describe('enrichThought', () => {
 		const order: string[] = [];
 		syncEntityGraphFromThoughtMock.mockImplementation(async () => {
 			order.push('entities');
+			return { mentionCount: 1, projectLikeEntities: [] };
 		});
 		syncTemporalEventsFromThoughtMock.mockImplementation(async () => {
 			order.push('temporal');
@@ -268,7 +269,7 @@ describe('enrichThought', () => {
 	it('clears enriched_at when entity sync fails on substantive text', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] });
 		const longText =
 			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
 
@@ -380,7 +381,7 @@ describe('enrichThought', () => {
 		const db = makeDb({ updateThrowsOnEnrichedAtNull: true });
 		getDbMock.mockReturnValue(db);
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] });
 		const longText =
 			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
 
@@ -498,7 +499,7 @@ describe('enrichThought', () => {
 	it('does not fail entity step for short text with zero mentions', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] });
 
 		await enrichThought('u1', 't1', 'hi');
 
@@ -586,7 +587,7 @@ describe('enrichThought', () => {
 		const db = makeDb({ updateThrowsReasonOnCall: { 3: 'clear failed' } });
 		getDbMock.mockReturnValue(db);
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] });
 		const longText =
 			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
 
@@ -636,7 +637,7 @@ describe('scheduleEnrichThought', () => {
 		vi.clearAllMocks();
 		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
 		extractRelationsMock.mockResolvedValue([]);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] });
 		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
 		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
@@ -674,7 +675,7 @@ describe('reenrichThought', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		extractRelationsMock.mockResolvedValue([]);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] });
 		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
 		maybeRefreshUserOntologyMock.mockResolvedValue(undefined);
@@ -726,7 +727,7 @@ describe('scheduleReenrichThought', () => {
 		vi.clearAllMocks();
 		withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn());
 		extractRelationsMock.mockResolvedValue([]);
-		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1 });
+		syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] });
 		syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined);
 		extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] });
 		materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined);
