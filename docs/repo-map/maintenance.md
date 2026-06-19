@@ -9,6 +9,7 @@ Goal: keep [`README.md`](../../README.md) (L0), [`index.md`](./index.md) (L1), d
 3. **If project scope or top-level flows change:** Update the short “Repo map” paragraph in `README.md`.
 4. **If you introduce or fix overlap between systems:** Add or resolve a row in `conflicts.md` and adjust the `CompetingSystems` section in the affected domain file(s).
 5. **If this protocol or answer rules change:** Edit `maintenance.md` or `answer-protocol.md` accordingly.
+6. **If you implement or reject a pattern from a competitor concept:** Update the CC doc under [`docs/competitor-concepts/`](../competitor-concepts/README.md) (gitignored; local operator notes) with status and code links.
 
 ## Same session when possible
 

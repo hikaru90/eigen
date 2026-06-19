@@ -6,6 +6,7 @@ import {
 	buildAgentToolDescriptionBlock,
 	buildGroundingAgentToolDescriptionBlock,
 	GROUNDING_TOOL_NAMES,
+	isMcpExposedTool,
 	MCP_TOOL_DEFINITIONS,
 	MCP_TOOL_MAP,
 	MCP_TOOL_NAMES
@@ -398,8 +399,9 @@ async function executeAgentToolCall(input: {
 	tool: string;
 	arguments: Record<string, unknown>;
 	exec: ToolExecutionContext;
+	allowInternalTools?: boolean;
 }): Promise<{ done: true; response: string; messages?: ChatMessage[] } | { done: false; result: unknown; assistantContent: string }> {
-	const { tool, exec } = input;
+	const { tool, exec, allowInternalTools = false } = input;
 	const args = normalizeAgentToolArgs(tool, input.arguments);
 
 	if (
@@ -412,7 +414,9 @@ async function executeAgentToolCall(input: {
 	}
 
 	const handler = MCP_TOOL_MAP.get(tool);
-	if (!handler) {
+	const groundingTool = (GROUNDING_TOOL_NAMES as readonly string[]).includes(tool);
+	const allowed = isMcpExposedTool(tool) || (allowInternalTools && groundingTool);
+	if (!handler || !allowed) {
 		return {
 			done: false,
 			result: { error: `Tool "${tool}" is not available. Available: ${MCP_TOOL_NAMES.join(', ')}` },
@@ -645,7 +649,8 @@ async function runGroundingAgentLoop(input: {
 			const outcome = await executeAgentToolCall({
 				tool: parsed.tool,
 				arguments: parsed.arguments,
-				exec: { ...exec, assistantContentForHistory: content }
+				exec: { ...exec, assistantContentForHistory: content },
+				allowInternalTools: true
 			});
 
 			if (outcome.done) {
@@ -800,7 +805,7 @@ export async function agentChat(input: {
 
 		if (parsed.type === 'tool_call') {
 			const handler = MCP_TOOL_MAP.get(parsed.tool);
-			if (!handler) {
+			if (!handler || !isMcpExposedTool(parsed.tool)) {
 				console.error('[agent-loop] unknown tool requested', { tool: parsed.tool });
 				messages.push({ role: 'assistant', content });
 				messages.push({

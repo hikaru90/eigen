@@ -71,5 +71,34 @@ describe('computeTimelineStatsForUser', () => {
 
 		const stats = await computeTimelineStatsForUser('u1');
 		expect(stats.overdueCount).toBe(1);
+		expect(stats.todoTodayCount).toBe(2);
+	});
+
+	it('counts prior-day overdue in todoTodayCount when nothing is scheduled today', async () => {
+		const now = Date.now();
+		const priorDayOverdue = {
+			id: '1',
+			itemType: 'event',
+			lifecycleStatus: 'open',
+			thoughtStatus: 'open',
+			timezone: 'UTC',
+			endAt: new Date(now - 60_000).toISOString(),
+			startAt: new Date(now - 26 * 60 * 60 * 1000).toISOString()
+		};
+
+		getDbMock.mockReturnValue({
+			select: vi
+				.fn()
+				.mockReturnValueOnce(makeAwaitableChain([]))
+				.mockReturnValueOnce(makeAwaitableChain([]))
+		});
+
+		listTemporalEventsForUserMock
+			.mockResolvedValueOnce({ items: [priorDayOverdue] })
+			.mockResolvedValueOnce({ items: [] });
+
+		const stats = await computeTimelineStatsForUser('u1');
+		expect(stats.overdueCount).toBe(1);
+		expect(stats.todoTodayCount).toBe(1);
 	});
 });

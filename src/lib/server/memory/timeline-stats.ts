@@ -5,7 +5,7 @@ import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-lis
 import { priorDayOverdueCount, overdueDebtMinutes } from '$lib/graph/timeline-overdue';
 import { completedTodayCount } from '$lib/graph/timeline-completed-today';
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
-import { isOpenTodoToday } from '$lib/server/memory/timeline-today-server';
+import { filterOpenTodoTodayItems } from '$lib/server/memory/timeline-today-server';
 
 export type TimelineStats = {
 	completionsThisWeek: number;
@@ -82,7 +82,7 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 		includeOpenLoops: true
 	});
 
-	const todoToday = openItems.filter((item) => isOpenTodoToday(item, now, timeZone));
+	const todoToday = filterOpenTodoTodayItems(openItems, now, timeZone);
 
 	return {
 		completionsThisWeek: completionsThisWeek.length,

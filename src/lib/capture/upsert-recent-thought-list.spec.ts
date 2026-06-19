@@ -14,6 +14,7 @@ function thought(id: string, category = 'observation'): CaptureSubmitResult {
 		entities: [],
 		temporalEvents: [],
 		linkedThoughts: [],
+		attachedFiles: [],
 		enrichmentComplete: false,
 		queueStatus: 'pending'
 	};

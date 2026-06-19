@@ -2,51 +2,43 @@
 	import { onMount } from 'svelte';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import LayoutListIcon from '@lucide/svelte/icons/layout-list';
-	import SunIcon from '@lucide/svelte/icons/sun';
-	import Grid3x3Icon from '@lucide/svelte/icons/grid-3x3';
-	import Columns3Icon from '@lucide/svelte/icons/columns-3';
-	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
-	import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
-	import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban';
-	import * as Select from '$lib/components/ui/select';
-	import * as Popover from '$lib/components/ui/popover';
-	import { Button } from '$lib/components/ui/button';
-	import { Label } from '$lib/components/ui/label';
 	import {
-		estimatedMinutesForItems,
 		filterActiveItems,
 		filterItemsByKinds,
 		filterItemsByRange,
 		filterItemsByStatus,
-		filterItemsForTodayView,
 		filterItemsForUpcomingView,
 		filterTodayTodoOpenItems,
 		mergePriorDayOverdueIntoItems,
 		filterPriorDayOverdueItems,
 		filterSnoozedItems,
 		isOpenLoopItemId,
-		KANBAN_KIND_ORDER,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
 		thoughtIdFromOpenLoopItemId,
 		type TimelineShellView,
-		type TodaySegment
+		type NowSegment,
+		type ProjectsLayout,
+		type ProjectStatusFilter
 	} from './temporal-events-utils';
 	import { filterCompletedTodayItems } from '$lib/graph/timeline-completed-today';
 	import { isTemporalEventCompleted } from './temporal-events-utils';
-	import { graphKindLabel, graphTemporalRangeLabel } from '$lib/graph/graph-i18n';
 	import { m } from '$lib/paraglide/messages.js';
+	import { Button } from '$lib/components/ui/button';
 	import TemporalEventDetail from './TemporalEventDetail.svelte';
 	import TemporalEventsAgendaView from './TemporalEventsAgendaView.svelte';
 	import TemporalEventsTodayView from './TemporalEventsTodayView.svelte';
-	import TemporalEventsProjectsView from './TemporalEventsProjectsView.svelte';
-	import TemporalEventsUpcomingView from './TemporalEventsUpcomingView.svelte';
-	import TemporalEventsWeekView from './TemporalEventsWeekView.svelte';
 	import TemporalEventsMatrixView from './TemporalEventsMatrixView.svelte';
+	import TemporalEventsProjectsView from './TemporalEventsProjectsView.svelte';
+	import TemporalEventsReviewView from './TemporalEventsReviewView.svelte';
 	import TemporalTimelineHeader from './TemporalTimelineHeader.svelte';
 	import TemporalTimelineNudge from './TemporalTimelineNudge.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
+	import TemporalTodaySegmentTabs from './TemporalTodaySegmentTabs.svelte';
+	import TemporalProjectsLayoutTabs from './TemporalProjectsLayoutTabs.svelte';
+	import TemporalProjectStatusTabs from './TemporalProjectStatusTabs.svelte';
+	import TemporalShellTabs from './TemporalShellTabs.svelte';
+	import TemporalTimelineFiltersPopover from './TemporalTimelineFiltersPopover.svelte';
 
 	type Props = {
 		onSelectItem?: (item: TemporalEventListItem | null) => void;
@@ -57,6 +49,7 @@
 		eventNotificationsEnabled?: boolean;
 		eventReminderLeadMinutes?: number;
 		eventReminderKinds?: string[];
+		visible?: boolean;
 	};
 
 	let {
@@ -66,7 +59,8 @@
 		userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
 		eventNotificationsEnabled = false,
 		eventReminderLeadMinutes = 10,
-		eventReminderKinds = ['appointment', 'reminder', 'deadline', 'inferred_event']
+		eventReminderKinds = ['appointment', 'reminder', 'deadline', 'inferred_event'],
+		visible = true
 	}: Props = $props();
 
 	type Phase =
@@ -79,8 +73,10 @@
 	let rangeFilter = $state<TemporalRangeFilter>('relevant');
 	let statusFilter = $state<TemporalStatusFilter>('open');
 	let kindFilter = $state<string[]>([]);
-	let shellView = $state<TimelineShellView>('today');
-	let todaySegment = $state<TodaySegment>('todo');
+	let shellView = $state<TimelineShellView>('now');
+	let nowSegment = $state<NowSegment>('todo');
+	let projectsLayout = $state<ProjectsLayout>('list');
+	let projectStatusFilter = $state<ProjectStatusFilter>('all');
 	let updatingEventId = $state<string | null>(null);
 	let actionBusy = $state(false);
 	let actionError = $state<string | null>(null);
@@ -91,7 +87,6 @@
 	let doneItems = $state<TemporalEventListItem[]>([]);
 	let doneLoading = $state(false);
 	let statsRefreshKey = $state(0);
-	let lastRefreshedAt = $state<Date | null>(null);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
 
@@ -120,36 +115,9 @@
 	);
 	const todayTodoItems = $derived(filterTodayTodoOpenItems(todayTodoSourceItems, userTimeZone));
 
-	const shellViewItems = $derived(
-		shellView === 'today'
-			? filterItemsForTodayView(displayItems, userTimeZone)
-			: shellView === 'upcoming'
-				? filterItemsForUpcomingView(displayItems, userTimeZone)
-				: shellView === 'projects'
-					? []
-					: displayItems
-	);
+	const upcomingItems = $derived(filterItemsForUpcomingView(displayItems, userTimeZone));
 
-	const headerTaskCount = $derived(
-		shellView === 'today' && todaySegment === 'done'
-			? doneItems.length
-			: shellView === 'today' && todaySegment === 'overdue'
-				? overdueItems.length
-				: shellView === 'today' && todaySegment === 'todo'
-					? todayTodoItems.length
-					: shellViewItems.length
-	);
-	const headerEstimatedMinutes = $derived(
-		shellView === 'today' && todaySegment === 'done'
-			? estimatedMinutesForItems(doneItems)
-			: shellView === 'today' && todaySegment === 'overdue'
-				? estimatedMinutesForItems(overdueItems)
-				: shellView === 'today' && todaySegment === 'todo'
-					? estimatedMinutesForItems(todayTodoItems)
-					: estimatedMinutesForItems(shellViewItems)
-	);
-
-	const todayTabCounts = $derived({
+	const nowTabCounts = $derived({
 		todo: todayTodoItems.length,
 		done: doneItems.length,
 		overdue: overdueItems.length
@@ -168,30 +136,24 @@
 	const showGlobalEmpty = $derived(
 		phase.kind === 'ready' &&
 			filteredItems.length === 0 &&
-			!(shellView === 'today' && todaySegment !== 'todo')
+			shellView === 'now' &&
+			nowSegment === 'todo'
 	);
 
 	const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0);
 
-	const visibleListCount = $derived(
-		shellView === 'today' && todaySegment === 'done'
-			? doneItems.length
-			: shellView === 'today' && todaySegment === 'overdue'
-				? overdueItems.length
-				: filteredItems.length
-	);
+	const showFiltersBar = $derived(shellView !== 'review');
 
-	function markRefreshed() {
-		lastRefreshedAt = new Date();
-	}
+	const showFiltersInHeader = $derived(
+		showFiltersBar && !(shellView === 'now' && nowSegment === 'todo' && overdueItems.length > 0)
+	);
 
 	async function loadEvents(append = false, options?: { silent?: boolean }) {
 		const silent = options?.silent ?? false;
 		if (!append && !silent) phase = { kind: 'loading' };
 		actionError = null;
 		try {
-			const effectiveStatus: TemporalStatusFilter =
-				shellView === 'today' ? 'open' : statusFilter;
+			const effectiveStatus: TemporalStatusFilter = shellView === 'now' ? 'open' : statusFilter;
 			const params = new URLSearchParams({
 				range: rangeFilter,
 				status: effectiveStatus,
@@ -223,7 +185,6 @@
 					onSelectItem?.(body.items.find((i) => i.id === initialEventId) ?? null);
 				}
 			}
-			if (!append) markRefreshed();
 		} catch (err) {
 			if (silent && phase.kind === 'ready') return;
 			phase = {
@@ -295,10 +256,10 @@
 	}
 
 	$effect(() => {
-		if (shellView === 'today' && todaySegment === 'overdue') {
+		if (shellView === 'now' && nowSegment === 'overdue') {
 			void loadOverdueItems();
 		}
-		if (shellView === 'today' && todaySegment === 'done') {
+		if (shellView === 'now' && nowSegment === 'done') {
 			void loadDoneItems();
 		}
 	});
@@ -332,7 +293,7 @@
 	}
 
 	function shouldDropFromOpenList(item: TemporalEventListItem): boolean {
-		return isTemporalEventCompleted(item) && (statusFilter === 'open' || shellView === 'today');
+		return isTemporalEventCompleted(item) && (statusFilter === 'open' || shellView === 'now');
 	}
 
 	function syncListsAfterStatusChange(updated: TemporalEventListItem) {
@@ -355,8 +316,8 @@
 
 		bumpStats();
 		void loadEvents(false, { silent: true });
-		if (todaySegment === 'overdue') void loadOverdueItems();
-		if (todaySegment === 'done') void loadDoneItems();
+		if (nowSegment === 'overdue') void loadOverdueItems();
+		if (nowSegment === 'done') void loadDoneItems();
 	}
 
 	async function postEventAction(
@@ -418,8 +379,8 @@
 			} else {
 				bumpStats();
 				void loadEvents(false, { silent: true });
-				if (todaySegment === 'overdue') void loadOverdueItems();
-				if (todaySegment === 'done') void loadDoneItems();
+				if (nowSegment === 'overdue') void loadOverdueItems();
+				if (nowSegment === 'done') void loadDoneItems();
 			}
 			lastActionSummary =
 				status === 'completed' ? m.graph_timeline_open_loop_done() : m.graph_timeline_open_loop_reopen();
@@ -494,29 +455,39 @@
 
 	function onFilterChange() {
 		void loadEvents();
-		if (todaySegment === 'overdue') void loadOverdueItems();
-		if (todaySegment === 'done') void loadDoneItems();
+		if (nowSegment === 'overdue') void loadOverdueItems();
+		if (nowSegment === 'done') void loadDoneItems();
 	}
 
 	function refreshAll() {
 		void loadEvents();
 		bumpStats();
-		if (todaySegment === 'overdue') void loadOverdueItems();
-		if (todaySegment === 'done') void loadDoneItems();
+		if (nowSegment === 'overdue') void loadOverdueItems();
+		if (nowSegment === 'done') void loadDoneItems();
 	}
 
 	function setShellView(view: TimelineShellView) {
 		shellView = view;
-		if (view === 'today') {
+		if (view === 'now') {
 			statusFilter = 'open';
 		}
-		if (view !== 'today') todaySegment = 'todo';
+		if (view === 'projects') {
+			projectsLayout = 'list';
+		}
 		filtersPopoverOpen = false;
 	}
 
-	function setTodaySegment(segment: TodaySegment) {
-		todaySegment = segment;
-		if (shellView !== 'today') shellView = 'today';
+	function setNowSegment(segment: NowSegment) {
+		nowSegment = segment;
+		if (shellView !== 'now') shellView = 'now';
+	}
+
+	function goToOverdue() {
+		setNowSegment('overdue');
+	}
+
+	function setProjectsLayout(layout: ProjectsLayout) {
+		projectsLayout = layout;
 	}
 
 	function openProjectAssign(item: TemporalEventListItem) {
@@ -551,160 +522,66 @@
 	}
 </script>
 
-<div class="relative flex h-full min-h-0 w-full flex-col pb-24">
-	<TemporalTimelineHeader
+<div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-10 pb-28 md:pt-20">
+	<TemporalShellTabs
 		{shellView}
-		todaySegment={todaySegment}
-		taskCount={headerTaskCount}
-		estimatedMinutes={headerEstimatedMinutes}
-		timeZone={userTimeZone}
-		tabCounts={todayTabCounts}
-		{lastRefreshedAt}
 		{refreshBusy}
-		statsRefreshKey={statsRefreshKey}
+		onShellChange={setShellView}
 		onRefresh={refreshAll}
-		onTodaySegmentChange={setTodaySegment}
 	/>
 
-	<div class="border-border flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
-		<div
-			class="border-border bg-muted/30 inline-flex max-w-full rounded-md border p-0.5"
-			role="group"
-			aria-label={m.graph_timeline_views_aria()}
-		>
-			<button
-				type="button"
-				class="rounded-sm px-2 py-1 font-mono text-[11px] transition-colors sm:px-2.5 {shellView ===
-				'week'
-					? 'bg-background text-foreground shadow-sm'
-					: 'text-muted-foreground hover:text-foreground'}"
-				aria-pressed={shellView === 'week'}
-				onclick={() => setShellView('week')}
-			>
-				<Grid3x3Icon class="mr-1 inline size-3 opacity-80" aria-hidden="true" />
-				{m.graph_timeline_week()}
-			</button>
-			<button
-				type="button"
-				class="rounded-sm px-2 py-1 font-mono text-[11px] transition-colors sm:px-2.5 {shellView ===
-				'agenda'
-					? 'bg-background text-foreground shadow-sm'
-					: 'text-muted-foreground hover:text-foreground'}"
-				aria-pressed={shellView === 'agenda'}
-				onclick={() => setShellView('agenda')}
-			>
-				<LayoutListIcon class="mr-1 inline size-3 opacity-80" aria-hidden="true" />
-				{m.graph_temporal_agenda()}
-			</button>
-			<button
-				type="button"
-				class="rounded-sm px-2 py-1 font-mono text-[11px] transition-colors sm:px-2.5 {shellView ===
-				'matrix'
-					? 'bg-background text-foreground shadow-sm'
-					: 'text-muted-foreground hover:text-foreground'}"
-				aria-pressed={shellView === 'matrix'}
-				onclick={() => setShellView('matrix')}
-			>
-				<Columns3Icon class="mr-1 inline size-3 opacity-80" aria-hidden="true" />
-				{m.graph_timeline_matrix()}
-			</button>
-		</div>
+	{#snippet timelineFilters()}
+		<TemporalTimelineFiltersPopover
+			bind:open={filtersPopoverOpen}
+			{filtersActive}
+			{statusFilter}
+			{rangeFilter}
+			{kindFilter}
+			onStatusFilterChange={setStatusFilter}
+			onRangeFilterChange={(next) => {
+				rangeFilter = next;
+				onFilterChange();
+			}}
+			onToggleKind={toggleKind}
+			onClearKinds={clearKindFilter}
+		/>
+	{/snippet}
 
-		<Popover.Root bind:open={filtersPopoverOpen}>
-			<Popover.Trigger
-				id="timeline-filters-trigger"
-				class="border-border bg-background text-foreground hover:bg-muted focus-visible:ring-ring/50 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2 shadow-none transition-colors focus-visible:ring-1 focus-visible:outline-none {filtersActive
-					? 'ring-primary/40 bg-muted/40 ring-1'
-					: ''}"
-				aria-label={m.graph_timeline_filters()}
-				aria-expanded={filtersPopoverOpen}
-				aria-controls="timeline-filters-panel"
-			>
-				<ListFilterIcon class="size-3.5 shrink-0 opacity-90" aria-hidden="true" />
-				<span class="hidden font-mono text-[11px] sm:inline">{m.graph_timeline_filters()}</span>
-			</Popover.Trigger>
-			<Popover.Content
-				id="timeline-filters-panel"
-				align="start"
-				side="bottom"
-				sideOffset={6}
-				class="w-56 gap-3 p-3"
-				aria-labelledby="timeline-filters-trigger"
-			>
-				<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
-					{m.graph_timeline_filters_advanced()}
-				</p>
-				<label class="flex cursor-pointer items-center gap-2 font-mono text-[11px]">
-					<input
-						type="checkbox"
-						class="size-3.5"
-						checked={statusFilter === 'all'}
-						onchange={(e) => setStatusFilter(e.currentTarget.checked ? 'all' : 'open')}
-					/>
-					{m.graph_temporal_status_show_completed()}
-				</label>
-				<div class="space-y-1.5">
-					<Label class="text-xs">{m.graph_timeline_filters_range()}</Label>
-					<Select.Root
-						type="single"
-						value={rangeFilter}
-						onValueChange={(v) => {
-							if (v) {
-								rangeFilter = v as TemporalRangeFilter;
-								onFilterChange();
-							}
-						}}
-					>
-						<Select.Trigger class="h-8 w-full font-mono text-xs">
-							{graphTemporalRangeLabel(rangeFilter)}
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Item value="relevant">{m.graph_temporal_range_relevant()}</Select.Item>
-							<Select.Item value="upcoming">{m.graph_temporal_range_upcoming()}</Select.Item>
-							<Select.Item value="past">{m.graph_temporal_range_past()}</Select.Item>
-							<Select.Item value="all">{m.graph_temporal_range_all()}</Select.Item>
-						</Select.Content>
-					</Select.Root>
+	<TemporalTimelineHeader {shellView} nowSegment={nowSegment} {projectsLayout}>
+		{#snippet titleActions()}
+			{#if showFiltersBar}
+				<div
+					class={showFiltersInHeader ? '' : 'pointer-events-none invisible'}
+					aria-hidden={!showFiltersInHeader}
+				>
+					{@render timelineFilters()}
 				</div>
-				<fieldset class="space-y-1.5">
-					<legend id="timeline-kinds-legend" class="text-xs font-medium">
-						{m.graph_timeline_filters_kinds()}
-					</legend>
-					<div class="flex flex-col gap-1.5">
-						{#each KANBAN_KIND_ORDER as kind (kind)}
-							<label class="flex cursor-pointer items-center gap-2 font-mono text-[11px]">
-								<input
-									type="checkbox"
-									class="size-3.5"
-									checked={kindFilter.includes(kind)}
-									aria-describedby="timeline-kinds-legend"
-									onchange={() => toggleKind(kind)}
-								/>
-								{graphKindLabel(kind)}
-							</label>
-						{/each}
-					</div>
-					{#if kindFilter.length > 0}
-						<button
-							type="button"
-							class="text-muted-foreground pt-1 font-mono text-[10px] underline"
-							onclick={clearKindFilter}
-						>
-							{m.graph_temporal_clear_kinds()}
-						</button>
-					{/if}
-				</fieldset>
-			</Popover.Content>
-		</Popover.Root>
-
-		{#if phase.kind === 'ready'}
-			<span class="text-muted-foreground ml-auto font-mono text-[11px]">
-				{m.graph_temporal_events_count({ count: visibleListCount })}
-			</span>
+			{/if}
+		{/snippet}
+		{#if shellView === 'now'}
+			<TemporalTodaySegmentTabs
+				nav={{
+					segment: nowSegment,
+					tabCounts: nowTabCounts,
+					statsRefreshKey,
+					onSegmentChange: setNowSegment
+				}}
+			/>
 		{/if}
-	</div>
+		{#snippet projectsChrome()}
+			{#if shellView === 'projects'}
+				{#if projectsLayout === 'list'}
+					<TemporalProjectStatusTabs
+						filter={projectStatusFilter}
+						onFilterChange={(f) => (projectStatusFilter = f)}
+					/>
+				{/if}
+				<TemporalProjectsLayoutTabs layout={projectsLayout} onLayoutChange={setProjectsLayout} />
+			{/if}
+		{/snippet}
+	</TemporalTimelineHeader>
 
-	{#if snoozedItems.length > 0}
+	{#if snoozedItems.length > 0 && shellView !== 'review'}
 		<div class="border-border shrink-0 border-b px-3 py-1.5">
 			<p class="text-muted-foreground mb-1 font-mono text-[10px] uppercase">
 				{m.graph_timeline_snoozed()} ({snoozedItems.length})
@@ -733,13 +610,6 @@
 			<p class="text-destructive text-sm font-medium">{m.graph_temporal_load_error()}</p>
 			<p class="text-muted-foreground text-center text-xs">{phase.message}</p>
 		</div>
-	{:else if phase.kind === 'ready' && shellView === 'projects'}
-		<div class="flex min-h-0 flex-1 flex-col">
-			<TemporalEventsProjectsView
-				{selectedItemId}
-				onSelect={selectItem}
-			/>
-		</div>
 	{:else if showGlobalEmpty}
 		<div class="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
 			{#if totalReadyCount === 0}
@@ -754,61 +624,66 @@
 		</div>
 	{:else if phase.kind === 'ready'}
 		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-			{#if shellView === 'today'}
+			{#if shellView === 'now'}
 				<TemporalEventsTodayView
 					items={todayTodoSourceItems}
 					{doneItems}
 					{doneLoading}
 					{overdueItems}
 					{overdueLoading}
+					overdueCount={overdueItems.length}
 					{selectedItemId}
 					{updatingEventId}
 					timeZone={userTimeZone}
-					segment={todaySegment}
+					segment={nowSegment}
+					statusRow={overdueItems.length > 0 ? timelineFilters : undefined}
 					onSelect={selectItem}
 					onQuickAction={onQuickAction}
 					onLongPress={openProjectAssign}
+					onGoToOverdue={goToOverdue}
 				/>
-				<TemporalTimelineNudge onAccept={onReschedule} />
-			{:else if shellView === 'upcoming'}
-				<TemporalEventsUpcomingView
+				{#if nowSegment === 'todo'}
+					<TemporalTimelineNudge onAccept={onReschedule} />
+				{/if}
+			{:else if shellView === 'projects'}
+				{#if projectsLayout === 'list'}
+					<TemporalEventsProjectsView
+						{selectedItemId}
+						statusFilter={projectStatusFilter}
+						onSelect={selectItem}
+					/>
+				{:else if projectsLayout === 'agenda'}
+					<TemporalEventsAgendaView
+						items={upcomingItems}
+						{selectedItemId}
+						{updatingEventId}
+						timeZone={userTimeZone}
+						onSelect={selectItem}
+						onQuickAction={onQuickAction}
+					/>
+				{:else}
+					<TemporalEventsMatrixView
+						items={upcomingItems}
+						{selectedItemId}
+						{updatingEventId}
+						onSelect={selectItem}
+						onQuickAction={onQuickAction}
+					/>
+				{/if}
+			{:else}
+				<TemporalEventsReviewView
 					items={displayItems}
 					{selectedItemId}
 					{updatingEventId}
 					timeZone={userTimeZone}
 					onSelect={selectItem}
 					onQuickAction={onQuickAction}
-					onLongPress={openProjectAssign}
-				/>
-				<TemporalTimelineNudge onAccept={onReschedule} />
-			{:else if shellView === 'week'}
-				<TemporalEventsWeekView
-					items={displayItems}
-					{selectedItemId}
-					timeZone={userTimeZone}
-					onSelect={selectItem}
 					{onReschedule}
-				/>
-			{:else if shellView === 'agenda'}
-				<TemporalEventsAgendaView
-					items={displayItems}
-					{selectedItemId}
-					{updatingEventId}
-					timeZone={userTimeZone}
-					onSelect={selectItem}
-					onQuickAction={onQuickAction}
-				/>
-			{:else if shellView === 'matrix'}
-				<TemporalEventsMatrixView
-					items={displayItems}
-					{selectedItemId}
-					{updatingEventId}
-					onSelect={selectItem}
-					onQuickAction={onQuickAction}
+					onGoToOverdue={goToOverdue}
 				/>
 			{/if}
 
-			{#if phase.nextCursor}
+			{#if phase.nextCursor && shellView !== 'review'}
 				<div class="border-border shrink-0 border-t px-3 py-2 text-center">
 					<Button type="button" variant="outline" size="sm" class="h-8 text-xs" onclick={() => loadEvents(true)}>
 						{m.graph_timeline_load_more()}
@@ -845,60 +720,4 @@
 		onClose={closeProjectAssign}
 		onAssigned={onProjectAssigned}
 	/>
-
-	<nav
-		class="border-border bg-background/95 fixed inset-x-0 bottom-0 z-10 border-t px-6 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-sm"
-		aria-label={m.graph_timeline_bottom_nav()}
-	>
-		<div class="mx-auto grid max-w-lg grid-cols-3 gap-1">
-			<button
-				type="button"
-				class="flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs transition-colors {shellView ===
-				'today'
-					? 'text-foreground'
-					: 'text-muted-foreground hover:text-foreground'}"
-				onclick={() => setShellView('today')}
-			>
-				<SunIcon class="size-4" aria-hidden="true" />
-				<span>{m.graph_timeline_today()}</span>
-				{#if shellView === 'today'}
-					<span class="bg-foreground size-1 rounded-full" aria-hidden="true"></span>
-				{:else}
-					<span class="size-1" aria-hidden="true"></span>
-				{/if}
-			</button>
-			<button
-				type="button"
-				class="flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs transition-colors {shellView ===
-				'projects'
-					? 'text-foreground'
-					: 'text-muted-foreground hover:text-foreground'}"
-				onclick={() => setShellView('projects')}
-			>
-				<FolderKanbanIcon class="size-4" aria-hidden="true" />
-				<span>{m.graph_timeline_projects()}</span>
-				{#if shellView === 'projects'}
-					<span class="bg-foreground size-1 rounded-full" aria-hidden="true"></span>
-				{:else}
-					<span class="size-1" aria-hidden="true"></span>
-				{/if}
-			</button>
-			<button
-				type="button"
-				class="flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs transition-colors {shellView ===
-				'upcoming'
-					? 'text-foreground'
-					: 'text-muted-foreground hover:text-foreground'}"
-				onclick={() => setShellView('upcoming')}
-			>
-				<CalendarDaysIcon class="size-4" aria-hidden="true" />
-				<span>{m.graph_timeline_upcoming()}</span>
-				{#if shellView === 'upcoming'}
-					<span class="bg-foreground size-1 rounded-full" aria-hidden="true"></span>
-				{:else}
-					<span class="size-1" aria-hidden="true"></span>
-				{/if}
-			</button>
-		</div>
-	</nav>
 </div>

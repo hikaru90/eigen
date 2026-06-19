@@ -33,6 +33,7 @@ describe('pollCaptureRecentSync', () => {
 						entities: [],
 						temporalEvents: [],
 						linkedThoughts: [],
+						attachedFiles: [],
 						enrichmentComplete: false,
 						queueStatus: 'processing'
 					}
@@ -85,6 +86,7 @@ describe('pollCaptureRecentSync', () => {
 							entities: [],
 							temporalEvents: [],
 							linkedThoughts: [],
+						attachedFiles: [],
 							enrichmentComplete: true,
 							queueStatus: 'complete'
 						}
@@ -125,6 +127,7 @@ describe('pollCaptureRecentSync', () => {
 						entities: [],
 						temporalEvents: [],
 						linkedThoughts: [],
+						attachedFiles: [],
 						enrichmentComplete: true,
 						queueStatus: 'complete'
 					}

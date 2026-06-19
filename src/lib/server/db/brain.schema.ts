@@ -289,6 +289,60 @@ export const thoughtRelation = pgTable(
 	]
 );
 
+/**
+ * User-scoped text documents (Keep-style notes). Not enriched like thoughts — no embedding,
+ * category, or graph pipeline. Optionally linked to thoughts via `thought_text_file`.
+ */
+export const textFile = pgTable(
+	'text_file',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		title: text('title').notNull().default(''),
+		bodyText: text('body_text').notNull(),
+		bodyTextEncrypted: text('body_text_encrypted'),
+		lexicalText: text('lexical_text').notNull().default(''),
+		lexicalTsv: tsvector('lexical_tsv')
+			.notNull()
+			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		index('text_file_user_updated_idx').on(t.userId, t.updatedAt),
+		index('text_file_lexical_tsv_idx').using('gin', t.lexicalTsv)
+	]
+);
+
+/** Many-to-many link between thoughts and user text files. */
+export const thoughtTextFile = pgTable(
+	'thought_text_file',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		thoughtId: uuid('thought_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		textFileId: uuid('text_file_id')
+			.notNull()
+			.references(() => textFile.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.thoughtId, t.textFileId], name: 'thought_text_file_pk' }),
+		index('thought_text_file_user_idx').on(t.userId),
+		index('thought_text_file_text_file_idx').on(t.textFileId)
+	]
+);
+
+export type TextFile = typeof textFile.$inferSelect;
+
 /** Prepaid Eigen platform credits per user (1000 credits = $1 USD). */
 export const userWallet = pgTable('user_wallet', {
 	userId: text('user_id')

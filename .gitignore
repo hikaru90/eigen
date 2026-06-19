@@ -9,6 +9,8 @@ node_modules
 /build
 
 /docs/secret
+/docs/competitors
+/docs/competitor-concepts
 
 # OS
 .DS_Store

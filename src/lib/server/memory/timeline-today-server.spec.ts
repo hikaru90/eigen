@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOpenTodoToday } from './timeline-today-server';
+import { filterOpenTodoTodayItems, isOpenTodoToday } from './timeline-today-server';
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list';
 
 function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventListItem {
@@ -75,5 +75,26 @@ describe('isOpenTodoToday', () => {
 			endAt: '2026-06-16T19:00:00.000Z'
 		});
 		expect(isOpenTodoToday(laterToday, now, timeZone)).toBe(true);
+	});
+});
+
+describe('filterOpenTodoTodayItems', () => {
+	const timeZone = 'Europe/Berlin';
+
+	it('merges prior-day overdue into today todo count', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const overdueYesterday = item({
+			id: 'yesterday',
+			startAt: '2026-06-15T08:00:00.000Z',
+			endAt: '2026-06-15T09:00:00.000Z'
+		});
+		const upcoming = item({
+			id: 'soon',
+			startAt: '2026-06-16T20:00:00.000Z',
+			endAt: '2026-06-16T21:00:00.000Z'
+		});
+		expect(filterOpenTodoTodayItems([overdueYesterday, upcoming], now, timeZone).map((i) => i.id)).toEqual(
+			['soon', 'yesterday']
+		);
 	});
 });

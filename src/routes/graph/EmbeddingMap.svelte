@@ -261,7 +261,7 @@
 
 	{#if phase.kind === 'ready' && phase.count > 0}
 		<div
-			class="pointer-events-none absolute bottom-32 left-3 z-20 w-[min(calc(100vw-1.5rem),11rem)] shrink-0"
+			class="pointer-events-none absolute top-10 left-3 z-20 w-[min(calc(100vw-1.5rem),11rem)] shrink-0 md:top-14"
 		>
 			<GraphEntityKindsLegend
 				bind:visibleEntityTypes
@@ -271,7 +271,7 @@
 			/>
 		</div>
 
-		<p class="text-muted-foreground/50 pointer-events-none absolute bottom-28 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9px]">
+		<p class="text-muted-foreground/50 pointer-events-none absolute top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9px] md:top-12">
 			{m.graph_embedding_controls()}
 		</p>
 	{/if}

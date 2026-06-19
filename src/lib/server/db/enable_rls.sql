@@ -319,6 +319,22 @@ CREATE POLICY ontology_proposal_isolation ON ontology_proposal
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE text_file ENABLE ROW LEVEL SECURITY;
+ALTER TABLE text_file FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS text_file_isolation ON text_file;
+CREATE POLICY text_file_isolation ON text_file
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE thought_text_file ENABLE ROW LEVEL SECURITY;
+ALTER TABLE thought_text_file FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thought_text_file_isolation ON thought_text_file;
+CREATE POLICY thought_text_file_isolation ON thought_text_file
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 -- Bearer API key auth runs before app.current_user_id is set; resolve via SECURITY DEFINER.
 CREATE OR REPLACE FUNCTION resolve_user_api_key(p_key_hash text)
 RETURNS TABLE(id uuid, user_id text)

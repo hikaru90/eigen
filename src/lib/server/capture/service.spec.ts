@@ -56,6 +56,7 @@ const defaultCaptureResult = {
 	entities: [],
 	temporalEvents: [],
 	linkedThoughts: [],
+	attachedFiles: [],
 	enrichmentComplete: false,
 	queueStatus: 'pending' as const
 };

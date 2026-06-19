@@ -3,14 +3,16 @@
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import { filterProjectsByStatus, type ProjectStatusFilter } from './temporal-events-utils';
 	import { m } from '$lib/paraglide/messages.js';
 
 	type Props = {
 		selectedItemId: string | null;
+		statusFilter: ProjectStatusFilter;
 		onSelect: (item: TemporalEventListItem) => void;
 	};
 
-	let { selectedItemId, onSelect }: Props = $props();
+	let { selectedItemId, statusFilter, onSelect }: Props = $props();
 
 	type Phase =
 		| { kind: 'loading' }
@@ -41,10 +43,18 @@
 		void loadProjects();
 	});
 
+	const visibleProjects = $derived(
+		phase.kind === 'ready' ? filterProjectsByStatus(phase.projects, statusFilter) : []
+	);
+
 	function statusLabel(status: ProjectListItem['status']): string {
 		if (status === 'someday') return m.graph_timeline_project_status_someday();
 		if (status === 'completed') return m.graph_timeline_project_status_completed();
 		return m.graph_timeline_project_status_active();
+	}
+
+	function needsHealthWarning(project: ProjectListItem): boolean {
+		return project.status === 'active' && project.nextAction == null;
 	}
 
 	function selectNextAction(project: ProjectListItem) {
@@ -98,14 +108,25 @@
 		</div>
 	{:else if phase.kind === 'error'}
 		<p class="text-destructive px-4 py-8 text-center text-sm">{phase.message}</p>
-	{:else if phase.projects.length === 0}
+	{:else if visibleProjects.length === 0}
 		<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
 	{:else}
 		<ul class="divide-border divide-y">
-			{#each phase.projects as project (project.entityId)}
-				<li class="px-4 py-3">
+			{#each visibleProjects as project (project.entityId)}
+				<li
+					class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
+				>
 					<div class="flex items-start justify-between gap-2">
-						<h3 class="text-foreground text-sm font-medium">{project.label}</h3>
+						<div class="flex min-w-0 items-center gap-2">
+							{#if needsHealthWarning(project)}
+								<span
+									class="bg-destructive size-2 shrink-0 rounded-full"
+									title={m.graph_timeline_project_no_next_action()}
+									aria-hidden="true"
+								></span>
+							{/if}
+							<h3 class="text-foreground truncate text-sm font-medium">{project.label}</h3>
+						</div>
 						<span
 							class="text-muted-foreground shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
 						>
@@ -127,7 +148,7 @@
 							<p class="text-foreground mt-0.5 text-sm">{project.nextAction.summary}</p>
 						</button>
 					{:else if project.status === 'active'}
-						<p class="text-muted-foreground mt-2 text-xs">{m.graph_timeline_project_no_next_action()}</p>
+						<p class="text-destructive/90 mt-2 text-xs">{m.graph_timeline_project_no_next_action()}</p>
 					{/if}
 					{#if project.openLoopCount > 1}
 						<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">

@@ -6,6 +6,7 @@
 		type GraphLegendSection
 	} from '$lib/graph/graph-ontology-legend';
 	import { GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE } from '$lib/graph/graph-i18n';
+	import { graphFilterGlassPanelClass } from '$lib/graph/graph-filter-chrome';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
@@ -31,6 +32,10 @@
 
 	let legendExpanded = $state(false);
 
+	const legendPanelExpanded = $derived(
+		legendExpanded && (hasEntities || graphStats.trim().length > 0)
+	);
+
 	function toggleEntityType(itemKey: string) {
 		const kindKey = entityKindKeyFromLegendItem(itemKey);
 		const next = new Set(visibleEntityTypes);
@@ -49,16 +54,54 @@
 
 {#if showLegend}
 	<aside
-		class="border-border/60 bg-background/90 pointer-events-none flex w-full flex-col justify-end overflow-hidden rounded-md border backdrop-blur-sm {legendExpanded &&
-		(hasEntities || graphStats.trim().length > 0)
+		class="{graphFilterGlassPanelClass(legendPanelExpanded)} pointer-events-none flex w-full flex-col justify-start overflow-hidden {legendPanelExpanded
 			? 'max-h-56'
-			: ''}"
+			: 'h-9'}"
 		aria-label={m.graph_aria_entity_type_filter()}
 	>
 		<div
-			class="text-foreground pointer-events-auto flex min-h-0 w-full flex-col justify-end text-[10px] leading-none"
+			class="text-foreground pointer-events-auto flex min-h-0 w-full flex-col justify-start text-[10px] leading-none"
 		>
-			{#if legendExpanded && (hasEntities || graphStats.trim().length > 0)}
+			<div
+				class="flex h-9 shrink-0 items-center justify-between gap-1 px-2 {legendPanelExpanded
+					? 'border-border/40 border-b'
+					: ''}"
+			>
+				<button
+					type="button"
+					class="text-black hover:text-black/80 dark:text-foreground dark:hover:text-foreground focus-visible:ring-ring/50 flex h-7 min-w-0 flex-1 items-center gap-1 text-left transition-colors focus-visible:ring-1 focus-visible:outline-none"
+					aria-expanded={legendExpanded}
+					aria-controls={panelId}
+					onclick={() => (legendExpanded = !legendExpanded)}
+				>
+					{#if legendExpanded}
+						<ChevronUp class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
+					{:else}
+						<ChevronDown class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
+					{/if}
+					<span class="truncate text-[11px] font-semibold tracking-tight">{m.graph_filter()}</span>
+					{#if filterActive}
+						<span
+							class="bg-black/10 text-foreground dark:bg-white/15 shrink-0 rounded-full px-1.5 font-mono text-[9px] tabular-nums"
+						>
+							{visibleEntityTypes.size}
+						</span>
+					{/if}
+				</button>
+				<div class="flex shrink-0 items-center justify-end gap-1">
+					{#if filterActive}
+						<button
+							type="button"
+							class="text-foreground/80 hover:text-foreground focus-visible:ring-ring/50 h-7 shrink-0 rounded-full px-1.5 text-[10px] font-medium focus-visible:ring-1 focus-visible:outline-none"
+							onclick={clearEntityTypeFilter}
+						>
+							{m.graph_show_all()}
+						</button>
+					{/if}
+				</div>
+			</div>
+
+			{#if legendPanelExpanded}
 				<div id={panelId} class="flex min-h-0 flex-1 flex-col overflow-hidden">
 					{#if hasEntities}
 						<div class="min-h-0 flex-1 overflow-y-auto px-1 pt-1">
@@ -102,46 +145,6 @@
 					{/if}
 				</div>
 			{/if}
-
-			<div
-				class="flex shrink-0 items-center justify-between gap-1 px-1 {legendExpanded &&
-				(hasEntities || graphStats.trim().length > 0)
-					? 'border-border/40 border-t'
-					: ''}"
-			>
-				<button
-					type="button"
-					class="text-black hover:text-black/80 dark:text-foreground dark:hover:text-foreground focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1 rounded-sm py-2 pr-1 text-left transition-colors focus-visible:ring-1 focus-visible:outline-none"
-					aria-expanded={legendExpanded}
-					aria-controls={panelId}
-					onclick={() => (legendExpanded = !legendExpanded)}
-				>
-					{#if legendExpanded}
-						<ChevronDown class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
-					{:else}
-						<ChevronUp class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
-					{/if}
-					<span class="truncate font-semibold tracking-tight">{m.graph_filter()}</span>
-					{#if filterActive}
-						<span
-							class="bg-primary/15 text-primary shrink-0 rounded px-1 font-mono text-[9px] tabular-nums"
-						>
-							{visibleEntityTypes.size}
-						</span>
-					{/if}
-				</button>
-				<div class="flex shrink-0 items-center justify-end gap-1">
-					{#if filterActive}
-						<button
-							type="button"
-							class="text-primary hover:text-primary/80 focus-visible:ring-ring/50 shrink-0 rounded-sm font-medium focus-visible:ring-1 focus-visible:outline-none"
-							onclick={clearEntityTypeFilter}
-						>
-							{m.graph_show_all()}
-						</button>
-					{/if}
-				</div>
-			</div>
 		</div>
 	</aside>
 {/if}

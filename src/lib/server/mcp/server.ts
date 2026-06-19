@@ -1,6 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { MCP_TOOL_DEFINITIONS, MCP_TOOL_MAP } from '$lib/server/mcp/registry';
+import { MCP_EXPOSED_TOOL_DEFINITIONS, MCP_EXPOSED_TOOL_MAP } from '$lib/server/mcp/registry';
 import type { McpToolContext } from '$lib/server/mcp/tools';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
 
@@ -18,7 +18,7 @@ export function createMcpServer(context: McpToolContext): Server {
 	);
 
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: MCP_TOOL_DEFINITIONS.map((tool) => ({
+		tools: MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => ({
 			name: tool.name,
 			description: tool.description,
 			inputSchema: tool.inputSchema
@@ -27,7 +27,7 @@ export function createMcpServer(context: McpToolContext): Server {
 
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const name = request.params.name;
-		const handler = MCP_TOOL_MAP.get(name);
+		const handler = MCP_EXPOSED_TOOL_MAP.get(name);
 		if (!handler) {
 			throw new Error(`Unknown tool: ${name}`);
 		}

@@ -6,6 +6,7 @@
 		parseCategoryAlternatives
 	} from '$lib/capture/capture-result-display';
 	import CaptureEntityConnections from '$lib/components/capture-entity-connections.svelte';
+	import CaptureAttachedFiles from '$lib/components/capture-attached-files.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 
@@ -16,6 +17,7 @@
 		embedded = false,
 		onToggleEdit,
 		onDelete,
+		onUnlinkFile,
 		deleteBusy = false
 	}: {
 		thought: CaptureSubmitResult;
@@ -25,6 +27,7 @@
 		embedded?: boolean;
 		onToggleEdit?: () => void;
 		onDelete?: () => void;
+		onUnlinkFile?: (fileId: string) => void;
 		deleteBusy?: boolean;
 	} = $props();
 
@@ -79,6 +82,8 @@
 			entities={thought.entities}
 			linkedThoughts={thought.linkedThoughts}
 		/>
+
+		<CaptureAttachedFiles files={thought.attachedFiles ?? []} onUnlink={onUnlinkFile} />
 
 		{#if thought.gtdProjectLabel}
 			<p class="text-xs text-muted-foreground">

@@ -8,6 +8,8 @@
 
 **Timing / LLM step breakdown:** [ingest-retrieval-timing.md](../planning/ingest-retrieval-timing.md)
 
+**External references (competitor concepts, local):** [Elastic Atlas](../competitor-concepts/elastic-agent-memory-atlas.md) · [GBrain](../competitor-concepts/gbrain.md) — folder is gitignored.
+
 ## Memory tiers and retrieval
 
 See [ingest-retrieval-timing.md § Three memory tiers](../planning/ingest-retrieval-timing.md#three-memory-tiers-capture--recall).

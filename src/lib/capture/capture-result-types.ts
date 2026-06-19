@@ -18,6 +18,13 @@ export type CaptureTemporalSummary = {
 	semanticSummary: string;
 };
 
+export type CaptureAttachedFile = {
+	id: string;
+	title: string;
+	preview: string;
+	updatedAt: string;
+};
+
 export type CaptureRecentThoughtSnippet = {
 	id: string;
 	normalizedText: string;
@@ -37,6 +44,7 @@ export type CaptureSubmitResult = {
 	entities: CaptureLinkedEntity[];
 	temporalEvents: CaptureTemporalSummary[];
 	linkedThoughts: CaptureLinkedThought[];
+	attachedFiles: CaptureAttachedFile[];
 	enrichmentComplete: boolean;
 	gtdProjectLabel: string | null;
 	gtdIsNextAction: boolean;

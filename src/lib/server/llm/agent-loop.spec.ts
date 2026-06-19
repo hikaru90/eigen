@@ -75,7 +75,9 @@ vi.mock('$lib/server/mcp/registry', () => ({
 	MCP_TOOL_DEFINITIONS: [],
 	buildAgentToolDescriptionBlock: () => '',
 	buildGroundingAgentToolDescriptionBlock: () => '',
-	GROUNDING_TOOL_NAMES: ['capture_grounding', 'complete_grounding_session']
+	GROUNDING_TOOL_NAMES: ['capture_grounding', 'complete_grounding_session'],
+	isMcpExposedTool: (name: string) =>
+		['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'].includes(name)
 }));
 
 import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact';

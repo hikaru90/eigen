@@ -25,10 +25,17 @@ vi.mock('./tools', () => ({
 	runEditThoughtTool: vi.fn(),
 	runDeleteThoughtTool: vi.fn(),
 	runListTemporalEventsTool: vi.fn(),
-	runListProjectsTool: vi.fn(),
 	runManageTemporalEventTool: vi.fn(),
 	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
 	runAnswerQuestionTool: vi.fn(),
+	runCreateTextFileTool: vi.fn(),
+	runListTextFilesTool: vi.fn(),
+	runGetTextFileTool: vi.fn(),
+	runUpdateTextFileTool: vi.fn(),
+	runDeleteTextFileTool: vi.fn(),
+	runSearchTextFilesTool: vi.fn(),
+	runLinkTextFileToThoughtTool: vi.fn(),
+	runUnlinkTextFileFromThoughtTool: vi.fn(),
 	runCaptureGroundingTool: vi.fn(),
 	runCompleteGroundingSessionTool: vi.fn()
 }));
@@ -47,11 +54,24 @@ describe('createMcpServer', () => {
 				'edit_thought',
 				'delete_thought',
 				'list_temporal_events',
-				'list_projects',
 				'manage_temporal_event',
 				'answer_question'
 			])
 		);
+		expect(result.tools.map((t) => t.name)).not.toContain('list_projects');
+		expect(result.tools.map((t) => t.name)).not.toContain('capture_grounding');
+		expect(result.tools.map((t) => t.name)).not.toContain('complete_grounding_session');
+	});
+
+	it('rejects internal grounding tools on call', async () => {
+		const { createMcpServer } = await import('./server');
+		createMcpServer({ userId: 'u1' });
+		const callHandler = handlerMap.get(Symbol.for('call-tool')) as (request: {
+			params: { name: string; arguments?: unknown };
+		}) => Promise<unknown>;
+		await expect(
+			callHandler({ params: { name: 'capture_grounding', arguments: { facets: [] } } })
+		).rejects.toThrow(/Unknown tool/);
 	});
 
 	it('dispatches call tool handler', async () => {

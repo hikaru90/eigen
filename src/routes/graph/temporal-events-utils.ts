@@ -30,7 +30,7 @@ export function thoughtIdFromOpenLoopItemId(itemId: string): string | null {
 	return itemId.slice(OPEN_LOOP_ITEM_PREFIX.length);
 }
 
-export type TimelineLayoutView = 'today' | 'week' | 'agenda' | 'matrix';
+export type TimelineLayoutView = 'list' | 'agenda' | 'matrix' | 'week';
 
 export const FOCUS_MAX = 5;
 export const TODAY_FOCUS_MAX = 3;
@@ -602,9 +602,101 @@ export function filterItemsCompletedToday(
 
 export { WEEK_GRID_START_HOUR, WEEK_GRID_END_HOUR };
 
-export type TimelineShellView = 'today' | 'upcoming' | 'projects' | 'week' | 'agenda' | 'matrix';
+export type TimelineShellView = 'now' | 'projects' | 'review';
 
-export type TodaySegment = 'todo' | 'done' | 'overdue';
+export type NowSegment = 'todo' | 'done' | 'overdue';
+/** @deprecated Use NowSegment */
+export type TodaySegment = NowSegment;
+
+export type ProjectsLayout = 'list' | 'agenda' | 'matrix';
+
+export type ProjectStatusFilter = 'all' | 'active' | 'someday';
+
+export type TemporalEnergyLevel = 'light' | 'medium' | 'deep';
+
+export type EngageTimeCap = null | 15 | 60 | 120;
+
+export type EngageFilters = {
+	contextTags: string[];
+	energyLevels: TemporalEnergyLevel[];
+	maxMinutes: EngageTimeCap;
+};
+
+export const EMPTY_ENGAGE_FILTERS: EngageFilters = {
+	contextTags: [],
+	energyLevels: [],
+	maxMinutes: null
+};
+
+export const REVIEW_STEP_COUNT = 6;
+
+export function filterItemsByEngageFilters(
+	items: TemporalEventListItem[],
+	filters: EngageFilters
+): TemporalEventListItem[] {
+	return items.filter((item) => {
+		if (filters.contextTags.length > 0) {
+			const tags = item.contextTags ?? [];
+			if (!filters.contextTags.some((t) => tags.includes(t))) return false;
+		}
+		if (filters.energyLevels.length > 0) {
+			if (!item.energyLevel || !filters.energyLevels.includes(item.energyLevel)) return false;
+		}
+		if (filters.maxMinutes != null) {
+			const minutes = item.durationMinutes ?? 30;
+			if (minutes > filters.maxMinutes) return false;
+		}
+		return true;
+	});
+}
+
+export function uniqueContextTagsFromItems(items: TemporalEventListItem[]): string[] {
+	const set = new Set<string>();
+	for (const item of items) {
+		for (const tag of item.contextTags ?? []) {
+			const trimmed = tag.trim();
+			if (trimmed) set.add(trimmed);
+		}
+	}
+	return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+export function uniqueEnergyLevelsFromItems(
+	items: TemporalEventListItem[]
+): TemporalEnergyLevel[] {
+	const order: TemporalEnergyLevel[] = ['deep', 'medium', 'light'];
+	const present = new Set<TemporalEnergyLevel>();
+	for (const item of items) {
+		if (item.energyLevel) present.add(item.energyLevel);
+	}
+	return order.filter((level) => present.has(level));
+}
+
+export function splitTodayEngageSections(
+	items: TemporalEventListItem[],
+	timeZone: string,
+	filters: EngageFilters = EMPTY_ENGAGE_FILTERS,
+	now = new Date()
+): { focus: TemporalEventListItem[]; later: TemporalEventListItem[]; lowEnergy: TemporalEventListItem[] } {
+	const resolved = filters ?? EMPTY_ENGAGE_FILTERS;
+	const filtered = filterItemsByEngageFilters(items, resolved);
+	const lowEnergy = filtered.filter((item) => item.energyLevel === 'light');
+	const main = filtered.filter((item) => item.energyLevel !== 'light');
+	const { focus, later } = splitTodayFocusAndLater(main, timeZone, now);
+	return { focus, later, lowEnergy };
+}
+
+export function filterProjectsByStatus<T extends { status: string }>(
+	projects: T[],
+	filter: ProjectStatusFilter
+): T[] {
+	if (filter === 'all') return projects;
+	return projects.filter((p) => p.status === filter);
+}
+
+export function projectsLayoutOptions(): ProjectsLayout[] {
+	return ['list', 'agenda', 'matrix'];
+}
 
 export function filterItemsForTodayView(
 	items: TemporalEventListItem[],

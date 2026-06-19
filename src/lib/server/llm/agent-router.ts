@@ -1,12 +1,12 @@
 import { env } from '$env/dynamic/private';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
-import { MCP_TOOL_DEFINITIONS, MCP_TOOL_NAMES } from '$lib/server/mcp/registry';
+import { MCP_EXPOSED_TOOL_DEFINITIONS, MCP_TOOL_NAMES } from '$lib/server/mcp/registry';
 
 export type AgentRouteResult =
 	| { mode: 'single_tool'; tool: string; arguments: Record<string, unknown> }
 	| { mode: 'multi_step' };
 
-const TOOL_SUMMARY = MCP_TOOL_DEFINITIONS.map(
+const TOOL_SUMMARY = MCP_EXPOSED_TOOL_DEFINITIONS.map(
 	(t) => `- ${t.name}: ${t.description}`
 ).join('\n');
 

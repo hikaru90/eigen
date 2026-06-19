@@ -37,6 +37,8 @@
 		onEdit,
 		onDelete,
 		onRetry,
+		onAttach,
+		onUnlinkFile,
 		onEditRequestChange,
 		onSubmitEdit,
 		onCancelEdit
@@ -58,6 +60,8 @@
 		onEdit: (thoughtId: string) => void;
 		onDelete: (thoughtId: string) => void;
 		onRetry: (thoughtId: string) => void;
+		onAttach?: (thoughtId: string) => void;
+		onUnlinkFile?: (thoughtId: string, fileId: string) => void;
 		onEditRequestChange: (value: string) => void;
 		onSubmitEdit: () => void;
 		onCancelEdit: () => void;
@@ -263,7 +267,23 @@
 							{#if loadingDetail || !detail}
 								<p class="text-sm text-muted-foreground">Loading thought details…</p>
 							{:else}
-								<CaptureStoredSummary thought={detail} embedded />
+								<CaptureStoredSummary
+									thought={detail}
+									embedded
+									onUnlinkFile={
+										onUnlinkFile ? (fileId) => onUnlinkFile(snippet.id, fileId) : undefined
+									}
+								/>
+								{#if onAttach}
+									<Button
+										type="button"
+										variant="outline"
+										class="h-auto rounded-none px-3 py-1.5 text-xs"
+										onclick={() => onAttach(snippet.id)}
+									>
+										Attach note
+									</Button>
+								{/if}
 							{/if}
 
 							{#if editingId === snippet.id}

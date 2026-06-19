@@ -46,4 +46,9 @@ describe('ROUTER_SYSTEM_PROMPT', () => {
 		expect(ROUTER_SYSTEM_PROMPT).toContain('Wie koche ich Japanese-Glazed Salmon?');
 		expect(ROUTER_SYSTEM_PROMPT).toContain('prefer answer_question');
 	});
+
+	it('does not expose grounding tools to the router', () => {
+		expect(ROUTER_SYSTEM_PROMPT).not.toContain('capture_grounding');
+		expect(ROUTER_SYSTEM_PROMPT).not.toContain('complete_grounding_session');
+	});
 });

@@ -6,6 +6,7 @@
 	import { enhance } from '$app/forms';
 	import CaptureQueueList from '$lib/components/capture-queue-list.svelte';
 	import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte';
+	import CaptureAttachFileDialog from '$lib/components/capture-attach-file-dialog.svelte';
 	import VoiceInputButton from '$lib/components/voice-input-button.svelte';
 	import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types';
 	import {
@@ -39,6 +40,7 @@
 	} from '$lib/capture/queue/ui-state';
 	import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment';
 	import { pollCaptureRecentSync } from '$lib/capture/poll-capture-recent-sync';
+	import { unlinkTextFileFromThought } from '$lib/text-files/api';
 	import { captureInputDraft } from '$lib/stores/page-input-drafts';
 	import { get } from 'svelte/store';
 
@@ -89,6 +91,8 @@
 	let deleteTargetId = $state<string | null>(null);
 	let retryingThoughtId = $state<string | null>(null);
 	let loadingDetailId = $state<string | null>(null);
+	let attachDialogOpen = $state(false);
+	let attachTargetThoughtId = $state<string | null>(null);
 	const enrichPollCancelByThoughtId = new Map<string, () => void>();
 	let backgroundEnrichingIds = $state<string[]>([]);
 	const enrichingThoughtIds = $derived(
@@ -212,6 +216,28 @@
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
 			if (deletingThoughtId === thoughtId) deletingThoughtId = null;
+		}
+	}
+
+	async function refreshThoughtDetail(thoughtId: string) {
+		const thought = await fetchCaptureResult(thoughtId);
+		thoughtDetails = { ...thoughtDetails, [thoughtId]: thought };
+		return thought;
+	}
+
+	function openAttachDialog(thoughtId: string) {
+		err = null;
+		attachTargetThoughtId = thoughtId;
+		attachDialogOpen = true;
+	}
+
+	async function unlinkAttachedFile(thoughtId: string, fileId: string) {
+		err = null;
+		try {
+			await unlinkTextFileFromThought(thoughtId, fileId);
+			await refreshThoughtDetail(thoughtId);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
 		}
 	}
 
@@ -568,6 +594,8 @@
 					onCollapse={collapseThought}
 					onEdit={(id) => void toggleThoughtEdit(id)}
 					onDelete={openDeleteDialog}
+					onAttach={openAttachDialog}
+					onUnlinkFile={(thoughtId, fileId) => void unlinkAttachedFile(thoughtId, fileId)}
 					onRetry={(id) => void retryEnrichThought(id)}
 					onEditRequestChange={(value) => {
 						editRequest = value;
@@ -641,3 +669,14 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+{#if attachTargetThoughtId}
+	<CaptureAttachFileDialog
+		bind:open={attachDialogOpen}
+		thoughtId={attachTargetThoughtId}
+		onLinked={async () => {
+			if (!attachTargetThoughtId) return;
+			await refreshThoughtDetail(attachTargetThoughtId);
+		}}
+	/>
+{/if}

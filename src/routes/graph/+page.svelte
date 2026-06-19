@@ -1454,7 +1454,7 @@
   });
 </script>
 
-<div class="h-dvh overflow-hidden">
+<div class="-mb-28 h-dvh overflow-hidden overscroll-none">
   <Card.Root class="relative flex h-full flex-col overflow-hidden bg-transparent shadow-none">
     <Tabs.Root bind:value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
@@ -1462,23 +1462,23 @@
         aria-label={m.graph_aria_view_tabs()}
       >
         <Tabs.List
-          class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 p-0.5"
+          class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 w-fit shrink-0 items-stretch gap-1 rounded-full border border-white/80 p-0.5"
         >
           <Tabs.Trigger
             value="graph"
-            class="!h-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full !rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
             {m.graph_tab_graph()}
           </Tabs.Trigger>
           <Tabs.Trigger
             value="embeddings"
-            class="!h-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full !rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
             {m.graph_tab_embeddings()}
           </Tabs.Trigger>
           <Tabs.Trigger
             value="temporal"
-            class="!h-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
+            class="!h-full !rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
           >
             {m.graph_tab_timeline()}
           </Tabs.Trigger>
@@ -1497,13 +1497,16 @@
               aria-label={m.graph_aria_visualization()}
             ></div>
             <div
-              class="pointer-events-none absolute right-3 bottom-32 left-3 z-10 flex items-end justify-between gap-3"
+              class="pointer-events-none absolute top-10 right-3 left-3 z-10 flex items-start justify-between gap-3 md:top-14"
               aria-label={m.graph_aria_legend_filters()}
             >
               <div class="w-[min(calc(100vw-1.5rem),11rem)] shrink-0">
                 <GraphEntityKindsLegend bind:visibleEntityTypes {legendSections} {graphStats} />
               </div>
-              <div class="pointer-events-auto flex shrink-0 flex-col items-end gap-1">
+              <div
+                class="pointer-events-auto flex shrink-0 flex-col items-end gap-1 overscroll-contain"
+                onwheel={(e) => e.stopPropagation()}
+              >
                 <GraphFiltersToolbar
                   bind:search
                   bind:edgeKind
@@ -1537,9 +1540,10 @@
         </Tabs.Content>
         <Tabs.Content
           value="temporal"
-          class="relative h-full min-h-0 flex-1 data-[state=active]:flex data-[state=active]:flex-col"
+          class="relative h-full min-h-0 flex-1 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
         >
           <TemporalEvents
+            visible={activeTab === "temporal"}
             onSelectItem={handleTemporalSelect}
             selectedItemId={selectedTemporalId}
             initialEventId={initialTemporalEventId}

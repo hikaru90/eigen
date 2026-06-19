@@ -16,6 +16,17 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
 	decryptTenantValue: decryptTenantValueMock
 }));
 
+vi.mock('$lib/server/text-files/service', () => ({
+	listTextFilesForThought: vi.fn(async () => [
+		{
+			id: 'f1',
+			title: 'Recipe',
+			preview: 'Sourdough steps',
+			updatedAt: '2026-06-05T12:00:00.000Z'
+		}
+	])
+}));
+
 function makeLimitChain(rows: unknown[]) {
 	const chain = {
 		from: vi.fn(() => chain),
@@ -122,6 +133,14 @@ describe('loadThoughtCaptureResult', () => {
 					thoughtId: 't2',
 					relationType: 'related_to',
 					preview: 'linked thought preview text'
+				}
+			],
+			attachedFiles: [
+				{
+					id: 'f1',
+					title: 'Recipe',
+					preview: 'Sourdough steps',
+					updatedAt: '2026-06-05T12:00:00.000Z'
 				}
 			],
 			enrichmentComplete: true,

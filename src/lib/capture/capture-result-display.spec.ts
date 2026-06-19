@@ -60,6 +60,7 @@ describe('capture-result-display', () => {
 			entities: [],
 			temporalEvents: [],
 			linkedThoughts: [],
+			attachedFiles: [],
 			enrichmentComplete: false
 		};
 		expect(hasCaptureGraphContext(empty)).toBe(false);

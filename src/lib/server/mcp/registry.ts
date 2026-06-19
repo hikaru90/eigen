@@ -3,13 +3,20 @@ import {
 	runCaptureGroundingTool,
 	runCaptureThoughtTool,
 	runCompleteGroundingSessionTool,
+	runCreateTextFileTool,
+	runDeleteTextFileTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
+	runGetTextFileTool,
+	runLinkTextFileToThoughtTool,
+	runListTextFilesTool,
 	runListThoughtsTool,
 	runListTemporalEventsTool,
-	runListProjectsTool,
 	runManageTemporalEventTool,
 	runRetrieveThoughtsTool,
+	runSearchTextFilesTool,
+	runUnlinkTextFileFromThoughtTool,
+	runUpdateTextFileTool,
 	type McpToolContext
 } from '$lib/server/mcp/tools';
 
@@ -23,6 +30,8 @@ export type McpToolDefinition = {
 	/** Human-readable argument summary for the chat agent system prompt. */
 	agentArgumentSchema: string;
 	handler: McpToolHandler;
+	/** When false, tool is for in-app grounding chat only — not HTTP MCP clients. */
+	exposeInMcp?: boolean;
 };
 
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
@@ -130,17 +139,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		handler: runListTemporalEventsTool
 	},
 	{
-		name: 'list_projects',
-		description:
-			'List GTD projects with designated next actions, status, and open-loop counts for the timeline.',
-		inputSchema: {
-			type: 'object',
-			properties: {}
-		},
-		agentArgumentSchema: '{}',
-		handler: runListProjectsTool
-	},
-	{
 		name: 'manage_temporal_event',
 		description:
 			'Manage a calendar/temporal event by ID: mark done, cancel, reschedule, or apply a natural-language instruction.',
@@ -187,6 +185,123 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		handler: runAnswerQuestionTool
 	},
 	{
+		name: 'create_text_file',
+		description:
+			'Create a user-scoped text note (not a thought). Text files are simple documents without enrichment; link them to thoughts with link_text_file_to_thought.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				body: { type: 'string' },
+				title: { type: 'string' }
+			},
+			required: ['body']
+		},
+		agentArgumentSchema:
+			'{"body": "string (required)", "title": "string (optional)"}',
+		handler: runCreateTextFileTool
+	},
+	{
+		name: 'list_text_files',
+		description: 'List user text notes (newest updated first), optionally paginated.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				limit: { type: 'number' },
+				cursor_updated_at: { type: 'string' },
+				cursor_id: { type: 'string' }
+			}
+		},
+		agentArgumentSchema:
+			'{"limit": "number (optional)", "cursor_updated_at": "string (optional ISO)", "cursor_id": "string (optional)"}',
+		handler: runListTextFilesTool
+	},
+	{
+		name: 'get_text_file',
+		description: 'Get one user text note by ID.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				text_file_id: { type: 'string' }
+			},
+			required: ['text_file_id']
+		},
+		agentArgumentSchema: '{"text_file_id": "string (required)"}',
+		handler: runGetTextFileTool
+	},
+	{
+		name: 'update_text_file',
+		description: 'Update a user text note title and/or body.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				text_file_id: { type: 'string' },
+				title: { type: 'string' },
+				body: { type: 'string' }
+			},
+			required: ['text_file_id']
+		},
+		agentArgumentSchema:
+			'{"text_file_id": "string (required)", "title": "string (optional)", "body": "string (optional)"}',
+		handler: runUpdateTextFileTool
+	},
+	{
+		name: 'delete_text_file',
+		description: 'Permanently delete a user text note by ID.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				text_file_id: { type: 'string' }
+			},
+			required: ['text_file_id']
+		},
+		agentArgumentSchema: '{"text_file_id": "string (required)"}',
+		handler: runDeleteTextFileTool
+	},
+	{
+		name: 'search_text_files',
+		description: 'Lexical keyword search over user text notes (not semantic thought retrieval).',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				query: { type: 'string' },
+				top_k: { type: 'number' }
+			},
+			required: ['query']
+		},
+		agentArgumentSchema: '{"query": "string (required)", "top_k": "number (optional)"}',
+		handler: runSearchTextFilesTool
+	},
+	{
+		name: 'link_text_file_to_thought',
+		description: 'Attach an existing text note to a thought.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				thought_id: { type: 'string' },
+				text_file_id: { type: 'string' }
+			},
+			required: ['thought_id', 'text_file_id']
+		},
+		agentArgumentSchema:
+			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
+		handler: runLinkTextFileToThoughtTool
+	},
+	{
+		name: 'unlink_text_file_from_thought',
+		description: 'Remove a text note attachment from a thought without deleting the note.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				thought_id: { type: 'string' },
+				text_file_id: { type: 'string' }
+			},
+			required: ['thought_id', 'text_file_id']
+		},
+		agentArgumentSchema:
+			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
+		handler: runUnlinkTextFileFromThoughtTool
+	},
+	{
 		name: 'capture_grounding',
 		description:
 			'Persist incremental user self-knowledge during a grounding conversation (work, identity, values, relationships, psychology, routines).',
@@ -210,7 +325,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"facets": [{"key": "work|identity|values|relationships|psychology|routines|projects", "content": "string"}], "session_note": "string (optional)"}',
-		handler: runCaptureGroundingTool
+		handler: runCaptureGroundingTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'complete_grounding_session',
@@ -226,20 +342,31 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			}
 		},
 		agentArgumentSchema: '{"synthesis": "string (optional) — final user portrait"}',
-		handler: runCompleteGroundingSessionTool
+		handler: runCompleteGroundingSessionTool,
+		exposeInMcp: false
 	}
 ];
 
 export const GROUNDING_TOOL_NAMES = ['capture_grounding', 'complete_grounding_session'] as const;
 
+export const MCP_EXPOSED_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInMcp !== false);
+
 export const MCP_TOOL_MAP = new Map<string, McpToolHandler>(
 	MCP_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler])
 );
 
-export const MCP_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name);
+export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
+	MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler])
+);
+
+export const MCP_TOOL_NAMES = MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name);
+
+export function isMcpExposedTool(name: string): boolean {
+	return MCP_EXPOSED_TOOL_MAP.has(name);
+}
 
 export function buildAgentToolDescriptionBlock(): string {
-	return MCP_TOOL_DEFINITIONS.map(
+	return MCP_EXPOSED_TOOL_DEFINITIONS.map(
 		(t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`
 	).join('\n\n');
 }

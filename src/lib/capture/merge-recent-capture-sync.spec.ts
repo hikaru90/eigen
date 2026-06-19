@@ -14,6 +14,7 @@ function thought(id: string, overrides: Partial<CaptureSubmitResult> = {}): Capt
 		entities: [],
 		temporalEvents: [],
 		linkedThoughts: [],
+		attachedFiles: [],
 		enrichmentComplete: false,
 		queueStatus: 'pending',
 		...overrides

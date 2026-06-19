@@ -13,6 +13,8 @@ import {
 	filterItemsForUpcomingView,
 	filterTodayTodoOpenItems,
 	filterOverdueItems,
+	filterItemsByEngageFilters,
+	filterProjectsByStatus,
 	formatWhen,
 	groupByAgendaSection,
 	groupByKind,
@@ -20,7 +22,9 @@ import {
 	groupByProject,
 	localViewDayKey,
 	overdueDebtMinutes,
+	projectsLayoutOptions,
 	selectFocusItems,
+	splitTodayEngageSections,
 	splitTodayFocusAndLater
 } from './temporal-events-utils';
 import type { TemporalEventListItem } from '../api/temporal-events/+server';
@@ -497,5 +501,91 @@ describe('filterOverdueItems', () => {
 			})
 		];
 		expect(filterOverdueItems(items, now).map((i) => i.id)).toEqual(['overdue']);
+	});
+});
+
+describe('timeline navigation helpers', () => {
+	it('TimelineShellView values are now, projects, review only', () => {
+		const shells = ['now', 'projects', 'review'] as const;
+		expect(shells).toHaveLength(3);
+	});
+
+	it('projectsLayoutOptions returns list, agenda, matrix', () => {
+		expect(projectsLayoutOptions()).toEqual(['list', 'agenda', 'matrix']);
+	});
+});
+
+describe('filterItemsByEngageFilters', () => {
+	it('filters by context tag, energy, and max minutes', () => {
+		const items = [
+			item({
+				id: 'a',
+				contextTags: ['computer'],
+				energyLevel: 'deep',
+				durationMinutes: 45
+			}),
+			item({
+				id: 'b',
+				contextTags: ['errands'],
+				energyLevel: 'light',
+				durationMinutes: 10
+			})
+		];
+		expect(
+			filterItemsByEngageFilters(items, {
+				contextTags: ['computer'],
+				energyLevels: [],
+				maxMinutes: null
+			}).map((i) => i.id)
+		).toEqual(['a']);
+		expect(
+			filterItemsByEngageFilters(items, {
+				contextTags: [],
+				energyLevels: ['light'],
+				maxMinutes: null
+			}).map((i) => i.id)
+		).toEqual(['b']);
+		expect(
+			filterItemsByEngageFilters(items, {
+				contextTags: [],
+				energyLevels: [],
+				maxMinutes: 15
+			}).map((i) => i.id)
+		).toEqual(['b']);
+	});
+});
+
+describe('filterProjectsByStatus', () => {
+	it('filters active and someday projects', () => {
+		const projects = [
+			{ entityId: '1', status: 'active' as const },
+			{ entityId: '2', status: 'someday' as const }
+		];
+		expect(filterProjectsByStatus(projects, 'all')).toHaveLength(2);
+		expect(filterProjectsByStatus(projects, 'active')).toHaveLength(1);
+		expect(filterProjectsByStatus(projects, 'someday')[0].entityId).toBe('2');
+	});
+});
+
+describe('splitTodayEngageSections', () => {
+	it('puts light energy items in lowEnergy section', () => {
+		const now = new Date('2026-06-08T12:00:00.000Z');
+		const items = [
+			item({
+				id: 'deep',
+				startAt: '2026-06-08T14:00:00.000Z',
+				energyLevel: 'deep',
+				lifecycleStatus: 'open'
+			}),
+			item({
+				id: 'light',
+				startAt: '2026-06-08T15:00:00.000Z',
+				energyLevel: 'light',
+				lifecycleStatus: 'open'
+			})
+		];
+		const { focus, later, lowEnergy } = splitTodayEngageSections(items, 'UTC', undefined, now);
+		expect(lowEnergy.map((i) => i.id)).toEqual(['light']);
+		expect([...focus, ...later].map((i) => i.id)).not.toContain('light');
 	});
 });

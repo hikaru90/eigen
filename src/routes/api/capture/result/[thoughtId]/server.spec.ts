@@ -28,6 +28,7 @@ describe('GET /api/capture/result/[thoughtId]', () => {
 			entities: [],
 			temporalEvents: [],
 			linkedThoughts: [],
+			attachedFiles: [],
 			enrichmentComplete: false
 		});
 		const res = await GET({

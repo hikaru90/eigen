@@ -3,6 +3,7 @@ import {
 	runCaptureGroundingTool,
 	runCaptureThoughtTool,
 	runCompleteGroundingSessionTool,
+	runCreateTextFileTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
 	runListThoughtsTool,
@@ -20,7 +21,8 @@ const {
 	getDbSelectMock,
 	loadTemporalContextByThoughtIdsMock,
 	mergeGroundingFacetsMock,
-	completeGroundingSessionMock
+	completeGroundingSessionMock,
+	createTextFileMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	composeAnswerMock: vi.fn(),
@@ -31,7 +33,8 @@ const {
 	getDbSelectMock: vi.fn(),
 	loadTemporalContextByThoughtIdsMock: vi.fn(),
 	mergeGroundingFacetsMock: vi.fn(),
-	completeGroundingSessionMock: vi.fn()
+	completeGroundingSessionMock: vi.fn(),
+	createTextFileMock: vi.fn()
 }));
 
 vi.mock('$lib/server/memory/temporal-context', () => ({
@@ -75,6 +78,10 @@ vi.mock('$lib/server/db', () => ({
 vi.mock('$lib/server/grounding/profile', () => ({
 	mergeGroundingFacets: mergeGroundingFacetsMock,
 	completeGroundingSession: completeGroundingSessionMock
+}));
+
+vi.mock('$lib/server/text-files/service', () => ({
+	createTextFile: createTextFileMock
 }));
 
 function mockThoughtRow(row: Record<string, unknown> | null) {
@@ -378,5 +385,18 @@ describe('MCP tools', () => {
 			expect.objectContaining({ userId: 'u1', synthesis: 'You are an engineer.' })
 		);
 		expect(out).toMatchObject({ ok: true, initialCompleted: true, redirectTo: '/capture' });
+	});
+
+	it('runCreateTextFileTool returns sanitized payload without embedding', async () => {
+		createTextFileMock.mockResolvedValue({
+			id: 'f1',
+			title: 'Note',
+			body: 'hello',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			updatedAt: '2026-01-01T00:00:00.000Z'
+		});
+		const out = await runCreateTextFileTool({ userId: 'u1' }, { body: 'hello', title: 'Note' });
+		expect(out).toMatchObject({ textFileId: 'f1', textFile: { body: 'hello' } });
+		expect(out).not.toHaveProperty('embedding');
 	});
 });

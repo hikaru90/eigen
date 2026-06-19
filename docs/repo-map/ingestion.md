@@ -103,6 +103,14 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 
 - **Purpose:** Primary capture UI; **new submits** via `enqueueCapture` (queue). **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
 
+### Text files (attachments)
+
+- **Purpose:** User-scoped text notes stored in `text_file` — **not** thoughts. No enrich queue, embedding, or graph pipeline.
+- **Linking:** `thought_text_file` join table; deleting a thought removes links only; notes remain in the user's library.
+- **Service:** [`src/lib/server/text-files/service.ts`](../../src/lib/server/text-files/service.ts)
+- **MCP:** `create_text_file`, `list_text_files`, `get_text_file`, `update_text_file`, `delete_text_file`, `search_text_files`, `link_text_file_to_thought`, `unlink_text_file_from_thought`
+- **Retrieval:** Not mixed into `retrieve_thoughts` / `answer_question` in v1; attached previews appear on thought detail (`attachedFiles`).
+
 ## Related but not canonical for “ingest contract”
 
 - Schema definitions: [`src/lib/server/db/schema.ts`](../../src/lib/server/db/schema.ts) (and brain tables).

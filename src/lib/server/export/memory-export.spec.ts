@@ -52,6 +52,8 @@ describe('buildMemoryExportZip', () => {
 			[],
 			[],
 			[],
+			[],
+			[],
 			[]
 		];
 
@@ -97,8 +99,10 @@ describe('buildMemoryExportZip', () => {
 			'graph.json',
 			'manifest.json',
 			'temporal_events.csv',
+			'text_files.csv',
 			'thought_entities.csv',
 			'thought_relations.csv',
+			'thought_text_file.csv',
 			'thoughts.csv'
 		]);
 

@@ -33,6 +33,16 @@ import {
 	enhanceSnippetWithTemporalContext,
 	loadTemporalContextByThoughtIds
 } from '$lib/server/memory/temporal-context';
+import {
+	createTextFile,
+	deleteTextFile,
+	getTextFile,
+	linkTextFileToThought,
+	listTextFiles,
+	searchTextFiles,
+	unlinkTextFileFromThought,
+	updateTextFile
+} from '$lib/server/text-files/service';
 
 export type McpToolProgress = {
 	tool: string;
@@ -386,12 +396,6 @@ export async function runListTemporalEventsTool(context: McpToolContext, args: u
 	});
 }
 
-export async function runListProjectsTool(context: McpToolContext) {
-	const { listProjectsForUser } = await import('$lib/server/memory/project-list');
-	const projects = await listProjectsForUser(context.userId);
-	return sanitizeMcpToolResult({ projects });
-}
-
 export async function runManageTemporalEventTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const eventId = readEventIdFromToolArgs(body);
@@ -481,6 +485,98 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 		retrievedCount: result.retrieved.length
 	});
 	return sanitizeMcpToolResult(result);
+}
+
+export async function runCreateTextFileTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const rawBody = typeof body.body === 'string' ? body.body : '';
+	if (!rawBody.trim()) throw new Error('body is required');
+	const title = typeof body.title === 'string' ? body.title : undefined;
+	const textFile = await createTextFile(context.userId, { title, body: rawBody });
+	return sanitizeMcpToolResult({ textFileId: textFile.id, textFile });
+}
+
+export async function runListTextFilesTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const limit = typeof body.limit === 'number' ? body.limit : undefined;
+	const cursorUpdatedAt =
+		typeof body.cursor_updated_at === 'string' ? body.cursor_updated_at.trim() : '';
+	const cursorId = typeof body.cursor_id === 'string' ? body.cursor_id.trim() : '';
+	const cursor =
+		cursorUpdatedAt && cursorId
+			? { updatedAt: new Date(cursorUpdatedAt), id: cursorId }
+			: undefined;
+	if (cursor && Number.isNaN(cursor.updatedAt.getTime())) {
+		throw new Error('cursor_updated_at must be a valid ISO timestamp');
+	}
+	const textFiles = await listTextFiles(context.userId, { limit, cursor });
+	return sanitizeMcpToolResult({ count: textFiles.length, textFiles });
+}
+
+export async function runGetTextFileTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const textFileId = typeof body.text_file_id === 'string' ? body.text_file_id.trim() : '';
+	if (!textFileId) throw new Error('text_file_id is required');
+	const textFile = await getTextFile(context.userId, textFileId);
+	if (!textFile) throw new Error('Text file not found');
+	return sanitizeMcpToolResult({ textFile });
+}
+
+export async function runUpdateTextFileTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const textFileId = typeof body.text_file_id === 'string' ? body.text_file_id.trim() : '';
+	if (!textFileId) throw new Error('text_file_id is required');
+	const title = typeof body.title === 'string' ? body.title : undefined;
+	const rawBody = typeof body.body === 'string' ? body.body : undefined;
+	if (title === undefined && rawBody === undefined) {
+		throw new Error('title or body is required');
+	}
+	const textFile = await updateTextFile(context.userId, textFileId, { title, body: rawBody });
+	if (!textFile) throw new Error('Text file not found');
+	return sanitizeMcpToolResult({ textFile });
+}
+
+export async function runDeleteTextFileTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const textFileId = typeof body.text_file_id === 'string' ? body.text_file_id.trim() : '';
+	if (!textFileId) throw new Error('text_file_id is required');
+	const deleted = await deleteTextFile(context.userId, textFileId);
+	if (!deleted) throw new Error('Text file not found');
+	return sanitizeMcpToolResult({ deleted: true, textFileId });
+}
+
+export async function runSearchTextFilesTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const query = typeof body.query === 'string' ? body.query.trim() : '';
+	if (!query) throw new Error('query is required');
+	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
+	const results = await searchTextFiles(context.userId, { query, topK });
+	return sanitizeMcpToolResult({ count: results.length, results });
+}
+
+export async function runLinkTextFileToThoughtTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const thoughtId = typeof body.thought_id === 'string' ? body.thought_id.trim() : '';
+	const textFileId = typeof body.text_file_id === 'string' ? body.text_file_id.trim() : '';
+	if (!thoughtId) throw new Error('thought_id is required');
+	if (!textFileId) throw new Error('text_file_id is required');
+	const result = await linkTextFileToThought(context.userId, thoughtId, textFileId);
+	if (!result.linked) {
+		if (result.reason === 'thought_not_found') throw new Error('Thought not found');
+		throw new Error('Text file not found');
+	}
+	return sanitizeMcpToolResult({ linked: true, thoughtId, textFileId });
+}
+
+export async function runUnlinkTextFileFromThoughtTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const thoughtId = typeof body.thought_id === 'string' ? body.thought_id.trim() : '';
+	const textFileId = typeof body.text_file_id === 'string' ? body.text_file_id.trim() : '';
+	if (!thoughtId) throw new Error('thought_id is required');
+	if (!textFileId) throw new Error('text_file_id is required');
+	const unlinked = await unlinkTextFileFromThought(context.userId, thoughtId, textFileId);
+	if (!unlinked) throw new Error('Attachment link not found');
+	return sanitizeMcpToolResult({ unlinked: true, thoughtId, textFileId });
 }
 
 function parseGroundingFacetsArg(body: Record<string, unknown>): Array<{ key: string; content: string }> {

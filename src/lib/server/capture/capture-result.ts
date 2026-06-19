@@ -11,6 +11,7 @@ import {
 	thoughtEntity,
 	thoughtRelation
 } from '$lib/server/db/schema';
+import { listTextFilesForThought } from '$lib/server/text-files/service';
 
 const RELATION_PREVIEW_LEN = 120;
 
@@ -71,7 +72,7 @@ export async function loadThoughtCaptureResult(
 		throw new Error(`loadThoughtCaptureResult: thought not found (${thoughtId})`);
 	}
 
-	const [normalizedText, metadata, entityRows, temporalRows, relationRows, projectRows, nextActionRows] =
+	const [normalizedText, metadata, entityRows, temporalRows, relationRows, projectRows, nextActionRows, attachedFiles] =
 		await Promise.all([
 		decryptNormalizedText(userId, row),
 		decryptThoughtMetadata(userId, row),
@@ -123,7 +124,8 @@ export async function loadThoughtCaptureResult(
 			.where(
 				and(eq(projectProfile.userId, userId), eq(projectProfile.nextActionThoughtId, thoughtId))
 			)
-			.limit(1)
+			.limit(1),
+		listTextFilesForThought(userId, thoughtId)
 	]);
 
 	const entities = entityRows
@@ -180,6 +182,7 @@ export async function loadThoughtCaptureResult(
 			semanticSummary: t.semanticSummary
 		})),
 		linkedThoughts,
+		attachedFiles,
 		enrichmentComplete: row.enrichedAt !== null,
 		gtdProjectLabel: projectRows[0]?.label ?? null,
 		gtdIsNextAction: nextActionRows.length > 0,

@@ -1,5 +1,5 @@
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list';
-import { isScheduledForToday } from '$lib/graph/timeline-overdue';
+import { filterPriorDayOverdueItems, isScheduledForToday } from '$lib/graph/timeline-overdue';
 
 export function localDayKey(iso: string, timeZone: string): string {
 	return new Intl.DateTimeFormat('en-CA', {
@@ -46,4 +46,21 @@ export function isOpenTodoToday(
 	if (item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed') return false;
 	if (item.snoozedUntil && new Date(item.snoozedUntil).getTime() > now.getTime()) return false;
 	return isScheduledForToday(item, timeZone, now);
+}
+
+/** Today's open todo list: scheduled for today plus prior-day overdue (matches timeline todo tab). */
+export function filterOpenTodoTodayItems(
+	items: TemporalEventListItem[],
+	now: Date,
+	timeZone: string
+): TemporalEventListItem[] {
+	const todoToday = items.filter((item) => isOpenTodoToday(item, now, timeZone));
+	const seen = new Set(todoToday.map((item) => item.id));
+	for (const item of filterPriorDayOverdueItems(items, timeZone, now)) {
+		if (!seen.has(item.id)) {
+			todoToday.push(item);
+			seen.add(item.id);
+		}
+	}
+	return todoToday;
 }
