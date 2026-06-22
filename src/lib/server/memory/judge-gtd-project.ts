@@ -303,14 +303,18 @@ export async function demoteProjectProfile(userId: string, entityId: string): Pr
 
 export async function auditGtdProjectProfiles(userId: string): Promise<{ demoted: number }> {
 	const profileRows = await getDb()
-		.select({ entityId: projectProfile.projectEntityId })
+		.select({
+			entityId: projectProfile.projectEntityId,
+			source: projectProfile.source
+		})
 		.from(projectProfile)
 		.where(eq(projectProfile.userId, userId));
 
-	if (profileRows.length === 0) return { demoted: 0 };
+	const auditableRows = profileRows.filter((row) => (row.source ?? 'capture') === 'capture');
+	if (auditableRows.length === 0) return { demoted: 0 };
 
 	const entries: Array<{ context: HubJudgmentContext }> = [];
-	for (const row of profileRows) {
+	for (const row of auditableRows) {
 		const context = await loadHubJudgmentContext(userId, row.entityId);
 		if (context) entries.push({ context });
 	}

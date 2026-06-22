@@ -60,7 +60,7 @@
 		aria-label={m.graph_aria_entity_type_filter()}
 	>
 		<div
-			class="text-foreground pointer-events-auto flex min-h-0 w-full flex-col justify-start text-[10px] leading-none"
+			class="text-foreground pointer-events-auto flex min-h-0 w-full flex-col justify-start text-xs leading-none"
 		>
 			<div
 				class="flex h-9 shrink-0 items-center justify-between gap-1 px-2 {legendPanelExpanded
@@ -79,10 +79,10 @@
 					{:else}
 						<ChevronDown class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
 					{/if}
-					<span class="truncate text-[11px] font-semibold tracking-tight">{m.graph_filter()}</span>
+					<span class="truncate text-xs font-semibold tracking-tight">{m.graph_filter()}</span>
 					{#if filterActive}
 						<span
-							class="bg-black/10 text-foreground dark:bg-white/15 shrink-0 rounded-full px-1.5 font-mono text-[9px] tabular-nums"
+							class="bg-black/10 text-foreground dark:bg-white/15 shrink-0 rounded-full px-1.5 font-mono text-[10px] tabular-nums"
 						>
 							{visibleEntityTypes.size}
 						</span>
@@ -92,7 +92,7 @@
 					{#if filterActive}
 						<button
 							type="button"
-							class="text-foreground/80 hover:text-foreground focus-visible:ring-ring/50 h-7 shrink-0 rounded-full px-1.5 text-[10px] font-medium focus-visible:ring-1 focus-visible:outline-none"
+							class="text-foreground/80 hover:text-foreground focus-visible:ring-ring/50 h-7 shrink-0 rounded-full px-1.5 text-xs font-medium focus-visible:ring-1 focus-visible:outline-none"
 							onclick={clearEntityTypeFilter}
 						>
 							{m.graph_show_all()}
@@ -138,7 +138,7 @@
 					{/if}
 					{#if graphStats}
 						<p
-							class="text-muted-foreground border-border/40 shrink-0 border-t px-1 py-1 font-mono text-[9px] leading-tight tabular-nums"
+							class="text-muted-foreground border-border/40 shrink-0 border-t px-1 py-1 font-mono text-[10px] leading-tight tabular-nums"
 						>
 							{graphStats}
 						</p>

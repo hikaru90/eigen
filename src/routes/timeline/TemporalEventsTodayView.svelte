@@ -54,7 +54,7 @@
 	const { focus, later, lowEnergy } = $derived(engageSections);
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto pb-4" role="listbox" aria-label={m.graph_timeline_now_aria()}>
+<div class="min-h-0 flex-1 overflow-y-auto pb-4" role="listbox" aria-label={m.graph_timeline_tasks_aria()}>
 	{#if overdueCount > 0 && onGoToOverdue}
 		<div
 			class="border-border bg-muted/30 flex items-center justify-between gap-2 border-b px-3 py-1 {segment !==
@@ -68,7 +68,7 @@
 				class="text-destructive min-w-0 flex-1 text-left text-xs underline"
 				onclick={() => onGoToOverdue()}
 			>
-				{m.graph_timeline_now_overdue_banner({ count: overdueCount })}
+				{m.graph_timeline_tasks_overdue_banner({ count: overdueCount })}
 			</button>
 			{#if statusRow}
 				<div class="shrink-0">{@render statusRow()}</div>

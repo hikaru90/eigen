@@ -82,14 +82,14 @@
 <div
 	class="border-border grid w-full grid-cols-3 border"
 	role="tablist"
-	aria-label={m.graph_timeline_today_segments_aria()}
+	aria-label={m.graph_timeline_tasks_segments_aria()}
 >
 	{#each todayTabItems as tab, index (tab.segment)}
 		<button
 			type="button"
 			role="tab"
 			aria-selected={nav.segment === tab.segment}
-			class="border-border px-1.5 py-1 text-center transition-colors {index < todayTabItems.length - 1
+			class="border-border px-1.5 py-1 text-center {index < todayTabItems.length - 1
 				? 'border-r'
 				: ''} {nav.segment === tab.segment
 				? 'bg-black text-white dark:bg-foreground dark:text-background'

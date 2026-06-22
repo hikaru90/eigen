@@ -15,16 +15,22 @@ Goal: keep [`README.md`](../../README.md) (L0), [`index.md`](./index.md) (L1), d
 
 Apply map updates in the **same chat or editing session** as the code change so the repo never sits in a long-lived “doc drift” state.
 
+## Memory hub navigation
+
+- **Bottom nav:** Memory (`/memory`), Capture, Chat — Timeline and Notes are not top-level nav items.
+- **Secondary nav (floating pill on `/memory/*`):** Graph (default `/memory`), Embeddings (`/memory?view=embeddings`), Timeline (`/memory/timeline`), Notes (`/memory/notes`).
+- **Legacy redirects:** `/graph`, `/timeline`, `/notes`, and `/graph?tab=temporal` redirect to the matching `/memory/*` path. Push notifications link to `/memory/timeline`.
+
 ## GTD timeline UI
 
-- **Route:** `/timeline` owns the GTD timeline shell (formerly a tab on `/graph`). Push deep links and legacy `/graph?tab=temporal` redirect to `/timeline`.
-- **Graph route:** `/graph` is graph visualization + embedding map only.
+- **Route:** `/memory/timeline` owns the GTD timeline shell. UI components remain under [`src/routes/timeline/`](../../src/routes/timeline/). Legacy `/timeline` and `/graph?tab=temporal` redirect here.
 
 ## GTD projects vs graph entity kind `project`
 
 - **Graph hub:** any `canonical_entity` with thought mentions (ontology `entity_type` may be org, product, etc.).
 - **GTD project (Projects tab):** requires a `project_profile` row created only after `judgeGtdProjectHub` approves the hub as a multi-step initiative. Structural counts gate *when* to call the LLM, not *what* is a project. `listProjectsForUser` runs `auditGtdProjectProfiles` to demote false positives.
 - Identity resolution, LLM promotion, and reconciliation live in `resolve-project-identity.ts`, `judge-gtd-project.ts`, `maybe-promote-gtd-project.ts`, and `reconcile-user-projects.ts`.
+- **Merge policy:** `promote` and `assign` resolve hubs without folding losers; `seed` and batch `reconcileUserProjects` may merge only same-initiative name variants. Enrich runs reconcile only when the user has 2+ `project_profile` rows. Nightly canonical-entity embedding dedup skips entities with `project_profile`.
 
 ## What not to do
 

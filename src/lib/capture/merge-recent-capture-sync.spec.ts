@@ -64,6 +64,51 @@ describe('mergeRecentCaptureFromServer', () => {
 		expect(merged.details.a.queueStatus).toBe('pending');
 	});
 
+	it('keeps in-flight local captures when server recent list has not caught up yet', () => {
+		const existing = [
+			{
+				id: 'fresh',
+				normalizedText: 'Lisbon offsite',
+				category: 'observation',
+				memoryType: null,
+				createdAt: '2026-06-06T18:00:00.000Z'
+			}
+		];
+		const merged = mergeRecentCaptureFromServer(
+			existing,
+			{
+				fresh: thought('fresh', { normalizedText: 'Lisbon offsite', queueStatus: 'pending' })
+			},
+			{ recentThoughts: [], recentThoughtDetails: [] },
+			8
+		);
+
+		expect(merged.removedThoughtIds).toEqual([]);
+		expect(merged.snippets.map((row) => row.id)).toEqual(['fresh']);
+		expect(merged.details.fresh?.normalizedText).toBe('Lisbon offsite');
+	});
+
+	it('keeps optimistic local snippets before detail is cached', () => {
+		const existing = [
+			{
+				id: 'fresh',
+				normalizedText: 'Lisbon offsite',
+				category: 'observation',
+				memoryType: null,
+				createdAt: '2026-06-06T18:00:00.000Z'
+			}
+		];
+		const merged = mergeRecentCaptureFromServer(
+			existing,
+			{},
+			{ recentThoughts: [], recentThoughtDetails: [] },
+			8
+		);
+
+		expect(merged.removedThoughtIds).toEqual([]);
+		expect(merged.snippets.map((row) => row.id)).toEqual(['fresh']);
+	});
+
 	it('removes locally cached thoughts deleted via MCP or another tab', () => {
 		const existing = [
 			{

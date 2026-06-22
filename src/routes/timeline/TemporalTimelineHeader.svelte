@@ -23,25 +23,23 @@
 	}: Props = $props();
 
 	const title = $derived(
-		shellView === 'now'
+		shellView === 'tasks'
 			? nowSegment === 'done'
 				? m.graph_timeline_today_done_title()
 				: nowSegment === 'overdue'
 					? m.graph_timeline_today_overdue_title()
-					: m.graph_timeline_now()
-			: shellView === 'projects'
-				? projectsLayout === 'agenda'
-					? m.graph_temporal_agenda()
-					: projectsLayout === 'matrix'
-						? m.graph_timeline_matrix()
-						: m.graph_timeline_projects()
-				: m.graph_timeline_review()
+					: m.graph_timeline_tasks()
+			: projectsLayout === 'agenda'
+				? m.graph_temporal_agenda()
+				: projectsLayout === 'matrix'
+					? m.graph_timeline_matrix()
+					: m.graph_timeline_projects()
 	);
 </script>
 
 <header class="border-border shrink-0 border-b px-3 py-1.5">
 	<div class="flex items-center justify-between gap-2">
-		{#if shellView === 'now'}
+		{#if shellView === 'tasks'}
 			<div class="flex min-w-0 items-baseline gap-2">
 				<h2 class="text-foreground shrink-0 text-sm font-semibold leading-tight">{title}</h2>
 				<p
@@ -50,7 +48,7 @@
 						: ''}"
 					aria-hidden={nowSegment !== 'todo'}
 				>
-					{m.graph_timeline_now_subtitle()}
+					{m.graph_timeline_tasks_subtitle()}
 				</p>
 			</div>
 		{:else}

@@ -41,7 +41,9 @@
 		type CaptureQueueUiState
 	} from '$lib/capture/queue/ui-state';
 	import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment';
-	import { pollCaptureRecentSync } from '$lib/capture/poll-capture-recent-sync';
+	import { pollCaptureRecentSync, fetchRecentCaptureMerge } from '$lib/capture/poll-capture-recent-sync';
+	import type { RecentCaptureMergeResult } from '$lib/capture/poll-capture-recent-sync';
+	import { shouldRejectDestructiveRecentSync } from '$lib/capture/reject-destructive-recent-sync';
 	import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh';
 	import { unlinkTextFileFromThought } from '$lib/text-files/api';
 	import { captureInputDraft } from '$lib/stores/page-input-drafts';
@@ -165,6 +167,36 @@
 		backgroundEnrichingIds = backgroundEnrichingIds.filter((id) => id !== thoughtId);
 	}
 
+	function applyRecentCaptureSync(merged: RecentCaptureMergeResult) {
+		if (shouldRejectDestructiveRecentSync(recentThoughts, thoughtDetails, merged.snippets)) {
+			return;
+		}
+		const expandedId = expandedThoughtId;
+		recentThoughts = merged.snippets;
+		thoughtDetails = merged.details;
+		if (expandedId && !merged.snippets.some((row) => row.id === expandedId)) {
+			expandedThoughtId = null;
+		}
+		for (const thoughtId of merged.newThoughtIds) {
+			const thought = merged.details[thoughtId];
+			if (thought && !thought.enrichmentComplete) {
+				startBackgroundEnrichPoll(thoughtId);
+			}
+		}
+	}
+
+	async function refreshRecentCaptureFromServer() {
+		try {
+			const merged = await fetchRecentCaptureMerge({
+				limit: RECENT_THOUGHTS_LIMIT,
+				getState: () => ({ snippets: recentThoughts, details: thoughtDetails })
+			});
+			applyRecentCaptureSync(merged);
+		} catch {
+			// Transient errors — poll will retry.
+		}
+	}
+
 	function removeRecentThought(thoughtId: string) {
 		cancelEnrichPoll(thoughtId);
 		recentThoughts = recentThoughts.filter((row) => row.id !== thoughtId);
@@ -196,7 +228,7 @@
 			await ensureThoughtDetail(thoughtId);
 		} catch (e) {
 			err = e instanceof Error ? e.message : String(e);
-			expandedThoughtId = null;
+			if (expandedThoughtId === thoughtId) expandedThoughtId = null;
 		}
 	}
 
@@ -358,16 +390,7 @@
 		const cancelRecentSync = pollCaptureRecentSync({
 			limit: RECENT_THOUGHTS_LIMIT,
 			getState: () => ({ snippets: recentThoughts, details: thoughtDetails }),
-			onSync: ({ snippets, details, newThoughtIds }) => {
-				recentThoughts = snippets;
-				thoughtDetails = details;
-				for (const thoughtId of newThoughtIds) {
-					const thought = details[thoughtId];
-					if (thought && !thought.enrichmentComplete) {
-						startBackgroundEnrichPoll(thoughtId);
-					}
-				}
-			}
+			onSync: applyRecentCaptureSync
 		});
 
 		const unsub = subscribeCaptureQueue((message) => {
@@ -418,6 +441,7 @@
 				if (!message.thought.enrichmentComplete) {
 					startBackgroundEnrichPoll(message.thought.id);
 				}
+				void refreshRecentCaptureFromServer();
 				void reconcileQueueState(false, { respectProcessingSuppress: true });
 				return;
 			}
@@ -435,6 +459,7 @@
 				return;
 			}
 			if (message.type === 'idle') {
+				void refreshRecentCaptureFromServer();
 				void reconcileQueueState();
 			}
 		});
@@ -464,6 +489,7 @@
 		try {
 			await enqueueCapture(text);
 			await reconcileQueueState(false);
+			void refreshRecentCaptureFromServer();
 		} catch (e) {
 			raw = text;
 			queueUi = {
@@ -609,7 +635,7 @@
 					loadingDetailId={loadingDetailId}
 					editProgressEvents={progressEvents.map((row) => row.event)}
 					pipeline={CAPTURE_PIPELINE}
-					onExpand={(id) => void expandThought(id)}
+					onExpand={expandThought}
 					onCollapse={collapseThought}
 					onEdit={(id) => void toggleThoughtEdit(id)}
 					onDelete={openDeleteDialog}

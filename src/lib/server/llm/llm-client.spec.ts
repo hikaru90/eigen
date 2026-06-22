@@ -1135,6 +1135,11 @@ describe('llm client OpenRouter routing', () => {
 		};
 		expect(body.model).toBe('openrouter/chat-model');
 		expect(body.rule_id).toBeUndefined();
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({ provider: 'openrouter', gatewayHost: 'db-openrouter.example' })
+		);
 	});
 
 	it('BYOK OpenRouter embedding uses modelEmbedding from DB', async () => {
@@ -1164,6 +1169,11 @@ describe('llm client OpenRouter routing', () => {
 			model: string;
 		};
 		expect(body.model).toBe('openrouter/embed-model');
+		expect(logActivityCallMock).toHaveBeenCalledWith(
+			expect.anything(),
+			'u1',
+			expect.objectContaining({ provider: 'openrouter', gatewayHost: 'db-openrouter.example' })
+		);
 	});
 
 	it('fails when OpenRouter chat model is not configured', async () => {

@@ -31,7 +31,6 @@
 	import TemporalEventsTodayView from './TemporalEventsTodayView.svelte';
 	import TemporalEventsMatrixView from './TemporalEventsMatrixView.svelte';
 	import TemporalEventsProjectsView from './TemporalEventsProjectsView.svelte';
-	import TemporalEventsReviewView from './TemporalEventsReviewView.svelte';
 	import TemporalTimelineHeader from './TemporalTimelineHeader.svelte';
 	import TemporalTimelineNudge from './TemporalTimelineNudge.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
@@ -74,7 +73,7 @@
 	let rangeFilter = $state<TemporalRangeFilter>('relevant');
 	let statusFilter = $state<TemporalStatusFilter>('open');
 	let kindFilter = $state<string[]>([]);
-	let shellView = $state<TimelineShellView>('now');
+	let shellView = $state<TimelineShellView>('tasks');
 	let nowSegment = $state<NowSegment>('todo');
 	let projectsLayout = $state<ProjectsLayout>('list');
 	let projectStatusFilter = $state<ProjectStatusFilter>('all');
@@ -90,14 +89,23 @@
 	let statsRefreshKey = $state(0);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
+	let refreshingAll = $state(false);
+	let internalSelectedItemId = $state<string | null>(null);
+
+	const selectionControlled = $derived(onSelectItem !== undefined);
+	const activeSelectedItemId = $derived(
+		selectionControlled ? selectedItemId : internalSelectedItemId
+	);
 
 	const filtersActive = $derived(
 		rangeFilter !== 'relevant' || kindFilter.length > 0 || statusFilter === 'all'
 	);
 
 	const refreshBusy = $derived(
-		phase.kind === 'loading' || overdueLoading || doneLoading
+		refreshingAll || phase.kind === 'loading' || overdueLoading || doneLoading
 	);
+
+	const silentReloadEligible = $derived(phase.kind === 'ready');
 
 	const filteredItems = $derived(
 		phase.kind === 'ready'
@@ -125,28 +133,34 @@
 	});
 
 	const selectedItem = $derived.by(() => {
-		if (phase.kind !== 'ready' || !selectedItemId) return null;
+		if (phase.kind !== 'ready' || !activeSelectedItemId) return null;
 		return (
-			filteredItems.find((i) => i.id === selectedItemId) ??
-			doneItems.find((i) => i.id === selectedItemId) ??
-			overdueItems.find((i) => i.id === selectedItemId) ??
+			filteredItems.find((i) => i.id === activeSelectedItemId) ??
+			doneItems.find((i) => i.id === activeSelectedItemId) ??
+			overdueItems.find((i) => i.id === activeSelectedItemId) ??
 			null
 		);
 	});
 
+	function setSelection(item: TemporalEventListItem | null) {
+		if (selectionControlled) {
+			onSelectItem?.(item);
+		} else {
+			internalSelectedItemId = item?.id ?? null;
+		}
+	}
+
 	const showGlobalEmpty = $derived(
 		phase.kind === 'ready' &&
 			filteredItems.length === 0 &&
-			shellView === 'now' &&
+			shellView === 'tasks' &&
 			nowSegment === 'todo'
 	);
 
 	const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0);
 
-	const showFiltersBar = $derived(shellView !== 'review');
-
 	const showFiltersInHeader = $derived(
-		showFiltersBar && !(shellView === 'now' && nowSegment === 'todo' && overdueItems.length > 0)
+		!(shellView === 'tasks' && nowSegment === 'todo' && overdueItems.length > 0)
 	);
 
 	async function loadEvents(append = false, options?: { silent?: boolean }) {
@@ -154,7 +168,7 @@
 		if (!append && !silent) phase = { kind: 'loading' };
 		actionError = null;
 		try {
-			const effectiveStatus: TemporalStatusFilter = shellView === 'now' ? 'open' : statusFilter;
+			const effectiveStatus: TemporalStatusFilter = shellView === 'tasks' ? 'open' : statusFilter;
 			const params = new URLSearchParams({
 				range: rangeFilter,
 				status: effectiveStatus,
@@ -183,7 +197,7 @@
 			} else {
 				phase = { kind: 'ready', items: body.items, nextCursor: body.nextCursor };
 				if (initialEventId && body.items.some((i) => i.id === initialEventId)) {
-					onSelectItem?.(body.items.find((i) => i.id === initialEventId) ?? null);
+					setSelection(body.items.find((i) => i.id === initialEventId) ?? null);
 				}
 			}
 		} catch (err) {
@@ -200,8 +214,9 @@
 		void loadOverdueItems();
 	});
 
-	async function loadOverdueItems() {
-		overdueLoading = true;
+	async function loadOverdueItems(options?: { silent?: boolean }) {
+		const silent = options?.silent ?? overdueItems.length > 0;
+		if (!silent) overdueLoading = true;
 		try {
 			const params = new URLSearchParams({
 				range: 'all',
@@ -226,8 +241,9 @@
 		}
 	}
 
-	async function loadDoneItems() {
-		doneLoading = true;
+	async function loadDoneItems(options?: { silent?: boolean }) {
+		const silent = options?.silent ?? doneItems.length > 0;
+		if (!silent) doneLoading = true;
 		try {
 			const params = new URLSearchParams({
 				range: 'all',
@@ -256,23 +272,14 @@
 		statsRefreshKey += 1;
 	}
 
-	$effect(() => {
-		if (shellView === 'now' && nowSegment === 'overdue') {
-			void loadOverdueItems();
-		}
-		if (shellView === 'now' && nowSegment === 'done') {
-			void loadDoneItems();
-		}
-	});
-
 	function selectItem(item: TemporalEventListItem) {
 		lastActionSummary = null;
-		onSelectItem?.(selectedItemId === item.id ? null : item);
+		setSelection(activeSelectedItemId === item.id ? null : item);
 	}
 
 	function deselectItem() {
 		lastActionSummary = null;
-		onSelectItem?.(null);
+		setSelection(null);
 	}
 
 	function applyItemLocally(updated: TemporalEventListItem) {
@@ -294,13 +301,13 @@
 	}
 
 	function shouldDropFromOpenList(item: TemporalEventListItem): boolean {
-		return isTemporalEventCompleted(item) && (statusFilter === 'open' || shellView === 'now');
+		return isTemporalEventCompleted(item) && (statusFilter === 'open' || shellView === 'tasks');
 	}
 
 	function syncListsAfterStatusChange(updated: TemporalEventListItem) {
 		if (shouldDropFromOpenList(updated)) {
 			removeItemLocally(updated.id);
-			if (selectedItemId === updated.id) deselectItem();
+			if (activeSelectedItemId === updated.id) deselectItem();
 		} else {
 			applyItemLocally(updated);
 		}
@@ -317,8 +324,8 @@
 
 		bumpStats();
 		void loadEvents(false, { silent: true });
-		if (nowSegment === 'overdue') void loadOverdueItems();
-		if (nowSegment === 'done') void loadDoneItems();
+		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
+		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
 	}
 
 	async function postEventAction(
@@ -429,7 +436,7 @@
 			const result = (await res.json()) as { summary: string };
 			removeItemLocally(eventId);
 			lastActionSummary = result.summary;
-			if (selectedItemId === eventId) onSelectItem?.(null);
+			if (activeSelectedItemId === eventId) deselectItem();
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -455,21 +462,30 @@
 	}
 
 	function onFilterChange() {
-		void loadEvents();
-		if (nowSegment === 'overdue') void loadOverdueItems();
-		if (nowSegment === 'done') void loadDoneItems();
+		void loadEvents(false, { silent: silentReloadEligible });
+		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
+		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
 	}
 
 	function refreshAll() {
-		void loadEvents();
-		bumpStats();
-		if (nowSegment === 'overdue') void loadOverdueItems();
-		if (nowSegment === 'done') void loadDoneItems();
+		refreshingAll = true;
+		void (async () => {
+			try {
+				await loadEvents(false, { silent: silentReloadEligible });
+				bumpStats();
+				await Promise.all([
+					loadOverdueItems({ silent: overdueItems.length > 0 }),
+					loadDoneItems({ silent: doneItems.length > 0 })
+				]);
+			} finally {
+				refreshingAll = false;
+			}
+		})();
 	}
 
 	function setShellView(view: TimelineShellView) {
 		shellView = view;
-		if (view === 'now') {
+		if (view === 'tasks') {
 			statusFilter = 'open';
 		}
 		if (view === 'projects') {
@@ -480,7 +496,9 @@
 
 	function setNowSegment(segment: NowSegment) {
 		nowSegment = segment;
-		if (shellView !== 'now') shellView = 'now';
+		if (shellView !== 'tasks') shellView = 'tasks';
+		if (segment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
+		if (segment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
 	}
 
 	function goToOverdue() {
@@ -527,7 +545,7 @@
 	}
 </script>
 
-<div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-10 pb-28 md:pt-20">
+<div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 pb-28 md:pt-24">
 	<TemporalShellTabs
 		{shellView}
 		{refreshBusy}
@@ -554,16 +572,14 @@
 
 	<TemporalTimelineHeader {shellView} nowSegment={nowSegment} {projectsLayout}>
 		{#snippet titleActions()}
-			{#if showFiltersBar}
-				<div
-					class={showFiltersInHeader ? '' : 'pointer-events-none invisible'}
-					aria-hidden={!showFiltersInHeader}
-				>
-					{@render timelineFilters()}
-				</div>
-			{/if}
+			<div
+				class={showFiltersInHeader ? '' : 'pointer-events-none invisible'}
+				aria-hidden={!showFiltersInHeader}
+			>
+				{@render timelineFilters()}
+			</div>
 		{/snippet}
-		{#if shellView === 'now'}
+		{#if shellView === 'tasks'}
 			<TemporalTodaySegmentTabs
 				nav={{
 					segment: nowSegment,
@@ -586,7 +602,7 @@
 		{/snippet}
 	</TemporalTimelineHeader>
 
-	{#if snoozedItems.length > 0 && shellView !== 'review'}
+	{#if snoozedItems.length > 0}
 		<div class="border-border shrink-0 border-b px-3 py-1.5">
 			<p class="text-muted-foreground mb-1 font-mono text-[10px] uppercase">
 				{m.graph_timeline_snoozed()} ({snoozedItems.length})
@@ -629,7 +645,7 @@
 		</div>
 	{:else if phase.kind === 'ready'}
 		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-			{#if shellView === 'now'}
+			{#if shellView === 'tasks'}
 				<TemporalEventsTodayView
 					items={todayTodoSourceItems}
 					{doneItems}
@@ -637,7 +653,7 @@
 					{overdueItems}
 					{overdueLoading}
 					overdueCount={overdueItems.length}
-					{selectedItemId}
+					selectedItemId={activeSelectedItemId}
 					{updatingEventId}
 					timeZone={userTimeZone}
 					segment={nowSegment}
@@ -653,14 +669,14 @@
 			{:else if shellView === 'projects'}
 				{#if projectsLayout === 'list'}
 					<TemporalEventsProjectsView
-						{selectedItemId}
+						selectedItemId={activeSelectedItemId}
 						statusFilter={projectStatusFilter}
 						onSelect={selectItem}
 					/>
 				{:else if projectsLayout === 'agenda'}
 					<TemporalEventsAgendaView
 						items={upcomingItems}
-						{selectedItemId}
+						selectedItemId={activeSelectedItemId}
 						{updatingEventId}
 						timeZone={userTimeZone}
 						onSelect={selectItem}
@@ -669,26 +685,15 @@
 				{:else}
 					<TemporalEventsMatrixView
 						items={upcomingItems}
-						{selectedItemId}
+						selectedItemId={activeSelectedItemId}
 						{updatingEventId}
 						onSelect={selectItem}
 						onQuickAction={onQuickAction}
 					/>
 				{/if}
-			{:else}
-				<TemporalEventsReviewView
-					items={displayItems}
-					{selectedItemId}
-					{updatingEventId}
-					timeZone={userTimeZone}
-					onSelect={selectItem}
-					onQuickAction={onQuickAction}
-					{onReschedule}
-					onGoToOverdue={goToOverdue}
-				/>
 			{/if}
 
-			{#if phase.nextCursor && shellView !== 'review'}
+			{#if phase.nextCursor}
 				<div class="border-border shrink-0 border-t px-3 py-2 text-center">
 					<Button type="button" variant="outline" size="sm" class="h-8 text-xs" onclick={() => loadEvents(true)}>
 						{m.graph_timeline_load_more()}
@@ -696,28 +701,27 @@
 				</div>
 			{/if}
 
-			{#if selectedItem}
-				<TemporalEventDetail
-					item={selectedItem}
-					timeZone={userTimeZone}
-					{updatingEventId}
-					{actionBusy}
-					{lastActionSummary}
-					{eventNotificationsEnabled}
-					{eventReminderLeadMinutes}
-					{eventReminderKinds}
-					{onQuickAction}
-					{onInstruction}
-					{onDelete}
-					onClose={deselectItem}
-				/>
-			{/if}
 		</div>
 
 		{#if actionError}
 			<p class="text-destructive border-border shrink-0 border-t px-4 py-2 text-xs">{actionError}</p>
 		{/if}
 	{/if}
+
+	<TemporalEventDetail
+		item={selectedItem}
+		timeZone={userTimeZone}
+		{updatingEventId}
+		{actionBusy}
+		{lastActionSummary}
+		{eventNotificationsEnabled}
+		{eventReminderLeadMinutes}
+		{eventReminderKinds}
+		{onQuickAction}
+		{onInstruction}
+		{onDelete}
+		onClose={deselectItem}
+	/>
 
 	<TimelineProjectAssignDialog
 		bind:open={assignProjectOpen}

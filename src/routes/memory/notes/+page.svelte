@@ -17,6 +17,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Drawer from '$lib/components/ui/drawer';
+	import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -294,11 +295,8 @@
 	</div>
 </div>
 
-<Drawer.Root bind:open={drawerOpen} shouldScaleBackground={false}>
-	<Drawer.Content
-		class="border-border max-h-[min(92dvh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!"
-	>
-		<div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-4 pb-10" data-vaul-no-drag>
+<MemorySurfaceDrawer bind:open={drawerOpen}>
+	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-4 pb-10" data-vaul-no-drag>
 			<Drawer.Header class="space-y-1 px-0 pt-0 text-left">
 				<Drawer.Title class="text-base font-semibold">{m.notes_edit_title()}</Drawer.Title>
 				<Drawer.Description class="text-xs">{m.notes_edit_description()}</Drawer.Description>
@@ -363,7 +361,7 @@
 								{#each linkedThoughts as thought (thought.id)}
 									<li class="space-y-1">
 										<a
-											href="{resolve('/graph')}?thought={encodeURIComponent(thought.id)}"
+											href="{resolve('/memory')}?thought={encodeURIComponent(thought.id)}"
 											class="block rounded-sm border border-border p-2 text-xs hover:bg-muted/40"
 										>
 											<p class="line-clamp-2 whitespace-pre-wrap text-foreground">
@@ -380,9 +378,8 @@
 					</div>
 				</div>
 			{/if}
-		</div>
-	</Drawer.Content>
-</Drawer.Root>
+	</div>
+</MemorySurfaceDrawer>
 
 <Dialog.Root bind:open={createOpen}>
 	<Dialog.Content class="max-w-lg rounded-none border-2 border-black dark:border-border">

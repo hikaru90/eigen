@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageData } from "./$types";
   import { invalidateAll } from "$app/navigation";
+  import { browser } from "$app/environment";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import * as AlertDialog from "$lib/components/ui/alert-dialog";
@@ -11,6 +12,7 @@
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as Drawer from "$lib/components/ui/drawer";
+  import MemorySurfaceDrawer from "$lib/components/memory-surface-drawer.svelte";
   import * as Select from "$lib/components/ui/select";
   import {
     nodeFillForGraph,
@@ -53,9 +55,13 @@
   import { pollUntilEnrichmentComplete } from "$lib/capture/poll-enrichment";
   import { subscribeCaptureQueue } from "$lib/capture/queue";
   import { pollGraphEnrichRefresh } from "$lib/graph/poll-graph-enrich-refresh";
-  import EmbeddingMap from "./EmbeddingMap.svelte";
-  import GraphFiltersToolbar from "./graph-filters-toolbar.svelte";
-  import GraphEntityKindsLegend from "./graph-entity-kinds-legend.svelte";
+  import {
+    ensureEmbeddingProjection,
+    invalidateEmbeddingProjection,
+  } from "$lib/graph/embedding-map-projection";
+  import EmbeddingMap from "../graph/EmbeddingMap.svelte";
+  import GraphFiltersToolbar from "../graph/graph-filters-toolbar.svelte";
+  import GraphEntityKindsLegend from "../graph/graph-entity-kinds-legend.svelte";
   import ThoughtLinkedNotes from "$lib/components/thought-linked-notes.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import {
@@ -83,9 +89,11 @@
     },
   };
 
-  /** Which tab is visible: graph or embedding map. */
-  let activeTab = $state<"graph" | "embeddings">("graph");
-  /** Mount embedding map only after first visit so projection runs in a sized panel. */
+  /** Which tab is visible: graph or embedding map (driven by ?view=embeddings). */
+  const activeTab = $derived<"graph" | "embeddings">(
+    page.url.searchParams.get("view") === "embeddings" ? "embeddings" : "graph",
+  );
+  /** Mount embedding map only after first visit (projection prefetches from /memory layout). */
   let embeddingsTabOpened = $state(false);
 
   $effect(() => {
@@ -141,8 +149,25 @@
     }
   }
 
+  function blurActiveElement() {
+    if (!browser) return;
+    const el = document.activeElement;
+    if (el instanceof HTMLElement) el.blur();
+  }
+
+  function beginThoughtEdit(thoughtId: string) {
+    blurActiveElement();
+    editingThoughtId = thoughtId;
+  }
+
+  function resetDocumentScroll() {
+    if (!browser) return;
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }
+
   /** Convert an embedding-map dot click into the same selectedNode shape so the detail panel works for both tabs. */
   function handleEmbeddingSelect(item: EmbeddingSnapshotItem | null) {
+    blurActiveElement();
     if (!item) {
       selectedNode = null;
       return;
@@ -245,6 +270,7 @@
   $effect(() => {
     const n = selectedNode;
     if (n?.kind === "Thought") {
+      blurActiveElement();
       editingThoughtId = n.id;
       entityEditorDraft = "";
       entityEditorEntityType = "";
@@ -375,6 +401,8 @@
       entityIdsBeforeEnrichRefresh = new Set(
         data.snapshot.nodes.filter((n) => n.kind === "Entity").map((n) => n.id),
       );
+      invalidateEmbeddingProjection();
+      void ensureEmbeddingProjection(true);
       await invalidateAll();
       status = m.graph_status_memory_indexed();
     } finally {
@@ -691,7 +719,20 @@
     });
 
     const origHtmlOverflow = document.documentElement.style.overflow;
+    const origBodyOverflow = document.body.style.overflow;
     document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    resetDocumentScroll();
+
+    let lastVisualViewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const onVisualViewportResize = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      if (height > lastVisualViewportHeight) {
+        resetDocumentScroll();
+      }
+      lastVisualViewportHeight = height;
+    };
+    window.visualViewport?.addEventListener("resize", onVisualViewportResize);
 
     let cancelled = false;
 
@@ -1156,6 +1197,7 @@
 
       function onNodeClick(event: MouseEvent, d: SimNode) {
         event.stopPropagation();
+        blurActiveElement();
         selectedCommunityId = null;
         const prev = selectedNode;
         const hit = vizCtx.snapshot.nodes.find((n) => n.id === d.id && n.kind === "Entity");
@@ -1423,7 +1465,12 @@
       const ro = new ResizeObserver(() => {
         scheduleGraphResize?.();
         const h = rootEl?.clientHeight ?? 0;
-        if (selectedNode && lastGraphResizeHeight !== null && h !== lastGraphResizeHeight) {
+        if (
+          selectedNode &&
+          !nodeDrawerOpen &&
+          lastGraphResizeHeight !== null &&
+          h !== lastGraphResizeHeight
+        ) {
           maybeRecenterSelectedNode();
         }
         lastGraphResizeHeight = h;
@@ -1436,7 +1483,9 @@
         unsubCaptureQueue();
         for (const cancel of fastEnrichPollCancelByThoughtId.values()) cancel();
         fastEnrichPollCancelByThoughtId.clear();
+        window.visualViewport?.removeEventListener("resize", onVisualViewportResize);
         document.documentElement.style.overflow = origHtmlOverflow;
+        document.body.style.overflow = origBodyOverflow;
         scheduleGraphUpdate = null;
         scheduleGraphResize = null;
         scheduleGraphRelayout = null;
@@ -1459,30 +1508,9 @@
   });
 </script>
 
-<div class="-mb-28 h-dvh overflow-hidden overscroll-none">
+<div class="-mb-28 h-svh overflow-hidden overscroll-none">
   <Card.Root class="relative flex h-full flex-col overflow-hidden bg-transparent shadow-none">
-    <Tabs.Root bind:value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div
-        class="pointer-events-none fixed inset-x-0 bottom-20 z-30 flex justify-center"
-        aria-label={m.graph_aria_view_tabs()}
-      >
-        <Tabs.List
-          class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 w-fit shrink-0 items-stretch gap-1 rounded-full border border-white/80 p-0.5"
-        >
-          <Tabs.Trigger
-            value="graph"
-            class="!h-full !rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
-          >
-            {m.graph_tab_graph()}
-          </Tabs.Trigger>
-          <Tabs.Trigger
-            value="embeddings"
-            class="!h-full !rounded-full !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background"
-          >
-            {m.graph_tab_embeddings()}
-          </Tabs.Trigger>
-        </Tabs.List>
-      </div>
+    <Tabs.Root value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <Card.Content class="flex h-full min-h-0 flex-1 flex-col p-0">
         <Tabs.Content
           value="graph"
@@ -1541,14 +1569,7 @@
     </Tabs.Root>
   </Card.Root>
 
-  <Drawer.Root
-    bind:open={nodeDrawerOpen}
-    onOpenChange={onNodeDrawerOpenChange}
-    shouldScaleBackground={false}
-  >
-    <Drawer.Content
-      class="border-border max-h-[min(92dvh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!"
-    >
+  <MemorySurfaceDrawer bind:open={nodeDrawerOpen} onOpenChange={onNodeDrawerOpenChange}>
       {#if selectedCommunity}
         <Drawer.Description class="sr-only">{m.graph_drawer_community_sr()}</Drawer.Description>
         <div
@@ -1845,7 +1866,7 @@
                             size="sm"
                             variant={editingThoughtId === cap.id ? "default" : "outline"}
                             class="h-7 shrink-0 text-xs"
-                            onclick={() => (editingThoughtId = cap.id)}
+                            onclick={() => beginThoughtEdit(cap.id)}
                           >
                             {editingThoughtId === cap.id ? m.graph_editing() : m.graph_edit()}
                           </Button>
@@ -1954,8 +1975,7 @@
               {/if}
         </div>
       {/if}
-    </Drawer.Content>
-  </Drawer.Root>
+  </MemorySurfaceDrawer>
 
   <AlertDialog.Root
     bind:open={graphDeleteDialogOpen}

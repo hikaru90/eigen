@@ -2,10 +2,7 @@ import { env } from '$env/dynamic/private';
 import { and, eq } from 'drizzle-orm';
 import { getDb, withDbUser } from '$lib/server/db';
 import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema';
-import {
-	LLM_GATEWAY_ACTIVITY_PROVIDER,
-	OPENROUTER_ACTIVITY_PROVIDER
-} from '$lib/server/activity/gateway-providers';
+import { activityProviderForLlmConfig } from '$lib/server/activity/gateway-providers';
 import { logActivityCall } from '$lib/server/activity/log-call';
 import { resolveBillingUserId } from '$lib/server/billing/context';
 import { isByokBilling } from '$lib/server/billing/preferences';
@@ -219,23 +216,28 @@ async function loadLlmProviderConfig(
 	userId: string,
 	provider: LlmProviderKind
 ): Promise<ResolvedLlmConfig> {
-	const [row] = await withDbUser(userId, async (db) =>
-		db
+	const row = await withDbUser(userId, async (db) => {
+		const [loaded] = await db
 			.select()
 			.from(llmProviderConfig)
 			.where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)))
-			.limit(1)
-	);
+			.limit(1);
+		if (!loaded?.baseUrl) return null;
 
-	if (row?.baseUrl && row?.apiKey) {
-		const apiKey = row.apiKeyEncrypted
+		const apiKey = loaded.apiKeyEncrypted
 			? await decryptTenantValue({
 					userId,
 					table: 'llm_provider_config',
 					column: 'api_key',
-					ciphertext: row.apiKeyEncrypted
+					ciphertext: loaded.apiKeyEncrypted
 				})
-			: row.apiKey;
+			: (loaded.apiKey ?? '');
+		if (!apiKey.trim()) return null;
+
+		return { ...loaded, apiKey };
+	});
+
+	if (row?.baseUrl && row.apiKey) {
 		const baseUrl = row.baseUrl.replace(/\/$/, '');
 		const ruleChat = row.ruleChat ?? null;
 		const ruleEmbedding = row.ruleEmbedding ?? null;
@@ -250,7 +252,7 @@ async function loadLlmProviderConfig(
 		return {
 			provider,
 			baseUrl,
-			apiKey,
+			apiKey: row.apiKey,
 			ruleChat,
 			ruleEmbedding,
 			modelChat: row.modelChat ?? null,
@@ -470,6 +472,7 @@ async function llmChatCompletionInner(input: {
 	routingRuleId?: string;
 }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
+	const activityProvider = activityProviderForLlmConfig(config.provider);
 	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/chat/completions`;
 	const routing = await chatRoutingConfig(config, input.routingRuleId);
@@ -550,7 +553,7 @@ async function llmChatCompletionInner(input: {
 			// Extract first user message for context preview
 			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
-				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				provider: activityProvider,
 				gatewayHost,
 				operation: `llm.chat.${logCtx}.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
@@ -569,7 +572,7 @@ async function llmChatCompletionInner(input: {
 			// Extract first user message for context preview
 			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
 			await logActivityCall(db, input.userId, {
-				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				provider: activityProvider,
 				gatewayHost,
 				operation: `llm.chat.${logCtx}.error(attempt=${attempt})`,
 				baseCostUsd: 0,
@@ -598,6 +601,7 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 
 async function llmCreateEmbeddingsInner(input: { userId: string; input: string | string[] }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
+	const activityProvider = activityProviderForLlmConfig(config.provider);
 	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/embeddings`;
 	const routing = await embeddingRoutingConfig(config);
@@ -657,7 +661,7 @@ async function llmCreateEmbeddingsInner(input: { userId: string; input: string |
 				? input.input[0]
 				: input.input;
 			await logActivityCall(db, input.userId, {
-				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				provider: activityProvider,
 				gatewayHost,
 				operation: `llm.embedding.success(attempt=${attempt})`,
 				baseCostUsd: baseCost,
@@ -673,7 +677,7 @@ async function llmCreateEmbeddingsInner(input: { userId: string; input: string |
 				? input.input[0]
 				: input.input;
 			await logActivityCall(db, input.userId, {
-				provider: LLM_GATEWAY_ACTIVITY_PROVIDER,
+				provider: activityProvider,
 				gatewayHost,
 				operation: `llm.embedding.error(attempt=${attempt})`,
 				baseCostUsd: 0,
@@ -743,6 +747,7 @@ async function llmCreateTranscriptionDedicated(
 	input: { userId: string; model: string; audio: LlmTranscriptionAudio },
 	config: ResolvedLlmConfig
 ): Promise<unknown> {
+	const activityProvider = activityProviderForLlmConfig(config.provider);
 	const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl);
 	const url = `${config.baseUrl}/audio/transcriptions`;
 	const audioBase64 = Buffer.from(input.audio.bytes).toString('base64');
@@ -804,7 +809,7 @@ async function llmCreateTranscriptionDedicated(
 			const sttCost = gatewayReportedCostUsdForLog(json);
 			logLlmSttResponse(attempt, json);
 			await logActivityCall(db, input.userId, {
-				provider: OPENROUTER_ACTIVITY_PROVIDER,
+				provider: activityProvider,
 				gatewayHost,
 				operation: `llm.stt.success(attempt=${attempt},model=${input.model})`,
 				baseCostUsd: sttCost,
@@ -818,7 +823,7 @@ async function llmCreateTranscriptionDedicated(
 		} catch (err) {
 			lastError = err;
 			await logActivityCall(db, input.userId, {
-				provider: OPENROUTER_ACTIVITY_PROVIDER,
+				provider: activityProvider,
 				gatewayHost,
 				operation: `llm.stt.error(attempt=${attempt},model=${input.model})`,
 				baseCostUsd: 0,

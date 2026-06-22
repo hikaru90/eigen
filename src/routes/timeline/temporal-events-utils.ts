@@ -602,7 +602,7 @@ export function filterItemsCompletedToday(
 
 export { WEEK_GRID_START_HOUR, WEEK_GRID_END_HOUR };
 
-export type TimelineShellView = 'now' | 'projects' | 'review';
+export type TimelineShellView = 'tasks' | 'projects';
 
 export type NowSegment = 'todo' | 'done' | 'overdue';
 /** @deprecated Use NowSegment */
@@ -627,8 +627,6 @@ export const EMPTY_ENGAGE_FILTERS: EngageFilters = {
 	energyLevels: [],
 	maxMinutes: null
 };
-
-export const REVIEW_STEP_COUNT = 6;
 
 export function filterItemsByEngageFilters(
 	items: TemporalEventListItem[],

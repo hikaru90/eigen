@@ -4,6 +4,7 @@ import {
 	canonicalEntity,
 	entityAlias,
 	entityResolutionLog,
+	projectProfile,
 	thought,
 	thoughtEntity
 } from '$lib/server/db/schema';
@@ -277,6 +278,12 @@ export async function consolidateCanonicalEntityAliasesForUser(
 	userId: string
 ): Promise<ConsolidateCanonicalEntityAliasesResult> {
 	const db = getDb();
+	const profileRows = await db
+		.select({ entityId: projectProfile.projectEntityId })
+		.from(projectProfile)
+		.where(eq(projectProfile.userId, userId));
+	const gtdProjectEntityIds = profileRows.map((row) => row.entityId);
+
 	const rows = await db
 		.select({
 			id: canonicalEntity.id,
@@ -286,7 +293,15 @@ export async function consolidateCanonicalEntityAliasesForUser(
 			createdAt: canonicalEntity.createdAt
 		})
 		.from(canonicalEntity)
-		.where(and(eq(canonicalEntity.userId, userId), isNotNull(canonicalEntity.embedding)))
+		.where(
+			and(
+				eq(canonicalEntity.userId, userId),
+				isNotNull(canonicalEntity.embedding),
+				...(gtdProjectEntityIds.length > 0
+					? [notInArray(canonicalEntity.id, gtdProjectEntityIds)]
+					: [])
+			)
+		)
 		.orderBy(desc(canonicalEntity.createdAt))
 		.limit(DEDUP_CANDIDATE_LIMIT);
 
@@ -322,7 +337,10 @@ export async function consolidateCanonicalEntityAliasesForUser(
 					eq(canonicalEntity.userId, userId),
 					isNotNull(canonicalEntity.embedding),
 					eq(canonicalEntity.entityType, row.entityType),
-					sql`${canonicalEntity.id} <> ${row.id}`
+					sql`${canonicalEntity.id} <> ${row.id}`,
+					...(gtdProjectEntityIds.length > 0
+						? [notInArray(canonicalEntity.id, gtdProjectEntityIds)]
+						: [])
 				)
 			)
 			.orderBy(distanceExpr)

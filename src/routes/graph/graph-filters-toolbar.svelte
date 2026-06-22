@@ -5,7 +5,9 @@
 	import * as Select from '$lib/components/ui/select';
 	import { COMMUNITY_LEAF_LEVEL } from '$lib/graph/community-levels';
 	import {
+		GRAPH_FILTER_GLASS_POPOVER,
 		GRAPH_FILTER_GLASS_ROW,
+		GRAPH_FILTER_POPOVER_WIDTH,
 		graphFilterTriggerClass
 	} from '$lib/graph/graph-filter-chrome';
 	import { graphCommunityLevelLabel, graphEdgeKindLabel } from '$lib/graph/graph-i18n';
@@ -26,21 +28,29 @@
 	} = $props();
 
 	let searchPopoverOpen = $state(false);
+	let searchInputEl = $state<HTMLInputElement | null>(null);
 	let edgePopoverOpen = $state(false);
 	let levelPopoverOpen = $state(false);
 
 	const searchFilterActive = $derived(search.trim().length > 0);
 	const edgeFilterActive = $derived(edgeKind !== 'all');
 	const levelFilterActive = $derived(communityLevel !== String(COMMUNITY_LEAF_LEVEL));
+
+	const popoverContentClass = `${GRAPH_FILTER_GLASS_POPOVER} ${GRAPH_FILTER_POPOVER_WIDTH} gap-2 p-3`;
+
+	$effect(() => {
+		if (searchPopoverOpen) {
+			queueMicrotask(() => searchInputEl?.focus());
+		}
+	});
+
+	function onSearchOpenChange(open: boolean) {
+		if (!open) search = '';
+	}
 </script>
 
 <div class={GRAPH_FILTER_GLASS_ROW}>
-	<Popover.Root
-		bind:open={searchPopoverOpen}
-		onOpenChange={(open) => {
-			if (!open) search = '';
-		}}
-	>
+	<Popover.Root bind:open={searchPopoverOpen} onOpenChange={onSearchOpenChange}>
 		<Popover.Trigger
 			class={graphFilterTriggerClass(searchFilterActive)}
 			aria-label={m.graph_search_nodes()}
@@ -52,10 +62,12 @@
 			align="end"
 			side="bottom"
 			sideOffset={6}
-			class="w-[min(calc(100vw-2rem),22rem)] gap-2 p-3"
+			collisionPadding={12}
+			class={popoverContentClass}
 		>
 			<Label for="graph-search" class="text-xs">{m.graph_search_nodes()}</Label>
 			<Input
+				bind:ref={searchInputEl}
 				id="graph-search"
 				class="font-mono text-xs"
 				placeholder={m.graph_search_placeholder()}
@@ -71,7 +83,13 @@
 		>
 			<Link2 class="size-3 shrink-0 opacity-90" strokeWidth={1.75} aria-hidden="true" />
 		</Popover.Trigger>
-		<Popover.Content align="end" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
+		<Popover.Content
+			align="end"
+			side="bottom"
+			sideOffset={6}
+			collisionPadding={12}
+			class={popoverContentClass}
+		>
 			<Label class="text-xs">{m.graph_edge_type()}</Label>
 			<Select.Root type="single" bind:value={edgeKind}>
 				<Select.Trigger class="w-full font-mono text-xs">
@@ -91,9 +109,15 @@
 			aria-label={m.graph_aria_community_level()}
 			aria-expanded={levelPopoverOpen}
 		>
-			<span class="text-[9px] font-semibold leading-none">L</span>
+			<span class="text-[10px] font-semibold leading-none">L</span>
 		</Popover.Trigger>
-		<Popover.Content align="end" side="bottom" sideOffset={6} class="w-64 gap-2 p-3">
+		<Popover.Content
+			align="end"
+			side="bottom"
+			sideOffset={6}
+			collisionPadding={12}
+			class={popoverContentClass}
+		>
 			<Label class="text-xs">{m.graph_community_level()}</Label>
 			<Select.Root type="single" bind:value={communityLevel}>
 				<Select.Trigger class="w-full font-mono text-xs">

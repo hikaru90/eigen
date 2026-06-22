@@ -56,13 +56,15 @@ describe('GET /api/embeddings/snapshot', () => {
 			id: 't1',
 			rawText: 'Hello world',
 			category: 'observation',
-			embedding: makeEmbedding()
+			embedding: makeEmbedding(),
+			updatedAt: new Date('2026-01-01T00:00:00.000Z')
 		};
 		const entityRow = {
 			id: 'e1',
 			label: 'Alice',
 			entityType: 'person',
-			embedding: makeEmbedding()
+			embedding: makeEmbedding(),
+			updatedAt: new Date('2026-01-02T00:00:00.000Z')
 		};
 
 		makeDbWithRows([thoughtRow], [entityRow]);
@@ -72,6 +74,8 @@ describe('GET /api/embeddings/snapshot', () => {
 
 		const body = await res.json();
 		expect(body.items).toHaveLength(2);
+		expect(typeof body.revision).toBe('string');
+		expect(body.revision.length).toBeGreaterThan(0);
 
 		const t = body.items.find((i: { id: string }) => i.id === 't1');
 		expect(t).toMatchObject({ kind: 'Thought', subtype: 'observation' });
@@ -87,7 +91,8 @@ describe('GET /api/embeddings/snapshot', () => {
 			id: 'bad',
 			rawText: 'corrupt',
 			category: 'task',
-			embedding: [1, 2, 3] // wrong length — data integrity error
+			embedding: [1, 2, 3],
+			updatedAt: new Date('2026-01-01T00:00:00.000Z')
 		};
 
 		makeDbWithRows([badRow], []);
@@ -112,13 +117,15 @@ describe('GET /api/embeddings/snapshot', () => {
 			id: `t${i}`,
 			rawText: `thought ${i}`,
 			category: 'observation',
-			embedding: makeEmbedding()
+			embedding: makeEmbedding(),
+			updatedAt: new Date('2026-01-01T00:00:00.000Z')
 		}));
 		const entityRows = Array.from({ length: 50 }, (_, i) => ({
 			id: `e${i}`,
 			label: `entity ${i}`,
 			entityType: 'other',
-			embedding: makeEmbedding()
+			embedding: makeEmbedding(),
+			updatedAt: new Date('2026-01-02T00:00:00.000Z')
 		}));
 
 		makeDbWithRows(thoughtRows, entityRows);

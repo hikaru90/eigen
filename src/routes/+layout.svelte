@@ -5,10 +5,8 @@
   import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
-  import Network from "@lucide/svelte/icons/network";
+  import Brain from "@lucide/svelte/icons/brain";
   import Plus from "@lucide/svelte/icons/plus";
-  import CalendarDays from "@lucide/svelte/icons/calendar-days";
-  import FileText from "@lucide/svelte/icons/file-text";
   import "./layout.css";
   import favicon from "$lib/assets/favicon.png";
   import { cn } from "$lib/utils";
@@ -42,17 +40,10 @@
 
   const bottomNavItems = $derived([
     {
-      label: m.nav_graph(),
-      href: "/graph",
-      icon: Network,
-      active: currentPath.includes("/graph"),
-      variant: "secondary" as const,
-    },
-    {
-      label: m.nav_timeline(),
-      href: "/timeline",
-      icon: CalendarDays,
-      active: currentPath.includes("/timeline"),
+      label: m.nav_memory(),
+      href: "/memory",
+      icon: Brain,
+      active: currentPath.includes("/memory"),
       variant: "secondary" as const,
     },
     {
@@ -61,13 +52,6 @@
       icon: Plus,
       active: currentPath.includes("/capture"),
       variant: "primary" as const,
-    },
-    {
-      label: m.nav_notes(),
-      href: "/notes",
-      icon: FileText,
-      active: currentPath.includes("/notes"),
-      variant: "secondary" as const,
     },
     {
       label: m.nav_chat(),

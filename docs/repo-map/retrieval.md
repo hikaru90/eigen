@@ -40,7 +40,7 @@ Tier-1 rows (`enriched_at IS NULL`, no embedding) are intended to surface via **
 
 Tier-1 rows match immediately at SQL. Fusion in [`retrieveEvidence`](../../src/lib/server/retrieval/retrieve-evidence.ts) uses `ts_rank_cd` for thought similarity, zeros graph/community/salience bonuses on expansion-only candidates (no direct lexical or vector hit), and reserves top lexical rows in the rerank pool so keyword matches reach `answer_question` before tier 2 embeds the row.
 
-Apache AGE remains for ingest writes and `/graph` visualization only.
+Apache AGE remains for ingest writes and `/memory` graph visualization only.
 
 ## CompetingSystems
 

@@ -85,7 +85,7 @@ export async function dispatchDueDailySummaries(
 			await sendPushToUser(row.userId, {
 				title: push.title,
 				body: push.body,
-				url: '/timeline',
+				url: '/memory/timeline',
 				tag: `daily-summary-${todayKey}`
 			});
 			await getDb()

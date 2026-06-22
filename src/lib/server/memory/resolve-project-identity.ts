@@ -54,6 +54,22 @@ export type ResolveProjectIdentityInput = {
 	mode: ProjectIdentityMode;
 };
 
+/** Shared LLM policy: merge only true name variants of one initiative. */
+export const GTD_PROJECT_STAY_SEPARATE_POLICY = [
+	'Merge ONLY when linked thoughts describe the SAME multi-step initiative under different labels (e.g. "Eigen" and "EigenMesh").',
+	'Do NOT merge related but distinct bodies of work, sub-projects, phases, or parallel initiatives — even when names overlap or graph neighbors are shared.',
+	'Graph neighbors inform discovery; shared neighbors alone are NOT sufficient to merge.',
+	'When uncertain, keep projects separate (empty merge list).'
+] as const;
+
+export function mergeEntityIdsAllowedForMode(mode: ProjectIdentityMode): boolean {
+	return mode === 'seed' || mode === 'reconcile';
+}
+
+export function effectiveMergeEntityIds(mode: ProjectIdentityMode, ids: string[]): string[] {
+	return mergeEntityIdsAllowedForMode(mode) ? ids : [];
+}
+
 function extractChatContent(response: unknown): string {
 	const choices = (response as { choices?: Array<{ message?: { content?: string } }> }).choices;
 	const content = choices?.[0]?.message?.content;
@@ -245,12 +261,13 @@ export function parseProjectIdentityPayload(
 	};
 }
 
-function buildIdentityPrompt(input: {
+export function buildIdentityPrompt(input: {
 	surfaceLabel: string;
 	mode: ProjectIdentityMode;
 	context: ProjectIdentityContext;
 	thoughtId?: string;
 }): string {
+	const mergeAllowed = mergeEntityIdsAllowedForMode(input.mode);
 	const catalog = input.context.gtdProjects
 		.map(
 			(p) =>
@@ -271,19 +288,41 @@ function buildIdentityPrompt(input: {
 		.map((e) => `- ${e.sourceLabel} --${e.predicate}--> ${e.targetLabel}`)
 		.join('\n');
 
+	const jsonShape = mergeAllowed
+		? [
+				'{',
+				'  "canonicalEntityId": "uuid from catalog/hubs or null",',
+				'  "canonicalLabel": "best display name",',
+				'  "hubEntityType": "org|product|project|other ontology entity_type key",',
+				'  "shouldCreateHub": true|false,',
+				'  "isGtdProject": true|false,',
+				'  "mergeEntityIds": ["uuid", "..."]',
+				'}'
+			]
+		: [
+				'{',
+				'  "canonicalEntityId": "uuid from catalog/hubs or null",',
+				'  "canonicalLabel": "best display name",',
+				'  "hubEntityType": "org|product|project|other ontology entity_type key",',
+				'  "shouldCreateHub": true|false,',
+				'  "isGtdProject": true|false',
+				'}'
+			];
+
 	return [
 		'Return ONLY JSON with this shape:',
-		'{',
-		'  "canonicalEntityId": "uuid from catalog/hubs or null",',
-		'  "canonicalLabel": "best display name",',
-		'  "hubEntityType": "org|product|project|other ontology entity_type key",',
-		'  "shouldCreateHub": true|false,',
-		'  "isGtdProject": true|false,',
-		'  "mergeEntityIds": ["uuid", "..."]',
-		'}',
+		...jsonShape,
 		'',
 		'Decide the single canonical graph hub for this work name.',
-		'Merge duplicate variants of the same initiative into one hub (mergeEntityIds lists losers to fold in).',
+		...(mergeAllowed
+			? [
+					'mergeEntityIds lists loser hubs to fold into the winner — only for duplicate variants of the same initiative.',
+					...GTD_PROJECT_STAY_SEPARATE_POLICY
+				]
+			: [
+					'Pick or create the best matching hub — do not fold other hubs into this one.',
+					'Related but distinct initiatives must remain separate projects.'
+				]),
 		'isGtdProject true only for a multi-step initiative — never for ingredients, people, or single chores.',
 		'Copy UUIDs exactly from the catalogs below; use null when no existing hub fits.',
 		'',
@@ -358,9 +397,10 @@ export async function resolveProjectIdentity(
 	}
 
 	const isGtdProject = resolution.isGtdProject;
+	const mergeEntityIds = effectiveMergeEntityIds(input.mode, resolution.mergeEntityIds);
 
-	if (resolution.mergeEntityIds.length > 0) {
-		await mergeProjectEntities(input.userId, entityId, resolution.mergeEntityIds, canonicalLabel);
+	if (mergeEntityIds.length > 0) {
+		await mergeProjectEntities(input.userId, entityId, mergeEntityIds, canonicalLabel);
 	}
 
 	return {
@@ -369,7 +409,7 @@ export async function resolveProjectIdentity(
 		hubEntityType: resolution.hubEntityType,
 		isGtdProject,
 		shouldCreateHub: resolution.shouldCreateHub,
-		mergeEntityIds: resolution.mergeEntityIds
+		mergeEntityIds
 	};
 }
 

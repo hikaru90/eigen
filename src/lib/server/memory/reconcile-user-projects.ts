@@ -9,8 +9,10 @@ import {
 } from '$lib/server/memory/judge-gtd-project';
 import { countOpenLoopsForProjectEntity } from '$lib/server/memory/project-eligibility';
 import {
+	GTD_PROJECT_STAY_SEPARATE_POLICY,
 	loadProjectIdentityContext,
-	mergeProjectEntities
+	mergeProjectEntities,
+	type ProjectIdentityContext
 } from '$lib/server/memory/resolve-project-identity';
 
 export type ReconcileUserProjectsResult = {
@@ -27,13 +29,14 @@ function extractChatContent(response: unknown): string {
 	return content;
 }
 
-function buildReconcilePrompt(
+export function buildReconcilePrompt(
 	profiles: Array<{
 		entityId: string;
 		label: string;
 		openLoopCount: number;
 		linkedThoughtSummaries: string[];
-	}>
+	}>,
+	context?: Pick<ProjectIdentityContext, 'hubCandidates' | 'graphNeighborPairs'>
 ): string {
 	const profileLines = profiles
 		.map((p) => {
@@ -49,6 +52,20 @@ function buildReconcilePrompt(
 		})
 		.join('\n');
 
+	const hubs = context?.hubCandidates
+		.map(
+			(h) =>
+				`- ${h.entityId}: ${h.label} [${h.entityType}] mentions=${h.mentionCount}${
+					h.linkedThoughtSummaries.length > 0
+						? ` thoughts: ${h.linkedThoughtSummaries.join(' | ')}`
+						: ''
+				}`
+		)
+		.join('\n');
+	const neighbors = context?.graphNeighborPairs
+		.map((e) => `- ${e.sourceLabel} --${e.predicate}--> ${e.targetLabel}`)
+		.join('\n');
+
 	return [
 		'Return ONLY JSON:',
 		'{',
@@ -59,12 +76,17 @@ function buildReconcilePrompt(
 		'}',
 		'',
 		'Merge duplicate GTD project variants (same initiative, different labels) into one winner.',
+		...GTD_PROJECT_STAY_SEPARATE_POLICY,
 		'Demote entity ids that are NOT real multi-step GTD projects (ingredients, people, books, parts, single chores).',
 		'Use linked thought text — not counts alone — to decide meaning.',
 		'Copy UUIDs exactly from the catalog.',
 		'',
-		profiles.length > 0 ? `GTD project profiles:\n${profileLines}` : 'GTD project profiles: (none)'
-	].join('\n');
+		profiles.length > 0 ? `GTD project profiles:\n${profileLines}` : 'GTD project profiles: (none)',
+		hubs ? `\nGraph hub candidates:\n${hubs}` : '',
+		neighbors ? `\nEntity graph neighbors:\n${neighbors}` : ''
+	]
+		.filter((line) => line.length > 0)
+		.join('\n');
 }
 
 export function parseReconcilePayload(raw: unknown, allowedEntityIds: Set<string>): {
@@ -140,7 +162,7 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
 		.innerJoin(canonicalEntity, eq(canonicalEntity.id, projectProfile.projectEntityId))
 		.where(eq(projectProfile.userId, userId));
 
-	if (profileRows.length === 0) {
+	if (profileRows.length < 2) {
 		return { merged: 0, demoted: 0 };
 	}
 
@@ -171,9 +193,9 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
 			{
 				role: 'system',
 				content:
-					'You reconcile duplicate GTD projects and demote false-positive hubs. Return only valid JSON.'
+					'You reconcile duplicate GTD projects and demote false-positive hubs. Merge only same-initiative name variants; keep distinct initiatives separate. Return only valid JSON.'
 			},
-			{ role: 'user', content: buildReconcilePrompt(profilesWithContext) }
+			{ role: 'user', content: buildReconcilePrompt(profilesWithContext, context) }
 		],
 		temperature: 0
 	});

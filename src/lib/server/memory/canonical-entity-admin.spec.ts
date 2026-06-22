@@ -75,37 +75,54 @@ type SelectResult = unknown[] | { throw: unknown };
  */
 function buildQueuedDb(config: {
 	selects: SelectResult[];
+	projectProfiles?: unknown[];
 	selectDistinct?: unknown[][];
 	update?: boolean;
 	insertOnConflict?: boolean;
 	delete?: boolean;
 }) {
-	let selectIdx = 0;
+	const selects = [config.projectProfiles ?? [], ...config.selects];
 	let selectDistinctIdx = 0;
 
-	const takeSelect = () => {
-		const next = config.selects[selectIdx] ?? [];
-		selectIdx += 1;
-		if (next && typeof next === 'object' && !Array.isArray(next) && 'throw' in next) {
-			throw next.throw;
-		}
-		return next as unknown[];
-	};
-
-	const whereChain = () => ({
-		limit: vi.fn(async () => takeSelect()),
-		orderBy: vi.fn(() => ({
-			limit: vi.fn(async () => takeSelect())
-		}))
-	});
-
 	const db: Record<string, unknown> = {
-		select: vi.fn(() => ({
-			from: vi.fn(() => ({
-				where: vi.fn(() => whereChain())
-			}))
-		}))
+		select: vi.fn(() => {
+			const idx = selectCallIndex();
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => {
+						if (idx === 0) {
+							return Promise.resolve((selects[0] ?? []) as unknown[]);
+						}
+						const takeForThisQuery = () => {
+							const next = selects[idx] ?? [];
+							if (
+								next &&
+								typeof next === 'object' &&
+								!Array.isArray(next) &&
+								'throw' in next
+							) {
+								throw next.throw;
+							}
+							return next as unknown[];
+						};
+						return {
+							limit: vi.fn(async () => takeForThisQuery()),
+							orderBy: vi.fn(() => ({
+								limit: vi.fn(async () => takeForThisQuery())
+							}))
+						};
+					})
+				}))
+			};
+		})
 	};
+
+	let selectIdx = 0;
+	function selectCallIndex(): number {
+		const idx = selectIdx;
+		selectIdx += 1;
+		return idx;
+	}
 
 	if (config.selectDistinct) {
 		db.selectDistinct = vi.fn(() => ({
@@ -372,12 +389,19 @@ describe('canonical-entity-admin', () => {
 	});
 
 	it('consolidateCanonicalEntityAliasesForUser returns early with fewer than two embeddings', async () => {
+		let selectCall = 0;
 		getDbMock.mockReturnValue({
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => chainOrderLimit([{ id: 'e1', embedding: [1], createdAt: new Date() }]))
-				}))
-			}))
+			select: vi.fn(() => {
+				selectCall += 1;
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => {
+							if (selectCall === 1) return Promise.resolve([]);
+							return chainOrderLimit([{ id: 'e1', embedding: [1], createdAt: new Date() }]);
+						})
+					}))
+				};
+			})
 		});
 
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
@@ -388,29 +412,34 @@ describe('canonical-entity-admin', () => {
 	});
 
 	it('consolidateCanonicalEntityAliasesForUser skips invalid embeddings', async () => {
+		let selectCall = 0;
 		getDbMock.mockReturnValue({
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() =>
-						chainOrderLimit([
-							{
-								id: 'e1',
-								canonicalKey: 'bad',
-								entityType: 'person',
-								embedding: [1, 2, 3],
-								createdAt: new Date()
-							},
-							{
-								id: 'e2',
-								canonicalKey: 'also-bad',
-								entityType: 'person',
-								embedding: [4, 5, 6],
-								createdAt: new Date()
-							}
-						])
-					)
-				}))
-			}))
+			select: vi.fn(() => {
+				selectCall += 1;
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => {
+							if (selectCall === 1) return Promise.resolve([]);
+							return chainOrderLimit([
+								{
+									id: 'e1',
+									canonicalKey: 'bad',
+									entityType: 'person',
+									embedding: [1, 2, 3],
+									createdAt: new Date()
+								},
+								{
+									id: 'e2',
+									canonicalKey: 'also-bad',
+									entityType: 'person',
+									embedding: [4, 5, 6],
+									createdAt: new Date()
+								}
+							]);
+						})
+					}))
+				};
+			})
 		});
 
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
@@ -669,29 +698,34 @@ describe('canonical-entity-admin', () => {
 	});
 
 	it('consolidateCanonicalEntityAliasesForUser filters non-array embeddings from scan', async () => {
+		let selectCall = 0;
 		getDbMock.mockReturnValue({
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() =>
-						chainOrderLimit([
-							{
-								id: 'e1',
-								canonicalKey: 'a',
-								entityType: 'person',
-								embedding: 'not-an-array',
-								createdAt: new Date('2024-01-01')
-							},
-							{
-								id: 'e2',
-								canonicalKey: 'b',
-								entityType: 'person',
-								embedding: fakeEmbedding(),
-								createdAt: new Date('2024-01-02')
-							}
-						])
-					)
-				}))
-			}))
+			select: vi.fn(() => {
+				selectCall += 1;
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => {
+							if (selectCall === 1) return Promise.resolve([]);
+							return chainOrderLimit([
+								{
+									id: 'e1',
+									canonicalKey: 'a',
+									entityType: 'person',
+									embedding: 'not-an-array',
+									createdAt: new Date('2024-01-01')
+								},
+								{
+									id: 'e2',
+									canonicalKey: 'b',
+									entityType: 'person',
+									embedding: fakeEmbedding(),
+									createdAt: new Date('2024-01-02')
+								}
+							]);
+						})
+					}))
+				};
+			})
 		});
 
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
@@ -704,29 +738,34 @@ describe('canonical-entity-admin', () => {
 	it('consolidateCanonicalEntityAliasesForUser skips non-finite embedding values', async () => {
 		const bad = fakeEmbedding();
 		bad[10] = Number.NaN;
+		let selectCall = 0;
 		getDbMock.mockReturnValue({
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() =>
-						chainOrderLimit([
-							{
-								id: 'e1',
-								canonicalKey: 'a',
-								entityType: 'person',
-								embedding: bad,
-								createdAt: new Date('2024-01-01')
-							},
-							{
-								id: 'e2',
-								canonicalKey: 'b',
-								entityType: 'person',
-								embedding: fakeEmbedding(1),
-								createdAt: new Date('2024-01-02')
-							}
-						])
-					)
-				}))
-			}))
+			select: vi.fn(() => {
+				selectCall += 1;
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => {
+							if (selectCall === 1) return Promise.resolve([]);
+							return chainOrderLimit([
+								{
+									id: 'e1',
+									canonicalKey: 'a',
+									entityType: 'person',
+									embedding: bad,
+									createdAt: new Date('2024-01-01')
+								},
+								{
+									id: 'e2',
+									canonicalKey: 'b',
+									entityType: 'person',
+									embedding: fakeEmbedding(1),
+									createdAt: new Date('2024-01-02')
+								}
+							]);
+						})
+					}))
+				};
+			})
 		});
 
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
@@ -904,6 +943,20 @@ describe('canonical-entity-admin', () => {
 			entityId: 'e2'
 		});
 		expect(db.delete).toHaveBeenCalled();
+	});
+
+	it('consolidateCanonicalEntityAliasesForUser skips entities listed in project_profile', async () => {
+		const db = buildQueuedDb({
+			projectProfiles: [{ entityId: 'e1' }, { entityId: 'e2' }],
+			selects: [[]]
+		});
+		getDbMock.mockReturnValue(db);
+
+		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
+			scanned: 0,
+			candidates: 0,
+			merged: 0
+		});
 	});
 
 	it('consolidateCanonicalEntityAliasesForUser keeps older nearest entity as primary when it is newer in scan order', async () => {

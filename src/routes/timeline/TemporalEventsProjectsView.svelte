@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
+	import type { CreateProjectResponse } from '../api/timeline/projects/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import PlusIcon from '@lucide/svelte/icons/plus';
+	import { Button } from '$lib/components/ui/button';
 	import { filterProjectsByStatus, type ProjectStatusFilter } from './temporal-events-utils';
+	import TimelineCreateProjectDialog from './TimelineCreateProjectDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
 	type Props = {
@@ -20,6 +24,7 @@
 		| { kind: 'error'; message: string };
 
 	let phase = $state<Phase>({ kind: 'loading' });
+	let createDialogOpen = $state(false);
 
 	async function loadProjects() {
 		phase = { kind: 'loading' };
@@ -94,13 +99,30 @@
 			createdAt: new Date().toISOString()
 		});
 	}
+	function onProjectCreated(_project: CreateProjectResponse) {
+		void loadProjects();
+	}
 </script>
 
-<div
-	class="min-h-0 flex-1 overflow-y-auto pb-4"
-	role="listbox"
-	aria-label={m.graph_timeline_projects_aria()}
->
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+	<div class="border-border flex shrink-0 items-center justify-end border-b px-3 py-2">
+		<Button
+			type="button"
+			variant="outline"
+			size="sm"
+			class="h-8 gap-1.5 text-xs"
+			onclick={() => (createDialogOpen = true)}
+		>
+			<PlusIcon class="size-3.5" aria-hidden="true" />
+			{m.graph_timeline_create_project()}
+		</Button>
+	</div>
+
+	<div
+		class="min-h-0 flex-1 overflow-y-auto pb-4"
+		role="listbox"
+		aria-label={m.graph_timeline_projects_aria()}
+	>
 	{#if phase.kind === 'loading'}
 		<div class="flex flex-col items-center justify-center gap-3 py-12">
 			<LoaderCircleIcon class="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
@@ -159,4 +181,11 @@
 			{/each}
 		</ul>
 	{/if}
+	</div>
+
+	<TimelineCreateProjectDialog
+		bind:open={createDialogOpen}
+		onClose={() => (createDialogOpen = false)}
+		onCreated={onProjectCreated}
+	/>
 </div>

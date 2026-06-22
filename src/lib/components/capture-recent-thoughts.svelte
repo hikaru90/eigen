@@ -43,6 +43,7 @@
 		onRetry,
 		onAttach,
 		onUnlinkFile,
+		onNoteUpdated,
 		onEditRequestChange,
 		onSubmitEdit,
 		onCancelEdit
@@ -59,7 +60,7 @@
 		loadingDetailId?: string | null;
 		editProgressEvents?: ProgressEvent[];
 		pipeline: readonly CaptureIngestPhase[];
-		onExpand: (thoughtId: string) => void;
+		onExpand: (thoughtId: string) => void | Promise<void>;
 		onCollapse: (thoughtId: string) => void;
 		onEdit: (thoughtId: string) => void;
 		onDelete: (thoughtId: string) => void;
@@ -89,26 +90,28 @@
 	function toggleThought(snippetId: string, expanded: boolean) {
 		if (expanded) {
 			onCollapse(snippetId);
-		} else {
-			onExpand(snippetId);
-			void scrollEntryToTop(snippetId);
+			return;
 		}
+		void (async () => {
+			await onExpand(snippetId);
+			await scrollDetailIntoView(snippetId);
+		})();
 	}
 
-	const entryElements = new Map<string, HTMLElement>();
+	const detailElements = new Map<string, HTMLElement>();
 
-	function entryAnchor(node: HTMLElement, thoughtId: string) {
-		entryElements.set(thoughtId, node);
+	function detailAnchor(node: HTMLElement, thoughtId: string) {
+		detailElements.set(thoughtId, node);
 		return {
 			destroy() {
-				entryElements.delete(thoughtId);
+				detailElements.delete(thoughtId);
 			}
 		};
 	}
 
-	async function scrollEntryToTop(thoughtId: string) {
+	async function scrollDetailIntoView(thoughtId: string) {
 		await tick();
-		entryElements.get(thoughtId)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+		detailElements.get(thoughtId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	}
 
 	function enrichListStatus(
@@ -142,7 +145,7 @@
 				{@const loadingDetail = loadingDetailId === snippet.id}
 				{@const enrichStatus = enrichListStatus(snippet.id, detail)}
 				{@const secondary = recentThoughtSecondaryLabel(detail, snippet)}
-				<div class="{tabEntryClass} min-w-0" use:entryAnchor={snippet.id}>
+				<div class="{tabEntryClass} min-w-0">
 					<div
 						class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
 					>
@@ -166,41 +169,44 @@
 							{/if}
 							<div class="min-w-0 flex-1">
 								{#if expanded}
-									<p class="text-sm font-medium">Stored thought</p>
-								{:else}
-									<p class="line-clamp-2 whitespace-pre-wrap text-sm">
-										{snippet.normalizedText}
-									</p>
-									<div
-										class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
-									>
-										<span class="font-medium text-foreground">
-											{recentThoughtPrimaryLabel(detail, snippet)}
-										</span>
-										{#if secondary}
-											<span>{secondary}</span>
-										{/if}
-										{#if enrichStatus}
-											<span
-												class="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 {enrichStatus.failed
-													? 'border-destructive/40 bg-destructive/10 text-destructive'
-													: 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'}"
-											>
-												{#if enrichStatus.spinning}
-													<LoaderCircleIcon
-														class="size-3 shrink-0 animate-spin"
-														aria-hidden="true"
-													/>
-												{/if}
-												{enrichStatus.label}
-											</span>
-											{#if enrichStatus.failed && detail?.queueError}
-												<span class="text-destructive">{detail.queueError}</span>
-											{/if}
-										{/if}
-										<span class="ml-auto">{formatWhen(snippet.createdAt)}</span>
-									</div>
+									<p class="text-xs font-medium text-muted-foreground">Stored thought</p>
 								{/if}
+								<p
+									class="whitespace-pre-wrap text-sm {expanded
+										? 'mt-0.5 line-clamp-3'
+										: 'line-clamp-2'}"
+								>
+									{snippet.normalizedText}
+								</p>
+								<div
+									class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+								>
+									<span class="font-medium text-foreground">
+										{recentThoughtPrimaryLabel(detail, snippet)}
+									</span>
+									{#if secondary}
+										<span>{secondary}</span>
+									{/if}
+									{#if enrichStatus}
+										<span
+											class="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 {enrichStatus.failed
+												? 'border-destructive/40 bg-destructive/10 text-destructive'
+												: 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'}"
+										>
+											{#if enrichStatus.spinning}
+												<LoaderCircleIcon
+													class="size-3 shrink-0 animate-spin"
+													aria-hidden="true"
+												/>
+											{/if}
+											{enrichStatus.label}
+										</span>
+										{#if enrichStatus.failed && detail?.queueError}
+											<span class="text-destructive">{detail.queueError}</span>
+										{/if}
+									{/if}
+									<span class="ml-auto">{formatWhen(snippet.createdAt)}</span>
+								</div>
 							</div>
 						</button>
 						<div class="-mt-0.5 flex shrink-0 items-center gap-1">
@@ -255,7 +261,10 @@
 					</div>
 
 					{#if expanded}
-						<div class="space-y-3 border-t border-white/80 px-3 pb-3 pt-2 dark:border-white/20">
+						<div
+							class="space-y-3 border-t border-white/80 px-3 pb-3 pt-2 dark:border-white/20"
+							use:detailAnchor={snippet.id}
+						>
 							{#if loadingDetail || !detail}
 								<p class="text-sm text-muted-foreground">Loading thought details…</p>
 							{:else}

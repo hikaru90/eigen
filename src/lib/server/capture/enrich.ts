@@ -51,6 +51,7 @@ import { materializeRetrievalLinksForThought, syncThoughtNeighborLinks } from '$
 import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation';
 import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment';
 import { reconcileUserProjects } from '$lib/server/memory/reconcile-user-projects';
+import { countGtdProjectProfilesForUser } from '$lib/server/memory/project-eligibility';
 import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question';
 
 export type EnrichThoughtOptions = {
@@ -355,7 +356,10 @@ export async function enrichThought(
 
 		if (projectLikeEntities.length > 0) {
 			try {
-				await time('reconcile_projects', () => reconcileUserProjects(userId));
+				const projectProfileCount = await countGtdProjectProfilesForUser(userId);
+				if (projectProfileCount >= 2) {
+					await time('reconcile_projects', () => reconcileUserProjects(userId));
+				}
 			} catch (err) {
 				console.error('[enrich] project reconciliation failed', {
 					thoughtId,

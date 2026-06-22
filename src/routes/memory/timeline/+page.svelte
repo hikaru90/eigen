@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { page } from '$app/state';
-	import TemporalEvents from './TemporalEvents.svelte';
+	import TemporalEvents from '../../timeline/TemporalEvents.svelte';
 
 	let { data }: { data: PageData } = $props();
 

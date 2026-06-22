@@ -6,13 +6,28 @@ import type {
 
 export const CAPTURE_RECENT_SYNC_POLL_MS = 1500;
 
+export type RecentCaptureMergeResult = ReturnType<typeof mergeRecentCaptureFromServer>;
+
 export async function fetchRecentCaptureSyncPayload(): Promise<RecentCaptureSyncPayload> {
-	const res = await fetch('/api/capture/recent');
+	const res = await fetch('/api/capture/recent', { cache: 'no-store' });
 	if (!res.ok) {
 		const text = await res.text();
 		throw new Error(text || `Failed to load recent captures (${res.status})`);
 	}
 	return (await res.json()) as RecentCaptureSyncPayload;
+}
+
+/** One-shot server refresh for the capture page after queue completion. */
+export async function fetchRecentCaptureMerge(input: {
+	limit: number;
+	getState: () => {
+		snippets: CaptureRecentThoughtSnippet[];
+		details: Record<string, CaptureSubmitResult>;
+	};
+}): Promise<RecentCaptureMergeResult> {
+	const payload = await fetchRecentCaptureSyncPayload();
+	const { snippets, details } = input.getState();
+	return mergeRecentCaptureFromServer(snippets, details, payload, input.limit);
 }
 
 /**
@@ -63,7 +78,8 @@ export function pollCaptureRecentSync(input: {
 				merged.newThoughtIds.length > 0 ||
 				merged.snippets.length !== snippets.length ||
 				merged.snippets.some((row, index) => snippets[index]?.id !== row.id);
-			if (listChanged || detailChanged) {
+			const serverFilledEmptyLocal = snippets.length === 0 && merged.snippets.length > 0;
+			if (listChanged || detailChanged || serverFilledEmptyLocal) {
 				input.onSync(merged);
 			}
 		} catch {

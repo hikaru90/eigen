@@ -20,14 +20,33 @@ export function mergeRecentCaptureFromServer(
 	newThoughtIds: string[];
 	removedThoughtIds: string[];
 } {
-	const snippets = incoming.recentThoughts.slice(0, limit);
-	const serverIds = new Set(snippets.map((row) => row.id));
+	const serverSnippets = incoming.recentThoughts.slice(0, limit);
+	const serverIds = new Set(serverSnippets.map((row) => row.id));
 	const existingIds = new Set(existingSnippets.map((row) => row.id));
 
-	const newThoughtIds = snippets.filter((row) => !existingIds.has(row.id)).map((row) => row.id);
+	const newThoughtIds = serverSnippets.filter((row) => !existingIds.has(row.id)).map((row) => row.id);
+
+	// In-flight UI captures can appear before /api/capture/recent includes them; do not drop those rows.
+	const retainedLocalSnippets = existingSnippets.filter((row) => {
+		if (serverIds.has(row.id)) return false;
+		const detail = existingDetails[row.id];
+		if (detail === undefined) return true;
+		return !detail.enrichmentComplete;
+	});
+
 	const removedThoughtIds = existingSnippets
-		.filter((row) => !serverIds.has(row.id))
+		.filter((row) => {
+			if (serverIds.has(row.id)) return false;
+			if (retainedLocalSnippets.some((kept) => kept.id === row.id)) return false;
+			return true;
+		})
 		.map((row) => row.id);
+
+	const retainedIds = new Set(retainedLocalSnippets.map((row) => row.id));
+	const snippets = [
+		...retainedLocalSnippets,
+		...serverSnippets.filter((row) => !retainedIds.has(row.id))
+	].slice(0, limit);
 
 	const nextDetails = { ...existingDetails };
 	for (const thought of incoming.recentThoughtDetails) {

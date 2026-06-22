@@ -62,6 +62,14 @@ export async function countOpenLoopsForProjectEntity(
 	return count;
 }
 
+export async function countGtdProjectProfilesForUser(userId: string): Promise<number> {
+	const [row] = await getDb()
+		.select({ count: sql<number>`count(*)::int` })
+		.from(projectProfile)
+		.where(eq(projectProfile.userId, userId));
+	return row?.count ?? 0;
+}
+
 export async function ensureProjectProfile(
 	userId: string,
 	projectEntityId: string,

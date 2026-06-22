@@ -26,7 +26,7 @@
 			{#each files as file (file.id)}
 				<li>
 					<a
-						href="{resolve('/notes')}?note={encodeURIComponent(file.id)}"
+						href="{resolve('/memory/notes')}?note={encodeURIComponent(file.id)}"
 						class="hover:bg-muted/40 flex items-start gap-2 rounded-sm border border-border/60 p-1.5 text-left transition-colors"
 					>
 						<FileText

@@ -6,6 +6,7 @@ import { loadOntologyForUser, validateEntityKindKeyForNewIngest } from '$lib/ser
 import { ontologyKindsPromptBlock, parseOntologyProfileJson } from './types';
 import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
+import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content';
 import { extractChatContent, userMessage } from './llm-json';
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants';
 
@@ -167,8 +168,7 @@ export async function resolveThoughtCategory(input: {
 	});
 	console.info('[capture.ontology] LLM returned for category', { llmMs: Date.now() - tLlm });
 
-	const content = extractChatContent(response).trim();
-	const parsed = JSON.parse(content) as unknown;
+	const parsed = parseLlmJsonPayload(extractChatContent(response));
 	if (!parsed || typeof parsed !== 'object') {
 		throw new Error('Category classification output must be a JSON object');
 	}

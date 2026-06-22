@@ -53,7 +53,7 @@ describe('pollCaptureRecentSync', () => {
 		});
 
 		await vi.advanceTimersByTimeAsync(0);
-		expect(fetchMock).toHaveBeenCalledWith('/api/capture/recent');
+		expect(fetchMock).toHaveBeenCalledWith('/api/capture/recent', { cache: 'no-store' });
 		expect(syncs).toEqual([['t1']]);
 		cancel();
 	});

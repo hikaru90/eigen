@@ -4,7 +4,7 @@
 
 ## CompetingSystems
 
-- **Demo routes vs product:** [`src/routes/demo/`](../../src/routes/demo/) contains Paraglide and Playwright demos — not the memory product surface. Prefer [`capture`](../../src/routes/capture/), [`graph`](../../src/routes/graph/), [`timeline`](../../src/routes/timeline/), [`notes`](../../src/routes/notes/), [`chat`](../../src/routes/chat/), [`activity`](../../src/routes/activity/), [`settings`](../../src/routes/settings/) for product behavior.
+- **Demo routes vs product:** [`src/routes/demo/`](../../src/routes/demo/) contains Paraglide and Playwright demos — not the memory product surface. Prefer [`capture`](../../src/routes/capture/), [`memory`](../../src/routes/memory/), [`chat`](../../src/routes/chat/), [`activity`](../../src/routes/activity/), [`settings`](../../src/routes/settings/) for product behavior.
 
 ## Route map (high level)
 
@@ -12,9 +12,8 @@ Each entry: **Purpose** / **Owns** (user-visible concern) / **Key server load** 
 
 - **[`/`](../../src/routes/+page.svelte)** — Landing / home. Load: [`+page.server.ts`](../../src/routes/+page.server.ts).
 - **`/capture`** — Primary thought capture and post-capture edit UI. **New submits** use the client capture queue ([capture-queue.md](./capture-queue.md)); **edits** `fetch` `/api/capture/edit`. Load: [`capture/+page.server.ts`](../../src/routes/capture/+page.server.ts).
-- **`/graph`** — Force-directed graph visualization and embedding map (two in-page tabs). Load: [`graph/+page.server.ts`](../../src/routes/graph/+page.server.ts) (AGE graph snapshot, ontology legend, community overlays). Legacy `/graph?tab=temporal` redirects to `/timeline`.
-- **`/timeline`** — GTD timeline (today, projects, review, agenda, etc.). Load: [`timeline/+page.server.ts`](../../src/routes/timeline/+page.server.ts) (timezone and event-notification prefs). UI components live under [`src/routes/timeline/`](../../src/routes/timeline/).
-- **`/notes`** — User text-note library (list, search, create, edit, delete). Load: [`notes/+page.server.ts`](../../src/routes/notes/+page.server.ts) (auth only; data via `/api/text-files`).
+- **`/memory`** — Memory hub (bottom nav). Secondary floating nav: **Graph** (default), **Embeddings** (`?view=embeddings`), **Timeline** (`/memory/timeline`), **Notes** (`/memory/notes`). Graph tab load: [`memory/+page.server.ts`](../../src/routes/memory/+page.server.ts) (AGE snapshot, ontology legend, community overlays). Timeline load: [`memory/timeline/+page.server.ts`](../../src/routes/memory/timeline/+page.server.ts). Notes load: [`memory/notes/+page.server.ts`](../../src/routes/memory/notes/+page.server.ts). Shared layout: [`memory/+layout.svelte`](../../src/routes/memory/+layout.svelte) + [`memory-surface-nav.svelte`](../../src/lib/components/memory-surface-nav.svelte). Graph viz components remain under [`src/routes/graph/`](../../src/routes/graph/); timeline UI components under [`src/routes/timeline/`](../../src/routes/timeline/).
+- **Legacy redirects:** `/graph`, `/timeline`, `/notes` (and `/graph?tab=temporal`) redirect to the matching `/memory/*` path with query params preserved.
 - **`/chat`** — Memory assistant UI (default: `answer_question`; completion reports search via `retrieve_thoughts` then `edit_thought`/`delete_thought`; full MCP tool surface) backed by [`/api/chat`](../../src/routes/api/chat/+server.ts) and session routes.
 - **`/activity`** — Usage / activity views. Load: [`activity/+page.server.ts`](../../src/routes/activity/+page.server.ts).
 - **`/settings`** — User settings (language, theme, LLM provider, **push notifications**). Load: [`settings/+page.server.ts`](../../src/routes/settings/+page.server.ts).

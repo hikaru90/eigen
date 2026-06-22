@@ -2,8 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
-	if (!event.locals.user) {
-		throw redirect(302, '/login');
-	}
-	return { user: event.locals.user };
+	const noteId = event.url.searchParams.get('note');
+	const qs = noteId ? `?note=${encodeURIComponent(noteId)}` : '';
+	throw redirect(302, `/memory/notes${qs}`);
 };

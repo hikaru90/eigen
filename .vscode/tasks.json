@@ -1,0 +1,56 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "E2E: release (pre-ship smoke)",
+			"type": "npm",
+			"script": "test:e2e:release",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: release (watch in Playwright UI)",
+			"type": "npm",
+			"script": "test:e2e:release:ui",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: release (headed browser)",
+			"type": "npm",
+			"script": "test:e2e:release:headed",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "E2E: CI smoke (auth redirects only)",
+			"type": "npm",
+			"script": "test:e2e:smoke",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			},
+			"problemMatcher": []
+		}
+	]
+}

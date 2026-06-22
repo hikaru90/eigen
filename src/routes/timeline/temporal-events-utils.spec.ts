@@ -505,9 +505,9 @@ describe('filterOverdueItems', () => {
 });
 
 describe('timeline navigation helpers', () => {
-	it('TimelineShellView values are now, projects, review only', () => {
-		const shells = ['now', 'projects', 'review'] as const;
-		expect(shells).toHaveLength(3);
+	it('TimelineShellView values are tasks and projects only', () => {
+		const shells = ['tasks', 'projects'] as const;
+		expect(shells).toHaveLength(2);
 	});
 
 	it('projectsLayoutOptions returns list, agenda, matrix', () => {
