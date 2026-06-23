@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-	computeTopUpCheckoutQuoteUi,
+	computeTopUpCheckoutUi,
 	formatActivityCredits,
 	formatActivityCreditsSum,
 	formatCreditsAsUsd,
@@ -17,14 +17,14 @@ describe('platform-pricing', () => {
 		expect(purchaseMarkupDisclosureText()).toContain('PayPal');
 	});
 
-	it('quotes checkout with markup and PayPal fee gross-up for 1000 credits', () => {
-		const quote = computeTopUpCheckoutQuoteUi(1000);
+	it('quotes checkout with markup and PayPal fee from shared computeTopUpCheckoutUi', () => {
+		const quote = computeTopUpCheckoutUi(1000);
 		expect(quote).not.toBeNull();
 		expect(quote!.baseUsd).toBe(1);
 		expect(quote!.markupUsd).toBe(0.2);
 		expect(quote!.platformSubtotalUsd).toBe(1.2);
-		expect(quote!.grossUsd).toBe(1.75);
-		expect(quote!.estimatedPaypalFeeUsd).toBe(0.54);
+		expect(quote!.totalDueUsd).toBe(1.75);
+		expect(quote!.paypalFeeUsd).toBe(0.54);
 	});
 
 	it('converts totalCostUsd to credits including markup', () => {

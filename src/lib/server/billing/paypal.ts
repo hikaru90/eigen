@@ -147,7 +147,7 @@ export async function createPayPalOrder(input: { amountCredits: number }): Promi
 			{
 				amount: {
 					currency_code: PAYPAL_SETTLEMENT_CURRENCY,
-					value: quote.grossPayPalValue
+					value: quote.paypalAmount
 				}
 			}
 		]
@@ -162,7 +162,7 @@ export async function createPayPalOrder(input: { amountCredits: number }): Promi
 	return {
 		id: json.id,
 		status: json.status ?? 'CREATED',
-		grossPayPalValue: quote.grossPayPalValue
+		grossPayPalValue: quote.paypalAmount
 	};
 }
 

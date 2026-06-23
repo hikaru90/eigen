@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 import { MIN_TOP_UP_CREDITS } from '$lib/server/billing/credits';
-import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing';
+import { computeTopUpCheckout } from '$lib/billing/top-up-checkout';
 
 const { createPayPalOrderMock, getDbMock } = vi.hoisted(() => ({
 	createPayPalOrderMock: vi.fn(),
@@ -50,12 +50,12 @@ describe('POST /api/billing/paypal/create-order', () => {
 		expect((await res.json()).error).toMatch(/cannot exceed/);
 	});
 
-	it('creates PayPal order at gross checkout price and persists pricing breakdown', async () => {
+	it('creates PayPal order at quoted total and persists pricing breakdown', async () => {
 		const quote = computeTopUpCheckout(MIN_TOP_UP_CREDITS);
 		createPayPalOrderMock.mockResolvedValue({
 			id: 'pp-order-1',
 			status: 'CREATED',
-			grossPayPalValue: quote.grossPayPalValue
+			grossPayPalValue: quote.paypalAmount
 		});
 		const returning = vi.fn().mockResolvedValue([{ id: 'internal-1' }]);
 		const values = vi.fn().mockReturnValue({ returning });
@@ -72,9 +72,9 @@ describe('POST /api/billing/paypal/create-order', () => {
 			expect.objectContaining({
 				userId: 'u1',
 				requestedCredits: MIN_TOP_UP_CREDITS,
-				chargedGrossUsd: quote.grossUsd,
+				chargedGrossUsd: quote.totalDueUsd,
 				platformSubtotalUsd: quote.platformSubtotalUsd,
-				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd
+				estimatedPaypalFeeUsd: quote.paypalFeeUsd
 			})
 		);
 		const body = await res.json();
@@ -87,9 +87,9 @@ describe('POST /api/billing/paypal/create-order', () => {
 				baseUsd: quote.baseUsd,
 				markupUsd: quote.markupUsd,
 				platformSubtotalUsd: quote.platformSubtotalUsd,
-				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd,
-				grossUsd: quote.grossUsd,
-				grossPayPalValue: quote.grossPayPalValue
+				paypalFeeUsd: quote.paypalFeeUsd,
+				totalDueUsd: quote.totalDueUsd,
+				paypalAmount: quote.paypalAmount
 			}
 		});
 	});

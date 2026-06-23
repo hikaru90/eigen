@@ -1,6 +1,7 @@
 /** PayPal JS SDK v6 integration (docs: https://docs.paypal.ai/developer/how-to/sdk/js/v6/configuration) */
 
 import { capture } from '$lib/analytics/posthog-client';
+import { MIN_TOP_UP_CREDITS } from '$lib/billing/platform-pricing';
 
 type PayPalPaymentSession = {
 	start: (
@@ -221,8 +222,8 @@ export async function initPayPalCheckout(input: {
 
 	const handler = async () => {
 		const amountCredits = input.getAmountCredits();
-		if (!Number.isInteger(amountCredits) || amountCredits < 1000) {
-			input.onError('Enter at least 1,000 Eigen credits ($1).');
+		if (!Number.isInteger(amountCredits) || amountCredits < MIN_TOP_UP_CREDITS) {
+			input.onError(`Enter at least ${MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits.`);
 			return;
 		}
 		capture('billing_checkout_started', { amount_credits: amountCredits });

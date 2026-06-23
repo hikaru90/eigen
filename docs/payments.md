@@ -42,15 +42,15 @@ Append-only `wallet_ledger_entry` rows record `top_up`, `usage_debit`, and reser
 ## PayPal top-up flow
 
 1. User enters an integer **credit** amount on **Settings → LLM → Credits** (minimum 1,000 credits).
-2. Checkout quote: `baseUsd = credits / 1000`, `platformSubtotalUsd = baseUsd × 1.20`, then gross-up for PayPal fees: `grossUsd = ceil((platformSubtotalUsd + fixedFee) / (1 − feeRate))` to two decimal places.
-3. `POST /api/billing/paypal/create-order` with `{ "amountCredits": … }` creates a `payment_order` row (with quoted `chargedGrossUsd`, `platformSubtotalUsd`, `estimatedPaypalFeeUsd`) and a PayPal order charged **`grossUsd`** (not `credits / 1000`).
+2. Checkout quote from `computeTopUpCheckout(credits)` in [`src/lib/billing/top-up-checkout.ts`](../src/lib/billing/top-up-checkout.ts): gateway value + 20% platform markup + PayPal fee gross-up → **total due** and **PayPal fee** in one step.
+3. `POST /api/billing/paypal/create-order` with `{ "amountCredits": … }` creates a `payment_order` row and a PayPal order charged **`totalDueUsd`**.
 4. User approves in the PayPal UI.
 5. `POST /api/billing/paypal/capture-order` verifies capture gross matches quote, parses `seller_receivable_breakdown` for actual PayPal fee and net received, asserts net ≥ platform subtotal, then calls `creditFromPayment` with **`requestedCredits`** (idempotent per `paypal_order_id`).
 6. Client refreshes balance via `GET /api/billing/wallet`.
 
-**Example (1,000 credits, default US PayPal fees $0.49 + 2.9%):** gateway value $1.00, platform subtotal $1.20, checkout total **$1.75**, wallet credited **1,000 credits**.
+**Example (1,000 credits, PayPal Checkout 2.99% + $0.49 USD fixed):** gateway value $1.00, platform subtotal $1.20, checkout total **$1.75**, wallet credited **1,000 credits**.
 
-There is no user-facing billing currency picker; PayPal settlement is always USD.
+There is no user-facing billing currency picker; PayPal settlement is always USD. Checkout gross-up uses PayPal’s **DE merchant / USD received** Checkout rate (2.99% + $0.49); actual fees come from PayPal’s capture breakdown at settlement.
 
 ### Operator env vars (PayPal)
 
@@ -60,8 +60,6 @@ There is no user-facing billing currency picker; PayPal settlement is always USD
 | `PAYPAL_CLIENT_ID` | REST + JS SDK client id |
 | `PAYPAL_CLIENT_SECRET` | Capture secret (alias: `PAYPAL_SECRET`) |
 | `PAYPAL_WEB_SDK_URL` | Optional v6 SDK script URL (sandbox vs live) |
-| `PAYPAL_FEE_FIXED_USD` | Fixed PayPal fee per transaction for checkout gross-up (default `0.49`) |
-| `PAYPAL_FEE_RATE` | Variable PayPal fee rate for gross-up (default `0.029` = 2.9%) |
 
 ## What gets billed (platform credits)
 

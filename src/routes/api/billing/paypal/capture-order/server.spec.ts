@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 import { CREDITS_PER_USD } from '$lib/server/billing/credits';
-import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing';
+import { computeTopUpCheckout } from '$lib/billing/top-up-checkout';
 
 const {
 	capturePayPalOrderMock,
@@ -85,7 +85,7 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			paypalOrderId: 'pp-1',
 			status: 'created',
 			requestedCredits: 1000,
-			chargedGrossUsd: QUOTE.grossUsd,
+			chargedGrossUsd: QUOTE.totalDueUsd,
 			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		const res = await POST({
@@ -126,7 +126,7 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			paypalOrderId: 'pp-1',
 			status: 'created',
 			requestedCredits: 1000,
-			chargedGrossUsd: QUOTE.grossUsd,
+			chargedGrossUsd: QUOTE.totalDueUsd,
 			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		capturePayPalOrderMock.mockResolvedValue({
@@ -153,11 +153,11 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			paypalOrderId: 'pp-1',
 			status: 'created',
 			requestedCredits: 1000,
-			chargedGrossUsd: QUOTE.grossUsd,
+			chargedGrossUsd: QUOTE.totalDueUsd,
 			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		capturePayPalOrderMock.mockResolvedValue({
-			grossUsd: QUOTE.grossUsd,
+			grossUsd: QUOTE.totalDueUsd,
 			netUsd: '0.50',
 			paypalFeeUsd: '1.25',
 			payerEmail: 'payer@example.com',
@@ -207,11 +207,11 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			paypalOrderId: 'pp-1',
 			status: 'created',
 			requestedCredits: 1000,
-			chargedGrossUsd: QUOTE.grossUsd,
+			chargedGrossUsd: QUOTE.totalDueUsd,
 			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		capturePayPalOrderMock.mockResolvedValue({
-			grossUsd: QUOTE.grossUsd,
+			grossUsd: QUOTE.totalDueUsd,
 			netUsd: '1.21',
 			paypalFeeUsd: '0.54',
 			payerEmail: 'payer@example.com',
@@ -233,7 +233,7 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			paypalOrderId: 'pp-1',
 			amountCredits: 1000,
 			audit: {
-				grossUsd: QUOTE.grossUsd,
+				grossUsd: QUOTE.totalDueUsd,
 				netUsd: '1.21',
 				paypalFeeUsd: '0.54',
 				platformSubtotalUsd: QUOTE.platformSubtotalUsd
@@ -246,7 +246,7 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			creditedCredits: 1000,
 			creditsPerUsd: CREDITS_PER_USD,
 			checkout: {
-				grossUsd: QUOTE.grossUsd,
+				grossUsd: QUOTE.totalDueUsd,
 				paypalFeeUsd: '0.54',
 				netUsd: '1.21'
 			}

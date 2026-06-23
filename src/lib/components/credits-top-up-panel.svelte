@@ -7,7 +7,7 @@
 	import {
 		CREDITS_PER_USD,
 		MIN_TOP_UP_CREDITS,
-		computeTopUpCheckoutQuoteUi,
+		computeTopUpCheckoutUi,
 		formatCreditsAsUsd,
 		formatUsdAmount,
 		platformMarkupPercentLabel,
@@ -67,8 +67,8 @@
 	}
 
 	const topUpCredits = $derived(parseTopUpCredits());
-	const checkoutQuote = $derived(computeTopUpCheckoutQuoteUi(topUpCredits));
-	const minCheckoutQuote = $derived(computeTopUpCheckoutQuoteUi(MIN_TOP_UP_CREDITS));
+	const checkoutQuote = $derived(computeTopUpCheckoutUi(topUpCredits));
+	const minCheckoutQuote = $derived(computeTopUpCheckoutUi(MIN_TOP_UP_CREDITS));
 	const balanceUsd = $derived(formatCreditsAsUsd(walletAvailableCredits));
 	const topUpValid = $derived(topUpCredits >= MIN_TOP_UP_CREDITS);
 	const rateLabel = $derived(
@@ -188,13 +188,13 @@
 							<dd class="tabular-nums">{formatUsdAmount(checkoutQuote.markupUsd)}</dd>
 						</div>
 						<div class="flex items-baseline justify-between gap-3">
-							<dt class="text-muted-foreground">Est. PayPal processing</dt>
-							<dd class="tabular-nums">{formatUsdAmount(checkoutQuote.estimatedPaypalFeeUsd)}</dd>
+							<dt class="text-muted-foreground">PayPal processing</dt>
+							<dd class="tabular-nums">{formatUsdAmount(checkoutQuote.paypalFeeUsd)}</dd>
 						</div>
 						<div class="border-border/60 flex items-baseline justify-between gap-3 border-t pt-1.5">
 							<dt class="font-medium">Total due at PayPal</dt>
 							<dd class="text-lg font-semibold tabular-nums tracking-tight">
-								{formatUsdAmount(checkoutQuote.grossUsd)}
+								{formatUsdAmount(checkoutQuote.totalDueUsd)}
 								<span class="text-muted-foreground text-sm font-normal"> USD</span>
 							</dd>
 						</div>
@@ -210,7 +210,7 @@
 			<p class="text-muted-foreground text-xs">
 				Rate: {rateLabel}. Minimum {MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits
 				{#if minCheckoutQuote}
-					(checkout from {formatUsdAmount(minCheckoutQuote.grossUsd)}).
+					(checkout from {formatUsdAmount(minCheckoutQuote.totalDueUsd)}).
 				{:else}
 					.
 				{/if}
@@ -235,7 +235,7 @@
 				>
 					{#if paypalReady}
 						<span class="text-sm">
-							Pay {checkoutQuote ? formatUsdAmount(checkoutQuote.grossUsd) : ''}
+							Pay {checkoutQuote ? formatUsdAmount(checkoutQuote.totalDueUsd) : ''}
 						</span>
 						<PayPalLogo />
 					{:else if topUpError}

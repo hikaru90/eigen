@@ -65,9 +65,9 @@ export const POST: RequestHandler = async (event) => {
 				paypalOrderId: paypalOrder.id,
 				status: 'created',
 				requestedCredits: amountCredits,
-				chargedGrossUsd: quote.grossUsd,
+				chargedGrossUsd: quote.totalDueUsd,
 				platformSubtotalUsd: quote.platformSubtotalUsd,
-				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd,
+				estimatedPaypalFeeUsd: quote.paypalFeeUsd,
 				currency: 'USD'
 			})
 			.returning({ id: paymentOrder.id });
@@ -79,9 +79,9 @@ export const POST: RequestHandler = async (event) => {
 				amount_credits: amountCredits,
 				internal_order_id: row.id,
 				paypal_order_id: paypalOrder.id,
-				charged_gross_usd: quote.grossUsd,
+				charged_gross_usd: quote.totalDueUsd,
 				platform_subtotal_usd: quote.platformSubtotalUsd,
-				estimated_paypal_fee_usd: quote.estimatedPaypalFeeUsd
+				estimated_paypal_fee_usd: quote.paypalFeeUsd
 			}
 		});
 
@@ -94,9 +94,9 @@ export const POST: RequestHandler = async (event) => {
 				baseUsd: quote.baseUsd,
 				markupUsd: quote.markupUsd,
 				platformSubtotalUsd: quote.platformSubtotalUsd,
-				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd,
-				grossUsd: quote.grossUsd,
-				grossPayPalValue: quote.grossPayPalValue
+				paypalFeeUsd: quote.paypalFeeUsd,
+				totalDueUsd: quote.totalDueUsd,
+				paypalAmount: quote.paypalAmount
 			}
 		});
 	} catch (error) {
