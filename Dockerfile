@@ -39,8 +39,10 @@ COPY . .
 RUN BETTER_AUTH_SECRET="local-dev-build-secret-change-me" \
   AGE_GRAPH_NAME="eigen_graph" \
   LLM_API_KEY="docker-build-placeholder" \
-  npm run build \
-  && node scripts/upload-posthog-sourcemaps.mjs
+  npm run build
+# Optional: upload client source maps when POSTHOG_CLI_API_KEY is set at build time.
+# Set POSTHOG_SOURCEMAPS_REQUIRED=1 (compose build arg) to fail the image build if upload cannot run.
+RUN node scripts/upload-posthog-sourcemaps.mjs
 
 FROM base AS runner
 # LLM gateway vars are intentionally NOT baked in here — set them at runtime via compose env_file / your platform.
