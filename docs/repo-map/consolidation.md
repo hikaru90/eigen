@@ -2,7 +2,7 @@
 
 **Entrypoint:** [`POST /api/admin/consolidate`](../../src/routes/api/admin/consolidate/+server.ts)
 
-**Scheduler:** pg_cron + pg_net in Postgres ([`scripts/ensure-sleep-cron.mjs`](../../scripts/ensure-sleep-cron.mjs)), default `0 2 * * *` in `CONSOLIDATION_CRON_TZ` (UTC unless set).
+**Scheduler:** pg_cron + pg_net in Postgres ([`scripts/ensure-sleep-cron.mjs`](../../scripts/ensure-sleep-cron.mjs)), default `0 2 * * *` in `CONSOLIDATION_CRON_TZ` (UTC unless set). pg_cron 1.6 registers jobs via `cron.schedule()` and sets `cron.timezone` at the database level (not per-job `schedule_in_timezone`).
 
 ## Sleep phases
 
@@ -39,6 +39,17 @@ Per-user work runs inside `withDbUser` so RLS applies.
 | `CONSOLIDATION_INTERNAL_URL` | Yes (compose) | App URL reachable from DB (`http://app:3000`) |
 | `CONSOLIDATION_CRON_SCHEDULE` | No | Cron expression (default `0 2 * * *`) |
 | `CONSOLIDATION_CRON_TZ` | No | IANA timezone for schedule + run-night idempotency (default `UTC`) |
+
+Bootstrap runs on app container start ([`entrypoint.sh`](../../entrypoint.sh) → [`scripts/ensure-cron-if-configured.mjs`](../../scripts/ensure-cron-if-configured.mjs)) or manually via `npm run db:cron`.
+
+## Verify cron is registered
+
+```sql
+SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'eigen-sleep-consolidation';
+SELECT run_night, status, started_at FROM consolidation_run ORDER BY started_at DESC LIMIT 5;
+```
+
+Settings → **Heartbeat** should show the overnight task as **configured** when the `cron.job` row exists.
 
 ## Manual trigger
 

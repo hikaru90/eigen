@@ -13,12 +13,8 @@ node scripts/migrate.mjs
 echo "[eigen] Applying RLS policies..."
 node scripts/apply-rls.mjs
 
-if [ -n "${ADMIN_CONSOLIDATION_KEY:-}" ] && [ -n "${DATABASE_ADMIN_URL:-}" ]; then
-  echo "[eigen] Ensuring pg_cron sleep consolidation schedule..."
-  node scripts/ensure-sleep-cron.mjs || echo "[eigen] WARN: sleep cron setup failed (pg_cron may be unavailable)"
-else
-  echo "[eigen] ADMIN_CONSOLIDATION_KEY or DATABASE_ADMIN_URL unset — skipping pg_cron sleep schedule."
-fi
+echo "[eigen] Ensuring pg_cron schedules (consolidation + reminders)..."
+node scripts/ensure-cron-if-configured.mjs
 
 # Create admin user on first boot if credentials are provided.
 # create-admin.mjs is idempotent — skips silently if the user already exists.

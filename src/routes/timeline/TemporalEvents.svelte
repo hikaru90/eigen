@@ -39,6 +39,11 @@
 	import TemporalProjectStatusTabs from './TemporalProjectStatusTabs.svelte';
 	import TemporalShellTabs from './TemporalShellTabs.svelte';
 	import TemporalTimelineFiltersPopover from './TemporalTimelineFiltersPopover.svelte';
+	import {
+		notifyThoughtChanged,
+		notifyThoughtRefreshAll,
+		subscribeThoughtSync
+	} from '$lib/stores/thought-sync';
 
 	type Props = {
 		onSelectItem?: (item: TemporalEventListItem | null) => void;
@@ -212,6 +217,15 @@
 	onMount(() => {
 		void loadEvents();
 		void loadOverdueItems();
+
+		return subscribeThoughtSync((message) => {
+			const reloadTimeline =
+				message.type === 'refresh-all' ||
+				(message.type === 'changed' && message.scope === 'global');
+			if (reloadTimeline) {
+				void reloadTimelineData({ silent: true });
+			}
+		});
 	});
 
 	async function loadOverdueItems(options?: { silent?: boolean }) {
@@ -326,6 +340,10 @@
 		void loadEvents(false, { silent: true });
 		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
 		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
+
+		if (updated.thoughtId) {
+			notifyThoughtChanged(updated.thoughtId, 'lifecycle', 'global');
+		}
 	}
 
 	async function postEventAction(
@@ -389,6 +407,7 @@
 				void loadEvents(false, { silent: true });
 				if (nowSegment === 'overdue') void loadOverdueItems();
 				if (nowSegment === 'done') void loadDoneItems();
+				notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
 			}
 			lastActionSummary =
 				status === 'completed' ? m.graph_timeline_open_loop_done() : m.graph_timeline_open_loop_reopen();
@@ -471,16 +490,21 @@
 		refreshingAll = true;
 		void (async () => {
 			try {
-				await loadEvents(false, { silent: silentReloadEligible });
-				bumpStats();
-				await Promise.all([
-					loadOverdueItems({ silent: overdueItems.length > 0 }),
-					loadDoneItems({ silent: doneItems.length > 0 })
-				]);
+				await reloadTimelineData({ silent: silentReloadEligible });
+				notifyThoughtRefreshAll('manual', 'global');
 			} finally {
 				refreshingAll = false;
 			}
 		})();
+	}
+
+	async function reloadTimelineData(options?: { silent?: boolean }) {
+		await loadEvents(false, { silent: options?.silent ?? false });
+		bumpStats();
+		await Promise.all([
+			loadOverdueItems({ silent: overdueItems.length > 0 }),
+			loadDoneItems({ silent: doneItems.length > 0 })
+		]);
 	}
 
 	function setShellView(view: TimelineShellView) {

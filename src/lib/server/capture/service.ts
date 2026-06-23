@@ -23,6 +23,7 @@ import {
 	truncateEditPreview
 } from '$lib/server/capture/edit-phase-timing';
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
+import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action';
 import {
 	createIngestPhaseTimer,
 	logIngestPhaseTiming,
@@ -753,6 +754,10 @@ export async function setThoughtLifecycleStatus(
 		category: updated.category,
 		status
 	});
+
+	if (status === 'completed') {
+		await clearNextActionIfCompleted(userId, thoughtId);
+	}
 
 	return {
 		ok: true as const,

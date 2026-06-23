@@ -12,7 +12,8 @@ import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project';
 import { openLoopItemId } from '$lib/server/memory/temporal-event-list';
 import {
 	countOpenLoopsForProjectEntity,
-	ensureProjectProfile
+	ensureProjectProfile,
+	thoughtStatusFromMetadata
 } from '$lib/server/memory/project-eligibility';
 
 export type ProjectNextAction = {
@@ -34,12 +35,25 @@ async function summarizeThought(userId: string, thoughtId: string): Promise<stri
 	const [row] = await getDb()
 		.select({
 			normalizedText: thought.normalizedText,
-			normalizedTextEncrypted: thought.normalizedTextEncrypted
+			normalizedTextEncrypted: thought.normalizedTextEncrypted,
+			metadata: thought.metadata,
+			metadataEncrypted: thought.metadataEncrypted
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, userId), eq(thought.id, thoughtId)))
 		.limit(1);
 	if (!row) return null;
+
+	const metadataJson = row.metadataEncrypted
+		? await decryptTenantValue({
+				userId,
+				table: 'thought',
+				column: 'metadata',
+				ciphertext: row.metadataEncrypted
+			})
+		: JSON.stringify(row.metadata ?? {});
+	const metadata = JSON.parse(metadataJson) as Record<string, unknown>;
+	if (thoughtStatusFromMetadata(metadata) === 'completed') return null;
 
 	const text = row.normalizedTextEncrypted
 		? await decryptTenantValue({

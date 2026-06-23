@@ -5,7 +5,6 @@ import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { deleteThoughtForUser, setThoughtLifecycleStatus } from '$lib/server/capture/service';
 import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
-import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action';
 import { listTextFilesForThought } from '$lib/server/text-files/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -98,10 +97,6 @@ export const PATCH: RequestHandler = async (event) => {
 		setThoughtLifecycleStatus(user.id, thoughtId, status as ThoughtLifecycleStatus)
 	);
 	if (!result.ok) error(404, 'Thought not found');
-
-	if (status === 'completed') {
-		await clearNextActionIfCompleted(user.id, thoughtId);
-	}
 
 	return json({ thought: result.thought });
 };

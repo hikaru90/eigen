@@ -9,6 +9,7 @@
 	import { filterProjectsByStatus, type ProjectStatusFilter } from './temporal-events-utils';
 	import TimelineCreateProjectDialog from './TimelineCreateProjectDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
+	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
 
 	type Props = {
 		selectedItemId: string | null;
@@ -26,8 +27,9 @@
 	let phase = $state<Phase>({ kind: 'loading' });
 	let createDialogOpen = $state(false);
 
-	async function loadProjects() {
-		phase = { kind: 'loading' };
+	async function loadProjects(options?: { silent?: boolean }) {
+		const silent = options?.silent ?? phase.kind === 'ready';
+		if (!silent) phase = { kind: 'loading' };
 		try {
 			const res = await fetch('/api/timeline/projects');
 			if (!res.ok) {
@@ -37,6 +39,7 @@
 			const body = (await res.json()) as { projects: ProjectListItem[] };
 			phase = { kind: 'ready', projects: body.projects };
 		} catch (err) {
+			if (silent && phase.kind === 'ready') return;
 			phase = {
 				kind: 'error',
 				message: err instanceof Error ? err.message : String(err)
@@ -45,7 +48,11 @@
 	}
 
 	onMount(() => {
-		void loadProjects();
+		void loadProjects({ silent: false });
+
+		return subscribeThoughtSync(() => {
+			void loadProjects({ silent: true });
+		});
 	});
 
 	const visibleProjects = $derived(

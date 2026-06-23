@@ -2,6 +2,11 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import { expect, type Frame, type Locator, type Page } from '@playwright/test';
 import { loginUser, registerUser, TEST_PASSWORD } from './test-helpers';
+import {
+	assertVoiceTranscribeApi,
+	exerciseVoiceCaptureUi,
+	installVoiceCaptureMocks
+} from './voice-capture-helpers';
 
 // Playwright workers may not inherit .env from the parent shell; load explicitly for preflight.
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override: true });
@@ -33,7 +38,12 @@ const RELEASE_ENV_CHECKS: Array<{ label: string; isSet: () => boolean }> = [
 	},
 	{ label: 'LLM_BASE_URL', isSet: () => Boolean(process.env.LLM_BASE_URL?.trim()) },
 	{ label: 'LLM_RULE_CHAT', isSet: () => Boolean(process.env.LLM_RULE_CHAT?.trim()) },
-	{ label: 'LLM_RULE_EMBEDDING', isSet: () => Boolean(process.env.LLM_RULE_EMBEDDING?.trim()) }
+	{ label: 'LLM_RULE_EMBEDDING', isSet: () => Boolean(process.env.LLM_RULE_EMBEDDING?.trim()) },
+	{ label: 'OPENROUTER_BASE_URL', isSet: () => Boolean(process.env.OPENROUTER_BASE_URL?.trim()) },
+	{
+		label: 'SERVICE_API_KEY_OPENROUTER',
+		isSet: () => Boolean(process.env.SERVICE_API_KEY_OPENROUTER?.trim())
+	}
 ];
 
 export function getReleasePreflightMissing(): string[] {
@@ -577,6 +587,11 @@ async function exerciseGraphFilters(page: Page): Promise<void> {
 }
 
 async function exerciseCaptureUi(page: Page): Promise<void> {
+	await assertVoiceTranscribeApi(page);
+
+	await installVoiceCaptureMocks(page);
+	await exerciseVoiceCaptureUi(page);
+
 	await page.goto('/capture');
 
 	const expand = page.getByRole('button', { name: 'Expand thought' }).first();
@@ -591,9 +606,10 @@ async function exerciseChatUi(page: Page): Promise<void> {
 
 	await page.getByRole('button', { name: 'Toggle session list' }).click();
 	await page.getByRole('button', { name: 'New chat', exact: true }).click();
-	await page.getByRole('button', { name: 'Close sidebar' }).click();
+	await expect(page.getByRole('button', { name: 'Close sidebar' })).toBeHidden();
 
 	const input = page.getByPlaceholder('Ask a question about your memories...');
+	await expect(input).toBeVisible();
 	await input.fill('What city did I mention in my recent capture?');
 	await input.press('Enter');
 

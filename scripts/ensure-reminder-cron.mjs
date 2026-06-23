@@ -8,6 +8,7 @@
  */
 import './load-env.mjs';
 import postgres from 'postgres';
+import { schedulePgCronHttpJob } from './pg-cron-schedule.mjs';
 
 const JOB_NAME = 'eigen-event-reminders';
 
@@ -43,7 +44,8 @@ function getTimezone() {
 	return process.env.REMINDER_CRON_TZ?.trim() || 'UTC';
 }
 
-const sql = postgres(getAdminDatabaseUrl(), { max: 1 });
+const databaseUrl = getAdminDatabaseUrl();
+const sql = postgres(databaseUrl, { max: 1 });
 
 try {
 	const adminKey = requireAdminKey();
@@ -52,38 +54,14 @@ try {
 	const timezone = getTimezone();
 	const dispatchUrl = `${internalUrl}/api/admin/dispatch-reminders`;
 
-	await sql.unsafe(`CREATE EXTENSION IF NOT EXISTS pg_cron`);
-	await sql.unsafe(`CREATE EXTENSION IF NOT EXISTS pg_net`);
-
-	const existing = await sql`
-		SELECT jobid FROM cron.job WHERE jobname = ${JOB_NAME}
-	`;
-	for (const row of existing) {
-		await sql`SELECT cron.unschedule(${row.jobid})`;
-	}
-
-	const escapedKey = adminKey.replace(/'/g, "''");
-	const escapedUrl = dispatchUrl.replace(/'/g, "''");
-
-	const command = `
-		SELECT net.http_post(
-			url := '${escapedUrl}',
-			headers := jsonb_build_object(
-				'Content-Type', 'application/json',
-				'X-Admin-Key', '${escapedKey}'
-			),
-			body := '{}'::jsonb
-		) AS request_id;
-	`.trim();
-
-	await sql.unsafe(`
-		SELECT cron.schedule_in_timezone(
-			'${JOB_NAME.replace(/'/g, "''")}',
-			'${schedule.replace(/'/g, "''")}',
-			'${timezone.replace(/'/g, "''")}',
-			$$${command}$$
-		);
-	`);
+	await schedulePgCronHttpJob(sql, {
+		jobName: JOB_NAME,
+		schedule,
+		timezone,
+		url: dispatchUrl,
+		adminKey,
+		databaseUrl
+	});
 
 	console.log(
 		`[eigen] Scheduled "${JOB_NAME}" at "${schedule}" (${timezone}) → POST ${dispatchUrl}`

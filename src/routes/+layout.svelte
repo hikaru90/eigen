@@ -12,6 +12,7 @@
   import { cn } from "$lib/utils";
   import AppHeader from "$lib/components/app-header.svelte";
   import { startCaptureQueueRunner } from "$lib/capture/queue";
+  import { startThoughtSync } from "$lib/stores/thought-sync";
   import { getLocale, setLocale } from "$lib/paraglide/runtime";
   import { m } from "$lib/paraglide/messages.js";
 
@@ -65,6 +66,7 @@
   onMount(() => {
     if ((page.data as { user?: { id: string } | null }).user) {
       startCaptureQueueRunner();
+      startThoughtSync();
     }
 
     const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale;

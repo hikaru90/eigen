@@ -8,6 +8,7 @@
  */
 import './load-env.mjs';
 import postgres from 'postgres';
+import { schedulePgCronHttpJob } from './pg-cron-schedule.mjs';
 
 const JOB_NAME = 'eigen-sleep-consolidation';
 
@@ -43,7 +44,8 @@ function getTimezone() {
 	return process.env.CONSOLIDATION_CRON_TZ?.trim() || 'UTC';
 }
 
-const sql = postgres(getAdminDatabaseUrl(), { max: 1 });
+const databaseUrl = getAdminDatabaseUrl();
+const sql = postgres(databaseUrl, { max: 1 });
 
 try {
 	const adminKey = requireAdminKey();
@@ -52,40 +54,14 @@ try {
 	const timezone = getTimezone();
 	const consolidateUrl = `${internalUrl}/api/admin/consolidate`;
 
-	await sql.unsafe(`CREATE EXTENSION IF NOT EXISTS pg_cron`);
-	await sql.unsafe(`CREATE EXTENSION IF NOT EXISTS pg_net`);
-
-	// Remove prior job with the same name (pg_cron 1.4+ jobname column).
-	const existing = await sql`
-		SELECT jobid FROM cron.job WHERE jobname = ${JOB_NAME}
-	`;
-	for (const row of existing) {
-		await sql`SELECT cron.unschedule(${row.jobid})`;
-	}
-
-	const escapedKey = adminKey.replace(/'/g, "''");
-	const escapedUrl = consolidateUrl.replace(/'/g, "''");
-
-	const command = `
-		SELECT net.http_post(
-			url := '${escapedUrl}',
-			headers := jsonb_build_object(
-				'Content-Type', 'application/json',
-				'X-Admin-Key', '${escapedKey}'
-			),
-			body := '{}'::jsonb
-		) AS request_id;
-	`.trim();
-
-	// schedule_in_timezone(job_name, schedule, timezone, command) — pg_cron 1.4+
-	await sql.unsafe(`
-		SELECT cron.schedule_in_timezone(
-			'${JOB_NAME.replace(/'/g, "''")}',
-			'${schedule.replace(/'/g, "''")}',
-			'${timezone.replace(/'/g, "''")}',
-			$$${command}$$
-		);
-	`);
+	await schedulePgCronHttpJob(sql, {
+		jobName: JOB_NAME,
+		schedule,
+		timezone,
+		url: consolidateUrl,
+		adminKey,
+		databaseUrl
+	});
 
 	console.log(
 		`[eigen] Scheduled "${JOB_NAME}" at "${schedule}" (${timezone}) → POST ${consolidateUrl}`

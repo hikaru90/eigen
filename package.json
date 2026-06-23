@@ -39,6 +39,7 @@
 		"db:studio": "drizzle-kit studio",
 		"db:rls": "node scripts/apply-rls.mjs",
 		"db:app-role": "node scripts/ensure-app-role.mjs",
+		"db:cron": "node scripts/ensure-cron-if-configured.mjs",
 		"eval": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:smoke": "vite-node --config evals/vite.config.ts evals/run.ts",
 		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",

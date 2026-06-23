@@ -6,7 +6,11 @@ export default mergeConfig(
 	defineConfig({
 		test: {
 			environment: 'node',
-			include: ['src/**/*.{test,spec}.{js,ts}', 'evals/harness/**/*.{test,spec}.{js,ts}'],
+			include: [
+				'src/**/*.{test,spec}.{js,ts}',
+				'evals/harness/**/*.{test,spec}.{js,ts}',
+				'scripts/**/*.{test,spec}.{js,ts}'
+			],
 			exclude: ['src/routes/demo/playwright/**/*.ts', '**/*.e2e.ts', '**/*.svelte.spec.ts'],
 			globalTeardown: ['./vitest.global-teardown.ts']
 		}

@@ -10,7 +10,7 @@ import {
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 
-function thoughtStatusFromMetadata(metadata: Record<string, unknown>): 'open' | 'completed' {
+export function thoughtStatusFromMetadata(metadata: Record<string, unknown>): 'open' | 'completed' {
 	return metadata.status === 'completed' ? 'completed' : 'open';
 }
 

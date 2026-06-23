@@ -128,6 +128,10 @@ vi.mock('$lib/server/capture/capture-result', () => ({
 	loadThoughtCaptureResult: loadThoughtCaptureResultMock
 }));
 
+vi.mock('$lib/server/memory/project-next-action', () => ({
+	clearNextActionIfCompleted: vi.fn(async () => undefined)
+}));
+
 vi.mock('$lib/server/capture/queue-capture', () => ({
 	queueCapture: queueCaptureMock
 }));

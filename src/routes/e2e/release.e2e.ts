@@ -15,7 +15,10 @@ test.describe('Release smoke @release', () => {
 		assertReleasePreflight();
 	});
 
-	test('register → onboard → PayPal → capture → exercise UI → re-login', async ({ page, context }) => {
+	test('register → onboard → PayPal → capture → exercise UI → re-login', async ({ page, context, baseURL }) => {
+		await context.grantPermissions(['microphone'], {
+			origin: baseURL ?? 'http://localhost:5173'
+		});
 		const releaseThought =
 			'Release smoke thought: planning a team offsite in Lisbon next quarter';
 
