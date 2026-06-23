@@ -12,6 +12,8 @@
 	} from '$lib/billing/platform-pricing';
 	import PayPalLogo from '$lib/components/paypal-logo.svelte';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+	import type { CreditsUiSurface } from '$lib/analytics/billing-events';
+	import { trackCreditsUiViewed } from '$lib/analytics/billing-events';
 
 	let {
 		availableCredits = 0,
@@ -19,6 +21,7 @@
 		paypalClientId = null as string | null,
 		paypalSdkUrl = null as string | null,
 		compact = false,
+		surface = 'settings_llm' as CreditsUiSurface,
 		onBalanceUpdated
 	}: {
 		availableCredits?: number;
@@ -26,6 +29,7 @@
 		paypalClientId?: string | null;
 		paypalSdkUrl?: string | null;
 		compact?: boolean;
+		surface?: CreditsUiSurface;
 		onBalanceUpdated?: (credits: number) => void;
 	} = $props();
 
@@ -38,6 +42,14 @@
 
 	$effect(() => {
 		walletAvailableCredits = availableCredits;
+	});
+
+	$effect(() => {
+		trackCreditsUiViewed({
+			surface,
+			paypal_configured: paypalConfigured,
+			available_credits: availableCredits
+		});
 	});
 
 	function formatWalletBalance(credits: number): string {

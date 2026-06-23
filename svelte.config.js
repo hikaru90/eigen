@@ -12,6 +12,9 @@ const config = {
 			register: false
 		},
 		adapter: adapter(),
+		paths: {
+			relative: false
+		},
 		typescript: {
 			config: (config) => ({
 				...config,

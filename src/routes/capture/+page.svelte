@@ -48,11 +48,28 @@
 	import { unlinkTextFileFromThought } from '$lib/text-files/api';
 	import { captureInputDraft } from '$lib/stores/page-input-drafts';
 	import { get } from 'svelte/store';
+	import { trackInsufficientCredits } from '$lib/analytics/billing-events';
+	import { capture as captureEvent } from '$lib/analytics/posthog-client';
 
 	let { data }: { data: PageData } = $props();
 
 	const showOnboarding = $derived(!data.onboardingCompleted);
 	const captureBlocked = $derived(!data.captureAllowed);
+
+	$effect(() => {
+		if (
+			captureBlocked &&
+			data.captureGateReason === 'insufficient_credits' &&
+			data.billingMode === 'platform_credits'
+		) {
+			trackInsufficientCredits({
+				surface: 'capture_gate',
+				phase: 'precheck',
+				required_credits: data.minCaptureCredits,
+				available_credits: data.walletAvailableCredits
+			});
+		}
+	});
 
 	type GroundingQuestionPayload = { facetKey: string; question: string } | null;
 	let groundingQuestion = $state<GroundingQuestionPayload>(null);
@@ -270,6 +287,7 @@
 		deletingThoughtId = thoughtId;
 		try {
 			await deleteCaptureThought(thoughtId);
+			captureEvent('thought_deleted', { thought_id: thoughtId });
 			removeRecentThought(thoughtId);
 			deleteDialogOpen = false;
 			deleteTargetId = null;
@@ -426,6 +444,7 @@
 				return;
 			}
 			if (message.type === 'done') {
+				captureEvent('capture_completed', { thought_id: message.thought.id, enrichment_complete: message.thought.enrichmentComplete });
 				upsertRecentThought(message.thought, { pinToTop: true });
 				expandedThoughtId = message.thought.id;
 				editingThoughtId = null;
@@ -446,6 +465,7 @@
 				return;
 			}
 			if (message.type === 'failed') {
+				captureEvent('capture_failed', { error_message: message.error });
 				err = message.error;
 				progressEvents = [];
 				processingCaptureId = null;
@@ -486,6 +506,7 @@
 		const text = raw;
 		raw = '';
 		queueUi = { ...queueUi, pendingCount: queueUi.pendingCount + 1 };
+		captureEvent('capture_submitted', { text_length: text.length });
 		try {
 			await enqueueCapture(text);
 			await reconcileQueueState(false);
@@ -503,6 +524,7 @@
 	async function submitEditRequest() {
 		if (!editingThoughtId) return;
 		const thoughtId = editingThoughtId;
+		captureEvent('thought_edit_submitted', { thought_id: thoughtId, request_length: editRequest.length });
 		err = null;
 		progressEvents = [];
 		editLoading = true;
@@ -570,6 +592,7 @@
 						</p>
 						<CreditsTopUpPanel
 							compact
+							surface="capture_gate"
 							availableCredits={localWalletCredits}
 							paypalConfigured={data.paypalConfigured}
 							paypalClientId={data.paypalClientId}

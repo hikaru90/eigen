@@ -3,6 +3,7 @@ import {
 	INSUFFICIENT_CREDITS_CODE,
 	isInsufficientCreditsChatError
 } from '$lib/billing/insufficient-credits';
+import { trackInsufficientCredits } from '$lib/analytics/billing-events';
 
 export type ChatNdjsonDone = Extract<ChatStreamEvent, { type: 'done' }>;
 
@@ -56,6 +57,14 @@ export async function consumeChatNdjsonStream(
 		if (!event) return 'continue';
 
 		if (event.type === 'error') {
+			if (event.code === INSUFFICIENT_CREDITS_CODE) {
+				trackInsufficientCredits({
+					surface: 'chat',
+					phase: event.phase ?? 'precheck',
+					required_credits: event.requiredCredits,
+					available_credits: event.availableCredits
+				});
+			}
 			throw new ChatStreamError(event);
 		}
 		if (event.type === 'done') {

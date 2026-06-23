@@ -45,7 +45,8 @@
 		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",
 		"eval:reset-fixture": "vite-node --config evals/vite.config.ts evals/reset-fixture.ts",
 		"eval:longmemeval": "vite-node --config evals/vite.config.ts evals/longmemeval/run.ts",
-		"measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts"
+		"measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts",
+		"posthog:upload-sourcemaps": "node scripts/upload-posthog-sourcemaps.mjs"
 	},
 	"devDependencies": {
 		"@better-auth/cli": "~1.4.21",
@@ -56,6 +57,7 @@
 		"@internationalized/date": "^3.12.1",
 		"@lucide/svelte": "^1.14.0",
 		"@playwright/test": "^1.59.1",
+		"@posthog/cli": "^0.7.30",
 		"@sveltejs/adapter-node": "^5.5.4",
 		"@sveltejs/kit": "^2.57.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
@@ -106,6 +108,8 @@
 		"fflate": "^0.8.3",
 		"isomorphic-dompurify": "^3.14.0",
 		"marked": "^18.0.4",
+		"posthog-js": "^1.393.0",
+		"posthog-node": "^5.38.3",
 		"three": "^0.184.0",
 		"umap-js": "^1.4.0",
 		"web-push": "^3.6.7",

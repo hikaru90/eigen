@@ -17,6 +17,7 @@
   import HeartPulse from "@lucide/svelte/icons/heart-pulse";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
   import Bot from "@lucide/svelte/icons/bot";
+  import { resetPostHog } from "$lib/analytics/posthog-client";
 
   const isChatRoute = $derived(page.route.id === "/chat");
 
@@ -83,6 +84,7 @@
       console.error("Sign out failed", res.status, await res.text().catch(() => ""));
       return;
     }
+    resetPostHog();
     await goto(resolve("/login"), { invalidateAll: true });
   }
 </script>

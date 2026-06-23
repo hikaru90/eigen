@@ -33,6 +33,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        POSTHOG_CLI_API_KEY: ${POSTHOG_CLI_API_KEY:-}
+        POSTHOG_CLI_PROJECT_ID: ${POSTHOG_CLI_PROJECT_ID:-208285}
+        POSTHOG_SOURCEMAPS_REQUIRED: ${POSTHOG_SOURCEMAPS_REQUIRED:-1}
+        SOURCE_VERSION: ${SOURCE_COMMIT:-${SOURCE_VERSION:-unknown}}
     depends_on:
       db:
         condition: service_healthy

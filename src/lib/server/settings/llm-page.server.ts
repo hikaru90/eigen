@@ -14,6 +14,7 @@ import { assertByokConfigured } from '$lib/server/billing/preferences';
 import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$lib/server/billing/paypal';
 import { env } from '$env/dynamic/private';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
+import { captureServerEvent } from '$lib/server/analytics/posthog-server';
 
 export type LlmProviderId = 'eurouter' | 'openrouter';
 
@@ -287,6 +288,13 @@ export const llmSettingsActions: Actions = {
 		const billingMode = raw as BillingMode;
 		const userId = event.locals.user.id;
 
+		const [existingPref] = await getDb()
+			.select({ billingMode: userPreference.billingMode })
+			.from(userPreference)
+			.where(eq(userPreference.userId, userId))
+			.limit(1);
+		const fromBillingMode = (existingPref?.billingMode ?? 'platform_credits') as BillingMode;
+
 		try {
 			if (billingMode === 'byok' && !isByokUiEnabled()) {
 				return fail(403, { billingMessage: 'Bring your own key is not available on this deployment.' });
@@ -307,6 +315,13 @@ export const llmSettingsActions: Actions = {
 				billingMode === 'byok'
 					? 'LLM calls will use your OpenRouter / EUrouter keys.'
 					: 'LLM calls will use Eigen platform credits.';
+			if (fromBillingMode !== billingMode) {
+				captureServerEvent({
+					distinctId: userId,
+					event: 'billing_mode_changed',
+					properties: { from: fromBillingMode, to: billingMode }
+				});
+			}
 			return { billingMessage, billingMode };
 		} catch (error) {
 			return fail(400, {

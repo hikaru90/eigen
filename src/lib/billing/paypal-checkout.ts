@@ -1,5 +1,7 @@
 /** PayPal JS SDK v6 integration (docs: https://docs.paypal.ai/developer/how-to/sdk/js/v6/configuration) */
 
+import { capture } from '$lib/analytics/posthog-client';
+
 type PayPalPaymentSession = {
 	start: (
 		options: { presentationMode: string },
@@ -171,26 +173,49 @@ export async function initPayPalCheckout(input: {
 
 	const session = sdkInstance.createPayPalOneTimePaymentSession({
 		async onApprove(data) {
+			capture('billing_paypal_approved', { order_id: data.orderId });
 			input.onStatus('Capturing payment…');
-			const res = await fetch('/api/billing/paypal/capture-order', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ orderId: data.orderId })
-			});
-			const body = await res.json().catch(() => null);
-			if (!res.ok) {
-				throw new Error(typeof body?.error === 'string' ? body.error : `Capture failed (${res.status})`);
+			const amountCredits = input.getAmountCredits();
+			try {
+				const res = await fetch('/api/billing/paypal/capture-order', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ orderId: data.orderId })
+				});
+				const body = await res.json().catch(() => null);
+				if (!res.ok) {
+					throw new Error(
+						typeof body?.error === 'string' ? body.error : `Capture failed (${res.status})`
+					);
+				}
+				if (typeof body?.availableCredits === 'number') {
+					input.onBalanceUpdated();
+				}
+				capture('billing_checkout_completed', {
+					order_id: data.orderId,
+					amount_credits: amountCredits,
+					credited: body?.credited === true,
+					already_captured: body?.alreadyCaptured === true,
+					available_credits: body?.availableCredits
+				});
+				input.onStatus('Credits added to your account.');
+			} catch (e) {
+				capture('billing_checkout_capture_failed', {
+					order_id: data.orderId,
+					amount_credits: amountCredits,
+					error_message: e instanceof Error ? e.message : String(e)
+				});
+				throw e;
 			}
-			if (typeof body?.availableCredits === 'number') {
-				input.onBalanceUpdated();
-			}
-			input.onStatus('Credits added to your account.');
 		},
 		onCancel() {
+			capture('billing_paypal_cancelled');
 			input.onStatus('Payment cancelled.');
 		},
 		onError(err) {
-			input.onError(err instanceof Error ? err.message : 'Payment failed');
+			const message = err instanceof Error ? err.message : 'Payment failed';
+			capture('billing_paypal_error', { error_message: message });
+			input.onError(message);
 		}
 	});
 
@@ -200,6 +225,7 @@ export async function initPayPalCheckout(input: {
 			input.onError('Enter at least 1,000 Eigen credits ($1).');
 			return;
 		}
+		capture('billing_checkout_started', { amount_credits: amountCredits });
 		input.onStatus('Opening PayPal…');
 		try {
 			await session.start(
@@ -220,7 +246,12 @@ export async function initPayPalCheckout(input: {
 				})()
 			);
 		} catch (e) {
-			input.onError(e instanceof Error ? e.message : String(e));
+			const message = e instanceof Error ? e.message : String(e);
+			capture('billing_checkout_create_order_failed', {
+				amount_credits: amountCredits,
+				error_message: message
+			});
+			input.onError(message);
 		}
 	};
 

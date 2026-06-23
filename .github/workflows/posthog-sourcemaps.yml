@@ -1,0 +1,32 @@
+name: PostHog source maps
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  upload-sourcemaps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Production build
+        run: npm run build
+        env:
+          PUBLIC_POSTHOG_KEY: ${{ secrets.PUBLIC_POSTHOG_KEY }}
+          PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
+
+      - name: Upload source maps to PostHog
+        run: npm run posthog:upload-sourcemaps
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ secrets.POSTHOG_CLI_PROJECT_ID }}
+          POSTHOG_SOURCEMAPS_REQUIRED: '1'
+          SOURCE_VERSION: ${{ github.sha }}

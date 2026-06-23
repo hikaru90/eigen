@@ -191,6 +191,7 @@
 
 {#snippet creditsPanel()}
 	<CreditsTopUpPanel
+		surface="settings_llm"
 		availableCredits={walletAvailableCredits}
 		paypalConfigured={data.paypalConfigured}
 		paypalClientId={data.paypalClientId}

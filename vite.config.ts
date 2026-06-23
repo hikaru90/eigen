@@ -10,6 +10,8 @@ const enforceCoverageThresholds =
 
 export default defineConfig({
 	build: {
+		// Hidden maps: uploaded to PostHog for error tracking, not served to browsers.
+		sourcemap: 'hidden',
 		rollupOptions: {
 			onwarn(warning, warn) {
 				if (

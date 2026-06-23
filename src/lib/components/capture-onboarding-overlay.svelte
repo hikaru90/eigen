@@ -5,6 +5,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte';
+	import { capture } from '$lib/analytics/posthog-client';
 
 	let {
 		open,
@@ -46,6 +47,7 @@
 		async ({ result, update }) => {
 			await update({ reset: false });
 			if (result.type === 'success') {
+				capture('onboarding_completed', { credits_available: localWalletCredits });
 				await invalidateAll();
 			}
 		};
@@ -82,6 +84,7 @@
 					</p>
 					<CreditsTopUpPanel
 						compact
+						surface="onboarding"
 						availableCredits={localWalletCredits}
 						{paypalConfigured}
 						{paypalClientId}

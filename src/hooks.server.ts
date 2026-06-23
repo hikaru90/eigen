@@ -2,7 +2,7 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { building } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { tenantUserAsyncLocal } from '$lib/server/billing/context';
 import { appSql, appDbAsyncLocal, createScopedDrizzle, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
 import { authSql } from '$lib/server/db/auth-db';
@@ -10,6 +10,7 @@ import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import { hashApiKey } from '$lib/server/api-keys/api-key-utils';
 import { startJobQueueTicker } from '$lib/server/job-queue/ticker';
+import { captureServerException } from '$lib/server/analytics/posthog-server';
 
 if (!building) {
 	startJobQueueTicker();
@@ -126,4 +127,50 @@ const handleCrossOriginOpenerPolicy: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle: Handle = sequence(handleParaglide, handleWellKnown, handleBetterAuth, handleCrossOriginOpenerPolicy);
+const handlePostHogProxy: Handle = async ({ event, resolve }) => {
+	const { pathname } = event.url;
+
+	if (pathname.startsWith('/ingest')) {
+		const useAssetHost = pathname.startsWith('/ingest/static/') || pathname.startsWith('/ingest/array/');
+		const hostname = useAssetHost ? 'eu-assets.i.posthog.com' : 'eu.i.posthog.com';
+
+		const url = new URL(event.request.url);
+		url.protocol = 'https:';
+		url.hostname = hostname;
+		url.port = '443';
+		url.pathname = pathname.replace(/^\/ingest/, '');
+
+		const headers = new Headers(event.request.headers);
+		headers.set('host', hostname);
+		headers.set('accept-encoding', '');
+
+		const clientIp = event.request.headers.get('x-forwarded-for') || event.getClientAddress();
+		if (clientIp) {
+			headers.set('x-forwarded-for', clientIp);
+		}
+
+		const response = await fetch(url.toString(), {
+			method: event.request.method,
+			headers,
+			body: event.request.body,
+			// @ts-expect-error - duplex is required for streaming request bodies
+			duplex: 'half'
+		});
+
+		return response;
+	}
+
+	return resolve(event);
+};
+
+export const handle: Handle = sequence(handlePostHogProxy, handleParaglide, handleWellKnown, handleBetterAuth, handleCrossOriginOpenerPolicy);
+
+export const handleError: HandleServerError = ({ error, status, event }) => {
+	if (status !== 404) {
+		captureServerException(error, event.locals.user?.id, {
+			status,
+			path: event.url.pathname,
+			route_id: event.route?.id ?? null
+		});
+	}
+};

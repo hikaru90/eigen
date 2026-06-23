@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import { afterNavigate } from "$app/navigation";
   import type { Pathname } from "$app/types";
   import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -15,6 +16,12 @@
   import { startThoughtSync } from "$lib/stores/thought-sync";
   import { getLocale, setLocale } from "$lib/paraglide/runtime";
   import { m } from "$lib/paraglide/messages.js";
+  import {
+    initPostHog,
+    identify,
+    resetPostHog,
+    capturePageview,
+  } from "$lib/analytics/posthog-client";
 
   let { children } = $props();
 
@@ -63,7 +70,32 @@
     },
   ]);
 
+  $effect(() => {
+    if (!browser) return;
+    const user = (page.data as { user?: { id: string; email?: string; name?: string } | null }).user;
+    const isAdmin = (page.data as { isAdmin?: boolean }).isAdmin ?? false;
+    if (user?.id) {
+      identify(user.id, { email: user.email, name: user.name, is_admin: isAdmin });
+    } else {
+      resetPostHog();
+    }
+  });
+
   onMount(() => {
+    const posthogReady = initPostHog();
+    if (posthogReady) {
+      const initialPath = normalizePathname(page.url.pathname);
+      if (!authPaths.has(initialPath)) {
+        capturePageview(initialPath);
+      }
+    }
+    const stopNav = afterNavigate((nav) => {
+      const path = normalizePathname(nav.to?.url.pathname ?? page.url.pathname);
+      if (!authPaths.has(path)) {
+        capturePageview(path);
+      }
+    });
+
     if ((page.data as { user?: { id: string } | null }).user) {
       startCaptureQueueRunner();
       startThoughtSync();
@@ -120,6 +152,7 @@
     media.addEventListener("change", handleChange);
     window.addEventListener("theme-preference-change", handlePreferenceChange);
     return () => {
+      stopNav();
       media.removeEventListener("change", handleChange);
       window.removeEventListener("theme-preference-change", handlePreferenceChange);
     };
