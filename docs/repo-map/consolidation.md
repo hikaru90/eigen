@@ -2,7 +2,7 @@
 
 **Entrypoint:** per-user jobs in `user_job_queue`, drained by the global in-app ticker.
 
-**Schedule:** per-user row in `user_scheduled_task` (default 2:00 AM UTC). The ticker enqueues due overnight jobs and processes pending queue items for all users every 60 seconds.
+**Schedule:** per-user row in `user_scheduled_task` (default 2:00 AM UTC). The ticker enqueues due overnight jobs and processes pending queue items for **production** users every 60 seconds. Harness tenants (`account_kind = harness`: eval `@local.eval`, e2e `@test.eigen`) are excluded from automatic overnight scheduling.
 
 ## Sleep phases
 

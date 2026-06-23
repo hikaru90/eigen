@@ -446,7 +446,10 @@ async function runCommunitySummariesJob(
  */
 export async function consolidateAllUsers(): Promise<ConsolidationRunResult[]> {
 	const db = getDb();
-	const users = await db.select({ id: user.id }).from(user);
+	const users = await db
+		.select({ id: user.id })
+		.from(user)
+		.where(eq(user.accountKind, 'production'));
 	const results: ConsolidationRunResult[] = [];
 
 	for (const u of users) {

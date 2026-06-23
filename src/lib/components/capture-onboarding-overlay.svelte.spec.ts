@@ -10,12 +10,12 @@ describe('capture-onboarding-overlay.svelte', () => {
 	});
 
 	it('steps through onboarding flow when open', async () => {
-		render(CaptureOnboardingOverlay, { open: true, billingMode: 'byok' });
-		await expect.element(page.getByText('Step 1 of 4')).toBeInTheDocument();
+		render(CaptureOnboardingOverlay, { open: true });
+		await expect.element(page.getByText('Step 1 of 3')).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Next' }).click();
-		await expect.element(page.getByText('Step 2 of 4')).toBeInTheDocument();
+		await expect.element(page.getByText('Step 2 of 3')).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Back' }).click();
-		await expect.element(page.getByText('Step 1 of 4')).toBeInTheDocument();
+		await expect.element(page.getByText('Step 1 of 3')).toBeInTheDocument();
 	});
 
 	it('does not show BYOK credential forms', async () => {
@@ -27,18 +27,16 @@ describe('capture-onboarding-overlay.svelte', () => {
 	it('does not reset step when wallet credits update after advancing', async () => {
 		const { rerender } = render(CaptureOnboardingOverlay, {
 			open: true,
-			billingMode: 'platform_credits',
 			walletAvailableCredits: 0
 		});
 		await page.getByRole('button', { name: 'Next' }).click();
 		await page.getByRole('button', { name: 'Next' }).click();
-		await expect.element(page.getByText('Step 3 of 4')).toBeInTheDocument();
+		await expect.element(page.getByText('Step 3 of 3')).toBeInTheDocument();
 
 		rerender({
 			open: true,
-			billingMode: 'platform_credits',
 			walletAvailableCredits: 500
 		});
-		await expect.element(page.getByText('Step 3 of 4')).toBeInTheDocument();
+		await expect.element(page.getByText('Step 3 of 3')).toBeInTheDocument();
 	});
 });

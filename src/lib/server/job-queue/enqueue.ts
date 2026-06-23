@@ -77,6 +77,21 @@ export async function listAllUserIds(): Promise<string[]> {
 	}
 }
 
+/** Production tenants only — excludes eval, LongMemEval, and e2e harness rows. */
+export async function listProductionUserIds(): Promise<string[]> {
+	const sql = createAdminSql(1);
+	try {
+		const db = drizzle(sql, { schema: { user } });
+		const rows = await db
+			.select({ id: user.id })
+			.from(user)
+			.where(eq(user.accountKind, 'production'));
+		return rows.map((r) => r.id);
+	} finally {
+		await sql.end();
+	}
+}
+
 export function hasActiveJobForUser(
 	userId: string,
 	jobType: UserJobType

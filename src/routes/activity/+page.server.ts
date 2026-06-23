@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { ACTIVITY_PAGE_LLM_PROVIDERS, AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers';
+import { getOrCreateWallet } from '$lib/server/billing/wallet';
 import { activityCallLog } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 
@@ -94,6 +95,7 @@ export const load: PageServerLoad = async (event) => {
 	const offset = (page - 1) * PAGE_SIZE;
 
 	const db = getDb();
+	const wallet = await getOrCreateWallet(event.locals.user.id);
 
 	const [countRow] = await db
 		.select({ count: sql<number>`count(*)::int` })
@@ -151,6 +153,7 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		user: event.locals.user,
+		walletAvailableCredits: wallet.availableCredits,
 		calls: rows,
 		groups,
 		totals,

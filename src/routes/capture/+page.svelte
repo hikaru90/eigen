@@ -676,7 +676,6 @@
 
 <CaptureOnboardingOverlay
 	open={showOnboarding}
-	billingMode={data.billingMode}
 	walletAvailableCredits={localWalletCredits}
 	minCaptureCredits={data.minCaptureCredits}
 	paypalConfigured={data.paypalConfigured}

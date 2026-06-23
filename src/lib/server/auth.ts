@@ -5,6 +5,7 @@ import { env } from '$env/dynamic/private';
 import { getRequestEvent } from '$app/server';
 import { authDb } from '$lib/server/db/auth-db';
 import { buildSocialProvidersConfig, listEnabledSocialProviderIds } from '$lib/server/auth-social';
+import { resolveAccountKindForNewUser } from '$lib/auth/account-kind';
 
 const socialProviders = buildSocialProvidersConfig(env);
 const enabledSocialProviderIds = listEnabledSocialProviderIds(env);
@@ -59,6 +60,25 @@ export const auth = betterAuth({
 				defaultValue: 'user',
 				input: false,
 				returned: true
+			},
+			accountKind: {
+				type: 'string',
+				required: false,
+				defaultValue: 'production',
+				input: false,
+				returned: false
+			}
+		}
+	},
+	databaseHooks: {
+		user: {
+			create: {
+				before: async (user) => ({
+					data: {
+						...user,
+						accountKind: resolveAccountKindForNewUser(String(user.email ?? ''))
+					}
+				})
 			}
 		}
 	},

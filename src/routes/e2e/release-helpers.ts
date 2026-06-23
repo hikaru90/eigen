@@ -65,7 +65,7 @@ export const AUTHENTICATED_SURFACES: AuthenticatedSurface[] = [
 	{ path: '/chat', label: 'Chat' },
 	{ path: '/activity', label: 'Activity' },
 	{ path: '/settings', label: 'Settings' },
-	{ path: '/settings/llm', label: 'Settings LLM' },
+	{ path: '/settings/llm', label: 'Settings Credits' },
 	{ path: '/settings/scheduled-tasks', label: 'Heartbeat' },
 	{ path: '/api-keys', label: 'API keys' }
 ];

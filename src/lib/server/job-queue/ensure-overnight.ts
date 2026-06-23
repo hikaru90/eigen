@@ -7,7 +7,7 @@ import {
 	DEFAULT_OVERNIGHT_TIMEZONE,
 	OVERNIGHT_CONSOLIDATION_JOB
 } from './constants';
-import { enqueueUserJob, listAllUserIds } from './enqueue';
+import { enqueueUserJob, listProductionUserIds } from './enqueue';
 import { calendarDateInTimezone, localScheduleToUtc } from './schedule-time';
 import { createAdminSql } from './admin-db';
 import { getOrCreateUserScheduledTask, markOvernightEnqueued } from './user-scheduled-task';
@@ -38,7 +38,7 @@ async function loadScheduleRows(): Promise<ScheduleRow[]> {
 			.where(eq(userScheduledTask.taskType, OVERNIGHT_CONSOLIDATION_JOB));
 
 		const byUser = new Map(configured.map((row) => [row.userId, row]));
-		const userIds = await listAllUserIds();
+		const userIds = await listProductionUserIds();
 
 		return userIds.map((userId) => {
 			const row = byUser.get(userId);

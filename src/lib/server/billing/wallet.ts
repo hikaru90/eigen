@@ -11,6 +11,7 @@ import {
 	MICRO_USD_PER_CREDIT,
 	microUsdToWholeCredits
 } from '$lib/server/billing/credits';
+import { isByokUiEnabled } from '$lib/server/billing/byok-ui';
 
 /** Ledger / PayPal audit currency (not shown in UI). */
 const WALLET_AUDIT_CURRENCY = 'USD';
@@ -43,7 +44,9 @@ export class InsufficientCreditsError extends Error {
 }
 
 function buildInsufficientCreditsMessage(opts: InsufficientCreditsOptions): string {
-	const suffix = ' Top up in Settings or switch to BYOK mode.';
+	const suffix = isByokUiEnabled()
+		? ' Top up in Settings or switch to BYOK mode.'
+		: ' Top up in Settings → Credits.';
 	if (
 		opts.availableCredits !== undefined &&
 		opts.requiredCredits !== undefined &&

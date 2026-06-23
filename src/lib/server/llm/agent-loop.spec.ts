@@ -237,6 +237,36 @@ describe('agentChat', () => {
 		expect(llmChatCompletionMock).not.toHaveBeenCalled();
 	});
 
+	it('overrides misrouted list_thoughts to answer_question when classifier says answer', async () => {
+		const question = 'What city did I mention in my recent capture?';
+		answerQuestionMock.mockResolvedValue({
+			answer: 'Answer: Lisbon',
+			citations: []
+		});
+		routeAgentMessageMock.mockResolvedValue({
+			mode: 'single_tool',
+			tool: 'list_thoughts',
+			arguments: { limit: 5 }
+		});
+		classifyChatIntentMock.mockResolvedValue('answer');
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: question }]
+		});
+
+		expect(classifyChatIntentMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			userMessage: question
+		});
+		expect(answerQuestionMock).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ question })
+		);
+		expect(result.response).toContain('Lisbon');
+		expect(listThoughtsMock).not.toHaveBeenCalled();
+	});
+
 	it('escalates misrouted capture_thought to multi_step when classifier says manage', async () => {
 		routeAgentMessageMock.mockResolvedValue({
 			mode: 'single_tool',

@@ -337,6 +337,13 @@
       "when": 1750608000000,
       "tag": "0048_connected_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1750694400000,
+      "tag": "0049_user_account_kind",
+      "breakpoints": true
     }
   ]
 }

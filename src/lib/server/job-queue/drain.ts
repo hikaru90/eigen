@@ -55,6 +55,8 @@ type ClaimedJob = UserJobQueue;
 async function claimDueJobs(input: {
 	limit: number;
 	userId?: string;
+	/** When true, only claim jobs for production tenants (excludes eval/e2e harness rows). */
+	productionOnly?: boolean;
 }): Promise<ClaimedJob[]> {
 	const sql = createAdminSql(1);
 	try {
@@ -70,15 +72,27 @@ async function claimDueJobs(input: {
 					LIMIT ${input.limit}
 					FOR UPDATE SKIP LOCKED
 				`
-				: await tx<RawUserJobQueueRow[]>`
-					SELECT *
-					FROM user_job_queue
-					WHERE status = 'pending'
-						AND run_after <= now()
-					ORDER BY run_after
-					LIMIT ${input.limit}
-					FOR UPDATE SKIP LOCKED
-				`;
+				: input.productionOnly
+					? await tx<RawUserJobQueueRow[]>`
+						SELECT q.*
+						FROM user_job_queue q
+						INNER JOIN "user" u ON u.id = q.user_id
+						WHERE q.status = 'pending'
+							AND q.run_after <= now()
+							AND u.account_kind = 'production'
+						ORDER BY q.run_after
+						LIMIT ${input.limit}
+						FOR UPDATE OF q SKIP LOCKED
+					`
+					: await tx<RawUserJobQueueRow[]>`
+						SELECT *
+						FROM user_job_queue
+						WHERE status = 'pending'
+							AND run_after <= now()
+						ORDER BY run_after
+						LIMIT ${input.limit}
+						FOR UPDATE SKIP LOCKED
+					`;
 
 			const rows = rawRows.map(mapJobRow);
 
@@ -166,12 +180,23 @@ export type DrainUserJobQueueResult = {
 	failed: number;
 };
 
+/** Global ticker drains production tenants only; explicit user drains allow harness manual runs. */
+export function defaultProductionOnlyForDrain(input?: {
+	userId?: string;
+	productionOnly?: boolean;
+}): boolean {
+	return input?.productionOnly ?? input?.userId === undefined;
+}
+
 export async function drainUserJobQueue(input?: {
 	userId?: string;
 	limit?: number;
+	/** Default: true for global drain, false when draining a specific user (manual run). */
+	productionOnly?: boolean;
 }): Promise<DrainUserJobQueueResult> {
 	const limit = input?.limit ?? JOB_QUEUE_BATCH_LIMIT;
-	const jobs = await claimDueJobs({ limit, userId: input?.userId });
+	const productionOnly = defaultProductionOnlyForDrain(input);
+	const jobs = await claimDueJobs({ limit, userId: input?.userId, productionOnly });
 
 	let completed = 0;
 	let failed = 0;

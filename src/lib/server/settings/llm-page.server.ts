@@ -9,6 +9,7 @@ import {
 	type BillingMode
 } from '$lib/server/db/schema';
 import { getOrCreateWallet } from '$lib/server/billing/wallet';
+import { isByokUiEnabled } from '$lib/server/billing/byok-ui';
 import { assertByokConfigured } from '$lib/server/billing/preferences';
 import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$lib/server/billing/paypal';
 import { env } from '$env/dynamic/private';
@@ -98,13 +99,18 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 	const byokConfigured =
 		Boolean((eurouterRow?.baseUrl?.trim() && eurouterApiKey.trim()) || (openrouterRow?.baseUrl?.trim() && openrouterApiKey.trim()));
 
+	const byokUiEnabled = isByokUiEnabled();
 	const tab = event.url.searchParams.get('tab');
-	const initialTab = (
+	let initialTab = (
 		tab === 'byok' || tab === 'credits' ? tab : billingMode === 'byok' ? 'byok' : 'credits'
 	) as 'byok' | 'credits';
+	if (!byokUiEnabled) {
+		initialTab = 'credits';
+	}
 
 	return {
 		billingMode,
+		byokUiEnabled,
 		byokConfigured,
 		wallet,
 		paypalConfigured,
@@ -135,6 +141,9 @@ export const llmSettingsActions: Actions = {
 	saveLlmConfig: async (event) => {
 		if (!event.locals.user) {
 			return fail(401, { llmMessage: 'You must be signed in.' });
+		}
+		if (!isByokUiEnabled()) {
+			return fail(403, { llmMessage: 'Bring your own key is not available on this deployment.' });
 		}
 
 		const formData = await event.request.formData();
@@ -227,6 +236,9 @@ export const llmSettingsActions: Actions = {
 		if (!event.locals.user) {
 			return fail(401, { llmMessage: 'You must be signed in.' });
 		}
+		if (!isByokUiEnabled()) {
+			return fail(403, { llmMessage: 'Bring your own key is not available on this deployment.' });
+		}
 
 		const formData = await event.request.formData();
 		const provider = formData.get('provider')?.toString().trim() ?? '';
@@ -276,6 +288,9 @@ export const llmSettingsActions: Actions = {
 		const userId = event.locals.user.id;
 
 		try {
+			if (billingMode === 'byok' && !isByokUiEnabled()) {
+				return fail(403, { billingMessage: 'Bring your own key is not available on this deployment.' });
+			}
 			if (billingMode === 'byok') {
 				await assertByokConfigured(userId);
 			}

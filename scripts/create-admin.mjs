@@ -81,8 +81,8 @@ try {
 
 	await sql.begin(async (tx) => {
 		await tx`
-			INSERT INTO "user" (id, name, email, email_verified, onboarding_completed, created_at, updated_at)
-			VALUES (${userId}, ${ADMIN_NAME}, ${ADMIN_EMAIL}, true, false, ${now}, ${now})
+			INSERT INTO "user" (id, name, email, email_verified, onboarding_completed, role, created_at, updated_at)
+			VALUES (${userId}, ${ADMIN_NAME}, ${ADMIN_EMAIL}, true, false, 'admin', ${now}, ${now})
 		`;
 
 		await tx`

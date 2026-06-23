@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { load } from './+page.server';
 
-const { getDbMock } = vi.hoisted(() => ({ getDbMock: vi.fn() }));
+const { getDbMock, getOrCreateWalletMock } = vi.hoisted(() => ({
+	getDbMock: vi.fn(),
+	getOrCreateWalletMock: vi.fn()
+}));
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
+vi.mock('$lib/server/billing/wallet', () => ({ getOrCreateWallet: getOrCreateWalletMock }));
 
 function chain(overrides: Record<string, unknown> = {}) {
 	const node: Record<string, ReturnType<typeof vi.fn>> = {};
@@ -18,6 +22,10 @@ function chain(overrides: Record<string, unknown> = {}) {
 }
 
 describe('activity page server', () => {
+	beforeEach(() => {
+		getOrCreateWalletMock.mockResolvedValue({ availableCredits: 5000 });
+	});
+
 	it('redirects unauthenticated user', async () => {
 		await expect(load({ locals: { user: null } } as never)).rejects.toMatchObject({ status: 302 });
 	});
@@ -53,6 +61,7 @@ describe('activity page server', () => {
 			url: new URL('http://localhost/activity')
 		} as never);
 		expect(data.calls).toEqual(rows);
+		expect(data.walletAvailableCredits).toBe(5000);
 		expect(data.groups).toEqual([{ groupId: null, groupStart: rows[0].createdAt, callCount: 1 }]);
 		expect(data.totals).toEqual({
 			baseCostUsd: '1.000000',

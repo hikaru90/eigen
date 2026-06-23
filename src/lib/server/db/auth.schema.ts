@@ -1,6 +1,9 @@
 import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
 
+export const userAccountKindEnum = ["production", "harness"] as const;
+export type UserAccountKind = (typeof userAccountKindEnum)[number];
+
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -9,6 +12,7 @@ export const user = pgTable("user", {
   image: text("image"),
   onboardingCompleted: boolean("onboarding_completed").default(false).notNull(),
   role: text("role", { enum: ["user", "admin"] }).default("user").notNull(),
+  accountKind: text("account_kind", { enum: userAccountKindEnum }).default("production").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

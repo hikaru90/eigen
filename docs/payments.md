@@ -144,6 +144,22 @@ Each eval run uses an isolated **eval tenant** (`evalUserId`) for thoughts and R
 4. Verify `npm run db:rls` and `APP_DB_ROLE` on the deployment.
 5. If error `phase` is `settle`, the gateway cost for the last call exceeded remaining balance; top up or shorten input.
 
+## Operator admin spend view
+
+Deployment operators with `user.role = 'admin'` can open **`/admin/spend`** to see per-user billing aggregates for **this deployment only** (not cross-deployment).
+
+| Requirement | Detail |
+|-------------|--------|
+| Access | Signed-in session with `role = 'admin'` (`grantAdminByEmail` or `scripts/create-admin.mjs` for the first user) |
+| Database | Uses the same Postgres as the app (`DATABASE_URL` by default). Admin queries open a separate connection **without** `SET ROLE eigen_app`, so the default Docker user (`eigen`) sees all tenants. Optional `DATABASE_ADMIN_URL` only if `DATABASE_URL` uses a restricted role. |
+| Scope | All rows in the deployment's `user`, `activity_call_log`, `user_wallet`, and `wallet_ledger_entry` tables |
+
+The page shows email, billing mode, wallet balance, gateway spend (Eigen credits), credits debited, and last activity. Default range is the last 30 days; **All time** and custom date filters are available.
+
+**Account kind:** Users are tagged `production` (real signups) or `harness` (eval, LongMemEval, Playwright `@test.eigen` tenants). The spend table defaults to **production only**; use **Including harness** to show benchmark and test rows. Overnight consolidation and the in-app job queue ticker only schedule work for production accounts.
+
+**Eval nuance:** `activity_call_log` rows for eval runs use the eval tenant `user_id`, while wallet debits go to the operator who started the run. Totals by user may not match wallet debits for eval-heavy operators until a future operator-attribution view.
+
 ## Planning note
 
 [`docs/planning/01-requirements-baseline.md`](planning/01-requirements-baseline.md) originally listed no server-side STT billing in MVP. **Current product behavior** bills dictation on platform credits; this document is the source of truth for payments.

@@ -4,6 +4,7 @@ import { formatToolResultForDisplay, parseFinalAnswerText } from '$lib/chat/chat
 import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
+import { tenantUserAsyncLocal } from '$lib/server/billing/context';
 import {
 	appDbAsyncLocal,
 	appSql,
@@ -15,6 +16,10 @@ import {
 import { chatSession, chatMessage, type ChatSessionMode } from '$lib/server/db/brain.schema';
 import { eq, sql } from 'drizzle-orm';
 import { runWithTrace } from '$lib/server/activity/trace-context';
+import {
+	insufficientCreditsPayload,
+	isInsufficientCreditsError
+} from '$lib/server/billing/insufficient-credits';
 
 function collectErrorMessages(input: unknown): string[] {
 	const parts: string[] = [];
@@ -38,6 +43,17 @@ function collectErrorMessages(input: unknown): string[] {
 		break;
 	}
 	return parts.filter((v, i, arr) => v && arr.indexOf(v) === i);
+}
+
+export function chatErrorTerminalPayload(
+	err: unknown,
+	details: string[]
+): { type: 'error'; error: string; details?: string[]; [key: string]: unknown } {
+	const msg = details[0] ?? 'An unexpected error occurred.';
+	if (isInsufficientCreditsError(err)) {
+		return { type: 'error', ...insufficientCreditsPayload(err), details };
+	}
+	return { type: 'error', error: msg, details };
 }
 
 export const BRIEFING_BOOTSTRAP_MESSAGES: Record<string, string> = {
@@ -278,20 +294,22 @@ export async function handleAgentChatPost(
 				await activateTenantDbSession(reserved, user.id);
 				const scopedDb = createScopedDrizzle(reserved);
 
-				const result = await appDbAsyncLocal.run(scopedDb, () =>
-					runWithTrace(crypto.randomUUID(), () =>
-						agentChat({
-							userId: user.id,
-							messages: [...history, { role: 'user', content: agentUserMessage }],
-							mode: sessionMode,
-							onEvent: (evt) => {
-								if (!streamClosed) {
-									writeLine(evt);
-								}
-								recordIntermediateStep(evt);
-							},
-							db: scopedDb
-						})
+				const result = await tenantUserAsyncLocal.run(user.id, () =>
+					appDbAsyncLocal.run(scopedDb, () =>
+						runWithTrace(crypto.randomUUID(), () =>
+							agentChat({
+								userId: user.id,
+								messages: [...history, { role: 'user', content: agentUserMessage }],
+								mode: sessionMode,
+								onEvent: (evt) => {
+									if (!streamClosed) {
+										writeLine(evt);
+									}
+									recordIntermediateStep(evt);
+								},
+								db: scopedDb
+							})
+						)
 					)
 				);
 
@@ -335,7 +353,7 @@ export async function handleAgentChatPost(
 				const details = collectErrorMessages(err);
 				const msg = details[0] ?? 'An unexpected error occurred.';
 				console.error(`[${options.logTag ?? 'api/chat'}] agentChat threw`, { error: msg, details });
-				sendTerminal({ type: 'error', error: msg, details });
+				sendTerminal(chatErrorTerminalPayload(err, details));
 			} finally {
 				if (reserved) {
 					await deactivateTenantDbSession(reserved).catch(() => {});
@@ -395,6 +413,9 @@ export async function handleAgentChatPost(
 		console.error(`[${options.logTag ?? 'api/chat'}] agentChat threw`, {
 			error: err instanceof Error ? err.message : String(err)
 		});
+		if (isInsufficientCreditsError(err)) {
+			return json(insufficientCreditsPayload(err), { status: 402 });
+		}
 		return json({ response: 'An unexpected error occurred.', history: [], sessionId }, { status: 500 });
 	}
 }

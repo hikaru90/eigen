@@ -465,7 +465,8 @@ export async function insertEvalUserRow(userId: string, name: string): Promise<v
 		name,
 		email: `${userId}@local.eval`,
 		emailVerified: true,
-		onboardingCompleted: true
+		onboardingCompleted: true,
+		accountKind: 'harness'
 	});
 }
 

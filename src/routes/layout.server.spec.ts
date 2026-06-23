@@ -6,6 +6,7 @@ const { getDbMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }));
+vi.mock('$lib/server/auth/user-role', () => ({ isUserAdmin: vi.fn().mockResolvedValue(false) }));
 vi.mock('$lib/i18n/ui-locale', () => ({ normalizeUiLocale: (value: string) => value }));
 vi.mock('$lib/paraglide/runtime', () => ({ cookieName: 'locale', cookieMaxAge: 31_536_000 }));
 
@@ -33,12 +34,14 @@ describe('layout server load', () => {
 		const cookies = makeCookies();
 		await expect(load({ locals: { user: { id: 'u1' } }, cookies } as never)).resolves.toEqual({
 			user: { id: 'u1' },
+			isAdmin: false,
 			preferredUiLocale: 'en',
 			preferredLanguage: 'de'
 		});
 
 		await expect(load({ locals: { user: undefined }, cookies } as never)).resolves.toEqual({
 			user: null,
+			isAdmin: false,
 			preferredUiLocale: null,
 			preferredLanguage: 'en'
 		});

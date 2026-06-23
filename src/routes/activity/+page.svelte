@@ -5,13 +5,9 @@
 	import { Button } from '$lib/components/ui/button';
 	import AiDateRangePicker from '$lib/components/ai-date-range-picker.svelte';
 	import { formatDateRange } from '$lib/utils/date-utils';
+	import { formatActivityCredits, formatActivityCreditsSum } from '$lib/billing/platform-pricing';
 
 	let { data }: { data: PageData } = $props();
-
-	/** Exact stored USD decimal (6 dp) — no cent rounding. */
-	function fmtUsd(usd: string): string {
-		return `$${usd}`;
-	}
 
 	function sumTotalUsd(calls: Call[]): string {
 		let total = 0;
@@ -19,6 +15,10 @@
 			total += Number(c.totalCostUsd);
 		}
 		return total.toFixed(6);
+	}
+
+	function formatGroupCredits(calls: Call[]): string {
+		return formatActivityCreditsSum(calls.map((c) => c.totalCostUsd));
 	}
 
 	/** Short label from gateway hostname (e.g. `openrouter` from `api.openrouter.ai`). */
@@ -79,7 +79,7 @@
 
 	const isGateway = $derived(currentFilter === 'gateway' || currentFilter === 'all');
 	const showOverall = $derived(isGateway && data.overallTotals);
-	const gatewayColspan = 6;
+	const gatewayColspan = 5;
 
 	type Call = PageData['calls'][number];
 
@@ -115,6 +115,9 @@
 	});
 
 	const rangeLabel = $derived(formatDateRange(data.from, data.to));
+	const overallCredits = $derived(formatActivityCredits(data.overallTotals.totalCostUsd));
+	const pageTotalCredits = $derived(formatActivityCredits(data.totals.totalCostUsd));
+	const availableCreditsLabel = $derived(data.walletAvailableCredits.toLocaleString('en-US'));
 </script>
 
 <div class="mx-auto max-w-4xl px-5 pb-8 pt-10">
@@ -136,20 +139,26 @@
 		{/each}
 	</div>
 
-	{#if showOverall}
-		<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card">
-			<Card.Content class="flex items-center justify-between px-4 py-3">
-				<div class="flex items-center gap-2">
-					<span class="text-xs font-medium">Total spend (USD):</span>
-					<span class="font-mono text-sm font-semibold">{fmtUsd(data.overallTotals.totalCostUsd)}</span>
+	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card">
+		<Card.Content class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+			<div class="flex items-center gap-2">
+				<span class="text-xs font-medium">Available credits:</span>
+				<span class="font-mono text-sm font-semibold tabular-nums">{availableCreditsLabel}</span>
+			</div>
+			{#if showOverall}
+				<div class="flex items-center gap-4 sm:justify-end">
+					<div class="flex items-center gap-2">
+						<span class="text-xs font-medium">Total spend (credits):</span>
+						<span class="font-mono text-sm font-semibold tabular-nums">{overallCredits}</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
+						<AiDateRangePicker from={data.from} to={data.to} />
+					</div>
 				</div>
-				<div class="flex items-center gap-2">
-					<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
-					<AiDateRangePicker from={data.from} to={data.to} />
-				</div>
-			</Card.Content>
-		</Card.Root>
-	{/if}
+			{/if}
+		</Card.Content>
+	</Card.Root>
 
 	<Card.Root
 		class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
@@ -160,11 +169,11 @@
 			</Card.Title>
 			<Card.Description class="text-muted-foreground text-xs">
 				{#if currentFilter === 'gateway'}
-					Billable LLM gateway calls (chat, embeddings, and speech-to-text). Base and total cost in USD (6 decimal places).
+					Billable LLM gateway calls (chat, embeddings, and speech-to-text) in Eigen credits.
 				{:else if currentFilter === 'agent'}
 					Internal agent tool calls (free, zero-cost operations).
 				{:else}
-					All activity — paid gateway calls in USD; free agent tool calls shown with zero cost.
+					All activity — paid gateway calls in Eigen credits; free agent tool calls shown with zero cost.
 				{/if}
 			</Card.Description>
 		</Card.Header>
@@ -177,8 +186,7 @@
 						<th class="p-2 font-medium">Operation</th>
 						<th class="p-2 font-medium">Duration</th>
 						{#if isGateway}
-							<th class="p-2 font-medium">Base USD</th>
-							<th class="p-2 font-medium">Total USD</th>
+							<th class="p-2 font-medium">Credits</th>
 						{/if}
 					</tr>
 				</thead>
@@ -196,10 +204,10 @@
 												<span class="truncate text-muted-foreground/70 max-w-[300px]">{groupContext}</span>
 											{/if}
 										</span>
-										<span class="ml-2 shrink-0">
+										<span class="ml-2 shrink-0 tabular-nums">
 											{group.calls.length > 1 ? `${group.calls.length} calls` : ''}
 											{#if isGateway}
-												· {fmtUsd(group.groupTotalUsd)}
+												· {formatActivityCredits(group.groupTotalUsd)}
 											{/if}
 										</span>
 									</span>
@@ -235,8 +243,7 @@
 								</td>
 								<td class="p-2 font-mono text-[11px] text-muted-foreground">{formatDuration(c.durationMs)}</td>
 								{#if isGateway}
-									<td class="p-2 font-mono text-[11px]">{fmtUsd(c.baseCostUsd)}</td>
-									<td class="p-2 font-mono text-[11px]">{fmtUsd(c.totalCostUsd)}</td>
+									<td class="p-2 font-mono text-[11px] tabular-nums">{formatActivityCredits(c.totalCostUsd)}</td>
 								{/if}
 							</tr>
 						{/each}
@@ -252,8 +259,7 @@
 					<tfoot class="border-t-2 border-border bg-muted/30">
 						<tr>
 							<td class="p-2 text-right text-xs font-medium" colspan="4">Total (this page)</td>
-							<td class="p-2 font-mono text-[11px]">{fmtUsd(data.totals.baseCostUsd)}</td>
-							<td class="p-2 font-mono text-[11px]">{fmtUsd(data.totals.totalCostUsd)}</td>
+							<td class="p-2 font-mono text-[11px] tabular-nums">{pageTotalCredits}</td>
 						</tr>
 					</tfoot>
 				{/if}

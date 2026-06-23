@@ -2,14 +2,17 @@ import type { LayoutServerLoad } from './$types';
 import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { userPreference } from '$lib/server/db/schema';
+import { isUserAdmin } from '$lib/server/auth/user-role';
 import { normalizeUiLocale } from '$lib/i18n/ui-locale';
 import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime';
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	let preferredUiLocale: string | null = null;
 	let preferredLanguage = 'en';
+	let isAdmin = false;
 
 	if (locals.user) {
+		isAdmin = await isUserAdmin(locals.user.id);
 		const [pref] = await getDb()
 			.select({
 				preferredUiLocale: userPreference.preferredUiLocale,
@@ -34,6 +37,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
 	return {
 		user: locals.user ?? null,
+		isAdmin,
 		preferredUiLocale,
 		preferredLanguage
 	};

@@ -15,7 +15,16 @@ export type ChatStreamEvent =
 			sessionId: string;
 			messageId: string;
 	  }
-	| { type: 'error'; error: string; details?: string[] };
+	| {
+			type: 'error';
+			error: string;
+			details?: string[];
+			code?: string;
+			availableCredits?: number;
+			requiredCredits?: number;
+			phase?: 'precheck' | 'settle';
+			creditsPerUsd?: number;
+	  };
 
 /** In-tool step labels streamed while a tool handler is still running. */
 export const CHAT_TOOL_PROGRESS_LABELS: Record<string, Record<string, string>> = {

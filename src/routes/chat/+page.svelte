@@ -23,7 +23,8 @@
   import ChatTimelineStep from "$lib/components/chat-timeline-step.svelte";
   import ChatErrorMessage from "$lib/components/chat-error-message.svelte";
   import ChatMarkdown from "$lib/components/chat-markdown.svelte";
-  import { consumeChatNdjsonStream, type ChatProgressEvent } from "$lib/chat/consume-chat-ndjson";
+  import { consumeChatNdjsonStream, type ChatProgressEvent, isInsufficientCreditsChatError } from "$lib/chat/consume-chat-ndjson";
+  import { insufficientCreditsTopUpHint } from "$lib/billing/insufficient-credits";
   import { parseFinalAnswerText } from "$lib/chat/chat-stream-types";
   import {
     normalizeChatDisplay,
@@ -383,6 +384,12 @@
         } else {
           appendMessage({ role: "assistant", variant: "text", content: "Stopped." });
         }
+      } else if (isInsufficientCreditsChatError(err)) {
+        appendMessage({
+          role: "assistant",
+          variant: "text",
+          content: `Error: ${insufficientCreditsTopUpHint(err)}`,
+        });
       } else {
         appendMessage({
           role: "assistant",

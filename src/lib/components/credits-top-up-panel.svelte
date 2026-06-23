@@ -4,6 +4,14 @@
 	import { Input } from '$lib/components/ui/input';
 	import { fetchWalletBalance } from '$lib/billing/fetch-wallet';
 	import { initPayPalCheckout } from '$lib/billing/paypal-checkout';
+	import {
+		CREDITS_PER_USD,
+		MIN_TOP_UP_CREDITS,
+		formatCreditsAsUsd,
+		purchaseMarkupDisclosureText
+	} from '$lib/billing/platform-pricing';
+	import PayPalLogo from '$lib/components/paypal-logo.svelte';
+	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 
 	let {
 		availableCredits = 0,
@@ -42,6 +50,14 @@
 		if (!Number.isFinite(parsed) || parsed <= 0) return 0;
 		return Math.round(parsed);
 	}
+
+	const topUpCredits = $derived(parseTopUpCredits());
+	const balanceUsd = $derived(formatCreditsAsUsd(walletAvailableCredits));
+	const topUpUsd = $derived(formatCreditsAsUsd(topUpCredits));
+	const topUpValid = $derived(topUpCredits >= MIN_TOP_UP_CREDITS);
+	const rateLabel = $derived(
+		`${CREDITS_PER_USD.toLocaleString('en-US')} credits = ${formatCreditsAsUsd(CREDITS_PER_USD) ?? '$1.00'} USD`
+	);
 
 	let teardownPayPal: (() => void) | undefined;
 
@@ -99,51 +115,95 @@
 	});
 </script>
 
-<div class="space-y-2 {compact ? 'text-xs' : 'text-sm'}">
+<div class="space-y-3 {compact ? 'text-xs' : 'text-sm'}">
 	{#if !compact}
 		<div>
-			<p class="text-muted-foreground text-xs">Balance</p>
-			<p class="text-2xl font-semibold tracking-tight tabular-nums">
-				{formatWalletBalance(walletAvailableCredits)}
+			<p class="text-muted-foreground text-xs">Current balance</p>
+			<p class="text-3xl font-semibold tracking-tight tabular-nums">
+				{balanceUsd ?? '—'}
+				<span class="text-muted-foreground text-base font-normal"> USD</span>
 			</p>
-			<p class="text-muted-foreground mt-0.5 text-xs">Eigen credits</p>
+			<p class="text-muted-foreground mt-0.5 text-xs tabular-nums">
+				{formatWalletBalance(walletAvailableCredits)} Eigen credits
+			</p>
 		</div>
 	{:else}
-		<p class="text-muted-foreground text-xs">
-			Balance: <span class="text-foreground font-medium tabular-nums"
-				>{formatWalletBalance(walletAvailableCredits)}</span
-			> credits
+		<p class="text-muted-foreground text-xs tabular-nums">
+			Balance:
+			<span class="text-foreground font-medium">{balanceUsd ?? '—'} USD</span>
+			<span class="text-muted-foreground">({formatWalletBalance(walletAvailableCredits)} credits)</span>
 		</p>
 	{/if}
 
-	<div class="rounded-xl bg-muted px-3.5 py-3">
-		<div class="space-y-2">
+	<div class="rounded-xl border border-border/60 bg-muted px-3.5 py-3">
+		<div class="space-y-3">
+			<div>
+				<p class="text-sm font-medium">Add credits via PayPal</p>
+				<p class="text-muted-foreground mt-0.5 text-xs">Pay in USD. Credits are added to your wallet immediately after checkout.</p>
+			</div>
+
 			<div class="space-y-1">
-				<Label for="top-up-amount" class="text-xs">Top-up amount (credits)</Label>
+				<Label for="top-up-amount" class="text-xs">Credits to add</Label>
 				<Input
 					id="top-up-amount"
 					type="text"
 					inputmode="numeric"
-					class="h-9 rounded-[4px] text-xs"
+					class="h-9 rounded-[4px] text-xs tabular-nums"
 					bind:value={topUpAmount}
 					placeholder="10000"
 				/>
-				<p class="text-muted-foreground text-xs">Minimum 1,000 credits ($1 USD via PayPal).</p>
 			</div>
+
+			<div class="rounded-lg border border-border/60 bg-background px-3 py-2.5">
+				<dl class="space-y-1.5 text-xs">
+					<div class="flex items-baseline justify-between gap-3">
+						<dt class="text-muted-foreground">You pay</dt>
+						<dd class="text-lg font-semibold tabular-nums tracking-tight">
+							{topUpUsd ?? '—'}
+							<span class="text-muted-foreground text-sm font-normal"> USD</span>
+						</dd>
+					</div>
+					<div class="flex items-baseline justify-between gap-3">
+						<dt class="text-muted-foreground">Credits added</dt>
+						<dd class="font-medium tabular-nums">
+							{topUpCredits > 0 ? formatWalletBalance(topUpCredits) : '—'}
+						</dd>
+					</div>
+				</dl>
+			</div>
+
+			<p class="text-muted-foreground text-xs">Rate: {rateLabel}. Minimum top-up {formatCreditsAsUsd(MIN_TOP_UP_CREDITS) ?? '$1.00'} USD ({MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits).</p>
+			{#if topUpCredits > 0 && !topUpValid}
+				<p class="text-destructive text-xs">
+					Minimum top-up is {formatCreditsAsUsd(MIN_TOP_UP_CREDITS) ?? '$1.00'} USD ({MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits).
+				</p>
+			{/if}
+			<p class="text-muted-foreground text-xs">{purchaseMarkupDisclosureText()}</p>
+
 			{#if paypalConfigured}
 				<Button
 					type="button"
 					variant="default"
 					size="sm"
-					class="rounded-[4px]"
+					class="h-auto min-h-10 gap-2 rounded-[4px] border-0 bg-[#ffc439] px-5 py-2.5 font-semibold text-[#003087] hover:bg-[#f2ba36] dark:bg-[#ffc439] dark:text-[#003087] dark:hover:bg-[#f2ba36]"
 					bind:ref={paypalButtonEl}
-					disabled={!paypalReady}
+					disabled={!paypalReady || !topUpValid}
+					aria-label={paypalReady ? 'Pay with PayPal' : topUpError ? 'PayPal unavailable' : 'Loading PayPal checkout'}
+					aria-busy={!paypalReady && !topUpError}
 				>
-					{paypalReady ? 'Pay with PayPal' : topUpError ? 'PayPal unavailable' : 'Loading PayPal…'}
+					{#if paypalReady}
+						<span class="text-sm">Pay {topUpUsd ?? ''}</span>
+						<PayPalLogo />
+					{:else if topUpError}
+						PayPal unavailable
+					{:else}
+						<LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
+						<span class="text-sm">Loading PayPal…</span>
+					{/if}
 				</Button>
 			{:else}
 				<p class="text-destructive text-xs">
-					PayPal is not configured on this deployment. Use Settings → LLM → BYOK for your own API keys.
+					PayPal is not configured on this deployment. Contact the operator to enable credit top-ups.
 				</p>
 			{/if}
 			{#if topUpStatus}

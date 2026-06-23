@@ -84,5 +84,13 @@ describe.skipIf(!hasDb)('wallet RLS integration', () => {
 			const rows = await db.select().from(userWallet).where(eq(userWallet.userId, userA));
 			expect(rows).toHaveLength(0);
 		});
+
+		await withEvalDb(userB, async (db) => {
+			const ledgerRows = await db
+				.select()
+				.from(walletLedgerEntry)
+				.where(eq(walletLedgerEntry.userId, userA));
+			expect(ledgerRows).toHaveLength(0);
+		});
 	});
 });

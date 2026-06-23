@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { registerUser } from './test-helpers';
 
 test.describe('Pricing transparency (AC-014, AC-015)', () => {
-	test('activity log shows base cost, markup, total, and duration per call after capture', async ({
+	test('activity log shows credits and duration per call after capture', async ({
 		page,
 		context
 	}) => {
@@ -19,15 +19,16 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
 		const headers = await page.locator('thead th').allTextContents();
 		const headerText = headers.join(' ');
 		expect(headerText).toContain('Duration');
-		expect(headerText).toContain('Base USD');
-		expect(headerText).toContain('Total USD');
+		expect(headerText).toContain('Credits');
+		expect(headerText).not.toContain('Base USD');
+		expect(headerText).not.toContain('Total USD');
 		expect(headerText).not.toContain('Markup');
 
 		const rowCount = await page.locator('tbody tr').count();
 		expect(rowCount).toBeGreaterThanOrEqual(1);
 	});
 
-	test('activity page shows totals row with expected columns', async ({ page, context }) => {
+	test('activity page shows totals row with credits', async ({ page, context }) => {
 		await registerUser(context, page);
 		await page.goto('/capture');
 
@@ -40,7 +41,8 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
 		await expect(page.locator('tfoot')).toBeVisible();
 		const totals = await page.locator('tfoot td').allTextContents();
 		const totalsText = totals.join(' ');
-		expect(totalsText).toMatch(/\$/);
+		expect(totalsText).toContain('Total (this page)');
+		expect(totalsText).not.toContain('$');
 	});
 
 	test('empty activity state shows placeholder message', async ({ page, context }) => {

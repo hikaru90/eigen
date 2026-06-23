@@ -8,7 +8,6 @@
 
 	let {
 		open,
-		billingMode = 'platform_credits' as 'platform_credits' | 'byok',
 		walletAvailableCredits = 0,
 		minCaptureCredits = 50,
 		paypalConfigured = false,
@@ -17,7 +16,6 @@
 		creditsGatePassed = false
 	}: {
 		open: boolean;
-		billingMode?: 'platform_credits' | 'byok';
 		walletAvailableCredits?: number;
 		minCaptureCredits?: number;
 		paypalConfigured?: boolean;
@@ -41,7 +39,7 @@
 	});
 
 	const creditsOk = $derived(
-		billingMode === 'byok' || localWalletCredits >= minCaptureCredits || creditsGatePassed
+		localWalletCredits >= minCaptureCredits || creditsGatePassed
 	);
 
 	const completeOnboardingEnhance: SubmitFunction = () =>
@@ -75,33 +73,25 @@
 				{#if step === 0}
 					<p class="text-xs leading-relaxed">
 						Eigen is your personal memory — capture raw thoughts, and the system organizes them for
-						you. Before your first capture, add credits (or use BYOK in Settings) so enrichment can
-						run.
+						you. Before your first capture, add credits so enrichment can run.
 					</p>
 				{:else if step === 1}
 					<p class="text-xs leading-relaxed">
-						{#if billingMode === 'byok'}
-							You are on <strong>bring-your-own-key</strong> billing — no wallet top-up needed. Manage
-							keys under Settings → LLM → BYOK.
-						{:else}
-							Add <strong>Eigen credits</strong> to pay for capture, chat, and embeddings. Each LLM call
-							is logged transparently in Activity.
-						{/if}
+						Add <strong>Eigen credits</strong> to pay for capture, chat, voice dictation, and embeddings.
+						Each LLM call is logged in Activity.
 					</p>
-					{#if billingMode === 'platform_credits'}
-						<CreditsTopUpPanel
-							compact
-							availableCredits={localWalletCredits}
-							{paypalConfigured}
-							{paypalClientId}
-							{paypalSdkUrl}
-							onBalanceUpdated={(credits) => {
-								localWalletCredits = credits;
-							}}
-						/>
-						{#if creditsOk}
-							<p class="text-xs text-green-600 dark:text-green-400">Enough credits to capture.</p>
-						{/if}
+					<CreditsTopUpPanel
+						compact
+						availableCredits={localWalletCredits}
+						{paypalConfigured}
+						{paypalClientId}
+						{paypalSdkUrl}
+						onBalanceUpdated={(credits) => {
+							localWalletCredits = credits;
+						}}
+					/>
+					{#if creditsOk}
+						<p class="text-xs text-green-600 dark:text-green-400">Enough credits to capture.</p>
 					{/if}
 				{:else}
 					<p class="text-xs leading-relaxed">

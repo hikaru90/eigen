@@ -1,8 +1,32 @@
 import type { ChatStreamEvent } from './chat-stream-types';
+import {
+	INSUFFICIENT_CREDITS_CODE,
+	isInsufficientCreditsChatError
+} from '$lib/billing/insufficient-credits';
 
 export type ChatNdjsonDone = Extract<ChatStreamEvent, { type: 'done' }>;
 
 export type ChatProgressEvent = Exclude<ChatStreamEvent, { type: 'done' } | { type: 'error' }>;
+
+export class ChatStreamError extends Error {
+	readonly details?: string[];
+	readonly code?: string;
+	readonly availableCredits?: number;
+	readonly requiredCredits?: number;
+
+	constructor(event: Extract<ChatStreamEvent, { type: 'error' }>) {
+		super(event.error || 'Chat failed');
+		this.name = 'ChatStreamError';
+		this.details = event.details;
+		if (event.code === INSUFFICIENT_CREDITS_CODE) {
+			this.code = event.code;
+			this.availableCredits = event.availableCredits;
+			this.requiredCredits = event.requiredCredits;
+		}
+	}
+}
+
+export { isInsufficientCreditsChatError };
 
 function parseNdjsonLine(line: string): ChatStreamEvent | null {
 	const trimmed = line.trim();
@@ -32,7 +56,7 @@ export async function consumeChatNdjsonStream(
 		if (!event) return 'continue';
 
 		if (event.type === 'error') {
-			throw new Error(event.error || 'Chat failed');
+			throw new ChatStreamError(event);
 		}
 		if (event.type === 'done') {
 			return event;

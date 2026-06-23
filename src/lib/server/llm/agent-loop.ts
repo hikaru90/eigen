@@ -548,10 +548,11 @@ export async function agentChat(input: {
 	if (
 		!deleteIntent &&
 		resolvedRoute.mode === 'single_tool' &&
-		resolvedRoute.tool === 'capture_thought'
+		(resolvedRoute.tool === 'capture_thought' || resolvedRoute.tool === 'list_thoughts')
 	) {
 		const intent = await classifyChatIntent({ userId: input.userId, userMessage: lastUserMessage });
-		console.info('[agent-loop] capture gate', {
+		console.info('[agent-loop] single-tool intent gate', {
+			tool: resolvedRoute.tool,
 			intent,
 			userMessagePreview: lastUserMessage.slice(0, 80)
 		});
@@ -561,7 +562,7 @@ export async function agentChat(input: {
 				tool: 'answer_question',
 				arguments: { question: lastUserMessage }
 			};
-		} else if (intent === 'manage') {
+		} else if (intent === 'manage' && resolvedRoute.tool === 'capture_thought') {
 			resolvedRoute = { mode: 'multi_step' };
 		}
 	}
