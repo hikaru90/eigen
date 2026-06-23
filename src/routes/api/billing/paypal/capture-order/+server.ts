@@ -4,6 +4,10 @@ import type { RequestHandler } from './$types';
 import { getDb } from '$lib/server/db';
 import { paymentOrder } from '$lib/server/db/schema';
 import { capturePayPalOrder } from '$lib/server/billing/paypal';
+import {
+	netCoversPlatformSubtotal,
+	usdStringsMatchWithinTolerance
+} from '$lib/server/billing/checkout-pricing';
 import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet';
 import { CREDITS_PER_USD } from '$lib/server/billing/credits';
 import { captureServerEvent } from '$lib/server/analytics/posthog-server';
@@ -66,8 +70,38 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		const capture = await capturePayPalOrder(orderId);
 
-		if (capture.capturedCredits !== existing.requestedCredits) {
-			const message = `Captured credits (${capture.capturedCredits}) do not match requested (${existing.requestedCredits})`;
+		if (!existing.chargedGrossUsd || !existing.platformSubtotalUsd) {
+			const message = 'Payment order missing checkout pricing (legacy order — contact support)';
+			captureServerEvent({
+				distinctId: user.id,
+				event: 'billing_order_capture_failed',
+				properties: {
+					paypal_order_id: orderId,
+					internal_order_id: existing.id,
+					amount_credits: existing.requestedCredits,
+					error_message: message
+				}
+			});
+			return json({ error: message }, { status: 400 });
+		}
+
+		if (!usdStringsMatchWithinTolerance(capture.grossUsd, existing.chargedGrossUsd)) {
+			const message = `Captured gross (${capture.grossUsd}) does not match quoted checkout (${existing.chargedGrossUsd})`;
+			captureServerEvent({
+				distinctId: user.id,
+				event: 'billing_order_capture_failed',
+				properties: {
+					paypal_order_id: orderId,
+					internal_order_id: existing.id,
+					amount_credits: existing.requestedCredits,
+					error_message: message
+				}
+			});
+			return json({ error: message }, { status: 400 });
+		}
+
+		if (!netCoversPlatformSubtotal(capture.netUsd, existing.platformSubtotalUsd)) {
+			const message = `PayPal net received (${capture.netUsd}) is below platform subtotal (${existing.platformSubtotalUsd})`;
 			captureServerEvent({
 				distinctId: user.id,
 				event: 'billing_order_capture_failed',
@@ -86,6 +120,8 @@ export const POST: RequestHandler = async (event) => {
 			.set({
 				status: 'approved',
 				payerEmail: capture.payerEmail,
+				actualPaypalFeeUsd: capture.paypalFeeUsd,
+				netReceivedUsd: capture.netUsd,
 				rawCapture: capture.raw,
 				updatedAt: new Date()
 			})
@@ -95,7 +131,13 @@ export const POST: RequestHandler = async (event) => {
 			userId: user.id,
 			paymentOrderId: existing.id,
 			paypalOrderId: orderId,
-			amountCredits: capture.capturedCredits
+			amountCredits: existing.requestedCredits,
+			audit: {
+				grossUsd: capture.grossUsd,
+				netUsd: capture.netUsd,
+				paypalFeeUsd: capture.paypalFeeUsd,
+				platformSubtotalUsd: existing.platformSubtotalUsd
+			}
 		});
 
 		captureServerEvent({
@@ -104,9 +146,13 @@ export const POST: RequestHandler = async (event) => {
 			properties: {
 				paypal_order_id: orderId,
 				internal_order_id: existing.id,
-				amount_credits: capture.capturedCredits,
+				amount_credits: existing.requestedCredits,
 				credited: result.credited,
-				available_credits: result.availableCredits
+				available_credits: result.availableCredits,
+				gross_usd: capture.grossUsd,
+				paypal_fee_usd: capture.paypalFeeUsd,
+				net_received_usd: capture.netUsd,
+				platform_subtotal_usd: existing.platformSubtotalUsd
 			}
 		});
 
@@ -114,8 +160,13 @@ export const POST: RequestHandler = async (event) => {
 			status: 'captured',
 			credited: result.credited,
 			availableCredits: result.availableCredits,
-			capturedCredits: capture.capturedCredits,
-			creditsPerUsd: CREDITS_PER_USD
+			creditedCredits: existing.requestedCredits,
+			creditsPerUsd: CREDITS_PER_USD,
+			checkout: {
+				grossUsd: capture.grossUsd,
+				paypalFeeUsd: capture.paypalFeeUsd,
+				netUsd: capture.netUsd
+			}
 		});
 	} catch (error) {
 		captureServerEvent({

@@ -1,18 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import {
+	computeTopUpCheckoutQuoteUi,
 	formatActivityCredits,
 	formatActivityCreditsSum,
 	formatCreditsAsUsd,
+	formatUsdAmount,
 	platformMarkupPercentLabel,
 	purchaseMarkupDisclosureText,
 	totalCostUsdToCredits
 } from './platform-pricing';
 
 describe('platform-pricing', () => {
-	it('purchase disclosure mentions markup percent', () => {
+	it('purchase disclosure mentions markup at purchase and usage', () => {
 		expect(platformMarkupPercentLabel()).toBe('20%');
 		expect(purchaseMarkupDisclosureText()).toContain('20%');
-		expect(purchaseMarkupDisclosureText()).toContain('1,000 credits per $1 USD');
+		expect(purchaseMarkupDisclosureText()).toContain('PayPal');
+	});
+
+	it('quotes checkout with markup and PayPal fee gross-up for 1000 credits', () => {
+		const quote = computeTopUpCheckoutQuoteUi(1000);
+		expect(quote).not.toBeNull();
+		expect(quote!.baseUsd).toBe(1);
+		expect(quote!.markupUsd).toBe(0.2);
+		expect(quote!.platformSubtotalUsd).toBe(1.2);
+		expect(quote!.grossUsd).toBe(1.75);
+		expect(quote!.estimatedPaypalFeeUsd).toBe(0.54);
 	});
 
 	it('converts totalCostUsd to credits including markup', () => {
@@ -33,10 +45,14 @@ describe('platform-pricing', () => {
 		expect(formatActivityCreditsSum(['0.001200', '0.002400'])).toBe('3.6');
 	});
 
-	it('formats credits as USD for top-up display', () => {
+	it('formats credits as USD for balance display', () => {
 		expect(formatCreditsAsUsd(1000)).toBe('$1.00');
 		expect(formatCreditsAsUsd(10000)).toBe('$10.00');
 		expect(formatCreditsAsUsd(0)).toBe('$0.00');
 		expect(formatCreditsAsUsd(-1)).toBeNull();
+	});
+
+	it('formats USD amounts for checkout lines', () => {
+		expect(formatUsdAmount(1.75)).toBe('$1.75');
 	});
 });

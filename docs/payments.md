@@ -33,17 +33,22 @@ Each user has one row in `user_wallet` (tenant-isolated via RLS):
 
 Gateway `usage.cost` is **USD**. Platform billing converts provider cost to micro-USD, applies **20% markup**, then debits whole credits from `available_credits`.
 
-Append-only `wallet_ledger_entry` rows record `top_up`, `usage_debit`, and reservation kinds (`amount_credits`).
+**Top-up checkout** also applies the **20% platform markup** plus a **PayPal fee gross-up** so the operator nets at least the marked-up subtotal after PayPal processing fees. Users still receive exactly the credits they select; checkout total is higher than `credits / 1000`.
+
+Append-only `wallet_ledger_entry` rows record `top_up`, `usage_debit`, and reservation kinds (`amount_credits`). Top-up ledger metadata includes gross, net, PayPal fee, and platform subtotal for audit.
 
 **Activity** (`/activity`) still shows per-call costs in **USD** for pricing transparency.
 
 ## PayPal top-up flow
 
-1. User enters an integer **credit** amount on **Settings → LLM → Credits** (minimum 1,000 credits = $1 USD).
-2. `POST /api/billing/paypal/create-order` with `{ "amountCredits": … }` creates a `payment_order` row and a PayPal order in **USD** (`value = credits / 1000`).
-3. User approves in the PayPal UI.
-4. `POST /api/billing/paypal/capture-order` verifies capture and calls `creditFromPayment` (idempotent per `paypal_order_id`).
-5. Client refreshes balance via `GET /api/billing/wallet`.
+1. User enters an integer **credit** amount on **Settings → LLM → Credits** (minimum 1,000 credits).
+2. Checkout quote: `baseUsd = credits / 1000`, `platformSubtotalUsd = baseUsd × 1.20`, then gross-up for PayPal fees: `grossUsd = ceil((platformSubtotalUsd + fixedFee) / (1 − feeRate))` to two decimal places.
+3. `POST /api/billing/paypal/create-order` with `{ "amountCredits": … }` creates a `payment_order` row (with quoted `chargedGrossUsd`, `platformSubtotalUsd`, `estimatedPaypalFeeUsd`) and a PayPal order charged **`grossUsd`** (not `credits / 1000`).
+4. User approves in the PayPal UI.
+5. `POST /api/billing/paypal/capture-order` verifies capture gross matches quote, parses `seller_receivable_breakdown` for actual PayPal fee and net received, asserts net ≥ platform subtotal, then calls `creditFromPayment` with **`requestedCredits`** (idempotent per `paypal_order_id`).
+6. Client refreshes balance via `GET /api/billing/wallet`.
+
+**Example (1,000 credits, default US PayPal fees $0.49 + 2.9%):** gateway value $1.00, platform subtotal $1.20, checkout total **$1.75**, wallet credited **1,000 credits**.
 
 There is no user-facing billing currency picker; PayPal settlement is always USD.
 
@@ -55,6 +60,8 @@ There is no user-facing billing currency picker; PayPal settlement is always USD
 | `PAYPAL_CLIENT_ID` | REST + JS SDK client id |
 | `PAYPAL_CLIENT_SECRET` | Capture secret (alias: `PAYPAL_SECRET`) |
 | `PAYPAL_WEB_SDK_URL` | Optional v6 SDK script URL (sandbox vs live) |
+| `PAYPAL_FEE_FIXED_USD` | Fixed PayPal fee per transaction for checkout gross-up (default `0.49`) |
+| `PAYPAL_FEE_RATE` | Variable PayPal fee rate for gross-up (default `0.029` = 2.9%) |
 
 ## What gets billed (platform credits)
 

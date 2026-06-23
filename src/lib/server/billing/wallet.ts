@@ -443,6 +443,12 @@ export async function creditFromPayment(input: {
 	paymentOrderId: string;
 	paypalOrderId: string;
 	amountCredits: number;
+	audit?: {
+		grossUsd: string;
+		netUsd: string;
+		paypalFeeUsd: string;
+		platformSubtotalUsd: string;
+	};
 }): Promise<{ credited: boolean; availableCredits: number }> {
 	const db = getDb();
 	if (!Number.isInteger(input.amountCredits) || input.amountCredits < 1) {
@@ -492,7 +498,11 @@ export async function creditFromPayment(input: {
 			amountCredits: input.amountCredits,
 			referenceType: 'payment_order',
 			referenceId: input.paymentOrderId,
-			metadata: { paypalOrderId: input.paypalOrderId }
+			metadata: {
+				paypalOrderId: input.paypalOrderId,
+				requestedCredits: input.amountCredits,
+				...(input.audit ?? {})
+			}
 		});
 
 		await tx

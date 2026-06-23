@@ -7,7 +7,10 @@
 	import {
 		CREDITS_PER_USD,
 		MIN_TOP_UP_CREDITS,
+		computeTopUpCheckoutQuoteUi,
 		formatCreditsAsUsd,
+		formatUsdAmount,
+		platformMarkupPercentLabel,
 		purchaseMarkupDisclosureText
 	} from '$lib/billing/platform-pricing';
 	import PayPalLogo from '$lib/components/paypal-logo.svelte';
@@ -64,11 +67,12 @@
 	}
 
 	const topUpCredits = $derived(parseTopUpCredits());
+	const checkoutQuote = $derived(computeTopUpCheckoutQuoteUi(topUpCredits));
+	const minCheckoutQuote = $derived(computeTopUpCheckoutQuoteUi(MIN_TOP_UP_CREDITS));
 	const balanceUsd = $derived(formatCreditsAsUsd(walletAvailableCredits));
-	const topUpUsd = $derived(formatCreditsAsUsd(topUpCredits));
 	const topUpValid = $derived(topUpCredits >= MIN_TOP_UP_CREDITS);
 	const rateLabel = $derived(
-		`${CREDITS_PER_USD.toLocaleString('en-US')} credits = ${formatCreditsAsUsd(CREDITS_PER_USD) ?? '$1.00'} USD`
+		`${CREDITS_PER_USD.toLocaleString('en-US')} credits = ${formatCreditsAsUsd(CREDITS_PER_USD) ?? '$1.00'} USD gateway value`
 	);
 
 	let teardownPayPal: (() => void) | undefined;
@@ -169,25 +173,51 @@
 			<div class="rounded-lg border border-border/60 bg-background px-3 py-2.5">
 				<dl class="space-y-1.5 text-xs">
 					<div class="flex items-baseline justify-between gap-3">
-						<dt class="text-muted-foreground">You pay</dt>
-						<dd class="text-lg font-semibold tabular-nums tracking-tight">
-							{topUpUsd ?? '—'}
-							<span class="text-muted-foreground text-sm font-normal"> USD</span>
-						</dd>
-					</div>
-					<div class="flex items-baseline justify-between gap-3">
 						<dt class="text-muted-foreground">Credits added</dt>
 						<dd class="font-medium tabular-nums">
 							{topUpCredits > 0 ? formatWalletBalance(topUpCredits) : '—'}
 						</dd>
 					</div>
+					{#if checkoutQuote}
+						<div class="flex items-baseline justify-between gap-3">
+							<dt class="text-muted-foreground">Gateway value</dt>
+							<dd class="tabular-nums">{formatUsdAmount(checkoutQuote.baseUsd)}</dd>
+						</div>
+						<div class="flex items-baseline justify-between gap-3">
+							<dt class="text-muted-foreground">Platform fee ({platformMarkupPercentLabel()})</dt>
+							<dd class="tabular-nums">{formatUsdAmount(checkoutQuote.markupUsd)}</dd>
+						</div>
+						<div class="flex items-baseline justify-between gap-3">
+							<dt class="text-muted-foreground">Est. PayPal processing</dt>
+							<dd class="tabular-nums">{formatUsdAmount(checkoutQuote.estimatedPaypalFeeUsd)}</dd>
+						</div>
+						<div class="border-border/60 flex items-baseline justify-between gap-3 border-t pt-1.5">
+							<dt class="font-medium">Total due at PayPal</dt>
+							<dd class="text-lg font-semibold tabular-nums tracking-tight">
+								{formatUsdAmount(checkoutQuote.grossUsd)}
+								<span class="text-muted-foreground text-sm font-normal"> USD</span>
+							</dd>
+						</div>
+					{:else}
+						<div class="flex items-baseline justify-between gap-3">
+							<dt class="text-muted-foreground">Total due at PayPal</dt>
+							<dd class="text-lg font-semibold tabular-nums tracking-tight">—</dd>
+						</div>
+					{/if}
 				</dl>
 			</div>
 
-			<p class="text-muted-foreground text-xs">Rate: {rateLabel}. Minimum top-up {formatCreditsAsUsd(MIN_TOP_UP_CREDITS) ?? '$1.00'} USD ({MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits).</p>
+			<p class="text-muted-foreground text-xs">
+				Rate: {rateLabel}. Minimum {MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits
+				{#if minCheckoutQuote}
+					(checkout from {formatUsdAmount(minCheckoutQuote.grossUsd)}).
+				{:else}
+					.
+				{/if}
+			</p>
 			{#if topUpCredits > 0 && !topUpValid}
 				<p class="text-destructive text-xs">
-					Minimum top-up is {formatCreditsAsUsd(MIN_TOP_UP_CREDITS) ?? '$1.00'} USD ({MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits).
+					Minimum top-up is {MIN_TOP_UP_CREDITS.toLocaleString('en-US')} credits.
 				</p>
 			{/if}
 			<p class="text-muted-foreground text-xs">{purchaseMarkupDisclosureText()}</p>
@@ -204,7 +234,9 @@
 					aria-busy={!paypalReady && !topUpError}
 				>
 					{#if paypalReady}
-						<span class="text-sm">Pay {topUpUsd ?? ''}</span>
+						<span class="text-sm">
+							Pay {checkoutQuote ? formatUsdAmount(checkoutQuote.grossUsd) : ''}
+						</span>
 						<PayPalLogo />
 					{:else if topUpError}
 						PayPal unavailable

@@ -413,6 +413,16 @@ export const paymentOrder = pgTable(
 		status: text('status').$type<PaymentOrderStatus>().notNull().default('created'),
 		requestedCredits: integer('requested_credits').notNull(),
 		capturedCredits: integer('captured_credits'),
+		/** PayPal gross charge quoted at checkout (USD decimal string). */
+		chargedGrossUsd: text('charged_gross_usd'),
+		/** Base + platform markup target net before PayPal fees (USD decimal string). */
+		platformSubtotalUsd: text('platform_subtotal_usd'),
+		/** Estimated PayPal fee at order creation (USD decimal string). */
+		estimatedPaypalFeeUsd: text('estimated_paypal_fee_usd'),
+		/** Actual PayPal fee from capture breakdown (USD decimal string). */
+		actualPaypalFeeUsd: text('actual_paypal_fee_usd'),
+		/** Net USD received after PayPal fees (USD decimal string). */
+		netReceivedUsd: text('net_received_usd'),
 		currency: text('currency').notNull(),
 		payerEmail: text('payer_email'),
 		rawCapture: jsonb('raw_capture').$type<Record<string, unknown>>(),

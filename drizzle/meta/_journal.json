@@ -344,6 +344,13 @@
       "when": 1750694400000,
       "tag": "0049_user_account_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1750780800000,
+      "tag": "0050_payment_order_checkout_pricing",
+      "breakpoints": true
     }
   ]
 }

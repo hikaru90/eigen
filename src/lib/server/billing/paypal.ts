@@ -1,23 +1,34 @@
 import { env } from '$env/dynamic/private';
-import { creditsToPayPalUsdAmount } from '$lib/server/billing/credits';
+import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing';
 
 const PAYPAL_SETTLEMENT_CURRENCY = 'USD';
 
 type PayPalAccessToken = { access_token: string; expires_in: number };
 
+type PayPalMoney = { currency_code?: string; value?: string };
+
+type PayPalSellerBreakdown = {
+	gross_amount?: PayPalMoney;
+	paypal_fee?: PayPalMoney;
+	net_amount?: PayPalMoney;
+};
+
+type PayPalCaptureObject = {
+	id?: string;
+	status?: string;
+	amount?: PayPalMoney;
+	seller_receivable_breakdown?: PayPalSellerBreakdown;
+};
+
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 export function getPayPalApiBase(): string {
-	// Backwards compatible with older env naming:
-	// - PAYPAL_API_BASE (preferred)
-	// - PAYPAL_URL (alias)
 	const base = (env.PAYPAL_API_BASE ?? env.PAYPAL_URL)?.trim();
 	if (!base) {
 		throw new Error('PayPal base URL is required (set PAYPAL_API_BASE or PAYPAL_URL)');
 	}
 	const normalized = base.replace(/\/$/, '');
 	const lower = normalized.toLowerCase();
-	// Common misconfiguration: website host instead of REST API (causes OAuth 401 / capture 404).
 	if (
 		(lower.includes('sandbox.paypal.com') || lower.includes('www.paypal.com')) &&
 		!lower.includes('api-m.')
@@ -38,9 +49,6 @@ export function getPayPalClientId(): string {
 }
 
 export function getPayPalClientSecret(): string {
-	// Backwards compatible with older env naming:
-	// - PAYPAL_CLIENT_SECRET (preferred)
-	// - PAYPAL_SECRET (alias)
 	const secret = (env.PAYPAL_CLIENT_SECRET ?? env.PAYPAL_SECRET)?.trim();
 	if (!secret) {
 		throw new Error('PayPal client secret is required (set PAYPAL_CLIENT_SECRET or PAYPAL_SECRET)');
@@ -48,7 +56,6 @@ export function getPayPalClientSecret(): string {
 	return secret;
 }
 
-/** v6 script URLs per https://docs.paypal.ai/developer/how-to/sdk/js/v6/configuration */
 const PAYPAL_SDK_V6_LIVE = 'https://www.paypal.com/web-sdk/v6/core';
 const PAYPAL_SDK_V6_SANDBOX = 'https://www.sandbox.paypal.com/web-sdk/v6/core';
 
@@ -129,17 +136,18 @@ async function paypalFetch(path: string, init: RequestInit): Promise<unknown> {
 export type PayPalCreateOrderResult = {
 	id: string;
 	status: string;
+	grossPayPalValue: string;
 };
 
 export async function createPayPalOrder(input: { amountCredits: number }): Promise<PayPalCreateOrderResult> {
-	const value = creditsToPayPalUsdAmount(input.amountCredits);
+	const quote = computeTopUpCheckout(input.amountCredits);
 	const body = {
 		intent: 'CAPTURE',
 		purchase_units: [
 			{
 				amount: {
 					currency_code: PAYPAL_SETTLEMENT_CURRENCY,
-					value
+					value: quote.grossPayPalValue
 				}
 			}
 		]
@@ -151,14 +159,68 @@ export async function createPayPalOrder(input: { amountCredits: number }): Promi
 	if (!json.id) {
 		throw new Error('PayPal create order response missing id');
 	}
-	return { id: json.id, status: json.status ?? 'CREATED' };
+	return {
+		id: json.id,
+		status: json.status ?? 'CREATED',
+		grossPayPalValue: quote.grossPayPalValue
+	};
+}
+
+function parsePayPalUsdValue(money: PayPalMoney | undefined, label: string): string {
+	const value = money?.value?.trim();
+	if (!value) {
+		throw new Error(`PayPal capture missing ${label}`);
+	}
+	const currency = money?.currency_code?.trim() ?? PAYPAL_SETTLEMENT_CURRENCY;
+	if (currency !== PAYPAL_SETTLEMENT_CURRENCY) {
+		throw new Error(`PayPal ${label} currency must be ${PAYPAL_SETTLEMENT_CURRENCY}, got ${currency}`);
+	}
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		throw new Error(`PayPal ${label} is invalid: ${value}`);
+	}
+	return parsed.toFixed(2);
+}
+
+function extractCaptureFromOrder(json: Record<string, unknown>): PayPalCaptureObject | null {
+	const purchaseUnits = json.purchase_units;
+	const unit = Array.isArray(purchaseUnits) ? purchaseUnits[0] : null;
+	const captures =
+		unit && typeof unit === 'object'
+			? (unit as { payments?: { captures?: unknown[] } }).payments?.captures
+			: undefined;
+	const capture = Array.isArray(captures) && captures[0] && typeof captures[0] === 'object' ? captures[0] : null;
+	return capture as PayPalCaptureObject | null;
+}
+
+async function resolveCaptureWithBreakdown(
+	capture: PayPalCaptureObject
+): Promise<PayPalCaptureObject> {
+	if (capture.seller_receivable_breakdown?.net_amount?.value) {
+		return capture;
+	}
+	const captureId = capture.id?.trim();
+	if (!captureId) {
+		throw new Error('PayPal capture missing id for fee breakdown lookup');
+	}
+	const detail = (await paypalFetch(`/v2/payments/captures/${encodeURIComponent(captureId)}`, {
+		method: 'GET'
+	})) as PayPalCaptureObject;
+	if (!detail.seller_receivable_breakdown?.net_amount?.value) {
+		throw new Error(
+			'PayPal capture fee breakdown unavailable (payment may still be pending). Retry capture shortly.'
+		);
+	}
+	return detail;
 }
 
 export type PayPalCaptureResult = {
 	id: string;
 	status: string;
 	payerEmail: string | null;
-	capturedCredits: number;
+	grossUsd: string;
+	paypalFeeUsd: string;
+	netUsd: string;
 	currency: string;
 	raw: Record<string, unknown>;
 };
@@ -169,25 +231,17 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalCapture
 	})) as Record<string, unknown>;
 
 	const status = typeof json.status === 'string' ? json.status : '';
-	const purchaseUnits = json.purchase_units;
-	const unit = Array.isArray(purchaseUnits) ? purchaseUnits[0] : null;
-	const captures = unit && typeof unit === 'object' ? (unit as { payments?: { captures?: unknown[] } }).payments?.captures : undefined;
-	const capture = Array.isArray(captures) && captures[0] && typeof captures[0] === 'object' ? captures[0] : null;
-	const amount =
-		capture && typeof capture === 'object'
-			? (capture as { amount?: { currency_code?: string; value?: string } }).amount
-			: undefined;
+	let capture = extractCaptureFromOrder(json);
+	if (!capture) {
+		throw new Error('PayPal capture response missing capture object');
+	}
 
-	const currency = amount?.currency_code?.trim() ?? PAYPAL_SETTLEMENT_CURRENCY;
-	if (currency !== PAYPAL_SETTLEMENT_CURRENCY) {
-		throw new Error(`PayPal capture currency must be ${PAYPAL_SETTLEMENT_CURRENCY}, got ${currency}`);
-	}
-	const valueStr = amount?.value?.trim() ?? '0';
-	const usd = Number(valueStr);
-	const capturedCredits = Math.round(usd * 1000);
-	if (!Number.isFinite(capturedCredits) || capturedCredits < 1) {
-		throw new Error('PayPal capture amount missing or invalid');
-	}
+	capture = await resolveCaptureWithBreakdown(capture);
+
+	const grossUsd = parsePayPalUsdValue(capture.amount, 'gross amount');
+	const breakdown = capture.seller_receivable_breakdown;
+	const paypalFeeUsd = parsePayPalUsdValue(breakdown?.paypal_fee, 'paypal_fee');
+	const netUsd = parsePayPalUsdValue(breakdown?.net_amount, 'net_amount');
 
 	const payer = json.payer;
 	const payerEmail =
@@ -199,8 +253,10 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalCapture
 		id: typeof json.id === 'string' ? json.id : orderId,
 		status,
 		payerEmail,
-		capturedCredits,
-		currency,
+		grossUsd,
+		paypalFeeUsd,
+		netUsd,
+		currency: PAYPAL_SETTLEMENT_CURRENCY,
 		raw: json
 	};
 }
@@ -214,4 +270,19 @@ export async function getPayPalOrderCurrency(orderId: string): Promise<string | 
 	};
 	const code = json.purchase_units?.[0]?.amount?.currency_code;
 	return code?.trim() ? code.trim().toUpperCase() : null;
+}
+
+/** @internal Exported for unit tests. */
+export function parsePayPalCaptureBreakdownForTest(capture: PayPalCaptureObject): {
+	grossUsd: string;
+	paypalFeeUsd: string;
+	netUsd: string;
+} {
+	const grossUsd = parsePayPalUsdValue(capture.amount, 'gross amount');
+	const breakdown = capture.seller_receivable_breakdown;
+	return {
+		grossUsd,
+		paypalFeeUsd: parsePayPalUsdValue(breakdown?.paypal_fee, 'paypal_fee'),
+		netUsd: parsePayPalUsdValue(breakdown?.net_amount, 'net_amount')
+	};
 }

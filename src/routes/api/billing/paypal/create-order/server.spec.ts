@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 import { MIN_TOP_UP_CREDITS } from '$lib/server/billing/credits';
+import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing';
 
 const { createPayPalOrderMock, getDbMock } = vi.hoisted(() => ({
 	createPayPalOrderMock: vi.fn(),
@@ -49,8 +50,13 @@ describe('POST /api/billing/paypal/create-order', () => {
 		expect((await res.json()).error).toMatch(/cannot exceed/);
 	});
 
-	it('creates PayPal order and persists payment row', async () => {
-		createPayPalOrderMock.mockResolvedValue({ id: 'pp-order-1', status: 'CREATED' });
+	it('creates PayPal order at gross checkout price and persists pricing breakdown', async () => {
+		const quote = computeTopUpCheckout(MIN_TOP_UP_CREDITS);
+		createPayPalOrderMock.mockResolvedValue({
+			id: 'pp-order-1',
+			status: 'CREATED',
+			grossPayPalValue: quote.grossPayPalValue
+		});
 		const returning = vi.fn().mockResolvedValue([{ id: 'internal-1' }]);
 		const values = vi.fn().mockReturnValue({ returning });
 		const insert = vi.fn().mockReturnValue({ values });
@@ -62,11 +68,29 @@ describe('POST /api/billing/paypal/create-order', () => {
 		} as never);
 
 		expect(createPayPalOrderMock).toHaveBeenCalledWith({ amountCredits: MIN_TOP_UP_CREDITS });
-		expect(await res.json()).toEqual({
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				requestedCredits: MIN_TOP_UP_CREDITS,
+				chargedGrossUsd: quote.grossUsd,
+				platformSubtotalUsd: quote.platformSubtotalUsd,
+				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd
+			})
+		);
+		const body = await res.json();
+		expect(body).toEqual({
 			orderId: 'pp-order-1',
 			internalOrderId: 'internal-1',
 			status: 'CREATED',
-			amountCredits: MIN_TOP_UP_CREDITS
+			amountCredits: MIN_TOP_UP_CREDITS,
+			checkout: {
+				baseUsd: quote.baseUsd,
+				markupUsd: quote.markupUsd,
+				platformSubtotalUsd: quote.platformSubtotalUsd,
+				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd,
+				grossUsd: quote.grossUsd,
+				grossPayPalValue: quote.grossPayPalValue
+			}
 		});
 	});
 });

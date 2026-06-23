@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { getDb } from '$lib/server/db';
 import { paymentOrder } from '$lib/server/db/schema';
 import { createPayPalOrder } from '$lib/server/billing/paypal';
+import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing';
 import { MIN_TOP_UP_CREDITS } from '$lib/server/billing/credits';
 import { captureServerEvent } from '$lib/server/analytics/posthog-server';
 
@@ -53,6 +54,7 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	try {
+		const quote = computeTopUpCheckout(amountCredits);
 		const paypalOrder = await createPayPalOrder({ amountCredits });
 
 		const db = getDb();
@@ -63,6 +65,9 @@ export const POST: RequestHandler = async (event) => {
 				paypalOrderId: paypalOrder.id,
 				status: 'created',
 				requestedCredits: amountCredits,
+				chargedGrossUsd: quote.grossUsd,
+				platformSubtotalUsd: quote.platformSubtotalUsd,
+				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd,
 				currency: 'USD'
 			})
 			.returning({ id: paymentOrder.id });
@@ -73,7 +78,10 @@ export const POST: RequestHandler = async (event) => {
 			properties: {
 				amount_credits: amountCredits,
 				internal_order_id: row.id,
-				paypal_order_id: paypalOrder.id
+				paypal_order_id: paypalOrder.id,
+				charged_gross_usd: quote.grossUsd,
+				platform_subtotal_usd: quote.platformSubtotalUsd,
+				estimated_paypal_fee_usd: quote.estimatedPaypalFeeUsd
 			}
 		});
 
@@ -81,7 +89,15 @@ export const POST: RequestHandler = async (event) => {
 			orderId: paypalOrder.id,
 			internalOrderId: row.id,
 			status: paypalOrder.status,
-			amountCredits
+			amountCredits,
+			checkout: {
+				baseUsd: quote.baseUsd,
+				markupUsd: quote.markupUsd,
+				platformSubtotalUsd: quote.platformSubtotalUsd,
+				estimatedPaypalFeeUsd: quote.estimatedPaypalFeeUsd,
+				grossUsd: quote.grossUsd,
+				grossPayPalValue: quote.grossPayPalValue
+			}
 		});
 	} catch (error) {
 		captureServerEvent({

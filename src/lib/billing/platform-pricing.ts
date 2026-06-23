@@ -7,13 +7,65 @@ export const MIN_TOP_UP_CREDITS = 1000;
 /** Default platform markup on gateway usage (matches server DEFAULT_MARKUP_RATE). */
 export const PLATFORM_MARKUP_RATE = 0.2;
 
+/** Default US PayPal fixed fee (matches server DEFAULT_PAYPAL_FEE_FIXED_USD). */
+export const DEFAULT_PAYPAL_FEE_FIXED_USD = 0.49;
+
+/** Default PayPal variable fee rate (matches server DEFAULT_PAYPAL_FEE_RATE). */
+export const DEFAULT_PAYPAL_FEE_RATE = 0.029;
+
+export type TopUpCheckoutQuoteUi = {
+	credits: number;
+	baseUsd: number;
+	markupUsd: number;
+	platformSubtotalUsd: number;
+	estimatedPaypalFeeUsd: number;
+	grossUsd: number;
+};
+
 export function platformMarkupPercentLabel(): string {
 	return `${Math.round(PLATFORM_MARKUP_RATE * 100)}%`;
 }
 
 /** Shown at credit purchase only — not in Activity. */
 export function purchaseMarkupDisclosureText(): string {
-	return `Usage debits your wallet in Eigen credits at gateway rates plus a ${platformMarkupPercentLabel()} platform fee. Top-ups are ${CREDITS_PER_USD.toLocaleString('en-US')} credits per $1 USD.`;
+	return `Top-ups include a ${platformMarkupPercentLabel()} platform fee plus estimated PayPal processing fees in the checkout total. Usage also debits your wallet at gateway rates plus ${platformMarkupPercentLabel()}. ${CREDITS_PER_USD.toLocaleString('en-US')} credits = $1 USD of gateway value.`;
+}
+
+function grossUsdForTargetNetUsd(
+	subtotalUsd: number,
+	fixedUsd = DEFAULT_PAYPAL_FEE_FIXED_USD,
+	rate = DEFAULT_PAYPAL_FEE_RATE
+): number {
+	if (subtotalUsd <= 0) return 0;
+	const gross = (subtotalUsd + fixedUsd) / (1 - rate);
+	return Math.ceil(gross * 100) / 100;
+}
+
+function estimatedPaypalFeeUsd(
+	grossUsd: number,
+	fixedUsd = DEFAULT_PAYPAL_FEE_FIXED_USD,
+	rate = DEFAULT_PAYPAL_FEE_RATE
+): number {
+	if (grossUsd <= 0) return 0;
+	return Math.round((fixedUsd + rate * grossUsd) * 100) / 100;
+}
+
+/** Client-side checkout quote (mirrors server checkout-pricing defaults). */
+export function computeTopUpCheckoutQuoteUi(credits: number): TopUpCheckoutQuoteUi | null {
+	if (!Number.isInteger(credits) || credits < MIN_TOP_UP_CREDITS) return null;
+	const baseUsd = credits / CREDITS_PER_USD;
+	const markupUsd = baseUsd * PLATFORM_MARKUP_RATE;
+	const platformSubtotalUsd = baseUsd + markupUsd;
+	const grossUsd = grossUsdForTargetNetUsd(platformSubtotalUsd);
+	const feeUsd = estimatedPaypalFeeUsd(grossUsd);
+	return {
+		credits,
+		baseUsd,
+		markupUsd,
+		platformSubtotalUsd,
+		estimatedPaypalFeeUsd: feeUsd,
+		grossUsd
+	};
 }
 
 /** Convert all-in stored total USD (gateway + markup) to a numeric credit amount. */
@@ -59,5 +111,10 @@ export function creditsToUsd(credits: number): number | null {
 export function formatCreditsAsUsd(credits: number): string | null {
 	const usd = creditsToUsd(credits);
 	if (usd === null) return null;
+	return usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+/** Format a numeric USD amount for checkout lines. */
+export function formatUsdAmount(usd: number): string {
 	return usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { POST } from './+server';
 import { CREDITS_PER_USD } from '$lib/server/billing/credits';
+import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing';
 
 const {
 	capturePayPalOrderMock,
@@ -47,6 +48,8 @@ function buildDb(existing: Record<string, unknown> | null) {
 	return { select, update, updateSet, updateWhere };
 }
 
+const QUOTE = computeTopUpCheckout(1000);
+
 describe('POST /api/billing/paypal/capture-order', () => {
 	it('returns 401 when unauthenticated', async () => {
 		const res = await POST({
@@ -81,7 +84,9 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			userId: 'other',
 			paypalOrderId: 'pp-1',
 			status: 'created',
-			requestedCredits: 1000
+			requestedCredits: 1000,
+			chargedGrossUsd: QUOTE.grossUsd,
+			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		const res = await POST({
 			locals: { user: { id: 'u1' } },
@@ -114,16 +119,20 @@ describe('POST /api/billing/paypal/capture-order', () => {
 		});
 	});
 
-	it('returns 400 when captured credits do not match requested', async () => {
+	it('returns 400 when captured gross does not match quoted checkout', async () => {
 		buildDb({
 			id: 'internal-1',
 			userId: 'u1',
 			paypalOrderId: 'pp-1',
 			status: 'created',
-			requestedCredits: 1000
+			requestedCredits: 1000,
+			chargedGrossUsd: QUOTE.grossUsd,
+			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		capturePayPalOrderMock.mockResolvedValue({
-			capturedCredits: 500,
+			grossUsd: '9.99',
+			netUsd: '9.00',
+			paypalFeeUsd: '0.99',
 			payerEmail: 'payer@example.com',
 			raw: {}
 		});
@@ -134,19 +143,77 @@ describe('POST /api/billing/paypal/capture-order', () => {
 		} as never);
 
 		expect(res.status).toBe(400);
-		expect((await res.json()).error).toMatch(/do not match/);
+		expect((await res.json()).error).toMatch(/gross/);
 	});
 
-	it('captures order and credits wallet on success', async () => {
+	it('returns 400 when net received is below platform subtotal', async () => {
 		buildDb({
 			id: 'internal-1',
 			userId: 'u1',
 			paypalOrderId: 'pp-1',
 			status: 'created',
-			requestedCredits: 1000
+			requestedCredits: 1000,
+			chargedGrossUsd: QUOTE.grossUsd,
+			platformSubtotalUsd: QUOTE.platformSubtotalUsd
 		});
 		capturePayPalOrderMock.mockResolvedValue({
-			capturedCredits: 1000,
+			grossUsd: QUOTE.grossUsd,
+			netUsd: '0.50',
+			paypalFeeUsd: '1.25',
+			payerEmail: 'payer@example.com',
+			raw: {}
+		});
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: postRequest({ orderId: 'pp-1' })
+		} as never);
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toMatch(/net received/);
+	});
+
+	it('returns 400 for legacy orders missing checkout pricing', async () => {
+		buildDb({
+			id: 'internal-1',
+			userId: 'u1',
+			paypalOrderId: 'pp-1',
+			status: 'created',
+			requestedCredits: 1000,
+			chargedGrossUsd: null,
+			platformSubtotalUsd: null
+		});
+		capturePayPalOrderMock.mockResolvedValue({
+			grossUsd: '1.00',
+			netUsd: '0.50',
+			paypalFeeUsd: '0.50',
+			payerEmail: 'payer@example.com',
+			raw: {}
+		});
+
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: postRequest({ orderId: 'pp-1' })
+		} as never);
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toMatch(/legacy order/);
+	});
+
+	it('captures order and credits requested credits on success', async () => {
+		buildDb({
+			id: 'internal-1',
+			userId: 'u1',
+			paypalOrderId: 'pp-1',
+			status: 'created',
+			requestedCredits: 1000,
+			chargedGrossUsd: QUOTE.grossUsd,
+			platformSubtotalUsd: QUOTE.platformSubtotalUsd
+		});
+		capturePayPalOrderMock.mockResolvedValue({
+			grossUsd: QUOTE.grossUsd,
+			netUsd: '1.21',
+			paypalFeeUsd: '0.54',
 			payerEmail: 'payer@example.com',
 			raw: { id: 'pp-1' }
 		});
@@ -164,14 +231,25 @@ describe('POST /api/billing/paypal/capture-order', () => {
 			userId: 'u1',
 			paymentOrderId: 'internal-1',
 			paypalOrderId: 'pp-1',
-			amountCredits: 1000
+			amountCredits: 1000,
+			audit: {
+				grossUsd: QUOTE.grossUsd,
+				netUsd: '1.21',
+				paypalFeeUsd: '0.54',
+				platformSubtotalUsd: QUOTE.platformSubtotalUsd
+			}
 		});
 		expect(await res.json()).toEqual({
 			status: 'captured',
 			credited: true,
 			availableCredits: 11000,
-			capturedCredits: 1000,
-			creditsPerUsd: CREDITS_PER_USD
+			creditedCredits: 1000,
+			creditsPerUsd: CREDITS_PER_USD,
+			checkout: {
+				grossUsd: QUOTE.grossUsd,
+				paypalFeeUsd: '0.54',
+				netUsd: '1.21'
+			}
 		});
 	});
 });
