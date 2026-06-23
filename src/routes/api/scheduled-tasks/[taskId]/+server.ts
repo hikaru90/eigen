@@ -1,8 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants';
-import { setScheduledTaskPaused } from '$lib/server/scheduled-tasks/service';
-import { cancelUserHeartbeat, startUserHeartbeat } from '$lib/server/consolidation/heartbeat-worker';
+import { setUserScheduledTaskPaused } from '$lib/server/scheduled-tasks/service';
+import { cancelUserHeartbeat } from '$lib/server/consolidation/heartbeat-worker';
+import { loadActiveHeartbeatRun } from '$lib/server/consolidation/heartbeat-run-ledger';
+import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan';
+import {
+	OVERNIGHT_CONSOLIDATION_JOB,
+	drainUserJobQueue,
+	enqueueUserJob,
+	hasActiveJobForUser
+} from '$lib/server/job-queue';
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	if (!locals.user) {
@@ -26,7 +35,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	}
 
 	try {
-		await setScheduledTaskPaused(taskId, body.paused);
+		await setUserScheduledTaskPaused(locals.user.id, taskId, body.paused);
 		return json({ ok: true, paused: body.paused });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -50,24 +59,46 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 	}
 
 	try {
-		const outcome = await startUserHeartbeat(locals.user.id);
-		if (!outcome.started) {
+		const userId = locals.user.id;
+		if (await hasActiveJobForUser(userId, OVERNIGHT_CONSOLIDATION_JOB)) {
+			const active = await loadActiveHeartbeatRun(userId).catch(() => null);
 			return json(
 				{
 					ok: false,
 					error: 'A heartbeat is already running.',
-					runId: outcome.runId,
+					runId: active?.runId,
 					status: 'running'
 				},
 				{ status: 409 }
 			);
 		}
+
+		const outcome = await enqueueUserJob({
+			userId,
+			jobType: OVERNIGHT_CONSOLIDATION_JOB,
+			runAfter: new Date(),
+			dedupeKey: `manual:${randomUUID()}`,
+			payload: { manual: true }
+		});
+
+		if (!outcome.enqueued) {
+			return json(
+				{ ok: false, error: 'A heartbeat is already queued.' },
+				{ status: 409 }
+			);
+		}
+
+		await drainUserJobQueue({ userId, limit: 1 });
+
+		const active = await loadActiveHeartbeatRun(userId).catch(() => null);
+		const plannedJobs = getHeartbeatJobPlan();
+
 		return json(
 			{
 				ok: true,
-				runId: outcome.runId,
-				plannedJobs: outcome.plannedJobs,
-				status: 'running',
+				runId: active?.runId ?? outcome.jobId,
+				plannedJobs,
+				status: active ? 'running' : 'queued',
 				message: 'Heartbeat queued.'
 			},
 			{ status: 202 }

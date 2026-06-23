@@ -123,6 +123,15 @@ export async function queueCapture(
 		scheduleCaptureEnrichWorker(userId);
 	}
 
+	const { notifyThoughtCreated } = await import('$lib/server/agents/notify');
+	notifyThoughtCreated({
+		userId,
+		thoughtId: stored.id,
+		normalizedText: normalized,
+		source,
+		capturedAt: capturedAt ?? undefined
+	});
+
 	return {
 		thoughtId: stored.id,
 		status: 'queued',

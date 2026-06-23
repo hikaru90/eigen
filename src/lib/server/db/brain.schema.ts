@@ -163,7 +163,7 @@ export type MemoryType = (typeof memoryTypeEnum)[number];
 export const enrichQueueStatusEnum = ['pending', 'processing', 'complete', 'failed'] as const;
 export type EnrichQueueStatus = (typeof enrichQueueStatusEnum)[number];
 
-export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval'] as const;
+export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent'] as const;
 export type CaptureSource = (typeof captureSourceEnum)[number];
 
 export const thought = pgTable(
@@ -1306,6 +1306,224 @@ export const heartbeatRun = pgTable(
 );
 
 export type HeartbeatRun = typeof heartbeatRun.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Per-user scheduled tasks + job queue (app-defined; global ticker drains queue)
+// ---------------------------------------------------------------------------
+
+export const userScheduledTaskTypeEnum = ['overnight_consolidation'] as const;
+export type UserScheduledTaskType = (typeof userScheduledTaskTypeEnum)[number];
+
+/** Per-user schedule preferences stored in Postgres (not env / pg_cron). */
+export const userScheduledTask = pgTable(
+	'user_scheduled_task',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		taskType: text('task_type').$type<UserScheduledTaskType>().notNull(),
+		/** Local hour (0–23) when the task should enqueue. */
+		runHour: integer('run_hour').notNull().default(2),
+		runMinute: integer('run_minute').notNull().default(0),
+		timezone: text('timezone').notNull().default('UTC'),
+		paused: boolean('paused').notNull().default(false),
+		/** Last calendar night (in task timezone) we enqueued an overnight job. */
+		lastEnqueuedNight: date('last_enqueued_night'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		unique('user_scheduled_task_user_type_uidx').on(t.userId, t.taskType),
+		index('user_scheduled_task_user_idx').on(t.userId)
+	]
+);
+
+export type UserScheduledTask = typeof userScheduledTask.$inferSelect;
+
+export const userJobQueueStatusEnum = [
+	'pending',
+	'running',
+	'completed',
+	'failed',
+	'cancelled'
+] as const;
+export type UserJobQueueStatus = (typeof userJobQueueStatusEnum)[number];
+
+export const userJobTypeEnum = ['overnight_consolidation', 'webhook_delivery'] as const;
+export type UserJobType = (typeof userJobTypeEnum)[number];
+
+// ---------------------------------------------------------------------------
+// Connected agents (Eigenmesh orchestration)
+// ---------------------------------------------------------------------------
+
+export const agentWebhookEventTypeEnum = [
+	'thought.created',
+	'thought.enriched',
+	'thought.updated',
+	'thought.deleted',
+	'agent.task.assigned',
+	'webhook.test'
+] as const;
+export type AgentWebhookEventType = (typeof agentWebhookEventTypeEnum)[number];
+
+/** Subscribable thought-change events (excludes task assignment + test). */
+export const agentSubscribableEventTypeEnum = [
+	'thought.created',
+	'thought.enriched',
+	'thought.updated',
+	'thought.deleted'
+] as const;
+export type AgentSubscribableEventType = (typeof agentSubscribableEventTypeEnum)[number];
+
+/** User-registered external agent webhook endpoint. */
+export const connectedAgent = pgTable(
+	'connected_agent',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		webhookUrl: text('webhook_url').notNull(),
+		subscribedEvents: text('subscribed_events')
+			.array()
+			.$type<AgentSubscribableEventType[]>()
+			.notNull()
+			.default([]),
+		signingSecretEncrypted: text('signing_secret_encrypted').notNull(),
+		signingSecretPrefix: text('signing_secret_prefix').notNull(),
+		callbackTokenHash: text('callback_token_hash').notNull(),
+		callbackTokenPrefix: text('callback_token_prefix').notNull(),
+		enabled: boolean('enabled').notNull().default(true),
+		lastDeliveryAt: timestamp('last_delivery_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [index('connected_agent_user_idx').on(t.userId)]
+);
+
+export type ConnectedAgent = typeof connectedAgent.$inferSelect;
+
+export const agentTaskAssignmentStatusEnum = [
+	'pending',
+	'delivered',
+	'in_progress',
+	'completed',
+	'failed'
+] as const;
+export type AgentTaskAssignmentStatus = (typeof agentTaskAssignmentStatusEnum)[number];
+
+/** Links a thought (task) to a connected agent for orchestrated work. */
+export const agentTaskAssignment = pgTable(
+	'agent_task_assignment',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		agentId: uuid('agent_id')
+			.notNull()
+			.references(() => connectedAgent.id, { onDelete: 'cascade' }),
+		thoughtId: uuid('thought_id')
+			.notNull()
+			.references(() => thought.id, { onDelete: 'cascade' }),
+		status: text('status').$type<AgentTaskAssignmentStatus>().notNull().default('pending'),
+		assignedAt: timestamp('assigned_at').defaultNow().notNull(),
+		startedAt: timestamp('started_at'),
+		completedAt: timestamp('completed_at'),
+		resultSummary: text('result_summary'),
+		resultThoughtId: uuid('result_thought_id').references(() => thought.id, {
+			onDelete: 'set null'
+		}),
+		lastError: text('last_error')
+	},
+	(t) => [
+		index('agent_task_assignment_user_idx').on(t.userId),
+		index('agent_task_assignment_agent_idx').on(t.agentId),
+		index('agent_task_assignment_thought_idx').on(t.thoughtId)
+	]
+);
+
+export type AgentTaskAssignment = typeof agentTaskAssignment.$inferSelect;
+
+export const webhookDeliveryStatusEnum = ['pending', 'delivered', 'failed'] as const;
+export type WebhookDeliveryStatus = (typeof webhookDeliveryStatusEnum)[number];
+
+/** Outbound webhook delivery ledger per agent event. */
+export const webhookDelivery = pgTable(
+	'webhook_delivery',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		agentId: uuid('agent_id')
+			.notNull()
+			.references(() => connectedAgent.id, { onDelete: 'cascade' }),
+		eventType: text('event_type').$type<AgentWebhookEventType>().notNull(),
+		eventId: text('event_id').notNull(),
+		payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+		status: text('status').$type<WebhookDeliveryStatus>().notNull().default('pending'),
+		attemptCount: integer('attempt_count').notNull().default(0),
+		httpStatus: integer('http_status'),
+		lastError: text('last_error'),
+		deliveredAt: timestamp('delivered_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('webhook_delivery_user_idx').on(t.userId),
+		index('webhook_delivery_agent_idx').on(t.agentId),
+		index('webhook_delivery_status_idx').on(t.status, t.createdAt)
+	]
+);
+
+export type WebhookDelivery = typeof webhookDelivery.$inferSelect;
+
+/** Per-user background work queue drained by the global app ticker. */
+export const userJobQueue = pgTable(
+	'user_job_queue',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		jobType: text('job_type').$type<UserJobType>().notNull(),
+		status: text('status').$type<UserJobQueueStatus>().notNull().default('pending'),
+		payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+		runAfter: timestamp('run_after').notNull(),
+		/** Idempotency key (e.g. overnight:2026-06-23). */
+		dedupeKey: text('dedupe_key'),
+		attemptCount: integer('attempt_count').notNull().default(0),
+		maxAttempts: integer('max_attempts').notNull().default(3),
+		lastError: text('last_error'),
+		heartbeatRunId: uuid('heartbeat_run_id').references(() => heartbeatRun.id, {
+			onDelete: 'set null'
+		}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+		startedAt: timestamp('started_at'),
+		finishedAt: timestamp('finished_at')
+	},
+	(t) => [
+		index('user_job_queue_pending_idx').on(t.status, t.runAfter),
+		index('user_job_queue_user_status_idx').on(t.userId, t.status, t.createdAt),
+		uniqueIndex('user_job_queue_active_dedupe_uidx')
+			.on(t.userId, t.dedupeKey)
+			.where(sql`${t.dedupeKey} IS NOT NULL AND ${t.status} IN ('pending', 'running')`)
+	]
+);
+
+export type UserJobQueue = typeof userJobQueue.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Eval harness (DB-backed runs; operator-scoped via RLS)

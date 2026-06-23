@@ -14,6 +14,7 @@
 		filterPriorDayOverdueItems,
 		filterSnoozedItems,
 		isOpenLoopItemId,
+		isOpenLoopListItem,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
 		thoughtIdFromOpenLoopItemId,
@@ -34,6 +35,7 @@
 	import TemporalTimelineHeader from './TemporalTimelineHeader.svelte';
 	import TemporalTimelineNudge from './TemporalTimelineNudge.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
+	import TimelineAgentAssignDialog from './TimelineAgentAssignDialog.svelte';
 	import TemporalTodaySegmentTabs from './TemporalTodaySegmentTabs.svelte';
 	import TemporalProjectsLayoutTabs from './TemporalProjectsLayoutTabs.svelte';
 	import TemporalProjectStatusTabs from './TemporalProjectStatusTabs.svelte';
@@ -94,6 +96,8 @@
 	let statsRefreshKey = $state(0);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
+	let assignAgentOpen = $state(false);
+	let assignAgentItem = $state<TemporalEventListItem | null>(null);
 	let refreshingAll = $state(false);
 	let internalSelectedItemId = $state<string | null>(null);
 
@@ -567,6 +571,21 @@
 		closeProjectAssign();
 		bumpStats();
 	}
+
+	function openAgentAssign(item: TemporalEventListItem) {
+		assignAgentItem = item;
+		assignAgentOpen = true;
+	}
+
+	function closeAgentAssign() {
+		assignAgentOpen = false;
+		assignAgentItem = null;
+	}
+
+	function onAgentAssigned(payload: { agentName: string; assignmentId: string }) {
+		lastActionSummary = `Assigned to agent ${payload.agentName}`;
+		closeAgentAssign();
+	}
 </script>
 
 <div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 pb-28 md:pt-24">
@@ -744,6 +763,8 @@
 		{onQuickAction}
 		{onInstruction}
 		{onDelete}
+		showAssignAgent={selectedItem ? isOpenLoopListItem(selectedItem) : false}
+		onAssignAgent={selectedItem ? () => openAgentAssign(selectedItem) : undefined}
 		onClose={deselectItem}
 	/>
 
@@ -752,5 +773,12 @@
 		item={assignProjectItem}
 		onClose={closeProjectAssign}
 		onAssigned={onProjectAssigned}
+	/>
+
+	<TimelineAgentAssignDialog
+		bind:open={assignAgentOpen}
+		item={assignAgentItem}
+		onClose={closeAgentAssign}
+		onAssigned={onAgentAssigned}
 	/>
 </div>

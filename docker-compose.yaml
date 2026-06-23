@@ -11,6 +11,8 @@ services:
       - shared_preload_libraries=age,pg_cron,pg_net
       - -c
       - cron.database_name=eigen
+      - -c
+      - cron.timezone=${CONSOLIDATION_CRON_TZ:-UTC}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-eigen}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eigen}

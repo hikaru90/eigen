@@ -13,9 +13,6 @@ node scripts/migrate.mjs
 echo "[eigen] Applying RLS policies..."
 node scripts/apply-rls.mjs
 
-echo "[eigen] Ensuring pg_cron schedules (consolidation + reminders)..."
-node scripts/ensure-cron-if-configured.mjs
-
 # Create admin user on first boot if credentials are provided.
 # create-admin.mjs is idempotent — skips silently if the user already exists.
 if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then

@@ -246,6 +246,30 @@ export async function enrichQueuedThought(
 		});
 
 		await markEnrichQueueComplete(thoughtId);
+
+		const [enrichedThought] = await getDb()
+			.select({
+				normalizedText: thought.normalizedText,
+				category: thought.category,
+				memoryType: thought.memoryType,
+				enrichedAt: thought.enrichedAt
+			})
+			.from(thought)
+			.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+			.limit(1);
+
+		if (enrichedThought?.enrichedAt) {
+			const { notifyThoughtEnriched } = await import('$lib/server/agents/notify');
+			notifyThoughtEnriched({
+				userId,
+				thoughtId,
+				normalizedText: enrichedThought.normalizedText,
+				category: enrichedThought.category,
+				memoryType: enrichedThought.memoryType,
+				enrichedAt: enrichedThought.enrichedAt
+			});
+		}
+
 		logIngestPhaseTiming({
 			userId,
 			thoughtId,

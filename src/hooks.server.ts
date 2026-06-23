@@ -9,6 +9,11 @@ import { authSql } from '$lib/server/db/auth-db';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import { hashApiKey } from '$lib/server/api-keys/api-key-utils';
+import { startJobQueueTicker } from '$lib/server/job-queue/ticker';
+
+if (!building) {
+	startJobQueueTicker();
+}
 
 const handleParaglide: Handle = ({ event, resolve }) => paraglideMiddleware(event.request, ({ request, locale }) => {
 	event.request = request;

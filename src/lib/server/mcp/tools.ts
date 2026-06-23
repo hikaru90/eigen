@@ -322,6 +322,16 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 			summary: updated.editSummary,
 			status: typeof afterMeta.status === 'string' ? afterMeta.status : 'open'
 		});
+
+		const { notifyThoughtUpdated } = await import('$lib/server/agents/notify');
+		notifyThoughtUpdated({
+			userId: context.userId,
+			thoughtId: updated.thought.id,
+			normalizedText: updated.thought.normalizedText,
+			category: updated.thought.category,
+			memoryType: updated.thought.memoryType
+		});
+
 		return sanitizeMcpToolResult({
 			thought: updated.thought,
 			thoughtId: updated.thought.id,

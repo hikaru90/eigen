@@ -30,17 +30,23 @@ export async function registerUser(
  */
 export async function loginUser(page: Page, email: string): Promise<void> {
 	await page.goto('/login');
-	await page.fill('#email', email);
-	await page.fill('#password', TEST_PASSWORD);
-	await page.click('button:has-text("Sign in")');
+	await page.waitForURL(/\/login/, { timeout: 15_000 });
+	await page.locator('#email').fill(email);
+	await page.locator('#password').fill(TEST_PASSWORD);
+	await page.getByRole('button', { name: 'Sign in' }).click();
 	await page.waitForURL(/\/capture/);
 }
 
 /**
- * Sign out via the API endpoint.
+ * Sign out via the session API (POST — GET does not clear the Better Auth session).
  */
 export async function signOut(page: Page): Promise<void> {
-	await page.goto('/api/session/sign-out');
+	const res = await page.request.post('/api/session/sign-out');
+	if (!res.ok()) {
+		throw new Error(`sign-out failed (${res.status()}): ${await res.text()}`);
+	}
+	await page.goto('/login');
+	await page.waitForURL(/\/login/, { timeout: 15_000 });
 }
 
 /**

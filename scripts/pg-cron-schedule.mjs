@@ -8,6 +8,20 @@ export function escapePgLiteral(value) {
 	return value.replace(/'/g, "''");
 }
 
+/** pg_cron may report GMT while env uses UTC — treat as equivalent for scheduling. */
+export function normalizeCronTimezone(timezone) {
+	const trimmed = timezone.trim();
+	const upper = trimmed.toUpperCase();
+	if (upper === 'GMT' || upper === 'UTC' || upper === 'ETC/UTC' || upper === 'ETC/GMT') {
+		return 'UTC';
+	}
+	return trimmed;
+}
+
+export function cronTimezonesEquivalent(a, b) {
+	return normalizeCronTimezone(a) === normalizeCronTimezone(b);
+}
+
 /**
  * @param {{ url: string; adminKey: string }} opts
  * @returns {string}
@@ -64,6 +78,33 @@ export function databaseNameFromUrl(databaseUrl) {
 
 /**
  * @param {import('postgres').Sql} sql
+ * @param {string} timezone
+ */
+export async function ensureCronTimezone(sql, databaseUrl, timezone) {
+	const [{ current_setting: currentTimezone }] =
+		await sql`SELECT current_setting('cron.timezone') AS current_setting`;
+
+	if (cronTimezonesEquivalent(currentTimezone, timezone)) {
+		return;
+	}
+
+	const databaseName = databaseNameFromUrl(databaseUrl);
+	try {
+		await sql.unsafe(buildSetCronTimezoneSql(databaseName, timezone));
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		if (message.includes('cannot be changed without restarting')) {
+			throw new Error(
+				`cron.timezone is "${currentTimezone}" but ${timezone} was requested. ` +
+					'Set postgres -c cron.timezone=... at server start (see docker-compose.yaml) and restart the database.'
+			);
+		}
+		throw err;
+	}
+}
+
+/**
+ * @param {import('postgres').Sql} sql
  * @param {{
  *   jobName: string;
  *   schedule: string;
@@ -82,12 +123,11 @@ export async function schedulePgCronHttpJob(sql, opts) {
 	const existing = await sql`
 		SELECT jobid FROM cron.job WHERE jobname = ${jobName}
 	`;
-	for (const row of existing) {
-		await sql`SELECT cron.unschedule(${row.jobid})`;
+	if (existing.length > 0) {
+		await sql`SELECT cron.unschedule(${jobName})`;
 	}
 
-	const databaseName = databaseNameFromUrl(databaseUrl);
-	await sql.unsafe(buildSetCronTimezoneSql(databaseName, timezone));
+	await ensureCronTimezone(sql, databaseUrl, timezone);
 
 	const command = buildHttpPostCommand({ url, adminKey });
 	await sql.unsafe(buildScheduleSql({ jobName, schedule, command }));

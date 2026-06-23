@@ -1,8 +1,8 @@
 # Domain: Nightly consolidation (sleep)
 
-**Entrypoint:** [`POST /api/admin/consolidate`](../../src/routes/api/admin/consolidate/+server.ts)
+**Entrypoint:** per-user jobs in `user_job_queue`, drained by the global in-app ticker.
 
-**Scheduler:** pg_cron + pg_net in Postgres ([`scripts/ensure-sleep-cron.mjs`](../../scripts/ensure-sleep-cron.mjs)), default `0 2 * * *` in `CONSOLIDATION_CRON_TZ` (UTC unless set). pg_cron 1.6 registers jobs via `cron.schedule()` and sets `cron.timezone` at the database level (not per-job `schedule_in_timezone`).
+**Schedule:** per-user row in `user_scheduled_task` (default 2:00 AM UTC). The ticker enqueues due overnight jobs and processes pending queue items for all users every 60 seconds.
 
 ## Sleep phases
 
@@ -18,7 +18,7 @@ Per-user work runs inside `withDbUser` so RLS applies.
 ## Awake vs asleep
 
 - **Awake:** capture enrichment, retrieval reconsolidation (salience bumps on access), ontology profile refresh every 10th thought.
-- **Asleep:** nightly consolidation above; salience decay/open-loop floors recomputed from **elapsed wall-clock time** (not per-run ticks). Idempotent global run tracked in `consolidation_run`.
+- **Asleep:** overnight consolidation via `user_job_queue`; salience decay/open-loop floors recomputed from **elapsed wall-clock time** (not per-run ticks).
 
 ## Community contract
 
@@ -30,43 +30,41 @@ Per-user work runs inside `withDbUser` so RLS applies.
   - `L0` root = broad worldview partitions
 - Before writing communities, detection computes graph-health diagnostics (components, isolation ratio, relation density) and marks low-confidence runs when relation structure is too weak.
 
-## Environment
+## Job queue tables
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `ADMIN_CONSOLIDATION_KEY` | Yes (for cron) | `X-Admin-Key` on consolidate endpoint |
-| `DATABASE_ADMIN_URL` | Yes (for cron bootstrap) | Superuser URL for pg_cron schedule + run ledger |
-| `CONSOLIDATION_INTERNAL_URL` | Yes (compose) | App URL reachable from DB (`http://app:3000`) |
-| `CONSOLIDATION_CRON_SCHEDULE` | No | Cron expression (default `0 2 * * *`) |
-| `CONSOLIDATION_CRON_TZ` | No | IANA timezone for schedule + run-night idempotency (default `UTC`) |
+| Table | Purpose |
+|-------|---------|
+| `user_scheduled_task` | Per-user schedule (`run_hour`, `run_minute`, `timezone`, `paused`) |
+| `user_job_queue` | Pending/running/completed work (`overnight_consolidation`, …) |
 
-Bootstrap runs on app container start ([`entrypoint.sh`](../../entrypoint.sh) → [`scripts/ensure-cron-if-configured.mjs`](../../scripts/ensure-cron-if-configured.mjs)) or manually via `npm run db:cron`.
+Global ticker: [`src/lib/server/job-queue/ticker.ts`](../../src/lib/server/job-queue/ticker.ts) (started from [`hooks.server.ts`](../../src/hooks.server.ts)).
 
-## Verify cron is registered
+Manual tick: `npm run db:cron`
+
+## Verify queue health
 
 ```sql
-SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'eigen-sleep-consolidation';
-SELECT run_night, status, started_at FROM consolidation_run ORDER BY started_at DESC LIMIT 5;
+SELECT user_id, job_type, status, run_after, dedupe_key
+FROM user_job_queue
+ORDER BY created_at DESC
+LIMIT 20;
+
+SELECT user_id, run_hour, run_minute, timezone, paused, last_enqueued_night
+FROM user_scheduled_task;
 ```
 
-Settings → **Heartbeat** should show the overnight task as **configured** when the `cron.job` row exists.
+Settings → **Heartbeat** shows schedule from `user_scheduled_task` and last run from `heartbeat_run`.
 
-## Manual trigger
+## Manual trigger (session)
+
+Use Settings → **Heartbeat** → **Run now**, or:
 
 ```bash
-curl -sf -X POST "$ORIGIN/api/admin/consolidate" \
-  -H "X-Admin-Key: $ADMIN_CONSOLIDATION_KEY" \
-  -H "Content-Type: application/json"
+curl -sf -X POST "$ORIGIN/api/scheduled-tasks/eigen-sleep-consolidation" \
+  -H "Cookie: <session>"
 ```
 
-Single user:
-
-```bash
-curl -sf -X POST "$ORIGIN/api/admin/consolidate" \
-  -H "X-Admin-Key: $ADMIN_CONSOLIDATION_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"userId":"USER_ID"}'
-```
+Admin bulk endpoint [`POST /api/admin/consolidate`](../../src/routes/api/admin/consolidate/+server.ts) remains for operator use with `X-Admin-Key`.
 
 ## Follow-ups (not implemented)
 

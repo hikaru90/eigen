@@ -3,9 +3,19 @@ import {
 	buildHttpPostCommand,
 	buildScheduleSql,
 	buildSetCronTimezoneSql,
+	cronTimezonesEquivalent,
 	databaseNameFromUrl,
-	escapePgLiteral
+	escapePgLiteral,
+	normalizeCronTimezone
 } from './pg-cron-schedule.mjs';
+
+describe('normalizeCronTimezone', () => {
+	it('treats GMT and UTC as equivalent', () => {
+		expect(normalizeCronTimezone('GMT')).toBe('UTC');
+		expect(normalizeCronTimezone('UTC')).toBe('UTC');
+		expect(cronTimezonesEquivalent('GMT', 'UTC')).toBe(true);
+	});
+});
 
 describe('escapePgLiteral', () => {
 	it('doubles single quotes', () => {

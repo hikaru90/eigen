@@ -15,6 +15,7 @@
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
   import Cpu from "@lucide/svelte/icons/cpu";
   import HeartPulse from "@lucide/svelte/icons/heart-pulse";
+  import Bot from "@lucide/svelte/icons/bot";
 
   const isChatRoute = $derived(page.route.id === "/chat");
 
@@ -130,6 +131,13 @@
         >
           <KeyRound class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
+        </a>
+        <a
+          href={resolve("/settings/agents")}
+          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          <Bot class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          Connected agents
         </a>
         <a
           href={resolve("/settings/llm")}

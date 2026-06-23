@@ -28,6 +28,8 @@
 		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen' | 'cancel' | 'dismiss') => void;
 		onInstruction: (eventId: string, instruction: string) => void;
 		onDelete: (eventId: string) => void;
+		onAssignAgent?: () => void;
+		showAssignAgent?: boolean;
 		onClose?: () => void;
 	};
 
@@ -43,6 +45,8 @@
 		onQuickAction,
 		onInstruction,
 		onDelete,
+		onAssignAgent,
+		showAssignAgent = false,
 		onClose
 	}: Props = $props();
 
@@ -118,6 +122,18 @@
 					{/if}
 				</div>
 				<div class="flex flex-wrap items-center gap-2">
+					{#if showAssignAgent && onAssignAgent}
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							class="h-8 text-xs"
+							disabled={busy}
+							onclick={() => onAssignAgent()}
+						>
+							Assign to agent
+						</Button>
+					{/if}
 					<TemporalEventStatusButton
 						{item}
 						{updatingEventId}

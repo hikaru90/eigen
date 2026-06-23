@@ -49,6 +49,46 @@ CREATE POLICY heartbeat_run_isolation ON heartbeat_run
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE user_scheduled_task ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_scheduled_task FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_scheduled_task_isolation ON user_scheduled_task;
+CREATE POLICY user_scheduled_task_isolation ON user_scheduled_task
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE user_job_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_job_queue FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_job_queue_isolation ON user_job_queue;
+CREATE POLICY user_job_queue_isolation ON user_job_queue
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE connected_agent ENABLE ROW LEVEL SECURITY;
+ALTER TABLE connected_agent FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS connected_agent_isolation ON connected_agent;
+CREATE POLICY connected_agent_isolation ON connected_agent
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE agent_task_assignment ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_task_assignment FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS agent_task_assignment_isolation ON agent_task_assignment;
+CREATE POLICY agent_task_assignment_isolation ON agent_task_assignment
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE webhook_delivery ENABLE ROW LEVEL SECURITY;
+ALTER TABLE webhook_delivery FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS webhook_delivery_isolation ON webhook_delivery;
+CREATE POLICY webhook_delivery_isolation ON webhook_delivery
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE user_ontology ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_ontology FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS user_ontology_isolation ON user_ontology;
@@ -360,7 +400,22 @@ AS $$
   WHERE id = p_key_id AND is_active = true;
 $$;
 
+CREATE OR REPLACE FUNCTION resolve_agent_callback_token(p_token_hash text)
+RETURNS TABLE(id uuid, user_id text)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT ca.id, ca.user_id
+  FROM connected_agent ca
+  WHERE ca.callback_token_hash = p_token_hash AND ca.enabled = true
+  LIMIT 1;
+$$;
+
 REVOKE ALL ON FUNCTION resolve_user_api_key(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION touch_user_api_key(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION resolve_agent_callback_token(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION resolve_user_api_key(text) TO eigen_app;
 GRANT EXECUTE ON FUNCTION touch_user_api_key(uuid) TO eigen_app;
+GRANT EXECUTE ON FUNCTION resolve_agent_callback_token(text) TO eigen_app;

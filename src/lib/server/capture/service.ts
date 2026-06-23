@@ -850,6 +850,9 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 
 	await pruneCanonicalEntitiesWithNoThoughtLinks(userId, linkedEntityIds);
 
+	const { notifyThoughtDeleted } = await import('$lib/server/agents/notify');
+	notifyThoughtDeleted({ userId, thoughtId: existing.id });
+
 	return { ok: true as const };
 }
 
