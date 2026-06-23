@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Upload Vite/SvelteKit client source maps to PostHog Error Tracking.
+ * Inject chunk IDs into client bundles, then upload source maps to PostHog Error Tracking.
  * Requires a personal API key (phx_…) at build time — not the project key (phc_…).
  * Set POSTHOG_SOURCEMAPS_REQUIRED=1 to fail the build when upload cannot complete.
  */
@@ -111,45 +111,42 @@ const releaseVersion =
 	gitHead() ||
 	'unknown';
 
-const args = [
-	'--host',
-	host,
-	'sourcemap',
-	'upload',
-	'--directory',
-	mapDir,
-	'--release-name',
-	releaseName,
-	'--release-version',
-	releaseVersion,
-	'--delete-after'
-];
+const cliEnv = {
+	...process.env,
+	POSTHOG_CLI_API_KEY: apiKey,
+	POSTHOG_CLI_PROJECT_ID: projectId
+};
+
+const releaseLabel = `${releaseName}@${releaseVersion.slice(0, 12)}`;
+
+function runCli(subcommand, extraArgs, stepLabel) {
+	try {
+		execFileSync(
+			cliBin,
+			['--host', host, 'sourcemap', subcommand, '--directory', mapDir, ...extraArgs],
+			{ cwd: repoRoot, env: cliEnv, stdio: 'inherit' }
+		);
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		if (detail.includes('authentication') || detail.includes('invalid')) {
+			fail(
+				`${stepLabel} authentication failed. Verify ${apiKeySource} is a valid phx_ personal API key ` +
+					`with access to project ${projectId} on ${host}. Coolify must inject this at **build** time, not runtime only. ` +
+					`Detail: ${detail}`
+			);
+		}
+		fail(`${stepLabel} failed: ${detail}`);
+	}
+}
+
+const releaseArgs = ['--release-name', releaseName, '--release-version', releaseVersion];
 
 console.log(
-	`[posthog] Uploading source maps from ${directory} to ${host} ` +
-		`(project ${projectId}, release ${releaseName}@${releaseVersion.slice(0, 12)}, key ${apiKeySource}=${maskKey(apiKey)})`
+	`[posthog] Injecting chunk IDs in ${directory} (project ${projectId}, release ${releaseLabel}, key ${apiKeySource}=${maskKey(apiKey)})`
 );
+runCli('inject', releaseArgs, 'Source map inject');
 
-try {
-	execFileSync(cliBin, args, {
-		cwd: repoRoot,
-		env: {
-			...process.env,
-			POSTHOG_CLI_API_KEY: apiKey,
-			POSTHOG_CLI_PROJECT_ID: projectId
-		},
-		stdio: 'inherit'
-	});
-} catch (error) {
-	const detail = error instanceof Error ? error.message : String(error);
-	if (detail.includes('authentication') || detail.includes('invalid')) {
-		fail(
-			`Source map upload authentication failed. Verify ${apiKeySource} is a valid phx_ personal API key ` +
-				`with access to project ${projectId} on ${host}. Coolify must inject this at **build** time, not runtime only. ` +
-				`Detail: ${detail}`
-		);
-	}
-	fail(`Source map upload failed: ${detail}`);
-}
+console.log(`[posthog] Uploading source maps from ${directory} to ${host} (release ${releaseLabel})`);
+runCli('upload', [...releaseArgs, '--delete-after'], 'Source map upload');
 
 console.log('[posthog] Source map upload complete');
