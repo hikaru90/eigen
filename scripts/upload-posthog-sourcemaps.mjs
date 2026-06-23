@@ -19,7 +19,8 @@ function gitHead() {
 	}
 }
 
-const apiKey = process.env.POSTHOG_CLI_API_KEY?.trim();
+const apiKey =
+	process.env.POSTHOG_CLI_API_KEY?.trim() || process.env.POSTHOG_PERSONAL_API_KEY?.trim();
 const required = process.env.POSTHOG_SOURCEMAPS_REQUIRED === '1';
 
 if (!apiKey) {
