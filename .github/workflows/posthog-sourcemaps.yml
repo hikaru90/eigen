@@ -4,6 +4,18 @@ on:
   push:
     branches: [main]
 
+env:
+  # Placeholders so SvelteKit postbuild analyse can import server modules (no DB connection at build time).
+  DATABASE_URL: postgres://eigen:eigen@localhost:5432/eigen
+  ORIGIN: http://localhost:4173
+  AGE_GRAPH_NAME: eigen_graph
+  LLM_BASE_URL: https://example.com/v1
+  LLM_MIN_REQUEST_INTERVAL_MS: 1000
+  LLM_RULE_CHAT: 00000000-0000-0000-0000-000000000001
+  LLM_RULE_EMBEDDING: 00000000-0000-0000-0000-000000000002
+  BETTER_AUTH_SECRET: ci-build-better-auth-secret-min-32-chars
+  LLM_API_KEY: ci-build-placeholder
+
 jobs:
   upload-sourcemaps:
     runs-on: ubuntu-latest
@@ -12,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: package.json
           cache: npm
 
       - run: npm ci
