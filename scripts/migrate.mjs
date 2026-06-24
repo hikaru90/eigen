@@ -25,7 +25,7 @@
 import './load-env.mjs';
 import postgres from 'postgres';
 import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { getDatabaseUrl } from './db-urls.mjs';
@@ -39,6 +39,21 @@ const migrationsFolder = path.join(
 
 const journalPath = path.join(migrationsFolder, 'meta/_journal.json');
 const journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
+
+/** Fail fast when a .sql file exists but is absent from the journal (never applied on deploy). */
+function assertJournalCoversAllMigrationFiles() {
+	const journalTags = new Set(journal.entries.map((e) => e.tag));
+	const diskTags = readdirSync(migrationsFolder)
+		.filter((name) => /^\d{4}_.+\.sql$/.test(name))
+		.map((name) => name.replace(/\.sql$/, ''));
+	const missing = diskTags.filter((tag) => !journalTags.has(tag)).sort();
+	if (missing.length > 0) {
+		throw new Error(
+			`Migration journal is missing ${missing.length} SQL file(s): ${missing.join(', ')}. ` +
+				'Add them to drizzle/meta/_journal.json or deploy will skip schema changes.'
+		);
+	}
+}
 
 // Index of the last migration that was applied via drizzle-kit push (never tracked).
 // Any entry with idx <= LAST_PUSH_IDX on a push-managed DB is treated as already applied.
@@ -154,6 +169,7 @@ async function bootstrapIfPushManaged() {
 }
 
 try {
+	assertJournalCoversAllMigrationFiles();
 	console.log('[eigen] Running migrations from', migrationsFolder);
 	await bootstrapIfPushManaged();
 	await applyPendingMigrationsByHash();
