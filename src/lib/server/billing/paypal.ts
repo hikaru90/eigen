@@ -56,6 +56,18 @@ export function getPayPalClientSecret(): string {
 	return secret;
 }
 
+/** True when PayPal REST + SDK credentials are all present (safe to show checkout UI). */
+export function isPayPalConfigured(): boolean {
+	try {
+		getPayPalClientId();
+		getPayPalWebSdkUrl();
+		getPayPalClientSecret();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const PAYPAL_SDK_V6_LIVE = 'https://www.paypal.com/web-sdk/v6/core';
 const PAYPAL_SDK_V6_SANDBOX = 'https://www.sandbox.paypal.com/web-sdk/v6/core';
 

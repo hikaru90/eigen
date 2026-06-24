@@ -1,12 +1,20 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { initMock, captureMock, identifyMock, resetMock, captureExceptionMock } = vi.hoisted(() => ({
-	initMock: vi.fn(),
-	captureMock: vi.fn(),
-	identifyMock: vi.fn(),
-	resetMock: vi.fn(),
-	captureExceptionMock: vi.fn()
-}));
+const { initMock, captureMock, identifyMock, resetMock, captureExceptionMock, publicEnv } = vi.hoisted(
+	() => ({
+		initMock: vi.fn(),
+		captureMock: vi.fn(),
+		identifyMock: vi.fn(),
+		resetMock: vi.fn(),
+		captureExceptionMock: vi.fn(),
+		publicEnv: {
+			PUBLIC_POSTHOG_KEY: '',
+			PUBLIC_POSTHOG_HOST: ''
+		}
+	})
+);
+
+vi.mock('$env/static/public', () => publicEnv);
 
 vi.mock('posthog-js', () => ({
 	default: {
@@ -25,6 +33,8 @@ vi.mock('$app/environment', () => ({
 describe('posthog-client', () => {
 	beforeEach(() => {
 		vi.resetModules();
+		publicEnv.PUBLIC_POSTHOG_KEY = '';
+		publicEnv.PUBLIC_POSTHOG_HOST = '';
 		initMock.mockClear();
 		captureMock.mockClear();
 		identifyMock.mockClear();
@@ -33,14 +43,12 @@ describe('posthog-client', () => {
 	});
 
 	it('isPostHogEnabled is false when PUBLIC_POSTHOG_KEY is unset', async () => {
-		vi.stubEnv('PUBLIC_POSTHOG_KEY', '');
 		const { isPostHogEnabled } = await import('./posthog-client');
 		expect(isPostHogEnabled()).toBe(false);
 	});
 
 	it('initPostHog initializes with EU host default when key is set', async () => {
-		vi.stubEnv('PUBLIC_POSTHOG_KEY', 'phc_test_key');
-		vi.stubEnv('PUBLIC_POSTHOG_HOST', '');
+		publicEnv.PUBLIC_POSTHOG_KEY = 'phc_test_key';
 		const { initPostHog, capture } = await import('./posthog-client');
 		initPostHog();
 		expect(initMock).toHaveBeenCalledWith('phc_test_key', {
@@ -56,7 +64,7 @@ describe('posthog-client', () => {
 	});
 
 	it('capture lazy-inits when initPostHog was not called first', async () => {
-		vi.stubEnv('PUBLIC_POSTHOG_KEY', 'phc_test_key');
+		publicEnv.PUBLIC_POSTHOG_KEY = 'phc_test_key';
 		const { capture } = await import('./posthog-client');
 		capture('lazy_event');
 		expect(initMock).toHaveBeenCalled();
@@ -64,7 +72,6 @@ describe('posthog-client', () => {
 	});
 
 	it('capture is a no-op when PUBLIC_POSTHOG_KEY is unset', async () => {
-		vi.stubEnv('PUBLIC_POSTHOG_KEY', '');
 		const { capture } = await import('./posthog-client');
 		capture('ignored_event');
 		expect(initMock).not.toHaveBeenCalled();

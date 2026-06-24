@@ -12,6 +12,7 @@ describe('capture-onboarding-overlay.svelte', () => {
 	it('steps through onboarding flow when open', async () => {
 		render(CaptureOnboardingOverlay, { open: true });
 		await expect.element(page.getByText('Step 1 of 3')).toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Next' }).click();
 		await expect.element(page.getByText('Step 2 of 3')).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Back' }).click();

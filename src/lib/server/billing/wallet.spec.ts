@@ -90,6 +90,7 @@ describe('InsufficientCreditsError', () => {
 	});
 
 	it('omits BYOK hint when BYOK UI is hidden', () => {
+		mockEnv.BILLING_BYOK_UI_ENABLED = 'false';
 		const err = new InsufficientCreditsError({
 			phase: 'precheck',
 			availableCredits: 0,

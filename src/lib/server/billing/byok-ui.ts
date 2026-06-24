@@ -1,6 +1,13 @@
 import { env } from '$env/dynamic/private';
+import { isPayPalConfigured } from '$lib/server/billing/paypal';
 
-/** When false (default), BYOK settings UI is hidden; server BYOK paths remain for self-host. */
+/**
+ * Whether Settings → LLM shows BYOK tabs and billing-mode switch.
+ * Explicit `BILLING_BYOK_UI_ENABLED` overrides; when unset, BYOK is shown when PayPal is not configured (typical self-host).
+ */
 export function isByokUiEnabled(): boolean {
-	return env.BILLING_BYOK_UI_ENABLED?.trim().toLowerCase() === 'true';
+	const raw = env.BILLING_BYOK_UI_ENABLED?.trim().toLowerCase();
+	if (raw === 'true') return true;
+	if (raw === 'false') return false;
+	return !isPayPalConfigured();
 }

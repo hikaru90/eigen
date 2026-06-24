@@ -10,7 +10,12 @@ import { eq } from 'drizzle-orm';
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate';
 import { getOrCreateWallet } from '$lib/server/billing/wallet';
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits';
-import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$lib/server/billing/paypal';
+import {
+	getPayPalClientId,
+	getPayPalWebSdkUrl,
+	isPayPalConfigured
+} from '$lib/server/billing/paypal';
+import { isByokUiEnabled } from '$lib/server/billing/byok-ui';
 import { isGroundingQuestionDue } from '$lib/server/grounding/question-due';
 
 export const load: PageServerLoad = async (event) => {
@@ -38,17 +43,10 @@ export const load: PageServerLoad = async (event) => {
 		isGroundingQuestionDue(userId)
 	]);
 
-	let paypalConfigured = false;
-	let paypalClientId: string | null = null;
-	let paypalSdkUrl: string | null = null;
-	try {
-		paypalClientId = getPayPalClientId();
-		paypalSdkUrl = getPayPalWebSdkUrl();
-		getPayPalClientSecret();
-		paypalConfigured = true;
-	} catch {
-		paypalConfigured = false;
-	}
+	const paypalConfigured = isPayPalConfigured();
+	const byokUiEnabled = isByokUiEnabled();
+	const paypalClientId = paypalConfigured ? getPayPalClientId() : null;
+	const paypalSdkUrl = paypalConfigured ? getPayPalWebSdkUrl() : null;
 
 	const billingMode = (pref?.billingMode ?? 'platform_credits') as 'platform_credits' | 'byok';
 	const creditsGatePassed =
@@ -66,6 +64,7 @@ export const load: PageServerLoad = async (event) => {
 		paypalConfigured,
 		paypalClientId,
 		paypalSdkUrl,
+		byokUiEnabled,
 		creditsGatePassed,
 		captureAllowed: captureGate.allowed,
 		captureGateReason: captureGate.allowed ? null : captureGate.reason,
@@ -86,6 +85,19 @@ export const actions: Actions = {
 			return fail(400, {
 				message: 'Add credits before finishing onboarding.'
 			});
+		}
+
+		await authDb
+			.update(user)
+			.set({ onboardingCompleted: true })
+			.where(eq(user.id, event.locals.user.id));
+
+		return { ok: true as const };
+	},
+
+	skipOnboarding: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { message: 'Unauthorized' });
 		}
 
 		await authDb

@@ -17,7 +17,7 @@
   import { getLocale, setLocale } from "$lib/paraglide/runtime";
   import { m } from "$lib/paraglide/messages.js";
   import {
-    initPostHog,
+    isPostHogEnabled,
     identify,
     resetPostHog,
     capturePageview,
@@ -82,7 +82,7 @@
   });
 
   onMount(() => {
-    const posthogReady = initPostHog();
+    const posthogReady = isPostHogEnabled();
     if (posthogReady) {
       const initialPath = normalizePathname(page.url.pathname);
       if (!authPaths.has(initialPath)) {

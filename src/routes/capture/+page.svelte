@@ -704,6 +704,7 @@
 	paypalConfigured={data.paypalConfigured}
 	paypalClientId={data.paypalClientId}
 	paypalSdkUrl={data.paypalSdkUrl}
+	byokUiEnabled={data.byokUiEnabled}
 	creditsGatePassed={data.creditsGatePassed || localWalletCredits >= data.minCaptureCredits}
 />
 

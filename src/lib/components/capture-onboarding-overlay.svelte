@@ -14,7 +14,8 @@
 		paypalConfigured = false,
 		paypalClientId = null as string | null,
 		paypalSdkUrl = null as string | null,
-		creditsGatePassed = false
+		creditsGatePassed = false,
+		byokUiEnabled = false
 	}: {
 		open: boolean;
 		walletAvailableCredits?: number;
@@ -23,6 +24,7 @@
 		paypalClientId?: string | null;
 		paypalSdkUrl?: string | null;
 		creditsGatePassed?: boolean;
+		byokUiEnabled?: boolean;
 	} = $props();
 
 	let step = $state(0);
@@ -51,6 +53,15 @@
 				await invalidateAll();
 			}
 		};
+
+	const skipOnboardingEnhance: SubmitFunction = () =>
+		async ({ result, update }) => {
+			await update({ reset: false });
+			if (result.type === 'success') {
+				capture('onboarding_skipped', {});
+				await invalidateAll();
+			}
+		};
 </script>
 
 {#if open}
@@ -75,24 +86,34 @@
 				{#if step === 0}
 					<p class="text-xs leading-relaxed">
 						Eigen is your personal memory — capture raw thoughts, and the system organizes them for
-						you. Before your first capture, add credits so enrichment can run.
+						you. You can add credits now or skip and configure billing later in Settings.
 					</p>
 				{:else if step === 1}
 					<p class="text-xs leading-relaxed">
-						Add <strong>Eigen credits</strong> to pay for capture, chat, voice dictation, and embeddings.
-						Each LLM call is logged in Activity.
+						{#if byokUiEnabled && !paypalConfigured}
+							Configure your own LLM keys under <a href="/settings/llm?tab=byok" class="underline">Settings → LLM → BYOK</a>,
+							or add Eigen credits below when PayPal is available.
+						{:else if byokUiEnabled}
+							Add <strong>Eigen credits</strong> below, or use your own gateway keys under
+							<a href="/settings/llm?tab=byok" class="underline">Settings → LLM → BYOK</a>.
+						{:else}
+							Add <strong>Eigen credits</strong> to pay for capture, chat, voice dictation, and embeddings.
+							Each LLM call is logged in Activity.
+						{/if}
 					</p>
-					<CreditsTopUpPanel
-						compact
-						surface="onboarding"
-						availableCredits={localWalletCredits}
-						{paypalConfigured}
-						{paypalClientId}
-						{paypalSdkUrl}
-						onBalanceUpdated={(credits) => {
-							localWalletCredits = credits;
-						}}
-					/>
+					{#if paypalConfigured}
+						<CreditsTopUpPanel
+							compact
+							surface="onboarding"
+							availableCredits={localWalletCredits}
+							{paypalConfigured}
+							{paypalClientId}
+							{paypalSdkUrl}
+							onBalanceUpdated={(credits) => {
+								localWalletCredits = credits;
+							}}
+						/>
+					{/if}
 					{#if creditsOk}
 						<p class="text-xs text-green-600 dark:text-green-400">Enough credits to capture.</p>
 					{/if}
@@ -108,13 +129,18 @@
 			</Card.Content>
 
 			<Card.Footer class="flex flex-wrap items-center justify-between gap-2 border-t border-black/10 pt-4 dark:border-white/15">
-				{#if step > 0}
-					<Button type="button" variant="outline" class="rounded-[4px] text-xs" onclick={() => (step -= 1)}>
-						Back
-					</Button>
-				{:else}
-					<div class="w-20 shrink-0" aria-hidden="true"></div>
-				{/if}
+				<div class="flex min-w-0 flex-1 items-center gap-2">
+					{#if step > 0}
+						<Button type="button" variant="outline" class="rounded-[4px] text-xs" onclick={() => (step -= 1)}>
+							Back
+						</Button>
+					{/if}
+					<form method="post" action="?/skipOnboarding" use:enhance={skipOnboardingEnhance}>
+						<Button type="submit" variant="ghost" class="rounded-[4px] text-xs text-muted-foreground">
+							Skip for now
+						</Button>
+					</form>
+				</div>
 
 				{#if step < lastStep}
 					<Button type="button" class="rounded-[4px] text-xs" onclick={() => (step += 1)}>Next</Button>

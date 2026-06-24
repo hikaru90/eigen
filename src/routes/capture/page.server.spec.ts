@@ -19,4 +19,9 @@ describe('capture page server', () => {
 		const result = await actions.completeOnboarding({ locals: { user: null } } as never);
 		expect(result).toMatchObject({ status: 401 });
 	});
+
+	it('skipOnboarding requires auth', async () => {
+		const result = await actions.skipOnboarding({ locals: { user: null } } as never);
+		expect(result).toMatchObject({ status: 401 });
+	});
 });
