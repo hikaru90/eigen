@@ -84,3 +84,15 @@ Each QA run expands to: **captures** → **check** (deterministic) → optional 
 | Learn from user | qa_edit_allergy_update |
 | Improve over time | qa_ontology_growth, retrieval learning flags |
 | Dense operative detail recall | `qa_surgical_*` (tag `surgical_memory`) — numeric/landmark/device specifics |
+
+## Graph-scale cost benchmark
+
+Operator-owned economics harness (not QA pass/fail). Measures gateway USD and latency vs corpus size.
+
+```bash
+npm run graph-scale
+npm run graph-scale -- --sizes 50,100,250 --tracks qa
+npm run graph-scale -- --sizes 1000 --confirm-spend
+```
+
+See [`docs/planning/graph-scale-cost.md`](../docs/planning/graph-scale-cost.md) and `evals/graph-scale/`.

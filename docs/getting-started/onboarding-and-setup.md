@@ -88,7 +88,7 @@ Return to **Capture**, type or dictate a thought, and submit. Ingest runs automa
 
 Use this path when **you** deploy and operate Eigen on your own stack (Docker Compose). End users still go through the [managed onboarding tour](#2-welcome-tour-first-visit) above after they sign in; your job is to provision the stack, secrets, and optional payment/social integrations first.
 
-See also [Overview & quick start](./README.md) for Docker Compose commands and Coolify notes.
+See also [Overview & quick start](./README.md) for Docker Compose commands and Coolify notes. For a bare Linux VPS, use [VPS install runbook](../operations/vps-install.md).
 
 ### Accounts to create (operator)
 
@@ -106,7 +106,7 @@ You do **not** need separate accounts for Postgres, pgvector, or Apache AGE — 
 
 ### Environment variables (operator)
 
-Copy [`.env.example`](./.env.example) to `.env` and set values before `docker compose up`. Grouped by purpose:
+Copy [`.env.example`](./.env.example) to `.env` and set values before `docker compose up`, or run [`./install.sh`](../../install.sh) for production (generates secrets and Compose-correct defaults). Grouped by purpose:
 
 #### Required — app will not run safely without these
 
@@ -175,30 +175,25 @@ Users on BYOK must configure credentials in the UI (or rely on these env fallbac
 
 1. **Clone and configure**
    ```sh
-   git clone <repo-url> && cd eigen
-   cp .env.example .env
-   # Edit .env — set required variables above
+   git clone https://github.com/hikaru90/eigen.git && cd eigen
+   ./install.sh --non-interactive --origin https://your.domain --billing platform
+   # Edit .env — add LLM gateway credentials (and PayPal if using platform credits)
    ```
+   For local development only: `cp .env.example .env` and use `npm run dev` (see [README](../../README.md#development-local-non-containerized)).
 
 2. **Start the stack**
    ```sh
    docker compose up -d --build
    ```
+   The app entrypoint runs migrations and RLS automatically on start ([`entrypoint.sh`](../../entrypoint.sh)).
 
-3. **Apply schema and RLS** (first deploy only; the production entrypoint runs migrations automatically on subsequent starts)
-   ```sh
-   npm install
-   npm run db:push:force
-   npm run db:rls
-   ```
-
-4. **Optional: bootstrap an admin user** — set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env` before starting the app container, or run:
+3. **Optional: bootstrap an admin user** — set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env` before starting the app container (or pass them to `install.sh`), or run:
    ```sh
    docker compose exec app node scripts/create-admin.mjs
    ```
    The script is idempotent (skips if the email already exists). Admin users still see the welcome tour until they complete or skip onboarding.
 
-5. **Verify** — open `ORIGIN` in a browser, sign up or sign in as admin, complete the welcome tour, and confirm LLM billing (Credits or BYOK) before test captures.
+4. **Verify** — open `ORIGIN` in a browser, sign up or sign in as admin, complete the welcome tour, and confirm LLM billing (Credits or BYOK) before test captures.
 
 ### Self-hosted end-user sign-up
 

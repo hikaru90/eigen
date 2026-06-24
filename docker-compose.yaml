@@ -48,8 +48,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://eigen:eigen@db:5432/eigen}
-      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:-postgres://eigen:eigen@db:5432/eigen}
+      DATABASE_URL: postgres://${POSTGRES_USER:-eigen}:${POSTGRES_PASSWORD:-eigen}@db:5432/eigen
+      DATABASE_ADMIN_URL: postgres://${POSTGRES_USER:-eigen}:${POSTGRES_PASSWORD:-eigen}@db:5432/eigen
       CONSOLIDATION_INTERNAL_URL: ${CONSOLIDATION_INTERNAL_URL:-http://app:3000}
       APP_DB_ROLE: ${APP_DB_ROLE:-eigen_app}
       AGE_GRAPH_NAME: ${AGE_GRAPH_NAME:-eigen_graph}

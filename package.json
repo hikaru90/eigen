@@ -45,6 +45,7 @@
 		"eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",
 		"eval:reset-fixture": "vite-node --config evals/vite.config.ts evals/reset-fixture.ts",
 		"eval:longmemeval": "vite-node --config evals/vite.config.ts evals/longmemeval/run.ts",
+		"graph-scale": "vite-node --config evals/vite.config.ts evals/graph-scale/run.ts",
 		"measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts",
 		"posthog:upload-sourcemaps": "node scripts/upload-posthog-sourcemaps.mjs"
 	},

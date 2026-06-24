@@ -1,0 +1,12 @@
+# Reverse proxy template for Eigen on a VPS.
+# Replace example.com with your domain, or regenerate with:
+#   ./install.sh --with-caddy your.domain --origin https://your.domain
+#
+# Install Caddy on the host (https://caddyserver.com/docs/install), then:
+#   sudo caddy run --config deploy/Caddyfile
+#
+# ORIGIN in .env must match https://example.com
+
+example.com {
+	reverse_proxy localhost:3000
+}
