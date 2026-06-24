@@ -2,6 +2,7 @@
 
 import { capture } from '$lib/analytics/posthog-client';
 import { MIN_TOP_UP_CREDITS } from '$lib/billing/platform-pricing';
+import { randomUuid } from '$lib/random-uuid';
 
 type PayPalPaymentSession = {
 	start: (
@@ -153,10 +154,12 @@ export async function initPayPalCheckout(input: {
 		throw new Error('PayPal SDK is not initialized');
 	}
 
-	const clientMetadataId =
-		typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-			? crypto.randomUUID()
-			: undefined;
+	let clientMetadataId: string | undefined;
+	try {
+		clientMetadataId = randomUuid();
+	} catch {
+		clientMetadataId = undefined;
+	}
 
 	const sdkInstance = await paypal.createInstance({
 		clientId: input.clientId,

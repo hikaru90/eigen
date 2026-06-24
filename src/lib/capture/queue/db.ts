@@ -1,3 +1,4 @@
+import { randomUuid } from '$lib/random-uuid';
 import {
 	CAPTURE_QUEUE_DB_NAME,
 	CAPTURE_QUEUE_DB_VERSION,
@@ -125,7 +126,7 @@ export async function getNextPendingCaptureItem(): Promise<CaptureQueueItem | nu
 	return items.find((i) => i.status === 'pending') ?? null;
 }
 
-export async function enqueueCaptureRaw(raw: string, id = crypto.randomUUID()): Promise<CaptureQueueItem> {
+export async function enqueueCaptureRaw(raw: string, id = randomUuid()): Promise<CaptureQueueItem> {
 	const trimmed = raw.trim();
 	if (!trimmed) throw new Error('raw is required');
 	const item: CaptureQueueItem = {

@@ -1,3 +1,4 @@
+import { randomUuid } from '$lib/random-uuid';
 import {
 	deleteCaptureQueueItem,
 	enqueueCaptureRaw,
@@ -27,10 +28,7 @@ const listeners = new Set<RunnerListener>();
 let channel: BroadcastChannel | null = null;
 
 /** Identifies this tab so BroadcastChannel echoes are not delivered twice locally. */
-const tabOrigin =
-	typeof crypto !== 'undefined' && 'randomUUID' in crypto
-		? crypto.randomUUID()
-		: `tab-${Math.random()}`;
+const tabOrigin = randomUuid();
 
 type CaptureQueueBroadcastWire = CaptureQueueBroadcast & { _origin?: string };
 

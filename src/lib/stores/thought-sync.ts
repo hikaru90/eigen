@@ -1,3 +1,5 @@
+import { randomUuid } from '$lib/random-uuid';
+
 export const THOUGHT_SYNC_CHANNEL = 'eigen-thought-sync';
 
 export type ThoughtSyncScope = 'local' | 'global';
@@ -15,10 +17,7 @@ let channel: BroadcastChannel | null = null;
 let started = false;
 let visibilityHookInstalled = false;
 
-const tabOrigin =
-	typeof crypto !== 'undefined' && 'randomUUID' in crypto
-		? crypto.randomUUID()
-		: `tab-${Math.random()}`;
+const tabOrigin = randomUuid();
 
 function notifyListeners(message: ThoughtSyncMessage) {
 	for (const listener of listeners) listener(message);
