@@ -7,9 +7,19 @@ const urlString = getDatabaseUrl();
 const appPassword = process.env.EIGEN_APP_DB_PASSWORD?.trim() || 'eigen_app';
 const escapedPassword = appPassword.replace(/'/g, "''");
 
+const ageGraph = process.env.AGE_GRAPH_NAME?.trim();
+if (!ageGraph) {
+	console.error('[eigen] ensure-app-role failed: AGE_GRAPH_NAME is required and must be non-empty.');
+	console.error('[eigen] Set AGE_GRAPH_NAME in your environment or .env file.');
+	process.exit(1);
+}
+
 const sql = postgres(urlString, { max: 1 });
 
 try {
+	// Password is set on first deploy only (IF NOT EXISTS). If the role already exists
+	// from a previous deploy or the Postgres init script, the password is not updated.
+	// To rotate the eigen_app password, drop the role and re-run the entrypoint.
 	await sql.unsafe(`
 		DO $$
 		BEGIN
@@ -25,10 +35,6 @@ try {
 
 	await sql.unsafe(`GRANT CONNECT ON DATABASE ${quoteIdent(dbName)} TO eigen_app`);
 	await sql.unsafe(`GRANT USAGE ON SCHEMA public TO eigen_app`);
-	const ageGraph = process.env.AGE_GRAPH_NAME?.trim();
-	if (!ageGraph) {
-		throw new Error('AGE_GRAPH_NAME is required and must be non-empty');
-	}
 	await ensureAgeGraphGrants(sql, { owner, ageGraph });
 	await transferGraphOwnership(sql, { graphSchema: ageGraph, appRole: 'eigen_app' });
 	await sql.unsafe(
@@ -51,6 +57,11 @@ try {
 	console.log(
 		`[eigen] eigen_app role ensured (RLS + Apache AGE graph grants on ${ageGraph}).`
 	);
+} catch (err) {
+	const message = err instanceof Error ? err.message : String(err);
+	console.error(`[eigen] ensure-app-role failed: ${message}`);
+	console.error('[eigen] Check that DATABASE_URL is correct, the database is accessible, and AGE_GRAPH_NAME is set.');
+	process.exit(1);
 } finally {
 	await sql.end();
 }

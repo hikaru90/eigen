@@ -1,26 +1,36 @@
 #!/bin/sh
 set -e
 
-echo "[eigen] Ensuring database extensions..."
-node scripts/ensure-extensions.mjs
+# Diagnostic trap: print which step failed on unexpected exit.
+trap 'echo "[eigen] entrypoint.sh: unexpected exit at line $LINENO (exit code $?)" >&2' EXIT
 
-echo "[eigen] Ensuring non-superuser app role (eigen_app)..."
-node scripts/ensure-app-role.mjs
+run_step() {
+	step_name="$1"
+	shift
+	echo "[eigen] ${step_name}..."
+	if ! "$@"; then
+		echo "[eigen] FATAL: ${step_name} failed (exit code $?)." >&2
+		echo "[eigen] Check the logs above for details. Common causes:" >&2
+		echo "[eigen]   - DATABASE_URL points to wrong host or credentials" >&2
+		echo "[eigen]   - PostgreSQL is not ready (try: docker compose logs db)" >&2
+		echo "[eigen]   - AGE_GRAPH_NAME is not set in .env" >&2
+		exit 1
+	fi
+}
 
-echo "[eigen] Verifying eigen_app can write Apache AGE graph..."
-node scripts/verify-age-graph-role.mjs
-
-echo "[eigen] Running database migrations..."
-node scripts/migrate.mjs
-
-echo "[eigen] Applying RLS policies..."
-node scripts/apply-rls.mjs
+run_step "Ensuring database extensions" node scripts/ensure-extensions.mjs
+run_step "Ensuring non-superuser app role (eigen_app)" node scripts/ensure-app-role.mjs
+run_step "Verifying eigen_app can write Apache AGE graph" node scripts/verify-age-graph-role.mjs
+run_step "Running database migrations" node scripts/migrate.mjs
+run_step "Applying RLS policies" node scripts/apply-rls.mjs
 
 # Create admin user on first boot if credentials are provided.
 # create-admin.mjs is idempotent — skips silently if the user already exists.
-if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ] && [ -n "${ADMIN_NAME:-}" ]; then
   echo "[eigen] Creating admin user (${ADMIN_EMAIL})..."
   node scripts/create-admin.mjs
+elif [ -n "${ADMIN_EMAIL:-}" ] || [ -n "${ADMIN_PASSWORD:-}" ] || [ -n "${ADMIN_NAME:-}" ]; then
+  echo "[eigen] WARNING: ADMIN_EMAIL, ADMIN_PASSWORD, and ADMIN_NAME must all be set to create an admin user. Skipping." >&2
 else
   echo "[eigen] ADMIN_EMAIL/ADMIN_PASSWORD not set — skipping admin creation."
 fi

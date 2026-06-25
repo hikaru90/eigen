@@ -15,7 +15,12 @@ const body = fs.readFileSync(sqlPath, 'utf8');
 const sql = postgres(urlString, { max: 1 });
 try {
 	await sql.unsafe(body);
-	console.log('RLS applied successfully.');
+	console.log('[eigen] RLS applied successfully.');
+} catch (err) {
+	const message = err instanceof Error ? err.message : String(err);
+	console.error(`[eigen] apply-rls failed: ${message}`);
+	console.error('[eigen] Check that DATABASE_URL is correct, the database is accessible, and migrations have been applied.');
+	process.exit(1);
 } finally {
 	await sql.end();
 }

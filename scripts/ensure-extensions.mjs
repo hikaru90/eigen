@@ -9,12 +9,15 @@ const urlString = getDatabaseUrl();
  *  public precedes ag_catalog so unqualified DDL targets public, not ag_catalog. */
 const AGE_SEARCH_PATH = 'public, ag_catalog, "$user"';
 
+const ageGraph = process.env.AGE_GRAPH_NAME?.trim();
+if (!ageGraph) {
+	console.error('[eigen] ensure-extensions failed: AGE_GRAPH_NAME is required and must be non-empty.');
+	console.error('[eigen] Set AGE_GRAPH_NAME in your environment or .env file.');
+	process.exit(1);
+}
+
 const sql = postgres(urlString, { max: 1 });
 try {
-	const ageGraph = process.env.AGE_GRAPH_NAME?.trim();
-	if (!ageGraph) {
-		throw new Error('AGE_GRAPH_NAME is required and must be non-empty');
-	}
 	const escapedGraph = ageGraph.replace(/'/g, "''");
 	await sql.unsafe(`
 		CREATE EXTENSION IF NOT EXISTS vector;
@@ -42,6 +45,11 @@ try {
 		`[eigen] Extensions ensured (vector, age); graph '${ageGraph}' ready; ` +
 			'database search_path includes ag_catalog; eigen_app graph grants applied.'
 	);
+} catch (err) {
+	const message = err instanceof Error ? err.message : String(err);
+	console.error(`[eigen] ensure-extensions failed: ${message}`);
+	console.error('[eigen] Check that DATABASE_URL is correct, the database is accessible, and PostgreSQL has AGE loaded.');
+	process.exit(1);
 } finally {
 	await sql.end();
 }

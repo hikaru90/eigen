@@ -5,6 +5,9 @@
 #        [--with-caddy DOMAIN] [--force]
 set -e
 
+# Clean up temp files on exit.
+trap 'rm -f "${ENV_FILE}.tmp" "${ENV_FILE}.test"' EXIT
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ENV_EXAMPLE="${SCRIPT_DIR}/.env.example"
 ENV_FILE="${SCRIPT_DIR}/.env"
@@ -66,7 +69,8 @@ set_env_var() {
 	key="$1"
 	value="$2"
 	file="$3"
-	escaped=$(printf '%s\n' "$value" | sed 's/[&/\]/\\&/g')
+	# Escape sed delimiter (|), ampersand, slash, backslash, and double-quote for safe .env embedding.
+	escaped=$(printf '%s\n' "$value" | sed 's/[&|/\\"]/\\&/g')
 	if grep -q "^${key}=" "$file" 2>/dev/null; then
 		sed "s|^${key}=.*|${key}=\"${escaped}\"|" "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
 	else
@@ -132,6 +136,12 @@ fi
 
 [ -f "$ENV_EXAMPLE" ] || die ".env.example not found in ${SCRIPT_DIR}"
 
+# Verify write permission to target directory.
+if ! touch "${ENV_FILE}.test" 2>/dev/null; then
+	die "Cannot write to $(dirname "$ENV_FILE") — check permissions or run from a writable directory"
+fi
+rm -f "${ENV_FILE}.test"
+
 if [ -z "$ORIGIN" ]; then
 	if [ "$NON_INTERACTIVE" -eq 1 ]; then
 		die "--origin is required in --non-interactive mode"
@@ -176,6 +186,14 @@ set_env_var TENANT_MASTER_KEY "$TENANT_MASTER_KEY" "$ENV_FILE"
 set_env_var ADMIN_CONSOLIDATION_KEY "$ADMIN_CONSOLIDATION_KEY" "$ENV_FILE"
 set_env_var POSTHOG_SOURCEMAPS_REQUIRED 0 "$ENV_FILE"
 set_env_var CONSOLIDATION_INTERNAL_URL http://app:3000 "$ENV_FILE"
+
+# Verify critical variables were written successfully.
+for key in DATABASE_URL POSTGRES_PASSWORD BETTER_AUTH_SECRET TENANT_MASTER_KEY; do
+	val=$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"')
+	if [ -z "$val" ]; then
+		die "Post-write validation failed: ${key} is empty or missing in ${ENV_FILE}"
+	fi
+done
 
 if [ -n "$ADMIN_NAME" ]; then
 	set_env_var ADMIN_NAME "$ADMIN_NAME" "$ENV_FILE"

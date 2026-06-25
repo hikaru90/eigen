@@ -24,7 +24,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 5s
+      start_period: 15s
     volumes:
       - eigen_pg:/var/lib/postgresql/data
     restart: unless-stopped
