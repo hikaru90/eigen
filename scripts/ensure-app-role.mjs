@@ -25,7 +25,6 @@ try {
 
 	await sql.unsafe(`GRANT CONNECT ON DATABASE ${quoteIdent(dbName)} TO eigen_app`);
 	await sql.unsafe(`GRANT USAGE ON SCHEMA public TO eigen_app`);
-	await sql.unsafe(`GRANT USAGE ON SCHEMA ag_catalog TO eigen_app`);
 	const ageGraph = process.env.AGE_GRAPH_NAME?.trim();
 	if (!ageGraph) {
 		throw new Error('AGE_GRAPH_NAME is required and must be non-empty');

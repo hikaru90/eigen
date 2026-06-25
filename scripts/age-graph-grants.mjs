@@ -16,8 +16,11 @@ export async function ensureAgeGraphGrants(sql, input) {
 	const graphSchema = quoteIdent(ageGraph);
 	const ownerIdent = quoteIdent(owner);
 
+	await sql.unsafe(`GRANT USAGE ON SCHEMA ag_catalog TO eigen_app`);
+	await sql.unsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO eigen_app`);
 	await sql.unsafe(`GRANT USAGE ON SCHEMA ${graphSchema} TO eigen_app`);
 	await sql.unsafe(`GRANT CREATE ON SCHEMA ${graphSchema} TO eigen_app`);
+	await sql.unsafe(`GRANT ALL PRIVILEGES ON SCHEMA ${graphSchema} TO eigen_app`);
 	await sql.unsafe(
 		`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${graphSchema} TO eigen_app`
 	);

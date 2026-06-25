@@ -74,18 +74,37 @@ export function wrapAgeCypherDollarQuote(cypher: string): string {
 	return `$${tag}$${cypher}$${tag}$`;
 }
 
+function formatAgeCypherError(err: unknown, graph: string, cypher: string): Error {
+	const cause = err instanceof Error ? err : new Error(String(err));
+	const nested =
+		cause instanceof Error && 'cause' in cause && cause.cause instanceof Error
+			? cause.cause.message
+			: undefined;
+	const detail = nested && nested !== cause.message ? nested : cause.message;
+	const preview = cypher.replace(/\s+/g, ' ').trim().slice(0, 160);
+	return new Error(`Apache AGE cypher failed on graph "${graph}": ${detail} [${preview}]`, {
+		cause: err
+	});
+}
+
 export async function runAgeCypher(
 	cypher: string,
 	columnDefs: string
 ): Promise<Array<Record<string, unknown>>> {
 	const db = getDb();
+	const graph = ageGraphName();
 	// AGE is preloaded via shared_preload_libraries; LOAD 'age' fails under SET ROLE eigen_app.
 	await db.execute(sql.raw(`SET search_path = ag_catalog, "$user", public`));
-	const graph = ageGraphName().replace(/'/g, "''");
+	const escapedGraph = graph.replace(/'/g, "''");
 	const quotedCypher = wrapAgeCypherDollarQuote(cypher);
-	const raw = await db.execute(
-		sql.raw(`SELECT * FROM ag_catalog.cypher('${graph}', ${quotedCypher}) AS (${columnDefs})`)
-	);
+	let raw: unknown;
+	try {
+		raw = await db.execute(
+			sql.raw(`SELECT * FROM ag_catalog.cypher('${escapedGraph}', ${quotedCypher}) AS (${columnDefs})`)
+		);
+	} catch (err) {
+		throw formatAgeCypherError(err, graph, cypher);
+	}
 	const rows = Array.isArray(raw)
 		? (raw as Array<Record<string, unknown>>)
 		: (((raw as { rows?: Array<Record<string, unknown>> }).rows ?? []) as Array<

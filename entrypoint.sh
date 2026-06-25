@@ -7,6 +7,9 @@ node scripts/ensure-extensions.mjs
 echo "[eigen] Ensuring non-superuser app role (eigen_app)..."
 node scripts/ensure-app-role.mjs
 
+echo "[eigen] Verifying eigen_app can write Apache AGE graph..."
+node scripts/verify-age-graph-role.mjs
+
 echo "[eigen] Running database migrations..."
 node scripts/migrate.mjs
 

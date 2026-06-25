@@ -599,8 +599,10 @@ export async function upsertMentionEdge(input: {
 		await runAgeCypher(
 			renderCypherQuery(
 			`
-			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
-			MATCH (e:Entity {id: $entity_id, user_id: $user_id})
+			MERGE (t:Thought {id: $thought_id})
+			SET t.user_id = $user_id
+			MERGE (e:Entity {id: $entity_id})
+			SET e.user_id = $user_id
 			MERGE (t)-[r:MENTIONS {user_id: $user_id}]->(e)
 			SET r.updated_at = timestamp()
 			RETURN 1 AS ok

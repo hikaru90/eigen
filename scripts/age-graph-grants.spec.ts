@@ -16,6 +16,17 @@ describe('Apache AGE graph bootstrap grants', () => {
 		expect(extensions).toContain('ensureAgeGraphGrants');
 	});
 
+	it('entrypoint verifies eigen_app graph writes after role bootstrap', () => {
+		const entrypoint = readFileSync(path.join(repoRoot, 'entrypoint.sh'), 'utf-8');
+		expect(entrypoint).toContain('verify-age-graph-role.mjs');
+	});
+
+	it('age-graph-grants includes ag_catalog execute and ALL on graph schema', () => {
+		const grants = readFileSync(path.join(repoRoot, 'scripts/age-graph-grants.mjs'), 'utf-8');
+		expect(grants).toContain('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog');
+		expect(grants).toContain('GRANT ALL PRIVILEGES ON SCHEMA');
+	});
+
 	it('postgres init grants CREATE and default table privileges on eigen_graph', () => {
 		const init = readFileSync(
 			path.join(repoRoot, 'docker/postgres/init/02-app-role.sh'),
