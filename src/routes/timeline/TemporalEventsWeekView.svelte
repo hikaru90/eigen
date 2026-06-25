@@ -97,6 +97,7 @@
 					>
 						{hour}:00
 					</div>
+					<!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
 					{#each weekDays as _day, dayIndex (`${dayIndex}-${hour}`)}
 						<div
 							class="border-border/50 hover:bg-muted/20 relative border-b border-r"
@@ -114,6 +115,7 @@
 				style="top: 2.25rem; height: {gridHeightPx}px"
 			>
 				<div></div>
+				<!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
 				{#each Array.from({ length: 7 }) as _, dayIndex (dayIndex)}
 					<div class="relative h-full">
 						{#each placements.filter((p) => p.dayIndex === dayIndex) as p (`${p.item.id}-${p.startMinutes}`)}

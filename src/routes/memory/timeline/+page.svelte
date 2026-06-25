@@ -10,7 +10,6 @@
 
 <div class="-mb-28 h-dvh overflow-hidden overscroll-none">
 	<TemporalEvents
-		visible={true}
 		initialEventId={initialEventId}
 		userTimeZone={data.preferredTimezone}
 		userName={data.user.name}

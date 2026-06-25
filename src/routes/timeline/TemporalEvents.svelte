@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -56,7 +57,6 @@
 		eventNotificationsEnabled?: boolean;
 		eventReminderLeadMinutes?: number;
 		eventReminderKinds?: string[];
-		visible?: boolean;
 	};
 
 	let {
@@ -66,8 +66,7 @@
 		userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
 		eventNotificationsEnabled = false,
 		eventReminderLeadMinutes = 10,
-		eventReminderKinds = ['appointment', 'reminder', 'deadline', 'inferred_event'],
-		visible = true
+		eventReminderKinds = ['appointment', 'reminder', 'deadline', 'inferred_event']
 	}: Props = $props();
 
 	type Phase =
@@ -178,7 +177,7 @@
 		actionError = null;
 		try {
 			const effectiveStatus: TemporalStatusFilter = shellView === 'tasks' ? 'open' : statusFilter;
-			const params = new URLSearchParams({
+			const params = 	new SvelteURLSearchParams({
 				range: rangeFilter,
 				status: effectiveStatus,
 				includeOpenLoops: 'true'
@@ -236,7 +235,7 @@
 		const silent = options?.silent ?? overdueItems.length > 0;
 		if (!silent) overdueLoading = true;
 		try {
-			const params = new URLSearchParams({
+			const params = 	new SvelteURLSearchParams({
 				range: 'all',
 				status: 'open',
 				includeOpenLoops: 'true'
@@ -263,7 +262,7 @@
 		const silent = options?.silent ?? doneItems.length > 0;
 		if (!silent) doneLoading = true;
 		try {
-			const params = new URLSearchParams({
+			const params = 	new SvelteURLSearchParams({
 				range: 'all',
 				status: 'all',
 				includeOpenLoops: 'true'

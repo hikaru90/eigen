@@ -421,7 +421,7 @@
 				</div>
 				<div class="space-y-2">
 					<p class="text-xs font-medium">Subscribe to events</p>
-					{#each AGENT_SUBSCRIBABLE_EVENTS as eventType}
+					{#each AGENT_SUBSCRIBABLE_EVENTS as eventType (eventType)}
 						<label class="flex items-center gap-2 text-xs">
 							<input
 								type="checkbox"

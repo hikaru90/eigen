@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import type { ActionData, PageData } from './$types';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
@@ -91,7 +92,7 @@
 					{:else if billingMode === 'byok'}
 						<p class="text-muted-foreground text-xs">
 							Active provider: {data.activeProvider === 'eurouter' ? 'EUrouter' : 'OpenRouter'}.
-							<a href="/settings/llm?tab=byok" class="text-foreground underline">Change</a>
+							<a href={resolve('/settings/llm?tab=byok')} class="text-foreground underline">Change</a>
 						</p>
 					{:else}
 						<p class="text-muted-foreground text-xs">
@@ -148,12 +149,12 @@
 							Eigen credits.
 						</p>
 						<ul class="mt-3 divide-y divide-border/60">
-							{#each providers as item}
+							{#each providers as item (item.id)}
 								{@const configured = data.providers[item.id].configured}
 								{@const isActive = data.activeProvider === item.id && data.billingMode === 'byok'}
 								<li>
 									<a
-										href="/settings/llm/byok/{item.id}"
+										href={resolve(`/settings/llm/byok/${item.id}`)}
 										class="flex items-center justify-between gap-3 py-3 text-xs hover:bg-black/5 dark:hover:bg-white/5"
 									>
 										<span class="font-medium text-foreground">{item.label}</span>

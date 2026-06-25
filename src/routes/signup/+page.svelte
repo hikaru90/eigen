@@ -126,7 +126,7 @@
 
 			<p class="text-muted-foreground text-center text-xs">
 				Already have an account?
-				<a href="/login" class="text-foreground underline-offset-2 hover:underline">Sign in</a>
+				<a href={resolve('/login')} class="text-foreground underline-offset-2 hover:underline">Sign in</a>
 			</p>
 		</Card.Content>
 	</Card.Root>

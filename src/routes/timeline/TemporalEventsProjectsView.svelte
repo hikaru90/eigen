@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
-	import type { CreateProjectResponse } from '../api/timeline/projects/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -106,7 +105,7 @@
 			createdAt: new Date().toISOString()
 		});
 	}
-	function onProjectCreated(_project: CreateProjectResponse) {
+	function onProjectCreated() {
 		void loadProjects();
 	}
 </script>

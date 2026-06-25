@@ -380,7 +380,7 @@
 							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
 							name="preferredUiLocale"
 						>
-							{#each data.uiLocaleOptions as option}
+							{#each data.uiLocaleOptions as option (option.value)}
 								<option
 									value={option.value}
 									selected={option.value === (data.preferredUiLocale ?? getLocale())}
@@ -444,7 +444,7 @@
 							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
 							name="preferredLanguage"
 						>
-							{#each data.languageOptions as option}
+							{#each data.languageOptions as option (option.value)}
 								<option value={option.value} selected={option.value === data.preferredLanguage}>
 									{option.label} ({option.value})
 								</option>
@@ -481,7 +481,7 @@
 							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
 							name="preferredTranscriptionQuality"
 						>
-							{#each data.qualityOptions as option}
+							{#each data.qualityOptions as option (option.value)}
 								<option
 									value={option.value}
 									selected={option.value === data.preferredTranscriptionQuality}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import type { ActionData, PageData } from './$types';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
@@ -31,7 +32,7 @@
 
 <div class="mx-auto max-w-2xl space-y-4 px-4 pb-8 pt-4">
 	<a
-		href="/settings/llm?tab=byok"
+		href={resolve('/settings/llm?tab=byok')}
 		class="text-muted-foreground inline-flex items-center gap-1 text-xs hover:text-foreground"
 	>
 		<ChevronLeft class="size-4" strokeWidth={1.75} />
@@ -50,7 +51,7 @@
 			return async ({ result, update }) => {
 				await update();
 				if (result.type === 'success') {
-					await goto('/settings/llm?tab=byok');
+					await goto(resolve('/settings/llm?tab=byok'));
 				}
 			};
 		}}
