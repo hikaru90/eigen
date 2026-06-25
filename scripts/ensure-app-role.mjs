@@ -1,6 +1,7 @@
 import './load-env.mjs';
 import postgres from 'postgres';
 import { getDatabaseUrl } from './db-urls.mjs';
+import { ensureAgeGraphGrants, quoteIdent } from './age-graph-grants.mjs';
 
 const urlString = getDatabaseUrl();
 const appPassword = process.env.EIGEN_APP_DB_PASSWORD?.trim() || 'eigen_app';
@@ -29,17 +30,11 @@ try {
 	if (!ageGraph) {
 		throw new Error('AGE_GRAPH_NAME is required and must be non-empty');
 	}
-	await sql.unsafe(`GRANT USAGE ON SCHEMA ${quoteIdent(ageGraph)} TO eigen_app`);
-	await sql.unsafe(
-		`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${quoteIdent(ageGraph)} TO eigen_app`
-	);
+	await ensureAgeGraphGrants(sql, { owner, ageGraph });
 	await sql.unsafe(
 		`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO eigen_app`
 	);
 	await sql.unsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO eigen_app`);
-	await sql.unsafe(
-		`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${quoteIdent(ageGraph)} TO eigen_app`
-	);
 	await sql.unsafe(`
 		ALTER DEFAULT PRIVILEGES FOR ROLE ${quoteIdent(owner)} IN SCHEMA public
 		  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO eigen_app
@@ -48,19 +43,13 @@ try {
 		ALTER DEFAULT PRIVILEGES FOR ROLE ${quoteIdent(owner)} IN SCHEMA public
 		  GRANT USAGE, SELECT ON SEQUENCES TO eigen_app
 	`);
-	await sql.unsafe(`
-		ALTER DEFAULT PRIVILEGES FOR ROLE ${quoteIdent(owner)} IN SCHEMA ${quoteIdent(ageGraph)}
-		  GRANT USAGE, SELECT ON SEQUENCES TO eigen_app
-	`);
 	await sql.unsafe(`GRANT ${quoteIdent('eigen_app')} TO ${quoteIdent(owner)}`);
 	// agtype for Apache AGE cypher() result columns; SET ROLE must not drop ag_catalog from path.
 	await sql.unsafe(`ALTER ROLE eigen_app SET search_path TO ag_catalog, "$user", public`);
 
-	console.log('[eigen] eigen_app role ensured (SET ROLE eigen_app enforces RLS at runtime).');
+	console.log(
+		`[eigen] eigen_app role ensured (RLS + Apache AGE graph grants on ${ageGraph}).`
+	);
 } finally {
 	await sql.end();
-}
-
-function quoteIdent(value) {
-	return `"${String(value).replace(/"/g, '""')}"`;
 }

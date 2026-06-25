@@ -5,16 +5,20 @@ const {
 	extractEntityGraphBundleMock,
 	resolveOrCreateCanonicalEntityMock,
 	upsertMentionEdgeMock,
+	upsertThoughtNodeMock,
+	getDbMock,
 	loadOntologyForUserMock
 } = vi.hoisted(() => ({
 	extractEntityGraphBundleMock: vi.fn(),
 	resolveOrCreateCanonicalEntityMock: vi.fn(),
 	upsertMentionEdgeMock: vi.fn(),
+	upsertThoughtNodeMock: vi.fn(),
+	getDbMock: vi.fn(),
 	loadOntologyForUserMock: vi.fn()
 }));
 
 vi.mock('$lib/server/db', () => ({
-	getDb: vi.fn(() => ({}))
+	getDb: getDbMock
 }));
 
 vi.mock('$lib/server/ontology-db', () => ({
@@ -39,7 +43,8 @@ vi.mock('$lib/server/memory/entity-graph-hints', () => ({
 vi.mock('$lib/server/graph/age', () => ({
 	upsertEntityNode: vi.fn(async () => undefined),
 	upsertMentionEdge: upsertMentionEdgeMock,
-	upsertEntityRelationEdge: vi.fn(async () => undefined)
+	upsertEntityRelationEdge: vi.fn(async () => undefined),
+	upsertThoughtNode: upsertThoughtNodeMock
 }));
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -59,6 +64,15 @@ vi.mock('$lib/server/memory/promote-eligible-project-hubs', () => ({
 describe('syncEntityGraphFromThought precomputed path', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		getDbMock.mockReturnValue({
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					where: vi.fn().mockReturnValue({
+						limit: vi.fn().mockResolvedValue([{ category: 'observation' }])
+					})
+				})
+			})
+		});
 		loadOntologyForUserMock.mockResolvedValue({
 			entityKinds: [
 				{

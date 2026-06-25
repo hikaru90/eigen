@@ -273,7 +273,7 @@ describe('enrichThought', () => {
 		const longText =
 			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
 
-		await enrichThought('u1', 't1', longText);
+		await expect(enrichThought('u1', 't1', longText)).rejects.toThrow(/Enrichment step\(s\) failed/);
 
 		const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls;
 		const enrichedAtSet = setCalls.find(
@@ -298,7 +298,9 @@ describe('enrichThought', () => {
 		getDbMock.mockReturnValue(db);
 		extractThoughtMetadataMock.mockRejectedValue(new Error('boom'));
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(
+			/Enrichment step\(s\) failed:.*metadata: boom/
+		);
 
 		const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls;
 		const enrichedAtCall = setCalls.find(
@@ -335,7 +337,7 @@ describe('enrichThought', () => {
 		getDbMock.mockReturnValue(db);
 		extractThoughtMetadataMock.mockRejectedValue(new Error('metadata failed'));
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/metadata failed/);
 
 		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled();
 		expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalled();
@@ -385,7 +387,7 @@ describe('enrichThought', () => {
 		const longText =
 			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
 
-		await enrichThought('u1', 't1', longText);
+		await expect(enrichThought('u1', 't1', longText)).rejects.toThrow(/Enrichment step\(s\) failed/);
 
 		expect(warnSpy).toHaveBeenCalledWith(
 			'[enrich] failed to clear enriched_at after entity step failure',
@@ -425,18 +427,20 @@ describe('enrichThought', () => {
 		errorSpy.mockRestore();
 	});
 
-	it('continues when enriched_at write fails after successful steps', async () => {
+	it('throws when enriched_at write fails after successful steps', async () => {
 		const db = makeDb({ updateThrowsOnCall: [3] });
 		getDbMock.mockReturnValue(db);
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(
+			/Failed to persist enriched_at/
+		);
 
 		expect(warnSpy).toHaveBeenCalledWith(
 			'[enrich] enriched_at write failed (migration pending?)',
 			expect.objectContaining({ thoughtId: 't1' })
 		);
-		expect(scheduleIncrementalConsolidationMock).toHaveBeenCalledWith('u1', 't1');
+		expect(scheduleIncrementalConsolidationMock).not.toHaveBeenCalled();
 		warnSpy.mockRestore();
 	});
 
@@ -513,13 +517,13 @@ describe('enrichThought', () => {
 		expect(cleared).toBeUndefined();
 	});
 
-	it('logs temporal step failure without blocking other steps', async () => {
+	it('logs temporal step failure and throws', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 		syncTemporalEventsFromThoughtMock.mockRejectedValue('temporal failed');
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/temporal failed/);
 
 		expect(errorSpy).toHaveBeenCalledWith(
 			'[enrich] temporal step failed',
@@ -528,13 +532,13 @@ describe('enrichThought', () => {
 		errorSpy.mockRestore();
 	});
 
-	it('logs metadata step failure', async () => {
+	it('logs metadata step failure and throws', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 		extractThoughtMetadataMock.mockRejectedValue('metadata failed');
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/metadata failed/);
 
 		expect(errorSpy).toHaveBeenCalledWith(
 			'[enrich] metadata step failed',
@@ -577,7 +581,7 @@ describe('enrichThought', () => {
 		getDbMock.mockReturnValue(db);
 		syncTemporalEventsFromThoughtMock.mockRejectedValue(new Error('temporal boom'));
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/temporal boom/);
 
 		expect(materializeRetrievalLinksForThoughtMock).not.toHaveBeenCalled();
 		expect(scheduleIncrementalConsolidationMock).not.toHaveBeenCalled();
@@ -591,7 +595,7 @@ describe('enrichThought', () => {
 		const longText =
 			'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.';
 
-		await enrichThought('u1', 't1', longText);
+		await expect(enrichThought('u1', 't1', longText)).rejects.toThrow(/Enrichment step\(s\) failed/);
 
 		expect(warnSpy).toHaveBeenCalledWith(
 			'[enrich] failed to clear enriched_at after entity step failure',
@@ -621,13 +625,15 @@ describe('enrichThought', () => {
 		getDbMock.mockReturnValue(db);
 		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-		await enrichThought('u1', 't1', 'hello');
+		await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(
+			/Failed to persist enriched_at/
+		);
 
 		expect(warnSpy).toHaveBeenCalledWith(
 			'[enrich] enriched_at write failed (migration pending?)',
 			expect.objectContaining({ message: 'enriched_at write failed' })
 		);
-		expect(scheduleIncrementalConsolidationMock).toHaveBeenCalledWith('u1', 't1');
+		expect(scheduleIncrementalConsolidationMock).not.toHaveBeenCalled();
 		warnSpy.mockRestore();
 	});
 });

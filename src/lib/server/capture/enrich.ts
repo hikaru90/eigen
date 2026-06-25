@@ -115,7 +115,9 @@ export function scheduleReenrichThought(
  * Run all enrichment steps for a thought that has already been persisted.
  * Idempotent: safe to call multiple times (re-runs update enrichment_version).
  *
- * Does NOT throw. All errors are logged individually.
+ * Throws when a required parallel step fails or enriched_at cannot be persisted,
+ * so queue workers surface the real dependency error (AGE, LLM, schema) instead of
+ * a generic "finished without enriched_at" message.
  */
 export async function enrichThought(
 	userId: string,
@@ -376,13 +378,19 @@ export async function enrichThought(
 					.where(eq(thought.id, thoughtId))
 			);
 		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
 			console.warn('[enrich] enriched_at write failed (migration pending?)', {
 				thoughtId,
-				message: err instanceof Error ? err.message : String(err)
+				message
 			});
+			throw new Error(`Failed to persist enriched_at: ${message}`, { cause: err });
 		}
 
 		scheduleIncrementalConsolidation(userId, thoughtId);
+	} else {
+		throw new Error(
+			`Enrichment step(s) failed: ${formatEnrichStepFailures(results, stepNames).join('; ')}`
+		);
 	}
 
 	if (deferRelations) {
@@ -482,4 +490,19 @@ export async function reenrichThought(
 ): Promise<void> {
 	await deleteThoughtOutgoingGraphEdges({ userId, thoughtId });
 	await enrichThought(userId, thoughtId, normalizedText, options);
+}
+
+function formatEnrichStepFailures(
+	results: PromiseSettledResult<void>[],
+	stepNames: readonly string[]
+): string[] {
+	const failures: string[] = [];
+	for (let i = 0; i < results.length; i++) {
+		const r = results[i]!;
+		if (r.status === 'rejected') {
+			const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+			failures.push(`${stepNames[i]}: ${reason}`);
+		}
+	}
+	return failures;
 }

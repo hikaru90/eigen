@@ -1,11 +1,12 @@
 import {
 	upsertEntityNode,
 	upsertEntityRelationEdge,
-	upsertMentionEdge
+	upsertMentionEdge,
+	upsertThoughtNode
 } from '$lib/server/graph/age';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity } from '$lib/server/db/schema';
+import { canonicalEntity, thought } from '$lib/server/db/schema';
 import {
 	extractEntityGraphBundle,
 	extractEntityTriples,
@@ -111,6 +112,21 @@ export async function syncEntityGraphFromThought(input: {
 		});
 		return { mentionCount: 0, projectLikeEntities: [] };
 	}
+
+	const [anchorRow] = await getDb()
+		.select({ category: thought.category })
+		.from(thought)
+		.where(and(eq(thought.id, input.thoughtId), eq(thought.userId, input.userId)))
+		.limit(1);
+	if (!anchorRow) {
+		throw new Error(`Entity graph sync: thought not found (${input.thoughtId})`);
+	}
+	// MENTIONS edges MATCH the Thought node — ensure the tier-1 anchor exists (e.g. after graph grant repair).
+	await upsertThoughtNode({
+		id: input.thoughtId,
+		userId: input.userId,
+		category: anchorRow.category
+	});
 
 	const surfaceToEntityId = new Map<string, string>();
 	const coMentionEntityIds: string[] = [];

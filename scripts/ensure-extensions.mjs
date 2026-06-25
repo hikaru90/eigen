@@ -1,15 +1,12 @@
 import './load-env.mjs';
 import postgres from 'postgres';
 import { getDatabaseUrl } from './db-urls.mjs';
+import { ensureAgeGraphGrants, quoteIdent } from './age-graph-grants.mjs';
 
 const urlString = getDatabaseUrl();
 
 /** agtype lives in ag_catalog; must be on search_path for cypher() column defs (ok agtype). */
 const AGE_SEARCH_PATH = 'ag_catalog, "$user", public';
-
-function quoteIdent(value) {
-	return `"${String(value).replace(/"/g, '""')}"`;
-}
 
 const sql = postgres(urlString, { max: 1 });
 try {
@@ -35,11 +32,14 @@ try {
 		END $$;
 	`);
 	const [{ name: dbName }] = await sql`SELECT current_database() AS name`;
+	const [{ owner }] = await sql`SELECT current_user AS owner`;
 	await sql.unsafe(
 		`ALTER DATABASE ${quoteIdent(dbName)} SET search_path TO ${AGE_SEARCH_PATH}`
 	);
+	await ensureAgeGraphGrants(sql, { owner, ageGraph });
 	console.log(
-		`[eigen] Extensions ensured (vector, age); graph '${ageGraph}' ready; database search_path includes ag_catalog.`
+		`[eigen] Extensions ensured (vector, age); graph '${ageGraph}' ready; ` +
+			'database search_path includes ag_catalog; eigen_app graph grants applied.'
 	);
 } finally {
 	await sql.end();

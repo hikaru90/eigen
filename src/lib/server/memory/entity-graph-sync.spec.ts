@@ -10,6 +10,7 @@ const {
 	upsertEntityNodeMock,
 	upsertEntityRelationEdgeMock,
 	upsertMentionEdgeMock,
+	upsertThoughtNodeMock,
 	getDbMock,
 	loadOntologyForUserMock,
 	createThoughtEmbeddingsMock,
@@ -23,6 +24,7 @@ const {
 	upsertEntityNodeMock: vi.fn(),
 	upsertEntityRelationEdgeMock: vi.fn(),
 	upsertMentionEdgeMock: vi.fn(),
+	upsertThoughtNodeMock: vi.fn(),
 	getDbMock: vi.fn(),
 	loadOntologyForUserMock: vi.fn(),
 	ensureUserOntologySeededMock: vi.fn(),
@@ -59,7 +61,8 @@ vi.mock('$lib/server/memory/entity-graph-hints', () => ({
 vi.mock('$lib/server/graph/age', () => ({
 	upsertEntityNode: upsertEntityNodeMock,
 	upsertEntityRelationEdge: upsertEntityRelationEdgeMock,
-	upsertMentionEdge: upsertMentionEdgeMock
+	upsertMentionEdge: upsertMentionEdgeMock,
+	upsertThoughtNode: upsertThoughtNodeMock
 }));
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -80,6 +83,18 @@ describe('syncEntityGraphFromThought', () => {
 		{ id: 'et1', userId: 'u1', key: 'person', name: 'Person', definition: 'A human being', active: true, kindType: 'entity_type' },
 		{ id: 'et2', userId: 'u1', key: 'place', name: 'Place', definition: 'A location', active: true, kindType: 'entity_type' }
 	];
+
+	function mockThoughtAnchor(category = 'observation') {
+		getDbMock.mockReturnValue({
+			select: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					where: vi.fn().mockReturnValue({
+						limit: vi.fn().mockResolvedValue([{ category }])
+					})
+				})
+			})
+		});
+	}
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -132,6 +147,7 @@ describe('syncEntityGraphFromThought', () => {
 	});
 
 	it('resolves each mention, upserts Entity and MENTIONS edges, and writes ENTITY_RELATES for valid triples', async () => {
+		mockThoughtAnchor('observation');
 		extractEntityGraphBundleMock.mockResolvedValue({
 			mentions: [
 				{ surface: 'Sam', entityType: 'person', confidence: 0.9 },
@@ -153,6 +169,11 @@ describe('syncEntityGraphFromThought', () => {
 		});
 
 		expect(resolveOrCreateCanonicalEntityMock).toHaveBeenCalledTimes(2);
+		expect(upsertThoughtNodeMock).toHaveBeenCalledWith({
+			id: 't1',
+			userId: 'u1',
+			category: 'observation'
+		});
 		expect(resolveOrCreateCanonicalEntityMock.mock.calls[1][0]).toMatchObject({
 			coMentionEntityIds: ['id-Sam']
 		});
@@ -181,6 +202,7 @@ describe('syncEntityGraphFromThought', () => {
 	});
 
 	it('skips triples whose endpoints are unknown or self-referential', async () => {
+		mockThoughtAnchor();
 		extractEntityGraphBundleMock.mockResolvedValue({
 			mentions: [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }],
 			triples: [
