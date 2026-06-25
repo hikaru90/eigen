@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	deleteConnectedAgent,
+	replaceAgentProjectBindings,
 	parseSubscribedEvents,
 	updateConnectedAgent
 } from '$lib/server/agents/service';
@@ -23,12 +24,26 @@ export const PATCH: RequestHandler = async (event) => {
 	if (body.subscribedEvents !== undefined) patch.subscribedEvents = parseSubscribedEvents(body.subscribedEvents);
 	if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
 
+	const hasProjectBindings = Array.isArray(body.projectEntityIds);
+
 	try {
 		const updated = await updateConnectedAgent({
 			userId: user.id,
 			agentId: event.params.id,
 			...patch
 		});
+
+		if (hasProjectBindings) {
+			const projectEntityIds = body.projectEntityIds.filter(
+				(v: unknown): v is string => typeof v === 'string' && v.trim()
+			);
+			await replaceAgentProjectBindings({
+				userId: user.id,
+				agentId: event.params.id,
+				projectEntityIds
+			});
+		}
+
 		return json({ id: updated.id, ok: true });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

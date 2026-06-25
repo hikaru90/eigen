@@ -3,10 +3,12 @@ import { getDb } from '$lib/server/db';
 import {
 	agentTaskAssignment,
 	connectedAgent,
+	agentProjectBinding,
 	thought,
 	type AgentTaskAssignmentStatus
 } from '$lib/server/db/schema';
 import { emitAgentEvent } from './emit';
+import { loadProjectContextForThought } from './project-context';
 
 export type AssignThoughtToAgentResult = {
 	assignmentId: string;
@@ -51,6 +53,25 @@ export async function assignThoughtToAgent(input: {
 		throw new Error('Thought not found');
 	}
 
+	const projectCtx = await loadProjectContextForThought(input.userId, input.thoughtId);
+
+	if (projectCtx.projectEntityIds.length > 0) {
+		const bindings = await db
+			.select({ projectEntityId: agentProjectBinding.projectEntityId })
+			.from(agentProjectBinding)
+			.where(eq(agentProjectBinding.agentId, agent.id));
+
+		if (bindings.length > 0) {
+			const agentBoundProjects = new Set(bindings.map((b) => b.projectEntityId));
+			const hasOverlap = projectCtx.projectEntityIds.some((pid) => agentBoundProjects.has(pid));
+			if (!hasOverlap) {
+				throw new Error(
+					'Agent is not bound to any of the projects this thought belongs to'
+				);
+			}
+		}
+	}
+
 	const [assignment] = await db
 		.insert(agentTaskAssignment)
 		.values({
@@ -70,12 +91,15 @@ export async function assignThoughtToAgent(input: {
 		agentId: input.agentId,
 		eventType: 'agent.task.assigned',
 		eventId: assignment.id,
+		projectEntityIds: projectCtx.projectEntityIds,
 		payload: {
 			assignmentId: assignment.id,
 			thoughtId: thoughtRow.id,
 			normalizedText: thoughtRow.normalizedText,
 			category: thoughtRow.category,
-			memoryType: thoughtRow.memoryType
+			memoryType: thoughtRow.memoryType,
+			projectEntityId: projectCtx.projectEntityIds[0] ?? null,
+			projectLabel: projectCtx.projectLabels[0] ?? null
 		}
 	});
 

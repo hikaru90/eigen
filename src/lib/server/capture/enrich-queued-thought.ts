@@ -260,13 +260,19 @@ export async function enrichQueuedThought(
 
 		if (enrichedThought?.enrichedAt) {
 			const { notifyThoughtEnriched } = await import('$lib/server/agents/notify');
+			const { loadProjectContextForThought } = await import(
+				'$lib/server/agents/project-context'
+			);
+			const projectCtx = await loadProjectContextForThought(userId, thoughtId);
 			notifyThoughtEnriched({
 				userId,
 				thoughtId,
 				normalizedText: enrichedThought.normalizedText,
 				category: enrichedThought.category,
 				memoryType: enrichedThought.memoryType,
-				enrichedAt: enrichedThought.enrichedAt
+				enrichedAt: enrichedThought.enrichedAt,
+				projectEntityIds: projectCtx.projectEntityIds,
+				projectLabels: projectCtx.projectLabels
 			});
 		}
 

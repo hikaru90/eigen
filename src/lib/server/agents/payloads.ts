@@ -11,6 +11,8 @@ export type ThoughtWebhookPayload = {
 	enrichedAt?: string | null;
 	updatedAt?: string;
 	entityCount?: number;
+	projectEntityIds?: string[];
+	projectLabels?: string[];
 };
 
 export type TaskAssignedPayload = {
@@ -20,6 +22,7 @@ export type TaskAssignedPayload = {
 	category: string;
 	memoryType: string | null;
 	projectEntityId?: string | null;
+	projectLabel?: string | null;
 };
 
 export function sanitizeWebhookPayload<T extends Record<string, unknown>>(payload: T): T {

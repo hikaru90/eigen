@@ -1,7 +1,7 @@
 import './load-env.mjs';
 import postgres from 'postgres';
 import { getDatabaseUrl } from './db-urls.mjs';
-import { ensureAgeGraphGrants, quoteIdent } from './age-graph-grants.mjs';
+import { ensureAgeGraphGrants, transferGraphOwnership, quoteIdent } from './age-graph-grants.mjs';
 
 const urlString = getDatabaseUrl();
 const appPassword = process.env.EIGEN_APP_DB_PASSWORD?.trim() || 'eigen_app';
@@ -30,6 +30,7 @@ try {
 		throw new Error('AGE_GRAPH_NAME is required and must be non-empty');
 	}
 	await ensureAgeGraphGrants(sql, { owner, ageGraph });
+	await transferGraphOwnership(sql, { graphSchema: ageGraph, appRole: 'eigen_app' });
 	await sql.unsafe(
 		`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO eigen_app`
 	);
@@ -44,7 +45,8 @@ try {
 	`);
 	await sql.unsafe(`GRANT ${quoteIdent('eigen_app')} TO ${quoteIdent(owner)}`);
 	// agtype for Apache AGE cypher() result columns; SET ROLE must not drop ag_catalog from path.
-	await sql.unsafe(`ALTER ROLE eigen_app SET search_path TO ag_catalog, "$user", public`);
+	// public precedes ag_catalog so unqualified DDL targets public.
+	await sql.unsafe(`ALTER ROLE eigen_app SET search_path TO public, ag_catalog, "$user"`);
 
 	console.log(
 		`[eigen] eigen_app role ensured (RLS + Apache AGE graph grants on ${ageGraph}).`

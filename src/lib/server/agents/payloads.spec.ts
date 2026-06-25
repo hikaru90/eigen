@@ -24,4 +24,34 @@ describe('buildEnvelope', () => {
 		expect(envelope.eventId).toBe('t1');
 		expect((envelope.data as { normalizedText: string }).normalizedText).toBe('hello');
 	});
+
+	it('includes projectEntityIds and projectLabels in payload when provided', () => {
+		const envelope = buildEnvelope({
+			eventType: 'thought.enriched',
+			eventId: 't1',
+			payload: {
+				thoughtId: 't1',
+				normalizedText: 'hello',
+				projectEntityIds: ['proj-1', 'proj-2'],
+				projectLabels: ['Eigen', 'Hermes']
+			}
+		});
+		const data = envelope.data as {
+			projectEntityIds?: string[];
+			projectLabels?: string[];
+		};
+		expect(data.projectEntityIds).toEqual(['proj-1', 'proj-2']);
+		expect(data.projectLabels).toEqual(['Eigen', 'Hermes']);
+	});
+
+	it('omits project fields when empty', () => {
+		const envelope = buildEnvelope({
+			eventType: 'thought.created',
+			eventId: 't1',
+			payload: { thoughtId: 't1' }
+		});
+		const data = envelope.data as Record<string, unknown>;
+		expect(data.projectEntityIds).toBeUndefined();
+		expect(data.projectLabels).toBeUndefined();
+	});
 });

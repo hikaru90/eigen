@@ -5,8 +5,9 @@ import { ensureAgeGraphGrants, quoteIdent } from './age-graph-grants.mjs';
 
 const urlString = getDatabaseUrl();
 
-/** agtype lives in ag_catalog; must be on search_path for cypher() column defs (ok agtype). */
-const AGE_SEARCH_PATH = 'ag_catalog, "$user", public';
+/** agtype lives in ag_catalog; must be on search_path for cypher() column defs (ok agtype).
+ *  public precedes ag_catalog so unqualified DDL targets public, not ag_catalog. */
+const AGE_SEARCH_PATH = 'public, ag_catalog, "$user"';
 
 const sql = postgres(urlString, { max: 1 });
 try {

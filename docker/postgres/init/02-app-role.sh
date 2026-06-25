@@ -33,5 +33,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA eigen_graph
 ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA eigen_graph
   GRANT USAGE, SELECT ON SEQUENCES TO eigen_app;
 
-ALTER ROLE eigen_app SET search_path TO ag_catalog, "$user", public;
+ALTER ROLE eigen_app SET search_path TO public, ag_catalog, "$user";
 EOSQL

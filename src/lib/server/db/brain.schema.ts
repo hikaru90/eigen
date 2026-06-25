@@ -1496,6 +1496,31 @@ export const webhookDelivery = pgTable(
 
 export type WebhookDelivery = typeof webhookDelivery.$inferSelect;
 
+/** Links an agent to specific projects — agents with bindings only receive events from bound projects. */
+export const agentProjectBinding = pgTable(
+	'agent_project_binding',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		agentId: uuid('agent_id')
+			.notNull()
+			.references(() => connectedAgent.id, { onDelete: 'cascade' }),
+		projectEntityId: uuid('project_entity_id')
+			.notNull()
+			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull()
+	},
+	(t) => [
+		index('agent_project_binding_user_idx').on(t.userId),
+		index('agent_project_binding_agent_idx').on(t.agentId),
+		index('agent_project_binding_project_idx').on(t.projectEntityId)
+	]
+);
+
+export type AgentProjectBinding = typeof agentProjectBinding.$inferSelect;
+
 /** Per-user background work queue drained by the global app ticker. */
 export const userJobQueue = pgTable(
 	'user_job_queue',

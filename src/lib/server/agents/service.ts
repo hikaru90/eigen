@@ -4,6 +4,9 @@ import {
 	connectedAgent,
 	webhookDelivery,
 	agentTaskAssignment,
+	agentProjectBinding,
+	canonicalEntity,
+	projectProfile,
 	type AgentSubscribableEventType
 } from '$lib/server/db/schema';
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -185,6 +188,145 @@ export async function listAgentTaskAssignments(userId: string, limit = 50) {
 		.where(eq(agentTaskAssignment.userId, userId))
 		.orderBy(desc(agentTaskAssignment.assignedAt))
 		.limit(limit);
+}
+
+export async function bindAgentToProject(input: {
+	userId: string;
+	agentId: string;
+	projectEntityId: string;
+}): Promise<{ id: string }> {
+	const db = getDb();
+
+	const [agent] = await db
+		.select({ id: connectedAgent.id })
+		.from(connectedAgent)
+		.where(and(eq(connectedAgent.userId, input.userId), eq(connectedAgent.id, input.agentId)))
+		.limit(1);
+	if (!agent) throw new Error('Connected agent not found');
+
+	const [entity] = await db
+		.select({ id: canonicalEntity.id })
+		.from(canonicalEntity)
+		.innerJoin(
+			projectProfile,
+			and(
+				eq(projectProfile.projectEntityId, canonicalEntity.id),
+				eq(projectProfile.userId, input.userId)
+			)
+		)
+		.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, input.projectEntityId)))
+		.limit(1);
+	if (!entity) throw new Error('Project not found or not eligible');
+
+	const [existing] = await db
+		.select({ id: agentProjectBinding.id })
+		.from(agentProjectBinding)
+		.where(
+			and(
+				eq(agentProjectBinding.agentId, input.agentId),
+				eq(agentProjectBinding.projectEntityId, input.projectEntityId)
+			)
+		)
+		.limit(1);
+	if (existing) return { id: existing.id };
+
+	const [row] = await db
+		.insert(agentProjectBinding)
+		.values({
+			userId: input.userId,
+			agentId: input.agentId,
+			projectEntityId: input.projectEntityId
+		})
+		.returning({ id: agentProjectBinding.id });
+
+	if (!row) throw new Error('Failed to bind agent to project');
+	return row;
+}
+
+export async function unbindAgentFromProject(input: {
+	userId: string;
+	agentId: string;
+	projectEntityId: string;
+}): Promise<void> {
+	const db = getDb();
+	const result = await db
+		.delete(agentProjectBinding)
+		.where(
+			and(
+				eq(agentProjectBinding.userId, input.userId),
+				eq(agentProjectBinding.agentId, input.agentId),
+				eq(agentProjectBinding.projectEntityId, input.projectEntityId)
+			)
+		)
+		.returning({ id: agentProjectBinding.id });
+	if (result.length === 0) throw new Error('Project binding not found');
+}
+
+export async function listAgentProjectBindings(userId: string, agentId: string) {
+	const db = getDb();
+	return db
+		.select({
+			id: agentProjectBinding.id,
+			projectEntityId: agentProjectBinding.projectEntityId,
+			projectLabel: canonicalEntity.label,
+			createdAt: agentProjectBinding.createdAt
+		})
+		.from(agentProjectBinding)
+		.innerJoin(canonicalEntity, eq(agentProjectBinding.projectEntityId, canonicalEntity.id))
+		.where(and(eq(agentProjectBinding.userId, userId), eq(agentProjectBinding.agentId, agentId)))
+		.orderBy(desc(agentProjectBinding.createdAt));
+}
+
+export async function replaceAgentProjectBindings(input: {
+	userId: string;
+	agentId: string;
+	projectEntityIds: string[];
+}): Promise<void> {
+	const db = getDb();
+
+	const [agent] = await db
+		.select({ id: connectedAgent.id })
+		.from(connectedAgent)
+		.where(and(eq(connectedAgent.userId, input.userId), eq(connectedAgent.id, input.agentId)))
+		.limit(1);
+	if (!agent) throw new Error('Connected agent not found');
+
+	await db
+		.delete(agentProjectBinding)
+		.where(
+			and(eq(agentProjectBinding.userId, input.userId), eq(agentProjectBinding.agentId, input.agentId))
+		);
+
+	if (input.projectEntityIds.length === 0) return;
+
+	const eligibleEntities = await db
+		.select({ id: canonicalEntity.id })
+		.from(canonicalEntity)
+		.innerJoin(
+			projectProfile,
+			and(
+				eq(projectProfile.projectEntityId, canonicalEntity.id),
+				eq(projectProfile.userId, input.userId)
+			)
+		)
+		.where(
+			and(
+				eq(canonicalEntity.userId, input.userId),
+				eq(canonicalEntity.entityType, 'project')
+			)
+		);
+	const eligibleIds = new Set(eligibleEntities.map((e) => e.id));
+
+	const validIds = input.projectEntityIds.filter((id) => eligibleIds.has(id));
+	if (validIds.length === 0) return;
+
+	await db.insert(agentProjectBinding).values(
+		validIds.map((projectEntityId) => ({
+			userId: input.userId,
+			agentId: input.agentId,
+			projectEntityId
+		}))
+	);
 }
 
 export { parseSubscribedEvents };

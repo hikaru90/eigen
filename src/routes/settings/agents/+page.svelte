@@ -10,19 +10,25 @@
 	import Check from '@lucide/svelte/icons/check';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import Bot from '@lucide/svelte/icons/bot';
+	import X from '@lucide/svelte/icons/x';
 	import { AGENT_EVENT_LABELS, AGENT_SUBSCRIBABLE_EVENTS } from '$lib/agents/constants';
 
 	let { data }: { data: PageData } = $props();
 
 	let agents = $state(data.agents);
+	let projects = $state(data.projects);
+	let agentProjectBindings = $state<Record<string, Array<{ projectEntityId: string; projectLabel: string }>>>(data.agentProjectBindings);
 	let dialogOpen = $state(false);
 	let agentName = $state('');
 	let webhookUrl = $state('');
 	let selectedEvents = $state<string[]>([...AGENT_SUBSCRIBABLE_EVENTS]);
+	let selectedProjectIds = $state<string[]>([]);
 	let creating = $state(false);
 	let generatedSecrets = $state<{ signingSecret: string; callbackToken: string } | null>(null);
 	let copiedField = $state<'signing' | 'callback' | null>(null);
 	let error = $state<string | null>(null);
+	let bindingAgentId = $state<string | null>(null);
+	let bindingDialogOpen = $state(false);
 	let deliveries = $state<
 		Array<{
 			id: string;
@@ -66,6 +72,7 @@
 		agentName = '';
 		webhookUrl = '';
 		selectedEvents = [...AGENT_SUBSCRIBABLE_EVENTS];
+		selectedProjectIds = [];
 		generatedSecrets = null;
 		error = null;
 		dialogOpen = true;
@@ -90,6 +97,14 @@
 		}
 	}
 
+	function toggleProject(projectId: string, checked: boolean) {
+		if (checked) {
+			selectedProjectIds = [...new Set([...selectedProjectIds, projectId])];
+		} else {
+			selectedProjectIds = selectedProjectIds.filter((id) => id !== projectId);
+		}
+	}
+
 	async function createAgent() {
 		const name = agentName.trim();
 		const url = webhookUrl.trim();
@@ -111,7 +126,8 @@
 				body: JSON.stringify({
 					name,
 					webhookUrl: url,
-					subscribedEvents: selectedEvents
+					subscribedEvents: selectedEvents,
+					projectEntityIds: selectedProjectIds
 				})
 			});
 			if (!res.ok) {
@@ -128,6 +144,7 @@
 				const listBody = await listRes.json();
 				agents = listBody.agents ?? agents;
 			}
+			await reloadBindings();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -172,11 +189,64 @@
 		});
 		if (res.ok) {
 			agents = agents.filter((a) => a.id !== id);
+			const newBindings = { ...agentProjectBindings };
+			delete newBindings[id];
+			agentProjectBindings = newBindings;
 		}
 	}
 
 	function agentLabel(id: string): string {
 		return agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+	}
+
+	function openBindingDialog(agentId: string) {
+		bindingAgentId = agentId;
+		bindingDialogOpen = true;
+	}
+
+	function closeBindingDialog() {
+		bindingDialogOpen = false;
+		bindingAgentId = null;
+	}
+
+	async function reloadBindings() {
+		for (const agent of agents) {
+			const res = await fetch(`${base}/api/agents/${agent.id}/projects`, { credentials: 'include' });
+			if (res.ok) {
+				const body = await res.json();
+				agentProjectBindings = { ...agentProjectBindings, [agent.id]: body.bindings ?? [] };
+			}
+		}
+	}
+
+	async function toggleAgentProject(agentId: string, projectId: string, bound: boolean) {
+		if (bound) {
+			const res = await fetch(`${base}/api/agents/${agentId}/projects/${projectId}`, {
+				method: 'DELETE',
+				credentials: 'include'
+			});
+			if (res.ok) {
+				const bindings = (agentProjectBindings[agentId] ?? []).filter(
+					(b) => b.projectEntityId !== projectId
+				);
+				agentProjectBindings = { ...agentProjectBindings, [agentId]: bindings };
+			}
+		} else {
+			const res = await fetch(`${base}/api/agents/${agentId}/projects`, {
+				method: 'POST',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ projectEntityId: projectId })
+			});
+			if (res.ok) {
+				const project = projects.find((p) => p.projectEntityId === projectId);
+				const bindings = [
+					...(agentProjectBindings[agentId] ?? []),
+					{ projectEntityId: projectId, projectLabel: project?.label ?? projectId }
+				];
+				agentProjectBindings = { ...agentProjectBindings, [agentId]: bindings };
+			}
+		}
 	}
 </script>
 
@@ -230,8 +300,34 @@
 										{agent.enabled ? 'Enabled' : 'Paused'} ·
 										{agent.subscribedEvents.length} event subscriptions
 									</p>
+									{#if agentProjectBindings[agent.id]?.length > 0}
+										<div class="mt-1 flex flex-wrap gap-1">
+											{#each agentProjectBindings[agent.id] as binding (binding.projectEntityId)}
+												<span class="inline-flex items-center gap-0.5 rounded-sm bg-blue-50 px-1.5 py-0.5 text-[9px] text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+													{binding.projectLabel}
+													<button
+														type="button"
+														class="hover:text-blue-900 dark:hover:text-blue-100"
+														onclick={() => void toggleAgentProject(agent.id, binding.projectEntityId, true)}
+													>
+														<X class="size-2.5" />
+													</button>
+												</span>
+											{/each}
+										</div>
+									{:else}
+										<p class="text-muted-foreground mt-1 text-[9px] italic">All projects (no filter)</p>
+									{/if}
 								</div>
 								<div class="flex shrink-0 gap-1">
+									<Button
+										variant="ghost"
+										size="sm"
+										class="h-7 px-2 text-[10px]"
+										onclick={() => openBindingDialog(agent.id)}
+									>
+										Projects
+									</Button>
 									<Button
 										variant="ghost"
 										size="sm"
@@ -336,6 +432,25 @@
 						</label>
 					{/each}
 				</div>
+				{#if projects.length > 0}
+					<div class="space-y-2">
+						<p class="text-xs font-medium">Bind to projects (optional)</p>
+						<p class="text-muted-foreground text-[10px]">If no projects selected, agent receives all events.</p>
+						<div class="max-h-32 space-y-1 overflow-y-auto">
+							{#each projects as project (project.projectEntityId)}
+								<label class="flex items-center gap-2 text-xs">
+									<input
+										type="checkbox"
+										checked={selectedProjectIds.includes(project.projectEntityId)}
+										onchange={(e) => toggleProject(project.projectEntityId, e.currentTarget.checked)}
+									/>
+									<span class="truncate">{project.label}</span>
+									<span class="text-muted-foreground text-[9px]">({project.status})</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				{/if}
 				{#if error}
 					<p class="text-destructive text-xs">{error}</p>
 				{/if}
@@ -386,5 +501,47 @@
 				<Button size="sm" onclick={closeDialog}>Done</Button>
 			</Dialog.Footer>
 		{/if}
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root bind:open={bindingDialogOpen}>
+	<Dialog.Content class="max-w-md rounded-[4px]">
+		<Dialog.Header>
+			<Dialog.Title>Project bindings</Dialog.Title>
+			<Dialog.Description>
+				{#if bindingAgentId}
+					Select which projects {agentLabel(bindingAgentId)} should receive events from.
+				{/if}
+			</Dialog.Description>
+		</Dialog.Header>
+
+		<div class="space-y-2">
+			{#if projects.length === 0}
+				<p class="text-muted-foreground text-xs">No projects available.</p>
+			{:else}
+				{#each projects as project (project.projectEntityId)}
+					{@const bound = agentProjectBindings[bindingAgentId ?? '']?.some(
+						(b) => b.projectEntityId === project.projectEntityId
+					) ?? false}
+					<label class="flex items-center gap-2 text-xs">
+						<input
+							type="checkbox"
+							checked={bound}
+							onchange={() => {
+								if (bindingAgentId) {
+									void toggleAgentProject(bindingAgentId, project.projectEntityId, bound);
+								}
+							}}
+						/>
+						<span class="truncate">{project.label}</span>
+						<span class="text-muted-foreground text-[9px]">({project.status})</span>
+					</label>
+				{/each}
+			{/if}
+		</div>
+
+		<Dialog.Footer>
+			<Button variant="outline" size="sm" onclick={closeBindingDialog}>Done</Button>
+		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

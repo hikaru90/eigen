@@ -840,6 +840,9 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 		.where(and(eq(temporalEvent.userId, userId), eq(temporalEvent.thoughtId, existing.id)));
 	const temporalEventGraphIds = temporalRows.map((row) => row.graphNodeId?.trim() || row.id);
 
+	const { loadProjectContextForThought } = await import('$lib/server/agents/project-context');
+	const projectCtx = await loadProjectContextForThought(userId, existing.id);
+
 	await removeThoughtGraphArtifacts({
 		userId,
 		thoughtId: existing.id,
@@ -851,7 +854,12 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
 	await pruneCanonicalEntitiesWithNoThoughtLinks(userId, linkedEntityIds);
 
 	const { notifyThoughtDeleted } = await import('$lib/server/agents/notify');
-	notifyThoughtDeleted({ userId, thoughtId: existing.id });
+	notifyThoughtDeleted({
+		userId,
+		thoughtId: existing.id,
+		projectEntityIds: projectCtx.projectEntityIds,
+		projectLabels: projectCtx.projectLabels
+	});
 
 	return { ok: true as const };
 }

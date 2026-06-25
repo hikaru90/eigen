@@ -324,12 +324,16 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 		});
 
 		const { notifyThoughtUpdated } = await import('$lib/server/agents/notify');
+		const { loadProjectContextForThought } = await import('$lib/server/agents/project-context');
+		const projectCtx = await loadProjectContextForThought(context.userId, updated.thought.id);
 		notifyThoughtUpdated({
 			userId: context.userId,
 			thoughtId: updated.thought.id,
 			normalizedText: updated.thought.normalizedText,
 			category: updated.thought.category,
-			memoryType: updated.thought.memoryType
+			memoryType: updated.thought.memoryType,
+			projectEntityIds: projectCtx.projectEntityIds,
+			projectLabels: projectCtx.projectLabels
 		});
 
 		return sanitizeMcpToolResult({

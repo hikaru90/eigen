@@ -129,7 +129,9 @@ export async function queueCapture(
 		thoughtId: stored.id,
 		normalizedText: normalized,
 		source,
-		capturedAt: capturedAt ?? undefined
+		createdAt: capturedAt ?? undefined,
+		projectEntityIds: [],
+		projectLabels: []
 	});
 
 	return {

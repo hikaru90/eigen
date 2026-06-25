@@ -87,6 +87,11 @@ async function applyPendingMigrationsByHash() {
 		)
 	`;
 
+	// Pin DDL to public schema.  The DB-level search_path includes ag_catalog
+	// where AGE's internal label tables live — without this SET, unqualified
+	// CREATE TABLE could resolve to ag_catalog and collide with AGE labels.
+	await client.unsafe('SET search_path TO public');
+
 	const applied = await client`SELECT hash FROM drizzle.__drizzle_migrations`;
 	const appliedSet = new Set(applied.map((r) => r.hash));
 
@@ -134,6 +139,9 @@ async function bootstrapIfPushManaged() {
 			created_at bigint
 		)
 	`;
+
+	// Pin DDL to public schema (same reason as applyPendingMigrationsByHash).
+	await client.unsafe('SET search_path TO public');
 
 	// If the table already has records, migrate() has run before — nothing to do.
 	const [{ count }] = await client`SELECT COUNT(*) AS count FROM drizzle.__drizzle_migrations`;

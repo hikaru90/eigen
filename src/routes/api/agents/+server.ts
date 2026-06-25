@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	createConnectedAgent,
+	replaceAgentProjectBindings,
 	listConnectedAgents,
 	parseSubscribedEvents
 } from '$lib/server/agents/service';
@@ -22,6 +23,9 @@ export const POST: RequestHandler = async (event) => {
 	const name = typeof body.name === 'string' ? body.name.trim() : '';
 	const webhookUrl = typeof body.webhookUrl === 'string' ? body.webhookUrl.trim() : '';
 	const subscribedEvents = parseSubscribedEvents(body.subscribedEvents);
+	const projectEntityIds = Array.isArray(body.projectEntityIds)
+		? body.projectEntityIds.filter((v: unknown): v is string => typeof v === 'string' && v.trim())
+		: [];
 
 	if (!name) return json({ error: 'name is required' }, { status: 400 });
 	if (!webhookUrl) return json({ error: 'webhookUrl is required' }, { status: 400 });
@@ -33,6 +37,15 @@ export const POST: RequestHandler = async (event) => {
 			webhookUrl,
 			subscribedEvents
 		});
+
+		if (projectEntityIds.length > 0) {
+			await replaceAgentProjectBindings({
+				userId: user.id,
+				agentId: created.id,
+				projectEntityIds
+			});
+		}
+
 		return json(
 			{
 				id: created.id,

@@ -1,8 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	connectedAgent,
 	webhookDelivery,
+	agentProjectBinding,
 	type AgentSubscribableEventType,
 	type AgentWebhookEventType
 } from '$lib/server/db/schema';
@@ -17,6 +18,8 @@ export type EmitAgentEventInput = {
 	payload: Record<string, unknown>;
 	/** When set, deliver only to this agent (e.g. task assignment). */
 	agentId?: string;
+	/** Project entity IDs this event belongs to — used to filter project-bound agents. */
+	projectEntityIds?: string[];
 };
 
 function agentMatchesEvent(
@@ -58,6 +61,27 @@ export async function emitAgentEvent(input: EmitAgentEventInput): Promise<{ deli
 						and(eq(connectedAgent.userId, input.userId), eq(connectedAgent.enabled, true))
 					);
 
+		if (agents.length === 0) return { deliveries: 0 };
+
+		const agentIds = agents.map((a) => a.id);
+		const bindings = await db
+			.select({
+				agentId: agentProjectBinding.agentId,
+				projectEntityId: agentProjectBinding.projectEntityId
+			})
+			.from(agentProjectBinding)
+			.where(inArray(agentProjectBinding.agentId, agentIds));
+
+		const bindingsByAgent = new Map<string, Set<string>>();
+		for (const b of bindings) {
+			let set = bindingsByAgent.get(b.agentId);
+			if (!set) {
+				set = new Set();
+				bindingsByAgent.set(b.agentId, set);
+			}
+			set.add(b.projectEntityId);
+		}
+
 		const envelope = buildEnvelope({
 			eventType: input.eventType,
 			eventId: input.eventId,
@@ -69,6 +93,19 @@ export async function emitAgentEvent(input: EmitAgentEventInput): Promise<{ deli
 		for (const agent of agents) {
 			if (!input.agentId && !agentMatchesEvent(agent, input.eventType)) {
 				continue;
+			}
+
+			const agentBindings = bindingsByAgent.get(agent.id);
+			if (agentBindings && agentBindings.size > 0) {
+				const isSpecialEvent =
+					input.eventType === 'agent.task.assigned' || input.eventType === 'webhook.test';
+				if (!isSpecialEvent) {
+					if (!input.projectEntityIds || input.projectEntityIds.length === 0) {
+						continue;
+					}
+					const hasOverlap = input.projectEntityIds.some((pid) => agentBindings.has(pid));
+					if (!hasOverlap) continue;
+				}
 			}
 
 			const [delivery] = await db
