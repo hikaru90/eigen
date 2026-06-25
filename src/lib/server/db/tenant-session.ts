@@ -24,6 +24,8 @@ export async function activateTenantDbSession(
 ): Promise<void> {
 	const role = appDbRole();
 	await sql.unsafe(`SET ROLE ${quoteIdent(role)}`);
+	// agtype (Apache AGE) resolves from ag_catalog; SET ROLE can reset role search_path.
+	await sql.unsafe(`SET search_path TO ag_catalog, "$user", public`);
 	await sql`select set_config('app.current_user_id', ${userId}, false)`;
 }
 

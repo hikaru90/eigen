@@ -11,3 +11,14 @@ BEGIN
 		PERFORM ag_catalog.create_graph('eigen_graph');
 	END IF;
 END $$;
+
+-- agtype lives in ag_catalog; required for cypher() AS (col agtype) on new connections.
+DO $$
+DECLARE
+	dbname text := current_database();
+BEGIN
+	EXECUTE format(
+		'ALTER DATABASE %I SET search_path TO ag_catalog, "$user", public',
+		dbname
+	);
+END $$;

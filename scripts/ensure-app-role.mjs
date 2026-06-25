@@ -53,6 +53,8 @@ try {
 		  GRANT USAGE, SELECT ON SEQUENCES TO eigen_app
 	`);
 	await sql.unsafe(`GRANT ${quoteIdent('eigen_app')} TO ${quoteIdent(owner)}`);
+	// agtype for Apache AGE cypher() result columns; SET ROLE must not drop ag_catalog from path.
+	await sql.unsafe(`ALTER ROLE eigen_app SET search_path TO ag_catalog, "$user", public`);
 
 	console.log('[eigen] eigen_app role ensured (SET ROLE eigen_app enforces RLS at runtime).');
 } finally {

@@ -4,6 +4,13 @@ import { getDatabaseUrl } from './db-urls.mjs';
 
 const urlString = getDatabaseUrl();
 
+/** agtype lives in ag_catalog; must be on search_path for cypher() column defs (ok agtype). */
+const AGE_SEARCH_PATH = 'ag_catalog, "$user", public';
+
+function quoteIdent(value) {
+	return `"${String(value).replace(/"/g, '""')}"`;
+}
+
 const sql = postgres(urlString, { max: 1 });
 try {
 	const ageGraph = process.env.AGE_GRAPH_NAME?.trim();
@@ -16,7 +23,7 @@ try {
 		CREATE EXTENSION IF NOT EXISTS age;
 	`);
 	await sql.unsafe(`LOAD 'age'`);
-	await sql.unsafe(`SET search_path = ag_catalog, "$user", public`);
+	await sql.unsafe(`SET search_path = ${AGE_SEARCH_PATH}`);
 	await sql.unsafe(`
 		DO $$
 		BEGIN
@@ -27,7 +34,13 @@ try {
 			END IF;
 		END $$;
 	`);
-	console.log(`[eigen] Extensions ensured (vector, age); graph '${ageGraph}' ready.`);
+	const [{ name: dbName }] = await sql`SELECT current_database() AS name`;
+	await sql.unsafe(
+		`ALTER DATABASE ${quoteIdent(dbName)} SET search_path TO ${AGE_SEARCH_PATH}`
+	);
+	console.log(
+		`[eigen] Extensions ensured (vector, age); graph '${ageGraph}' ready; database search_path includes ag_catalog.`
+	);
 } finally {
 	await sql.end();
 }
