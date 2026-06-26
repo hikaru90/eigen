@@ -5,10 +5,47 @@
 #        [--with-caddy DOMAIN] [--force]
 set -e
 
-# Clean up temp files on exit.
-trap 'rm -f "${ENV_FILE}.tmp" "${ENV_FILE}.test"' EXIT
+# ── Logging setup (POSIX-compatible) ───────────────────────────────────────
+# Each log() call writes to BOTH stdout AND a log file.
+_LOGFILE=""
+_log_write() {
+	# $1 = line to write; writes to both stdout and log file.
+	printf '%s\n' "$1"
+	if [ -n "$_LOGFILE" ]; then
+		printf '%s\n' "$1" >>"$_LOGFILE"
+	fi
+}
+log() {
+	_log_write "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+log_ok() {
+	_log_write "[$(date '+%Y-%m-%d %H:%M:%S')] ✓ $*"
+}
+log_warn() {
+	_log_write "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠ $*"
+}
+log_err() {
+	_log_write "[$(date '+%Y-%m-%d %H:%M:%S')] ✗ $*"
+}
 
+# ── Resolve SCRIPT_DIR and set up log file ─────────────────────────────────
+# Must happen early so log() works from here on.
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+_LOGFILE="${SCRIPT_DIR}/install-$(date +%Y%m%d-%H%M%S).log"
+touch "$_LOGFILE" 2>/dev/null || _LOGFILE="/tmp/install-$(date +%Y%m%d-%H%M%S).log"
+touch "$_LOGFILE" 2>/dev/null || _LOGFILE=""
+
+log "install.sh started"
+log "Log file: ${_LOGFILE:-<unable to create>}"
+log "Shell: ${SHELL:-unknown}"
+log "User: $(whoami)"
+log "Working dir: $(pwd)"
+log "Date: $(date)"
+log "OS: $(uname -a 2>/dev/null || echo 'unknown')"
+
+# Clean up temp files on exit.
+trap 'rm -f "${ENV_FILE:-/dev/null}.tmp" "${ENV_FILE:-/dev/null}.test"' EXIT
+
 ENV_EXAMPLE="${SCRIPT_DIR}/.env.example"
 ENV_FILE="${SCRIPT_DIR}/.env"
 CADDYFILE="${SCRIPT_DIR}/deploy/Caddyfile"
@@ -53,7 +90,7 @@ EOF
 }
 
 die() {
-	echo "install.sh: $*" >&2
+	log_err "$*"
 	exit 1
 }
 
@@ -78,6 +115,8 @@ set_env_var() {
 	fi
 }
 
+# ── Parse arguments ────────────────────────────────────────────────────────
+log "Parsing arguments: $*"
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--origin)
@@ -127,22 +166,49 @@ while [ $# -gt 0 ]; do
 			;;
 	esac
 done
+log "Parsed: ORIGIN=${ORIGIN:-<not set>} NON_INTERACTIVE=$NON_INTERACTIVE BILLING=${BILLING:-<not set>} FORCE=$FORCE WITH_CADDY=${WITH_CADDY:-<not set>} ADMIN_NAME=${ADMIN_NAME:-<not set>} ADMIN_EMAIL=${ADMIN_EMAIL:-<not set>}"
 
-command -v openssl >/dev/null 2>&1 || die "openssl is required"
+# ── Preflight checks ──────────────────────────────────────────────────────
+log "Preflight: checking openssl..."
+command -v openssl >/dev/null 2>&1 || die "openssl is required but not found in PATH"
+log_ok "openssl: $(openssl version 2>/dev/null)"
 
-if [ -f "$ENV_FILE" ] && [ "$FORCE" -eq 0 ]; then
-	die ".env already exists — use --force to overwrite"
+log "Preflight: checking PATH for docker..."
+if command -v docker >/dev/null 2>&1; then
+	log_ok "docker: $(docker --version 2>/dev/null)"
+else
+	log_warn "docker not found in PATH — you will need it for docker compose up"
 fi
 
-[ -f "$ENV_EXAMPLE" ] || die ".env.example not found in ${SCRIPT_DIR}"
+log "Preflight: checking docker compose..."
+if docker compose version >/dev/null 2>&1; then
+	log_ok "docker compose: $(docker compose version 2>/dev/null)"
+elif command -v docker-compose >/dev/null 2>&1; then
+	log_ok "docker-compose: $(docker-compose --version 2>/dev/null)"
+else
+	log_warn "docker compose not found — you will need it after install"
+fi
 
-# Verify write permission to target directory.
+log "Preflight: checking .env target..."
+if [ -f "$ENV_FILE" ] && [ "$FORCE" -eq 0 ]; then
+	die ".env already exists at ${ENV_FILE} — use --force to overwrite"
+fi
+log_ok ".env target: ${ENV_FILE} (force=$FORCE, exists=$( [ -f "$ENV_FILE" ] && echo yes || echo no ))"
+
+log "Preflight: checking .env.example..."
+[ -f "$ENV_EXAMPLE" ] || die ".env.example not found in ${SCRIPT_DIR}"
+log_ok ".env.example found at $ENV_EXAMPLE"
+
+log "Preflight: checking write permissions..."
 if ! touch "${ENV_FILE}.test" 2>/dev/null; then
-	die "Cannot write to $(dirname "$ENV_FILE") — check permissions or run from a writable directory"
+	die "Cannot write to $(dirname "${ENV_FILE}") — check permissions or run from a writable directory"
 fi
 rm -f "${ENV_FILE}.test"
+log_ok "Write permission to $(dirname "$ENV_FILE") verified"
 
+# ── Prompt for missing values ──────────────────────────────────────────────
 if [ -z "$ORIGIN" ]; then
+	log "ORIGIN not provided, prompting interactively..."
 	if [ "$NON_INTERACTIVE" -eq 1 ]; then
 		die "--origin is required in --non-interactive mode"
 	fi
@@ -151,6 +217,7 @@ if [ -z "$ORIGIN" ]; then
 fi
 
 [ -n "$ORIGIN" ] || die "ORIGIN must not be empty"
+log_ok "ORIGIN=$ORIGIN"
 
 case "$BILLING" in
 	"" | platform | byok) ;;
@@ -164,7 +231,10 @@ if [ -z "$BILLING" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
 	read -r BILLING
 fi
 BILLING=${BILLING:-platform}
+log_ok "BILLING=$BILLING"
 
+# ── Generate secrets ───────────────────────────────────────────────────────
+log "Generating cryptographic secrets..."
 POSTGRES_PASSWORD=$(rand_hex)
 EIGEN_APP_DB_PASSWORD=$(rand_hex)
 BETTER_AUTH_SECRET=$(rand_base64)
@@ -172,41 +242,91 @@ TENANT_MASTER_KEY=$(rand_hex)
 ADMIN_CONSOLIDATION_KEY=$(rand_hex)
 DATABASE_URL="postgres://eigen:${POSTGRES_PASSWORD}@db:5432/eigen"
 
+log_ok "Secrets generated (lengths):"
+log "  POSTGRES_PASSWORD:          ${#POSTGRES_PASSWORD} chars"
+log "  EIGEN_APP_DB_PASSWORD:      ${#EIGEN_APP_DB_PASSWORD} chars"
+log "  BETTER_AUTH_SECRET:         ${#BETTER_AUTH_SECRET} chars"
+log "  TENANT_MASTER_KEY:          ${#TENANT_MASTER_KEY} chars"
+log "  ADMIN_CONSOLIDATION_KEY:    ${#ADMIN_CONSOLIDATION_KEY} chars"
+log "  DATABASE_URL host=db:5432, db=eigen, user=eigen"
+log "  NOTE: DATABASE_URL uses internal Docker hostname 'db' — this is correct for docker-compose networking."
+
+# ── Copy .env.example -> .env ──────────────────────────────────────────────
+log "Copying .env.example -> .env..."
 cp "$ENV_EXAMPLE" "$ENV_FILE"
+log_ok "Copied .env.example to $ENV_FILE"
+
+# ── Write all env vars ─────────────────────────────────────────────────────
+log "Writing environment variables to .env..."
 
 set_env_var POSTGRES_USER eigen "$ENV_FILE"
-set_env_var POSTGRES_PASSWORD "$POSTGRES_PASSWORD" "$ENV_FILE"
-set_env_var EIGEN_APP_DB_PASSWORD "$EIGEN_APP_DB_PASSWORD" "$ENV_FILE"
-set_env_var DATABASE_URL "$DATABASE_URL" "$ENV_FILE"
-set_env_var DATABASE_ADMIN_URL "$DATABASE_URL" "$ENV_FILE"
-set_env_var ORIGIN "$ORIGIN" "$ENV_FILE"
-set_env_var AGE_GRAPH_NAME eigen_graph "$ENV_FILE"
-set_env_var BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" "$ENV_FILE"
-set_env_var TENANT_MASTER_KEY "$TENANT_MASTER_KEY" "$ENV_FILE"
-set_env_var ADMIN_CONSOLIDATION_KEY "$ADMIN_CONSOLIDATION_KEY" "$ENV_FILE"
-set_env_var POSTHOG_SOURCEMAPS_REQUIRED 0 "$ENV_FILE"
-set_env_var CONSOLIDATION_INTERNAL_URL http://app:3000 "$ENV_FILE"
+log "  POSTGRES_USER=eigen"
 
-# Verify critical variables were written successfully.
+set_env_var POSTGRES_PASSWORD "$POSTGRES_PASSWORD" "$ENV_FILE"
+log "  POSTGRES_PASSWORD set (${#POSTGRES_PASSWORD} chars)"
+
+set_env_var EIGEN_APP_DB_PASSWORD "$EIGEN_APP_DB_PASSWORD" "$ENV_FILE"
+log "  EIGEN_APP_DB_PASSWORD set (${#EIGEN_APP_DB_PASSWORD} chars)"
+
+set_env_var DATABASE_URL "$DATABASE_URL" "$ENV_FILE"
+log "  DATABASE_URL set"
+
+set_env_var DATABASE_ADMIN_URL "$DATABASE_URL" "$ENV_FILE"
+log "  DATABASE_ADMIN_URL set (same as DATABASE_URL)"
+
+set_env_var ORIGIN "$ORIGIN" "$ENV_FILE"
+log "  ORIGIN=$ORIGIN"
+
+set_env_var AGE_GRAPH_NAME eigen_graph "$ENV_FILE"
+log "  AGE_GRAPH_NAME=eigen_graph"
+
+set_env_var BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" "$ENV_FILE"
+log "  BETTER_AUTH_SECRET set"
+
+set_env_var TENANT_MASTER_KEY "$TENANT_MASTER_KEY" "$ENV_FILE"
+log "  TENANT_MASTER_KEY set"
+
+set_env_var ADMIN_CONSOLIDATION_KEY "$ADMIN_CONSOLIDATION_KEY" "$ENV_FILE"
+log "  ADMIN_CONSOLIDATION_KEY set"
+
+set_env_var POSTHOG_SOURCEMAPS_REQUIRED 0 "$ENV_FILE"
+log "  POSTHOG_SOURCEMAPS_REQUIRED=0"
+
+set_env_var CONSOLIDATION_INTERNAL_URL http://app:3000 "$ENV_FILE"
+log "  CONSOLIDATION_INTERNAL_URL=http://app:3000"
+
+log_ok "All base environment variables written to $ENV_FILE"
+
+# ── Verify critical variables were written ─────────────────────────────────
+log "Validating critical variables in .env..."
 for key in DATABASE_URL POSTGRES_PASSWORD BETTER_AUTH_SECRET TENANT_MASTER_KEY; do
 	val=$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"')
 	if [ -z "$val" ]; then
 		die "Post-write validation failed: ${key} is empty or missing in ${ENV_FILE}"
 	fi
+	log_ok "  ${key} present (${#val} chars)"
 done
+log_ok "All critical variables validated"
 
+# ── Optional admin bootstrap vars ──────────────────────────────────────────
+log "Writing admin bootstrap vars (if provided)..."
 if [ -n "$ADMIN_NAME" ]; then
 	set_env_var ADMIN_NAME "$ADMIN_NAME" "$ENV_FILE"
+	log "  ADMIN_NAME=$ADMIN_NAME"
 fi
 if [ -n "$ADMIN_EMAIL" ]; then
 	set_env_var ADMIN_EMAIL "$ADMIN_EMAIL" "$ENV_FILE"
+	log "  ADMIN_EMAIL=$ADMIN_EMAIL"
 fi
 if [ -n "$ADMIN_PASSWORD" ]; then
 	set_env_var ADMIN_PASSWORD "$ADMIN_PASSWORD" "$ENV_FILE"
+	log "  ADMIN_PASSWORD set (${#ADMIN_PASSWORD} chars)"
 fi
 
+# ── Optional Caddyfile ────────────────────────────────────────────────────
 if [ -n "$WITH_CADDY" ]; then
 	mkdir -p "$(dirname "$CADDYFILE")"
+	log "Writing Caddyfile for domain: $WITH_CADDY"
 	cat >"$CADDYFILE" <<EOF
 # Reverse proxy for Eigen (generated by install.sh).
 # Install Caddy on the host, then: sudo caddy run --config deploy/Caddyfile
@@ -216,11 +336,59 @@ ${WITH_CADDY} {
 	reverse_proxy localhost:3000
 }
 EOF
-	echo "Wrote ${CADDYFILE} (proxy ${WITH_CADDY} -> localhost:3000)"
+	log_ok "Wrote ${CADDYFILE} (proxy ${WITH_CADDY} -> localhost:3000)"
 fi
 
+# ── Dump final .env summary (without secrets) ─────────────────────────────
+log "Final .env summary (secrets redacted)..."
+grep -v -E '^(POSTGRES_PASSWORD|EIGEN_APP_DB_PASSWORD|BETTER_AUTH_SECRET|TENANT_MASTER_KEY|ADMIN_CONSOLIDATION_KEY|DATABASE_URL|DATABASE_ADMIN_URL)=' "$ENV_FILE" | while IFS= read -r line; do
+	log "  $line"
+done
+log "(Database secrets and URLs redacted from summary above)"
+
+# ── Docker preflight: check if compose stack is already running ────────────
+log "Checking Docker Compose stack status..."
+if command -v docker >/dev/null 2>&1 && docker compose ps >/dev/null 2>&1; then
+	log "Docker Compose stack found. Container statuses:"
+	docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker compose ps
+elif command -v docker-compose >/dev/null 2>&1 && docker-compose ps >/dev/null 2>&1; then
+	log "Docker Compose stack found (docker-compose). Container statuses:"
+	docker-compose ps
+else
+	log_warn "No running Docker Compose stack detected (this is normal if you haven't run 'docker compose up' yet)."
+fi
+
+# ── PostgreSQL connectivity check (best-effort, informational only) ────────
+log "Attempting PostgreSQL connectivity check (best-effort)..."
+if command -v docker >/dev/null 2>&1 && docker compose ps db >/dev/null 2>&1; then
+	DB_CONTAINER=$(docker compose ps -q db 2>/dev/null)
+	if [ -n "$DB_CONTAINER" ]; then
+		log "  PostgreSQL container found: $DB_CONTAINER"
+		DB_RUNNING=$(docker inspect --format='{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null || echo "unknown")
+		log "  PostgreSQL container running: $DB_RUNNING"
+		DB_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$DB_CONTAINER" 2>/dev/null || echo "unknown")
+		log "  PostgreSQL image: $DB_IMAGE"
+
+		# Check if the container has the required extensions (pgvector, apache AGE)
+		log "  Checking for pgvector extension..."
+		docker compose exec -T db psql -U eigen -d eigen -c "SELECT extname FROM pg_extension WHERE extname = 'vector';" >/dev/null 2>&1 && log_ok "  pgvector extension found" || log_warn "  pgvector extension NOT found or db not running"
+		log "  Checking for Apache AGE extension..."
+		docker compose exec -T db psql -U eigen -d eigen -c "SELECT extname FROM pg_extension WHERE extname = 'age';" >/dev/null 2>&1 && log_ok "  Apache AGE extension found" || log_warn "  Apache AGE extension NOT found or db not running"
+	else
+		log_warn "  Could not determine PostgreSQL container ID"
+	fi
+else
+	log_warn "  Cannot check PostgreSQL — either Docker or docker compose is unavailable, or db container is not running."
+	log_warn "  If the stack isn't up yet, run 'docker compose up -d --build' first, then check the logs."
+fi
+
+# ── Done ───────────────────────────────────────────────────────────────────
+log ""
+log_ok "install.sh completed successfully"
 echo ""
 echo "Wrote ${ENV_FILE} with generated secrets."
+echo ""
+echo "Log saved to: ${_LOGFILE:-<unable to create>}"
 echo ""
 echo "Next steps:"
 echo "  1. Edit .env and set LLM credentials:"
