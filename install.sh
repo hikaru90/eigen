@@ -295,6 +295,17 @@ log "  POSTHOG_SOURCEMAPS_REQUIRED=0"
 set_env_var CONSOLIDATION_INTERNAL_URL http://app:3000 "$ENV_FILE"
 log "  CONSOLIDATION_INTERNAL_URL=http://app:3000"
 
+# Default admin credentials (can be overridden via --admin-* flags)
+ADMIN_NAME="${ADMIN_NAME:-adminUser}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@eigen.local}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-changeme123}"
+set_env_var ADMIN_NAME "$ADMIN_NAME" "$ENV_FILE"
+log "  ADMIN_NAME=$ADMIN_NAME"
+set_env_var ADMIN_EMAIL "$ADMIN_EMAIL" "$ENV_FILE"
+log "  ADMIN_EMAIL=$ADMIN_EMAIL"
+set_env_var ADMIN_PASSWORD "$ADMIN_PASSWORD" "$ENV_FILE"
+log "  ADMIN_PASSWORD set (${#ADMIN_PASSWORD} chars)"
+
 log_ok "All base environment variables written to $ENV_FILE"
 
 # ── Verify critical variables were written ─────────────────────────────────
@@ -308,20 +319,7 @@ for key in DATABASE_URL POSTGRES_PASSWORD BETTER_AUTH_SECRET TENANT_MASTER_KEY; 
 done
 log_ok "All critical variables validated"
 
-# ── Optional admin bootstrap vars ──────────────────────────────────────────
-log "Writing admin bootstrap vars (if provided)..."
-if [ -n "$ADMIN_NAME" ]; then
-	set_env_var ADMIN_NAME "$ADMIN_NAME" "$ENV_FILE"
-	log "  ADMIN_NAME=$ADMIN_NAME"
-fi
-if [ -n "$ADMIN_EMAIL" ]; then
-	set_env_var ADMIN_EMAIL "$ADMIN_EMAIL" "$ENV_FILE"
-	log "  ADMIN_EMAIL=$ADMIN_EMAIL"
-fi
-if [ -n "$ADMIN_PASSWORD" ]; then
-	set_env_var ADMIN_PASSWORD "$ADMIN_PASSWORD" "$ENV_FILE"
-	log "  ADMIN_PASSWORD set (${#ADMIN_PASSWORD} chars)"
-fi
+
 
 # ── Optional Caddyfile ────────────────────────────────────────────────────
 if [ -n "$WITH_CADDY" ]; then
