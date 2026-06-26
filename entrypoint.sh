@@ -18,8 +18,8 @@ run_step() {
 	fi
 }
 
-run_step "Ensuring database extensions" node scripts/ensure-extensions.mjs
 run_step "Ensuring non-superuser app role (eigen_app)" node scripts/ensure-app-role.mjs
+run_step "Ensuring database extensions" node scripts/ensure-extensions.mjs
 run_step "Verifying eigen_app can write Apache AGE graph" node scripts/verify-age-graph-role.mjs
 run_step "Running database migrations" node scripts/migrate.mjs
 run_step "Applying RLS policies" node scripts/apply-rls.mjs
