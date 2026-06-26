@@ -62,7 +62,7 @@ export async function transferGraphOwnership(sql, input) {
 	const tables = await sql.unsafe(`
 		SELECT tablename
 		FROM pg_tables
-		WHERE schemaname = ${graphSchemaName}
+		WHERE schemaname = '${graphSchemaName}'
 	`);
 	for (const { tablename } of tables) {
 		await sql.unsafe(
@@ -74,7 +74,7 @@ export async function transferGraphOwnership(sql, input) {
 	const sequences = await sql.unsafe(`
 		SELECT sequencename
 		FROM pg_sequences
-		WHERE schemaname = ${graphSchemaName}
+		WHERE schemaname = '${graphSchemaName}'
 	`);
 	for (const { sequencename } of sequences) {
 		await sql.unsafe(
