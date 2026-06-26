@@ -1,4 +1,4 @@
-CREATE TABLE "eval_qa" (
+CREATE TABLE IF NOT EXISTS "eval_qa" (
 	"id" text PRIMARY KEY NOT NULL,
 	"question" text NOT NULL,
 	"acceptance" text NOT NULL,

@@ -1,10 +1,10 @@
-CREATE TABLE "task" (
+CREATE TABLE IF NOT EXISTS "task" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"title" text NOT NULL,
 	"priority" integer DEFAULT 1 NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "account" (
+CREATE TABLE IF NOT EXISTS "account" (
 	"id" text PRIMARY KEY NOT NULL,
 	"account_id" text NOT NULL,
 	"provider_id" text NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE "account" (
 	"updated_at" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "session" (
+CREATE TABLE IF NOT EXISTS "session" (
 	"id" text PRIMARY KEY NOT NULL,
 	"expires_at" timestamp NOT NULL,
 	"token" text NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE "session" (
 	CONSTRAINT "session_token_unique" UNIQUE("token")
 );
 --> statement-breakpoint
-CREATE TABLE "user" (
+CREATE TABLE IF NOT EXISTS "user" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"email" text NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE "user" (
 	CONSTRAINT "user_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
-CREATE TABLE "verification" (
+CREATE TABLE IF NOT EXISTS "verification" (
 	"id" text PRIMARY KEY NOT NULL,
 	"identifier" text NOT NULL,
 	"value" text NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE "verification" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "activity_call_log" (
+CREATE TABLE IF NOT EXISTS "activity_call_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
 	"provider" text NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE "activity_call_log" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "capture_session" (
+CREATE TABLE IF NOT EXISTS "capture_session" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
 	"status" text DEFAULT 'open' NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE "capture_session" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "thought" (
+CREATE TABLE IF NOT EXISTS "thought" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
 	"raw_text" text NOT NULL,
@@ -92,7 +92,7 @@ CREATE TABLE "thought" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "thought_relation" (
+CREATE TABLE IF NOT EXISTS "thought_relation" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
 	"source_thought_id" uuid NOT NULL,
@@ -101,33 +101,78 @@ CREATE TABLE "thought_relation" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "user_preference" (
+CREATE TABLE IF NOT EXISTS "user_preference" (
 	"user_id" text PRIMARY KEY NOT NULL,
 	"preferred_language" text DEFAULT 'en' NOT NULL,
 	"preferred_transcription_quality" text DEFAULT 'low' NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "activity_call_log" ADD CONSTRAINT "activity_call_log_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "capture_session" ADD CONSTRAINT "capture_session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "thought" ADD CONSTRAINT "thought_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "thought_relation" ADD CONSTRAINT "thought_relation_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "thought_relation" ADD CONSTRAINT "thought_relation_source_thought_id_thought_id_fk" FOREIGN KEY ("source_thought_id") REFERENCES "public"."thought"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "thought_relation" ADD CONSTRAINT "thought_relation_target_thought_id_thought_id_fk" FOREIGN KEY ("target_thought_id") REFERENCES "public"."thought"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user_preference" ADD CONSTRAINT "user_preference_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
-CREATE INDEX "activity_call_log_user_idx" ON "activity_call_log" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "capture_session_user_idx" ON "capture_session" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "capture_session_status_idx" ON "capture_session" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "thought_user_idx" ON "thought" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "thought_lexical_tsv_idx" ON "thought" USING gin ("lexical_tsv");--> statement-breakpoint
-CREATE INDEX "thought_embedding_hnsw_idx" ON "thought" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
-CREATE INDEX "thought_relation_user_idx" ON "thought_relation" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "thought_relation_source_idx" ON "thought_relation" USING btree ("source_thought_id");--> statement-breakpoint
-CREATE INDEX "thought_relation_target_idx" ON "thought_relation" USING btree ("target_thought_id");--> statement-breakpoint
-CREATE INDEX "user_preference_language_idx" ON "user_preference" USING btree ("preferred_language");--> statement-breakpoint
-CREATE INDEX "user_preference_quality_idx" ON "user_preference" USING btree ("preferred_transcription_quality");
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'account_user_id_user_id_fk') THEN
+    ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_user_id_user_id_fk') THEN
+    ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'activity_call_log_user_id_user_id_fk') THEN
+    ALTER TABLE "activity_call_log" ADD CONSTRAINT "activity_call_log_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'capture_session_user_id_user_id_fk') THEN
+    ALTER TABLE "capture_session" ADD CONSTRAINT "capture_session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_user_id_user_id_fk') THEN
+    ALTER TABLE "thought" ADD CONSTRAINT "thought_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_relation_user_id_user_id_fk') THEN
+    ALTER TABLE "thought_relation" ADD CONSTRAINT "thought_relation_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_relation_source_thought_id_thought_id_fk') THEN
+    ALTER TABLE "thought_relation" ADD CONSTRAINT "thought_relation_source_thought_id_thought_id_fk" FOREIGN KEY ("source_thought_id") REFERENCES "public"."thought"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_relation_target_thought_id_thought_id_fk') THEN
+    ALTER TABLE "thought_relation" ADD CONSTRAINT "thought_relation_target_thought_id_thought_id_fk" FOREIGN KEY ("target_thought_id") REFERENCES "public"."thought"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_preference_user_id_user_id_fk') THEN
+    ALTER TABLE "user_preference" ADD CONSTRAINT "user_preference_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "activity_call_log_user_idx" ON "activity_call_log" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "capture_session_user_idx" ON "capture_session" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "capture_session_status_idx" ON "capture_session" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "thought_user_idx" ON "thought" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "thought_lexical_tsv_idx" ON "thought" USING gin ("lexical_tsv");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "thought_embedding_hnsw_idx" ON "thought" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "thought_relation_user_idx" ON "thought_relation" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "thought_relation_source_idx" ON "thought_relation" USING btree ("source_thought_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "thought_relation_target_idx" ON "thought_relation" USING btree ("target_thought_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "user_preference_language_idx" ON "user_preference" USING btree ("preferred_language");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "user_preference_quality_idx" ON "user_preference" USING btree ("preferred_transcription_quality");

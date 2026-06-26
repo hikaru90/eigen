@@ -18,13 +18,33 @@ CREATE TABLE IF NOT EXISTS "thought_text_file" (
 	CONSTRAINT "thought_text_file_pk" PRIMARY KEY("thought_id","text_file_id")
 );
 --> statement-breakpoint
-ALTER TABLE "text_file" ADD CONSTRAINT "text_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'text_file_user_id_user_id_fk') THEN
+    ALTER TABLE "text_file" ADD CONSTRAINT "text_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "thought_text_file" ADD CONSTRAINT "thought_text_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_text_file_user_id_user_id_fk') THEN
+    ALTER TABLE "thought_text_file" ADD CONSTRAINT "thought_text_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "thought_text_file" ADD CONSTRAINT "thought_text_file_thought_id_thought_id_fk" FOREIGN KEY ("thought_id") REFERENCES "public"."thought"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_text_file_thought_id_thought_id_fk') THEN
+    ALTER TABLE "thought_text_file" ADD CONSTRAINT "thought_text_file_thought_id_thought_id_fk" FOREIGN KEY ("thought_id") REFERENCES "public"."thought"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "thought_text_file" ADD CONSTRAINT "thought_text_file_text_file_id_text_file_id_fk" FOREIGN KEY ("text_file_id") REFERENCES "public"."text_file"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'thought_text_file_text_file_id_text_file_id_fk') THEN
+    ALTER TABLE "thought_text_file" ADD CONSTRAINT "thought_text_file_text_file_id_text_file_id_fk" FOREIGN KEY ("text_file_id") REFERENCES "public"."text_file"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "text_file_user_updated_idx" ON "text_file" USING btree ("user_id","updated_at");
 --> statement-breakpoint

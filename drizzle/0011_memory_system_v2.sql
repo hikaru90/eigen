@@ -54,6 +54,8 @@ DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'ontology_entity_kind_user_key_uidx'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_class WHERE relname = 'ontology_entity_kind_user_key_uidx'
   ) THEN
     ALTER TABLE "ontology_entity_kind" ADD CONSTRAINT "ontology_entity_kind_user_key_uidx" UNIQUE("user_id", "key");
   END IF;

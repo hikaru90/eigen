@@ -12,4 +12,9 @@ ALTER TABLE "chat_session" ADD COLUMN IF NOT EXISTS "mode" text NOT NULL DEFAULT
 --> statement-breakpoint
 ALTER TABLE "chat_session" DROP CONSTRAINT IF EXISTS "chat_session_mode_check";
 --> statement-breakpoint
-ALTER TABLE "chat_session" ADD CONSTRAINT "chat_session_mode_check" CHECK ("mode" IN ('default', 'grounding'));
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chat_session_mode_check') THEN
+    ALTER TABLE "chat_session" ADD CONSTRAINT "chat_session_mode_check" CHECK ("mode" IN ('default', 'grounding'));
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

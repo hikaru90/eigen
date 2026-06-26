@@ -1,4 +1,4 @@
-CREATE TABLE "eval_run" (
+CREATE TABLE IF NOT EXISTS "eval_run" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
 	"eval_user_id" text NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE "eval_run" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "eval_entry" (
+CREATE TABLE IF NOT EXISTS "eval_entry" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"run_id" uuid NOT NULL,
 	"ordinal" integer NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE "eval_entry" (
 	"finished_at" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE "eval_event" (
+CREATE TABLE IF NOT EXISTS "eval_event" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"run_id" uuid NOT NULL,
 	"entry_id" uuid,
@@ -40,33 +40,58 @@ CREATE TABLE "eval_event" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "eval_thought_map" (
+CREATE TABLE IF NOT EXISTS "eval_thought_map" (
 	"run_id" uuid NOT NULL,
 	"fixture_id" text NOT NULL,
 	"thought_id" uuid NOT NULL,
 	CONSTRAINT "eval_thought_map_run_id_fixture_id_pk" PRIMARY KEY("run_id","fixture_id")
 );
 --> statement-breakpoint
-ALTER TABLE "eval_run" ADD CONSTRAINT "eval_run_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'eval_run_user_id_user_id_fk') THEN
+    ALTER TABLE "eval_run" ADD CONSTRAINT "eval_run_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "eval_entry" ADD CONSTRAINT "eval_entry_run_id_eval_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."eval_run"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'eval_entry_run_id_eval_run_id_fk') THEN
+    ALTER TABLE "eval_entry" ADD CONSTRAINT "eval_entry_run_id_eval_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."eval_run"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "eval_event" ADD CONSTRAINT "eval_event_run_id_eval_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."eval_run"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'eval_event_run_id_eval_run_id_fk') THEN
+    ALTER TABLE "eval_event" ADD CONSTRAINT "eval_event_run_id_eval_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."eval_run"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "eval_event" ADD CONSTRAINT "eval_event_entry_id_eval_entry_id_fk" FOREIGN KEY ("entry_id") REFERENCES "public"."eval_entry"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'eval_event_entry_id_eval_entry_id_fk') THEN
+    ALTER TABLE "eval_event" ADD CONSTRAINT "eval_event_entry_id_eval_entry_id_fk" FOREIGN KEY ("entry_id") REFERENCES "public"."eval_entry"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-ALTER TABLE "eval_thought_map" ADD CONSTRAINT "eval_thought_map_run_id_eval_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."eval_run"("id") ON DELETE cascade ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'eval_thought_map_run_id_eval_run_id_fk') THEN
+    ALTER TABLE "eval_thought_map" ADD CONSTRAINT "eval_thought_map_run_id_eval_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."eval_run"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE INDEX "eval_run_user_idx" ON "eval_run" USING btree ("user_id");
+CREATE INDEX IF NOT EXISTS "eval_run_user_idx" ON "eval_run" USING btree ("user_id");
 --> statement-breakpoint
-CREATE INDEX "eval_run_user_created_idx" ON "eval_run" USING btree ("user_id","created_at");
+CREATE INDEX IF NOT EXISTS "eval_run_user_created_idx" ON "eval_run" USING btree ("user_id","created_at");
 --> statement-breakpoint
-CREATE INDEX "eval_entry_run_idx" ON "eval_entry" USING btree ("run_id");
+CREATE INDEX IF NOT EXISTS "eval_entry_run_idx" ON "eval_entry" USING btree ("run_id");
 --> statement-breakpoint
-CREATE INDEX "eval_entry_run_ordinal_idx" ON "eval_entry" USING btree ("run_id","ordinal");
+CREATE INDEX IF NOT EXISTS "eval_entry_run_ordinal_idx" ON "eval_entry" USING btree ("run_id","ordinal");
 --> statement-breakpoint
-CREATE INDEX "eval_event_run_idx" ON "eval_event" USING btree ("run_id");
+CREATE INDEX IF NOT EXISTS "eval_event_run_idx" ON "eval_event" USING btree ("run_id");
 --> statement-breakpoint
-CREATE INDEX "eval_event_run_created_idx" ON "eval_event" USING btree ("run_id","created_at");
+CREATE INDEX IF NOT EXISTS "eval_event_run_created_idx" ON "eval_event" USING btree ("run_id","created_at");
 --> statement-breakpoint
-CREATE INDEX "eval_thought_map_run_idx" ON "eval_thought_map" USING btree ("run_id");
+CREATE INDEX IF NOT EXISTS "eval_thought_map_run_idx" ON "eval_thought_map" USING btree ("run_id");

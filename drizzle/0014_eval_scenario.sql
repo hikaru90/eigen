@@ -1,4 +1,4 @@
-CREATE TABLE "eval_scenario" (
+CREATE TABLE IF NOT EXISTS "eval_scenario" (
 	"id" text PRIMARY KEY NOT NULL,
 	"goal" text NOT NULL,
 	"captures_json" jsonb DEFAULT '[]'::jsonb NOT NULL,

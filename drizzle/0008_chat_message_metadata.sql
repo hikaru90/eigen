@@ -1,1 +1,1 @@
-ALTER TABLE "chat_message" ADD COLUMN "metadata" jsonb;
+ALTER TABLE "chat_message" ADD COLUMN IF NOT EXISTS "metadata" jsonb;
