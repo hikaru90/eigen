@@ -296,7 +296,7 @@ set_env_var CONSOLIDATION_INTERNAL_URL http://app:3000 "$ENV_FILE"
 log "  CONSOLIDATION_INTERNAL_URL=http://app:3000"
 
 # Default admin credentials (can be overridden via --admin-* flags)
-ADMIN_NAME="${ADMIN_NAME:-adminUser}"
+ADMIN_NAME="${ADMIN_NAME:-admin@user.de}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@eigen.local}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-changeme123}"
 set_env_var ADMIN_NAME "$ADMIN_NAME" "$ENV_FILE"
