@@ -1,7 +1,7 @@
 import './load-env.mjs';
 import postgres from 'postgres';
 import { getDatabaseUrl } from './db-urls.mjs';
-import { ensureAgeGraphGrants, quoteIdent } from './age-graph-grants.mjs';
+import { quoteIdent } from './age-graph-grants.mjs';
 
 const urlString = getDatabaseUrl();
 
@@ -36,14 +36,12 @@ try {
 		END $$;
 	`);
 	const [{ name: dbName }] = await sql`SELECT current_database() AS name`;
-	const [{ owner }] = await sql`SELECT current_user AS owner`;
 	await sql.unsafe(
 		`ALTER DATABASE ${quoteIdent(dbName)} SET search_path TO ${AGE_SEARCH_PATH}`
 	);
-	await ensureAgeGraphGrants(sql, { owner, ageGraph });
 	console.log(
 		`[eigen] Extensions ensured (vector, age); graph '${ageGraph}' ready; ` +
-			'database search_path includes ag_catalog; eigen_app graph grants applied.'
+			'database search_path includes ag_catalog; eigen_app graph grants applied by ensure-app-role.'
 	);
 } catch (err) {
 	const message = err instanceof Error ? err.message : String(err);
