@@ -3,35 +3,39 @@ set -euo pipefail
 
 # Non-superuser role for the application. RLS is bypassed by PostgreSQL superusers,
 # so the app must connect as eigen_app (see DATABASE_URL in .env.example).
+APP_ROLE="${APP_DB_ROLE:-eigen_app}"
+APP_PASSWORD="${EIGEN_APP_DB_PASSWORD:-eigen_app}"
+GRAPH_NAME="${AGE_GRAPH_NAME:-eigen_graph}"
+
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<EOSQL
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'eigen_app') THEN
-    CREATE ROLE eigen_app LOGIN PASSWORD 'eigen_app';
-  END IF;
-END
+do \$\$
+begin
+  if not exists (select from pg_roles where rolname = '${APP_ROLE}') then
+    create role ${APP_ROLE} login password '${APP_PASSWORD}';
+  end if;
+end
 \$\$;
 
-GRANT CONNECT ON DATABASE ${POSTGRES_DB} TO eigen_app;
-GRANT USAGE ON SCHEMA public TO eigen_app;
-GRANT USAGE ON SCHEMA ag_catalog TO eigen_app;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO eigen_app;
-GRANT USAGE ON SCHEMA eigen_graph TO eigen_app;
-GRANT CREATE ON SCHEMA eigen_graph TO eigen_app;
-GRANT ALL PRIVILEGES ON SCHEMA eigen_graph TO eigen_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA eigen_graph TO eigen_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO eigen_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO eigen_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA eigen_graph TO eigen_app;
+grant connect on database ${POSTGRES_DB} to ${APP_ROLE};
+grant usage on schema public to ${APP_ROLE};
+grant usage on schema ag_catalog to ${APP_ROLE};
+grant execute on all functions in schema ag_catalog to ${APP_ROLE};
+grant usage on schema ${GRAPH_NAME} to ${APP_ROLE};
+grant create on schema ${GRAPH_NAME} to ${APP_ROLE};
+grant all privileges on schema ${GRAPH_NAME} to ${APP_ROLE};
+grant select, insert, update, delete on all tables in schema ${GRAPH_NAME} to ${APP_ROLE};
+grant select, insert, update, delete on all tables in schema public to ${APP_ROLE};
+grant usage, select on all sequences in schema public to ${APP_ROLE};
+grant usage, select on all sequences in schema ${GRAPH_NAME} to ${APP_ROLE};
 
-ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO eigen_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO eigen_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA eigen_graph
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO eigen_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${POSTGRES_USER} IN SCHEMA eigen_graph
-  GRANT USAGE, SELECT ON SEQUENCES TO eigen_app;
+alter default privileges for role ${POSTGRES_USER} in schema public
+  grant select, insert, update, delete on tables to ${APP_ROLE};
+alter default privileges for role ${POSTGRES_USER} in schema public
+  grant usage, select on sequences to ${APP_ROLE};
+alter default privileges for role ${POSTGRES_USER} in schema ${GRAPH_NAME}
+  grant select, insert, update, delete on tables to ${APP_ROLE};
+alter default privileges for role ${POSTGRES_USER} in schema ${GRAPH_NAME}
+  grant usage, select on sequences to ${APP_ROLE};
 
-ALTER ROLE eigen_app SET search_path TO public, ag_catalog, "$user";
+alter role ${APP_ROLE} set search_path to public, ag_catalog, "\$user";
 EOSQL
