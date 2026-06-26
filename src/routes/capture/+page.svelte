@@ -50,6 +50,7 @@
 	import { get } from 'svelte/store';
 	import { trackInsufficientCredits } from '$lib/analytics/billing-events';
 	import { capture as captureEvent } from '$lib/analytics/posthog-client';
+import { logErrorToServer } from '$lib/client-log';
 
 	let { data }: { data: PageData } = $props();
 
@@ -245,6 +246,7 @@
 			await ensureThoughtDetail(thoughtId);
 		} catch (e) {
 			err = e instanceof Error ? e.message : String(e);
+			logErrorToServer(err, 'capture_expand', e);
 			if (expandedThoughtId === thoughtId) expandedThoughtId = null;
 		}
 	}
@@ -466,6 +468,7 @@
 			}
 			if (message.type === 'failed') {
 				captureEvent('capture_failed', { error_message: message.error });
+				logErrorToServer(message.error, 'capture_ndjson');
 				err = message.error;
 				progressEvents = [];
 				processingCaptureId = null;
@@ -555,6 +558,7 @@
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') return;
 			err = e instanceof Error ? e.message : String(e);
+			logErrorToServer(err, 'capture_edit', e);
 		} finally {
 			editLoading = false;
 			progressEvents = [];

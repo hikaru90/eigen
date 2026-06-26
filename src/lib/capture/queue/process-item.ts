@@ -11,6 +11,7 @@ import {
 	type CaptureSubmitResult
 } from './types';
 import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson';
+import { logErrorToServer } from '$lib/client-log';
 
 /** Permanent infra/config failures — retrying only burns LLM quota. */
 export function isNonRetryableCaptureError(err: unknown): boolean {
@@ -59,6 +60,7 @@ export async function processCaptureQueueItem(
 		}
 
 		const message = err instanceof Error ? err.message : String(err);
+		logErrorToServer(message, 'capture_queue', err);
 		if (isNonRetryableCaptureError(err)) {
 			const failed = await updateCaptureQueueItem(item.id, {
 				status: 'failed',
