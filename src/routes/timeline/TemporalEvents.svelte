@@ -19,29 +19,21 @@
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
 		thoughtIdFromOpenLoopItemId,
-		type TimelineShellView,
-		type NowSegment,
-		type ProjectsLayout,
-		type ProjectStatusFilter
+		type NowSegment
 	} from './temporal-events-utils';
 	import { filterCompletedTodayItems } from '$lib/graph/timeline-completed-today';
 	import { isTemporalEventCompleted } from './temporal-events-utils';
 	import { m } from '$lib/paraglide/messages.js';
 	import { Button } from '$lib/components/ui/button';
 	import TemporalEventDetail from './TemporalEventDetail.svelte';
-	import TemporalEventsAgendaView from './TemporalEventsAgendaView.svelte';
 	import TemporalEventsTodayView from './TemporalEventsTodayView.svelte';
-	import TemporalEventsMatrixView from './TemporalEventsMatrixView.svelte';
 	import TemporalEventsProjectsView from './TemporalEventsProjectsView.svelte';
 	import TemporalTimelineHeader from './TemporalTimelineHeader.svelte';
 	import TemporalTimelineNudge from './TemporalTimelineNudge.svelte';
+	import TemporalTimelineFiltersPopover from './TemporalTimelineFiltersPopover.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import TimelineAgentAssignDialog from './TimelineAgentAssignDialog.svelte';
 	import TemporalTodaySegmentTabs from './TemporalTodaySegmentTabs.svelte';
-	import TemporalProjectsLayoutTabs from './TemporalProjectsLayoutTabs.svelte';
-	import TemporalProjectStatusTabs from './TemporalProjectStatusTabs.svelte';
-	import TemporalShellTabs from './TemporalShellTabs.svelte';
-	import TemporalTimelineFiltersPopover from './TemporalTimelineFiltersPopover.svelte';
 	import {
 		notifyThoughtChanged,
 		notifyThoughtRefreshAll,
@@ -79,15 +71,22 @@
 	let rangeFilter = $state<TemporalRangeFilter>('relevant');
 	let statusFilter = $state<TemporalStatusFilter>('open');
 	let kindFilter = $state<string[]>([]);
-	let shellView = $state<TimelineShellView>('tasks');
+	let projectsMode = $state(
+		typeof localStorage !== 'undefined'
+			? localStorage.getItem('timeline-projects-mode') === 'true'
+			: false
+	);
+
+	$effect(() => {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('timeline-projects-mode', String(projectsMode));
+		}
+	});
 	let nowSegment = $state<NowSegment>('todo');
-	let projectsLayout = $state<ProjectsLayout>('list');
-	let projectStatusFilter = $state<ProjectStatusFilter>('all');
 	let updatingEventId = $state<string | null>(null);
 	let actionBusy = $state(false);
 	let actionError = $state<string | null>(null);
 	let lastActionSummary = $state<string | null>(null);
-	let filtersPopoverOpen = $state(false);
 	let overdueItems = $state<TemporalEventListItem[]>([]);
 	let overdueLoading = $state(false);
 	let doneItems = $state<TemporalEventListItem[]>([]);
@@ -99,15 +98,15 @@
 	let assignAgentItem = $state<TemporalEventListItem | null>(null);
 	let refreshingAll = $state(false);
 	let internalSelectedItemId = $state<string | null>(null);
+	let filtersPopoverOpen = $state(false);
+
+	const filtersActive = $derived(statusFilter !== 'open' || rangeFilter !== 'relevant' || kindFilter.length > 0);
 
 	const selectionControlled = $derived(onSelectItem !== undefined);
 	const activeSelectedItemId = $derived(
 		selectionControlled ? selectedItemId : internalSelectedItemId
 	);
 
-	const filtersActive = $derived(
-		rangeFilter !== 'relevant' || kindFilter.length > 0 || statusFilter === 'all'
-	);
 
 	const refreshBusy = $derived(
 		refreshingAll || phase.kind === 'loading' || overdueLoading || doneLoading
@@ -131,8 +130,6 @@
 		mergePriorDayOverdueIntoItems(displayItems, overdueItems)
 	);
 	const todayTodoItems = $derived(filterTodayTodoOpenItems(todayTodoSourceItems, userTimeZone));
-
-	const upcomingItems = $derived(filterItemsForUpcomingView(displayItems, userTimeZone));
 
 	const nowTabCounts = $derived({
 		todo: todayTodoItems.length,
@@ -161,25 +158,21 @@
 	const showGlobalEmpty = $derived(
 		phase.kind === 'ready' &&
 			filteredItems.length === 0 &&
-			shellView === 'tasks' &&
+			!projectsMode &&
 			nowSegment === 'todo'
 	);
 
 	const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0);
 
-	const showFiltersInHeader = $derived(
-		!(shellView === 'tasks' && nowSegment === 'todo' && overdueItems.length > 0)
-	);
 
 	async function loadEvents(append = false, options?: { silent?: boolean }) {
 		const silent = options?.silent ?? false;
 		if (!append && !silent) phase = { kind: 'loading' };
 		actionError = null;
 		try {
-			const effectiveStatus: TemporalStatusFilter = shellView === 'tasks' ? 'open' : statusFilter;
-			const params = 	new SvelteURLSearchParams({
+			const params = new SvelteURLSearchParams({
 				range: rangeFilter,
-				status: effectiveStatus,
+				status: 'open',
 				includeOpenLoops: 'true'
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
@@ -235,7 +228,7 @@
 		const silent = options?.silent ?? overdueItems.length > 0;
 		if (!silent) overdueLoading = true;
 		try {
-			const params = 	new SvelteURLSearchParams({
+			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'open',
 				includeOpenLoops: 'true'
@@ -262,7 +255,7 @@
 		const silent = options?.silent ?? doneItems.length > 0;
 		if (!silent) doneLoading = true;
 		try {
-			const params = 	new SvelteURLSearchParams({
+			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'all',
 				includeOpenLoops: 'true'
@@ -299,6 +292,14 @@
 		setSelection(null);
 	}
 
+	function goToTaskFromProjects(itemId: string) {
+		if (phase.kind !== 'ready') return;
+		const item = phase.items.find((i) => i.id === itemId);
+		if (!item) return;
+		lastActionSummary = null;
+		setSelection(item);
+	}
+
 	function applyItemLocally(updated: TemporalEventListItem) {
 		if (phase.kind !== 'ready') return;
 		phase = {
@@ -318,7 +319,7 @@
 	}
 
 	function shouldDropFromOpenList(item: TemporalEventListItem): boolean {
-		return isTemporalEventCompleted(item) && (statusFilter === 'open' || shellView === 'tasks');
+		return isTemporalEventCompleted(item) && statusFilter === 'open';
 	}
 
 	function syncListsAfterStatusChange(updated: TemporalEventListItem) {
@@ -418,7 +419,6 @@
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
 			actionBusy = false;
-			updatingEventId = null;
 		}
 	}
 
@@ -443,10 +443,6 @@
 	}
 
 	async function onDelete(eventId: string) {
-		if (isOpenLoopItemId(eventId)) {
-			actionError = m.graph_timeline_open_loop_no_delete();
-			return;
-		}
 		actionError = null;
 		actionBusy = true;
 		try {
@@ -457,6 +453,9 @@
 			}
 			const result = (await res.json()) as { summary: string };
 			removeItemLocally(eventId);
+			overdueItems = overdueItems.filter((i) => i.id !== eventId);
+			doneItems = doneItems.filter((i) => i.id !== eventId);
+			bumpStats();
 			lastActionSummary = result.summary;
 			if (activeSelectedItemId === eventId) deselectItem();
 		} catch (err) {
@@ -464,6 +463,17 @@
 		} finally {
 			actionBusy = false;
 		}
+	}
+
+	function onFilterChange() {
+		void loadEvents(false, { silent: silentReloadEligible });
+		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
+		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
+	}
+
+	function setStatusFilter(next: TemporalStatusFilter) {
+		statusFilter = next;
+		onFilterChange();
 	}
 
 	function toggleKind(kind: string) {
@@ -478,16 +488,7 @@
 		onFilterChange();
 	}
 
-	function setStatusFilter(next: TemporalStatusFilter) {
-		statusFilter = next;
-		onFilterChange();
-	}
-
-	function onFilterChange() {
-		void loadEvents(false, { silent: silentReloadEligible });
-		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
-		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
-	}
+	const showFiltersInHeader = $derived(true);
 
 	function refreshAll() {
 		refreshingAll = true;
@@ -510,30 +511,20 @@
 		]);
 	}
 
-	function setShellView(view: TimelineShellView) {
-		shellView = view;
-		if (view === 'tasks') {
-			statusFilter = 'open';
-		}
-		if (view === 'projects') {
-			projectsLayout = 'list';
-		}
+	function toggleProjectsMode() {
+		projectsMode = !projectsMode;
 		filtersPopoverOpen = false;
 	}
 
 	function setNowSegment(segment: NowSegment) {
 		nowSegment = segment;
-		if (shellView !== 'tasks') shellView = 'tasks';
+		if (projectsMode) projectsMode = false;
 		if (segment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
 		if (segment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
 	}
 
 	function goToOverdue() {
 		setNowSegment('overdue');
-	}
-
-	function setProjectsLayout(layout: ProjectsLayout) {
-		projectsLayout = layout;
 	}
 
 	function openProjectAssign(item: TemporalEventListItem) {
@@ -588,13 +579,6 @@
 </script>
 
 <div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 pb-28 md:pt-24">
-	<TemporalShellTabs
-		{shellView}
-		{refreshBusy}
-		onShellChange={setShellView}
-		onRefresh={refreshAll}
-	/>
-
 	{#snippet timelineFilters()}
 		<TemporalTimelineFiltersPopover
 			bind:open={filtersPopoverOpen}
@@ -612,7 +596,11 @@
 		/>
 	{/snippet}
 
-	<TemporalTimelineHeader {shellView} nowSegment={nowSegment} {projectsLayout}>
+	<TemporalTimelineHeader
+		{projectsMode}
+		nowSegment={nowSegment}
+		onToggleProjectsMode={toggleProjectsMode}
+	>
 		{#snippet titleActions()}
 			<div
 				class={showFiltersInHeader ? '' : 'pointer-events-none invisible'}
@@ -620,8 +608,20 @@
 			>
 				{@render timelineFilters()}
 			</div>
+			<Button
+				type="button"
+				variant="outline"
+				size="icon"
+				class="size-7 shrink-0 border-black text-black hover:bg-black/5 dark:border-foreground dark:text-foreground dark:hover:bg-white/10"
+				title={m.graph_temporal_refresh()}
+				disabled={refreshBusy}
+				onclick={refreshAll}
+			>
+				<LoaderCircleIcon class="size-3.5 {refreshBusy ? 'animate-spin' : ''}" aria-hidden="true" />
+				<span class="sr-only">{m.graph_temporal_refresh()}</span>
+			</Button>
 		{/snippet}
-		{#if shellView === 'tasks'}
+		{#if !projectsMode}
 			<TemporalTodaySegmentTabs
 				nav={{
 					segment: nowSegment,
@@ -631,17 +631,6 @@
 				}}
 			/>
 		{/if}
-		{#snippet projectsChrome()}
-			{#if shellView === 'projects'}
-				{#if projectsLayout === 'list'}
-					<TemporalProjectStatusTabs
-						filter={projectStatusFilter}
-						onFilterChange={(f) => (projectStatusFilter = f)}
-					/>
-				{/if}
-				<TemporalProjectsLayoutTabs layout={projectsLayout} onLayoutChange={setProjectsLayout} />
-			{/if}
-		{/snippet}
 	</TemporalTimelineHeader>
 
 	{#if snoozedItems.length > 0}
@@ -687,7 +676,13 @@
 		</div>
 	{:else if phase.kind === 'ready'}
 		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-			{#if shellView === 'tasks'}
+			{#if projectsMode}
+				<TemporalEventsProjectsView
+					onGoToTask={goToTaskFromProjects}
+					allTasks={todayTodoSourceItems}
+					onTaskUpdated={() => void reloadTimelineData({ silent: true })}
+				/>
+			{:else}
 				<TemporalEventsTodayView
 					items={todayTodoSourceItems}
 					{doneItems}
@@ -699,7 +694,6 @@
 					{updatingEventId}
 					timeZone={userTimeZone}
 					segment={nowSegment}
-					statusRow={overdueItems.length > 0 ? timelineFilters : undefined}
 					onSelect={selectItem}
 					onQuickAction={onQuickAction}
 					onLongPress={openProjectAssign}
@@ -708,34 +702,9 @@
 				{#if nowSegment === 'todo'}
 					<TemporalTimelineNudge onAccept={onReschedule} />
 				{/if}
-			{:else if shellView === 'projects'}
-				{#if projectsLayout === 'list'}
-					<TemporalEventsProjectsView
-						selectedItemId={activeSelectedItemId}
-						statusFilter={projectStatusFilter}
-						onSelect={selectItem}
-					/>
-				{:else if projectsLayout === 'agenda'}
-					<TemporalEventsAgendaView
-						items={upcomingItems}
-						selectedItemId={activeSelectedItemId}
-						{updatingEventId}
-						timeZone={userTimeZone}
-						onSelect={selectItem}
-						onQuickAction={onQuickAction}
-					/>
-				{:else}
-					<TemporalEventsMatrixView
-						items={upcomingItems}
-						selectedItemId={activeSelectedItemId}
-						{updatingEventId}
-						onSelect={selectItem}
-						onQuickAction={onQuickAction}
-					/>
-				{/if}
 			{/if}
 
-			{#if phase.nextCursor}
+			{#if !projectsMode && phase.nextCursor}
 				<div class="border-border shrink-0 border-t px-3 py-2 text-center">
 					<Button type="button" variant="outline" size="sm" class="h-8 text-xs" onclick={() => loadEvents(true)}>
 						{m.graph_timeline_load_more()}

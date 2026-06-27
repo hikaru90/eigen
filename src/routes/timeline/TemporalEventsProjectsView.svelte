@@ -5,18 +5,18 @@
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { Button } from '$lib/components/ui/button';
-	import { filterProjectsByStatus, type ProjectStatusFilter } from './temporal-events-utils';
 	import TimelineCreateProjectDialog from './TimelineCreateProjectDialog.svelte';
+	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
 
 	type Props = {
-		selectedItemId: string | null;
-		statusFilter: ProjectStatusFilter;
-		onSelect: (item: TemporalEventListItem) => void;
+		onGoToTask: (itemId: string) => void;
+		allTasks: TemporalEventListItem[];
+		onTaskUpdated?: () => void;
 	};
 
-	let { selectedItemId, statusFilter, onSelect }: Props = $props();
+	let { onGoToTask, allTasks, onTaskUpdated }: Props = $props();
 
 	type Phase =
 		| { kind: 'loading' }
@@ -25,6 +25,8 @@
 
 	let phase = $state<Phase>({ kind: 'loading' });
 	let createDialogOpen = $state(false);
+	let assignProjectOpen = $state(false);
+	let assignProjectItem = $state<TemporalEventListItem | null>(null);
 
 	async function loadProjects(options?: { silent?: boolean }) {
 		const silent = options?.silent ?? phase.kind === 'ready';
@@ -54,10 +56,6 @@
 		});
 	});
 
-	const visibleProjects = $derived(
-		phase.kind === 'ready' ? filterProjectsByStatus(phase.projects, statusFilter) : []
-	);
-
 	function statusLabel(status: ProjectListItem['status']): string {
 		if (status === 'someday') return m.graph_timeline_project_status_someday();
 		if (status === 'completed') return m.graph_timeline_project_status_completed();
@@ -68,45 +66,26 @@
 		return project.status === 'active' && project.nextAction == null;
 	}
 
-	function selectNextAction(project: ProjectListItem) {
-		if (!project.nextAction) return;
-		onSelect({
-			id: project.nextAction.itemId,
-			itemType: 'open_loop',
-			kind: 'reminder',
-			semanticSummary: project.nextAction.summary,
-			sourceTextSpan: null,
-			timePrecision: 'fuzzy',
-			timezone: 'UTC',
-			isAllDay: false,
-			confidence: 1,
-			startAt: null,
-			endAt: null,
-			activePeriod: '',
-			graphSyncStatus: 'n/a',
-			graphSyncError: null,
-			lifecycleStatus: 'open',
-			snoozedUntil: null,
-			recurrenceRule: null,
-			durationMinutes: null,
-			energyLevel: null,
-			priorityQuadrant: null,
-			contextTags: [],
-			focusRank: null,
-			parentEventId: null,
-			thoughtId: project.nextAction.thoughtId,
-			thoughtText: project.nextAction.summary,
-			thoughtCategory: 'task',
-			thoughtStatus: 'open',
-			memoryType: 'open_loop',
-			projectLabel: project.label,
-			completedAt: null,
-			lifecycleUpdatedAt: null,
-			createdAt: new Date().toISOString()
-		});
-	}
+	const unassignedTasks = $derived(
+		allTasks.filter(
+			(t) =>
+				t.projectLabel === null
+		)
+	);
+
 	function onProjectCreated() {
 		void loadProjects();
+	}
+
+	function openAssignProject(task: TemporalEventListItem) {
+		assignProjectItem = task;
+		assignProjectOpen = true;
+	}
+
+	function onProjectAssigned() {
+		assignProjectOpen = false;
+		assignProjectItem = null;
+		onTaskUpdated?.();
 	}
 </script>
 
@@ -136,11 +115,11 @@
 		</div>
 	{:else if phase.kind === 'error'}
 		<p class="text-destructive px-4 py-8 text-center text-sm">{phase.message}</p>
-	{:else if visibleProjects.length === 0}
+	{:else if phase.projects.length === 0}
 		<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
 	{:else}
 		<ul class="divide-border divide-y">
-			{#each visibleProjects as project (project.entityId)}
+			{#each phase.projects as project (project.entityId)}
 				<li
 					class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
 				>
@@ -164,11 +143,8 @@
 					{#if project.nextAction}
 						<button
 							type="button"
-							class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors {selectedItemId ===
-							project.nextAction.itemId
-								? 'bg-muted/50 ring-primary/40 ring-1'
-								: ''}"
-							onclick={() => selectNextAction(project)}
+							class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
+							onclick={() => onGoToTask(project.nextAction!.itemId)}
 						>
 							<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
 								{m.graph_timeline_project_next_action()}
@@ -186,6 +162,40 @@
 				</li>
 			{/each}
 		</ul>
+
+		{#if unassignedTasks.length > 0}
+			<div class="mt-4">
+				<h3 class="text-muted-foreground mb-2 px-4 font-mono text-[10px] uppercase tracking-wide">
+					{m.graph_timeline_project_no_project()} ({unassignedTasks.length})
+				</h3>
+				<ul class="divide-border divide-y">
+					{#each unassignedTasks as task (task.id)}
+						<li class="px-4 py-2">
+							<div class="flex items-start justify-between gap-2">
+								<button
+								type="button"
+								class="min-w-0 flex-1 text-left"
+								onclick={() => onGoToTask(task.id)}
+							>
+								<p class="text-foreground truncate text-sm">{task.semanticSummary}</p>
+								{#if task.thoughtText !== task.semanticSummary}
+									<p class="text-muted-foreground truncate text-xs">{task.thoughtText}</p>
+								{/if}
+							</button>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="h-7 shrink-0 text-[10px]"
+								onclick={() => openAssignProject(task)}
+							>
+								Assign
+							</Button>
+						</div>
+					</li>
+				{/each}
+			</ul>
+			</div>
+		{/if}
 	{/if}
 	</div>
 
@@ -193,5 +203,15 @@
 		bind:open={createDialogOpen}
 		onClose={() => (createDialogOpen = false)}
 		onCreated={onProjectCreated}
+	/>
+
+	<TimelineProjectAssignDialog
+		bind:open={assignProjectOpen}
+		item={assignProjectItem}
+		onClose={() => {
+			assignProjectOpen = false;
+			assignProjectItem = null;
+		}}
+		onAssigned={onProjectAssigned}
 	/>
 </div>

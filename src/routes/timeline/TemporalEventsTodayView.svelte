@@ -55,26 +55,6 @@
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto pb-4" role="listbox" aria-label={m.graph_timeline_tasks_aria()}>
-	{#if overdueCount > 0 && onGoToOverdue}
-		<div
-			class="border-border bg-muted/30 flex items-center justify-between gap-2 border-b px-3 py-1 {segment !==
-			'todo'
-				? 'pointer-events-none invisible'
-				: ''}"
-			aria-hidden={segment !== 'todo'}
-		>
-			<button
-				type="button"
-				class="text-destructive min-w-0 flex-1 text-left text-xs underline"
-				onclick={() => onGoToOverdue()}
-			>
-				{m.graph_timeline_tasks_overdue_banner({ count: overdueCount })}
-			</button>
-			{#if statusRow}
-				<div class="shrink-0">{@render statusRow()}</div>
-			{/if}
-		</div>
-	{/if}
 	{#if segment === 'todo'}
 		{#if focus.length === 0 && later.length === 0 && lowEnergy.length === 0}
 			<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_focus_empty()}</p>

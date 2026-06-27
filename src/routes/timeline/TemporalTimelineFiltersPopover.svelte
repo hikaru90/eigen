@@ -43,7 +43,7 @@
 </script>
 
 <Popover.Root bind:open {onOpenChange}>
-	<div class={GRAPH_FILTER_GLASS_ROW}>
+	<div class="flex h-9 w-fit shrink-0 items-stretch gap-0.5 p-0.5">
 		<Popover.Trigger
 			id="timeline-filters-trigger"
 			class={graphFilterTriggerClass(filtersActive)}
