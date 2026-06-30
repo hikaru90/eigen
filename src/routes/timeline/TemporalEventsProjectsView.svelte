@@ -85,10 +85,6 @@
 		}
 	}
 
-	function needsHealthWarning(project: ProjectListItem): boolean {
-		return false;
-	}
-
 	const unassignedTasks = $derived(
 		allTasks
 			.filter((t) => t.projectLabel === null)
@@ -214,18 +210,13 @@
 	{:else}
 		<ul class="divide-border divide-y">
 			{#each sortedProjects as project (project.entityId)}
+				{@const projectNextAction = getNextAction(project)}
+				{@const projectTasks = tasksForProject(project).filter((t) => t.id !== projectNextAction?.itemId)}
 				<li
 					class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
 				>
 					<div class="flex items-start justify-between gap-2">
 						<div class="flex min-w-0 items-center gap-2">
-							{#if needsHealthWarning(project)}
-								<span
-									class="bg-destructive size-2 shrink-0 rounded-full"
-									title={m.graph_timeline_project_no_next_action()}
-									aria-hidden="true"
-								></span>
-							{/if}
 							<h3 class="text-foreground truncate text-sm font-medium">{project.label}</h3>
 						</div>
 						<div class="flex shrink-0 items-center gap-1">
@@ -256,17 +247,16 @@
 							</Button>
 						</div>
 					</div>
-					{#if getNextAction(project)}
-						{@const nextAction = getNextAction(project)!}
+					{#if projectNextAction}
 						<button
 							type="button"
 							class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
-							onclick={() => onGoToTask(nextAction.itemId)}
+							onclick={() => onGoToTask(projectNextAction.itemId)}
 						>
 							<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
 								{m.graph_timeline_project_next_action()}
 							</p>
-							<p class="text-foreground mt-0.5 text-sm">{nextAction.summary}</p>
+							<p class="text-foreground mt-0.5 text-sm">{projectNextAction.summary}</p>
 						</button>
 					{/if}
 					{#if project.openLoopCount > 1}
@@ -274,9 +264,9 @@
 							{m.graph_timeline_project_open_loops({ count: project.openLoopCount })}
 						</p>
 					{/if}
-					{#if tasksForProject(project).length > 0}
+					{#if projectTasks.length > 0}
 						<div class="mt-2 space-y-1">
-							{#each tasksForProject(project) as task (task.id)}
+							{#each projectTasks as task (task.id)}
 								<button
 									type="button"
 									class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
@@ -321,7 +311,7 @@
 						</div>
 					</li>
 				{/each}
-			</ul>
+			</div>
 			</div>
 		{/if}
 	{/if}
