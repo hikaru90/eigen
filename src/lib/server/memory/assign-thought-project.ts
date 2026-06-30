@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, projectProfile } from '$lib/server/db/schema';
+import { canonicalEntity, projectProfile, temporalEvent } from '$lib/server/db/schema';
 import { maybePromoteHubToGtdProject } from '$lib/server/memory/maybe-promote-gtd-project';
-import { linkThoughtToProject } from '$lib/server/memory/project-next-action';
+import { designateNextAction, linkThoughtToProject } from '$lib/server/memory/project-next-action';
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 
@@ -67,6 +67,26 @@ export async function assignThoughtToProject(
 	}
 
 	await linkThoughtToProject(userId, projectEntityId, tid);
+
+	/** Auto-designate as next action if project has no next action yet */
+	const [profile] = await getDb()
+		.select({ nextActionThoughtId: projectProfile.nextActionThoughtId })
+		.from(projectProfile)
+		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, projectEntityId)))
+		.limit(1);
+
+	if (!profile?.nextActionThoughtId) {
+		/** Check if the thought has a temporal event with startAt (due date) */
+		const [eventRow] = await getDb()
+			.select({ startAt: temporalEvent.startAt })
+			.from(temporalEvent)
+			.where(and(eq(temporalEvent.userId, userId), eq(temporalEvent.thoughtId, tid)))
+			.limit(1);
+
+		if (eventRow?.startAt) {
+			await designateNextAction(userId, projectEntityId, tid);
+		}
+	}
 
 	const isGtdProject = await maybePromoteHubToGtdProject({
 		userId,
