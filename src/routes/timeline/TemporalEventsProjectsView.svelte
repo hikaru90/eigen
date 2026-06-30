@@ -6,10 +6,12 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { Button } from '$lib/components/ui/button';
 	import TimelineCreateProjectDialog from './TimelineCreateProjectDialog.svelte';
+	import TimelineEditProjectDialog from './TimelineEditProjectDialog.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
 	import XIcon from '@lucide/svelte/icons/x';
+	import PencilIcon from '@lucide/svelte/icons/pencil';
 
 	type Props = {
 		onGoToTask: (itemId: string) => void;
@@ -28,6 +30,8 @@
 	let createDialogOpen = $state(false);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
+	let editProjectOpen = $state(false);
+	let editProjectItem = $state<ProjectListItem | null>(null);
 
 	async function loadProjects(options?: { silent?: boolean }) {
 		const silent = options?.silent ?? phase.kind === 'ready';
@@ -84,10 +88,9 @@
 	}
 
 	const unassignedTasks = $derived(
-		allTasks.filter(
-			(t) =>
-				t.projectLabel === null
-		)
+		allTasks
+			.filter((t) => t.projectLabel === null)
+			.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 	);
 
 	function onProjectCreated() {
@@ -103,6 +106,17 @@
 		assignProjectOpen = false;
 		assignProjectItem = null;
 		onTaskUpdated?.();
+	}
+
+	function openEditProject(project: ProjectListItem) {
+		editProjectItem = project;
+		editProjectOpen = true;
+	}
+
+	function onProjectUpdated() {
+		editProjectOpen = false;
+		editProjectItem = null;
+		void loadProjects({ silent: true });
 	}
 </script>
 
@@ -168,6 +182,15 @@
 									<XIcon class="size-3" aria-hidden="true" />
 								</Button>
 							{/if}
+							<Button
+								variant="ghost"
+								size="icon"
+								class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+								title="Edit project name"
+								onclick={() => openEditProject(project)}
+							>
+								<PencilIcon class="size-3" aria-hidden="true" />
+							</Button>
 						</div>
 					</div>
 					{#if project.nextAction}
@@ -233,6 +256,16 @@
 		bind:open={createDialogOpen}
 		onClose={() => (createDialogOpen = false)}
 		onCreated={onProjectCreated}
+	/>
+
+	<TimelineEditProjectDialog
+		bind:open={editProjectOpen}
+		onClose={() => {
+			editProjectOpen = false;
+			editProjectItem = null;
+		}}
+		onUpdated={onProjectUpdated}
+		project={editProjectItem}
 	/>
 
 	<TimelineProjectAssignDialog
