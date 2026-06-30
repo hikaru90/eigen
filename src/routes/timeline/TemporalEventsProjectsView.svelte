@@ -256,8 +256,8 @@
 							</Button>
 						</div>
 					</div>
-					{@const nextAction = getNextAction(project)}
-					{#if nextAction}
+					{#if getNextAction(project)}
+						{@const nextAction = getNextAction(project)!}
 						<button
 							type="button"
 							class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
