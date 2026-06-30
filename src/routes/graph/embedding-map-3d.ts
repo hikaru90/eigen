@@ -239,6 +239,43 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const pointsObject = new THREE.Points(geometry, pointsMaterial);
 	scene.add(pointsObject);
 
+	/** Depth sorting: maintain sorted indices for back-to-front rendering */
+	const sortIndices = new Uint32Array(points.length);
+	for (let i = 0; i < points.length; i++) sortIndices[i] = i;
+	const depthValues = new Float32Array(points.length);
+	let sortDirty = true;
+
+	function updateDepthSort() {
+		const camPos = camera.position;
+		for (let i = 0; i < points.length; i++) {
+			const idx = sortIndices[i];
+			const x = positions[idx * 3] - camPos.x;
+			const y = positions[idx * 3 + 1] - camPos.y;
+			const z = positions[idx * 3 + 2] - camPos.z;
+			depthValues[i] = x * x + y * y + z * z;
+		}
+
+		/** Sort indices by depth (farthest first for painter's algorithm) */
+		sortIndices.sort((a, b) => depthValues[a] - depthValues[b]);
+
+		/** Reorder position and color buffers by sorted indices */
+		const sortedPositions = new Float32Array(points.length * 3);
+		const sortedColors = new Float32Array(points.length * 3);
+		for (let i = 0; i < points.length; i++) {
+			const srcIdx = sortIndices[i];
+			sortedPositions[i * 3] = positions[srcIdx * 3];
+			sortedPositions[i * 3 + 1] = positions[srcIdx * 3 + 1];
+			sortedPositions[i * 3 + 2] = positions[srcIdx * 3 + 2];
+			sortedColors[i * 3] = colors[srcIdx * 3];
+			sortedColors[i * 3 + 1] = colors[srcIdx * 3 + 1];
+			sortedColors[i * 3 + 2] = colors[srcIdx * 3 + 2];
+		}
+
+		geometry.setAttribute('position', new THREE.BufferAttribute(sortedPositions, 3));
+		geometry.setAttribute('color', new THREE.BufferAttribute(sortedColors, 3));
+		sortDirty = false;
+	}
+
 	/** Create individual label objects for selection/hover */
 	for (let i = 0; i < points.length; i++) {
 		const point = points[i];
@@ -281,6 +318,9 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const pointer = new THREE.Vector2();
 	const worldPos = new THREE.Vector3();
 	const referenceDistance = camera.position.distanceTo(controls.target);
+
+	/** Store original positions for hit detection (before depth sorting) */
+	const originalPositions = positions.slice();
 
 	/** Idle detection state */
 	let lastInteractionTime = performance.now();
@@ -346,7 +386,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			return;
 		}
 
-		highlightGroup.position.set(positions[idx * 3], positions[idx * 3 + 1], positions[idx * 3 + 2]);
+		highlightGroup.position.set(originalPositions[idx * 3], originalPositions[idx * 3 + 1], originalPositions[idx * 3 + 2]);
 		highlightGroup.visible = true;
 	}
 
@@ -467,9 +507,9 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		for (let i = 0; i < points.length; i++) {
 			if (!visibleFlags[i]) continue;
 
-			const x = positions[i * 3];
-			const y = positions[i * 3 + 1];
-			const z = positions[i * 3 + 2];
+			const x = originalPositions[i * 3];
+			const y = originalPositions[i * 3 + 1];
+			const z = originalPositions[i * 3 + 2];
 
 			worldPos.set(x, y, z);
 			const projected = worldPos.clone().project(camera);
@@ -520,6 +560,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		animationFrame = requestAnimationFrame(animate);
 
 		controls.update();
+		updateDepthSort();
 		updateScreenSpacePointScales();
 		renderer.render(scene, camera);
 		labelRenderer.render(scene, camera);
