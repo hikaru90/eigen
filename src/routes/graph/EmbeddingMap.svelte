@@ -16,6 +16,8 @@
 		type EmbeddingProjectionPhase
 	} from '$lib/graph/embedding-map-projection';
 	import { createEmbeddingMap3d, type EmbeddingMap3dHandle } from './embedding-map-3d';
+	import { createEmbeddingMapLite, type EmbeddingMapLiteHandle } from './embedding-map-lite';
+	
 
 	type Props = {
 		graphLegendSections: GraphLegendSection[];
@@ -37,6 +39,7 @@
 	let phase = $state<EmbeddingProjectionPhase>({ kind: 'idle' });
 	let rootEl: HTMLDivElement | undefined;
 	let snapshotItems = $state<EmbeddingSnapshotItem[]>([]);
+	let liteMode = $state(false);
 
 	const embeddingStats = $derived.by(() => {
 		if (phase.kind !== 'ready' || snapshotItems.length === 0) return '';
@@ -47,7 +50,7 @@
 	});
 
 	let teardown: (() => void) | undefined;
-	let mapHandle: EmbeddingMap3dHandle | null = null;
+	let mapHandle: EmbeddingMap3dHandle | EmbeddingMapLiteHandle | null = null;
 	let mountedProjectionRevision: string | null = null;
 
 	$effect(() => {
@@ -95,11 +98,25 @@
 				color: nodeFillForGraph(item.kind, item.subtype, customFills)
 			}));
 
-			mapHandle = createEmbeddingMap3d({
-				container: rootEl,
-				points: mapPoints,
-				onSelectItem
-			});
+			if (liteMode) {
+				const litePoints = items.map((item, i) => ({
+					item,
+					x: coords[i][0],
+					y: coords[i][1],
+					color: nodeFillForGraph(item.kind, item.subtype, customFills)
+				}));
+				mapHandle = createEmbeddingMapLite({
+					container: rootEl,
+					points: litePoints,
+					onSelectItem
+				});
+			} else {
+				mapHandle = createEmbeddingMap3d({
+					container: rootEl,
+					points: mapPoints,
+					onSelectItem
+				});
+			}
 			mapHandle.setSelectedId(selectedItemId ?? null);
 			mapHandle.setVisibleSubtypes(visibleEntityTypes);
 
@@ -125,6 +142,12 @@
 		};
 	});
 
+	/** Rebuild map when lite mode toggle changes */
+	$effect(() => {
+		void liteMode;
+		mountedProjectionRevision = null;
+	});
+
 	$effect(() => {
 		return () => {
 			teardown?.();
@@ -147,6 +170,10 @@
 		const types = visibleEntityTypes;
 		queueMicrotask(() => mapHandle?.setVisibleSubtypes(types));
 	});
+
+	function toggleLiteMode() {
+		liteMode = !liteMode;
+	}
 </script>
 
 <div class="relative flex h-full min-h-0 w-full flex-col">
@@ -212,6 +239,35 @@
 		<p class="text-muted-foreground/50 pointer-events-none absolute top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9px] md:top-12">
 			{m.graph_embedding_controls()}
 		</p>
+
+		<!-- Lite mode toggle -->
+		<div class="pointer-events-auto absolute top-10 right-3 z-20 md:top-14">
+			<button
+				type="button"
+				onclick={toggleLiteMode}
+				title={liteMode ? 'Switch to full 3D view' : 'Switch to lite 2D view (less battery)'}
+				class="border-border/60 bg-background/85 hover:bg-background/95 flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] backdrop-blur-sm transition-colors"
+				aria-label={liteMode ? 'Switch to 3D mode' : 'Switch to lite 2D mode'}
+			>
+				{#if liteMode}
+					<svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 2L2 7l10 5 10-5-10-5z" />
+						<path d="M2 17l10 5 10-5" />
+						<path d="M2 12l10 5 10-5" />
+					</svg>
+					3D
+				{:else}
+					<svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="3" width="18" height="18" rx="2" />
+						<circle cx="8" cy="8" r="1.5" fill="currentColor" />
+						<circle cx="16" cy="8" r="1.5" fill="currentColor" />
+						<circle cx="8" cy="16" r="1.5" fill="currentColor" />
+						<circle cx="16" cy="16" r="1.5" fill="currentColor" />
+					</svg>
+					Lite
+				{/if}
+			</button>
+		</div>
 	{/if}
 </div>
 

@@ -29,6 +29,11 @@ const POINT_RADIUS = 0.028;
 const HIGHLIGHT_RADIUS = 0.048;
 const HIGHLIGHT_COLOR = 0xfbbf24;
 
+/** Idle detection thresholds */
+const IDLE_TIMEOUT_MS = 2000;
+const IDLE_FRAME_INTERVAL_MS = 100;
+const ACTIVE_FRAME_INTERVAL_MS = 16;
+
 /** Counter-scale world-space spheres so apparent dot size stays fixed while the camera dollies. */
 export function screenSpacePointScale(distance: number, referenceDistance: number): number {
 	if (!(referenceDistance > 0) || !Number.isFinite(distance)) return 1;
@@ -97,6 +102,25 @@ function createLabelElement(text: string, itemId: string): HTMLDivElement {
 	return el;
 }
 
+/** Detect mobile/touch devices for antialiasing decision */
+function isMobileDevice(): boolean {
+	return (
+		navigator.maxTouchPoints > 0 ||
+		/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+	);
+}
+
+/** Get geometry detail level based on point count and device capability */
+function getGeometryDetail(pointCount: number): { segments: number; rings: number } {
+	if (pointCount > 500 || isMobileDevice()) {
+		return { segments: 6, rings: 6 };
+	}
+	if (pointCount > 200) {
+		return { segments: 8, rings: 8 };
+	}
+	return { segments: 10, rings: 10 };
+}
+
 export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): EmbeddingMap3dHandle {
 	const { container, points, onSelectItem } = options;
 
@@ -104,7 +128,9 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100);
 	camera.position.set(0, 0, 2.4);
 
-	const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+	/** Disable antialiasing on mobile for better battery/thermal performance */
+	const antialias = !isMobileDevice();
+	const renderer = new THREE.WebGLRenderer({ antialias, alpha: true });
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 	renderer.setClearColor(0x000000, 0);
 	renderer.domElement.className = 'embedding-map-3d touch-none';
@@ -144,30 +170,66 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		TWO: TOUCH.DOLLY_PAN
 	};
 
-	const pointMeshes: THREE.Mesh[] = [];
-	const labelByItemId = new Map<string, HTMLDivElement>();
-	const sphereGeometry = new THREE.SphereGeometry(POINT_RADIUS, 10, 10);
+	/** Use Points geometry for better performance with many points */
+	const positions = new Float32Array(points.length * 3);
+	const colors = new Float32Array(points.length * 3);
+	const sizes = new Float32Array(points.length);
+	const visibleFlags = new Uint8Array(points.length);
 
-	for (const point of points) {
-		const material = new THREE.MeshBasicMaterial({
-			color: parseCssColor(point.color),
-			transparent: true,
-			opacity: 0.88
-		});
-		const mesh = new THREE.Mesh(sphereGeometry, material);
-		mesh.position.set(point.x, point.y, point.z);
-		mesh.userData = { itemId: point.item.id, item: point.item };
-		scene.add(mesh);
-		pointMeshes.push(mesh);
+	const labelByItemId = new Map<string, HTMLDivElement>();
+	const pointIndexByItemId = new Map<string, number>();
+
+	for (let i = 0; i < points.length; i++) {
+		const point = points[i];
+		positions[i * 3] = point.x;
+		positions[i * 3 + 1] = point.y;
+		positions[i * 3 + 2] = point.z;
+
+		const color = parseCssColor(point.color);
+		colors[i * 3] = color.r;
+		colors[i * 3 + 1] = color.g;
+		colors[i * 3 + 2] = color.b;
+
+		sizes[i] = POINT_RADIUS * 2;
+		visibleFlags[i] = 1;
+
+		pointIndexByItemId.set(point.item.id, i);
 
 		const labelEl = createLabelElement(embeddingMapLabelText(point.item), point.item.id);
 		labelByItemId.set(point.item.id, labelEl);
-		const label = new CSS2DObject(labelEl);
-		// Left-middle anchor at the dot; pixel margin offsets match the 2D graph tab.
-		label.center.set(0, 0.5);
-		mesh.add(label);
 	}
 
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+	geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+	geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+	/** Create points material with size attenuation for consistent screen-space sizing */
+	const pointsMaterial = new THREE.PointsMaterial({
+		size: POINT_RADIUS * 2,
+		sizeAttenuation: true,
+		transparent: true,
+		opacity: 0.88,
+		vertexColors: true,
+		depthWrite: false
+	});
+
+	const pointsObject = new THREE.Points(geometry, pointsMaterial);
+	scene.add(pointsObject);
+
+	/** Create individual label objects for selection/hover */
+	for (let i = 0; i < points.length; i++) {
+		const point = points[i];
+		const labelEl = labelByItemId.get(point.item.id);
+		if (labelEl) {
+			const label = new CSS2DObject(labelEl);
+			label.center.set(0, 0.5);
+			label.position.set(point.x, point.y, point.z);
+			scene.add(label);
+		}
+	}
+
+	/** Highlight geometry for selected point */
 	const highlightGeometry = new THREE.SphereGeometry(HIGHLIGHT_RADIUS, 12, 12);
 	const highlightMaterial = new THREE.MeshBasicMaterial({
 		color: HIGHLIGHT_COLOR,
@@ -180,11 +242,12 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		transparent: true,
 		opacity: 0.95
 	});
-	const highlightGlow = new THREE.Mesh(highlightGeometry, highlightMaterial);
+	const detail = getGeometryDetail(points.length);
 	const highlightCore = new THREE.Mesh(
-		new THREE.SphereGeometry(POINT_RADIUS * 1.35, 10, 10),
+		new THREE.SphereGeometry(POINT_RADIUS * 1.35, detail.segments, detail.rings),
 		highlightRingMaterial
 	);
+	const highlightGlow = new THREE.Mesh(highlightGeometry, highlightMaterial);
 	const highlightGroup = new THREE.Group();
 	highlightGroup.add(highlightGlow);
 	highlightGroup.add(highlightCore);
@@ -196,15 +259,23 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const pointer = new THREE.Vector2();
 	const worldPos = new THREE.Vector3();
 	const referenceDistance = camera.position.distanceTo(controls.target);
+
+	/** Idle detection state */
+	let lastInteractionTime = performance.now();
+	let isIdle = false;
 	let animationFrame = 0;
+	let lastFrameTime = 0;
+
+	function markActive() {
+		lastInteractionTime = performance.now();
+		if (isIdle) {
+			isIdle = false;
+			lastFrameTime = 0;
+		}
+	}
 
 	function updateScreenSpacePointScales() {
-		for (const mesh of pointMeshes) {
-			mesh.getWorldPosition(worldPos);
-			const scale = screenSpacePointScale(camera.position.distanceTo(worldPos), referenceDistance);
-			mesh.scale.setScalar(scale);
-		}
-
+		/** For PointsMaterial, size attenuation handles scaling automatically */
 		if (highlightGroup.visible) {
 			const scale = screenSpacePointScale(
 				camera.position.distanceTo(highlightGroup.position),
@@ -218,13 +289,26 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 
 	function setSelectedId(id: string | null) {
 		currentSelectedId = id;
-		for (const mesh of pointMeshes) {
-			const on = id !== null && mesh.userData.itemId === id;
-			const mat = mesh.material as THREE.MeshBasicMaterial;
-			mat.opacity = on ? 1 : 0.88;
-			const labelEl = labelByItemId.get(mesh.userData.itemId as string);
-			if (labelEl) {
-				labelEl.classList.toggle('embedding-map-label--selected', on);
+
+		/** Update opacity for all points */
+		const opacities = pointsMaterial;
+		if (id === null) {
+			opacities.opacity = 0.88;
+			highlightGroup.visible = false;
+			/** Reset all label styles */
+			for (const [, labelEl] of labelByItemId) {
+				labelEl.classList.remove('embedding-map-label--selected');
+			}
+		} else {
+			/** Dim non-selected points */
+			opacities.opacity = 0.5;
+			const selectedIdx = pointIndexByItemId.get(id);
+			if (selectedIdx !== undefined) {
+				/** Highlight the selected label */
+				const labelEl = labelByItemId.get(id);
+				if (labelEl) {
+					labelEl.classList.add('embedding-map-label--selected');
+				}
 			}
 		}
 
@@ -233,31 +317,38 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			return;
 		}
 
-		const target = pointMeshes.find((m) => m.userData.itemId === id);
-		if (!target || !target.visible) {
+		/** Find the selected point position */
+		const idx = pointIndexByItemId.get(id);
+		if (idx === undefined || !visibleFlags[idx]) {
 			highlightGroup.visible = false;
 			return;
 		}
 
-		highlightGroup.position.copy(target.position);
+		highlightGroup.position.set(positions[idx * 3], positions[idx * 3 + 1], positions[idx * 3 + 2]);
 		highlightGroup.visible = true;
 	}
 
 	function setVisibleSubtypes(visibleTypes: ReadonlySet<string>) {
 		const showAll = visibleTypes.size === 0;
-		for (const mesh of pointMeshes) {
-			const item = mesh.userData.item as EmbeddingSnapshotItem;
-			const visible = showAll || visibleTypes.has(item.subtype);
-			mesh.visible = visible;
-			const labelEl = labelByItemId.get(mesh.userData.itemId as string);
+
+		for (let i = 0; i < points.length; i++) {
+			const point = points[i];
+			const visible = showAll || visibleTypes.has(point.item.subtype);
+			visibleFlags[i] = visible ? 1 : 0;
+
+			const labelEl = labelByItemId.get(point.item.id);
 			if (labelEl) {
 				labelEl.style.display = visible ? '' : 'none';
 			}
 		}
 
+		/** Update point opacity based on visibility */
+		const visibleCount = visibleFlags.reduce((sum, v) => sum + v, 0);
+		pointsMaterial.opacity = visibleCount > 0 ? 0.88 : 0;
+
 		if (currentSelectedId !== null) {
-			const selectedMesh = pointMeshes.find((m) => m.userData.itemId === currentSelectedId);
-			if (!selectedMesh?.visible) {
+			const selectedIdx = pointIndexByItemId.get(currentSelectedId);
+			if (selectedIdx !== undefined && !visibleFlags[selectedIdx]) {
 				setSelectedId(null);
 				onSelectItem?.(null);
 			}
@@ -293,6 +384,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		pointerDragged = false;
 		shiftKeyHeld = event.shiftKey;
 		updateCanvasCursor();
+		markActive();
 	}
 
 	function onPointerMove(event: PointerEvent) {
@@ -308,6 +400,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	function onPointerUp(event: PointerEvent) {
 		shiftKeyHeld = event.shiftKey;
 		updateCanvasCursor();
+		markActive();
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -323,6 +416,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	}
 
 	function onWheelCapture(event: WheelEvent) {
+		markActive();
 		if (embeddingMapWheelMode(event) !== 'pan') return;
 		event.preventDefault();
 		event.stopImmediatePropagation();
@@ -342,20 +436,66 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
 		raycaster.setFromCamera(pointer, camera);
-		const hits = raycaster.intersectObjects(pointMeshes, false);
-		if (hits.length > 0) {
-			const hit = hits[0].object as THREE.Mesh;
-			const item = hit.userData.item as EmbeddingSnapshotItem;
-			onSelectItem?.(item);
-			pointerDragged = false;
-			return;
+
+		/** For Points geometry, we need to manually check distances */
+		let closestIdx = -1;
+		let closestDist = Infinity;
+
+		for (let i = 0; i < points.length; i++) {
+			if (!visibleFlags[i]) continue;
+
+			const x = positions[i * 3];
+			const y = positions[i * 3 + 1];
+			const z = positions[i * 3 + 2];
+
+			worldPos.set(x, y, z);
+			const projected = worldPos.clone().project(camera);
+
+			const dx = projected.x - pointer.x;
+			const dy = projected.y - pointer.y;
+			const dist = Math.sqrt(dx * dx + dy * dy);
+
+			if (dist < closestDist && dist < 0.05) {
+				closestDist = dist;
+				closestIdx = i;
+			}
 		}
-		onSelectItem?.(null);
+
+		if (closestIdx >= 0) {
+			const item = points[closestIdx].item;
+			onSelectItem?.(item);
+		} else {
+			onSelectItem?.(null);
+		}
 		pointerDragged = false;
 	}
 
-	function animate() {
+	function animate(timestamp: number) {
+		/** Idle throttling: skip frames when not interacting */
+		const now = timestamp || performance.now();
+		const timeSinceInteraction = now - lastInteractionTime;
+
+		if (timeSinceInteraction > IDLE_TIMEOUT_MS) {
+			if (!isIdle) {
+				isIdle = true;
+			}
+			/** In idle mode, render at much lower frame rate */
+			const idleFrameInterval = IDLE_FRAME_INTERVAL_MS * 5;
+			if (lastFrameTime && now - lastFrameTime < idleFrameInterval) {
+				animationFrame = requestAnimationFrame(animate);
+				return;
+			}
+		} else {
+			/** Active mode: throttle to target frame interval */
+			if (lastFrameTime && now - lastFrameTime < ACTIVE_FRAME_INTERVAL_MS) {
+				animationFrame = requestAnimationFrame(animate);
+				return;
+			}
+		}
+
+		lastFrameTime = now;
 		animationFrame = requestAnimationFrame(animate);
+
 		controls.update();
 		updateScreenSpacePointScales();
 		renderer.render(scene, camera);
@@ -372,7 +512,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	window.addEventListener('keyup', onKeyUp);
 
 	resize();
-	animate();
+	animate(0);
 
 	return {
 		resize,
@@ -389,15 +529,13 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('keyup', onKeyUp);
 			controls.dispose();
-			sphereGeometry.dispose();
 			highlightGeometry.dispose();
 			highlightCore.geometry.dispose();
-			for (const mesh of pointMeshes) {
-				(mesh.material as THREE.Material).dispose();
-				scene.remove(mesh);
-			}
 			highlightMaterial.dispose();
 			highlightRingMaterial.dispose();
+			geometry.dispose();
+			pointsMaterial.dispose();
+			scene.remove(pointsObject);
 			scene.remove(highlightGroup);
 			renderer.dispose();
 			renderer.domElement.remove();

@@ -16,6 +16,7 @@ export type EmbeddingProjectionPhase =
 
 type EmbeddingRevisionResponse = { revision: string };
 type EmbeddingSnapshotResponse = { revision: string; items: EmbeddingSnapshotItem[] };
+type ProjectedEmbeddingResponse = { revision: string; coords: number[][]; method: 'umap' | 'fallback' };
 
 type Listener = (phase: EmbeddingProjectionPhase) => void;
 
@@ -72,6 +73,18 @@ async function fetchEmbeddingSnapshot(): Promise<EmbeddingSnapshotResponse> {
 	return (await res.json()) as EmbeddingSnapshotResponse;
 }
 
+async function fetchServerProjectedCoords(revision: string): Promise<number[][] | null> {
+	try {
+		const res = await fetchWithRetry('/api/embeddings/project');
+		if (!res.ok) return null;
+		const body = (await res.json()) as ProjectedEmbeddingResponse;
+		if (body.revision !== revision) return null;
+		return body.coords;
+	} catch {
+		return null;
+	}
+}
+
 async function projectCoords(items: EmbeddingSnapshotItem[]): Promise<number[][]> {
 	if (items.length === 0) return [];
 
@@ -124,6 +137,17 @@ async function runProjectionPipeline(): Promise<void> {
 			return;
 		}
 
+		/** Try server-side projection first (faster, no client CPU cost) */
+		setPhase({ kind: 'loading' });
+		const serverCoords = await fetchServerProjectedCoords(snapshot.revision);
+		if (generation !== runGeneration) return;
+
+		if (serverCoords && serverCoords.length === snapshot.items.length) {
+			applyCache(snapshot.revision, snapshot.items, serverCoords);
+			return;
+		}
+
+		/** Fall back to client-side UMAP if server projection unavailable */
 		const coords = await projectCoords(snapshot.items);
 		if (generation !== runGeneration) return;
 		applyCache(snapshot.revision, snapshot.items, coords);
