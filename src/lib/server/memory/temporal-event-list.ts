@@ -151,7 +151,9 @@ function rangeCondition(range: TemporalEventListQuery['range'], now: Date): SQL 
 
 async function listOpenLoopThoughtsForUser(
 	userId: string,
-	status: TemporalEventListQuery['status']
+	status: TemporalEventListQuery['status'],
+	orderBy: TemporalEventListQuery['orderBy'] = 'ingest',
+	sortDirection: TemporalEventListQuery['sortDirection'] = 'desc'
 ): Promise<TemporalEventListItem[]> {
 	const eventRows = await getDb()
 		.select({ thoughtId: temporalEvent.thoughtId })
@@ -181,7 +183,10 @@ async function listOpenLoopThoughtsForUser(
 		})
 		.from(thought)
 		.where(and(...conditions))
-		.orderBy(desc(thought.createdAt))
+		.orderBy(
+			sortDirection === 'asc' ? asc(thought.createdAt) : desc(thought.createdAt),
+			sortDirection === 'asc' ? asc(thought.id) : desc(thought.id)
+		)
 		.limit(100);
 
 	const items: TemporalEventListItem[] = [];
@@ -438,8 +443,26 @@ export async function listTemporalEventsForUser(
 
 	let merged = items;
 	if (query.includeOpenLoops !== false && !query.cursorStartAt) {
-		const openLoops = await listOpenLoopThoughtsForUser(query.userId, query.status ?? 'open');
+		const openLoops = await listOpenLoopThoughtsForUser(
+			query.userId,
+			query.status ?? 'open',
+			query.orderBy,
+			query.sortDirection
+		);
 		merged = [...items, ...openLoops];
+
+		/** Sort merged list by the same criteria */
+		merged.sort((a, b) => {
+			let cmp: number;
+			if (query.orderBy === 'ingest') {
+				cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+			} else {
+				const aStart = a.startAt ? new Date(a.startAt).getTime() : 0;
+				const bStart = b.startAt ? new Date(b.startAt).getTime() : 0;
+				cmp = aStart - bStart;
+			}
+			return query.sortDirection === 'asc' ? cmp : -cmp;
+		});
 	}
 
 	const thoughtIds = [...new Set(merged.map((i) => i.thoughtId))];
