@@ -388,6 +388,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	}
 
 	function onPointerMove(event: PointerEvent) {
+		markActive();
 		if (pointerDragged) return;
 		const dx = event.clientX - pointerDownX;
 		const dy = event.clientY - pointerDownY;
