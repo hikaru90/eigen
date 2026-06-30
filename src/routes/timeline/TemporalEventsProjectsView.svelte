@@ -9,6 +9,7 @@
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
+	import XIcon from '@lucide/svelte/icons/x';
 
 	type Props = {
 		onGoToTask: (itemId: string) => void;
@@ -59,7 +60,23 @@
 	function statusLabel(status: ProjectListItem['status']): string {
 		if (status === 'someday') return m.graph_timeline_project_status_someday();
 		if (status === 'completed') return m.graph_timeline_project_status_completed();
+		if (status === 'dismissed') return 'Dismissed';
 		return m.graph_timeline_project_status_active();
+	}
+
+	async function dismissProject(entityId: string) {
+		try {
+			const res = await fetch(`/api/timeline/projects/${entityId}/dismiss`, {
+				method: 'POST'
+			});
+			if (!res.ok) {
+				const text = await res.text();
+				throw new Error(`${res.status}: ${text || 'unknown error'}`);
+			}
+			void loadProjects({ silent: true });
+		} catch (err) {
+			console.error('Failed to dismiss project', err);
+		}
 	}
 
 	function needsHealthWarning(project: ProjectListItem): boolean {
@@ -134,11 +151,24 @@
 							{/if}
 							<h3 class="text-foreground truncate text-sm font-medium">{project.label}</h3>
 						</div>
-						<span
-							class="text-muted-foreground shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
-						>
-							{statusLabel(project.status)}
-						</span>
+						<div class="flex shrink-0 items-center gap-1">
+							<span
+								class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
+							>
+								{statusLabel(project.status)}
+							</span>
+							{#if project.status === 'active'}
+								<Button
+									variant="ghost"
+									size="icon"
+									class="size-6 shrink-0 text-muted-foreground hover:text-destructive"
+									title="Dismiss project"
+									onclick={() => dismissProject(project.entityId)}
+								>
+									<XIcon class="size-3" aria-hidden="true" />
+								</Button>
+							{/if}
+						</div>
 					</div>
 					{#if project.nextAction}
 						<button

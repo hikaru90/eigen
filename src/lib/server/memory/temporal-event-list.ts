@@ -63,6 +63,7 @@ export type TemporalEventListQuery = {
 	limit?: number;
 	cursorStartAt?: string | null;
 	cursorId?: string | null;
+	orderBy?: 'ingest' | 'todo';
 };
 
 export function isOpenLoopListItem(item: TemporalEventListItem): boolean {
@@ -384,7 +385,12 @@ export async function listTemporalEventsForUser(
 		.from(temporalEvent)
 		.innerJoin(thought, eq(temporalEvent.thoughtId, thought.id))
 		.where(and(...conditions))
-		.orderBy(desc(temporalEvent.startAt), desc(temporalEvent.id))
+		.orderBy(
+			query.orderBy === 'ingest'
+				? desc(thought.createdAt)
+				: desc(temporalEvent.startAt),
+			desc(temporalEvent.id)
+		)
 		.limit(limit + 1);
 
 	const page = rows.slice(0, limit);

@@ -45,6 +45,10 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 		title: 'Updating entity graph',
 		description: 'Extracting and reconciling entities mentioned in this thought against your entity index.'
 	},
+	project_detection: {
+		title: 'Detecting projects',
+		description: 'Analyzing if this thought describes a multi-step project or initiative.'
+	},
 	temporal: {
 		title: 'Extracting dates and deadlines',
 		description:

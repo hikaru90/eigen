@@ -94,7 +94,7 @@ export async function listProjectsForUser(userId: string): Promise<ProjectListIt
 				eq(canonicalEntity.userId, userId)
 			)
 		)
-		.where(eq(projectProfile.userId, userId));
+		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.status, 'active')));
 
 	const items: ProjectListItem[] = [];
 	for (const row of projectRows) {
@@ -127,6 +127,14 @@ export async function listProjectsForUser(userId: string): Promise<ProjectListIt
 		if (rankDiff !== 0) return rankDiff;
 		return a.label.localeCompare(b.label);
 	});
+}
+
+/** Dismiss a project so it no longer appears in the active projects list. */
+export async function dismissProject(userId: string, entityId: string): Promise<void> {
+	await getDb()
+		.update(projectProfile)
+		.set({ status: 'dismissed' })
+		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, entityId)));
 }
 
 export {

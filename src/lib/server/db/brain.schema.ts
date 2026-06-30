@@ -650,7 +650,7 @@ export const thoughtEntity = pgTable(
 	]
 );
 
-export const projectStatusValues = ['active', 'someday', 'completed'] as const;
+export const projectStatusValues = ['active', 'someday', 'completed', 'dismissed'] as const;
 export type ProjectStatus = (typeof projectStatusValues)[number];
 
 export const projectProfileSourceValues = ['grounding', 'capture', 'manual'] as const;

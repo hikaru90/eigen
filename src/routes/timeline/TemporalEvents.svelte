@@ -4,6 +4,7 @@
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import {
 		filterActiveItems,
 		filterItemsByKinds,
@@ -25,6 +26,7 @@
 	import { isTemporalEventCompleted } from './temporal-events-utils';
 	import { m } from '$lib/paraglide/messages.js';
 	import { Button } from '$lib/components/ui/button';
+import * as Select from '$lib/components/ui/select';
 	import TemporalEventDetail from './TemporalEventDetail.svelte';
 	import TemporalEventsTodayView from './TemporalEventsTodayView.svelte';
 	import TemporalEventsProjectsView from './TemporalEventsProjectsView.svelte';
@@ -71,6 +73,11 @@
 	let rangeFilter = $state<TemporalRangeFilter>('relevant');
 	let statusFilter = $state<TemporalStatusFilter>('open');
 	let kindFilter = $state<string[]>([]);
+	let orderBy = $state<'ingest' | 'todo'>(
+		typeof localStorage !== 'undefined'
+			? (localStorage.getItem('timeline-order-by') as 'ingest' | 'todo') ?? 'ingest'
+			: 'ingest'
+	);
 	let projectsMode = $state(
 		typeof localStorage !== 'undefined'
 			? localStorage.getItem('timeline-projects-mode') === 'true'
@@ -80,6 +87,12 @@
 	$effect(() => {
 		if (typeof localStorage !== 'undefined') {
 			localStorage.setItem('timeline-projects-mode', String(projectsMode));
+		}
+	});
+
+	$effect(() => {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('timeline-order-by', orderBy);
 		}
 	});
 	let nowSegment = $state<NowSegment>('todo');
@@ -173,7 +186,8 @@
 			const params = new SvelteURLSearchParams({
 				range: rangeFilter,
 				status: 'open',
-				includeOpenLoops: 'true'
+				includeOpenLoops: 'true',
+				orderBy
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			if (append && phase.kind === 'ready' && phase.nextCursor) {
@@ -608,6 +622,24 @@
 			>
 				{@render timelineFilters()}
 			</div>
+			<Select.Root
+				type="single"
+				value={orderBy}
+				onValueChange={(v) => {
+					if (v === 'ingest' || v === 'todo') {
+						orderBy = v;
+						onFilterChange();
+					}
+				}}
+			>
+				<Select.Trigger class="h-7 w-auto gap-1 px-2 text-[11px]">
+					{orderBy === 'ingest' ? 'Ingest order' : 'Todo order'}
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="ingest">Ingest order</Select.Item>
+					<Select.Item value="todo">Todo order</Select.Item>
+				</Select.Content>
+			</Select.Root>
 			<Button
 				type="button"
 				variant="outline"
@@ -617,7 +649,7 @@
 				disabled={refreshBusy}
 				onclick={refreshAll}
 			>
-				<LoaderCircleIcon class="size-3.5 {refreshBusy ? 'animate-spin' : ''}" aria-hidden="true" />
+				<RefreshCwIcon class="size-3.5 {refreshBusy ? 'animate-spin' : ''}" aria-hidden="true" />
 				<span class="sr-only">{m.graph_temporal_refresh()}</span>
 			</Button>
 		{/snippet}

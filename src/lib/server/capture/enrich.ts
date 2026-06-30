@@ -53,6 +53,7 @@ import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment';
 import { reconcileUserProjects } from '$lib/server/memory/reconcile-user-projects';
 import { countGtdProjectProfilesForUser } from '$lib/server/memory/project-eligibility';
 import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question';
+import { detectAndCreateProjectFromThought } from '$lib/server/memory/detect-project-from-thought';
 
 export type EnrichThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
@@ -348,6 +349,23 @@ export async function enrichThought(
 						graphHubHints
 					})
 				);
+
+				// Detect and create project from thought content
+				try {
+					await time('enrich_project_detection', () =>
+						detectAndCreateProjectFromThought({
+							userId,
+							normalizedText,
+							memoryType: thoughtRow.memoryType,
+							category: thoughtRow.category
+						})
+					);
+				} catch (err) {
+					console.error('[enrich] project detection failed', {
+						thoughtId,
+						message: err instanceof Error ? err.message : String(err)
+					});
+				}
 			}
 		} catch (err) {
 			console.error('[enrich] GTD project assignment failed', {
