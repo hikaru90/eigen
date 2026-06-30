@@ -97,7 +97,7 @@
 					>
 						{item.semanticSummary}
 					</Drawer.Title>
-					<p class="text-muted-foreground font-mono text-[11px]">{formatWhen(item, timeZone)}</p>
+					<p class="text-muted-foreground font-mono text-[11px]">{item.startAt ? 'Due' : 'Created'}: {formatWhen(item, timeZone)}</p>
 				</Drawer.Header>
 				<Drawer.Close
 					class="text-destructive hover:text-destructive/80 shrink-0 rounded-md p-1.5 transition-colors focus-visible:ring-ring/50 focus-visible:ring-1 focus-visible:outline-none"

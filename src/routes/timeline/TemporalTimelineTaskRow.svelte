@@ -157,7 +157,7 @@
 				</span>
 			{/if}
 			{#if showWhen && item.startAt}
-				<span class="text-muted-foreground font-mono text-[11px]">{formatWhen(item, timeZone)}</span>
+				<span class="text-muted-foreground font-mono text-[11px]">Due: {formatWhen(item, timeZone)}</span>
 			{/if}
 			{#if overdueLabel}
 				<span class="text-destructive font-mono text-[11px]">{overdueLabel}</span>
