@@ -746,6 +746,8 @@ import * as Select from '$lib/components/ui/select';
 					onGoToTask={goToTaskFromProjects}
 					allTasks={todayTodoSourceItems}
 					onTaskUpdated={() => void reloadTimelineData({ silent: true })}
+					{orderBy}
+					{sortDirection}
 				/>
 			{:else}
 				<TemporalEventsTodayView

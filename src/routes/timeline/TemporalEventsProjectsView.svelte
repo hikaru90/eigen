@@ -17,9 +17,11 @@
 		onGoToTask: (itemId: string) => void;
 		allTasks: TemporalEventListItem[];
 		onTaskUpdated?: () => void;
+		orderBy?: 'ingest' | 'todo';
+		sortDirection?: 'asc' | 'desc';
 	};
 
-	let { onGoToTask, allTasks, onTaskUpdated }: Props = $props();
+	let { onGoToTask, allTasks, onTaskUpdated, orderBy = 'ingest', sortDirection = 'desc' }: Props = $props();
 
 	type Phase =
 		| { kind: 'loading' }
@@ -90,8 +92,33 @@
 	const unassignedTasks = $derived(
 		allTasks
 			.filter((t) => t.projectLabel === null)
-			.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+			.sort((a, b) => {
+				const cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+				return sortDirection === 'asc' ? cmp : -cmp;
+			})
 	);
+
+	/** Sort projects based on orderBy setting */
+	const sortedProjects = $derived.by(() => {
+		const projects = [...phase.projects];
+		if (orderBy === 'ingest') {
+			/** Sort by most recent task's createdAt */
+			return projects.sort((a, b) => {
+				const aTasks = tasksForProject(a);
+				const bTasks = tasksForProject(b);
+				const aLatest = aTasks.length > 0
+					? Math.max(...aTasks.map((t) => new Date(t.createdAt).getTime()))
+					: 0;
+				const bLatest = bTasks.length > 0
+					? Math.max(...bTasks.map((t) => new Date(t.createdAt).getTime()))
+					: 0;
+				const cmp = aLatest - bLatest;
+				return sortDirection === 'asc' ? cmp : -cmp;
+			});
+		}
+		/** For 'todo' order, keep default status-based sort */
+		return projects;
+	});
 
 	function onProjectCreated() {
 		void loadProjects();
@@ -154,7 +181,7 @@
 		<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
 	{:else}
 		<ul class="divide-border divide-y">
-			{#each phase.projects as project (project.entityId)}
+			{#each sortedProjects as project (project.entityId)}
 				<li
 					class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
 				>
