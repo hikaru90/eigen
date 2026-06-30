@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { userJobQueue, type UserJobQueue, type UserJobType } from '$lib/server/db/schema';
+import { withDbUser } from '$lib/server/db';
 
 type RawUserJobQueueRow = {
 	id: string;
@@ -203,7 +204,9 @@ export async function drainUserJobQueue(input?: {
 
 	for (const job of jobs) {
 		try {
-			await dispatchJob(job);
+			await withDbUser(job.userId, async () => {
+				await dispatchJob(job);
+			});
 			await finishJob(job.id, 'completed');
 			completed += 1;
 		} catch (err) {
