@@ -216,10 +216,9 @@
 							{m.graph_timeline_project_open_loops({ count: project.openLoopCount })}
 						</p>
 					{/if}
-					{@const projectTasks = tasksForProject(project)}
-					{#if projectTasks.length > 0}
+					{#if tasksForProject(project).length > 0}
 						<div class="mt-2 space-y-1">
-							{#each projectTasks as task (task.id)}
+							{#each tasksForProject(project) as task (task.id)}
 								<button
 									type="button"
 									class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
