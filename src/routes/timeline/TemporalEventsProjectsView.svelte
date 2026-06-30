@@ -86,7 +86,7 @@
 	}
 
 	function needsHealthWarning(project: ProjectListItem): boolean {
-		return project.status === 'active' && project.nextAction == null;
+		return false;
 	}
 
 	const unassignedTasks = $derived(
@@ -148,6 +148,38 @@
 
 	function tasksForProject(project: ProjectListItem): TemporalEventListItem[] {
 		return allTasks.filter((t) => t.projectLabel === project.label);
+	}
+
+	/** Get the next action for a project: either the designated one or the earliest due task */
+	function getNextAction(project: ProjectListItem): { summary: string; itemId: string } | null {
+		if (project.nextAction) return project.nextAction;
+
+		/** Find task with earliest startAt (due date) */
+		const tasks = tasksForProject(project);
+		const withDueDate = tasks
+			.filter((t) => t.startAt)
+			.sort((a, b) => new Date(a.startAt!).getTime() - new Date(b.startAt!).getTime());
+
+		if (withDueDate.length > 0) {
+			const next = withDueDate[0];
+			return {
+				summary: next.semanticSummary,
+				itemId: next.id
+			};
+		}
+
+		/** Fall back to most recently created task */
+		if (tasks.length > 0) {
+			const sorted = [...tasks].sort(
+				(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+			);
+			return {
+				summary: sorted[0].semanticSummary,
+				itemId: sorted[0].id
+			};
+		}
+
+		return null;
 	}
 </script>
 
@@ -224,19 +256,18 @@
 							</Button>
 						</div>
 					</div>
-					{#if project.nextAction}
+					{@const nextAction = getNextAction(project)}
+					{#if nextAction}
 						<button
 							type="button"
 							class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
-							onclick={() => onGoToTask(project.nextAction!.itemId)}
+							onclick={() => onGoToTask(nextAction.itemId)}
 						>
 							<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
 								{m.graph_timeline_project_next_action()}
 							</p>
-							<p class="text-foreground mt-0.5 text-sm">{project.nextAction.summary}</p>
+							<p class="text-foreground mt-0.5 text-sm">{nextAction.summary}</p>
 						</button>
-					{:else if project.status === 'active'}
-						<p class="text-destructive/90 mt-2 text-xs">{m.graph_timeline_project_no_next_action()}</p>
 					{/if}
 					{#if project.openLoopCount > 1}
 						<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">
