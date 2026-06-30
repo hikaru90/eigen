@@ -239,41 +239,29 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const pointsObject = new THREE.Points(geometry, pointsMaterial);
 	scene.add(pointsObject);
 
-	/** Depth sorting: maintain sorted indices for back-to-front rendering */
-	const sortIndices = new Uint32Array(points.length);
-	for (let i = 0; i < points.length; i++) sortIndices[i] = i;
-	const depthValues = new Float32Array(points.length);
-	let sortDirty = true;
+	/** Depth sorting: use index buffer for efficient back-to-front rendering */
+	const indexArray = new Uint16Array(points.length);
+	for (let i = 0; i < points.length; i++) indexArray[i] = i;
+	const depthBuffer = new Float32Array(points.length);
+	const indexBuffer = new THREE.BufferAttribute(indexArray, 1);
+	geometry.setIndex(indexBuffer);
 
 	function updateDepthSort() {
 		const camPos = camera.position;
+
+		/** Compute squared distance from camera for each point */
 		for (let i = 0; i < points.length; i++) {
-			const idx = sortIndices[i];
-			const x = positions[idx * 3] - camPos.x;
-			const y = positions[idx * 3 + 1] - camPos.y;
-			const z = positions[idx * 3 + 2] - camPos.z;
-			depthValues[i] = x * x + y * y + z * z;
+			const x = positions[i * 3] - camPos.x;
+			const y = positions[i * 3 + 1] - camPos.y;
+			const z = positions[i * 3 + 2] - camPos.z;
+			depthBuffer[i] = x * x + y * y + z * z;
 		}
 
 		/** Sort indices by depth (farthest first for painter's algorithm) */
-		sortIndices.sort((a, b) => depthValues[a] - depthValues[b]);
+		indexArray.sort((a, b) => depthBuffer[a] - depthBuffer[b]);
 
-		/** Reorder position and color buffers by sorted indices */
-		const sortedPositions = new Float32Array(points.length * 3);
-		const sortedColors = new Float32Array(points.length * 3);
-		for (let i = 0; i < points.length; i++) {
-			const srcIdx = sortIndices[i];
-			sortedPositions[i * 3] = positions[srcIdx * 3];
-			sortedPositions[i * 3 + 1] = positions[srcIdx * 3 + 1];
-			sortedPositions[i * 3 + 2] = positions[srcIdx * 3 + 2];
-			sortedColors[i * 3] = colors[srcIdx * 3];
-			sortedColors[i * 3 + 1] = colors[srcIdx * 3 + 1];
-			sortedColors[i * 3 + 2] = colors[srcIdx * 3 + 2];
-		}
-
-		geometry.setAttribute('position', new THREE.BufferAttribute(sortedPositions, 3));
-		geometry.setAttribute('color', new THREE.BufferAttribute(sortedColors, 3));
-		sortDirty = false;
+		/** Mark index buffer as needing GPU upload */
+		indexBuffer.needsUpdate = true;
 	}
 
 	/** Create individual label objects for selection/hover */
