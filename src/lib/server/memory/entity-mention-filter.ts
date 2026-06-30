@@ -5,7 +5,8 @@ export const ENTITY_EXTRACTION_OMIT_RULES = [
 	'Omit greetings and interjections (hello, hallo, hi, hey, etc.) — never treat them as person, place, or organization names.',
 	'Omit generic pronouns, discourse markers, and filler words.',
 	'When someone identifies themselves ("it\'s me, X", "ich bin X", "ich bin\'s, X"), extract X as the person speaking — not other people from memory unless the text clearly names them.',
-	'Return surfaces exactly as written in the text. Never substitute a known entity label for a different name appearing in the text.'
+	'Return surfaces exactly as written in the text. Never substitute a known entity label for a different name appearing in the text.',
+	'person is ONLY for human beings with actual names. Software features, system actions, and abstract concepts are never people — even when mentioned in contexts like "X identified Y" or "Y is a feature".'
 ];
 
 /** Keep compound titles intact — prevents recipe/dish names fragmenting into mislabeled single words. */

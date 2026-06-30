@@ -125,14 +125,16 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 				baseUrl: eurouterRow?.baseUrl ?? '',
 				apiKey: eurouterApiKey,
 				ruleChat: eurouterRow?.ruleChat ?? '',
-				ruleEmbedding: eurouterRow?.ruleEmbedding ?? ''
+				ruleEmbedding: eurouterRow?.ruleEmbedding ?? '',
+				modelChat: eurouterRow?.modelChat || env.LLM_MODEL_CHAT?.trim() || '',
+				modelEmbedding: eurouterRow?.modelEmbedding || env.LLM_MODEL_EMBEDDING?.trim() || ''
 			},
 			openrouter: {
 				configured: isProviderConfigured(openrouterRow),
 				baseUrl: openrouterRow?.baseUrl ?? '',
 				apiKey: openrouterApiKey,
-				modelChat: openrouterRow?.modelChat ?? '',
-				modelEmbedding: openrouterRow?.modelEmbedding ?? ''
+				modelChat: openrouterRow?.modelChat || env.LLM_MODEL_CHAT?.trim() || '',
+				modelEmbedding: openrouterRow?.modelEmbedding || env.LLM_MODEL_EMBEDDING?.trim() || ''
 			}
 		}
 	};
@@ -326,6 +328,73 @@ export const llmSettingsActions: Actions = {
 		} catch (error) {
 			return fail(400, {
 				billingMessage: getSafeErrorMessage(error, 'Unable to update billing method.')
+			});
+		}
+	},
+
+	saveModelConfig: async (event) => {
+		if (!event.locals.user) {
+			return fail(401, { modelMessage: 'You must be signed in.' });
+		}
+
+		const formData = await event.request.formData();
+		const modelChat = formData.get('modelChat')?.toString().trim() || null;
+		const modelEmbedding = formData.get('modelEmbedding')?.toString().trim() || null;
+		const ruleChat = formData.get('ruleChat')?.toString().trim() || null;
+		const ruleEmbedding = formData.get('ruleEmbedding')?.toString().trim() || null;
+		const provider = formData.get('provider')?.toString().trim() || 'eurouter';
+
+		if (provider !== 'eurouter' && provider !== 'openrouter') {
+			return fail(400, { modelMessage: 'Invalid provider.' });
+		}
+
+		try {
+			const db = getDb();
+			const userId = event.locals.user.id;
+
+			// For EUrouter, use routing rules; for OpenRouter, use model names
+			const isEurouter = provider === 'eurouter';
+			const updateData = isEurouter
+				? { ruleChat, ruleEmbedding, updatedAt: new Date() }
+				: { modelChat, modelEmbedding, updatedAt: new Date() };
+
+			// Update or insert provider config
+			const existing = await db
+				.select()
+				.from(llmProviderConfig)
+				.where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)))
+				.limit(1);
+
+			if (existing.length > 0 && existing[0]?.baseUrl) {
+				await db
+					.update(llmProviderConfig)
+					.set(updateData)
+					.where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)));
+			} else {
+				await db
+					.insert(llmProviderConfig)
+					.values({
+						userId,
+						provider,
+						baseUrl: provider === 'openrouter'
+							? (env.OPENROUTER_BASE_URL?.trim() || 'https://openrouter.ai/api/v1')
+							: (env.LLM_BASE_URL?.trim() || 'https://api.eurouter.ai/v1'),
+						apiKey: provider === 'openrouter'
+							? (env.OPENROUTER_API_KEY?.trim() || 'placeholder')
+							: (env.LLM_API_KEY?.trim() || 'placeholder'),
+						...updateData
+					})
+					.onConflictDoUpdate({
+						target: [llmProviderConfig.userId, llmProviderConfig.provider],
+						set: updateData
+					});
+			}
+
+			return { modelMessage: 'Configuration saved.' };
+
+		} catch (error) {
+			return fail(400, {
+				modelMessage: getSafeErrorMessage(error, 'Unable to save configuration.')
 			});
 		}
 	}

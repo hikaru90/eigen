@@ -20,6 +20,7 @@
 
 	let activeTab = $state<'credits' | 'byok'>('credits');
 	let billingMode = $state<'platform_credits' | 'byok'>('platform_credits');
+	let selectedProvider = $state<'eurouter' | 'openrouter'>(data.activeProvider ?? 'eurouter');
 
 	$effect(() => {
 		activeTab = data.byokUiEnabled ? initialTab : 'credits';
@@ -48,7 +49,7 @@
 
 </script>
 
-<div class="mx-auto max-w-2xl space-y-8 px-4 pb-8 pt-10">
+<div class="mx-auto max-w-2xl space-y-8 px-4 pb-8 pt-16">
 	{#if data.byokUiEnabled}
 		<section class="space-y-3">
 			<div>
@@ -117,6 +118,100 @@
 			</div>
 		</section>
 	{/if}
+
+	<section class="space-y-3">
+		<div>
+			<h2 class="text-sm font-semibold">Model Configuration</h2>
+			<p class="text-muted-foreground mt-1 text-xs">
+				Override the default chat and embedding models. These settings apply to entity extraction,
+				capture enrichment, and other LLM tasks.
+				{#if data.byokUiEnabled}
+					For full provider configuration (API keys, base URLs), use the BYOK tab.
+				{:else}
+					For full provider configuration, set environment variables or enable BYOK UI.
+				{/if}
+			</p>
+		</div>
+
+		<form
+			method="post"
+			action="?/saveModelConfig"
+			use:enhance={() => {
+				return async ({ result, update }) => {
+					await update();
+				};
+			}}
+			class="rounded-xl bg-muted px-3.5 py-3"
+			>
+			<input type="hidden" name="provider" value={selectedProvider} />
+			<div class="space-y-3">
+				<Label for="model-provider">Provider</Label>
+				<select
+					id="model-provider"
+					bind:value={selectedProvider}
+					class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+				>
+					<option value="eurouter">EUrouter</option>
+					<option value="openrouter">OpenRouter</option>
+				</select>
+
+				{#if selectedProvider === 'openrouter'}
+					<div class="space-y-1">
+						<Label for="modelChat">Chat model</Label>
+						<input
+							id="modelChat"
+							type="text"
+							name="modelChat"
+							value={data.providers?.openrouter?.modelChat ?? ''}
+							placeholder="e.g., openai/gpt-4o-mini, anthropic/claude-3-haiku"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+						/>
+					</div>
+
+					<div class="space-y-1">
+						<Label for="modelEmbedding">Embedding model</Label>
+						<input
+							id="modelEmbedding"
+							type="text"
+							name="modelEmbedding"
+							value={data.providers?.openrouter?.modelEmbedding ?? ''}
+							placeholder="e.g., openai/text-embedding-3-small"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 text-xs"
+						/>
+					</div>
+				{:else}
+					<div class="space-y-1">
+						<Label for="ruleChat">Chat routing rule</Label>
+						<input
+							id="ruleChat"
+							type="text"
+							name="ruleChat"
+							value={data.providers?.eurouter?.ruleChat ?? ''}
+							placeholder="UUID routing rule for chat"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
+						/>
+					</div>
+
+					<div class="space-y-1">
+						<Label for="ruleEmbedding">Embedding routing rule</Label>
+						<input
+							id="ruleEmbedding"
+							type="text"
+							name="ruleEmbedding"
+							value={data.providers?.eurouter?.ruleEmbedding ?? ''}
+							placeholder="UUID routing rule for embeddings"
+							class="border-input bg-background text-foreground h-9 w-full border px-2.5 font-mono text-xs"
+						/>
+					</div>
+				{/if}
+
+				<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Save model config</Button>
+				{#if form?.modelMessage}
+					<p class="text-muted-foreground text-xs">{form.modelMessage}</p>
+				{/if}
+			</div>
+		</form>
+	</section>
 
 	<section class="space-y-4 mt-8">
 		<div>
