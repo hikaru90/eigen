@@ -212,15 +212,10 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		canvas.height = size;
 		const ctx = canvas.getContext('2d')!;
 
-		/** Draw a soft-edged circle */
+		/** Draw a solid circle */
 		const center = size / 2;
-		const radius = size / 2 - 2;
-		const gradient = ctx.createRadialGradient(center, center, 0, center, center, radius);
-		gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-		gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.9)');
-		gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-
-		ctx.fillStyle = gradient;
+		const radius = size / 2 - 1;
+		ctx.fillStyle = 'white';
 		ctx.beginPath();
 		ctx.arc(center, center, radius, 0, Math.PI * 2);
 		ctx.fill();
