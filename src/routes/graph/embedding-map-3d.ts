@@ -204,6 +204,32 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 	geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
+	/** Create a circular texture for points (WebGL defaults to squares without a texture) */
+	const pointTexture = (() => {
+		const size = 64;
+		const canvas = document.createElement('canvas');
+		canvas.width = size;
+		canvas.height = size;
+		const ctx = canvas.getContext('2d')!;
+
+		/** Draw a soft-edged circle */
+		const center = size / 2;
+		const radius = size / 2 - 2;
+		const gradient = ctx.createRadialGradient(center, center, 0, center, center, radius);
+		gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+		gradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.9)');
+		gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+		ctx.fillStyle = gradient;
+		ctx.beginPath();
+		ctx.arc(center, center, radius, 0, Math.PI * 2);
+		ctx.fill();
+
+		const texture = new THREE.CanvasTexture(canvas);
+		texture.needsUpdate = true;
+		return texture;
+	})();
+
 	/** Create points material with size attenuation for consistent screen-space sizing */
 	const pointsMaterial = new THREE.PointsMaterial({
 		size: POINT_RADIUS * 2,
@@ -211,7 +237,8 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		transparent: true,
 		opacity: 0.88,
 		vertexColors: true,
-		depthWrite: false
+		depthWrite: false,
+		map: pointTexture
 	});
 
 	const pointsObject = new THREE.Points(geometry, pointsMaterial);
@@ -536,6 +563,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			highlightRingMaterial.dispose();
 			geometry.dispose();
 			pointsMaterial.dispose();
+			pointTexture.dispose();
 			scene.remove(pointsObject);
 			scene.remove(highlightGroup);
 			renderer.dispose();
