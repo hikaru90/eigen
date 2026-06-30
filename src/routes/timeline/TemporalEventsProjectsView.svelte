@@ -118,6 +118,10 @@
 		editProjectItem = null;
 		void loadProjects({ silent: true });
 	}
+
+	function tasksForProject(project: ProjectListItem): TemporalEventListItem[] {
+		return allTasks.filter((t) => t.projectLabel === project.label);
+	}
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -211,6 +215,20 @@
 						<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">
 							{m.graph_timeline_project_open_loops({ count: project.openLoopCount })}
 						</p>
+					{/if}
+					{@const projectTasks = tasksForProject(project)}
+					{#if projectTasks.length > 0}
+						<div class="mt-2 space-y-1">
+							{#each projectTasks as task (task.id)}
+								<button
+									type="button"
+									class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
+									onclick={() => onGoToTask(task.id)}
+								>
+									<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
+								</button>
+							{/each}
+						</div>
 					{/if}
 				</li>
 			{/each}
