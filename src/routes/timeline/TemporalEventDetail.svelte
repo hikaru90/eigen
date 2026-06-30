@@ -10,6 +10,7 @@
 	import {
 		completedEventSummaryClass,
 		formatWhen,
+		formatCreatedDate,
 		isTemporalEventCompleted
 	} from './temporal-events-utils';
 	import { graphKindLabel } from '$lib/graph/graph-i18n';
@@ -97,7 +98,7 @@
 					>
 						{item.semanticSummary}
 					</Drawer.Title>
-					<p class="text-muted-foreground font-mono text-[11px]">{item.startAt ? 'Due' : 'Created'}: {formatWhen(item, timeZone)}</p>
+					<p class="text-muted-foreground font-mono text-[11px]">{item.startAt ? 'Due: ' + formatWhen(item, timeZone) + ' · ' : ''}created {formatCreatedDate(item)}</p>
 				</Drawer.Header>
 				<Drawer.Close
 					class="text-destructive hover:text-destructive/80 shrink-0 rounded-md p-1.5 transition-colors focus-visible:ring-ring/50 focus-visible:ring-1 focus-visible:outline-none"

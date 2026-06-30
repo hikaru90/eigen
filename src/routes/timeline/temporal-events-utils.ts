@@ -176,6 +176,21 @@ export function formatWhen(item: TemporalEventListItem, viewerTimeZone?: string)
 	return fmt.format(start);
 }
 
+/** Format the createdAt date as a short relative or absolute string. */
+export function formatCreatedDate(item: TemporalEventListItem): string {
+	const created = new Date(item.createdAt);
+	if (Number.isNaN(created.getTime())) return '';
+	const diffMs = Date.now() - created.getTime();
+	const minutes = Math.floor(diffMs / 60_000);
+	if (minutes < 1) return 'just now';
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	if (days < 7) return `${days}d ago`;
+	return created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export type TemporalStatusFilter = 'open' | 'all';
 export type TemporalRangeFilter = 'relevant' | 'upcoming' | 'past' | 'all';
 

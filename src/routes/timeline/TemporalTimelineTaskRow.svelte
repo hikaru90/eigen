@@ -4,6 +4,7 @@
 		completedEventSummaryClass,
 		energyPillClasses,
 		formatWhen,
+		formatCreatedDate,
 		isOpenLoopListItem,
 		isTemporalEventCompleted,
 		priorityDotColor
@@ -159,6 +160,7 @@
 			{#if showWhen && item.startAt}
 				<span class="text-muted-foreground font-mono text-[11px]">Due: {formatWhen(item, timeZone)}</span>
 			{/if}
+			<span class="text-muted-foreground/60 font-mono text-[10px]">created {formatCreatedDate(item)}</span>
 			{#if overdueLabel}
 				<span class="text-destructive font-mono text-[11px]">{overdueLabel}</span>
 			{/if}
