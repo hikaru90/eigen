@@ -153,7 +153,7 @@ import * as Select from '$lib/components/ui/select';
 	const snoozedItems = $derived(filterSnoozedItems(filteredItems));
 
 	const todayTodoSourceItems = $derived(
-		mergePriorDayOverdueIntoItems(displayItems, overdueItems)
+		mergePriorDayOverdueIntoItems(displayItems, overdueItems, { orderBy, sortDirection })
 	);
 	const todayTodoItems = $derived(filterTodayTodoOpenItems(todayTodoSourceItems, userTimeZone));
 
@@ -259,7 +259,9 @@ import * as Select from '$lib/components/ui/select';
 			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'open',
-				includeOpenLoops: 'true'
+				includeOpenLoops: 'true',
+				orderBy,
+				sortDirection
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			const res = await fetch(`/api/temporal-events?${params}`);

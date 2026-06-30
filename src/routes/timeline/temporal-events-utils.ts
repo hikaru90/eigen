@@ -715,7 +715,8 @@ export function filterItemsForTodayView(
 /** Merge prior-day overdue rows that may have been loaded outside the main list query. */
 export function mergePriorDayOverdueIntoItems(
 	items: TemporalEventListItem[],
-	priorDayOverdue: TemporalEventListItem[]
+	priorDayOverdue: TemporalEventListItem[],
+	options?: { orderBy?: 'ingest' | 'todo'; sortDirection?: 'asc' | 'desc' }
 ): TemporalEventListItem[] {
 	const seen = new Set(items.map((i) => i.id));
 	const merged = [...items];
@@ -725,6 +726,22 @@ export function mergePriorDayOverdueIntoItems(
 			seen.add(item.id);
 		}
 	}
+
+	/** Re-sort merged list */
+	const orderBy = options?.orderBy ?? 'todo';
+	const sortDirection = options?.sortDirection ?? 'desc';
+	merged.sort((a, b) => {
+		let cmp: number;
+		if (orderBy === 'ingest') {
+			cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+		} else {
+			const aStart = a.startAt ? new Date(a.startAt).getTime() : 0;
+			const bStart = b.startAt ? new Date(b.startAt).getTime() : 0;
+			cmp = aStart - bStart;
+		}
+		return sortDirection === 'asc' ? cmp : -cmp;
+	});
+
 	return merged;
 }
 
