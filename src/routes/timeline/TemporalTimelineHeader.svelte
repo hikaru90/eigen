@@ -22,13 +22,7 @@
 	}: Props = $props();
 
 	const title = $derived(
-		projectsMode
-			? m.graph_timeline_projects()
-			: nowSegment === 'done'
-				? m.graph_timeline_today_done_title()
-				: nowSegment === 'overdue'
-					? m.graph_timeline_today_overdue_title()
-					: m.graph_timeline_tasks()
+		projectsMode ? m.graph_timeline_projects() : m.graph_timeline_tasks()
 	);
 </script>
 

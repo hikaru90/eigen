@@ -39,6 +39,7 @@ export const GET: RequestHandler = async (event) => {
 	const cursorId = url.searchParams.get('cursorId');
 	const includeOpenLoops = url.searchParams.get('includeOpenLoops') !== 'false';
 	const orderBy = url.searchParams.get('orderBy') as 'ingest' | 'todo' | null;
+	const sortDirection = url.searchParams.get('sortDirection') as 'asc' | 'desc' | null;
 
 	const { items, nextCursor } = await listTemporalEventsForUser({
 		userId: user.id,
@@ -49,7 +50,8 @@ export const GET: RequestHandler = async (event) => {
 		limit: Number.isFinite(limit) ? limit : undefined,
 		cursorStartAt,
 		cursorId,
-		orderBy: orderBy ?? 'todo'
+		orderBy: orderBy ?? 'todo',
+		sortDirection: sortDirection ?? 'desc'
 	});
 
 	return json({ items, nextCursor } satisfies TemporalEventsResponse);

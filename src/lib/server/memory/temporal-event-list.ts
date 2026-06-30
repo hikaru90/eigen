@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, projectProfile, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
 import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
@@ -64,6 +64,7 @@ export type TemporalEventListQuery = {
 	cursorStartAt?: string | null;
 	cursorId?: string | null;
 	orderBy?: 'ingest' | 'todo';
+	sortDirection?: 'asc' | 'desc';
 };
 
 export function isOpenLoopListItem(item: TemporalEventListItem): boolean {
@@ -386,10 +387,14 @@ export async function listTemporalEventsForUser(
 		.innerJoin(thought, eq(temporalEvent.thoughtId, thought.id))
 		.where(and(...conditions))
 		.orderBy(
-			query.orderBy === 'ingest'
-				? desc(thought.createdAt)
-				: desc(temporalEvent.startAt),
-			desc(temporalEvent.id)
+			query.sortDirection === 'asc'
+				? query.orderBy === 'ingest'
+					? asc(thought.createdAt)
+					: asc(temporalEvent.startAt)
+				: query.orderBy === 'ingest'
+					? desc(thought.createdAt)
+					: desc(temporalEvent.startAt),
+			query.sortDirection === 'asc' ? asc(temporalEvent.id) : desc(temporalEvent.id)
 		)
 		.limit(limit + 1);
 

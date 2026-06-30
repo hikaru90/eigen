@@ -5,6 +5,8 @@
 	import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import {
 		filterActiveItems,
 		filterItemsByKinds,
@@ -78,6 +80,11 @@ import * as Select from '$lib/components/ui/select';
 			? (localStorage.getItem('timeline-order-by') as 'ingest' | 'todo') ?? 'ingest'
 			: 'ingest'
 	);
+	let sortDirection = $state<'asc' | 'desc'>(
+		typeof localStorage !== 'undefined'
+			? (localStorage.getItem('timeline-sort-direction') as 'asc' | 'desc') ?? 'desc'
+			: 'desc'
+	);
 	let projectsMode = $state(
 		typeof localStorage !== 'undefined'
 			? localStorage.getItem('timeline-projects-mode') === 'true'
@@ -93,6 +100,12 @@ import * as Select from '$lib/components/ui/select';
 	$effect(() => {
 		if (typeof localStorage !== 'undefined') {
 			localStorage.setItem('timeline-order-by', orderBy);
+		}
+	});
+
+	$effect(() => {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('timeline-sort-direction', sortDirection);
 		}
 	});
 	let nowSegment = $state<NowSegment>('todo');
@@ -187,7 +200,8 @@ import * as Select from '$lib/components/ui/select';
 				range: rangeFilter,
 				status: 'open',
 				includeOpenLoops: 'true',
-				orderBy
+				orderBy,
+				sortDirection
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			if (append && phase.kind === 'ready' && phase.nextCursor) {
@@ -640,6 +654,23 @@ import * as Select from '$lib/components/ui/select';
 					<Select.Item value="todo">Todo order</Select.Item>
 				</Select.Content>
 			</Select.Root>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon"
+				class="size-7 shrink-0"
+				title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+				onclick={() => {
+					sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+					onFilterChange();
+				}}
+			>
+				{#if sortDirection === 'asc'}
+					<ArrowUpIcon class="size-3.5" aria-hidden="true" />
+				{:else}
+					<ArrowDownIcon class="size-3.5" aria-hidden="true" />
+				{/if}
+			</Button>
 			<Button
 				type="button"
 				variant="outline"
