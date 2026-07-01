@@ -9,5 +9,12 @@ export {
 	replaceAgentProjectBindings
 } from './service';
 export { generateSigningSecret, generateCallbackToken, hashAgentSecret } from './secret-utils';
+export {
+	buildWebhookSignature,
+	buildSignatureHeaderValue,
+	buildWebhookHeaders,
+	validateWebhookSignature
+} from './sign';
+export type { SignatureMode } from './sign';
 export { validateAgentWebhookUrl } from './validate-url';
 export { buildEnvelope, sanitizeWebhookPayload } from './payloads';

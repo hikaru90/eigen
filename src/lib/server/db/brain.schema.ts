@@ -123,6 +123,8 @@ export const captureSession = pgTable(
 		category: text('category').notNull().default('perception'),
 		metadataPreview: jsonb('metadata_preview').$type<Record<string, unknown>>().notNull().default({}),
 		revisionCount: integer('revision_count').notNull().default(0),
+		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
+		authorAgentId: uuid('author_agent_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -131,6 +133,7 @@ export const captureSession = pgTable(
 	},
 	(t) => [
 		index('capture_session_user_idx').on(t.userId),
+		index('capture_session_author_idx').on(t.userId, t.author),
 		index('capture_session_status_idx').on(t.status),
 		foreignKey({
 			columns: [t.userId, t.category],
@@ -165,6 +168,10 @@ export type EnrichQueueStatus = (typeof enrichQueueStatusEnum)[number];
 
 export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent'] as const;
 export type CaptureSource = (typeof captureSourceEnum)[number];
+
+/** Who authored a memory row — human user or a connected agent. */
+export const memoryAuthorEnum = ['user', 'agent'] as const;
+export type MemoryAuthor = (typeof memoryAuthorEnum)[number];
 
 export const thought = pgTable(
 	'thought',
@@ -222,6 +229,10 @@ export const thought = pgTable(
 		enrichQueueError: text('enrich_queue_error'),
 		/** Surface that queued this row (mcp, ui, api, eval). */
 		captureSource: text('capture_source').$type<CaptureSource>(),
+		/** Human vs agent authorship for UI labeling and optional filtering. */
+		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
+		/** Set when author is 'agent' — which connected_agent wrote this row. */
+		authorAgentId: uuid('author_agent_id'),
 		/** Incremented each time enrichment re-runs (e.g. relink). */
 		enrichmentVersion: integer('enrichment_version').notNull().default(0),
 		/** Pre-truncated excerpt for listwise rerank (set at enrich). */
@@ -250,6 +261,8 @@ export const thought = pgTable(
 		index('thought_salience_idx').on(t.userId, t.salienceScore),
 		index('thought_enriched_idx').on(t.userId, t.enrichedAt),
 		index('thought_enrich_queue_idx').on(t.userId, t.enrichQueueStatus),
+		index('thought_author_idx').on(t.userId, t.author),
+		index('thought_author_agent_idx').on(t.authorAgentId),
 		foreignKey({
 			columns: [t.userId, t.category],
 			foreignColumns: [ontologyEntityKind.userId, ontologyEntityKind.key],
@@ -307,6 +320,8 @@ export const textFile = pgTable(
 		lexicalTsv: tsvector('lexical_tsv')
 			.notNull()
 			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
+		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
+		authorAgentId: uuid('author_agent_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -315,6 +330,7 @@ export const textFile = pgTable(
 	},
 	(t) => [
 		index('text_file_user_updated_idx').on(t.userId, t.updatedAt),
+		index('text_file_author_idx').on(t.userId, t.author),
 		index('text_file_lexical_tsv_idx').using('gin', t.lexicalTsv)
 	]
 );
@@ -593,6 +609,8 @@ export const canonicalEntity = pgTable(
 		label: text('label').notNull(),
 		entityType: text('entity_type').notNull().default('other'),
 		embedding: vector('embedding', { dimensions: 1536 }),
+		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
+		authorAgentId: uuid('author_agent_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -601,6 +619,7 @@ export const canonicalEntity = pgTable(
 	},
 	(t) => [
 		index('canonical_entity_user_idx').on(t.userId),
+		index('canonical_entity_author_idx').on(t.userId, t.author),
 		uniqueIndex('canonical_entity_user_canonical_uidx').on(t.userId, t.canonicalKey),
 		index('canonical_entity_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))
 	]
@@ -983,6 +1002,8 @@ export const temporalEvent = pgTable(
 		contextTags: text('context_tags').array(),
 		parentEventId: uuid('parent_event_id'),
 		focusRank: integer('focus_rank'),
+		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
+		authorAgentId: uuid('author_agent_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -991,6 +1012,7 @@ export const temporalEvent = pgTable(
 	},
 	(t) => [
 		index('temporal_event_user_idx').on(t.userId),
+		index('temporal_event_author_idx').on(t.userId, t.author),
 		index('temporal_event_lifecycle_idx').on(t.userId, t.lifecycleStatus),
 		index('temporal_event_thought_idx').on(t.thoughtId),
 		index('temporal_event_active_period_idx').using('gist', t.activePeriod),
@@ -1380,6 +1402,10 @@ export const agentWebhookEventTypeEnum = [
 ] as const;
 export type AgentWebhookEventType = (typeof agentWebhookEventTypeEnum)[number];
 
+/** Signature validation mode — determines which headers and format to use. */
+export const signatureModeEnum = ['github', 'gitlab', 'generic'] as const;
+export type SignatureMode = (typeof signatureModeEnum)[number];
+
 /** Subscribable thought-change events (excludes task assignment + test). */
 export const agentSubscribableEventTypeEnum = [
 	'thought.created',
@@ -1399,6 +1425,8 @@ export const connectedAgent = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		webhookUrl: text('webhook_url').notNull(),
+		/** Signature mode for outbound delivery: 'github', 'gitlab', or 'generic'. */
+		signatureMode: text('signature_mode').$type<SignatureMode>().notNull().default('generic'),
 		subscribedEvents: text('subscribed_events')
 			.array()
 			.$type<AgentSubscribableEventType[]>()
@@ -1408,6 +1436,9 @@ export const connectedAgent = pgTable(
 		signingSecretPrefix: text('signing_secret_prefix').notNull(),
 		callbackTokenHash: text('callback_token_hash').notNull(),
 		callbackTokenPrefix: text('callback_token_prefix').notNull(),
+		/** SHA-256 hash of eigen_agent_* MCP key for agent-scoped memory writes. */
+		mcpApiKeyHash: text('mcp_api_key_hash'),
+		mcpApiKeyPrefix: text('mcp_api_key_prefix'),
 		enabled: boolean('enabled').notNull().default(true),
 		lastDeliveryAt: timestamp('last_delivery_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -1520,6 +1551,46 @@ export const agentProjectBinding = pgTable(
 );
 
 export type AgentProjectBinding = typeof agentProjectBinding.$inferSelect;
+
+/** Inbound webhook subscription — external services POST events to EigenMesh. */
+export const inboundWebhookSubscription = pgTable(
+	'inbound_webhook_subscription',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		/** The path segment after /api/webhooks/inbound/ — must be unique per user. */
+		slug: text('slug').notNull(),
+		/** Signature validation mode: 'github' (X-Hub-Signature-256), 'gitlab' (X-Gitlab-Token), or 'generic' (X-Webhook-Signature). */
+		signatureMode: text('signature_mode').$type<SignatureMode>().notNull().default('generic'),
+		/** HMAC-SHA256 secret for verifying inbound signatures (optional). */
+		signingSecretEncrypted: text('signing_secret_encrypted'),
+		/** Event types this subscription accepts (empty = all). */
+		subscribedEvents: text('subscribed_events')
+			.array()
+			.notNull()
+			.default([]),
+		/** If true, run an agent when this webhook fires. */
+		enabled: boolean('enabled').notNull().default(true),
+		/** Optional: agent ID to invoke on receipt. */
+		agentId: uuid('agent_id').references(() => connectedAgent.id, {
+			onDelete: 'set null'
+		}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(t) => [
+		index('inbound_webhook_user_idx').on(t.userId),
+		uniqueIndex('inbound_webhook_slug_uidx').on(t.userId, t.slug)
+	]
+);
+
+export type InboundWebhookSubscription = typeof inboundWebhookSubscription.$inferSelect;
 
 /** Per-user background work queue drained by the global app ticker. */
 export const userJobQueue = pgTable(
