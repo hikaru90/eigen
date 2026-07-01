@@ -5,7 +5,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import AiDateRangePicker from '$lib/components/ai-date-range-picker.svelte';
 	import { formatDateRange } from '$lib/utils/date-utils';
-	import { formatActivityCredits, formatActivityCreditsSum } from '$lib/billing/platform-pricing';
+	import { formatActivityCredits } from '$lib/billing/platform-pricing';
+	import ActivitySpendChart from './ActivitySpendChart.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -15,10 +16,6 @@
 			total += Number(c.totalCostUsd);
 		}
 		return total.toFixed(6);
-	}
-
-	function formatGroupCredits(calls: Call[]): string {
-		return formatActivityCreditsSum(calls.map((c) => c.totalCostUsd));
 	}
 
 	/** Short label from gateway hostname (e.g. `openrouter` from `api.openrouter.ai`). */
@@ -31,9 +28,10 @@
 		return parts[parts.length - 2] ?? parts[0];
 	}
 
-	function activityProviderRow(c: Call): { label: string; isPaid: boolean } {
-		if (c.provider === 'agent') return { label: 'Agent', isPaid: false };
-		const host = c.gatewayHost?.trim();
+	function groupProviderLabel(calls: Call[]): { label: string; isPaid: boolean } {
+		const first = calls[0];
+		if (first.provider === 'agent') return { label: 'Agent', isPaid: false };
+		const host = first.gatewayHost?.trim();
 		if (host) return { label: endpointLabelFromHost(host), isPaid: true };
 		return { label: 'Paid gateway', isPaid: true };
 	}
@@ -42,6 +40,18 @@
 		if (ms == null) return '\u2014';
 		if (ms < 1000) return `${ms}ms`;
 		return `${(ms / 1000).toFixed(2)}s`;
+	}
+
+	function totalDurationMs(calls: Call[]): number | null {
+		let total = 0;
+		let hasAny = false;
+		for (const c of calls) {
+			if (c.durationMs != null) {
+				total += c.durationMs;
+				hasAny = true;
+			}
+		}
+		return hasAny ? total : null;
 	}
 
 	const currentFilter = $derived(data.filter ?? 'all');
@@ -160,6 +170,10 @@
 		</Card.Content>
 	</Card.Root>
 
+	{#if showOverall && data.spendSeries}
+		<ActivitySpendChart buckets={data.spendSeries.buckets} unit={data.spendSeries.unit} />
+	{/if}
+
 	<Card.Root
 		class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
 	>
@@ -192,61 +206,33 @@
 				</thead>
 				<tbody>
 					{#each grouped as group}
-						{#if group.groupId && grouped.length > 1}
-							{@const groupLabel = group.firstOp.replace(/\.(success|error)\(.*\)$/, '')}
-							{@const groupContext = group.calls.find(c => c.context)?.context}
-							<tr class="bg-muted/20 border-b border-border/40">
-								<td class="p-2 whitespace-nowrap text-[11px] text-muted-foreground" colspan={gatewayColspan}>
-									<span class="flex items-center justify-between">
-										<span class="flex items-center gap-2 min-w-0">
-											<span class="truncate font-mono shrink-0">{groupLabel}</span>
-											{#if groupContext}
-												<span class="truncate text-muted-foreground/70 max-w-[300px]">{groupContext}</span>
-											{/if}
-										</span>
-										<span class="ml-2 shrink-0 tabular-nums">
-											{group.calls.length > 1 ? `${group.calls.length} calls` : ''}
-											{#if isGateway}
-												· {formatActivityCredits(group.groupTotalUsd)}
-											{/if}
-										</span>
-									</span>
-								</td>
-							</tr>
-						{/if}
-						{#each group.calls as c, ci (c.id)}
-							{@const rowProv = activityProviderRow(c)}
-							<tr class="border-b border-border/60">
-								<td class="p-2 whitespace-nowrap">{ci === 0 ? formatDate(c.createdAt) : ''}</td>
-								<td class="p-2">
-									<span class="inline-flex items-center gap-1">
-										{#if rowProv.isPaid}
-											<span class="text-destructive">●</span>
-										{:else}
-											<span class="text-green-600">●</span>
-										{/if}
-										{rowProv.label}
-									</span>
-								</td>
-								<td class="p-2">
-									<div class="flex flex-col gap-0.5">
-										<div class="font-mono text-[11px]">
-											{#if group.groupId && group.calls.length > 1}
-												<span class="text-muted-foreground mr-1">&#x2514;</span>
-											{/if}
-											{c.operation}
-										</div>
-										{#if c.context}
-											<div class="text-[10px] text-muted-foreground truncate max-w-[250px]">{c.context}</div>
-										{/if}
-									</div>
-								</td>
-								<td class="p-2 font-mono text-[11px] text-muted-foreground">{formatDuration(c.durationMs)}</td>
-								{#if isGateway}
-									<td class="p-2 font-mono text-[11px] tabular-nums">{formatActivityCredits(c.totalCostUsd)}</td>
+						{@const prov = groupProviderLabel(group.calls)}
+						{@const groupLabel = group.firstOp.replace(/\.(success|error)\(.*\)$/, '')}
+						{@const context = group.calls.find(c => c.context)?.context}
+						{@const dur = totalDurationMs(group.calls)}
+						<tr class="border-b border-border/60">
+							<td class="p-2 whitespace-nowrap">{formatDate(group.calls[0].createdAt)}</td>
+							<td class="p-2">
+								<span class="inline-flex items-center gap-1">
+									{#if prov.isPaid}
+										<span class="text-destructive">●</span>
+									{:else}
+										<span class="text-green-600">●</span>
+									{/if}
+									{prov.label}
+								</span>
+							</td>
+							<td class="p-2">
+								<span class="font-mono text-[11px] truncate max-w-[250px] block">{groupLabel}</span>
+								{#if context}
+									<span class="text-[10px] text-muted-foreground truncate max-w-[250px] block">{context}</span>
 								{/if}
-							</tr>
-						{/each}
+							</td>
+							<td class="p-2 font-mono text-[11px] text-muted-nowrap">{formatDuration(dur)}</td>
+							{#if isGateway}
+								<td class="p-2 font-mono text-[11px] tabular-nums">{formatActivityCredits(group.groupTotalUsd)}</td>
+							{/if}
+						</tr>
 					{:else}
 						<tr>
 							<td class="text-muted-foreground p-4 text-xs" colspan={isGateway ? gatewayColspan : 4}>

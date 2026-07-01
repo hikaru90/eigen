@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { invalidateAll } from '$app/navigation';
 	import type { PageData } from './$types';
 	import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
@@ -162,6 +163,8 @@ import { logErrorToServer } from '$lib/client-log';
 				upsertRecentThought(thought);
 				if (thought.enrichmentComplete) {
 					cancelEnrichPoll(thoughtId);
+					// Invalidate timeline cache so temporal events refresh
+					void invalidateAll();
 				}
 			},
 			onTimeout: () => {

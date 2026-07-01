@@ -11,6 +11,8 @@
 <div class="-mb-28 h-dvh overflow-hidden overscroll-none">
 	<TemporalEvents
 		initialEventId={initialEventId}
+		prefetchedEvents={data.prefetchedTemporalEvents}
+		prefetchedNextCursor={data.prefetchedNextCursor}
 		userTimeZone={data.preferredTimezone}
 		userName={data.user.name}
 		eventNotificationsEnabled={data.eventNotificationsEnabled}

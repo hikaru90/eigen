@@ -48,6 +48,10 @@ import * as Select from '$lib/components/ui/select';
 		onSelectItem?: (item: TemporalEventListItem | null) => void;
 		selectedItemId?: string | null;
 		initialEventId?: string | null;
+		/** Prefetched temporal events from page server load (avoids initial API call). */
+		prefetchedEvents?: TemporalEventListItem[];
+		/** Prefetched pagination cursor from page server load. */
+		prefetchedNextCursor?: { startAt: string; id: string } | null;
 		userTimeZone?: string;
 		userName?: string | null;
 		eventNotificationsEnabled?: boolean;
@@ -59,6 +63,8 @@ import * as Select from '$lib/components/ui/select';
 		onSelectItem,
 		selectedItemId = null,
 		initialEventId = null,
+		prefetchedEvents,
+		prefetchedNextCursor = null,
 		userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
 		eventNotificationsEnabled = false,
 		eventReminderLeadMinutes = 10,
@@ -190,6 +196,23 @@ import * as Select from '$lib/components/ui/select';
 
 	const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0);
 
+	// Update phase when prefetched data changes (e.g., after SvelteKit invalidation)
+	$effect(() => {
+		const events = prefetchedEvents;
+		if (events && events.length > 0 && phase.kind === 'ready') {
+			// Only update if the data actually changed (different items or count)
+			const currentIds = phase.items.map((i) => i.id).join(',');
+			const newIds = events.map((i) => i.id).join(',');
+			if (currentIds !== newIds) {
+				phase = {
+					kind: 'ready',
+					items: events,
+					nextCursor: prefetchedNextCursor ?? null
+				};
+			}
+		}
+	});
+
 
 	async function loadEvents(append = false, options?: { silent?: boolean }) {
 		const silent = options?.silent ?? false;
@@ -239,7 +262,19 @@ import * as Select from '$lib/components/ui/select';
 	}
 
 	onMount(() => {
-		void loadEvents();
+		// Use prefetched data from page server load if available
+		if (prefetchedEvents && prefetchedEvents.length > 0) {
+			phase = {
+				kind: 'ready',
+				items: prefetchedEvents,
+				nextCursor: prefetchedNextCursor ?? null
+			};
+			if (initialEventId && prefetchedEvents.some((i) => i.id === initialEventId)) {
+				setSelection(prefetchedEvents.find((i) => i.id === initialEventId) ?? null);
+			}
+		} else {
+			void loadEvents();
+		}
 		void loadOverdueItems();
 
 		return subscribeThoughtSync((message) => {
@@ -744,7 +779,7 @@ import * as Select from '$lib/components/ui/select';
 			{#if projectsMode}
 				<TemporalEventsProjectsView
 					onGoToTask={goToTaskFromProjects}
-					allTasks={todayTodoSourceItems}
+					allTasks={displayItems}
 					onTaskUpdated={() => void reloadTimelineData({ silent: true })}
 					{orderBy}
 					{sortDirection}
