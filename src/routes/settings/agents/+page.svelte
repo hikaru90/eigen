@@ -9,7 +9,7 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import Check from '@lucide/svelte/icons/check';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import Bot from '@lucide/svelte/icons/bot';
+	import Send from '@lucide/svelte/icons/send';
 	import X from '@lucide/svelte/icons/x';
 	import { AGENT_EVENT_LABELS, AGENT_SUBSCRIBABLE_EVENTS } from '$lib/agents/constants';
 
@@ -253,8 +253,8 @@
 <div class="mx-auto max-w-xl space-y-6 px-5 pb-8 pt-10">
 	<header class="text-center">
 		<p class="text-muted-foreground mt-2 flex items-center justify-center gap-1.5 text-xs">
-			<Bot class="size-3.5" strokeWidth={1.75} />
-			Connected agents · {data.user.email}
+			<Send class="size-3.5" strokeWidth={1.75} />
+			Webhooks · {data.user.email}
 		</p>
 	</header>
 
@@ -263,31 +263,31 @@
 		<p class="text-muted-foreground text-[11px] leading-relaxed">
 			Register agents that receive webhooks when thoughts change or when you assign them work.
 			Agents report completion to <code class="font-mono text-[10px]">POST /api/agents/callback/complete</code>
-			with <code class="font-mono text-[10px]">Authorization: Bearer eigen_cb_…</code>
+			with <code class="font-mono text-[10px]">Authorization: Bearer eigen_cb_…</code>.
 		</p>
 	</div>
 
 	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
 		<Card.Header>
-			<Card.Title class="text-sm">Register agent</Card.Title>
+			<Card.Title class="text-sm">Register webhook</Card.Title>
 			<Card.Description class="text-muted-foreground text-xs">
 				Provide a webhook URL and choose which thought events to receive.
 			</Card.Description>
 		</Card.Header>
 		<Card.Content>
 			<Button variant="outline" size="sm" class="rounded-[4px]" onclick={openDialog}>
-				Add connected agent
+				Add webhook
 			</Button>
 		</Card.Content>
 	</Card.Root>
 
 	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card">
 		<Card.Header>
-			<Card.Title class="text-sm">Your agents</Card.Title>
+			<Card.Title class="text-sm">Your webhooks</Card.Title>
 		</Card.Header>
 		<Card.Content>
 			{#if agents.length === 0}
-				<p class="text-muted-foreground text-xs">No connected agents yet.</p>
+				<p class="text-muted-foreground text-xs">No webhooks yet.</p>
 			{:else}
 				<div class="space-y-2">
 					{#each agents as agent (agent.id)}
@@ -400,7 +400,7 @@
 	<Dialog.Content class="max-w-md rounded-[4px]">
 		{#if !generatedSecrets}
 			<Dialog.Header>
-				<Dialog.Title>New connected agent</Dialog.Title>
+				<Dialog.Title>New webhook</Dialog.Title>
 				<Dialog.Description>Agents receive signed webhooks at your URL.</Dialog.Description>
 			</Dialog.Header>
 

@@ -76,10 +76,10 @@ describe('filterItemsByStatus', () => {
 		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
 	});
 
-	it('hides cancelled events when filter is open', () => {
+	it('hides archived events when filter is open', () => {
 		const items = [
 			item({ id: 'a', lifecycleStatus: 'open' }),
-			item({ id: 'b', lifecycleStatus: 'cancelled' })
+			item({ id: 'b', lifecycleStatus: 'archived' })
 		];
 		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
 	});
@@ -94,10 +94,10 @@ describe('filterItemsByStatus', () => {
 
 	it('hides open loops completed via thoughtStatus when filter is open', () => {
 		const items = [
-			item({ id: 'a', itemType: 'open_loop', thoughtStatus: 'open', lifecycleStatus: 'open' }),
+			item({ id: 'a', itemType: 'task', thoughtStatus: 'open', lifecycleStatus: 'open' }),
 			item({
 				id: 'b',
-				itemType: 'open_loop',
+				itemType: 'task',
 				thoughtStatus: 'completed',
 				lifecycleStatus: 'open'
 			})
@@ -315,7 +315,7 @@ describe('filterItemsByRange', () => {
 	});
 
 	it('keeps unscheduled open loops in relevant and upcoming ranges', () => {
-		const unscheduled = item({ id: 'loop', startAt: null, endAt: null, itemType: 'open_loop' });
+		const unscheduled = item({ id: 'loop', startAt: null, endAt: null, itemType: 'task' });
 		expect(filterItemsByRange([unscheduled], 'relevant').map((i) => i.id)).toEqual(['loop']);
 		expect(filterItemsByRange([unscheduled], 'upcoming').map((i) => i.id)).toEqual(['loop']);
 		expect(filterItemsByRange([unscheduled], 'past').map((i) => i.id)).toEqual([]);

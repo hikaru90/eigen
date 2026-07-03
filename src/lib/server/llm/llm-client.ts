@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { env } from '$env/dynamic/private';
 import { and, eq } from 'drizzle-orm';
 import { getDb, withDbUser } from '$lib/server/db';
@@ -14,6 +15,7 @@ import {
 	type TokenUsage
 } from '$lib/server/llm/gateway-cost';
 import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings';
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import {
 	assertEurouterGatewayConfigured,
@@ -56,16 +58,67 @@ const routingRuleCache = new Map<string, RoutingConfig>();
  * Using a shared global queue previously caused one user's capture to block every other user's
  * LLM access for the duration of their pipeline.
  */
-type UserLlmState = { lastRequestAt: number; queue: Promise<void> };
+type UserLlmState = {
+	lastRequestAt: number;
+	lastEndedAt: number;
+	queue: Promise<void>;
+	serialQueue: Promise<void>;
+};
 const userLlmState = new Map<string, UserLlmState>();
+
+/** Nested LLM calls (e.g. agent tool follow-ups) must not re-enter the user gate. */
+const llmNestDepth = new AsyncLocalStorage<number>();
 
 function getUserLlmState(userId: string): UserLlmState {
 	let state = userLlmState.get(userId);
 	if (!state) {
-		state = { lastRequestAt: 0, queue: Promise.resolve() };
+		state = {
+			lastRequestAt: 0,
+			lastEndedAt: 0,
+			queue: Promise.resolve(),
+			serialQueue: Promise.resolve()
+		};
 		userLlmState.set(userId, state);
 	}
 	return state;
+}
+
+function serialLlmRequestsEnabled(): boolean {
+	const raw = env.LLM_SERIAL_REQUESTS?.trim().toLowerCase();
+	return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+/**
+ * Serial mode: one in-flight request per user; next starts only after the prior finishes
+ * and `LLM_MIN_REQUEST_INTERVAL_MS` has elapsed since it ended.
+ */
+async function runLlmRequestGated<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+	const depth = llmNestDepth.getStore() ?? 0;
+	if (depth > 0) {
+		return llmNestDepth.run(depth + 1, fn);
+	}
+
+	const intervalMs = minRequestIntervalMs();
+	const state = getUserLlmState(userId);
+
+	// Chain synchronously (assign before await) so concurrent callers cannot pass the gate together.
+	const slot = state.serialQueue.then(async () => {
+		const elapsed = Date.now() - state.lastEndedAt;
+		const waitMs = Math.max(0, intervalMs - elapsed);
+		if (waitMs > 0) {
+			await sleep(waitMs);
+		}
+		try {
+			return await llmNestDepth.run(1, fn);
+		} finally {
+			state.lastEndedAt = Date.now();
+		}
+	});
+	state.serialQueue = slot.then(
+		() => undefined,
+		() => undefined
+	);
+	return slot;
 }
 
 function extractUsage(body: unknown): TokenUsage | undefined {
@@ -121,6 +174,7 @@ function extractChatResponseText(body: unknown): string {
 }
 
 function logLlmChatRequest(logCtx: string, attempt: number, messages: ChatMessage[]): void {
+	if (isGraphScaleQuiet()) return;
 	console.log(`[llm.chat:${logCtx}] request attempt ${attempt}/${3}`);
 	for (const message of messages) {
 		console.log(`[llm.chat:${logCtx}] ${message.role}:\n${message.content}`);
@@ -128,6 +182,7 @@ function logLlmChatRequest(logCtx: string, attempt: number, messages: ChatMessag
 }
 
 function logLlmChatResponse(logCtx: string, attempt: number, body: unknown): void {
+	if (isGraphScaleQuiet()) return;
 	console.log(`[llm.chat:${logCtx}] response attempt ${attempt}:\n${extractChatResponseText(body)}`);
 }
 
@@ -139,7 +194,11 @@ function truncateForEmbeddingLog(text: string): string {
 	return `${trimmed.slice(0, EMBEDDING_LOG_INPUT_MAX - 3)}...`;
 }
 
-function logLlmEmbeddingRequest(attempt: number, input: string | string[]): void {
+function logLlmEmbeddingRequest(attempt: number, input: string | string[], logCtx = 'embedding'): void {
+	if (isGraphScaleQuiet()) {
+		console.info(`[graph-scale] llm ${logCtx} attempt ${attempt}/${3}`);
+		return;
+	}
 	console.log(`[llm.embedding] request attempt ${attempt}/${3}`);
 	if (Array.isArray(input)) {
 		for (const [index, text] of input.entries()) {
@@ -155,12 +214,14 @@ function logLlmSttRequest(
 	model: string,
 	audio: { bytes: Uint8Array; format: string; language?: string }
 ): void {
+	if (isGraphScaleQuiet()) return;
 	console.log(
 		`[llm.stt] request attempt ${attempt}/${3} model=${model} format=${audio.format} bytes=${audio.bytes.byteLength}${audio.language ? ` language=${audio.language}` : ''}`
 	);
 }
 
 function logLlmSttResponse(attempt: number, body: unknown): void {
+	if (isGraphScaleQuiet()) return;
 	if (!body || typeof body !== 'object') {
 		console.log(`[llm.stt] response attempt ${attempt}: (empty response)`);
 		return;
@@ -181,6 +242,8 @@ function logLlmSttResponse(attempt: number, body: unknown): void {
 }
 
 async function waitForLlmRateLimit(userId: string): Promise<void> {
+	if (serialLlmRequestsEnabled()) return;
+
 	const intervalMs = minRequestIntervalMs();
 	if (intervalMs === 0) return;
 
@@ -239,8 +302,8 @@ async function loadLlmProviderConfig(
 
 	if (row?.baseUrl && row.apiKey) {
 		const baseUrl = row.baseUrl.replace(/\/$/, '');
-		const ruleChat = row.ruleChat ?? null;
-		const ruleEmbedding = row.ruleEmbedding ?? null;
+		const ruleChat = row.ruleChat?.trim() || null;
+		const ruleEmbedding = row.ruleEmbedding?.trim() || null;
 		if (provider === 'eurouter') {
 			assertEurouterGatewayConfigured({
 				baseUrl,
@@ -255,8 +318,8 @@ async function loadLlmProviderConfig(
 			apiKey: row.apiKey,
 			ruleChat,
 			ruleEmbedding,
-			modelChat: row.modelChat ?? null,
-			modelEmbedding: row.modelEmbedding ?? null
+			modelChat: row.modelChat?.trim() || null,
+			modelEmbedding: row.modelEmbedding?.trim() || null
 		};
 	}
 
@@ -459,7 +522,10 @@ export async function llmChatCompletion(input: {
 	return withPlatformBilling(
 		input.userId,
 		(body) => requireGatewayReportedCostUsd(body),
-		() => llmChatCompletionInner(input)
+		() =>
+			serialLlmRequestsEnabled()
+				? runLlmRequestGated(input.userId, () => llmChatCompletionInner(input))
+				: llmChatCompletionInner(input)
 	);
 }
 
@@ -486,12 +552,16 @@ async function llmChatCompletionInner(input: {
 		const attemptStart = Date.now();
 		const db = getDb();
 		try {
-			console.info(`[llm.chat:${logCtx}] attempt ${attempt}/${maxAttempts}`, {
-				model: routing.model,
-				ruleId: routing.ruleId ?? null,
-				messageCount: messages.length,
-				totalChars: messages.reduce((n, m) => n + m.content.length, 0)
-			});
+			if (!isGraphScaleQuiet()) {
+				console.info(`[llm.chat:${logCtx}] attempt ${attempt}/${maxAttempts}`, {
+					model: routing.model,
+					ruleId: routing.ruleId ?? null,
+					messageCount: messages.length,
+					totalChars: messages.reduce((n, m) => n + m.content.length, 0)
+				});
+			} else {
+				console.info(`[graph-scale] llm ${logCtx} attempt ${attempt}/${maxAttempts}`);
+			}
 			logLlmChatRequest(logCtx, attempt, messages);
 			await waitForLlmRateLimit(input.userId);
 			const fetchStart = Date.now();
@@ -540,15 +610,17 @@ async function llmChatCompletionInner(input: {
 			const fetchMs = Date.now() - fetchStart;
 			const usage = extractUsage(json);
 			const baseCost = gatewayReportedCostUsdForLog(json);
-			console.info(`[llm.chat:${logCtx}] gateway response ok`, {
-				attempt,
-				httpStatus: res.status,
-				attemptMs,
-				fetchMs,
-				prompt_tokens: usage?.prompt_tokens,
-				completion_tokens: usage?.completion_tokens,
-				total_tokens: usage?.total_tokens
-			});
+			if (!isGraphScaleQuiet()) {
+				console.info(`[llm.chat:${logCtx}] gateway response ok`, {
+					attempt,
+					httpStatus: res.status,
+					attemptMs,
+					fetchMs,
+					prompt_tokens: usage?.prompt_tokens,
+					completion_tokens: usage?.completion_tokens,
+					total_tokens: usage?.total_tokens
+				});
+			}
 			logLlmChatResponse(logCtx, attempt, json);
 			// Extract first user message for context preview
 			const firstUserMessage = input.messages.find(m => m.role === 'user')?.content || '';
@@ -595,7 +667,10 @@ export async function llmCreateEmbeddings(input: { userId: string; input: string
 	return withPlatformBilling(
 		input.userId,
 		(body) => requireGatewayReportedCostUsd(body),
-		() => llmCreateEmbeddingsInner(input)
+		() =>
+			serialLlmRequestsEnabled()
+				? runLlmRequestGated(input.userId, () => llmCreateEmbeddingsInner(input))
+				: llmCreateEmbeddingsInner(input)
 	);
 }
 
@@ -738,7 +813,10 @@ export async function llmCreateTranscription(input: {
 		(body) => requireGatewayReportedCostUsd(body),
 		async () => {
 			const config = await loadOpenRouterSttConfig(input.userId);
-			return llmCreateTranscriptionDedicated(input, config);
+			const run = () => llmCreateTranscriptionDedicated(input, config);
+			return serialLlmRequestsEnabled()
+				? runLlmRequestGated(input.userId, run)
+				: run();
 		}
 	);
 }

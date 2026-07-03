@@ -6,6 +6,7 @@
  */
 
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import type { MemoryAuthor } from '$lib/server/db/schema';
 import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { getDb } from '$lib/server/db';
@@ -232,9 +233,12 @@ export async function retrieveEvidence(params: {
 	topK?: number;
 	queryEmbedding?: number[];
 	temporalIntent?: TemporalQueryIntent | null;
+	/** Optional filter — omit to include both user and agent-authored thoughts. */
+	authorFilter?: MemoryAuthor;
 }): Promise<RetrievalResult[]> {
 	const timer = createPhaseTimer();
 	const limit = Math.max(1, Math.min(params.topK ?? 12, 100));
+	const authorFilter = params.authorFilter;
 
 	timer.mark('embed');
 	const queryEmbedding =
@@ -253,14 +257,21 @@ export async function retrieveEvidence(params: {
 			distance: vectorDistance
 		})
 		.from(thought)
-		.where(and(eq(thought.userId, params.userId), isNotNull(thought.embedding)))
+		.where(
+			and(
+				eq(thought.userId, params.userId),
+				isNotNull(thought.embedding),
+				authorFilter ? eq(thought.author, authorFilter) : undefined
+			)
+		)
 		.orderBy(vectorDistance)
 		.limit(THOUGHT_ANN_LIMIT);
 
 	const lexicalQuery = lexicalSearch({
 		userId: params.userId,
 		query: params.query,
-		limit: THOUGHT_ANN_LIMIT
+		limit: THOUGHT_ANN_LIMIT,
+		authorFilter
 	});
 
 	const entityQuery = matchCanonicalEntitiesByEmbedding({
@@ -482,7 +493,9 @@ export async function retrieveEvidence(params: {
 			specificityScore: thought.specificityScore,
 			recencyBucket: thought.recencyBucket,
 			bundleRank: thought.bundleRank,
-			primaryCommunityIds: thought.primaryCommunityIds
+			primaryCommunityIds: thought.primaryCommunityIds,
+			author: thought.author,
+			authorLabel: thought.authorLabel
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, params.userId), inArray(thought.id, candidateIds)));
@@ -577,6 +590,8 @@ export async function retrieveEvidence(params: {
 				normalizedText,
 				category: row.category,
 				memoryType: row.memoryType,
+				author: row.author,
+				authorLabel: row.authorLabel,
 				score,
 				vectorScore,
 				graphScore,
@@ -612,6 +627,8 @@ export async function retrieveEvidence(params: {
 			decrypted.find((d) => d.id === r.id)?.normalizedText ?? r.normalizedText,
 		category: r.category as string,
 		memoryType: r.memoryType as string | null,
+		author: decrypted.find((d) => d.id === r.id)?.author ?? 'user',
+		authorLabel: decrypted.find((d) => d.id === r.id)?.authorLabel ?? null,
 		score: r.score,
 		vectorScore: r.vectorScore as number,
 		graphScore: r.graphScore as number,
@@ -633,5 +650,5 @@ export async function retrieveEvidence(params: {
 		tag: '[retrieval.retrieveEvidence]'
 	});
 
-	return final;
+	return authorFilter ? final.filter((r) => r.author === authorFilter) : final;
 }

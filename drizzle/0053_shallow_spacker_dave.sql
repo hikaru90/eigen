@@ -1,0 +1,2 @@
+-- signature_mode column was added manually to connected_agent
+-- All other schema changes are already applied.

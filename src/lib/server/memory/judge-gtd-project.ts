@@ -9,9 +9,10 @@ import {
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { m } from '$lib/paraglide/messages.js';
 import {
 	countLinkedThoughtsForProjectEntity,
-	countOpenLoopsForProjectEntity
+	countOpenTasksForProjectEntity
 } from '$lib/server/memory/project-eligibility';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 
@@ -25,9 +26,9 @@ export type HubJudgmentContext = {
 	label: string;
 	entityType: string;
 	linkedThoughtCount: number;
-	openLoopCount: number;
+	openTaskCount: number;
 	linkedThoughtSummaries: string[];
-	openLoopSummaries: string[];
+	openTaskSummaries: string[];
 };
 
 function extractChatContent(response: unknown): string {
@@ -75,7 +76,6 @@ export async function loadHubJudgmentContext(
 		.select({
 			normalizedText: thought.normalizedText,
 			normalizedTextEncrypted: thought.normalizedTextEncrypted,
-			memoryType: thought.memoryType,
 			category: thought.category
 		})
 		.from(thoughtEntity)
@@ -85,44 +85,41 @@ export async function loadHubJudgmentContext(
 		.limit(12);
 
 	const linkedThoughtSummaries: string[] = [];
-	const openLoopSummaries: string[] = [];
+	const openTaskSummaries: string[] = [];
 	for (const row of thoughtRows) {
 		const summary = await summarizeThoughtRow(userId, row);
 		if (!summary) continue;
 		if (linkedThoughtSummaries.length < 8) {
 			linkedThoughtSummaries.push(summary);
 		}
-		if (
-			(row.memoryType === 'open_loop' || row.category === 'task') &&
-			openLoopSummaries.length < 6
-		) {
-			openLoopSummaries.push(summary);
+		if (row.category === 'task' && openTaskSummaries.length < 6) {
+			openTaskSummaries.push(summary);
 		}
 	}
 
 	const linkedThoughtCount = await countLinkedThoughtsForProjectEntity(userId, id);
-	const openLoopCount = await countOpenLoopsForProjectEntity(userId, id);
+	const openTaskCount = await countOpenTasksForProjectEntity(userId, id);
 
 	return {
 		entityId: id,
 		label: entity.label,
 		entityType: entity.entityType,
 		linkedThoughtCount,
-		openLoopCount,
+		openTaskCount,
 		linkedThoughtSummaries,
-		openLoopSummaries
+		openTaskSummaries
 	};
 }
 
 /** Structural pre-check: enough evidence to spend an LLM call (does not decide meaning). */
 export function shouldInvokeGtdProjectJudge(input: {
 	linkedThoughtCount: number;
-	openLoopCount: number;
+	openTaskCount: number;
 	force?: boolean;
 }): boolean {
 	if (input.force) return true;
-	if (input.openLoopCount >= 2) return true;
-	if (input.linkedThoughtCount >= 2 && input.openLoopCount >= 1) return true;
+	if (input.openTaskCount >= 2) return true;
+	if (input.linkedThoughtCount >= 2 && input.openTaskCount >= 1) return true;
 	if (input.linkedThoughtCount >= 3) return true;
 	return false;
 }
@@ -149,8 +146,8 @@ function buildJudgePrompt(context: HubJudgmentContext): string {
 	const linked = context.linkedThoughtSummaries.length
 		? context.linkedThoughtSummaries.map((s) => `- ${s}`).join('\n')
 		: '(none)';
-	const tasks = context.openLoopSummaries.length
-		? context.openLoopSummaries.map((s) => `- ${s}`).join('\n')
+	const tasks = context.openTaskSummaries.length
+		? context.openTaskSummaries.map((s) => `- ${s}`).join('\n')
 		: '(none)';
 
 	return [
@@ -169,7 +166,7 @@ function buildJudgePrompt(context: HubJudgmentContext): string {
 		'',
 		`Hub label: ${context.label}`,
 		`Entity type (ontology): ${context.entityType}`,
-		`Stats (context only): ${context.linkedThoughtCount} linked thoughts, ${context.openLoopCount} open tasks/open-loops`,
+		`Stats (context only): ${context.linkedThoughtCount} linked thoughts, ${context.openTaskCount} open tasks`,
 		'',
 		'Linked thoughts:',
 		linked,
@@ -190,7 +187,7 @@ export async function judgeGtdProjectHub(
 	if (
 		!shouldInvokeGtdProjectJudge({
 			linkedThoughtCount: context.linkedThoughtCount,
-			openLoopCount: context.openLoopCount,
+			openTaskCount: context.openTaskCount,
 			force: options?.force
 		})
 	) {
@@ -202,8 +199,7 @@ export async function judgeGtdProjectHub(
 		messages: [
 			{
 				role: 'system',
-				content:
-					'You judge whether a knowledge-graph hub is a personal GTD project (multi-step initiative). Return only valid JSON.'
+				content: m.llm_gtd_judge_system()
 			},
 			{ role: 'user', content: buildJudgePrompt(context) }
 		],
@@ -255,13 +251,13 @@ function buildBatchAuditPrompt(
 ): string {
 	const blocks = entries.map(({ context }) => {
 		const linked = context.linkedThoughtSummaries.map((s) => `    - ${s}`).join('\n') || '    (none)';
-		const tasks = context.openLoopSummaries.map((s) => `  - ${s}`).join('\n') || '  (none)';
+		const tasks = context.openTaskSummaries.map((s) => `  - ${s}`).join('\n') || '  (none)';
 		return [
 			`- entityId: ${context.entityId}`,
 			`  label: ${context.label}`,
 			`  entityType: ${context.entityType}`,
 			`  linkedThoughtCount: ${context.linkedThoughtCount}`,
-			`  openLoopCount: ${context.openLoopCount}`,
+			`  openTaskCount: ${context.openTaskCount}`,
 			'  linkedThoughts:',
 			linked,
 			'  openTasks:',

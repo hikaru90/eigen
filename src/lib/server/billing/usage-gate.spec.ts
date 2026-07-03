@@ -12,6 +12,13 @@ vi.mock('$lib/server/billing/preferences', () => ({
 	isByokBilling: isByokBillingMock
 }));
 
+vi.mock('$lib/server/billing/ensure-harness-credits', () => ({
+	ensureHarnessWalletCredits: vi.fn(async () => ({
+		billingUserId: 'graph-scale-runner',
+		availableCredits: 500_000
+	}))
+}));
+
 vi.mock('$lib/server/billing/wallet', () => ({
 	assertCanAfford: vi.fn(async () => undefined),
 	assertHasPlatformCredits: vi.fn(async () => ({

@@ -11,6 +11,13 @@ vi.mock('$lib/server/billing/preferences', () => ({
 	isByokBilling: isByokBillingMock
 }));
 
+vi.mock('$lib/server/billing/ensure-harness-credits', () => ({
+	ensureHarnessWalletCredits: vi.fn(async () => ({
+		billingUserId: 'graph-scale-runner',
+		availableCredits: 500_000
+	}))
+}));
+
 vi.mock('$lib/server/billing/wallet', () => ({
 	assertCanAfford: assertCanAffordMock,
 	assertHasPlatformCredits: vi.fn(),
@@ -34,5 +41,11 @@ describe('assertCapturePipelineAffordable billing user', () => {
 		});
 		expect(assertCanAffordMock).toHaveBeenCalledWith('operator-99', MIN_CAPTURE_PIPELINE_CREDITS);
 		expect(isByokBillingMock).toHaveBeenCalledWith('operator-99');
+	});
+
+	it('checks harness corpus operator wallet without billingUserAsyncLocal', async () => {
+		const { assertCapturePipelineAffordable } = await import('./usage-gate');
+		await assertCapturePipelineAffordable('graph-scale-corpus-run-uuid-1');
+		expect(assertCanAffordMock).toHaveBeenCalledWith('graph-scale-runner', MIN_CAPTURE_PIPELINE_CREDITS);
 	});
 });

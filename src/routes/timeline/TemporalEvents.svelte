@@ -17,11 +17,11 @@ import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 		mergePriorDayOverdueIntoItems,
 		filterPriorDayOverdueItems,
 		filterSnoozedItems,
-		isOpenLoopItemId,
-		isOpenLoopListItem,
+		isTaskItemId,
+		isTaskListItem,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
-		thoughtIdFromOpenLoopItemId,
+		thoughtIdFromTaskItemId,
 		type NowSegment
 	} from './temporal-events-utils';
 	import { filterCompletedTodayItems } from '$lib/graph/timeline-completed-today';
@@ -222,7 +222,7 @@ import * as Select from '$lib/components/ui/select';
 			const params = new SvelteURLSearchParams({
 				range: rangeFilter,
 				status: 'open',
-				includeOpenLoops: 'true',
+				includeTasks: 'true',
 				orderBy,
 				sortDirection
 			});
@@ -294,7 +294,7 @@ import * as Select from '$lib/components/ui/select';
 			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'open',
-				includeOpenLoops: 'true',
+				includeTasks: 'true',
 				orderBy,
 				sortDirection
 			});
@@ -323,7 +323,7 @@ import * as Select from '$lib/components/ui/select';
 			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'all',
-				includeOpenLoops: 'true'
+				includeTasks: 'true'
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			const res = await fetch(`/api/temporal-events?${params}`);
@@ -444,8 +444,8 @@ import * as Select from '$lib/components/ui/select';
 		}
 	}
 
-	async function postOpenLoopStatus(itemId: string, status: 'open' | 'completed') {
-		const thoughtId = thoughtIdFromOpenLoopItemId(itemId);
+	async function postTaskStatus(itemId: string, status: 'open' | 'completed' | 'archived') {
+		const thoughtId = thoughtIdFromTaskItemId(itemId);
 		if (!thoughtId) return;
 		actionError = null;
 		actionBusy = true;
@@ -464,13 +464,19 @@ import * as Select from '$lib/components/ui/select';
 				phase.kind === 'ready' ? phase.items.find((item) => item.id === itemId) : undefined;
 			if (existing) {
 				const nowIso = new Date().toISOString();
-				syncListsAfterStatusChange({
-					...existing,
-					thoughtStatus: status,
-					lifecycleStatus: status === 'completed' ? 'completed' : 'open',
-					completedAt: status === 'completed' ? nowIso : null,
-					lifecycleUpdatedAt: nowIso
-				});
+				if (status === 'archived') {
+					removeItemLocally(itemId);
+					overdueItems = overdueItems.filter((i) => i.id !== itemId);
+					doneItems = doneItems.filter((i) => i.id !== itemId);
+				} else {
+					syncListsAfterStatusChange({
+						...existing,
+						thoughtStatus: status,
+						lifecycleStatus: status,
+						completedAt: status === 'completed' ? nowIso : null,
+						lifecycleUpdatedAt: nowIso
+					});
+				}
 			} else {
 				bumpStats();
 				void loadEvents(false, { silent: true });
@@ -479,7 +485,11 @@ import * as Select from '$lib/components/ui/select';
 				notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
 			}
 			lastActionSummary =
-				status === 'completed' ? m.graph_timeline_open_loop_done() : m.graph_timeline_open_loop_reopen();
+				status === 'completed'
+					? m.graph_timeline_open_loop_done()
+					: status === 'archived'
+						? m.graph_temporal_remove_event()
+						: m.graph_timeline_open_loop_reopen();
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -487,13 +497,11 @@ import * as Select from '$lib/components/ui/select';
 		}
 	}
 
-	function onQuickAction(eventId: string, action: 'mark_done' | 'reopen' | 'cancel' | 'dismiss') {
-		if (isOpenLoopItemId(eventId)) {
-			void postOpenLoopStatus(eventId, action === 'mark_done' ? 'completed' : 'open');
-			return;
-		}
-		if (action === 'cancel' || action === 'dismiss') {
-			void postEventAction(eventId, { action });
+	function onQuickAction(eventId: string, action: 'mark_done' | 'reopen' | 'archive') {
+		if (isTaskItemId(eventId)) {
+			const status =
+				action === 'mark_done' ? 'completed' : action === 'archive' ? 'archived' : 'open';
+			void postTaskStatus(eventId, status);
 			return;
 		}
 		void postEventAction(eventId, { action });
@@ -833,7 +841,7 @@ import * as Select from '$lib/components/ui/select';
 		{onQuickAction}
 		{onInstruction}
 		{onDelete}
-		showAssignAgent={selectedItem ? isOpenLoopListItem(selectedItem) : false}
+		showAssignAgent={selectedItem ? isTaskListItem(selectedItem) : false}
 		onAssignAgent={selectedItem ? () => openAgentAssign(selectedItem) : undefined}
 		onClose={deselectItem}
 	/>

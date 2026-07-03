@@ -9,9 +9,9 @@ import {
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { thought } from '$lib/server/db/schema';
 import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project';
-import { openLoopItemId } from '$lib/server/memory/temporal-event-list';
+import { taskItemId } from '$lib/server/memory/temporal-event-list';
 import {
-	countOpenLoopsForProjectEntity,
+	countOpenTasksForProjectEntity,
 	ensureProjectProfile,
 	thoughtStatusFromMetadata
 } from '$lib/server/memory/project-eligibility';
@@ -28,7 +28,7 @@ export type ProjectListItem = {
 	status: ProjectStatus;
 	source: ProjectProfileSource;
 	nextAction: ProjectNextAction | null;
-	openLoopCount: number;
+	openTaskCount: number;
 };
 
 async function summarizeThought(userId: string, thoughtId: string): Promise<string | null> {
@@ -107,18 +107,18 @@ export async function listProjectsForUser(userId: string): Promise<ProjectListIt
 				nextAction = {
 					thoughtId: row.nextActionThoughtId,
 					summary,
-					itemId: openLoopItemId(row.nextActionThoughtId)
+					itemId: taskItemId(row.nextActionThoughtId)
 				};
 			}
 		}
-		const openLoopCount = await countOpenLoopsForProjectEntity(userId, row.entityId);
+		const openTaskCount = await countOpenTasksForProjectEntity(userId, row.entityId);
 		items.push({
 			entityId: row.entityId,
 			label: row.label,
 			status,
 			source,
 			nextAction,
-			openLoopCount
+			openTaskCount
 		});
 	}
 
@@ -137,9 +137,24 @@ export async function dismissProject(userId: string, entityId: string): Promise<
 		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, entityId)));
 }
 
+/** Update a project's label (name). */
+export async function updateProjectLabel(userId: string, entityId: string, newLabel: string): Promise<{ entityId: string; label: string }> {
+	const [updated] = await getDb()
+		.update(canonicalEntity)
+		.set({ label: newLabel, updatedAt: new Date() })
+		.where(and(eq(canonicalEntity.id, entityId), eq(canonicalEntity.userId, userId)))
+		.returning({ id: canonicalEntity.id, label: canonicalEntity.label });
+
+	if (!updated) {
+		throw new Error('Project not found or not owned by user');
+	}
+
+	return { entityId: updated.id, label: updated.label };
+}
+
 export {
 	countLinkedThoughtsForProjectEntity,
-	countOpenLoopsForProjectEntity,
+	countOpenTasksForProjectEntity,
 	ensureProjectProfile
 } from '$lib/server/memory/project-eligibility';
 
@@ -148,7 +163,7 @@ export type EligibleGtdProject = {
 	label: string;
 	status: ProjectStatus;
 	source: ProjectProfileSource;
-	openLoopCount: number;
+	openTaskCount: number;
 };
 
 /** Active GTD projects in the assignment catalog (LLM-audited profiles only). */
@@ -173,13 +188,13 @@ export async function loadEligibleGtdProjects(userId: string): Promise<EligibleG
 	const out: EligibleGtdProject[] = [];
 	for (const row of rows) {
 		const source = (row.source ?? 'capture') as ProjectProfileSource;
-		const openLoopCount = await countOpenLoopsForProjectEntity(userId, row.entityId);
+		const openTaskCount = await countOpenTasksForProjectEntity(userId, row.entityId);
 		out.push({
 			entityId: row.entityId,
 			label: row.label,
 			status: row.status as ProjectStatus,
 			source,
-			openLoopCount
+			openTaskCount
 		});
 	}
 	return out;

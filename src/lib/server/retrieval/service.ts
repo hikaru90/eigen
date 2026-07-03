@@ -7,11 +7,15 @@
 
 import { retrieveEvidence } from '$lib/server/retrieval/retrieve-evidence';
 
+import type { MemoryAuthor } from '$lib/server/db/schema';
+
 export type RetrievalResult = {
 	id: string;
 	normalizedText: string;
 	category: string;
 	memoryType: string | null;
+	author: MemoryAuthor;
+	authorLabel: string | null;
 	score: number;
 	vectorScore: number;
 	graphScore: number;
@@ -32,13 +36,15 @@ export async function searchThoughts(params: {
 	mode?: RetrievalMode;
 	queryEmbedding?: number[];
 	temporalIntent?: import('$lib/server/retrieval/temporal').TemporalQueryIntent | null;
+	authorFilter?: MemoryAuthor;
 }): Promise<RetrievalResult[]> {
 	return retrieveEvidence({
 		userId: params.userId,
 		query: params.query,
 		topK: params.topK,
 		queryEmbedding: params.queryEmbedding,
-		temporalIntent: params.temporalIntent
+		temporalIntent: params.temporalIntent,
+		authorFilter: params.authorFilter
 	});
 }
 

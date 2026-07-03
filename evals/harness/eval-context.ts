@@ -1,5 +1,13 @@
 import { billingUserAsyncLocal, tenantUserAsyncLocal } from '$lib/server/billing/context';
-import { appSql, createScopedDrizzle, appDbAsyncLocal, activateTenantDbSession, deactivateTenantDbSession, type AppDatabase } from '$lib/server/db';
+import {
+	appSql,
+	createScopedDrizzle,
+	appDbAsyncLocal,
+	appReservedSqlAsyncLocal,
+	activateTenantDbSession,
+	deactivateTenantDbSession,
+	type AppDatabase
+} from '$lib/server/db';
 
 export type WithEvalDbOptions = {
 	/** Platform credits / BYOK checks and wallet debits use this user (e.g. eval operator). */
@@ -24,7 +32,10 @@ export async function withEvalDb<T>(
 		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
 		const run = () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
-		const withTenant = () => tenantUserAsyncLocal.run(userId, run);
+		const withTenant = () =>
+			tenantUserAsyncLocal.run(userId, () =>
+				appReservedSqlAsyncLocal.run(reserved, run)
+			);
 		const billingUserId = options?.billingUserId?.trim();
 		if (billingUserId) {
 			return await billingUserAsyncLocal.run(billingUserId, withTenant);
@@ -58,6 +69,7 @@ function nowStamp(): string {
 }
 
 export function logEval(message: string): void {
+	if (process.env.GRAPH_SCALE_QUIET === '1') return;
 	console.log(`[eval ${nowStamp()}] ${message}`);
 }
 

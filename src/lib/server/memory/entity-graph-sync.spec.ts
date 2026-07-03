@@ -84,16 +84,32 @@ describe('syncEntityGraphFromThought', () => {
 		{ id: 'et2', userId: 'u1', key: 'place', name: 'Place', definition: 'A location', active: true, kindType: 'entity_type' }
 	];
 
-	function mockThoughtAnchor(category = 'observation') {
-		getDbMock.mockReturnValue({
+	function mockAuthorshipDb() {
+		return {
 			select: vi.fn().mockReturnValue({
 				from: vi.fn().mockReturnValue({
 					where: vi.fn().mockReturnValue({
-						limit: vi.fn().mockResolvedValue([{ category }])
+						limit: vi.fn().mockResolvedValue([
+							{ author: 'user', authorLabel: null, authorKeyId: null }
+						])
 					})
 				})
 			})
-		});
+		};
+	}
+
+	function mockThoughtAnchor(category = 'observation') {
+		getDbMock
+			.mockReturnValueOnce(mockAuthorshipDb())
+			.mockReturnValue({
+				select: vi.fn().mockReturnValue({
+					from: vi.fn().mockReturnValue({
+						where: vi.fn().mockReturnValue({
+							limit: vi.fn().mockResolvedValue([{ category }])
+						})
+					})
+				})
+			});
 	}
 
 	beforeEach(() => {
@@ -101,7 +117,7 @@ describe('syncEntityGraphFromThought', () => {
 		extractEntityGraphBundleMock.mockResolvedValue({ mentions: [], triples: [] });
 		extractEntityTriplesMock.mockResolvedValue([]);
 		clearEntityResolutionLogsForThoughtMock.mockResolvedValue(undefined);
-		getDbMock.mockReturnValue({});
+		getDbMock.mockReturnValue(mockAuthorshipDb());
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
 		loadEntityHintsForThoughtMock.mockResolvedValue([]);
 		createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
@@ -339,6 +355,24 @@ describe('upsertEntityRelationTriples', () => {
 			sourceEntityId: 'id-Sam',
 			targetEntityId: 'id-Berlin',
 			predicate: 'located_in'
+		});
+	});
+
+	it('wires triple to known graph entity label via graphEntityIdByLabel', async () => {
+		await upsertEntityRelationTriples({
+			userId: 'u1',
+			normalizedText: 'bring fish',
+			mentions: [{ surface: 'fish', entityType: 'concept', confidence: 0.9 }],
+			surfaceToEntityId: new Map([['fish', 'id-fish']]),
+			triples: [{ subject: 'fish', object: 'picnic', predicate: 'part_of', confidence: 0.9 }],
+			graphEntityIdByLabel: new Map([['picnic', 'id-picnic']])
+		});
+
+		expect(upsertEntityRelationEdgeMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			sourceEntityId: 'id-fish',
+			targetEntityId: 'id-picnic',
+			predicate: 'part_of'
 		});
 	});
 

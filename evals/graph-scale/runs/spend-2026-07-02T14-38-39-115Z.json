@@ -1,0 +1,147 @@
+{
+  "runId": "e8fe164c-f306-4268-8284-fe2d83116caa",
+  "startedAt": "2026-07-02T14:32:09.278Z",
+  "finishedAt": "2026-07-02T14:38:39.114Z",
+  "userId": "graph-scale-spend-2935be46-7b92-4446-af9f-4460e3bd4a5c",
+  "email": "graph-scale-spend-2935be46-7b92-4446-af9f-4460e3bd4a5c@local.eval",
+  "thoughtCount": 10,
+  "probeSuite": "picnic-linked",
+  "probeTexts": [
+    "I want to do a picnic and I need to bring fish.",
+    "I need to bring bread for the picnic.",
+    "I need to bring water for the picnic.",
+    "I need to bring a picnic blanket.",
+    "I need to bring a picnic table.",
+    "I need to bring cheese for the picnic.",
+    "I need to bring fruit for the picnic.",
+    "I need to bring plates for the picnic.",
+    "I need to bring cups for the picnic.",
+    "I need to bring a corkscrew for the picnic wine."
+  ],
+  "perThought": [
+    {
+      "index": 0,
+      "thoughtId": "7532e959-a424-4314-8a8c-c0d6a99532e3",
+      "groupId": "ui-capture",
+      "usd": "0.000320",
+      "credits": 0.32,
+      "wallMs": 43512,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 1,
+      "thoughtId": "3bb10f5c-1813-425e-bdb5-63dc234c4afc",
+      "groupId": "ui-capture",
+      "usd": "0.000371",
+      "credits": 0.37099999999999994,
+      "wallMs": 34030,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 2,
+      "thoughtId": "c721aa20-a6e1-4b6b-ac42-2cef54e0417d",
+      "groupId": "ui-capture",
+      "usd": "0.000374",
+      "credits": 0.374,
+      "wallMs": 22761,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 3,
+      "thoughtId": "93d25f25-59f3-479a-b1c3-81e20a180dca",
+      "groupId": "ui-capture",
+      "usd": "0.000453",
+      "credits": 0.45300000000000007,
+      "wallMs": 28349,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 4,
+      "thoughtId": "cabbd39d-7f93-400c-94d7-a92fe3580696",
+      "groupId": "ui-capture",
+      "usd": "0.000485",
+      "credits": 0.4850000000000001,
+      "wallMs": 31921,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 5,
+      "thoughtId": "ae1bd36b-fd9a-45c5-8e1c-e730b48008ab",
+      "groupId": "ui-capture",
+      "usd": "0.000443",
+      "credits": 0.4429999999999996,
+      "wallMs": 40302,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 6,
+      "thoughtId": "97d789a5-8204-44e4-82d8-cc745b5ecc7c",
+      "groupId": "ui-capture",
+      "usd": "0.000671",
+      "credits": 0.6710000000000003,
+      "wallMs": 40215,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 7,
+      "thoughtId": "a885ff38-71b2-4266-8e8a-23d9485c7544",
+      "groupId": "ui-capture",
+      "usd": "0.000594",
+      "credits": 0.5939999999999999,
+      "wallMs": 43174,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 8,
+      "thoughtId": "b06b9760-7932-4d61-aaca-cb794224a695",
+      "groupId": "ui-capture",
+      "usd": "0.000443",
+      "credits": 0.44300000000000006,
+      "wallMs": 27937,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 9,
+      "thoughtId": "015a5ea5-4225-4f23-b071-33999c523ecd",
+      "groupId": "ui-capture",
+      "usd": "0.000875",
+      "credits": 0.875,
+      "wallMs": 64381,
+      "entityCount": 2,
+      "byOperation": {}
+    }
+  ],
+  "totals": {
+    "sumUsd": "0.005029",
+    "sumCredits": 5.029,
+    "sumWallMs": 376582
+  },
+  "trend": {
+    "firstHalfAvgUsd": 0.0004006,
+    "secondHalfAvgUsd": 0.0006052,
+    "deltaUsd": 0.00020459999999999999,
+    "minUsd": 0.00032,
+    "maxUsd": 0.000875,
+    "perStepDeltaUsd": [
+      0.00005099999999999999,
+      0.0000029999999999999645,
+      0.00007900000000000002,
+      0.00003200000000000002,
+      -0.000042000000000000045,
+      0.00022800000000000007,
+      -0.00007700000000000003,
+      -0.00015100000000000004,
+      0.00043200000000000004
+    ],
+    "moreExpensiveOverTime": true
+  }
+}

@@ -26,7 +26,18 @@ export const ENTITY_EXTRACTION_TYPE_GUIDANCE = [
 /** Triple wiring for graph-bundle extraction (mentions + edges in one LLM call). */
 export const ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE = [
 	'When bullets or ingredients appear under a recipe, dish, or section heading, emit part_of triples from each ingredient or component surface to the parent recipe/dish/section surface.',
-	'Prefer part_of over related_to for ingredients, components, and sub-items listed under a parent entity.'
+	'Prefer part_of over related_to for ingredients, components, and sub-items listed under a parent entity.',
+	'When the text is about bringing, preparing, or listing items for an event or initiative (e.g. "bring fish for the picnic"), extract both the item and the parent event/initiative when the text names or clearly refers to the parent, and emit part_of or related_to from the item to the parent.',
+	'Compound surfaces (e.g. "picnic blanket") are their own mention; when a parent hub exists in the graph context (e.g. picnic), emit part_of from the compound to that parent hub.',
+	'Triples may use an existing graph entity label as object or subject when wiring to a node from the graph context block, even if that label is not repeated as a new mention in this thought.'
+];
+
+/** Extraction quality — what entities deserve a graph node for this capture. */
+export const ENTITY_EXTRACTION_QUALITY_GUIDANCE = [
+	'Extract the concrete entities the user is tracking: people, places, events, initiatives, artifacts, supplies, and named concepts that matter for recall.',
+	'When a thought is about an activity or event (picnic, trip, project), extract the activity/event hub AND separate item entities when the text names supplies or components.',
+	'When existing graph entities are listed in context, prefer reusing them: extract matching surfaces from the text instead of inventing parallel hubs.',
+	'Do not under-extract: if the text names both an item and the activity it belongs to, return both as mentions.'
 ];
 
 /**

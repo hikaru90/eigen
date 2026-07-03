@@ -3,12 +3,13 @@ import postgres from 'postgres';
 import * as schema from './schema';
 import { getRuntimeDatabaseUrl } from './runtime-url';
 import { tenantUserAsyncLocal } from '$lib/server/billing/context';
-import { appDbAsyncLocal, type AppDatabase } from './context';
+import { appDbAsyncLocal, appReservedSqlAsyncLocal, type AppDatabase } from './context';
 import { activateTenantDbSession, deactivateTenantDbSession } from './tenant-session';
 
-export { getDb, appDbAsyncLocal } from './context';
+export { getDb, appDbAsyncLocal, appReservedSqlAsyncLocal } from './context';
 export type { AppDatabase } from './context';
 export { activateTenantDbSession, deactivateTenantDbSession, appDbRole } from './tenant-session';
+export { withBillingUserDbRead } from './billing-db-read';
 
 /**
  * Run `fn` with RLS scoped to `userId` (eval metadata tables, etc.).
@@ -18,7 +19,12 @@ export async function withDbUser<T>(userId: string, fn: (db: AppDatabase) => Pro
 	try {
 		await activateTenantDbSession(reserved, userId);
 		const scopedDb = createScopedDrizzle(reserved);
-		return await tenantUserAsyncLocal.run(userId, () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb)));
+		const run = () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb));
+		const withTenant = () =>
+			tenantUserAsyncLocal.run(userId, () =>
+				appReservedSqlAsyncLocal.run(reserved, run)
+			);
+		return await withTenant();
 	} finally {
 		await deactivateTenantDbSession(reserved).catch(() => {});
 		await reserved.release();

@@ -33,7 +33,6 @@ describe('activity page server', () => {
 			markupUsd: '0.000000',
 			totalCostUsd: '0.000000'
 		});
-		expect(data.filter).toBe('all');
 		expect(data.from).toBeNull();
 		expect(data.to).toBeNull();
 		expect(data.pagination).toEqual({

@@ -119,6 +119,7 @@
 		</section>
 	{/if}
 
+	{#if data.isAdmin}
 	<section class="space-y-3">
 		<div>
 			<h2 class="text-sm font-semibold">Model Configuration</h2>
@@ -212,6 +213,7 @@
 			</div>
 		</form>
 	</section>
+	{/if}
 
 	<section class="space-y-4 mt-8">
 		<div>

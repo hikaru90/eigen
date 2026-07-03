@@ -1,0 +1,248 @@
+# Graph-scale economics corpus — atomic single-thought captures for Eigenmesh.
+#
+# NOT evals/datasets/corpus.yaml (eval QA fiction with cross-linked entities).
+# Each row is one standalone capture: short, self-contained, minimal recurring names/places
+# so graph growth comes from volume, not eval-style relation density.
+#
+# Fields: id, rawText, theme (documentation only)
+
+thoughts:
+  - id: gs_001
+    rawText: "Pick up AA batteries for the smoke detector."
+    theme: errands
+
+  - id: gs_002
+    rawText: "Dentist moved my cleaning to Thursday at 2pm."
+    theme: appointments
+
+  - id: gs_003
+    rawText: "Try batch cooking on Sunday afternoons."
+    theme: ideas
+
+  - id: gs_004
+    rawText: "Kitchen faucet is dripping again — call the plumber."
+    theme: home
+
+  - id: gs_005
+    rawText: "Left knee felt tight after yesterday's run; stretch more."
+    theme: health
+
+  - id: gs_006
+    rawText: "Return the library book before the fine kicks in."
+    theme: errands
+
+  - id: gs_007
+    rawText: "Car registration renewal is due next month."
+    theme: admin
+
+  - id: gs_008
+    rawText: "Idea: keep a paper notebook by the bed for half-asleep notes."
+    theme: ideas
+
+  - id: gs_009
+    rawText: "Replace the HVAC filter this weekend."
+    theme: home
+
+  - id: gs_010
+    rawText: "Schedule a haircut before the trip."
+    theme: appointments
+
+  - id: gs_011
+    rawText: "Buy oat milk and coffee beans on the way home."
+    theme: errands
+
+  - id: gs_012
+    rawText: "Cancel the streaming trial before it auto-renews."
+    theme: admin
+
+  - id: gs_013
+    rawText: "Water the plants on the balcony — they looked dry."
+    theme: home
+
+  - id: gs_014
+    rawText: "Pack gym clothes tonight for a morning workout."
+    theme: health
+
+  - id: gs_015
+    rawText: "Review the quarterly budget spreadsheet tonight."
+    theme: finance
+
+  - id: gs_016
+    rawText: "Back up the laptop before the OS update."
+    theme: work
+
+  - id: gs_017
+    rawText: "Idea: mute non-urgent Slack channels during deep work."
+    theme: ideas
+
+  - id: gs_018
+    rawText: "Dry cleaning is ready for pickup after 5pm."
+    theme: errands
+
+  - id: gs_019
+    rawText: "Eye exam scheduled for the 12th at 10am."
+    theme: appointments
+
+  - id: gs_020
+    rawText: "Fix the squeaky office chair hinge when I have a minute."
+    theme: home
+
+  - id: gs_021
+    rawText: "Submit expense report by end of day Wednesday."
+    theme: work
+
+  - id: gs_022
+    rawText: "Take the recycling out before pickup tomorrow."
+    theme: home
+
+  - id: gs_023
+    rawText: "Increase automatic savings transfer by fifty dollars."
+    theme: finance
+
+  - id: gs_024
+    rawText: "Walk twenty minutes after lunch when the weather is clear."
+    theme: health
+
+  - id: gs_025
+    rawText: "Idea: keep phone charger in the travel bag permanently."
+    theme: ideas
+
+  - id: gs_026
+    rawText: "Order more printer paper for the home office."
+    theme: errands
+
+  - id: gs_027
+    rawText: "Vet appointment for the cat is booked for next Tuesday."
+    theme: appointments
+
+  - id: gs_028
+    rawText: "Clean out the fridge before grocery shopping."
+    theme: home
+
+  - id: gs_029
+    rawText: "Draft outline for the status update email."
+    theme: work
+
+  - id: gs_030
+    rawText: "Pay the electricity bill before the due date."
+    theme: finance
+
+  - id: gs_031
+    rawText: "Stretch hips after sitting too long at the desk."
+    theme: health
+
+  - id: gs_032
+    rawText: "Idea: set a weekly calendar block for inbox zero."
+    theme: ideas
+
+  - id: gs_033
+    rawText: "Buy a birthday card at the pharmacy."
+    theme: errands
+
+  - id: gs_034
+    rawText: "Therapy session moved to 4pm on Friday."
+    theme: appointments
+
+  - id: gs_035
+    rawText: "Tighten the loose cabinet handle in the bathroom."
+    theme: home
+
+  - id: gs_036
+    rawText: "Follow up on the pending invoice with the client."
+    theme: work
+
+  - id: gs_037
+    rawText: "Check credit card statement for duplicate charges."
+    theme: finance
+
+  - id: gs_038
+    rawText: "Drink a full glass of water before the morning meeting."
+    theme: health
+
+  - id: gs_039
+    rawText: "Idea: label moving boxes by room instead of contents."
+    theme: ideas
+
+  - id: gs_040
+    rawText: "Restock dish soap and sponges."
+    theme: errands
+
+  - id: gs_041
+    rawText: "Passport renewal paperwork is on the kitchen counter."
+    theme: admin
+
+  - id: gs_042
+    rawText: "Vacuum the living room before guests arrive."
+    theme: home
+
+  - id: gs_043
+    rawText: "Block two hours tomorrow for focused writing."
+    theme: work
+
+  - id: gs_044
+    rawText: "Set a price alert on the flight I am watching."
+    theme: finance
+
+  - id: gs_045
+    rawText: "Take vitamins with breakfast."
+    theme: health
+
+  - id: gs_046
+    rawText: "Idea: keep a spare USB-C cable in the car."
+    theme: ideas
+
+  - id: gs_047
+    rawText: "Pick up prescription refills on the way back."
+    theme: errands
+
+  - id: gs_048
+    rawText: "Dermatology follow-up is in three weeks."
+    theme: appointments
+
+  - id: gs_049
+    rawText: "Reset the Wi-Fi router if the upload speed drops again."
+    theme: home
+
+  - id: gs_050
+    rawText: "Send thank-you note after the interview."
+    theme: work
+
+  - id: gs_051
+    rawText: "Move emergency fund deposit to the first of the month."
+    theme: finance
+
+  - id: gs_052
+    rawText: "Foam roll shoulders after the long drive."
+    theme: health
+
+  - id: gs_053
+    rawText: "Idea: photograph receipts immediately after purchase."
+    theme: ideas
+
+  - id: gs_054
+    rawText: "Buy stamps at the post office."
+    theme: errands
+
+  - id: gs_055
+    rawText: "Annual physical is scheduled for October."
+    theme: appointments
+
+  - id: gs_056
+    rawText: "Replace burnt-out bulb in the hallway."
+    theme: home
+
+  - id: gs_057
+    rawText: "Prepare slides for Monday's review."
+    theme: work
+
+  - id: gs_058
+    rawText: "Review auto insurance renewal quote."
+    theme: finance
+
+  - id: gs_059
+    rawText: "Go to bed before midnight on weeknights."
+    theme: health
+
+  - id: gs_060
+    rawText: "Idea: keep a running list of gift ideas in notes."
+    theme: ideas

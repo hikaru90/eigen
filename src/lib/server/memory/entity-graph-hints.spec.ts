@@ -35,18 +35,18 @@ describe('loadIngestKnownEntityHints', () => {
 	});
 
 	it('returns lexical canonical hints only (no text-derived regex hints)', async () => {
-		limitMock.mockResolvedValue([{ label: 'Marcus', entityType: 'person' }]);
+		limitMock.mockResolvedValue([{ id: 'e-marcus', label: 'Marcus', entityType: 'person' }]);
 
 		const hints = await loadIngestKnownEntityHints({
 			userId: 'u1',
 			normalizedText: 'Marcus needs silence before creative work.'
 		});
 
-		expect(hints).toEqual([{ label: 'Marcus', entityType: 'person' }]);
+		expect(hints).toEqual([{ entityId: 'e-marcus', label: 'Marcus', entityType: 'person' }]);
 	});
 
 	it('deduplicates hints by lexical label key', async () => {
-		limitMock.mockResolvedValue([{ label: 'Marcus', entityType: 'person' }]);
+		limitMock.mockResolvedValue([{ id: 'e-marcus', label: 'Marcus', entityType: 'person' }]);
 
 		const hints = await loadIngestKnownEntityHints({
 			userId: 'u1',
@@ -58,8 +58,8 @@ describe('loadIngestKnownEntityHints', () => {
 
 	it('matches lexical labels that appear as whole tokens in text', async () => {
 		limitMock.mockResolvedValue([
-			{ label: 'eu', entityType: 'organization' },
-			{ label: 'Sie', entityType: 'person' }
+			{ id: 'e-eu', label: 'eu', entityType: 'organization' },
+			{ id: 'e-sie', label: 'Sie', entityType: 'person' }
 		]);
 
 		const hints = await loadIngestKnownEntityHints({
@@ -67,7 +67,7 @@ describe('loadIngestKnownEntityHints', () => {
 			normalizedText: 'Sie arbeitet heute von zu Hause aus.'
 		});
 
-		expect(hints).toEqual([{ label: 'Sie', entityType: 'person' }]);
+		expect(hints).toEqual([{ entityId: 'e-sie', label: 'Sie', entityType: 'person' }]);
 	});
 });
 
@@ -94,9 +94,9 @@ describe('loadLexicalCanonicalEntityHints', () => {
 
 	it('returns canonical entities whose labels appear in the thought text', async () => {
 		limitMock.mockResolvedValue([
-			{ label: 'Marcus', entityType: 'person' },
-			{ label: 'Tartine', entityType: 'organization' },
-			{ label: 'fridge', entityType: 'place' }
+			{ id: 'e-marcus', label: 'Marcus', entityType: 'person' },
+			{ id: 'e-tartine', label: 'Tartine', entityType: 'organization' },
+			{ id: 'e-fridge', label: 'fridge', entityType: 'place' }
 		]);
 
 		const hints = await loadLexicalCanonicalEntityHints({
@@ -104,7 +104,7 @@ describe('loadLexicalCanonicalEntityHints', () => {
 			normalizedText: "Marcus is allergic to walnuts. Don't bring the walnut levain."
 		});
 
-		expect(hints).toEqual([{ label: 'Marcus', entityType: 'person' }]);
+		expect(hints).toEqual([{ entityId: 'e-marcus', label: 'Marcus', entityType: 'person' }]);
 	});
 
 	it('returns [] for blank normalized text', async () => {
@@ -117,7 +117,7 @@ describe('loadLexicalCanonicalEntityHints', () => {
 	it('skips short labels and deduplicates by label and type', async () => {
 		limitMock.mockResolvedValue([
 			{ label: 'a', entityType: 'person' },
-			{ label: 'Marcus', entityType: 'person' },
+			{ id: 'e-marcus', label: 'Marcus', entityType: 'person' },
 			{ label: ' Marcus ', entityType: 'person' }
 		]);
 
@@ -126,7 +126,7 @@ describe('loadLexicalCanonicalEntityHints', () => {
 			normalizedText: 'Marcus called Marcus about dinner.'
 		});
 
-		expect(hints).toEqual([{ label: 'Marcus', entityType: 'person' }]);
+		expect(hints).toEqual([{ entityId: 'e-marcus', label: 'Marcus', entityType: 'person' }]);
 	});
 
 	it('ignores non-string labels and stops at the graph hint limit', async () => {
@@ -173,8 +173,8 @@ describe('loadGraphKnownEntityHints', () => {
 
 		expect(hints).toEqual(
 			expect.arrayContaining([
-				{ label: 'Marcus', entityType: 'person' },
-				{ label: 'Berlin', entityType: 'place' }
+				{ entityId: 'e1', label: 'Marcus', entityType: 'person' },
+				{ entityId: 'e2', label: 'Berlin', entityType: 'place' }
 			])
 		);
 	});
@@ -212,8 +212,8 @@ describe('loadGraphKnownEntityHints', () => {
 		expect(select).toHaveBeenCalledTimes(1);
 		expect(hints).toEqual(
 			expect.arrayContaining([
-				{ label: 'Marcus', entityType: 'person' },
-				{ label: 'Berlin', entityType: 'place' }
+				{ entityId: 'e1', label: 'Marcus', entityType: 'person' },
+				{ entityId: 'e2', label: 'Berlin', entityType: 'place' }
 			])
 		);
 	});
@@ -241,19 +241,24 @@ describe('loadEntityHintsForThought', () => {
 				};
 			}
 			if ('id' in fields) {
+				const whereReturn = {
+					limit: vi.fn(async () => [{ id: 'e1', label: 'Marcus', entityType: 'person' }]),
+					then(
+						resolve: (value: unknown) => void,
+						reject?: (reason: unknown) => void
+					) {
+						return Promise.resolve([{ id: 'e2', label: 'Berlin', entityType: 'place' }]).then(
+							resolve,
+							reject
+						);
+					}
+				};
 				return {
 					from: vi.fn(() => ({
-						where: vi.fn(async () => [{ id: 'e2', label: 'Berlin', entityType: 'place' }])
+						where: vi.fn(() => whereReturn)
 					}))
 				};
 			}
-			return {
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [{ label: 'Marcus', entityType: 'person' }])
-					}))
-				}))
-			};
 		});
 		getDbMock.mockReturnValue({ select });
 
@@ -265,8 +270,8 @@ describe('loadEntityHintsForThought', () => {
 
 		expect(hints).toEqual(
 			expect.arrayContaining([
-				{ label: 'Marcus', entityType: 'person' },
-				{ label: 'Berlin', entityType: 'place' }
+				{ entityId: 'e1', label: 'Marcus', entityType: 'person' },
+				{ entityId: 'e2', label: 'Berlin', entityType: 'place' }
 			])
 		);
 		expect(hints.filter((h) => h.label === 'Marcus')).toHaveLength(1);

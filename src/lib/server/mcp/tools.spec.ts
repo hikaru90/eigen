@@ -6,6 +6,7 @@ import {
 	runEditThoughtTool,
 	runListThoughtsTool,
 	runRetrieveThoughtsTool,
+	runSetStatusTool,
 	runAnswerQuestionTool
 } from './tools';
 
@@ -15,22 +16,26 @@ const {
 	captureThoughtMock,
 	listThoughtsMock,
 	editStoredThoughtMock,
-	deleteThoughtForUserMock,
+	archiveThoughtForUserMock,
+	setItemLifecycleStatusMock,
 	getDbSelectMock,
 	loadTemporalContextByThoughtIdsMock,
 	createTextFileMock,
-	searchTextFilesMock
+	searchTextFilesMock,
+	resolveAuthorFromPrefixMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	composeAnswerMock: vi.fn(),
 	captureThoughtMock: vi.fn(),
 	listThoughtsMock: vi.fn(),
 	editStoredThoughtMock: vi.fn(),
-	deleteThoughtForUserMock: vi.fn(),
+	archiveThoughtForUserMock: vi.fn(),
+	setItemLifecycleStatusMock: vi.fn(),
 	getDbSelectMock: vi.fn(),
 	loadTemporalContextByThoughtIdsMock: vi.fn(),
 	createTextFileMock: vi.fn(),
-	searchTextFilesMock: vi.fn()
+	searchTextFilesMock: vi.fn(),
+	resolveAuthorFromPrefixMock: vi.fn()
 }));
 
 vi.mock('$lib/server/memory/temporal-context', () => ({
@@ -61,8 +66,12 @@ vi.mock('$lib/server/qa/compose-answer', () => ({
 vi.mock('$lib/server/capture/service', () => ({
 	captureThought: captureThoughtMock,
 	listThoughts: listThoughtsMock,
-	editStoredThought: editStoredThoughtMock,
-	deleteThoughtForUser: deleteThoughtForUserMock
+	editStoredThought: editStoredThoughtMock
+}));
+
+vi.mock('$lib/server/memory/lifecycle', () => ({
+	archiveThoughtForUser: archiveThoughtForUserMock,
+	setItemLifecycleStatus: setItemLifecycleStatusMock
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -75,6 +84,14 @@ vi.mock('$lib/server/text-files/service', () => ({
 	createTextFile: createTextFileMock,
 	searchTextFiles: searchTextFilesMock
 }));
+
+vi.mock('$lib/server/memory/authorship', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/memory/authorship')>();
+	return {
+		...actual,
+		resolveAuthorFromPrefix: resolveAuthorFromPrefixMock
+	};
+});
 
 function mockThoughtRow(row: Record<string, unknown> | null) {
 	getDbSelectMock.mockReturnValue({
@@ -91,6 +108,11 @@ describe('MCP tools', () => {
 		vi.clearAllMocks();
 		loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map());
 		searchTextFilesMock.mockResolvedValue([]);
+		resolveAuthorFromPrefixMock.mockResolvedValue({
+			author: 'user',
+			authorLabel: null,
+			authorKeyId: null
+		});
 	});
 
 	it('rejects invalid search threshold', async () => {
@@ -120,7 +142,12 @@ describe('MCP tools', () => {
 			queueStatus: 'pending'
 		});
 		const out = await runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi' });
-		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi', { source: 'mcp' });
+		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi', {
+			source: 'mcp',
+			author: 'user',
+			authorLabel: null,
+			authorKeyId: null
+		});
 		expect(out).toEqual({
 			thoughtId: 't1',
 			status: 'pending',
@@ -311,27 +338,42 @@ describe('MCP tools', () => {
 		]);
 	});
 
-	it('runDeleteThoughtTool deletes by thought_id', async () => {
-		deleteThoughtForUserMock.mockResolvedValue({ ok: true });
+	it('runDeleteThoughtTool soft-archives by thought_id', async () => {
+		archiveThoughtForUserMock.mockResolvedValue({ ok: true });
 		const out = await runDeleteThoughtTool({ userId: 'u1' }, { thought_id: 't1' });
-		expect(deleteThoughtForUserMock).toHaveBeenCalledWith('u1', 't1');
-		expect(out).toEqual({ deleted: true, thoughtId: 't1' });
+		expect(archiveThoughtForUserMock).toHaveBeenCalledWith('u1', 't1');
+		expect(out).toEqual({ archived: true, thoughtId: 't1', status: 'archived' });
 	});
 
 	it('runDeleteThoughtTool accepts id alias from compact retrieve candidates', async () => {
-		deleteThoughtForUserMock.mockResolvedValue({ ok: true });
+		archiveThoughtForUserMock.mockResolvedValue({ ok: true });
 		const out = await runDeleteThoughtTool(
 			{ userId: 'u1' },
 			{ id: '829b4cc7-ee30-403f-975b-f4663f52eb00' }
 		);
-		expect(deleteThoughtForUserMock).toHaveBeenCalledWith(
+		expect(archiveThoughtForUserMock).toHaveBeenCalledWith(
 			'u1',
 			'829b4cc7-ee30-403f-975b-f4663f52eb00'
 		);
 		expect(out).toEqual({
-			deleted: true,
-			thoughtId: '829b4cc7-ee30-403f-975b-f4663f52eb00'
+			archived: true,
+			thoughtId: '829b4cc7-ee30-403f-975b-f4663f52eb00',
+			status: 'archived'
 		});
+	});
+
+	it('runSetStatusTool sets lifecycle on any item id', async () => {
+		setItemLifecycleStatusMock.mockResolvedValue({
+			ok: true,
+			kind: 'thought',
+			thought: { id: 't1', category: 'task' }
+		});
+		const out = await runSetStatusTool(
+			{ userId: 'u1' },
+			{ item_id: 't1', status: 'completed' }
+		);
+		expect(setItemLifecycleStatusMock).toHaveBeenCalledWith('u1', 't1', 'completed');
+		expect(out).toMatchObject({ itemId: 't1', status: 'completed', thoughtId: 't1' });
 	});
 
 	it('runAnswerQuestionTool calls composeAnswer and returns result', async () => {
@@ -345,6 +387,58 @@ describe('MCP tools', () => {
 			expect.objectContaining({ userId: 'u1', question: 'what is X?' })
 		);
 		expect(out.answer).toBe('Some answer.');
+	});
+
+	it('runCaptureThoughtTool resolves author prefix to agent authorship', async () => {
+		resolveAuthorFromPrefixMock.mockResolvedValue({
+			author: 'agent',
+			authorLabel: 'cursor',
+			authorKeyId: 'key-1'
+		});
+		captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' });
+		await runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi', author: 'eigen_abcd' });
+		expect(resolveAuthorFromPrefixMock).toHaveBeenCalledWith('eigen_abcd');
+		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi', {
+			source: 'mcp',
+			author: 'agent',
+			authorLabel: 'cursor',
+			authorKeyId: 'key-1'
+		});
+	});
+
+	it('runCaptureThoughtTool rejects unknown author prefix', async () => {
+		resolveAuthorFromPrefixMock.mockRejectedValue(new Error('No API key matches author prefix "bad"'));
+		await expect(
+			runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi', author: 'bad' })
+		).rejects.toThrow(/No API key matches/);
+	});
+
+	it('runCreateTextFileTool passes resolved authorship', async () => {
+		resolveAuthorFromPrefixMock.mockResolvedValue({
+			author: 'agent',
+			authorLabel: 'claude',
+			authorKeyId: 'key-2'
+		});
+		createTextFileMock.mockResolvedValue({
+			id: 'f1',
+			title: 'Note',
+			body: 'hello',
+			author: 'agent',
+			authorLabel: 'claude',
+			authorKeyId: 'key-2',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			updatedAt: '2026-01-01T00:00:00.000Z'
+		});
+		await runCreateTextFileTool({ userId: 'u1' }, { body: 'hello', title: 'Note', author: 'eigen_xyz' });
+		expect(createTextFileMock).toHaveBeenCalledWith('u1', {
+			title: 'Note',
+			body: 'hello',
+			authorship: {
+				author: 'agent',
+				authorLabel: 'claude',
+				authorKeyId: 'key-2'
+			}
+		});
 	});
 
 	it('runCreateTextFileTool returns sanitized payload without embedding', async () => {

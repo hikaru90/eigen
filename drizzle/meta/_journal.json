@@ -365,6 +365,27 @@
       "when": 1750867200000,
       "tag": "0051_agent_project_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1750953600000,
+      "tag": "0052_agent_labeled_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1782918174026,
+      "tag": "0053_shallow_spacker_dave",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1783000000000,
+      "tag": "0054_thought_lifecycle",
+      "breakpoints": true
     }
   ]
 }

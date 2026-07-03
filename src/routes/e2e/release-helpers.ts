@@ -519,7 +519,7 @@ async function exerciseAccountMenu(page: Page): Promise<void> {
 	await page.goto('/capture');
 	await openAccountMenu(page);
 
-	for (const item of ['Activity', 'API Keys', 'LLM', 'Heartbeat', 'Settings'] as const) {
+	for (const item of ['Activity', 'API Keys', 'Credits', 'Heartbeat', 'Settings'] as const) {
 		await page.getByRole('link', { name: item, exact: true }).click();
 		await expect(page).not.toHaveURL(/\/login/);
 		await openAccountMenu(page);
@@ -545,10 +545,10 @@ async function exerciseMemoryUi(page: Page): Promise<void> {
 	await exerciseGraphFilters(page);
 
 	await page.getByRole('link', { name: 'Timeline', exact: true }).click();
-	for (const tab of ['Tasks', 'Projects'] as const) {
-		await page.getByRole('tab', { name: tab, exact: true }).click();
-	}
-	for (const segment of ["Today's tasks", 'Done today', 'Overdue'] as const) {
+	// Toggle between Tasks and Projects views
+	await page.getByRole('button', { name: /Tasks|Projects/ }).click();
+	await page.getByRole('button', { name: /Tasks|Projects/ }).click();
+	for (const segment of ['To do', 'Done', 'Overdue'] as const) {
 		const segTab = page.getByRole('tab', { name: segment, exact: true });
 		if (await segTab.isVisible().catch(() => false)) {
 			await segTab.click();
@@ -642,6 +642,7 @@ async function exerciseSettingsUi(page: Page): Promise<void> {
 async function exerciseApiKeysUi(page: Page): Promise<void> {
 	await page.goto('/api-keys');
 	await page.getByRole('button', { name: 'Generate new key', exact: true }).click();
+	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.getByRole('button', { name: 'Cancel' }).click();
 }
 

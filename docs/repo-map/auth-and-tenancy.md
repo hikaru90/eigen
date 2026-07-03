@@ -36,3 +36,11 @@
 
 - MVP tenancy key is **`user_id`** on app tables; RLS and application queries must agree. Any new table storing user-owned rows should be added to RLS with the same pattern as existing policies.
 - **`user_api_key`** and **`llm_provider_config`** store secrets; they are covered by the same RLS policies. MCP Bearer lookup uses `resolve_user_api_key()` (SECURITY DEFINER) before `app.current_user_id` is set.
+
+### Apache AGE graph tenancy (application-enforced, not RLS)
+
+AGE label tables in `AGE_GRAPH_NAME` are **not** guarded by the Postgres RLS policies above. Tenant isolation for the graph is enforced in the application layer:
+
+- **Tenant-keyed identity:** every `Thought`/`Entity`/`Event` node and every edge carries `user_id` in its identity map; all `MERGE`/`MATCH` patterns in [`src/lib/server/graph/age.ts`](../../src/lib/server/graph/age.ts) include `user_id`. A source-scan test in [`age.spec.ts`](../../src/lib/server/graph/age.spec.ts) fails if any node pattern omits it.
+- **Structural guard:** all graph queries run through `runTenantScopedCypher` ([`src/lib/server/graph/age-cypher.ts`](../../src/lib/server/graph/age-cypher.ts)), which calls `assertTenantScopedCypherParams` to reject a missing/mismatched `params.user_id` before hitting the DB. `runAgeCypher` is only reachable through this wrapper — there is no bypass path.
+- **Indexes:** vertex/edge labels and tenant-scoped btree indexes on `user_id` (plus composite `user_id, id` for nodes) are created eagerly by [`scripts/age-graph-labels.mjs`](../../scripts/age-graph-labels.mjs), wired into [`scripts/ensure-extensions.mjs`](../../scripts/ensure-extensions.mjs) after `create_graph` and mirrored for fresh Docker DBs in [`docker/postgres/init/01-extensions.sh`](../../docker/postgres/init/01-extensions.sh). Idempotent; re-running ensure-extensions is safe.

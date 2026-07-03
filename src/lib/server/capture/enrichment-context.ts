@@ -22,6 +22,7 @@ import {
 } from '$lib/server/memory/entity-graph-hints';
 import type { KnownEntityHint } from '$lib/server/memory/entity-extraction';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
 
 export type EnrichmentCommunityExcerpt = {
 	communityId: string;
@@ -134,28 +135,30 @@ export async function loadEnrichmentContext(input: {
 			})
 		]);
 
-	const byLabel = new Map<string, KnownEntityHint>();
+	const byId = new Map<string, KnownEntityHint>();
 	for (const hint of [...textHints, ...graphHints]) {
-		const key = hint.label.trim().toLowerCase();
-		if (!key || byLabel.has(key)) continue;
-		byLabel.set(key, hint);
+		const key = hint.entityId ?? hint.label.trim().toLowerCase();
+		if (!key || byId.has(key)) continue;
+		byId.set(key, hint);
 	}
-	const knownEntities = [...byLabel.values()];
+	const knownEntities = [...byId.values()];
 
 	const hasProfileNotes =
 		(typeof profile.summary === 'string' && profile.summary.trim().length > 0) ||
 		(profile.kindGuidance !== undefined && Object.keys(profile.kindGuidance).length > 0);
 	const hasGroundingProfile = groundingProfile != null;
 
-	console.info('[enrichment-context] loaded', {
-		userId: input.userId.slice(0, 8),
-		thoughtId: input.thoughtId,
-		knownEntityCount: knownEntities.length,
-		recentThoughtCount: recentThoughts.length,
-		communitySummaryCount: communityExcerpts.length,
-		hasProfileNotes,
-		hasGroundingProfile
-	});
+	if (!isGraphScaleQuiet()) {
+		console.info('[enrichment-context] loaded', {
+			userId: input.userId.slice(0, 8),
+			thoughtId: input.thoughtId,
+			knownEntityCount: knownEntities.length,
+			recentThoughtCount: recentThoughts.length,
+			communitySummaryCount: communityExcerpts.length,
+			hasProfileNotes,
+			hasGroundingProfile
+		});
+	}
 
 	return {
 		userId: input.userId,

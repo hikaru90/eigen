@@ -15,7 +15,7 @@ describe('runSalienceCompute', () => {
 		vi.clearAllMocks();
 	});
 
-	it('returns decay and open-loop counts', async () => {
+	it('returns decay and open-task counts', async () => {
 		const decayReturning = vi.fn(async () => [{ id: 't1' }]);
 		const openReturning = vi.fn(async () => [{ id: 't2' }, { id: 't3' }]);
 		const decayWhere = vi.fn(() => ({ returning: decayReturning }));
@@ -29,11 +29,11 @@ describe('runSalienceCompute', () => {
 
 		getDbMock.mockReturnValue({ update });
 
-		await expect(runSalienceCompute('u1')).resolves.toEqual({ decayed: 1, openLoops: 2 });
+		await expect(runSalienceCompute('u1')).resolves.toEqual({ decayed: 1, openTasks: 2 });
 		expect(update).toHaveBeenCalledTimes(2);
 	});
 
-	it('open-loop update filters on metadata.status not resolvedAt', () => {
+	it('task update filters on metadata.status not resolvedAt', () => {
 		const source = runSalienceCompute.toString();
 		expect(source).toContain("metadata}->>'status'");
 		expect(source).not.toContain("resolvedAt");

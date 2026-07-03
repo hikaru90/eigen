@@ -1,19 +1,12 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import type { TemporalEventQuickAction } from '$lib/server/memory/apply-temporal-event-action';
 import {
 	applyNlTemporalEventAction,
 	applyQuickTemporalEventAction,
 	applyStructuredRescheduleAction,
 	applyStructuredSnoozeAction
 } from '$lib/server/memory/temporal-event-service';
-
-const QUICK_ACTIONS = new Set<TemporalEventQuickAction>([
-	'mark_done',
-	'reopen',
-	'cancel',
-	'dismiss'
-]);
+import type { TemporalEventActionInput } from '$lib/server/memory/apply-temporal-event-action';
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -67,12 +60,20 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	if (action && QUICK_ACTIONS.has(action as TemporalEventQuickAction)) {
+	const quickActions = new Set([
+		'mark_done',
+		'reopen',
+		'archive',
+		'cancel',
+		'dismiss',
+		'delete'
+	]);
+	if (action && quickActions.has(action)) {
 		try {
 			const result = await applyQuickTemporalEventAction(
 				user.id,
 				eventId,
-				action as TemporalEventQuickAction
+				action as TemporalEventActionInput
 			);
 			return json(result);
 		} catch (err) {
@@ -93,5 +94,5 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	error(400, 'Provide action (mark_done|reopen|cancel|dismiss) or instruction');
+	error(400, 'Provide action (mark_done|reopen|archive) or instruction');
 };

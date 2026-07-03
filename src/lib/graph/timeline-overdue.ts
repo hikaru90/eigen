@@ -31,9 +31,8 @@ export function isScheduledForToday(
 }
 
 export function isTimelineItemCompleted(item: TemporalEventListItem): boolean {
-	if (item.lifecycleStatus === 'completed') return true;
-	if (item.lifecycleStatus === 'cancelled' || item.lifecycleStatus === 'dismissed') return true;
-	return item.thoughtStatus === 'completed';
+	if (item.lifecycleStatus === 'completed' || item.lifecycleStatus === 'archived') return true;
+	return item.thoughtStatus === 'completed' || item.thoughtStatus === 'archived';
 }
 
 export function isOverdueItem(item: TemporalEventListItem, now = new Date()): boolean {

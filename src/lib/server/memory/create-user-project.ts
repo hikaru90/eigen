@@ -26,14 +26,20 @@ export async function createUserDeclaredProject(
 
 	const status = input.status ?? 'active';
 
+	console.log(`[createUserDeclaredProject] Creating project: ${label}, status: ${status}`);
+
 	const resolution = await resolveProjectIdentity({
 		userId: input.userId,
 		surfaceLabel: label,
 		mode: 'seed'
 	});
 
+	console.log(`[createUserDeclaredProject] Resolution result: entityId=${resolution.entityId}, label=${resolution.canonicalLabel}`);
+
 	await promoteHubEntityType(input.userId, resolution.entityId, resolution.canonicalLabel);
 	await ensureProjectProfile(input.userId, resolution.entityId, status, 'manual');
+
+	console.log(`[createUserDeclaredProject] Project created successfully: ${resolution.entityId}`);
 
 	return {
 		entityId: resolution.entityId,

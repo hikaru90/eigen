@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, RequestEvent } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	userPreference,
@@ -15,6 +15,7 @@ import { getPayPalClientId, getPayPalWebSdkUrl, getPayPalClientSecret } from '$l
 import { env } from '$env/dynamic/private';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { captureServerEvent } from '$lib/server/analytics/posthog-server';
+import { isUserAdmin } from '$lib/server/auth/user-role';
 
 export type LlmProviderId = 'eurouter' | 'openrouter';
 
@@ -37,6 +38,7 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 	}
 
 	const userId = event.locals.user.id;
+	const isAdmin = await isUserAdmin(userId);
 
 	const [pref] = await getDb()
 		.select({ billingMode: userPreference.billingMode })
@@ -110,6 +112,7 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
 	}
 
 	return {
+		isAdmin,
 		billingMode,
 		byokUiEnabled,
 		byokConfigured,
@@ -335,6 +338,11 @@ export const llmSettingsActions: Actions = {
 	saveModelConfig: async (event) => {
 		if (!event.locals.user) {
 			return fail(401, { modelMessage: 'You must be signed in.' });
+		}
+
+		const isAdmin = await isUserAdmin(event.locals.user.id);
+		if (!isAdmin) {
+			return fail(403, { modelMessage: 'Only administrators can modify model configuration.' });
 		}
 
 		const formData = await event.request.formData();

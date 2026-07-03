@@ -630,7 +630,10 @@ import { logErrorToServer } from '$lib/client-log';
 						language={data.preferredLanguage}
 						disabled={loading}
 						ontranscript={(text) => {
-							raw = appendTranscript(raw, text);
+							raw = text;
+						}}
+						onpartialtranscript={(text) => {
+							raw = text;
 						}}
 						onerror={(message) => {
 							err = message;

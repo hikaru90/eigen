@@ -42,11 +42,14 @@
 			const res = await fetch('/api/timeline/projects');
 			if (!res.ok) {
 				const text = await res.text();
+				console.error('[loadProjects] Failed to fetch projects:', res.status, text);
 				throw new Error(`${res.status}: ${text || 'unknown error'}`);
 			}
 			const body = (await res.json()) as { projects: ProjectListItem[] };
+			console.log('[loadProjects] Loaded projects:', body.projects.length);
 			phase = { kind: 'ready', projects: body.projects };
 		} catch (err) {
+			console.error('[loadProjects] Error:', err);
 			if (silent && phase.kind === 'ready') return;
 			phase = {
 				kind: 'error',
@@ -70,7 +73,24 @@
 		return m.graph_timeline_project_status_active();
 	}
 
-	async function dismissProject(entityId: string) {
+	let confirmDismissProjectId = $state<string | null>(null);
+	let confirmDismissProjectLabel = $state<string | null>(null);
+
+	function requestDismissProject(entityId: string, label: string) {
+		confirmDismissProjectId = entityId;
+		confirmDismissProjectLabel = label;
+	}
+
+	function cancelDismissProject() {
+		confirmDismissProjectId = null;
+		confirmDismissProjectLabel = null;
+	}
+
+	async function confirmDismissProject() {
+		if (!confirmDismissProjectId) return;
+		const entityId = confirmDismissProjectId;
+		confirmDismissProjectId = null;
+		confirmDismissProjectLabel = null;
 		try {
 			const res = await fetch(`/api/timeline/projects/${entityId}/dismiss`, {
 				method: 'POST'
@@ -117,6 +137,7 @@
 	});
 
 	function onProjectCreated() {
+		console.log('[onProjectCreated] Project created, reloading projects...');
 		void loadProjects();
 	}
 
@@ -231,7 +252,7 @@
 									size="icon"
 									class="size-6 shrink-0 text-muted-foreground hover:text-destructive"
 									title="Dismiss project"
-									onclick={() => dismissProject(project.entityId)}
+									onclick={() => requestDismissProject(project.entityId, project.label)}
 								>
 									<XIcon class="size-3" aria-hidden="true" />
 								</Button>
@@ -259,9 +280,9 @@
 							<p class="text-foreground mt-0.5 text-sm">{projectNextAction.summary}</p>
 						</button>
 					{/if}
-					{#if project.openLoopCount > 1}
+					{#if project.openTaskCount > 1}
 						<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">
-							{m.graph_timeline_project_open_loops({ count: project.openLoopCount })}
+							{m.graph_timeline_project_open_loops({ count: project.openTaskCount })}
 						</p>
 					{/if}
 					{#if projectTasks.length > 0}
@@ -342,4 +363,19 @@
 		}}
 		onAssigned={onProjectAssigned}
 	/>
+
+	{#if confirmDismissProjectId}
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+			<div class="bg-background mx-4 max-w-sm rounded-lg border p-4 shadow-lg">
+				<h3 class="text-foreground text-sm font-medium">Dismiss project?</h3>
+				<p class="text-muted-foreground mt-2 text-sm">
+					Are you sure you want to dismiss "{confirmDismissProjectLabel}"? It will no longer appear in your active projects.
+				</p>
+				<div class="mt-4 flex justify-end gap-2">
+					<Button variant="outline" size="sm" onclick={cancelDismissProject}>Cancel</Button>
+					<Button variant="destructive" size="sm" onclick={confirmDismissProject}>Dismiss</Button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>

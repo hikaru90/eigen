@@ -28,6 +28,7 @@ import { thought } from '$lib/server/db/schema';
 import { getDb, withDbUser } from '$lib/server/db';
 import { extractRelations } from '$lib/server/memory/relation-extraction';
 import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction';
+import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context';
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync';
 import {
 	extractThoughtMetadata,
@@ -54,6 +55,7 @@ import { reconcileUserProjects } from '$lib/server/memory/reconcile-user-project
 import { countGtdProjectProfilesForUser } from '$lib/server/memory/project-eligibility';
 import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question';
 import { detectAndCreateProjectFromThought } from '$lib/server/memory/detect-project-from-thought';
+import { InsufficientCreditsError } from '$lib/server/billing/wallet';
 
 export type EnrichThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
@@ -61,7 +63,9 @@ export type EnrichThoughtOptions = {
 	thoughtEmbedding?: number[];
 	thoughtCountAfterInsert?: number;
 	/** Entity hints loaded before persist — threaded into entity extraction. */
-	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
+	preloadedKnownEntities?: Array<{ entityId?: string; label: string; entityType: string }>;
+	/** Pre-built semantic graph context for entity extraction. */
+	precomputedEntityEnrichmentContext?: EntityGraphEnrichmentContext;
 	/** Pre-fetched batch LLM results — skip redundant extraction calls. */
 	precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
 	precomputedMetadata?: ThoughtMetadataExtraction;
@@ -132,6 +136,7 @@ export async function enrichThought(
 		thoughtCountAfterInsert,
 		preloadedKnownEntities,
 		precomputedEntityGraph,
+		precomputedEntityEnrichmentContext,
 		precomputedMetadata,
 		precomputedTemporalMentions,
 		ingestTimer,
@@ -173,7 +178,9 @@ export async function enrichThought(
 				thoughtId,
 				normalizedText,
 				preloadedKnownEntities,
-				precomputedEntityGraph
+				precomputedEntityGraph,
+				precomputedEntityEnrichmentContext,
+				thoughtEmbedding
 			});
 			projectLikeEntities = entitySync.projectLikeEntities;
 			if (entitySync.mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
@@ -406,6 +413,13 @@ export async function enrichThought(
 
 		scheduleIncrementalConsolidation(userId, thoughtId);
 	} else {
+		// Preserve non-retryable errors (e.g. InsufficientCreditsError) so the retry
+		// layer in retry.ts can detect them by error.name and fail immediately.
+		for (const r of results) {
+			if (r.status === 'rejected' && r.reason instanceof InsufficientCreditsError) {
+				throw r.reason;
+			}
+		}
 		throw new Error(
 			`Enrichment step(s) failed: ${formatEnrichStepFailures(results, stepNames).join('; ')}`
 		);

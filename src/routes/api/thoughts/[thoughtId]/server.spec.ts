@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DELETE, GET, PATCH } from './+server';
 
-const { deleteThoughtForUserMock, setThoughtLifecycleStatusMock, getDbSelectMock } = vi.hoisted(() => ({
-	deleteThoughtForUserMock: vi.fn(),
+const { archiveThoughtForUserMock, setThoughtLifecycleStatusMock, getDbSelectMock } = vi.hoisted(() => ({
+	archiveThoughtForUserMock: vi.fn(),
 	setThoughtLifecycleStatusMock: vi.fn(),
 	getDbSelectMock: vi.fn()
 }));
 
-vi.mock('$lib/server/capture/service', () => ({
-	deleteThoughtForUser: deleteThoughtForUserMock,
+vi.mock('$lib/server/memory/lifecycle', () => ({
+	archiveThoughtForUser: archiveThoughtForUserMock,
 	setThoughtLifecycleStatus: setThoughtLifecycleStatusMock
+}));
+
+vi.mock('$lib/server/text-files/service', () => ({
+	listTextFilesForThought: vi.fn(async () => [])
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -115,20 +119,22 @@ describe('DELETE /api/thoughts/[thoughtId]', () => {
 		).rejects.toMatchObject({ status: 401 });
 	});
 
-	it('returns 404 when deleteThoughtForUser reports not found', async () => {
-		deleteThoughtForUserMock.mockResolvedValue({ ok: false, reason: 'not_found' });
+	it('returns 404 when archiveThoughtForUser reports not found', async () => {
+		archiveThoughtForUserMock.mockResolvedValue({ ok: false, reason: 'not_found' });
 		await expect(
 			DELETE({ locals: { user: { id: 'u1' } }, params: { thoughtId: 't1' } } as never)
 		).rejects.toMatchObject({ status: 404 });
 	});
 
-	it('returns ok when deleted', async () => {
-		deleteThoughtForUserMock.mockResolvedValue({ ok: true });
+	it('returns ok when archived', async () => {
+		archiveThoughtForUserMock.mockResolvedValue({ ok: true });
 		const res = await DELETE({
 			locals: { user: { id: 'u1' } },
 			params: { thoughtId: 't1' }
 		} as never);
 		expect(res.status).toBe(200);
-		expect(deleteThoughtForUserMock).toHaveBeenCalledWith('u1', 't1');
+		expect(archiveThoughtForUserMock).toHaveBeenCalledWith('u1', 't1');
+		const body = await res.json();
+		expect(body).toEqual({ ok: true, archived: true });
 	});
 });

@@ -5,16 +5,22 @@ import {
 	temporalEvent,
 	thought,
 	type GraphSyncJobOperation,
-	type TemporalEventLifecycleStatus
+	type LifecycleStatus
 } from '$lib/server/db/schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
-import { editStoredThought, setThoughtLifecycleStatus } from '$lib/server/capture/service';
+import { editStoredThought } from '$lib/server/capture/service';
+import {
+	archiveTemporalEventForUser,
+	setThoughtLifecycleStatus,
+	syncThoughtIfSingleEvent
+} from '$lib/server/memory/lifecycle';
 import { buildActivePeriodLiteral } from '$lib/server/memory/temporal-normalize';
 import {
 	applyTemporalEventActionRequest,
+	normalizeTemporalEventQuickAction,
 	quickActionToLifecycle,
 	type AppliedTemporalEventAction,
-	type TemporalEventQuickAction
+	type TemporalEventActionInput
 } from '$lib/server/memory/apply-temporal-event-action';
 import {
 	cancelReminderSchedulesForEvent,
@@ -22,6 +28,7 @@ import {
 } from '$lib/server/memory/event-reminder-schedule';
 import {
 	getTemporalEventListItemById,
+	thoughtIdFromTaskItemId,
 	type TemporalEventListItem
 } from '$lib/server/memory/temporal-event-list';
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
@@ -46,23 +53,12 @@ async function loadListItem(userId: string, eventId: string): Promise<TemporalEv
 	return getTemporalEventListItemById(userId, eventId);
 }
 
-async function syncThoughtIfSingleEvent(
-	userId: string,
-	thoughtId: string,
-	lifecycleStatus: TemporalEventLifecycleStatus
-): Promise<void> {
-	const siblings = await getDb()
-		.select({ id: temporalEvent.id, lifecycleStatus: temporalEvent.lifecycleStatus })
-		.from(temporalEvent)
-		.where(and(eq(temporalEvent.thoughtId, thoughtId), eq(temporalEvent.userId, userId)));
+function isTaskEventId(eventId: string): boolean {
+	return thoughtIdFromTaskItemId(eventId) !== null;
+}
 
-	if (siblings.length !== 1) return;
-
-	if (lifecycleStatus === 'completed') {
-		await setThoughtLifecycleStatus(userId, thoughtId, 'completed');
-	} else if (lifecycleStatus === 'open') {
-		await setThoughtLifecycleStatus(userId, thoughtId, 'open');
-	}
+function extractThoughtIdFromTaskEvent(eventId: string): string | null {
+	return thoughtIdFromTaskItemId(eventId);
 }
 
 function resolveBoundsFromPatch(
@@ -226,31 +222,54 @@ async function applyLifecycleAndBoundsPatch(
 export async function applyQuickTemporalEventAction(
 	userId: string,
 	eventId: string,
-	action: TemporalEventQuickAction
+	action: TemporalEventActionInput
 ): Promise<TemporalEventActionResult> {
+	const quickAction = normalizeTemporalEventQuickAction(action);
+
+	if (isTaskEventId(eventId)) {
+		const thoughtId = extractThoughtIdFromTaskEvent(eventId);
+		if (!thoughtId) throw new Error('Invalid task event ID');
+
+		const status: LifecycleStatus =
+			quickAction === 'mark_done' ? 'completed' : quickAction === 'archive' ? 'archived' : 'open';
+		const result = await setThoughtLifecycleStatus(userId, thoughtId, status);
+		if (!result.ok) throw new Error('Task not found');
+
+		const item = await loadListItem(userId, eventId);
+		if (!item) throw new Error('Task not found after update');
+
+		const summary =
+			quickAction === 'mark_done'
+				? `Marked "${item.semanticSummary}" as done.`
+				: quickAction === 'archive'
+					? `Archived "${item.semanticSummary}".`
+					: `Reopened "${item.semanticSummary}".`;
+
+		return { ok: true, item, summary };
+	}
+
 	const row = await loadEventRow(userId, eventId);
 	if (!row) {
 		throw new Error('Event not found');
 	}
 
-	const lifecycleStatus = quickActionToLifecycle(action);
-	const summaries: Record<TemporalEventQuickAction, string> = {
+	const lifecycleStatus = quickActionToLifecycle(quickAction);
+	const summaries: Record<typeof quickAction, string> = {
 		mark_done: `Marked "${row.semanticSummary}" as done.`,
 		reopen: `Reopened "${row.semanticSummary}".`,
-		cancel: `Cancelled "${row.semanticSummary}".`,
-		dismiss: `Dismissed "${row.semanticSummary}".`
+		archive: `Archived "${row.semanticSummary}".`
 	};
 
 	await applyLifecycleAndBoundsPatch(userId, eventId, {
-		action,
+		action: quickAction,
 		lifecycleStatus,
-		summary: summaries[action]
+		summary: summaries[quickAction]
 	});
 
 	const item = await loadListItem(userId, eventId);
 	if (!item) throw new Error('Event not found after update');
 
-	return { ok: true, item, summary: summaries[action] };
+	return { ok: true, item, summary: summaries[quickAction] };
 }
 
 export async function applyNlTemporalEventAction(
@@ -258,6 +277,12 @@ export async function applyNlTemporalEventAction(
 	eventId: string,
 	instruction: string
 ): Promise<TemporalEventActionResult> {
+	if (isTaskEventId(eventId)) {
+		throw new Error(
+			'Natural-language instructions are not supported for tasks. Use mark_done, reopen, or archive instead.'
+		);
+	}
+
 	const row = await loadEventRow(userId, eventId);
 	if (!row) {
 		throw new Error('Event not found');
@@ -302,7 +327,6 @@ export async function applyNlTemporalEventAction(
 
 	if (applied.thoughtTextPatch) {
 		await editStoredThought(userId, row.thoughtId, applied.thoughtTextPatch);
-		// Re-enrich updates all temporal rows from thought; re-load item after.
 		const item = await loadListItem(userId, eventId);
 		if (item) {
 			return { ok: true, item, summary: applied.summary };
@@ -322,6 +346,10 @@ export async function applyStructuredRescheduleAction(
 	eventId: string,
 	input: { startAt: string; endAt?: string | null }
 ): Promise<TemporalEventActionResult> {
+	if (isTaskEventId(eventId)) {
+		throw new Error('Rescheduling is not supported for tasks.');
+	}
+
 	const row = await loadEventRow(userId, eventId);
 	if (!row) {
 		throw new Error('Event not found');
@@ -357,6 +385,10 @@ export async function applyStructuredSnoozeAction(
 	eventId: string,
 	snoozedUntil: string
 ): Promise<TemporalEventActionResult> {
+	if (isTaskEventId(eventId)) {
+		throw new Error('Snoozing is not supported for tasks.');
+	}
+
 	const row = await loadEventRow(userId, eventId);
 	if (!row) {
 		throw new Error('Event not found');
@@ -381,35 +413,9 @@ export async function applyStructuredSnoozeAction(
 	return { ok: true, item, summary };
 }
 
-export async function deleteTemporalEventForUser(
-	userId: string,
-	eventId: string
-): Promise<{ ok: true; summary: string }> {
-	const row = await loadEventRow(userId, eventId);
-	if (!row) {
-		throw new Error('Event not found');
-	}
-
-	await cancelReminderSchedulesForEvent(eventId);
-
-	await getDb().transaction(async (tx) => {
-		if (row.graphNodeId) {
-			await tx.insert(graphSyncJob).values({
-				userId,
-				temporalEventId: row.id,
-				operation: 'delete_temporal_event',
-				payload: { temporalEventId: row.id }
-			});
-		}
-		await tx.delete(temporalEvent).where(eq(temporalEvent.id, eventId));
-	});
-
-	void processPendingGraphSyncJobs({ userId }).catch((err) => {
-		console.error('[temporal-event-service] delete graph sync failed', {
-			eventId,
-			message: err instanceof Error ? err.message : String(err)
-		});
-	});
-
-	return { ok: true, summary: `Removed event "${row.semanticSummary}".` };
+/** @deprecated Use archiveTemporalEventForUser — kept for import stability. */
+export async function deleteTemporalEventForUser(userId: string, eventId: string) {
+	return archiveTemporalEventForUser(userId, eventId);
 }
+
+export { archiveTemporalEventForUser };

@@ -78,7 +78,30 @@ export const auth = betterAuth({
 						...user,
 						accountKind: resolveAccountKindForNewUser(String(user.email ?? ''))
 					}
-				})
+				}),
+				after: async (user) => {
+					// Give every new user 100 starting credits so capture works out of the box.
+					try {
+						const { userWallet } = await import('$lib/server/db/schema');
+						const { eq } = await import('drizzle-orm');
+						const existing = await authDb
+							.select()
+							.from(userWallet)
+							.where(eq(userWallet.userId, user.id))
+							.limit(1);
+						if (existing.length === 0) {
+							await authDb.insert(userWallet).values({
+								userId: user.id,
+								availableCredits: 100,
+								reservedCredits: 0,
+								pendingBillingMicroUsd: 0,
+								currency: 'USD'
+							});
+						}
+					} catch {
+						// Non-critical
+					}
+				}
 			}
 		}
 	},

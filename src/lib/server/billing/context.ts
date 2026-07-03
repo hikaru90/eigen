@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing';
 
 /**
  * Postgres RLS session user (`app.current_user_id`). Activity rows must use this id.
@@ -16,5 +17,9 @@ export function resolveTenantUserId(fallbackUserId: string): string {
 }
 
 export function resolveBillingUserId(tenantUserId: string): string {
-	return billingUserAsyncLocal.getStore() ?? tenantUserId;
+	return (
+		billingUserAsyncLocal.getStore() ??
+		resolveHarnessBillingUserId(tenantUserId) ??
+		tenantUserId
+	);
 }

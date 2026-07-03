@@ -69,9 +69,23 @@ export async function applyCaptureContentSplitIfNeeded(input: {
 	let attachedFileId: string | null = null;
 
 	if (split.mode === 'split') {
+		const [thoughtAuthorship] = await getDb()
+			.select({
+				author: thought.author,
+				authorLabel: thought.authorLabel,
+				authorKeyId: thought.authorKeyId
+			})
+			.from(thought)
+			.where(eq(thought.id, input.thoughtId))
+			.limit(1);
 		const file = await createTextFile(input.userId, {
 			title: split.attachmentTitle,
-			body: split.attachmentBody
+			body: split.attachmentBody,
+			authorship: {
+				author: thoughtAuthorship?.author ?? 'user',
+				authorLabel: thoughtAuthorship?.authorLabel ?? null,
+				authorKeyId: thoughtAuthorship?.authorKeyId ?? null
+			}
 		});
 		const link = await linkTextFileToThought(input.userId, input.thoughtId, file.id);
 		if (!link.linked) {

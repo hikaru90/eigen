@@ -641,6 +641,36 @@ describe('setThoughtLifecycleStatus', () => {
 		vi.clearAllMocks();
 	});
 
+	function lifecycleDb(existing: Record<string, unknown>, childEvents: unknown[] = []) {
+		let selectCall = 0;
+		const selectResults = [[existing], childEvents];
+		return {
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => {
+						const rows = selectResults[selectCall++] ?? [];
+						return {
+							limit: vi.fn(async () => rows),
+							then(
+								onFulfilled: (value: unknown) => unknown,
+								onRejected?: (error: unknown) => unknown
+							) {
+								return Promise.resolve(rows).then(onFulfilled, onRejected);
+							}
+						};
+					})
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [{ id: existing.id, category: existing.category }])
+					}))
+				}))
+			}))
+		};
+	}
+
 	it('returns not_found when thought is missing', async () => {
 		getDbMock.mockReturnValue({
 			select: vi.fn(() => ({
@@ -666,24 +696,7 @@ describe('setThoughtLifecycleStatus', () => {
 			normalizedText: 'Buy milk',
 			lexicalText: 'buy milk'
 		};
-		const updated = { ...existing, metadata: { status: 'completed', completedAt: '2026-01-01T00:00:00.000Z' } };
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [existing])
-					}))
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({
-					where: vi.fn(() => ({
-						returning: vi.fn(async () => [updated])
-					}))
-				}))
-			}))
-		};
-		getDbMock.mockReturnValue(db);
+		getDbMock.mockReturnValue(lifecycleDb(existing));
 		loadThoughtCaptureResultMock.mockResolvedValue({
 			...defaultCaptureResult,
 			id: 't1',
@@ -712,23 +725,7 @@ describe('setThoughtLifecycleStatus', () => {
 			normalizedText: 'Buy milk',
 			lexicalText: 'buy milk'
 		};
-		const updated = { ...existing, metadata: { status: 'open' } };
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [existing])
-					}))
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({
-					where: vi.fn(() => ({
-						returning: vi.fn(async () => [updated])
-					}))
-				}))
-			}))
-		};
+		const db = lifecycleDb(existing);
 		getDbMock.mockReturnValue(db);
 		loadThoughtCaptureResultMock.mockResolvedValue({
 			...defaultCaptureResult,
@@ -744,8 +741,8 @@ describe('setThoughtLifecycleStatus', () => {
 		expect(removeThoughtGraphArtifactsMock).not.toHaveBeenCalled();
 		const updateCall = db.update.mock.results[0]?.value;
 		const setArg = updateCall?.set.mock.calls[0]?.[0];
-		expect(setArg.metadata.status).toBe('open');
-		expect(setArg.metadata.completedAt).toBeUndefined();
+		expect(setArg?.metadata?.status).toBe('open');
+		expect(setArg?.metadata?.completedAt).toBeUndefined();
 	});
 });
 

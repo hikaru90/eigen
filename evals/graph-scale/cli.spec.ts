@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { parseGraphScaleCli, SPEND_CONFIRM_THRESHOLD } from './cli';
 
 describe('parseGraphScaleCli', () => {
-	it('defaults sizes and all tracks', () => {
+	it('defaults sizes and capture track for smoke runs', () => {
 		const cli = parseGraphScaleCli([]);
-		expect(cli.sizes).toEqual([50, 100, 250]);
+		expect(cli.sizes).toEqual([1]);
 		expect(cli.tracks.has('capture')).toBe(true);
-		expect(cli.tracks.has('qa')).toBe(true);
-		expect(cli.tracks.has('consolidation')).toBe(true);
+		expect(cli.tracks.has('qa')).toBe(false);
+		expect(cli.tracks.has('consolidation')).toBe(false);
 	});
 
 	it('parses custom sizes and tracks', () => {

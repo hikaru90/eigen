@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { getDb } from '$lib/server/db';
 import { logActivityCall } from '$lib/server/activity/log-call';
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
 import { sql } from 'drizzle-orm';
 
 function requiredEnv(name: 'AGE_GRAPH_NAME'): string {
@@ -87,6 +88,31 @@ function formatAgeCypherError(err: unknown, graph: string, cypher: string): Erro
 	});
 }
 
+export function assertTenantScopedCypherParams(
+	userId: string,
+	params?: Record<string, unknown>
+): void {
+	if (!userId.trim()) {
+		throw new Error('Tenant-scoped Cypher requires a non-empty userId');
+	}
+	if (!params || !('user_id' in params)) {
+		throw new Error('Tenant-scoped Cypher requires params.user_id');
+	}
+	if (params.user_id !== userId) {
+		throw new Error('Tenant-scoped Cypher params.user_id must match userId');
+	}
+}
+
+export async function runTenantScopedCypher(
+	userId: string,
+	query: string,
+	params: Record<string, unknown>,
+	columnDefs: string
+): Promise<Array<Record<string, unknown>>> {
+	assertTenantScopedCypherParams(userId, params);
+	return runAgeCypher(renderCypherQuery(query, params), columnDefs);
+}
+
 export async function runAgeCypher(
 	cypher: string,
 	columnDefs: string
@@ -119,6 +145,28 @@ export async function runAgeCypher(
 	});
 }
 
+async function logGraphActivityCall(
+	userId: string,
+	input: { operation: string; context?: string; durationMs: number }
+): Promise<void> {
+	try {
+		await logActivityCall(getDb(), userId, {
+			provider: 'apache_age',
+			operation: input.operation,
+			baseCostUsd: 0,
+			context: input.context,
+			durationMs: input.durationMs
+		});
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.warn('[age] activity_call_log insert failed', {
+			userId,
+			operation: input.operation,
+			message
+		});
+	}
+}
+
 export async function runGraphQueryWithRetry<T>(
 	userId: string,
 	operation: string,
@@ -131,29 +179,27 @@ export async function runGraphQueryWithRetry<T>(
 		const attemptStart = Date.now();
 		try {
 			const result = await query();
-			await logActivityCall(getDb(), userId, {
-				provider: 'apache_age',
+			await logGraphActivityCall(userId, {
 				operation: `${operation}.success(attempt=${attempt})`,
-				baseCostUsd: 0,
 				context,
 				durationMs: Date.now() - attemptStart
 			});
 			return result;
 		} catch (err) {
 			lastError = err;
-			const message = err instanceof Error ? err.message : String(err);
-			console.error('[age] query attempt failed', {
-				userId,
-				operation,
-				attempt,
-				context: context ?? null,
-				message,
-				stack: err instanceof Error ? err.stack : undefined
-			});
-			await logActivityCall(getDb(), userId, {
-				provider: 'apache_age',
+			if (!isGraphScaleQuiet()) {
+				const message = err instanceof Error ? err.message : String(err);
+				console.error('[age] query attempt failed', {
+					userId,
+					operation,
+					attempt,
+					context: context ?? null,
+					message,
+					stack: err instanceof Error ? err.stack : undefined
+				});
+			}
+			await logGraphActivityCall(userId, {
 				operation: `${operation}.error(attempt=${attempt})`,
-				baseCostUsd: 0,
 				context,
 				durationMs: Date.now() - attemptStart
 			});
@@ -164,13 +210,15 @@ export async function runGraphQueryWithRetry<T>(
 		lastError instanceof Error
 			? lastError.message
 			: `Apache AGE graph operation failed after ${maxAttempts} attempts`;
-	console.error('[age] query exhausted retries', {
-		userId,
-		operation,
-		maxAttempts,
-		context: context ?? null,
-		message,
-		stack: lastError instanceof Error ? lastError.stack : undefined
-	});
+	if (!isGraphScaleQuiet()) {
+		console.error('[age] query exhausted retries', {
+			userId,
+			operation,
+			maxAttempts,
+			context: context ?? null,
+			message,
+			stack: lastError instanceof Error ? lastError.stack : undefined
+		});
+	}
 	throw lastError instanceof Error ? lastError : new Error(message);
 }

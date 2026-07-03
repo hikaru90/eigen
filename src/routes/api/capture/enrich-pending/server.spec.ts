@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from './+server';
 
-const { listPendingEnrichThoughtIdsMock, scheduleCaptureEnrichWorkerMock, recoverStaleMock, requeueOrphanedMock } =
+const { listPendingEnrichThoughtIdsMock, scheduleCaptureEnrichWorkerMock, recoverStaleMock, requeueOrphanedMock, shouldScheduleDevCaptureEnrichWorkerMock } =
 	vi.hoisted(() => ({
 		listPendingEnrichThoughtIdsMock: vi.fn(),
 		scheduleCaptureEnrichWorkerMock: vi.fn(),
 		recoverStaleMock: vi.fn(),
-		requeueOrphanedMock: vi.fn()
+		requeueOrphanedMock: vi.fn(),
+		shouldScheduleDevCaptureEnrichWorkerMock: vi.fn()
 	}));
 
 vi.mock('$lib/server/capture/enrich-pending', () => ({
@@ -22,11 +23,16 @@ vi.mock('$lib/server/capture/queue-capture', () => ({
 	requeueOrphanedCompleteEnrichRows: requeueOrphanedMock
 }));
 
+vi.mock('$lib/server/auth/harness-account', () => ({
+	shouldScheduleDevCaptureEnrichWorker: shouldScheduleDevCaptureEnrichWorkerMock
+}));
+
 describe('GET /api/capture/enrich-pending', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		recoverStaleMock.mockResolvedValue(0);
 		requeueOrphanedMock.mockResolvedValue(0);
+		shouldScheduleDevCaptureEnrichWorkerMock.mockResolvedValue(true);
 	});
 
 	it('requires auth', async () => {
@@ -60,5 +66,19 @@ describe('GET /api/capture/enrich-pending', () => {
 		listPendingEnrichThoughtIdsMock.mockResolvedValue([]);
 		await GET({ locals: { user: { id: 'u1' } } } as never);
 		expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled();
+	});
+
+	it('does not schedule enrich worker for harness corpus tenants', async () => {
+		shouldScheduleDevCaptureEnrichWorkerMock.mockResolvedValue(false);
+		listPendingEnrichThoughtIdsMock.mockResolvedValue(['t1']);
+		await GET({ locals: { user: { id: 'graph-scale-corpus-run-1' } } } as never);
+		expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled();
+	});
+
+	it('schedules enrich worker for graph-scale spend probe tenants', async () => {
+		shouldScheduleDevCaptureEnrichWorkerMock.mockResolvedValue(true);
+		listPendingEnrichThoughtIdsMock.mockResolvedValue(['t1']);
+		await GET({ locals: { user: { id: 'graph-scale-spend-abc' } } } as never);
+		expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('graph-scale-spend-abc');
 	});
 });

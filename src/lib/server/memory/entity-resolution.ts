@@ -12,6 +12,8 @@ import {
 	type GraphLinkCandidate
 } from '$lib/server/memory/entity-link-graph';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
+import type { MemoryAuthorship } from '$lib/server/memory/authorship';
+import { authorshipInsertValues, USER_AUTHORSHIP } from '$lib/server/memory/authorship';
 
 const EMBEDDING_DIMENSIONS = 1536;
 
@@ -196,9 +198,12 @@ export async function resolveOrCreateCanonicalEntity(input: {
 	coMentionEntityIds?: string[];
 	/** Precomputed surface embedding (batch prefetch during entity sync). */
 	precomputedEmbedding?: number[];
+	/** Authorship inherited from the parent thought when creating a new entity. */
+	authorship?: MemoryAuthorship;
 }): Promise<ResolveCanonicalResult> {
 	const key = canonicalKeyFromSurface(input.surface);
 	const confStr = input.confidence.toFixed(4);
+	const authorValues = authorshipInsertValues(input.authorship ?? USER_AUTHORSHIP);
 
 	const [byKey] = await getDb()
 		.select({
@@ -319,7 +324,8 @@ export async function resolveOrCreateCanonicalEntity(input: {
 				canonicalKey: key,
 				label: input.surface.trim(),
 				entityType: input.entityType,
-				embedding
+				embedding,
+				...authorValues
 			})
 			.returning();
 
@@ -361,7 +367,8 @@ export async function resolveOrCreateCanonicalEntity(input: {
 			canonicalKey: key,
 			label: input.surface.trim(),
 			entityType: input.entityType,
-			embedding
+			embedding,
+			...authorValues
 		})
 		.returning();
 

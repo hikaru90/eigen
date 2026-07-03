@@ -7,7 +7,7 @@ import {
 	demoteProjectProfile,
 	loadHubJudgmentContext
 } from '$lib/server/memory/judge-gtd-project';
-import { countOpenLoopsForProjectEntity } from '$lib/server/memory/project-eligibility';
+import { countOpenTasksForProjectEntity } from '$lib/server/memory/project-eligibility';
 import {
 	GTD_PROJECT_STAY_SEPARATE_POLICY,
 	loadProjectIdentityContext,
@@ -33,7 +33,7 @@ export function buildReconcilePrompt(
 	profiles: Array<{
 		entityId: string;
 		label: string;
-		openLoopCount: number;
+		openTaskCount: number;
 		linkedThoughtSummaries: string[];
 	}>,
 	context?: Pick<ProjectIdentityContext, 'hubCandidates' | 'graphNeighborPairs'>
@@ -45,7 +45,7 @@ export function buildReconcilePrompt(
 					? p.linkedThoughtSummaries.map((s) => `      - ${s}`).join('\n')
 					: '      (none)';
 			return [
-				`- ${p.entityId}: ${p.label} (${p.openLoopCount} open tasks)`,
+				`- ${p.entityId}: ${p.label} (${p.openTaskCount} open tasks)`,
 				'    linkedThoughts:',
 				thoughts
 			].join('\n');
@@ -172,7 +172,7 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
 			return {
 				entityId: row.entityId,
 				label: row.label,
-				openLoopCount: ctx?.openLoopCount ?? (await countOpenLoopsForProjectEntity(userId, row.entityId)),
+				openTaskCount: ctx?.openTaskCount ?? (await countOpenTasksForProjectEntity(userId, row.entityId)),
 				linkedThoughtSummaries: ctx?.linkedThoughtSummaries ?? []
 			};
 		})

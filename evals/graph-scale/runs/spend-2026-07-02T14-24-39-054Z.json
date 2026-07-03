@@ -1,0 +1,134 @@
+{
+  "runId": "4b601615-e387-494b-9e05-8ff5b5e9ddfb",
+  "startedAt": "2026-07-02T14:14:39.145Z",
+  "finishedAt": "2026-07-02T14:24:39.052Z",
+  "userId": "graph-scale-spend-98d2a5a8-cdd5-46dc-93ad-60210ed9a11f",
+  "email": "graph-scale-spend-98d2a5a8-cdd5-46dc-93ad-60210ed9a11f@local.eval",
+  "thoughtCount": 10,
+  "perThought": [
+    {
+      "index": 0,
+      "thoughtId": "3eb8c45f-52f3-4ef1-8c80-28f6f9afbdda",
+      "groupId": "ui-capture",
+      "usd": "0.000313",
+      "credits": 0.313,
+      "wallMs": 43112,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 1,
+      "thoughtId": "67fef3fa-a264-4de8-90d8-72c7a1a7f75a",
+      "groupId": "ui-capture",
+      "usd": "0.000328",
+      "credits": 0.328,
+      "wallMs": 46166,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 2,
+      "thoughtId": "dcbd3668-e3a3-4a05-8546-1c4b1104be90",
+      "groupId": "ui-capture",
+      "usd": "0.000398",
+      "credits": 0.3979999999999999,
+      "wallMs": 34053,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 3,
+      "thoughtId": "42a330a8-ea00-47ad-8d85-1f842e79ac63",
+      "groupId": "ui-capture",
+      "usd": "0.000406",
+      "credits": 0.40600000000000014,
+      "wallMs": 43104,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 4,
+      "thoughtId": "c4927baa-a7a8-4455-aa4b-713571cca92c",
+      "groupId": "ui-capture",
+      "usd": "0.000429",
+      "credits": 0.42900000000000005,
+      "wallMs": 49252,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 5,
+      "thoughtId": "7605a5b4-1cdf-4587-a11d-95e4076a0ac5",
+      "groupId": "ui-capture",
+      "usd": "0.000436",
+      "credits": 0.43599999999999994,
+      "wallMs": 40960,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 6,
+      "thoughtId": "798419b8-b59b-4a78-8e35-491d857752bf",
+      "groupId": "ui-capture",
+      "usd": "0.000386",
+      "credits": 0.3860000000000001,
+      "wallMs": 31033,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 7,
+      "thoughtId": "f1b5f885-2d2f-4cbd-8cfb-029c8b4ce4d5",
+      "groupId": "ui-capture",
+      "usd": "0.000417",
+      "credits": 0.4169999999999998,
+      "wallMs": 37057,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 8,
+      "thoughtId": "d4db1f73-a640-4803-8106-0752780ea34b",
+      "groupId": "ui-capture",
+      "usd": "0.000515",
+      "credits": 0.5150000000000001,
+      "wallMs": 49214,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 9,
+      "thoughtId": "efa6e830-2655-4219-ab92-f71211cf2ef1",
+      "groupId": "ui-capture",
+      "usd": "0.000659",
+      "credits": 0.6589999999999998,
+      "wallMs": 213020,
+      "entityCount": 0,
+      "byOperation": {}
+    }
+  ],
+  "totals": {
+    "sumUsd": "0.004287",
+    "sumCredits": 4.287,
+    "sumWallMs": 586971
+  },
+  "trend": {
+    "firstHalfAvgUsd": 0.00037480000000000006,
+    "secondHalfAvgUsd": 0.0004826,
+    "deltaUsd": 0.00010779999999999996,
+    "minUsd": 0.000313,
+    "maxUsd": 0.000659,
+    "perStepDeltaUsd": [
+      0.000014999999999999985,
+      0.00007000000000000002,
+      0.000007999999999999978,
+      0.000023000000000000017,
+      0.0000070000000000000075,
+      -0.00005000000000000002,
+      0.000030999999999999995,
+      0.00009800000000000005,
+      0.00014399999999999992
+    ],
+    "moreExpensiveOverTime": true
+  }
+}

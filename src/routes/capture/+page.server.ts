@@ -33,7 +33,7 @@ export const load: PageServerLoad = async (event) => {
 			.limit(1)
 			.then((rows) => rows[0]),
 		authDb
-			.select({ onboardingCompleted: user.onboardingCompleted })
+			.select({ onboardingCompleted: user.onboardingCompleted, accountKind: user.accountKind })
 			.from(user)
 			.where(eq(user.id, userId))
 			.limit(1)
@@ -48,15 +48,20 @@ export const load: PageServerLoad = async (event) => {
 	const paypalClientId = paypalConfigured ? getPayPalClientId() : null;
 	const paypalSdkUrl = paypalConfigured ? getPayPalWebSdkUrl() : null;
 
+	const isHarness = authUser?.accountKind === 'harness';
+
 	const billingMode = (pref?.billingMode ?? 'platform_credits') as 'platform_credits' | 'byok';
 	const creditsGatePassed =
-		billingMode === 'byok' || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS;
+		isHarness ||
+		billingMode === 'byok' ||
+		wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS;
 
 	const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(userId);
 
 	return {
 		user: event.locals.user,
-		onboardingCompleted: authUser?.onboardingCompleted === true,
+		isHarness,
+		onboardingCompleted: isHarness || authUser?.onboardingCompleted === true,
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
 		billingMode,
 		walletAvailableCredits: wallet.availableCredits,

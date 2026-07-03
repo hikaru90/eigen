@@ -59,21 +59,22 @@ describe('logActivityCall', () => {
 		expect(values).toHaveBeenCalledWith(expect.objectContaining({ userId: 'eval-tenant-1' }));
 	});
 
-	it('forwards groupId and durationMs when provided', async () => {
+	it('forwards valid UUID groupId and durationMs when provided', async () => {
 		const values = vi.fn();
 		const insert = vi.fn(() => ({ values }));
 		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+		const groupId = 'a51561bf-f2a7-43ff-92ba-fda71b865118';
 
 		await logActivityCall(db, 'u1', {
 			provider: 'agent',
 			operation: 'tool_call.retrieve_thoughts',
 			baseCostUsd: 0,
-			groupId: 'g1',
+			groupId,
 			durationMs: 342
 		});
 
 		expect(values).toHaveBeenCalledWith(
-			expect.objectContaining({ groupId: 'g1', durationMs: 342 })
+			expect.objectContaining({ groupId, durationMs: 342 })
 		);
 	});
 
@@ -116,6 +117,43 @@ describe('logActivityCall', () => {
 			context: '   \t\n  '
 		});
 		expect(values).toHaveBeenCalledWith(expect.objectContaining({ context: null }));
+	});
+
+	it('drops non-UUID trace group ids instead of failing insert', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+
+		await tenantUserAsyncLocal.run('eval-tenant-1', async () => {
+			await logActivityCall(db, 'eval-tenant-1', {
+				provider: 'apache_age',
+				operation: 'age.upsert_node.success(attempt=1)',
+				baseCostUsd: 0,
+				groupId: 'cedab913-93da-406c-a6e4-56f2b2326936-n50-capture'
+			});
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({ groupId: undefined })
+		);
+	});
+
+	it('keeps valid UUID group ids from trace context', async () => {
+		const values = vi.fn();
+		const insert = vi.fn(() => ({ values }));
+		const db = { insert } as unknown as Parameters<typeof logActivityCall>[0];
+		const groupId = 'a51561bf-f2a7-43ff-92ba-fda71b865118';
+
+		await tenantUserAsyncLocal.run('eval-tenant-1', async () => {
+			await logActivityCall(db, 'eval-tenant-1', {
+				provider: 'apache_age',
+				operation: 'age.upsert_node.success(attempt=1)',
+				baseCostUsd: 0,
+				groupId
+			});
+		});
+
+		expect(values).toHaveBeenCalledWith(expect.objectContaining({ groupId }));
 	});
 
 	it('normalizes gatewayHost with trim and lowercase', async () => {

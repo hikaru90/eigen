@@ -129,11 +129,11 @@ function formatJobResultDetail(detail: unknown): string | undefined {
 		}
 		return 'nothing to summarize';
 	}
-	if ('decayed' in detail || 'openLoops' in detail) {
-		const r = detail as { decayed: number; openLoops: number };
+	if ('decayed' in detail || 'openTasks' in detail) {
+		const r = detail as { decayed: number; openTasks: number };
 		const parts: string[] = [];
 		if (r.decayed > 0) parts.push(`${r.decayed} decayed`);
-		if (r.openLoops > 0) parts.push(`${r.openLoops} open loops raised`);
+		if (r.openTasks > 0) parts.push(`${r.openTasks} open tasks raised`);
 		return parts.length > 0 ? parts.join(', ') : 'nothing to adjust';
 	}
 	return undefined;

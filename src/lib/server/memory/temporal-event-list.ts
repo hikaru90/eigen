@@ -1,23 +1,19 @@
 import { and, asc, desc, eq, gte, inArray, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, projectProfile, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
-import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
-import type {
-	TemporalEnergyLevel,
-	TemporalEventKind,
-	TemporalEventLifecycleStatus,
-	TemporalPriorityQuadrant
-} from '$lib/server/db/brain.schema';
+import type { LifecycleStatus, TemporalEnergyLevel, TemporalEventKind, TemporalPriorityQuadrant } from '$lib/server/db/brain.schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { computeFocusRank } from '$lib/server/memory/compute-focus-rank';
 
-export const OPEN_LOOP_ITEM_PREFIX = 'open-loop:';
+export const TASK_ITEM_PREFIX = 'task:';
+/** @deprecated Legacy timeline IDs — still accepted when parsing. */
+export const LEGACY_OPEN_LOOP_ITEM_PREFIX = 'open-loop:';
 
 export const RELEVANT_LOOKAHEAD_DAYS = 7;
 export const DEFAULT_LIST_LIMIT = 200;
 export const MAX_LIST_LIMIT = 500;
 
-export type TimelineItemType = 'event' | 'open_loop';
+export type TimelineItemType = 'event' | 'task';
 
 export type TemporalEventListItem = {
 	id: string;
@@ -34,7 +30,7 @@ export type TemporalEventListItem = {
 	activePeriod: string;
 	graphSyncStatus: string;
 	graphSyncError: string | null;
-	lifecycleStatus: TemporalEventLifecycleStatus;
+	lifecycleStatus: LifecycleStatus;
 	snoozedUntil: string | null;
 	recurrenceRule: string | null;
 	durationMinutes: number | null;
@@ -46,7 +42,7 @@ export type TemporalEventListItem = {
 	thoughtId: string;
 	thoughtText: string;
 	thoughtCategory: string;
-	thoughtStatus: ThoughtLifecycleStatus;
+	thoughtStatus: LifecycleStatus;
 	memoryType: string | null;
 	projectLabel: string | null;
 	completedAt: string | null;
@@ -59,7 +55,7 @@ export type TemporalEventListQuery = {
 	range?: 'relevant' | 'upcoming' | 'past' | 'all';
 	status?: 'open' | 'all';
 	kinds?: string[];
-	includeOpenLoops?: boolean;
+	includeTasks?: boolean;
 	limit?: number;
 	cursorStartAt?: string | null;
 	cursorId?: string | null;
@@ -67,25 +63,46 @@ export type TemporalEventListQuery = {
 	sortDirection?: 'asc' | 'desc';
 };
 
-export function isOpenLoopListItem(item: TemporalEventListItem): boolean {
-	return item.itemType === 'open_loop' || item.id.startsWith(OPEN_LOOP_ITEM_PREFIX);
+export function isTaskListItem(item: TemporalEventListItem): boolean {
+	const itemType = item.itemType as string;
+	return (
+		itemType === 'task' ||
+		itemType === 'open_loop' ||
+		item.id.startsWith(TASK_ITEM_PREFIX) ||
+		item.id.startsWith(LEGACY_OPEN_LOOP_ITEM_PREFIX)
+	);
 }
 
-export function openLoopItemId(thoughtId: string): string {
-	return `${OPEN_LOOP_ITEM_PREFIX}${thoughtId}`;
+export function taskItemId(thoughtId: string): string {
+	return `${TASK_ITEM_PREFIX}${thoughtId}`;
 }
 
-export function thoughtIdFromOpenLoopItemId(itemId: string): string | null {
-	if (!itemId.startsWith(OPEN_LOOP_ITEM_PREFIX)) return null;
-	return itemId.slice(OPEN_LOOP_ITEM_PREFIX.length);
+export function thoughtIdFromTaskItemId(itemId: string): string | null {
+	if (itemId.startsWith(TASK_ITEM_PREFIX)) {
+		return itemId.slice(TASK_ITEM_PREFIX.length);
+	}
+	if (itemId.startsWith(LEGACY_OPEN_LOOP_ITEM_PREFIX)) {
+		return itemId.slice(LEGACY_OPEN_LOOP_ITEM_PREFIX.length);
+	}
+	return null;
 }
 
-function thoughtStatusFromMetadata(metadata: Record<string, unknown>): ThoughtLifecycleStatus {
-	return metadata.status === 'completed' ? 'completed' : 'open';
+function thoughtLifecycleFromRow(input: {
+	lifecycleStatus: LifecycleStatus | null;
+	metadata: Record<string, unknown>;
+}): LifecycleStatus {
+	if (input.lifecycleStatus) return input.lifecycleStatus;
+	if (input.metadata.status === 'completed') return 'completed';
+	if (input.metadata.status === 'archived') return 'archived';
+	return 'open';
 }
 
-function completedAtFromMetadata(metadata: Record<string, unknown>): string | null {
-	const raw = metadata.completedAt;
+function completedAtFromThought(input: {
+	lifecycleCompletedAt: Date | null;
+	metadata: Record<string, unknown>;
+}): string | null {
+	if (input.lifecycleCompletedAt) return input.lifecycleCompletedAt.toISOString();
+	const raw = input.metadata.completedAt;
 	return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
@@ -149,7 +166,7 @@ function rangeCondition(range: TemporalEventListQuery['range'], now: Date): SQL 
 	);
 }
 
-async function listOpenLoopThoughtsForUser(
+async function listTaskThoughtsForUser(
 	userId: string,
 	status: TemporalEventListQuery['status'],
 	orderBy: TemporalEventListQuery['orderBy'] = 'ingest',
@@ -161,10 +178,10 @@ async function listOpenLoopThoughtsForUser(
 		.where(eq(temporalEvent.userId, userId));
 	const eventThoughtIds = eventRows.map((r) => r.thoughtId);
 
-	const conditions: SQL[] = [
-		eq(thought.userId, userId),
-		or(eq(thought.memoryType, 'open_loop'), eq(thought.category, 'task'))!
-	];
+	const conditions: SQL[] = [eq(thought.userId, userId), eq(thought.category, 'task')];
+	if (status === 'open') {
+		conditions.push(eq(thought.lifecycleStatus, 'open'));
+	}
 	if (eventThoughtIds.length > 0) {
 		conditions.push(notInArray(thought.id, eventThoughtIds));
 	}
@@ -178,6 +195,9 @@ async function listOpenLoopThoughtsForUser(
 			memoryType: thought.memoryType,
 			metadata: thought.metadata,
 			metadataEncrypted: thought.metadataEncrypted,
+			lifecycleStatus: thought.lifecycleStatus,
+			lifecycleUpdatedAt: thought.lifecycleUpdatedAt,
+			lifecycleCompletedAt: thought.lifecycleCompletedAt,
 			createdAt: thought.createdAt,
 			updatedAt: thought.updatedAt
 		})
@@ -210,16 +230,22 @@ async function listOpenLoopThoughtsForUser(
 				: Promise.resolve(JSON.stringify(r.metadata ?? {}))
 		]);
 		const metadata = JSON.parse(metadataJson) as Record<string, unknown>;
-		const thoughtStatus = thoughtStatusFromMetadata(metadata);
+		const thoughtStatus = thoughtLifecycleFromRow({
+			lifecycleStatus: r.lifecycleStatus,
+			metadata
+		});
 		if (status === 'open' && thoughtStatus !== 'open') continue;
-		const completedAt = completedAtFromMetadata(metadata);
+		const completedAt = completedAtFromThought({
+			lifecycleCompletedAt: r.lifecycleCompletedAt,
+			metadata
+		});
 
 		const summary =
 			thoughtText.length > 120 ? `${thoughtText.slice(0, 117).trim()}…` : thoughtText.trim();
 
 		items.push({
-			id: openLoopItemId(r.id),
-			itemType: 'open_loop',
+			id: taskItemId(r.id),
+			itemType: 'task',
 			kind: 'reminder',
 			semanticSummary: summary,
 			sourceTextSpan: null,
@@ -232,7 +258,7 @@ async function listOpenLoopThoughtsForUser(
 			activePeriod: '',
 			graphSyncStatus: 'n/a',
 			graphSyncError: null,
-			lifecycleStatus: thoughtStatus === 'completed' ? 'completed' : 'open',
+			lifecycleStatus: thoughtStatus,
 			snoozedUntil: null,
 			recurrenceRule: null,
 			durationMinutes: null,
@@ -248,7 +274,7 @@ async function listOpenLoopThoughtsForUser(
 			memoryType: r.memoryType,
 			projectLabel: null,
 			completedAt,
-			lifecycleUpdatedAt: r.updatedAt.toISOString(),
+			lifecycleUpdatedAt: (r.lifecycleUpdatedAt ?? r.updatedAt).toISOString(),
 			createdAt: r.createdAt.toISOString()
 		});
 	}
@@ -270,7 +296,7 @@ function mapEventRow(
 		activePeriod: unknown;
 		graphSyncStatus: string;
 		graphSyncError: string | null;
-		lifecycleStatus: TemporalEventLifecycleStatus;
+		lifecycleStatus: LifecycleStatus;
 		snoozedUntil: Date | null;
 		recurrenceRule: string | null;
 		durationMinutes: number | null;
@@ -282,7 +308,7 @@ function mapEventRow(
 		thoughtId: string;
 		thoughtText: string;
 		thoughtCategory: string;
-		thoughtStatus: ThoughtLifecycleStatus;
+		thoughtStatus: LifecycleStatus;
 		memoryType: string | null;
 		completedAt: string | null;
 		lifecycleUpdatedAt: Date | null;
@@ -385,6 +411,8 @@ export async function listTemporalEventsForUser(
 			thoughtCategory: thought.category,
 			thoughtMetadata: thought.metadata,
 			thoughtMetadataEncrypted: thought.metadataEncrypted,
+			thoughtLifecycleStatus: thought.lifecycleStatus,
+			thoughtLifecycleCompletedAt: thought.lifecycleCompletedAt,
 			thoughtMemoryType: thought.memoryType,
 			createdAt: temporalEvent.createdAt
 		})
@@ -428,9 +456,15 @@ export async function listTemporalEventsForUser(
 			return mapEventRow({
 				...r,
 				thoughtText,
-				thoughtStatus: thoughtStatusFromMetadata(metadata),
+				thoughtStatus: thoughtLifecycleFromRow({
+					lifecycleStatus: r.thoughtLifecycleStatus,
+					metadata
+				}),
 				memoryType: r.thoughtMemoryType,
-				completedAt: completedAtFromMetadata(metadata),
+				completedAt: completedAtFromThought({
+					lifecycleCompletedAt: r.thoughtLifecycleCompletedAt,
+					metadata
+				}),
 				lifecycleUpdatedAt: r.lifecycleUpdatedAt
 			});
 		})
@@ -442,14 +476,14 @@ export async function listTemporalEventsForUser(
 		hasMore && last?.startAt ? { startAt: last.startAt.toISOString(), id: last.id } : null;
 
 	let merged = items;
-	if (query.includeOpenLoops !== false && !query.cursorStartAt) {
-		const openLoops = await listOpenLoopThoughtsForUser(
+	if (query.includeTasks !== false && !query.cursorStartAt) {
+		const tasks = await listTaskThoughtsForUser(
 			query.userId,
 			query.status ?? 'open',
 			query.orderBy,
 			query.sortDirection
 		);
-		merged = [...items, ...openLoops];
+		merged = [...items, ...tasks];
 
 		/** Sort merged list by the same criteria */
 		merged.sort((a, b) => {
@@ -474,10 +508,10 @@ export async function getTemporalEventListItemById(
 	userId: string,
 	eventId: string
 ): Promise<TemporalEventListItem | null> {
-	const thoughtId = thoughtIdFromOpenLoopItemId(eventId);
+	const thoughtId = thoughtIdFromTaskItemId(eventId);
 	if (thoughtId) {
-		const openLoops = await listOpenLoopThoughtsForUser(userId, 'all');
-		return openLoops.find((i) => i.thoughtId === thoughtId) ?? null;
+		const tasks = await listTaskThoughtsForUser(userId, 'all');
+		return tasks.find((i) => i.thoughtId === thoughtId) ?? null;
 	}
 
 	const rows = await getDb()
@@ -511,6 +545,8 @@ export async function getTemporalEventListItemById(
 			thoughtCategory: thought.category,
 			thoughtMetadata: thought.metadata,
 			thoughtMetadataEncrypted: thought.metadataEncrypted,
+			thoughtLifecycleStatus: thought.lifecycleStatus,
+			thoughtLifecycleCompletedAt: thought.lifecycleCompletedAt,
 			thoughtMemoryType: thought.memoryType,
 			createdAt: temporalEvent.createdAt
 		})
@@ -544,9 +580,15 @@ export async function getTemporalEventListItemById(
 	return mapEventRow({
 		...r,
 		thoughtText,
-		thoughtStatus: thoughtStatusFromMetadata(metadata),
+		thoughtStatus: thoughtLifecycleFromRow({
+			lifecycleStatus: r.thoughtLifecycleStatus,
+			metadata
+		}),
 		memoryType: r.thoughtMemoryType,
-		completedAt: completedAtFromMetadata(metadata),
+		completedAt: completedAtFromThought({
+			lifecycleCompletedAt: r.thoughtLifecycleCompletedAt,
+			metadata
+		}),
 		lifecycleUpdatedAt: r.lifecycleUpdatedAt
 	});
 }
@@ -561,7 +603,7 @@ export async function refreshFocusRanksForUser(
 		userId,
 		status: 'open',
 		range: 'all',
-		includeOpenLoops: false
+		includeTasks: false
 	});
 
 	const db = getDb();

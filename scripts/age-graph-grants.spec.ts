@@ -11,9 +11,9 @@ describe('Apache AGE graph bootstrap grants', () => {
 		expect(appRole).toContain('ensureAgeGraphGrants');
 	});
 
-	it('ensure-extensions applies graph grants after create_graph', () => {
+	it('ensure-extensions creates graph labels and tenant indexes after create_graph', () => {
 		const extensions = readFileSync(path.join(repoRoot, 'scripts/ensure-extensions.mjs'), 'utf-8');
-		expect(extensions).toContain('ensureAgeGraphGrants');
+		expect(extensions).toContain('ensureAgeGraphLabelsAndIndexes');
 	});
 
 	it('entrypoint verifies eigen_app graph writes after role bootstrap', () => {
@@ -32,9 +32,9 @@ describe('Apache AGE graph bootstrap grants', () => {
 			path.join(repoRoot, 'docker/postgres/init/02-app-role.sh'),
 			'utf-8'
 		);
-		expect(init).toContain('GRANT CREATE ON SCHEMA eigen_graph TO eigen_app');
+		expect(init).toContain('grant create on schema ${GRAPH_NAME} to ${APP_ROLE}');
 		expect(init).toContain(
-			'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO eigen_app'
+			'grant select, insert, update, delete on all tables in schema ${GRAPH_NAME} to ${APP_ROLE}'
 		);
 	});
 });

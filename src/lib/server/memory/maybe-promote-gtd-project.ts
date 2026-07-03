@@ -45,7 +45,7 @@ export async function maybePromoteHubToGtdProject(input: PromoteGtdProjectInput)
 	if (
 		!shouldInvokeGtdProjectJudge({
 			linkedThoughtCount: context.linkedThoughtCount,
-			openLoopCount: context.openLoopCount,
+			openTaskCount: context.openTaskCount,
 			force: input.forceJudge
 		})
 	) {

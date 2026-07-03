@@ -725,7 +725,10 @@
           language={(page.data as { preferredLanguage?: string }).preferredLanguage ?? "en"}
           disabled={loading || loadingSession}
           ontranscript={(text) => {
-            input = appendTranscript(input, text);
+            input = text;
+          }}
+          onpartialtranscript={(text) => {
+            input = text;
           }}
           onerror={(message) => {
             console.error("voice input failed", message);

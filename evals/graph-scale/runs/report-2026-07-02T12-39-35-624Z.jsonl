@@ -1,0 +1,6 @@
+{"at":"2026-07-02T12:39:35.625Z","step":"run_started","runId":"a0631b52-e823-447e-b5d2-b2c9324c8725","operatorUserId":"graph-scale-runner","sizes":[1],"tracks":["capture"],"corpusSource":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/datasets/single-thought-corpus.yaml","progressPath":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/runs/report-2026-07-02T12-39-35-624Z.jsonl","jsonPath":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/runs/report-2026-07-02T12-39-35-624Z.json","csvPath":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/runs/report-2026-07-02T12-39-35-624Z.csv"}
+{"at":"2026-07-02T12:39:35.625Z","step":"progress","pct":0,"etaSec":0,"label":"starting"}
+{"at":"2026-07-02T12:39:35.678Z","step":"progress","pct":0,"etaSec":0,"label":"operator ready"}
+{"at":"2026-07-02T12:39:35.679Z","step":"progress","pct":0,"etaSec":0,"label":"N=1 seed (1/1)"}
+{"at":"2026-07-02T12:39:35.792Z","step":"progress","pct":5,"etaSec":3,"label":"N=1 seed queue 1/1"}
+{"at":"2026-07-02T12:39:35.793Z","step":"progress","pct":5,"etaSec":3,"label":"N=1 seed enrich 0/1"}

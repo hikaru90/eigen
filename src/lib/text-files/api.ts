@@ -4,6 +4,8 @@ export type TextFileRecord = {
 	id: string;
 	title: string;
 	body: string;
+	author?: 'user' | 'agent';
+	authorLabel?: string | null;
 	createdAt: string;
 	updatedAt: string;
 };

@@ -87,12 +87,30 @@ Each QA run expands to: **captures** → **check** (deterministic) → optional 
 
 ## Graph-scale cost benchmark
 
-Operator-owned economics harness (not QA pass/fail). Measures gateway USD and latency vs corpus size.
+Operator-owned economics harness (not QA pass/fail). Measures gateway USD and latency vs corpus size using **atomic single-thought captures** (`evals/graph-scale/datasets/single-thought-corpus.yaml`) — not `evals/datasets/corpus.yaml` or LongMemEval.
 
 ```bash
-npm run graph-scale
+npm run graph-scale              # smoke: 1 thought, capture track only
+npm run graph-scale:bench        # 50 + 100 thoughts, capture + Q&A
 npm run graph-scale -- --sizes 50,100,250 --tracks qa
 npm run graph-scale -- --sizes 1000 --confirm-spend
 ```
 
 See [`docs/planning/graph-scale-cost.md`](../docs/planning/graph-scale-cost.md) and `evals/graph-scale/`.
+
+### Live UI watch (Playwright)
+
+While a graph-scale run is ingesting, you can sign in as the fresh corpus harness tenant and watch thoughts + graph growth in the browser:
+
+```bash
+# terminal 1 — keep dev running
+npm run dev
+
+# terminal 2 — start the benchmark
+npm run graph-scale
+
+# terminal 3 — attach the watcher (headed browser, 60m timeout)
+npm run test:e2e:graph-scale-watch
+```
+
+The watcher polls `GET /api/e2e/graph-scale/live` (dev only), logs enrich + entity counts, reloads `/capture` and `/memory`, and fails early if enrich stalls for 10 minutes or entities stay at zero after 8 enrichments.

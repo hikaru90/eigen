@@ -1,13 +1,23 @@
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { extractChatContent } from '$lib/server/ontology/llm-json';
-import type { TemporalEventLifecycleStatus } from '$lib/server/db/brain.schema';
-import { temporalEventKindEnum } from '$lib/server/db/brain.schema';
+import {
+	lifecycleStatusEnum,
+	temporalEventKindEnum,
+	type LifecycleStatus
+} from '$lib/server/db/brain.schema';
 
-export type TemporalEventQuickAction = 'mark_done' | 'reopen' | 'cancel' | 'dismiss';
+export type TemporalEventQuickAction = 'mark_done' | 'reopen' | 'archive';
+
+/** Legacy MCP/UI aliases mapped to archive. */
+export type TemporalEventLegacyQuickAction = 'cancel' | 'dismiss' | 'delete';
+
+export type TemporalEventActionInput =
+	| TemporalEventQuickAction
+	| TemporalEventLegacyQuickAction;
 
 export type AppliedTemporalEventAction = {
 	action: TemporalEventQuickAction | 'reschedule' | 'snooze' | 'update';
-	lifecycleStatus?: TemporalEventLifecycleStatus;
+	lifecycleStatus?: LifecycleStatus;
 	startAt?: string | null;
 	endAt?: string | null;
 	snoozedUntil?: string | null;
@@ -15,12 +25,17 @@ export type AppliedTemporalEventAction = {
 	summary: string;
 };
 
-const ALLOWED_LIFECYCLE = new Set<TemporalEventLifecycleStatus>([
-	'open',
-	'completed',
-	'cancelled',
-	'dismissed'
-]);
+const ALLOWED_LIFECYCLE = new Set<LifecycleStatus>(lifecycleStatusEnum);
+
+function normalizeLegacyAction(action: string): TemporalEventQuickAction | null {
+	if (action === 'cancel' || action === 'dismiss' || action === 'delete') {
+		return 'archive';
+	}
+	if (action === 'mark_done' || action === 'reopen' || action === 'archive') {
+		return action;
+	}
+	return null;
+}
 
 function parseAppliedTemporalActionJson(text: string): AppliedTemporalEventAction {
 	let trimmed = text.trim();
@@ -29,22 +44,21 @@ function parseAppliedTemporalActionJson(text: string): AppliedTemporalEventActio
 
 	const parsed = JSON.parse(trimmed) as Record<string, unknown>;
 	const actionRaw = typeof parsed.action === 'string' ? parsed.action.trim() : '';
-	const allowedActions = new Set([
-		'mark_done',
-		'reopen',
-		'cancel',
-		'dismiss',
-		'reschedule',
-		'snooze',
-		'update'
-	]);
-	if (!allowedActions.has(actionRaw)) {
+	const normalized = normalizeLegacyAction(actionRaw);
+	const structuralActions = new Set(['reschedule', 'snooze', 'update']);
+	if (!normalized && !structuralActions.has(actionRaw)) {
 		throw new Error(`Invalid temporal event action: ${actionRaw || '(missing)'}`);
 	}
 
-	let lifecycleStatus: TemporalEventLifecycleStatus | undefined;
-	if (typeof parsed.lifecycleStatus === 'string' && ALLOWED_LIFECYCLE.has(parsed.lifecycleStatus as TemporalEventLifecycleStatus)) {
-		lifecycleStatus = parsed.lifecycleStatus as TemporalEventLifecycleStatus;
+	const action = (normalized ?? actionRaw) as AppliedTemporalEventAction['action'];
+
+	let lifecycleStatus: LifecycleStatus | undefined;
+	if (typeof parsed.lifecycleStatus === 'string') {
+		if (parsed.lifecycleStatus === 'cancelled' || parsed.lifecycleStatus === 'dismissed') {
+			lifecycleStatus = 'archived';
+		} else if (ALLOWED_LIFECYCLE.has(parsed.lifecycleStatus as LifecycleStatus)) {
+			lifecycleStatus = parsed.lifecycleStatus as LifecycleStatus;
+		}
 	}
 
 	const startAt =
@@ -79,7 +93,7 @@ function parseAppliedTemporalActionJson(text: string): AppliedTemporalEventActio
 			: 'Event updated.';
 
 	return {
-		action: actionRaw as AppliedTemporalEventAction['action'],
+		action,
 		lifecycleStatus,
 		startAt,
 		endAt,
@@ -102,7 +116,7 @@ export async function applyTemporalEventActionRequest(input: {
 		startAt: string | null;
 		endAt: string | null;
 		timezone: string;
-		lifecycleStatus: TemporalEventLifecycleStatus;
+		lifecycleStatus: LifecycleStatus;
 		thoughtText: string;
 	};
 	nowIso: string;
@@ -120,8 +134,8 @@ export async function applyTemporalEventActionRequest(input: {
 				'You apply a natural-language instruction to a personal calendar/temporal event.',
 				'Return JSON only:',
 				'{',
-				'  "action": "mark_done" | "reopen" | "cancel" | "dismiss" | "reschedule" | "snooze" | "update",',
-				'  "lifecycleStatus": "open" | "completed" | "cancelled" | "dismissed" | null,',
+				'  "action": "mark_done" | "reopen" | "archive" | "reschedule" | "snooze" | "update",',
+				`  "lifecycleStatus": ${lifecycleStatusEnum.map((s) => `"${s}"`).join(' | ')} | null,`,
 				'  "startAt": "<ISO-8601 or null>",',
 				'  "endAt": "<ISO-8601 or null>",',
 				'  "snoozedUntil": "<ISO-8601 or null>",',
@@ -133,7 +147,7 @@ export async function applyTemporalEventActionRequest(input: {
 				'- Use user timezone for relative dates ("tomorrow", "next Monday").',
 				'- For reschedule/snooze, set startAt/endAt or snoozedUntil as ISO instants.',
 				'- When dates change, provide thoughtTextPatch with the full updated thought reflecting the new schedule.',
-				'- For mark done/cancel/dismiss, set lifecycleStatus accordingly; omit date fields unless also rescheduling.',
+				'- For mark done use lifecycleStatus "completed"; for dismiss/cancel/not relevant use "archived".',
 				'- Do not invent facts beyond the instruction.',
 				'- summary must name the concrete change.'
 			].join('\n')
@@ -173,17 +187,23 @@ export async function applyTemporalEventActionRequest(input: {
 	}
 }
 
-export function quickActionToLifecycle(
-	action: TemporalEventQuickAction
-): TemporalEventLifecycleStatus {
+export function normalizeTemporalEventQuickAction(
+	action: TemporalEventActionInput
+): TemporalEventQuickAction {
+	const normalized = normalizeLegacyAction(action);
+	if (!normalized) {
+		throw new Error(`Invalid temporal event action: ${action}`);
+	}
+	return normalized;
+}
+
+export function quickActionToLifecycle(action: TemporalEventQuickAction): LifecycleStatus {
 	switch (action) {
 		case 'mark_done':
 			return 'completed';
 		case 'reopen':
 			return 'open';
-		case 'cancel':
-			return 'cancelled';
-		case 'dismiss':
-			return 'dismissed';
+		case 'archive':
+			return 'archived';
 	}
 }

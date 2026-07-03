@@ -5,7 +5,7 @@
 		energyPillClasses,
 		formatWhen,
 		formatCreatedDate,
-		isOpenLoopListItem,
+		isTaskListItem,
 		isTemporalEventCompleted,
 		priorityDotColor
 	} from './temporal-events-utils';
@@ -150,7 +150,7 @@
 					{graphEnergyLevelLabel(item.energyLevel)}
 				</span>
 			{/if}
-			{#if isOpenLoopListItem(item)}
+			{#if isTaskListItem(item)}
 				<span
 					class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
 				>

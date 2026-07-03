@@ -104,7 +104,7 @@
 				</div>
 			{:else if agents.length === 0}
 				<p class="text-muted-foreground py-6 text-center text-xs">
-					No connected agents. Register one in Settings → Connected agents.
+					No webhooks yet. Register one in Settings → Webhooks.
 				</p>
 			{:else}
 				<ul class="space-y-1">

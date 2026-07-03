@@ -464,6 +464,47 @@ describe('llm client retries', () => {
 		}
 	});
 
+	it('serial mode waits for prior request completion plus interval before the next starts', async () => {
+		vi.resetModules();
+		vi.useFakeTimers();
+		try {
+			mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '1000';
+			mockEnv.LLM_SERIAL_REQUESTS = '1';
+			const pendingResolvers: Array<(value: Response) => void> = [];
+			const fetchMock = vi.fn(
+				() =>
+					new Promise<Response>((resolve) => {
+						pendingResolvers.push(resolve);
+					})
+			);
+			vi.stubGlobal('fetch', fetchMock);
+
+			const { llmChatCompletion: chat } = await import('./llm-client');
+			const okBody = {
+				usage: { prompt_tokens: 1, completion_tokens: 1 },
+				choices: [{ message: { content: 'ok' } }]
+			};
+
+			const first = chat({ userId: 'u1', messages: [{ role: 'user', content: '1' }] });
+			await vi.advanceTimersByTimeAsync(0);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			const second = chat({ userId: 'u1', messages: [{ role: 'user', content: '2' }] });
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			pendingResolvers[0]!(response(true, 200, okBody));
+			await first;
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+
+			pendingResolvers[1]!(response(true, 200, okBody));
+			await second;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('resolves chat routing rule via /routing-rules when model env is empty', async () => {
 		vi.resetModules();
 		mockEnv.LLM_MODEL_CHAT = '';

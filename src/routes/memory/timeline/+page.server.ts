@@ -30,7 +30,7 @@ export const load: PageServerLoad = async (event) => {
 			userId,
 			range: 'relevant',
 			status: 'open',
-			includeOpenLoops: true,
+			includeTasks: true,
 			orderBy: 'todo',
 			sortDirection: 'desc'
 		})

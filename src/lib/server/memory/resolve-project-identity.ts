@@ -271,7 +271,7 @@ export function buildIdentityPrompt(input: {
 	const catalog = input.context.gtdProjects
 		.map(
 			(p) =>
-				`- ${p.entityId}: ${p.label} (${p.status}, ${p.openLoopCount} open tasks, source=${p.source})`
+				`- ${p.entityId}: ${p.label} (${p.status}, ${p.openTaskCount} open tasks, source=${p.source})`
 		)
 		.join('\n');
 	const hubs = input.context.hubCandidates

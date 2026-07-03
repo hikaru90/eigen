@@ -1,8 +1,13 @@
 import { truncateEditPreview } from '$lib/server/capture/edit-phase-timing';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { extractChatContent } from '$lib/server/ontology/llm-json';
+import {
+	lifecycleStatusEnum,
+	type LifecycleStatus
+} from '$lib/server/db/brain.schema';
 
-export type ThoughtLifecycleStatus = 'open' | 'completed';
+/** @deprecated Use LifecycleStatus from brain.schema */
+export type ThoughtLifecycleStatus = LifecycleStatus;
 
 const LIFECYCLE_COMPLETE_COMMANDS = [
 	'mark as completed',
@@ -13,11 +18,19 @@ const LIFECYCLE_COMPLETE_COMMANDS = [
 
 const LIFECYCLE_OPEN_COMMANDS = ['reopen', 'mark as open'] as const;
 
+const LIFECYCLE_ARCHIVE_COMMANDS = [
+	'archive',
+	'mark as archived',
+	'dismiss',
+	'not relevant',
+	'remove from active'
+] as const;
+
 /**
  * Recognize explicit lifecycle edit commands (MCP/UI protocol).
  * Not semantic classification of thought content — only routes known status verbs.
  */
-export function parseLifecycleEditRequest(editRequest: string): ThoughtLifecycleStatus | null {
+export function parseLifecycleEditRequest(editRequest: string): LifecycleStatus | null {
 	const trimmed = editRequest.trim();
 	if (!trimmed) return null;
 	const lower = trimmed.toLowerCase();
@@ -32,13 +45,18 @@ export function parseLifecycleEditRequest(editRequest: string): ThoughtLifecycle
 			return 'open';
 		}
 	}
+	for (const command of LIFECYCLE_ARCHIVE_COMMANDS) {
+		if (lower === command || lower.startsWith(`${command} `)) {
+			return 'archived';
+		}
+	}
 	return null;
 }
 
 export type AppliedThoughtEdit = {
 	rawText: string;
 	/** When set, merged into thought.metadata.status */
-	status?: ThoughtLifecycleStatus | null;
+	status?: LifecycleStatus | null;
 	/** Short description of what changed (for chat traceability). */
 	summary: string;
 };
@@ -53,10 +71,12 @@ function parseAppliedEditJson(text: string, fallbackRaw: string): AppliedThought
 	if (!rawText) {
 		throw new Error('LLM edit response missing non-empty rawText');
 	}
-	let status: ThoughtLifecycleStatus | null | undefined;
-	if (parsed.status === 'completed') status = 'completed';
-	else if (parsed.status === 'open') status = 'open';
-	else if (parsed.status === null) status = null;
+	let status: LifecycleStatus | null | undefined;
+	if (lifecycleStatusEnum.includes(parsed.status as LifecycleStatus)) {
+		status = parsed.status as LifecycleStatus;
+	} else if (parsed.status === null) {
+		status = null;
+	}
 
 	const summary =
 		typeof parsed.summary === 'string' && parsed.summary.trim()
@@ -95,10 +115,11 @@ export async function applyThoughtEditRequest(input: {
 			content: [
 				'You apply a natural-language edit to a stored personal thought.',
 				'Return JSON only:',
-				'{ "rawText": "<full updated thought body>", "status": "open" | "completed" | null, "summary": "<one sentence: what changed>" }',
+				`{ "rawText": "<full updated thought body>", "status": ${lifecycleStatusEnum.map((s) => `"${s}"`).join(' | ')} | null, "summary": "<one sentence: what changed>" }`,
 				'Rules:',
 				'- rawText must be the complete updated thought, not the edit instruction alone.',
 				'- When marking complete, keep the original meaning; set status to "completed" unless the user also rewrites the text.',
+				'- When archiving or dismissing as not relevant, set status to "archived".',
 				'- Do not invent facts beyond the edit request.',
 				'- summary must name the concrete change (e.g. marked complete, fixed typo, shortened).'
 			].join('\n')

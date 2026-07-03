@@ -571,6 +571,12 @@ export async function assertHasPlatformCredits(userId: string): Promise<WalletSn
 
 export async function assertCanAfford(userId: string, requiredCredits: number): Promise<void> {
 	const wallet = await getOrCreateWallet(userId);
+	console.log('[billing] assertCanAfford', {
+		userId,
+		availableCredits: wallet.availableCredits,
+		requiredCredits,
+		canAfford: wallet.availableCredits >= requiredCredits
+	});
 	if (wallet.availableCredits < requiredCredits) {
 		throw new InsufficientCreditsError({
 			phase: 'precheck',

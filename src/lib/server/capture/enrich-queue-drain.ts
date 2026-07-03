@@ -3,6 +3,7 @@ import {
 	countPendingEnrichRows
 } from '$lib/server/capture/queue-capture';
 import { resolveCaptureEnrichConcurrency } from '$lib/server/orchestration-concurrency';
+import { isFatalIngestError } from '$lib/server/ingest/retry';
 
 export { resolveCaptureEnrichConcurrency, DEFAULT_ORCHESTRATION_CONCURRENCY } from '$lib/server/orchestration-concurrency';
 
@@ -20,6 +21,7 @@ export type DrainCaptureEnrichQueueOptions = {
 	countPending?: (userId: string) => Promise<number>;
 	idlePollMs?: number;
 	idleRoundsBeforeExit?: number;
+	onProcessed?: (processed: number, totalHint?: number) => void;
 };
 
 /** Drain pending enrich rows with bounded worker concurrency. */
@@ -35,8 +37,10 @@ export async function drainCaptureEnrichQueue(
 	const enrich =
 		options?.enrich ??
 		(await import('$lib/server/capture/enrich-queued-thought')).enrichQueuedThought;
+	const onProcessed = options?.onProcessed;
 	let processed = 0;
 	let activeEnrich = 0;
+	let totalHint: number | undefined;
 
 	// Workers poll when the queue is momentarily empty so captures that land mid-drain
 	// (e.g. rapid MCP capture_thought calls) are picked up by idle workers instead of
@@ -61,6 +65,17 @@ export async function drainCaptureEnrichQueue(
 			try {
 				await enrich(userId, claimed.id);
 				processed += 1;
+				if (totalHint == null) {
+					totalHint = processed + (await countPending(userId));
+				}
+				onProcessed?.(processed, totalHint);
+			} catch (err) {
+				// Fatal errors (e.g. 402 billing) stop the entire drain — no point retrying other thoughts
+				if (isFatalIngestError(err)) {
+					console.error('[enrich-drain] fatal error, stopping queue:', err.message);
+					throw err;
+				}
+				// Non-fatal errors (e.g. transient LLM failures) — continue with next thought
 			} finally {
 				activeEnrich -= 1;
 			}

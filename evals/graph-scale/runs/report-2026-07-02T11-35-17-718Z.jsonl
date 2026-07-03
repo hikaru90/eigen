@@ -1,0 +1,30 @@
+{"at":"2026-07-02T11:35:17.718Z","step":"run_started","runId":"83248431-bf2f-4e38-9237-812e3926acd4","operatorUserId":"graph-scale-runner","sizes":[50,100],"tracks":["capture","qa"],"corpusSource":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/datasets/single-thought-corpus.yaml","progressPath":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/runs/report-2026-07-02T11-35-17-718Z.jsonl","jsonPath":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/runs/report-2026-07-02T11-35-17-718Z.json","csvPath":"/Users/alexanderbuckner/+Code/eigen/evals/graph-scale/runs/report-2026-07-02T11-35-17-718Z.csv"}
+{"at":"2026-07-02T11:35:17.719Z","step":"progress","pct":0,"etaSec":0,"label":"starting"}
+{"at":"2026-07-02T11:35:17.768Z","step":"progress","pct":0,"etaSec":0,"label":"operator ready"}
+{"at":"2026-07-02T11:35:17.768Z","step":"progress","pct":0,"etaSec":0,"label":"N=50 seed (1/2)"}
+{"at":"2026-07-02T11:35:17.821Z","step":"progress","pct":0,"etaSec":127,"label":"N=50 seed queue 2/50"}
+{"at":"2026-07-02T11:35:17.839Z","step":"progress","pct":0,"etaSec":74,"label":"N=50 seed queue 4/50"}
+{"at":"2026-07-02T11:35:17.856Z","step":"progress","pct":0,"etaSec":56,"label":"N=50 seed queue 6/50"}
+{"at":"2026-07-02T11:35:17.873Z","step":"progress","pct":0,"etaSec":48,"label":"N=50 seed queue 8/50"}
+{"at":"2026-07-02T11:35:17.893Z","step":"progress","pct":0,"etaSec":43,"label":"N=50 seed queue 10/50"}
+{"at":"2026-07-02T11:35:17.907Z","step":"progress","pct":0,"etaSec":38,"label":"N=50 seed queue 12/50"}
+{"at":"2026-07-02T11:35:17.923Z","step":"progress","pct":1,"etaSec":36,"label":"N=50 seed queue 14/50"}
+{"at":"2026-07-02T11:35:17.937Z","step":"progress","pct":1,"etaSec":33,"label":"N=50 seed queue 16/50"}
+{"at":"2026-07-02T11:35:17.951Z","step":"progress","pct":1,"etaSec":32,"label":"N=50 seed queue 18/50"}
+{"at":"2026-07-02T11:35:17.964Z","step":"progress","pct":1,"etaSec":30,"label":"N=50 seed queue 20/50"}
+{"at":"2026-07-02T11:35:17.979Z","step":"progress","pct":1,"etaSec":29,"label":"N=50 seed queue 22/50"}
+{"at":"2026-07-02T11:35:17.992Z","step":"progress","pct":1,"etaSec":28,"label":"N=50 seed queue 24/50"}
+{"at":"2026-07-02T11:35:18.008Z","step":"progress","pct":1,"etaSec":27,"label":"N=50 seed queue 26/50"}
+{"at":"2026-07-02T11:35:18.024Z","step":"progress","pct":1,"etaSec":27,"label":"N=50 seed queue 28/50"}
+{"at":"2026-07-02T11:35:18.036Z","step":"progress","pct":1,"etaSec":26,"label":"N=50 seed queue 30/50"}
+{"at":"2026-07-02T11:35:18.048Z","step":"progress","pct":1,"etaSec":25,"label":"N=50 seed queue 32/50"}
+{"at":"2026-07-02T11:35:18.059Z","step":"progress","pct":1,"etaSec":24,"label":"N=50 seed queue 34/50"}
+{"at":"2026-07-02T11:35:18.070Z","step":"progress","pct":1,"etaSec":24,"label":"N=50 seed queue 36/50"}
+{"at":"2026-07-02T11:35:18.123Z","step":"progress","pct":2,"etaSec":26,"label":"N=50 seed queue 38/50"}
+{"at":"2026-07-02T11:35:18.154Z","step":"progress","pct":2,"etaSec":26,"label":"N=50 seed queue 40/50"}
+{"at":"2026-07-02T11:35:18.173Z","step":"progress","pct":2,"etaSec":26,"label":"N=50 seed queue 42/50"}
+{"at":"2026-07-02T11:35:18.185Z","step":"progress","pct":2,"etaSec":26,"label":"N=50 seed queue 44/50"}
+{"at":"2026-07-02T11:35:18.197Z","step":"progress","pct":2,"etaSec":25,"label":"N=50 seed queue 46/50"}
+{"at":"2026-07-02T11:35:18.209Z","step":"progress","pct":2,"etaSec":25,"label":"N=50 seed queue 48/50"}
+{"at":"2026-07-02T11:35:18.219Z","step":"progress","pct":2,"etaSec":24,"label":"N=50 seed queue 50/50"}
+{"at":"2026-07-02T11:35:18.219Z","step":"progress","pct":2,"etaSec":24,"label":"N=50 seed enrich 0/50"}

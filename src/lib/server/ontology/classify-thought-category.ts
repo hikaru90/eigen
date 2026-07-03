@@ -9,6 +9,11 @@ import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content';
 import { extractChatContent, userMessage } from './llm-json';
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants';
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
+
+function logOntology(...args: Parameters<typeof console.info>): void {
+	if (!isGraphScaleQuiet()) console.info(...args);
+}
 
 export type ResolvedThoughtOntologyKind = {
 	/** Same as `thought.category` and `ontology_entity_kind.key`. */
@@ -71,7 +76,7 @@ export async function resolveThoughtCategory(input: {
 }): Promise<ResolvedThoughtOntologyKind> {
 	const runStart = Date.now();
 	const userShort = input.userId.length > 8 ? `${input.userId.slice(0, 8)}…` : input.userId;
-	console.info('[capture.ontology] classify start', {
+	logOntology('[capture.ontology] classify start', {
 		userId: userShort,
 		normalizedChars: input.normalized.length,
 		rawChars: input.rawText.length
@@ -85,7 +90,7 @@ export async function resolveThoughtCategory(input: {
 		throw new Error('No active thought category kinds for user; cannot classify capture.');
 	}
 	const kindKeys = [...new Set(activeKinds.map((k) => k.key))].sort();
-	console.info('[capture.ontology] catalog loaded', {
+	logOntology('[capture.ontology] catalog loaded', {
 		ms: Date.now() - tLoad,
 		activeKindCount: activeKinds.length,
 		kindKeys
@@ -93,7 +98,7 @@ export async function resolveThoughtCategory(input: {
 
 	const tProfile = Date.now();
 	const profile = await loadUserOntologyProfileRow(input.userId);
-	console.info('[capture.ontology] user ontology profile row loaded', { ms: Date.now() - tProfile });
+	logOntology('[capture.ontology] user ontology profile row loaded', { ms: Date.now() - tProfile });
 
 	// Load recent session context and category distribution in parallel
 	const tContext = Date.now();
@@ -101,7 +106,7 @@ export async function resolveThoughtCategory(input: {
 		loadRecentThoughtsContext(input.userId, 5),
 		loadCategoryDistribution(input.userId, ONTOLOGY_RECENT_THOUGHT_WINDOW)
 	]);
-	console.info('[capture.ontology] context loaded', { ms: Date.now() - tContext });
+	logOntology('[capture.ontology] context loaded', { ms: Date.now() - tContext });
 
 	const ontologyBlock = ontologyKindsPromptBlock(activeKinds, profile);
 	const allowedList = kindKeys.join(', ');
@@ -156,7 +161,7 @@ export async function resolveThoughtCategory(input: {
 	];
 
 	const tLlm = Date.now();
-	console.info('[capture.ontology] calling LLM for category (chat completion)', {
+	logOntology('[capture.ontology] calling LLM for category (chat completion)', {
 		promptChars: prompt.length,
 		systemChars: messages[0]?.content.length ?? 0
 	});
@@ -166,7 +171,7 @@ export async function resolveThoughtCategory(input: {
 		temperature: 0,
 		logContext: 'thought_category'
 	});
-	console.info('[capture.ontology] LLM returned for category', { llmMs: Date.now() - tLlm });
+	logOntology('[capture.ontology] LLM returned for category', { llmMs: Date.now() - tLlm });
 
 	const parsed = parseLlmJsonPayload(extractChatContent(response));
 	if (!parsed || typeof parsed !== 'object') {
@@ -214,14 +219,14 @@ export async function resolveThoughtCategory(input: {
 	}
 
 	if (confidence < 0.65) {
-		console.info('[capture.ontology] low-confidence classification', {
+		logOntology('[capture.ontology] low-confidence classification', {
 			key: row.key,
 			confidence,
 			alternatives
 		});
 	}
 
-	console.info('[capture.ontology] classify done', {
+	logOntology('[capture.ontology] classify done', {
 		key: row.key,
 		confidence,
 		alternativeCount: alternatives.length,

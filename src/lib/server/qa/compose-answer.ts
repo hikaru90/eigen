@@ -109,6 +109,8 @@ export type RetrievalContextItem = {
 	id: string;
 	normalizedText: string;
 	category: string;
+	author: 'user' | 'agent';
+	authorLabel: string | null;
 	score: number;
 	vectorScore: number;
 	graphScore: number;
@@ -146,6 +148,7 @@ export type ComposeAnswerInput = {
 	retrievalQuery?: string;
 	topK?: number;
 	weights?: { vector: number; graph: number };
+	authorFilter?: 'user' | 'agent';
 	/** As-of time for temporal validity annotations (defaults to wall clock now). */
 	referenceTime?: Date;
 	onProgress?: (phase: ComposeAnswerProgressPhase) => void | Promise<void>;
@@ -472,6 +475,8 @@ function searchHitToContextItem(hit: SearchHit, now: Date): RetrievalContextItem
 		id: hit.id,
 		normalizedText: hit.normalizedText,
 		category: hit.category,
+		author: hit.author,
+		authorLabel: hit.authorLabel,
 		score: hit.score,
 		vectorScore: hit.vectorScore,
 		graphScore: hit.graphScore,
@@ -659,7 +664,8 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 			topK: effectiveTopK,
 			weights,
 			queryEmbedding,
-			temporalIntent: queryIntent
+			temporalIntent: queryIntent,
+			authorFilter: input.authorFilter
 		}),
 		searchTextFiles(input.userId, { query: retrievalQuery, topK: TEXT_FILE_COMPOSE_TOP_K }),
 		communityThemesPromise

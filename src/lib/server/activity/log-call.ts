@@ -1,8 +1,16 @@
+import { isUuidV4 } from '$lib/random-uuid';
 import { activityCallLog } from '$lib/server/db/schema';
 import type { AppDatabase } from '$lib/server/db/context';
 import { resolveTenantUserId } from '$lib/server/billing/context';
 import { priceCall } from '$lib/server/pricing';
 import { getCurrentTraceGroupId } from './trace-context';
+
+/** activity_call_log.group_id is uuid — non-UUID trace ids must not fail the caller. */
+function resolveActivityGroupId(explicit?: string): string | undefined {
+	const candidate = explicit?.trim() || getCurrentTraceGroupId()?.trim();
+	if (!candidate) return undefined;
+	return isUuidV4(candidate) ? candidate : undefined;
+}
 
 export async function logActivityCall(
 	db: AppDatabase,
@@ -34,7 +42,7 @@ export async function logActivityCall(
 		markupUsd: priced.markupUsd,
 		totalCostUsd: priced.totalCostUsd,
 		markupRate: priced.markupRate,
-		groupId: input.groupId ?? getCurrentTraceGroupId(),
+		groupId: resolveActivityGroupId(input.groupId),
 		durationMs: input.durationMs
 	});
 }

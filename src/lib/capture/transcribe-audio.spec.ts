@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseTranscribeErrorResponse, transcribeRecordedAudio } from './transcribe-audio';
+import {
+	parseTranscribeErrorResponse,
+	transcribeRecordedAudio,
+	transcribeAudioChunk
+} from './transcribe-audio';
 
 describe('transcribe-audio client', () => {
 	beforeEach(() => {
@@ -75,5 +79,58 @@ describe('transcribe-audio client', () => {
 		await expect(
 			transcribeRecordedAudio(new Blob(['x'], { type: 'audio/webm' }))
 		).rejects.toThrow(/missing transcript/i);
+	});
+});
+
+describe('transcribeAudioChunk', () => {
+	beforeEach(() => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({
+				ok: true,
+				json: async () => ({ transcript: 'partial hello' })
+			}))
+		);
+	});
+
+	it('posts chunk to transcribe-chunk endpoint', async () => {
+		const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/webm' });
+		const text = await transcribeAudioChunk(blob, { language: 'en' });
+		expect(text).toBe('partial hello');
+		const fetchMock = vi.mocked(fetch);
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/capture/transcribe-chunk',
+			expect.objectContaining({
+				method: 'POST',
+				credentials: 'same-origin'
+			})
+		);
+	});
+
+	it('returns empty string on failure instead of throwing', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({
+				ok: false,
+				status: 503,
+				json: async () => ({ error: 'stt unavailable' })
+			}))
+		);
+		const blob = new Blob(['x'], { type: 'audio/webm' });
+		const text = await transcribeAudioChunk(blob);
+		expect(text).toBe('');
+	});
+
+	it('returns empty string when transcript is blank', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({
+				ok: true,
+				json: async () => ({ transcript: '   ' })
+			}))
+		);
+		const blob = new Blob(['x'], { type: 'audio/webm' });
+		const text = await transcribeAudioChunk(blob);
+		expect(text).toBe('');
 	});
 });

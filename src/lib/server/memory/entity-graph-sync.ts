@@ -17,11 +17,17 @@ import { resolveOrCreateCanonicalEntity, clearEntityResolutionLogsForThought } f
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints';
 import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
-import { filterAcceptedEntityTriples } from '$lib/server/memory/entity-extraction';
+import { filterAcceptedEntityTriples, resolveTripleEndpointEntityId } from '$lib/server/memory/entity-extraction';
+import {
+	graphEntityIdByLabel,
+	loadEntityGraphEnrichmentContext,
+	type EntityGraphEnrichmentContext
+} from '$lib/server/memory/entity-graph-enrichment-context';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 import { evaluateHubsForGtdPromotion } from '$lib/server/memory/promote-eligible-project-hubs';
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
+import { authorshipInsertValues, type MemoryAuthorship } from '$lib/server/memory/authorship';
 
 /**
  * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → AGE graph.
@@ -34,7 +40,16 @@ export async function syncEntityGraphFromThought(input: {
 	thoughtId: string;
 	normalizedText: string;
 	/** Hints computed before persist (lexical + text-derived). */
-	preloadedKnownEntities?: Array<{ label: string; entityType: string }>;
+	preloadedKnownEntities?: Array<{ entityId?: string; label: string; entityType: string }>;
+	/** Semantic graph context for entity extraction (tier 2). */
+	precomputedEntityEnrichmentContext?: EntityGraphEnrichmentContext;
+	/** Thought embedding for building enrichment context when not precomputed. */
+	thoughtEmbedding?: number[];
+	/** Community + grounding bundle when building enrichment context inline. */
+	enrichmentContextBundle?: {
+		communityExcerpts: EntityGraphEnrichmentContext['communityExcerpts'];
+		groundingProfile: EntityGraphEnrichmentContext['groundingProfile'];
+	};
 	/** Pre-fetched LLM extraction (batch ingest). Skips extractEntityGraphBundle when set. */
 	precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
 }): Promise<{
@@ -43,6 +58,21 @@ export async function syncEntityGraphFromThought(input: {
 }> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
 	const loaded = await loadOntologyForUser(getDb(), input.userId);
+
+	const [thoughtAuthorshipRow] = await getDb()
+		.select({
+			author: thought.author,
+			authorLabel: thought.authorLabel,
+			authorKeyId: thought.authorKeyId
+		})
+		.from(thought)
+		.where(and(eq(thought.userId, input.userId), eq(thought.id, input.thoughtId)))
+		.limit(1);
+	const thoughtAuthorship: MemoryAuthorship = {
+		author: thoughtAuthorshipRow?.author ?? 'user',
+		authorLabel: thoughtAuthorshipRow?.authorLabel ?? null,
+		authorKeyId: thoughtAuthorshipRow?.authorKeyId ?? null
+	};
 
 	// Use entity_type kinds — the real-world entity taxonomy, not the thought category taxonomy
 	const ontologyEntityKinds = loaded.entityKinds
@@ -53,14 +83,14 @@ export async function syncEntityGraphFromThought(input: {
 		throw new Error('Entity graph sync requires at least one active entity_type kind');
 	}
 
-	let knownEntities: Array<{ label: string; entityType: string }> = [];
+	let knownEntities: Array<{ entityId?: string; label: string; entityType: string }> = [];
 	try {
 		const graphHints = await loadEntityHintsForThought({
 			userId: input.userId,
 			thoughtId: input.thoughtId,
 			normalizedText: input.normalizedText
 		});
-		const byLabel = new Map<string, { label: string; entityType: string }>();
+		const byLabel = new Map<string, { entityId?: string; label: string; entityType: string }>();
 		for (const hint of [...(input.preloadedKnownEntities ?? []), ...graphHints]) {
 			const key = hint.label.trim().toLowerCase();
 			if (!key || byLabel.has(key)) continue;
@@ -96,13 +126,26 @@ export async function syncEntityGraphFromThought(input: {
 		thoughtId: input.thoughtId
 	});
 
+	const entityEnrichmentContext =
+		input.precomputedEntityEnrichmentContext ??
+		(input.enrichmentContextBundle
+			? await loadEntityGraphEnrichmentContext({
+					userId: input.userId,
+					normalizedText: input.normalizedText,
+					thoughtEmbedding: input.thoughtEmbedding,
+					communityExcerpts: input.enrichmentContextBundle.communityExcerpts,
+					groundingProfile: input.enrichmentContextBundle.groundingProfile
+				})
+			: undefined);
+
 	const { mentions, triples } = input.precomputedEntityGraph
 		? input.precomputedEntityGraph
 		: await extractEntityGraphBundle({
 				userId: input.userId,
 				normalizedText: input.normalizedText,
 				ontologyEntityKinds,
-				knownEntities: knownEntities.length > 0 ? knownEntities : undefined
+				knownEntities: knownEntities.length > 0 ? knownEntities : undefined,
+				enrichmentContext: entityEnrichmentContext
 			});
 
 	if (mentions.length === 0) {
@@ -178,7 +221,8 @@ export async function syncEntityGraphFromThought(input: {
 				entityType: mention.entityType,
 				confidence: mention.confidence,
 				coMentionEntityIds: [...coMentionEntityIds],
-				precomputedEmbedding: embeddingBySurface.get(surfaceKey)
+				precomputedEmbedding: embeddingBySurface.get(surfaceKey),
+				authorship: thoughtAuthorship
 			});
 			entityId = resolved.entityId;
 			canonicalKey = resolved.canonicalKey;
@@ -210,7 +254,10 @@ export async function syncEntityGraphFromThought(input: {
 		normalizedText: input.normalizedText,
 		mentions,
 		surfaceToEntityId,
-		triples
+		triples,
+		graphEntityIdByLabel: entityEnrichmentContext
+			? graphEntityIdByLabel(entityEnrichmentContext.graphEntities)
+			: undefined
 	});
 
 	return { mentionCount: mentions.length, projectLikeEntities };
@@ -223,6 +270,7 @@ export async function upsertEntityRelationTriples(input: {
 	mentions: ExtractedEntityMention[];
 	surfaceToEntityId: Map<string, string>;
 	triples?: ExtractedEntityTriple[];
+	graphEntityIdByLabel?: Map<string, string>;
 }): Promise<number> {
 	const rawTriples =
 		input.triples ??
@@ -236,10 +284,20 @@ export async function upsertEntityRelationTriples(input: {
 		normalizedText: input.normalizedText
 	});
 
+	const graphIds = input.graphEntityIdByLabel ?? new Map<string, string>();
+
 	let written = 0;
 	for (const triple of triples) {
-		const sourceId = input.surfaceToEntityId.get(triple.subject.trim());
-		const targetId = input.surfaceToEntityId.get(triple.object.trim());
+		const sourceId = resolveTripleEndpointEntityId(
+			triple.subject,
+			input.surfaceToEntityId,
+			graphIds
+		);
+		const targetId = resolveTripleEndpointEntityId(
+			triple.object,
+			input.surfaceToEntityId,
+			graphIds
+		);
 		if (!sourceId || !targetId || sourceId === targetId) continue;
 
 		await upsertEntityRelationEdge({

@@ -20,7 +20,6 @@ describe('classifyMemoryType', () => {
 		['fact', 'Anna is head of product at Company X'],
 		['decision', 'We decided to go with option B for the pricing model'],
 		['concern', "I'm worried the contract renewal is at risk"],
-		['open_loop', 'Need to follow up with Marcus about the proposal'],
 		['preference', 'I work better in the morning before meetings start'],
 		['pattern', 'Whenever I am stressed I tend to defer important decisions']
 	] as const)('returns %s for appropriate input', async (expectedType, text) => {

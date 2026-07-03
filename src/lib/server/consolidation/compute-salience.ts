@@ -6,7 +6,7 @@
  * the same scores.
  *
  * - Inactive thoughts (7+ days since last access): exponential decay by elapsed days
- * - Unresolved open loops: salience floor rises with days since capture
+ * - Unresolved tasks (category task): salience floor rises with days since capture
  * - Exempt thoughts (fact/decision/preference, metadata.neverStale): skip decay
  */
 
@@ -21,21 +21,21 @@ export const SALIENCE_FLOOR = 0.1;
 export const SALIENCE_MAX = 5.0;
 /** No decay until this many days without retrieval access. */
 export const INACTIVE_GRACE_DAYS = 7;
-/** Unresolved open-loop salience rises by this much per day since capture. */
-export const OPEN_LOOP_RISE_PER_DAY = 0.15;
+/** Unresolved task thoughts rise by this much per day since capture. */
+export const TASK_RISE_PER_DAY = 0.15;
 
 const EXEMPT_MEMORY_TYPES = [...NEVER_STALE_MEMORY_TYPES];
 
 export type SalienceComputeResult = {
 	decayed: number;
-	openLoops: number;
+	openTasks: number;
 };
 
 function inactiveDaysSql() {
 	return sql`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(${thought.lastAccessedAt}, ${thought.createdAt}))) / 86400.0 - ${INACTIVE_GRACE_DAYS})`;
 }
 
-function openLoopDaysSql() {
+function taskDaysSql() {
 	return sql`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${thought.createdAt})) / 86400.0)`;
 }
 
@@ -69,22 +69,22 @@ export async function runSalienceCompute(userId: string): Promise<SalienceComput
 			)
 			.returning({ id: thought.id });
 
-		const openLoops = await db
+		const openTasks = await db
 			.update(thought)
 			.set({
-				salienceScore: sql`LEAST(${SALIENCE_MAX}, GREATEST(${thought.salienceScore}, 1.0 + ${OPEN_LOOP_RISE_PER_DAY} * ${openLoopDaysSql()}))`
+				salienceScore: sql`LEAST(${SALIENCE_MAX}, GREATEST(${thought.salienceScore}, 1.0 + ${TASK_RISE_PER_DAY} * ${taskDaysSql()}))`
 			})
 			.where(
 				and(
 					eq(thought.userId, userId),
-					eq(thought.memoryType, 'open_loop'),
+					eq(thought.category, 'task'),
 					sql`(${thought.metadata}->>'status') IS DISTINCT FROM 'completed'`,
-					sql`LEAST(${SALIENCE_MAX}, GREATEST(${thought.salienceScore}, 1.0 + ${OPEN_LOOP_RISE_PER_DAY} * ${openLoopDaysSql()})) <> ${thought.salienceScore}`
+					sql`LEAST(${SALIENCE_MAX}, GREATEST(${thought.salienceScore}, 1.0 + ${TASK_RISE_PER_DAY} * ${taskDaysSql()})) <> ${thought.salienceScore}`
 				)
 			)
 			.returning({ id: thought.id });
 
-		const result = { decayed: decayed.length, openLoops: openLoops.length };
+		const result = { decayed: decayed.length, openTasks: openTasks.length };
 		console.info('[consolidation.salience_compute] finished', { userId, ...result });
 		return result;
 	} catch (err) {

@@ -138,6 +138,7 @@
 					{/if}
 					{#if graphStats}
 						<p
+							data-testid="graph-stats"
 							class="text-muted-foreground border-border/40 shrink-0 border-t px-1 py-1 font-mono text-[10px] leading-tight tabular-nums"
 						>
 							{graphStats}

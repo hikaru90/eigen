@@ -47,9 +47,9 @@ describe('computeTimelineStatsForUser', () => {
 			endAt: new Date(now - 60_000).toISOString(),
 			startAt: new Date(now - 26 * 60 * 60 * 1000).toISOString()
 		};
-		const openLoop = {
+		const taskItem = {
 			id: '2',
-			itemType: 'open_loop',
+			itemType: 'task',
 			lifecycleStatus: 'open',
 			thoughtStatus: 'open',
 			startAt: null,
@@ -57,15 +57,12 @@ describe('computeTimelineStatsForUser', () => {
 		};
 
 		getDbMock.mockReturnValue({
-			select: vi
-				.fn()
-				.mockReturnValueOnce(makeAwaitableChain([]))
-				.mockReturnValueOnce(makeAwaitableChain([]))
+			select: vi.fn(() => makeAwaitableChain([]))
 		});
 
 		listTemporalEventsForUserMock
 			.mockResolvedValueOnce({
-				items: [priorDayOverdue, openLoop]
+				items: [priorDayOverdue, taskItem]
 			})
 			.mockResolvedValueOnce({ items: [] });
 
@@ -87,10 +84,7 @@ describe('computeTimelineStatsForUser', () => {
 		};
 
 		getDbMock.mockReturnValue({
-			select: vi
-				.fn()
-				.mockReturnValueOnce(makeAwaitableChain([]))
-				.mockReturnValueOnce(makeAwaitableChain([]))
+			select: vi.fn(() => makeAwaitableChain([]))
 		});
 
 		listTemporalEventsForUserMock

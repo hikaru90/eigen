@@ -41,7 +41,7 @@ describe('extractThoughtMetadata', () => {
 		llmChatCompletionMock.mockResolvedValue(
 			makeResponse(
 				JSON.stringify({
-					memoryType: ' OPEN_LOOP ',
+					memoryType: ' EPISODE ',
 					cues: ['  follow up marcus  ', 'x', `${'way-too-long-'.repeat(12)}cue`]
 				})
 			)
@@ -52,7 +52,7 @@ describe('extractThoughtMetadata', () => {
 			normalizedText: 'Need to follow up.'
 		});
 
-		expect(result.memoryType).toBe('open_loop');
+		expect(result.memoryType).toBe('episode');
 		expect(result.cues).toEqual(['follow up marcus']);
 	});
 
@@ -73,11 +73,11 @@ describe('extractThoughtMetadata', () => {
 	it('retries with strict prompt when first pass returns drift label', async () => {
 		llmChatCompletionMock
 			.mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
-			.mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'open_loop', cues: ['follow up'] })));
+			.mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'episode', cues: ['follow up'] })));
 
 		const result = await extractThoughtMetadata({ userId: 'u1', normalizedText: 'Need to follow up.' });
 
-		expect(result.memoryType).toBe('open_loop');
+		expect(result.memoryType).toBe('episode');
 		expect(llmChatCompletionMock).toHaveBeenCalledTimes(2);
 		expect(llmChatCompletionMock.mock.calls[1]?.[0]?.messages?.[1]?.content).toContain('task');
 	});

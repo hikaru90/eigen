@@ -45,7 +45,7 @@ describe('isOpenTodoToday', () => {
 
 	it('counts unscheduled open loops as today todo', () => {
 		const now = new Date('2026-06-16T12:00:00.000Z');
-		expect(isOpenTodoToday(item({ startAt: null, endAt: null, itemType: 'open_loop' }), now, timeZone)).toBe(
+		expect(isOpenTodoToday(item({ startAt: null, endAt: null, itemType: 'task' }), now, timeZone)).toBe(
 			true
 		);
 	});

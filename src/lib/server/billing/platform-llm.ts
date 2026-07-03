@@ -1,6 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { eq } from 'drizzle-orm';
-import { withDbUser } from '$lib/server/db';
+import { withBillingUserDbRead } from '$lib/server/db/billing-db-read';
 import { llmActiveProvider } from '$lib/server/db/schema';
 import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types';
 import { assertEurouterGatewayConfigured } from '$lib/server/llm/llm-config-guard';
@@ -10,7 +10,7 @@ import { assertEurouterGatewayConfigured } from '$lib/server/llm/llm-config-guar
  * Used when billing_mode is platform_credits.
  */
 export async function loadPlatformLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
-	const [activeRow] = await withDbUser(userId, async (db) =>
+	const [activeRow] = await withBillingUserDbRead(userId, (db) =>
 		db
 			.select()
 			.from(llmActiveProvider)

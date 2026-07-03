@@ -57,11 +57,14 @@ export function createIngestPhaseTimer(): IngestPhaseTimer {
 	};
 }
 
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
+
 export function logIngestPhaseTiming(input: {
 	userId: string;
 	thoughtId?: string;
 	timing: IngestTimingReport;
 }): void {
+	if (isGraphScaleQuiet()) return;
 	const sorted = [...input.timing.phases].sort((a, b) => b.ms - a.ms);
 	console.info('[capture.timing]', {
 		userId: input.userId,

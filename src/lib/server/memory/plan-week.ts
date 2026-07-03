@@ -50,7 +50,7 @@ export async function planWeekForUser(userId: string): Promise<PlanWeekResult> {
 		userId,
 		status: 'open',
 		range: 'upcoming',
-		includeOpenLoops: false
+		includeTasks: false
 	});
 
 	const unscheduled = items.filter((i) => i.itemType === 'event' && !i.startAt);

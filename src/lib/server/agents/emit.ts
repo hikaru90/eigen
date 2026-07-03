@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { appSql, createScopedDrizzle, activateTenantDbSession, deactivateTenantDbSession } from '$lib/server/db';
 import {
 	connectedAgent,
 	webhookDelivery,
@@ -33,8 +33,14 @@ function agentMatchesEvent(
 }
 
 export async function emitAgentEvent(input: EmitAgentEventInput): Promise<{ deliveries: number }> {
+	// This function is often called fire-and-forget after the request handler completes,
+	// at which point the tenant DB session has been deactivated. We need our own connection
+	// with the RLS GUC set so we can read/write RLS-scoped tables.
+	const reserved = await appSql.reserve();
 	try {
-		const db = getDb();
+		await activateTenantDbSession(reserved, input.userId);
+		const db = createScopedDrizzle(reserved);
+
 		const agents = input.agentId
 			? await db
 					.select({
@@ -146,6 +152,9 @@ export async function emitAgentEvent(input: EmitAgentEventInput): Promise<{ deli
 			message: err instanceof Error ? err.message : String(err)
 		});
 		return { deliveries: 0 };
+	} finally {
+		await deactivateTenantDbSession(reserved).catch(() => {});
+		await reserved.release();
 	}
 }
 

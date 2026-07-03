@@ -7,14 +7,13 @@
  *   fact       — a standing truth or reference ("Anna is head of product at X")
  *   decision   — a committed choice ("We decided to go with option B")
  *   concern    — a worry or risk ("I'm worried the contract is at risk")
- *   open_loop  — an unresolved action or question ("Need to follow up with Marcus")
  *   preference — a personal tendency ("I work better in the morning")
  *   pattern    — a recurring observation ("Whenever stressed I defer decisions")
  *
  * The type is used by:
  *   - consolidation jobs (facts can merge; episodes shouldn't)
- *   - retrieval weighting (open loops boost salience until resolved)
- *   - community summary prompts (open loops surfaced in dedicated view)
+ *   - retrieval weighting (tasks boost salience until resolved via thought category)
+ *   - community summary prompts
  */
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
@@ -25,7 +24,6 @@ const VALID_MEMORY_TYPES: MemoryType[] = [
 	'fact',
 	'decision',
 	'concern',
-	'open_loop',
 	'preference',
 	'pattern'
 ];
@@ -48,7 +46,6 @@ export async function classifyMemoryType(input: {
 		'  fact       — a standing truth, reference, or factual note',
 		'  decision   — a committed choice or resolution',
 		'  concern    — a worry, risk, or anxiety',
-		'  open_loop  — an unresolved action item, question, or follow-up',
 		'  preference — a personal tendency, habit, or like/dislike',
 		'  pattern    — a recurring observation about oneself or a situation',
 		'',

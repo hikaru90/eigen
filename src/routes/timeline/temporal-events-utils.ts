@@ -15,19 +15,32 @@ type TemporalPriorityQuadrant =
 	| 'urgent_not_important'
 	| 'neither';
 import type { TemporalEventListItem } from '../api/temporal-events/+server';
-export const OPEN_LOOP_ITEM_PREFIX = 'open-loop:';
+export const TASK_ITEM_PREFIX = 'task:';
+/** @deprecated Legacy timeline IDs — still accepted when parsing. */
+export const LEGACY_OPEN_LOOP_ITEM_PREFIX = 'open-loop:';
 
-export function isOpenLoopListItem(item: TemporalEventListItem): boolean {
-	return item.itemType === 'open_loop' || item.id.startsWith(OPEN_LOOP_ITEM_PREFIX);
+export function isTaskListItem(item: TemporalEventListItem): boolean {
+	const itemType = item.itemType as string;
+	return (
+		itemType === 'task' ||
+		itemType === 'open_loop' ||
+		item.id.startsWith(TASK_ITEM_PREFIX) ||
+		item.id.startsWith(LEGACY_OPEN_LOOP_ITEM_PREFIX)
+	);
 }
 
-export function isOpenLoopItemId(itemId: string): boolean {
-	return itemId.startsWith(OPEN_LOOP_ITEM_PREFIX);
+export function isTaskItemId(itemId: string): boolean {
+	return itemId.startsWith(TASK_ITEM_PREFIX) || itemId.startsWith(LEGACY_OPEN_LOOP_ITEM_PREFIX);
 }
 
-export function thoughtIdFromOpenLoopItemId(itemId: string): string | null {
-	if (!itemId.startsWith(OPEN_LOOP_ITEM_PREFIX)) return null;
-	return itemId.slice(OPEN_LOOP_ITEM_PREFIX.length);
+export function thoughtIdFromTaskItemId(itemId: string): string | null {
+	if (itemId.startsWith(TASK_ITEM_PREFIX)) {
+		return itemId.slice(TASK_ITEM_PREFIX.length);
+	}
+	if (itemId.startsWith(LEGACY_OPEN_LOOP_ITEM_PREFIX)) {
+		return itemId.slice(LEGACY_OPEN_LOOP_ITEM_PREFIX.length);
+	}
+	return null;
 }
 
 export type TimelineLayoutView = 'list' | 'agenda' | 'matrix' | 'week';
@@ -215,9 +228,8 @@ export const AGENDA_SECTION_LABELS: Record<AgendaSection, string> = {
 };
 
 export function isTemporalEventCompleted(item: TemporalEventListItem): boolean {
-	if (item.lifecycleStatus === 'completed') return true;
-	if (item.lifecycleStatus === 'cancelled' || item.lifecycleStatus === 'dismissed') return true;
-	return item.thoughtStatus === 'completed';
+	if (item.lifecycleStatus === 'completed' || item.lifecycleStatus === 'archived') return true;
+	return item.thoughtStatus === 'completed' || item.thoughtStatus === 'archived';
 }
 
 export function isTemporalEventOpen(item: TemporalEventListItem): boolean {
@@ -409,7 +421,7 @@ export function filterSnoozedItems(
 }
 
 export function focusScore(item: TemporalEventListItem, now: Date, timeZone: string): number {
-	if (isOpenLoopListItem(item)) return 600;
+	if (isTaskListItem(item)) return 600;
 	const section = agendaSectionForItem(item, now, timeZone);
 	const sectionScore: Record<AgendaSection, number> = {
 		today: 100,
@@ -534,7 +546,7 @@ export function placementsForWeek(
 	weekEnd.setDate(weekStart.getDate() + 7);
 
 	for (const item of items) {
-		if (!item.startAt || isOpenLoopListItem(item)) continue;
+		if (!item.startAt || isTaskListItem(item)) continue;
 
 		const instances: Date[] = [new Date(item.startAt)];
 		if (item.recurrenceRule) {
@@ -600,7 +612,7 @@ export function overdueDebtMinutes(items: TemporalEventListItem[], now = new Dat
 		.filter(
 			(i) =>
 				!isTemporalEventCompleted(i) &&
-				!isOpenLoopListItem(i) &&
+				!isTaskListItem(i) &&
 				i.endAt &&
 				new Date(i.endAt).getTime() < now.getTime()
 		)

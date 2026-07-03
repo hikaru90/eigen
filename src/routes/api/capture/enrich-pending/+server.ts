@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { shouldScheduleDevCaptureEnrichWorker } from '$lib/server/auth/harness-account';
 import { listPendingEnrichThoughtIds } from '$lib/server/capture/enrich-pending';
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker';
 import {
@@ -15,7 +16,7 @@ export const GET: RequestHandler = async (event) => {
 	await requeueOrphanedCompleteEnrichRows(user.id);
 
 	const thoughtIds = await listPendingEnrichThoughtIds(user.id);
-	if (thoughtIds.length > 0) {
+	if (thoughtIds.length > 0 && (await shouldScheduleDevCaptureEnrichWorker(user.id))) {
 		scheduleCaptureEnrichWorker(user.id);
 	}
 	return json({ thoughtIds });

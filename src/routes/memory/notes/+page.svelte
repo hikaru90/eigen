@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+import { m } from '$lib/paraglide/messages.js';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import {
@@ -24,16 +25,20 @@
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import Plus from '@lucide/svelte/icons/plus';
 	import PencilLine from '@lucide/svelte/icons/pencil-line';
-	import { m } from '$lib/paraglide/messages.js';
+	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
 
 	type ListItem = {
 		id: string;
 		title: string;
 		preview: string;
 		updatedAt: string;
+		author?: 'user' | 'agent';
+		authorLabel?: string | null;
 	};
 
 	const PAGE_SIZE = 20;
+
+	let hideAgentNotes = $state(false);
 
 	let searchQuery = $state('');
 	let listItems = $state<ListItem[]>([]);
@@ -62,12 +67,18 @@
 
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+	const visibleListItems = $derived(
+		hideAgentNotes ? listItems.filter((item) => item.author !== 'agent') : listItems
+	);
+
 	function toListItem(record: TextFileRecord): ListItem {
 		return {
 			id: record.id,
 			title: record.title,
 			preview: record.body.slice(0, 200),
-			updatedAt: record.updatedAt
+			updatedAt: record.updatedAt,
+			author: record.author,
+			authorLabel: record.authorLabel
 		};
 	}
 
@@ -228,7 +239,7 @@
 		</Button>
 	</header>
 
-	<div class="mb-3 shrink-0">
+	<div class="mb-3 shrink-0 space-y-2">
 		<Input
 			type="search"
 			value={searchQuery}
@@ -236,6 +247,10 @@
 			placeholder={m.notes_search_placeholder()}
 			class="rounded-none border-border bg-background"
 		/>
+		<label class="flex items-center gap-2 text-xs text-muted-foreground">
+			<input type="checkbox" bind:checked={hideAgentNotes} />
+			Hide AI-authored notes
+		</label>
 	</div>
 
 	<div class="min-h-0 flex-1 overflow-y-auto">
@@ -243,14 +258,14 @@
 			<p class="text-sm text-muted-foreground">{m.notes_loading()}</p>
 		{:else if loadError}
 			<p class="text-sm text-destructive">{m.notes_load_error()} {loadError}</p>
-		{:else if listItems.length === 0}
+		{:else if visibleListItems.length === 0}
 			<div class="space-y-1">
 				<p class="text-sm text-muted-foreground">{m.notes_empty()}</p>
 				<p class="text-xs text-muted-foreground/70">{m.notes_empty_hint()}</p>
 			</div>
 		{:else}
 			<ul class="space-y-2">
-				{#each listItems as item (item.id)}
+				{#each visibleListItems as item (item.id)}
 					<li>
 						<button
 							type="button"
@@ -259,7 +274,10 @@
 						>
 							<div class="flex items-start justify-between gap-2">
 								<div class="min-w-0">
-									<p class="font-medium text-foreground">{item.title || m.notes_untitled()}</p>
+									<div class="flex flex-wrap items-center gap-2">
+										<p class="font-medium text-foreground">{item.title || m.notes_untitled()}</p>
+										<MemoryAuthorBadge author={item.author} authorLabel={item.authorLabel} />
+									</div>
 									<p class="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
 										{item.preview}
 									</p>

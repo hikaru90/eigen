@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { agentTaskAssignment } from '$lib/server/db/schema';
+import { agentTaskAssignment, connectedAgent } from '$lib/server/db/schema';
 import { queueCapture } from '$lib/server/capture/queue-capture';
 
 export type CompleteAgentAssignmentInput = {
@@ -51,7 +51,19 @@ export async function completeAgentAssignment(
 	let resultThoughtId: string | null = null;
 	const captureText = input.captureText?.trim();
 	if (captureText && input.status === 'completed') {
-		const captured = await queueCapture(input.userId, captureText, { source: 'agent' });
+		const [agent] = await db
+			.select({ name: connectedAgent.name })
+			.from(connectedAgent)
+			.where(
+				and(eq(connectedAgent.userId, input.userId), eq(connectedAgent.id, input.agentId))
+			)
+			.limit(1);
+		const captured = await queueCapture(input.userId, captureText, {
+			source: 'agent',
+			author: 'agent',
+			authorLabel: agent?.name ?? 'Agent',
+			authorKeyId: null
+		});
 		resultThoughtId = captured.thoughtId;
 	}
 

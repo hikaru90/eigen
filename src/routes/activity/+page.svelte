@@ -106,16 +106,21 @@
 		fetchController = new AbortController();
 
 		try {
+			console.log('POST /api/activity', { from, to, page });
 			const res = await fetch('/api/activity', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ from, to, page }),
 				signal: fetchController.signal
 			});
+			console.log('Status:', res.status);
 			if (res.ok) {
 				const json = await res.json();
+				console.log('Buckets:', json.spendSeries?.buckets?.length);
 				activityData = { ...activityData, ...json };
 				expandedGroups = {};
+			} else {
+				console.error('Error:', await res.text());
 			}
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -126,6 +131,7 @@
 	$effect(() => {
 		const from = fromDate;
 		const to = toDate;
+		console.log('Effect:', { from, to });
 		fetchData(from, to, 1);
 	});
 </script>

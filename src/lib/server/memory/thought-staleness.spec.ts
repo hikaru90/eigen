@@ -17,7 +17,7 @@ describe('thought-staleness', () => {
 
 	it('never stale for durable memory types', () => {
 		expect(isThoughtNeverStale({ memoryType: 'fact', metadata: {} })).toBe(true);
-		expect(isThoughtNeverStale({ memoryType: 'open_loop', metadata: {} })).toBe(false);
+		expect(isThoughtNeverStale({ memoryType: 'episode', metadata: {} })).toBe(false);
 	});
 
 	it('skips age staleness for exempt thoughts', () => {

@@ -2,6 +2,8 @@
 
 How Eigen LLM/gateway spend scales as the knowledge graph grows, and how to measure it with the `graph-scale` benchmark harness.
 
+**Corpus policy:** graph-scale uses **atomic single-thought captures** aligned with Eigenmesh (`evals/graph-scale/datasets/single-thought-corpus.yaml`). It does **not** use [`evals/datasets/corpus.yaml`](../datasets/corpus.yaml) (eval QA fiction with cross-linked entities) or LongMemEval.
+
 ## Scaling summary (architecture)
 
 | Surface | Per-operation LLM cost vs graph size | Primary driver |
@@ -33,15 +35,19 @@ Operator-owned script (not `/eval` QA pass/fail). Reuses eval RLS context, real 
 
 ```
 evals/graph-scale/
-  run.ts                  # CLI entry
-  cli.ts                  # Argument parsing
-  seed-corpus-runner.ts   # Bulk ingest N thoughts
-  measure-capture.ts      # Track A — probe capture
-  measure-qa.ts           # Track B — fixed Q&A set
-  measure-consolidation.ts # Track C — overnight consolidation
-  graph-metrics.ts        # thoughts / entities / edges / communities / projects
-  aggregate-cost.ts       # USD + credits from activity_call_log by groupId
-  report.ts               # JSON + CSV output
+  datasets/single-thought-corpus.yaml  # Atomic capture fixtures (Eigenmesh-shaped)
+  load-corpus.ts                       # Corpus loader
+  run.ts                               # CLI entry
+  cli.ts                               # Argument parsing
+  seed-corpus-runner.ts                # Bulk ingest N thoughts
+  seed-corpus.ts                       # Text builder + overflow captures
+  measure-capture.ts                   # Track A — probe capture
+  measure-qa.ts                        # Track B — fixed Q&A set
+  measure-consolidation.ts             # Track C — overnight consolidation
+  graph-metrics.ts                     # thoughts / entities / edges / communities / projects
+  aggregate-cost.ts                    # USD + credits from activity_call_log by groupId
+  progress-report.ts                   # JSONL progress log (one line per step)
+  report.ts                            # Final JSON + CSV output
 ```
 
 ### Run
@@ -50,7 +56,23 @@ evals/graph-scale/
 npm run graph-scale
 ```
 
-Defaults: corpus sizes **50, 100, 250**; all three tracks; report under `evals/graph-scale/runs/report-<timestamp>.json` (+ `.csv`).
+Defaults: corpus sizes **50, 100, 250**; all three tracks; live progress under `evals/graph-scale/runs/report-<timestamp>.jsonl` (one JSON object per line, appended as each step completes); final summary under `.json` (+ `.csv`).
+
+**Watch progress while a run is in flight:**
+
+```bash
+tail -f evals/graph-scale/runs/report-<timestamp>.jsonl
+```
+
+Each line includes an `at` timestamp. During the run you mostly see compact **`progress`** lines:
+
+```json
+{"at":"…","step":"progress","pct":37,"etaSec":840,"label":"N=50 seed enrich"}
+```
+
+Milestones only: `run_started`, `point_completed` (per corpus size), `run_finished` or `run_failed`. Final JSON/CSV written at the end.
+
+**Terminal output** is the same `% · ETA · label` line (updated in place when stderr is a TTY).
 
 ```bash
 # Q&A flat-curve check only (cheapest)
@@ -69,11 +91,15 @@ npm run graph-scale -- --sizes 500,1000 --confirm-spend
 
 | Track | Question answered | Expected curve |
 |-------|-------------------|----------------|
-| **A — capture** | Does each new thought cost more as the graph grows? | Flat USD per probe capture ± noise |
+| **A — capture** | Does **one more atomic capture** cost more as the graph grows? | Flat USD per probe capture ± noise |
 | **B — qa** | Does retrieval/Q&A stay flat? | Flat USD per fixed query set |
 | **C — consolidation** | What does overnight cost at this graph size? | ~linear in communities summarized |
 
-Each size **N** uses a fresh harness tenant `graph-scale-corpus-<runId>-<N>` with **N** thoughts seeded from [`evals/datasets/corpus.yaml`](../../evals/datasets/corpus.yaml) (cycled with salt).
+Each size **N** uses a fresh harness tenant `graph-scale-corpus-<runId>-<N>` with **N** standalone captures from the single-thought corpus (parametric overflow when N > 60).
+
+**Capture probe (track A):** one atomic work note — `Send the revised invoice to accounting before Friday close.` — not eval fiction with named entities and temporal chains.
+
+**Q&A set (track B):** five theme queries (errands, appointments, home, work, health) aligned with corpus themes — not eval character questions (`Who is Marcus?`).
 
 ### Report shape
 
@@ -97,8 +123,8 @@ npm run test:unit -- evals/graph-scale
 
 ## Interpreting results
 
-- **Flat capture/Q&A curves** confirm capped retrieval and enrich prompts are working as designed.
-- **Upward capture drift** at large N often indicates more relation-extraction or incremental community summary refreshes firing — investigate `captureProbe.phases` and consolidation dirty counts.
+- **Flat capture/Q&A curves** confirm capped retrieval and enrich prompts are working as designed on volume-grown graphs.
+- **Upward capture drift** at large N may indicate relation extraction or community refresh firing more often — check `captureProbe.phases`; with the single-thought corpus this should be **much lower** than eval-fiction seeding.
 - **Consolidation slope** is the main graph-structure cost risk; plot `consolidation.usd` vs `graph.communities`.
 - **Seed wall time** (`seedWallMs`) grows ~linearly with N (expected); it is not per-query cost.
 
@@ -108,5 +134,6 @@ npm run test:unit -- evals/graph-scale
 |------|---------|
 | `npm run measure:ingest` | Single capture phase breakdown |
 | `npm run eval:longmemeval` | Large realistic corpus for QA accuracy (not economics) |
+| `/eval` UI | QA pass/fail on eval corpus (not graph-scale economics) |
 | `/activity` | Per-call gateway cost for manual inspection |
 | `/admin/spend` | Deployment spend with harness filter |

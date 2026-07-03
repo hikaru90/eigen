@@ -2,7 +2,8 @@ import { resolve } from 'node:path';
 import { resolveSeedConcurrency } from '../harness/concurrency';
 import type { GraphScaleCli, GraphScaleTrack } from './types';
 
-const DEFAULT_SIZES = [50, 100, 250];
+const DEFAULT_SIZES = [1];
+const DEFAULT_TRACKS: GraphScaleTrack[] = ['capture'];
 const SPEND_CONFIRM_THRESHOLD = 500;
 
 function usage(): never {
@@ -11,9 +12,10 @@ function usage(): never {
 Operator-owned benchmark: cost and latency vs corpus size (graph growth).
 
 Options:
-  --sizes LIST       Comma-separated thought counts (default: 50,100,250)
-  --tracks LIST      capture,qa,consolidation (default: all three)
-  --output PATH      JSON report path (default: evals/graph-scale/runs/report-<timestamp>.json)
+  --sizes LIST       Comma-separated thought counts (default: 1)
+  --tracks LIST      capture,qa,consolidation (default: capture)
+  --output PATH      Final JSON report path (default: evals/graph-scale/runs/report-<timestamp>.json);
+                     live progress is written line-by-line to the sibling .jsonl file
   --confirm-spend    Required when max --sizes value exceeds ${SPEND_CONFIRM_THRESHOLD}
   --seed-concurrency N  Parallel capture seeding (default: EVAL_SEED_CONCURRENCY or 8)
 `);
@@ -41,7 +43,7 @@ function parseSizes(raw: string | undefined): number[] {
 
 function parseTracks(raw: string | undefined): Set<GraphScaleTrack> {
 	const all: GraphScaleTrack[] = ['capture', 'qa', 'consolidation'];
-	if (!raw?.trim()) return new Set(all);
+	if (!raw?.trim()) return new Set(DEFAULT_TRACKS);
 	const requested = raw
 		.split(',')
 		.map((part) => part.trim())

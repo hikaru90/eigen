@@ -4,7 +4,7 @@
  * community artifacts on the same row — see docs/planning/ingest-retrieval-timing.md.
  */
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { captureSession, thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema';
+import { captureSession, thought, type CaptureSource, type EnrichQueueStatus, type MemoryAuthor } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { upsertThoughtNode } from '$lib/server/graph/age';
@@ -13,6 +13,7 @@ import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate';
 import { normalizeThoughtText } from '$lib/server/capture/service';
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker';
+import { resolveMemoryAuthorship, authorshipInsertValues, graphAuthorProperty } from '$lib/server/memory/authorship';
 
 /** Placeholder category until background worker classifies. */
 export const QUEUE_PLACEHOLDER_CATEGORY = 'observation';
@@ -25,6 +26,9 @@ export type QueueCaptureResult = {
 
 export type QueueCaptureOptions = {
 	source?: CaptureSource;
+	author?: MemoryAuthor;
+	authorLabel?: string | null;
+	authorKeyId?: string | null;
 	/** When true, skip scheduling background worker (eval inline enrich). */
 	skipWorker?: boolean;
 	/** Override thought.createdAt (e.g. backdated haystack session date from external driver). */
@@ -56,6 +60,12 @@ export async function queueCapture(
 	const lexicalText = computeLexicalText(normalized);
 	const ontologyEntityKindId = await resolvePlaceholderOntologyKindId(userId);
 	const source = options?.source ?? 'api';
+	const authorship = resolveMemoryAuthorship({
+		author: options?.author,
+		authorLabel: options?.authorLabel,
+		authorKeyId: options?.authorKeyId
+	});
+	const authorValues = authorshipInsertValues(authorship);
 
 	const [rawInputEncrypted, normalizedPreviewEncrypted, rawTextEncrypted, normalizedTextEncrypted] =
 		await Promise.all([
@@ -89,7 +99,8 @@ export async function queueCapture(
 			normalizedPreviewEncrypted,
 			category: QUEUE_PLACEHOLDER_CATEGORY,
 			metadataPreview: { encrypted: true },
-			revisionCount: 0
+			revisionCount: 0,
+			...authorValues
 		})
 		.returning({ id: captureSession.id });
 
@@ -109,6 +120,7 @@ export async function queueCapture(
 			metadataEncrypted,
 			enrichQueueStatus: 'pending',
 			captureSource: source,
+			...authorValues,
 			...(capturedAt ? { createdAt: capturedAt, updatedAt: capturedAt } : {})
 		})
 		.returning({ id: thought.id });
@@ -116,7 +128,8 @@ export async function queueCapture(
 	await upsertThoughtNode({
 		id: stored.id,
 		userId,
-		category: QUEUE_PLACEHOLDER_CATEGORY
+		category: QUEUE_PLACEHOLDER_CATEGORY,
+		author: graphAuthorProperty(authorship)
 	});
 
 	if (!options?.skipWorker) {

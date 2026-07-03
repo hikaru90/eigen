@@ -86,10 +86,11 @@ const tools = [
 	),
 	defineTool(
 		'eigen_list_temporal_events',
-		'List temporal events and open-loop tasks from the timeline',
+		'List temporal events and tasks from the timeline',
 		Type.Object({
 			range: Type.Optional(Type.String({ description: 'relevant, upcoming, past, or all' })),
 			status: Type.Optional(Type.String({ description: 'open or all' })),
+			include_tasks: Type.Optional(Type.Boolean()),
 			include_open_loops: Type.Optional(Type.Boolean())
 		}),
 		(params) => callMcp('tools/call', { name: 'list_temporal_events', arguments: params })

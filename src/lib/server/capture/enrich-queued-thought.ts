@@ -21,11 +21,14 @@ import {
 	logIngestPhaseTiming,
 	type IngestPhaseTimer
 } from '$lib/server/capture/phase-timing';
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
 import {
 	extractEntityGraphBundle,
 	type ExtractedEntityMention,
 	type ExtractedEntityTriple
 } from '$lib/server/memory/entity-extraction';
+import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context';
+import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context';
 import { extractThoughtMetadata, type ThoughtMetadataExtraction } from '$lib/server/memory/extract-thought-metadata';
 import { extractTemporalMentions } from '$lib/server/memory/temporal-extraction';
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
@@ -79,6 +82,7 @@ async function prefetchEnrichExtractions(input: {
 	category: Awaited<ReturnType<typeof resolveThoughtCategory>>;
 	embedding: number[];
 	entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
+	entityEnrichmentContext?: EntityGraphEnrichmentContext;
 	metadata: ThoughtMetadataExtraction;
 	temporalMentions: Awaited<ReturnType<typeof extractTemporalMentions>>;
 }> {
@@ -92,43 +96,78 @@ async function prefetchEnrichExtractions(input: {
 
 	const knownEntityArg =
 		knownEntities.length > 0
-			? knownEntities.map((e) => ({ label: e.label, entityType: e.entityType }))
+			? knownEntities.map((e) => ({
+					entityId: e.entityId,
+					label: e.label,
+					entityType: e.entityType
+				}))
 			: undefined;
 
 	const anchorTimezone = await getUserPreferredTimezone(userId);
 
-	const [category, embedding, entityGraph, metadata, temporalMentions] = await Promise.all([
-		resolveThoughtCategory({
-			userId,
-			normalized: normalizedText,
-			rawText,
-			knownEntities: knownEntityArg,
-			groundingProfile: context.groundingProfile
-		}),
-		createThoughtEmbedding(userId, normalizedText),
-		ontologyEntityKinds.length > 0
-			? extractEntityGraphBundle({
-					userId,
-					normalizedText,
-					ontologyEntityKinds,
-					knownEntities: knownEntityArg,
-					groundingProfile: context.groundingProfile
-				})
-			: Promise.resolve({ mentions: [], triples: [] }),
-		extractThoughtMetadata({
-			userId,
-			normalizedText,
-			groundingProfile: context.groundingProfile
-		}),
-		extractTemporalMentions({
-			userId,
-			normalizedText,
-			capturedAt,
-			timezone: anchorTimezone
-		})
-	]);
+	const categoryInput = {
+		userId,
+		normalized: normalizedText,
+		rawText,
+		knownEntities: knownEntityArg,
+		groundingProfile: context.groundingProfile
+	};
+	const metadataInput = {
+		userId,
+		normalizedText,
+		groundingProfile: context.groundingProfile
+	};
+	const temporalInput = {
+		userId,
+		normalizedText,
+		capturedAt,
+		timezone: anchorTimezone
+	};
 
-	return { category, embedding, entityGraph, metadata, temporalMentions };
+	async function extractEntityGraphWithContext(embedding: number[]) {
+		if (ontologyEntityKinds.length === 0) {
+			return { entityGraph: { mentions: [], triples: [] }, entityEnrichmentContext: undefined };
+		}
+		const entityEnrichmentContext = await loadEntityGraphEnrichmentContext({
+			userId,
+			normalizedText,
+			thoughtEmbedding: embedding,
+			communityExcerpts: context.communityExcerpts,
+			groundingProfile: context.groundingProfile
+		});
+		const entityGraph = await extractEntityGraphBundle({
+			userId,
+			normalizedText,
+			ontologyEntityKinds,
+			enrichmentContext: entityEnrichmentContext
+		});
+		return { entityGraph, entityEnrichmentContext };
+	}
+
+	// Graph-scale: one LLM call at a time (enrich concurrency is 1; avoid Promise.all stampede).
+	if (isGraphScaleQuiet()) {
+		console.info('[graph-scale] enrich prefetch: category');
+		const category = await resolveThoughtCategory(categoryInput);
+		console.info('[graph-scale] enrich prefetch: embedding');
+		const embedding = await createThoughtEmbedding(userId, normalizedText);
+		console.info('[graph-scale] enrich prefetch: entities');
+		const { entityGraph, entityEnrichmentContext } = await extractEntityGraphWithContext(embedding);
+		console.info('[graph-scale] enrich prefetch: metadata');
+		const metadata = await extractThoughtMetadata(metadataInput);
+		console.info('[graph-scale] enrich prefetch: temporal');
+		const temporalMentions = await extractTemporalMentions(temporalInput);
+		return { category, embedding, entityGraph, entityEnrichmentContext, metadata, temporalMentions };
+	}
+
+	const [category, embedding, metadata, temporalMentions] = await Promise.all([
+		resolveThoughtCategory(categoryInput),
+		createThoughtEmbedding(userId, normalizedText),
+		extractThoughtMetadata(metadataInput),
+		extractTemporalMentions(temporalInput)
+	]);
+	const { entityGraph, entityEnrichmentContext } = await extractEntityGraphWithContext(embedding);
+
+	return { category, embedding, entityGraph, entityEnrichmentContext, metadata, temporalMentions };
 }
 
 /**
@@ -145,6 +184,9 @@ export async function enrichQueuedThought(
 
 	try {
 		await runIngestWithRetries(async () => {
+			if (isGraphScaleQuiet()) {
+				console.info('[graph-scale] enrich pipeline start', { userId, thoughtId });
+			}
 			const db = getDb();
 			const [row] = await db
 				.select({
@@ -223,10 +265,9 @@ export async function enrichQueuedThought(
 				thoughtEmbedding: prefetched.embedding,
 				thoughtCountAfterInsert,
 				preloadedKnownEntities:
-					context.knownEntities.length > 0
-						? context.knownEntities.map((e) => ({ label: e.label, entityType: e.entityType }))
-						: undefined,
+					context.knownEntities.length > 0 ? context.knownEntities : undefined,
 				precomputedEntityGraph: prefetched.entityGraph,
+				precomputedEntityEnrichmentContext: prefetched.entityEnrichmentContext,
 				precomputedMetadata: prefetched.metadata,
 				precomputedTemporalMentions: prefetched.temporalMentions,
 				ingestTimer,
@@ -283,7 +324,11 @@ export async function enrichQueuedThought(
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		console.error('[enrich-queued] failed', { userId, thoughtId, message });
+		if (!isGraphScaleQuiet()) {
+			console.error('[enrich-queued] failed', { userId, thoughtId, message });
+		} else {
+			console.error('[graph-scale] enrich failed', { userId, thoughtId, message });
+		}
 		await markEnrichQueueFailed(thoughtId, message);
 		throw err;
 	}
@@ -325,7 +370,7 @@ async function encryptMetadataPatch(
 /** Drain all pending rows for a user (eval / admin). */
 export async function processCaptureEnrichQueue(
 	userId: string,
-	options?: { concurrency?: number }
+	options?: import('$lib/server/capture/enrich-queue-drain').DrainCaptureEnrichQueueOptions
 ): Promise<number> {
 	return drainCaptureEnrichQueue(userId, options);
 }

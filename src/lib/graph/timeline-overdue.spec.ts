@@ -73,15 +73,15 @@ describe('timeline overdue helpers', () => {
 			lifecycleStatus: 'completed',
 			endAt: '2026-06-07T12:00:00.000Z'
 		});
-		const openLoop = item({
+		const taskItem = item({
 			id: 'd',
-			itemType: 'open_loop',
+			itemType: 'task',
 			startAt: null,
 			endAt: null
 		});
 		expect(isOverdueItem(completed, now)).toBe(false);
-		expect(isOverdueItem(openLoop, now)).toBe(false);
-		expect(overdueCount([completed, openLoop], now)).toBe(0);
+		expect(isOverdueItem(taskItem, now)).toBe(false);
+		expect(overdueCount([completed, taskItem], now)).toBe(0);
 	});
 
 	it('computes elapsed overdue duration buckets', () => {

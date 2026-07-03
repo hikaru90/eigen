@@ -3,6 +3,7 @@ import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
+import { m } from '$lib/paraglide/messages.js';
 
 const ALLOWED_RELATION_TYPES = new Set([
 	'mentions',
@@ -178,8 +179,7 @@ export async function extractRelations(input: {
 	const messages: ChatMessage[] = [
 		{
 			role: 'system',
-			content:
-				'You are a precise semantic analyst. Your job is to classify relationships between thoughts using the most specific relation type available. Defaulting to related_to when a more precise type applies is a mistake. When in doubt between two specific types, pick the one whose definition most closely matches the actual content. Only use related_to as a last resort when no specific type fits.'
+			content: m.llm_relation_extraction_system()
 		},
 		{ role: 'user', content: prompt }
 	];

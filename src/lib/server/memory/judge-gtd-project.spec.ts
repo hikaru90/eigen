@@ -18,11 +18,11 @@ describe('judge-gtd-project', () => {
 	});
 
 	it('shouldInvokeGtdProjectJudge requires evidence before LLM spend', () => {
-		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 1, openLoopCount: 0 })).toBe(false);
-		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 2, openLoopCount: 0 })).toBe(false);
-		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 3, openLoopCount: 0 })).toBe(true);
-		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 2, openLoopCount: 1 })).toBe(true);
-		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 0, openLoopCount: 0, force: true })).toBe(
+		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 1, openTaskCount: 0 })).toBe(false);
+		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 2, openTaskCount: 0 })).toBe(false);
+		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 3, openTaskCount: 0 })).toBe(true);
+		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 2, openTaskCount: 1 })).toBe(true);
+		expect(shouldInvokeGtdProjectJudge({ linkedThoughtCount: 0, openTaskCount: 0, force: true })).toBe(
 			true
 		);
 	});

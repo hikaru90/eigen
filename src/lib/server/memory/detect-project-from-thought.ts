@@ -10,6 +10,7 @@
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { m } from '$lib/paraglide/messages.js';
 import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
 import { upsertGraphHubEntity, promoteHubEntityType } from '$lib/server/memory/project-entity';
 import { ensureProjectProfile } from '$lib/server/memory/project-eligibility';
@@ -88,8 +89,7 @@ export async function detectProjectFromThought(
 		messages: [
 			{
 				role: 'system',
-				content:
-					'You extract project names from personal notes. Return only valid JSON.'
+				content: m.llm_project_detection_system()
 			},
 			{ role: 'user', content: buildDetectionPrompt(input) }
 		],

@@ -11,7 +11,7 @@ const {
 	runSummariesMock
 } = vi.hoisted(() => ({
 	withDbUserMock: vi.fn(async (_userId: string, fn: () => Promise<unknown>) => fn()),
-	salienceComputeMock: vi.fn().mockResolvedValue({ decayed: 0, openLoops: 0 }),
+	salienceComputeMock: vi.fn().mockResolvedValue({ decayed: 0, openTasks: 0 }),
 	pruneMock: vi.fn().mockResolvedValue({ deletedEntityKindIds: [], deletedRelationKindIds: [] }),
 	repairTypesMock: vi.fn().mockResolvedValue({ repaired: 0 }),
 	dedupEntitiesMock: vi.fn().mockResolvedValue({ scanned: 0, candidates: 0, merged: 0 }),

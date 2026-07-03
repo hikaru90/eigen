@@ -1,6 +1,7 @@
 import { type ProjectStatus } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { m } from '$lib/paraglide/messages.js';
 import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
 import {
 	designateNextAction,
@@ -108,8 +109,7 @@ export async function extractGtdAssignment(input: {
 		messages: [
 			{
 				role: 'system',
-				content:
-					'You assign personal notes to GTD projects. projectEntityId must be copied exactly from the catalog or null. Return only valid JSON.'
+				content: m.llm_gtd_assignment_system()
 			},
 			{ role: 'user', content: prompt }
 		],
@@ -129,7 +129,7 @@ export async function applyGtdAssignment(input: {
 	category: string;
 	graphHubHints?: Array<{ entityId: string; label: string }>;
 }): Promise<GtdAssignmentResult | null> {
-	if (input.memoryType !== 'open_loop' && input.category !== 'task') {
+	if (input.category !== 'task') {
 		return null;
 	}
 

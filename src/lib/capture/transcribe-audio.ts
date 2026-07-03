@@ -47,3 +47,35 @@ export async function transcribeRecordedAudio(
 	}
 	return payload.transcript.trim();
 }
+
+/**
+ * Sends a single audio chunk to `/api/capture/transcribe-chunk` for streaming STT.
+ * Returns the partial transcript for that chunk (may be empty string for silence).
+ */
+export async function transcribeAudioChunk(
+	chunk: Blob,
+	options?: TranscribeAudioOptions
+): Promise<string> {
+	const formData = new FormData();
+	const ext = chunk.type.includes('webm') ? 'webm' : chunk.type.includes('ogg') ? 'ogg' : 'webm';
+	formData.append('audio', chunk, `chunk.${ext}`);
+	if (options?.language?.trim()) {
+		formData.append('language', options.language.trim().toLowerCase());
+	}
+
+	const res = await fetch('/api/capture/transcribe-chunk', {
+		method: 'POST',
+		body: formData,
+		credentials: 'same-origin',
+		signal: options?.signal
+	});
+
+	if (!res.ok) {
+		// Non-fatal for streaming — log and return empty so remaining chunks continue.
+		console.error('transcribe-chunk failed', res.status);
+		return '';
+	}
+
+	const payload = (await res.json()) as { transcript?: unknown };
+	return typeof payload.transcript === 'string' ? payload.transcript.trim() : '';
+}

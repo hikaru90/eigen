@@ -8,6 +8,7 @@ import {
 	parseEntityMentions,
 	parseEntityTriples,
 	resolveEntityTypeKey,
+	resolveTripleEndpointEntityId,
 	shouldRetryEntityMentionExtraction
 } from './entity-extraction';
 
@@ -57,8 +58,12 @@ describe('shouldRetryEntityMentionExtraction', () => {
 		expect(shouldRetryEntityMentionExtraction('a'.repeat(60))).toBe(true);
 	});
 
+	it('retries graph-scale-length corpus lines (length gate only)', () => {
+		expect(shouldRetryEntityMentionExtraction('a'.repeat(44))).toBe(true);
+	});
+
 	it('does not retry notes below short length threshold', () => {
-		expect(shouldRetryEntityMentionExtraction('a'.repeat(40))).toBe(false);
+		expect(shouldRetryEntityMentionExtraction('a'.repeat(34))).toBe(false);
 	});
 });
 
@@ -284,6 +289,38 @@ describe('parseEntityTriples', () => {
 		expect(out).toHaveLength(2);
 		expect(out[0].confidence).toBe(1);
 		expect(out[1].confidence).toBe(0);
+	});
+
+	it('allows graph entity label as object when subject is a mention', () => {
+		const mentions = new Set(['fish']);
+		const graphLabels = new Set(['picnic']);
+		const out = parseEntityTriples(
+			'[{"subject":"fish","object":"picnic","predicate":"part_of","confidence":0.9}]',
+			mentions,
+			graphLabels
+		);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toMatchObject({ subject: 'fish', object: 'picnic', predicate: 'part_of' });
+	});
+
+	it('rejects triples where neither endpoint is a mention', () => {
+		const mentions = new Set(['fish']);
+		const graphLabels = new Set(['picnic', 'bread']);
+		const out = parseEntityTriples(
+			'[{"subject":"picnic","object":"bread","predicate":"related_to","confidence":0.9}]',
+			mentions,
+			graphLabels
+		);
+		expect(out).toHaveLength(0);
+	});
+});
+
+describe('resolveTripleEndpointEntityId', () => {
+	it('resolves mention surface and graph label', () => {
+		const surfaceMap = new Map([['fish', 'fish-id']]);
+		const graphMap = new Map([['picnic', 'picnic-id']]);
+		expect(resolveTripleEndpointEntityId('fish', surfaceMap, graphMap)).toBe('fish-id');
+		expect(resolveTripleEndpointEntityId('picnic', surfaceMap, graphMap)).toBe('picnic-id');
 	});
 });
 
@@ -742,7 +779,52 @@ describe('extractEntityGraphBundle', () => {
 		expect(prompt).toContain('part_of triples');
 		expect(prompt).toContain('artifact for documents/recipes/named dishes');
 		const systemPrompt = String(llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content);
-		expect(systemPrompt).toContain('Keep multi-word titles and recipe names as single surfaces');
+		expect(systemPrompt).toContain('Keep multi-word titles as single surfaces');
+	});
+
+	it('includes enrichment context with graph entity ids and community themes', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			graphBundleResponse(
+				[
+					{ surface: 'fish', entityType: 'concept', confidence: 0.9 },
+					{ surface: 'picnic', entityType: 'event', confidence: 0.85 }
+				],
+				[{ subject: 'fish', object: 'picnic', predicate: 'part_of', confidence: 0.9 }]
+			)
+		);
+
+		await extractEntityGraphBundle({
+			userId: 'u1',
+			normalizedText: 'I need to bring fish for the picnic',
+			ontologyEntityKinds: [
+				...ONTOLOGY_KINDS_FOR_TESTS,
+				{ key: 'event', name: 'Event', definition: 'An occurrence' },
+				{ key: 'concept', name: 'Concept', definition: 'An idea or thing' }
+			],
+			enrichmentContext: {
+				graphEntities: [
+					{
+						entityId: 'picnic-uuid',
+						label: 'picnic',
+						entityType: 'event',
+						source: 'lexical'
+					}
+				],
+				communityExcerpts: [
+					{ communityId: 'comm-1', level: 1, summaryText: 'Planning outdoor meals and picnics' }
+				],
+				groundingProfile: {
+					narrativeSummary: 'Enjoys weekend picnics with family.',
+					facets: {}
+				}
+			}
+		});
+
+		const prompt = String(llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]?.content);
+		expect(prompt).toContain('id=picnic-uuid');
+		expect(prompt).toContain('community summaries');
+		expect(prompt).toContain('User grounding profile');
+		expect(prompt).toContain('bring fish for the picnic');
 	});
 
 	it('includes knownEntities in the graph bundle prompt', async () => {

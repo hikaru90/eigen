@@ -37,7 +37,9 @@ export const GET: RequestHandler = async (event) => {
 	const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
 	const cursorStartAt = url.searchParams.get('cursorStartAt');
 	const cursorId = url.searchParams.get('cursorId');
-	const includeOpenLoops = url.searchParams.get('includeOpenLoops') !== 'false';
+	const includeTasks =
+		url.searchParams.get('includeTasks') !== 'false' &&
+		url.searchParams.get('includeOpenLoops') !== 'false';
 	const orderBy = url.searchParams.get('orderBy') as 'ingest' | 'todo' | null;
 	const sortDirection = url.searchParams.get('sortDirection') as 'asc' | 'desc' | null;
 
@@ -46,7 +48,7 @@ export const GET: RequestHandler = async (event) => {
 		range: range ?? 'relevant',
 		status: status ?? 'open',
 		kinds,
-		includeOpenLoops,
+		includeTasks,
 		limit: Number.isFinite(limit) ? limit : undefined,
 		cursorStartAt,
 		cursorId,

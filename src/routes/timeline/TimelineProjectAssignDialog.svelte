@@ -208,9 +208,9 @@
 								>
 									<FolderKanbanIcon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
 									<span class="min-w-0 flex-1 truncate text-sm font-medium">{project.label}</span>
-									{#if project.openLoopCount > 0}
+									{#if project.openTaskCount > 0}
 										<span class="text-muted-foreground font-mono text-[10px] tabular-nums">
-											{project.openLoopCount}
+											{project.openTaskCount}
 										</span>
 									{/if}
 								</button>

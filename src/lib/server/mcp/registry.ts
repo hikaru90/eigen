@@ -11,6 +11,7 @@ import {
 	runListThoughtsTool,
 	runListTemporalEventsTool,
 	runManageTemporalEventTool,
+	runSetStatusTool,
 	runRetrieveThoughtsTool,
 	runSearchTextFilesTool,
 	runUnlinkTextFileFromThoughtTool,
@@ -44,12 +45,17 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 				captured_at: {
 					type: 'string',
 					description: 'Optional ISO-8601 capture time for backdated memories (temporal anchoring).'
+				},
+				author: {
+					type: 'string',
+					description:
+						'Optional first ~10 characters of your API key to attribute this memory to that key name; leave empty to store as the user.'
 				}
 			},
 			required: ['raw']
 		},
 		agentArgumentSchema:
-			'{"raw": "string (required) — the text to store", "captured_at": "string (optional ISO-8601) — when the memory occurred"}',
+			'{"raw": "string (required) — the text to store", "captured_at": "string (optional ISO-8601) — when the memory occurred", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"}',
 		handler: runCaptureThoughtTool
 	},
 	{
@@ -88,9 +94,25 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		handler: runRetrieveThoughtsTool
 	},
 	{
+		name: 'set_status',
+		description:
+			'Set lifecycle status on any memory item: thought UUID, task:{uuid}, or temporal event UUID. Use completed to mark done, archived to soft-remove from the active brain (not a hard delete).',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				item_id: { type: 'string' },
+				status: { type: 'string', enum: ['open', 'completed', 'archived'] }
+			},
+			required: ['item_id', 'status']
+		},
+		agentArgumentSchema:
+			'{"item_id": "string (required) — thought UUID, task:{uuid}, or temporal event UUID", "status": "open|completed|archived (required)"}',
+		handler: runSetStatusTool
+	},
+	{
 		name: 'edit_thought',
 		description:
-			'Edit an existing thought by ID with a natural-language request (updates, mark tasks complete, reword).',
+			'Edit an existing thought by ID with a natural-language request (reword, fix typo). For mark done or archive, prefer set_status.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -105,7 +127,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	},
 	{
 		name: 'delete_thought',
-		description: 'Permanently delete one stored thought by ID. For multiple deletions, call once per thought id.',
+		description:
+			'Archive (soft-remove) one stored thought by ID — reversible, not a permanent delete. Prefer set_status with archived for thoughts, tasks, or events.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -120,7 +143,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'list_temporal_events',
 		description:
-			'List temporal events and open-loop tasks for the timeline (agenda, deadlines, appointments).',
+			'List temporal events and tasks for the timeline (agenda, deadlines, appointments).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -129,24 +152,25 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 					enum: ['relevant', 'upcoming', 'past', 'all']
 				},
 				status: { type: 'string', enum: ['open', 'all'] },
+				include_tasks: { type: 'boolean' },
 				include_open_loops: { type: 'boolean' }
 			}
 		},
 		agentArgumentSchema:
-			'{"range": "relevant|upcoming|past|all (optional)", "status": "open|all (optional)", "include_open_loops": "boolean (optional, default true)"}',
+			'{"range": "relevant|upcoming|past|all (optional)", "status": "open|all (optional)", "include_tasks": "boolean (optional, default true)"}',
 		handler: runListTemporalEventsTool
 	},
 	{
 		name: 'manage_temporal_event',
 		description:
-			'Manage a calendar/temporal event by ID: mark done, cancel, reschedule, or apply a natural-language instruction.',
+			'Manage a calendar/temporal event by ID: mark done, archive, reschedule, or apply a natural-language instruction.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				event_id: { type: 'string' },
 				action: {
 					type: 'string',
-					enum: ['mark_done', 'reopen', 'cancel', 'dismiss', 'delete', 'reschedule', 'snooze']
+					enum: ['mark_done', 'reopen', 'archive', 'reschedule', 'snooze', 'cancel', 'dismiss', 'delete']
 				},
 				start_at: { type: 'string', description: 'ISO-8601 start for structured reschedule' },
 				end_at: { type: 'string', description: 'ISO-8601 end for structured reschedule' },
@@ -159,7 +183,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			required: ['event_id']
 		},
 		agentArgumentSchema:
-			'{"event_id": "string (required)", "action": "mark_done|reopen|cancel|dismiss|delete (optional)", "instruction": "string (optional NL reschedule/snooze)"}',
+			'{"event_id": "string (required)", "action": "mark_done|reopen|archive (optional; cancel/dismiss/delete map to archive)", "instruction": "string (optional NL reschedule/snooze)"}',
 		handler: runManageTemporalEventTool
 	},
 	{
@@ -190,12 +214,17 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			type: 'object',
 			properties: {
 				body: { type: 'string' },
-				title: { type: 'string' }
+				title: { type: 'string' },
+				author: {
+					type: 'string',
+					description:
+						'Optional first ~10 characters of your API key to attribute this note to that key name; leave empty to store as the user.'
+				}
 			},
 			required: ['body']
 		},
 		agentArgumentSchema:
-			'{"body": "string (required)", "title": "string (optional)"}',
+			'{"body": "string (required)", "title": "string (optional)", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"}',
 		handler: runCreateTextFileTool
 	},
 	{

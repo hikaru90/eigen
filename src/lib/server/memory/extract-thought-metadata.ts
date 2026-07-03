@@ -1,6 +1,7 @@
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import type { MemoryType } from '$lib/server/db/brain.schema';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { m } from '$lib/paraglide/messages.js';
 import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 
@@ -9,7 +10,6 @@ const VALID_MEMORY_TYPES: MemoryType[] = [
 	'fact',
 	'decision',
 	'concern',
-	'open_loop',
 	'preference',
 	'pattern'
 ];
@@ -127,7 +127,6 @@ async function extractThoughtMetadataOnce(
 		'  fact       — a standing truth, reference, or factual note',
 		'  decision   — a committed choice or resolution',
 		'  concern    — a worry, risk, or anxiety',
-		'  open_loop  — an unresolved action item, question, or follow-up',
 		'  preference — a personal tendency, habit, or like/dislike',
 		'  pattern    — a recurring observation about oneself or a situation',
 		'',
@@ -145,8 +144,7 @@ async function extractThoughtMetadataOnce(
 		messages: [
 			{
 				role: 'system',
-				content:
-					'You classify personal memory notes and generate search cues. memoryType must always be an exact key from the list in the user message. Return only valid JSON.'
+				content: m.llm_memory_type_system()
 			},
 			{ role: 'user', content: prompt }
 		],

@@ -58,8 +58,8 @@ describe('timeline-completed-today', () => {
 
 	it('counts open loop completed today via completedAt metadata', () => {
 		const completed = item({
-			itemType: 'open_loop',
-			id: 'open-loop:t1',
+			itemType: 'task',
+			id: 'task:t1',
 			thoughtStatus: 'completed',
 			lifecycleStatus: 'completed',
 			completedAt: '2026-06-16T08:30:00.000Z',

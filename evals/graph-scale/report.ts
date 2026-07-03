@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
+import { resolveGraphScaleReportPaths } from './progress-report';
 import type { GraphScalePoint, GraphScaleReport } from './types';
 
 export function graphScaleReportToCsv(report: GraphScaleReport): string {
@@ -48,11 +49,16 @@ function graphScalePointToCsvRow(point: GraphScalePoint): string {
 	return cells.map((c) => String(c)).join(',');
 }
 
-export function writeGraphScaleReport(report: GraphScaleReport, outputPath: string): void {
-	const abs = resolve(outputPath);
-	mkdirSync(dirname(abs), { recursive: true });
-	writeFileSync(abs, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-
-	const csvPath = abs.replace(/\.json$/i, '') + '.csv';
+export function writeGraphScaleReport(
+	report: GraphScaleReport,
+	outputPath: string,
+	options?: { jsonPath?: string; csvPath?: string }
+): void {
+	const paths = resolveGraphScaleReportPaths(outputPath);
+	const jsonPath = options?.jsonPath ?? paths.jsonPath;
+	const csvPath = options?.csvPath ?? paths.csvPath;
+	mkdirSync(dirname(jsonPath), { recursive: true });
+	writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 	writeFileSync(csvPath, graphScaleReportToCsv(report), 'utf8');
 }
+

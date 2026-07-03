@@ -1,6 +1,15 @@
 -- Eigen: tenant RLS (user_id). Apply with `npm run db:rls` after `DATABASE_URL` is set.
 -- App requests set GUC on the pooled connection: set_config('app.current_user_id', <id>, false) — see src/hooks.server.ts.
 
+-- The `user` table is managed by better-auth and may have RLS enabled.
+-- Add a permissive SELECT policy so the app role can read users for FK checks.
+ALTER TABLE "user" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "user" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_read_all ON "user";
+CREATE POLICY user_read_all ON "user"
+  FOR SELECT
+  USING (true);
+
 ALTER TABLE thought ENABLE ROW LEVEL SECURITY;
 ALTER TABLE thought FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS thought_isolation ON thought;

@@ -1,0 +1,18 @@
+{
+  "runId": "a0631b52-e823-447e-b5d2-b2c9324c8725",
+  "status": "seeding",
+  "corpusUserId": "graph-scale-corpus-a0631b52-e823-447e-b5d2-b2c9324c8725-1",
+  "n": 1,
+  "seedQueued": 1,
+  "seedEnrichTotal": 1,
+  "seedEnriched": 0,
+  "graph": {
+    "thoughts": 0,
+    "entities": 0,
+    "edges": 0,
+    "communities": 0,
+    "projects": 0
+  },
+  "label": "N=1 seed enrich 0/1",
+  "updatedAt": "2026-07-02T12:39:35.793Z"
+}

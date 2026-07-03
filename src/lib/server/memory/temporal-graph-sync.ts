@@ -1,13 +1,15 @@
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { refreshFocusRanksForUser } from '$lib/server/memory/temporal-event-list';
 import { getDb } from '$lib/server/db';
 import {
 	graphSyncJob,
 	temporalEvent,
+	thought,
 	type GraphSyncJobOperation
 } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
+import { authorshipInsertValues } from '$lib/server/memory/authorship';
 import { extractTemporalMentions } from '$lib/server/memory/temporal-extraction';
 import {
 	applyCaptureAnchoredMentions,
@@ -43,6 +45,21 @@ export async function syncTemporalEventsFromThought(input: {
 	const db = getDb();
 	const capturedAt = input.capturedAt ?? new Date();
 	const timezone = input.timezone?.trim() || DEFAULT_TIMEZONE;
+
+	const [thoughtAuthorshipRow] = await db
+		.select({
+			author: thought.author,
+			authorLabel: thought.authorLabel,
+			authorKeyId: thought.authorKeyId
+		})
+		.from(thought)
+		.where(and(eq(thought.userId, input.userId), eq(thought.id, input.thoughtId)))
+		.limit(1);
+	const authorValues = authorshipInsertValues({
+		author: thoughtAuthorshipRow?.author ?? 'user',
+		authorLabel: thoughtAuthorshipRow?.authorLabel ?? null,
+		authorKeyId: thoughtAuthorshipRow?.authorKeyId ?? null
+	});
 
 	const mentions = applyCaptureAnchoredMentions(
 		input.precomputedMentions ??
@@ -126,7 +143,8 @@ export async function syncTemporalEventsFromThought(input: {
 					},
 					startAt: bounds.start,
 					endAt: bounds.end,
-					graphSyncStatus: 'pending'
+					graphSyncStatus: 'pending',
+					...authorValues
 				})
 				.returning({ id: temporalEvent.id });
 

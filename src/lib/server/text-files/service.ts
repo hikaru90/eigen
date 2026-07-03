@@ -4,6 +4,8 @@ import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema';
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { buildLexicalTsQuery } from '$lib/server/retrieval/lexical';
+import type { MemoryAuthorship } from '$lib/server/memory/authorship';
+import { authorshipInsertValues, USER_AUTHORSHIP } from '$lib/server/memory/authorship';
 
 export const MAX_TEXT_FILE_BODY_BYTES = 512 * 1024;
 export const TEXT_FILE_PREVIEW_LEN = 200;
@@ -12,6 +14,9 @@ export type TextFileRecord = {
 	id: string;
 	title: string;
 	body: string;
+	author: 'user' | 'agent';
+	authorLabel: string | null;
+	authorKeyId: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -61,6 +66,9 @@ async function decryptTextFileRow<
 		title: string;
 		bodyText: string;
 		bodyTextEncrypted?: string | null;
+		author: 'user' | 'agent';
+		authorLabel: string | null;
+		authorKeyId: string | null;
 		createdAt: Date;
 		updatedAt: Date;
 		id: string;
@@ -78,6 +86,9 @@ async function decryptTextFileRow<
 		id: row.id,
 		title: row.title,
 		body,
+		author: row.author,
+		authorLabel: row.authorLabel,
+		authorKeyId: row.authorKeyId,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString()
 	};
@@ -85,11 +96,14 @@ async function decryptTextFileRow<
 
 export async function createTextFile(
 	userId: string,
-	input: { title?: string; body: string }
+	input: { title?: string; body: string; authorship?: MemoryAuthorship }
 ): Promise<TextFileRecord> {
 	const body = assertNonEmptyBody(input.body);
 	const title = normalizeTitle(input.title);
 	const lexicalText = computeLexicalText(`${title} ${body}`);
+	const authorValues = authorshipInsertValues(
+		input.authorship ?? USER_AUTHORSHIP
+	);
 	const bodyTextEncrypted = await encryptTenantValue({
 		userId,
 		table: 'text_file',
@@ -104,13 +118,17 @@ export async function createTextFile(
 			title,
 			bodyText: '',
 			bodyTextEncrypted,
-			lexicalText
+			lexicalText,
+			...authorValues
 		})
 		.returning({
 			id: textFile.id,
 			title: textFile.title,
 			bodyText: textFile.bodyText,
 			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
 			createdAt: textFile.createdAt,
 			updatedAt: textFile.updatedAt
 		});
@@ -129,6 +147,9 @@ export async function updateTextFile(
 			title: textFile.title,
 			bodyText: textFile.bodyText,
 			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
 			createdAt: textFile.createdAt,
 			updatedAt: textFile.updatedAt
 		})
@@ -164,6 +185,9 @@ export async function updateTextFile(
 			title: textFile.title,
 			bodyText: textFile.bodyText,
 			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
 			createdAt: textFile.createdAt,
 			updatedAt: textFile.updatedAt
 		});
@@ -186,6 +210,9 @@ export async function getTextFile(userId: string, fileId: string): Promise<TextF
 			title: textFile.title,
 			bodyText: textFile.bodyText,
 			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
 			createdAt: textFile.createdAt,
 			updatedAt: textFile.updatedAt
 		})
@@ -213,6 +240,9 @@ export async function listTextFiles(
 			title: textFile.title,
 			bodyText: textFile.bodyText,
 			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
 			createdAt: textFile.createdAt,
 			updatedAt: textFile.updatedAt
 		})
@@ -253,6 +283,9 @@ export async function searchTextFiles(
 			title: textFile.title,
 			bodyText: textFile.bodyText,
 			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
 			createdAt: textFile.createdAt,
 			updatedAt: textFile.updatedAt,
 			lexicalScore: rankExpr

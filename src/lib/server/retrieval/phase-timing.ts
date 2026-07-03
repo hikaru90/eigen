@@ -35,6 +35,8 @@ export function createPhaseTimer(): {
 	};
 }
 
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
+
 export function logRetrievalPhaseTiming(input: {
 	userId: string;
 	query: string;
@@ -44,6 +46,7 @@ export function logRetrievalPhaseTiming(input: {
 	/** Log tag override (default: retrieval.searchThoughts). */
 	tag?: string;
 }): void {
+	if (isGraphScaleQuiet()) return;
 	console.info(input.tag ?? '[retrieval.searchThoughts]', {
 		userId: input.userId,
 		mode: input.mode,

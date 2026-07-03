@@ -6,7 +6,7 @@ export function computeFocusRank(
 	now: Date,
 	timeZone: string
 ): number {
-	if (item.itemType === 'open_loop') return 600;
+	if (item.itemType === 'task') return 600;
 
 	const section = agendaSectionScore(item, now, timeZone);
 	let rank = section;

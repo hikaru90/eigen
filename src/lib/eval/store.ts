@@ -459,15 +459,24 @@ export async function insertEvalUserRow(userId: string, name: string): Promise<v
 	const { user } = await import('$lib/server/db/auth.schema');
 	const { authDb } = await import('$lib/server/db/auth-db');
 	const existing = await authDb.select().from(user).where(eq(user.id, userId));
-	if (existing.length > 0) return;
-	await authDb.insert(user).values({
-		id: userId,
-		name,
-		email: `${userId}@local.eval`,
-		emailVerified: true,
-		onboardingCompleted: true,
-		accountKind: 'harness'
-	});
+	if (existing.length > 0) {
+		await authDb
+			.update(user)
+			.set({ onboardingCompleted: true, accountKind: 'harness' })
+			.where(eq(user.id, userId));
+	} else {
+		await authDb.insert(user).values({
+			id: userId,
+			name,
+			email: `${userId}@local.eval`,
+			emailVerified: true,
+			onboardingCompleted: true,
+			accountKind: 'harness'
+		});
+	}
+
+	const { ensureHarnessWalletCredits } = await import('$lib/server/billing/ensure-harness-credits');
+	await ensureHarnessWalletCredits(userId);
 }
 
 export async function deleteEvalUserRow(userId: string): Promise<void> {

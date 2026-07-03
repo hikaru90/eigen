@@ -25,14 +25,13 @@ export async function countLinkedThoughtsForProjectEntity(
 	return row?.count ?? 0;
 }
 
-export async function countOpenLoopsForProjectEntity(
+export async function countOpenTasksForProjectEntity(
 	userId: string,
 	projectEntityId: string
 ): Promise<number> {
 	const rows = await getDb()
 		.select({
 			thoughtId: thoughtEntity.thoughtId,
-			memoryType: thought.memoryType,
 			metadata: thought.metadata,
 			metadataEncrypted: thought.metadataEncrypted
 		})
@@ -42,7 +41,7 @@ export async function countOpenLoopsForProjectEntity(
 			and(
 				eq(thoughtEntity.userId, userId),
 				eq(thoughtEntity.entityId, projectEntityId),
-				sql`(${thought.memoryType} = 'open_loop' OR ${thought.category} = 'task')`
+				eq(thought.category, 'task')
 			)
 		);
 

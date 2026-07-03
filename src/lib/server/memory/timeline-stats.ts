@@ -1,6 +1,6 @@
 import { and, eq, gte, lte } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { temporalEvent } from '$lib/server/db/schema';
+import { temporalEvent, thought } from '$lib/server/db/schema';
 import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list';
 import { priorDayOverdueCount, overdueDebtMinutes } from '$lib/graph/timeline-overdue';
 import { completedTodayCount } from '$lib/graph/timeline-completed-today';
@@ -31,7 +31,7 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 	const timeZone = await getUserPreferredTimezone(userId);
 	const weekStart = startOfWeek(now);
 
-	const completionsThisWeek = await getDb()
+	const eventCompletions = await getDb()
 		.select({ id: temporalEvent.id })
 		.from(temporalEvent)
 		.where(
@@ -43,6 +43,21 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 			)
 		);
 
+	const taskCompletions = await getDb()
+		.select({ id: thought.id })
+		.from(thought)
+		.where(
+			and(
+				eq(thought.userId, userId),
+				eq(thought.category, 'task'),
+				eq(thought.lifecycleStatus, 'completed'),
+				gte(thought.lifecycleUpdatedAt, weekStart),
+				lte(thought.lifecycleUpdatedAt, now)
+			)
+		);
+
+	const completionsThisWeek = [...eventCompletions, ...taskCompletions];
+
 	let streakDays = 0;
 	for (let offset = 0; offset < 30; offset++) {
 		const dayStart = new Date(now);
@@ -51,7 +66,7 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 		const dayEnd = new Date(dayStart);
 		dayEnd.setHours(23, 59, 59, 999);
 
-		const rows = await getDb()
+		const eventRows = await getDb()
 			.select({ id: temporalEvent.id })
 			.from(temporalEvent)
 			.where(
@@ -64,6 +79,25 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 			)
 			.limit(1);
 
+		const taskRows =
+			eventRows.length === 0
+				? await getDb()
+						.select({ id: thought.id })
+						.from(thought)
+						.where(
+							and(
+								eq(thought.userId, userId),
+								eq(thought.category, 'task'),
+								eq(thought.lifecycleStatus, 'completed'),
+								gte(thought.lifecycleUpdatedAt, dayStart),
+								lte(thought.lifecycleUpdatedAt, dayEnd)
+							)
+						)
+						.limit(1)
+				: [];
+
+		const rows = eventRows.length > 0 ? eventRows : taskRows;
+
 		if (rows.length === 0) break;
 		streakDays += 1;
 	}
@@ -72,14 +106,14 @@ export async function computeTimelineStatsForUser(userId: string): Promise<Timel
 		userId,
 		status: 'open',
 		range: 'all',
-		includeOpenLoops: true
+		includeTasks: true
 	});
 
 	const { items: allItems } = await listTemporalEventsForUser({
 		userId,
 		status: 'all',
 		range: 'all',
-		includeOpenLoops: true
+		includeTasks: true
 	});
 
 	const todoToday = filterOpenTodoTodayItems(openItems, now, timeZone);

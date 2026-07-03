@@ -1,14 +1,23 @@
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { m } from '$lib/paraglide/messages.js';
 import {
 	ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
 	ENTITY_EXTRACTION_OMIT_RULES,
+	ENTITY_EXTRACTION_QUALITY_GUIDANCE,
 	ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
 	ENTITY_EXTRACTION_TYPE_GUIDANCE,
 	filterAcceptedEntityMentions
 } from '$lib/server/memory/entity-mention-filter';
 import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
+import { computeLexicalText } from '$lib/server/memory/lexical-text';
+import {
+	formatCommunityExcerptsForEntityPrompt,
+	formatKnownGraphEntitiesPromptBlock,
+	type EntityGraphEnrichmentContext,
+	type GraphEntityCandidate
+} from '$lib/server/memory/entity-graph-enrichment-context';
 
 export type ExtractedEntityMention = {
 	surface: string;
@@ -30,8 +39,10 @@ export type OntologyEntityKindForExtraction = {
 	definition: string;
 };
 
-/** A known canonical entity to surface to the LLM to reduce surface-form variance. */
+/** A canonical entity already persisted in the user's graph. */
 export type KnownEntityHint = {
+	/** Canonical entity UUID in Postgres + AGE — omit only in tests. */
+	entityId?: string;
 	label: string;
 	entityType: string;
 };
@@ -73,7 +84,7 @@ function clampConfidence(value: unknown): number {
 export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH = 120;
 
 /** Minimum length for retry on shorter notes (length gate only — not semantic). */
-export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT = 50;
+export const ENTITY_EXTRACTION_RETRY_MIN_TEXT_LENGTH_SHORT = 35;
 
 /** Whether a second LLM pass is warranted after zero mentions on the first pass (length only). */
 export function shouldRetryEntityMentionExtraction(normalizedText: string): boolean {
@@ -160,7 +171,8 @@ export function filterAcceptedEntityTriples(input: {
 
 export function parseEntityTriples(
 	content: string,
-	allowedSurfaces: Set<string>
+	allowedMentionSurfaces: Set<string>,
+	allowedGraphEntityLabels?: Set<string>
 ): ExtractedEntityTriple[] {
 	const parsed = JSON.parse(content) as unknown;
 	if (!Array.isArray(parsed)) {
@@ -183,10 +195,39 @@ export function parseEntityTriples(
 					: '';
 			const confidence = clampConfidence((entry as { confidence?: unknown }).confidence);
 			if (!subject || !object || !ALLOWED_ENTITY_PREDICATES.has(predicate)) return null;
-			if (!allowedSurfaces.has(subject) || !allowedSurfaces.has(object)) return null;
+
+			const subjectInMentions = allowedMentionSurfaces.has(subject);
+			const objectInMentions = allowedMentionSurfaces.has(object);
+			const subjectInGraph = allowedGraphEntityLabels?.has(subject) ?? false;
+			const objectInGraph = allowedGraphEntityLabels?.has(object) ?? false;
+			if (!subjectInMentions && !subjectInGraph) return null;
+			if (!objectInMentions && !objectInGraph) return null;
+			if (!subjectInMentions && !objectInMentions) return null;
+
 			return { subject, object, predicate, confidence };
 		})
 		.filter((v): v is ExtractedEntityTriple => v !== null);
+}
+
+/** Resolve a triple endpoint to a canonical entity ID (mention surface or known graph label). */
+export function resolveTripleEndpointEntityId(
+	surface: string,
+	surfaceToEntityId: Map<string, string>,
+	graphEntityIdByLabel: Map<string, string>
+): string | undefined {
+	const trimmed = surface.trim();
+	if (!trimmed) return undefined;
+	return (
+		surfaceToEntityId.get(trimmed) ??
+		graphEntityIdByLabel.get(trimmed) ??
+		graphEntityIdByLabel.get(computeLexicalText(trimmed))
+	);
+}
+
+export function graphEntityLabelsFromContext(
+	graphEntities: GraphEntityCandidate[]
+): Set<string> {
+	return new Set(graphEntities.map((e) => e.label.trim()).filter(Boolean));
 }
 
 type ExtractEntityMentionsPass = 'default' | 'retry_minimum' | 'retry_verbatim';
@@ -240,8 +281,7 @@ async function extractEntityMentionsOnce(
 	const messages: ChatMessage[] = [
 		{
 			role: 'system',
-			content:
-				'You extract structured entity mentions. entityType must always be an exact key from the entity type list in the user message, never a free-form category.'
+			content: m.llm_entity_extraction_system()
 		},
 		{ role: 'user', content: prompt }
 	];
@@ -323,7 +363,7 @@ export async function extractEntityTriples(input: {
 	].join('\n');
 
 	const messages: ChatMessage[] = [
-		{ role: 'system', content: 'You extract typed edges between known entity surfaces.' },
+		{ role: 'system', content: m.llm_entity_triple_system() },
 		{ role: 'user', content: prompt }
 	];
 
@@ -345,6 +385,7 @@ async function extractEntityGraphOnce(
 		ontologyEntityKinds: OntologyEntityKindForExtraction[];
 		knownEntities?: KnownEntityHint[];
 		groundingProfile?: GroundingProfileForEnrichment;
+		enrichmentContext?: EntityGraphEnrichmentContext;
 	},
 	pass: ExtractEntityGraphPass
 ): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
@@ -354,10 +395,21 @@ async function extractEntityGraphOnce(
 		.join('\n');
 	const keyUnion = [...allowed].sort().join('|');
 
-	const knownEntitiesBlock =
-		input.knownEntities && input.knownEntities.length > 0
+	const ctx = input.enrichmentContext;
+	const groundingBlock = groundingProfilePromptBlock(
+		ctx?.groundingProfile ?? input.groundingProfile ?? null
+	);
+	const communityBlock = formatCommunityExcerptsForEntityPrompt(ctx?.communityExcerpts ?? []);
+	const graphEntitiesBlock = formatKnownGraphEntitiesPromptBlock(ctx?.graphEntities ?? []);
+
+	const legacyKnownBlock =
+		!ctx && input.knownEntities && input.knownEntities.length > 0
 			? `\nKnown entities already in memory. Include a mention ONLY when the text clearly names or refers to that entity. Never replace a name in the text with a different known entity:\n${input.knownEntities
-					.map((e) => `- ${e.label} (${e.entityType})`)
+					.map((e) =>
+						e.entityId
+							? `- id=${e.entityId} label="${e.label}" type=${e.entityType}`
+							: `- ${e.label} (${e.entityType})`
+					)
 					.join('\n')}`
 			: '';
 
@@ -368,8 +420,6 @@ async function extractEntityGraphOnce(
 				? 'Return every proper noun and concrete noun phrase appearing verbatim in the text. When the text names a person and a requirement or condition, return at least 2 mentions. Copy surfaces exactly as written in the text. Still omit greetings and interjections.'
 				: 'Include 0–12 mentions. Omit generic pronouns and vague terms.';
 
-	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
-
 	const prompt = [
 		'Return ONLY JSON with this shape:',
 		'{',
@@ -378,17 +428,20 @@ async function extractEntityGraphOnce(
 		'}',
 		'',
 		groundingBlock,
+		communityBlock,
+		graphEntitiesBlock,
+		legacyKnownBlock,
 		'Extract notable named entities and noun phrases worth tracking as graph nodes.',
+		...ENTITY_EXTRACTION_QUALITY_GUIDANCE,
 		...ENTITY_EXTRACTION_OMIT_RULES,
 		...ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
 		`For each mention, entityType must be exactly one of: ${keyUnion}`,
 		...ENTITY_EXTRACTION_TYPE_GUIDANCE,
 		'Allowed triple predicates: related_to, depends_on, part_of, located_in, knows, works_at.',
-		'Triples must only reference surfaces listed in mentions. Use empty triples array if none.',
+		'Triples must reference mention surfaces and/or labels from the existing graph entities block. At least one triple endpoint must be a mention from this thought. Use empty triples array if none.',
 		...ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
 		'Catalog:',
 		catalog,
-		knownEntitiesBlock,
 		minimumRule,
 		`Text:\n${input.normalizedText}`
 	]
@@ -399,7 +452,7 @@ async function extractEntityGraphOnce(
 		{
 			role: 'system',
 			content:
-				'You extract entity mentions and typed edges for a personal memory graph. Keep multi-word titles and recipe names as single surfaces; use person only for human beings. Return only valid JSON.'
+				'You extract entity mentions and typed edges for a personal memory graph. Use grounding, community themes, and existing graph entity IDs to extract what matters and wire items to hubs. Keep multi-word titles as single surfaces; use person only for human beings. Return only valid JSON.'
 		},
 		{ role: 'user', content: prompt }
 	];
@@ -420,10 +473,12 @@ async function extractEntityGraphOnce(
 			JSON.stringify(Array.isArray(obj.mentions) ? obj.mentions : []),
 			allowed
 		);
-		const allowedSurfaces = new Set(mentions.map((m) => m.surface));
+		const allowedMentionSurfaces = new Set(mentions.map((m) => m.surface));
+		const allowedGraphLabels = graphEntityLabelsFromContext(ctx?.graphEntities ?? []);
 		const triples = parseEntityTriples(
 			JSON.stringify(Array.isArray(obj.triples) ? obj.triples : []),
-			allowedSurfaces
+			allowedMentionSurfaces,
+			allowedGraphLabels.size > 0 ? allowedGraphLabels : undefined
 		);
 		return { mentions, triples };
 	} catch (err) {
@@ -443,6 +498,7 @@ export async function extractEntityGraphBundle(input: {
 	ontologyEntityKinds: OntologyEntityKindForExtraction[];
 	knownEntities?: KnownEntityHint[];
 	groundingProfile?: GroundingProfileForEnrichment;
+	enrichmentContext?: EntityGraphEnrichmentContext;
 }): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
 	if (input.ontologyEntityKinds.length === 0) {
 		throw new Error('extractEntityGraphBundle requires at least one ontology entity kind');

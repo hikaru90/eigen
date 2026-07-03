@@ -6,7 +6,10 @@ export type AppUser = User & { onboardingCompleted?: boolean; role?: 'user' | 'a
 // for information about these interfaces
 declare global {
 	namespace App {
-		interface Locals { user?: AppUser; session?: Session }
+		interface Locals {
+			user?: AppUser;
+			session?: Session;
+		}
 
 		// interface Error {}
 		// interface PageData {}

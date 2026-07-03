@@ -8,13 +8,13 @@ describe('reconcile-user-projects', () => {
 				{
 					entityId: 'p1',
 					label: 'Kitchen remodel',
-					openLoopCount: 2,
+					openTaskCount: 2,
 					linkedThoughtSummaries: ['Pick tile samples']
 				},
 				{
 					entityId: 'p2',
 					label: 'Bathroom remodel',
-					openLoopCount: 1,
+					openTaskCount: 1,
 					linkedThoughtSummaries: ['Call plumber']
 				}
 			],

@@ -56,7 +56,7 @@ export const CAPTURE_INGEST_PHASE_COPY = {
 	},
 	memory_type: {
 		title: 'Classifying memory type',
-		description: 'Determining whether this thought is an episode, decision, concern, open loop, or another memory type.'
+		description: 'Determining whether this thought is an episode, decision, concern, preference, or another memory type.'
 	},
 	cues: {
 		title: 'Generating search cues',

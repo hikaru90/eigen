@@ -2,6 +2,7 @@ import './load-env.mjs';
 import postgres from 'postgres';
 import { getDatabaseUrl } from './db-urls.mjs';
 import { quoteIdent } from './age-graph-grants.mjs';
+import { ensureAgeGraphLabelsAndIndexes } from './age-graph-labels.mjs';
 
 const urlString = getDatabaseUrl();
 
@@ -35,6 +36,7 @@ try {
 			END IF;
 		END $$;
 	`);
+	await ensureAgeGraphLabelsAndIndexes(sql, ageGraph);
 	const [{ name: dbName }] = await sql`SELECT current_database() AS name`;
 	await sql.unsafe(
 		`ALTER DATABASE ${quoteIdent(dbName)} SET search_path TO ${AGE_SEARCH_PATH}`

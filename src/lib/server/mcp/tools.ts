@@ -1,10 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import {
 	captureThought,
-	deleteThoughtForUser,
 	editStoredThought,
 	listThoughts
 } from '$lib/server/capture/service';
+import type { TemporalEventActionInput } from '$lib/server/memory/apply-temporal-event-action';
+import { archiveThoughtForUser, setItemLifecycleStatus } from '$lib/server/memory/lifecycle';
+import { lifecycleStatusEnum, type LifecycleStatus } from '$lib/server/db/brain.schema';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
@@ -35,6 +37,8 @@ import {
 	updateTextFile
 } from '$lib/server/text-files/service';
 
+import { resolveAuthorFromPrefix } from '$lib/server/memory/authorship';
+
 export type McpToolProgress = {
 	tool: string;
 	phase: string;
@@ -61,6 +65,8 @@ type McpThoughtSnippetRow = {
 	createdAt: Date;
 	normalizedText: string;
 	memoryType?: string | null;
+	author?: 'user' | 'agent';
+	authorLabel?: string | null;
 	scoreNormalized?: number;
 };
 
@@ -74,6 +80,8 @@ async function buildMcpThoughtSnippetRows(
 		id: string;
 		category: string;
 		createdAt: string;
+		author?: 'user' | 'agent';
+		authorLabel?: string | null;
 		snippet: string;
 		temporalStatus: 'none' | 'active' | 'expired';
 		temporalSummary?: string;
@@ -95,6 +103,8 @@ async function buildMcpThoughtSnippetRows(
 			id: row.id,
 			category: row.category,
 			createdAt: row.createdAt.toISOString(),
+			...(row.author ? { author: row.author } : {}),
+			...(row.authorLabel ? { authorLabel: row.authorLabel } : {}),
 			temporalStatus,
 			...(temporalSummary ? { temporalSummary } : {}),
 			...(row.memoryType ? { memoryType: row.memoryType } : {}),
@@ -118,8 +128,13 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
 		throw new Error('raw is required');
 	}
 	const capturedAt = parseOptionalIsoTimestamp(body.captured_at, 'captured_at');
+	const authorPrefix = typeof body.author === 'string' ? body.author : undefined;
+	const authorship = await resolveAuthorFromPrefix(authorPrefix);
 	const stored = await captureThought(context.userId, raw, {
 		source: 'mcp',
+		author: authorship.author,
+		authorLabel: authorship.authorLabel,
+		authorKeyId: authorship.authorKeyId,
 		...(capturedAt ? { capturedAt } : {})
 	});
 	return sanitizeMcpToolResult({
@@ -160,7 +175,9 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 			category: row.category,
 			createdAt: row.createdAt,
 			normalizedText: row.normalizedText,
-			memoryType: row.memoryType
+			memoryType: row.memoryType,
+			author: row.author,
+			authorLabel: row.authorLabel
 		})),
 		CONTEXT_WEIGHTS.default,
 		now
@@ -240,6 +257,8 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 			category: row.category,
 			createdAt: row.createdAt,
 			normalizedText: row.normalizedText,
+			author: row.author,
+			authorLabel: row.authorLabel,
 			score: row.score
 		})),
 		weights,
@@ -261,11 +280,63 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const thoughtId = readThoughtIdFromToolArgs(body);
-	const result = await deleteThoughtForUser(context.userId, thoughtId);
+	const result = await archiveThoughtForUser(context.userId, thoughtId);
 	if (!result.ok) {
 		throw new Error('Thought not found');
 	}
-	return sanitizeMcpToolResult({ deleted: true, thoughtId });
+	return sanitizeMcpToolResult({ archived: true, thoughtId, status: 'archived' });
+}
+
+function readItemIdFromToolArgs(body: Record<string, unknown>): string {
+	const raw =
+		(typeof body.item_id === 'string' ? body.item_id : null) ??
+		(typeof body.thought_id === 'string' ? body.thought_id : null) ??
+		(typeof body.event_id === 'string' ? body.event_id : null);
+	const id = raw?.trim() ?? '';
+	if (!id || /\s/.test(id)) {
+		throw new Error('Invalid item_id: must be a non-empty id without whitespace');
+	}
+	return id;
+}
+
+export async function runSetStatusTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const itemId = readItemIdFromToolArgs(body);
+	const statusRaw = typeof body.status === 'string' ? body.status.trim() : '';
+	if (!lifecycleStatusEnum.includes(statusRaw as LifecycleStatus)) {
+		throw new Error('status must be open, completed, or archived');
+	}
+	const status = statusRaw as LifecycleStatus;
+
+	const result = await setItemLifecycleStatus(context.userId, itemId, status);
+	if (!result.ok) {
+		throw new Error('Item not found');
+	}
+
+	if (result.kind === 'thought') {
+		return sanitizeMcpToolResult({
+			itemId,
+			status,
+			thoughtId: result.thought.id,
+			thought: result.thought
+		});
+	}
+
+	return sanitizeMcpToolResult({
+		itemId,
+		status,
+		eventId: result.item.id,
+		thoughtId: result.item.thoughtId,
+		summary: result.summary,
+		item: {
+			id: result.item.id,
+			itemType: result.item.itemType,
+			kind: result.item.kind,
+			semanticSummary: result.item.semanticSummary,
+			lifecycleStatus: result.item.lifecycleStatus,
+			thoughtId: result.item.thoughtId
+		}
+	});
 }
 
 export async function runEditThoughtTool(context: McpToolContext, args: unknown) {
@@ -385,7 +456,7 @@ export async function runListTemporalEventsTool(context: McpToolContext, args: u
 		userId: context.userId,
 		range: allowedRange.has(range) ? (range as 'relevant' | 'upcoming' | 'past' | 'all') : 'relevant',
 		status: allowedStatus.has(status) ? (status as 'open' | 'all') : 'open',
-		includeOpenLoops: body.include_open_loops !== false
+		includeTasks: body.include_tasks !== false && body.include_open_loops !== false
 	});
 
 	return sanitizeMcpToolResult({
@@ -419,8 +490,7 @@ export async function runManageTemporalEventTool(context: McpToolContext, args: 
 		applyNlTemporalEventAction,
 		applyQuickTemporalEventAction,
 		applyStructuredRescheduleAction,
-		applyStructuredSnoozeAction,
-		deleteTemporalEventForUser
+		applyStructuredSnoozeAction
 	} = await import('$lib/server/memory/temporal-event-service');
 
 	const startAt = typeof body.start_at === 'string' ? body.start_at.trim() : '';
@@ -440,17 +510,19 @@ export async function runManageTemporalEventTool(context: McpToolContext, args: 
 		return sanitizeMcpToolResult({ eventId, ...result });
 	}
 
-	if (action === 'delete') {
-		const result = await deleteTemporalEventForUser(context.userId, eventId);
-		return sanitizeMcpToolResult({ eventId, ...result });
-	}
-
-	const quickActions = new Set(['mark_done', 'reopen', 'cancel', 'dismiss']);
+	const quickActions = new Set([
+		'mark_done',
+		'reopen',
+		'archive',
+		'cancel',
+		'dismiss',
+		'delete'
+	]);
 	if (action && quickActions.has(action)) {
 		const result = await applyQuickTemporalEventAction(
 			context.userId,
 			eventId,
-			action as 'mark_done' | 'reopen' | 'cancel' | 'dismiss'
+			action as TemporalEventActionInput
 		);
 		return sanitizeMcpToolResult({ eventId, ...result });
 	}
@@ -460,7 +532,7 @@ export async function runManageTemporalEventTool(context: McpToolContext, args: 
 		return sanitizeMcpToolResult({ eventId, ...result });
 	}
 
-	throw new Error('Provide action (mark_done|reopen|cancel|dismiss|delete) or instruction');
+	throw new Error('Provide action (mark_done|reopen|archive) or instruction');
 }
 
 export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {
@@ -505,7 +577,13 @@ export async function runCreateTextFileTool(context: McpToolContext, args: unkno
 	const rawBody = typeof body.body === 'string' ? body.body : '';
 	if (!rawBody.trim()) throw new Error('body is required');
 	const title = typeof body.title === 'string' ? body.title : undefined;
-	const textFile = await createTextFile(context.userId, { title, body: rawBody });
+	const authorPrefix = typeof body.author === 'string' ? body.author : undefined;
+	const authorship = await resolveAuthorFromPrefix(authorPrefix);
+	const textFile = await createTextFile(context.userId, {
+		title,
+		body: rawBody,
+		authorship
+	});
 	return sanitizeMcpToolResult({ textFileId: textFile.id, textFile });
 }
 

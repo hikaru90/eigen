@@ -3,8 +3,8 @@ import type { RequestHandler } from './$types';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
-import { deleteThoughtForUser, setThoughtLifecycleStatus } from '$lib/server/capture/service';
-import type { ThoughtLifecycleStatus } from '$lib/server/capture/apply-thought-edit';
+import { setThoughtLifecycleStatus, archiveThoughtForUser } from '$lib/server/memory/lifecycle';
+import type { LifecycleStatus } from '$lib/server/db/brain.schema';
 import { listTextFilesForThought } from '$lib/server/text-files/service';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -89,12 +89,12 @@ export const PATCH: RequestHandler = async (event) => {
 		typeof body === 'object' && body && 'status' in body
 			? (body as { status?: unknown }).status
 			: undefined;
-	if (status !== 'open' && status !== 'completed') {
-		error(400, 'status must be "open" or "completed"');
+	if (status !== 'open' && status !== 'completed' && status !== 'archived') {
+		error(400, 'status must be "open", "completed", or "archived"');
 	}
 
 	const result = await runWithTrace(crypto.randomUUID(), () =>
-		setThoughtLifecycleStatus(user.id, thoughtId, status as ThoughtLifecycleStatus)
+		setThoughtLifecycleStatus(user.id, thoughtId, status as LifecycleStatus)
 	);
 	if (!result.ok) error(404, 'Thought not found');
 
@@ -109,9 +109,9 @@ export const DELETE: RequestHandler = async (event) => {
 	if (!thoughtId) error(400, 'thoughtId is required');
 
 	const result = await runWithTrace(crypto.randomUUID(), () =>
-		deleteThoughtForUser(user.id, thoughtId)
+		archiveThoughtForUser(user.id, thoughtId)
 	);
 	if (!result.ok) error(404, 'Thought not found');
 
-	return json({ ok: true as const });
+	return json({ ok: true as const, archived: true });
 };

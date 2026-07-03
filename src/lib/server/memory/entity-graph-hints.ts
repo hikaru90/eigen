@@ -56,7 +56,11 @@ export async function loadGraphKnownEntityHints(input: {
 	const byId = new Map<string, KnownEntityHint>();
 	for (const row of resolved) {
 		if (!row.entityId) continue;
-		byId.set(row.entityId, { label: row.label, entityType: row.entityType });
+		byId.set(row.entityId, {
+			entityId: row.entityId,
+			label: row.label,
+			entityType: row.entityType
+		});
 	}
 
 	const seedIds = [...byId.keys()];
@@ -80,7 +84,11 @@ export async function loadGraphKnownEntityHints(input: {
 			);
 
 		for (const row of rows) {
-			byId.set(row.id, { label: row.label, entityType: row.entityType });
+			byId.set(row.id, {
+				entityId: row.id,
+				label: row.label,
+				entityType: row.entityType
+			});
 		}
 	}
 
@@ -93,12 +101,16 @@ export async function loadGraphKnownEntityHints(input: {
 export async function loadLexicalCanonicalEntityHints(input: {
 	userId: string;
 	normalizedText: string;
+	limit?: number;
 }): Promise<KnownEntityHint[]> {
 	const textKey = computeLexicalText(input.normalizedText);
 	if (!textKey) return [];
 
+	const hintLimit = input.limit ?? GRAPH_HINT_LIMIT;
+
 	const rows = await getDb()
 		.select({
+			id: canonicalEntity.id,
 			label: canonicalEntity.label,
 			entityType: canonicalEntity.entityType
 		})
@@ -116,8 +128,8 @@ export async function loadLexicalCanonicalEntityHints(input: {
 		const dedupe = `${labelKey}\0${row.entityType}`;
 		if (seen.has(dedupe)) continue;
 		seen.add(dedupe);
-		hints.push({ label, entityType: row.entityType });
-		if (hints.length >= GRAPH_HINT_LIMIT) break;
+		hints.push({ entityId: row.id, label, entityType: row.entityType });
+		if (hints.length >= hintLimit) break;
 	}
 	return hints;
 }
@@ -158,11 +170,11 @@ export async function loadEntityHintsForThought(input: {
 		})
 	]);
 
-	const byLabel = new Map<string, KnownEntityHint>();
+	const byId = new Map<string, KnownEntityHint>();
 	for (const hint of [...graphHints, ...lexicalHints]) {
-		const key = computeLexicalText(hint.label);
-		if (!key || byLabel.has(key)) continue;
-		byLabel.set(key, hint);
+		const id = hint.entityId ?? computeLexicalText(hint.label);
+		if (!id || byId.has(id)) continue;
+		byId.set(id, hint);
 	}
-	return [...byLabel.values()].slice(0, GRAPH_HINT_LIMIT);
+	return [...byId.values()].slice(0, GRAPH_HINT_LIMIT);
 }

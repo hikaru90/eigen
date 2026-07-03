@@ -13,9 +13,10 @@ import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/on
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import {
 	applyThoughtEditRequest,
-	parseLifecycleEditRequest,
-	type ThoughtLifecycleStatus
+	parseLifecycleEditRequest
 } from '$lib/server/capture/apply-thought-edit';
+import { setThoughtLifecycleStatus } from '$lib/server/memory/lifecycle';
+export { setThoughtLifecycleStatus };
 import {
 	createEditPhaseTimer,
 	logEditComplete,
@@ -23,7 +24,6 @@ import {
 	truncateEditPreview
 } from '$lib/server/capture/edit-phase-timing';
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
-import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action';
 import {
 	createIngestPhaseTimer,
 	logIngestPhaseTiming,
@@ -33,9 +33,10 @@ import {
 import { enrichThought, reenrichThought } from '$lib/server/capture/enrich';
 import { queueCapture } from '$lib/server/capture/queue-capture';
 import { enrichQueuedThought } from '$lib/server/capture/enrich-queued-thought';
-import type { CaptureSource } from '$lib/server/db/schema';
+import type { CaptureSource, MemoryAuthor } from '$lib/server/db/schema';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types';
+import { resolveMemoryAuthorship, authorshipInsertValues, graphAuthorProperty } from '$lib/server/memory/authorship';
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
@@ -61,6 +62,9 @@ export type PersistCapturedThoughtInput = {
 	ingestKnownEntities: Array<{ label: string; entityType: string }>;
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 	ingestTimer?: IngestPhaseTimer;
+	author?: MemoryAuthor;
+	authorLabel?: string | null;
+	authorKeyId?: string | null;
 };
 
 export type PersistCapturedThoughtResult = {
@@ -93,8 +97,13 @@ export async function persistCapturedThought(
 		embedding,
 		ingestKnownEntities,
 		onProgress,
-		ingestTimer
+		ingestTimer,
+		author,
+		authorLabel,
+		authorKeyId
 	} = input;
+	const authorship = resolveMemoryAuthorship({ author, authorLabel, authorKeyId });
+	const authorValues = authorshipInsertValues(authorship);
 	const time =
 		ingestTimer?.time.bind(ingestTimer) ??
 		(async <T>(_phase: IngestPhase, fn: () => Promise<T>) => fn());
@@ -130,7 +139,8 @@ export async function persistCapturedThought(
 				normalizedPreviewEncrypted,
 				category,
 				metadataPreview: { encrypted: true },
-				revisionCount: 0
+				revisionCount: 0,
+				...authorValues
 			})
 			.returning(),
 		Promise.resolve()
@@ -195,7 +205,8 @@ export async function persistCapturedThought(
 				ontologyEntityKindId,
 				metadata: { encrypted: true, captureSessionId: sessionRow.id },
 				metadataEncrypted,
-				embedding: sql`${toPgVectorLiteral(embedding)}::vector`
+				embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
+				...authorValues
 			})
 			.returning({
 				id: thought.id,
@@ -213,7 +224,8 @@ export async function persistCapturedThought(
 		upsertThoughtNode({
 		id: stored.id,
 		userId,
-		category: stored.category
+		category: stored.category,
+		author: graphAuthorProperty(authorship)
 		})
 	);
 
@@ -253,6 +265,9 @@ export type CaptureThoughtOptions = {
 	 */
 	awaitEnrichment?: boolean;
 	source?: CaptureSource;
+	author?: MemoryAuthor;
+	authorLabel?: string | null;
+	authorKeyId?: string | null;
 	/** Override thought.createdAt for temporal anchoring at enrich (external drivers, eval fixtures). */
 	capturedAt?: Date;
 };
@@ -321,6 +336,9 @@ export async function captureThought(
 
 	const queued = await queueCapture(userId, rawInput, {
 		source,
+		author: options?.author,
+		authorLabel: options?.authorLabel,
+		authorKeyId: options?.authorKeyId,
 		skipWorker: awaitEnrichment,
 		capturedAt: options?.capturedAt
 	});
@@ -345,38 +363,6 @@ export async function captureThought(
 export type EditStoredThoughtOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
-
-/** Archived/completed thoughts leave the AGE graph; reopen restores the anchor node only. */
-async function applyThoughtGraphForLifecycleStatus(input: {
-	userId: string;
-	thoughtId: string;
-	category: string;
-	status: ThoughtLifecycleStatus;
-}): Promise<void> {
-	if (input.status === 'completed') {
-		const temporalRows = await getDb()
-			.select({ id: temporalEvent.id, graphNodeId: temporalEvent.graphNodeId })
-			.from(temporalEvent)
-			.where(
-				and(eq(temporalEvent.userId, input.userId), eq(temporalEvent.thoughtId, input.thoughtId))
-			);
-		const temporalEventGraphIds = (Array.isArray(temporalRows) ? temporalRows : []).map(
-			(row) => row.graphNodeId?.trim() || row.id
-		);
-		await removeThoughtGraphArtifacts({
-			userId: input.userId,
-			thoughtId: input.thoughtId,
-			temporalEventGraphIds
-		});
-		return;
-	}
-
-	await upsertThoughtNode({
-		id: input.thoughtId,
-		userId: input.userId,
-		category: input.category
-	});
-}
 
 export async function editStoredThought(
 	userId: string,
@@ -489,6 +475,29 @@ export async function editStoredThought(
 		};
 
 		if (!textChanged) {
+			const lifecycleValues = new Set(['open', 'completed', 'archived']);
+			if (lifecycleValues.has(nextStatus)) {
+				const lifecycleResult = await timer.time('lifecycle_status', async () =>
+					setThoughtLifecycleStatus(userId, thoughtId, nextStatus as 'open' | 'completed' | 'archived')
+				);
+				if (!lifecycleResult.ok) {
+					return lifecycleResult;
+				}
+				logEditComplete({
+					logCtx,
+					path: 'metadata_only',
+					textChanged,
+					nextStatus,
+					editSummary: applied.summary,
+					timing: timer.finish()
+				});
+				return {
+					ok: true as const,
+					thought: lifecycleResult.thought,
+					editSummary: applied.summary
+				};
+			}
+
 			await emitProgress(onProgress, 'persist');
 			const updated = await timer.time('persist_metadata', async () => {
 				const metadataEncrypted = await timer.time('encrypt_metadata', async () =>
@@ -524,26 +533,6 @@ export async function editStoredThought(
 				}
 				return row;
 			});
-
-			await emitProgress(onProgress, 'graph');
-			if (nextStatus === 'completed') {
-				await timer.time('remove_graph_artifacts', async () => {
-					await applyThoughtGraphForLifecycleStatus({
-						userId,
-						thoughtId,
-						category: updated.category,
-						status: 'completed'
-					});
-				});
-			} else {
-				await timer.time('upsert_graph_node', async () => {
-					await upsertThoughtNode({
-						id: updated.id,
-						userId,
-						category: updated.category
-					});
-				});
-			}
 
 			const resultThought = await timer.time('load_result', async () =>
 				loadThoughtCaptureResult(userId, thoughtId)
@@ -689,82 +678,6 @@ export async function editStoredThought(
 	}
 }
 
-export async function setThoughtLifecycleStatus(
-	userId: string,
-	thoughtId: string,
-	status: ThoughtLifecycleStatus
-) {
-	await ensureUserOntologySeeded(getDb(), userId);
-
-	const [existing] = await getDb()
-		.select()
-		.from(thought)
-		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
-		.limit(1);
-
-	if (!existing) {
-		return { ok: false as const, reason: 'not_found' as const };
-	}
-
-	const decryptedExisting = await decryptThoughtRow(userId, existing);
-	const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {};
-	const summary =
-		status === 'completed'
-			? `Marked as completed: "${decryptedExisting.normalizedText.slice(0, 120)}${decryptedExisting.normalizedText.length > 120 ? '…' : ''}"`
-			: 'Reopened';
-
-	const metadataPatch: Record<string, unknown> = {
-		...priorMeta,
-		lastEditRequest: status === 'completed' ? 'mark as completed' : 'reopen',
-		lastEditSummary: summary,
-		status
-	};
-	if (status === 'completed') {
-		metadataPatch.completedAt = new Date().toISOString();
-	} else {
-		delete metadataPatch.completedAt;
-	}
-
-	const [updated] = await getDb()
-		.update(thought)
-		.set({
-			metadata: metadataPatch,
-			metadataEncrypted: await encryptTenantValue({
-				userId,
-				table: 'thought',
-				column: 'metadata',
-				plaintext: JSON.stringify(metadataPatch)
-			}),
-			updatedAt: new Date()
-		})
-		.where(eq(thought.id, thoughtId))
-		.returning({
-			id: thought.id,
-			category: thought.category
-		});
-
-	if (!updated) {
-		throw new Error(`setThoughtLifecycleStatus: persist returned no row for thought ${thoughtId}`);
-	}
-
-	console.info('[capture.edit.lifecycle] graph sync', { userId, thoughtId, status });
-	await applyThoughtGraphForLifecycleStatus({
-		userId,
-		thoughtId: updated.id,
-		category: updated.category,
-		status
-	});
-
-	if (status === 'completed') {
-		await clearNextActionIfCompleted(userId, thoughtId);
-	}
-
-	return {
-		ok: true as const,
-		thought: await loadThoughtCaptureResult(userId, thoughtId)
-	};
-}
-
 export type RelinkThoughtGraphOptions = {
 	onProgress?: (event: CaptureProgressEvent) => Promise<void>;
 };
@@ -901,6 +814,9 @@ export async function listThoughts(
 				normalizedTextEncrypted: thought.normalizedTextEncrypted,
 				category: thought.category,
 				memoryType: thought.memoryType,
+				author: thought.author,
+				authorLabel: thought.authorLabel,
+				authorKeyId: thought.authorKeyId,
 				createdAt: thought.createdAt
 			})
 			.from(thought)
@@ -932,6 +848,9 @@ export async function listThoughts(
 			metadata: thought.metadata,
 			metadataEncrypted: thought.metadataEncrypted,
 			memoryType: thought.memoryType,
+			author: thought.author,
+			authorLabel: thought.authorLabel,
+			authorKeyId: thought.authorKeyId,
 			createdAt: thought.createdAt,
 			updatedAt: thought.updatedAt
 		})

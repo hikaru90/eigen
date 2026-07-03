@@ -124,7 +124,8 @@ export const captureSession = pgTable(
 		metadataPreview: jsonb('metadata_preview').$type<Record<string, unknown>>().notNull().default({}),
 		revisionCount: integer('revision_count').notNull().default(0),
 		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
-		authorAgentId: uuid('author_agent_id'),
+		authorLabel: text('author_label'),
+		authorKeyId: uuid('author_key_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -157,7 +158,6 @@ export const memoryTypeEnum = [
 	'fact',
 	'decision',
 	'concern',
-	'open_loop',
 	'preference',
 	'pattern'
 ] as const;
@@ -172,6 +172,10 @@ export type CaptureSource = (typeof captureSourceEnum)[number];
 /** Who authored a memory row — human user or a connected agent. */
 export const memoryAuthorEnum = ['user', 'agent'] as const;
 export type MemoryAuthor = (typeof memoryAuthorEnum)[number];
+
+/** Unified lifecycle for thoughts and temporal events (soft status only). */
+export const lifecycleStatusEnum = ['open', 'completed', 'archived'] as const;
+export type LifecycleStatus = (typeof lifecycleStatusEnum)[number];
 
 export const thought = pgTable(
 	'thought',
@@ -211,7 +215,7 @@ export const thought = pgTable(
 		cuesEncrypted: text('cues_encrypted'),
 		/**
 		 * Importance signal: starts at 1.0, boosted on retrieval access; consolidation
-		 * recomputes decay/open-loop floors from elapsed time (see compute-salience.ts).
+		 * recomputes decay/task salience floors from elapsed time (see compute-salience.ts).
 		 */
 		salienceScore: real('salience_score').notNull().default(1.0),
 		/** How many times this thought has been returned in a retrieval result. */
@@ -231,10 +235,16 @@ export const thought = pgTable(
 		captureSource: text('capture_source').$type<CaptureSource>(),
 		/** Human vs agent authorship for UI labeling and optional filtering. */
 		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
-		/** Set when author is 'agent' — which connected_agent wrote this row. */
-		authorAgentId: uuid('author_agent_id'),
+		/** Resolved API key name when author is agent. */
+		authorLabel: text('author_label'),
+		authorKeyId: uuid('author_key_id'),
 		/** Incremented each time enrichment re-runs (e.g. relink). */
 		enrichmentVersion: integer('enrichment_version').notNull().default(0),
+		/** User-facing lifecycle: open (active), completed (done), archived (not relevant / soft-removed). */
+		lifecycleStatus: text('lifecycle_status').$type<LifecycleStatus>().notNull().default('open'),
+		lifecycleUpdatedAt: timestamp('lifecycle_updated_at').defaultNow().notNull(),
+		/** Set when lifecycle_status becomes completed. */
+		lifecycleCompletedAt: timestamp('lifecycle_completed_at'),
 		/** Pre-truncated excerpt for listwise rerank (set at enrich). */
 		rerankSnippet: text('rerank_snippet'),
 		/** Communities this thought is most associated with (L1–L2), set at consolidation. */
@@ -262,7 +272,8 @@ export const thought = pgTable(
 		index('thought_enriched_idx').on(t.userId, t.enrichedAt),
 		index('thought_enrich_queue_idx').on(t.userId, t.enrichQueueStatus),
 		index('thought_author_idx').on(t.userId, t.author),
-		index('thought_author_agent_idx').on(t.authorAgentId),
+		index('thought_author_key_idx').on(t.authorKeyId),
+		index('thought_lifecycle_idx').on(t.userId, t.lifecycleStatus),
 		foreignKey({
 			columns: [t.userId, t.category],
 			foreignColumns: [ontologyEntityKind.userId, ontologyEntityKind.key],
@@ -321,7 +332,8 @@ export const textFile = pgTable(
 			.notNull()
 			.generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
 		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
-		authorAgentId: uuid('author_agent_id'),
+		authorLabel: text('author_label'),
+		authorKeyId: uuid('author_key_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -610,7 +622,8 @@ export const canonicalEntity = pgTable(
 		entityType: text('entity_type').notNull().default('other'),
 		embedding: vector('embedding', { dimensions: 1536 }),
 		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
-		authorAgentId: uuid('author_agent_id'),
+		authorLabel: text('author_label'),
+		authorKeyId: uuid('author_key_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -932,13 +945,9 @@ export const temporalEventKindEnum = [
 ] as const;
 export type TemporalEventKind = (typeof temporalEventKindEnum)[number];
 
-export const temporalEventLifecycleStatusEnum = [
-	'open',
-	'completed',
-	'cancelled',
-	'dismissed'
-] as const;
-export type TemporalEventLifecycleStatus = (typeof temporalEventLifecycleStatusEnum)[number];
+/** @deprecated Use lifecycleStatusEnum — kept for import stability. */
+export const temporalEventLifecycleStatusEnum = lifecycleStatusEnum;
+export type TemporalEventLifecycleStatus = LifecycleStatus;
 
 export const temporalTimePrecisionEnum = ['exact', 'day', 'week', 'month', 'fuzzy'] as const;
 export type TemporalTimePrecision = (typeof temporalTimePrecisionEnum)[number];
@@ -990,10 +999,7 @@ export const temporalEvent = pgTable(
 		endAt: timestamp('end_at'),
 		graphSyncStatus: text('graph_sync_status').notNull().default('pending'),
 		graphSyncError: text('graph_sync_error'),
-		lifecycleStatus: text('lifecycle_status')
-			.$type<TemporalEventLifecycleStatus>()
-			.notNull()
-			.default('open'),
+		lifecycleStatus: text('lifecycle_status').$type<LifecycleStatus>().notNull().default('open'),
 		lifecycleUpdatedAt: timestamp('lifecycle_updated_at').defaultNow().notNull(),
 		snoozedUntil: timestamp('snoozed_until'),
 		durationMinutes: integer('duration_minutes'),
@@ -1003,7 +1009,8 @@ export const temporalEvent = pgTable(
 		parentEventId: uuid('parent_event_id'),
 		focusRank: integer('focus_rank'),
 		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
-		authorAgentId: uuid('author_agent_id'),
+		authorLabel: text('author_label'),
+		authorKeyId: uuid('author_key_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -1436,9 +1443,6 @@ export const connectedAgent = pgTable(
 		signingSecretPrefix: text('signing_secret_prefix').notNull(),
 		callbackTokenHash: text('callback_token_hash').notNull(),
 		callbackTokenPrefix: text('callback_token_prefix').notNull(),
-		/** SHA-256 hash of eigen_agent_* MCP key for agent-scoped memory writes. */
-		mcpApiKeyHash: text('mcp_api_key_hash'),
-		mcpApiKeyPrefix: text('mcp_api_key_prefix'),
 		enabled: boolean('enabled').notNull().default(true),
 		lastDeliveryAt: timestamp('last_delivery_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),

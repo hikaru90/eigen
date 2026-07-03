@@ -77,7 +77,7 @@ export async function dispatchDueDailySummaries(
 			userId: row.userId,
 			status: 'open',
 			range: 'all',
-			includeOpenLoops: true
+			includeTasks: true
 		});
 		const push = buildDailySummaryPush(items, timeZone, now);
 

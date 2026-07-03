@@ -1,0 +1,147 @@
+{
+  "runId": "42949d09-1753-400a-94bf-c92372a36db1",
+  "startedAt": "2026-07-02T15:18:14.551Z",
+  "finishedAt": "2026-07-02T15:25:30.239Z",
+  "userId": "graph-scale-spend-c02f551e-7c7d-4264-89c6-50ae99003eec",
+  "email": "graph-scale-spend-c02f551e-7c7d-4264-89c6-50ae99003eec@local.eval",
+  "thoughtCount": 10,
+  "probeSuite": "picnic-linked",
+  "probeTexts": [
+    "I want to do a picnic and I need to bring fish.",
+    "I need to bring bread for the picnic.",
+    "I need to bring water for the picnic.",
+    "I need to bring a picnic blanket.",
+    "I need to bring a picnic table.",
+    "I need to bring cheese for the picnic.",
+    "I need to bring fruit for the picnic.",
+    "I need to bring plates for the picnic.",
+    "I need to bring cups for the picnic.",
+    "I need to bring a corkscrew for the picnic wine."
+  ],
+  "perThought": [
+    {
+      "index": 0,
+      "thoughtId": "6684cce0-aa95-4375-a6b0-6048cee0cc9c",
+      "groupId": "ui-capture",
+      "usd": "0.000366",
+      "credits": 0.366,
+      "wallMs": 40995,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 1,
+      "thoughtId": "0cfaf159-e300-434d-bf04-ff397c9da4ab",
+      "groupId": "ui-capture",
+      "usd": "0.000371",
+      "credits": 0.371,
+      "wallMs": 58292,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 2,
+      "thoughtId": "98162a26-29cd-4fe3-b452-eb50345e5093",
+      "groupId": "ui-capture",
+      "usd": "0.000455",
+      "credits": 0.45499999999999985,
+      "wallMs": 34044,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 3,
+      "thoughtId": "3080e925-2ae2-45b5-a400-bfd4152e2e13",
+      "groupId": "ui-capture",
+      "usd": "0.000460",
+      "credits": 0.4600000000000002,
+      "wallMs": 24944,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 4,
+      "thoughtId": "a95270c4-7ad8-4063-be86-8d951149aa5b",
+      "groupId": "ui-capture",
+      "usd": "0.000523",
+      "credits": 0.5229999999999999,
+      "wallMs": 28054,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 5,
+      "thoughtId": "27d015da-179b-45f5-bff1-197ef3d22151",
+      "groupId": "ui-capture",
+      "usd": "0.000590",
+      "credits": 0.5899999999999999,
+      "wallMs": 37048,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 6,
+      "thoughtId": "25e3c810-d8a2-4df9-b000-b59ac4f9b2a2",
+      "groupId": "ui-capture",
+      "usd": "0.000622",
+      "credits": 0.6220000000000003,
+      "wallMs": 37070,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 7,
+      "thoughtId": "ee8078ce-06c3-4d71-b6c5-a3ea6f2e2731",
+      "groupId": "ui-capture",
+      "usd": "0.000645",
+      "credits": 0.6449999999999996,
+      "wallMs": 34065,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 8,
+      "thoughtId": "27759490-a61f-4fc7-9156-af43e496f977",
+      "groupId": "ui-capture",
+      "usd": "0.000666",
+      "credits": 0.6660000000000004,
+      "wallMs": 67302,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 9,
+      "thoughtId": "dd710839-a7ec-469f-bbbd-077d48831d87",
+      "groupId": "ui-capture",
+      "usd": "0.000733",
+      "credits": 0.7329999999999997,
+      "wallMs": 61401,
+      "entityCount": 2,
+      "byOperation": {}
+    }
+  ],
+  "totals": {
+    "sumUsd": "0.005431",
+    "sumCredits": 5.431,
+    "sumWallMs": 423215
+  },
+  "trend": {
+    "firstHalfAvgUsd": 0.00043499999999999995,
+    "secondHalfAvgUsd": 0.0006512,
+    "deltaUsd": 0.00021620000000000005,
+    "minUsd": 0.000366,
+    "maxUsd": 0.000733,
+    "perStepDeltaUsd": [
+      0.000005000000000000013,
+      0.00008399999999999998,
+      0.000005000000000000013,
+      0.00006300000000000001,
+      0.000067,
+      0.00003200000000000002,
+      0.00002299999999999991,
+      0.000021000000000000077,
+      0.000067
+    ],
+    "moreExpensiveOverTime": true
+  }
+}

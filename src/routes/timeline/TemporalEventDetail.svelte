@@ -26,7 +26,7 @@
 		eventNotificationsEnabled?: boolean;
 		eventReminderLeadMinutes?: number;
 		eventReminderKinds?: string[];
-		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen' | 'cancel' | 'dismiss') => void;
+		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen' | 'archive') => void;
 		onInstruction: (eventId: string, instruction: string) => void;
 		onDelete: (eventId: string) => void;
 		onAssignAgent?: () => void;
@@ -147,7 +147,7 @@
 							size="sm"
 							class="h-8 text-xs"
 							disabled={busy}
-							onclick={() => onQuickAction(item.id, 'cancel')}
+							onclick={() => onQuickAction(item.id, 'archive')}
 						>
 							{m.graph_temporal_cancel()}
 						</Button>

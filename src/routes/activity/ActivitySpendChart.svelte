@@ -17,6 +17,10 @@
 		totalGroups: number;
 	} = $props();
 
+	$effect(() => {
+		console.log('Chart buckets:', buckets.length, unit);
+	});
+
 	const hasSpend = $derived(buckets.some((b) => Number(b.totalCostUsd) > 0));
 
 	const totalCredits = $derived(

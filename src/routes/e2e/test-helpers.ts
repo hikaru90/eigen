@@ -1,6 +1,7 @@
 import type { Page, BrowserContext } from '@playwright/test';
+import { HARNESS_E2E_PASSWORD } from '$lib/e2e/harness-credentials';
 
-export const TEST_PASSWORD = 'TestPass123!';
+export const TEST_PASSWORD = HARNESS_E2E_PASSWORD;
 
 let userCounter = 0;
 

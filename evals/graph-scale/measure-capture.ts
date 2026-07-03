@@ -6,7 +6,7 @@ import { aggregateActivityCostByGroupId } from './aggregate-cost';
 import type { GraphScaleCaptureProbe } from './types';
 
 export const GRAPH_SCALE_PROBE_TEXT =
-	'Met with Sarah at the coffee shop yesterday. She wants a follow-up next Wednesday before the Berlin trip deadline.';
+	'Send the revised invoice to accounting before Friday close.';
 
 export async function measureGraphScaleCaptureProbe(input: {
 	userId: string;

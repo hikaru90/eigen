@@ -8,8 +8,7 @@ import { canonicalEntity } from '$lib/server/db/schema';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 import {
-	renderCypherQuery,
-	runAgeCypher,
+	runTenantScopedCypher,
 	runGraphQueryWithRetry
 } from './age-cypher';
 export type {
@@ -74,24 +73,26 @@ export async function upsertThoughtNode(input: {
 	id: string;
 	userId: string;
 	category: string;
+	author?: string;
 }): Promise<void> {
 	const contextPreview = input.id.slice(0, 36);
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_node', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
-			MERGE (t:Thought {id: $id})
+			MERGE (t:Thought {id: $id, user_id: $user_id})
 		SET t.user_id = $user_id,
 		    t.category = $category,
+		    t.author = $author,
 		    t.updated_at = timestamp()
 		RETURN t.id
 			`,
-				{
+			{
 					id: input.id,
 					user_id: input.userId,
-					category: input.category
-				}
-			),
+					category: input.category,
+					author: input.author ?? 'user'
+				},
 			'ok agtype'
 		);
 	}, contextPreview);
@@ -104,18 +105,17 @@ export async function deleteThoughtOutgoingRelatesToEdges(input: {
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_outgoing_relates_to', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
-				`
+		await runTenantScopedCypher(
+			input.userId,
+			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(:Thought {user_id: $user_id})
 			DELETE r
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -128,46 +128,43 @@ export async function deleteThoughtOutgoingGraphEdges(input: {
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_outgoing_edges', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(:Thought {user_id: $user_id})
 			DELETE r
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(:Entity {user_id: $user_id})
 			DELETE r
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:OCCURS_IN {user_id: $user_id}]->(:Event {user_id: $user_id})
 			DELETE r
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -180,18 +177,17 @@ export async function deleteEntityVertexFromGraph(input: {
 }): Promise<void> {
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
 	await runGraphQueryWithRetry(input.userId, 'age.delete_entity_vertex', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (e:Entity {id: $entity_id, user_id: $user_id})
 			DETACH DELETE e
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					entity_id: entityId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -204,18 +200,17 @@ export async function deleteThoughtIncomingRelatesToEdges(input: {
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_incoming_relates_to', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
-				`
+		await runTenantScopedCypher(
+			input.userId,
+			`
 			MATCH (:Thought {user_id: $user_id})-[r:RELATES_TO {user_id: $user_id}]->(t:Thought {id: $thought_id, user_id: $user_id})
 			DELETE r
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -228,18 +223,17 @@ export async function deleteThoughtVertexFromGraph(input: {
 }): Promise<void> {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	await runGraphQueryWithRetry(input.userId, 'age.delete_thought_vertex', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			DETACH DELETE t
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -273,17 +267,16 @@ export async function removeThoughtGraphArtifacts(input: {
 /** Wipes every vertex for the tenant graph (Thought, Entity, Event, and attached edges). */
 export async function deleteAllUserGraphVertices(userId: string): Promise<void> {
 	await runGraphQueryWithRetry(userId, 'age.delete_all_user_vertices', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			userId,
 			`
 			MATCH (n {user_id: $user_id})
 			DETACH DELETE n
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					user_id: userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -299,22 +292,21 @@ export async function upsertThoughtRelation(input: {
 	const targetId = validateNonEmptyEntityId(input.targetId, 'targetId');
 
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_relation', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
-			MATCH (a:Thought {id: $source_id})
-			MATCH (b:Thought {id: $target_id})
+			MATCH (a:Thought {id: $source_id, user_id: $user_id})
+			MATCH (b:Thought {id: $target_id, user_id: $user_id})
 			MERGE (a)-[r:RELATES_TO {user_id: $user_id, type: $relation_type}]->(b)
 			SET r.updated_at = timestamp()
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					source_id: sourceId,
 					target_id: targetId,
 					user_id: input.userId,
 					relation_type: input.relationType
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -331,8 +323,8 @@ export async function expandNeighborsByIds(input: {
 	if (normalizedSeedIds.length === 0) return [];
 
 	return runGraphQueryWithRetry(input.userId, 'age.expand_neighbors', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+		const rows = await runTenantScopedCypher(
+			input.userId,
 			`
 			UNWIND $seed_ids AS sid
 			MATCH (s:Thought {id: sid, user_id: $user_id})
@@ -343,12 +335,11 @@ export async function expandNeighborsByIds(input: {
 			ORDER BY hits DESC
 			LIMIT $limit
 			`,
-				{
+			{
 					seed_ids: normalizedSeedIds,
 					user_id: input.userId,
 					limit: input.limit
-				}
-			),
+				},
 			'id agtype, hits agtype, rel_types agtype'
 		);
 		return rows
@@ -391,8 +382,8 @@ export async function graphOnlySearchByQuery(input: {
 	if (tokens.length === 0) return [];
 
 	return runGraphQueryWithRetry(input.userId, 'age.graph_only_search', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+		const rows = await runTenantScopedCypher(
+			input.userId,
 			`
 			UNWIND $tokens AS token
 			MATCH (e:Entity {user_id: $user_id})
@@ -410,13 +401,12 @@ export async function graphOnlySearchByQuery(input: {
 			WITH id, seed_score ORDER BY seed_score DESC LIMIT $limit
 			RETURN id, seed_score AS score
 			`,
-				{
+			{
 					user_id: input.userId,
 					tokens,
 					seed_limit: Math.max(input.limit * 3, 20),
 					limit: input.limit
-				}
-			),
+				},
 			'id agtype, score agtype'
 		);
 
@@ -439,8 +429,8 @@ export async function fetchGraphVisualizationSnapshot(input: {
 	const edgeLimit = Math.min(Math.max(input.edgeLimit ?? 800, 1), 5000);
 
 	return runGraphQueryWithRetry(input.userId, 'age.viz_snapshot', async () => {
-		const entityNodeRows = await runAgeCypher(
-			renderCypherQuery(
+		const entityNodeRows = await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (e:Entity {user_id: $user_id})
 			RETURN e.id AS id,
@@ -448,8 +438,7 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			       coalesce(e.entity_type, 'other') AS subtype
 			LIMIT $node_limit
 			`,
-				{ user_id: input.userId, node_limit: nodeLimit }
-			),
+			{ user_id: input.userId, node_limit: nodeLimit },
 			'id agtype, label agtype, subtype agtype'
 		);
 
@@ -462,15 +451,14 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			limit: edgeLimit
 		});
 
-		const relEntityRows = await runAgeCypher(
-			renderCypherQuery(
+		const relEntityRows = await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id})
 			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.predicate, 'related_to') AS rel_type
 			LIMIT $edge_limit
 			`,
-				{ user_id: input.userId, edge_limit: edgeLimit }
-			),
+			{ user_id: input.userId, edge_limit: edgeLimit },
 			'source_id agtype, target_id agtype, rel_type agtype'
 		);
 
@@ -563,10 +551,10 @@ export async function upsertEntityNode(input: {
 }): Promise<void> {
 	const id = validateNonEmptyEntityId(input.id, 'id');
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_entity', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
-			MERGE (e:Entity {id: $id})
+			MERGE (e:Entity {id: $id, user_id: $user_id})
 			SET e.user_id = $user_id,
 			    e.canonical_key = $canonical_key,
 			    e.label = $label,
@@ -574,14 +562,13 @@ export async function upsertEntityNode(input: {
 			    e.updated_at = timestamp()
 			RETURN e.id
 			`,
-				{
+			{
 					id,
 					user_id: input.userId,
 					canonical_key: input.canonicalKey,
 					label: input.label,
 					entity_type: input.entityType
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -596,23 +583,22 @@ export async function upsertMentionEdge(input: {
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
 
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_mention', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
-			MERGE (t:Thought {id: $thought_id})
+			MERGE (t:Thought {id: $thought_id, user_id: $user_id})
 			SET t.user_id = $user_id
-			MERGE (e:Entity {id: $entity_id})
+			MERGE (e:Entity {id: $entity_id, user_id: $user_id})
 			SET e.user_id = $user_id
 			MERGE (t)-[r:MENTIONS {user_id: $user_id}]->(e)
 			SET r.updated_at = timestamp()
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					entity_id: entityId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -628,8 +614,8 @@ export async function upsertEntityRelationEdge(input: {
 	const targetEntityId = validateNonEmptyEntityId(input.targetEntityId, 'targetEntityId');
 
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_entity_relation', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (a:Entity {id: $a_id, user_id: $user_id})
 			MATCH (b:Entity {id: $b_id, user_id: $user_id})
@@ -638,13 +624,12 @@ export async function upsertEntityRelationEdge(input: {
 			    r.weight = coalesce(r.weight, 0) + 1
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					a_id: sourceEntityId,
 					b_id: targetEntityId,
 					user_id: input.userId,
 					predicate: input.predicate
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -659,15 +644,14 @@ export async function fetchEntityEdgesForUser(input: {
 	userId: string;
 }): Promise<Array<{ sourceId: string; targetId: string; weight: number; predicate: string }>> {
 	return runGraphQueryWithRetry(input.userId, 'age.fetch_entity_edges', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+		const rows = await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id})
 			WHERE a.id <> b.id
 			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.weight, 1) AS weight, r.predicate AS predicate
 			`,
-				{ user_id: input.userId }
-			),
+			{ user_id: input.userId },
 			'source_id agtype, target_id agtype, weight agtype, predicate agtype'
 		);
 
@@ -687,14 +671,13 @@ export async function fetchOccursInEdgesForUser(input: {
 	userId: string;
 }): Promise<Array<{ thoughtId: string; eventId: string }>> {
 	return runGraphQueryWithRetry(input.userId, 'age.fetch_occurs_in_edges', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
-				`
+		const rows = await runTenantScopedCypher(
+			input.userId,
+			`
 			MATCH (t:Thought {user_id: $user_id})-[r:OCCURS_IN {user_id: $user_id}]->(e:Event {user_id: $user_id})
 			RETURN t.id AS thought_id, e.id AS event_id
 			`,
-				{ user_id: input.userId }
-			),
+			{ user_id: input.userId },
 			'thought_id agtype, event_id agtype'
 		);
 
@@ -712,14 +695,13 @@ export async function fetchInvolvesEdgesForUser(input: {
 	userId: string;
 }): Promise<Array<{ eventId: string; entityId: string }>> {
 	return runGraphQueryWithRetry(input.userId, 'age.fetch_involves_edges', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
-				`
+		const rows = await runTenantScopedCypher(
+			input.userId,
+			`
 			MATCH (e:Event {user_id: $user_id})-[r:INVOLVES {user_id: $user_id}]->(n:Entity {user_id: $user_id})
 			RETURN e.id AS event_id, n.id AS entity_id
 			`,
-				{ user_id: input.userId }
-			),
+			{ user_id: input.userId },
 			'event_id agtype, entity_id agtype'
 		);
 
@@ -742,20 +724,19 @@ export async function deleteEntityRelationEdge(input: {
 	const targetEntityId = validateNonEmptyEntityId(input.targetEntityId, 'targetEntityId');
 
 	await runGraphQueryWithRetry(input.userId, 'age.delete_entity_relation', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
-				`
+		await runTenantScopedCypher(
+			input.userId,
+			`
 			MATCH (a:Entity {id: $a_id, user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id, predicate: $predicate}]->(b:Entity {id: $b_id, user_id: $user_id})
 			DELETE r
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					a_id: sourceEntityId,
 					b_id: targetEntityId,
 					user_id: input.userId,
 					predicate: input.predicate
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -791,28 +772,26 @@ export async function expandThoughtIdsFromEntitySeeds(input: {
 	if (ids.length === 0) return [];
 
 	return runGraphQueryWithRetry(input.userId, 'age.expand_from_entities', async () => {
-		const directRows = await runAgeCypher(
-			renderCypherQuery(
+		const directRows = await runTenantScopedCypher(
+			input.userId,
 			`
 			UNWIND $entity_ids AS eid
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(e:Entity {id: eid, user_id: $user_id})
 			RETURN t.id AS id, count(*) AS hits, collect(distinct e.label)[0] AS via_label
 			`,
-				{ entity_ids: ids, user_id: input.userId }
-			),
+			{ entity_ids: ids, user_id: input.userId },
 			'id agtype, hits agtype, via_label agtype'
 		);
 
-		const hopRows = await runAgeCypher(
-			renderCypherQuery(
+		const hopRows = await runTenantScopedCypher(
+			input.userId,
 			`
 			UNWIND $entity_ids AS eid
 			MATCH (e:Entity {id: eid, user_id: $user_id})-[:ENTITY_RELATES {user_id: $user_id}]-(e2:Entity {user_id: $user_id})
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(e2)
 			RETURN t.id AS id, count(*) AS hits, collect(distinct e2.label)[0] AS via_label
 			`,
-				{ entity_ids: ids, user_id: input.userId }
-			),
+			{ entity_ids: ids, user_id: input.userId },
 			'id agtype, hits agtype, via_label agtype'
 		);
 
@@ -854,10 +833,10 @@ export async function upsertEventNode(input: {
 }): Promise<void> {
 	const id = validateNonEmptyEntityId(input.id, 'id');
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_event', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
-			MERGE (e:Event {id: $id})
+			MERGE (e:Event {id: $id, user_id: $user_id})
 			SET e.user_id = $user_id,
 			    e.kind = $kind,
 			    e.label = $label,
@@ -866,15 +845,14 @@ export async function upsertEventNode(input: {
 			    e.updated_at = timestamp()
 			RETURN e.id
 			`,
-				{
+			{
 					id,
 					user_id: input.userId,
 					kind: input.kind,
 					label: input.label,
 					start_at: input.startAt,
 					end_at: input.endAt
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -886,15 +864,14 @@ export async function deleteEventNodeFromGraph(input: {
 }): Promise<void> {
 	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
 	await runGraphQueryWithRetry(input.userId, 'age.delete_event', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (e:Event {id: $event_id, user_id: $user_id})
 			DETACH DELETE e
 			RETURN 1 AS ok
 			`,
-				{ event_id: eventId, user_id: input.userId }
-			),
+			{ event_id: eventId, user_id: input.userId },
 			'ok agtype'
 		);
 	});
@@ -908,8 +885,8 @@ export async function upsertThoughtOccurrenceEdge(input: {
 	const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId');
 	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_occurs_in', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			MATCH (e:Event {id: $event_id, user_id: $user_id})
@@ -917,12 +894,11 @@ export async function upsertThoughtOccurrenceEdge(input: {
 			SET r.updated_at = timestamp()
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					thought_id: thoughtId,
 					event_id: eventId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -936,8 +912,8 @@ export async function upsertEventInvolvesEntityEdge(input: {
 	const eventId = validateNonEmptyEntityId(input.eventId, 'eventId');
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_event_involves', async () => {
-		await runAgeCypher(
-			renderCypherQuery(
+		await runTenantScopedCypher(
+			input.userId,
 			`
 			MATCH (e:Event {id: $event_id, user_id: $user_id})
 			MATCH (n:Entity {id: $entity_id, user_id: $user_id})
@@ -945,12 +921,11 @@ export async function upsertEventInvolvesEntityEdge(input: {
 			SET r.updated_at = timestamp()
 			RETURN 1 AS ok
 			`,
-				{
+			{
 					event_id: eventId,
 					entity_id: entityId,
 					user_id: input.userId
-				}
-			),
+				},
 			'ok agtype'
 		);
 	});
@@ -970,28 +945,26 @@ export async function expandContextFromTemporalEventSeeds(input: {
 	if (ids.length === 0) return [];
 
 	return runGraphQueryWithRetry(input.userId, 'age.expand_from_events', async () => {
-		const directRows = await runAgeCypher(
-			renderCypherQuery(
+		const directRows = await runTenantScopedCypher(
+			input.userId,
 			`
 			UNWIND $event_ids AS eid
 			MATCH (t:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(ev:Event {id: eid, user_id: $user_id})
 			RETURN t.id AS thought_id, count(*) AS hits, collect(distinct ev.label)[0] AS via_label
 			`,
-				{ event_ids: ids, user_id: input.userId }
-			),
+			{ event_ids: ids, user_id: input.userId },
 			'thought_id agtype, hits agtype, via_label agtype'
 		);
 
-		const viaEntityRows = await runAgeCypher(
-			renderCypherQuery(
+		const viaEntityRows = await runTenantScopedCypher(
+			input.userId,
 			`
 			UNWIND $event_ids AS eid
 			MATCH (ev:Event {id: eid, user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(ent:Entity {user_id: $user_id})
 			MATCH (t:Thought {user_id: $user_id})-[:MENTIONS {user_id: $user_id}]->(ent)
 			RETURN t.id AS thought_id, count(*) AS hits, collect(distinct ent.label)[0] AS via_label
 			`,
-				{ event_ids: ids, user_id: input.userId }
-			),
+			{ event_ids: ids, user_id: input.userId },
 			'thought_id agtype, hits agtype, via_label agtype'
 		);
 
@@ -1030,8 +1003,8 @@ export async function findTemporalSchedulingConflictsInGraph(
 	userId: string
 ): Promise<TemporalSchedulingConflictGraphHit[]> {
 	return runGraphQueryWithRetry(userId, 'age.temporal_scheduling_conflicts', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
+		const rows = await runTenantScopedCypher(
+			userId,
 			`
 			MATCH (e1:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person:Entity {user_id: $user_id}),
 			      (e2:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person)
@@ -1060,8 +1033,7 @@ export async function findTemporalSchedulingConflictsInGraph(
 			  t1.id AS thought1_id,
 			  t2.id AS thought2_id
 			`,
-				{ user_id: userId }
-			),
+			{ user_id: userId },
 			'person_entity_id agtype, person_label agtype, place1_entity_id agtype, place1_label agtype, place2_entity_id agtype, place2_label agtype, event1_id agtype, event2_id agtype, event1_label agtype, event2_label agtype, thought1_id agtype, thought2_id agtype'
 		);
 
@@ -1096,18 +1068,17 @@ export async function findTemporalSchedulingConflictsInGraph(
 export async function thoughtExistsInGraph(userId: string, thoughtId: string): Promise<boolean> {
 	const id = validateNonEmptyEntityId(thoughtId, 'thoughtId');
 	const rows = await runGraphQueryWithRetry(userId, 'age.thought_exists', async () => {
-		return runAgeCypher(
-			renderCypherQuery(
+		return runTenantScopedCypher(
+			userId,
 			`
 			MATCH (t:Thought {id: $thought_id, user_id: $user_id})
 			RETURN t.id AS id
 			LIMIT 1
 			`,
-				{
+			{
 					thought_id: id,
 					user_id: userId
-				}
-			),
+				},
 			'id agtype'
 		);
 	});
@@ -1117,16 +1088,15 @@ export async function thoughtExistsInGraph(userId: string, thoughtId: string): P
 /** Returns all Thought node ids for this user from AGE. */
 export async function fetchThoughtNodeIdsForUser(input: { userId: string }): Promise<string[]> {
 	return runGraphQueryWithRetry(input.userId, 'age.fetch_thought_node_ids', async () => {
-		const rows = await runAgeCypher(
-			renderCypherQuery(
-				`
+		const rows = await runTenantScopedCypher(
+			input.userId,
+			`
 			MATCH (t:Thought {user_id: $user_id})
 			RETURN t.id AS id
 			`,
-				{
+			{
 					user_id: input.userId
-				}
-			),
+				},
 			'id agtype'
 		);
 		return rows

@@ -1,0 +1,267 @@
+{
+  "runId": "449103c8-5d57-4e1b-8b18-cb372defc092",
+  "startedAt": "2026-07-02T16:19:27.463Z",
+  "finishedAt": "2026-07-02T16:25:42.751Z",
+  "userId": "graph-scale-spend-5e8110cd-33d0-4443-95c3-005279a4d94a",
+  "email": "graph-scale-spend-5e8110cd-33d0-4443-95c3-005279a4d94a@local.eval",
+  "thoughtCount": 20,
+  "probeSuite": "picnic-linked",
+  "probeTexts": [
+    "I want to do a picnic and I need to bring fish.",
+    "I need to bring bread for the picnic.",
+    "I need to bring water for the picnic.",
+    "I need to bring a picnic blanket.",
+    "I need to bring a picnic table.",
+    "I need to bring cheese for the picnic.",
+    "I need to bring fruit for the picnic.",
+    "I need to bring plates for the picnic.",
+    "I need to bring cups for the picnic.",
+    "I need to bring a corkscrew for the picnic wine.",
+    "I need to bring napkins for the picnic.",
+    "I need to bring sunscreen for the picnic.",
+    "I need to bring ice for the picnic cooler.",
+    "I need to bring lemonade for the picnic.",
+    "I need to bring chips for the picnic.",
+    "I need to bring a frisbee for the picnic.",
+    "I need to bring bug spray for the picnic.",
+    "I need to bring trash bags for the picnic.",
+    "I need to bring charcoal for the picnic grill.",
+    "I need to bring an umbrella for the picnic shade."
+  ],
+  "perThought": [
+    {
+      "index": 0,
+      "thoughtId": "ecb2421c-3a6b-4d41-9b44-d1501a8cc793",
+      "groupId": "ui-capture",
+      "usd": "0.000333",
+      "credits": 0.333,
+      "wallMs": 21931,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 1,
+      "thoughtId": "56908143-d31f-4b7d-baa5-2ee5f8b7d39e",
+      "groupId": "ui-capture",
+      "usd": "0.000371",
+      "credits": 0.37099999999999994,
+      "wallMs": 24998,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 2,
+      "thoughtId": "9b069626-a73a-4dfe-b3ed-207a4d52551e",
+      "groupId": "ui-capture",
+      "usd": "0.000495",
+      "credits": 0.4950000000000001,
+      "wallMs": 18887,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 3,
+      "thoughtId": "d8926320-4fa6-4863-83ae-3a44963cf675",
+      "groupId": "ui-capture",
+      "usd": "0.000490",
+      "credits": 0.49,
+      "wallMs": 13185,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 4,
+      "thoughtId": "47811fed-3626-4ee9-adf7-7234b1d30464",
+      "groupId": "ui-capture",
+      "usd": "0.000476",
+      "credits": 0.476,
+      "wallMs": 12884,
+      "entityCount": 1,
+      "byOperation": {}
+    },
+    {
+      "index": 5,
+      "thoughtId": "61b0645a-8c89-4714-8997-8d0d8e484d28",
+      "groupId": "ui-capture",
+      "usd": "0.000642",
+      "credits": 0.6419999999999999,
+      "wallMs": 27965,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 6,
+      "thoughtId": "d3967263-09f8-4b03-97cf-b0617d43c4d5",
+      "groupId": "ui-capture",
+      "usd": "0.000607",
+      "credits": 0.6070000000000002,
+      "wallMs": 18901,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 7,
+      "thoughtId": "15b65286-3b59-4b75-bf4e-72728b3c1fc7",
+      "groupId": "ui-capture",
+      "usd": "0.000636",
+      "credits": 0.6359999999999997,
+      "wallMs": 18925,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 8,
+      "thoughtId": "b3e95946-93dd-44cc-937c-d10e675ea417",
+      "groupId": "ui-capture",
+      "usd": "0.000665",
+      "credits": 0.665,
+      "wallMs": 16751,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 9,
+      "thoughtId": "7e69f524-2272-4cea-939f-dfa7ab044589",
+      "groupId": "ui-capture",
+      "usd": "0.000715",
+      "credits": 0.7149999999999999,
+      "wallMs": 18956,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 10,
+      "thoughtId": "d916f73d-a15d-49a0-a08b-a634109b76a8",
+      "groupId": "ui-capture",
+      "usd": "0.000729",
+      "credits": 0.729000000000001,
+      "wallMs": 15878,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 11,
+      "thoughtId": "ae5bfbc5-7a2f-40f8-8e6d-181e4de1d786",
+      "groupId": "ui-capture",
+      "usd": "0.000676",
+      "credits": 0.6759999999999993,
+      "wallMs": 17739,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 12,
+      "thoughtId": "3b2d252b-2b43-4e15-bb13-a3283a6974ab",
+      "groupId": "ui-capture",
+      "usd": "0.000690",
+      "credits": 0.6899999999999995,
+      "wallMs": 15868,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 13,
+      "thoughtId": "14835afc-7e38-46dc-80ef-4e0ae31a2150",
+      "groupId": "ui-capture",
+      "usd": "0.000720",
+      "credits": 0.7200000000000015,
+      "wallMs": 21948,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 14,
+      "thoughtId": "3a824afe-0773-426b-9afc-8e67d9854cb2",
+      "groupId": "ui-capture",
+      "usd": "0.000473",
+      "credits": 0.472999999999999,
+      "wallMs": 13207,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 15,
+      "thoughtId": "6f286a92-6449-4c59-bde3-420cac83d507",
+      "groupId": "ui-capture",
+      "usd": "0.000853",
+      "credits": 0.8529999999999998,
+      "wallMs": 18913,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 16,
+      "thoughtId": "61657064-8626-494e-918b-3d4cf9ceb68b",
+      "groupId": "ui-capture",
+      "usd": "0.000544",
+      "credits": 0.5440000000000005,
+      "wallMs": 18911,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 17,
+      "thoughtId": "824c2227-6b88-488c-8952-b7a43993fb5e",
+      "groupId": "ui-capture",
+      "usd": "0.000748",
+      "credits": 0.7479999999999993,
+      "wallMs": 13237,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 18,
+      "thoughtId": "27935970-1d88-49a8-8939-5b5e750f7bbb",
+      "groupId": "ui-capture",
+      "usd": "0.000878",
+      "credits": 0.8780000000000001,
+      "wallMs": 19261,
+      "entityCount": 2,
+      "byOperation": {}
+    },
+    {
+      "index": 19,
+      "thoughtId": "53206d7c-4f00-4717-b453-857747239747",
+      "groupId": "ui-capture",
+      "usd": "0.000918",
+      "credits": 0.918000000000001,
+      "wallMs": 21938,
+      "entityCount": 2,
+      "byOperation": {}
+    }
+  ],
+  "totals": {
+    "sumUsd": "0.012659",
+    "sumCredits": 12.659,
+    "sumWallMs": 370283
+  },
+  "trend": {
+    "firstHalfAvgUsd": 0.000543,
+    "secondHalfAvgUsd": 0.0007229000000000001,
+    "deltaUsd": 0.0001799000000000001,
+    "minUsd": 0.000333,
+    "maxUsd": 0.000918,
+    "perStepDeltaUsd": [
+      0.000038,
+      0.00012399999999999998,
+      -0.000005000000000000013,
+      -0.00001399999999999996,
+      0.00016599999999999997,
+      -0.00003499999999999998,
+      0.000028999999999999946,
+      0.000029000000000000054,
+      0.00005000000000000002,
+      0.000014000000000000015,
+      -0.000053000000000000096,
+      0.000014000000000000015,
+      0.00003000000000000008,
+      -0.00024700000000000004,
+      0.00038,
+      -0.00030900000000000003,
+      0.00020399999999999997,
+      0.00013000000000000002,
+      0.000039999999999999996
+    ],
+    "moreExpensiveOverTime": true
+  }
+}

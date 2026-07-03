@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
+import type { MemoryAuthor } from '$lib/server/db/schema';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 
 export type LexicalSearchResult = {
@@ -33,6 +34,7 @@ export async function lexicalSearch(params: {
 	userId: string;
 	query: string;
 	limit: number;
+	authorFilter?: MemoryAuthor;
 }): Promise<LexicalSearchResult[]> {
 	const tsQueryString = buildLexicalTsQuery(params.query);
 	if (tsQueryString.length === 0) return [];
@@ -52,7 +54,13 @@ export async function lexicalSearch(params: {
 			lexicalScore: rankExpr
 		})
 		.from(thought)
-		.where(and(eq(thought.userId, params.userId), matchExpr))
+		.where(
+			and(
+				eq(thought.userId, params.userId),
+				matchExpr,
+				params.authorFilter ? eq(thought.author, params.authorFilter) : undefined
+			)
+		)
 		.orderBy(desc(rankExpr))
 		.limit(params.limit);
 

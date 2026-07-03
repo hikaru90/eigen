@@ -1,5 +1,6 @@
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { parseLlmJsonPayload, stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
+import { m } from '$lib/paraglide/messages.js';
 import {
 	applyCaptureAnchoredMentions,
 	parseTemporalMentions,
@@ -38,7 +39,9 @@ export async function extractTemporalMentions(input: {
 }): Promise<ExtractedTemporalMention[]> {
 	const capturedIso = input.capturedAt.toISOString();
 	const anchorTz = input.timezone.trim();
-	const system = `You extract temporal facts from personal memory text.
+	const system = `${m.llm_temporal_extraction_system()}
+
+Additional guidelines:
 The capture happened at ${capturedIso} in timezone ${anchorTz}. Always set "timezone" to "${anchorTz}" unless the text explicitly names a different place/timezone.
 Return ONLY a JSON array. Each element:
 {
