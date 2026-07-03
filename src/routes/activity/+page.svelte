@@ -165,40 +165,31 @@
 		<p class="text-muted-foreground mt-2 text-xs">Activity</p>
 	</header>
 
-	<div class="mt-4 flex items-center justify-center gap-1">
-		{#each ['all', 'gateway', 'agent'] as f}
-			<button onclick={() => filterUrl(f)}>
-				<Button
-					variant={currentFilter === f ? 'default' : 'outline'}
-					size="xs"
-					class="capitalize"
+	<div class="mt-4 flex items-center justify-center">
+		<div class="inline-flex rounded-lg border border-border bg-muted p-0.5">
+			{#each ['all', 'gateway', 'agent'] as f}
+				<button
+					onclick={() => filterUrl(f)}
+					class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors {currentFilter === f
+						? 'bg-background text-foreground shadow-sm'
+						: 'text-muted-foreground hover:text-foreground'}"
 				>
 					{f === 'all' ? 'All' : f === 'gateway' ? 'Paid' : 'Free'}
-				</Button>
-			</button>
-		{/each}
+				</button>
+			{/each}
+		</div>
 	</div>
 
-	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card">
-		<Card.Content class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-			<div class="flex items-center gap-2">
-				<span class="text-xs font-medium">Available credits:</span>
-				<span class="font-mono text-sm font-semibold tabular-nums">{availableCreditsLabel}</span>
-			</div>
-			{#if showOverall}
-				<div class="flex items-center gap-4 sm:justify-end">
-					<div class="flex items-center gap-2">
-						<span class="text-xs font-medium">Total spend (credits):</span>
-						<span class="font-mono text-sm font-semibold tabular-nums">{overallCredits}</span>
-					</div>
-					<div class="flex items-center gap-2">
-						<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
-						<AiDateRangePicker from={fromDate} to={toDate} onChange={(f, t) => { fromDate = f; toDate = t; }} />
-					</div>
-				</div>
-			{/if}
-		</Card.Content>
-	</Card.Root>
+	<div class="mt-4 flex items-center justify-between">
+		<div class="flex items-center gap-2">
+			<span class="text-xs font-medium">Available credits:</span>
+			<span class="font-mono text-sm font-semibold tabular-nums">{availableCreditsLabel}</span>
+		</div>
+		<div class="flex items-center gap-2">
+			<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
+			<AiDateRangePicker from={fromDate} to={toDate} onChange={(f, t) => { fromDate = f; toDate = t; }} />
+		</div>
+	</div>
 
 	{#if showOverall && activityData.spendSeries}
 		<ActivitySpendChart
