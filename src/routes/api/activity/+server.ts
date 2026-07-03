@@ -8,6 +8,11 @@ import { getDb } from '$lib/server/db';
 
 const PAGE_SIZE = 20;
 
+function coerceTimestamp(value: unknown): Date {
+	if (value instanceof Date) return value;
+	return new Date(String(value));
+}
+
 function sumUsd(rows: Array<{ baseCostUsd: string; markupUsd: string; totalCostUsd: string }>) {
 	let base = 0;
 	let markup = 0;
@@ -26,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	try {
-		const { from, to, page: rawPage } = await request.json();
+		const { from, to, page: rawPage, returnAll } = await request.json();
 		const page = Math.max(1, Number(rawPage ?? 1));
 
 		const fromDate = from ? new Date(from) : null;
@@ -61,12 +66,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			.orderBy(sql`min(${activityCallLog.createdAt}) DESC`);
 
 		const totalGroups = distinctGroups.length;
-		const totalPages = Math.max(1, Math.ceil(totalGroups / PAGE_SIZE));
-		const safePage = Math.min(page, totalPages);
 
-		const startIdx = (safePage - 1) * PAGE_SIZE;
-		const endIdx = startIdx + PAGE_SIZE;
-		const pageGroupEntries = distinctGroups.slice(startIdx, endIdx);
+		let pageGroupEntries: typeof distinctGroups;
+		let safePage: number;
+		let totalPages: number;
+
+		if (returnAll) {
+			pageGroupEntries = distinctGroups;
+			safePage = 1;
+			totalPages = 1;
+		} else {
+			totalPages = Math.max(1, Math.ceil(totalGroups / PAGE_SIZE));
+			safePage = Math.min(page, totalPages);
+			const startIdx = (safePage - 1) * PAGE_SIZE;
+			const endIdx = startIdx + PAGE_SIZE;
+			pageGroupEntries = distinctGroups.slice(startIdx, endIdx);
+		}
 
 		if (pageGroupEntries.length === 0) {
 			const spendSeries = await loadActivitySpendSeries(db, {
@@ -119,7 +134,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 		if (nullGroupEntries.length > 0) {
 			for (const entry of nullGroupEntries) {
-				groupConditions.push(and(isNull(activityCallLog.groupId), eq(activityCallLog.createdAt, entry.minCreatedAt)));
+				groupConditions.push(
+					and(
+						isNull(activityCallLog.groupId),
+						eq(activityCallLog.createdAt, coerceTimestamp(entry.minCreatedAt))
+					)
+				);
 			}
 		}
 

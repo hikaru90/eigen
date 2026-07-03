@@ -177,7 +177,8 @@ export async function saveGroundingQuestionAnswer(input: {
 	return mergeGroundingFacets({
 		userId: input.userId,
 		facets: [{ key: input.facetKey, content: input.answer }],
-		synthesizeNarrative: true,
+		// Facets are used directly in enrichment; skip LLM narrative so save is fast and reliable.
+		synthesizeNarrative: false,
 		recordSession: true
 	});
 }

@@ -258,7 +258,7 @@
 							onfocus={() => (hoveredIndex = index)}
 							onblur={() => (hoveredIndex = null)}
 							tabindex="0"
-							role="graphics-symbol"
+							role="button"
 							aria-label="{bar.label}: {formatCredits(Number(bar.bucket.totalCostUsd))} credits"
 						/>
 						{#if index % step === 0 || index === bars.length - 1}

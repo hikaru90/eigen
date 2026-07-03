@@ -20,7 +20,11 @@
 
 	let activeTab = $state<'credits' | 'byok'>('credits');
 	let billingMode = $state<'platform_credits' | 'byok'>('platform_credits');
-	let selectedProvider = $state<'eurouter' | 'openrouter'>(data.activeProvider ?? 'eurouter');
+	let selectedProvider = $state<'eurouter' | 'openrouter'>('eurouter');
+
+	$effect(() => {
+		selectedProvider = data.activeProvider ?? 'eurouter';
+	});
 
 	$effect(() => {
 		activeTab = data.byokUiEnabled ? initialTab : 'credits';

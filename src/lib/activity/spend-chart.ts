@@ -19,13 +19,13 @@ export function utcDateKey(d: Date): string {
 
 export function startOfUtcPeriod(d: Date, unit: ActivitySpendBucketUnit): Date {
 	const y = d.getUTCFullYear();
-	const m = d.getUTCMonth();
+	const month = d.getUTCMonth();
 	const day = d.getUTCDate();
-	if (unit === 'day') return new Date(Date.UTC(y, m, day));
-	if (unit === 'month') return new Date(Date.UTC(y, m, 1));
+	if (unit === 'day') return new Date(Date.UTC(y, month, day));
+	if (unit === 'month') return new Date(Date.UTC(y, month, 1));
 	const dow = d.getUTCDay();
 	const diff = dow === 0 ? 6 : dow - 1;
-	return new Date(Date.UTC(y, m, day - diff));
+	return new Date(Date.UTC(y, month, day - diff));
 }
 
 export function advanceUtcPeriod(d: Date, unit: ActivitySpendBucketUnit): Date {
@@ -40,12 +40,27 @@ export function advanceUtcPeriod(d: Date, unit: ActivitySpendBucketUnit): Date {
 	return next;
 }
 
+export function callTimestampBounds(
+	calls: Array<{ createdAt: string | Date }>
+): { earliest: Date | null; latest: Date | null } {
+	if (calls.length === 0) return { earliest: null, latest: null };
+	let earliest = new Date(calls[0].createdAt);
+	let latest = earliest;
+	for (const call of calls) {
+		const d = new Date(call.createdAt);
+		if (d < earliest) earliest = d;
+		if (d > latest) latest = d;
+	}
+	return { earliest, latest };
+}
+
 export function computeActivitySpendSpan(input: {
 	from: Date | null;
 	to: Date | null;
 	earliestCallAt: Date | null;
+	latestCallAt?: Date | null;
 }): { from: Date; to: Date; spanDays: number } {
-	const to = input.to ?? new Date();
+	const to = input.to ?? input.latestCallAt ?? new Date();
 	let from: Date;
 	if (input.from) {
 		from = input.from;
@@ -54,6 +69,9 @@ export function computeActivitySpendSpan(input: {
 	} else {
 		from = new Date(to);
 		from.setUTCDate(from.getUTCDate() - 30);
+	}
+	if (from.getTime() > to.getTime()) {
+		from = new Date(to);
 	}
 	const spanDays = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86_400_000));
 	return { from, to, spanDays };
@@ -68,8 +86,15 @@ export function fillActivitySpendBuckets(
 ): ActivitySpendBucket[] {
 	const byKey = new Map(rows.map((row) => [row.periodStart, row]));
 	const filled: ActivitySpendBucket[] = [];
-	const rangeStart = startOfUtcPeriod(from, unit);
-	const rangeEnd = startOfUtcPeriod(to, unit);
+	let rangeFrom = from;
+	let rangeTo = to;
+	for (const row of rows) {
+		const periodAt = new Date(`${row.periodStart}T00:00:00.000Z`);
+		if (periodAt < rangeFrom) rangeFrom = periodAt;
+		if (periodAt > rangeTo) rangeTo = periodAt;
+	}
+	const rangeStart = startOfUtcPeriod(rangeFrom, unit);
+	const rangeEnd = startOfUtcPeriod(rangeTo, unit);
 
 	for (let cursor = rangeStart; cursor.getTime() <= rangeEnd.getTime(); cursor = advanceUtcPeriod(cursor, unit)) {
 		const key = utcDateKey(cursor);

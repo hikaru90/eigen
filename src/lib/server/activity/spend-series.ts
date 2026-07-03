@@ -42,6 +42,11 @@ export async function loadActivitySpendSeries(
 	if (input.from) baseConditions.push(gte(activityCallLog.createdAt, input.from));
 	if (input.to) baseConditions.push(lte(activityCallLog.createdAt, input.to));
 
+	const coerceCreatedAt = (value: unknown): Date => {
+		if (value instanceof Date) return value;
+		return new Date(String(value));
+	};
+
 	const [earliestRow] = await db
 		.select({ createdAt: activityCallLog.createdAt })
 		.from(activityCallLog)
@@ -49,10 +54,22 @@ export async function loadActivitySpendSeries(
 		.orderBy(activityCallLog.createdAt)
 		.limit(1);
 
+	const [latestRow] = await db
+		.select({ createdAt: activityCallLog.createdAt })
+		.from(activityCallLog)
+		.where(and(...baseConditions))
+		.orderBy(sql`${activityCallLog.createdAt} DESC`)
+		.limit(1);
+
+	const earliestCallAt = earliestRow?.createdAt ? coerceCreatedAt(earliestRow.createdAt) : null;
+	const latestCallAt = latestRow?.createdAt ? coerceCreatedAt(latestRow.createdAt) : null;
+	const allTime = !input.from && !input.to;
+
 	const span = computeActivitySpendSpan({
 		from: input.from,
 		to: input.to,
-		earliestCallAt: earliestRow?.createdAt ?? null
+		earliestCallAt: allTime || !input.from ? earliestCallAt : null,
+		latestCallAt: allTime || !input.to ? latestCallAt : null
 	});
 	const unit = chooseActivitySpendBucketUnit(span.spanDays);
 	const trunc = TRUNC_SQL[unit];

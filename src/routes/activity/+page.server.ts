@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getOrCreateWallet } from '$lib/server/billing/wallet';
+import { ACTIVITY_PAGE_LLM_PROVIDERS } from '$lib/server/activity/gateway-providers';
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
@@ -12,6 +13,7 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		user: event.locals.user,
 		walletAvailableCredits: wallet.availableCredits,
+		gatewayProviders: [...ACTIVITY_PAGE_LLM_PROVIDERS],
 		calls: [],
 		groups: undefined,
 		totals: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' },

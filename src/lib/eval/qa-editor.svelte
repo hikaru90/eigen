@@ -36,7 +36,11 @@
     onRunQuestion?: (qaId: string) => void | Promise<void>;
   } = $props();
 
-  let items = $state<EvalQaRecord[]>([...initialItems]);
+  let items = $state<EvalQaRecord[]>([]);
+
+  $effect(() => {
+    items = [...initialItems];
+  });
   let editingId = $state<string | null>(null);
   let formQuestion = $state('');
   let formAcceptance = $state('');

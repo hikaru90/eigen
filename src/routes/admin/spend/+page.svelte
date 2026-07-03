@@ -17,7 +17,7 @@
 
 	let { data }: { data: PageData } = $props();
 
-	let searchDraft = $state(data.search);
+	let searchDraft = $state('');
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 	$effect(() => {

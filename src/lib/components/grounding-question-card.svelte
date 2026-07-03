@@ -20,11 +20,12 @@
 
 	let answer = $state('');
 	let loading = $state(false);
+	let saved = $state(false);
 	let err = $state<string | null>(null);
 
 	async function submitAnswer() {
 		const trimmed = answer.trim();
-		if (!trimmed || loading) return;
+		if (!trimmed || loading || saved) return;
 		loading = true;
 		err = null;
 		try {
@@ -34,9 +35,11 @@
 				body: JSON.stringify({ facetKey, answer: trimmed })
 			});
 			if (!res.ok) {
-				const payload = (await res.json().catch(() => ({}))) as { error?: string };
-				throw new Error(payload.error ?? 'Failed to save answer');
+				const payload = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+				throw new Error(payload.message ?? payload.error ?? 'Failed to save answer');
 			}
+			saved = true;
+			await new Promise((resolve) => setTimeout(resolve, 1200));
 			onSaved?.();
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Failed to save answer';
@@ -83,28 +86,39 @@
 		</Button>
 	</Card.Header>
 	<Card.Content class="space-y-2 pt-0">
-		<Textarea
-			bind:value={answer}
-			placeholder="Your answer (optional)…"
-			class="min-h-[72px] resize-none text-sm"
-			disabled={loading}
-		/>
-		{#if err}
-			<p class="text-destructive text-xs">{err}</p>
+		{#if saved}
+			<p class="text-muted-foreground text-sm">Saved — thanks! This helps Eigen understand you.</p>
+		{:else}
+			<Textarea
+				bind:value={answer}
+				placeholder="Your answer (optional)…"
+				class="min-h-[72px] resize-none text-sm"
+				disabled={loading}
+			/>
+			{#if err}
+				<p class="text-destructive text-xs">{err}</p>
+			{/if}
+			<div class="flex justify-end gap-2">
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					class="text-xs"
+					disabled={loading}
+					onclick={dismiss}
+				>
+					Not now
+				</Button>
+				<Button
+					type="button"
+					size="sm"
+					class="text-xs"
+					disabled={!answer.trim() || loading}
+					onclick={submitAnswer}
+				>
+					{loading ? 'Saving…' : 'Save'}
+				</Button>
+			</div>
 		{/if}
-		<div class="flex justify-end gap-2">
-			<Button type="button" variant="ghost" size="sm" class="text-xs" disabled={loading} onclick={dismiss}>
-				Not now
-			</Button>
-			<Button
-				type="button"
-				size="sm"
-				class="text-xs"
-				disabled={!answer.trim() || loading}
-				onclick={submitAnswer}
-			>
-				Save
-			</Button>
-		</div>
 	</Card.Content>
 </Card.Root>

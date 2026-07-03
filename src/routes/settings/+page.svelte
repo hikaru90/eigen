@@ -46,11 +46,15 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let activeTab = $state('appearance');
 	let themePreference = $state('system');
-	let timezoneOffsetMinutes = $state(
-		data.preferredTimezoneOffsetMinutes ??
-			nearestOptionOffset(inferBrowserOffsetMinutes())
-	);
-	let timezoneInferred = $state(data.preferredTimezoneOffsetMinutes === null);
+	let timezoneOffsetMinutes = $state(nearestOptionOffset(inferBrowserOffsetMinutes()));
+	let timezoneInferred = $state(true);
+
+	$effect(() => {
+		if (data.preferredTimezoneOffsetMinutes !== null) {
+			timezoneOffsetMinutes = data.preferredTimezoneOffsetMinutes;
+			timezoneInferred = false;
+		}
+	});
 
 	const settingsTabs = [
 		{ value: 'appearance', label: 'Appearance' },
@@ -84,7 +88,11 @@
 	let pushMessage = $state<string | null>(null);
 	let pushError = $state<string | null>(null);
 	let pushSubscribed = $state(false);
-	let pushSubscriptionCount = $state(data.pushSubscriptionCount);
+	let pushSubscriptionCount = $state(0);
+
+	$effect(() => {
+		pushSubscriptionCount = data.pushSubscriptionCount;
+	});
 
 	let graphRearrangeBusy = $state(false);
 	let graphRearrangeComplete = $state(false);

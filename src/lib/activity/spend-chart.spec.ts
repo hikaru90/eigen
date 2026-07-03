@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	callTimestampBounds,
 	chooseActivitySpendBucketUnit,
 	computeActivitySpendSpan,
 	fillActivitySpendBuckets,
@@ -21,6 +22,30 @@ describe('activity spend chart helpers', () => {
 		const span = computeActivitySpendSpan({ from: null, to, earliestCallAt: null });
 		expect(span.spanDays).toBe(30);
 		expect(utcDateKey(span.from)).toBe('2026-01-30');
+	});
+
+	it('spans all-time from earliest to latest call when no bounds are set', () => {
+		const earliestCallAt = new Date('2025-11-10T08:00:00.000Z');
+		const latestCallAt = new Date('2026-02-14T19:30:00.000Z');
+		const span = computeActivitySpendSpan({
+			from: null,
+			to: null,
+			earliestCallAt,
+			latestCallAt
+		});
+		expect(span.from).toEqual(earliestCallAt);
+		expect(span.to).toEqual(latestCallAt);
+		expect(span.spanDays).toBeGreaterThan(90);
+	});
+
+	it('collects earliest and latest call timestamps', () => {
+		const bounds = callTimestampBounds([
+			{ createdAt: '2026-01-15T12:00:00.000Z' },
+			{ createdAt: '2025-12-01T08:00:00.000Z' },
+			{ createdAt: '2026-02-01T18:00:00.000Z' }
+		]);
+		expect(bounds.earliest?.toISOString()).toBe('2025-12-01T08:00:00.000Z');
+		expect(bounds.latest?.toISOString()).toBe('2026-02-01T18:00:00.000Z');
 	});
 
 	it('fills missing daily buckets with zero spend', () => {

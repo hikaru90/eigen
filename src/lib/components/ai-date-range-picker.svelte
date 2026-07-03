@@ -43,10 +43,11 @@
 
 <Popover.Root bind:open>
 	<Popover.Trigger
-		class="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 text-xs transition-colors"
+		class="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1.5 text-[11px] transition-colors"
 		aria-label="Filter by date range"
 	>
-		<CalendarDays class="size-3.5" />
+		<span>{rangeLabel}</span>
+		<CalendarDays class="size-3.5 shrink-0" />
 	</Popover.Trigger>
 	<Popover.Content align="end" class="w-64 p-3">
 		<div class="flex flex-col gap-2">

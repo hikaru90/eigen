@@ -12,6 +12,8 @@ export type RunAgentInput = {
 	payload: Record<string, unknown>;
 };
 
+type WebhookPayload = Record<string, unknown>;
+
 export type RunAgentResult = {
 	runId: string;
 	thoughtId?: string;
@@ -94,7 +96,7 @@ export async function runAgentWithEvent(input: RunAgentInput): Promise<RunAgentR
 	};
 }
 
-function formatEventSummary(eventType: string, payload: Record<string unknown>): string {
+function formatEventSummary(eventType: string, payload: WebhookPayload): string {
 	// Try to extract a meaningful summary from the payload
 	if (typeof payload.summary === 'string') return payload.summary;
 	if (typeof payload.message === 'string') return payload.message;

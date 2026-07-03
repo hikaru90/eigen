@@ -55,8 +55,13 @@
     };
   }
 
-  let tasks = $state<TaskRow[]>([...data.tasks]);
-  let pageError = $state<string | null>(data.loadError ?? null);
+  let tasks = $state<TaskRow[]>([]);
+  let pageError = $state<string | null>(null);
+
+  $effect(() => {
+    tasks = [...data.tasks];
+    pageError = data.loadError ?? null;
+  });
   let busyTaskId = $state<string | null>(null);
   let actionMessage = $state<string | null>(null);
   let actionError = $state<string | null>(null);

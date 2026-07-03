@@ -15,9 +15,17 @@
 
 	let { data }: { data: PageData } = $props();
 
-	let agents = $state(data.agents);
-	let projects = $state(data.projects);
-	let agentProjectBindings = $state<Record<string, Array<{ projectEntityId: string; projectLabel: string }>>>(data.agentProjectBindings);
+	let agents = $state<PageData['agents']>([]);
+	let projects = $state<PageData['projects']>([]);
+	let agentProjectBindings = $state<
+		Record<string, Array<{ projectEntityId: string; projectLabel: string }>>
+	>({});
+
+	$effect(() => {
+		agents = data.agents;
+		projects = data.projects;
+		agentProjectBindings = data.agentProjectBindings;
+	});
 	let dialogOpen = $state(false);
 	let agentName = $state('');
 	let webhookUrl = $state('');

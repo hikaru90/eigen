@@ -76,12 +76,25 @@ import { logErrorToServer } from '$lib/client-log';
 	type GroundingQuestionPayload = { facetKey: string; question: string } | null;
 	let groundingQuestion = $state<GroundingQuestionPayload>(null);
 	let groundingQuestionDismissed = $state(false);
+	let wasGroundingQuestionEligible = $state(false);
+	let groundingQuestionLoading = $state(false);
 
 	$effect(() => {
-		data.groundingQuestionEligible;
-		groundingQuestionDismissed = false;
-		groundingQuestion = null;
-		if (!data.groundingQuestionEligible) return;
+		const eligible = data.groundingQuestionEligible;
+		if (eligible && !wasGroundingQuestionEligible) {
+			groundingQuestionDismissed = false;
+			groundingQuestion = null;
+		}
+		if (!eligible) {
+			groundingQuestion = null;
+		}
+		wasGroundingQuestionEligible = eligible;
+
+		if (!eligible || groundingQuestionDismissed || groundingQuestion || groundingQuestionLoading) {
+			return;
+		}
+
+		groundingQuestionLoading = true;
 		void (async () => {
 			try {
 				const res = await fetch('/api/grounding/question');
@@ -102,10 +115,12 @@ import { logErrorToServer } from '$lib/client-log';
 				}
 			} catch {
 				// optional card — ignore fetch errors
+			} finally {
+				groundingQuestionLoading = false;
 			}
 		})();
 	});
-	let localWalletCredits = $state(data.walletAvailableCredits);
+	let localWalletCredits = $state(0);
 
 	$effect(() => {
 		localWalletCredits = data.walletAvailableCredits;
@@ -119,10 +134,15 @@ import { logErrorToServer } from '$lib/client-log';
 	$effect(() => {
 		captureInputDraft.set(raw);
 	});
-	let recentThoughts = $state<CaptureRecentThoughtSnippet[]>(data.recentThoughts);
-	let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
-		Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought]))
-	);
+	let recentThoughts = $state<CaptureRecentThoughtSnippet[]>([]);
+	let thoughtDetails = $state<Record<string, CaptureSubmitResult>>({});
+
+	$effect(() => {
+		recentThoughts = data.recentThoughts;
+		thoughtDetails = Object.fromEntries(
+			data.recentThoughtDetails.map((thought) => [thought.id, thought])
+		);
+	});
 	let expandedThoughtId = $state<string | null>(null);
 	let editingThoughtId = $state<string | null>(null);
 	let err = $state<string | null>(null);
