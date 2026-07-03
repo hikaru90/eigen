@@ -23,12 +23,9 @@ function lastWeekRange(): { from: Date; to: Date } {
 
 function lastMonthRange(): { from: Date; to: Date } {
 	const now = new Date();
-	const y = now.getUTCFullYear();
-	const m = now.getUTCMonth();
-	return {
-		from: new Date(Date.UTC(y, m - 1, 1)),
-		to: new Date(Date.UTC(y, m, 0, 23, 59, 59, 999))
-	};
+	const from = new Date(now);
+	from.setUTCDate(now.getUTCDate() - 30);
+	return { from: startOfUTCDay(from), to: endOfUTCDay(now) };
 }
 
 function resolvePart(part: string, today: Date): Date | null {
