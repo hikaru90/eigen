@@ -105,14 +105,16 @@
 		fetchController?.abort();
 		fetchController = new AbortController();
 
-		const params = new URLSearchParams({ page: String(page) });
-		if (from) params.set('from', from);
-		if (to) params.set('to', to);
-
 		try {
-			const res = await fetch(`/api/activity?${params}`, { signal: fetchController.signal });
+			const res = await fetch('/api/activity', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ from, to, page }),
+				signal: fetchController.signal
+			});
 			if (res.ok) {
-				activityData = { ...activityData, ...(await res.json()) };
+				const json = await res.json();
+				activityData = { ...activityData, ...json };
 				expandedGroups = {};
 			}
 		} catch (e) {
