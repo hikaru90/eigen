@@ -4,10 +4,10 @@ import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-provi
 import { getDb } from '$lib/server/db';
 import {
 	buildAgentToolDescriptionBlock,
-	isMcpExposedTool,
+	isAgentTool,
+	MCP_AGENT_TOOL_NAMES,
 	MCP_TOOL_DEFINITIONS,
-	MCP_TOOL_MAP,
-	MCP_TOOL_NAMES
+	MCP_TOOL_MAP
 } from '$lib/server/mcp/registry';
 import type { ChatSessionMode } from '$lib/server/db/brain.schema';
 import type { McpToolContext } from '$lib/server/mcp/tools';
@@ -367,11 +367,11 @@ async function executeAgentToolCall(input: {
 	}
 
 	const handler = MCP_TOOL_MAP.get(tool);
-	const allowed = isMcpExposedTool(tool);
+	const allowed = isAgentTool(tool);
 	if (!handler || !allowed) {
 		return {
 			done: false,
-			result: { error: `Tool "${tool}" is not available. Available: ${MCP_TOOL_NAMES.join(', ')}` },
+			result: { error: `Tool "${tool}" is not available. Available: ${MCP_AGENT_TOOL_NAMES.join(', ')}` },
 			assistantContent: JSON.stringify({ tool, arguments: args })
 		};
 	}
@@ -625,12 +625,12 @@ export async function agentChat(input: {
 
 		if (parsed.type === 'tool_call') {
 			const handler = MCP_TOOL_MAP.get(parsed.tool);
-			if (!handler || !isMcpExposedTool(parsed.tool)) {
+			if (!handler || !isAgentTool(parsed.tool)) {
 				console.error('[agent-loop] unknown tool requested', { tool: parsed.tool });
 				messages.push({ role: 'assistant', content });
 				messages.push({
 					role: 'user',
-					content: `Error: tool "${parsed.tool}" is not available. Available tools: ${MCP_TOOL_NAMES.join(', ')}`
+					content: `Error: tool "${parsed.tool}" is not available. Available tools: ${MCP_AGENT_TOOL_NAMES.join(', ')}`
 				});
 				continue;
 			}

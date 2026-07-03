@@ -27,6 +27,7 @@ vi.mock('./tools', () => ({
 	runListTemporalEventsTool: vi.fn(),
 	runManageTemporalEventTool: vi.fn(),
 	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
+	runSetStatusTool: vi.fn(),
 	runAnswerQuestionTool: vi.fn(),
 	runCreateTextFileTool: vi.fn(),
 	runListTextFilesTool: vi.fn(),
@@ -46,18 +47,13 @@ describe('createMcpServer', () => {
 		createMcpServer({ userId: 'u1' });
 		const listHandler = handlerMap.get(Symbol.for('list-tools')) as () => Promise<{ tools: Array<{ name: string }> }>;
 		const result = await listHandler();
-		expect(result.tools.map((t) => t.name)).toEqual(
-			expect.arrayContaining([
-				'capture_thought',
-				'list_thoughts',
-				'retrieve_thoughts',
-				'edit_thought',
-				'delete_thought',
-				'list_temporal_events',
-				'manage_temporal_event',
-				'answer_question'
-			])
-		);
+		expect(result.tools.map((t) => t.name)).toEqual([
+			'capture_thought',
+			'retrieve_thoughts',
+			'edit_thought',
+			'delete_thought'
+		]);
+		expect(result.tools.map((t) => t.name)).not.toContain('list_thoughts');
 		expect(result.tools.map((t) => t.name)).not.toContain('list_projects');
 		expect(result.tools.map((t) => t.name)).not.toContain('capture_grounding');
 		expect(result.tools.map((t) => t.name)).not.toContain('complete_grounding_session');

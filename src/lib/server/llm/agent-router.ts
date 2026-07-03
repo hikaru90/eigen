@@ -1,12 +1,12 @@
 import { env } from '$env/dynamic/private';
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client';
-import { MCP_EXPOSED_TOOL_DEFINITIONS, MCP_TOOL_NAMES } from '$lib/server/mcp/registry';
+import { MCP_AGENT_TOOL_NAMES, MCP_TOOL_DEFINITIONS } from '$lib/server/mcp/registry';
 
 export type AgentRouteResult =
 	| { mode: 'single_tool'; tool: string; arguments: Record<string, unknown> }
 	| { mode: 'multi_step' };
 
-const TOOL_SUMMARY = MCP_EXPOSED_TOOL_DEFINITIONS.map(
+const TOOL_SUMMARY = MCP_TOOL_DEFINITIONS.map(
 	(t) => `- ${t.name}: ${t.description}`
 ).join('\n');
 
@@ -28,7 +28,7 @@ export const ROUTER_SYSTEM_PROMPT = [
 	'- delete_thought requires a persisted thought UUID — never route delete-by-description to delete_thought; use multi_step or retrieve_thoughts first.',
 	'- When unsure between capture and answer, prefer answer_question.',
 	'',
-	`Valid tool names: ${MCP_TOOL_NAMES.join(', ')}`
+	`Valid tool names: ${MCP_AGENT_TOOL_NAMES.join(', ')}`
 ].join('\n');
 
 function parseRouterJson(text: string): unknown {

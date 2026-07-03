@@ -67,10 +67,10 @@ vi.mock('$lib/server/db', () => ({
 }));
 vi.mock('$lib/server/mcp/registry', () => ({
 	MCP_TOOL_MAP: mcpToolMap,
-	MCP_TOOL_NAMES: ['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'],
+	MCP_AGENT_TOOL_NAMES: ['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'],
 	MCP_TOOL_DEFINITIONS: [],
 	buildAgentToolDescriptionBlock: () => '',
-	isMcpExposedTool: (name: string) =>
+	isAgentTool: (name: string) =>
 		['list_thoughts', 'retrieve_thoughts', 'delete_thought', 'answer_question'].includes(name)
 }));
 

@@ -260,10 +260,45 @@ describe('MCP tools', () => {
 		});
 	});
 
-	it('runRetrieveThoughtsTool rejects missing/whitespace query', async () => {
-		await expect(runRetrieveThoughtsTool({ userId: 'u1' }, { query: '   ' })).rejects.toThrow(
-			/query is required/
-		);
+	it('runRetrieveThoughtsTool lists recent thoughts when query is omitted', async () => {
+		listThoughtsMock.mockResolvedValue([
+			{
+				id: 't1',
+				normalizedText: 'hello world',
+				category: 'thought',
+				createdAt: new Date('2024-01-01'),
+				embedding: Array.from({ length: 1536 }, () => 0.1)
+			}
+		]);
+		const out = (await runRetrieveThoughtsTool({ userId: 'u1' }, { top_k: 5 })) as {
+			count: number;
+			results: Array<Record<string, unknown>>;
+		};
+		expect(searchThoughtsMock).not.toHaveBeenCalled();
+		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
+			limit: 5,
+			fields: 'snippet',
+			cursor: undefined
+		});
+		expect(out.count).toBe(1);
+		expect(out.results[0]).toMatchObject({
+			id: 't1',
+			category: 'thought',
+			snippet: expect.stringContaining('hello world'),
+			temporalStatus: 'none',
+			createdAt: '2024-01-01T00:00:00.000Z'
+		});
+	});
+
+	it('runRetrieveThoughtsTool treats whitespace-only query as recent browse', async () => {
+		listThoughtsMock.mockResolvedValue([]);
+		await runRetrieveThoughtsTool({ userId: 'u1' }, { query: '   ', top_k: 3 });
+		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
+			limit: 3,
+			fields: 'snippet',
+			cursor: undefined
+		});
+		expect(searchThoughtsMock).not.toHaveBeenCalled();
 	});
 
 	it('runRetrieveThoughtsTool uses fast mode and snippet shape by default', async () => {

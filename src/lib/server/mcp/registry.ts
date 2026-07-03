@@ -29,9 +29,16 @@ export type McpToolDefinition = {
 	/** Human-readable argument summary for the chat agent system prompt. */
 	agentArgumentSchema: string;
 	handler: McpToolHandler;
-	/** When false, tool is not exposed to HTTP MCP clients. */
+	/** When false, tool is not exposed to HTTP MCP clients (internal chat agent still has access). */
 	exposeInMcp?: boolean;
 };
+
+const MCP_CLIENT_TOOL_NAMES = new Set([
+	'capture_thought',
+	'retrieve_thoughts',
+	'edit_thought',
+	'delete_thought'
+]);
 
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
@@ -61,7 +68,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"raw": "string (required)", "captured_at": "string (optional ISO-8601)", "as_user": "boolean (optional — true for human capture)", "author": "string (optional — rarely needed; MCP key labels automatically)"}',
-		handler: runCaptureThoughtTool
+		handler: runCaptureThoughtTool,
+		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('capture_thought')
 	},
 	{
 		name: 'list_thoughts',
@@ -77,26 +85,42 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"limit": "number (optional, default 20)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)", "detail": "snippet|full (optional, default snippet)"}',
-		handler: runListThoughtsTool
+		handler: runListThoughtsTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'retrieve_thoughts',
 		description:
-			'Search stored thoughts (hybrid semantic, lexical, graph) and attached text notes (lexical keyword only — recipes, templates, reference documents). Use first when matching existing tasks or notes.',
+			'Read stored thoughts. Omit query to list the most recent (newest first; use top_k, optional cursor_created_at + cursor_id to paginate). With query: hybrid semantic, lexical, and graph search over thoughts plus lexical search over attached text notes.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				query: { type: 'string' },
-				top_k: { type: 'number' },
+				query: {
+					type: 'string',
+					description:
+						'Optional search text. Omit to browse recent thoughts (newest first) instead of searching.'
+				},
+				top_k: {
+					type: 'number',
+					description: 'Max results (default 10). When query is omitted, acts as the recent-thought limit.'
+				},
 				threshold: { type: 'number' },
 				mode: { type: 'string', enum: ['fast', 'full'] },
-				detail: { type: 'string', enum: ['snippet', 'full'] }
-			},
-			required: ['query']
+				detail: { type: 'string', enum: ['snippet', 'full'] },
+				cursor_created_at: {
+					type: 'string',
+					description: 'Pagination cursor (ISO created_at) when browsing recent thoughts without query.'
+				},
+				cursor_id: {
+					type: 'string',
+					description: 'Pagination cursor (thought UUID) when browsing recent thoughts without query.'
+				}
+			}
 		},
 		agentArgumentSchema:
-			'{"query": "string (required)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional, default fast; relational queries auto-upgrade to full)", "detail": "snippet|full (optional, default snippet)"}',
-		handler: runRetrieveThoughtsTool
+			'{"query": "string (optional — omit for recent browse)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional)", "detail": "snippet|full (optional)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
+		handler: runRetrieveThoughtsTool,
+		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('retrieve_thoughts')
 	},
 	{
 		name: 'set_status',
@@ -112,28 +136,34 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"item_id": "string (required) — thought UUID, task:{uuid}, or temporal event UUID", "status": "open|completed|archived (required)"}',
-		handler: runSetStatusTool
+		handler: runSetStatusTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'edit_thought',
 		description:
-			'Edit an existing thought by ID with a natural-language request (reword, fix typo). For mark done or archive, prefer set_status.',
+			'Edit an existing thought by ID with a natural-language request. Covers text changes (reword, fix typo) and lifecycle/status changes (mark complete, mark done, reopen, archive). On MCP clients this is the tool for status updates — there is no separate set_status tool.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				thought_id: { type: 'string' },
-				edit_request: { type: 'string' }
+				edit_request: {
+					type: 'string',
+					description:
+						'Natural-language instruction, e.g. "mark complete", "archive this", "fix typo in second sentence".'
+				}
 			},
 			required: ['thought_id', 'edit_request']
 		},
 		agentArgumentSchema:
-			'{"thought_id": "string (required)", "edit_request": "string (required) — e.g. mark complete, fix typo"}',
-		handler: runEditThoughtTool
+			'{"thought_id": "string (required)", "edit_request": "string (required) — text edits or status: mark complete, archive, reopen"}',
+		handler: runEditThoughtTool,
+		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('edit_thought')
 	},
 	{
 		name: 'delete_thought',
 		description:
-			'Archive (soft-remove) one stored thought by ID — reversible, not a permanent delete. Prefer set_status with archived for thoughts, tasks, or events.',
+			'Archive (soft-remove) one stored thought by ID — reversible, not a permanent delete.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -143,7 +173,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"thought_id": "string (required) — UUID from retrieve_thoughts results, never a title or description"}',
-		handler: runDeleteThoughtTool
+		handler: runDeleteThoughtTool,
+		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_thought')
 	},
 	{
 		name: 'list_temporal_events',
@@ -163,7 +194,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"range": "relevant|upcoming|past|all (optional)", "status": "open|all (optional)", "include_tasks": "boolean (optional, default true)"}',
-		handler: runListTemporalEventsTool
+		handler: runListTemporalEventsTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'manage_temporal_event',
@@ -189,7 +221,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"event_id": "string (required)", "action": "mark_done|reopen|archive (optional; cancel/dismiss/delete map to archive)", "instruction": "string (optional NL reschedule/snooze)"}',
-		handler: runManageTemporalEventTool
+		handler: runManageTemporalEventTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'answer_question',
@@ -209,7 +242,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions"}',
-		handler: runAnswerQuestionTool
+		handler: runAnswerQuestionTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'create_text_file',
@@ -230,7 +264,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"body": "string (required)", "title": "string (optional)", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"}',
-		handler: runCreateTextFileTool
+		handler: runCreateTextFileTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'list_text_files',
@@ -245,7 +280,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"limit": "number (optional)", "cursor_updated_at": "string (optional ISO)", "cursor_id": "string (optional)"}',
-		handler: runListTextFilesTool
+		handler: runListTextFilesTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'get_text_file',
@@ -258,7 +294,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			required: ['text_file_id']
 		},
 		agentArgumentSchema: '{"text_file_id": "string (required)"}',
-		handler: runGetTextFileTool
+		handler: runGetTextFileTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'update_text_file',
@@ -274,7 +311,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"text_file_id": "string (required)", "title": "string (optional)", "body": "string (optional)"}',
-		handler: runUpdateTextFileTool
+		handler: runUpdateTextFileTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'delete_text_file',
@@ -287,7 +325,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			required: ['text_file_id']
 		},
 		agentArgumentSchema: '{"text_file_id": "string (required)"}',
-		handler: runDeleteTextFileTool
+		handler: runDeleteTextFileTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'search_text_files',
@@ -302,7 +341,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			required: ['query']
 		},
 		agentArgumentSchema: '{"query": "string (required)", "top_k": "number (optional)"}',
-		handler: runSearchTextFilesTool
+		handler: runSearchTextFilesTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'link_text_file_to_thought',
@@ -317,7 +357,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
-		handler: runLinkTextFileToThoughtTool
+		handler: runLinkTextFileToThoughtTool,
+		exposeInMcp: false
 	},
 	{
 		name: 'unlink_text_file_from_thought',
@@ -332,7 +373,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
-		handler: runUnlinkTextFileFromThoughtTool
+		handler: runUnlinkTextFileFromThoughtTool,
+		exposeInMcp: false
 	}
 ];
 
@@ -346,14 +388,22 @@ export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
 	MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler])
 );
 
-export const MCP_TOOL_NAMES = MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name);
+/** All registered tools available to the in-app chat agent. */
+export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name);
+
+/** HTTP MCP client surface (minimal memory CRUD). */
+export const MCP_CLIENT_EXPOSED_TOOL_NAMES = MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name);
 
 export function isMcpExposedTool(name: string): boolean {
 	return MCP_EXPOSED_TOOL_MAP.has(name);
 }
 
+export function isAgentTool(name: string): boolean {
+	return MCP_TOOL_MAP.has(name);
+}
+
 export function buildAgentToolDescriptionBlock(): string {
-	return MCP_EXPOSED_TOOL_DEFINITIONS.map(
+	return MCP_TOOL_DEFINITIONS.map(
 		(t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`
 	).join('\n\n');
 }
