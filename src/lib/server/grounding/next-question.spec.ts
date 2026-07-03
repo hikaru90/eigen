@@ -30,14 +30,14 @@ describe('generateGroundingQuestion', () => {
 		]);
 	});
 
-	it('returns parsed facet question from LLM output', async () => {
+	it('returns approved template question, not free-form LLM copy', async () => {
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [
 				{
 					message: {
 						content: JSON.stringify({
-							facetKey: 'work',
-							question: 'What kind of work do you do day to day?'
+							templateId: 'work_where',
+							anchor: 'SPACE'
 						})
 					}
 				}
@@ -47,7 +47,7 @@ describe('generateGroundingQuestion', () => {
 		const result = await generateGroundingQuestion('u1');
 		expect(result).toEqual({
 			facetKey: 'work',
-			question: 'What kind of work do you do day to day?'
+			question: 'You mention SPACE a lot — is that where you work?'
 		});
 	});
 
@@ -59,12 +59,47 @@ describe('generateGroundingQuestion', () => {
 		expect(await generateGroundingQuestion('u1')).toBeNull();
 	});
 
-	it('returns null for invalid facet keys', async () => {
+	it('returns null for invalid template ids', async () => {
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [
 				{
 					message: {
-						content: JSON.stringify({ facetKey: 'hobbies', question: 'What do you like?' })
+						content: JSON.stringify({
+							templateId: 'name_origin_story',
+							anchor: 'Alex'
+						})
+					}
+				}
+			]
+		});
+
+		expect(await generateGroundingQuestion('u1')).toBeNull();
+	});
+
+	it('returns null when anchored template has no anchor', async () => {
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [
+				{
+					message: {
+						content: JSON.stringify({ templateId: 'self_name_disambiguation' })
+					}
+				}
+			]
+		});
+
+		expect(await generateGroundingQuestion('u1')).toBeNull();
+	});
+
+	it('returns null for legacy free-form LLM question shape', async () => {
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [
+				{
+					message: {
+						content: JSON.stringify({
+							facetKey: 'identity',
+							question:
+								"What's the story behind your name Alex, and how has it shaped your relationships?"
+						})
 					}
 				}
 			]

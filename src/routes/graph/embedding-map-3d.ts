@@ -3,6 +3,7 @@ import { MOUSE, TOUCH } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
+import { isEmbeddingItemVisibleByAuthorLayers } from '$lib/graph/graph-author-layers';
 
 export type EmbeddingMap3dPoint = {
 	item: EmbeddingSnapshotItem;
@@ -22,6 +23,7 @@ export type EmbeddingMap3dHandle = {
 	resize: () => void;
 	setSelectedId: (id: string | null) => void;
 	setVisibleSubtypes: (visibleTypes: ReadonlySet<string>) => void;
+	setVisibleAuthorLayers: (visibleLayers: ReadonlySet<string>) => void;
 	dispose: () => void;
 };
 
@@ -175,6 +177,8 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const colors = new Float32Array(points.length * 3);
 	const sizes = new Float32Array(points.length);
 	const visibleFlags = new Uint8Array(points.length);
+	let visibleSubtypes = new Set<string>();
+	let visibleAuthorLayers = new Set<string>();
 
 	const labelByItemId = new Map<string, HTMLDivElement>();
 	const pointIndexByItemId = new Map<string, number>();
@@ -378,12 +382,13 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		highlightGroup.visible = true;
 	}
 
-	function setVisibleSubtypes(visibleTypes: ReadonlySet<string>) {
-		const showAll = visibleTypes.size === 0;
-
+	function recomputeVisibility() {
+		const showAllSubtypes = visibleSubtypes.size === 0;
 		for (let i = 0; i < points.length; i++) {
 			const point = points[i];
-			const visible = showAll || visibleTypes.has(point.item.subtype);
+			const subtypeOk = showAllSubtypes || visibleSubtypes.has(point.item.subtype);
+			const authorOk = isEmbeddingItemVisibleByAuthorLayers(point.item, visibleAuthorLayers);
+			const visible = subtypeOk && authorOk;
 			visibleFlags[i] = visible ? 1 : 0;
 
 			const labelEl = labelByItemId.get(point.item.id);
@@ -392,9 +397,8 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 			}
 		}
 
-		/** Update point opacity based on visibility */
 		const visibleCount = visibleFlags.reduce((sum, v) => sum + v, 0);
-		pointsMaterial.opacity = visibleCount > 0 ? 0.88 : 0;
+		pointsMaterial.opacity = visibleCount > 0 ? (currentSelectedId ? 0.5 : 0.88) : 0;
 
 		if (currentSelectedId !== null) {
 			const selectedIdx = pointIndexByItemId.get(currentSelectedId);
@@ -403,6 +407,16 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 				onSelectItem?.(null);
 			}
 		}
+	}
+
+	function setVisibleSubtypes(visibleTypes: ReadonlySet<string>) {
+		visibleSubtypes = new Set(visibleTypes);
+		recomputeVisibility();
+	}
+
+	function setVisibleAuthorLayers(visibleLayers: ReadonlySet<string>) {
+		visibleAuthorLayers = new Set(visibleLayers);
+		recomputeVisibility();
 	}
 
 	function resize() {
@@ -570,6 +584,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		resize,
 		setSelectedId,
 		setVisibleSubtypes,
+		setVisibleAuthorLayers,
 		dispose() {
 			cancelAnimationFrame(animationFrame);
 			renderer.domElement.removeEventListener('pointerdown', onPointerDown);

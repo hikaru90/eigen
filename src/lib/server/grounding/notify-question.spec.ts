@@ -50,7 +50,7 @@ describe('maybeNotifyGroundingQuestionPush', () => {
 		await maybeNotifyGroundingQuestionPush('u1', 10);
 
 		expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
-			title: 'Help Eigen understand you',
+			title: 'Improve capture quality',
 			body: 'What kind of work do you do?',
 			url: '/capture?grounding=1',
 			tag: 'grounding-question-10'

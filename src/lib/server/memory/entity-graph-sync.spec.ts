@@ -188,7 +188,8 @@ describe('syncEntityGraphFromThought', () => {
 		expect(upsertThoughtNodeMock).toHaveBeenCalledWith({
 			id: 't1',
 			userId: 'u1',
-			category: 'observation'
+			category: 'observation',
+			author: 'user'
 		});
 		expect(resolveOrCreateCanonicalEntityMock.mock.calls[1][0]).toMatchObject({
 			coMentionEntityIds: ['id-Sam']

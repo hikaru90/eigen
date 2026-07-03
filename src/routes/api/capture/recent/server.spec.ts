@@ -1,17 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from './+server';
 
-const { loadRecentCaptureThoughtsMock } = vi.hoisted(() => ({
-	loadRecentCaptureThoughtsMock: vi.fn()
+const { loadRecentCaptureThoughtsMock, syncAndScheduleCaptureEnrichQueueMock } = vi.hoisted(() => ({
+	loadRecentCaptureThoughtsMock: vi.fn(),
+	syncAndScheduleCaptureEnrichQueueMock: vi.fn()
 }));
 
 vi.mock('$lib/server/capture/load-recent-capture-thoughts', () => ({
 	loadRecentCaptureThoughts: loadRecentCaptureThoughtsMock
 }));
 
+vi.mock('$lib/server/capture/sync-capture-enrich-queue', () => ({
+	syncAndScheduleCaptureEnrichQueue: syncAndScheduleCaptureEnrichQueueMock
+}));
+
 describe('GET /api/capture/recent', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		syncAndScheduleCaptureEnrichQueueMock.mockResolvedValue({
+			finalizedEnriched: 0,
+			recoveredStale: 0,
+			requeuedInFlight: 0,
+			requeuedOrphaned: 0,
+			activeThoughtIds: []
+		});
 	});
 
 	it('requires auth', async () => {
@@ -27,6 +39,7 @@ describe('GET /api/capture/recent', () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.recentThoughts).toHaveLength(1);
+		expect(syncAndScheduleCaptureEnrichQueueMock).toHaveBeenCalledWith('u1');
 		expect(loadRecentCaptureThoughtsMock).toHaveBeenCalledWith('u1');
 	});
 });

@@ -37,7 +37,11 @@ import {
 	updateTextFile
 } from '$lib/server/text-files/service';
 
-import { resolveAuthorFromPrefix } from '$lib/server/memory/authorship';
+import {
+	resolveAuthorFromPrefix,
+	resolveMcpCaptureAuthorship,
+	type AuthenticatedApiKey
+} from '$lib/server/memory/authorship';
 
 export type McpToolProgress = {
 	tool: string;
@@ -47,6 +51,8 @@ export type McpToolProgress = {
 
 export type McpToolContext = {
 	userId: string;
+	/** Present when MCP authenticated via Bearer API key — default capture authorship. */
+	authenticatedApiKey?: AuthenticatedApiKey;
 	onToolProgress?: (event: McpToolProgress) => void;
 };
 
@@ -129,9 +135,14 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
 	}
 	const capturedAt = parseOptionalIsoTimestamp(body.captured_at, 'captured_at');
 	const authorPrefix = typeof body.author === 'string' ? body.author : undefined;
-	const authorship = await resolveAuthorFromPrefix(authorPrefix);
+	const asUser = body.as_user === true;
+	const authorship = await resolveMcpCaptureAuthorship({
+		authorPrefix,
+		asUser,
+		authenticatedApiKey: context.authenticatedApiKey
+	});
 	const stored = await captureThought(context.userId, raw, {
-		source: 'mcp',
+		source: authorship.author === 'agent' ? 'agent' : 'mcp',
 		author: authorship.author,
 		authorLabel: authorship.authorLabel,
 		authorKeyId: authorship.authorKeyId,
@@ -578,7 +589,12 @@ export async function runCreateTextFileTool(context: McpToolContext, args: unkno
 	if (!rawBody.trim()) throw new Error('body is required');
 	const title = typeof body.title === 'string' ? body.title : undefined;
 	const authorPrefix = typeof body.author === 'string' ? body.author : undefined;
-	const authorship = await resolveAuthorFromPrefix(authorPrefix);
+	const asUser = body.as_user === true;
+	const authorship = await resolveMcpCaptureAuthorship({
+		authorPrefix,
+		asUser,
+		authenticatedApiKey: context.authenticatedApiKey
+	});
 	const textFile = await createTextFile(context.userId, {
 		title,
 		body: rawBody,

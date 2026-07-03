@@ -4,8 +4,13 @@
 import { shouldScheduleDevCaptureEnrichWorker } from '$lib/server/auth/harness-account';
 import { withDbUser } from '$lib/server/db';
 import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain';
+import { syncCaptureEnrichQueue } from '$lib/server/capture/sync-capture-enrich-queue';
 
 const activeWorkers = new Map<string, Promise<void>>();
+
+export function isCaptureEnrichWorkerActive(userId: string): boolean {
+	return activeWorkers.has(userId);
+}
 
 export function scheduleCaptureEnrichWorker(userId: string): void {
 	if (activeWorkers.has(userId)) return;
@@ -14,6 +19,7 @@ export function scheduleCaptureEnrichWorker(userId: string): void {
 		.then(async (allowed) => {
 			if (!allowed) return;
 			return withDbUser(userId, async () => {
+				await syncCaptureEnrichQueue(userId);
 				await drainCaptureEnrichQueue(userId);
 			});
 		})

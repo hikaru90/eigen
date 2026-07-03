@@ -19,6 +19,9 @@
     customEntityFillsFromLegendSections,
     filterNodesByEntityTypes,
   } from "$lib/graph/graph-ontology-legend";
+  import {
+    filterNodesByAuthorLayers,
+  } from "$lib/graph/graph-author-layers";
   import { filterGraphVizEdgesToNodes, resolveForceLinks } from "$lib/graph/sanitize-viz-snapshot";
   import {
     COMMUNITY_HULL_ACCENT,
@@ -62,6 +65,8 @@
   import EmbeddingMap from "../graph/EmbeddingMap.svelte";
   import GraphFiltersToolbar from "../graph/graph-filters-toolbar.svelte";
   import GraphEntityKindsLegend from "../graph/graph-entity-kinds-legend.svelte";
+  import GraphAuthorLayersLegend from "../graph/graph-author-layers-legend.svelte";
+  import MemoryAuthorBadge from "$lib/components/memory-author-badge.svelte";
   import ThoughtLinkedNotes from "$lib/components/thought-linked-notes.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
   import {
@@ -82,6 +87,9 @@
     },
     get legendSections() {
       return data.graphLegendSections ?? [];
+    },
+    get coMentionEdgeLayerKeys() {
+      return data.coMentionEdgeLayerKeys ?? {};
     },
     get selectedCommunityLevel(): number | null {
       const parsed = Number.parseInt(communityLevel, 10);
@@ -115,6 +123,7 @@
   let search = $state("");
   let edgeKind = $state<string>("all");
   let visibleEntityTypes = $state<Set<string>>(new Set());
+  let visibleAuthorLayers = $state<Set<string>>(new Set());
   let communityLevel = $state<string>(String(COMMUNITY_LEAF_LEVEL));
   let status = $state<string>("");
   let graphStats = $state<string>("");
@@ -635,6 +644,7 @@
     search;
     edgeKind;
     visibleEntityTypes;
+    visibleAuthorLayers;
     queueMicrotask(() => scheduleGraphUpdate?.());
   });
 
@@ -1233,9 +1243,10 @@
 
         prunePersistentToSnapshot(vizCtx.snapshot);
 
-        const rawNodes: SimNode[] = vizCtx.snapshot.nodes
-          .filter((n) => n.kind === "Entity")
-          .map((n) => simNodeFromSnapshot(n));
+        const rawNodes: SimNode[] = filterNodesByAuthorLayers(
+          vizCtx.snapshot.nodes.filter((n) => n.kind === "Entity"),
+          visibleAuthorLayers,
+        ).map((n) => simNodeFromSnapshot(n));
         const typeFiltered = filterNodesByEntityTypes(rawNodes, visibleEntityTypes);
         const q = norm(search);
         const nodeMatch = (n: SimNode) =>
@@ -1269,7 +1280,14 @@
         }
         const edgeFilter = (e: (typeof vizCtx.snapshot.edges)[0]) => {
           if (edgeKind !== "all" && e.kind !== edgeKind) return false;
-          return visibleIds.has(e.sourceId) && visibleIds.has(e.targetId);
+          if (!visibleIds.has(e.sourceId) || !visibleIds.has(e.targetId)) return false;
+          if (visibleAuthorLayers.size === 0) return true;
+          if (e.kind === "entity_relation") return true;
+          const a = e.sourceId;
+          const b = e.targetId;
+          const edgeKey = a < b ? `${a}:${b}` : `${b}:${a}`;
+          const layers = vizCtx.coMentionEdgeLayerKeys[edgeKey] ?? [];
+          return layers.some((key) => visibleAuthorLayers.has(key));
         };
         const safeEdges = filterGraphVizEdgesToNodes(
           vizCtx.snapshot.nodes,
@@ -1527,8 +1545,12 @@
               class="pointer-events-none absolute top-10 right-3 left-3 z-10 flex items-start justify-between gap-3 md:top-14"
               aria-label={m.graph_aria_legend_filters()}
             >
-              <div class="w-[min(calc(100vw-1.5rem),11rem)] shrink-0">
+              <div class="flex w-[min(calc(100vw-1.5rem),11rem)] shrink-0 flex-col gap-2">
                 <GraphEntityKindsLegend bind:visibleEntityTypes {legendSections} {graphStats} />
+                <GraphAuthorLayersLegend
+                  bind:visibleAuthorLayers
+                  authorLayers={data.authorLayers ?? []}
+                />
               </div>
               <div
                 class="pointer-events-auto flex shrink-0 flex-col items-end gap-1 overscroll-contain"
@@ -1559,7 +1581,9 @@
             <EmbeddingMap
               visible={activeTab === "embeddings"}
               graphLegendSections={data.graphLegendSections ?? []}
+              authorLayers={data.authorLayers ?? []}
               bind:visibleEntityTypes
+              bind:visibleAuthorLayers
               onSelectItem={handleEmbeddingSelect}
               selectedItemId={selectedNode?.id ?? null}
             />
@@ -1657,6 +1681,14 @@
               <Drawer.Title class="text-foreground truncate text-sm font-semibold">
                 {selectedNode.label || "—"}
               </Drawer.Title>
+              {#if selectedNode.kind === "Thought" && thoughtEditorStored?.author === "agent"}
+                <div class="pt-0.5">
+                  <MemoryAuthorBadge
+                    author={thoughtEditorStored.author}
+                    authorLabel={thoughtEditorStored.authorLabel}
+                  />
+                </div>
+              {/if}
               <dl
                 class="text-muted-foreground grid gap-x-4 gap-y-1 pt-1 font-mono text-[11px] sm:grid-cols-2"
               >
@@ -1853,7 +1885,12 @@
                   <ul class="max-h-48 space-y-2 overflow-y-auto">
                     {#each entityCaptures as cap (cap.id)}
                       <li class="rounded-md border border-black/5 p-2 dark:border-white/10">
-                        <p class="text-foreground line-clamp-2 text-xs">{cap.rawText}</p>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <p class="text-foreground line-clamp-2 flex-1 text-xs">{cap.rawText}</p>
+                          {#if cap.author === "agent"}
+                            <MemoryAuthorBadge author={cap.author} authorLabel={cap.authorLabel} />
+                          {/if}
+                        </div>
                         <div class="mt-2 flex items-center justify-between gap-2">
                           <span class="text-muted-foreground font-mono text-[10px]">
                             {cap.category}

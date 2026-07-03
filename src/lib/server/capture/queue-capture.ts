@@ -3,7 +3,7 @@
  * Tier 2 (background enrich) and tier 3 (overnight consolidation) add vectors, links, and
  * community artifacts on the same row — see docs/planning/ingest-retrieval-timing.md.
  */
-import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { captureSession, thought, type CaptureSource, type EnrichQueueStatus, type MemoryAuthor } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
@@ -230,6 +230,8 @@ export async function countPendingEnrichRows(userId: string): Promise<number> {
 export const STALE_ENRICH_PROCESSING_MAX_AGE_MS = 10 * 60 * 1000;
 
 const STALE_RECOVERY_NOTE = 'Enrichment interrupted before completion (stale processing recovery)';
+const INFLIGHT_RECOVERY_NOTE =
+	'Enrichment interrupted before completion (in-flight processing recovery)';
 
 /**
  * Reset enrich rows left in `processing` after a worker crash or hang.
@@ -271,6 +273,75 @@ export async function recoverStaleEnrichProcessingRows(
 		);
 
 	return stale.length;
+}
+
+/**
+ * Requeue all in-flight `processing` rows when no worker is draining this tenant
+ * (e.g. dev-server restart killed the background task before completion).
+ */
+export async function requeueInFlightProcessingRows(userId: string): Promise<number> {
+	const db = getDb();
+	const inFlight = await db
+		.select({ id: thought.id })
+		.from(thought)
+		.where(and(eq(thought.userId, userId), eq(thought.enrichQueueStatus, 'processing')));
+
+	if (inFlight.length === 0) return 0;
+
+	await db
+		.update(thought)
+		.set({
+			enrichQueueStatus: 'pending' satisfies EnrichQueueStatus,
+			enrichQueueError: INFLIGHT_RECOVERY_NOTE
+		})
+		.where(
+			and(
+				eq(thought.userId, userId),
+				inArray(
+					thought.id,
+					inFlight.map((row) => row.id)
+				)
+			)
+		);
+
+	return inFlight.length;
+}
+
+/**
+ * Mark queue rows complete when enriched_at is already set (worker interrupted after enrich).
+ */
+export async function completeEnrichedQueueRows(userId: string): Promise<number> {
+	const db = getDb();
+	const enriched = await db
+		.select({ id: thought.id })
+		.from(thought)
+		.where(
+			and(
+				eq(thought.userId, userId),
+				inArray(thought.enrichQueueStatus, ['pending', 'processing']),
+				isNotNull(thought.enrichedAt)
+			)
+		);
+
+	if (enriched.length === 0) return 0;
+
+	await db
+		.update(thought)
+		.set({
+			enrichQueueStatus: 'complete' satisfies EnrichQueueStatus,
+			enrichQueueError: null
+		})
+		.where(
+			and(
+				eq(thought.userId, userId),
+				inArray(
+					thought.id,
+					enriched.map((row) => row.id)
+				)
+			)
+		);
+
+	return enriched.length;
 }
 
 /**

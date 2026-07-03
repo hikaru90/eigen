@@ -22,7 +22,8 @@ const {
 	loadTemporalContextByThoughtIdsMock,
 	createTextFileMock,
 	searchTextFilesMock,
-	resolveAuthorFromPrefixMock
+	resolveAuthorFromPrefixMock,
+	resolveMcpCaptureAuthorshipMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
 	composeAnswerMock: vi.fn(),
@@ -35,7 +36,8 @@ const {
 	loadTemporalContextByThoughtIdsMock: vi.fn(),
 	createTextFileMock: vi.fn(),
 	searchTextFilesMock: vi.fn(),
-	resolveAuthorFromPrefixMock: vi.fn()
+	resolveAuthorFromPrefixMock: vi.fn(),
+	resolveMcpCaptureAuthorshipMock: vi.fn()
 }));
 
 vi.mock('$lib/server/memory/temporal-context', () => ({
@@ -89,7 +91,8 @@ vi.mock('$lib/server/memory/authorship', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/server/memory/authorship')>();
 	return {
 		...actual,
-		resolveAuthorFromPrefix: resolveAuthorFromPrefixMock
+		resolveAuthorFromPrefix: resolveAuthorFromPrefixMock,
+		resolveMcpCaptureAuthorship: resolveMcpCaptureAuthorshipMock
 	};
 });
 
@@ -109,6 +112,11 @@ describe('MCP tools', () => {
 		loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map());
 		searchTextFilesMock.mockResolvedValue([]);
 		resolveAuthorFromPrefixMock.mockResolvedValue({
+			author: 'user',
+			authorLabel: null,
+			authorKeyId: null
+		});
+		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
 			author: 'user',
 			authorLabel: null,
 			authorKeyId: null
@@ -152,6 +160,44 @@ describe('MCP tools', () => {
 			thoughtId: 't1',
 			status: 'pending',
 			thought: { id: 't1', normalizedText: 'hi', queueStatus: 'pending' }
+		});
+	});
+
+	it('runCaptureThoughtTool labels agent authorship from MCP Bearer API key', async () => {
+		captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' });
+		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
+			author: 'agent',
+			authorLabel: 'Cursor',
+			authorKeyId: 'key-1'
+		});
+		await runCaptureThoughtTool(
+			{ userId: 'u1', authenticatedApiKey: { id: 'key-1', name: 'Cursor' } },
+			{ raw: 'agent note' }
+		);
+		expect(resolveMcpCaptureAuthorshipMock).toHaveBeenCalledWith({
+			authorPrefix: undefined,
+			asUser: false,
+			authenticatedApiKey: { id: 'key-1', name: 'Cursor' }
+		});
+		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'agent note', {
+			source: 'agent',
+			author: 'agent',
+			authorLabel: 'Cursor',
+			authorKeyId: 'key-1'
+		});
+	});
+
+	it('runCaptureThoughtTool honors as_user on MCP API key auth', async () => {
+		captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' });
+		await runCaptureThoughtTool(
+			{ userId: 'u1', authenticatedApiKey: { id: 'key-1', name: 'Cursor' } },
+			{ raw: 'human note', as_user: true }
+		);
+		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'human note', {
+			source: 'mcp',
+			author: 'user',
+			authorLabel: null,
+			authorKeyId: null
 		});
 	});
 
@@ -390,16 +436,20 @@ describe('MCP tools', () => {
 	});
 
 	it('runCaptureThoughtTool resolves author prefix to agent authorship', async () => {
-		resolveAuthorFromPrefixMock.mockResolvedValue({
+		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
 			author: 'agent',
 			authorLabel: 'cursor',
 			authorKeyId: 'key-1'
 		});
 		captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' });
 		await runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi', author: 'eigen_abcd' });
-		expect(resolveAuthorFromPrefixMock).toHaveBeenCalledWith('eigen_abcd');
+		expect(resolveMcpCaptureAuthorshipMock).toHaveBeenCalledWith({
+			authorPrefix: 'eigen_abcd',
+			asUser: false,
+			authenticatedApiKey: undefined
+		});
 		expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi', {
-			source: 'mcp',
+			source: 'agent',
 			author: 'agent',
 			authorLabel: 'cursor',
 			authorKeyId: 'key-1'
@@ -407,14 +457,16 @@ describe('MCP tools', () => {
 	});
 
 	it('runCaptureThoughtTool rejects unknown author prefix', async () => {
-		resolveAuthorFromPrefixMock.mockRejectedValue(new Error('No API key matches author prefix "bad"'));
+		resolveMcpCaptureAuthorshipMock.mockRejectedValue(
+			new Error('No API key matches author prefix "bad"')
+		);
 		await expect(
 			runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi', author: 'bad' })
 		).rejects.toThrow(/No API key matches/);
 	});
 
 	it('runCreateTextFileTool passes resolved authorship', async () => {
-		resolveAuthorFromPrefixMock.mockResolvedValue({
+		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
 			author: 'agent',
 			authorLabel: 'claude',
 			authorKeyId: 'key-2'

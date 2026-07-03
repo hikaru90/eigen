@@ -1,4 +1,5 @@
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
+import { isEmbeddingItemVisibleByAuthorLayers } from '$lib/graph/graph-author-layers';
 
 export type EmbeddingMapLitePoint = {
 	item: EmbeddingSnapshotItem;
@@ -17,6 +18,7 @@ export type EmbeddingMapLiteHandle = {
 	resize: () => void;
 	setSelectedId: (id: string | null) => void;
 	setVisibleSubtypes: (visibleTypes: ReadonlySet<string>) => void;
+	setVisibleAuthorLayers: (visibleLayers: ReadonlySet<string>) => void;
 	dispose: () => void;
 };
 
@@ -68,6 +70,18 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 	let scale = 1;
 	let selectedId: string | null = null;
 	const visibleFlags = new Uint8Array(points.length).fill(1);
+	let visibleSubtypes = new Set<string>();
+	let visibleAuthorLayers = new Set<string>();
+
+	function recomputeVisibility() {
+		const showAllSubtypes = visibleSubtypes.size === 0;
+		for (let i = 0; i < points.length; i++) {
+			const item = points[i].item;
+			const subtypeOk = showAllSubtypes || visibleSubtypes.has(item.subtype);
+			const authorOk = isEmbeddingItemVisibleByAuthorLayers(item, visibleAuthorLayers);
+			visibleFlags[i] = subtypeOk && authorOk ? 1 : 0;
+		}
+	}
 
 	/** Interaction state */
 	let isDragging = false;
@@ -193,10 +207,14 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 	}
 
 	function setVisibleSubtypes(visibleTypes: ReadonlySet<string>) {
-		const showAll = visibleTypes.size === 0;
-		for (let i = 0; i < points.length; i++) {
-			visibleFlags[i] = showAll || visibleTypes.has(points[i].item.subtype) ? 1 : 0;
-		}
+		visibleSubtypes = new Set(visibleTypes);
+		recomputeVisibility();
+		render();
+	}
+
+	function setVisibleAuthorLayers(visibleLayers: ReadonlySet<string>) {
+		visibleAuthorLayers = new Set(visibleLayers);
+		recomputeVisibility();
 		render();
 	}
 
@@ -282,6 +300,7 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 		resize,
 		setSelectedId,
 		setVisibleSubtypes,
+		setVisibleAuthorLayers,
 		dispose() {
 			canvas.removeEventListener('pointerdown', onPointerDown);
 			canvas.removeEventListener('pointermove', onPointerMove);

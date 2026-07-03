@@ -5,6 +5,10 @@
 	import Mic from '@lucide/svelte/icons/mic';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import { transcribeRecordedAudio, transcribeAudioChunk } from '$lib/capture/transcribe-audio';
+	import {
+		createStreamingSttScheduler,
+		type StreamingSttScheduler
+	} from '$lib/capture/streaming-stt-scheduler';
 
 	let {
 		disabled = false,
@@ -29,12 +33,8 @@
 	/** Mic level 0–1 while recording. */
 	let level = $state(0);
 	let chunks: Blob[] = [];
-	/** Accumulated streaming transcript text. */
-	let streamedTranscript = '';
-	/** True while a chunk transcription is in flight. */
-	let chunkInFlight = false;
-	/** Abort controller for in-flight chunk requests. */
-	let chunkAbort: AbortController | null = null;
+	let recorderMimeType = 'audio/webm';
+	let sttScheduler: StreamingSttScheduler | null = null;
 
 	let audioContext: AudioContext | null = null;
 	let analyser: AnalyserNode | null = null;
@@ -107,38 +107,14 @@
 		stream = null;
 	}
 
-	/**
-	 * Sends a single audio chunk for streaming transcription.
-	 * Non-fatal: errors are logged but do not abort the recording.
-	 */
-	async function sendChunk(chunk: Blob) {
-		if (chunkInFlight) return;
-		chunkInFlight = true;
-		chunkAbort = new AbortController();
-		try {
-			const partial = await transcribeAudioChunk(chunk, {
-				language,
-				signal: chunkAbort.signal
-			});
-			if (partial) {
-				streamedTranscript = streamedTranscript
-					? `${streamedTranscript} ${partial}`
-					: partial;
-				onpartialtranscript?.(streamedTranscript);
-			}
-		} catch (err) {
-			if (err instanceof DOMException && err.name === 'AbortError') return;
-			console.error('streaming chunk failed', err);
-		} finally {
-			chunkInFlight = false;
-			chunkAbort = null;
-		}
-	}
-
 	async function startRecording() {
 		if (!micSupported || busy || disabled) return;
 		chunks = [];
-		streamedTranscript = '';
+		sttScheduler?.reset();
+		sttScheduler = createStreamingSttScheduler({
+			onTranscribe: (blob, signal) => transcribeAudioChunk(blob, { language, signal }),
+			onPartial: (text) => onpartialtranscript?.(text)
+		});
 		try {
 			const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 			stream = mediaStream;
@@ -148,14 +124,14 @@
 				: MediaRecorder.isTypeSupported('audio/webm')
 					? 'audio/webm'
 					: '';
+			recorderMimeType = preferredMime || 'audio/webm';
 			const recorder = preferredMime
 				? new MediaRecorder(mediaStream, { mimeType: preferredMime })
 				: new MediaRecorder(mediaStream);
 			recorder.ondataavailable = (ev) => {
 				if (ev.data.size > 0) {
 					chunks.push(ev.data);
-					// Fire-and-forget streaming transcription for this chunk.
-					void sendChunk(ev.data);
+					sttScheduler?.appendChunk(ev.data, recorderMimeType);
 				}
 			};
 			recorder.onerror = () => {
@@ -186,10 +162,8 @@
 		mediaRecorder = null;
 		stopLevelMeter();
 
-		// Cancel any in-flight chunk request.
-		chunkAbort?.abort();
-		chunkAbort = null;
-		chunkInFlight = false;
+		sttScheduler?.abort();
+		sttScheduler = null;
 
 		const blob = await new Promise<Blob>((resolve, reject) => {
 			recorder.onstop = () => {
@@ -209,14 +183,8 @@
 
 		transcribing = true;
 		try {
-			// If we already have a streamed transcript, use it directly.
-			// Otherwise fall back to the full-blob transcription.
-			if (streamedTranscript.trim()) {
-				ontranscript(streamedTranscript.trim());
-			} else {
-				const transcript = await transcribeRecordedAudio(blob, { language });
-				ontranscript(transcript);
-			}
+			const transcript = await transcribeRecordedAudio(blob, { language });
+			ontranscript(transcript);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Transcription failed';
 			onerror?.(message);
@@ -246,6 +214,8 @@
 				// ignore
 			}
 		}
+		sttScheduler?.abort();
+		sttScheduler = null;
 		releaseStream();
 	});
 </script>

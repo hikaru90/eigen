@@ -14,6 +14,8 @@ export type EmbeddingSnapshotItem = {
 	label: string;
 	subtype: string;
 	embedding: number[];
+	authorLayerKey?: string;
+	authorLayerKeys?: string[];
 };
 
 export type EmbeddingSnapshotResponse = {
@@ -34,13 +36,17 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	const revision = computeEmbeddingSnapshotRevision(embeddingSnapshotMetaFromRows(rows));
-	const items: EmbeddingSnapshotItem[] = rows.map(({ id, kind, label, subtype, embedding }) => ({
-		id,
-		kind,
-		label,
-		subtype,
-		embedding
-	}));
+	const items: EmbeddingSnapshotItem[] = rows.map(
+		({ id, kind, label, subtype, embedding, authorLayerKey, authorLayerKeys }) => ({
+			id,
+			kind,
+			label,
+			subtype,
+			embedding,
+			...(authorLayerKey ? { authorLayerKey } : {}),
+			...(authorLayerKeys ? { authorLayerKeys } : {})
+		})
+	);
 
 	return json({ revision, items } satisfies EmbeddingSnapshotResponse);
 };

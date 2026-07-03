@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-import { m } from '$lib/paraglide/messages.js';
+	import { m } from '$lib/paraglide/messages.js';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import {

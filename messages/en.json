@@ -77,6 +77,8 @@
 	"graph_filter": "Filter",
 	"graph_show_all": "Show all",
 	"graph_aria_entity_type_filter": "Entity type filter",
+	"graph_authors": "Authors",
+	"graph_aria_author_layers": "Author layer filter",
 	"graph_search_nodes": "Search nodes",
 	"graph_search_placeholder": "Filter by label, id, or subtype…",
 	"graph_aria_edge_filter": "Edge type filter",

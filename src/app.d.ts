@@ -9,6 +9,8 @@ declare global {
 		interface Locals {
 			user?: AppUser;
 			session?: Session;
+			/** Set when the request authenticated via Bearer API key (e.g. MCP). */
+			apiKeyAuth?: { id: string; name: string };
 		}
 
 		// interface Error {}

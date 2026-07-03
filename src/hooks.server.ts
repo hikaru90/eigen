@@ -80,12 +80,13 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 		const match = authHeader.match(/^Bearer\s+(eigen_[0-9a-f]+)$/i);
 		if (match) {
 			const hash = hashApiKey(match[1]);
-			const rows = await authSql<Array<{ id: string; user_id: string }>>`
-				SELECT id, user_id FROM resolve_user_api_key(${hash})
+			const rows = await authSql<Array<{ id: string; user_id: string; key_name: string }>>`
+				SELECT id, user_id, key_name FROM public.resolve_user_api_key(${hash})
 			`;
 			if (rows.length > 0) {
 				const row = rows[0];
 				authSql`SELECT touch_user_api_key(${row.id}::uuid)`.catch(() => {/* non-critical */});
+				event.locals.apiKeyAuth = { id: row.id, name: row.key_name };
 				event.locals.user = {
 					id: row.user_id,
 					email: '',

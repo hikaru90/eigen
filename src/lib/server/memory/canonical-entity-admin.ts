@@ -43,6 +43,8 @@ export async function listThoughtsMentioningCanonicalEntity(
 			rawText: thought.rawText,
 			normalizedText: thought.normalizedText,
 			category: thought.category,
+			author: thought.author,
+			authorLabel: thought.authorLabel,
 			metadata: thought.metadata,
 			createdAt: thought.createdAt,
 			updatedAt: thought.updatedAt

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	USER_AUTHORSHIP,
+	authorLayerKeyFromThought,
+	authorshipFromAuthenticatedApiKey,
 	resolveAuthorFromPrefix,
+	resolveMcpCaptureAuthorship,
 	resolveMemoryAuthorship
 } from './authorship';
 
@@ -74,5 +77,84 @@ describe('resolveMemoryAuthorship', () => {
 			authorLabel: 'cursor',
 			authorKeyId: 'a1111111-1111-4111-8111-111111111111'
 		});
+	});
+});
+
+describe('resolveMcpCaptureAuthorship', () => {
+	it('uses Bearer API key identity when no author prefix', async () => {
+		await expect(
+			resolveMcpCaptureAuthorship({
+				authenticatedApiKey: { id: 'key-1', name: 'Cursor' }
+			})
+		).resolves.toEqual({
+			author: 'agent',
+			authorLabel: 'Cursor',
+			authorKeyId: 'key-1'
+		});
+	});
+
+	it('returns user when as_user is true even with API key auth', async () => {
+		await expect(
+			resolveMcpCaptureAuthorship({
+				asUser: true,
+				authenticatedApiKey: { id: 'key-1', name: 'Cursor' }
+			})
+		).resolves.toEqual(USER_AUTHORSHIP);
+	});
+
+	it('prefers explicit author prefix over Bearer key', async () => {
+		mockKeyLookup([{ id: 'key-2', name: 'bob' }]);
+		await expect(
+			resolveMcpCaptureAuthorship({
+				authorPrefix: 'eigen_abcd',
+				authenticatedApiKey: { id: 'key-1', name: 'Cursor' }
+			})
+		).resolves.toEqual({
+			author: 'agent',
+			authorLabel: 'bob',
+			authorKeyId: 'key-2'
+		});
+	});
+});
+
+describe('authorshipFromAuthenticatedApiKey', () => {
+	it('maps key id and name to agent authorship', () => {
+		expect(authorshipFromAuthenticatedApiKey({ id: 'k1', name: 'Cursor' })).toEqual({
+			author: 'agent',
+			authorLabel: 'Cursor',
+			authorKeyId: 'k1'
+		});
+	});
+});
+
+describe('authorLayerKeyFromThought', () => {
+	it('returns user for human authorship', () => {
+		expect(
+			authorLayerKeyFromThought({
+				author: 'user',
+				authorKeyId: null,
+				authorLabel: null
+			})
+		).toBe('user');
+	});
+
+	it('returns apikey id for agent with key', () => {
+		expect(
+			authorLayerKeyFromThought({
+				author: 'agent',
+				authorKeyId: 'key-1',
+				authorLabel: 'Cursor'
+			})
+		).toBe('apikey:key-1');
+	});
+
+	it('falls back to label for legacy agent rows', () => {
+		expect(
+			authorLayerKeyFromThought({
+				author: 'agent',
+				authorKeyId: null,
+				authorLabel: 'Legacy Agent'
+			})
+		).toBe('label:Legacy Agent');
 	});
 });

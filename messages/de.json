@@ -77,6 +77,8 @@
 	"graph_filter": "Filter",
 	"graph_show_all": "Alle anzeigen",
 	"graph_aria_entity_type_filter": "Entitätstyp-Filter",
+	"graph_authors": "Autoren",
+	"graph_aria_author_layers": "Autoren-Ebenen-Filter",
 	"graph_search_nodes": "Knoten suchen",
 	"graph_search_placeholder": "Nach Bezeichnung, Id oder Subtyp filtern…",
 	"graph_aria_edge_filter": "Kantentyp-Filter",

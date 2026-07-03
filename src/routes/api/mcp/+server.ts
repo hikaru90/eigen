@@ -17,7 +17,10 @@ async function handleMcp(event: Parameters<RequestHandler>[0]): Promise<Response
 		enableJsonResponse: true
 	});
 
-	const server = createMcpServer({ userId: user.id });
+	const server = createMcpServer({
+		userId: user.id,
+		authenticatedApiKey: event.locals.apiKeyAuth
+	});
 	await server.connect(transport);
 
 	// Don't close the server — the transport stream lifecycle manages cleanup.

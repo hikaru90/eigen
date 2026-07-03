@@ -8,6 +8,12 @@
 		type GraphLegendSection
 	} from '$lib/graph/graph-ontology-legend';
 	import GraphEntityKindsLegend from './graph-entity-kinds-legend.svelte';
+	import GraphAuthorLayersLegend from './graph-author-layers-legend.svelte';
+	import {
+		filterNodesByAuthorLayers,
+		isEmbeddingItemVisibleByAuthorLayers,
+		type AuthorLayerMeta
+	} from '$lib/graph/graph-author-layers';
 	import { m } from '$lib/paraglide/messages.js';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import {
@@ -21,7 +27,9 @@
 
 	type Props = {
 		graphLegendSections: GraphLegendSection[];
+		authorLayers?: AuthorLayerMeta[];
 		visibleEntityTypes?: Set<string>;
+		visibleAuthorLayers?: Set<string>;
 		/** When false the tab panel is hidden — resize only; projection is prefetched at /memory layout. */
 		visible?: boolean;
 		onSelectItem?: (item: EmbeddingSnapshotItem | null) => void;
@@ -30,7 +38,9 @@
 
 	let {
 		graphLegendSections,
+		authorLayers = [],
 		visibleEntityTypes = $bindable(new Set<string>()),
+		visibleAuthorLayers = $bindable(new Set<string>()),
 		visible = true,
 		onSelectItem,
 		selectedItemId = null
@@ -43,7 +53,10 @@
 
 	const embeddingStats = $derived.by(() => {
 		if (phase.kind !== 'ready' || snapshotItems.length === 0) return '';
-		const filtered = filterNodesByEntityTypes(snapshotItems, visibleEntityTypes);
+		const filtered = filterNodesByAuthorLayers(
+			filterNodesByEntityTypes(snapshotItems, visibleEntityTypes),
+			visibleAuthorLayers
+		);
 		const thoughtCount = filtered.filter((item) => item.kind === 'Thought').length;
 		const entityCount = filtered.filter((item) => item.kind === 'Entity').length;
 		return m.graph_embedding_stats({ thoughts: thoughtCount, entities: entityCount });
@@ -119,6 +132,7 @@
 			}
 			mapHandle.setSelectedId(selectedItemId ?? null);
 			mapHandle.setVisibleSubtypes(visibleEntityTypes);
+			mapHandle.setVisibleAuthorLayers(visibleAuthorLayers);
 
 			const ro = new ResizeObserver(() => {
 				mapHandle?.resize();
@@ -169,6 +183,11 @@
 	$effect(() => {
 		const types = visibleEntityTypes;
 		queueMicrotask(() => mapHandle?.setVisibleSubtypes(types));
+	});
+
+	$effect(() => {
+		const layers = visibleAuthorLayers;
+		queueMicrotask(() => mapHandle?.setVisibleAuthorLayers(layers));
 	});
 
 	function toggleLiteMode() {
@@ -226,13 +245,18 @@
 
 	{#if phase.kind === 'ready' && phase.items.length > 0}
 		<div
-			class="pointer-events-none absolute top-10 left-3 z-20 w-[min(calc(100vw-1.5rem),11rem)] shrink-0 md:top-14"
+			class="pointer-events-none absolute top-10 left-3 z-20 flex w-[min(calc(100vw-1.5rem),11rem)] shrink-0 flex-col gap-2 md:top-14"
 		>
 			<GraphEntityKindsLegend
 				bind:visibleEntityTypes
 				legendSections={graphLegendSections}
 				graphStats={embeddingStats}
 				panelId="embedding-map-legend-panel"
+			/>
+			<GraphAuthorLayersLegend
+				bind:visibleAuthorLayers
+				{authorLayers}
+				panelId="embedding-map-author-layers-panel"
 			/>
 		</div>
 

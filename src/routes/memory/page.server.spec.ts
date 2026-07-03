@@ -6,6 +6,10 @@ const { fetchSnapshotMock, fetchCommunitiesMock } = vi.hoisted(() => ({
 	fetchCommunitiesMock: vi.fn()
 }));
 
+const { loadAuthorLayerGraphDataMock } = vi.hoisted(() => ({
+	loadAuthorLayerGraphDataMock: vi.fn()
+}));
+
 const { getDbMock } = vi.hoisted(() => ({
 	getDbMock: vi.fn()
 }));
@@ -20,6 +24,10 @@ vi.mock('$lib/server/graph/age', () => ({
 
 vi.mock('$lib/server/graph/community-overlays', () => ({
 	fetchGraphCommunityOverlays: fetchCommunitiesMock
+}));
+
+vi.mock('$lib/server/graph/author-layers', () => ({
+	loadAuthorLayerGraphData: loadAuthorLayerGraphDataMock
 }));
 
 vi.mock('$lib/server/ontology-db', () => ({
@@ -43,8 +51,16 @@ describe('memory page server', () => {
 
 	it('returns snapshot for signed-in user', async () => {
 		getDbMock.mockReturnValue({});
-		fetchSnapshotMock.mockResolvedValueOnce({ nodes: [], edges: [] });
+		fetchSnapshotMock.mockResolvedValueOnce({
+			nodes: [{ id: 'e1', kind: 'Entity', label: 'Sam', subtype: 'person' }],
+			edges: []
+		});
 		fetchCommunitiesMock.mockResolvedValueOnce([]);
+		loadAuthorLayerGraphDataMock.mockResolvedValueOnce({
+			authorLayers: [{ key: 'user', label: 'You', kind: 'user' }],
+			entityAuthorLayerKeys: { e1: ['user'] },
+			coMentionEdgeLayerKeys: {}
+		});
 		const data = await load({
 			locals: {
 				user: { id: 'u1', email: 'a@b.c' }
@@ -53,7 +69,8 @@ describe('memory page server', () => {
 		} as never);
 		expect(data).toBeTruthy();
 		if (!data) return;
-		expect(data.snapshot).toEqual({ nodes: [], edges: [] });
+		expect(data.snapshot.nodes[0]?.authorLayerKeys).toEqual(['user']);
+		expect(data.authorLayers).toEqual([{ key: 'user', label: 'You', kind: 'user' }]);
 		expect(data.communities).toEqual([]);
 		expect(Array.isArray(data.graphLegendSections)).toBe(true);
 		expect(fetchSnapshotMock).toHaveBeenCalledWith(

@@ -37,7 +37,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'capture_thought',
 		description:
-			'Capture and store a raw thought (use when the user wants to remember something new). Tier 1: returns immediately after text persist; keyword (full-text) recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links on the same row. Tier 3 (overnight): community summaries and bundles. Use answer_question or retrieve_thoughts for recall.',
+			'Capture and store a raw thought (use when the user wants to remember something new). Tier 1: returns immediately after text persist; keyword (full-text) recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links on the same row. Tier 3 (overnight): community summaries and bundles. Use answer_question or retrieve_thoughts for recall. When called over MCP with Bearer API key auth, the thought is automatically labeled with that key name unless as_user is true.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -46,16 +46,21 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 					type: 'string',
 					description: 'Optional ISO-8601 capture time for backdated memories (temporal anchoring).'
 				},
+				as_user: {
+					type: 'boolean',
+					description:
+						'When true, store as human/user-authored even on MCP API key auth. Default false (agent-labeled with the MCP API key name).'
+				},
 				author: {
 					type: 'string',
 					description:
-						'Optional first ~10 characters of your API key to attribute this memory to that key name; leave empty to store as the user.'
+						'Optional override: first ~10 characters of a different API key prefix to attribute authorship. Usually omitted — MCP Bearer token identity is used automatically.'
 				}
 			},
 			required: ['raw']
 		},
 		agentArgumentSchema:
-			'{"raw": "string (required) — the text to store", "captured_at": "string (optional ISO-8601) — when the memory occurred", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"}',
+			'{"raw": "string (required)", "captured_at": "string (optional ISO-8601)", "as_user": "boolean (optional — true for human capture)", "author": "string (optional — rarely needed; MCP key labels automatically)"}',
 		handler: runCaptureThoughtTool
 	},
 	{

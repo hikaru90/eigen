@@ -7,7 +7,7 @@ import { sendPushToUser } from '$lib/server/push/send';
 import { listPushSubscriptionsForUser } from '$lib/server/push/subscription';
 
 const GROUNDING_CAPTURE_URL = '/capture?grounding=1';
-const NOTIFY_TITLE = 'Help Eigen understand you';
+const NOTIFY_TITLE = 'Improve capture quality';
 
 function truncateBody(text: string, max = 140): string {
 	const trimmed = text.trim();
@@ -36,7 +36,7 @@ export async function maybeNotifyGroundingQuestionPush(
 		const generated = await generateGroundingQuestion(userId);
 		const body =
 			generated?.question.trim() ||
-			'Answer one optional question on Capture to help classification fit you better.';
+			'Answer a quick question on Capture to improve classification.';
 
 		await sendPushToUser(userId, {
 			title: NOTIFY_TITLE,

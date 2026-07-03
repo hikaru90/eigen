@@ -89,7 +89,7 @@
         capturePageview(initialPath);
       }
     }
-    const stopNav = afterNavigate((nav) => {
+    afterNavigate((nav) => {
       const path = normalizePathname(nav.to?.url.pathname ?? page.url.pathname);
       if (!authPaths.has(path)) {
         capturePageview(path);
@@ -152,7 +152,6 @@
     media.addEventListener("change", handleChange);
     window.addEventListener("theme-preference-change", handlePreferenceChange);
     return () => {
-      stopNav();
       media.removeEventListener("change", handleChange);
       window.removeEventListener("theme-preference-change", handlePreferenceChange);
     };

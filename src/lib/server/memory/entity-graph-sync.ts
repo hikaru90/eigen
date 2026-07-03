@@ -27,7 +27,11 @@ import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontol
 import { evaluateHubsForGtdPromotion } from '$lib/server/memory/promote-eligible-project-hubs';
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
-import { authorshipInsertValues, type MemoryAuthorship } from '$lib/server/memory/authorship';
+import {
+	authorshipInsertValues,
+	graphAuthorProperty,
+	type MemoryAuthorship
+} from '$lib/server/memory/authorship';
 
 /**
  * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → AGE graph.
@@ -168,7 +172,8 @@ export async function syncEntityGraphFromThought(input: {
 	await upsertThoughtNode({
 		id: input.thoughtId,
 		userId: input.userId,
-		category: anchorRow.category
+		category: anchorRow.category,
+		author: graphAuthorProperty(thoughtAuthorship)
 	});
 
 	const surfaceToEntityId = new Map<string, string>();

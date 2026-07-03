@@ -41,3 +41,7 @@ Grounding chat exposes only these two tools via `/api/grounding/chat`.
 ## Settings
 
 `/settings/grounding` — view portrait, delete profile (deleting also removes grounding chat sessions). To re-run grounding, delete the profile first, then visit `/grounding`.
+
+## Optional capture questions
+
+Dismissible cards on Capture (every N captures) also write to `user_grounding_profile`. **Question policy** — when to ask, everyday wording, blank-first rules: [`grounding-question-policy.md`](./grounding-question-policy.md).

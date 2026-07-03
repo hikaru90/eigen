@@ -76,49 +76,51 @@ import { logErrorToServer } from '$lib/client-log';
 	type GroundingQuestionPayload = { facetKey: string; question: string } | null;
 	let groundingQuestion = $state<GroundingQuestionPayload>(null);
 	let groundingQuestionDismissed = $state(false);
-	let wasGroundingQuestionEligible = $state(false);
 	let groundingQuestionLoading = $state(false);
 
-	$effect(() => {
-		const eligible = data.groundingQuestionEligible;
-		if (eligible && !wasGroundingQuestionEligible) {
-			groundingQuestionDismissed = false;
-			groundingQuestion = null;
-		}
-		if (!eligible) {
-			groundingQuestion = null;
-		}
-		wasGroundingQuestionEligible = eligible;
-
-		if (!eligible || groundingQuestionDismissed || groundingQuestion || groundingQuestionLoading) {
+	async function fetchGroundingQuestion() {
+		if (!data.groundingQuestionEligible || groundingQuestionDismissed || groundingQuestionLoading) {
 			return;
 		}
-
 		groundingQuestionLoading = true;
-		void (async () => {
-			try {
-				const res = await fetch('/api/grounding/question');
-				if (!res.ok) return;
-				const payload = (await res.json()) as {
-					question?: { facetKey: string; question: string } | null;
-				};
-				if (payload.question?.question) {
-					groundingQuestion = payload.question;
-					if (page.url.searchParams.get('grounding') === '1') {
-						queueMicrotask(() => {
-							document.getElementById('grounding-question')?.scrollIntoView({
-								behavior: 'smooth',
-								block: 'nearest'
-							});
-						});
-					}
-				}
-			} catch {
-				// optional card — ignore fetch errors
-			} finally {
-				groundingQuestionLoading = false;
+		try {
+			const res = await fetch('/api/grounding/question', { cache: 'no-store' });
+			if (!res.ok) return;
+			const payload = (await res.json()) as {
+				question?: { facetKey: string; question: string } | null;
+			};
+			groundingQuestion = payload.question?.question ? payload.question : null;
+			if (groundingQuestion && page.url.searchParams.get('grounding') === '1') {
+				queueMicrotask(() => {
+					document.getElementById('grounding-question')?.scrollIntoView({
+						behavior: 'smooth',
+						block: 'nearest'
+					});
+				});
 			}
-		})();
+		} catch {
+			// optional card — ignore fetch errors
+		} finally {
+			groundingQuestionLoading = false;
+		}
+	}
+
+	onMount(() => {
+		if (data.groundingQuestionEligible && !groundingQuestionDismissed) {
+			groundingQuestion = null;
+			void fetchGroundingQuestion();
+		}
+	});
+
+	$effect(() => {
+		if (!data.groundingQuestionEligible) {
+			groundingQuestion = null;
+			return;
+		}
+		if (groundingQuestionDismissed || groundingQuestion || groundingQuestionLoading) {
+			return;
+		}
+		void fetchGroundingQuestion();
 	});
 	let localWalletCredits = $state(0);
 

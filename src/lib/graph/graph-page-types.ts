@@ -5,6 +5,8 @@ export type GraphThoughtEditorStored = {
 	rawText: string;
 	normalizedText: string;
 	category: string;
+	author?: 'user' | 'agent';
+	authorLabel?: string | null;
 	attachedFiles?: CaptureAttachedFile[];
 };
 
@@ -20,6 +22,8 @@ export type EntityCaptureRow = {
 	rawText: string;
 	normalizedText: string;
 	category: string;
+	author?: 'user' | 'agent';
+	authorLabel?: string | null;
 	metadata?: Record<string, unknown> | null;
 	createdAt: string;
 	attachedFiles?: CaptureAttachedFile[];

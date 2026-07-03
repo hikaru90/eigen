@@ -1,5 +1,4 @@
 <script lang="ts">
-	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -67,58 +66,62 @@
 	}
 </script>
 
-<Card.Root id={cardId} class="shrink-0 border border-border bg-muted/30">
-	<Card.Header class="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
-		<div class="min-w-0 space-y-1">
-			<Card.Title class="text-xs font-medium">Optional — help Eigen understand you</Card.Title>
-			<Card.Description class="text-xs leading-relaxed">{question}</Card.Description>
+<div
+	id={cardId}
+	class="flex shrink-0 flex-col gap-3 overflow-visible bg-white p-4 brightness-105 dark:bg-card"
+>
+	<div class="flex items-start justify-between gap-3">
+		<div class="min-w-0 space-y-2">
+			<p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				Improve capture and answer quality
+			</p>
+			<p class="text-base leading-relaxed text-foreground">{question}</p>
 		</div>
 		<Button
 			type="button"
 			variant="ghost"
 			size="icon"
-			class="size-7 shrink-0"
+			class="size-8 shrink-0 text-black hover:text-black/70 dark:text-foreground dark:hover:text-foreground/70"
 			disabled={loading}
 			onclick={dismiss}
 			aria-label="Dismiss question"
 		>
 			<XIcon class="size-4" />
 		</Button>
-	</Card.Header>
-	<Card.Content class="space-y-2 pt-0">
-		{#if saved}
-			<p class="text-muted-foreground text-sm">Saved — thanks! This helps Eigen understand you.</p>
-		{:else}
-			<Textarea
-				bind:value={answer}
-				placeholder="Your answer (optional)…"
-				class="min-h-[72px] resize-none text-sm"
-				disabled={loading}
-			/>
-			{#if err}
-				<p class="text-destructive text-xs">{err}</p>
-			{/if}
-			<div class="flex justify-end gap-2">
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					class="text-xs"
-					disabled={loading}
-					onclick={dismiss}
-				>
-					Not now
-				</Button>
-				<Button
-					type="button"
-					size="sm"
-					class="text-xs"
-					disabled={!answer.trim() || loading}
-					onclick={submitAnswer}
-				>
-					{loading ? 'Saving…' : 'Save'}
-				</Button>
-			</div>
+	</div>
+
+	{#if saved}
+		<p class="text-muted-foreground text-sm">Saved — thanks.</p>
+	{:else}
+		<Textarea
+			bind:value={answer}
+			placeholder="Your answer…"
+			class="min-h-[80px] resize-none rounded-md border border-border bg-[#FAFAFA] p-3 text-base leading-relaxed dark:bg-muted/40"
+			disabled={loading}
+		/>
+		{#if err}
+			<p class="text-destructive text-sm">{err}</p>
 		{/if}
-	</Card.Content>
-</Card.Root>
+		<div class="flex justify-end gap-2">
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				class="text-sm"
+				disabled={loading}
+				onclick={dismiss}
+			>
+				Not now
+			</Button>
+			<Button
+				type="button"
+				size="sm"
+				class="text-sm"
+				disabled={!answer.trim() || loading}
+				onclick={submitAnswer}
+			>
+				{loading ? 'Saving…' : 'Save'}
+			</Button>
+		</div>
+	{/if}
+</div>

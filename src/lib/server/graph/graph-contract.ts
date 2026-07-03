@@ -7,6 +7,8 @@ export type GraphVizNode = {
 	kind: GraphVizNodeKind;
 	label: string;
 	subtype: string;
+	/** Author filter layers that mention this entity (from entity_resolution_log). */
+	authorLayerKeys?: string[];
 };
 
 export type GraphVizEdgeKind = 'co_mention' | 'entity_relation';

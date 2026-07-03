@@ -4,6 +4,7 @@ import { temporalEvent, thought, type LifecycleStatus } from '$lib/server/db/sch
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age';
+import { graphAuthorProperty } from '$lib/server/memory/authorship';
 import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action';
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import {
@@ -94,10 +95,25 @@ async function applyThoughtGraphForLifecycleStatus(input: {
 		return;
 	}
 
+	const [authorshipRow] = await getDb()
+		.select({
+			author: thought.author,
+			authorLabel: thought.authorLabel,
+			authorKeyId: thought.authorKeyId
+		})
+		.from(thought)
+		.where(and(eq(thought.id, input.thoughtId), eq(thought.userId, input.userId)))
+		.limit(1);
+
 	await upsertThoughtNode({
 		id: input.thoughtId,
 		userId: input.userId,
-		category: input.category
+		category: input.category,
+		author: graphAuthorProperty({
+			author: authorshipRow?.author ?? 'user',
+			authorLabel: authorshipRow?.authorLabel ?? null,
+			authorKeyId: authorshipRow?.authorKeyId ?? null
+		})
 	});
 }
 

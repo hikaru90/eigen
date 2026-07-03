@@ -5,6 +5,7 @@ import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlay
 import { getDb } from '$lib/server/db';
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db';
 import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend';
+import { loadAuthorLayerGraphData } from '$lib/server/graph/author-layers';
 
 export const load: PageServerLoad = async (event) => {
 	if (!event.locals.user) {
@@ -29,17 +30,31 @@ export const load: PageServerLoad = async (event) => {
 			toKindKey: loaded.entityKindsById.get(r.toOntologyEntityKindId)?.key ?? ''
 		}))
 	});
-	const snapshot = await fetchGraphVisualizationSnapshot({
-		userId,
-		nodeLimit: 500,
-		edgeLimit: 1200
-	});
-	const communities = await fetchGraphCommunityOverlays(userId);
+	const [snapshot, communities, authorLayerData] = await Promise.all([
+		fetchGraphVisualizationSnapshot({
+			userId,
+			nodeLimit: 500,
+			edgeLimit: 1200
+		}),
+		fetchGraphCommunityOverlays(userId),
+		loadAuthorLayerGraphData(userId)
+	]);
+
+	const annotatedSnapshot = {
+		...snapshot,
+		nodes: snapshot.nodes.map((node) => ({
+			...node,
+			authorLayerKeys: authorLayerData.entityAuthorLayerKeys[node.id] ?? ['user']
+		}))
+	};
 
 	return {
 		user: event.locals.user,
-		snapshot,
+		snapshot: annotatedSnapshot,
 		graphLegendSections,
-		communities
+		communities,
+		authorLayers: authorLayerData.authorLayers,
+		entityAuthorLayerKeys: authorLayerData.entityAuthorLayerKeys,
+		coMentionEdgeLayerKeys: authorLayerData.coMentionEdgeLayerKeys
 	};
 };

@@ -24,6 +24,8 @@ export const GET: RequestHandler = async (event) => {
 			normalizedText: thought.normalizedText,
 			normalizedTextEncrypted: thought.normalizedTextEncrypted,
 			category: thought.category,
+			author: thought.author,
+			authorLabel: thought.authorLabel,
 			metadata: thought.metadata,
 			metadataEncrypted: thought.metadataEncrypted,
 			updatedAt: thought.updatedAt
@@ -65,6 +67,8 @@ export const GET: RequestHandler = async (event) => {
 		rawText,
 		normalizedText,
 		category: row.category,
+		author: row.author,
+		authorLabel: row.authorLabel,
 		metadata: JSON.parse(metadataJson) as Record<string, unknown>,
 		updatedAt: row.updatedAt,
 		attachedFiles: await listTextFilesForThought(user.id, thoughtId)
