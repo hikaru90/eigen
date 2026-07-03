@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import type { PageData } from './$types';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import AiDateRangePicker from '$lib/components/ai-date-range-picker.svelte';
@@ -8,7 +7,23 @@
 	import { formatActivityCredits } from '$lib/billing/platform-pricing';
 	import ActivitySpendChart from './ActivitySpendChart.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data } = $props();
+
+	// Local state for date range and filter
+	let fromDate = $state<string | null>(data.from);
+	let toDate = $state<string | null>(data.to);
+	let currentFilter = $state(data.filter ?? 'all');
+	let activityData = $state(data);
+
+	// Track which groups are expanded (plain object for Svelte 5 reactivity)
+	let expandedGroups = $state<Record<string, boolean>>({});
+
+	function toggleGroup(groupId: string) {
+		expandedGroups = {
+			...expandedGroups,
+			[groupId]: !expandedGroups[groupId]
+		};
+	}
 
 	function sumTotalUsd(calls: Call[]): string {
 		let total = 0;
@@ -54,8 +69,6 @@
 		return hasAny ? total : null;
 	}
 
-	const currentFilter = $derived(data.filter ?? 'all');
-
 	const timeFmt = new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
 		timeStyle: 'medium'
@@ -70,35 +83,24 @@
 		return String(value);
 	}
 
-	function filterUrl(type: string): string {
-		const url = new URL(page.url);
-		url.searchParams.set('type', type);
-		url.searchParams.delete('page');
-		return url.pathname + url.search;
-	}
-
-	function pageUrl(nextPage: number): string {
-		const url = new URL(page.url);
-		if (nextPage <= 1) {
-			url.searchParams.delete('page');
-		} else {
-			url.searchParams.set('page', String(nextPage));
-		}
-		return url.pathname + url.search;
-	}
-
 	const isGateway = $derived(currentFilter === 'gateway' || currentFilter === 'all');
-	const showOverall = $derived(isGateway && data.overallTotals);
-	const gatewayColspan = 5;
+	const showOverall = $derived(isGateway && activityData.overallTotals);
+	const gatewayColspan = 6;
 
-	type Call = PageData['calls'][number];
+	type Call = typeof activityData.calls[number];
 
 	const grouped = $derived.by(() => {
-		const groups: Array<{ groupId: string | null; calls: Call[]; firstOp: string; groupTotalUsd: string }> = [];
+		const groups: Array<{
+			key: string;
+			groupId: string | null;
+			calls: Call[];
+			firstOp: string;
+			groupTotalUsd: string;
+		}> = [];
 		const groupMap = new Map<string, Call[]>();
 		const order: string[] = [];
 
-		for (const c of data.calls) {
+		for (const c of activityData.calls) {
 			const key = c.groupId ?? `__ungrouped__${c.id}`;
 			let list = groupMap.get(key);
 			if (!list) {
@@ -114,6 +116,7 @@
 			list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 			const groupId = key.startsWith('__ungrouped__') ? null : key;
 			groups.push({
+				key,
 				groupId,
 				calls: list,
 				firstOp: list[0].operation,
@@ -124,10 +127,37 @@
 		return groups;
 	});
 
-	const rangeLabel = $derived(formatDateRange(data.from, data.to));
-	const overallCredits = $derived(formatActivityCredits(data.overallTotals.totalCostUsd));
-	const pageTotalCredits = $derived(formatActivityCredits(data.totals.totalCostUsd));
-	const availableCreditsLabel = $derived(data.walletAvailableCredits.toLocaleString('en-US'));
+	const rangeLabel = $derived(formatDateRange(fromDate, toDate));
+	const overallCredits = $derived(formatActivityCredits(activityData.overallTotals.totalCostUsd));
+	const pageTotalCredits = $derived(formatActivityCredits(activityData.totals.totalCostUsd));
+	const availableCreditsLabel = $derived(activityData.walletAvailableCredits.toLocaleString('en-US'));
+
+	// Fetch data from API when filter or dates change
+	async function fetchData(filter: string, from: string | null, to: string | null) {
+		const params = new URLSearchParams({ type: filter });
+		if (from) params.set('from', from);
+		if (to) params.set('to', to);
+
+		const res = await fetch(`/api/activity?${params}`);
+		if (res.ok) {
+			const json = await res.json();
+			activityData = { ...activityData, ...json };
+			expandedGroups = {};
+		}
+	}
+
+	// Watch for filter changes
+	$effect(() => {
+		const f = currentFilter;
+		const from = fromDate;
+		const to = toDate;
+		fetchData(f, from, to);
+	});
+
+	function filterUrl(type: string): string {
+		currentFilter = type;
+		return '';
+	}
 </script>
 
 <div class="mx-auto max-w-4xl px-5 pb-8 pt-10">
@@ -137,7 +167,7 @@
 
 	<div class="mt-4 flex items-center justify-center gap-1">
 		{#each ['all', 'gateway', 'agent'] as f}
-			<a href={filterUrl(f)}>
+			<button onclick={() => filterUrl(f)}>
 				<Button
 					variant={currentFilter === f ? 'default' : 'outline'}
 					size="xs"
@@ -145,7 +175,7 @@
 				>
 					{f === 'all' ? 'All' : f === 'gateway' ? 'Paid' : 'Free'}
 				</Button>
-			</a>
+			</button>
 		{/each}
 	</div>
 
@@ -163,15 +193,19 @@
 					</div>
 					<div class="flex items-center gap-2">
 						<span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
-						<AiDateRangePicker from={data.from} to={data.to} />
+						<AiDateRangePicker from={fromDate} to={toDate} onChange={(f, t) => { fromDate = f; toDate = t; }} />
 					</div>
 				</div>
 			{/if}
 		</Card.Content>
 	</Card.Root>
 
-	{#if showOverall && data.spendSeries}
-		<ActivitySpendChart buckets={data.spendSeries.buckets} unit={data.spendSeries.unit} />
+	{#if showOverall && activityData.spendSeries}
+		<ActivitySpendChart
+			buckets={activityData.spendSeries.buckets}
+			unit={activityData.spendSeries.unit}
+			totalGroups={activityData.spendSeries.totalGroups}
+		/>
 	{/if}
 
 	<Card.Root
@@ -208,10 +242,26 @@
 					{#each grouped as group}
 						{@const prov = groupProviderLabel(group.calls)}
 						{@const groupLabel = group.firstOp.replace(/\.(success|error)\(.*\)$/, '')}
-						{@const context = group.calls.find(c => c.context)?.context}
+						{@const context = group.calls.find((c) => c.context)?.context}
 						{@const dur = totalDurationMs(group.calls)}
-						<tr class="border-b border-border/60">
-							<td class="p-2 whitespace-nowrap">{formatDate(group.calls[0].createdAt)}</td>
+						{@const isExpanded = !!expandedGroups[group.key]}
+						{@const hasMultipleCalls = group.calls.length > 1}
+
+						<!-- Summary row -->
+						<tr
+							class="border-b border-border/60 {hasMultipleCalls
+								? 'cursor-pointer hover:bg-muted/50'
+								: ''}"
+							onclick={() => hasMultipleCalls && toggleGroup(group.key)}
+						>
+							<td class="p-2 whitespace-nowrap">
+								{#if hasMultipleCalls}
+									<span class="inline-block w-4 text-muted-foreground text-[10px]"
+										>{isExpanded ? '▼' : '▶'}</span
+									>
+								{/if}
+								{formatDate(group.calls[0].createdAt)}
+							</td>
 							<td class="p-2">
 								<span class="inline-flex items-center gap-1">
 									{#if prov.isPaid}
@@ -223,20 +273,79 @@
 								</span>
 							</td>
 							<td class="p-2">
-								<span class="font-mono text-[11px] truncate max-w-[250px] block">{groupLabel}</span>
+								<span class="font-mono text-[11px] truncate max-w-[250px] block"
+									>{groupLabel}</span
+								>
 								{#if context}
-									<span class="text-[10px] text-muted-foreground truncate max-w-[250px] block">{context}</span>
+									<span class="text-[10px] text-muted-foreground truncate max-w-[250px] block"
+										>{context}</span
+									>
+								{/if}
+								{#if hasMultipleCalls}
+									<span class="text-[10px] text-muted-foreground">({group.calls.length} calls)</span
+									>
 								{/if}
 							</td>
 							<td class="p-2 font-mono text-[11px] text-muted-nowrap">{formatDuration(dur)}</td>
 							{#if isGateway}
-								<td class="p-2 font-mono text-[11px] tabular-nums">{formatActivityCredits(group.groupTotalUsd)}</td>
+								<td class="p-2 font-mono text-[11px] tabular-nums"
+									>{formatActivityCredits(group.groupTotalUsd)}</td
+								>
 							{/if}
 						</tr>
+
+						<!-- Expanded detail rows -->
+						{#if isExpanded && hasMultipleCalls}
+							{#each group.calls as call}
+								{@const callProv = groupProviderLabel([call])}
+								<tr class="border-b border-border/30 bg-muted/20">
+									<td class="p-2 pl-8 whitespace-nowrap text-muted-foreground"
+										>{formatDate(call.createdAt)}</td
+									>
+									<td class="p-2 text-muted-foreground">
+										<span class="inline-flex items-center gap-1">
+											{#if callProv.isPaid}
+												<span class="text-destructive">●</span>
+											{:else}
+												<span class="text-green-600">●</span>
+											{/if}
+											{callProv.label}
+										</span>
+									</td>
+									<td class="p-2">
+										<span
+											class="font-mono text-[10px] truncate max-w-[250px] block text-muted-foreground"
+											>{call.operation}</span
+										>
+										{#if call.context}
+											<span
+												class="text-[9px] text-muted-foreground/70 truncate max-w-[250px] block"
+												>{call.context}</span
+											>
+										{/if}
+									</td>
+									<td class="p-2 font-mono text-[11px] text-muted-nowrap"
+										>{formatDuration(call.durationMs)}</td
+									>
+									{#if isGateway}
+										<td class="p-2 font-mono text-[11px] tabular-nums"
+											>{formatActivityCredits(call.totalCostUsd)}</td
+										>
+									{/if}
+								</tr>
+							{/each}
+						{/if}
 					{:else}
 						<tr>
-							<td class="text-muted-foreground p-4 text-xs" colspan={isGateway ? gatewayColspan : 4}>
-								{currentFilter === 'gateway' ? 'No paid gateway calls logged yet.' : currentFilter === 'agent' ? 'No agent tool calls logged yet.' : 'No activity logged yet.'}
+							<td
+								class="text-muted-foreground p-4 text-xs"
+								colspan={isGateway ? gatewayColspan : 5}
+							>
+								{currentFilter === 'gateway'
+									? 'No paid gateway calls logged yet.'
+									: currentFilter === 'agent'
+										? 'No agent tool calls logged yet.'
+										: 'No activity logged yet.'}
 							</td>
 						</tr>
 					{/each}
@@ -244,7 +353,7 @@
 				{#if isGateway}
 					<tfoot class="border-t-2 border-border bg-muted/30">
 						<tr>
-							<td class="p-2 text-right text-xs font-medium" colspan="4">Total (this page)</td>
+							<td class="p-2 text-right text-xs font-medium" colspan="5">Total (this page)</td>
 							<td class="p-2 font-mono text-[11px] tabular-nums">{pageTotalCredits}</td>
 						</tr>
 					</tfoot>
@@ -253,21 +362,29 @@
 		</Card.Content>
 	</Card.Root>
 
-	{#if data.pagination.totalPages > 1}
+	{#if activityData.pagination.totalPages > 1}
 		<div class="mt-4 flex items-center justify-center gap-3">
-			{#if data.pagination.hasPrev}
-				<a href={pageUrl(data.pagination.page - 1)}>
+			{#if activityData.pagination.hasPrev}
+				<button
+					onclick={() => {
+						activityData = { ...activityData, pagination: { ...activityData.pagination, page: activityData.pagination.page - 1 } };
+					}}
+				>
 					<Button variant="outline" size="xs">Previous</Button>
-				</a>
+				</button>
 			{/if}
 			<span class="text-muted-foreground text-xs">
-				Page {data.pagination.page} of {data.pagination.totalPages}
-				({data.pagination.totalCount} entries)
+				Page {activityData.pagination.page} of {activityData.pagination.totalPages}
+				({activityData.pagination.totalCount} entries)
 			</span>
-			{#if data.pagination.hasNext}
-				<a href={pageUrl(data.pagination.page + 1)}>
+			{#if activityData.pagination.hasNext}
+				<button
+					onclick={() => {
+						activityData = { ...activityData, pagination: { ...activityData.pagination, page: activityData.pagination.page + 1 } };
+					}}
+				>
 					<Button variant="outline" size="xs">Next</Button>
-				</a>
+				</button>
 			{/if}
 		</div>
 	{/if}

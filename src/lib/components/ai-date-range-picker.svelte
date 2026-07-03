@@ -1,13 +1,16 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import X from '@lucide/svelte/icons/x';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Button } from '$lib/components/ui/button';
 	import { parseNLDateRange, formatDateParam, formatDateRange } from '$lib/utils/date-utils';
 
-	let { from, to }: { from?: string; to?: string } = $props();
+	let {
+		from,
+		to,
+		onChange
+	}: { from?: string; to?: string; onChange?: (from: string | null, to: string | null) => void } =
+		$props();
 
 	let open = $state(false);
 	let query = $state('');
@@ -15,14 +18,9 @@
 
 	const rangeLabel = $derived(formatDateRange(from, to));
 
-	function applyParams(f?: string, t?: string) {
-		const url = new URL(page.url);
-		if (f) url.searchParams.set('from', f);
-		else url.searchParams.delete('from');
-		if (t) url.searchParams.set('to', t);
-		else url.searchParams.delete('to');
+	function applyDates(f?: string, t?: string) {
 		parseError = '';
-		goto(url.pathname + url.search, { invalidateAll: true });
+		onChange?.(f ?? null, t ?? null);
 	}
 
 	function handleSubmit() {
@@ -33,12 +31,12 @@
 			return;
 		}
 		parseError = '';
-		applyParams(formatDateParam(result.from), formatDateParam(result.to));
+		applyDates(formatDateParam(result.from), formatDateParam(result.to));
 	}
 
 	function preset(expr: string) {
 		const r = parseNLDateRange(expr);
-		if (r) applyParams(formatDateParam(r.from), formatDateParam(r.to));
+		if (r) applyDates(formatDateParam(r.from), formatDateParam(r.to));
 	}
 </script>
 
@@ -57,7 +55,9 @@
 					bind:value={query}
 					placeholder="e.g. last monday to today"
 					class="w-full rounded border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-blue-500"
-					onkeydown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') handleSubmit();
+					}}
 				/>
 				{#if parseError}
 					<p class="mt-1 text-[10px] text-red-500">{parseError}</p>
@@ -67,13 +67,13 @@
 			<div class="flex flex-wrap gap-1">
 				<Button size="xs" variant="outline" onclick={() => preset('last week')}>Last Week</Button>
 				<Button size="xs" variant="outline" onclick={() => preset('last month')}>Last Month</Button>
-				<Button size="xs" variant="outline" onclick={() => applyParams()}>Overall</Button>
+				<Button size="xs" variant="outline" onclick={() => applyDates()}>Overall</Button>
 			</div>
 
 			{#if from || to}
 				<button
 					type="button"
-					onclick={() => applyParams()}
+					onclick={() => applyDates()}
 					class="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 text-[11px] transition-colors"
 				>
 					<X class="size-3" />
