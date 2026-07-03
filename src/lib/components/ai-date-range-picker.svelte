@@ -21,6 +21,7 @@
 	function applyDates(f?: string, t?: string) {
 		parseError = '';
 		onChange?.(f ?? null, t ?? null);
+		open = false;
 	}
 
 	function handleSubmit() {

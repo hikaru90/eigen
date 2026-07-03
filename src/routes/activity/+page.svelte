@@ -133,25 +133,36 @@
 	const availableCreditsLabel = $derived(activityData.walletAvailableCredits.toLocaleString('en-US'));
 
 	// Fetch data from API when filter or dates change
-	async function fetchData(filter: string, from: string | null, to: string | null) {
-		const params = new URLSearchParams({ type: filter });
+	let fetchController: AbortController | null = null;
+
+	async function fetchData(filter: string, from: string | null, to: string | null, page = 1) {
+		// Cancel any in-flight request
+		fetchController?.abort();
+		fetchController = new AbortController();
+
+		const params = new URLSearchParams({ type: filter, page: String(page) });
 		if (from) params.set('from', from);
 		if (to) params.set('to', to);
 
-		const res = await fetch(`/api/activity?${params}`);
-		if (res.ok) {
-			const json = await res.json();
-			activityData = { ...activityData, ...json };
-			expandedGroups = {};
+		try {
+			const res = await fetch(`/api/activity?${params}`, { signal: fetchController.signal });
+			if (res.ok) {
+				const json = await res.json();
+				activityData = { ...activityData, ...json };
+				expandedGroups = {};
+			}
+		} catch (e) {
+			if (e instanceof DOMException && e.name === 'AbortError') return;
+			throw e;
 		}
 	}
 
-	// Watch for filter changes
+	// Watch for filter/date changes - reset to page 1
 	$effect(() => {
 		const f = currentFilter;
 		const from = fromDate;
 		const to = toDate;
-		fetchData(f, from, to);
+		fetchData(f, from, to, 1);
 	});
 
 	function filterUrl(type: string): string {
@@ -357,9 +368,7 @@
 		<div class="mt-4 flex items-center justify-center gap-3">
 			{#if activityData.pagination.hasPrev}
 				<button
-					onclick={() => {
-						activityData = { ...activityData, pagination: { ...activityData.pagination, page: activityData.pagination.page - 1 } };
-					}}
+					onclick={() => fetchData(currentFilter, fromDate, toDate, activityData.pagination.page - 1)}
 				>
 					<Button variant="outline" size="xs">Previous</Button>
 				</button>
@@ -370,9 +379,7 @@
 			</span>
 			{#if activityData.pagination.hasNext}
 				<button
-					onclick={() => {
-						activityData = { ...activityData, pagination: { ...activityData.pagination, page: activityData.pagination.page + 1 } };
-					}}
+					onclick={() => fetchData(currentFilter, fromDate, toDate, activityData.pagination.page + 1)}
 				>
 					<Button variant="outline" size="xs">Next</Button>
 				</button>
