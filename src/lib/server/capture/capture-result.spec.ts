@@ -67,7 +67,9 @@ describe('loadThoughtCaptureResult', () => {
 			memoryType: 'episode',
 			cues: ['header fix'],
 			enrichedAt,
-			enrichQueueStatus: 'complete'
+			enrichQueueStatus: 'complete',
+			author: 'agent',
+			authorLabel: 'cursor'
 		};
 
 		getDbMock.mockReturnValue({
@@ -147,7 +149,9 @@ describe('loadThoughtCaptureResult', () => {
 			gtdProjectLabel: 'Eigen Mesh',
 			gtdIsNextAction: true,
 			queueStatus: 'complete',
-			queueError: null
+			queueError: null,
+			author: 'agent',
+			authorLabel: 'cursor'
 		});
 		expect(result).not.toHaveProperty('embedding');
 	});

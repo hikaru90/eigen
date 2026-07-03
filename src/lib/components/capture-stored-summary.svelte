@@ -10,6 +10,7 @@
 	} from '$lib/capture/capture-indexing-status';
 	import CaptureEntityConnections from '$lib/components/capture-entity-connections.svelte';
 	import CaptureAttachedFiles from '$lib/components/capture-attached-files.svelte';
+	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 
@@ -42,10 +43,14 @@
 	const alternatives = $derived(parseCategoryAlternatives(thought.metadata));
 	const nearDuplicate = $derived(formatNearDuplicate(thought.metadata));
 	const indexingMessage = $derived(captureIndexingDetailMessage(thought));
+	const isAgent = $derived(thought.author === 'agent');
 </script>
 
 {#snippet summaryBody()}
 	<Card.Content class="p-0 space-y-3 text-sm">
+		{#if isAgent && !embedded}
+			<MemoryAuthorBadge author={thought.author} authorLabel={thought.authorLabel} />
+		{/if}
 		<p class="text-card-foreground whitespace-pre-wrap">{thought.normalizedText}</p>
 
 		<div class="space-y-2">

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+	isAgentAuthoredCapture,
+	matchesCaptureAuthorFilter,
+	recentListHasAgentCaptures,
 	recentThoughtPrimaryLabel,
 	recentThoughtSecondaryLabel
 } from './recent-thought-display';
@@ -67,5 +70,34 @@ describe('recentThoughtSecondaryLabel', () => {
 				undefined
 			)
 		).toBe('reference');
+	});
+});
+
+describe('capture author filter', () => {
+	const agentSnippet = {
+		...snippet,
+		id: 'agent-1',
+		author: 'agent' as const,
+		authorLabel: 'cursor'
+	};
+
+	it('detects agent-authored captures', () => {
+		expect(isAgentAuthoredCapture(undefined, agentSnippet)).toBe(true);
+		expect(isAgentAuthoredCapture({ author: 'user' } as CaptureSubmitResult, agentSnippet)).toBe(
+			false
+		);
+	});
+
+	it('filters human vs agent rows', () => {
+		expect(matchesCaptureAuthorFilter('agent', undefined, agentSnippet)).toBe(true);
+		expect(matchesCaptureAuthorFilter('human', undefined, agentSnippet)).toBe(false);
+		expect(matchesCaptureAuthorFilter('all', undefined, agentSnippet)).toBe(true);
+	});
+
+	it('shows filter when any recent row is agent-authored', () => {
+		expect(
+			recentListHasAgentCaptures([snippet, agentSnippet], {})
+		).toBe(true);
+		expect(recentListHasAgentCaptures([snippet], {})).toBe(false);
 	});
 });

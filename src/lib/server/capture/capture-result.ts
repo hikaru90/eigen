@@ -62,7 +62,9 @@ export async function loadThoughtCaptureResult(
 			cues: thought.cues,
 			enrichedAt: thought.enrichedAt,
 			enrichQueueStatus: thought.enrichQueueStatus,
-			enrichQueueError: thought.enrichQueueError
+			enrichQueueError: thought.enrichQueueError,
+			author: thought.author,
+			authorLabel: thought.authorLabel
 		})
 		.from(thought)
 		.where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -188,6 +190,8 @@ export async function loadThoughtCaptureResult(
 		gtdProjectLabel: projectRows[0]?.label ?? null,
 		gtdIsNextAction: nextActionRows.length > 0,
 		queueStatus: row.enrichQueueStatus ?? null,
-		queueError: row.enrichQueueError ?? null
+		queueError: row.enrichQueueError ?? null,
+		author: row.author ?? 'user',
+		authorLabel: row.authorLabel ?? null
 	};
 }

@@ -108,4 +108,25 @@ describe('extractThoughtMetadata', () => {
 			extractThoughtMetadata({ userId: 'u1', normalizedText: 'text' })
 		).rejects.toThrow(/JSON object/);
 	});
+
+	it('places capture text before grounding profile in the prompt', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			makeResponse(JSON.stringify({ memoryType: 'fact', cues: ['standing truth'] }))
+		);
+
+		await extractThoughtMetadata({
+			userId: 'u1',
+			normalizedText: 'Retry verification: MCP Bearer key test',
+			groundingProfile: {
+				narrativeSummary: 'Hermes agent and eigenmesh background.',
+				facets: {}
+			}
+		});
+
+		const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]?.content as string;
+		expect(prompt.indexOf('Retry verification: MCP Bearer key test')).toBeLessThan(
+			prompt.indexOf('Hermes agent')
+		);
+		expect(prompt).toContain('capture text only');
+	});
 });

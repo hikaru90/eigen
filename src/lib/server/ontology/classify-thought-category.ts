@@ -4,7 +4,10 @@ import { getDb } from '$lib/server/db';
 import { thought, userOntology } from '$lib/server/db/schema';
 import { loadOntologyForUser, validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db';
 import { ontologyKindsPromptBlock, parseOntologyProfileJson } from './types';
-import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
+import {
+	capturePrimaryPromptBlock,
+	groundingSupplementaryPromptBlock
+} from '$lib/server/capture/enrichment-prompt-sections';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content';
 import { extractChatContent, userMessage } from './llm-json';
@@ -132,9 +135,15 @@ export async function resolveThoughtCategory(input: {
 		knownEntitiesBlock = `\nKnown entities referenced in this capture:\n${lines.join('\n')}`;
 	}
 
-	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
+	const captureBlock = capturePrimaryPromptBlock({
+		normalizedText: input.normalized,
+		rawText: input.rawText
+	});
+	const groundingBlock = groundingSupplementaryPromptBlock(input.groundingProfile ?? null);
 
 	const prompt = [
+		captureBlock,
+		'',
 		'Return ONLY JSON with keys: "category" (string), "confidence" (number 0.0–1.0), "alternatives" (array of {key, confidence}).',
 		`"category" must be exactly one of these ontology entity kind keys: ${allowedList}.`,
 		'"confidence" is how certain you are about the primary category (1.0 = definitive, 0.0 = pure guess).',
@@ -144,9 +153,7 @@ export async function resolveThoughtCategory(input: {
 		`Kinds:\n${ontologyBlock}`,
 		sessionContextBlock,
 		distributionBlock,
-		knownEntitiesBlock,
-		`\nNormalized text:\n${input.normalized}`,
-		`Original raw text:\n${input.rawText}`
+		knownEntitiesBlock
 	]
 		.filter(Boolean)
 		.join('\n');

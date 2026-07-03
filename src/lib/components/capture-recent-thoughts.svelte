@@ -15,9 +15,16 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import X from '@lucide/svelte/icons/x';
 	import {
+		captureThoughtAuthorship,
+		isAgentAuthoredCapture,
+		matchesCaptureAuthorFilter,
+		recentListHasAgentCaptures,
 		recentThoughtPrimaryLabel,
-		recentThoughtSecondaryLabel
+		recentThoughtSecondaryLabel,
+		type CaptureAuthorFilter
 	} from '$lib/capture/recent-thought-display';
+	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
+	import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte';
 	import {
 		captureIndexingListStatus,
 		captureIndexingRetryEligible
@@ -94,24 +101,24 @@
 		}
 		void (async () => {
 			await onExpand(snippetId);
-			await scrollDetailIntoView(snippetId);
+			await scrollEntryIntoView(snippetId);
 		})();
 	}
 
-	const detailElements = new Map<string, HTMLElement>();
+	const entryElements = new Map<string, HTMLElement>();
 
-	function detailAnchor(node: HTMLElement, thoughtId: string) {
-		detailElements.set(thoughtId, node);
+	function entryAnchor(node: HTMLElement, thoughtId: string) {
+		entryElements.set(thoughtId, node);
 		return {
 			destroy() {
-				detailElements.delete(thoughtId);
+				entryElements.delete(thoughtId);
 			}
 		};
 	}
 
-	async function scrollDetailIntoView(thoughtId: string) {
+	async function scrollEntryIntoView(thoughtId: string) {
 		await tick();
-		detailElements.get(thoughtId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		entryElements.get(thoughtId)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 	}
 
 	function enrichListStatus(
@@ -133,19 +140,78 @@
 		'flex flex-col overflow-visible bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card';
 	const tabTriggerClass =
 		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
+
+	let authorFilter = $state<CaptureAuthorFilter>('all');
+
+	const showAuthorFilter = $derived(recentListHasAgentCaptures(thoughts, thoughtDetails));
+
+	const filteredThoughts = $derived(
+		thoughts.filter((snippet) =>
+			matchesCaptureAuthorFilter(authorFilter, thoughtDetails[snippet.id], snippet)
+		)
+	);
+
+	function recentAuthorFilterClass(active: boolean): string {
+		return `inline-flex items-center gap-1 rounded-none px-0.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
+			active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground'
+		}`;
+	}
 </script>
 
 {#if thoughts.length > 0}
-	<div class="flex flex-col gap-2">
-		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</h2>
-		<div class="flex flex-col gap-2 pr-1">
-			{#each thoughts as snippet (snippet.id)}
+	<div class="flex h-full min-h-0 flex-col overflow-hidden">
+		<div
+			class="relative z-10 shrink-0 bg-background pb-2"
+		>
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</h2>
+				{#if showAuthorFilter}
+					<div
+						class="inline-flex items-center gap-2"
+						role="group"
+						aria-label="Filter recent captures by author"
+					>
+						<button
+							type="button"
+							class={recentAuthorFilterClass(authorFilter === 'all')}
+							onclick={() => (authorFilter = 'all')}
+						>
+							All
+						</button>
+						<button
+							type="button"
+							class={recentAuthorFilterClass(authorFilter === 'human')}
+							onclick={() => (authorFilter = 'human')}
+						>
+							<AuthorLayerIcon kind="user" />
+							You
+						</button>
+						<button
+							type="button"
+							class={recentAuthorFilterClass(authorFilter === 'agent')}
+							onclick={() => (authorFilter = 'agent')}
+						>
+							<AuthorLayerIcon kind="agent" />
+							Agent
+						</button>
+					</div>
+				{/if}
+			</div>
+		</div>
+		<div class="relative min-h-0 flex-1">
+			<div
+				class="absolute inset-0 z-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+			>
+			<div class="flex flex-col gap-2">
+			{#each filteredThoughts as snippet (snippet.id)}
 				{@const detail = thoughtDetails[snippet.id]}
+				{@const authorship = captureThoughtAuthorship(detail, snippet)}
+				{@const isAgent = isAgentAuthoredCapture(detail, snippet)}
 				{@const expanded = expandedId === snippet.id}
 				{@const loadingDetail = loadingDetailId === snippet.id}
 				{@const enrichStatus = enrichListStatus(snippet.id, detail)}
 				{@const secondary = recentThoughtSecondaryLabel(detail, snippet)}
-				<div class="{tabEntryClass} min-w-0">
+				<div class="{tabEntryClass} min-w-0" use:entryAnchor={snippet.id}>
 					<div
 						class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
 					>
@@ -168,12 +234,9 @@
 								/>
 							{/if}
 							<div class="min-w-0 flex-1">
-								{#if expanded}
-									<p class="text-xs font-medium text-muted-foreground">Stored thought</p>
-								{/if}
 								<p
 									class="whitespace-pre-wrap text-sm {expanded
-										? 'mt-0.5 line-clamp-3'
+										? 'line-clamp-3'
 										: 'line-clamp-2'}"
 								>
 									{snippet.normalizedText}
@@ -181,6 +244,9 @@
 								<div
 									class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
 								>
+									{#if isAgent}
+										<MemoryAuthorBadge author={authorship.author} authorLabel={authorship.authorLabel} />
+									{/if}
 									<span class="font-medium text-foreground">
 										{recentThoughtPrimaryLabel(detail, snippet)}
 									</span>
@@ -263,7 +329,6 @@
 					{#if expanded}
 						<div
 							class="space-y-3 border-t border-white/80 px-3 pb-3 pt-2 dark:border-white/20"
-							use:detailAnchor={snippet.id}
 						>
 							{#if loadingDetail || !detail}
 								<p class="text-sm text-muted-foreground">Loading thought details…</p>
@@ -344,6 +409,13 @@
 					{/if}
 				</div>
 			{/each}
+			{#if filteredThoughts.length === 0}
+				<p class="text-xs text-muted-foreground px-1 py-2">
+					No {authorFilter === 'agent' ? 'agent' : 'human'}-authored captures in recent list.
+				</p>
+			{/if}
+			</div>
+			</div>
 		</div>
 	</div>
 {/if}

@@ -4,6 +4,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { filterGraphVizEdgesToNodes } from '$lib/graph/sanitize-viz-snapshot';
 import { getDb } from '$lib/server/db';
+import { rowsFromDbExecute } from '$lib/server/db/execute-rows';
 import { canonicalEntity } from '$lib/server/db/schema';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
@@ -57,9 +58,8 @@ async function fetchCoMentionEdgesFromPostgres(input: {
 		ORDER BY rel_weight DESC
 		LIMIT ${input.limit}
 	`);
-	const rows = (result as { rows?: unknown[] }).rows ?? [];
+	const rows = rowsFromDbExecute<Partial<CoMentionEdgeRow>>(result);
 	return rows
-		.map((row) => row as Partial<CoMentionEdgeRow>)
 		.filter(
 			(row): row is CoMentionEdgeRow =>
 				typeof row.source_id === 'string' &&

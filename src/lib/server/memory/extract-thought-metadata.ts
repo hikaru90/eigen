@@ -2,7 +2,11 @@ import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import type { MemoryType } from '$lib/server/db/brain.schema';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 import { m } from '$lib/paraglide/messages.js';
-import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
+import {
+	CUES_FROM_CAPTURE_RULE,
+	capturePrimaryPromptBlock,
+	groundingSupplementaryPromptBlock
+} from '$lib/server/capture/enrichment-prompt-sections';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 
 const VALID_MEMORY_TYPES: MemoryType[] = [
@@ -53,7 +57,7 @@ function readMemoryTypeRaw(obj: Record<string, unknown>): unknown {
 	return undefined;
 }
 
-function parseMetadataFields(obj: Record<string, unknown>): ThoughtMetadataExtraction {
+export function parseThoughtMetadataFields(obj: Record<string, unknown>): ThoughtMetadataExtraction {
 	const raw = readMemoryTypeRaw(obj);
 	const memoryType = normalizeMemoryType(raw);
 	if (!memoryType) {
@@ -103,7 +107,8 @@ async function extractThoughtMetadataOnce(
 	pass: ExtractThoughtMetadataPass,
 	rejectedMemoryType?: string
 ): Promise<ThoughtMetadataExtraction> {
-	const groundingBlock = groundingProfilePromptBlock(input.groundingProfile ?? null);
+	const captureBlock = capturePrimaryPromptBlock({ normalizedText: input.normalizedText });
+	const groundingBlock = groundingSupplementaryPromptBlock(input.groundingProfile ?? null);
 	const strictRule =
 		pass === 'retry_strict'
 			? [
@@ -116,6 +121,8 @@ async function extractThoughtMetadataOnce(
 			: '';
 
 	const prompt = [
+		captureBlock,
+		'',
 		'Return ONLY JSON with this shape:',
 		'{',
 		`  "memoryType": "${MEMORY_TYPE_KEY_UNION}",`,
@@ -130,11 +137,10 @@ async function extractThoughtMetadataOnce(
 		'  preference — a personal tendency, habit, or like/dislike',
 		'  pattern    — a recurring observation about oneself or a situation',
 		'',
-		'cues — 3 to 5 short search phrases (2–8 words) for how someone might find this note later.',
+		CUES_FROM_CAPTURE_RULE,
 		strictRule,
 		'',
-		groundingBlock,
-		`Note: ${input.normalizedText}`
+		groundingBlock
 	]
 		.filter((line) => line.length > 0)
 		.join('\n');
@@ -156,7 +162,7 @@ async function extractThoughtMetadataOnce(
 	if (!parsed || typeof parsed !== 'object') {
 		throw new Error('extractThoughtMetadata: output must be a JSON object');
 	}
-	return parseMetadataFields(parsed as Record<string, unknown>);
+	return parseThoughtMetadataFields(parsed as Record<string, unknown>);
 }
 
 /**

@@ -200,17 +200,37 @@ describe('enrichThought', () => {
 		expect(syncThoughtNeighborLinksMock).toHaveBeenCalledWith('u1', 't1');
 	});
 
+	it('schedules relation extraction when deferRelations is true', async () => {
+		const db = makeDb();
+		getDbMock.mockReturnValue(db);
+		extractRelationsMock.mockResolvedValue([]);
+
+		await enrichThought('u1', 't1', 'hello world', { deferRelations: true });
+
+		await vi.waitFor(() => {
+			expect(extractRelationsMock).toHaveBeenCalledWith({
+				userId: 'u1',
+				thoughtId: 't1',
+				normalizedText: 'hello world'
+			});
+		});
+		expect(deleteThoughtOutgoingRelatesToEdgesMock).toHaveBeenCalled();
+	});
+
 	it('calls entity graph sync', async () => {
 		const db = makeDb();
 		getDbMock.mockReturnValue(db);
 
 		await enrichThought('u1', 't1', 'hello world', { thoughtEmbedding: [0.1, 0.2] });
 
-		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			thoughtId: 't1',
-			normalizedText: 'hello world'
-		});
+		expect(syncEntityGraphFromThoughtMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: 'u1',
+				thoughtId: 't1',
+				normalizedText: 'hello world',
+				thoughtEmbedding: [0.1, 0.2]
+			})
+		);
 	});
 
 	it('extracts and persists bundled metadata (memory type + cues)', async () => {

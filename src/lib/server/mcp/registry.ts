@@ -37,7 +37,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'capture_thought',
 		description:
-			'Capture and store a raw thought (use when the user wants to remember something new). Tier 1: returns immediately after text persist; keyword (full-text) recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links on the same row. Tier 3 (overnight): community summaries and bundles. Use answer_question or retrieve_thoughts for recall. When called over MCP with Bearer API key auth, the thought is automatically labeled with that key name unless as_user is true.',
+			'Capture and store a raw thought. Tier 1: returns immediately after text persist; keyword recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links. Use answer_question or retrieve_thoughts for recall. MCP Bearer auth: default labels the thought as agent-authored (your API key name). Pass as_user true when the user asked you to remember something for them (their memory, not yours). Omit as_user when storing the agent\'s own observation or note.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -49,7 +49,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 				as_user: {
 					type: 'boolean',
 					description:
-						'When true, store as human/user-authored even on MCP API key auth. Default false (agent-labeled with the MCP API key name).'
+						'When true, store as the human user\'s memory (e.g. they asked you to remember this for them). When false or omitted on MCP API key auth, store as agent-authored with your API key name.'
 				},
 				author: {
 					type: 'string',

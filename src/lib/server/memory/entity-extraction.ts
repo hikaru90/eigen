@@ -9,7 +9,10 @@ import {
 	ENTITY_EXTRACTION_TYPE_GUIDANCE,
 	filterAcceptedEntityMentions
 } from '$lib/server/memory/entity-mention-filter';
-import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block';
+import {
+	capturePrimaryPromptBlock,
+	groundingSupplementaryPromptBlock
+} from '$lib/server/capture/enrichment-prompt-sections';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import {
@@ -396,7 +399,8 @@ async function extractEntityGraphOnce(
 	const keyUnion = [...allowed].sort().join('|');
 
 	const ctx = input.enrichmentContext;
-	const groundingBlock = groundingProfilePromptBlock(
+	const captureBlock = capturePrimaryPromptBlock({ normalizedText: input.normalizedText });
+	const groundingBlock = groundingSupplementaryPromptBlock(
 		ctx?.groundingProfile ?? input.groundingProfile ?? null
 	);
 	const communityBlock = formatCommunityExcerptsForEntityPrompt(ctx?.communityExcerpts ?? []);
@@ -421,6 +425,8 @@ async function extractEntityGraphOnce(
 				: 'Include 0–12 mentions. Omit generic pronouns and vague terms.';
 
 	const prompt = [
+		captureBlock,
+		'',
 		'Return ONLY JSON with this shape:',
 		'{',
 		'  "mentions": [{"surface":"<text as written>","entityType":"<key>","confidence":0.0-1.0}],',
@@ -442,8 +448,7 @@ async function extractEntityGraphOnce(
 		...ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
 		'Catalog:',
 		catalog,
-		minimumRule,
-		`Text:\n${input.normalizedText}`
+		minimumRule
 	]
 		.filter(Boolean)
 		.join('\n');

@@ -5,8 +5,8 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
-import { resolveThoughtCategory } from '$lib/server/ontology';
 import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split';
+import { extractEnrichThoughtBundle } from '$lib/server/capture/enrich-thought-bundle';
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich';
 import {
 	loadEnrichmentContext,
@@ -24,13 +24,15 @@ import {
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
 import {
 	extractEntityGraphBundle,
+	shouldRetryEntityMentionExtraction,
 	type ExtractedEntityMention,
 	type ExtractedEntityTriple
 } from '$lib/server/memory/entity-extraction';
 import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context';
 import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context';
-import { extractThoughtMetadata, type ThoughtMetadataExtraction } from '$lib/server/memory/extract-thought-metadata';
-import { extractTemporalMentions } from '$lib/server/memory/temporal-extraction';
+import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category';
+import type { ThoughtMetadataExtraction } from '$lib/server/memory/extract-thought-metadata';
+import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize';
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 import {
 	markEnrichQueueComplete,
@@ -79,95 +81,80 @@ async function prefetchEnrichExtractions(input: {
 	context: EnrichmentContext;
 	capturedAt: Date;
 }): Promise<{
-	category: Awaited<ReturnType<typeof resolveThoughtCategory>>;
+	category: ResolvedThoughtOntologyKind;
 	embedding: number[];
 	entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
 	entityEnrichmentContext?: EntityGraphEnrichmentContext;
 	metadata: ThoughtMetadataExtraction;
-	temporalMentions: Awaited<ReturnType<typeof extractTemporalMentions>>;
+	temporalMentions: ExtractedTemporalMention[];
 }> {
 	const { context, capturedAt } = input;
 	const userId = context.userId;
-	const { normalizedText, rawText, knownEntities } = context;
+	const { normalizedText } = context;
 
 	const ontologyEntityKinds = context.ontology.entityKinds
 		.filter((k) => k.active && k.kindType === 'entity_type')
 		.map((k) => ({ key: k.key, name: k.name, definition: k.definition }));
 
-	const knownEntityArg =
-		knownEntities.length > 0
-			? knownEntities.map((e) => ({
-					entityId: e.entityId,
-					label: e.label,
-					entityType: e.entityType
-				}))
-			: undefined;
-
 	const anchorTimezone = await getUserPreferredTimezone(userId);
 
-	const categoryInput = {
-		userId,
-		normalized: normalizedText,
-		rawText,
-		knownEntities: knownEntityArg,
-		groundingProfile: context.groundingProfile
-	};
-	const metadataInput = {
-		userId,
-		normalizedText,
-		groundingProfile: context.groundingProfile
-	};
-	const temporalInput = {
-		userId,
-		normalizedText,
-		capturedAt,
-		timezone: anchorTimezone
-	};
+	if (isGraphScaleQuiet()) {
+		console.info('[graph-scale] enrich prefetch: embedding');
+	}
+	const embedding = await createThoughtEmbedding(userId, normalizedText);
 
-	async function extractEntityGraphWithContext(embedding: number[]) {
-		if (ontologyEntityKinds.length === 0) {
-			return { entityGraph: { mentions: [], triples: [] }, entityEnrichmentContext: undefined };
+	let entityEnrichmentContext: EntityGraphEnrichmentContext | undefined;
+	if (ontologyEntityKinds.length > 0) {
+		if (isGraphScaleQuiet()) {
+			console.info('[graph-scale] enrich prefetch: entity context');
 		}
-		const entityEnrichmentContext = await loadEntityGraphEnrichmentContext({
+		entityEnrichmentContext = await loadEntityGraphEnrichmentContext({
 			userId,
 			normalizedText,
 			thoughtEmbedding: embedding,
 			communityExcerpts: context.communityExcerpts,
 			groundingProfile: context.groundingProfile
 		});
-		const entityGraph = await extractEntityGraphBundle({
+	}
+
+	if (isGraphScaleQuiet()) {
+		console.info('[graph-scale] enrich prefetch: enrich_thought_bundle');
+	}
+	const bundle = await extractEnrichThoughtBundle({
+		context,
+		capturedAt,
+		timezone: anchorTimezone,
+		entityEnrichmentContext,
+		ontologyEntityKinds
+	});
+
+	let entityGraph = bundle.entityGraph;
+	if (
+		entityGraph.mentions.length === 0 &&
+		shouldRetryEntityMentionExtraction(normalizedText) &&
+		ontologyEntityKinds.length > 0 &&
+		entityEnrichmentContext
+	) {
+		console.warn('[enrich-queued] bundle returned zero mentions; entity-only fallback', {
+			userId,
+			textLen: normalizedText.trim().length
+		});
+		entityGraph = await extractEntityGraphBundle({
 			userId,
 			normalizedText,
 			ontologyEntityKinds,
 			enrichmentContext: entityEnrichmentContext
 		});
-		return { entityGraph, entityEnrichmentContext };
 	}
 
-	// Graph-scale: one LLM call at a time (enrich concurrency is 1; avoid Promise.all stampede).
-	if (isGraphScaleQuiet()) {
-		console.info('[graph-scale] enrich prefetch: category');
-		const category = await resolveThoughtCategory(categoryInput);
-		console.info('[graph-scale] enrich prefetch: embedding');
-		const embedding = await createThoughtEmbedding(userId, normalizedText);
-		console.info('[graph-scale] enrich prefetch: entities');
-		const { entityGraph, entityEnrichmentContext } = await extractEntityGraphWithContext(embedding);
-		console.info('[graph-scale] enrich prefetch: metadata');
-		const metadata = await extractThoughtMetadata(metadataInput);
-		console.info('[graph-scale] enrich prefetch: temporal');
-		const temporalMentions = await extractTemporalMentions(temporalInput);
-		return { category, embedding, entityGraph, entityEnrichmentContext, metadata, temporalMentions };
-	}
-
-	const [category, embedding, metadata, temporalMentions] = await Promise.all([
-		resolveThoughtCategory(categoryInput),
-		createThoughtEmbedding(userId, normalizedText),
-		extractThoughtMetadata(metadataInput),
-		extractTemporalMentions(temporalInput)
-	]);
-	const { entityGraph, entityEnrichmentContext } = await extractEntityGraphWithContext(embedding);
-
-	return { category, embedding, entityGraph, entityEnrichmentContext, metadata, temporalMentions };
+	return {
+		category: bundle.category,
+		embedding,
+		entityGraph,
+		entityEnrichmentContext,
+		metadata: bundle.metadata,
+		temporalMentions: bundle.temporalMentions
+	};
 }
 
 /**
@@ -271,7 +258,7 @@ export async function enrichQueuedThought(
 				precomputedMetadata: prefetched.metadata,
 				precomputedTemporalMentions: prefetched.temporalMentions,
 				ingestTimer,
-				deferRelations: false
+				deferRelations: true
 			};
 
 			await enrichThought(userId, thoughtId, splitApplied.normalizedText, enrichOpts);

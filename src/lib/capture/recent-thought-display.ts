@@ -1,7 +1,10 @@
 import type {
+	CaptureMemoryAuthor,
 	CaptureRecentThoughtSnippet,
 	CaptureSubmitResult
 } from '$lib/capture/capture-result-types';
+
+export type CaptureAuthorFilter = 'all' | 'human' | 'agent';
 
 /** Matches queueCapture placeholder until tier-2 classify runs. */
 export const CAPTURE_QUEUE_PLACEHOLDER_CATEGORY = 'observation';
@@ -57,4 +60,40 @@ export function recentThoughtSecondaryLabel(
 	if (row.category === CAPTURE_QUEUE_PLACEHOLDER_CATEGORY) return null;
 	if (row.category === row.memoryType) return null;
 	return row.category;
+}
+
+export function captureThoughtAuthorship(
+	detail: CaptureSubmitResult | undefined,
+	snippet: CaptureRecentThoughtSnippet | undefined
+): { author: CaptureMemoryAuthor; authorLabel: string | null } {
+	return {
+		author: detail?.author ?? snippet?.author ?? 'user',
+		authorLabel: detail?.authorLabel ?? snippet?.authorLabel ?? null
+	};
+}
+
+export function isAgentAuthoredCapture(
+	detail: CaptureSubmitResult | undefined,
+	snippet: CaptureRecentThoughtSnippet | undefined
+): boolean {
+	return captureThoughtAuthorship(detail, snippet).author === 'agent';
+}
+
+export function matchesCaptureAuthorFilter(
+	filter: CaptureAuthorFilter,
+	detail: CaptureSubmitResult | undefined,
+	snippet: CaptureRecentThoughtSnippet | undefined
+): boolean {
+	if (filter === 'all') return true;
+	const isAgent = isAgentAuthoredCapture(detail, snippet);
+	return filter === 'agent' ? isAgent : !isAgent;
+}
+
+export function recentListHasAgentCaptures(
+	thoughts: CaptureRecentThoughtSnippet[],
+	thoughtDetails: Record<string, CaptureSubmitResult>
+): boolean {
+	return thoughts.some((snippet) =>
+		isAgentAuthoredCapture(thoughtDetails[snippet.id], snippet)
+	);
 }

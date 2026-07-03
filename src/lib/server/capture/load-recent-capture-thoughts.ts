@@ -30,7 +30,9 @@ export async function loadRecentCaptureThoughts(
 			normalizedText: row.normalizedText,
 			category: row.category,
 			memoryType: row.memoryType,
-			createdAt: row.createdAt.toISOString()
+			createdAt: row.createdAt.toISOString(),
+			author: row.author ?? 'user',
+			authorLabel: row.authorLabel ?? null
 		})),
 		recentThoughtDetails
 	};

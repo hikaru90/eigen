@@ -25,12 +25,16 @@ export type CaptureAttachedFile = {
 	updatedAt: string;
 };
 
+export type CaptureMemoryAuthor = 'user' | 'agent';
+
 export type CaptureRecentThoughtSnippet = {
 	id: string;
 	normalizedText: string;
 	category: string;
 	memoryType: string | null;
 	createdAt: string;
+	author?: CaptureMemoryAuthor;
+	authorLabel?: string | null;
 };
 
 export type CaptureSubmitResult = {
@@ -52,4 +56,6 @@ export type CaptureSubmitResult = {
 	queueStatus: 'pending' | 'processing' | 'complete' | 'failed' | null;
 	/** Present when queueStatus is failed or after stale recovery. */
 	queueError?: string | null;
+	author?: CaptureMemoryAuthor;
+	authorLabel?: string | null;
 };

@@ -593,7 +593,7 @@ import { logErrorToServer } from '$lib/client-log';
 </script>
 
 <div class="fixed inset-x-0 top-20 bottom-0 z-0 mx-auto flex max-w-xl flex-col overflow-hidden">
-	<div class="shrink-0 space-y-4 px-5">
+	<div class="relative z-10 shrink-0 space-y-4 bg-background px-5">
 		{#if groundingQuestion && !groundingQuestionDismissed}
 			<GroundingQuestionCard
 				facetKey={groundingQuestion.facetKey}
@@ -674,58 +674,56 @@ import { logErrorToServer } from '$lib/client-log';
 		</Card.Root>
 	</div>
 
-	<div class="relative min-h-0 flex-1">
-		<div class="absolute inset-0 overflow-y-auto px-5">
-			<section class="flex flex-col gap-4 pt-6 pb-28">
-				<CaptureRecentThoughts
-					thoughts={recentThoughts}
-					{thoughtDetails}
-					enrichingThoughtIds={enrichingThoughtIds}
-					expandedId={expandedThoughtId}
-					editingId={editingThoughtId}
-					{editRequest}
-					{editLoading}
-					deletingId={deletingThoughtId}
-					retryingId={retryingThoughtId}
-					loadingDetailId={loadingDetailId}
-					editProgressEvents={progressEvents.map((row) => row.event)}
-					pipeline={CAPTURE_PIPELINE}
-					onExpand={expandThought}
-					onCollapse={collapseThought}
-					onEdit={(id) => void toggleThoughtEdit(id)}
-					onDelete={openDeleteDialog}
-					onAttach={openAttachDialog}
-					onUnlinkFile={(thoughtId, fileId) => void unlinkAttachedFile(thoughtId, fileId)}
-					onNoteUpdated={(thoughtId) => refreshThoughtDetail(thoughtId)}
-					onRetry={(id) => void retryEnrichThought(id)}
-					onEditRequestChange={(value) => {
-						editRequest = value;
-					}}
-					onSubmitEdit={submitEditRequest}
-					onCancelEdit={() => editAbortController?.abort()}
-				/>
-
-				{#if queueActive}
-					<div class="space-y-2">
-						<CaptureQueueList
-							items={queueItems}
-							processingId={processingCaptureId}
-							events={progressEvents}
-							pipeline={CAPTURE_FAST_PIPELINE}
-							startMs={captureStartMs}
-							oncancel={(id) => void cancelQueuedItem(id)}
-						/>
-						{#if offline && pendingCount > 0 && !loading}
-							<p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
-						{/if}
-					</div>
-				{/if}
-
-				{#if err}
-					<p class="text-destructive text-sm">{err}</p>
-				{/if}
-			</section>
+	<div class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-6 pb-20">
+		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+			<CaptureRecentThoughts
+			thoughts={recentThoughts}
+			{thoughtDetails}
+			enrichingThoughtIds={enrichingThoughtIds}
+			expandedId={expandedThoughtId}
+			editingId={editingThoughtId}
+			{editRequest}
+			{editLoading}
+			deletingId={deletingThoughtId}
+			retryingId={retryingThoughtId}
+			loadingDetailId={loadingDetailId}
+			editProgressEvents={progressEvents.map((row) => row.event)}
+			pipeline={CAPTURE_PIPELINE}
+			onExpand={expandThought}
+			onCollapse={collapseThought}
+			onEdit={(id) => void toggleThoughtEdit(id)}
+			onDelete={openDeleteDialog}
+			onAttach={openAttachDialog}
+			onUnlinkFile={(thoughtId, fileId) => void unlinkAttachedFile(thoughtId, fileId)}
+			onNoteUpdated={(thoughtId) => refreshThoughtDetail(thoughtId)}
+			onRetry={(id) => void retryEnrichThought(id)}
+			onEditRequestChange={(value) => {
+				editRequest = value;
+			}}
+			onSubmitEdit={submitEditRequest}
+			onCancelEdit={() => editAbortController?.abort()}
+			/>
 		</div>
+
+		{#if queueActive}
+			<div class="shrink-0 space-y-2">
+				<CaptureQueueList
+					items={queueItems}
+					processingId={processingCaptureId}
+					events={progressEvents}
+					pipeline={CAPTURE_FAST_PIPELINE}
+					startMs={captureStartMs}
+					oncancel={(id) => void cancelQueuedItem(id)}
+				/>
+				{#if offline && pendingCount > 0 && !loading}
+					<p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
+				{/if}
+			</div>
+		{/if}
+
+		{#if err}
+			<p class="shrink-0 text-destructive text-sm">{err}</p>
+		{/if}
 	</div>
 </div>
 

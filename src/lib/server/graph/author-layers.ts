@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { rowsFromDbExecute } from '$lib/server/db/execute-rows';
 import {
 	authorLayerKeyFromThought,
 	listAuthorLayersForUser,
@@ -66,7 +67,7 @@ export async function buildEntityAuthorLayerIndex(
 	`);
 
 	const index = new Map<string, Set<string>>();
-	const rows = (result as { rows?: EntityLayerRow[] }).rows ?? [];
+	const rows = rowsFromDbExecute<EntityLayerRow>(result);
 	for (const row of rows) {
 		if (!row.entity_id) continue;
 		addToIndex(index, row.entity_id, layerKeyFromRow(row));
@@ -100,7 +101,7 @@ export async function buildCoMentionEdgeLayerIndex(
 	`);
 
 	const index = new Map<string, Set<string>>();
-	const rows = (result as { rows?: CoMentionLayerRow[] }).rows ?? [];
+	const rows = rowsFromDbExecute<CoMentionLayerRow>(result);
 	for (const row of rows) {
 		if (!row.source_id || !row.target_id) continue;
 		const edgeKey = `${row.source_id}:${row.target_id}`;

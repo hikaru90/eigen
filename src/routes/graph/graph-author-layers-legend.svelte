@@ -1,8 +1,14 @@
 <script lang="ts">
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
+	import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte';
 	import { graphFilterGlassPanelClass } from '$lib/graph/graph-filter-chrome';
 	import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers';
+	import {
+		authorAgentLegendIconFrameClass,
+		authorLegendItemClassForLayer,
+		authorLegendItemStateClass
+	} from '$lib/memory/author-layer-chrome';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
@@ -92,23 +98,21 @@
 							<li class="min-w-0">
 								<button
 									type="button"
-									class="border-border/60 bg-muted/25 text-foreground hover:bg-muted/40 focus-visible:ring-ring/50 inline-flex w-full min-w-0 items-center gap-1.5 rounded border px-1 py-1 text-left transition-colors focus-visible:ring-1 focus-visible:outline-none {filterActive &&
-									!isSelected
-										? 'opacity-40'
-										: ''} {isSelected
-										? 'border-black text-black dark:border-white dark:text-white'
-										: ''}"
+									class="{authorLegendItemClassForLayer(layer.kind)} {authorLegendItemStateClass({
+										filterActive,
+										isSelected
+									})}"
 									title={layer.label}
 									aria-pressed={filterActive ? isSelected : false}
 									onclick={() => toggleAuthorLayer(layer.key)}
 								>
-									<span
-										class="size-2.5 shrink-0 rounded-full ring-1 ring-border/60 {layer.kind ===
-										'agent'
-											? 'bg-fuchsia-500/80'
-											: 'bg-primary/80'}"
-										aria-hidden="true"
-									></span>
+									{#if layer.kind === 'agent'}
+										<span class={authorAgentLegendIconFrameClass} aria-hidden="true">
+											<AuthorLayerIcon kind="agent" size="md" />
+										</span>
+									{:else}
+										<AuthorLayerIcon kind={layer.kind} size="md" />
+									{/if}
 									<span class="truncate font-medium">{layer.label}</span>
 								</button>
 							</li>

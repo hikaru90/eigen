@@ -78,7 +78,8 @@ flowchart TD
 | `accounting` | `assertCapturePipelineAffordable` | — | Billing gate |
 | `normalize` | Trim / collapse whitespace | — | Normalized text + metadata |
 | `load_entity_hints` | Lexical + graph entity hints for classify/extract | — | Hint list (in-memory) |
-| `classify_category` | `resolveThoughtCategory` | **1× chat** | Category, confidence, alternatives |
+| `prefetch_enrich_llm` | `extractEnrichThoughtBundle` (queued enrich) | **1× chat** (`enrich_thought_bundle`) | Category, memory type, cues, temporal[], mentions[], triples[] |
+| `classify_category` | `resolveThoughtCategory` (legacy / non-queue paths) | **1× chat** | Category, confidence, alternatives |
 | `embedding` | `createThoughtEmbedding` | **1× embedding** | 1536-dim vector |
 | `persist_session_encrypt` | Tenant encrypt raw/normalized | — | Ciphertext blobs |
 | `persist_dedup` | Insert `capture_session` + near-dup ANN check | — | `capture_session` |
@@ -91,26 +92,30 @@ flowchart TD
 | `materialize_links` | Precompute retrieval link tables | — | `thought_entity`, `thought_neighbor`, `rerank_snippet`, … |
 | `mark_enriched` | Set `enriched_at` | — | Timestamp |
 | `ontology_eval` | Every **10th** thought: refresh ontology profile | **0–1× chat** | `user_ontology.profile` |
-| `relations_extract` | `extractRelations` (includes nested `searchThoughts`) | **0–1× rerank** + **0–1× chat** | Candidate relations |
+| `relations_extract` | `extractRelations` via `scheduleRelationEnrichment` when deferred | **0–1× rerank** + **0–1× chat** (async after `enriched_at`) | Candidate relations |
 | `relations_persist` | Postgres + AGE relation edges + neighbors | — | `thought_relation`, AGE edges |
 | `enrich_relations` | Wrapper for relations block | — | — |
 | `load_result` | `loadThoughtCaptureResult` | — | `CaptureSubmitResult` to caller |
 
 Classify and embed are **sequential** (same per-user LLM queue).
 
-### Typical LLM budget per capture
+### Typical LLM budget per capture (queued enrich)
 
 | Call | Count (typical) |
 |------|-----------------|
-| Category classify | 1 |
+| Content split | 1 |
+| Enrich thought bundle | 1 (category + metadata + temporal + entities) |
+| Entity graph fallback | 0–1 (when bundle returns zero mentions on substantive text) |
 | Thought embed | 1 |
-| Entity graph bundle | 1 (up to 3 on retry) |
-| Metadata (type + cues) | 1 |
-| Temporal extract | 0–1 |
 | Entity resolution embed | 0–N (per new ambiguous entity) |
-| Nested retrieval rerank (relations) | 0–1 |
-| Relation classify | 0–1 |
+| Project detection | 1 |
+| Nested retrieval rerank (relations, deferred) | 0–1 |
+| Relation classify (deferred) | 0–1 |
 | Ontology refresh | 0–1 (every 10th thought) |
+
+Legacy inline path (eval / `awaitEnrichment` without bundle) may still use separate category, metadata, temporal, and entity chat calls.
+
+### Typical LLM budget per capture (legacy inline)
 
 **Typical: ~5–6 chats + 1 embedding.** Worst case with retries, many new entities, relations, and ontology eval: **9+ chats**.
 

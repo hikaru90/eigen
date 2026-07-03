@@ -1,4 +1,7 @@
 <script lang="ts">
+	import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte';
+	import { authorAgentChipClass } from '$lib/memory/author-layer-chrome';
+
 	let {
 		author = 'user',
 		authorLabel
@@ -6,13 +9,16 @@
 		author?: 'user' | 'agent';
 		authorLabel?: string | null;
 	} = $props();
+
+	const title = $derived(
+		authorLabel ? `Captured by agent · ${authorLabel}` : 'Captured by an agent'
+	);
+	const label = $derived(authorLabel?.trim() || 'Agent');
 </script>
 
 {#if author === 'agent'}
-	<span
-		class="inline-flex items-center rounded-sm bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 dark:bg-violet-950/50 dark:text-violet-200"
-		title={authorLabel ? `Written by ${authorLabel}` : 'Written by an agent'}
-	>
-		AI{authorLabel ? ` · ${authorLabel}` : ''}
+	<span class={authorAgentChipClass} {title}>
+		<AuthorLayerIcon kind="agent" />
+		<span class="truncate">{label}</span>
 	</span>
 {/if}
