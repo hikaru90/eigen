@@ -12,22 +12,13 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		user: event.locals.user,
 		walletAvailableCredits: wallet.availableCredits,
-		// Initial data will be fetched client-side via API
 		calls: [],
 		groups: undefined,
 		totals: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' },
 		overallTotals: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' },
 		spendSeries: null,
-		filter: 'all',
 		from: null,
 		to: null,
-		pagination: {
-			page: 1,
-			pageSize: 20,
-			totalCount: 0,
-			totalPages: 1,
-			hasPrev: false,
-			hasNext: false
-		}
+		pagination: { page: 1, pageSize: 20, totalCount: 0, totalPages: 1, hasPrev: false, hasNext: false }
 	};
 };

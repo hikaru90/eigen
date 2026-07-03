@@ -29,21 +29,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
 
-	const filter = (url.searchParams.get('type') ?? 'all') as 'all' | 'gateway' | 'agent';
 	const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10));
 	const fromParam = url.searchParams.get('from');
 	const toParam = url.searchParams.get('to');
 
 	const gatewayProviders = inArray(activityCallLog.provider, [...ACTIVITY_PAGE_LLM_PROVIDERS]);
 
-	const conditions = [eq(activityCallLog.userId, locals.user.id)];
-	if (filter === 'all') {
-		conditions.push(or(gatewayProviders, eq(activityCallLog.provider, AGENT_TOOL_ACTIVITY_PROVIDER)));
-	} else if (filter === 'gateway') {
-		conditions.push(gatewayProviders);
-	} else if (filter === 'agent') {
-		conditions.push(eq(activityCallLog.provider, AGENT_TOOL_ACTIVITY_PROVIDER));
-	}
+	const conditions = [
+		eq(activityCallLog.userId, locals.user.id),
+		or(gatewayProviders, eq(activityCallLog.provider, AGENT_TOOL_ACTIVITY_PROVIDER))
+	];
 
 	const fromDate = fromParam ? new Date(fromParam) : null;
 	const toDate = toParam ? new Date(toParam) : null;
@@ -58,7 +53,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const whereClause = and(...conditions);
 	const db = getDb();
 
-	// Get distinct groups with their earliest timestamp
 	const distinctGroups = await db
 		.select({
 			groupId: activityCallLog.groupId,
@@ -78,64 +72,49 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const pageGroupEntries = distinctGroups.slice(startIdx, endIdx);
 
 	if (pageGroupEntries.length === 0) {
-		const isGatewayFilter = filter === 'all' || filter === 'gateway';
-		const spendSeries = isGatewayFilter
-			? await loadActivitySpendSeries(db, {
-					userId: locals.user.id,
-					from: fromDate,
-					to: toDate,
-					totalGroups: 0
-				})
-			: null;
+		const spendSeries = await loadActivitySpendSeries(db, {
+			userId: locals.user.id,
+			from: fromDate,
+			to: toDate,
+			totalGroups: 0
+		});
 
-		const overallTotals = isGatewayFilter
-			? await db
-					.select({
-						baseCostUsd: sql<string>`coalesce(sum(${activityCallLog.baseCostUsd}::numeric), 0)`,
-						markupUsd: sql<string>`coalesce(sum(${activityCallLog.markupUsd}::numeric), 0)`,
-						totalCostUsd: sql<string>`coalesce(sum(${activityCallLog.totalCostUsd}::numeric), 0)`
-					})
-					.from(activityCallLog)
-					.where(
-						and(
-							eq(activityCallLog.userId, locals.user.id),
-							gatewayProviders,
-							sql`${activityCallLog.totalCostUsd}::numeric > 0`,
-							...(fromDate && !Number.isNaN(fromDate.getTime()) ? [gte(activityCallLog.createdAt, fromDate)] : []),
-							...(toDate && !Number.isNaN(toDate.getTime()) ? [lte(activityCallLog.createdAt, toDate)] : [])
-						)
-					)
-					.then((r) => {
-						const row = r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
-						return {
-							baseCostUsd: Number(row.baseCostUsd).toFixed(6),
-							markupUsd: Number(row.markupUsd).toFixed(6),
-							totalCostUsd: Number(row.totalCostUsd).toFixed(6)
-						};
-					})
-			: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' };
+		const overallTotals = await db
+			.select({
+				baseCostUsd: sql<string>`coalesce(sum(${activityCallLog.baseCostUsd}::numeric), 0)`,
+				markupUsd: sql<string>`coalesce(sum(${activityCallLog.markupUsd}::numeric), 0)`,
+				totalCostUsd: sql<string>`coalesce(sum(${activityCallLog.totalCostUsd}::numeric), 0)`
+			})
+			.from(activityCallLog)
+			.where(
+				and(
+					eq(activityCallLog.userId, locals.user.id),
+					gatewayProviders,
+					sql`${activityCallLog.totalCostUsd}::numeric > 0`,
+					...(fromDate && !Number.isNaN(fromDate.getTime()) ? [gte(activityCallLog.createdAt, fromDate)] : []),
+					...(toDate && !Number.isNaN(toDate.getTime()) ? [lte(activityCallLog.createdAt, toDate)] : [])
+				)
+			)
+			.then((r) => {
+				const row = r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
+				return {
+					baseCostUsd: Number(row.baseCostUsd).toFixed(6),
+					markupUsd: Number(row.markupUsd).toFixed(6),
+					totalCostUsd: Number(row.totalCostUsd).toFixed(6)
+				};
+			});
 
 		return json({
 			calls: [],
 			totals: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' },
 			overallTotals,
 			spendSeries,
-			pagination: {
-				page: safePage,
-				pageSize: PAGE_SIZE,
-				totalCount: totalGroups,
-				totalPages,
-				hasPrev: safePage > 1,
-				hasNext: safePage < totalPages
-			}
+			pagination: { page: safePage, pageSize: PAGE_SIZE, totalCount: totalGroups, totalPages, hasPrev: safePage > 1, hasNext: safePage < totalPages }
 		});
 	}
 
-	// Fetch calls for groups on this page
 	const nullGroupEntries = pageGroupEntries.filter((g) => g.groupId === null);
-	const nonNullGroupIds = pageGroupEntries
-		.map((g) => g.groupId)
-		.filter((id): id is string => id !== null);
+	const nonNullGroupIds = pageGroupEntries.map((g) => g.groupId).filter((id): id is string => id !== null);
 
 	const groupConditions: ReturnType<typeof sql>[] = [];
 	if (nonNullGroupIds.length > 0) {
@@ -143,12 +122,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	}
 	if (nullGroupEntries.length > 0) {
 		for (const entry of nullGroupEntries) {
-			groupConditions.push(
-				and(
-					isNull(activityCallLog.groupId),
-					eq(activityCallLog.createdAt, entry.minCreatedAt)
-				)
-			);
+			groupConditions.push(and(isNull(activityCallLog.groupId), eq(activityCallLog.createdAt, entry.minCreatedAt)));
 		}
 	}
 
@@ -158,57 +132,45 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		.where(and(whereClause, or(...groupConditions)))
 		.orderBy(desc(activityCallLog.createdAt));
 
-	const isGatewayFilter = filter === 'all' || filter === 'gateway';
 	const totals = sumUsd(rows);
 
-	const spendSeries = isGatewayFilter
-		? await loadActivitySpendSeries(db, {
-				userId: locals.user.id,
-				from: fromDate,
-				to: toDate,
-				totalGroups
-			})
-		: null;
+	const spendSeries = await loadActivitySpendSeries(db, {
+		userId: locals.user.id,
+		from: fromDate,
+		to: toDate,
+		totalGroups
+	});
 
-	const overallTotals = isGatewayFilter
-		? await db
-				.select({
-					baseCostUsd: sql<string>`coalesce(sum(${activityCallLog.baseCostUsd}::numeric), 0)`,
-					markupUsd: sql<string>`coalesce(sum(${activityCallLog.markupUsd}::numeric), 0)`,
-					totalCostUsd: sql<string>`coalesce(sum(${activityCallLog.totalCostUsd}::numeric), 0)`
-				})
-				.from(activityCallLog)
-				.where(
-					and(
-						eq(activityCallLog.userId, locals.user.id),
-						gatewayProviders,
-						sql`${activityCallLog.totalCostUsd}::numeric > 0`,
-						...(fromDate && !Number.isNaN(fromDate.getTime()) ? [gte(activityCallLog.createdAt, fromDate)] : []),
-						...(toDate && !Number.isNaN(toDate.getTime()) ? [lte(activityCallLog.createdAt, toDate)] : [])
-					)
-				)
-				.then((r) => {
-					const row = r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
-					return {
-						baseCostUsd: Number(row.baseCostUsd).toFixed(6),
-						markupUsd: Number(row.markupUsd).toFixed(6),
-						totalCostUsd: Number(row.totalCostUsd).toFixed(6)
-					};
-				})
-		: { baseCostUsd: '0.000000', markupUsd: '0.000000', totalCostUsd: '0.000000' };
+	const overallTotals = await db
+		.select({
+			baseCostUsd: sql<string>`coalesce(sum(${activityCallLog.baseCostUsd}::numeric), 0)`,
+			markupUsd: sql<string>`coalesce(sum(${activityCallLog.markupUsd}::numeric), 0)`,
+			totalCostUsd: sql<string>`coalesce(sum(${activityCallLog.totalCostUsd}::numeric), 0)`
+		})
+		.from(activityCallLog)
+		.where(
+			and(
+				eq(activityCallLog.userId, locals.user.id),
+				gatewayProviders,
+				sql`${activityCallLog.totalCostUsd}::numeric > 0`,
+				...(fromDate && !Number.isNaN(fromDate.getTime()) ? [gte(activityCallLog.createdAt, fromDate)] : []),
+				...(toDate && !Number.isNaN(toDate.getTime()) ? [lte(activityCallLog.createdAt, toDate)] : [])
+			)
+		)
+		.then((r) => {
+			const row = r[0] ?? { baseCostUsd: '0', markupUsd: '0', totalCostUsd: '0' };
+			return {
+				baseCostUsd: Number(row.baseCostUsd).toFixed(6),
+				markupUsd: Number(row.markupUsd).toFixed(6),
+				totalCostUsd: Number(row.totalCostUsd).toFixed(6)
+			};
+		});
 
 	return json({
 		calls: rows,
 		totals,
 		overallTotals,
 		spendSeries,
-		pagination: {
-			page: safePage,
-			pageSize: PAGE_SIZE,
-			totalCount: totalGroups,
-			totalPages,
-			hasPrev: safePage > 1,
-			hasNext: safePage < totalPages
-		}
+		pagination: { page: safePage, pageSize: PAGE_SIZE, totalCount: totalGroups, totalPages, hasPrev: safePage > 1, hasNext: safePage < totalPages }
 	});
 };
