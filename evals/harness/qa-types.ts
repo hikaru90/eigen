@@ -58,6 +58,8 @@ export type QaChecks = {
 	extraction?: {
 		requireEnriched?: string[];
 		requireCues?: string[];
+		/** memoryType must be a canonical key, not a thought_category label (e.g. observation). */
+		requireValidMemoryType?: string[];
 	};
 	/** Embedding vector + lexical surface. */
 	embedding?: {

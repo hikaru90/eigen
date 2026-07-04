@@ -134,6 +134,63 @@ describe('extractEnrichThoughtBundle', () => {
 		expect(prompt).toContain('capture text only');
 	});
 
+	it('retries through category-confusion then strict when model keeps returning observation', async () => {
+		llmChatCompletionMock
+			.mockResolvedValueOnce({
+				choices: [
+					{
+						message: {
+							content: JSON.stringify({
+								category: { key: 'observation', confidence: 0.95, alternatives: [] },
+								memoryType: 'observation',
+								cues: ['tab filter persist'],
+								temporalMentions: [],
+								mentions: [],
+								triples: []
+							})
+						}
+					}
+				]
+			})
+			.mockResolvedValueOnce({
+				choices: [
+					{
+						message: {
+							content: JSON.stringify({
+								category: { key: 'observation', confidence: 0.95, alternatives: [] },
+								memoryType: 'observation',
+								cues: ['tab filter persist'],
+								temporalMentions: [],
+								mentions: [],
+								triples: []
+							})
+						}
+					}
+				]
+			})
+			.mockResolvedValueOnce(makeBundleResponse());
+
+		const result = await extractEnrichThoughtBundle({
+			context: makeContext({
+				normalizedText: 'Filter should persist when switching tabs',
+				rawText: 'Filter should persist when switching tabs'
+			}),
+			capturedAt: new Date('2026-07-03T20:00:10.501Z'),
+			timezone: 'Europe/Berlin',
+			ontologyEntityKinds: [
+				{ key: 'technology', name: 'Technology', definition: 'Software tool' }
+			]
+		});
+
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(3);
+		expect(result.category.key).toBe('observation');
+		expect(result.metadata.memoryType).toBe('fact');
+		expect(llmChatCompletionMock.mock.calls[0]?.[0]?.responseFormat).toBe('json_object');
+		const defaultPrompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]
+			?.content as string;
+		expect(defaultPrompt).toContain('never copy category.key into memoryType');
+	});
+
 	it('retries once when memoryType is invalid', async () => {
 		llmChatCompletionMock
 			.mockResolvedValueOnce({

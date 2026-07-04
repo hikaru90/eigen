@@ -10,7 +10,7 @@ import type { AppDatabase } from '$lib/server/db';
 import { thoughtExistsInGraph } from '$lib/server/graph/age';
 import { loadOntologyForUser } from '$lib/server/ontology-db';
 import { parseOntologyProfileJson } from '$lib/server/ontology/types';
-import type { CheckAssertionResult, CheckEntryResult, QaChecks } from './qa-types';
+import { isPersistedMemoryTypeValid } from '$lib/server/memory/memory-type-catalog';
 import type { EvalQaRecord } from '../../src/lib/eval/qa-store';
 
 const DEFAULT_EMBEDDING_DIM = 1536;
@@ -27,7 +27,7 @@ export function defaultChecksForQa(qa: EvalQaRecord): QaChecks {
 		graph: { requireThoughtNodes: fixtures },
 		embedding: { requireVector: fixtures, minLexicalLength: 3, expectedDimensions: DEFAULT_EMBEDDING_DIM },
 		ontology: { requireActiveCategories: fixtures },
-		extraction: { requireEnriched: fixtures },
+		extraction: { requireEnriched: fixtures, requireValidMemoryType: fixtures },
 		entities: fixtures.map((fixtureId) => ({ fixtureId, minCount: 0 }))
 	};
 }
@@ -396,6 +396,44 @@ export async function runStructuralChecks(input: {
 				enriched
 					? `Thought was enriched with ${cueCount} automatic tag${cueCount === 1 ? '' : 's'}.`
 					: 'Thought was not fully enriched (missing tags or metadata).',
+				{ fixtureId, thoughtPreview: preview }
+			)
+		);
+	}
+
+	for (const fixtureId of checks.extraction?.requireValidMemoryType ?? []) {
+		const thoughtId = fixtureToUuid.get(fixtureId);
+		if (!thoughtId) {
+			assertions.push(
+				assertResult(
+					`memory_type_${fixtureId}`,
+					'Valid memory type (not category label)',
+					false,
+					'This thought was not captured in this run.',
+					{ fixtureId }
+				)
+			);
+			continue;
+		}
+		const preview = await loadThoughtPreview(db, userId, thoughtId);
+		const [row] = await db
+			.select({ memoryType: thought.memoryType, enrichedAt: thought.enrichedAt })
+			.from(thought)
+			.where(and(eq(thought.userId, userId), eq(thought.id, thoughtId)));
+		const typeOk = isPersistedMemoryTypeValid(row?.memoryType);
+		const enriched = row?.enrichedAt != null;
+		const passed = enriched && typeOk;
+		const rawType = row?.memoryType?.trim() || '(missing)';
+		assertions.push(
+			assertResult(
+				`memory_type_${fixtureId}`,
+				'Valid memory type (not category label)',
+				passed,
+				passed
+					? `memoryType is "${rawType}" (canonical storage axis).`
+					: enriched
+						? `memoryType "${rawType}" is not canonical — likely category.key copied into memoryType (e.g. observation).`
+						: 'Thought was not enriched.',
 				{ fixtureId, thoughtPreview: preview }
 			)
 		);

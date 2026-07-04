@@ -518,6 +518,8 @@ export async function llmChatCompletion(input: {
 	logContext?: string;
 	/** Override chat routing rule (e.g. LLM_RULE_ROUTER for the agent router judge). */
 	routingRuleId?: string;
+	/** OpenAI-compatible JSON object mode — gateway must support response_format. */
+	responseFormat?: 'json_object';
 }): Promise<unknown> {
 	return withPlatformBilling(
 		input.userId,
@@ -536,6 +538,7 @@ async function llmChatCompletionInner(input: {
 	maxTokens?: number;
 	logContext?: string;
 	routingRuleId?: string;
+	responseFormat?: 'json_object';
 }): Promise<unknown> {
 	const config = await loadLlmConfig(input.userId);
 	const activityProvider = activityProviderForLlmConfig(config.provider);
@@ -583,7 +586,10 @@ async function llmChatCompletionInner(input: {
 						...(routing.provider ? { provider: routing.provider } : {}),
 						messages,
 						...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-						...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {})
+						...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {}),
+						...(input.responseFormat === 'json_object'
+							? { response_format: { type: 'json_object' } }
+							: {})
 					})
 				});
 			} finally {

@@ -8,48 +8,31 @@ import {
 	groundingSupplementaryPromptBlock
 } from '$lib/server/capture/enrichment-prompt-sections';
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types';
+import {
+	CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
+	categoryConfusionRetryRule,
+	isThoughtCategoryKeyConfusion,
+	MEMORY_TYPE_KEY_UNION,
+	normalizeMemoryType
+} from '$lib/server/memory/memory-type-catalog';
 
-const VALID_MEMORY_TYPES: MemoryType[] = [
-	'episode',
-	'fact',
-	'decision',
-	'concern',
-	'preference',
-	'pattern'
-];
-
-const MEMORY_TYPE_KEY_UNION = VALID_MEMORY_TYPES.join('|');
+export { normalizeMemoryType } from '$lib/server/memory/memory-type-catalog';
 
 export class InvalidMemoryTypeError extends Error {
 	readonly raw: string;
+	readonly categoryKeyConfusion: boolean;
 
 	constructor(raw: string) {
 		super(`extractThoughtMetadata: invalid memoryType "${raw}"`);
 		this.name = 'InvalidMemoryTypeError';
 		this.raw = raw;
+		this.categoryKeyConfusion = isThoughtCategoryKeyConfusion(raw);
 	}
 }
 
 const MIN_CUE_LENGTH = 3;
 const MAX_CUE_LENGTH = 80;
 const MAX_CUES = 5;
-
-function isMemoryType(value: unknown): value is MemoryType {
-	return typeof value === 'string' && (VALID_MEMORY_TYPES as string[]).includes(value);
-}
-
-/** Normalize LLM memoryType output; returns null when no canonical key matches (exact / case-insensitive only). */
-export function normalizeMemoryType(raw: unknown): MemoryType | null {
-	if (typeof raw !== 'string') return null;
-	const trimmed = raw.trim().toLowerCase();
-	if (!trimmed) return null;
-	const underscored = trimmed.replace(/[\s-]+/g, '_');
-	if (isMemoryType(underscored)) return underscored;
-	for (const key of VALID_MEMORY_TYPES) {
-		if (key.toLowerCase() === underscored) return key;
-	}
-	return null;
-}
 
 function readMemoryTypeRaw(obj: Record<string, unknown>): unknown {
 	if ('memoryType' in obj) return obj.memoryType;
@@ -96,7 +79,7 @@ export type ThoughtMetadataExtraction = {
 	cues: string[];
 };
 
-type ExtractThoughtMetadataPass = 'default' | 'retry_strict';
+type ExtractThoughtMetadataPass = 'default' | 'retry_strict' | 'retry_category_confusion';
 
 async function extractThoughtMetadataOnce(
 	input: {
@@ -118,10 +101,14 @@ async function extractThoughtMetadataOnce(
 					`memoryType must be copied exactly from this list with no other strings: ${MEMORY_TYPE_KEY_UNION}.`,
 					'Do not use thought category keys or free-form labels.'
 				].join(' ')
-			: '';
+			: pass === 'retry_category_confusion' && rejectedMemoryType
+				? categoryConfusionRetryRule(rejectedMemoryType)
+				: '';
 
 	const prompt = [
 		captureBlock,
+		'',
+		CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
 		'',
 		'Return ONLY JSON with this shape:',
 		'{',
@@ -154,7 +141,8 @@ async function extractThoughtMetadataOnce(
 			},
 			{ role: 'user', content: prompt }
 		],
-		temperature: 0
+		temperature: 0,
+		responseFormat: 'json_object'
 	});
 
 	const content = stripMarkdownJsonFences(extractChatContent(response));
@@ -167,7 +155,7 @@ async function extractThoughtMetadataOnce(
 
 /**
  * Single LLM call: memory type classification + search cue phrases.
- * Retries once with a strict ontology reminder when the model returns a drift label.
+ * Retries with strict ontology reminders when the model returns drift or category-key confusion.
  */
 export async function extractThoughtMetadata(input: {
 	userId: string;
@@ -178,6 +166,22 @@ export async function extractThoughtMetadata(input: {
 		return await extractThoughtMetadataOnce(input, 'default');
 	} catch (err) {
 		if (!(err instanceof InvalidMemoryTypeError)) throw err;
+		if (err.categoryKeyConfusion) {
+			console.warn('[extract-thought-metadata] category key in memoryType slot; retrying', {
+				userId: input.userId,
+				rejected: err.raw
+			});
+			try {
+				return await extractThoughtMetadataOnce(input, 'retry_category_confusion', err.raw);
+			} catch (retryErr) {
+				if (!(retryErr instanceof InvalidMemoryTypeError)) throw retryErr;
+				console.warn('[extract-thought-metadata] category confusion retry failed; strict pass', {
+					userId: input.userId,
+					rejected: retryErr.raw
+				});
+				return extractThoughtMetadataOnce(input, 'retry_strict', retryErr.raw);
+			}
+		}
 		console.warn('[extract-thought-metadata] invalid type on first pass; retrying strict', {
 			userId: input.userId,
 			rejected: err.raw

@@ -70,6 +70,28 @@ describe('extractThoughtMetadata', () => {
 		expect(result.memoryType).toBe('fact');
 	});
 
+	it('retries with category-confusion pass when first pass copies observation into memoryType', async () => {
+		llmChatCompletionMock
+			.mockResolvedValueOnce(
+				makeResponse(JSON.stringify({ memoryType: 'observation', cues: ['tab filter'] }))
+			)
+			.mockResolvedValueOnce(
+				makeResponse(JSON.stringify({ memoryType: 'fact', cues: ['tab filter persist'] }))
+			);
+
+		const result = await extractThoughtMetadata({
+			userId: 'u1',
+			normalizedText: 'Filter should persist when switching tabs'
+		});
+
+		expect(result.memoryType).toBe('fact');
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(2);
+		expect(llmChatCompletionMock.mock.calls[1]?.[0]?.messages?.[1]?.content).toContain(
+			'thought category key'
+		);
+		expect(llmChatCompletionMock.mock.calls[0]?.[0]?.responseFormat).toBe('json_object');
+	});
+
 	it('retries with strict prompt when first pass returns drift label', async () => {
 		llmChatCompletionMock
 			.mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))

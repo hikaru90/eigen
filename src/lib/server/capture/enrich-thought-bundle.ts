@@ -51,7 +51,11 @@ import {
 import { extractChatContent } from '$lib/server/ontology/llm-json';
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
 
-const MEMORY_TYPE_KEYS = 'episode|fact|decision|concern|preference|pattern';
+import {
+	CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
+	categoryConfusionRetryRule,
+	MEMORY_TYPE_KEY_UNION
+} from '$lib/server/memory/memory-type-catalog';
 
 export type EnrichThoughtBundleResult = {
 	category: ResolvedThoughtOntologyKind;
@@ -60,7 +64,7 @@ export type EnrichThoughtBundleResult = {
 	entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] };
 };
 
-type BundlePass = 'default' | 'retry_strict_memory_type';
+type BundlePass = 'default' | 'retry_category_confusion' | 'retry_strict_memory_type';
 
 function buildSessionContextBlock(
 	recentThoughts: EnrichmentContext['recentThoughts']
@@ -118,19 +122,24 @@ function buildEnrichThoughtBundlePrompt(input: {
 					input.rejectedMemoryType
 						? `Your previous memoryType "${input.rejectedMemoryType}" was rejected.`
 						: 'Your previous memoryType was rejected.',
-					`memoryType must be copied exactly from: ${MEMORY_TYPE_KEYS}.`
+					`memoryType must be copied exactly from: ${MEMORY_TYPE_KEY_UNION}.`,
+					'Do not use thought category keys or free-form labels.'
 				].join(' ')
-			: '';
+			: input.pass === 'retry_category_confusion' && input.rejectedMemoryType
+				? categoryConfusionRetryRule(input.rejectedMemoryType)
+				: '';
 
 	const capturedIso = capturedAt.toISOString();
 
 	return [
 		captureBlock,
 		'',
+		CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
+		'',
 		'Return ONLY JSON with this shape:',
 		'{',
 		'  "category": { "key": "<thought_category_key>", "confidence": 0.0-1.0, "alternatives": [{"key":"...","confidence":0.0}] },',
-		`  "memoryType": "${MEMORY_TYPE_KEYS}",`,
+		`  "memoryType": "${MEMORY_TYPE_KEY_UNION}",`,
 		'  "cues": ["2-8 word search phrase", "..."],',
 		'  "temporalMentions": [],',
 		'  "mentions": [{"surface":"<text as written>","entityType":"<key>","confidence":0.0-1.0}],',
@@ -140,7 +149,7 @@ function buildEnrichThoughtBundlePrompt(input: {
 		`category.key must be exactly one of: ${categoryKeys.join(', ')}.`,
 		'alternatives: max 3 other plausible category keys with confidence.',
 		'',
-		`memoryType must be exactly one of: ${MEMORY_TYPE_KEYS}.`,
+		`memoryType must be exactly one of: ${MEMORY_TYPE_KEY_UNION} — never copy category.key into memoryType.`,
 		CUES_FROM_CAPTURE_RULE,
 		strictMemoryRule,
 		'',
@@ -300,7 +309,8 @@ async function extractEnrichThoughtBundleOnce(input: {
 		userId: input.context.userId,
 		messages,
 		temperature: 0,
-		logContext: 'enrich_thought_bundle'
+		logContext: 'enrich_thought_bundle',
+		responseFormat: 'json_object'
 	});
 
 	return parseEnrichThoughtBundleContent({
@@ -323,6 +333,30 @@ export async function extractEnrichThoughtBundle(input: {
 		return await extractEnrichThoughtBundleOnce({ ...input, pass: 'default' });
 	} catch (err) {
 		if (!(err instanceof InvalidMemoryTypeError)) throw err;
+		if (err.categoryKeyConfusion) {
+			console.warn('[enrich-thought-bundle] category key in memoryType slot; retrying', {
+				userId: input.context.userId,
+				rejected: err.raw
+			});
+			try {
+				return await extractEnrichThoughtBundleOnce({
+					...input,
+					pass: 'retry_category_confusion',
+					rejectedMemoryType: err.raw
+				});
+			} catch (retryErr) {
+				if (!(retryErr instanceof InvalidMemoryTypeError)) throw retryErr;
+				console.warn('[enrich-thought-bundle] category confusion retry failed; strict pass', {
+					userId: input.context.userId,
+					rejected: retryErr.raw
+				});
+				return extractEnrichThoughtBundleOnce({
+					...input,
+					pass: 'retry_strict_memory_type',
+					rejectedMemoryType: retryErr.raw
+				});
+			}
+		}
 		console.warn('[enrich-thought-bundle] invalid memoryType; retrying strict', {
 			userId: input.context.userId,
 			rejected: err.raw
