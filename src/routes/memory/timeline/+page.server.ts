@@ -20,8 +20,7 @@ export const load: PageServerLoad = async (event) => {
 		getDb()
 			.select({
 				eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
-				eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
-				eventReminderKinds: userPreference.eventReminderKinds
+				eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes
 			})
 			.from(userPreference)
 			.where(eq(userPreference.userId, userId))
@@ -43,9 +42,6 @@ export const load: PageServerLoad = async (event) => {
 		preferredTimezone: preferredTimezoneResult,
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
-		eventReminderKinds: Array.isArray(pref?.eventReminderKinds)
-			? pref.eventReminderKinds
-			: ['appointment', 'reminder', 'deadline', 'inferred_event'],
 		prefetchedTemporalEvents: temporalEventsResult.items,
 		prefetchedNextCursor: temporalEventsResult.nextCursor
 	};

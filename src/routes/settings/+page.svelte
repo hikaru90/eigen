@@ -653,10 +653,10 @@
 
 		<Card.Root>
 			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Event reminders</Card.Title>
+				<Card.Title class="text-sm">Task & event notifications</Card.Title>
 				<Card.Description>
-					Push before scheduled events (default 10 min) and an optional morning timeline summary.
-					Requires push enabled above.
+					Lead-time reminders before scheduled items, plus an optional once-daily summary
+					(completions, overdue, due today). Requires push enabled above.
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="pt-0">
@@ -708,7 +708,7 @@
 							checked={data.dailySummaryEnabled}
 							class="size-3.5"
 						/>
-						Morning timeline summary push
+						Daily task summary
 					</label>
 					<div class="space-y-1">
 						<Label for="dailySummaryTimeLocal">Daily summary time (local)</Label>
@@ -720,36 +720,8 @@
 							class="h-9 w-32 font-mono text-xs"
 						/>
 					</div>
-					<div class="space-y-1">
-						<Label for="dailyWorkMinutes">Daily work capacity (minutes)</Label>
-						<Input
-							id="dailyWorkMinutes"
-							name="dailyWorkMinutes"
-							type="number"
-							min="60"
-							max="960"
-							value={data.dailyWorkMinutes}
-							class="h-9 w-24 font-mono text-xs"
-						/>
-					</div>
-					<fieldset class="space-y-1">
-						<legend class="text-xs font-medium">Notify for kinds</legend>
-						<div class="mt-1 flex flex-wrap gap-3">
-							{#each ['appointment', 'reminder', 'deadline', 'milestone', 'period', 'inferred_event'] as kind (kind)}
-								<label class="flex items-center gap-1.5 font-mono text-[11px] capitalize">
-									<input
-										type="checkbox"
-										name="kind_{kind}"
-										checked={data.eventReminderKinds.includes(kind)}
-										class="size-3.5"
-									/>
-									{kind.replace('_', ' ')}
-								</label>
-							{/each}
-						</div>
-					</fieldset>
 					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-						Save event reminders
+						Save notification settings
 					</Button>
 					{#if form?.eventNotificationsMessage}
 						<p class="text-muted-foreground text-xs">{form.eventNotificationsMessage}</p>

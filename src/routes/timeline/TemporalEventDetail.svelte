@@ -25,7 +25,6 @@
 		lastActionSummary?: string | null;
 		eventNotificationsEnabled?: boolean;
 		eventReminderLeadMinutes?: number;
-		eventReminderKinds?: string[];
 		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen' | 'archive') => void;
 		onInstruction: (eventId: string, instruction: string) => void;
 		onDelete: (eventId: string) => void;
@@ -42,7 +41,6 @@
 		lastActionSummary = null,
 		eventNotificationsEnabled = false,
 		eventReminderLeadMinutes = 10,
-		eventReminderKinds = [],
 		onQuickAction,
 		onInstruction,
 		onDelete,
@@ -60,8 +58,7 @@
 		item !== null &&
 			eventNotificationsEnabled &&
 			!completed &&
-			!!item.startAt &&
-			eventReminderKinds.includes(item.kind)
+			!!item.startAt
 	);
 
 	$effect(() => {
@@ -207,11 +204,6 @@
 						<dd class="text-foreground">
 							{m.graph_timeline_push_reminder({ minutes: eventReminderLeadMinutes })}
 						</dd>
-					</div>
-				{:else if eventNotificationsEnabled && item.startAt && !completed}
-					<div class="sm:col-span-2">
-						<dt class="text-muted-foreground text-[10px] uppercase">{m.graph_timeline_push_notify()}</dt>
-						<dd class="text-muted-foreground">{m.graph_timeline_push_kind_excluded()}</dd>
 					</div>
 				{/if}
 				{#if item.sourceTextSpan}

@@ -73,7 +73,7 @@ export async function dispatchDueEventReminders(now = new Date()): Promise<Dispa
 		}
 
 		const prefs = await getUserEventNotificationPrefs(row.userId);
-		if (!prefs.eventNotificationsEnabled || !prefs.eventReminderKinds.includes(row.kind)) {
+		if (!prefs.eventNotificationsEnabled) {
 			await markSchedule(row.scheduleId, 'skipped');
 			result.skipped += 1;
 			continue;

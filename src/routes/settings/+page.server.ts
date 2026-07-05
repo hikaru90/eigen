@@ -86,8 +86,6 @@ export const load: PageServerLoad = async (event) => {
 			preferredTimezone: userPreference.preferredTimezone,
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
-			eventReminderKinds: userPreference.eventReminderKinds,
-			dailyWorkMinutes: userPreference.dailyWorkMinutes,
 			dailySummaryEnabled: userPreference.dailySummaryEnabled,
 			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal
 		})
@@ -110,14 +108,10 @@ export const load: PageServerLoad = async (event) => {
 			: null,
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
-		eventReminderKinds: Array.isArray(pref?.eventReminderKinds)
-			? pref.eventReminderKinds
-			: ['appointment', 'reminder', 'deadline', 'inferred_event'],
 		languageOptions: LANGUAGE_OPTIONS,
 		uiLocaleOptions: UI_LOCALE_OPTIONS,
 		qualityOptions: QUALITY_OPTIONS,
 		pushSubscriptionCount: pushRows.length,
-		dailyWorkMinutes: pref?.dailyWorkMinutes ?? 480,
 		dailySummaryEnabled: pref?.dailySummaryEnabled ?? false,
 		dailySummaryTimeLocal: formatMinutesLocal(pref?.dailySummaryMinutesLocal ?? 480)
 	};
@@ -288,16 +282,6 @@ export const actions: Actions = {
 			});
 		}
 
-		const kindFields = ['appointment', 'reminder', 'deadline', 'milestone', 'period', 'inferred_event'];
-		const eventReminderKinds = kindFields.filter((k) => formData.get(`kind_${k}`) === 'on');
-		const dailyRaw = formData.get('dailyWorkMinutes')?.toString().trim() ?? '480';
-		const dailyWorkMinutes = Number.parseInt(dailyRaw, 10);
-		if (!Number.isFinite(dailyWorkMinutes) || dailyWorkMinutes < 60 || dailyWorkMinutes > 960) {
-			return fail(400, {
-				eventNotificationsMessage: 'Daily work capacity must be between 60 and 960 minutes.'
-			});
-		}
-
 		const dailySummaryEnabled = formData.get('dailySummaryEnabled') === 'on';
 		const dailySummaryTimeLocal = formData.get('dailySummaryTimeLocal')?.toString().trim() ?? '08:00';
 		const dailySummaryMinutesLocal = parseTimeLocalToMinutes(dailySummaryTimeLocal);
@@ -308,6 +292,16 @@ export const actions: Actions = {
 		}
 
 		try {
+			const [existing] = await getDb()
+				.select({
+					preferredTimezone: userPreference.preferredTimezone,
+					eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
+					eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes
+				})
+				.from(userPreference)
+				.where(eq(userPreference.userId, event.locals.user.id))
+				.limit(1);
+
 			await getDb()
 				.insert(userPreference)
 				.values({
@@ -315,8 +309,6 @@ export const actions: Actions = {
 					preferredTimezone: preferredTimezone || null,
 					eventNotificationsEnabled,
 					eventReminderLeadMinutes,
-					eventReminderKinds,
-					dailyWorkMinutes,
 					dailySummaryEnabled,
 					dailySummaryMinutesLocal
 				})
@@ -326,19 +318,27 @@ export const actions: Actions = {
 						preferredTimezone: preferredTimezone || null,
 						eventNotificationsEnabled,
 						eventReminderLeadMinutes,
-						eventReminderKinds,
-						dailyWorkMinutes,
 						dailySummaryEnabled,
 						dailySummaryMinutesLocal,
 						updatedAt: new Date()
 					}
 				});
 
-			const synced = await resyncAllReminderSchedulesForUser(event.locals.user.id);
+			const reminderFieldsChanged =
+				(existing?.eventNotificationsEnabled ?? false) !== eventNotificationsEnabled ||
+				(existing?.eventReminderLeadMinutes ?? 10) !== eventReminderLeadMinutes ||
+				(existing?.preferredTimezone?.trim() ?? '') !== (preferredTimezone || '');
+
+			let syncMessage = '';
+			if (reminderFieldsChanged) {
+				const synced = await resyncAllReminderSchedulesForUser(event.locals.user.id);
+				syncMessage = eventNotificationsEnabled
+					? ` Synced ${synced} event reminder(s).`
+					: ` Cleared schedules for ${synced} event(s).`;
+			}
+
 			return {
-				eventNotificationsMessage: eventNotificationsEnabled
-					? `Event reminders enabled (${eventReminderLeadMinutes} min before). Synced ${synced} event(s).`
-					: `Event reminders disabled. Cleared schedules for ${synced} event(s).`
+				eventNotificationsMessage: `Notification settings saved.${syncMessage}`
 			};
 		} catch (error) {
 			return fail(400, {

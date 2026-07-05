@@ -38,36 +38,96 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		parentEventId: null,
 		memoryType: null,
 		projectLabel: null,
+		completedAt: null,
+		lifecycleUpdatedAt: null,
 		createdAt: '2026-06-08T00:00:00.000Z',
 		...overrides
 	};
 }
 
 describe('buildDailySummaryPush', () => {
-	it('summarizes today open items', () => {
-		const now = new Date('2026-06-08T12:00:00.000Z');
-		const push = buildDailySummaryPush(
-			[
-				item({ id: 'a', semanticSummary: 'Eigen Mesh sync' }),
-				item({
-					id: 'b',
-					semanticSummary: 'Later task',
-					startAt: '2026-06-10T10:00:00.000Z',
-					endAt: '2026-06-10T11:00:00.000Z'
-				})
-			],
-			'UTC',
-			now
-		);
-		expect(push.title).toBe('Good morning');
-		expect(push.body).toContain('1 task');
-		expect(push.body).toContain('Eigen Mesh sync');
+	const now = new Date('2026-06-09T08:00:00.000Z');
+
+	it('summarizes completed yesterday, overdue, and due today', () => {
+		const openItems = [
+			item({
+				id: 'today',
+				semanticSummary: 'Today task',
+				startAt: '2026-06-09T10:00:00.000Z',
+				endAt: '2026-06-09T11:00:00.000Z'
+			}),
+			item({
+				id: 'overdue',
+				semanticSummary: 'Overdue task',
+				startAt: '2026-06-07T10:00:00.000Z',
+				endAt: '2026-06-07T11:00:00.000Z'
+			}),
+			item({
+				id: 'future',
+				semanticSummary: 'Later task',
+				startAt: '2026-06-10T10:00:00.000Z',
+				endAt: '2026-06-10T11:00:00.000Z'
+			})
+		];
+		const allItems = [
+			...openItems,
+			item({
+				id: 'done-yesterday',
+				semanticSummary: 'Done yesterday',
+				lifecycleStatus: 'completed',
+				thoughtStatus: 'completed',
+				completedAt: '2026-06-08T15:00:00.000Z'
+			}),
+			item({
+				id: 'done-yesterday-2',
+				semanticSummary: 'Also done',
+				lifecycleStatus: 'completed',
+				thoughtStatus: 'completed',
+				completedAt: '2026-06-08T18:00:00.000Z'
+			})
+		];
+
+		const push = buildDailySummaryPush(openItems, allItems, 'UTC', now);
+
+		expect(push.title).toBe('Daily summary');
+		expect(push.body).toContain('You completed 2 tasks yesterday.');
+		expect(push.body).toContain('1 overdue task.');
+		expect(push.body).toContain('2 due today.');
+		expect(push.body).toContain('Tap to open your timeline.');
+		expect(push.url).toBe('/memory/timeline?segment=overdue');
 	});
 
-	it('handles empty today list', () => {
-		const now = new Date('2026-06-08T12:00:00.000Z');
-		const push = buildDailySummaryPush([], 'UTC', now);
-		expect(push.body).toContain('Nothing on your plate');
+	it('links to timeline when nothing is overdue', () => {
+		const openItems = [
+			item({
+				id: 'today',
+				semanticSummary: 'Today task',
+				startAt: '2026-06-09T10:00:00.000Z',
+				endAt: '2026-06-09T11:00:00.000Z'
+			})
+		];
+		const allItems = [
+			...openItems,
+			item({
+				id: 'done-yesterday',
+				lifecycleStatus: 'completed',
+				thoughtStatus: 'completed',
+				completedAt: '2026-06-08T12:00:00.000Z'
+			})
+		];
+
+		const push = buildDailySummaryPush(openItems, allItems, 'UTC', now);
+
+		expect(push.body).toContain('Nothing overdue.');
+		expect(push.url).toBe('/memory/timeline');
+	});
+
+	it('handles zero completions and zero due today', () => {
+		const push = buildDailySummaryPush([], [], 'UTC', now);
+
+		expect(push.body).toContain('You completed no tasks yesterday.');
+		expect(push.body).toContain('Nothing overdue.');
+		expect(push.body).toContain('Nothing due today.');
 	});
 });
 

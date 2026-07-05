@@ -17,6 +17,6 @@
 		userName={data.user.name}
 		eventNotificationsEnabled={data.eventNotificationsEnabled}
 		eventReminderLeadMinutes={data.eventReminderLeadMinutes}
-		eventReminderKinds={data.eventReminderKinds}
+		initialSegment={page.url.searchParams.get('segment') === 'overdue' ? 'overdue' : null}
 	/>
 </div>

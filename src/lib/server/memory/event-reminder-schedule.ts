@@ -27,8 +27,7 @@ export async function syncReminderScheduleForEvent(input: {
 	const shouldSchedule =
 		input.lifecycleStatus === 'open' &&
 		input.startAt !== null &&
-		prefs.eventNotificationsEnabled &&
-		prefs.eventReminderKinds.includes(input.kind);
+		prefs.eventNotificationsEnabled;
 
 	if (!shouldSchedule) {
 		await db

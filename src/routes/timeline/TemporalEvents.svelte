@@ -56,7 +56,7 @@ import * as Select from '$lib/components/ui/select';
 		userName?: string | null;
 		eventNotificationsEnabled?: boolean;
 		eventReminderLeadMinutes?: number;
-		eventReminderKinds?: string[];
+		initialSegment?: NowSegment | null;
 	};
 
 	let {
@@ -68,7 +68,7 @@ import * as Select from '$lib/components/ui/select';
 		userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
 		eventNotificationsEnabled = false,
 		eventReminderLeadMinutes = 10,
-		eventReminderKinds = ['appointment', 'reminder', 'deadline', 'inferred_event']
+		initialSegment = null
 	}: Props = $props();
 
 	type Phase =
@@ -276,6 +276,9 @@ import * as Select from '$lib/components/ui/select';
 			void loadEvents();
 		}
 		void loadOverdueItems();
+		if (initialSegment === 'overdue') {
+			setNowSegment('overdue');
+		}
 
 		return subscribeThoughtSync((message) => {
 			const reloadTimeline =
@@ -837,7 +840,6 @@ import * as Select from '$lib/components/ui/select';
 		{lastActionSummary}
 		{eventNotificationsEnabled}
 		{eventReminderLeadMinutes}
-		{eventReminderKinds}
 		{onQuickAction}
 		{onInstruction}
 		{onDelete}

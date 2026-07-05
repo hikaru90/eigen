@@ -28,6 +28,30 @@ export function isCompletedToday(
 	return localDayKey(instant, timeZone) === localDayKey(now.toISOString(), timeZone);
 }
 
+export function isCompletedOnLocalDay(
+	item: TemporalEventListItem,
+	timeZone: string,
+	dayKey: string
+): boolean {
+	const instant = completionInstantIso(item);
+	if (!instant) return false;
+	return localDayKey(instant, timeZone) === dayKey;
+}
+
+export function countCompletedOnLocalDay(
+	items: TemporalEventListItem[],
+	timeZone: string,
+	dayKey: string
+): number {
+	return items.filter((item) => isCompletedOnLocalDay(item, timeZone, dayKey)).length;
+}
+
+/** Local calendar day key (YYYY-MM-DD) for the day before `now` in `timeZone`. */
+export function previousLocalDayKey(now: Date, timeZone: string): string {
+	const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+	return localDayKey(yesterday.toISOString(), timeZone);
+}
+
 export function filterCompletedTodayItems(
 	items: TemporalEventListItem[],
 	timeZone: string,

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { pushSubscription, userPreference } from '$lib/server/db/schema';
 import { buildDailySummaryPush } from '$lib/server/memory/daily-summary';
@@ -27,16 +27,10 @@ export async function dispatchDueDailySummaries(
 			userId: userPreference.userId,
 			dailySummaryEnabled: userPreference.dailySummaryEnabled,
 			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal,
-			lastDailySummaryLocalDate: userPreference.lastDailySummaryLocalDate,
-			eventNotificationsEnabled: userPreference.eventNotificationsEnabled
+			lastDailySummaryLocalDate: userPreference.lastDailySummaryLocalDate
 		})
 		.from(userPreference)
-		.where(
-			and(
-				eq(userPreference.dailySummaryEnabled, true),
-				eq(userPreference.eventNotificationsEnabled, true)
-			)
-		);
+		.where(eq(userPreference.dailySummaryEnabled, true));
 
 	const result: DispatchDailySummariesResult = {
 		processed: rows.length,
@@ -73,19 +67,27 @@ export async function dispatchDueDailySummaries(
 			continue;
 		}
 
-		const { items } = await listTemporalEventsForUser({
-			userId: row.userId,
-			status: 'open',
-			range: 'all',
-			includeTasks: true
-		});
-		const push = buildDailySummaryPush(items, timeZone, now);
+		const [{ items: openItems }, { items: allItems }] = await Promise.all([
+			listTemporalEventsForUser({
+				userId: row.userId,
+				status: 'open',
+				range: 'all',
+				includeTasks: true
+			}),
+			listTemporalEventsForUser({
+				userId: row.userId,
+				status: 'all',
+				range: 'all',
+				includeTasks: true
+			})
+		]);
+		const push = buildDailySummaryPush(openItems, allItems, timeZone, now);
 
 		try {
 			await sendPushToUser(row.userId, {
 				title: push.title,
 				body: push.body,
-				url: '/memory/timeline',
+				url: push.url,
 				tag: `daily-summary-${todayKey}`
 			});
 			await getDb()

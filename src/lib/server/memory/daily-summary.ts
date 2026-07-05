@@ -1,37 +1,56 @@
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list';
-import { sortByFocusRank } from '$lib/server/memory/compute-focus-rank';
-import { isOpenTodoToday } from '$lib/server/memory/timeline-today-server';
-
-const SUMMARY_PREVIEW_MAX = 3;
+import {
+	countCompletedOnLocalDay,
+	previousLocalDayKey
+} from '$lib/graph/timeline-completed-today';
+import { overdueCount } from '$lib/graph/timeline-overdue';
+import { filterOpenTodoTodayItems } from '$lib/server/memory/timeline-today-server';
 
 export type DailySummaryPush = {
 	title: string;
 	body: string;
+	url: string;
 };
 
+function formatCompletedYesterday(count: number): string {
+	if (count === 0) return 'You completed no tasks yesterday.';
+	if (count === 1) return 'You completed 1 task yesterday.';
+	return `You completed ${count} tasks yesterday.`;
+}
+
+function formatOverdue(count: number): string {
+	if (count === 0) return 'Nothing overdue.';
+	if (count === 1) return '1 overdue task.';
+	return `${count} overdue tasks.`;
+}
+
+function formatDueToday(count: number): string {
+	if (count === 0) return 'Nothing due today.';
+	if (count === 1) return '1 due today.';
+	return `${count} due today.`;
+}
+
 export function buildDailySummaryPush(
-	items: TemporalEventListItem[],
+	openItems: TemporalEventListItem[],
+	allItems: TemporalEventListItem[],
 	timeZone: string,
 	now = new Date()
 ): DailySummaryPush {
-	const todo = items.filter((item) => isOpenTodoToday(item, now, timeZone));
-	const estimatedMinutes = todo.reduce((sum, item) => sum + (item.durationMinutes ?? 30), 0);
-	const hours = Math.round((estimatedMinutes / 60) * 10) / 10;
-	const preview = sortByFocusRank(todo, timeZone, now)
-		.slice(0, SUMMARY_PREVIEW_MAX)
-		.map((item) => item.semanticSummary);
+	const yesterdayKey = previousLocalDayKey(now, timeZone);
+	const completedYesterday = countCompletedOnLocalDay(allItems, timeZone, yesterdayKey);
+	const overdue = overdueCount(openItems, now);
+	const dueToday = filterOpenTodoTodayItems(openItems, now, timeZone).length;
 
-	if (todo.length === 0) {
-		return {
-			title: 'Today',
-			body: 'Nothing on your plate today — open the timeline or capture a thought.'
-		};
-	}
+	const body = [
+		formatCompletedYesterday(completedYesterday),
+		formatOverdue(overdue),
+		formatDueToday(dueToday),
+		'Tap to open your timeline.'
+	].join(' ');
 
-	const headline = `${todo.length} task${todo.length === 1 ? '' : 's'} · ~${hours}h`;
-	const bullets = preview.map((line) => `• ${line}`).join('\n');
 	return {
-		title: 'Good morning',
-		body: bullets ? `${headline}\n${bullets}` : headline
+		title: 'Daily summary',
+		body,
+		url: overdue > 0 ? '/memory/timeline?segment=overdue' : '/memory/timeline'
 	};
 }

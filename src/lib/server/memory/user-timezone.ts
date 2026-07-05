@@ -2,13 +2,10 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { userPreference } from '$lib/server/db/schema';
 
-const DEFAULT_REMINDER_KINDS = ['appointment', 'reminder', 'deadline', 'inferred_event'] as const;
-
 export type UserEventNotificationPrefs = {
 	preferredTimezone: string;
 	eventNotificationsEnabled: boolean;
 	eventReminderLeadMinutes: number;
-	eventReminderKinds: string[];
 	dailySummaryEnabled: boolean;
 	dailySummaryMinutesLocal: number;
 };
@@ -35,7 +32,6 @@ export async function getUserEventNotificationPrefs(
 			preferredTimezone: userPreference.preferredTimezone,
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
-			eventReminderKinds: userPreference.eventReminderKinds,
 			dailySummaryEnabled: userPreference.dailySummaryEnabled,
 			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal
 		})
@@ -47,15 +43,10 @@ export async function getUserEventNotificationPrefs(
 		? pref.preferredTimezone.trim()
 		: process.env.TEMPORAL_ANCHOR_TZ?.trim() || 'Europe/Berlin';
 
-	const kinds = Array.isArray(pref?.eventReminderKinds)
-		? pref.eventReminderKinds.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-		: [...DEFAULT_REMINDER_KINDS];
-
 	return {
 		preferredTimezone,
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
-		eventReminderKinds: kinds.length > 0 ? kinds : [...DEFAULT_REMINDER_KINDS],
 		dailySummaryEnabled: pref?.dailySummaryEnabled ?? false,
 		dailySummaryMinutesLocal: pref?.dailySummaryMinutesLocal ?? 480
 	};

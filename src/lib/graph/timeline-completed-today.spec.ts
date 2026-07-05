@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list';
 import {
 	completedTodayCount,
+	countCompletedOnLocalDay,
 	filterCompletedTodayItems,
-	isCompletedToday
+	isCompletedOnLocalDay,
+	isCompletedToday,
+	previousLocalDayKey
 } from './timeline-completed-today';
 
 function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventListItem {
@@ -94,5 +97,29 @@ describe('timeline-completed-today', () => {
 		];
 		expect(completedTodayCount(items, tz, now)).toBe(2);
 		expect(filterCompletedTodayItems(items, tz, now).map((i) => i.id)).toEqual(['a', 'c']);
+	});
+
+	it('counts completions on a specific local day', () => {
+		const items = [
+			item({
+				id: 'yesterday',
+				lifecycleStatus: 'completed',
+				completedAt: '2026-06-15T22:00:00.000Z'
+			}),
+			item({
+				id: 'today',
+				lifecycleStatus: 'completed',
+				completedAt: '2026-06-16T10:00:00.000Z'
+			}),
+			item({ id: 'open', lifecycleStatus: 'open' })
+		];
+		expect(isCompletedOnLocalDay(items[0]!, tz, '2026-06-15')).toBe(true);
+		expect(countCompletedOnLocalDay(items, tz, '2026-06-15')).toBe(1);
+		expect(countCompletedOnLocalDay(items, tz, '2026-06-16')).toBe(1);
+	});
+
+	it('derives previous local day key', () => {
+		const now = new Date('2026-06-16T08:00:00.000Z');
+		expect(previousLocalDayKey(now, 'UTC')).toBe('2026-06-15');
 	});
 });
