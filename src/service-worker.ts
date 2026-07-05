@@ -11,6 +11,9 @@ const SW_DRAIN_LOCK_HOLDER = 'service-worker';
 
 declare const self: ServiceWorkerGlobalScope;
 
+precacheAndRoute(self.__WB_MANIFEST);
+cleanupOutdatedCaches();
+
 async function broadcastCaptureQueueMessage(message: CaptureQueueBroadcast | { type: 'capture-queue-idle' }) {
 	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
 	for (const client of clients) {
@@ -50,9 +53,6 @@ async function drainCaptureQueueInBackground(): Promise<void> {
 		await releaseCaptureQueueDrainLock(SW_DRAIN_LOCK_HOLDER);
 	}
 }
-
-precacheAndRoute(self.__WB_MANIFEST);
-cleanupOutdatedCaches();
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(self.skipWaiting());

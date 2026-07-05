@@ -9,7 +9,7 @@
 	},
 	"scripts": {
 		"dev": "npm run db:up && npm run db:wait && npm run db:migrate && svelte-kit sync && vite dev --host",
-		"build": "vite build",
+		"build": "vite build && node scripts/verify-service-worker-manifest.mjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync && npx @inlang/paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",
 		"generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",

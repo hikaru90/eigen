@@ -9,12 +9,50 @@ export type TimezoneOffsetOption = {
 	label: string;
 };
 
+/** Representative city name for each whole-hour offset (used in dropdown labels). */
+const CITY_BY_OFFSET: Partial<Record<number, string>> = {
+	[-720]: 'Pago Pago',
+	[-660]: 'Papeete',
+	[-600]: 'Honolulu',
+	[-540]: 'Anchorage',
+	[-480]: 'Los Angeles',
+	[-420]: 'Denver',
+	[-360]: 'Chicago',
+	[-300]: 'New York',
+	[-240]: 'Halifax',
+	[-180]: "St. John's",
+	[-120]: 'Rio de Janeiro',
+	[-60]: 'Azores',
+	[0]: 'London',
+	[60]: 'Berlin',
+	[120]: 'Helsinki',
+	[180]: 'Moscow',
+	[240]: 'Tbilisi',
+	[270]: 'Tehran',
+	[300]: 'Dubai',
+	[330]: 'Kolkata',
+	[345]: 'Kathmandu',
+	[360]: 'Dhaka',
+	[390]: 'Yangon',
+	[420]: 'Bangkok',
+	[480]: 'Shanghai',
+	[540]: 'Tokyo',
+	[570]: 'Adelaide',
+	[600]: 'Sydney',
+	[660]: 'Auckland',
+	[720]: 'Kiritimati',
+	[780]: 'Tongatapu',
+	[840]: 'Apia'
+};
+
 export const TIMEZONE_OFFSET_OPTIONS: TimezoneOffsetOption[] = Array.from(
 	{ length: MAX_OFFSET_HOURS - MIN_OFFSET_HOURS + 1 },
 	(_, index) => {
 		const hours = MIN_OFFSET_HOURS + index;
 		const value = hours * 60;
-		const label = hours === 0 ? 'GMT' : `GMT${hours > 0 ? '+' : ''}${hours}`;
+		const gmt = hours === 0 ? 'GMT' : `GMT${hours > 0 ? '+' : ''}${hours}`;
+		const city = CITY_BY_OFFSET[value];
+		const label = city ? `${gmt} (${city})` : gmt;
 		return { value, label };
 	}
 );

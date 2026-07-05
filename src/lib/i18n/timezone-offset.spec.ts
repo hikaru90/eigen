@@ -9,9 +9,18 @@ import {
 } from './timezone-offset';
 
 describe('timezone-offset', () => {
-	it('exposes GMT-12 through GMT+14', () => {
-		expect(TIMEZONE_OFFSET_OPTIONS[0]?.label).toBe('GMT-12');
-		expect(TIMEZONE_OFFSET_OPTIONS.at(-1)?.label).toBe('GMT+14');
+	it('exposes GMT-12 through GMT+14 with city names', () => {
+		expect(TIMEZONE_OFFSET_OPTIONS[0]?.label).toContain('GMT-12');
+		expect(TIMEZONE_OFFSET_OPTIONS.at(-1)?.label).toContain('GMT+14');
+	});
+
+	it('includes city names in parentheses when available', () => {
+		const berlin = TIMEZONE_OFFSET_OPTIONS.find((o) => o.value === 60);
+		expect(berlin?.label).toBe('GMT+1 (Berlin)');
+		const ny = TIMEZONE_OFFSET_OPTIONS.find((o) => o.value === -300);
+		expect(ny?.label).toBe('GMT-5 (New York)');
+		const gmt0 = TIMEZONE_OFFSET_OPTIONS.find((o) => o.value === 0);
+		expect(gmt0?.label).toBe('GMT (London)');
 	});
 
 	it('maps GMT+1 to Europe/Berlin', () => {

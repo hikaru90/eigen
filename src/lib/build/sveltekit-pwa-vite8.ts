@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { mkdir, rename, lstat } from 'node:fs/promises';
+import { copyFile, mkdir, rename, lstat } from 'node:fs/promises';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import type { Plugin, ResolvedConfig } from 'vite';
 
@@ -88,6 +88,12 @@ function createSvelteKitBuildPlugin(
 				};
 				const { injectManifest } = await import('workbox-build');
 				await injectManifest(injectManifestOptions);
+
+				const deployedSwName = swName.endsWith('.ts') ? 'service-worker.js' : swName;
+				const deployedSwPath = join(viteConfig.root, 'build', 'client', deployedSwName);
+				if (await isFile(deployedSwPath)) {
+					await copyFile(swSrc, deployedSwPath);
+				}
 
 				if (swName !== 'service-worker.js') {
 					await rename(
