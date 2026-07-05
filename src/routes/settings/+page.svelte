@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -29,6 +30,8 @@
 	} from '$lib/graph/graph-rearrange-phases';
 	import GraphRearrangeStatus from '../graph/GraphRearrangeStatus.svelte';
 	import {
+		DEFAULT_TIMEZONE_OFFSET_MINUTES,
+		inferBrowserOffsetLabel,
 		inferBrowserOffsetMinutes,
 		nearestOptionOffset,
 		TIMEZONE_OFFSET_OPTIONS
@@ -42,19 +45,44 @@
 		postUnsubscribe,
 		postTestPush
 	} from '$lib/push/client';
+	import { saveNotificationSettings as persistNotificationSettings } from '$lib/settings/notification-settings-api';
+
+	function notificationSettingsFromServer(pageData: PageData) {
+		const hasSavedTimezone = pageData.preferredTimezoneOffsetMinutes !== null;
+		const inferredOffset = browser
+			? nearestOptionOffset(inferBrowserOffsetMinutes())
+			: DEFAULT_TIMEZONE_OFFSET_MINUTES;
+		return {
+			timezoneOffsetMinutes: hasSavedTimezone
+				? String(pageData.preferredTimezoneOffsetMinutes)
+				: String(inferredOffset),
+			timezoneInferred: !hasSavedTimezone,
+			detectedTimezoneLabel:
+				!hasSavedTimezone && browser ? inferBrowserOffsetLabel() : null,
+			eventNotificationsEnabled: pageData.eventNotificationsEnabled,
+			eventReminderLeadMinutes: pageData.eventReminderLeadMinutes,
+			dailySummaryEnabled: pageData.dailySummaryEnabled,
+			dailySummaryTimeLocal: pageData.dailySummaryTimeLocal
+		};
+	}
+
+	function applyInferredBrowserTimezone() {
+		timezoneOffsetMinutes = String(nearestOptionOffset(inferBrowserOffsetMinutes()));
+		timezoneInferred = true;
+		detectedTimezoneLabel = inferBrowserOffsetLabel();
+	}
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+	const initialNotificationSettings = notificationSettingsFromServer(data);
 	let activeTab = $state('appearance');
 	let themePreference = $state('system');
-	let timezoneOffsetMinutes = $state(nearestOptionOffset(inferBrowserOffsetMinutes()));
-	let timezoneInferred = $state(true);
-
-	$effect(() => {
-		if (data.preferredTimezoneOffsetMinutes !== null) {
-			timezoneOffsetMinutes = data.preferredTimezoneOffsetMinutes;
-			timezoneInferred = false;
-		}
-	});
+	let timezoneOffsetMinutes = $state(initialNotificationSettings.timezoneOffsetMinutes);
+	let timezoneInferred = $state(initialNotificationSettings.timezoneInferred);
+	let detectedTimezoneLabel = $state(initialNotificationSettings.detectedTimezoneLabel);
+	let eventNotificationsEnabled = $state(initialNotificationSettings.eventNotificationsEnabled);
+	let eventReminderLeadMinutes = $state(initialNotificationSettings.eventReminderLeadMinutes);
+	let dailySummaryEnabled = $state(initialNotificationSettings.dailySummaryEnabled);
+	let dailySummaryTimeLocal = $state(initialNotificationSettings.dailySummaryTimeLocal);
 
 	const settingsTabs = [
 		{ value: 'appearance', label: 'Appearance' },
@@ -89,6 +117,9 @@
 	let pushError = $state<string | null>(null);
 	let pushSubscribed = $state(false);
 	let pushSubscriptionCount = $state(0);
+	let notificationSaveBusy = $state(false);
+	let notificationMessage = $state<string | null>(null);
+	let notificationError = $state<string | null>(null);
 
 	$effect(() => {
 		pushSubscriptionCount = data.pushSubscriptionCount;
@@ -238,6 +269,39 @@
 		}
 	}
 
+	async function saveNotificationSettings() {
+		if (notificationSaveBusy) return;
+		notificationSaveBusy = true;
+		notificationMessage = null;
+		notificationError = null;
+		try {
+			const leadMinutes = Number(eventReminderLeadMinutes);
+			if (!Number.isFinite(leadMinutes) || leadMinutes < 1) {
+				throw new Error('Reminder lead time must be at least 1 minute.');
+			}
+			const parsedOffset = Number.parseInt(timezoneOffsetMinutes, 10);
+			const result = await persistNotificationSettings({
+				timezoneOffsetMinutes: Number.isFinite(parsedOffset) ? parsedOffset : 60,
+				eventNotificationsEnabled,
+				eventReminderLeadMinutes: leadMinutes,
+				dailySummaryEnabled,
+				dailySummaryTimeLocal
+			});
+			timezoneOffsetMinutes = String(result.timezoneOffsetMinutes);
+			timezoneInferred = false;
+			detectedTimezoneLabel = null;
+			eventNotificationsEnabled = result.eventNotificationsEnabled;
+			eventReminderLeadMinutes = result.eventReminderLeadMinutes;
+			dailySummaryEnabled = result.dailySummaryEnabled;
+			dailySummaryTimeLocal = result.dailySummaryTimeLocal;
+			notificationMessage = result.message;
+		} catch (e) {
+			notificationError = e instanceof Error ? e.message : String(e);
+		} finally {
+			notificationSaveBusy = false;
+		}
+	}
+
 	async function sendTestPush() {
 		if (pushBusy) return;
 		pushBusy = true;
@@ -257,8 +321,7 @@
 		const savedPreference = localStorage.getItem('theme-preference') ?? 'system';
 		themePreference = savedPreference;
 		if (data.preferredTimezoneOffsetMinutes === null) {
-			timezoneOffsetMinutes = nearestOptionOffset(inferBrowserOffsetMinutes());
-			timezoneInferred = true;
+			applyInferredBrowserTimezone();
 		}
 		void refreshPushState();
 	});
@@ -660,12 +723,11 @@
 				</Card.Description>
 			</Card.Header>
 			<Card.Content class="pt-0">
-				<form method="post" action="?/updateEventNotifications" use:enhance class="space-y-3">
+				<div class="space-y-3">
 					<div class="space-y-1">
 						<Label for="timezoneOffsetMinutes">Timezone</Label>
 						<select
 							id="timezoneOffsetMinutes"
-							name="timezoneOffsetMinutes"
 							bind:value={timezoneOffsetMinutes}
 							onchange={() => (timezoneInferred = false)}
 							class="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full max-w-xs rounded-md border px-2 font-mono text-xs focus-visible:ring-1 focus-visible:outline-none"
@@ -676,15 +738,18 @@
 						</select>
 						{#if timezoneInferred}
 							<p class="text-muted-foreground text-[11px]">
-								Detected from your device — change if needed.
+								{#if detectedTimezoneLabel}
+									Detected as {detectedTimezoneLabel} from your device — change if needed.
+								{:else}
+									Detected from your device — change if needed.
+								{/if}
 							</p>
 						{/if}
 					</div>
 					<label class="flex items-center gap-2 text-xs">
 						<input
 							type="checkbox"
-							name="eventNotificationsEnabled"
-							checked={data.eventNotificationsEnabled}
+							bind:checked={eventNotificationsEnabled}
 							class="size-3.5"
 						/>
 						Enable event reminders
@@ -693,19 +758,17 @@
 						<Label for="eventReminderLeadMinutes">Remind me (minutes before)</Label>
 						<Input
 							id="eventReminderLeadMinutes"
-							name="eventReminderLeadMinutes"
 							type="number"
 							min="1"
 							max="1440"
-							value={data.eventReminderLeadMinutes}
+							bind:value={eventReminderLeadMinutes}
 							class="h-9 w-24 font-mono text-xs"
 						/>
 					</div>
 					<label class="flex items-center gap-2 text-xs">
 						<input
 							type="checkbox"
-							name="dailySummaryEnabled"
-							checked={data.dailySummaryEnabled}
+							bind:checked={dailySummaryEnabled}
 							class="size-3.5"
 						/>
 						Daily task summary
@@ -714,19 +777,28 @@
 						<Label for="dailySummaryTimeLocal">Daily summary time (local)</Label>
 						<Input
 							id="dailySummaryTimeLocal"
-							name="dailySummaryTimeLocal"
 							type="time"
-							value={data.dailySummaryTimeLocal}
+							bind:value={dailySummaryTimeLocal}
 							class="h-9 w-32 font-mono text-xs"
 						/>
 					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-						Save notification settings
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="rounded-[4px]"
+						disabled={notificationSaveBusy}
+						onclick={() => void saveNotificationSettings()}
+					>
+						{notificationSaveBusy ? 'Saving…' : 'Save notification settings'}
 					</Button>
-					{#if form?.eventNotificationsMessage}
-						<p class="text-muted-foreground text-xs">{form.eventNotificationsMessage}</p>
+					{#if notificationMessage}
+						<p class="text-muted-foreground text-xs">{notificationMessage}</p>
 					{/if}
-				</form>
+					{#if notificationError}
+						<p class="text-destructive text-xs">{notificationError}</p>
+					{/if}
+				</div>
 			</Card.Content>
 		</Card.Root>
 		</Tabs.Content>

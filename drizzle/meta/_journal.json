@@ -407,6 +407,13 @@
       "when": 1783086600000,
       "tag": "0057_drop_duplicate_resolve_user_api_key",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1783173000000,
+      "tag": "0058_preferred_timezone_offset_minutes",
+      "breakpoints": true
     }
   ]
 }

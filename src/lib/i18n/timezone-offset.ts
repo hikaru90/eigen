@@ -69,10 +69,26 @@ export function nearestOptionOffset(offsetMinutes: number): number {
 	return clamped * 60;
 }
 
-/** Browser-local offset in minutes east of UTC (e.g. CET → 60). */
-export function inferBrowserOffsetMinutes(): number {
+/** Browser IANA timezone when available (e.g. Europe/Berlin). */
+export function inferBrowserIanaTimezone(): string | null {
 	try {
 		const iana = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+		return iana || null;
+	} catch {
+		return null;
+	}
+}
+
+export function labelForOffsetMinutes(offsetMinutes: number): string {
+	const rounded = nearestOptionOffset(offsetMinutes);
+	const option = TIMEZONE_OFFSET_OPTIONS.find((entry) => entry.value === rounded);
+	return option?.label ?? formatGMTOffset(rounded);
+}
+
+/** Browser-local offset in minutes east of GMT (e.g. GMT+1 → 60). */
+export function inferBrowserOffsetMinutes(): number {
+	try {
+		const iana = inferBrowserIanaTimezone();
 		if (iana) return nearestOptionOffset(offsetMinutesForIana(iana));
 	} catch {
 		// fall through
@@ -80,16 +96,27 @@ export function inferBrowserOffsetMinutes(): number {
 	return nearestOptionOffset(-new Date().getTimezoneOffset());
 }
 
+/** GMT label for the browser-local offset (e.g. GMT+2 (Helsinki)). */
+export function inferBrowserOffsetLabel(): string {
+	return labelForOffsetMinutes(inferBrowserOffsetMinutes());
+}
+
+const GMT_ZERO_ALIASES = new Set(['GMT', 'UTC', 'Etc/GMT', 'Etc/UTC', 'Z']);
+
 export function offsetMinutesForIana(timeZone: string, at = new Date()): number {
+	const normalized = timeZone.trim();
+	if (GMT_ZERO_ALIASES.has(normalized)) return 0;
+
 	const parts = new Intl.DateTimeFormat('en-US', {
-		timeZone,
+		timeZone: normalized,
 		timeZoneName: 'shortOffset',
 		hour: 'numeric',
 		minute: 'numeric',
 		hour12: false
 	}).formatToParts(at);
 	const tzName = parts.find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
-	const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(tzName);
+	if (tzName === 'GMT' || tzName === 'UTC') return 0;
+	const match = /(?:GMT|UTC)([+-])(\d{1,2})(?::(\d{2}))?/.exec(tzName);
 	if (!match) return 0;
 	const sign = match[1] === '+' ? 1 : -1;
 	const hours = Number.parseInt(match[2], 10);
@@ -97,40 +124,26 @@ export function offsetMinutesForIana(timeZone: string, at = new Date()): number 
 	return sign * (hours * 60 + minutes);
 }
 
-const CIVIL_IANA_BY_OFFSET: Partial<Record<number, string>> = {
-	[-540]: 'America/Anchorage',
-	[-480]: 'America/Los_Angeles',
-	[-420]: 'America/Denver',
-	[-360]: 'America/Chicago',
-	[-300]: 'America/New_York',
-	[-240]: 'America/Halifax',
-	[0]: 'UTC',
-	[60]: 'Europe/Berlin',
-	[120]: 'Europe/Helsinki',
-	[180]: 'Europe/Moscow',
-	[330]: 'Asia/Kolkata',
-	[480]: 'Asia/Shanghai',
-	[540]: 'Asia/Tokyo',
-	[600]: 'Australia/Sydney'
-};
-
-/** Map a whole-hour GMT offset to a persisted IANA zone. */
+/** Map a whole-hour GMT offset to a fixed-offset IANA Etc/GMT zone (no DST drift on reload). */
 export function ianaFromOffsetMinutes(offsetMinutes: number): string {
 	const rounded = nearestOptionOffset(offsetMinutes);
-	if (CIVIL_IANA_BY_OFFSET[rounded]) return CIVIL_IANA_BY_OFFSET[rounded]!;
-
-	if (rounded === 0) return 'UTC';
+	if (rounded === 0) return 'Etc/GMT';
 	const hours = Math.abs(rounded / 60);
 	// IANA Etc/GMT labels use inverted signs.
 	if (rounded > 0) return `Etc/GMT-${hours}`;
 	return `Etc/GMT+${hours}`;
 }
 
-export function offsetMinutesFromStoredTimezone(
-	stored: string | null | undefined,
+/** Resolve a stored IANA zone to the dropdown offset, preferring a persisted offset when present. */
+export function offsetMinutesForUiPreference(
+	storedTimezone: string | null | undefined,
+	storedOffsetMinutes: number | null | undefined,
 	at = new Date()
-): number {
-	const trimmed = stored?.trim();
-	if (!trimmed) return DEFAULT_TIMEZONE_OFFSET_MINUTES;
+): number | null {
+	if (storedOffsetMinutes != null && Number.isFinite(storedOffsetMinutes)) {
+		return nearestOptionOffset(storedOffsetMinutes);
+	}
+	const trimmed = storedTimezone?.trim();
+	if (!trimmed) return null;
 	return nearestOptionOffset(offsetMinutesForIana(trimmed, at));
 }

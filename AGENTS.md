@@ -4,6 +4,17 @@
 - **Package Manager**: npm
 - **Add-ons**: eslint, vitest, playwright, tailwindcss, sveltekit-adapter, drizzle, better-auth, paraglide, mdsvex
 
+## Database migrations (agent — non-negotiable)
+
+Every schema change needs **both** a SQL file and a journal entry in the **same change**. Never one without the other.
+
+1. Add `drizzle/NNNN_name.sql`.
+2. Append matching `tag` to `drizzle/meta/_journal.json` (`idx` sequential, `tag` = filename without `.sql`).
+3. Update Drizzle schema in `src/lib/server/db/`.
+4. Run `npm run db:migrate` and confirm it applies.
+
+`scripts/migrate.mjs` **fails fast** if any SQL file is missing from the journal; deploy will skip the migration and runtime queries against new columns will 500. See [`.cursor/rules/drizzle-migration-journal.mdc`](.cursor/rules/drizzle-migration-journal.mdc).
+
 ## UI components (shadcn-svelte)
 
 - **Prefer the registry over hand-built UI.** Before implementing menus, overlays, popovers, dialogs, sheets, comboboxes, etc. with raw markup, native controls (`<details>`), or custom click-outside / focus logic, **check [shadcn-svelte components](https://www.shadcn-svelte.com/docs/components)** and existing primitives under `src/lib/components/ui/`.

@@ -544,6 +544,8 @@ export const userPreference = pgTable(
 		defaultBillingCurrency: text('default_billing_currency').notNull().default('USD'),
 		/** IANA timezone for temporal anchoring, agenda grouping, and reminders. */
 		preferredTimezone: text('preferred_timezone'),
+		/** Whole-hour GMT offset selected in settings (stable UI round-trip). */
+		preferredTimezoneOffsetMinutes: integer('preferred_timezone_offset_minutes'),
 		eventNotificationsEnabled: boolean('event_notifications_enabled').notNull().default(false),
 		eventReminderLeadMinutes: integer('event_reminder_lead_minutes').notNull().default(10),
 		eventReminderKinds: jsonb('event_reminder_kinds')

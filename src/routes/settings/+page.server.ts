@@ -1,6 +1,6 @@
 import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { APIError } from 'better-auth/api';
 import { auth } from '$lib/server/auth';
 import { authDb } from '$lib/server/db/auth-db';
@@ -8,16 +8,11 @@ import { user } from '$lib/server/db/auth.schema';
 import { getDb } from '$lib/server/db';
 import { userPreference, pushSubscription } from '$lib/server/db/schema';
 import {
-	ianaFromOffsetMinutes,
-	nearestOptionOffset,
-	offsetMinutesFromStoredTimezone,
-	DEFAULT_TIMEZONE_OFFSET_MINUTES
+	offsetMinutesForUiPreference
 } from '$lib/i18n/timezone-offset';
 import {
-	formatMinutesLocal,
-	parseTimeLocalToMinutes
+	formatMinutesLocal
 } from '$lib/server/memory/timeline-today-server';
-import { resyncAllReminderSchedulesForUser } from '$lib/server/memory/resync-event-reminders';
 import { normalizeUiLocale, UI_LOCALE_OPTIONS } from '$lib/i18n/ui-locale';
 import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime';
 
@@ -84,6 +79,7 @@ export const load: PageServerLoad = async (event) => {
 			preferredUiLocale: userPreference.preferredUiLocale,
 			preferredTranscriptionQuality: userPreference.preferredTranscriptionQuality,
 			preferredTimezone: userPreference.preferredTimezone,
+			preferredTimezoneOffsetMinutes: userPreference.preferredTimezoneOffsetMinutes,
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
 			dailySummaryEnabled: userPreference.dailySummaryEnabled,
@@ -103,9 +99,10 @@ export const load: PageServerLoad = async (event) => {
 		preferredLanguage: pref?.preferredLanguage ?? 'en',
 		preferredUiLocale: pref?.preferredUiLocale ?? 'en',
 		preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low',
-		preferredTimezoneOffsetMinutes: pref?.preferredTimezone
-			? offsetMinutesFromStoredTimezone(pref.preferredTimezone)
-			: null,
+		preferredTimezoneOffsetMinutes: offsetMinutesForUiPreference(
+			pref?.preferredTimezone,
+			pref?.preferredTimezoneOffsetMinutes ?? null
+		),
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
 		languageOptions: LANGUAGE_OPTIONS,
@@ -257,95 +254,6 @@ export const actions: Actions = {
 		} catch (error) {
 			return fail(400, {
 				passwordMessage: getSafeErrorMessage(error, 'Unable to change password.')
-			});
-		}
-	},
-
-	updateEventNotifications: async (event) => {
-		if (!event.locals.user) {
-			return fail(401, { eventNotificationsMessage: 'You must be signed in.' });
-		}
-
-		const formData = await event.request.formData();
-		const offsetRaw = formData.get('timezoneOffsetMinutes')?.toString().trim() ?? '';
-		const parsedOffset = Number.parseInt(offsetRaw, 10);
-		const offsetMinutes = Number.isFinite(parsedOffset)
-			? nearestOptionOffset(parsedOffset)
-			: DEFAULT_TIMEZONE_OFFSET_MINUTES;
-		const preferredTimezone = ianaFromOffsetMinutes(offsetMinutes);
-		const eventNotificationsEnabled = formData.get('eventNotificationsEnabled') === 'on';
-		const leadRaw = formData.get('eventReminderLeadMinutes')?.toString().trim() ?? '10';
-		const eventReminderLeadMinutes = Number.parseInt(leadRaw, 10);
-		if (!Number.isFinite(eventReminderLeadMinutes) || eventReminderLeadMinutes < 1) {
-			return fail(400, {
-				eventNotificationsMessage: 'Reminder lead time must be at least 1 minute.'
-			});
-		}
-
-		const dailySummaryEnabled = formData.get('dailySummaryEnabled') === 'on';
-		const dailySummaryTimeLocal = formData.get('dailySummaryTimeLocal')?.toString().trim() ?? '08:00';
-		const dailySummaryMinutesLocal = parseTimeLocalToMinutes(dailySummaryTimeLocal);
-		if (dailySummaryMinutesLocal === null) {
-			return fail(400, {
-				eventNotificationsMessage: 'Daily summary time must be HH:MM (24-hour).'
-			});
-		}
-
-		try {
-			const [existing] = await getDb()
-				.select({
-					preferredTimezone: userPreference.preferredTimezone,
-					eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
-					eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes
-				})
-				.from(userPreference)
-				.where(eq(userPreference.userId, event.locals.user.id))
-				.limit(1);
-
-			await getDb()
-				.insert(userPreference)
-				.values({
-					userId: event.locals.user.id,
-					preferredTimezone: preferredTimezone || null,
-					eventNotificationsEnabled,
-					eventReminderLeadMinutes,
-					dailySummaryEnabled,
-					dailySummaryMinutesLocal
-				})
-				.onConflictDoUpdate({
-					target: userPreference.userId,
-					set: {
-						preferredTimezone: preferredTimezone || null,
-						eventNotificationsEnabled,
-						eventReminderLeadMinutes,
-						dailySummaryEnabled,
-						dailySummaryMinutesLocal,
-						updatedAt: new Date()
-					}
-				});
-
-			const reminderFieldsChanged =
-				(existing?.eventNotificationsEnabled ?? false) !== eventNotificationsEnabled ||
-				(existing?.eventReminderLeadMinutes ?? 10) !== eventReminderLeadMinutes ||
-				(existing?.preferredTimezone?.trim() ?? '') !== (preferredTimezone || '');
-
-			let syncMessage = '';
-			if (reminderFieldsChanged) {
-				const synced = await resyncAllReminderSchedulesForUser(event.locals.user.id);
-				syncMessage = eventNotificationsEnabled
-					? ` Synced ${synced} event reminder(s).`
-					: ` Cleared schedules for ${synced} event(s).`;
-			}
-
-			return {
-				eventNotificationsMessage: `Notification settings saved.${syncMessage}`
-			};
-		} catch (error) {
-			return fail(400, {
-				eventNotificationsMessage: getSafeErrorMessage(
-					error,
-					'Unable to save event notification settings.'
-				)
 			});
 		}
 	},

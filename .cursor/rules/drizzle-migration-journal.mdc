@@ -1,0 +1,41 @@
+---
+description: Every Drizzle SQL migration must be registered in drizzle/meta/_journal.json
+alwaysApply: true
+---
+
+# Drizzle Migrations: Journal Is Mandatory
+
+A SQL file under `drizzle/` **without** a matching entry in `drizzle/meta/_journal.json` is a broken migration. Deploy and `npm run db:migrate` will **not** apply it; code that references the new column/table will 500 at runtime.
+
+## Non-negotiable
+
+- Do **not** add or edit `drizzle/NNNN_*.sql` without adding the same tag to `drizzle/meta/_journal.json` in the **same change**.
+- Do **not** update Drizzle schema (`src/lib/server/db/*.schema.ts`) to reference a column/table until the migration SQL **and** journal entry exist.
+- Do **not** tell the operator a migration is done until `npm run db:migrate` succeeds locally (or you confirm the journal + SQL ship together for their deploy).
+
+## Required steps (every migration)
+
+1. **SQL file** — `drizzle/NNNN_descriptive_name.sql` (next sequential number).
+2. **Journal entry** — append to `drizzle/meta/_journal.json` `entries`:
+   ```json
+   {
+     "idx": N,
+     "version": "7",
+     "when": <unix_ms>,
+     "tag": "NNNN_descriptive_name",
+     "breakpoints": true
+   }
+   ```
+   `tag` must match the SQL filename without `.sql`.
+3. **Schema** — update the Drizzle table definition in the same PR.
+4. **Verify** — run `npm run db:migrate` and confirm it applies (no “journal is missing” error).
+
+## How this project enforces it
+
+`scripts/migrate.mjs` calls `assertJournalCoversAllMigrationFiles()` before running. Any disk SQL file missing from the journal **throws** and blocks startup (`npm run dev` runs migrate first).
+
+## Review checklist
+
+- Is every new/edited `drizzle/*.sql` file listed in `_journal.json`?
+- Does application code only reference columns/tables that migration creates?
+- Did you run `npm run db:migrate` (or document that deploy will)?
