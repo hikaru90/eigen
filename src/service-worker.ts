@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { drainCaptureQueue } from '$lib/capture/queue/drain';
 import {
 	releaseCaptureQueueDrainLock,
@@ -10,12 +9,6 @@ import { CAPTURE_QUEUE_SYNC_TAG, type CaptureQueueBroadcast } from '$lib/capture
 const SW_DRAIN_LOCK_HOLDER = 'service-worker';
 
 declare const self: ServiceWorkerGlobalScope;
-
-const wbManifest = self.__WB_MANIFEST;
-if (Array.isArray(wbManifest)) {
-	precacheAndRoute(wbManifest);
-	cleanupOutdatedCaches();
-}
 
 async function broadcastCaptureQueueMessage(message: CaptureQueueBroadcast | { type: 'capture-queue-idle' }) {
 	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

@@ -34,7 +34,9 @@ export default defineConfig({
 			registerType: 'autoUpdate',
 			manifest: false,
 			injectManifest: {
-				globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest}']
+				// No Workbox precache in the SW — push + capture queue only. Avoids __WB_MANIFEST deploy bugs.
+				injectionPoint: null,
+				globPatterns: []
 			},
 			devOptions: {
 				enabled: true,
