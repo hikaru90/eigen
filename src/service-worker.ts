@@ -11,8 +11,11 @@ const SW_DRAIN_LOCK_HOLDER = 'service-worker';
 
 declare const self: ServiceWorkerGlobalScope;
 
-precacheAndRoute(self.__WB_MANIFEST);
-cleanupOutdatedCaches();
+const wbManifest = self.__WB_MANIFEST;
+if (Array.isArray(wbManifest)) {
+	precacheAndRoute(wbManifest);
+	cleanupOutdatedCaches();
+}
 
 async function broadcastCaptureQueueMessage(message: CaptureQueueBroadcast | { type: 'capture-queue-idle' }) {
 	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

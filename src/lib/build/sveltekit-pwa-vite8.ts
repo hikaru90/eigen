@@ -90,10 +90,9 @@ function createSvelteKitBuildPlugin(
 				await injectManifest(injectManifestOptions);
 
 				const deployedSwName = swName.endsWith('.ts') ? 'service-worker.js' : swName;
-				const deployedSwPath = join(viteConfig.root, 'build', 'client', deployedSwName);
-				if (await isFile(deployedSwPath)) {
-					await copyFile(swSrc, deployedSwPath);
-				}
+				const deployedClientDir = join(viteConfig.root, 'build', 'client');
+				await mkdir(deployedClientDir, { recursive: true });
+				await copyFile(swSrc, join(deployedClientDir, deployedSwName));
 
 				if (swName !== 'service-worker.js') {
 					await rename(
