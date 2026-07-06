@@ -8,11 +8,10 @@
 	import { Button } from '$lib/components/ui/button';
 	import TimelineCreateProjectDialog from './TimelineCreateProjectDialog.svelte';
 	import TimelineEditProjectDialog from './TimelineEditProjectDialog.svelte';
+	import TimelineProjectDetailDialog from './TimelineProjectDetailDialog.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
-	import Trash2Icon from '@lucide/svelte/icons/trash-2';
-	import PencilIcon from '@lucide/svelte/icons/pencil';
 
 	type Props = {
 		onGoToTask: (itemId: string) => void;
@@ -35,6 +34,8 @@
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
 	let editProjectOpen = $state(false);
 	let editProjectItem = $state<ProjectListItem | null>(null);
+	let detailDialogOpen = $state(false);
+	let detailProject = $state<ProjectListItem | null>(null);
 
 	async function loadProjects(options?: { silent?: boolean }) {
 		const silent = options?.silent ?? phase.kind === 'ready';
@@ -76,6 +77,35 @@
 	let confirmDismissProjectId = $state<string | null>(null);
 	let confirmDismissProjectLabel = $state<string | null>(null);
 
+	const tabEntryClass =
+		'flex flex-col overflow-visible bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card';
+	const tabTriggerClass =
+		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
+	const filledPillClass =
+		'h-auto shrink-0 rounded-full border border-black bg-black px-3 py-1 text-xs font-medium text-white hover:bg-black/90 dark:border-foreground dark:bg-foreground dark:text-background dark:hover:bg-foreground/90';
+	const ghostPillClass =
+		'h-auto shrink-0 gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground';
+
+	function openProjectDetail(project: ProjectListItem) {
+		detailProject = project;
+		detailDialogOpen = true;
+	}
+
+	function closeProjectDetail() {
+		detailDialogOpen = false;
+		detailProject = null;
+	}
+
+	const detailNextAction = $derived(
+		detailProject ? getNextAction(detailProject) : null
+	);
+
+	const detailTasks = $derived(
+		detailProject
+			? tasksForProject(detailProject).filter((t) => t.id !== detailNextAction?.itemId)
+			: []
+	);
+
 	function requestDismissProject(entityId: string, label: string) {
 		confirmDismissProjectId = entityId;
 		confirmDismissProjectLabel = label;
@@ -98,6 +128,9 @@
 			if (!res.ok) {
 				const text = await res.text();
 				throw new Error(`${res.status}: ${text || 'unknown error'}`);
+			}
+			if (detailProject?.entityId === entityId) {
+				closeProjectDetail();
 			}
 			void loadProjects({ silent: true });
 		} catch (err) {
@@ -179,9 +212,22 @@
 		editProjectOpen = true;
 	}
 
-	function onProjectUpdated() {
+	function openEditFromDetail() {
+		if (!detailProject) return;
+		openEditProject(detailProject);
+	}
+
+	function requestDeleteFromDetail() {
+		if (!detailProject) return;
+		requestDismissProject(detailProject.entityId, detailProject.label);
+	}
+
+	function onProjectUpdated(updated?: { entityId: string; label: string }) {
 		editProjectOpen = false;
 		editProjectItem = null;
+		if (detailProject && updated?.entityId === detailProject.entityId) {
+			detailProject = { ...detailProject, label: updated.label };
+		}
 		void loadProjects({ silent: true });
 	}
 
@@ -222,154 +268,138 @@
 	}
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-	<div class="border-border flex shrink-0 items-center justify-end border-b px-3 py-2">
-		<Button
-			type="button"
-			variant="outline"
-			size="sm"
-			class="h-8 gap-1.5 text-xs"
-			onclick={() => (createDialogOpen = true)}
-		>
-			<PlusIcon class="size-3.5" aria-hidden="true" />
-			{m.graph_timeline_create_project()}
-		</Button>
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden px-3">
+	<div class="relative z-10 shrink-0 bg-background pb-2">
+		<div class="flex flex-wrap items-center justify-between gap-2">
+			<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				{m.graph_timeline_projects_aria()}
+			</h2>
+			<Button
+				type="button"
+				class="{filledPillClass} gap-1"
+				onclick={() => (createDialogOpen = true)}
+			>
+				<PlusIcon class="size-3.5" aria-hidden="true" />
+				{m.graph_timeline_create_project()}
+			</Button>
+		</div>
 	</div>
 
-	<div
-		class="min-h-0 flex-1 overflow-y-auto pb-4"
-		role="listbox"
-		aria-label={m.graph_timeline_projects_aria()}
-	>
+	<div class="relative min-h-0 flex-1" role="listbox" aria-label={m.graph_timeline_projects_aria()}>
+		<div
+			class="absolute inset-0 z-0 overflow-y-auto pb-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+		>
 	{#if phase.kind === 'loading'}
 		<div class="flex flex-col items-center justify-center gap-3 py-12">
 			<LoaderCircleIcon class="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
 			<p class="text-muted-foreground text-sm">{m.graph_temporal_loading()}</p>
 		</div>
 	{:else if phase.kind === 'error'}
-		<p class="text-destructive px-4 py-8 text-center text-sm">{phase.message}</p>
+		<p class="text-destructive px-1 py-8 text-center text-sm">{phase.message}</p>
 	{:else}
 		{#if phase.projects.length === 0 && unassignedTasks.length === 0}
-			<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
+			<p class="text-muted-foreground px-1 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
 		{:else}
+			<div class="flex flex-col gap-2">
 			{#if phase.projects.length > 0}
-				<ul class="divide-border divide-y">
-					{#each sortedProjects as project (project.entityId)}
-						{@const projectNextAction = getNextAction(project)}
-						{@const projectTasks = tasksForProject(project).filter((t) => t.id !== projectNextAction?.itemId)}
-						<li
-							class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
+				{#each sortedProjects as project (project.entityId)}
+					{@const projectNextAction = getNextAction(project)}
+					{@const openLoopCount =
+						tasksForProject(project).length}
+					<div
+						class="{tabEntryClass} min-w-0 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
+					>
+						<div
+							class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
 						>
-							<div class="flex items-start justify-between gap-2">
-								<div class="flex min-w-0 items-center gap-2">
-									<h3 class="text-foreground truncate text-sm font-medium">{project.label}</h3>
-								</div>
-								<div class="flex shrink-0 items-center gap-1">
-									<span
-										class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
-									>
-										{statusLabel(project.status)}
-									</span>
-									{#if project.status === 'active'}
-										<Button
-											variant="ghost"
-											size="sm"
-											class="h-7 shrink-0 gap-1 px-2 text-[10px] text-muted-foreground hover:text-destructive"
-											onclick={() => requestDismissProject(project.entityId, project.label)}
-										>
-											<Trash2Icon class="size-3" aria-hidden="true" />
-											{m.graph_timeline_delete_project()}
-										</Button>
+							<div class="min-w-0 flex-1">
+								<p class="truncate text-sm font-medium text-foreground">{project.label}</p>
+								<div
+									class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+								>
+									<span class="font-medium text-foreground">{statusLabel(project.status)}</span>
+									{#if openLoopCount > 0}
+										<span>
+											{m.graph_timeline_project_open_loops({ count: openLoopCount })}
+										</span>
 									{/if}
-									<Button
-										variant="ghost"
-										size="icon"
-										class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-										title="Edit project name"
-										onclick={() => openEditProject(project)}
-									>
-										<PencilIcon class="size-3" aria-hidden="true" />
-									</Button>
+									{#if projectNextAction}
+										<span class="line-clamp-1">{projectNextAction.summary}</span>
+									{/if}
 								</div>
 							</div>
-							{#if projectNextAction}
-								<button
-									type="button"
-									class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
-									onclick={() => onGoToTask(projectNextAction.itemId)}
-								>
-									<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
-										{m.graph_timeline_project_next_action()}
-									</p>
-									<p class="text-foreground mt-0.5 text-sm">{projectNextAction.summary}</p>
-								</button>
-							{/if}
-							{#if projectTasks.length + (projectNextAction ? 1 : 0) > 1}
-								<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">
-									{m.graph_timeline_project_open_loops({
-										count: projectTasks.length + (projectNextAction ? 1 : 0)
-									})}
-								</p>
-							{/if}
-							{#if projectTasks.length > 0}
-								<div class="mt-2 space-y-1">
-									{#each projectTasks as task (task.id)}
-										<button
-											type="button"
-											class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
-											onclick={() => onGoToTask(task.id)}
-										>
-											<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
-										</button>
-									{/each}
-								</div>
-							{/if}
-						</li>
-					{/each}
-				</ul>
+							<Button
+								type="button"
+								variant="ghost"
+								class={ghostPillClass}
+								onclick={() => openProjectDetail(project)}
+							>
+								{m.graph_timeline_open_project()}
+							</Button>
+						</div>
+					</div>
+				{/each}
 			{/if}
 
 			{#if unassignedTasks.length > 0}
-				<div class="mt-4">
-					<h3 class="text-muted-foreground mb-2 px-4 font-mono text-[10px] uppercase tracking-wide">
+				<div class="mt-2">
+					<h3 class="mb-2 px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						{m.graph_timeline_project_no_project()} ({unassignedTasks.length})
 					</h3>
-					<ul class="divide-border divide-y">
+					<div class="flex flex-col gap-2">
 						{#each unassignedTasks as task (task.id)}
-							<li class="px-4 py-2">
-								<div class="flex items-start justify-between gap-2">
+							<div class="{tabEntryClass} min-w-0">
+								<div
+									class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
+								>
 									<button
-									type="button"
-									class="min-w-0 flex-1 text-left"
-									onclick={() => onGoToTask(task.id)}
-								>
-									<p class="text-foreground truncate text-sm">{task.semanticSummary}</p>
-									{#if task.thoughtText !== task.semanticSummary}
-										<p class="text-muted-foreground truncate text-xs">{task.thoughtText}</p>
-									{/if}
-								</button>
-								<Button
-									variant="ghost"
-									size="sm"
-									class="h-7 shrink-0 text-[10px]"
-									onclick={() => openAssignProject(task)}
-								>
-									Assign
-								</Button>
+										type="button"
+										class="min-w-0 flex-1 text-left"
+										onclick={() => onGoToTask(task.id)}
+									>
+										<p class="line-clamp-2 text-sm text-foreground">{task.semanticSummary}</p>
+										{#if task.thoughtText !== task.semanticSummary}
+											<p class="mt-1 line-clamp-1 text-xs text-muted-foreground">
+												{task.thoughtText}
+											</p>
+										{/if}
+									</button>
+									<Button
+										type="button"
+										variant="ghost"
+										class="h-auto shrink-0 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+										onclick={() => openAssignProject(task)}
+									>
+										Assign
+									</Button>
+								</div>
 							</div>
-						</li>
-					{/each}
-					</ul>
+						{/each}
+					</div>
 				</div>
 			{/if}
+			</div>
 		{/if}
 	{/if}
+		</div>
 	</div>
 
 	<TimelineCreateProjectDialog
 		bind:open={createDialogOpen}
 		onClose={() => (createDialogOpen = false)}
 		onCreated={onProjectCreated}
+	/>
+
+	<TimelineProjectDetailDialog
+		bind:open={detailDialogOpen}
+		project={detailProject}
+		nextAction={detailNextAction}
+		tasks={detailTasks}
+		statusLabel={detailProject ? statusLabel(detailProject.status) : ''}
+		onClose={closeProjectDetail}
+		onGoToTask={onGoToTask}
+		onEdit={openEditFromDetail}
+		onDelete={requestDeleteFromDetail}
 	/>
 
 	<TimelineEditProjectDialog

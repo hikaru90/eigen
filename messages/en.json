@@ -232,6 +232,7 @@
 	"graph_timeline_create_project_name_placeholder": "e.g. EigenMesh launch",
 	"graph_timeline_create_project_status": "Status",
 	"graph_timeline_create_project_submit": "Create project",
+	"graph_timeline_open_project": "Open",
 	"graph_timeline_edit_project": "Edit project",
 	"graph_timeline_edit_project_description": "Rename this body of work so future captures can still route tasks to it.",
 	"graph_timeline_edit_project_name": "Project name",
