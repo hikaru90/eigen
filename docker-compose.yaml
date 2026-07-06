@@ -12,6 +12,8 @@ services:
       - -c
       - cron.database_name=eigen
       - -c
+      - pg_net.database_name=eigen
+      - -c
       - cron.timezone=${CONSOLIDATION_CRON_TZ:-UTC}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-eigen}

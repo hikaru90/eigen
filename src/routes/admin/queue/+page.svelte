@@ -140,6 +140,13 @@
 
 	const summary = $derived(dashboard.summary);
 	const ops = $derived(dashboard.ops);
+	const dailySummaries = $derived(dashboard.dailySummaries);
+
+	function dispatchReasonClass(wouldDispatch: boolean): string {
+		return wouldDispatch
+			? 'text-emerald-700 dark:text-emerald-400'
+			: 'text-amber-700 dark:text-amber-400';
+	}
 </script>
 
 <div class="mx-auto max-w-6xl px-5 pb-8 pt-10">
@@ -274,6 +281,35 @@
 				<Card.Description>Scheduled HTTP callbacks into the app</Card.Description>
 			</Card.Header>
 			<Card.Content class="space-y-3 text-xs">
+				<div class="grid gap-2 sm:grid-cols-2">
+					<div class="flex justify-between gap-4">
+						<span class="text-muted-foreground">pg_net queue depth</span>
+						<span
+							class={`font-mono tabular-nums ${ops.pgNet.queueDepth > 0 ? 'text-amber-700 dark:text-amber-400' : ''}`}
+						>
+							{ops.pgNet.queueDepth}
+						</span>
+					</div>
+					<div class="flex justify-between gap-4">
+						<span class="text-muted-foreground">HTTP responses recorded</span>
+						<span class="font-mono tabular-nums">{ops.pgNet.responseCount}</span>
+					</div>
+					<div class="flex justify-between gap-4 sm:col-span-2">
+						<span class="text-muted-foreground">pg_net.database_name</span>
+						<span class="font-mono">{ops.pgNet.databaseNameSetting ?? '—'}</span>
+					</div>
+				</div>
+				{#if ops.pgNet.databaseNameMismatch}
+					<p class="text-destructive text-[11px]">
+						pg_net worker database does not match cron database — queued HTTP calls will not drain.
+						Set <span class="font-mono">pg_net.database_name=eigen</span> on Postgres and recreate the db container
+						(<span class="font-mono">docker compose up -d db --force-recreate</span>).
+					</p>
+				{:else if ops.pgNet.queueDepth > 0 && ops.pgNet.responseCount === 0}
+					<p class="text-amber-700 dark:text-amber-400 text-[11px]">
+						Requests are queued but none have completed — dispatch ticks are not reaching the app.
+					</p>
+				{/if}
 				{#if ops.pgCronJobs.length === 0}
 					<p class="text-muted-foreground">No eigen-* cron jobs found.</p>
 				{:else}
@@ -307,6 +343,66 @@
 			</Card.Content>
 		</Card.Root>
 	</div>
+
+	<Card.Root class="mt-4 border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]">
+		<Card.Header class="pb-3">
+			<Card.Title class="text-sm">Daily summaries</Card.Title>
+			<Card.Description>
+				Per-user schedule, dispatch window, skip reason, and push preview (title + body).
+			</Card.Description>
+		</Card.Header>
+		<Card.Content class="px-0 pb-0">
+			{#if dailySummaries.length === 0}
+				<p class="text-muted-foreground px-4 pb-4 text-xs">No users have daily summary enabled.</p>
+			{:else}
+				<div class="overflow-x-auto">
+					<Table.Root>
+						<Table.Header>
+							<Table.Row>
+								<Table.Head class="text-xs">User</Table.Head>
+								<Table.Head class="text-xs">Schedule</Table.Head>
+								<Table.Head class="text-xs">Window</Table.Head>
+								<Table.Head class="text-xs">Last sent</Table.Head>
+								<Table.Head class="text-xs">Devices</Table.Head>
+								<Table.Head class="text-xs">Status</Table.Head>
+								<Table.Head class="text-xs">Would send</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each dailySummaries as row (row.userId)}
+								<Table.Row>
+									<Table.Cell class="max-w-[10rem] truncate text-xs" title={row.userEmail ?? row.userId}>
+										{row.userEmail ?? row.userId}
+										{#if row.accountKind !== 'production'}
+											<span class="text-muted-foreground"> ({row.accountKind})</span>
+										{/if}
+									</Table.Cell>
+									<Table.Cell class="font-mono text-[11px] whitespace-nowrap">
+										{row.scheduledTimeLocal}
+										<span class="text-muted-foreground"> {row.timeZone}</span>
+									</Table.Cell>
+									<Table.Cell class="font-mono text-[11px] whitespace-nowrap">
+										{row.dispatch.windowStartLocal}–{row.dispatch.windowEndLocal}
+									</Table.Cell>
+									<Table.Cell class="font-mono text-[11px]">
+										{row.lastSentLocalDate ?? 'Never'}
+									</Table.Cell>
+									<Table.Cell class="font-mono text-xs tabular-nums">{row.pushDeviceCount}</Table.Cell>
+									<Table.Cell class={`text-xs font-medium ${dispatchReasonClass(row.dispatch.wouldDispatch)}`}>
+										{row.statusLabel}
+									</Table.Cell>
+									<Table.Cell class="max-w-[18rem] text-[11px]">
+										<p class="font-medium">{row.preview.title}</p>
+										<p class="text-muted-foreground">{row.preview.body}</p>
+									</Table.Cell>
+								</Table.Row>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+				</div>
+			{/if}
+		</Card.Content>
+	</Card.Root>
 
 	<Card.Root class="mt-4 border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]">
 		<Card.Header class="flex flex-row items-center gap-2 pb-3">

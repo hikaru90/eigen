@@ -9,8 +9,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/private';
-import { dispatchDueDailySummaries } from '$lib/server/memory/daily-summary-dispatch';
-import { dispatchDueEventReminders } from '$lib/server/memory/event-reminder-dispatch';
+import { tickNotificationDispatch } from '$lib/server/memory/notification-dispatch-tick';
 
 function getAdminKey(): string | undefined {
 	return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined;
@@ -25,16 +24,16 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const startedAt = Date.now();
-	const [eventReminders, dailySummaries] = await Promise.all([
-		dispatchDueEventReminders(),
-		dispatchDueDailySummaries()
-	]);
+	const result = await tickNotificationDispatch();
+	if (!result) {
+		return json({ ok: true, skipped: true, reason: 'tick_already_running' });
+	}
 
 	console.info('[dispatch-reminders] completed', {
 		durationMs: Date.now() - startedAt,
-		eventReminders,
-		dailySummaries
+		eventReminders: result.eventReminders,
+		dailySummaries: result.dailySummaries
 	});
 
-	return json({ ok: true, eventReminders, dailySummaries });
+	return json({ ok: true, ...result });
 };

@@ -127,6 +127,22 @@
 		pushDevicesRegistered: number;
 		eventNotificationsEnabled: boolean;
 		dailySummaryEnabled: boolean;
+		dailySummary: {
+			scheduledTimeLocal: string;
+			timeZone: string;
+			lastSentLocalDate: string | null;
+			dispatch: {
+				reason: string;
+				todayLocalDate: string;
+				currentMinutesLocal: number;
+				scheduledTimeLocal: string;
+				windowStartLocal: string;
+				windowEndLocal: string;
+				wouldDispatch: boolean;
+			};
+			statusLabel: string;
+			preview: { title: string; body: string; url: string } | null;
+		};
 		reminders: {
 			pending: number;
 			dueNow: number;
@@ -761,6 +777,116 @@
 				{/if}
 				{#if pushError}
 					<p class="text-destructive mt-2 text-xs">{pushError}</p>
+				{/if}
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root>
+			<Card.Header class="pb-3">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<div>
+						<Card.Title class="text-sm">Delivery status</Card.Title>
+						<Card.Description>
+							What the server would send and why it has or has not fired yet.
+						</Card.Description>
+					</div>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="rounded-[4px]"
+						disabled={notificationStatusBusy}
+						onclick={() => void loadNotificationStatus()}
+					>
+						{notificationStatusBusy ? 'Refreshing…' : 'Refresh status'}
+					</Button>
+				</div>
+			</Card.Header>
+			<Card.Content class="space-y-3 pt-0 text-xs">
+				{#if notificationStatusError}
+					<p class="text-destructive">{notificationStatusError}</p>
+				{:else if !notificationStatus}
+					<p class="text-muted-foreground">Loading…</p>
+				{:else}
+					<div class="space-y-2">
+						<div class="flex justify-between gap-4">
+							<span class="text-muted-foreground">Server push ready</span>
+							<span class={notificationStatus.serverPushReady ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
+								{notificationStatus.serverPushReady ? 'Yes' : 'No'}
+							</span>
+						</div>
+						<div class="flex justify-between gap-4">
+							<span class="text-muted-foreground">Registered devices</span>
+							<span class="font-mono tabular-nums">{notificationStatus.pushDevicesRegistered}</span>
+						</div>
+						<div class="flex justify-between gap-4">
+							<span class="text-muted-foreground">Event reminders</span>
+							<span>{notificationStatus.eventNotificationsEnabled ? 'On' : 'Off'}</span>
+						</div>
+						<div class="flex justify-between gap-4">
+							<span class="text-muted-foreground">Reminders pending</span>
+							<span class="font-mono tabular-nums">
+								{notificationStatus.reminders.pending}
+								{#if notificationStatus.reminders.dueNow > 0}
+									<span class="text-amber-700 dark:text-amber-400">
+										({notificationStatus.reminders.dueNow} due now)
+									</span>
+								{/if}
+							</span>
+						</div>
+						{#if notificationStatus.reminders.nextFireAt}
+							<div class="flex justify-between gap-4">
+								<span class="text-muted-foreground">Next reminder</span>
+								<span>{formatStatusTime(notificationStatus.reminders.nextFireAt)}</span>
+							</div>
+						{/if}
+					</div>
+
+					{#if notificationStatus.dailySummaryEnabled}
+						<div class="border-border/60 space-y-2 rounded-lg border bg-muted/30 p-3">
+							<p class="font-medium">Daily summary</p>
+							<div class="flex justify-between gap-4">
+								<span class="text-muted-foreground">Scheduled (local)</span>
+								<span class="font-mono">
+									{notificationStatus.dailySummary.scheduledTimeLocal}
+									<span class="text-muted-foreground">({notificationStatus.dailySummary.timeZone})</span>
+								</span>
+							</div>
+							<div class="flex justify-between gap-4">
+								<span class="text-muted-foreground">Dispatch window</span>
+								<span class="font-mono">
+									{notificationStatus.dailySummary.dispatch.windowStartLocal}–{notificationStatus.dailySummary.dispatch.windowEndLocal}
+								</span>
+							</div>
+							<div class="flex justify-between gap-4">
+								<span class="text-muted-foreground">Last sent (local date)</span>
+								<span class="font-mono">
+									{notificationStatus.dailySummary.lastSentLocalDate ?? 'Never'}
+								</span>
+							</div>
+							<div class="flex justify-between gap-4">
+								<span class="text-muted-foreground">Status</span>
+								<span
+									class={notificationStatus.dailySummary.dispatch.wouldDispatch
+										? 'text-emerald-700 dark:text-emerald-400'
+										: 'text-amber-700 dark:text-amber-400'}
+								>
+									{notificationStatus.dailySummary.statusLabel}
+								</span>
+							</div>
+							{#if notificationStatus.dailySummary.preview}
+								<div class="space-y-1">
+									<p class="text-muted-foreground">Would send now</p>
+									<p class="font-medium">{notificationStatus.dailySummary.preview.title}</p>
+									<p class="text-muted-foreground">{notificationStatus.dailySummary.preview.body}</p>
+									<p class="font-mono text-[11px]">{notificationStatus.dailySummary.preview.url}</p>
+								</div>
+							{/if}
+						</div>
+					{/if}
+					<p class="text-muted-foreground text-[11px]">
+						Checked {formatStatusTime(notificationStatus.at)}
+					</p>
 				{/if}
 			</Card.Content>
 		</Card.Root>

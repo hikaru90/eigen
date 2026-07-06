@@ -1,6 +1,15 @@
+import { withDbUser } from '$lib/server/db';
 import { createAdminSql } from './admin-db';
 import { loadJobQueueSnapshot, type JobQueueSnapshot } from './snapshot';
 import { loadOpsHealthSnapshot, type OpsHealthSnapshot } from '$lib/server/ops/health-snapshot';
+import {
+	buildDailySummaryPreviewForUser,
+	dailySummaryDispatchReasonLabel,
+	evaluateDailySummaryDispatch,
+	type DailySummaryDispatchEvaluation,
+	type DailySummaryPreview
+} from '$lib/server/memory/daily-summary-visibility';
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 
 export type AdminQueueJobRow = {
 	id: string;
@@ -19,10 +28,24 @@ export type AdminQueueJobRow = {
 	finishedAt: string | null;
 };
 
+export type AdminDailySummaryRow = {
+	userId: string;
+	userEmail: string | null;
+	accountKind: string;
+	timeZone: string;
+	scheduledTimeLocal: string;
+	lastSentLocalDate: string | null;
+	pushDeviceCount: number;
+	dispatch: DailySummaryDispatchEvaluation;
+	preview: DailySummaryPreview;
+	statusLabel: string;
+};
+
 export type AdminQueueDashboard = {
 	at: string;
 	summary: JobQueueSnapshot;
 	ops: OpsHealthSnapshot;
+	dailySummaries: AdminDailySummaryRow[];
 	jobs: AdminQueueJobRow[];
 };
 
@@ -188,12 +211,89 @@ async function listQueueJobs(options: AdminQueueListOptions): Promise<AdminQueue
 	}
 }
 
+type RawDailySummaryRow = {
+	user_id: string;
+	user_email: string | null;
+	account_kind: string;
+	daily_summary_minutes_local: number;
+	last_daily_summary_local_date: string | null;
+	push_count: string;
+};
+
+async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDailySummaryRow[]> {
+	const sql = createAdminSql(1);
+	const now = new Date();
+	try {
+		const rows = includeHarness
+			? await sql<RawDailySummaryRow[]>`
+				SELECT
+					u.id AS user_id,
+					u.email AS user_email,
+					u.account_kind,
+					up.daily_summary_minutes_local,
+					up.last_daily_summary_local_date,
+					(SELECT count(*)::text FROM push_subscription ps WHERE ps.user_id = u.id) AS push_count
+				FROM user_preference up
+				INNER JOIN "user" u ON u.id = up.user_id
+				WHERE up.daily_summary_enabled = true
+				ORDER BY u.email NULLS LAST, u.id
+			`
+			: await sql<RawDailySummaryRow[]>`
+				SELECT
+					u.id AS user_id,
+					u.email AS user_email,
+					u.account_kind,
+					up.daily_summary_minutes_local,
+					up.last_daily_summary_local_date,
+					(SELECT count(*)::text FROM push_subscription ps WHERE ps.user_id = u.id) AS push_count
+				FROM user_preference up
+				INNER JOIN "user" u ON u.id = up.user_id
+				WHERE up.daily_summary_enabled = true
+					AND u.account_kind = 'production'
+				ORDER BY u.email NULLS LAST, u.id
+			`;
+
+		const result: AdminDailySummaryRow[] = [];
+		for (const row of rows) {
+			await withDbUser(row.user_id, async () => {
+				const timeZone = await getUserPreferredTimezone(row.user_id);
+				const pushDeviceCount = Number(row.push_count);
+				const dispatch = evaluateDailySummaryDispatch({
+					now,
+					timeZone,
+					dailySummaryMinutesLocal: row.daily_summary_minutes_local,
+					lastDailySummaryLocalDate: row.last_daily_summary_local_date,
+					pushDeviceCount
+				});
+				const preview = await buildDailySummaryPreviewForUser(row.user_id, now);
+				result.push({
+					userId: row.user_id,
+					userEmail: row.user_email,
+					accountKind: row.account_kind,
+					timeZone,
+					scheduledTimeLocal: dispatch.scheduledTimeLocal,
+					lastSentLocalDate: row.last_daily_summary_local_date,
+					pushDeviceCount,
+					dispatch,
+					preview,
+					statusLabel: dailySummaryDispatchReasonLabel(dispatch.reason)
+				});
+			});
+		}
+		return result;
+	} finally {
+		await sql.end();
+	}
+}
+
 export async function loadAdminQueueDashboard(
 	options: AdminQueueListOptions = {}
 ): Promise<AdminQueueDashboard> {
-	const [summary, ops, jobs] = await Promise.all([
+	const includeHarness = options.includeHarness ?? false;
+	const [summary, ops, dailySummaries, jobs] = await Promise.all([
 		loadJobQueueSnapshot(),
 		loadOpsHealthSnapshot(),
+		listDailySummaryRows(includeHarness),
 		listQueueJobs(options)
 	]);
 
@@ -201,6 +301,7 @@ export async function loadAdminQueueDashboard(
 		at: new Date().toISOString(),
 		summary,
 		ops,
+		dailySummaries,
 		jobs
 	};
 }

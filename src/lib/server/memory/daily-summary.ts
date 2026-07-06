@@ -13,7 +13,7 @@ export type DailySummaryPush = {
 };
 
 function formatCompletedYesterday(count: number): string {
-	if (count === 0) return 'You completed no tasks yesterday.';
+	if (count === 0) return 'You did not finish any tasks yesterday.';
 	if (count === 1) return 'You completed 1 task yesterday.';
 	return `You completed ${count} tasks yesterday.`;
 }

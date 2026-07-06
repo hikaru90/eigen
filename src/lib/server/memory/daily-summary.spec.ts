@@ -125,7 +125,7 @@ describe('buildDailySummaryPush', () => {
 	it('handles zero completions and zero due today', () => {
 		const push = buildDailySummaryPush([], [], 'UTC', now);
 
-		expect(push.body).toContain('You completed no tasks yesterday.');
+		expect(push.body).toContain('You did not finish any tasks yesterday.');
 		expect(push.body).toContain('Nothing overdue.');
 		expect(push.body).toContain('Nothing due today.');
 	});

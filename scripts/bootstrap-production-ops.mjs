@@ -101,10 +101,11 @@ try {
 	await runScript('ensure-reminder-cron.mjs');
 	await runScript('ensure-job-queue-cron.mjs');
 	await verifyCronJobs();
+	await runScript('ensure-pg-net-database.mjs');
 } catch (err) {
 	const message = err instanceof Error ? err.message : String(err);
 	console.error('[eigen] pg_cron bootstrap failed — app will still start', { message });
 	console.error(
-		'[eigen] Scheduled push notifications and pg_cron queue ticks may not run until this is fixed. In-process job queue ticker remains active.'
+		'[eigen] Scheduled push notifications may not run via pg_net until fixed. In-process notification and job queue tickers remain active while the app is running.'
 	);
 }

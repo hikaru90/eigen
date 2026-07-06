@@ -1,12 +1,12 @@
-import { and, eq, lte } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { eq } from 'drizzle-orm';
+import { getDb, withDbUser } from '$lib/server/db';
+import { eventReminderSchedule, pushSubscription } from '$lib/server/db/schema';
 import {
-	eventReminderSchedule,
-	temporalEvent,
-	pushSubscription
-} from '$lib/server/db/schema';
-import { sendPushToUser } from '$lib/server/push/send';
+	listDueEventReminders,
+	type DueEventReminderRow
+} from '$lib/server/memory/notification-dispatch-admin';
 import { getUserEventNotificationPrefs } from '$lib/server/memory/user-timezone';
+import { sendPushToUser } from '$lib/server/push/send';
 
 const CATCHUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -27,27 +27,7 @@ export type DispatchRemindersResult = {
 };
 
 export async function dispatchDueEventReminders(now = new Date()): Promise<DispatchRemindersResult> {
-	const dueRows = await getDb()
-		.select({
-			scheduleId: eventReminderSchedule.id,
-			userId: eventReminderSchedule.userId,
-			temporalEventId: eventReminderSchedule.temporalEventId,
-			fireAt: eventReminderSchedule.fireAt,
-			leadMinutes: eventReminderSchedule.leadMinutes,
-			kind: temporalEvent.kind,
-			semanticSummary: temporalEvent.semanticSummary,
-			startAt: temporalEvent.startAt,
-			lifecycleStatus: temporalEvent.lifecycleStatus
-		})
-		.from(eventReminderSchedule)
-		.innerJoin(temporalEvent, eq(eventReminderSchedule.temporalEventId, temporalEvent.id))
-		.where(
-			and(
-				eq(eventReminderSchedule.status, 'pending'),
-				lte(eventReminderSchedule.fireAt, now)
-			)
-		)
-		.limit(200);
+	const dueRows = await listDueEventReminders(now);
 
 	const result: DispatchRemindersResult = {
 		processed: dueRows.length,
@@ -57,60 +37,70 @@ export async function dispatchDueEventReminders(now = new Date()): Promise<Dispa
 	};
 
 	for (const row of dueRows) {
-		const eventStarted = row.startAt ? row.startAt.getTime() <= now.getTime() : false;
-		const missedBy = now.getTime() - row.fireAt.getTime();
-
-		if (row.lifecycleStatus !== 'open' || eventStarted) {
-			await markSchedule(row.scheduleId, 'skipped');
-			result.skipped += 1;
-			continue;
-		}
-
-		if (missedBy > CATCHUP_WINDOW_MS) {
-			await markSchedule(row.scheduleId, 'skipped');
-			result.skipped += 1;
-			continue;
-		}
-
-		const prefs = await getUserEventNotificationPrefs(row.userId);
-		if (!prefs.eventNotificationsEnabled) {
-			await markSchedule(row.scheduleId, 'skipped');
-			result.skipped += 1;
-			continue;
-		}
-
-		const subs = await getDb()
-			.select({ id: pushSubscription.id })
-			.from(pushSubscription)
-			.where(eq(pushSubscription.userId, row.userId))
-			.limit(1);
-
-		if (subs.length === 0) {
-			await markSchedule(row.scheduleId, 'skipped');
-			result.skipped += 1;
-			continue;
-		}
-
-		const title = KIND_LABELS[row.kind] ?? 'Event';
-		const body = `In ${row.leadMinutes} min · ${row.semanticSummary}`;
-		const url = `/memory/timeline?event=${row.temporalEventId}`;
-		const tag = `event-${row.temporalEventId}-${row.leadMinutes}`;
-
-		try {
-			await sendPushToUser(row.userId, { title, body, url, tag });
-			await markSchedule(row.scheduleId, 'sent');
-			result.sent += 1;
-		} catch (err) {
-			console.error('[event-reminder-dispatch] push failed', {
-				scheduleId: row.scheduleId,
-				message: err instanceof Error ? err.message : String(err)
-			});
-			await markSchedule(row.scheduleId, 'skipped');
-			result.failed += 1;
-		}
+		await withDbUser(row.userId, async () => {
+			await dispatchOneEventReminder(row, now, result);
+		});
 	}
 
 	return result;
+}
+
+async function dispatchOneEventReminder(
+	row: DueEventReminderRow,
+	now: Date,
+	result: DispatchRemindersResult
+): Promise<void> {
+	const eventStarted = row.startAt ? row.startAt.getTime() <= now.getTime() : false;
+	const missedBy = now.getTime() - row.fireAt.getTime();
+
+	if (row.lifecycleStatus !== 'open' || eventStarted) {
+		await markSchedule(row.scheduleId, 'skipped');
+		result.skipped += 1;
+		return;
+	}
+
+	if (missedBy > CATCHUP_WINDOW_MS) {
+		await markSchedule(row.scheduleId, 'skipped');
+		result.skipped += 1;
+		return;
+	}
+
+	const prefs = await getUserEventNotificationPrefs(row.userId);
+	if (!prefs.eventNotificationsEnabled) {
+		await markSchedule(row.scheduleId, 'skipped');
+		result.skipped += 1;
+		return;
+	}
+
+	const subs = await getDb()
+		.select({ id: pushSubscription.id })
+		.from(pushSubscription)
+		.where(eq(pushSubscription.userId, row.userId))
+		.limit(1);
+
+	if (subs.length === 0) {
+		await markSchedule(row.scheduleId, 'skipped');
+		result.skipped += 1;
+		return;
+	}
+
+	const title = KIND_LABELS[row.kind] ?? 'Event';
+	const body = `In ${row.leadMinutes} min · ${row.semanticSummary}`;
+	const url = `/memory/timeline?event=${row.temporalEventId}`;
+	const tag = `event-${row.temporalEventId}-${row.leadMinutes}`;
+
+	try {
+		await sendPushToUser(row.userId, { title, body, url, tag });
+		await markSchedule(row.scheduleId, 'sent');
+		result.sent += 1;
+	} catch (err) {
+		console.error('[event-reminder-dispatch] push failed', {
+			scheduleId: row.scheduleId,
+			message: err instanceof Error ? err.message : String(err)
+		});
+		await markSchedule(row.scheduleId, 'skipped');
+		result.failed += 1;
+	}
 }
 
 async function markSchedule(

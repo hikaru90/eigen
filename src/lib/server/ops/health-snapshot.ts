@@ -16,6 +16,13 @@ export type PgNetHttpRow = {
 	createdAt: string;
 };
 
+export type PgNetOpsSnapshot = {
+	queueDepth: number;
+	responseCount: number;
+	databaseNameSetting: string | null;
+	databaseNameMismatch: boolean;
+};
+
 export type NotificationOpsSnapshot = {
 	pushSubscriptionCount: number;
 	pendingEventRemindersDue: number;
@@ -33,11 +40,51 @@ export type OpsHealthSnapshot = {
 	push: ReturnType<typeof loadPushHealthSnapshot>;
 	jobQueue: Awaited<ReturnType<typeof loadJobQueueSnapshot>>;
 	notifications: NotificationOpsSnapshot;
+	pgNet: PgNetOpsSnapshot;
 	pgCronJobs: PgCronJobRow[];
 	recentPgNetHttp: PgNetHttpRow[];
 };
 
 type CountRow = { count: string };
+
+async function loadPgNetOpsSnapshot(): Promise<PgNetOpsSnapshot> {
+	const sql = createAdminSql(1);
+	try {
+		const [queueRow] = await sql<CountRow[]>`
+			SELECT count(*)::text AS count FROM net.http_request_queue
+		`;
+		const [responseRow] = await sql<CountRow[]>`
+			SELECT count(*)::text AS count FROM net._http_response
+		`;
+		const settingsRows = await sql<Array<{ name: string; setting: string }>>`
+			SELECT name, setting
+			FROM pg_settings
+			WHERE name IN ('pg_net.database_name', 'cron.database_name')
+		`;
+		const pgNetDb = settingsRows.find((row) => row.name === 'pg_net.database_name')?.setting ?? null;
+		const cronDb = settingsRows.find((row) => row.name === 'cron.database_name')?.setting ?? null;
+		const expectedDb = cronDb ?? 'eigen';
+
+		return {
+			queueDepth: Number(queueRow?.count ?? 0),
+			responseCount: Number(responseRow?.count ?? 0),
+			databaseNameSetting: pgNetDb,
+			databaseNameMismatch: Boolean(pgNetDb && pgNetDb !== expectedDb)
+		};
+	} catch (err) {
+		console.warn('[ops-health] pg_net snapshot failed', {
+			message: err instanceof Error ? err.message : String(err)
+		});
+		return {
+			queueDepth: 0,
+			responseCount: 0,
+			databaseNameSetting: null,
+			databaseNameMismatch: false
+		};
+	} finally {
+		await sql.end();
+	}
+}
 
 async function loadNotificationOpsSnapshot(): Promise<NotificationOpsSnapshot> {
 	const sql = createAdminSql(1);
@@ -131,9 +178,10 @@ async function loadRecentPgNetHttp(): Promise<PgNetHttpRow[]> {
 }
 
 export async function loadOpsHealthSnapshot(): Promise<OpsHealthSnapshot> {
-	const [jobQueue, notifications, pgCronJobs, recentPgNetHttp] = await Promise.all([
+	const [jobQueue, notifications, pgNet, pgCronJobs, recentPgNetHttp] = await Promise.all([
 		loadJobQueueSnapshot(),
 		loadNotificationOpsSnapshot(),
+		loadPgNetOpsSnapshot(),
 		loadPgCronJobs(),
 		loadRecentPgNetHttp()
 	]);
@@ -148,6 +196,7 @@ export async function loadOpsHealthSnapshot(): Promise<OpsHealthSnapshot> {
 		push: loadPushHealthSnapshot(),
 		jobQueue,
 		notifications,
+		pgNet,
 		pgCronJobs,
 		recentPgNetHttp
 	};

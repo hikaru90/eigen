@@ -6,6 +6,15 @@ import {
 	userJobQueue,
 	userPreference
 } from '$lib/server/db/schema';
+import {
+	buildDailySummaryPreviewForUser,
+	dailySummaryDispatchReasonLabel,
+	evaluateDailySummaryDispatch,
+	type DailySummaryDispatchEvaluation,
+	type DailySummaryPreview
+} from '$lib/server/memory/daily-summary-visibility';
+import { formatMinutesLocal } from '$lib/server/memory/timeline-today-server';
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
 import { loadPushHealthSnapshot } from '$lib/server/push/health';
 
 export type NotificationStatus = {
@@ -14,6 +23,14 @@ export type NotificationStatus = {
 	pushDevicesRegistered: number;
 	eventNotificationsEnabled: boolean;
 	dailySummaryEnabled: boolean;
+	dailySummary: {
+		scheduledTimeLocal: string;
+		timeZone: string;
+		lastSentLocalDate: string | null;
+		dispatch: DailySummaryDispatchEvaluation;
+		statusLabel: string;
+		preview: DailySummaryPreview | null;
+	};
 	reminders: {
 		pending: number;
 		dueNow: number;
@@ -38,6 +55,7 @@ export async function loadNotificationStatusForUser(userId: string): Promise<Not
 		.select({
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			dailySummaryEnabled: userPreference.dailySummaryEnabled,
+			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal,
 			lastDailySummaryLocalDate: userPreference.lastDailySummaryLocalDate
 		})
 		.from(userPreference)
@@ -48,6 +66,21 @@ export async function loadNotificationStatusForUser(userId: string): Promise<Not
 		.select({ id: pushSubscription.id })
 		.from(pushSubscription)
 		.where(eq(pushSubscription.userId, userId));
+
+	const now = new Date();
+	const timeZone = await getUserPreferredTimezone(userId);
+	const dailySummaryMinutesLocal = pref?.dailySummaryMinutesLocal ?? 480;
+	const dailySummaryDispatch = evaluateDailySummaryDispatch({
+		now,
+		timeZone,
+		dailySummaryMinutesLocal,
+		lastDailySummaryLocalDate: pref?.lastDailySummaryLocalDate ?? null,
+		pushDeviceCount: pushRows.length
+	});
+	const dailySummaryPreview =
+		pref?.dailySummaryEnabled === true
+			? await buildDailySummaryPreviewForUser(userId, now)
+			: null;
 
 	const [pendingRow] = await getDb()
 		.select({ count: sql<number>`count(*)::int` })
@@ -114,6 +147,14 @@ export async function loadNotificationStatusForUser(userId: string): Promise<Not
 		pushDevicesRegistered: pushRows.length,
 		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
 		dailySummaryEnabled: pref?.dailySummaryEnabled ?? false,
+		dailySummary: {
+			scheduledTimeLocal: formatMinutesLocal(dailySummaryMinutesLocal),
+			timeZone,
+			lastSentLocalDate: pref?.lastDailySummaryLocalDate ?? null,
+			dispatch: dailySummaryDispatch,
+			statusLabel: dailySummaryDispatchReasonLabel(dailySummaryDispatch.reason),
+			preview: dailySummaryPreview
+		},
 		reminders: {
 			pending: pendingRow?.count ?? 0,
 			dueNow: dueRow?.count ?? 0,
