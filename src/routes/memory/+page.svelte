@@ -37,6 +37,15 @@
     COMMUNITY_LEAF_LEVEL,
   } from "$lib/graph/community-levels";
   import {
+    clustersForZoomLod,
+    graphClusterBadgeRadius,
+    graphZoomClusterExitScale,
+    graphZoomLodMode,
+    isCoarsePointerGraphDevice,
+    type GraphZoomCluster,
+    type GraphZoomLodMode,
+  } from "$lib/graph/graph-zoom-lod";
+  import {
     deleteGraphEntity,
     deleteGraphThought,
     fetchEntityCaptures,
@@ -820,6 +829,10 @@
         .append("g")
         .attr("class", "graph-community-chrome")
         .attr("pointer-events", "none");
+      const gClusterMarkers = gZoom.append("g").attr("class", "graph-cluster-markers");
+
+      const coarsePointerGraph = isCoarsePointerGraphDevice();
+      let zoomLodMode: GraphZoomLodMode = "nodes";
 
       function applyCommunityHullZoomOpacity(scale = 1) {
         communityFillSelection
@@ -833,12 +846,15 @@
         .on("zoom", (event) => {
           gZoom.attr("transform", event.transform.toString());
           applyCommunityHullZoomOpacity(event.transform.k);
+          applyZoomLod(event.transform.k);
         });
       svg.call(zoom);
       svg.on("click.details-clear", (event) => {
         const el = event.target as Element | null;
         if (!el?.closest?.(".graph-node")) selectedNode = null;
-        if (!el?.closest?.(".community-hull-label-wrap")) selectedCommunityId = null;
+        if (!el?.closest?.(".community-hull-label-wrap") && !el?.closest?.(".graph-cluster")) {
+          selectedCommunityId = null;
+        }
       });
 
       let preEntityZoomTransform: ReturnType<typeof d3.zoomIdentity> | null = null;
@@ -1006,6 +1022,7 @@
       let communityFillSelection = gCommunityFills.selectAll<SVGGElement, CommunityHull>("g");
       let communityChromeSelection = gCommunityChrome.selectAll<SVGGElement, CommunityHull>("g");
       let nodeSelection = gNodes.selectAll<SVGGElement, SimNode>("g.graph-node");
+      let clusterSelection = gClusterMarkers.selectAll<SVGGElement, GraphZoomCluster>("g.graph-cluster");
 
       const dragBehavior = d3
         .drag<SVGGElement, SimNode>()
@@ -1176,6 +1193,145 @@
           });
       }
 
+      function nodePositionsForZoomLod(nodes: SimNode[]) {
+        return nodes
+          .map((n) => {
+            const x = n.x ?? 0;
+            const y = n.y ?? 0;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+            return { id: n.id, x, y, label: n.label };
+          })
+          .filter((n): n is { id: string; x: number; y: number; label: string } => n !== null);
+      }
+
+      function updateClusterMarkers(scale: number, nodes: SimNode[]) {
+        const positions = nodePositionsForZoomLod(nodes);
+        const levels = canonicalCommunityLevels(
+          (vizCtx.communities ?? []).map((c) => c.level),
+        );
+        const clusters = clustersForZoomLod(
+          vizCtx.communities ?? [],
+          positions,
+          scale,
+          levels,
+          coarsePointerGraph,
+        );
+
+        clusterSelection = gClusterMarkers
+          .selectAll<SVGGElement, GraphZoomCluster>("g.graph-cluster")
+          .data(clusters, (d) => d.id)
+          .join(
+            (enter) => {
+              const g = enter.append("g").attr("class", "graph-cluster");
+              g.append("circle")
+                .attr("class", "graph-cluster-hull")
+                .attr("fill", "oklch(1 0 0 / 0.08)")
+                .attr("stroke", "currentColor")
+                .attr("stroke-opacity", 0.22)
+                .attr("stroke-width", 1.25)
+                .attr("stroke-dasharray", "8 5");
+              g.append("circle")
+                .attr("class", "graph-cluster-badge")
+                .attr("fill", "#000000")
+                .attr("stroke", "none");
+              g.append("text")
+                .attr("class", "graph-cluster-count")
+                .attr("text-anchor", "middle")
+                .attr("dy", "0.35em")
+                .attr("font-size", "11px")
+                .attr("font-family", "monospace")
+                .attr("font-weight", "700")
+                .attr("fill", COMMUNITY_HULL_ACCENT);
+              const labelWrap = g.append("g").attr("class", "graph-cluster-label-wrap");
+              labelWrap
+                .append("text")
+                .attr("class", "graph-cluster-label")
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("font-family", "monospace")
+                .attr("fill", "#000000")
+                .attr("dy", "0.35em");
+              return g;
+            },
+            (update) => update,
+            (exit) => exit.remove(),
+          )
+          .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
+          .style("cursor", "pointer")
+          .on("click", (event, cluster) => onClusterClick(event, cluster))
+          .each(function (d) {
+            const g = d3.select(this);
+            const badgeR = graphClusterBadgeRadius(d.memberCount);
+            g.select("circle.graph-cluster-hull").attr("r", d.r);
+            g.select("circle.graph-cluster-badge").attr("r", badgeR);
+            g.select("text.graph-cluster-count").text(String(d.memberCount));
+            const label = d.name.length > 36 ? `${d.name.slice(0, 34)}…` : d.name;
+            const labelWrap = g.select("g.graph-cluster-label-wrap");
+            labelWrap.attr("transform", `translate(0, ${badgeR + 10})`);
+            labelWrap.select("text.graph-cluster-label").text(label);
+            labelWrap.select("rect.graph-cluster-label-bg").remove();
+            g.select("title").remove();
+            if (d.description) {
+              g.append("title").text(d.description);
+            }
+          });
+      }
+
+      function setZoomLodPresentation(mode: GraphZoomLodMode) {
+        const clustered = mode === "clusters";
+        gNodes.style("display", clustered ? "none" : null);
+        gLinks.style("display", clustered ? "none" : null);
+        gCommunityFills.style("display", clustered ? "none" : null);
+        gCommunityChrome.style("display", clustered ? "none" : null);
+        gClusterMarkers.style("display", clustered ? null : "none");
+        if (clustered) {
+          simulation?.alphaTarget(0);
+        }
+      }
+
+      function applyZoomLod(scale: number) {
+        const nextMode = graphZoomLodMode(scale, coarsePointerGraph, zoomLodMode);
+        if (nextMode !== zoomLodMode) {
+          zoomLodMode = nextMode;
+          setZoomLodPresentation(zoomLodMode);
+        }
+        if (zoomLodMode === "clusters") {
+          updateClusterMarkers(scale, simulation?.nodes() ?? []);
+        }
+      }
+
+      function zoomToCluster(cluster: GraphZoomCluster) {
+        const svgEl = svg.node();
+        if (!svgEl || !rootEl) return;
+        resizeSvg();
+
+        const w = Math.max(1, rootEl.clientWidth);
+        const h = Math.max(1, rootEl.clientHeight);
+        const cx = w / 2;
+        const cy = h / 2;
+        const targetK = Math.min(8, graphZoomClusterExitScale(coarsePointerGraph) + 0.08);
+
+        svg.interrupt("zoom-cluster");
+        svg
+          .transition("zoom-cluster")
+          .duration(360)
+          .ease(d3.easeCubicInOut)
+          .call(zoom.scaleTo, targetK, [cx, cy])
+          .transition()
+          .duration(360)
+          .ease(d3.easeCubicInOut)
+          .call(zoom.translateTo, cluster.cx, cluster.cy, [cx, cy]);
+      }
+
+      function onClusterClick(event: MouseEvent, cluster: GraphZoomCluster) {
+        event.stopPropagation();
+        blurActiveElement();
+        selectedNode = null;
+        selectedCommunityId = cluster.level >= 0 ? cluster.id : null;
+        scheduleApplyHighlight?.(null);
+        zoomToCluster(cluster);
+      }
+
       function ticked() {
         linkSelection
           .select("line")
@@ -1191,6 +1347,15 @@
         nodeSelection.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
 
         updateCommunityHulls(simulation?.nodes() ?? []);
+        if (
+          zoomLodMode === "clusters" &&
+          simulation &&
+          simulation.alpha() > 0.02
+        ) {
+          const svgEl = svg.node();
+          const scale = svgEl ? d3.zoomTransform(svgEl).k : 1;
+          updateClusterMarkers(scale, simulation.nodes());
+        }
       }
 
       function midpointX(d: SimLink) {
@@ -1450,6 +1615,10 @@
           pendingPopInNodeIds = new Set();
         }
         graphStats = m.graph_stats_nodes_edges({ nodes: nodes.length, edges: links.length });
+        const svgEl = svg.node();
+        if (svgEl) {
+          applyZoomLod(d3.zoomTransform(svgEl).k);
+        }
       }
 
       function resizeGraph() {
@@ -1478,6 +1647,7 @@
 
       let lastGraphResizeHeight: number | null = null;
 
+      gClusterMarkers.style("display", "none");
       updateGraph();
 
       const ro = new ResizeObserver(() => {
