@@ -142,7 +142,8 @@
 	const ops = $derived(dashboard.ops);
 	const dailySummaries = $derived(dashboard.dailySummaries);
 
-	function dispatchReasonClass(wouldDispatch: boolean): string {
+	function dispatchReasonClass(reason: string, wouldDispatch: boolean): string {
+		if (reason === 'send_failed') return 'text-destructive';
 		return wouldDispatch
 			? 'text-emerald-700 dark:text-emerald-400'
 			: 'text-amber-700 dark:text-amber-400';
@@ -388,7 +389,7 @@
 										{row.lastSentLocalDate ?? 'Never'}
 									</Table.Cell>
 									<Table.Cell class="font-mono text-xs tabular-nums">{row.pushDeviceCount}</Table.Cell>
-									<Table.Cell class={`text-xs font-medium ${dispatchReasonClass(row.dispatch.wouldDispatch)}`}>
+									<Table.Cell class={`text-xs font-medium ${dispatchReasonClass(row.dispatch.reason, row.dispatch.wouldDispatch)}`}>
 										{row.statusLabel}
 									</Table.Cell>
 									<Table.Cell class="max-w-[18rem] text-[11px]">

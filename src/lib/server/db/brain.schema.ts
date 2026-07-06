@@ -559,6 +559,8 @@ export const userPreference = pgTable(
 		dailySummaryMinutesLocal: integer('daily_summary_minutes_local').notNull().default(480),
 		/** YYYY-MM-DD in preferred timezone — last daily summary push sent. */
 		lastDailySummaryLocalDate: text('last_daily_summary_local_date'),
+		/** Set when the most recent dispatch attempt failed; cleared on successful delivery. */
+		lastDailySummaryDispatchError: text('last_daily_summary_dispatch_error'),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
 			.$onUpdate(() => new Date())

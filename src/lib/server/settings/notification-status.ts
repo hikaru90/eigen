@@ -23,14 +23,15 @@ export type NotificationStatus = {
 	pushDevicesRegistered: number;
 	eventNotificationsEnabled: boolean;
 	dailySummaryEnabled: boolean;
-	dailySummary: {
-		scheduledTimeLocal: string;
-		timeZone: string;
-		lastSentLocalDate: string | null;
-		dispatch: DailySummaryDispatchEvaluation;
-		statusLabel: string;
-		preview: DailySummaryPreview | null;
-	};
+		dailySummary: {
+			scheduledTimeLocal: string;
+			timeZone: string;
+			lastSentLocalDate: string | null;
+			lastDispatchError: string | null;
+			dispatch: DailySummaryDispatchEvaluation;
+			statusLabel: string;
+			preview: DailySummaryPreview | null;
+		};
 	reminders: {
 		pending: number;
 		dueNow: number;
@@ -56,7 +57,8 @@ export async function loadNotificationStatusForUser(userId: string): Promise<Not
 			eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
 			dailySummaryEnabled: userPreference.dailySummaryEnabled,
 			dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal,
-			lastDailySummaryLocalDate: userPreference.lastDailySummaryLocalDate
+			lastDailySummaryLocalDate: userPreference.lastDailySummaryLocalDate,
+			lastDailySummaryDispatchError: userPreference.lastDailySummaryDispatchError
 		})
 		.from(userPreference)
 		.where(eq(userPreference.userId, userId))
@@ -75,6 +77,7 @@ export async function loadNotificationStatusForUser(userId: string): Promise<Not
 		timeZone,
 		dailySummaryMinutesLocal,
 		lastDailySummaryLocalDate: pref?.lastDailySummaryLocalDate ?? null,
+		lastDailySummaryDispatchError: pref?.lastDailySummaryDispatchError ?? null,
 		pushDeviceCount: pushRows.length
 	});
 	const dailySummaryPreview =
@@ -151,8 +154,12 @@ export async function loadNotificationStatusForUser(userId: string): Promise<Not
 			scheduledTimeLocal: formatMinutesLocal(dailySummaryMinutesLocal),
 			timeZone,
 			lastSentLocalDate: pref?.lastDailySummaryLocalDate ?? null,
+			lastDispatchError: pref?.lastDailySummaryDispatchError ?? null,
 			dispatch: dailySummaryDispatch,
-			statusLabel: dailySummaryDispatchReasonLabel(dailySummaryDispatch.reason),
+			statusLabel: dailySummaryDispatchReasonLabel(
+				dailySummaryDispatch.reason,
+				dailySummaryDispatch.lastDispatchError
+			),
 			preview: dailySummaryPreview
 		},
 		reminders: {

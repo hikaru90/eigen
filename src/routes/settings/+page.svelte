@@ -139,8 +139,10 @@
 				windowStartLocal: string;
 				windowEndLocal: string;
 				wouldDispatch: boolean;
+				lastDispatchError: string | null;
 			};
 			statusLabel: string;
+			lastDispatchError: string | null;
 			preview: { title: string; body: string; url: string } | null;
 		};
 		reminders: {
@@ -867,9 +869,11 @@
 							<div class="flex justify-between gap-4">
 								<span class="text-muted-foreground">Status</span>
 								<span
-									class={notificationStatus.dailySummary.dispatch.wouldDispatch
-										? 'text-emerald-700 dark:text-emerald-400'
-										: 'text-amber-700 dark:text-amber-400'}
+									class={notificationStatus.dailySummary.dispatch.reason === 'send_failed'
+										? 'text-destructive'
+										: notificationStatus.dailySummary.dispatch.wouldDispatch
+											? 'text-emerald-700 dark:text-emerald-400'
+											: 'text-amber-700 dark:text-amber-400'}
 								>
 									{notificationStatus.dailySummary.statusLabel}
 								</span>

@@ -414,6 +414,13 @@
       "when": 1783173000000,
       "tag": "0058_preferred_timezone_offset_minutes",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1783259400000,
+      "tag": "0059_daily_summary_dispatch_error",
+      "breakpoints": true
     }
   ]
 }

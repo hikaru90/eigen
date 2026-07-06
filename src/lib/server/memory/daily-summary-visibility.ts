@@ -11,7 +11,8 @@ export type DailySummaryDispatchReason =
 	| 'sent_today'
 	| 'due_now'
 	| 'before_window'
-	| 'no_push_device';
+	| 'no_push_device'
+	| 'send_failed';
 
 export type DailySummaryDispatchEvaluation = {
 	reason: DailySummaryDispatchReason;
@@ -24,6 +25,7 @@ export type DailySummaryDispatchEvaluation = {
 	windowStartLocal: string;
 	windowEndLocal: string;
 	wouldDispatch: boolean;
+	lastDispatchError: string | null;
 };
 
 export type DailySummaryPreview = {
@@ -37,6 +39,7 @@ export function evaluateDailySummaryDispatch(input: {
 	timeZone: string;
 	dailySummaryMinutesLocal: number;
 	lastDailySummaryLocalDate: string | null;
+	lastDailySummaryDispatchError: string | null;
 	pushDeviceCount: number;
 }): DailySummaryDispatchEvaluation {
 	const todayLocalDate = localDayKey(input.now.toISOString(), input.timeZone);
@@ -44,8 +47,12 @@ export function evaluateDailySummaryDispatch(input: {
 	const scheduledMinutesLocal = input.dailySummaryMinutesLocal;
 	const windowStartMinutes = scheduledMinutesLocal;
 	const windowEndMinutes = 24 * 60;
+	const lastDispatchError = input.lastDailySummaryDispatchError?.trim() || null;
 
-	if (input.lastDailySummaryLocalDate === todayLocalDate) {
+	if (
+		input.lastDailySummaryLocalDate === todayLocalDate &&
+		lastDispatchError === null
+	) {
 		return buildEvaluation({
 			reason: 'sent_today',
 			todayLocalDate,
@@ -53,7 +60,8 @@ export function evaluateDailySummaryDispatch(input: {
 			scheduledMinutesLocal,
 			windowStartMinutes,
 			windowEndMinutes,
-			wouldDispatch: false
+			wouldDispatch: false,
+			lastDispatchError: null
 		});
 	}
 
@@ -65,7 +73,8 @@ export function evaluateDailySummaryDispatch(input: {
 			scheduledMinutesLocal,
 			windowStartMinutes,
 			windowEndMinutes,
-			wouldDispatch: false
+			wouldDispatch: false,
+			lastDispatchError
 		});
 	}
 
@@ -77,7 +86,21 @@ export function evaluateDailySummaryDispatch(input: {
 			scheduledMinutesLocal,
 			windowStartMinutes,
 			windowEndMinutes,
-			wouldDispatch: false
+			wouldDispatch: false,
+			lastDispatchError
+		});
+	}
+
+	if (lastDispatchError !== null) {
+		return buildEvaluation({
+			reason: 'send_failed',
+			todayLocalDate,
+			currentMinutesLocal,
+			scheduledMinutesLocal,
+			windowStartMinutes,
+			windowEndMinutes,
+			wouldDispatch: true,
+			lastDispatchError
 		});
 	}
 
@@ -88,7 +111,8 @@ export function evaluateDailySummaryDispatch(input: {
 		scheduledMinutesLocal,
 		windowStartMinutes,
 		windowEndMinutes,
-		wouldDispatch: true
+		wouldDispatch: true,
+		lastDispatchError: null
 	});
 }
 
@@ -100,6 +124,7 @@ function buildEvaluation(input: {
 	windowStartMinutes: number;
 	windowEndMinutes: number;
 	wouldDispatch: boolean;
+	lastDispatchError: string | null;
 }): DailySummaryDispatchEvaluation {
 	return {
 		reason: input.reason,
@@ -111,20 +136,28 @@ function buildEvaluation(input: {
 		windowEndMinutes: input.windowEndMinutes,
 		windowStartLocal: formatMinutesLocal(input.windowStartMinutes),
 		windowEndLocal: 'end of day',
-		wouldDispatch: input.wouldDispatch
+		wouldDispatch: input.wouldDispatch,
+		lastDispatchError: input.lastDispatchError
 	};
 }
 
-export function dailySummaryDispatchReasonLabel(reason: DailySummaryDispatchReason): string {
+export function dailySummaryDispatchReasonLabel(
+	reason: DailySummaryDispatchReason,
+	lastDispatchError: string | null = null
+): string {
 	switch (reason) {
 		case 'sent_today':
-			return 'Already sent today';
+			return 'Delivered today';
 		case 'due_now':
 			return 'Due — will send on next tick';
 		case 'before_window':
 			return 'Before scheduled time today';
 		case 'no_push_device':
 			return 'No push device registered';
+		case 'send_failed':
+			return lastDispatchError
+				? `Last send failed — ${lastDispatchError}`
+				: 'Last send failed — will retry';
 	}
 }
 

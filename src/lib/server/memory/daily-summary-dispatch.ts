@@ -31,6 +31,16 @@ export async function dispatchDueDailySummaries(
 
 	for (const row of rows) {
 		await withDbUser(row.userId, async () => {
+			const [pref] = await getDb()
+				.select({
+					dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal,
+					lastDailySummaryLocalDate: userPreference.lastDailySummaryLocalDate,
+					lastDailySummaryDispatchError: userPreference.lastDailySummaryDispatchError
+				})
+				.from(userPreference)
+				.where(eq(userPreference.userId, row.userId))
+				.limit(1);
+
 			const timeZone = await getUserPreferredTimezone(row.userId);
 			const todayKey = localDayKey(now.toISOString(), timeZone);
 
@@ -41,8 +51,9 @@ export async function dispatchDueDailySummaries(
 			const evaluation = evaluateDailySummaryDispatch({
 				now,
 				timeZone,
-				dailySummaryMinutesLocal: row.dailySummaryMinutesLocal,
-				lastDailySummaryLocalDate: row.lastDailySummaryLocalDate,
+				dailySummaryMinutesLocal: pref?.dailySummaryMinutesLocal ?? row.dailySummaryMinutesLocal,
+				lastDailySummaryLocalDate: pref?.lastDailySummaryLocalDate ?? null,
+				lastDailySummaryDispatchError: pref?.lastDailySummaryDispatchError ?? null,
 				pushDeviceCount: subs.length
 			});
 			if (!evaluation.wouldDispatch) {
@@ -53,22 +64,38 @@ export async function dispatchDueDailySummaries(
 			const push = await buildDailySummaryPreviewForUser(row.userId, now);
 
 			try {
-				await sendPushToUser(row.userId, {
+				const pushResult = await sendPushToUser(row.userId, {
 					title: push.title,
 					body: push.body,
 					url: push.url,
 					tag: `daily-summary-${todayKey}`
 				});
+				if (pushResult.sent < 1) {
+					throw new Error('Push delivery failed: no device accepted the notification');
+				}
 				await getDb()
 					.update(userPreference)
-					.set({ lastDailySummaryLocalDate: todayKey, updatedAt: now })
+					.set({
+						lastDailySummaryLocalDate: todayKey,
+						lastDailySummaryDispatchError: null,
+						updatedAt: now
+					})
 					.where(eq(userPreference.userId, row.userId));
 				result.sent += 1;
 			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
 				console.error('[daily-summary-dispatch] push failed', {
 					userId: row.userId,
-					message: err instanceof Error ? err.message : String(err)
+					message
 				});
+				await getDb()
+					.update(userPreference)
+					.set({
+						lastDailySummaryLocalDate: null,
+						lastDailySummaryDispatchError: message,
+						updatedAt: now
+					})
+					.where(eq(userPreference.userId, row.userId));
 				result.failed += 1;
 			}
 		});

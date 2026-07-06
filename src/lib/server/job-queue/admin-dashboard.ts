@@ -217,6 +217,7 @@ type RawDailySummaryRow = {
 	account_kind: string;
 	daily_summary_minutes_local: number;
 	last_daily_summary_local_date: string | null;
+	last_daily_summary_dispatch_error: string | null;
 	push_count: string;
 };
 
@@ -232,6 +233,7 @@ async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDaily
 					u.account_kind,
 					up.daily_summary_minutes_local,
 					up.last_daily_summary_local_date,
+					up.last_daily_summary_dispatch_error,
 					(SELECT count(*)::text FROM push_subscription ps WHERE ps.user_id = u.id) AS push_count
 				FROM user_preference up
 				INNER JOIN "user" u ON u.id = up.user_id
@@ -245,6 +247,7 @@ async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDaily
 					u.account_kind,
 					up.daily_summary_minutes_local,
 					up.last_daily_summary_local_date,
+					up.last_daily_summary_dispatch_error,
 					(SELECT count(*)::text FROM push_subscription ps WHERE ps.user_id = u.id) AS push_count
 				FROM user_preference up
 				INNER JOIN "user" u ON u.id = up.user_id
@@ -263,6 +266,7 @@ async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDaily
 					timeZone,
 					dailySummaryMinutesLocal: row.daily_summary_minutes_local,
 					lastDailySummaryLocalDate: row.last_daily_summary_local_date,
+					lastDailySummaryDispatchError: row.last_daily_summary_dispatch_error,
 					pushDeviceCount
 				});
 				const preview = await buildDailySummaryPreviewForUser(row.user_id, now);
@@ -276,7 +280,10 @@ async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDaily
 					pushDeviceCount,
 					dispatch,
 					preview,
-					statusLabel: dailySummaryDispatchReasonLabel(dispatch.reason)
+					statusLabel: dailySummaryDispatchReasonLabel(
+						dispatch.reason,
+						dispatch.lastDispatchError
+					)
 				});
 			});
 		}

@@ -4,6 +4,7 @@ export type DailySummaryCandidateRow = {
 	userId: string;
 	dailySummaryMinutesLocal: number;
 	lastDailySummaryLocalDate: string | null;
+	lastDailySummaryDispatchError: string | null;
 };
 
 export type DueEventReminderRow = {
@@ -26,19 +27,22 @@ export async function listDailySummaryCandidates(): Promise<DailySummaryCandidat
 				user_id: string;
 				daily_summary_minutes_local: number;
 				last_daily_summary_local_date: string | null;
+				last_daily_summary_dispatch_error: string | null;
 			}>
 		>`
 			SELECT
 				user_id,
 				daily_summary_minutes_local,
-				last_daily_summary_local_date
+				last_daily_summary_local_date,
+				last_daily_summary_dispatch_error
 			FROM user_preference
 			WHERE daily_summary_enabled = true
 		`;
 		return rows.map((row) => ({
 			userId: row.user_id,
 			dailySummaryMinutesLocal: row.daily_summary_minutes_local,
-			lastDailySummaryLocalDate: row.last_daily_summary_local_date
+			lastDailySummaryLocalDate: row.last_daily_summary_local_date,
+			lastDailySummaryDispatchError: row.last_daily_summary_dispatch_error
 		}));
 	} finally {
 		await sql.end();
