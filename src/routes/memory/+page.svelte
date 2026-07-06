@@ -83,6 +83,7 @@
     graphEntitySyncStatusMessage,
   } from "$lib/graph/graph-i18n";
   import { m } from "$lib/paraglide/messages.js";
+  import { graphFilters } from "$lib/stores/graph-filters";
 
   let { data }: { data: PageData } = $props();
 
@@ -129,11 +130,22 @@
   });
 
   let rootEl: HTMLDivElement | undefined;
-  let search = $state("");
-  let edgeKind = $state<string>("all");
-  let visibleEntityTypes = $state<Set<string>>(new Set());
-  let visibleAuthorLayers = $state<Set<string>>(new Set());
-  let communityLevel = $state<string>(String(COMMUNITY_LEAF_LEVEL));
+  let search = $state($graphFilters.search);
+  let edgeKind = $state<string>($graphFilters.edgeKind);
+  let visibleEntityTypes = $state<Set<string>>($graphFilters.visibleEntityTypes);
+  let visibleAuthorLayers = $state<Set<string>>($graphFilters.visibleAuthorLayers);
+  let communityLevel = $state<string>($graphFilters.communityLevel);
+  
+  // Sync filter state to store for persistence across tab switches
+  $effect(() => {
+    graphFilters.set({
+      search,
+      edgeKind,
+      visibleEntityTypes,
+      visibleAuthorLayers,
+      communityLevel
+    });
+  });
   let status = $state<string>("");
   let graphStats = $state<string>("");
   let scheduleGraphUpdate: (() => void) | null = null;

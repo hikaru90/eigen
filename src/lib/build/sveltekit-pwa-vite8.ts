@@ -58,6 +58,15 @@ function createSvelteKitBuildPlugin(
 				if (!api || api.disabled || !viteConfig.build.ssr) return;
 				if (options.strategies !== 'injectManifest') return;
 
+				const injectionPoint =
+					!options.injectManifest ||
+					!('injectionPoint' in options.injectManifest) ||
+					!!options.injectManifest.injectionPoint;
+
+				// No Workbox manifest injection — SvelteKit builds service-worker.js in its
+				// async writeBundle handler; closeBundle can run before that finishes on Vite 8.
+				if (!injectionPoint) return;
+
 				let swName = options.filename ?? 'sw.js';
 				const outDir = options.outDir ?? `${viteConfig.root}/.svelte-kit/output`;
 				const clientOutputDir = join(outDir, 'client');
@@ -72,13 +81,6 @@ function createSvelteKitBuildPlugin(
 				}
 
 				if (swName.endsWith('.ts')) swName = swName.replace(/\.ts$/, '.js');
-
-				const injectionPoint =
-					!options.injectManifest ||
-					!('injectionPoint' in options.injectManifest) ||
-					!!options.injectManifest.injectionPoint;
-
-				if (!injectionPoint) return;
 
 				const injectManifestOptions = {
 					globDirectory: outDir.replace(/\\/g, '/'),

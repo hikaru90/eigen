@@ -19,6 +19,7 @@ import {
 	readThoughtIdFromToolArgs,
 	validateSearchParams
 } from '$lib/server/validation/mcp-args';
+import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings';
 import { thoughtSnippet } from '$lib/server/mcp/snippet';
 import {
@@ -490,22 +491,22 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 				lastEditRequest: editRequest || 'raw_text replacement',
 				lastEditSummary: 'Text replaced directly'
 			};
-			const metadataEncrypted = await (await import('$lib/server/db/encryption')).encryptTenantValue({
+			const metadataEncrypted = await encryptTenantValue({
 				userId: context.userId,
 				table: 'thought',
 				column: 'metadata',
 				plaintext: JSON.stringify(metadataPatch)
 			});
-			const rawTextEncrypted = await (await import('$lib/server/db/encryption')).encryptTenantValue({
+			const rawTextEncrypted = await encryptTenantValue({
 				userId: context.userId,
 				table: 'thought',
-				column: 'rawText',
+				column: 'raw_text',
 				plaintext: rawTextReplacement
 			});
-			const normalizedEncrypted = await (await import('$lib/server/db/encryption')).encryptTenantValue({
+			const normalizedEncrypted = await encryptTenantValue({
 				userId: context.userId,
 				table: 'thought',
-				column: 'normalizedText',
+				column: 'normalized_text',
 				plaintext: normalized
 			});
 			const lexicalText = normalized.toLowerCase();
