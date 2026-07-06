@@ -28,7 +28,7 @@ export const load: PageServerLoad = async (event) => {
 		listTemporalEventsForUser({
 			userId,
 			range: 'relevant',
-			status: 'open',
+			status: 'all',
 			includeTasks: true,
 			orderBy: 'todo',
 			sortDirection: 'desc'

@@ -10,7 +10,7 @@
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
-	import XIcon from '@lucide/svelte/icons/x';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 
 	type Props = {
@@ -46,7 +46,6 @@
 				throw new Error(`${res.status}: ${text || 'unknown error'}`);
 			}
 			const body = (await res.json()) as { projects: ProjectListItem[] };
-			console.log('[loadProjects] Loaded projects:', body.projects.length);
 			phase = { kind: 'ready', projects: body.projects };
 		} catch (err) {
 			console.error('[loadProjects] Error:', err);
@@ -105,9 +104,13 @@
 		}
 	}
 
+	const activeProjectLabels = $derived(
+		phase.kind === 'ready' ? new Set(phase.projects.map((p) => p.label)) : new Set<string>()
+	);
+
 	const unassignedTasks = $derived(
 		allTasks
-			.filter((t) => t.projectLabel === null)
+			.filter((t) => t.projectLabel === null || !activeProjectLabels.has(t.projectLabel))
 			.sort((a, b) => {
 				const cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
 				return sortDirection === 'asc' ? cmp : -cmp;
@@ -137,7 +140,6 @@
 	});
 
 	function onProjectCreated() {
-		console.log('[onProjectCreated] Project created, reloading projects...');
 		void loadProjects();
 	}
 
@@ -226,114 +228,120 @@
 		</div>
 	{:else if phase.kind === 'error'}
 		<p class="text-destructive px-4 py-8 text-center text-sm">{phase.message}</p>
-	{:else if phase.projects.length === 0}
-		<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
 	{:else}
-		<ul class="divide-border divide-y">
-			{#each sortedProjects as project (project.entityId)}
-				{@const projectNextAction = getNextAction(project)}
-				{@const projectTasks = tasksForProject(project).filter((t) => t.id !== projectNextAction?.itemId)}
-				<li
-					class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
-				>
-					<div class="flex items-start justify-between gap-2">
-						<div class="flex min-w-0 items-center gap-2">
-							<h3 class="text-foreground truncate text-sm font-medium">{project.label}</h3>
-						</div>
-						<div class="flex shrink-0 items-center gap-1">
-							<span
-								class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
-							>
-								{statusLabel(project.status)}
-							</span>
-							{#if project.status === 'active'}
-								<Button
-									variant="ghost"
-									size="icon"
-									class="size-6 shrink-0 text-muted-foreground hover:text-destructive"
-									title="Dismiss project"
-									onclick={() => requestDismissProject(project.entityId, project.label)}
-								>
-									<XIcon class="size-3" aria-hidden="true" />
-								</Button>
-							{/if}
-							<Button
-								variant="ghost"
-								size="icon"
-								class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-								title="Edit project name"
-								onclick={() => openEditProject(project)}
-							>
-								<PencilIcon class="size-3" aria-hidden="true" />
-							</Button>
-						</div>
-					</div>
-					{#if projectNextAction}
-						<button
-							type="button"
-							class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
-							onclick={() => onGoToTask(projectNextAction.itemId)}
+		{#if phase.projects.length === 0 && unassignedTasks.length === 0}
+			<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_projects_empty()}</p>
+		{:else}
+			{#if phase.projects.length > 0}
+				<ul class="divide-border divide-y">
+					{#each sortedProjects as project (project.entityId)}
+						{@const projectNextAction = getNextAction(project)}
+						{@const projectTasks = tasksForProject(project).filter((t) => t.id !== projectNextAction?.itemId)}
+						<li
+							class="px-4 py-3 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
 						>
-							<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
-								{m.graph_timeline_project_next_action()}
-							</p>
-							<p class="text-foreground mt-0.5 text-sm">{projectNextAction.summary}</p>
-						</button>
-					{/if}
-					{#if project.openTaskCount > 1}
-						<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">
-							{m.graph_timeline_project_open_loops({ count: project.openTaskCount })}
-						</p>
-					{/if}
-					{#if projectTasks.length > 0}
-						<div class="mt-2 space-y-1">
-							{#each projectTasks as task (task.id)}
+							<div class="flex items-start justify-between gap-2">
+								<div class="flex min-w-0 items-center gap-2">
+									<h3 class="text-foreground truncate text-sm font-medium">{project.label}</h3>
+								</div>
+								<div class="flex shrink-0 items-center gap-1">
+									<span
+										class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
+									>
+										{statusLabel(project.status)}
+									</span>
+									{#if project.status === 'active'}
+										<Button
+											variant="ghost"
+											size="sm"
+											class="h-7 shrink-0 gap-1 px-2 text-[10px] text-muted-foreground hover:text-destructive"
+											onclick={() => requestDismissProject(project.entityId, project.label)}
+										>
+											<Trash2Icon class="size-3" aria-hidden="true" />
+											{m.graph_timeline_delete_project()}
+										</Button>
+									{/if}
+									<Button
+										variant="ghost"
+										size="icon"
+										class="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+										title="Edit project name"
+										onclick={() => openEditProject(project)}
+									>
+										<PencilIcon class="size-3" aria-hidden="true" />
+									</Button>
+								</div>
+							</div>
+							{#if projectNextAction}
 								<button
 									type="button"
-									class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
+									class="hover:bg-muted/40 mt-2 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
+									onclick={() => onGoToTask(projectNextAction.itemId)}
+								>
+									<p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">
+										{m.graph_timeline_project_next_action()}
+									</p>
+									<p class="text-foreground mt-0.5 text-sm">{projectNextAction.summary}</p>
+								</button>
+							{/if}
+							{#if projectTasks.length + (projectNextAction ? 1 : 0) > 1}
+								<p class="text-muted-foreground mt-1.5 font-mono text-[10px]">
+									{m.graph_timeline_project_open_loops({
+										count: projectTasks.length + (projectNextAction ? 1 : 0)
+									})}
+								</p>
+							{/if}
+							{#if projectTasks.length > 0}
+								<div class="mt-2 space-y-1">
+									{#each projectTasks as task (task.id)}
+										<button
+											type="button"
+											class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
+											onclick={() => onGoToTask(task.id)}
+										>
+											<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if unassignedTasks.length > 0}
+				<div class="mt-4">
+					<h3 class="text-muted-foreground mb-2 px-4 font-mono text-[10px] uppercase tracking-wide">
+						{m.graph_timeline_project_no_project()} ({unassignedTasks.length})
+					</h3>
+					<ul class="divide-border divide-y">
+						{#each unassignedTasks as task (task.id)}
+							<li class="px-4 py-2">
+								<div class="flex items-start justify-between gap-2">
+									<button
+									type="button"
+									class="min-w-0 flex-1 text-left"
 									onclick={() => onGoToTask(task.id)}
 								>
-									<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
+									<p class="text-foreground truncate text-sm">{task.semanticSummary}</p>
+									{#if task.thoughtText !== task.semanticSummary}
+										<p class="text-muted-foreground truncate text-xs">{task.thoughtText}</p>
+									{/if}
 								</button>
-							{/each}
-						</div>
-					{/if}
-				</li>
-			{/each}
-		</ul>
-
-		{#if unassignedTasks.length > 0}
-			<div class="mt-4">
-				<h3 class="text-muted-foreground mb-2 px-4 font-mono text-[10px] uppercase tracking-wide">
-					{m.graph_timeline_project_no_project()} ({unassignedTasks.length})
-				</h3>
-				<ul class="divide-border divide-y">
-					{#each unassignedTasks as task (task.id)}
-						<li class="px-4 py-2">
-							<div class="flex items-start justify-between gap-2">
-								<button
-								type="button"
-								class="min-w-0 flex-1 text-left"
-								onclick={() => onGoToTask(task.id)}
-							>
-								<p class="text-foreground truncate text-sm">{task.semanticSummary}</p>
-								{#if task.thoughtText !== task.semanticSummary}
-									<p class="text-muted-foreground truncate text-xs">{task.thoughtText}</p>
-								{/if}
-							</button>
-							<Button
-								variant="ghost"
-								size="sm"
-								class="h-7 shrink-0 text-[10px]"
-								onclick={() => openAssignProject(task)}
-							>
-								Assign
-							</Button>
-						</div>
-					</li>
-				{/each}
-			</ul>
-		</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									class="h-7 shrink-0 text-[10px]"
+									onclick={() => openAssignProject(task)}
+								>
+									Assign
+								</Button>
+							</div>
+						</li>
+					{/each}
+					</ul>
+				</div>
+			{/if}
 		{/if}
 	{/if}
 	</div>
@@ -367,13 +375,15 @@
 	{#if confirmDismissProjectId}
 		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 			<div class="bg-background mx-4 max-w-sm rounded-lg border p-4 shadow-lg">
-				<h3 class="text-foreground text-sm font-medium">Dismiss project?</h3>
+				<h3 class="text-foreground text-sm font-medium">{m.graph_timeline_delete_project_title()}</h3>
 				<p class="text-muted-foreground mt-2 text-sm">
-					Are you sure you want to dismiss "{confirmDismissProjectLabel}"? It will no longer appear in your active projects.
+					{m.graph_timeline_delete_project_description({ name: confirmDismissProjectLabel ?? '' })}
 				</p>
 				<div class="mt-4 flex justify-end gap-2">
-					<Button variant="outline" size="sm" onclick={cancelDismissProject}>Cancel</Button>
-					<Button variant="destructive" size="sm" onclick={confirmDismissProject}>Dismiss</Button>
+					<Button variant="outline" size="sm" onclick={cancelDismissProject}>{m.graph_dialog_cancel()}</Button>
+					<Button variant="destructive" size="sm" onclick={confirmDismissProject}>
+						{m.graph_timeline_delete_project()}
+					</Button>
 				</div>
 			</div>
 		</div>

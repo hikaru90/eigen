@@ -221,7 +221,7 @@ import * as Select from '$lib/components/ui/select';
 		try {
 			const params = new SvelteURLSearchParams({
 				range: rangeFilter,
-				status: 'open',
+				status: 'all',
 				includeTasks: 'true',
 				orderBy,
 				sortDirection
@@ -262,7 +262,7 @@ import * as Select from '$lib/components/ui/select';
 	}
 
 	onMount(() => {
-		// Use prefetched data from page server load if available
+		// Use prefetched data from page server load for instant render, then fetch all tasks
 		if (prefetchedEvents && prefetchedEvents.length > 0) {
 			phase = {
 				kind: 'ready',
@@ -272,9 +272,9 @@ import * as Select from '$lib/components/ui/select';
 			if (initialEventId && prefetchedEvents.some((i) => i.id === initialEventId)) {
 				setSelection(prefetchedEvents.find((i) => i.id === initialEventId) ?? null);
 			}
-		} else {
-			void loadEvents();
 		}
+		// Always fetch all tasks (prefetched data may only have open tasks)
+		void loadEvents(false, { silent: phase.kind === 'ready' });
 		void loadOverdueItems();
 		if (initialSegment === 'overdue') {
 			setNowSegment('overdue');
@@ -362,7 +362,11 @@ import * as Select from '$lib/components/ui/select';
 
 	function goToTaskFromProjects(itemId: string) {
 		if (phase.kind !== 'ready') return;
-		const item = phase.items.find((i) => i.id === itemId);
+		const item =
+			todayTodoSourceItems.find((i) => i.id === itemId) ??
+			doneItems.find((i) => i.id === itemId) ??
+			overdueItems.find((i) => i.id === itemId) ??
+			phase.items.find((i) => i.id === itemId);
 		if (!item) return;
 		lastActionSummary = null;
 		setSelection(item);
@@ -497,6 +501,7 @@ import * as Select from '$lib/components/ui/select';
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
 			actionBusy = false;
+			updatingEventId = null;
 		}
 	}
 
@@ -790,7 +795,7 @@ import * as Select from '$lib/components/ui/select';
 			{#if projectsMode}
 				<TemporalEventsProjectsView
 					onGoToTask={goToTaskFromProjects}
-					allTasks={displayItems}
+					allTasks={todayTodoSourceItems}
 					onTaskUpdated={() => void reloadTimelineData({ silent: true })}
 					{orderBy}
 					{sortDirection}
