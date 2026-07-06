@@ -121,6 +121,29 @@
 	let notificationMessage = $state<string | null>(null);
 	let notificationError = $state<string | null>(null);
 
+	type NotificationPipelineStatus = {
+		at: string;
+		serverPushReady: boolean;
+		pushDevicesRegistered: number;
+		eventNotificationsEnabled: boolean;
+		dailySummaryEnabled: boolean;
+		reminders: {
+			pending: number;
+			dueNow: number;
+			nextFireAt: string | null;
+			lastDispatch: {
+				status: string;
+				sentAt: string | null;
+				fireAt: string;
+			} | null;
+		};
+		jobQueue: { pending: number; running: number; failed: number };
+	};
+
+	let notificationStatus = $state<NotificationPipelineStatus | null>(null);
+	let notificationStatusError = $state<string | null>(null);
+	let notificationStatusBusy = $state(false);
+
 	$effect(() => {
 		pushSubscriptionCount = data.pushSubscriptionCount;
 	});
@@ -244,6 +267,7 @@
 			pushSubscribed = true;
 			pushSubscriptionCount = Math.max(pushSubscriptionCount, 1);
 			pushMessage = 'Push notifications enabled for this device.';
+			void loadNotificationStatus();
 		} catch (e) {
 			pushError = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -302,6 +326,31 @@
 		}
 	}
 
+	async function loadNotificationStatus() {
+		notificationStatusBusy = true;
+		notificationStatusError = null;
+		try {
+			const res = await fetch('/api/settings/notifications/status');
+			const body = await res.json().catch(() => null);
+			if (!res.ok) {
+				throw new Error(
+					typeof body?.message === 'string' ? body.message : `Status failed (${res.status})`
+				);
+			}
+			notificationStatus = body as NotificationPipelineStatus;
+		} catch (e) {
+			notificationStatusError = e instanceof Error ? e.message : String(e);
+		} finally {
+			notificationStatusBusy = false;
+		}
+	}
+
+	function formatStatusTime(iso: string | null): string {
+		if (!iso) return '—';
+		const date = new Date(iso);
+		return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+	}
+
 	async function sendTestPush() {
 		if (pushBusy) return;
 		pushBusy = true;
@@ -310,6 +359,7 @@
 		try {
 			const result = await postTestPush();
 			pushMessage = `Test notification sent (${result.sent} device${result.sent === 1 ? '' : 's'}).`;
+			void loadNotificationStatus();
 		} catch (e) {
 			pushError = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -324,6 +374,7 @@
 			applyInferredBrowserTimezone();
 		}
 		void refreshPushState();
+		void loadNotificationStatus();
 	});
 
 	function dismissGraphRearrangeStatus() {

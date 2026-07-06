@@ -62,5 +62,13 @@ if [ -n "${SERVICE_API_KEY_EUROUTER:-}" ]; then
   esac
 fi
 
+if [ -f /tmp/eigen-runtime.env ]; then
+  echo "[eigen] Applying runtime bootstrap secrets..."
+  set -a
+  # shellcheck disable=SC1091
+  . /tmp/eigen-runtime.env
+  set +a
+fi
+
 echo "[eigen] Starting application..."
 exec node build/index.js

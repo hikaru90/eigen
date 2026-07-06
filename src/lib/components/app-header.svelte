@@ -16,6 +16,7 @@
   import Cpu from "@lucide/svelte/icons/cpu";
   import HeartPulse from "@lucide/svelte/icons/heart-pulse";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
+  import Layers from "@lucide/svelte/icons/layers";
   import Send from "@lucide/svelte/icons/send";
   import { resetPostHog } from "$lib/analytics/posthog-client";
 
@@ -152,6 +153,13 @@
           Credits
         </a>
         {#if isAdmin}
+          <a
+            href={resolve("/admin/queue")}
+            class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            <Layers class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+            Admin queue
+          </a>
           <a
             href={resolve("/admin/spend")}
             class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-black/5 dark:hover:bg-white/10"

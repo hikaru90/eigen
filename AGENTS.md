@@ -28,6 +28,19 @@ Every schema change needs **both** a SQL file and a journal entry in the **same 
 
 The user values being heard and understood over speed. A real fix starts with a shared understanding of what went wrong — reached through conversation, not a rushed patch. Follow this whenever the user reports that something is broken, wrong, or low quality.
 
+### Structured investigation (no guessing)
+
+Do **not** change code at random and hope it sticks. When tackling a problem — especially production outages, missing notifications, queue issues, or “it doesn’t work” — follow this order:
+
+1. **Map the system** — Which subsystems are in the path? (e.g. pg_cron → pg_net → HTTP endpoint → dispatch logic → push subscription → device.) Name them from code/docs, not from assumptions.
+2. **Get visibility first** — Identify what observability already exists (logs, SQL tables, admin endpoints, UI). Ask for or query **evidence** before theorizing. Distinguish “job was queued” from “request succeeded” from “notification was delivered.”
+3. **State known facts vs unknowns** — Separate what the logs/data prove from what still needs checking. Do not present hypotheses as root cause.
+4. **Agree on diagnosis** — Explain which layer failed and why, with citations. Wait for the user to confirm or supply missing data before implementing.
+5. **Plan the fix** — One targeted change (or minimal set) that addresses the confirmed failure layer. No drive-by refactors, no piling on “while we’re here” hardening unless agreed.
+6. **Verify** — Define how we’ll know it worked (specific log line, query result, UI action). Run only the smallest relevant tests.
+
+**Forbidden:** shipping multiple speculative fixes (logging + cron + secrets + UI) without evidence; treating partial logs as proof of success; skipping straight to implementation when the user asked what went wrong.
+
 - **When the user expresses frustration or says the work was bad, treat that as a signal to slow down, not speed up.** Acknowledge the frustration sincerely (briefly, without groveling) and make clear you are taking it seriously. The user is not being mean — they genuinely want an answer.
 - **Diagnose and explain root cause first. Do not jump to a plan or to code.** When the user pastes a log, a bad output, or a specific problem, your first job is to investigate and explain *which system failed and why*, citing the actual files and lines. Name the failing layers in order of severity. Only propose a fix after the user has the explanation and agrees on the diagnosis.
 - **Do not confuse a request to understand with a request to implement.** "This is bad / what went wrong?" means *explain it to me first*. Wait for the user to explicitly ask for a plan or for execution before producing one.

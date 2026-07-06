@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import webpush from 'web-push';
 import { isEnvValuePresent, persistEnvValues } from './env-file.mjs';
+import { writeRuntimeEnvFile } from './runtime-env.mjs';
 
 function deriveVapidSubject() {
 	const fromEnv = process.env.VAPID_SUBJECT?.trim();
@@ -62,6 +63,7 @@ export function ensureDeploySecrets() {
 	}
 
 	if (!generatedAdminKey && !generatedVapid) {
+		writeRuntimeEnvFile();
 		return { generatedAdminKey: false, generatedVapid: false, persistedToEnvFile: false };
 	}
 
@@ -78,6 +80,8 @@ export function ensureDeploySecrets() {
 			'[eigen] could not persist generated secrets to .env — copy ADMIN_CONSOLIDATION_KEY / VAPID_* into your platform env and redeploy'
 		);
 	}
+
+	writeRuntimeEnvFile();
 
 	return { generatedAdminKey, generatedVapid, persistedToEnvFile };
 }
