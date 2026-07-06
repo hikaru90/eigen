@@ -24,9 +24,17 @@ export const POST: RequestHandler = async (event) => {
 		error(401, 'Unauthorized');
 	}
 
+	const startedAt = Date.now();
 	const [eventReminders, dailySummaries] = await Promise.all([
 		dispatchDueEventReminders(),
 		dispatchDueDailySummaries()
 	]);
+
+	console.info('[dispatch-reminders] completed', {
+		durationMs: Date.now() - startedAt,
+		eventReminders,
+		dailySummaries
+	});
+
 	return json({ ok: true, eventReminders, dailySummaries });
 };

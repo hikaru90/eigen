@@ -1,6 +1,8 @@
 export { OVERNIGHT_CONSOLIDATION_JOB, OVERNIGHT_CONSOLIDATION_TASK } from './constants';
 export { enqueueUserJob, hasActiveJobForUser } from './enqueue';
 export { drainUserJobQueue } from './drain';
+export { loadJobQueueSnapshot } from './snapshot';
+export type { JobQueueSnapshot } from './snapshot';
 export { tickGlobalJobQueue } from './tick';
 export { startJobQueueTicker } from './ticker';
 export {

@@ -306,6 +306,20 @@ log "  ADMIN_EMAIL=$ADMIN_EMAIL"
 set_env_var ADMIN_PASSWORD "$ADMIN_PASSWORD" "$ENV_FILE"
 log "  ADMIN_PASSWORD set (${#ADMIN_PASSWORD} chars)"
 
+if command -v node >/dev/null 2>&1 && [ -f "${SCRIPT_DIR}/node_modules/web-push/package.json" ]; then
+	log "Generating VAPID keys for web push..."
+	VAPID_JSON=$(node "${SCRIPT_DIR}/scripts/generate-vapid-keys.mjs")
+	VAPID_PUBLIC_KEY=$(printf '%s' "$VAPID_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0,'utf8')).publicKey)")
+	VAPID_PRIVATE_KEY=$(printf '%s' "$VAPID_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0,'utf8')).privateKey)")
+	VAPID_SUBJECT="mailto:${ADMIN_EMAIL}"
+	set_env_var VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY" "$ENV_FILE"
+	set_env_var VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY" "$ENV_FILE"
+	set_env_var VAPID_SUBJECT "$VAPID_SUBJECT" "$ENV_FILE"
+	log_ok "VAPID keys generated (subject=${VAPID_SUBJECT})"
+else
+	log_warn "node/web-push unavailable during install — VAPID keys will be generated on first container start"
+fi
+
 log_ok "All base environment variables written to $ENV_FILE"
 
 # ── Verify critical variables were written ─────────────────────────────────

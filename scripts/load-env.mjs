@@ -1,10 +1,14 @@
 /**
- * Load project root `.env` into process.env (only keys not already set).
+ * Load project root `.env` into process.env (only keys not already set to a non-empty value).
  * CLI scripts (migrate, RLS) run outside Vite/SvelteKit and do not auto-load .env.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+function isPresent(value) {
+	return Boolean(value?.trim());
+}
 
 const envPath = join(dirname(fileURLToPath(import.meta.url)), '..', '.env');
 if (existsSync(envPath)) {
@@ -21,7 +25,7 @@ if (existsSync(envPath)) {
 		) {
 			value = value.slice(1, -1);
 		}
-		if (process.env[key] === undefined) {
+		if (!isPresent(process.env[key])) {
 			process.env[key] = value;
 		}
 	}

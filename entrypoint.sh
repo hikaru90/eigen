@@ -23,7 +23,7 @@ run_step "Ensuring non-superuser app role (eigen_app)" node scripts/ensure-app-r
 run_step "Verifying eigen_app can write Apache AGE graph" node scripts/verify-age-graph-role.mjs
 run_step "Running database migrations" node scripts/migrate.mjs
 run_step "Applying RLS policies" node scripts/apply-rls.mjs
-run_step "Scheduling pg_cron jobs (if configured)" node scripts/ensure-cron-if-configured.mjs
+run_step "Bootstrapping production ops (secrets, pg_cron)" node scripts/bootstrap-production-ops.mjs
 
 # Create admin user on first boot if credentials are provided.
 # create-admin.mjs is idempotent — skips silently if the user already exists.

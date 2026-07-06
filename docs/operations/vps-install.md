@@ -74,7 +74,7 @@ Edit `.env` and add LLM (and optional PayPal) values. You need **at least one** 
 | `LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING` | EUrouter rule UUIDs |
 | `OPENROUTER_BASE_URL`, `OPENROUTER_API_KEY` | Optional OpenRouter fallback |
 
-`install.sh` already sets: `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `POSTGRES_PASSWORD`, `EIGEN_APP_DB_PASSWORD`, `ADMIN_CONSOLIDATION_KEY`, `DATABASE_URL` (`@db` host), `POSTHOG_SOURCEMAPS_REQUIRED=0`.
+`install.sh` already sets: `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `POSTGRES_PASSWORD`, `EIGEN_APP_DB_PASSWORD`, `ADMIN_CONSOLIDATION_KEY`, `DATABASE_URL` (`@db` host), `CONSOLIDATION_INTERNAL_URL`, `VAPID_*` (when Node is available locally), `POSTHOG_SOURCEMAPS_REQUIRED=0`. Missing `VAPID_*` / `ADMIN_CONSOLIDATION_KEY` values are generated automatically on first app container start (`entrypoint.sh` → `ensure-deploy-secrets.mjs`).
 
 ## 4. Deploy
 

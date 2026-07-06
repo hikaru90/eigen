@@ -10,9 +10,11 @@ import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import { hashApiKey } from '$lib/server/api-keys/api-key-utils';
 import { startJobQueueTicker } from '$lib/server/job-queue/ticker';
+import { logOpsStartupDiagnostics } from '$lib/server/ops/startup-diagnostics';
 import { captureServerException } from '$lib/server/analytics/posthog-server';
 
 if (!building) {
+	logOpsStartupDiagnostics();
 	startJobQueueTicker();
 }
 
