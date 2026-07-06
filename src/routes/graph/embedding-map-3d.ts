@@ -250,6 +250,10 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	const indexBuffer = new THREE.BufferAttribute(indexArray, 1);
 	geometry.setIndex(indexBuffer);
 
+	let lastDepthSortCamX = NaN;
+	let lastDepthSortCamY = NaN;
+	let lastDepthSortCamZ = NaN;
+
 	function updateDepthSort() {
 		const camPos = camera.position;
 
@@ -266,6 +270,17 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 
 		/** Mark index buffer as needing GPU upload */
 		indexBuffer.needsUpdate = true;
+		lastDepthSortCamX = camPos.x;
+		lastDepthSortCamY = camPos.y;
+		lastDepthSortCamZ = camPos.z;
+	}
+
+	function needsDepthSort(): boolean {
+		if (!isIdle) return true;
+		const p = camera.position;
+		return (
+			p.x !== lastDepthSortCamX || p.y !== lastDepthSortCamY || p.z !== lastDepthSortCamZ
+		);
 	}
 
 	/** Create individual label objects for selection/hover */
@@ -562,7 +577,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 		animationFrame = requestAnimationFrame(animate);
 
 		controls.update();
-		updateDepthSort();
+		if (needsDepthSort()) updateDepthSort();
 		updateScreenSpacePointScales();
 		renderer.render(scene, camera);
 		labelRenderer.render(scene, camera);

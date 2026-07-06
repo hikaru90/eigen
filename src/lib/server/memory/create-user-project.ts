@@ -1,7 +1,6 @@
 import type { ProjectStatus } from '$lib/server/db/schema';
 import { ensureProjectProfile } from '$lib/server/memory/project-eligibility';
-import { promoteHubEntityType } from '$lib/server/memory/project-entity';
-import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
+import { promoteHubEntityType, upsertGraphHubEntity } from '$lib/server/memory/project-entity';
 
 export type CreateUserProjectInput = {
 	userId: string;
@@ -15,7 +14,7 @@ export type CreateUserProjectResult = {
 	status: ProjectStatus;
 };
 
-/** Create a GTD project from explicit user declaration (skips promotion judge). */
+/** Create a GTD project from explicit user declaration (no LLM identity judge). */
 export async function createUserDeclaredProject(
 	input: CreateUserProjectInput
 ): Promise<CreateUserProjectResult> {
@@ -26,24 +25,13 @@ export async function createUserDeclaredProject(
 
 	const status = input.status ?? 'active';
 
-	console.log(`[createUserDeclaredProject] Creating project: ${label}, status: ${status}`);
-
-	const resolution = await resolveProjectIdentity({
-		userId: input.userId,
-		surfaceLabel: label,
-		mode: 'seed'
-	});
-
-	console.log(`[createUserDeclaredProject] Resolution result: entityId=${resolution.entityId}, label=${resolution.canonicalLabel}`);
-
-	await promoteHubEntityType(input.userId, resolution.entityId, resolution.canonicalLabel);
-	await ensureProjectProfile(input.userId, resolution.entityId, status, 'manual');
-
-	console.log(`[createUserDeclaredProject] Project created successfully: ${resolution.entityId}`);
+	const entityId = await upsertGraphHubEntity(input.userId, label, 'project');
+	await promoteHubEntityType(input.userId, entityId, label);
+	await ensureProjectProfile(input.userId, entityId, status, 'manual');
 
 	return {
-		entityId: resolution.entityId,
-		label: resolution.canonicalLabel,
+		entityId,
+		label,
 		status
 	};
 }

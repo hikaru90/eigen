@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	canonicalEntity,
@@ -94,7 +94,12 @@ export async function listProjectsForUser(userId: string): Promise<ProjectListIt
 				eq(canonicalEntity.userId, userId)
 			)
 		)
-		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.status, 'active')));
+		.where(
+			and(
+				eq(projectProfile.userId, userId),
+				inArray(projectProfile.status, ['active', 'someday'])
+			)
+		);
 
 	const items: ProjectListItem[] = [];
 	for (const row of projectRows) {

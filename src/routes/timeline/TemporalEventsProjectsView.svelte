@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
+	import type { CreateProjectResponse } from '../api/timeline/projects/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -139,8 +140,27 @@
 		return projects;
 	});
 
-	function onProjectCreated() {
-		void loadProjects();
+	function onProjectCreated(project: CreateProjectResponse) {
+		if (phase.kind === 'ready' && (project.status === 'active' || project.status === 'someday')) {
+			const alreadyListed = phase.projects.some((p) => p.entityId === project.entityId);
+			if (!alreadyListed) {
+				phase = {
+					kind: 'ready',
+					projects: [
+						...phase.projects,
+						{
+							entityId: project.entityId,
+							label: project.label,
+							status: project.status,
+							source: 'manual',
+							nextAction: null,
+							openTaskCount: 0
+						}
+					]
+				};
+			}
+		}
+		void loadProjects({ silent: true });
 	}
 
 	function openAssignProject(task: TemporalEventListItem) {
