@@ -8,8 +8,8 @@ import { ensureUserOntologySeeded } from '$lib/server/ontology-db';
 import { loadRecentCaptureThoughts } from '$lib/server/capture/load-recent-capture-thoughts';
 import { eq } from 'drizzle-orm';
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate';
-import { getOrCreateWallet } from '$lib/server/billing/wallet';
-import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits';
+import { getOrCreateWallet, grantStartingFreeCredits } from '$lib/server/billing/wallet';
+import { MIN_CAPTURE_PIPELINE_CREDITS, STARTING_FREE_CREDITS } from '$lib/server/billing/credits';
 import {
 	getPayPalClientId,
 	getPayPalWebSdkUrl,
@@ -25,17 +25,24 @@ export const load: PageServerLoad = async (event) => {
 	const userId = event.locals.user.id;
 	await ensureUserOntologySeeded(getDb(), userId);
 
-	const [pref, authUser, captureGate, wallet, groundingQuestionEligible] = await Promise.all([
+	const authUser = await authDb
+		.select({ onboardingCompleted: user.onboardingCompleted, accountKind: user.accountKind })
+		.from(user)
+		.where(eq(user.id, userId))
+		.limit(1)
+		.then((rows) => rows[0]);
+
+	const isHarness = authUser?.accountKind === 'harness';
+
+	if (!isHarness) {
+		await grantStartingFreeCredits(userId);
+	}
+
+	const [pref, captureGate, wallet, groundingQuestionEligible] = await Promise.all([
 		getDb()
 			.select({ preferredLanguage: userPreference.preferredLanguage, billingMode: userPreference.billingMode })
 			.from(userPreference)
 			.where(eq(userPreference.userId, userId))
-			.limit(1)
-			.then((rows) => rows[0]),
-		authDb
-			.select({ onboardingCompleted: user.onboardingCompleted, accountKind: user.accountKind })
-			.from(user)
-			.where(eq(user.id, userId))
 			.limit(1)
 			.then((rows) => rows[0]),
 		checkCaptureAllowed(userId),
@@ -47,8 +54,6 @@ export const load: PageServerLoad = async (event) => {
 	const byokUiEnabled = isByokUiEnabled();
 	const paypalClientId = paypalConfigured ? getPayPalClientId() : null;
 	const paypalSdkUrl = paypalConfigured ? getPayPalWebSdkUrl() : null;
-
-	const isHarness = authUser?.accountKind === 'harness';
 
 	const billingMode = (pref?.billingMode ?? 'platform_credits') as 'platform_credits' | 'byok';
 	const creditsGatePassed =
@@ -66,6 +71,7 @@ export const load: PageServerLoad = async (event) => {
 		billingMode,
 		walletAvailableCredits: wallet.availableCredits,
 		minCaptureCredits: MIN_CAPTURE_PIPELINE_CREDITS,
+		startingFreeCredits: STARTING_FREE_CREDITS,
 		paypalConfigured,
 		paypalClientId,
 		paypalSdkUrl,

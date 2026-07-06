@@ -65,6 +65,51 @@ function parseDetailLevel(body: Record<string, unknown>): 'snippet' | 'full' {
 	return detail === 'full' ? 'full' : 'snippet';
 }
 
+function parseRetrieveOrder(body: Record<string, unknown>): 'created_at' | 'relevance' {
+	return body.order === 'created_at' ? 'created_at' : 'relevance';
+}
+
+async function listRecentThoughtsForMcp(
+	context: McpToolContext,
+	input: {
+		limit: number;
+		detail: 'snippet' | 'full';
+		cursor?: { createdAt: Date; id: string };
+		weights: { vector: number; graph: number };
+	}
+) {
+	const thoughts = await listThoughts(context.userId, {
+		limit: input.limit,
+		fields: input.detail === 'full' ? 'full' : 'snippet',
+		cursor: input.cursor
+	});
+
+	if (input.detail === 'full') {
+		return sanitizeMcpToolResult({ count: thoughts.length, results: thoughts });
+	}
+
+	const now = new Date();
+	const snippetRows = await buildMcpThoughtSnippetRows(
+		context.userId,
+		thoughts.map((row) => ({
+			id: row.id,
+			category: row.category,
+			createdAt: row.createdAt,
+			normalizedText: row.normalizedText,
+			memoryType: row.memoryType,
+			author: row.author,
+			authorLabel: row.authorLabel
+		})),
+		input.weights,
+		now
+	);
+
+	return sanitizeMcpToolResult({
+		count: snippetRows.length,
+		results: snippetRows
+	});
+}
+
 type McpThoughtSnippetRow = {
 	id: string;
 	category: string;
@@ -203,6 +248,7 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 export async function runRetrieveThoughtsTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
 	const query = typeof body.query === 'string' ? body.query.trim() : '';
+	const order = parseRetrieveOrder(body);
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
 	const threshold = typeof body.threshold === 'number' ? body.threshold : undefined;
 	const detail = parseDetailLevel(body);
@@ -210,45 +256,26 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	const weights = CONTEXT_WEIGHTS.default;
 	const effectiveTopK = topK ?? 10;
 
-	if (!query) {
+	if (!query || order === 'created_at') {
+		if (query && order === 'created_at') {
+			console.info('[mcp.tool:retrieve_thoughts] order=created_at ignores query for recent browse', {
+				query
+			});
+		}
 		const cursorCreatedAt =
 			typeof body.cursor_created_at === 'string' ? new Date(body.cursor_created_at) : undefined;
 		const cursorId = typeof body.cursor_id === 'string' ? body.cursor_id : undefined;
-		const thoughts = await listThoughts(context.userId, {
+		return listRecentThoughtsForMcp(context, {
 			limit: effectiveTopK,
-			fields: detail === 'full' ? 'full' : 'snippet',
+			detail,
 			cursor:
 				cursorCreatedAt && cursorId
 					? {
 							createdAt: cursorCreatedAt,
 							id: cursorId
 						}
-					: undefined
-		});
-
-		if (detail === 'full') {
-			return sanitizeMcpToolResult({ count: thoughts.length, results: thoughts });
-		}
-
-		const now = new Date();
-		const snippetRows = await buildMcpThoughtSnippetRows(
-			context.userId,
-			thoughts.map((row) => ({
-				id: row.id,
-				category: row.category,
-				createdAt: row.createdAt,
-				normalizedText: row.normalizedText,
-				memoryType: row.memoryType,
-				author: row.author,
-				authorLabel: row.authorLabel
-			})),
-			weights,
-			now
-		);
-
-		return sanitizeMcpToolResult({
-			count: snippetRows.length,
-			results: snippetRows
+					: undefined,
+			weights
 		});
 	}
 

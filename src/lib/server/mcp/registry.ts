@@ -91,18 +91,24 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'retrieve_thoughts',
 		description:
-			'Read stored thoughts. Omit query to list the most recent (newest first; use top_k, optional cursor_created_at + cursor_id to paginate). With query: hybrid semantic, lexical, and graph search over thoughts plus lexical search over attached text notes.',
+			'Read stored thoughts. For the latest open thoughts (newest first, excludes completed/archived): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus lexical search over attached text notes.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				query: {
 					type: 'string',
 					description:
-						'Optional search text. Omit to browse recent thoughts (newest first) instead of searching.'
+						'Optional search text. Omit (or set order=created_at) to browse recent open thoughts newest-first instead of searching.'
+				},
+				order: {
+					type: 'string',
+					enum: ['created_at', 'relevance'],
+					description:
+						'created_at: newest open thoughts first (ignores query). relevance: rank by search match (default; requires query).'
 				},
 				top_k: {
 					type: 'number',
-					description: 'Max results (default 10). When query is omitted, acts as the recent-thought limit.'
+					description: 'Max results (default 10). When browsing recent thoughts, acts as the page size.'
 				},
 				threshold: { type: 'number' },
 				mode: { type: 'string', enum: ['fast', 'full'] },
@@ -118,7 +124,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			}
 		},
 		agentArgumentSchema:
-			'{"query": "string (optional — omit for recent browse)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional)", "detail": "snippet|full (optional)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
+			'{"query": "string (optional — omit for recent browse)", "order": "created_at|relevance (optional — created_at for newest open thoughts)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional)", "detail": "snippet|full (optional)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
 		handler: runRetrieveThoughtsTool,
 		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('retrieve_thoughts')
 	},

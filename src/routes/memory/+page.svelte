@@ -1244,6 +1244,12 @@
                 .attr("fill", COMMUNITY_HULL_ACCENT);
               const labelWrap = g.append("g").attr("class", "graph-cluster-label-wrap");
               labelWrap
+                .append("rect")
+                .attr("class", "graph-cluster-label-bg")
+                .attr("fill", COMMUNITY_HULL_ACCENT)
+                .attr("stroke", "none")
+                .attr("rx", 3);
+              labelWrap
                 .append("text")
                 .attr("class", "graph-cluster-label")
                 .attr("text-anchor", "middle")
@@ -1268,8 +1274,24 @@
             const label = d.name.length > 36 ? `${d.name.slice(0, 34)}…` : d.name;
             const labelWrap = g.select("g.graph-cluster-label-wrap");
             labelWrap.attr("transform", `translate(0, ${badgeR + 10})`);
-            labelWrap.select("text.graph-cluster-label").text(label);
-            labelWrap.select("rect.graph-cluster-label-bg").remove();
+            const labelText = labelWrap.select("text.graph-cluster-label").text(label);
+            let labelBg = labelWrap.select<SVGRectElement>("rect.graph-cluster-label-bg");
+            if (labelBg.empty()) {
+              labelBg = labelWrap
+                .insert("rect", "text")
+                .attr("class", "graph-cluster-label-bg")
+                .attr("fill", COMMUNITY_HULL_ACCENT)
+                .attr("stroke", "none")
+                .attr("rx", 3);
+            }
+            const bbox = (labelText.node() as SVGTextElement | null)?.getBBox();
+            if (bbox) {
+              labelBg
+                .attr("x", bbox.x - 4)
+                .attr("y", bbox.y - 2)
+                .attr("width", bbox.width + 8)
+                .attr("height", bbox.height + 4);
+            }
             g.select("title").remove();
             if (d.description) {
               g.append("title").text(d.description);

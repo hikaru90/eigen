@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import type { MemoryAuthor } from '$lib/server/db/schema';
+import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter';
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold';
 
 export type LexicalSearchResult = {
@@ -57,6 +58,7 @@ export async function lexicalSearch(params: {
 		.where(
 			and(
 				eq(thought.userId, params.userId),
+				activeThoughtLifecycleCondition(),
 				matchExpr,
 				params.authorFilter ? eq(thought.author, params.authorFilter) : undefined
 			)

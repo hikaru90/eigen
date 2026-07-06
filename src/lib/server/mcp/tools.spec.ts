@@ -301,6 +301,20 @@ describe('MCP tools', () => {
 		expect(searchThoughtsMock).not.toHaveBeenCalled();
 	});
 
+	it('runRetrieveThoughtsTool uses recent browse when order is created_at even with a query', async () => {
+		listThoughtsMock.mockResolvedValue([]);
+		await runRetrieveThoughtsTool(
+			{ userId: 'u1' },
+			{ query: 'eigenmesh recent thoughts', order: 'created_at', top_k: 10 }
+		);
+		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
+			limit: 10,
+			fields: 'snippet',
+			cursor: undefined
+		});
+		expect(searchThoughtsMock).not.toHaveBeenCalled();
+	});
+
 	it('runRetrieveThoughtsTool uses fast mode and snippet shape by default', async () => {
 		searchThoughtsMock.mockResolvedValue([
 			{

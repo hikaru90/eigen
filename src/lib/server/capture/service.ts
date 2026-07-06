@@ -16,6 +16,7 @@ import {
 	parseLifecycleEditRequest
 } from '$lib/server/capture/apply-thought-edit';
 import { setThoughtLifecycleStatus } from '$lib/server/memory/lifecycle';
+import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter';
 export { setThoughtLifecycleStatus };
 import {
 	createEditPhaseTimer,
@@ -633,6 +634,42 @@ export async function editStoredThought(
 			decryptThoughtRow(userId, updated)
 		);
 
+		const priorLifecycle = existing.lifecycleStatus ?? 'open';
+		const lifecycleValues = new Set(['open', 'completed', 'archived']);
+		const nextLifecycle = lifecycleValues.has(nextStatus)
+			? (nextStatus as 'open' | 'completed' | 'archived')
+			: priorLifecycle;
+
+		if (nextLifecycle !== priorLifecycle) {
+			const lifecycleResult = await timer.time('lifecycle_status', async () =>
+				setThoughtLifecycleStatus(userId, thoughtId, nextLifecycle)
+			);
+			if (!lifecycleResult.ok) {
+				return lifecycleResult;
+			}
+			if (nextLifecycle === 'open') {
+				await timer.time('reenrich', async () => {
+					await reenrichThought(userId, decryptedUpdated.id, decryptedUpdated.normalizedText, {
+						onProgress,
+						thoughtEmbedding: embedding
+					});
+				});
+			}
+			logEditComplete({
+				logCtx,
+				path: 'full_reenrich',
+				textChanged,
+				nextStatus: nextLifecycle,
+				editSummary: applied.summary,
+				timing: timer.finish()
+			});
+			return {
+				ok: true as const,
+				thought: lifecycleResult.thought,
+				editSummary: applied.summary
+			};
+		}
+
 		await emitProgress(onProgress, 'graph');
 		await timer.time('upsert_graph_node', async () => {
 			await upsertThoughtNode({
@@ -823,6 +860,7 @@ export async function listThoughts(
 			.where(
 				and(
 					eq(thought.userId, userId),
+					activeThoughtLifecycleCondition(),
 					cursor
 						? or(
 								lt(thought.createdAt, cursor.createdAt),
@@ -858,6 +896,7 @@ export async function listThoughts(
 		.where(
 			and(
 				eq(thought.userId, userId),
+				activeThoughtLifecycleCondition(),
 				cursor
 					? or(
 							lt(thought.createdAt, cursor.createdAt),

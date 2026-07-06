@@ -16,6 +16,8 @@
 		ontranscript,
 		onpartialtranscript,
 		onerror,
+		onstop,
+		stopRef = $bindable(undefined),
 		class: className = ''
 	}: {
 		disabled?: boolean;
@@ -23,6 +25,8 @@
 		ontranscript: (text: string) => void;
 		onpartialtranscript?: (text: string) => void;
 		onerror?: (message: string) => void;
+		onstop?: () => void;
+		stopRef?: (() => void) | undefined;
 		class?: string;
 	} = $props();
 
@@ -164,6 +168,7 @@
 
 		sttScheduler?.abort();
 		sttScheduler = null;
+		onstop?.();
 
 		const blob = await new Promise<Blob>((resolve, reject) => {
 			recorder.onstop = () => {
@@ -193,6 +198,29 @@
 		}
 	}
 
+	async function stopRecording() {
+		if (!mediaRecorder || !recording) return;
+		const recorder = mediaRecorder;
+		recording = false;
+		mediaRecorder = null;
+		stopLevelMeter();
+
+		sttScheduler?.abort();
+		sttScheduler = null;
+
+		// Stop recording without transcribing
+		recorder.ondataavailable = null;
+		recorder.onerror = null;
+		recorder.onstop = null;
+		try {
+			recorder.stop();
+		} catch {
+			// ignore
+		}
+		releaseStream();
+		onstop?.();
+	}
+
 	async function toggleMic() {
 		if (!micSupported) {
 			onerror?.('Speech input is not supported in this browser');
@@ -205,6 +233,11 @@
 			await startRecording();
 		}
 	}
+
+	// Expose stop function to parent via bindable ref
+	$effect(() => {
+		stopRef = recording ? stopRecording : undefined;
+	});
 
 	onDestroy(() => {
 		if (mediaRecorder && recording) {

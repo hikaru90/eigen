@@ -15,7 +15,8 @@
 		paypalClientId = null as string | null,
 		paypalSdkUrl = null as string | null,
 		creditsGatePassed = false,
-		byokUiEnabled = false
+		byokUiEnabled = false,
+		startingFreeCredits = 100
 	}: {
 		open: boolean;
 		walletAvailableCredits?: number;
@@ -25,6 +26,7 @@
 		paypalSdkUrl?: string | null;
 		creditsGatePassed?: boolean;
 		byokUiEnabled?: boolean;
+		startingFreeCredits?: number;
 	} = $props();
 
 	let step = $state(0);
@@ -86,18 +88,21 @@
 				{#if step === 0}
 					<p class="text-xs leading-relaxed">
 						Eigen is your personal memory — capture raw thoughts, and the system organizes them for
-						you. You can add credits now or skip and configure billing later in Settings.
+						you. New accounts include <strong>{startingFreeCredits.toLocaleString('en-US')} free Eigen credits</strong>
+						to try capture. When those run out, add more credits in Settings or below.
 					</p>
 				{:else if step === 1}
 					<p class="text-xs leading-relaxed">
 						{#if byokUiEnabled && !paypalConfigured}
-							Configure your own LLM keys under <a href="/settings/llm?tab=byok" class="underline">Settings → LLM → BYOK</a>,
+							Your account starts with {startingFreeCredits.toLocaleString('en-US')} free credits. Configure your own LLM keys under
+							<a href="/settings/llm?tab=byok" class="underline">Settings → LLM → BYOK</a>,
 							or add Eigen credits below when PayPal is available.
 						{:else if byokUiEnabled}
-							Add <strong>Eigen credits</strong> below, or use your own gateway keys under
+							You have {startingFreeCredits.toLocaleString('en-US')} free credits to start. Add more <strong>Eigen credits</strong> below when you need them, or use your own gateway keys under
 							<a href="/settings/llm?tab=byok" class="underline">Settings → LLM → BYOK</a>.
 						{:else}
-							Add <strong>Eigen credits</strong> to pay for capture, chat, voice dictation, and embeddings.
+							You have {startingFreeCredits.toLocaleString('en-US')} free credits to try capture, chat, and embeddings.
+							When your balance is low, add <strong>Eigen credits</strong> below (minimum purchase applies).
 							Each LLM call is logged in Activity.
 						{/if}
 					</p>
@@ -115,7 +120,13 @@
 						/>
 					{/if}
 					{#if creditsOk}
-						<p class="text-xs text-green-600 dark:text-green-400">Enough credits to capture.</p>
+						<p class="text-xs text-green-600 dark:text-green-400">
+							Enough credits to capture ({localWalletCredits.toLocaleString('en-US')} available).
+						</p>
+					{:else}
+						<p class="text-xs text-muted-foreground">
+							Add credits above to continue after your free balance runs out.
+						</p>
 					{/if}
 				{:else}
 					<p class="text-xs leading-relaxed">

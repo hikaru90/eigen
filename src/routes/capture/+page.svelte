@@ -132,6 +132,7 @@ import { logErrorToServer } from '$lib/client-log';
 
 	let raw = $state(get(captureInputDraft));
 	let editRequest = $state('');
+	let voiceStopFn = $state<(() => void) | undefined>(undefined);
 
 	$effect(() => {
 		captureInputDraft.set(raw);
@@ -531,6 +532,8 @@ import { logErrorToServer } from '$lib/client-log';
 	async function capture() {
 		if (!raw.trim()) return;
 		err = null;
+		// Stop voice recording if active before submitting
+		voiceStopFn?.();
 		const text = raw;
 		raw = '';
 		queueUi = { ...queueUi, pendingCount: queueUi.pendingCount + 1 };
@@ -616,8 +619,8 @@ import { logErrorToServer } from '$lib/client-log';
 				<Card.Content class="space-y-3 text-xs">
 					{#if data.captureGateReason === 'insufficient_credits' && data.billingMode === 'platform_credits'}
 						<p class="text-muted-foreground leading-relaxed">
-							Add Eigen credits to run capture and enrichment (minimum {data.minCaptureCredits.toLocaleString()}
-							credits).
+							Your free credits are used up. Add Eigen credits to run capture and enrichment (minimum
+							{data.minCaptureCredits.toLocaleString()} credits per capture).
 						</p>
 						<CreditsTopUpPanel
 							compact
@@ -643,6 +646,7 @@ import { logErrorToServer } from '$lib/client-log';
 					bind:value={raw}
 					placeholder="Enter your thought…"
 					class="min-h-[128px] max-h-[min(45dvh,360px)] overflow-y-auto p-6 text-base md:text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
+					onfocus={() => voiceStopFn?.()}
 				/>
 			</Card.Content>
 			<Card.Footer class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full">
@@ -651,6 +655,7 @@ import { logErrorToServer } from '$lib/client-log';
 					<VoiceInputButton
 						language={data.preferredLanguage}
 						disabled={loading}
+						bind:stopRef={voiceStopFn}
 						ontranscript={(text) => {
 							raw = text;
 						}}
@@ -736,6 +741,7 @@ import { logErrorToServer } from '$lib/client-log';
 	paypalSdkUrl={data.paypalSdkUrl}
 	byokUiEnabled={data.byokUiEnabled}
 	creditsGatePassed={data.creditsGatePassed || localWalletCredits >= data.minCaptureCredits}
+	startingFreeCredits={data.startingFreeCredits}
 />
 
 <AlertDialog.Root

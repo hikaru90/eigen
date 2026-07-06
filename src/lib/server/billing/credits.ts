@@ -4,6 +4,9 @@ export const CREDITS_PER_USD = 1000;
 /** Micro-USD accumulated per one Eigen credit ($0.001 USD). */
 export const MICRO_USD_PER_CREDIT = 1000;
 
+/** Free Eigen credits granted once on signup (platform credits). */
+export const STARTING_FREE_CREDITS = 100;
+
 /** Minimum balance before capture classify + embed (platform credits). */
 export const MIN_CAPTURE_PIPELINE_CREDITS = 50;
 

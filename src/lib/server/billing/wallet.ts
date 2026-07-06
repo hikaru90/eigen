@@ -1,5 +1,6 @@
-import { desc, eq } from 'drizzle-orm';
-import { getDb, withDbUser } from '$lib/server/db';
+import { and, desc, eq } from 'drizzle-orm';
+import { getDb, withDbUser, type AppDatabase } from '$lib/server/db';
+import { user } from '$lib/server/db/auth.schema';
 import {
 	paymentOrder,
 	userWallet,
@@ -9,7 +10,8 @@ import {
 import {
 	formatEigenCredits,
 	MICRO_USD_PER_CREDIT,
-	microUsdToWholeCredits
+	microUsdToWholeCredits,
+	STARTING_FREE_CREDITS
 } from '$lib/server/billing/credits';
 import { isByokUiEnabled } from '$lib/server/billing/byok-ui';
 
@@ -125,6 +127,93 @@ export async function getOrCreateWallet(userId: string): Promise<WalletSnapshot>
 		}
 		return rowToSnapshot(row);
 	});
+}
+
+/**
+ * Idempotent signup grant: production users receive {@link STARTING_FREE_CREDITS} once.
+ * Uses RLS-scoped session (auth hook must not write wallets via authDb).
+ */
+export async function grantStartingFreeCredits(
+	userId: string
+): Promise<{ granted: boolean; availableCredits: number }> {
+	return withDbUser(userId, async (db) => {
+		const [account] = await db
+			.select({ accountKind: user.accountKind })
+			.from(user)
+			.where(eq(user.id, userId))
+			.limit(1);
+		if (account?.accountKind === 'harness') {
+			const wallet = await loadWalletRow(db, userId);
+			return { granted: false, availableCredits: wallet?.availableCredits ?? 0 };
+		}
+
+		const [existingBonus] = await db
+			.select({ id: walletLedgerEntry.id })
+			.from(walletLedgerEntry)
+			.where(
+				and(
+					eq(walletLedgerEntry.userId, userId),
+					eq(walletLedgerEntry.referenceType, 'signup_bonus'),
+					eq(walletLedgerEntry.referenceId, userId)
+				)
+			)
+			.limit(1);
+		if (existingBonus) {
+			const wallet = await loadWalletRow(db, userId);
+			return { granted: false, availableCredits: wallet?.availableCredits ?? 0 };
+		}
+
+		return db.transaction(async (tx) => {
+			await tx
+				.insert(userWallet)
+				.values({
+					userId,
+					availableCredits: 0,
+					reservedCredits: 0,
+					pendingBillingMicroUsd: 0,
+					currency: WALLET_AUDIT_CURRENCY
+				})
+				.onConflictDoNothing();
+
+			const [wallet] = await tx
+				.select()
+				.from(userWallet)
+				.where(eq(userWallet.userId, userId))
+				.for('update');
+			if (!wallet) {
+				throw new Error(`Failed to load wallet for user ${userId}`);
+			}
+
+			const nextAvailable = wallet.availableCredits + STARTING_FREE_CREDITS;
+			await tx
+				.update(userWallet)
+				.set({ availableCredits: nextAvailable, updatedAt: new Date() })
+				.where(eq(userWallet.userId, userId));
+
+			await insertLedger(tx, {
+				userId,
+				kind: 'adjustment',
+				amountCredits: STARTING_FREE_CREDITS,
+				referenceType: 'signup_bonus',
+				referenceId: userId,
+				metadata: { reason: 'starting_free_credits' }
+			});
+
+			return { granted: true, availableCredits: nextAvailable };
+		});
+	});
+}
+
+async function loadWalletRow(
+	db: AppDatabase,
+	userId: string
+): Promise<{ availableCredits: number } | undefined> {
+	const [row] = await db
+		.select({ availableCredits: userWallet.availableCredits })
+		.from(userWallet)
+		.where(eq(userWallet.userId, userId))
+		.limit(1);
+	return row;
 }
 
 /** @deprecated Currency selection removed; use {@link getOrCreateWallet}. */

@@ -421,6 +421,13 @@
       "when": 1783259400000,
       "tag": "0059_daily_summary_dispatch_error",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1783345800000,
+      "tag": "0060_repair_thought_lifecycle_drift",
+      "breakpoints": true
     }
   ]
 }

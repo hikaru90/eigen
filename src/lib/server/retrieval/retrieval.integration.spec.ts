@@ -94,6 +94,62 @@ describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
 		expect(results.some((r) => r.id === ubThoughtId)).toBe(false);
 	});
 
+	it('searchThoughts excludes completed and archived lifecycle thoughts', async () => {
+		const token = `lifecycle_filter_${suffix}`;
+		await withEvalDb(ua, async (db) => {
+			await db.insert(user).values({
+				id: ua,
+				name: 'Lifecycle A',
+				email: `${ua}@lifecycle.test`,
+				emailVerified: true,
+				onboardingCompleted: true
+			});
+		});
+
+		const thoughtIds = await withEvalDb(ua, async (db) => {
+			const norm = `${token} shared phrase`;
+			const base = {
+				userId: ua,
+				rawText: norm,
+				normalizedText: norm,
+				lexicalText: computeLexicalText(norm),
+				category: 'task' as const,
+				metadata: {},
+				embedding: embeddingVec()
+			};
+			const [openRow] = await db
+				.insert(thought)
+				.values({ ...base, lifecycleStatus: 'open' })
+				.returning({ id: thought.id });
+			const [completedRow] = await db
+				.insert(thought)
+				.values({ ...base, lifecycleStatus: 'completed' })
+				.returning({ id: thought.id });
+			const [archivedRow] = await db
+				.insert(thought)
+				.values({ ...base, lifecycleStatus: 'archived' })
+				.returning({ id: thought.id });
+			return {
+				openId: openRow.id,
+				completedId: completedRow.id,
+				archivedId: archivedRow.id
+			};
+		});
+
+		const results = await withEvalDb(ua, async () =>
+			searchThoughts({
+				userId: ua,
+				query: token,
+				topK: 10
+			})
+		);
+
+		const ids = new Set(results.map((r) => r.id));
+		expect(ids.has(thoughtIds.openId)).toBe(true);
+		expect(ids.has(thoughtIds.completedId)).toBe(false);
+		expect(ids.has(thoughtIds.archivedId)).toBe(false);
+	});
+
 	it('retrieval_quality_event rows are tenant-scoped under RLS', async () => {
 		await withEvalDb(ua, async (db) => {
 			await recordRetrievalQualityEvent(db, {

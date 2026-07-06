@@ -17,6 +17,7 @@ import {
 	thought,
 	thoughtNeighbor
 } from '$lib/server/db/schema';
+import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter';
 import { lexicalSearch } from '$lib/server/retrieval/lexical';
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution';
 import { rerankCandidates, shouldSkipRerank, type RerankCandidate } from '$lib/server/retrieval/reranker';
@@ -260,6 +261,7 @@ export async function retrieveEvidence(params: {
 		.where(
 			and(
 				eq(thought.userId, params.userId),
+				activeThoughtLifecycleCondition(),
 				isNotNull(thought.embedding),
 				authorFilter ? eq(thought.author, authorFilter) : undefined
 			)
@@ -498,7 +500,13 @@ export async function retrieveEvidence(params: {
 			authorLabel: thought.authorLabel
 		})
 		.from(thought)
-		.where(and(eq(thought.userId, params.userId), inArray(thought.id, candidateIds)));
+		.where(
+			and(
+				eq(thought.userId, params.userId),
+				activeThoughtLifecycleCondition(),
+				inArray(thought.id, candidateIds)
+			)
+		);
 
 	const rowById = new Map(rows.map((r) => [r.id, r]));
 
