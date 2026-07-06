@@ -30,7 +30,7 @@ if (!isProductionRuntime()) {
 const sql = postgres(getAdminDatabaseUrl(), { max: 1 });
 
 try {
-	const rows = await sql<Array<{ jobname: string; active: boolean }>>`
+	const rows = await sql`
 		SELECT jobname, active
 		FROM cron.job
 		WHERE jobname = ANY(${REQUIRED_JOBS})

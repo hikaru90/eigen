@@ -56,7 +56,7 @@ async function verifyCronJobs() {
 
 	const sql = postgres(raw, { max: 1 });
 	try {
-		const rows = await sql<Array<{ jobname: string; active: boolean }>>`
+		const rows = await sql`
 			SELECT jobname, active
 			FROM cron.job
 			WHERE jobname = ANY(${REQUIRED_JOBS})
@@ -84,9 +84,10 @@ ensureDeploySecrets();
 
 if (!isCronConfigured()) {
 	if (isProductionRuntime() && isEnvValuePresent(process.env.DATABASE_ADMIN_URL)) {
-		throw new Error(
-			'pg_cron bootstrap requires ADMIN_CONSOLIDATION_KEY and CONSOLIDATION_INTERNAL_URL in production'
+		console.error(
+			'[eigen] pg_cron bootstrap skipped — ADMIN_CONSOLIDATION_KEY or CONSOLIDATION_INTERNAL_URL missing after secret bootstrap'
 		);
+		process.exit(0);
 	}
 
 	console.log(
@@ -95,7 +96,15 @@ if (!isCronConfigured()) {
 	process.exit(0);
 }
 
-await runScript('ensure-sleep-cron.mjs');
-await runScript('ensure-reminder-cron.mjs');
-await runScript('ensure-job-queue-cron.mjs');
-await verifyCronJobs();
+try {
+	await runScript('ensure-sleep-cron.mjs');
+	await runScript('ensure-reminder-cron.mjs');
+	await runScript('ensure-job-queue-cron.mjs');
+	await verifyCronJobs();
+} catch (err) {
+	const message = err instanceof Error ? err.message : String(err);
+	console.error('[eigen] pg_cron bootstrap failed — app will still start', { message });
+	console.error(
+		'[eigen] Scheduled push notifications and pg_cron queue ticks may not run until this is fixed. In-process job queue ticker remains active.'
+	);
+}
