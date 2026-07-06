@@ -275,4 +275,21 @@ describe('text-files service', () => {
 		expect(rows).toEqual([]);
 		expect(getDbMock).not.toHaveBeenCalled();
 	});
+
+	it('searchTextFiles passes authorFilter to the query when provided', async () => {
+		const whereSpy = vi.fn(() => ({
+			orderBy: vi.fn(() => ({
+				limit: vi.fn(async () => [])
+			}))
+		}));
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: whereSpy
+				}))
+			}))
+		});
+		await searchTextFiles('u1', { query: 'recipe notes', authorFilter: 'user' });
+		expect(whereSpy).toHaveBeenCalled();
+	});
 });

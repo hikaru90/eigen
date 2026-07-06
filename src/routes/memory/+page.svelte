@@ -847,6 +847,7 @@
           gZoom.attr("transform", event.transform.toString());
           applyCommunityHullZoomOpacity(event.transform.k);
           applyZoomLod(event.transform.k);
+          applyLabelCounterScale(event.transform.k);
         });
       svg.call(zoom);
       svg.on("click.details-clear", (event) => {
@@ -1045,6 +1046,95 @@
         return 8;
       }
 
+      /** Summary label counter-scale — community hull and cluster labels stay legible at every zoom level */
+      const MIN_SUMMARY_FONT_PX = 12;
+
+      function counterScaleFont(base: number, k: number): number {
+        return k < 1 ? Math.max(MIN_SUMMARY_FONT_PX, base / k) : base;
+      }
+
+      function applyLabelCounterScale(k: number) {
+        const hullLabelPx = counterScaleFont(14, k);
+        const clusterLabelPx = counterScaleFont(14, k);
+        const clusterCountPx = counterScaleFont(15, k);
+        gCommunityChrome.selectAll<SVGTextElement, CommunityHull>('text.community-hull-label').style('font-size', `${hullLabelPx}px`);
+        gClusterMarkers.selectAll<SVGTextElement, GraphZoomCluster>('text.graph-cluster-label').style('font-size', `${clusterLabelPx}px`);
+        gClusterMarkers.selectAll<SVGTextElement, GraphZoomCluster>('text.graph-cluster-count').style('font-size', `${clusterCountPx}px`);
+        /** Resize backgrounds immediately to match new font size */
+        gCommunityChrome.selectAll<SVGGElement, CommunityHull>('g.community-hull-label-wrap').each(function () {
+          const wrap = d3.select(this);
+          const text = wrap.select<SVGTextElement>('text.community-hull-label');
+          const bg = wrap.select<SVGRectElement>('rect.community-hull-label-bg');
+          if (text.empty() || bg.empty()) return;
+          const bbox = text.node()?.getBBox();
+          if (!bbox) return;
+          bg.attr('x', bbox.x - 4).attr('y', bbox.y - 2).attr('width', bbox.width + 8).attr('height', bbox.height + 4);
+        });
+        gClusterMarkers.selectAll<SVGGElement, GraphZoomCluster>('g.graph-cluster-label-wrap').each(function () {
+          const wrap = d3.select(this);
+          const text = wrap.select<SVGTextElement>('text.graph-cluster-label');
+          const bg = wrap.select<SVGRectElement>('rect.graph-cluster-label-bg');
+          if (text.empty() || bg.empty()) return;
+          const bbox = text.node()?.getBBox();
+          if (!bbox) return;
+          bg.attr('x', bbox.x - 4).attr('y', bbox.y - 2).attr('width', bbox.width + 8).attr('height', bbox.height + 4);
+        });
+        bringFocusedSummaryToFront();
+      }
+
+      function summaryLabelScreenDistance(
+        bgNode: SVGRectElement,
+        svgEl: SVGSVGElement,
+        screenCx: number,
+        screenCy: number,
+      ): number | null {
+        const ctm = bgNode.getCTM();
+        if (!ctm) return null;
+        const bbox = bgNode.getBBox();
+        const p = svgEl.createSVGPoint();
+        p.x = bbox.x + bbox.width / 2;
+        p.y = bbox.y + bbox.height / 2;
+        const s = p.matrixTransform(ctm);
+        return Math.hypot(s.x - screenCx, s.y - screenCy);
+      }
+
+      /** Paint order: labels farther from screen center first, closest on top. */
+      function orderSummaryGroupsByScreenCenter(
+        container: d3.Selection<SVGGElement, unknown, null, undefined>,
+        groupSelector: string,
+        bgSelector: string,
+      ) {
+        const parent = container.node();
+        const svgEl = svg.node();
+        if (!parent || !svgEl || !rootEl) return;
+        const screenCx = rootEl.clientWidth / 2;
+        const screenCy = rootEl.clientHeight / 2;
+        const ranked: { el: Element; dist: number }[] = [];
+        container.selectAll<SVGGElement, unknown>(groupSelector).each(function () {
+          const bgNode = d3.select(this).select<SVGRectElement>(bgSelector).node();
+          if (!bgNode) return;
+          const dist = summaryLabelScreenDistance(bgNode, svgEl, screenCx, screenCy);
+          if (dist === null) return;
+          ranked.push({ el: this as Element, dist });
+        });
+        ranked.sort((a, b) => b.dist - a.dist);
+        for (const { el } of ranked) parent.appendChild(el);
+      }
+
+      /** Re-stack overlapping summary labels — cheap enough for every zoom frame. */
+      function bringFocusedSummaryToFront() {
+        orderSummaryGroupsByScreenCenter(
+          gCommunityChrome,
+          'g.community-hull-chrome',
+          'rect.community-hull-label-bg',
+        );
+        orderSummaryGroupsByScreenCenter(
+          gClusterMarkers,
+          'g.graph-cluster',
+          'rect.graph-cluster-label-bg',
+        );
+      }
+
       let customEntityFills = new Map<string, string>();
 
       function nodeFill(d: SimNode) {
@@ -1154,7 +1244,7 @@
                 .append("text")
                 .attr("class", "community-hull-label")
                 .attr("text-anchor", "middle")
-                .attr("font-size", "10px")
+                .attr("font-size", "14px")
                 .attr("font-family", "monospace")
                 .attr("fill", "#000000")
                 .attr("dy", "0.35em");
@@ -1191,6 +1281,7 @@
             }
             labelWrap.style("cursor", "pointer").on("click", (event, hull) => onCommunityClick(event, hull));
           });
+        bringFocusedSummaryToFront();
       }
 
       function nodePositionsForZoomLod(nodes: SimNode[]) {
@@ -1238,7 +1329,7 @@
                 .attr("class", "graph-cluster-count")
                 .attr("text-anchor", "middle")
                 .attr("dy", "0.35em")
-                .attr("font-size", "11px")
+                .attr("font-size", "15px")
                 .attr("font-family", "monospace")
                 .attr("font-weight", "700")
                 .attr("fill", COMMUNITY_HULL_ACCENT);
@@ -1253,7 +1344,7 @@
                 .append("text")
                 .attr("class", "graph-cluster-label")
                 .attr("text-anchor", "middle")
-                .attr("font-size", "10px")
+                .attr("font-size", "14px")
                 .attr("font-family", "monospace")
                 .attr("fill", "#000000")
                 .attr("dy", "0.35em");
@@ -1319,6 +1410,7 @@
         }
         if (zoomLodMode === "clusters") {
           updateClusterMarkers(scale, simulation?.nodes() ?? []);
+          bringFocusedSummaryToFront();
         }
       }
 

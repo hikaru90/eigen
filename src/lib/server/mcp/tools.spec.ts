@@ -225,7 +225,8 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
 			limit: 20,
 			fields: 'snippet',
-			cursor: undefined
+			cursor: undefined,
+			authorFilter: 'user'
 		});
 		expect(out.count).toBe(1);
 		expect(out.thoughts[0]).toMatchObject({
@@ -243,7 +244,8 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
 			limit: 20,
 			fields: 'full',
-			cursor: undefined
+			cursor: undefined,
+			authorFilter: 'user'
 		});
 	});
 
@@ -256,7 +258,8 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
 			limit: 5,
 			fields: 'snippet',
-			cursor: { createdAt: new Date('2024-01-01T00:00:00.000Z'), id: 't9' }
+			cursor: { createdAt: new Date('2024-01-01T00:00:00.000Z'), id: 't9' },
+			authorFilter: 'user'
 		});
 	});
 
@@ -278,7 +281,8 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
 			limit: 5,
 			fields: 'snippet',
-			cursor: undefined
+			cursor: undefined,
+			authorFilter: 'user'
 		});
 		expect(out.count).toBe(1);
 		expect(out.results[0]).toMatchObject({
@@ -296,7 +300,8 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
 			limit: 3,
 			fields: 'snippet',
-			cursor: undefined
+			cursor: undefined,
+			authorFilter: 'user'
 		});
 		expect(searchThoughtsMock).not.toHaveBeenCalled();
 	});
@@ -310,7 +315,8 @@ describe('MCP tools', () => {
 		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
 			limit: 10,
 			fields: 'snippet',
-			cursor: undefined
+			cursor: undefined,
+			authorFilter: 'user'
 		});
 		expect(searchThoughtsMock).not.toHaveBeenCalled();
 	});
@@ -334,7 +340,8 @@ describe('MCP tools', () => {
 		expect(searchThoughtsMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			query: 'hello',
-			topK: 10
+			topK: 10,
+			authorFilter: 'user'
 		});
 		expect(out.count).toBe(1);
 		expect(out.results[0]).toMatchObject({
@@ -392,7 +399,48 @@ describe('MCP tools', () => {
 		expect(searchThoughtsMock).toHaveBeenCalledWith({
 			userId: 'u1',
 			query: 'Who is Jonas?',
+			topK: 10,
+			authorFilter: 'user'
+		});
+	});
+
+	it('runRetrieveThoughtsTool omits authorFilter when author is all', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hello', author: 'all' });
+		expect(searchThoughtsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			query: 'hello',
 			topK: 10
+		});
+		expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
+			query: 'hello',
+			topK: 10
+		});
+	});
+
+	it('runRetrieveThoughtsTool omits authorFilter when include_agent is true', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hello', include_agent: true });
+		expect(searchThoughtsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			query: 'hello',
+			topK: 10
+		});
+	});
+
+	it('runRetrieveThoughtsTool passes authorFilter agent when requested', async () => {
+		searchThoughtsMock.mockResolvedValue([]);
+		await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hello', author: 'agent' });
+		expect(searchThoughtsMock).toHaveBeenCalledWith({
+			userId: 'u1',
+			query: 'hello',
+			topK: 10,
+			authorFilter: 'agent'
+		});
+		expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
+			query: 'hello',
+			topK: 10,
+			authorFilter: 'agent'
 		});
 	});
 
@@ -479,7 +527,7 @@ describe('MCP tools', () => {
 		});
 		const out = await runAnswerQuestionTool({ userId: 'u1' }, { question: 'what is X?' });
 		expect(composeAnswerMock).toHaveBeenCalledWith(
-			expect.objectContaining({ userId: 'u1', question: 'what is X?' })
+			expect.objectContaining({ userId: 'u1', question: 'what is X?', authorFilter: 'user' })
 		);
 		expect(out.answer).toBe('Some answer.');
 	});

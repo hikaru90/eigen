@@ -38,7 +38,7 @@ jobs:
       - name: Upload source maps to PostHog
         run: npm run posthog:upload-sourcemaps
         env:
-          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
-          POSTHOG_CLI_PROJECT_ID: ${{ secrets.POSTHOG_CLI_PROJECT_ID }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          PUBLIC_POSTHOG_HOST: ${{ secrets.PUBLIC_POSTHOG_HOST }}
           POSTHOG_SOURCEMAPS_REQUIRED: '1'
           SOURCE_VERSION: ${{ github.sha }}

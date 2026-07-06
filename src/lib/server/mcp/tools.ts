@@ -8,7 +8,7 @@ import type { TemporalEventActionInput } from '$lib/server/memory/apply-temporal
 import { archiveThoughtForUser, setItemLifecycleStatus } from '$lib/server/memory/lifecycle';
 import { lifecycleStatusEnum, type LifecycleStatus } from '$lib/server/db/brain.schema';
 import { getDb } from '$lib/server/db';
-import { thought } from '$lib/server/db/schema';
+import { thought, type MemoryAuthor } from '$lib/server/db/schema';
 import { searchThoughts } from '$lib/server/retrieval/service';
 import { composeAnswer } from '$lib/server/qa/compose-answer';
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso';
@@ -69,6 +69,14 @@ function parseRetrieveOrder(body: Record<string, unknown>): 'created_at' | 'rele
 	return body.order === 'created_at' ? 'created_at' : 'relevance';
 }
 
+/** Default user-authored memories; `author: all` or `include_agent: true` returns undefined (no filter). */
+function parseAuthorScope(body: Record<string, unknown>): MemoryAuthor | undefined {
+	const author = body.author;
+	if (author === 'user' || author === 'agent') return author;
+	if (author === 'all' || body.include_agent === true) return undefined;
+	return 'user';
+}
+
 async function listRecentThoughtsForMcp(
 	context: McpToolContext,
 	input: {
@@ -76,12 +84,14 @@ async function listRecentThoughtsForMcp(
 		detail: 'snippet' | 'full';
 		cursor?: { createdAt: Date; id: string };
 		weights: { vector: number; graph: number };
+		authorFilter?: MemoryAuthor;
 	}
 ) {
 	const thoughts = await listThoughts(context.userId, {
 		limit: input.limit,
 		fields: input.detail === 'full' ? 'full' : 'snippet',
-		cursor: input.cursor
+		cursor: input.cursor,
+		...(input.authorFilter ? { authorFilter: input.authorFilter } : {})
 	});
 
 	if (input.detail === 'full') {
@@ -204,6 +214,7 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 	const body = asObject(args);
 	const limit = typeof body.limit === 'number' ? body.limit : 20;
 	const detail = parseDetailLevel(body);
+	const authorFilter = parseAuthorScope(body);
 	const cursorCreatedAt =
 		typeof body.cursor_created_at === 'string' ? new Date(body.cursor_created_at) : undefined;
 	const cursorId = typeof body.cursor_id === 'string' ? body.cursor_id : undefined;
@@ -216,7 +227,8 @@ export async function runListThoughtsTool(context: McpToolContext, args: unknown
 						createdAt: cursorCreatedAt,
 						id: cursorId
 					}
-				: undefined
+				: undefined,
+		...(authorFilter ? { authorFilter } : {})
 	});
 
 	if (detail === 'full') {
@@ -252,6 +264,7 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
 	const threshold = typeof body.threshold === 'number' ? body.threshold : undefined;
 	const detail = parseDetailLevel(body);
+	const authorFilter = parseAuthorScope(body);
 	validateSearchParams({ topK, threshold });
 	const weights = CONTEXT_WEIGHTS.default;
 	const effectiveTopK = topK ?? 10;
@@ -275,7 +288,8 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 							id: cursorId
 						}
 					: undefined,
-			weights
+			weights,
+			...(authorFilter ? { authorFilter } : {})
 		});
 	}
 
@@ -283,7 +297,8 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 	console.info('[mcp.tool:retrieve_thoughts] start', {
 		query,
 		topK: effectiveTopK,
-		threshold: threshold ?? null
+		threshold: threshold ?? null,
+		authorFilter: authorFilter ?? 'all'
 	});
 
 	context.onToolProgress?.({
@@ -295,9 +310,14 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 		searchThoughts({
 			userId: context.userId,
 			query,
-			topK: effectiveTopK
+			topK: effectiveTopK,
+			...(authorFilter ? { authorFilter } : {})
 		}),
-		searchTextFiles(context.userId, { query, topK: effectiveTopK })
+		searchTextFiles(context.userId, {
+			query,
+			topK: effectiveTopK,
+			...(authorFilter ? { authorFilter } : {})
+		})
 	]);
 	void tryRecordRetrievalQualityEvent({
 		userId: context.userId,
@@ -420,14 +440,17 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 	const body = asObject(args);
 	const thoughtId = readThoughtIdFromToolArgs(body);
 	const editRequest = typeof body.edit_request === 'string' ? body.edit_request.trim() : '';
-	if (!editRequest) {
-		throw new Error('edit_request is required');
+	const rawTextReplacement = typeof body.raw_text === 'string' ? body.raw_text : undefined;
+	if (!editRequest && !rawTextReplacement) {
+		throw new Error('edit_request or raw_text is required');
 	}
 
 	console.info('[mcp.edit_thought] start', {
 		userId: context.userId,
 		thoughtId,
-		editRequestPreview: editRequest.slice(0, 120)
+		editRequestPreview: editRequest.slice(0, 120),
+		hasRawText: rawTextReplacement !== undefined,
+		rawTextPreview: rawTextReplacement?.slice(0, 100)
 	});
 
 	try {
@@ -457,7 +480,60 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 			status: typeof priorMeta.status === 'string' ? priorMeta.status : 'open'
 		};
 
-		const updated = await editStoredThought(context.userId, thoughtId, editRequest);
+		let updated;
+		if (rawTextReplacement !== undefined) {
+			// Direct text replacement bypassing LLM
+			const { normalizeThoughtText } = await import('$lib/server/capture/service');
+			const { normalized } = normalizeThoughtText(rawTextReplacement);
+			const metadataPatch: Record<string, unknown> = {
+				...priorMeta,
+				lastEditRequest: editRequest || 'raw_text replacement',
+				lastEditSummary: 'Text replaced directly'
+			};
+			const metadataEncrypted = await (await import('$lib/server/db/encryption')).encryptTenantValue({
+				userId: context.userId,
+				table: 'thought',
+				column: 'metadata',
+				plaintext: JSON.stringify(metadataPatch)
+			});
+			const rawTextEncrypted = await (await import('$lib/server/db/encryption')).encryptTenantValue({
+				userId: context.userId,
+				table: 'thought',
+				column: 'rawText',
+				plaintext: rawTextReplacement
+			});
+			const normalizedEncrypted = await (await import('$lib/server/db/encryption')).encryptTenantValue({
+				userId: context.userId,
+				table: 'thought',
+				column: 'normalizedText',
+				plaintext: normalized
+			});
+			const lexicalText = normalized.toLowerCase();
+			const [row] = await getDb()
+				.update(thought)
+				.set({
+					rawText: rawTextReplacement,
+					rawTextEncrypted,
+					normalizedText: normalized,
+					normalizedTextEncrypted: normalizedEncrypted,
+					lexicalText,
+					metadata: metadataPatch,
+					metadataEncrypted,
+					updatedAt: new Date()
+				})
+				.where(eq(thought.id, thoughtId))
+				.returning();
+			if (!row) {
+				throw new Error('Thought not found');
+			}
+			updated = {
+				ok: true as const,
+				thought: await (await import('$lib/server/capture/service')).loadThoughtCaptureResult(context.userId, thoughtId),
+				editSummary: 'Text replaced directly'
+			};
+		} else {
+			updated = await editStoredThought(context.userId, thoughtId, editRequest);
+		}
 		if (!updated.ok) {
 			console.error('[mcp.edit_thought] edit returned not_found', { userId: context.userId, thoughtId });
 			throw new Error('Thought not found');
@@ -620,6 +696,7 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 	}
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
 	const referenceTime = parseOptionalIsoTimestamp(body.reference_time, 'reference_time');
+	const authorFilter = parseAuthorScope(body);
 	const answerStart = Date.now();
 	console.info('[mcp.tool:answer_question] start', { question, topK: topK ?? null });
 	const result = await composeAnswer({
@@ -627,6 +704,7 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
 		question,
 		...(topK != null ? { topK } : {}),
 		...(referenceTime ? { referenceTime } : {}),
+		...(authorFilter ? { authorFilter } : {}),
 		onProgress: async (phase) => {
 			const labels: Record<string, string> = {
 				embedding: 'Embedding your question…',
@@ -723,7 +801,12 @@ export async function runSearchTextFilesTool(context: McpToolContext, args: unkn
 	const query = typeof body.query === 'string' ? body.query.trim() : '';
 	if (!query) throw new Error('query is required');
 	const topK = typeof body.top_k === 'number' ? body.top_k : undefined;
-	const results = await searchTextFiles(context.userId, { query, topK });
+	const authorFilter = parseAuthorScope(body);
+	const results = await searchTextFiles(context.userId, {
+		query,
+		topK,
+		...(authorFilter ? { authorFilter } : {})
+	});
 	return sanitizeMcpToolResult({ count: results.length, results });
 }
 

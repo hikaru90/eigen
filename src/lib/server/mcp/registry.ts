@@ -73,25 +73,36 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	},
 	{
 		name: 'list_thoughts',
-		description: 'List recent stored thoughts (newest first), optionally paginated.',
+		description:
+			'List recent stored open thoughts (newest first), optionally paginated. Defaults to user-authored memories only; pass author=all or include_agent=true to include agent/API-key captures.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				limit: { type: 'number' },
 				cursor_created_at: { type: 'string' },
 				cursor_id: { type: 'string' },
-				detail: { type: 'string', enum: ['snippet', 'full'] }
+				detail: { type: 'string', enum: ['snippet', 'full'] },
+				author: {
+					type: 'string',
+					enum: ['user', 'agent', 'all'],
+					description:
+						'Whose memories to list. Default user (human captures). agent = API-key captures only. all = no author filter.'
+				},
+				include_agent: {
+					type: 'boolean',
+					description: 'When true, same as author=all (ignored if author is set).'
+				}
 			}
 		},
 		agentArgumentSchema:
-			'{"limit": "number (optional, default 20)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)", "detail": "snippet|full (optional, default snippet)"}',
+			'{"limit": "number (optional, default 20)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)", "detail": "snippet|full (optional, default snippet)", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
 		handler: runListThoughtsTool,
 		exposeInMcp: false
 	},
 	{
 		name: 'retrieve_thoughts',
 		description:
-			'Read stored thoughts. For the latest open thoughts (newest first, excludes completed/archived): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus lexical search over attached text notes.',
+			'Read stored thoughts. Defaults to user-authored open memories (excludes agent captures and completed/archived). For the latest open thoughts (newest first): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus lexical search over attached text notes. Pass author=all or include_agent=true to include agent/API-key captures.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -113,6 +124,16 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 				threshold: { type: 'number' },
 				mode: { type: 'string', enum: ['fast', 'full'] },
 				detail: { type: 'string', enum: ['snippet', 'full'] },
+				author: {
+					type: 'string',
+					enum: ['user', 'agent', 'all'],
+					description:
+						'Whose memories to retrieve. Default user (human captures). agent = API-key captures only. all = no author filter.'
+				},
+				include_agent: {
+					type: 'boolean',
+					description: 'When true, same as author=all (ignored if author is set).'
+				},
 				cursor_created_at: {
 					type: 'string',
 					description: 'Pagination cursor (ISO created_at) when browsing recent thoughts without query.'
@@ -124,7 +145,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			}
 		},
 		agentArgumentSchema:
-			'{"query": "string (optional — omit for recent browse)", "order": "created_at|relevance (optional — created_at for newest open thoughts)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional)", "detail": "snippet|full (optional)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
+			'{"query": "string (optional — omit for recent browse)", "order": "created_at|relevance (optional — created_at for newest open thoughts)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional)", "detail": "snippet|full (optional)", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
 		handler: runRetrieveThoughtsTool,
 		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('retrieve_thoughts')
 	},
@@ -157,12 +178,17 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 					type: 'string',
 					description:
 						'Natural-language instruction, e.g. "mark complete", "archive this", "fix typo in second sentence".'
+				},
+				raw_text: {
+					type: 'string',
+					description:
+						'Optional direct text replacement. When provided, replaces the thought text directly without LLM processing.'
 				}
 			},
-			required: ['thought_id', 'edit_request']
+			required: ['thought_id']
 		},
 		agentArgumentSchema:
-			'{"thought_id": "string (required)", "edit_request": "string (required) — text edits or status: mark complete, archive, reopen"}',
+			'{"thought_id": "string (required)", "edit_request": "string (optional) — text edits or status: mark complete, archive, reopen", "raw_text": "string (optional) — direct text replacement"}',
 		handler: runEditThoughtTool,
 		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('edit_thought')
 	},
@@ -233,7 +259,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'answer_question',
 		description:
-			'Answer a question by retrieving relevant thoughts and composing a grounded answer with citations.',
+			'Answer a question by retrieving relevant thoughts and composing a grounded answer with citations. Defaults to user-authored memories only; pass author=all or include_agent=true to include agent/API-key captures.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -242,12 +268,22 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 				reference_time: {
 					type: 'string',
 					description: 'Optional ISO-8601 reference time for temporal validity (defaults to now).'
+				},
+				author: {
+					type: 'string',
+					enum: ['user', 'agent', 'all'],
+					description:
+						'Whose memories to search. Default user (human captures). agent = API-key captures only. all = no author filter.'
+				},
+				include_agent: {
+					type: 'boolean',
+					description: 'When true, same as author=all (ignored if author is set).'
 				}
 			},
 			required: ['question']
 		},
 		agentArgumentSchema:
-			'{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions"}',
+			'{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
 		handler: runAnswerQuestionTool,
 		exposeInMcp: false
 	},
@@ -337,16 +373,27 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'search_text_files',
 		description:
-			'Lexical keyword search over user text notes (recipes, templates, pasted reference). No embeddings — use retrieve_thoughts for hybrid thought + note search.',
+			'Lexical keyword search over user text notes (recipes, templates, pasted reference). Defaults to user-authored notes only. No embeddings — use retrieve_thoughts for hybrid thought + note search.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				query: { type: 'string' },
-				top_k: { type: 'number' }
+				top_k: { type: 'number' },
+				author: {
+					type: 'string',
+					enum: ['user', 'agent', 'all'],
+					description:
+						'Whose notes to search. Default user (human). agent = API-key notes only. all = no author filter.'
+				},
+				include_agent: {
+					type: 'boolean',
+					description: 'When true, same as author=all (ignored if author is set).'
+				}
 			},
 			required: ['query']
 		},
-		agentArgumentSchema: '{"query": "string (required)", "top_k": "number (optional)"}',
+		agentArgumentSchema:
+			'{"query": "string (required)", "top_k": "number (optional)", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
 		handler: runSearchTextFilesTool,
 		exposeInMcp: false
 	},

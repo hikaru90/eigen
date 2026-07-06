@@ -266,7 +266,7 @@ export async function listTextFiles(
 
 export async function searchTextFiles(
 	userId: string,
-	input: { query: string; topK?: number }
+	input: { query: string; topK?: number; authorFilter?: 'user' | 'agent' }
 ): Promise<TextFileSearchHit[]> {
 	const limit = Math.max(1, Math.min(input.topK ?? 10, 50));
 	const tsQueryString = buildLexicalTsQuery(input.query);
@@ -291,7 +291,13 @@ export async function searchTextFiles(
 			lexicalScore: rankExpr
 		})
 		.from(textFile)
-		.where(and(eq(textFile.userId, userId), matchExpr))
+		.where(
+			and(
+				eq(textFile.userId, userId),
+				matchExpr,
+				input.authorFilter ? eq(textFile.author, input.authorFilter) : undefined
+			)
+		)
 		.orderBy(desc(rankExpr))
 		.limit(limit);
 

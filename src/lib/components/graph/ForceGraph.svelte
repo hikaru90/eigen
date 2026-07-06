@@ -3,6 +3,12 @@
 	import { filterGraphVizEdgesToNodes, resolveForceLinks } from '$lib/graph/sanitize-viz-snapshot';
 	import { nodeFillForGraph, customEntityFillsFromLegendSections, type GraphLegendSection } from '$lib/graph/graph-ontology-legend';
 
+	/** Label counter-scale constants — labels stay legible at every zoom level */
+	const MIN_LABEL_FONT_PX = 10;
+	const BASE_LABEL_FONT_PX = 16;
+	const BASE_EDGE_LABEL_FONT_PX = 14;
+	const BASE_NODE_RADIUS = 10;
+
 	type GraphVizNode = {
 		id: string;
 		kind: 'Thought' | 'Entity';
@@ -145,11 +151,25 @@
 			const gLinks = gZoom.append('g').attr('stroke', 'currentColor').attr('stroke-opacity', 0.35);
 			const gNodes = gZoom.append('g');
 
+			function counterScaleFont(base: number, k: number): number {
+				return Math.max(MIN_LABEL_FONT_PX, base / k);
+			}
+
+			function applyZoomCounterScale(k: number) {
+				const labelPx = counterScaleFont(BASE_LABEL_FONT_PX, k);
+				const edgeLabelPx = counterScaleFont(BASE_EDGE_LABEL_FONT_PX, k);
+				const nodeR = Math.max(4, Math.min(16, BASE_NODE_RADIUS / k));
+				gNodes.selectAll<SVGTextElement, SimNode>('text').style('font-size', `${labelPx}px`);
+				gLinks.selectAll<SVGTextElement, SimLink>('text').style('font-size', `${edgeLabelPx}px`);
+				gNodes.selectAll<SVGCircleElement, SimNode>('.fg-node-core').attr('r', nodeR);
+			}
+
 			const zoom = d3
 				.zoom<SVGSVGElement, unknown>()
 				.scaleExtent([0.15, 8])
 				.on('zoom', (event) => {
 					gZoom.attr('transform', event.transform.toString());
+					applyZoomCounterScale(event.transform.k);
 				});
 			if (interactive) {
 				svg.call(zoom);
@@ -210,7 +230,7 @@
 					g.append('line').attr('stroke-width', 1.2);
 					g.append('circle').attr('r', 2).attr('fill', 'currentColor').attr('stroke', 'none');
 					g.append('text')
-						.attr('class', 'fill-muted-foreground text-[9px] font-mono')
+						.attr('class', 'fill-muted-foreground text-[14px] font-mono')
 						.attr('text-anchor', 'middle')
 						.attr('dy', '1.4em')
 						.attr('stroke', 'var(--background)')
@@ -253,7 +273,7 @@
 						.append('text')
 						.attr('x', 12)
 						.attr('y', 4)
-						.attr('class', 'fill-foreground text-[10px] font-mono')
+						.attr('class', 'fill-foreground text-[16px] font-mono')
 						.text(labelText);
 					return g;
 				});
@@ -327,6 +347,7 @@
 				const tx = w * 0.5 * (1 - k) + eased * 9;
 				const ty = h * 0.5 * (1 - k) - eased * 7;
 				gZoom.attr('transform', `translate(${tx},${ty}) scale(${k})`);
+				applyZoomCounterScale(k);
 
 				nodeSel.each(function (d) {
 					const at = nodeRevealAt(d.id);

@@ -837,11 +837,13 @@ export async function listThoughts(
 		limit?: number;
 		fields?: 'snippet' | 'full';
 		cursor?: { createdAt: Date; id: string };
+		authorFilter?: MemoryAuthor;
 	}
 ) {
 	const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
 	const fields = options?.fields ?? 'full';
 	const cursor = options?.cursor;
+	const authorFilter = options?.authorFilter;
 
 	if (fields === 'snippet') {
 		const rows = await getDb()
@@ -861,6 +863,7 @@ export async function listThoughts(
 				and(
 					eq(thought.userId, userId),
 					activeThoughtLifecycleCondition(),
+					authorFilter ? eq(thought.author, authorFilter) : undefined,
 					cursor
 						? or(
 								lt(thought.createdAt, cursor.createdAt),
@@ -897,6 +900,7 @@ export async function listThoughts(
 			and(
 				eq(thought.userId, userId),
 				activeThoughtLifecycleCondition(),
+				authorFilter ? eq(thought.author, authorFilter) : undefined,
 				cursor
 					? or(
 							lt(thought.createdAt, cursor.createdAt),

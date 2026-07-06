@@ -1020,4 +1020,21 @@ describe('listThoughts', () => {
 			})
 		]);
 	});
+
+	it('passes authorFilter to the query when provided', async () => {
+		const whereSpy = vi.fn(() => ({
+			orderBy: vi.fn(() => ({
+				limit: vi.fn(async () => [])
+			}))
+		}));
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: whereSpy
+				}))
+			}))
+		});
+		await listThoughts('u1', { authorFilter: 'agent' });
+		expect(whereSpy).toHaveBeenCalled();
+	});
 });
