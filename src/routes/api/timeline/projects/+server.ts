@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import type { ProjectStatus } from '$lib/server/db/schema';
+import type { MemoryAuthor, ProjectStatus } from '$lib/server/db/schema';
 import { createUserDeclaredProject } from '$lib/server/memory/create-user-project';
 import { listProjectsForUser, type ProjectListItem } from '$lib/server/memory/project-list';
 
@@ -32,7 +32,10 @@ export const GET: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	if (!user) error(401, 'Unauthorized');
 
-	const projects = await listProjectsForUser(user.id);
+	const authorParam = event.url.searchParams.get('author');
+	const authorScope: MemoryAuthor | 'all' = authorParam === 'all' ? 'all' : 'user';
+
+	const projects = await listProjectsForUser(user.id, { authorScope });
 	return json({ projects } satisfies TimelineProjectsResponse);
 };
 

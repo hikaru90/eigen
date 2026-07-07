@@ -14,6 +14,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import Link2 from '@lucide/svelte/icons/link-2';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import XIcon from '@lucide/svelte/icons/x';
 
 	let {
 		search = $bindable(''),
@@ -50,6 +51,16 @@
 </script>
 
 <div class={GRAPH_FILTER_GLASS_ROW}>
+	{#if searchFilterActive}
+		<button
+			type="button"
+			class="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-destructive/20 text-destructive transition-colors hover:bg-destructive/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 dark:bg-destructive/30 dark:hover:bg-destructive/40"
+			onclick={() => { search = ''; }}
+			aria-label="Clear search filter"
+		>
+			<XIcon class="size-3" strokeWidth={2} aria-hidden="true" />
+		</button>
+	{/if}
 	<Popover.Root bind:open={searchPopoverOpen} onOpenChange={onSearchOpenChange}>
 		<Popover.Trigger
 			class={graphFilterTriggerClass(searchFilterActive)}

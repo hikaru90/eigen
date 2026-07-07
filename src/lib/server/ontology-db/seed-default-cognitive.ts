@@ -206,6 +206,12 @@ export async function seedDefaultPracticalOntology(db: AppDatabase, userId: stri
 export const seedDefaultCognitiveOntology = seedDefaultPracticalOntology;
 
 /**
+ * Entity type kind keys that are critical for core system functionality.
+ * These must always be present and active in the ontology.
+ */
+const CRITICAL_ENTITY_TYPE_KINDS = DEFAULT_ENTITY_TYPE_KINDS.filter((k) => k.key === 'project');
+
+/**
  * Inserts the default entity_type kinds for a user if none exist yet.
  * Safe to call on users who already have thought_category kinds from the old cognitive ontology.
  * This is the upgrade path for existing users who were seeded before the practical ontology migration.
@@ -247,6 +253,53 @@ export async function ensureEntityTypeKindsSeeded(db: AppDatabase, userId: strin
 			}))
 		)
 		.onConflictDoNothing();
+}
+
+/**
+ * Ensures critical entity type kinds (like 'project') are always present and active.
+ * This is a safety net to guarantee critical entity types survive any ontology recomputation.
+ * Safe to call repeatedly — uses ON CONFLICT DO NOTHING and only activates if needed.
+ */
+export async function ensureCriticalEntityTypeKindsActive(db: AppDatabase, userId: string): Promise<void> {
+	for (const kind of CRITICAL_ENTITY_TYPE_KINDS) {
+		// Check if the kind exists
+		const [existing] = await db
+			.select({ id: ontologyEntityKind.id, active: ontologyEntityKind.active })
+			.from(ontologyEntityKind)
+			.where(
+				and(
+					eq(ontologyEntityKind.userId, userId),
+					eq(ontologyEntityKind.key, kind.key)
+				)
+			)
+			.limit(1);
+
+		if (!existing) {
+			// Insert the critical kind if it doesn't exist
+			await db
+				.insert(ontologyEntityKind)
+				.values({
+					userId,
+					key: kind.key,
+					name: kind.name,
+					definition: kind.definition,
+					active: true,
+					kindType: 'entity_type'
+				})
+				.onConflictDoNothing();
+		} else if (!existing.active) {
+			// Re-activate if it was deactivated
+			await db
+				.update(ontologyEntityKind)
+				.set({ active: true })
+				.where(
+					and(
+						eq(ontologyEntityKind.userId, userId),
+						eq(ontologyEntityKind.key, kind.key)
+					)
+				);
+		}
+	}
 }
 
 export async function ensureUserOntologySeeded(db: AppDatabase, userId: string): Promise<void> {

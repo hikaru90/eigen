@@ -1,6 +1,20 @@
 import { and, eq, or } from 'drizzle-orm';
 import type { AppDatabase } from '$lib/server/db/context';
 import { ontologyEntityKind, ontologyRelationKind, thought, thoughtRelation } from '$lib/server/db/schema';
+import { DEFAULT_ENTITY_TYPE_KIND_KEYS } from './seed-default-cognitive';
+
+/**
+ * Entity type kind keys that must never be deactivated.
+ * These are critical for core system functionality (e.g., GTD projects).
+ */
+const CRITICAL_ENTITY_TYPE_KEYS = new Set(['project']);
+
+/**
+ * Checks if an entity kind key is critical and should never be deactivated.
+ */
+export function isCriticalEntityTypeKind(key: string): boolean {
+	return CRITICAL_ENTITY_TYPE_KEYS.has(key);
+}
 
 /**
  * After deactivating a relation kind: clear FK on thought edges that pointed at it (no dangling refs).
@@ -83,12 +97,27 @@ export async function deactivateRelationKindWithReconcile(
 /**
  * Deactivate an entity kind and dependent relation kinds; clears optional thought / thought_relation FKs.
  * Definition rows remain for history JOINs; `active` gates **new** ingest only.
+ *
+ * @throws Error if the entity kind is critical (e.g., 'project') and cannot be deactivated.
  */
 export async function deactivateEntityKindWithReconcile(
 	db: AppDatabase,
 	userId: string,
 	entityKindId: string
 ): Promise<void> {
+	// Look up the entity kind key to check if it's critical
+	const [entityKind] = await db
+		.select({ key: ontologyEntityKind.key })
+		.from(ontologyEntityKind)
+		.where(and(eq(ontologyEntityKind.userId, userId), eq(ontologyEntityKind.id, entityKindId)))
+		.limit(1);
+
+	if (entityKind && isCriticalEntityTypeKind(entityKind.key)) {
+		throw new Error(
+			`Cannot deactivate critical entity type '${entityKind.key}': it is required for core system functionality`
+		);
+	}
+
 	await deactivateRelationKindsTouchingEntityKind(db, userId, entityKindId);
 	await reconcileThoughtsAfterEntityKindDeactivate(db, userId, entityKindId);
 	await db

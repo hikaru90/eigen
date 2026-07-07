@@ -13,7 +13,7 @@ export const load: PageServerLoad = async (event) => {
 
 	const userId = event.locals.user.id;
 	const agents = await listConnectedAgents(userId);
-	const projects = await listProjectsForUser(userId);
+	const projects = await listProjectsForUser(userId, { authorScope: 'all' });
 
 	const allBindings = await getDb()
 		.select({

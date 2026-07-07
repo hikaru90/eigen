@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
 	ensureUserOntologySeededMock,
+	ensureCriticalEntityTypeKindsActiveMock,
 	loadOntologyForUserMock,
 	loadUserOntologyProfileRowMock,
 	loadRecentThoughtsContextMock,
@@ -12,6 +13,7 @@ const {
 	loadGroundingProfileForEnrichmentMock
 } = vi.hoisted(() => ({
 	ensureUserOntologySeededMock: vi.fn(),
+	ensureCriticalEntityTypeKindsActiveMock: vi.fn(),
 	loadOntologyForUserMock: vi.fn(),
 	loadUserOntologyProfileRowMock: vi.fn(),
 	loadRecentThoughtsContextMock: vi.fn(),
@@ -24,6 +26,7 @@ const {
 
 vi.mock('$lib/server/ontology-db', () => ({
 	ensureUserOntologySeeded: ensureUserOntologySeededMock,
+	ensureCriticalEntityTypeKindsActive: ensureCriticalEntityTypeKindsActiveMock,
 	loadOntologyForUser: loadOntologyForUserMock
 }));
 
@@ -52,6 +55,7 @@ describe('loadEnrichmentContext', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		ensureUserOntologySeededMock.mockResolvedValue(undefined);
+		ensureCriticalEntityTypeKindsActiveMock.mockResolvedValue(undefined);
 		loadOntologyForUserMock.mockResolvedValue({
 			entityKinds: [{ key: 'person', active: true, kindType: 'entity_type' }],
 			entityKindsByKey: new Map()

@@ -458,7 +458,8 @@ export async function mergeProjectEntities(
 			id: canonicalEntity.id,
 			label: canonicalEntity.label,
 			canonicalKey: canonicalEntity.canonicalKey,
-			entityType: canonicalEntity.entityType
+			entityType: canonicalEntity.entityType,
+			source: canonicalEntity.projectSource
 		})
 		.from(canonicalEntity)
 		.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, winner)))
@@ -467,7 +468,10 @@ export async function mergeProjectEntities(
 		throw new Error(`mergeProjectEntities: winner ${winner} not found`);
 	}
 
-	const nextLabel = canonicalLabel?.trim() || winnerRow.label;
+	const winnerIsManual = winnerRow.source === 'manual';
+	const nextLabel = winnerIsManual
+		? winnerRow.label
+		: canonicalLabel?.trim() || winnerRow.label;
 	if (nextLabel !== winnerRow.label) {
 		await getDb()
 			.update(canonicalEntity)

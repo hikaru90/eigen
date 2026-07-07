@@ -6,7 +6,7 @@ import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { communitySummary } from '$lib/server/db/schema';
 import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology';
-import { loadOntologyForUser, ensureUserOntologySeeded } from '$lib/server/ontology-db';
+import { loadOntologyForUser, ensureUserOntologySeeded, ensureCriticalEntityTypeKindsActive } from '$lib/server/ontology-db';
 import {
 	loadCategoryDistribution,
 	loadRecentThoughtsContext,
@@ -106,6 +106,7 @@ export async function loadEnrichmentContext(input: {
 	rawText: string;
 }): Promise<EnrichmentContext> {
 	await ensureUserOntologySeeded(getDb(), input.userId);
+	await ensureCriticalEntityTypeKindsActive(getDb(), input.userId);
 
 	const [
 		ontology,

@@ -172,7 +172,7 @@
 
 	// Server handles filtering — no client-side filter needed.
 	// When filter changes, parent refetches from server with filter params.
-	const filteredThoughts = thoughts;
+	const filteredThoughts = $derived(thoughts);
 
 	function recentAuthorFilterClass(active: boolean): string {
 		return `inline-flex items-center gap-1 rounded-none px-0.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${

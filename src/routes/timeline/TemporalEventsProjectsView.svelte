@@ -34,6 +34,7 @@
 		| { kind: 'error'; message: string };
 
 	let phase = $state<Phase>({ kind: 'loading' });
+	let authorFilter = $state<'human' | 'all'>('human');
 	let createDialogOpen = $state(false);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
@@ -49,7 +50,9 @@
 		const silent = options?.silent ?? phase.kind === 'ready';
 		if (!silent) phase = { kind: 'loading' };
 		try {
-			const res = await fetch('/api/timeline/projects');
+			const params = new URLSearchParams();
+			params.set('author', authorFilter === 'human' ? 'user' : 'all');
+			const res = await fetch(`/api/timeline/projects?${params.toString()}`);
 			if (!res.ok) {
 				const text = await res.text();
 				console.error('[loadProjects] Failed to fetch projects:', res.status, text);
@@ -67,11 +70,22 @@
 		}
 	}
 
+	function setAuthorFilter(next: 'human' | 'all') {
+		if (authorFilter === next) return;
+		authorFilter = next;
+		void loadProjects({ silent: false });
+	}
+
 	onMount(() => {
 		void loadProjects({ silent: false });
 
-		return subscribeThoughtSync(() => {
-			void loadProjects({ silent: true });
+		return subscribeThoughtSync((message) => {
+			const reloadProjects =
+				message.type === 'refresh-all' ||
+				(message.type === 'changed' && message.scope === 'global');
+			if (reloadProjects) {
+				void loadProjects({ silent: true });
+			}
 		});
 	});
 
@@ -301,10 +315,32 @@
 		<p class="text-muted-foreground mb-2 px-0.5 text-xs">{assignAgentSuccess}</p>
 	{/if}
 	<div class="relative z-10 shrink-0 bg-background pb-2">
-		<div class="flex flex-wrap items-center justify-between gap-2">
-			<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				{m.graph_timeline_projects_aria()}
-			</h2>
+		<div class="flex flex-wrap items-center justify-between gap-2 pt-4 pb-2">
+			<div class="flex min-w-0 flex-wrap items-center gap-2">
+				<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					{m.graph_timeline_projects_aria()}
+				</h2>
+				<div
+					class="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 p-0.5"
+					role="group"
+					aria-label={m.graph_timeline_projects_filter_aria()}
+				>
+					<button
+						type="button"
+						class={authorFilter === 'human' ? filledPillClass : ghostPillClass}
+						onclick={() => setAuthorFilter('human')}
+					>
+						{m.graph_timeline_projects_filter_human()}
+					</button>
+					<button
+						type="button"
+						class={authorFilter === 'all' ? filledPillClass : ghostPillClass}
+						onclick={() => setAuthorFilter('all')}
+					>
+						{m.graph_timeline_projects_filter_all()}
+					</button>
+				</div>
+			</div>
 			<Button
 				type="button"
 				class="{filledPillClass} gap-1 py-1.5"

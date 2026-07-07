@@ -4,6 +4,7 @@ import {
 	canonicalEntity,
 	thought,
 	thoughtEntity,
+	type MemoryAuthor,
 	type ProjectSource,
 	type ProjectStatus
 } from '$lib/server/db/schema';
@@ -75,7 +76,41 @@ function projectSortRank(item: ProjectListItem): number {
 	return 3;
 }
 
-export async function listProjectsForUser(userId: string): Promise<ProjectListItem[]> {
+export type ListProjectsOptions = {
+	authorScope?: MemoryAuthor | 'all';
+};
+
+function isHumanOwnedProjectSource(source: ProjectSource): boolean {
+	return source === 'manual' || source === 'grounding';
+}
+
+async function loadHumanLinkedProjectEntityIds(
+	userId: string,
+	projectEntityIds: string[]
+): Promise<Set<string>> {
+	if (projectEntityIds.length === 0) return new Set();
+
+	const rows = await getDb()
+		.selectDistinct({ entityId: thoughtEntity.entityId })
+		.from(thoughtEntity)
+		.innerJoin(thought, eq(thoughtEntity.thoughtId, thought.id))
+		.where(
+			and(
+				eq(thoughtEntity.userId, userId),
+				inArray(thoughtEntity.entityId, projectEntityIds),
+				eq(thought.author, 'user')
+			)
+		);
+
+	return new Set(rows.map((row) => row.entityId));
+}
+
+export async function listProjectsForUser(
+	userId: string,
+	options?: ListProjectsOptions
+): Promise<ProjectListItem[]> {
+	const authorScope = options?.authorScope ?? 'user';
+
 	const projectRows = await getDb()
 		.select({
 			entityId: canonicalEntity.id,
@@ -93,8 +128,24 @@ export async function listProjectsForUser(userId: string): Promise<ProjectListIt
 			)
 		);
 
+	const humanLinkedProjectIds =
+		authorScope === 'user'
+			? await loadHumanLinkedProjectEntityIds(
+					userId,
+					projectRows.map((row) => row.entityId)
+				)
+			: null;
+
+	const visibleProjectRows =
+		authorScope === 'all'
+			? projectRows
+			: projectRows.filter((row) => {
+					const source = (row.source ?? 'capture') as ProjectSource;
+					return isHumanOwnedProjectSource(source) || humanLinkedProjectIds!.has(row.entityId);
+				});
+
 	const items: ProjectListItem[] = [];
-	for (const row of projectRows) {
+	for (const row of visibleProjectRows) {
 		const status = row.status as ProjectStatus;
 		const source = (row.source ?? 'capture') as ProjectSource;
 		let nextAction: ProjectNextAction | null = null;

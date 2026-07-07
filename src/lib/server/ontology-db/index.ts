@@ -2,6 +2,7 @@ export {
 	seedDefaultPracticalOntology,
 	ensureUserOntologySeeded,
 	ensureEntityTypeKindsSeeded,
+	ensureCriticalEntityTypeKindsActive,
 	DEFAULT_THOUGHT_CATEGORY_KIND_KEYS,
 	DEFAULT_ENTITY_TYPE_KIND_KEYS,
 	/** @deprecated Use DEFAULT_THOUGHT_CATEGORY_KIND_KEYS */
@@ -25,5 +26,6 @@ export {
 	reconcileThoughtsAfterEntityKindDeactivate,
 	deactivateRelationKindsTouchingEntityKind,
 	deactivateRelationKindWithReconcile,
-	deactivateEntityKindWithReconcile
+	deactivateEntityKindWithReconcile,
+	isCriticalEntityTypeKind
 } from './reconcile-ontology';
