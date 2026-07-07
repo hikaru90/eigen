@@ -153,6 +153,7 @@ export function parseReconcilePayload(raw: unknown, allowedEntityIds: Set<string
 }
 
 export async function reconcileUserProjects(userId: string): Promise<ReconcileUserProjectsResult> {
+	// Only reconcile capture/grounding projects — manual projects are user-declared and must never be altered
 	const profileRows = await getDb()
 		.select({
 			entityId: projectProfile.projectEntityId,
@@ -160,7 +161,12 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
 		})
 		.from(projectProfile)
 		.innerJoin(canonicalEntity, eq(canonicalEntity.id, projectProfile.projectEntityId))
-		.where(eq(projectProfile.userId, userId));
+		.where(
+			and(
+				eq(projectProfile.userId, userId),
+				eq(projectProfile.source, 'capture')
+			)
+		);
 
 	if (profileRows.length < 2) {
 		return { merged: 0, demoted: 0 };

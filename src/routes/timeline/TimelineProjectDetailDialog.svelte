@@ -6,6 +6,7 @@
 	import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages.js';
+	import { isTaskListItem } from './temporal-events-utils';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
 
@@ -13,10 +14,12 @@
 		open: boolean;
 		project: ProjectListItem | null;
 		nextAction: { summary: string; itemId: string } | null;
+		nextActionItem: TemporalEventListItem | null;
 		tasks: TemporalEventListItem[];
 		statusLabel: string;
 		onClose: () => void;
 		onGoToTask: (itemId: string) => void;
+		onAssignAgent: (task: TemporalEventListItem) => void;
 		onEdit: () => void;
 		onDelete: () => void;
 	};
@@ -25,13 +28,18 @@
 		open = $bindable(false),
 		project,
 		nextAction,
+		nextActionItem,
 		tasks,
 		statusLabel,
 		onClose,
 		onGoToTask,
+		onAssignAgent,
 		onEdit,
 		onDelete
 	}: Props = $props();
+
+	const ghostPillClass =
+		'h-auto shrink-0 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground';
 
 	function closeDrawer() {
 		open = false;
@@ -90,19 +98,31 @@
 
 			<div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 pb-10">
 				{#if nextAction}
-					<button
-						type="button"
-						class="hover:bg-muted/40 w-full rounded-lg border border-border px-3 py-2 text-left transition-colors"
-						onclick={() => {
-							onGoToTask(nextAction.itemId);
-							closeDrawer();
-						}}
-					>
-						<p class="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
-							{m.graph_timeline_project_next_action()}
-						</p>
-						<p class="text-foreground mt-0.5 text-sm">{nextAction.summary}</p>
-					</button>
+					<div class="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
+						<button
+							type="button"
+							class="hover:bg-muted/40 min-w-0 flex-1 rounded text-left transition-colors"
+							onclick={() => {
+								onGoToTask(nextAction.itemId);
+								closeDrawer();
+							}}
+						>
+							<p class="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+								{m.graph_timeline_project_next_action()}
+							</p>
+							<p class="text-foreground mt-0.5 text-sm">{nextAction.summary}</p>
+						</button>
+						{#if nextActionItem && isTaskListItem(nextActionItem)}
+							<Button
+								type="button"
+								variant="ghost"
+								class={ghostPillClass}
+								onclick={() => onAssignAgent(nextActionItem)}
+							>
+								{m.graph_timeline_assign_agent()}
+							</Button>
+						{/if}
+					</div>
 				{:else}
 					<p class="text-muted-foreground text-xs">{m.graph_timeline_project_no_next_action()}</p>
 				{/if}
@@ -113,16 +133,28 @@
 							{m.graph_timeline_project_open_loops({ count: tasks.length })}
 						</p>
 						{#each tasks as task (task.id)}
-							<button
-								type="button"
-								class="hover:bg-muted/40 w-full rounded border border-border/50 px-2 py-1.5 text-left transition-colors"
-								onclick={() => {
-									onGoToTask(task.id);
-									closeDrawer();
-								}}
-							>
-								<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
-							</button>
+							<div class="flex items-center gap-2 rounded border border-border/50 px-2 py-1.5">
+								<button
+									type="button"
+									class="hover:bg-muted/40 min-w-0 flex-1 rounded text-left transition-colors"
+									onclick={() => {
+										onGoToTask(task.id);
+										closeDrawer();
+									}}
+								>
+									<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
+								</button>
+								{#if isTaskListItem(task)}
+									<Button
+										type="button"
+										variant="ghost"
+										class={ghostPillClass}
+										onclick={() => onAssignAgent(task)}
+									>
+										{m.graph_timeline_assign_agent()}
+									</Button>
+								{/if}
+							</div>
 						{/each}
 					</div>
 				{/if}

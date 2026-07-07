@@ -10,6 +10,7 @@
 	import TimelineEditProjectDialog from './TimelineEditProjectDialog.svelte';
 	import TimelineProjectDetailDialog from './TimelineProjectDetailDialog.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
+	import TimelineAgentAssignDialog from './TimelineAgentAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
 
@@ -32,6 +33,9 @@
 	let createDialogOpen = $state(false);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
+	let assignAgentOpen = $state(false);
+	let assignAgentItem = $state<TemporalEventListItem | null>(null);
+	let assignAgentSuccess = $state<string | null>(null);
 	let editProjectOpen = $state(false);
 	let editProjectItem = $state<ProjectListItem | null>(null);
 	let detailDialogOpen = $state(false);
@@ -98,6 +102,10 @@
 
 	const detailNextAction = $derived(
 		detailProject ? getNextAction(detailProject) : null
+	);
+
+	const detailNextActionItem = $derived(
+		detailNextAction ? (allTasks.find((t) => t.id === detailNextAction.itemId) ?? null) : null
 	);
 
 	const detailTasks = $derived(
@@ -207,6 +215,22 @@
 		onTaskUpdated?.();
 	}
 
+	function openAssignAgent(task: TemporalEventListItem) {
+		assignAgentItem = task;
+		assignAgentOpen = true;
+	}
+
+	function closeAssignAgent() {
+		assignAgentOpen = false;
+		assignAgentItem = null;
+	}
+
+	function onAgentAssigned(payload: { agentName: string }) {
+		assignAgentSuccess = m.graph_timeline_assign_agent_success({ agent: payload.agentName });
+		closeAssignAgent();
+		onTaskUpdated?.();
+	}
+
 	function openEditProject(project: ProjectListItem) {
 		editProjectItem = project;
 		editProjectOpen = true;
@@ -269,6 +293,9 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-3">
+	{#if assignAgentSuccess}
+		<p class="text-muted-foreground mb-2 px-0.5 text-xs">{assignAgentSuccess}</p>
+	{/if}
 	<div class="relative z-10 shrink-0 bg-background pb-2">
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -276,7 +303,7 @@
 			</h2>
 			<Button
 				type="button"
-				class="{filledPillClass} gap-1"
+				class="{filledPillClass} gap-1 py-1.5"
 				onclick={() => (createDialogOpen = true)}
 			>
 				<PlusIcon class="size-3.5" aria-hidden="true" />
@@ -394,10 +421,12 @@
 		bind:open={detailDialogOpen}
 		project={detailProject}
 		nextAction={detailNextAction}
+		nextActionItem={detailNextActionItem}
 		tasks={detailTasks}
 		statusLabel={detailProject ? statusLabel(detailProject.status) : ''}
 		onClose={closeProjectDetail}
 		onGoToTask={onGoToTask}
+		onAssignAgent={openAssignAgent}
 		onEdit={openEditFromDetail}
 		onDelete={requestDeleteFromDetail}
 	/>
@@ -420,6 +449,13 @@
 			assignProjectItem = null;
 		}}
 		onAssigned={onProjectAssigned}
+	/>
+
+	<TimelineAgentAssignDialog
+		bind:open={assignAgentOpen}
+		item={assignAgentItem}
+		onClose={closeAssignAgent}
+		onAssigned={onAgentAssigned}
 	/>
 
 	{#if confirmDismissProjectId}

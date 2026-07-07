@@ -36,9 +36,14 @@ jobs:
           PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
 
       - name: Upload source maps to PostHog
+        # PostHog source map upload: requires POSTHOG_PERSONAL_API_KEY (phx_ personal API key,
+        # error_tracking:write + organization:read scopes), POSTHOG_CLI_PROJECT_ID and
+        # POSTHOG_CLI_HOST as GitHub Actions secrets (Settings → Secrets and variables → Actions).
         run: npm run posthog:upload-sourcemaps
         env:
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ secrets.POSTHOG_CLI_PROJECT_ID }}
+          POSTHOG_CLI_HOST: ${{ secrets.POSTHOG_CLI_HOST }}
           PUBLIC_POSTHOG_HOST: ${{ secrets.PUBLIC_POSTHOG_HOST }}
           POSTHOG_SOURCEMAPS_REQUIRED: '1'
           SOURCE_VERSION: ${{ github.sha }}

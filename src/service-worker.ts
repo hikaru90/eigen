@@ -111,6 +111,40 @@ self.addEventListener('push', (event) => {
 	);
 });
 
+function notificationTargetUrl(rawUrl: string): { href: string; path: string } {
+	const target = new URL(rawUrl, self.location.origin);
+	return {
+		href: target.href,
+		path: `${target.pathname}${target.search}${target.hash}`
+	};
+}
+
+async function focusClientAndNavigate(client: WindowClient, target: { href: string; path: string }) {
+	await client.focus();
+	if ('navigate' in client && typeof client.navigate === 'function') {
+		try {
+			await client.navigate(target.href);
+			return;
+		} catch {
+			// Safari and older browsers: fall back to in-app navigation via postMessage.
+		}
+	}
+	client.postMessage({ type: 'PUSH_NAVIGATE', url: target.path });
+}
+
+async function openNotificationUrl(rawUrl: string): Promise<void> {
+	const target = notificationTargetUrl(rawUrl);
+	const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+	for (const client of clients) {
+		if (!client.url.startsWith(self.location.origin) || !('focus' in client)) continue;
+		await focusClientAndNavigate(client as WindowClient, target);
+		return;
+	}
+
+	await self.clients.openWindow(target.href);
+}
+
 self.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 	const url =
@@ -121,14 +155,5 @@ self.addEventListener('notificationclick', (event) => {
 			? (event.notification.data as { url: string }).url
 			: '/';
 
-	event.waitUntil(
-		self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-			for (const client of clients) {
-				if ('focus' in client && client.url.includes(self.location.origin)) {
-					return client.focus();
-				}
-			}
-			return self.clients.openWindow(url);
-		})
-	);
+	event.waitUntil(openNotificationUrl(url));
 });

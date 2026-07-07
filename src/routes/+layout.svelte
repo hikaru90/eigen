@@ -13,6 +13,7 @@
   import { cn } from "$lib/utils";
   import AppHeader from "$lib/components/app-header.svelte";
   import { startCaptureQueueRunner } from "$lib/capture/queue";
+  import { startPushNavigationFromServiceWorker } from "$lib/push/navigation-from-sw";
   import { startThoughtSync } from "$lib/stores/thought-sync";
   import { getLocale, setLocale } from "$lib/paraglide/runtime";
   import { m } from "$lib/paraglide/messages.js";
@@ -96,6 +97,8 @@
       }
     });
 
+    const stopPushNavigation = startPushNavigationFromServiceWorker();
+
     if ((page.data as { user?: { id: string } | null }).user) {
       startCaptureQueueRunner();
       startThoughtSync();
@@ -152,6 +155,7 @@
     media.addEventListener("change", handleChange);
     window.addEventListener("theme-preference-change", handlePreferenceChange);
     return () => {
+      stopPushNavigation();
       media.removeEventListener("change", handleChange);
       window.removeEventListener("theme-preference-change", handlePreferenceChange);
     };

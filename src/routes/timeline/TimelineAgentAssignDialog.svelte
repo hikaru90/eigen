@@ -3,6 +3,7 @@
 	import Bot from '@lucide/svelte/icons/bot';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
+	import { m } from '$lib/paraglide/messages.js';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 
 	type ConnectedAgentListItem = {
@@ -89,7 +90,7 @@
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2 text-base">
 				<Bot class="size-4" strokeWidth={1.75} />
-				Assign to agent
+				{m.graph_timeline_assign_agent()}
 			</Dialog.Title>
 			{#if item}
 				<Dialog.Description class="line-clamp-2 text-xs">{item.semanticSummary}</Dialog.Description>
@@ -100,11 +101,11 @@
 			{#if loading}
 				<div class="flex items-center justify-center gap-2 py-8">
 					<LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
-					<span class="text-muted-foreground text-xs">Loading agents…</span>
+					<span class="text-muted-foreground text-xs">{m.graph_timeline_assign_agent_loading()}</span>
 				</div>
 			{:else if agents.length === 0}
 				<p class="text-muted-foreground py-6 text-center text-xs">
-					No webhooks yet. Register one in Settings → Webhooks.
+					{m.graph_timeline_assign_agent_empty()}
 				</p>
 			{:else}
 				<ul class="space-y-1">
@@ -130,7 +131,7 @@
 
 		<Dialog.Footer>
 			<Button type="button" variant="outline" class="w-full text-xs" onclick={() => onDialogOpenChange(false)}>
-				Cancel
+				{m.graph_dialog_cancel()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

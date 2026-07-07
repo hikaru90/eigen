@@ -43,7 +43,8 @@ export async function assignThoughtToAgent(input: {
 			id: thought.id,
 			normalizedText: thought.normalizedText,
 			category: thought.category,
-			memoryType: thought.memoryType
+			memoryType: thought.memoryType,
+			lifecycleStatus: thought.lifecycleStatus
 		})
 		.from(thought)
 		.where(and(eq(thought.userId, input.userId), eq(thought.id, input.thoughtId)))
@@ -51,6 +52,14 @@ export async function assignThoughtToAgent(input: {
 
 	if (!thoughtRow) {
 		throw new Error('Thought not found');
+	}
+
+	if (thoughtRow.category !== 'task') {
+		throw new Error('Only task thoughts can be assigned to agents');
+	}
+
+	if (thoughtRow.lifecycleStatus !== 'open') {
+		throw new Error('Only open tasks can be assigned to agents');
 	}
 
 	const projectCtx = await loadProjectContextForThought(input.userId, input.thoughtId);

@@ -425,6 +425,34 @@ export async function mergeProjectEntities(
 	);
 	if (losers.length === 0) return;
 
+	// SAFEGUARD: Check if any loser is a manual project — manual projects must never be merged
+	const loserProfiles = await getDb()
+		.select({
+			projectEntityId: projectProfile.projectEntityId,
+			source: projectProfile.source
+		})
+		.from(projectProfile)
+		.where(
+			and(
+				eq(projectProfile.userId, userId),
+				inArray(projectProfile.projectEntityId, losers)
+			)
+		);
+	const manualLosers = loserProfiles.filter((p) => p.source === 'manual');
+	if (manualLosers.length > 0) {
+		console.error('[merge-projects] Refusing to merge manual projects', {
+			userId,
+			winnerId,
+			manualLosers: manualLosers.map((p) => p.projectEntityId)
+		});
+		// Filter out manual losers
+		const manualSet = new Set(manualLosers.map((p) => p.projectEntityId));
+		const protectedLosers = losers.filter((id) => !manualSet.has(id));
+		if (protectedLosers.length === 0) return;
+		losers.length = 0;
+		losers.push(...protectedLosers);
+	}
+
 	const [winnerRow] = await getDb()
 		.select({
 			id: canonicalEntity.id,

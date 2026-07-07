@@ -306,6 +306,7 @@ export async function auditGtdProjectProfiles(userId: string): Promise<{ demoted
 		.from(projectProfile)
 		.where(eq(projectProfile.userId, userId));
 
+	// Only audit capture-sourced projects — manual projects are user-declared and must never be altered
 	const auditableRows = profileRows.filter((row) => (row.source ?? 'capture') === 'capture');
 	if (auditableRows.length === 0) return { demoted: 0 };
 
@@ -336,8 +337,42 @@ export async function auditGtdProjectProfiles(userId: string): Promise<{ demoted
 	let demoted = 0;
 	for (const result of results) {
 		if (result.isGtdProject) continue;
-		await demoteProjectProfile(userId, result.entityId);
+		demoteProjectProfile(userId, result.entityId);
 		demoted += 1;
+	}
+
+	// SAFEGUARD: Never allow demoting ALL capture projects in a single audit
+	// If the LLM tries to demote everything, treat it as an LLM error and roll back
+	if (demoted > 0 && demoted === auditableRows.length) {
+		console.error('[audit-gtd] LLM attempted to demote ALL capture projects — rolling back', {
+			userId,
+			demoted,
+			auditableCount: auditableRows.length
+		});
+		// Re-insert all demoted profiles
+		for (const row of auditableRows) {
+			await getDb()
+				.insert(projectProfile)
+				.values({
+					userId,
+					projectEntityId: row.entityId,
+					status: 'active',
+					source: 'capture'
+				})
+				.onConflictDoNothing();
+			// Restore entity type to 'project' if it was changed
+			await getDb()
+				.update(canonicalEntity)
+				.set({ entityType: 'project' })
+				.where(
+					and(
+						eq(canonicalEntity.userId, userId),
+						eq(canonicalEntity.id, row.entityId),
+						eq(canonicalEntity.entityType, 'organization')
+					)
+				);
+		}
+		return { demoted: 0 };
 	}
 
 	return { demoted };

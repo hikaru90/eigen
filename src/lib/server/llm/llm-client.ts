@@ -62,6 +62,9 @@ type UserLlmState = {
 	lastRequestAt: number;
 	lastEndedAt: number;
 	queue: Promise<void>;
+	/** Separate queue for STT requests — avoids contention with ingest/enrichment. */
+	sttQueue: Promise<void>;
+	lastSttRequestAt: number;
 	serialQueue: Promise<void>;
 };
 const userLlmState = new Map<string, UserLlmState>();
@@ -76,6 +79,8 @@ function getUserLlmState(userId: string): UserLlmState {
 			lastRequestAt: 0,
 			lastEndedAt: 0,
 			queue: Promise.resolve(),
+			sttQueue: Promise.resolve(),
+			lastSttRequestAt: 0,
 			serialQueue: Promise.resolve()
 		};
 		userLlmState.set(userId, state);
@@ -269,6 +274,32 @@ async function waitForLlmRateLimit(userId: string): Promise<void> {
 		// Slot resolves here — next queued call for this user can now run its spacing check.
 	});
 	state.queue = slot;
+	await slot;
+}
+
+/**
+ * Rate limiter for STT requests — separate queue so speech-to-text does not contend
+ * with ingest/enrichment LLM calls. Uses the same per-user interval but independent
+ * queue chain.
+ */
+async function waitForSttRateLimit(userId: string): Promise<void> {
+	if (serialLlmRequestsEnabled()) return;
+
+	const intervalMs = minRequestIntervalMs();
+	if (intervalMs === 0) return;
+
+	const state = getUserLlmState(userId);
+
+	const slot = state.sttQueue.then(async () => {
+		const now = Date.now();
+		const elapsed = now - state.lastSttRequestAt;
+		const waitMs = Math.max(0, intervalMs - elapsed);
+		if (waitMs > 0) {
+			await sleep(waitMs);
+		}
+		state.lastSttRequestAt = Date.now();
+	});
+	state.sttQueue = slot;
 	await slot;
 }
 
@@ -844,7 +875,7 @@ async function llmCreateTranscriptionDedicated(
 		const db = getDb();
 		try {
 			logLlmSttRequest(attempt, input.model, input.audio);
-			await waitForLlmRateLimit(input.userId);
+			await waitForSttRateLimit(input.userId);
 			const timeoutMs = requestTimeoutMs();
 			const ac = new AbortController();
 			const timeoutHandle = setTimeout(

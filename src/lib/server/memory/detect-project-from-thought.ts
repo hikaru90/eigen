@@ -139,12 +139,22 @@ export async function detectAndCreateProjectFromThought(
 	const detection = await detectProjectFromThought(input);
 
 	if (!detection.projectLabel) {
+		console.log('[project-detection] No project detected in thought', {
+			userId: input.userId,
+			normalizedTextPreview: input.normalizedText.slice(0, 100)
+		});
 		return null;
 	}
 
 	// Check for similar existing project
 	const existing = await findSimilarProject(input.userId, detection.projectLabel);
 	if (existing) {
+		console.log('[project-detection] Found existing project', {
+			userId: input.userId,
+			detectedLabel: detection.projectLabel,
+			existingEntityId: existing.entityId,
+			existingLabel: existing.label
+		});
 		return existing.entityId;
 	}
 

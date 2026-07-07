@@ -654,7 +654,7 @@ import * as Select from '$lib/components/ui/select';
 	}
 
 	function onAgentAssigned(payload: { agentName: string; assignmentId: string }) {
-		lastActionSummary = `Assigned to agent ${payload.agentName}`;
+		lastActionSummary = m.graph_timeline_assign_agent_success({ agent: payload.agentName });
 		closeAgentAssign();
 	}
 </script>

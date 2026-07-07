@@ -129,7 +129,7 @@
 							disabled={busy}
 							onclick={() => onAssignAgent()}
 						>
-							Assign to agent
+							{m.graph_timeline_assign_agent()}
 						</Button>
 					{/if}
 					<TemporalEventStatusButton
