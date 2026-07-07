@@ -83,7 +83,11 @@ export async function installVoiceCaptureMocks(page: Page): Promise<void> {
 }
 
 /** Authenticated POST to `/api/capture/transcribe` using the release voice fixture. */
-export async function assertVoiceTranscribeApi(page: Page): Promise<string> {
+export async function assertVoiceTranscribeApi(
+	page: Page,
+	options?: { timeoutMs?: number }
+): Promise<string> {
+	const timeoutMs = options?.timeoutMs ?? 180_000;
 	const buffer = readReleaseVoiceFixture();
 	let transcript = '';
 
@@ -122,7 +126,7 @@ export async function assertVoiceTranscribeApi(page: Page): Promise<string> {
 				transcript = text;
 				return text;
 			},
-			{ timeout: 180_000, intervals: [2_000, 5_000, 10_000] }
+			{ timeout: timeoutMs, intervals: [2_000, 5_000, 10_000] }
 		)
 		.toMatch(/release|voice|smoke|capture|test/i);
 
@@ -133,7 +137,11 @@ export async function assertVoiceTranscribeApi(page: Page): Promise<string> {
  * Mic button → fixture "recording" → transcript appended to `#thought`.
  * Call `installVoiceCaptureMocks` before navigating to `/capture`.
  */
-export async function exerciseVoiceCaptureUi(page: Page): Promise<void> {
+export async function exerciseVoiceCaptureUi(
+	page: Page,
+	options?: { timeoutMs?: number }
+): Promise<void> {
+	const timeoutMs = options?.timeoutMs ?? 120_000;
 	await page.goto('/capture');
 	await expect(page.getByRole('dialog', { name: 'Welcome to Eigen' })).toBeHidden({
 		timeout: 15_000
@@ -163,7 +171,7 @@ export async function exerciseVoiceCaptureUi(page: Page): Promise<void> {
 				const value = await page.locator('#thought').inputValue();
 				return value.trim().length > 0 ? value : null;
 			},
-			{ timeout: 120_000, intervals: [500, 1000, 2000] }
+			{ timeout: timeoutMs, intervals: [500, 1000, 2000] }
 		)
 		.toMatch(/release|voice|smoke|capture|test/i);
 }

@@ -4,6 +4,8 @@ import {
 	captureThoughtViaUi,
 	completeOnboardingOverlay,
 	exerciseAuthenticatedUi,
+	exerciseOvernightConsolidation,
+	exerciseProjectsLifecycle,
 	loginUser,
 	registerUser
 } from './release-helpers';
@@ -26,10 +28,11 @@ test.describe('Release smoke @release', () => {
 		let email = '';
 
 		await test.step('create account', async () => {
-			({ email } = await registerUser(context, page));
+			({ email } = await registerUser(context, page, { emailDomain: 'example.com' }));
 			await expect(page).toHaveURL(/\/capture/);
-			await expect(page.getByRole('dialog')).toBeVisible();
-			await expect(page.getByText('Welcome to Eigen')).toBeVisible();
+			await expect(page.getByRole('dialog', { name: 'Welcome to Eigen' })).toBeVisible({
+				timeout: 30_000
+			});
 		});
 
 		await test.step('complete onboarding and buy sandbox credits', async () => {
@@ -40,6 +43,14 @@ test.describe('Release smoke @release', () => {
 			await captureThoughtViaUi(page, releaseThought);
 			await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible();
 			await expect(page.getByRole('button', { name: 'Collapse thought' })).toContainText('Lisbon');
+		});
+
+		await test.step('projects: create, capture, edit, dismiss', async () => {
+			await exerciseProjectsLifecycle(page);
+		});
+
+		await test.step('overnight consolidation heartbeat', async () => {
+			await exerciseOvernightConsolidation(page);
 		});
 
 		await test.step('exercise authenticated surfaces and controls', async () => {

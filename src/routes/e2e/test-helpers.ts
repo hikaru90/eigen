@@ -5,16 +5,23 @@ export const TEST_PASSWORD = HARNESS_E2E_PASSWORD;
 
 let userCounter = 0;
 
+export type RegisterUserOptions = {
+	/** Defaults to `test.eigen` (harness). Use a production domain to exercise onboarding. */
+	emailDomain?: string;
+};
+
 /**
  * Register a fresh test user and return their credentials + the context with session cookies.
  */
 export async function registerUser(
 	context: BrowserContext,
-	page: Page
+	page: Page,
+	options?: RegisterUserOptions
 ): Promise<{ email: string }> {
 	userCounter += 1;
 	const id = `${Date.now()}-${userCounter}`;
-	const email = `e2e-${id}@test.eigen`;
+	const emailDomain = options?.emailDomain ?? 'test.eigen';
+	const email = `e2e-${id}@${emailDomain}`;
 
 	await page.goto('/signup');
 	await page.fill('#name', `Test User ${id}`);

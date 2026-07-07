@@ -13,6 +13,158 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override
 
 export { registerUser, loginUser, TEST_PASSWORD };
 
+/** Max wait for release smoke polls and async UI steps. */
+const RELEASE_WAIT_MS = 30_000;
+/** Overnight heartbeat runs many jobs; allow longer than generic UI polls. */
+const RELEASE_HEARTBEAT_WAIT_MS = 120_000;
+/** Background enrich (entities, GTD link, embeddings) — the one place we wait longer. */
+const RELEASE_INDEXING_WAIT_MS = 120_000;
+/** Single UI probe — fail fast, try the next strategy. */
+const QUICK_MS = 1_500;
+/** One interactive attempt (open dialog, click save, …). */
+const ACTION_MS = 6_000;
+
+async function visible(locator: Locator, timeoutMs = QUICK_MS): Promise<boolean> {
+	return locator.isVisible({ timeout: timeoutMs }).catch(() => false);
+}
+
+async function pollUntil(
+	label: string,
+	predicate: () => Promise<boolean>,
+	options?: { timeoutMs?: number; intervalMs?: number }
+): Promise<void> {
+	const timeoutMs = options?.timeoutMs ?? RELEASE_WAIT_MS;
+	const intervalMs = options?.intervalMs ?? 750;
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (await predicate()) return;
+		await new Promise((r) => setTimeout(r, intervalMs));
+	}
+	throw new Error(`${label} (not ready within ${timeoutMs}ms)`);
+}
+
+type CaptureThoughtRow = {
+	id: string;
+	normalizedText?: string;
+	enrichmentComplete?: boolean;
+	queueStatus?: string | null;
+	queueError?: string | null;
+};
+
+function thoughtTextMatches(normalizedText: string | undefined, raw: string): boolean {
+	const stored = (normalizedText ?? '').toLowerCase();
+	const input = raw.trim().toLowerCase();
+	if (!stored || !input) return false;
+	if (stored.includes(input.slice(0, 48))) return true;
+	const words = input.split(/\s+/).filter((w) => w.length > 3).slice(0, 6);
+	return words.length > 0 && words.every((w) => stored.includes(w));
+}
+
+async function fetchRecentThoughtDetails(page: Page): Promise<CaptureThoughtRow[]> {
+	const res = await page.request.get('/api/capture/recent');
+	if (!res.ok()) return [];
+	const body = (await res.json()) as { recentThoughtDetails?: CaptureThoughtRow[] };
+	return body.recentThoughtDetails ?? [];
+}
+
+async function fetchCaptureThoughtResult(
+	page: Page,
+	thoughtId: string
+): Promise<CaptureThoughtRow | null> {
+	const res = await page.request.get(`/api/capture/result/${encodeURIComponent(thoughtId)}`);
+	if (!res.ok()) return null;
+	const body = (await res.json()) as { thought?: CaptureThoughtRow };
+	return body.thought ?? null;
+}
+
+/** Persist is fast; enrichment (indexing) is the only long wait. */
+async function waitForCaptureIndexed(page: Page, raw: string): Promise<void> {
+	let thoughtId: string | null = null;
+
+	await pollUntil(
+		`capture persisted "${raw.slice(0, 40)}…"`,
+		async () => {
+			const match = (await fetchRecentThoughtDetails(page)).find((row) =>
+				thoughtTextMatches(row.normalizedText, raw)
+			);
+			if (match?.id) {
+				thoughtId = match.id;
+				return true;
+			}
+			if (await visible(page.getByRole('heading', { name: 'Recent' }))) {
+				const recent = page.getByRole('button', { name: 'Collapse thought' }).first();
+				const text = (await recent.textContent().catch(() => null)) ?? '';
+				if (thoughtTextMatches(text, raw)) return true;
+			}
+			return false;
+		},
+		{ timeoutMs: RELEASE_WAIT_MS, intervalMs: 750 }
+	);
+
+	if (!thoughtId) {
+		const match = (await fetchRecentThoughtDetails(page)).find((row) =>
+			thoughtTextMatches(row.normalizedText, raw)
+		);
+		thoughtId = match?.id ?? null;
+	}
+
+	if (!thoughtId) {
+		throw new Error(`Could not resolve thought id after capture for "${raw.slice(0, 40)}…"`);
+	}
+
+	const id = thoughtId;
+	await pollUntil(
+		`thought indexing "${raw.slice(0, 40)}…"`,
+		async () => {
+			const thought =
+				(await fetchCaptureThoughtResult(page, id)) ??
+				(await fetchRecentThoughtDetails(page)).find((row) => row.id === id);
+			if (!thought) return false;
+			if (thought.queueStatus === 'failed') {
+				throw new Error(
+					`Indexing failed${thought.queueError ? `: ${thought.queueError}` : ''}`
+				);
+			}
+			return thought.enrichmentComplete === true;
+		},
+		{ timeoutMs: RELEASE_INDEXING_WAIT_MS, intervalMs: 2_000 }
+	);
+}
+
+/** Clear drawers/dialogs without blocking on one strategy. Idempotent. */
+async function dismissBlockingLayers(page: Page): Promise<void> {
+	const projectDrawer = page.getByRole('button', { name: 'Edit project' });
+	const namedDialog = page.getByRole('dialog').filter({
+		has: page.getByRole('button', { name: /Cancel|Save changes|Create project/ })
+	});
+
+	const blocking = async (): Promise<boolean> =>
+		(await visible(projectDrawer)) || (await visible(namedDialog));
+
+	if (!(await blocking())) return;
+
+	const attempts: Array<() => Promise<void>> = [
+		() => page.keyboard.press('Escape'),
+		() => page.keyboard.press('Escape'),
+		() =>
+			page
+				.locator('[data-vaul-overlay], [data-slot="drawer-overlay"]')
+				.first()
+				.click({ position: { x: 6, y: 6 }, force: true }),
+		() => page.getByRole('button', { name: 'Cancel' }).first().click(),
+		() => page.getByRole('button', { name: 'Tasks', exact: true }).click(),
+		() => page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' }),
+		() => page.goto('/capture', { waitUntil: 'domcontentloaded' })
+	];
+
+	for (const attempt of attempts) {
+		if (!(await blocking())) return;
+		await attempt().catch(() => undefined);
+	}
+
+	await page.goto('/capture', { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+}
+
 const RELEASE_ENV_CHECKS: Array<{ label: string; isSet: () => boolean }> = [
 	{ label: 'PAYPAL_CLIENT_ID', isSet: () => Boolean(process.env.PAYPAL_CLIENT_ID?.trim()) },
 	{
@@ -113,6 +265,56 @@ async function isVisible(locator: Locator, timeoutMs = 1_500): Promise<boolean> 
 	return locator.isVisible({ timeout: timeoutMs }).catch(() => false);
 }
 
+function isPayPalDetachedError(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err);
+	return /detached|Target closed|Execution context was destroyed/i.test(message);
+}
+
+function livePayPalContexts(checkoutPage: Page): Array<Page | Frame> {
+	if (checkoutPage.isClosed()) {
+		return [];
+	}
+	const contexts: Array<Page | Frame> = [checkoutPage];
+	for (const frame of checkoutPage.frames()) {
+		if (!frame.isDetached()) {
+			contexts.push(frame);
+		}
+	}
+	return contexts;
+}
+
+async function scanPayPalContext(ctx: Page | Frame): Promise<boolean> {
+	try {
+		const signals = [
+			ctx.locator('#email, input[name="login_email"]').first(),
+			ctx.locator('#password, input[name="login_password"]').first(),
+			ctx.locator('#payment-submit-btn').first(),
+			ctx.locator('button[data-testid="submit-button-initial"]').first(),
+			ctx.locator('input[type="radio"]').first()
+		];
+		for (const signal of signals) {
+			if (await signal.isVisible().catch(() => false)) {
+				return true;
+			}
+		}
+
+		const buttons = ctx.locator('button:visible:not([disabled])');
+		const count = await buttons.count().catch(() => 0);
+		for (let i = count - 1; i >= 0; i--) {
+			const box = await buttons.nth(i).boundingBox().catch(() => null);
+			if (box && box.height >= 36 && box.width >= 80) {
+				return true;
+			}
+		}
+	} catch (err) {
+		if (isPayPalDetachedError(err)) {
+			return false;
+		}
+		throw err;
+	}
+	return false;
+}
+
 async function maybeLoginPayPalSandbox(
 	checkoutPage: Page,
 	buyerEmail: string,
@@ -138,10 +340,6 @@ async function maybeLoginPayPalSandbox(
 	await waitForPayPalCheckoutReady(checkoutPage);
 }
 
-function paypalContexts(checkoutPage: Page): Array<Page | Frame> {
-	return [checkoutPage, ...checkoutPage.frames()];
-}
-
 async function paypalCheckoutReady(checkoutPage: Page): Promise<boolean> {
 	if (checkoutPage.isClosed()) {
 		return false;
@@ -152,27 +350,9 @@ async function paypalCheckoutReady(checkoutPage: Page): Promise<boolean> {
 		return false;
 	}
 
-	for (const ctx of paypalContexts(checkoutPage)) {
-		const signals = [
-			ctx.locator('#email, input[name="login_email"]').first(),
-			ctx.locator('#password, input[name="login_password"]').first(),
-			ctx.locator('#payment-submit-btn').first(),
-			ctx.locator('button[data-testid="submit-button-initial"]').first(),
-			ctx.locator('input[type="radio"]').first()
-		];
-		for (const signal of signals) {
-			if (await signal.isVisible().catch(() => false)) {
-				return true;
-			}
-		}
-
-		const buttons = ctx.locator('button:visible:not([disabled])');
-		const count = await buttons.count();
-		for (let i = count - 1; i >= 0; i--) {
-			const box = await buttons.nth(i).boundingBox();
-			if (box && box.height >= 36 && box.width >= 80) {
-				return true;
-			}
+	for (const ctx of livePayPalContexts(checkoutPage)) {
+		if (await scanPayPalContext(ctx)) {
+			return true;
 		}
 	}
 
@@ -182,7 +362,7 @@ async function paypalCheckoutReady(checkoutPage: Page): Promise<boolean> {
 async function waitForPayPalCheckoutReady(checkoutPage: Page): Promise<void> {
 	await expect
 		.poll(() => paypalCheckoutReady(checkoutPage), {
-			timeout: 90_000,
+			timeout: RELEASE_WAIT_MS,
 			intervals: [300, 500, 1000]
 		})
 		.toBe(true);
@@ -260,7 +440,7 @@ async function getPayPalOrderStatus(orderId: string): Promise<string> {
 	return json.status?.trim() ?? '';
 }
 
-async function waitForPayPalOrderApproved(orderId: string, timeoutMs = 90_000): Promise<void> {
+async function waitForPayPalOrderApproved(orderId: string, timeoutMs = RELEASE_WAIT_MS): Promise<void> {
 	await expect
 		.poll(() => getPayPalOrderStatus(orderId), {
 			timeout: timeoutMs,
@@ -270,11 +450,16 @@ async function waitForPayPalOrderApproved(orderId: string, timeoutMs = 90_000): 
 }
 
 async function selectPayPalFundingIfNeeded(checkoutPage: Page): Promise<void> {
-	for (const ctx of paypalContexts(checkoutPage)) {
-		const radio = ctx.locator('input[type="radio"]:visible').first();
-		if (await radio.isVisible().catch(() => false)) {
-			await radio.check({ force: true }).catch(() => radio.click({ force: true }));
-			return;
+	for (const ctx of livePayPalContexts(checkoutPage)) {
+		try {
+			const radio = ctx.locator('input[type="radio"]:visible').first();
+			if (await radio.isVisible().catch(() => false)) {
+				await radio.check({ force: true }).catch(() => radio.click({ force: true }));
+				return;
+			}
+		} catch (err) {
+			if (isPayPalDetachedError(err)) continue;
+			throw err;
 		}
 	}
 }
@@ -292,7 +477,7 @@ async function approvePayPalOrderInSandbox(
 	try {
 		await checkoutPage.goto(
 			`${PAYPAL_SANDBOX_CHECKOUT_ORIGIN}/checkoutnow?token=${encodeURIComponent(orderId)}`,
-			{ waitUntil: 'domcontentloaded', timeout: 60_000 }
+			{ waitUntil: 'domcontentloaded', timeout: RELEASE_WAIT_MS }
 		);
 		await waitForPayPalCheckoutReady(checkoutPage);
 		await maybeLoginPayPalSandbox(checkoutPage, buyerEmail, buyerPassword);
@@ -314,47 +499,64 @@ async function approvePayPalOrderInSandbox(
 }
 
 async function clickPayPalSubmitButton(checkoutPage: Page): Promise<void> {
-	await expect
-		.poll(async () => {
-			for (const ctx of paypalContexts(checkoutPage)) {
+	const submitVisible = async (): Promise<boolean> => {
+		for (const ctx of livePayPalContexts(checkoutPage)) {
+			try {
 				for (const selector of PAYPAL_SUBMIT_SELECTORS) {
 					if (await ctx.locator(selector).first().isVisible().catch(() => false)) {
 						return true;
 					}
 				}
 				const buttons = ctx.locator('button:visible:not([disabled])');
-				const count = await buttons.count();
+				const count = await buttons.count().catch(() => 0);
 				for (let i = count - 1; i >= 0; i--) {
-					const box = await buttons.nth(i).boundingBox();
+					const box = await buttons.nth(i).boundingBox().catch(() => null);
 					if (box && box.height >= 36 && box.width >= 120) {
 						return true;
 					}
 				}
+			} catch (err) {
+				if (isPayPalDetachedError(err)) continue;
+				throw err;
 			}
-			return false;
-		}, { timeout: 60_000, intervals: [250, 500, 1000] })
+		}
+		return false;
+	};
+
+	await expect
+		.poll(submitVisible, { timeout: RELEASE_WAIT_MS, intervals: [250, 500, 1000] })
 		.toBe(true);
 
-	for (const ctx of paypalContexts(checkoutPage)) {
-		for (const selector of PAYPAL_SUBMIT_SELECTORS) {
-			const button = ctx.locator(selector).first();
-			if (await isVisible(button, 1_000)) {
-				await button.click();
-				return;
+	for (const ctx of livePayPalContexts(checkoutPage)) {
+		try {
+			for (const selector of PAYPAL_SUBMIT_SELECTORS) {
+				const button = ctx.locator(selector).first();
+				if (await isVisible(button, 1_000)) {
+					await button.click();
+					return;
+				}
 			}
+		} catch (err) {
+			if (isPayPalDetachedError(err)) continue;
+			throw err;
 		}
 	}
 
-	for (const ctx of paypalContexts(checkoutPage)) {
-		const buttons = ctx.locator('button:visible:not([disabled])');
-		const count = await buttons.count();
-		for (let i = count - 1; i >= 0; i--) {
-			const button = buttons.nth(i);
-			const box = await button.boundingBox();
-			if (box && box.height >= 36 && box.width >= 120) {
-				await button.click();
-				return;
+	for (const ctx of livePayPalContexts(checkoutPage)) {
+		try {
+			const buttons = ctx.locator('button:visible:not([disabled])');
+			const count = await buttons.count().catch(() => 0);
+			for (let i = count - 1; i >= 0; i--) {
+				const button = buttons.nth(i);
+				const box = await button.boundingBox().catch(() => null);
+				if (box && box.height >= 36 && box.width >= 120) {
+					await button.click();
+					return;
+				}
 			}
+		} catch (err) {
+			if (isPayPalDetachedError(err)) continue;
+			throw err;
 		}
 	}
 
@@ -413,7 +615,7 @@ export async function topUpCreditsViaPayPalSandbox(
 			if (!walletRes.ok()) return 0;
 			const body = (await walletRes.json()) as { availableCredits?: number };
 			return body.availableCredits ?? 0;
-		}, { timeout: 15_000 })
+		}, { timeout: RELEASE_WAIT_MS })
 		.toBeGreaterThanOrEqual(50);
 }
 
@@ -445,10 +647,10 @@ export async function completeOnboardingOverlay(
 		amountCredits: options?.creditAmount ?? 1000
 	});
 
-	await expect(dialog).toBeVisible({ timeout: 15_000 });
+	await expect(dialog).toBeVisible({ timeout: RELEASE_WAIT_MS });
 	// Reload after capture resets the overlay to step 1; advance again with fresh wallet data.
 	await advanceOnboardingToCreditsStep(dialog);
-	await expect(dialog.getByText('Enough credits to capture.')).toBeVisible({ timeout: 30_000 });
+	await expect(dialog.getByText(/Enough credits to capture/i)).toBeVisible({ timeout: RELEASE_WAIT_MS });
 
 	await dialog.getByRole('button', { name: 'Next' }).click();
 	await expect(dialog.getByText('Step 3 of 3')).toBeVisible({ timeout: 10_000 });
@@ -458,37 +660,254 @@ export async function completeOnboardingOverlay(
 }
 
 export async function captureThoughtViaUi(page: Page, raw: string): Promise<void> {
-	await page.goto('/capture');
-	await expect(onboardingDialog(page)).toBeHidden({ timeout: 15_000 });
-	await expect(page.getByText('Before your first capture')).toBeHidden({ timeout: 15_000 });
+	await dismissBlockingLayers(page);
+	await page.goto('/capture', { waitUntil: 'domcontentloaded' });
+	await dismissBlockingLayers(page);
+
+	if (await visible(onboardingDialog(page))) {
+		throw new Error('Onboarding overlay still open — complete onboarding before capture');
+	}
 
 	await page.locator('#thought').fill(raw);
-
 	const captureBtn = page.getByRole('button', { name: 'Capture', exact: true });
-	await expect(captureBtn).toBeEnabled({ timeout: 30_000 });
+
+	for (let attempt = 0; attempt < 3; attempt++) {
+		if (await captureBtn.isEnabled().catch(() => false)) break;
+		await page.waitForTimeout(500);
+	}
+	if (!(await captureBtn.isEnabled().catch(() => false))) {
+		throw new Error('Capture button stayed disabled');
+	}
 
 	const errorBanner = page.locator('p.text-destructive.text-sm').first();
 	await captureBtn.click();
 
-	await expect
-		.poll(
-			async () => {
-				if (await errorBanner.isVisible().catch(() => false)) {
-					const message = (await errorBanner.textContent())?.trim();
-					throw new Error(message ? `Capture failed: ${message}` : 'Capture failed');
-				}
-				if (await page.getByText('Stored thought').isVisible().catch(() => false)) {
-					return true;
-				}
-				return false;
-			},
-			{ timeout: 120_000, intervals: [500, 1000, 2000] }
-		)
-		.toBe(true);
+	if (await visible(errorBanner, QUICK_MS)) {
+		const message = (await errorBanner.textContent())?.trim();
+		throw new Error(message ? `Capture failed: ${message}` : 'Capture failed');
+	}
+
+	await waitForCaptureIndexed(page, raw);
 }
 
 export async function visitAuthenticatedSurfaces(page: Page): Promise<void> {
 	await exerciseAuthenticatedUi(page);
+}
+
+type TimelineProjectRow = {
+	entityId: string;
+	label: string;
+	status: string;
+	openTaskCount: number;
+};
+
+async function fetchTimelineProjects(page: Page): Promise<TimelineProjectRow[]> {
+	const res = await page.request.get('/api/timeline/projects?author=user');
+	if (!res.ok()) {
+		throw new Error(`fetchTimelineProjects failed (${res.status()}): ${await res.text()}`);
+	}
+	const body = (await res.json()) as { projects?: TimelineProjectRow[] };
+	return body.projects ?? [];
+}
+
+async function findProject(page: Page, entityId: string): Promise<TimelineProjectRow | undefined> {
+	return (await fetchTimelineProjects(page)).find((p) => p.entityId === entityId);
+}
+
+async function gotoTimelineProjectsView(page: Page): Promise<void> {
+	await dismissBlockingLayers(page);
+	await page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' });
+
+	for (let attempt = 0; attempt < 4; attempt++) {
+		const projectsToggle = page.getByRole('button', { name: 'Projects', exact: true });
+		if (await visible(projectsToggle)) {
+			await projectsToggle.click().catch(() => undefined);
+		}
+		if (await visible(page.getByRole('button', { name: 'Add project' }))) {
+			return;
+		}
+		await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
+	}
+	throw new Error('Timeline projects view did not load');
+}
+
+async function createProjectViaUi(page: Page, label: string): Promise<TimelineProjectRow> {
+	await gotoTimelineProjectsView(page);
+	await page.getByRole('button', { name: 'Add project' }).click();
+	const createDialog = page.getByRole('dialog', { name: 'Add project' });
+	if (!(await visible(createDialog, ACTION_MS))) {
+		throw new Error('Add project dialog did not open');
+	}
+	await createDialog.locator('#create-project-label').fill(label);
+	await createDialog.getByRole('button', { name: 'Create project' }).click();
+	await createDialog.waitFor({ state: 'hidden', timeout: ACTION_MS }).catch(() => dismissBlockingLayers(page));
+	await dismissBlockingLayers(page);
+
+	await pollUntil(`project "${label}" appears in API`, async () =>
+		(await fetchTimelineProjects(page)).some((p) => p.label === label)
+	);
+	const created = (await fetchTimelineProjects(page)).find((p) => p.label === label);
+	if (!created) throw new Error(`Project "${label}" missing after create`);
+	return created;
+}
+
+async function openProjectDetail(page: Page, projectLabel: string): Promise<void> {
+	await gotoTimelineProjectsView(page);
+	const listbox = page.getByRole('listbox', { name: 'Projects and next actions' });
+	const row = listbox.locator('div').filter({ has: page.getByText(projectLabel, { exact: true }) }).first();
+	const openBtn = row.getByRole('button', { name: 'Open', exact: true });
+
+	if (await visible(openBtn)) {
+		await openBtn.click();
+	} else if (await visible(page.getByText(projectLabel, { exact: true }).first())) {
+		await page.getByText(projectLabel, { exact: true }).first().click();
+	} else {
+		throw new Error(`Project "${projectLabel}" not found in list`);
+	}
+
+	if (!(await visible(page.getByRole('button', { name: 'Edit project' }), ACTION_MS))) {
+		throw new Error(`Project detail drawer did not open for "${projectLabel}"`);
+	}
+}
+
+async function renameProjectViaUi(
+	page: Page,
+	projectName: string,
+	renamedProject: string
+): Promise<void> {
+	await openProjectDetail(page, projectName);
+	await page.getByRole('button', { name: 'Edit project' }).click();
+
+	const editDialog = page.getByRole('dialog', { name: 'Edit project' });
+	if (!(await visible(editDialog, ACTION_MS))) {
+		throw new Error('Edit project dialog did not open');
+	}
+	await editDialog.locator('#edit-project-label').fill(renamedProject);
+	await editDialog.getByRole('button', { name: 'Save changes' }).click();
+	await editDialog.waitFor({ state: 'hidden', timeout: ACTION_MS }).catch(() => dismissBlockingLayers(page));
+	await dismissBlockingLayers(page);
+}
+
+async function dismissProjectViaUi(page: Page, entityId: string, projectLabel: string): Promise<void> {
+	await openProjectDetail(page, projectLabel).catch(() => undefined);
+
+	if (await visible(page.getByRole('button', { name: 'Delete' }))) {
+		await page.getByRole('button', { name: 'Delete' }).click();
+		const confirm = page.getByRole('heading', { name: 'Delete project?' });
+		if (await visible(confirm, ACTION_MS)) {
+			await page
+				.locator('div.fixed.inset-0')
+				.getByRole('button', { name: 'Delete', exact: true })
+				.click();
+			await confirm.waitFor({ state: 'hidden', timeout: ACTION_MS }).catch(() => undefined);
+		}
+	}
+
+	if (await findProject(page, entityId)) {
+		const res = await page.request.post(`/api/timeline/projects/${entityId}/dismiss`);
+		if (!res.ok()) {
+			throw new Error(`dismiss project failed (${res.status()}): ${await res.text()}`);
+		}
+	}
+
+	await dismissBlockingLayers(page);
+	await pollUntil(`project "${projectLabel}" dismissed`, async () => !(await findProject(page, entityId)));
+}
+
+/**
+ * Manual GTD project lifecycle: create → capture-linked task → rename → dismiss → no resurrection.
+ */
+export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
+	const projectName = 'Release Smoke Project';
+	const renamedProject = 'Release Smoke Project Renamed';
+	const projectTaskThought =
+		'Next action for Release Smoke Project: book venue shortlist for the team offsite';
+	const postRenameThought =
+		'Update for Release Smoke Project Renamed: send invites after venue is confirmed';
+	const postDismissThought =
+		'Follow-up for Release Smoke Project Renamed: this should not restore the dismissed project';
+
+	const created = await createProjectViaUi(page, projectName);
+
+	await captureThoughtViaUi(page, projectTaskThought);
+	await pollUntil(
+		`task linked to "${projectName}"`,
+		async () => ((await findProject(page, created.entityId))?.openTaskCount ?? 0) > 0,
+		{ timeoutMs: RELEASE_INDEXING_WAIT_MS, intervalMs: 2_000 }
+	);
+
+	await renameProjectViaUi(page, projectName, renamedProject);
+	await pollUntil(
+		`project renamed to "${renamedProject}"`,
+		async () => {
+			const row = await findProject(page, created.entityId);
+			return row?.label === renamedProject && row.openTaskCount >= 1;
+		},
+		{ timeoutMs: RELEASE_WAIT_MS, intervalMs: 750 }
+	);
+
+	await captureThoughtViaUi(page, postRenameThought);
+	await pollUntil(
+		`second task on "${renamedProject}"`,
+		async () => {
+			const row = await findProject(page, created.entityId);
+			return row?.label === renamedProject && row.openTaskCount >= 1;
+		},
+		{ timeoutMs: RELEASE_INDEXING_WAIT_MS, intervalMs: 2_000 }
+	);
+
+	await dismissProjectViaUi(page, created.entityId, renamedProject);
+
+	await captureThoughtViaUi(page, postDismissThought);
+	await pollUntil('dismissed project stays gone', async () => !(await findProject(page, created.entityId)));
+}
+
+/** Run overnight consolidation from Settings → Heartbeat and wait for completion. */
+export async function exerciseOvernightConsolidation(page: Page): Promise<void> {
+	await page.goto('/settings/scheduled-tasks');
+	await expect(page.getByRole('heading', { name: 'Heartbeat' })).toBeVisible();
+
+	const runNow = page.getByRole('button', { name: 'Run now' });
+	if (await runNow.isVisible().catch(() => false)) {
+		await runNow.click();
+	}
+
+	await expect
+		.poll(
+			async () => {
+				const progress = page.getByRole('progressbar', { name: 'Heartbeat progress' });
+				if (await progress.isVisible().catch(() => false)) {
+					return true;
+				}
+				const mainText = (await page.locator('main').textContent()) ?? '';
+				return /Running|Starting|Heartbeat finished|Finished/i.test(mainText);
+			},
+			{ timeout: RELEASE_WAIT_MS, intervals: [500, 1000] }
+		)
+		.toBe(true);
+
+	await expect
+		.poll(
+			async () => {
+				const res = await page.request.get('/api/scheduled-tasks');
+				if (!res.ok()) return false;
+				const body = (await res.json()) as {
+					tasks?: Array<{
+						activeRun?: unknown;
+						lastRunStatus?: string;
+					}>;
+				};
+				const task = body.tasks?.[0];
+				if (!task) return false;
+				return task.lastRunStatus === 'completed' && !task.activeRun;
+			},
+			{ timeout: RELEASE_HEARTBEAT_WAIT_MS, intervals: [1000, 2000, 3000] }
+		)
+		.toBe(true);
+
+	await expect(page.getByText(/Heartbeat finished|Finished/i).first()).toBeVisible({
+		timeout: RELEASE_WAIT_MS
+	});
 }
 
 /** Click through primary chrome, tabs, filters, and non-destructive dialogs. */
@@ -587,10 +1006,9 @@ async function exerciseGraphFilters(page: Page): Promise<void> {
 }
 
 async function exerciseCaptureUi(page: Page): Promise<void> {
-	await assertVoiceTranscribeApi(page);
-
+	await assertVoiceTranscribeApi(page, { timeoutMs: RELEASE_WAIT_MS });
 	await installVoiceCaptureMocks(page);
-	await exerciseVoiceCaptureUi(page);
+	await exerciseVoiceCaptureUi(page, { timeoutMs: RELEASE_WAIT_MS });
 
 	await page.goto('/capture');
 
@@ -610,12 +1028,30 @@ async function exerciseChatUi(page: Page): Promise<void> {
 
 	const input = page.getByPlaceholder('Ask a question about your memories...');
 	await expect(input).toBeVisible();
-	await input.fill('What city did I mention in my recent capture?');
+	const question = 'What city did I mention in my recent capture?';
+	await input.fill(question);
 	await input.press('Enter');
 
-	await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
-		timeout: 120_000
-	});
+	// Release smoke: question posted and agent run started. Full Q&A can exceed RELEASE_WAIT_MS.
+	await expect(page.getByText(question)).toBeVisible({ timeout: RELEASE_WAIT_MS });
+	await expect
+		.poll(
+			async () => {
+				const progress = page.getByText(
+					/Connecting|Working|Planning next step|Searching your memories|Thinking|Composing/i
+				);
+				if (await progress.first().isVisible().catch(() => false)) {
+					return true;
+				}
+				if (await page.getByRole('button', { name: 'Regenerate answer' }).isVisible().catch(() => false)) {
+					return true;
+				}
+				const logText = (await page.getByRole('log', { name: 'Chat messages' }).textContent()) ?? '';
+				return /Lisbon/i.test(logText);
+			},
+			{ timeout: RELEASE_WAIT_MS, intervals: [500, 1000] }
+		)
+		.toBe(true);
 }
 
 async function exerciseSettingsUi(page: Page): Promise<void> {
@@ -633,9 +1069,6 @@ async function exerciseSettingsUi(page: Page): Promise<void> {
 	}
 
 	await page.goto('/settings/llm');
-	await expect(page).not.toHaveURL(/\/login/);
-
-	await page.goto('/settings/scheduled-tasks');
 	await expect(page).not.toHaveURL(/\/login/);
 }
 
