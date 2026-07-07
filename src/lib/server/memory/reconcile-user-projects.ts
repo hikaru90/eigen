@@ -3,11 +3,8 @@ import { getDb } from '$lib/server/db';
 import { canonicalEntity } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
-import {
-	demoteProject,
-	loadHubJudgmentContext
-} from '$lib/server/memory/judge-gtd-project';
-import { countOpenTasksForProjectEntity } from '$lib/server/memory/project-eligibility';
+import { loadHubJudgmentContext } from '$lib/server/memory/judge-gtd-project';
+import { countOpenTasksForProjectEntity, demoteProject } from '$lib/server/memory/project-eligibility';
 import {
 	GTD_PROJECT_STAY_SEPARATE_POLICY,
 	loadProjectIdentityContext,
