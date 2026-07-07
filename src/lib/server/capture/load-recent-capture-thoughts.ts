@@ -4,6 +4,7 @@ import type {
 } from '$lib/capture/capture-result-types';
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result';
 import { listThoughts } from '$lib/server/capture/service';
+import type { MemoryAuthor } from '$lib/server/db/schema';
 
 export const RECENT_CAPTURE_THOUGHTS_LIMIT = 8;
 
@@ -12,14 +13,28 @@ export type RecentCaptureThoughtsPayload = {
 	recentThoughtDetails: CaptureSubmitResult[];
 };
 
+export type RecentCaptureFilter = {
+	author?: MemoryAuthor;
+	category?: string;
+	memoryType?: string;
+	dateFrom?: Date;
+	dateTo?: Date;
+};
+
 /** Recent capture list for the capture page and its refresh API. */
 export async function loadRecentCaptureThoughts(
 	userId: string,
-	limit = RECENT_CAPTURE_THOUGHTS_LIMIT
+	limit = RECENT_CAPTURE_THOUGHTS_LIMIT,
+	filter?: RecentCaptureFilter
 ): Promise<RecentCaptureThoughtsPayload> {
 	const recentRows = await listThoughts(userId, {
 		fields: 'snippet',
-		limit
+		limit,
+		authorFilter: filter?.author,
+		categoryFilter: filter?.category,
+		memoryTypeFilter: filter?.memoryType,
+		dateFrom: filter?.dateFrom,
+		dateTo: filter?.dateTo
 	});
 	const recentThoughtDetails = await Promise.all(
 		recentRows.map((row) => loadThoughtCaptureResult(userId, row.id))

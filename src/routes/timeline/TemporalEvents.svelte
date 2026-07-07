@@ -21,6 +21,7 @@ import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 		isTaskListItem,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
+		type TemporalAuthorFilter,
 		thoughtIdFromTaskItemId,
 		type NowSegment
 	} from './temporal-events-utils';
@@ -91,6 +92,11 @@ import * as Select from '$lib/components/ui/select';
 			? (localStorage.getItem('timeline-sort-direction') as 'asc' | 'desc') ?? 'desc'
 			: 'desc'
 	);
+	let authorFilter = $state<TemporalAuthorFilter>(
+		typeof localStorage !== 'undefined'
+			? (localStorage.getItem('timeline-author-filter') as TemporalAuthorFilter) ?? 'user'
+			: 'user'
+	);
 	let projectsMode = $state(
 		typeof localStorage !== 'undefined'
 			? localStorage.getItem('timeline-projects-mode') === 'true'
@@ -114,6 +120,12 @@ import * as Select from '$lib/components/ui/select';
 			localStorage.setItem('timeline-sort-direction', sortDirection);
 		}
 	});
+
+	$effect(() => {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('timeline-author-filter', authorFilter);
+		}
+	});
 	let nowSegment = $state<NowSegment>('todo');
 	let updatingEventId = $state<string | null>(null);
 	let actionBusy = $state(false);
@@ -132,7 +144,12 @@ import * as Select from '$lib/components/ui/select';
 	let internalSelectedItemId = $state<string | null>(null);
 	let filtersPopoverOpen = $state(false);
 
-	const filtersActive = $derived(statusFilter !== 'open' || rangeFilter !== 'relevant' || kindFilter.length > 0);
+	const filtersActive = $derived(
+		statusFilter !== 'open' ||
+			rangeFilter !== 'relevant' ||
+			kindFilter.length > 0 ||
+			authorFilter !== 'user'
+	);
 
 	const selectionControlled = $derived(onSelectItem !== undefined);
 	const activeSelectedItemId = $derived(
@@ -224,7 +241,8 @@ import * as Select from '$lib/components/ui/select';
 				status: 'all',
 				includeTasks: 'true',
 				orderBy,
-				sortDirection
+				sortDirection,
+				author: authorFilter
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			if (append && phase.kind === 'ready' && phase.nextCursor) {
@@ -299,7 +317,8 @@ import * as Select from '$lib/components/ui/select';
 				status: 'open',
 				includeTasks: 'true',
 				orderBy,
-				sortDirection
+				sortDirection,
+				author: authorFilter
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			const res = await fetch(`/api/temporal-events?${params}`);
@@ -326,7 +345,8 @@ import * as Select from '$lib/components/ui/select';
 			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'all',
-				includeTasks: 'true'
+				includeTasks: 'true',
+				author: authorFilter
 			});
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			const res = await fetch(`/api/temporal-events?${params}`);
@@ -569,6 +589,11 @@ import * as Select from '$lib/components/ui/select';
 		onFilterChange();
 	}
 
+	function setAuthorFilter(next: TemporalAuthorFilter) {
+		authorFilter = next;
+		onFilterChange();
+	}
+
 	const showFiltersInHeader = $derived(true);
 
 	function refreshAll() {
@@ -595,6 +620,27 @@ import * as Select from '$lib/components/ui/select';
 	function toggleProjectsMode() {
 		projectsMode = !projectsMode;
 		filtersPopoverOpen = false;
+	}
+
+	/**
+	 * Called when a task is updated in projects mode.
+	 * If project info is provided, updates local state directly.
+	 * Otherwise, the projects view manages its own refresh.
+	 */
+	function onProjectTaskUpdated(
+		thoughtId?: string,
+		projectEntityId?: string,
+		projectLabel?: string
+	) {
+		if (!thoughtId || !projectEntityId || !projectLabel) return;
+		if (phase.kind !== 'ready') return;
+		phase = {
+			kind: 'ready',
+			items: phase.items.map((item) =>
+				item.thoughtId === thoughtId ? { ...item, projectEntityId, projectLabel } : item
+			),
+			nextCursor: phase.nextCursor
+		};
 	}
 
 	function setNowSegment(segment: NowSegment) {
@@ -667,6 +713,7 @@ import * as Select from '$lib/components/ui/select';
 			{statusFilter}
 			{rangeFilter}
 			{kindFilter}
+			{authorFilter}
 			onStatusFilterChange={setStatusFilter}
 			onRangeFilterChange={(next) => {
 				rangeFilter = next;
@@ -674,6 +721,7 @@ import * as Select from '$lib/components/ui/select';
 			}}
 			onToggleKind={toggleKind}
 			onClearKinds={clearKindFilter}
+			onAuthorFilterChange={setAuthorFilter}
 		/>
 	{/snippet}
 
@@ -796,7 +844,7 @@ import * as Select from '$lib/components/ui/select';
 				<TemporalEventsProjectsView
 					onGoToTask={goToTaskFromProjects}
 					allTasks={todayTodoSourceItems}
-					onTaskUpdated={() => void reloadTimelineData({ silent: true })}
+					onTaskUpdated={onProjectTaskUpdated}
 					{orderBy}
 					{sortDirection}
 				/>

@@ -76,7 +76,37 @@ describe('GET /api/temporal-events', () => {
 		expect(body.items[0]?.thoughtText).toContain('inline-skaten');
 		expect(body.items[0]?.lifecycleStatus).toBe('open');
 		expect(listTemporalEventsForUserMock).toHaveBeenCalledWith(
-			expect.objectContaining({ userId: 'u1', range: 'relevant', status: 'open' })
+			expect.objectContaining({ userId: 'u1', range: 'relevant', status: 'open', author: 'user' })
+		);
+	});
+
+	it('defaults author to user when query param is absent', async () => {
+		listTemporalEventsForUserMock.mockResolvedValueOnce({ items: [], nextCursor: null });
+
+		const res = await GET(mockEvent({ id: 'u1' }));
+		expect(res.status).toBe(200);
+		expect(listTemporalEventsForUserMock).toHaveBeenCalledWith(
+			expect.objectContaining({ author: 'user' })
+		);
+	});
+
+	it('passes author agent when requested', async () => {
+		listTemporalEventsForUserMock.mockResolvedValueOnce({ items: [], nextCursor: null });
+
+		const res = await GET(mockEvent({ id: 'u1' }, '?author=agent'));
+		expect(res.status).toBe(200);
+		expect(listTemporalEventsForUserMock).toHaveBeenCalledWith(
+			expect.objectContaining({ author: 'agent' })
+		);
+	});
+
+	it('omits author filter when author=all', async () => {
+		listTemporalEventsForUserMock.mockResolvedValueOnce({ items: [], nextCursor: null });
+
+		const res = await GET(mockEvent({ id: 'u1' }, '?author=all'));
+		expect(res.status).toBe(200);
+		expect(listTemporalEventsForUserMock).toHaveBeenCalledWith(
+			expect.objectContaining({ author: undefined })
 		);
 	});
 });

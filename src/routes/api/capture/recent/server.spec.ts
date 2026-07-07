@@ -35,11 +35,15 @@ describe('GET /api/capture/recent', () => {
 			recentThoughts: [{ id: 't1', normalizedText: 'hello', category: 'observation', memoryType: null, createdAt: '2026-06-06T18:00:00.000Z' }],
 			recentThoughtDetails: [{ id: 't1', enrichmentComplete: false, queueStatus: 'pending' }]
 		});
-		const res = await GET({ locals: { user: { id: 'u1' } } } as never);
+		const mockUrl = 'http://localhost/api/capture/recent';
+		const res = await GET({
+			locals: { user: { id: 'u1' } },
+			request: new Request(mockUrl)
+		} as never);
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.recentThoughts).toHaveLength(1);
 		expect(syncAndScheduleCaptureEnrichQueueMock).toHaveBeenCalledWith('u1');
-		expect(loadRecentCaptureThoughtsMock).toHaveBeenCalledWith('u1');
+		expect(loadRecentCaptureThoughtsMock).toHaveBeenCalledWith('u1', 8, {});
 	});
 });

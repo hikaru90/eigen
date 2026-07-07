@@ -41,6 +41,8 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		completedAt: null,
 		lifecycleUpdatedAt: null,
 		createdAt: '2026-06-08T00:00:00.000Z',
+		author: 'user',
+		authorLabel: null,
 		...overrides
 	};
 }

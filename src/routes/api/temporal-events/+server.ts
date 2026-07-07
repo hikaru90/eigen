@@ -5,6 +5,8 @@ import {
 	type TemporalEventListItem
 } from '$lib/server/memory/temporal-event-list';
 
+import type { MemoryAuthor } from '$lib/server/db/brain.schema';
+
 export type { TemporalEventListItem };
 
 export type TemporalEventsResponse = {
@@ -18,6 +20,12 @@ function parseKinds(raw: string | null): string[] | undefined {
 		.split(',')
 		.map((k) => k.trim())
 		.filter(Boolean);
+}
+
+function parseAuthor(raw: string | null): MemoryAuthor | undefined {
+	if (raw === 'all') return undefined;
+	if (raw === 'agent') return 'agent';
+	return 'user';
 }
 
 export const GET: RequestHandler = async (event) => {
@@ -42,6 +50,7 @@ export const GET: RequestHandler = async (event) => {
 		url.searchParams.get('includeOpenLoops') !== 'false';
 	const orderBy = url.searchParams.get('orderBy') as 'ingest' | 'todo' | null;
 	const sortDirection = url.searchParams.get('sortDirection') as 'asc' | 'desc' | null;
+	const author = parseAuthor(url.searchParams.get('author'));
 
 	const { items, nextCursor } = await listTemporalEventsForUser({
 		userId: user.id,
@@ -53,7 +62,8 @@ export const GET: RequestHandler = async (event) => {
 		cursorStartAt,
 		cursorId,
 		orderBy: orderBy ?? 'todo',
-		sortDirection: sortDirection ?? 'desc'
+		sortDirection: sortDirection ?? 'desc',
+		author
 	});
 
 	return json({ items, nextCursor } satisfies TemporalEventsResponse);

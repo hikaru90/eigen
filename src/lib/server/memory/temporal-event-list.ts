@@ -1,7 +1,13 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
-import type { LifecycleStatus, TemporalEnergyLevel, TemporalEventKind, TemporalPriorityQuadrant } from '$lib/server/db/brain.schema';
+import type {
+	LifecycleStatus,
+	MemoryAuthor,
+	TemporalEnergyLevel,
+	TemporalEventKind,
+	TemporalPriorityQuadrant
+} from '$lib/server/db/brain.schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { computeFocusRank } from '$lib/server/memory/compute-focus-rank';
 
@@ -49,6 +55,8 @@ export type TemporalEventListItem = {
 	completedAt: string | null;
 	lifecycleUpdatedAt: string | null;
 	createdAt: string;
+	author: MemoryAuthor;
+	authorLabel: string | null;
 };
 
 export type TemporalEventListQuery = {
@@ -62,6 +70,7 @@ export type TemporalEventListQuery = {
 	cursorId?: string | null;
 	orderBy?: 'ingest' | 'todo';
 	sortDirection?: 'asc' | 'desc';
+	author?: MemoryAuthor;
 };
 
 export function isTaskListItem(item: TemporalEventListItem): boolean {
@@ -177,7 +186,8 @@ async function listTaskThoughtsForUser(
 	userId: string,
 	status: TemporalEventListQuery['status'],
 	orderBy: TemporalEventListQuery['orderBy'] = 'ingest',
-	sortDirection: TemporalEventListQuery['sortDirection'] = 'desc'
+	sortDirection: TemporalEventListQuery['sortDirection'] = 'desc',
+	author?: MemoryAuthor
 ): Promise<TemporalEventListItem[]> {
 	const eventRows = await getDb()
 		.select({ thoughtId: temporalEvent.thoughtId })
@@ -186,6 +196,9 @@ async function listTaskThoughtsForUser(
 	const eventThoughtIds = eventRows.map((r) => r.thoughtId);
 
 	const conditions: SQL[] = [eq(thought.userId, userId), eq(thought.category, 'task')];
+	if (author) {
+		conditions.push(eq(thought.author, author));
+	}
 	if (status === 'open') {
 		conditions.push(eq(thought.lifecycleStatus, 'open'));
 	}
@@ -206,7 +219,9 @@ async function listTaskThoughtsForUser(
 			lifecycleUpdatedAt: thought.lifecycleUpdatedAt,
 			lifecycleCompletedAt: thought.lifecycleCompletedAt,
 			createdAt: thought.createdAt,
-			updatedAt: thought.updatedAt
+			updatedAt: thought.updatedAt,
+			author: thought.author,
+			authorLabel: thought.authorLabel
 		})
 		.from(thought)
 		.where(and(...conditions))
@@ -283,7 +298,9 @@ async function listTaskThoughtsForUser(
 			projectEntityId: null,
 			completedAt,
 			lifecycleUpdatedAt: (r.lifecycleUpdatedAt ?? r.updatedAt).toISOString(),
-			createdAt: r.createdAt.toISOString()
+			createdAt: r.createdAt.toISOString(),
+			author: r.author,
+			authorLabel: r.authorLabel
 		});
 	}
 	return items;
@@ -321,6 +338,8 @@ function mapEventRow(
 		completedAt: string | null;
 		lifecycleUpdatedAt: Date | null;
 		createdAt: Date;
+		author: MemoryAuthor;
+		authorLabel: string | null;
 	}
 ): TemporalEventListItem {
 	return {
@@ -355,7 +374,9 @@ function mapEventRow(
 		projectLabel: null,
 		completedAt: r.completedAt,
 		lifecycleUpdatedAt: r.lifecycleUpdatedAt?.toISOString() ?? null,
-		createdAt: r.createdAt.toISOString()
+		createdAt: r.createdAt.toISOString(),
+		author: r.author,
+		authorLabel: r.authorLabel
 	};
 }
 
@@ -368,6 +389,10 @@ export async function listTemporalEventsForUser(
 
 	if (query.status === 'open') {
 		conditions.push(eq(temporalEvent.lifecycleStatus, 'open'));
+	}
+
+	if (query.author) {
+		conditions.push(eq(thought.author, query.author));
 	}
 
 	const kinds = query.kinds?.filter((k) => k.trim()) as TemporalEventKind[] | undefined;
@@ -422,6 +447,8 @@ export async function listTemporalEventsForUser(
 			thoughtLifecycleStatus: thought.lifecycleStatus,
 			thoughtLifecycleCompletedAt: thought.lifecycleCompletedAt,
 			thoughtMemoryType: thought.memoryType,
+			thoughtAuthor: thought.author,
+			thoughtAuthorLabel: thought.authorLabel,
 			createdAt: temporalEvent.createdAt
 		})
 		.from(temporalEvent)
@@ -473,7 +500,9 @@ export async function listTemporalEventsForUser(
 					lifecycleCompletedAt: r.thoughtLifecycleCompletedAt,
 					metadata
 				}),
-				lifecycleUpdatedAt: r.lifecycleUpdatedAt
+				lifecycleUpdatedAt: r.lifecycleUpdatedAt,
+				author: r.thoughtAuthor,
+				authorLabel: r.thoughtAuthorLabel
 			});
 		})
 	);
@@ -489,7 +518,8 @@ export async function listTemporalEventsForUser(
 			query.userId,
 			query.status ?? 'open',
 			query.orderBy,
-			query.sortDirection
+			query.sortDirection,
+			query.author
 		);
 		merged = [...items, ...tasks];
 
@@ -556,6 +586,8 @@ export async function getTemporalEventListItemById(
 			thoughtLifecycleStatus: thought.lifecycleStatus,
 			thoughtLifecycleCompletedAt: thought.lifecycleCompletedAt,
 			thoughtMemoryType: thought.memoryType,
+			thoughtAuthor: thought.author,
+			thoughtAuthorLabel: thought.authorLabel,
 			createdAt: temporalEvent.createdAt
 		})
 		.from(temporalEvent)
@@ -597,7 +629,9 @@ export async function getTemporalEventListItemById(
 			lifecycleCompletedAt: r.thoughtLifecycleCompletedAt,
 			metadata
 		}),
-		lifecycleUpdatedAt: r.lifecycleUpdatedAt
+		lifecycleUpdatedAt: r.lifecycleUpdatedAt,
+		author: r.thoughtAuthor,
+		authorLabel: r.thoughtAuthorLabel
 	});
 }
 

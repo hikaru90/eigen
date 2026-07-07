@@ -139,6 +139,11 @@ import { logErrorToServer } from '$lib/client-log';
 	});
 	let recentThoughts = $state<CaptureRecentThoughtSnippet[]>([]);
 	let thoughtDetails = $state<Record<string, CaptureSubmitResult>>({});
+	let recentFilter = $state<{ author?: 'user' | 'agent'; category?: string; memoryType?: string }>({});
+	let hasAgentCaptures = $derived(
+		Object.values(thoughtDetails).some((d) => d.author === 'agent') ||
+		data.recentThoughtDetails.some((d) => d.author === 'agent')
+	);
 
 	$effect(() => {
 		recentThoughts = data.recentThoughts;
@@ -146,6 +151,33 @@ import { logErrorToServer } from '$lib/client-log';
 			data.recentThoughtDetails.map((thought) => [thought.id, thought])
 		);
 	});
+
+	async function handleRecentFilterChange(filter: {
+		author?: 'user' | 'agent';
+		category?: string;
+		memoryType?: string;
+	}) {
+		recentFilter = filter;
+		try {
+			const params = new URLSearchParams();
+			params.set('limit', String(RECENT_THOUGHTS_LIMIT));
+			if (filter.author) params.set('author', filter.author);
+			if (filter.category) params.set('category', filter.category);
+			if (filter.memoryType) params.set('memoryType', filter.memoryType);
+			const res = await fetch(`/api/capture/recent?${params.toString()}`);
+			if (!res.ok) return;
+			const payload = (await res.json()) as {
+				recentThoughts: CaptureRecentThoughtSnippet[];
+				recentThoughtDetails: CaptureSubmitResult[];
+			};
+			recentThoughts = payload.recentThoughts;
+			thoughtDetails = Object.fromEntries(
+				payload.recentThoughtDetails.map((thought) => [thought.id, thought])
+			);
+		} catch {
+			// Transient errors — poll will retry.
+		}
+	}
 	let expandedThoughtId = $state<string | null>(null);
 	let editingThoughtId = $state<string | null>(null);
 	let err = $state<string | null>(null);
@@ -233,6 +265,7 @@ import { logErrorToServer } from '$lib/client-log';
 		try {
 			const merged = await fetchRecentCaptureMerge({
 				limit: RECENT_THOUGHTS_LIMIT,
+				filter: recentFilter,
 				getState: () => ({ snippets: recentThoughts, details: thoughtDetails })
 			});
 			applyRecentCaptureSync(merged);
@@ -435,6 +468,7 @@ import { logErrorToServer } from '$lib/client-log';
 
 		const cancelRecentSync = pollCaptureRecentSync({
 			limit: RECENT_THOUGHTS_LIMIT,
+			getFilter: () => recentFilter,
 			getState: () => ({ snippets: recentThoughts, details: thoughtDetails }),
 			onSync: applyRecentCaptureSync
 		});
@@ -707,6 +741,8 @@ import { logErrorToServer } from '$lib/client-log';
 			}}
 			onSubmitEdit={submitEditRequest}
 			onCancelEdit={() => editAbortController?.abort()}
+			onFilterChange={handleRecentFilterChange}
+			hasAgentCaptures={hasAgentCaptures}
 			/>
 		</div>
 

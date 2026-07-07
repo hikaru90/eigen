@@ -31,7 +31,8 @@ export const load: PageServerLoad = async (event) => {
 			status: 'all',
 			includeTasks: true,
 			orderBy: 'todo',
-			sortDirection: 'desc'
+			sortDirection: 'desc',
+			author: 'user'
 		})
 	]);
 

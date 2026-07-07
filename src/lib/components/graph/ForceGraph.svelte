@@ -363,7 +363,7 @@
 					const inner = outer.select<SVGGElement>('.fg-node-inner');
 					const pop = at > 0 ? 0.08 + rt * 0.92 : 1;
 					const overshoot = at > 0 && rawT < 1 ? 1 + Math.sin(rawT * Math.PI) * 0.12 : 1;
-					const revealFlash = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) ** 0.45 : 0;
+					const revealFlash = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) ** 0.45 * 0.45 : 0;
 					inner
 						.attr('opacity', at > 0 ? rt : 1)
 						.attr('transform', `scale(${pop * overshoot})`);
@@ -377,7 +377,7 @@
 						.select('.fg-node-core')
 						.attr('fill', revealFlash > 0.02 ? '#28F97F' : nodeFill(d));
 
-					const ringOpacity = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) * 0.95 : 0;
+					const ringOpacity = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) * 0.55 : 0;
 					inner
 						.select('.fg-node-reveal-ring')
 						.attr('opacity', ringOpacity)

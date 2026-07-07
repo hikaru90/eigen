@@ -17,7 +17,11 @@
 	type Props = {
 		onGoToTask: (itemId: string) => void;
 		allTasks: TemporalEventListItem[];
-		onTaskUpdated?: () => void;
+		onTaskUpdated?: (
+			thoughtId?: string,
+			projectEntityId?: string,
+			projectLabel?: string
+		) => void;
 		orderBy?: 'ingest' | 'todo';
 		sortDirection?: 'asc' | 'desc';
 	};
@@ -209,10 +213,10 @@
 		assignProjectOpen = true;
 	}
 
-	function onProjectAssigned() {
+	function onProjectAssigned(payload: { thoughtId: string; projectEntityId: string; projectLabel: string }) {
 		assignProjectOpen = false;
 		assignProjectItem = null;
-		onTaskUpdated?.();
+		onTaskUpdated?.(payload.thoughtId, payload.projectEntityId, payload.projectLabel);
 	}
 
 	function openAssignAgent(task: TemporalEventListItem) {

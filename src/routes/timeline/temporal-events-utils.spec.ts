@@ -63,6 +63,8 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		completedAt: null,
 		lifecycleUpdatedAt: null,
 		createdAt: '2026-05-19T00:00:00.000Z',
+		author: 'user',
+		authorLabel: null,
 		...overrides
 	};
 }
@@ -587,5 +589,69 @@ describe('splitTodayEngageSections', () => {
 		const { focus, later, lowEnergy } = splitTodayEngageSections(items, 'UTC', undefined, now);
 		expect(lowEnergy.map((i) => i.id)).toEqual(['light']);
 		expect([...focus, ...later].map((i) => i.id)).not.toContain('light');
+	});
+});
+
+describe('project grouping in today view', () => {
+	it('separates items with project labels from those without', () => {
+		const now = new Date('2026-06-08T12:00:00.000Z');
+		const items = [
+			item({ id: 'p1', projectLabel: 'Eigen Mesh', startAt: '2026-06-08T14:00:00.000Z' }),
+			item({ id: 'p2', projectLabel: 'Eigen Mesh', startAt: '2026-06-08T15:00:00.000Z' }),
+			item({ id: 'p3', projectLabel: 'LoRaWAN', startAt: '2026-06-08T16:00:00.000Z' }),
+			item({ id: 'u1', projectLabel: null, startAt: '2026-06-08T17:00:00.000Z' }),
+			item({ id: 'u2', projectLabel: null, startAt: '2026-06-08T18:00:00.000Z' })
+		];
+
+		const withProject = items.filter((i) => i.projectLabel && i.projectLabel.trim());
+		const withoutProject = items.filter((i) => !i.projectLabel || !i.projectLabel.trim());
+
+		const groups = groupByProject(withProject, 'General', 'UTC', now);
+		const { focus, later } = splitTodayEngageSections(withoutProject, 'UTC', undefined, now);
+
+		// Project groups: Eigen Mesh (2 items), LoRaWAN (1 item)
+		expect(groups).toHaveLength(2);
+		expect(groups[0]?.projectLabel).toBe('Eigen Mesh');
+		expect(groups[0]?.items).toHaveLength(2);
+		expect(groups[1]?.projectLabel).toBe('LoRaWAN');
+		expect(groups[1]?.items).toHaveLength(1);
+
+		// Ungrouped items go to engage sections
+		const ungroupedCount = focus.length + later.length;
+		expect(ungroupedCount).toBe(2);
+	});
+
+	it('puts all items in engage sections when none have project labels', () => {
+		const now = new Date('2026-06-08T12:00:00.000Z');
+		const items = [
+			item({ id: 'a', projectLabel: null, startAt: '2026-06-08T14:00:00.000Z' }),
+			item({ id: 'b', projectLabel: null, startAt: '2026-06-08T15:00:00.000Z' })
+		];
+
+		const withProject = items.filter((i) => i.projectLabel && i.projectLabel.trim());
+		const withoutProject = items.filter((i) => !i.projectLabel || !i.projectLabel.trim());
+
+		const groups = groupByProject(withProject, 'General', 'UTC', now);
+		const { focus, later } = splitTodayEngageSections(withoutProject, 'UTC', undefined, now);
+
+		expect(groups).toHaveLength(0);
+		expect(focus.length + later.length).toBe(2);
+	});
+
+	it('puts all items in project groups when all have project labels', () => {
+		const now = new Date('2026-06-08T12:00:00.000Z');
+		const items = [
+			item({ id: 'p1', projectLabel: 'Project A', startAt: '2026-06-08T14:00:00.000Z' }),
+			item({ id: 'p2', projectLabel: 'Project B', startAt: '2026-06-08T15:00:00.000Z' })
+		];
+
+		const withProject = items.filter((i) => i.projectLabel && i.projectLabel.trim());
+		const withoutProject = items.filter((i) => !i.projectLabel || !i.projectLabel.trim());
+
+		const groups = groupByProject(withProject, 'General', 'UTC', now);
+		const { focus, later } = splitTodayEngageSections(withoutProject, 'UTC', undefined, now);
+
+		expect(groups).toHaveLength(2);
+		expect(focus.length + later.length).toBe(0);
 	});
 });

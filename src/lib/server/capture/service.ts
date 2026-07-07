@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, lte, lt, or, sql } from 'drizzle-orm';
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases';
 import { captureSession, temporalEvent, thought, thoughtEntity, thoughtRelation } from '$lib/server/db/schema';
 import { getDb } from '$lib/server/db';
@@ -838,12 +838,36 @@ export async function listThoughts(
 		fields?: 'snippet' | 'full';
 		cursor?: { createdAt: Date; id: string };
 		authorFilter?: MemoryAuthor;
+		categoryFilter?: string;
+		memoryTypeFilter?: string;
+		dateFrom?: Date;
+		dateTo?: Date;
 	}
 ) {
 	const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
 	const fields = options?.fields ?? 'full';
 	const cursor = options?.cursor;
 	const authorFilter = options?.authorFilter;
+	const categoryFilter = options?.categoryFilter;
+	const memoryTypeFilter = options?.memoryTypeFilter;
+	const dateFrom = options?.dateFrom;
+	const dateTo = options?.dateTo;
+
+	const conditions = [
+		eq(thought.userId, userId),
+		activeThoughtLifecycleCondition(),
+		authorFilter ? eq(thought.author, authorFilter) : undefined,
+		categoryFilter ? eq(thought.category, categoryFilter) : undefined,
+		memoryTypeFilter ? eq(thought.memoryType, memoryTypeFilter) : undefined,
+		dateFrom ? gte(thought.createdAt, dateFrom) : undefined,
+		dateTo ? lte(thought.createdAt, dateTo) : undefined,
+		cursor
+			? or(
+					lt(thought.createdAt, cursor.createdAt),
+					and(eq(thought.createdAt, cursor.createdAt), lt(thought.id, cursor.id))
+				)
+			: undefined
+	];
 
 	if (fields === 'snippet') {
 		const rows = await getDb()
@@ -859,19 +883,7 @@ export async function listThoughts(
 				createdAt: thought.createdAt
 			})
 			.from(thought)
-			.where(
-				and(
-					eq(thought.userId, userId),
-					activeThoughtLifecycleCondition(),
-					authorFilter ? eq(thought.author, authorFilter) : undefined,
-					cursor
-						? or(
-								lt(thought.createdAt, cursor.createdAt),
-								and(eq(thought.createdAt, cursor.createdAt), lt(thought.id, cursor.id))
-							)
-						: undefined
-				)
-			)
+			.where(and(...conditions))
 			.orderBy(desc(thought.createdAt), desc(thought.id))
 			.limit(limit);
 		return Promise.all(rows.map((row) => decryptThoughtSnippetRow(userId, row)));
@@ -896,19 +908,7 @@ export async function listThoughts(
 			updatedAt: thought.updatedAt
 		})
 		.from(thought)
-		.where(
-			and(
-				eq(thought.userId, userId),
-				activeThoughtLifecycleCondition(),
-				authorFilter ? eq(thought.author, authorFilter) : undefined,
-				cursor
-					? or(
-							lt(thought.createdAt, cursor.createdAt),
-							and(eq(thought.createdAt, cursor.createdAt), lt(thought.id, cursor.id))
-						)
-					: undefined
-			)
-		)
+		.where(and(...conditions))
 		.orderBy(desc(thought.createdAt), desc(thought.id))
 		.limit(limit);
 	return Promise.all(rows.map((row) => decryptThoughtRow(userId, row)));

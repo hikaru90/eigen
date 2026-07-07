@@ -8,6 +8,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
+	import * as Select from '$lib/components/ui/select';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -17,7 +18,6 @@
 	import {
 		captureThoughtAuthorship,
 		isAgentAuthoredCapture,
-		matchesCaptureAuthorFilter,
 		recentListHasAgentCaptures,
 		recentThoughtPrimaryLabel,
 		recentThoughtSecondaryLabel,
@@ -53,7 +53,9 @@
 		onNoteUpdated,
 		onEditRequestChange,
 		onSubmitEdit,
-		onCancelEdit
+		onCancelEdit,
+		onFilterChange,
+		hasAgentCaptures
 	}: {
 		thoughts: CaptureRecentThoughtSnippet[];
 		thoughtDetails: Record<string, CaptureSubmitResult>;
@@ -78,6 +80,8 @@
 		onEditRequestChange: (value: string) => void;
 		onSubmitEdit: () => void;
 		onCancelEdit: () => void;
+		onFilterChange?: (filter: { author?: 'user' | 'agent'; category?: string; memoryType?: string }) => void;
+		hasAgentCaptures?: boolean;
 	} = $props();
 
 	function formatWhen(iso: string): string {
@@ -142,14 +146,33 @@
 		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
 
 	let authorFilter = $state<CaptureAuthorFilter>('all');
+	let categoryFilter = $state<string>('all');
+	let memoryTypeFilter = $state<string>('all');
 
-	const showAuthorFilter = $derived(recentListHasAgentCaptures(thoughts, thoughtDetails));
-
-	const filteredThoughts = $derived(
-		thoughts.filter((snippet) =>
-			matchesCaptureAuthorFilter(authorFilter, thoughtDetails[snippet.id], snippet)
-		)
+	const showAuthorFilter = $derived(
+		hasAgentCaptures ?? recentListHasAgentCaptures(thoughts, thoughtDetails)
 	);
+
+	const categories = $derived(
+		[...new Set(thoughts.map((t) => t.category).filter(Boolean))].sort()
+	);
+
+	const memoryTypes = $derived(
+		[...new Set(thoughts.map((t) => t.memoryType).filter((v): v is string => v !== null))].sort()
+	);
+
+	function handleFilterChange() {
+		const filter: { author?: 'user' | 'agent'; category?: string; memoryType?: string } = {};
+		if (authorFilter === 'human') filter.author = 'user';
+		else if (authorFilter === 'agent') filter.author = 'agent';
+		if (categoryFilter !== 'all') filter.category = categoryFilter;
+		if (memoryTypeFilter !== 'all') filter.memoryType = memoryTypeFilter;
+		onFilterChange?.(filter);
+	}
+
+	// Server handles filtering — no client-side filter needed.
+	// When filter changes, parent refetches from server with filter params.
+	const filteredThoughts = thoughts;
 
 	function recentAuthorFilterClass(active: boolean): string {
 		return `inline-flex items-center gap-1 rounded-none px-0.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
@@ -165,37 +188,82 @@
 		>
 			<div class="flex flex-wrap items-center justify-between gap-2">
 				<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</h2>
-				{#if showAuthorFilter}
-					<div
-						class="inline-flex items-center gap-2"
-						role="group"
-						aria-label="Filter recent captures by author"
-					>
-						<button
-							type="button"
-							class={recentAuthorFilterClass(authorFilter === 'all')}
-							onclick={() => (authorFilter = 'all')}
+				<div class="flex flex-wrap items-center gap-2">
+					{#if showAuthorFilter}
+						<div
+							class="inline-flex items-center gap-2"
+							role="group"
+							aria-label="Filter recent captures by author"
 						>
-							All
-						</button>
-						<button
-							type="button"
-							class={recentAuthorFilterClass(authorFilter === 'human')}
-							onclick={() => (authorFilter = 'human')}
+							<button
+								type="button"
+								class={recentAuthorFilterClass(authorFilter === 'all')}
+								onclick={() => {
+								authorFilter = 'all';
+								handleFilterChange();
+							}}
+							>
+								All
+							</button>
+							<button
+								type="button"
+								class={recentAuthorFilterClass(authorFilter === 'human')}
+								onclick={() => {
+								authorFilter = 'human';
+								handleFilterChange();
+							}}
+							>
+								<AuthorLayerIcon kind="user" />
+								You
+							</button>
+							<button
+								type="button"
+								class={recentAuthorFilterClass(authorFilter === 'agent')}
+								onclick={() => {
+								authorFilter = 'agent';
+								handleFilterChange();
+							}}
+							>
+								<AuthorLayerIcon kind="agent" />
+								Agent
+							</button>
+						</div>
+					{/if}
+					{#if categories.length > 1}
+						<Select.Root
+							type="single"
+							bind:value={categoryFilter}
+							onValueChange={() => handleFilterChange()}
 						>
-							<AuthorLayerIcon kind="user" />
-							You
-						</button>
-						<button
-							type="button"
-							class={recentAuthorFilterClass(authorFilter === 'agent')}
-							onclick={() => (authorFilter = 'agent')}
+							<Select.Trigger class="h-auto w-auto gap-1 rounded-none px-2 py-1 text-xs">
+								Category
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="all">All categories</Select.Item>
+								{#each categories as cat}
+									<Select.Item value={cat}>{cat}</Select.Item>
+								{/each}
+							</Select.Content>
+						</Select.Root>
+					{/if}
+					{#if memoryTypes.length > 1}
+						<Select.Root
+							type="single"
+							bind:value={memoryTypeFilter}
+							onValueChange={() => handleFilterChange()}
 						>
-							<AuthorLayerIcon kind="agent" />
-							Agent
-						</button>
-					</div>
-				{/if}
+							<Select.Trigger class="h-auto w-auto gap-1 rounded-none px-2 py-1 text-xs">
+								Type
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="all">All types</Select.Item>
+								{#each memoryTypes as mt}
+									<Select.Item value={mt}>{mt}</Select.Item>
+								{/each}
+							</Select.Content>
+						</Select.Root>
+					{/if}
+				</div>
 			</div>
 		</div>
 		<div class="relative min-h-0 flex-1">

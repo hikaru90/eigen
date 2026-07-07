@@ -5,6 +5,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import {
 		KANBAN_KIND_ORDER,
+		type TemporalAuthorFilter,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter
 	} from './temporal-events-utils';
@@ -21,11 +22,13 @@
 		statusFilter: TemporalStatusFilter;
 		rangeFilter: TemporalRangeFilter;
 		kindFilter: string[];
+		authorFilter: TemporalAuthorFilter;
 		onOpenChange?: (open: boolean) => void;
 		onStatusFilterChange: (next: TemporalStatusFilter) => void;
 		onRangeFilterChange: (next: TemporalRangeFilter) => void;
 		onToggleKind: (kind: string) => void;
 		onClearKinds: () => void;
+		onAuthorFilterChange: (next: TemporalAuthorFilter) => void;
 	};
 
 	let {
@@ -34,12 +37,20 @@
 		statusFilter,
 		rangeFilter,
 		kindFilter,
+		authorFilter,
 		onOpenChange,
 		onStatusFilterChange,
 		onRangeFilterChange,
 		onToggleKind,
-		onClearKinds
+		onClearKinds,
+		onAuthorFilterChange
 	}: Props = $props();
+
+	function authorFilterClass(active: boolean): string {
+		return `inline-flex items-center gap-1 rounded-none px-0.5 py-0.5 font-mono text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
+			active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground'
+		}`;
+	}
 </script>
 
 <Popover.Root bind:open {onOpenChange}>
@@ -74,6 +85,32 @@
 			/>
 			{m.graph_temporal_status_show_completed()}
 		</label>
+		<div class="space-y-1.5">
+			<Label class="text-xs">Author</Label>
+			<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Filter timeline by author">
+				<button
+					type="button"
+					class={authorFilterClass(authorFilter === 'user')}
+					onclick={() => onAuthorFilterChange('user')}
+				>
+					Human
+				</button>
+				<button
+					type="button"
+					class={authorFilterClass(authorFilter === 'agent')}
+					onclick={() => onAuthorFilterChange('agent')}
+				>
+					Agent
+				</button>
+				<button
+					type="button"
+					class={authorFilterClass(authorFilter === 'all')}
+					onclick={() => onAuthorFilterChange('all')}
+				>
+					All
+				</button>
+			</div>
+		</div>
 		<div class="space-y-1.5">
 			<Label class="text-xs">{m.graph_timeline_filters_range()}</Label>
 			<Select.Root

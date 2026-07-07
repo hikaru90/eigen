@@ -8,8 +8,21 @@ export const CAPTURE_RECENT_SYNC_POLL_MS = 1500;
 
 export type RecentCaptureMergeResult = ReturnType<typeof mergeRecentCaptureFromServer>;
 
-export async function fetchRecentCaptureSyncPayload(): Promise<RecentCaptureSyncPayload> {
-	const res = await fetch('/api/capture/recent', { cache: 'no-store' });
+export type RecentCaptureSyncFilter = {
+	author?: 'user' | 'agent';
+	category?: string;
+	memoryType?: string;
+};
+
+export async function fetchRecentCaptureSyncPayload(
+	filter?: RecentCaptureSyncFilter
+): Promise<RecentCaptureSyncPayload> {
+	const params = new URLSearchParams();
+	if (filter?.author) params.set('author', filter.author);
+	if (filter?.category) params.set('category', filter.category);
+	if (filter?.memoryType) params.set('memoryType', filter.memoryType);
+	const url = params.toString() ? `/api/capture/recent?${params.toString()}` : '/api/capture/recent';
+	const res = await fetch(url, { cache: 'no-store' });
 	if (!res.ok) {
 		const text = await res.text();
 		throw new Error(text || `Failed to load recent captures (${res.status})`);
@@ -20,12 +33,13 @@ export async function fetchRecentCaptureSyncPayload(): Promise<RecentCaptureSync
 /** One-shot server refresh for the capture page after queue completion. */
 export async function fetchRecentCaptureMerge(input: {
 	limit: number;
+	filter?: RecentCaptureSyncFilter;
 	getState: () => {
 		snippets: CaptureRecentThoughtSnippet[];
 		details: Record<string, CaptureSubmitResult>;
 	};
 }): Promise<RecentCaptureMergeResult> {
-	const payload = await fetchRecentCaptureSyncPayload();
+	const payload = await fetchRecentCaptureSyncPayload(input.filter);
 	const { snippets, details } = input.getState();
 	return mergeRecentCaptureFromServer(snippets, details, payload, input.limit);
 }
@@ -36,6 +50,7 @@ export async function fetchRecentCaptureMerge(input: {
  */
 export function pollCaptureRecentSync(input: {
 	limit: number;
+	getFilter?: () => RecentCaptureSyncFilter;
 	getState: () => {
 		snippets: CaptureRecentThoughtSnippet[];
 		details: Record<string, CaptureSubmitResult>;
@@ -54,7 +69,8 @@ export function pollCaptureRecentSync(input: {
 	const tick = async () => {
 		if (cancelled) return;
 		try {
-			const payload = await fetchRecentCaptureSyncPayload();
+			const filter = input.getFilter?.();
+			const payload = await fetchRecentCaptureSyncPayload(filter);
 			const { snippets, details } = input.getState();
 			const merged = mergeRecentCaptureFromServer(snippets, details, payload, input.limit);
 			const detailChanged = payload.recentThoughtDetails.some((thought) => {

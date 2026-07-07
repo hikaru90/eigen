@@ -1824,7 +1824,7 @@
                     .select(".graph-node-flash-bg")
                     .transition("graph-node-flash")
                     .duration(520)
-                    .attr("opacity", 0.85)
+                    .attr("opacity", 0.4)
                     .attr("r", nodeRadius(d) + 5)
                     .transition()
                     .attr("opacity", 0);
@@ -1832,7 +1832,7 @@
                     .select(".graph-node-reveal-ring")
                     .transition("graph-node-ring")
                     .duration(520)
-                    .attr("opacity", 0.95)
+                    .attr("opacity", 0.6)
                     .attr("r", nodeRadius(d) + 24)
                     .transition()
                     .attr("opacity", 0);

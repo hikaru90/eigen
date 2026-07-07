@@ -206,6 +206,7 @@ export function formatCreatedDate(item: TemporalEventListItem): string {
 
 export type TemporalStatusFilter = 'open' | 'all';
 export type TemporalRangeFilter = 'relevant' | 'upcoming' | 'past' | 'all';
+export type TemporalAuthorFilter = 'user' | 'agent' | 'all';
 
 export const AGENDA_SECTION_ORDER = [
 	'today',
