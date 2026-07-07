@@ -1,10 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, projectProfile } from '$lib/server/db/schema';
+import { canonicalEntity } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 import {
-	demoteProjectProfile,
+	demoteProject,
 	loadHubJudgmentContext
 } from '$lib/server/memory/judge-gtd-project';
 import { countOpenTasksForProjectEntity } from '$lib/server/memory/project-eligibility';
@@ -153,18 +153,17 @@ export function parseReconcilePayload(raw: unknown, allowedEntityIds: Set<string
 }
 
 export async function reconcileUserProjects(userId: string): Promise<ReconcileUserProjectsResult> {
-	// Only reconcile capture/grounding projects — manual projects are user-declared and must never be altered
 	const profileRows = await getDb()
 		.select({
-			entityId: projectProfile.projectEntityId,
+			entityId: canonicalEntity.id,
 			label: canonicalEntity.label
 		})
-		.from(projectProfile)
-		.innerJoin(canonicalEntity, eq(canonicalEntity.id, projectProfile.projectEntityId))
+		.from(canonicalEntity)
 		.where(
 			and(
-				eq(projectProfile.userId, userId),
-				eq(projectProfile.source, 'capture')
+				eq(canonicalEntity.userId, userId),
+				isNotNull(canonicalEntity.projectStatus),
+				eq(canonicalEntity.projectSource, 'capture')
 			)
 		);
 
@@ -221,13 +220,19 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
 
 	for (const entityId of demoteEntityIds) {
 		const [stillExists] = await getDb()
-			.select({ projectEntityId: projectProfile.projectEntityId })
-			.from(projectProfile)
-			.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, entityId)))
+			.select({ id: canonicalEntity.id })
+			.from(canonicalEntity)
+			.where(
+				and(
+					eq(canonicalEntity.userId, userId),
+					eq(canonicalEntity.id, entityId),
+					isNotNull(canonicalEntity.projectStatus)
+				)
+			)
 			.limit(1);
 		if (!stillExists) continue;
-		await demoteProjectProfile(userId, entityId);
-		demoted += 1;
+		const didDemote = await demoteProject(userId, entityId);
+		if (didDemote) demoted += 1;
 	}
 
 	return { merged, demoted };

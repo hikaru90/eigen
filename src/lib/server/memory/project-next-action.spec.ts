@@ -26,14 +26,18 @@ function makeLimitChain(rows: unknown[]) {
 describe('project-next-action', () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it('designateNextAction links thought to GTD project profile', async () => {
+	it('designateNextAction links thought to GTD project entity', async () => {
+		const updateWhereMock = vi.fn(async () => undefined);
 		getDbMock.mockReturnValue({
-			select: vi.fn().mockReturnValue(makeLimitChain([{ projectEntityId: 'project-1' }])),
+			select: vi.fn().mockReturnValue(makeLimitChain([{ id: 'project-1' }])),
 			insert: vi.fn(() => ({
 				values: vi.fn(() => ({
 					onConflictDoNothing: vi.fn(async () => undefined),
 					onConflictDoUpdate: vi.fn(async () => undefined)
 				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({ where: updateWhereMock }))
 			}))
 		});
 
@@ -43,9 +47,10 @@ describe('project-next-action', () => {
 			thoughtId: 'thought-1',
 			entityId: 'project-1'
 		});
+		expect(updateWhereMock).toHaveBeenCalled();
 	});
 
-	it('clearNextActionIfCompleted clears matching profile row', async () => {
+	it('clearNextActionIfCompleted clears matching entity row', async () => {
 		const whereMock = vi.fn(async () => undefined);
 		getDbMock.mockReturnValue({
 			update: vi.fn(() => ({

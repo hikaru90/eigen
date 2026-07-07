@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, projectProfile, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
+import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema';
 import type { LifecycleStatus, TemporalEnergyLevel, TemporalEventKind, TemporalPriorityQuadrant } from '$lib/server/db/brain.schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { computeFocusRank } from '$lib/server/memory/compute-focus-rank';
@@ -45,6 +45,7 @@ export type TemporalEventListItem = {
 	thoughtStatus: LifecycleStatus;
 	memoryType: string | null;
 	projectLabel: string | null;
+	projectEntityId: string | null;
 	completedAt: string | null;
 	lifecycleUpdatedAt: string | null;
 	createdAt: string;
@@ -106,45 +107,51 @@ function completedAtFromThought(input: {
 	return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
-async function loadProjectLabelsByThoughtId(
+async function loadProjectLinksByThoughtId(
 	userId: string,
 	thoughtIds: string[]
-): Promise<Map<string, string>> {
+): Promise<Map<string, { label: string; entityId: string }>> {
 	if (thoughtIds.length === 0) return new Map();
 
 	const rows = await getDb()
 		.select({
 			thoughtId: thoughtEntity.thoughtId,
+			entityId: canonicalEntity.id,
 			label: canonicalEntity.label,
 			salience: thoughtEntity.salience
 		})
 		.from(thoughtEntity)
 		.innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
-		.innerJoin(
-			projectProfile,
+		.where(
 			and(
-				eq(projectProfile.projectEntityId, canonicalEntity.id),
-				eq(projectProfile.userId, userId)
+				eq(thoughtEntity.userId, userId),
+				inArray(thoughtEntity.thoughtId, thoughtIds),
+				isNotNull(canonicalEntity.projectStatus)
 			)
 		)
-		.where(and(eq(thoughtEntity.userId, userId), inArray(thoughtEntity.thoughtId, thoughtIds)))
 		.orderBy(desc(thoughtEntity.salience));
 
-	const map = new Map<string, string>();
+	const map = new Map<string, { label: string; entityId: string }>();
 	for (const row of rows) {
-		if (!map.has(row.thoughtId)) map.set(row.thoughtId, row.label);
+		if (!map.has(row.thoughtId)) {
+			map.set(row.thoughtId, { label: row.label, entityId: row.entityId });
+		}
 	}
 	return map;
 }
 
-function attachProjectLabels(
+function attachProjectLinks(
 	items: TemporalEventListItem[],
-	labels: Map<string, string>
+	links: Map<string, { label: string; entityId: string }>
 ): TemporalEventListItem[] {
-	return items.map((item) => ({
-		...item,
-		projectLabel: labels.get(item.thoughtId) ?? null
-	}));
+	return items.map((item) => {
+		const link = links.get(item.thoughtId);
+		return {
+			...item,
+			projectLabel: link?.label ?? null,
+			projectEntityId: link?.entityId ?? null
+		};
+	});
 }
 
 function rangeCondition(range: TemporalEventListQuery['range'], now: Date): SQL | undefined {
@@ -273,6 +280,7 @@ async function listTaskThoughtsForUser(
 			thoughtStatus,
 			memoryType: r.memoryType,
 			projectLabel: null,
+			projectEntityId: null,
 			completedAt,
 			lifecycleUpdatedAt: (r.lifecycleUpdatedAt ?? r.updatedAt).toISOString(),
 			createdAt: r.createdAt.toISOString()
@@ -500,8 +508,8 @@ export async function listTemporalEventsForUser(
 	}
 
 	const thoughtIds = [...new Set(merged.map((i) => i.thoughtId))];
-	const projectLabels = await loadProjectLabelsByThoughtId(query.userId, thoughtIds);
-	return { items: attachProjectLabels(merged, projectLabels), nextCursor };
+	const projectLinks = await loadProjectLinksByThoughtId(query.userId, thoughtIds);
+	return { items: attachProjectLinks(merged, projectLinks), nextCursor };
 }
 
 export async function getTemporalEventListItemById(

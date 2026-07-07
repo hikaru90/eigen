@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	connectedAgent,
@@ -6,7 +6,6 @@ import {
 	agentTaskAssignment,
 	agentProjectBinding,
 	canonicalEntity,
-	projectProfile,
 	type AgentSubscribableEventType
 } from '$lib/server/db/schema';
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
@@ -207,14 +206,13 @@ export async function bindAgentToProject(input: {
 	const [entity] = await db
 		.select({ id: canonicalEntity.id })
 		.from(canonicalEntity)
-		.innerJoin(
-			projectProfile,
+		.where(
 			and(
-				eq(projectProfile.projectEntityId, canonicalEntity.id),
-				eq(projectProfile.userId, input.userId)
+				eq(canonicalEntity.userId, input.userId),
+				eq(canonicalEntity.id, input.projectEntityId),
+				isNotNull(canonicalEntity.projectStatus)
 			)
 		)
-		.where(and(eq(canonicalEntity.userId, input.userId), eq(canonicalEntity.id, input.projectEntityId)))
 		.limit(1);
 	if (!entity) throw new Error('Project not found or not eligible');
 
@@ -302,16 +300,10 @@ export async function replaceAgentProjectBindings(input: {
 	const eligibleEntities = await db
 		.select({ id: canonicalEntity.id })
 		.from(canonicalEntity)
-		.innerJoin(
-			projectProfile,
-			and(
-				eq(projectProfile.projectEntityId, canonicalEntity.id),
-				eq(projectProfile.userId, input.userId)
-			)
-		)
 		.where(
 			and(
 				eq(canonicalEntity.userId, input.userId),
+				isNotNull(canonicalEntity.projectStatus),
 				eq(canonicalEntity.entityType, 'project')
 			)
 		);

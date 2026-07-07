@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { canonicalEntity } from '$lib/server/db/schema';
 import { upsertEntityNode } from '$lib/server/graph/age';
+import { loadProjectEntityRow } from '$lib/server/memory/project-eligibility';
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 
 const DEFAULT_HUB_ENTITY_TYPE = 'organization';
@@ -72,6 +73,7 @@ export async function promoteHubEntityType(
 	label: string
 ): Promise<void> {
 	const canonicalKey = computeLexicalText(label);
+	const projectRow = await loadProjectEntityRow(userId, entityId);
 	await getDb()
 		.update(canonicalEntity)
 		.set({ entityType: 'project', label: label.trim() })
@@ -81,7 +83,9 @@ export async function promoteHubEntityType(
 		userId,
 		canonicalKey,
 		label: label.trim(),
-		entityType: 'project'
+		entityType: 'project',
+		projectStatus: projectRow?.projectStatus ?? null,
+		projectSource: projectRow?.projectSource ?? null
 	});
 }
 

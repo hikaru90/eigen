@@ -51,8 +51,7 @@ import { thoughtRelation } from '$lib/server/db/schema';
 import { materializeRetrievalLinksForThought, syncThoughtNeighborLinks } from '$lib/server/retrieval/materialize-links';
 import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation';
 import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment';
-import { reconcileUserProjects } from '$lib/server/memory/reconcile-user-projects';
-import { countGtdProjectProfilesForUser } from '$lib/server/memory/project-eligibility';
+import { scheduleProjectMaintenance } from '$lib/server/memory/project-maintenance';
 import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question';
 import { detectAndCreateProjectFromThought } from '$lib/server/memory/detect-project-from-thought';
 import { InsufficientCreditsError } from '$lib/server/billing/wallet';
@@ -363,8 +362,7 @@ export async function enrichThought(
 						detectAndCreateProjectFromThought({
 							userId,
 							normalizedText,
-							memoryType: thoughtRow.memoryType,
-							category: thoughtRow.category
+							thoughtId
 						})
 					);
 				} catch (err) {
@@ -382,17 +380,7 @@ export async function enrichThought(
 		}
 
 		if (projectLikeEntities.length > 0) {
-			try {
-				const projectProfileCount = await countGtdProjectProfilesForUser(userId);
-				if (projectProfileCount >= 2) {
-					await time('reconcile_projects', () => reconcileUserProjects(userId));
-				}
-			} catch (err) {
-				console.error('[enrich] project reconciliation failed', {
-					thoughtId,
-					message: err instanceof Error ? err.message : String(err)
-				});
-			}
+			scheduleProjectMaintenance(userId);
 		}
 
 		try {

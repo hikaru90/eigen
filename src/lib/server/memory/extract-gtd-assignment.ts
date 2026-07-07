@@ -5,7 +5,8 @@ import { m } from '$lib/paraglide/messages.js';
 import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
 import {
 	designateNextAction,
-	linkThoughtToProject
+	linkThoughtToProject,
+	thoughtHasManualProjectLink
 } from '$lib/server/memory/project-next-action';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 
@@ -133,6 +134,10 @@ export async function applyGtdAssignment(input: {
 		return null;
 	}
 
+	if (await thoughtHasManualProjectLink(input.userId, input.thoughtId)) {
+		return null;
+	}
+
 	const projects = await loadEligibleGtdProjects(input.userId);
 	if (projects.length === 0) return null;
 
@@ -152,7 +157,7 @@ export async function applyGtdAssignment(input: {
 		return { projectEntityId: null, projectLabel: null, isNextAction: false };
 	}
 
-	await linkThoughtToProject(input.userId, project.entityId, input.thoughtId);
+	await linkThoughtToProject(input.userId, project.entityId, input.thoughtId, 'ingest');
 
 	if (assignment.isNextAction) {
 		await designateNextAction(input.userId, project.entityId, input.thoughtId);

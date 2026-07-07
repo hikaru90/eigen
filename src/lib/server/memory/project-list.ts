@@ -1,18 +1,18 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	canonicalEntity,
-	projectProfile,
-	type ProjectProfileSource,
+	thought,
+	thoughtEntity,
+	type ProjectSource,
 	type ProjectStatus
 } from '$lib/server/db/schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
-import { thought } from '$lib/server/db/schema';
 import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project';
 import { taskItemId } from '$lib/server/memory/temporal-event-list';
 import {
 	countOpenTasksForProjectEntity,
-	ensureProjectProfile,
+	ensureProject,
 	thoughtStatusFromMetadata
 } from '$lib/server/memory/project-eligibility';
 
@@ -26,7 +26,7 @@ export type ProjectListItem = {
 	entityId: string;
 	label: string;
 	status: ProjectStatus;
-	source: ProjectProfileSource;
+	source: ProjectSource;
 	nextAction: ProjectNextAction | null;
 	openTaskCount: number;
 };
@@ -76,35 +76,27 @@ function projectSortRank(item: ProjectListItem): number {
 }
 
 export async function listProjectsForUser(userId: string): Promise<ProjectListItem[]> {
-	await auditGtdProjectProfiles(userId);
-
 	const projectRows = await getDb()
 		.select({
 			entityId: canonicalEntity.id,
 			label: canonicalEntity.label,
-			status: projectProfile.status,
-			source: projectProfile.source,
-			nextActionThoughtId: projectProfile.nextActionThoughtId
+			status: canonicalEntity.projectStatus,
+			source: canonicalEntity.projectSource,
+			nextActionThoughtId: canonicalEntity.nextActionThoughtId
 		})
-		.from(projectProfile)
-		.innerJoin(
-			canonicalEntity,
-			and(
-				eq(canonicalEntity.id, projectProfile.projectEntityId),
-				eq(canonicalEntity.userId, userId)
-			)
-		)
+		.from(canonicalEntity)
 		.where(
 			and(
-				eq(projectProfile.userId, userId),
-				inArray(projectProfile.status, ['active', 'someday'])
+				eq(canonicalEntity.userId, userId),
+				isNotNull(canonicalEntity.projectStatus),
+				inArray(canonicalEntity.projectStatus, ['active', 'someday'])
 			)
 		);
 
 	const items: ProjectListItem[] = [];
 	for (const row of projectRows) {
 		const status = row.status as ProjectStatus;
-		const source = (row.source ?? 'capture') as ProjectProfileSource;
+		const source = (row.source ?? 'capture') as ProjectSource;
 		let nextAction: ProjectNextAction | null = null;
 		if (row.nextActionThoughtId) {
 			const summary = await summarizeThought(userId, row.nextActionThoughtId);
@@ -137,13 +129,17 @@ export async function listProjectsForUser(userId: string): Promise<ProjectListIt
 /** Dismiss a project so it no longer appears in the active projects list. */
 export async function dismissProject(userId: string, entityId: string): Promise<void> {
 	await getDb()
-		.update(projectProfile)
-		.set({ status: 'dismissed' })
-		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, entityId)));
+		.update(canonicalEntity)
+		.set({ projectStatus: 'dismissed', updatedAt: new Date() })
+		.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, entityId)));
 }
 
 /** Update a project's label (name). */
-export async function updateProjectLabel(userId: string, entityId: string, newLabel: string): Promise<{ entityId: string; label: string }> {
+export async function updateProjectLabel(
+	userId: string,
+	entityId: string,
+	newLabel: string
+): Promise<{ entityId: string; label: string }> {
 	const [updated] = await getDb()
 		.update(canonicalEntity)
 		.set({ label: newLabel, updatedAt: new Date() })
@@ -160,6 +156,7 @@ export async function updateProjectLabel(userId: string, entityId: string, newLa
 export {
 	countLinkedThoughtsForProjectEntity,
 	countOpenTasksForProjectEntity,
+	ensureProject,
 	ensureProjectProfile
 } from '$lib/server/memory/project-eligibility';
 
@@ -167,32 +164,31 @@ export type EligibleGtdProject = {
 	entityId: string;
 	label: string;
 	status: ProjectStatus;
-	source: ProjectProfileSource;
+	source: ProjectSource;
 	openTaskCount: number;
 };
 
-/** Active GTD projects in the assignment catalog (LLM-audited profiles only). */
+/** Active GTD projects in the assignment catalog. */
 export async function loadEligibleGtdProjects(userId: string): Promise<EligibleGtdProject[]> {
 	const rows = await getDb()
 		.select({
 			entityId: canonicalEntity.id,
 			label: canonicalEntity.label,
-			status: projectProfile.status,
-			source: projectProfile.source
+			status: canonicalEntity.projectStatus,
+			source: canonicalEntity.projectSource
 		})
-		.from(projectProfile)
-		.innerJoin(
-			canonicalEntity,
+		.from(canonicalEntity)
+		.where(
 			and(
-				eq(canonicalEntity.id, projectProfile.projectEntityId),
-				eq(canonicalEntity.userId, userId)
+				eq(canonicalEntity.userId, userId),
+				isNotNull(canonicalEntity.projectStatus),
+				eq(canonicalEntity.projectStatus, 'active')
 			)
-		)
-		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.status, 'active')));
+		);
 
 	const out: EligibleGtdProject[] = [];
 	for (const row of rows) {
-		const source = (row.source ?? 'capture') as ProjectProfileSource;
+		const source = (row.source ?? 'capture') as ProjectSource;
 		const openTaskCount = await countOpenTasksForProjectEntity(userId, row.entityId);
 		out.push({
 			entityId: row.entityId,
@@ -209,3 +205,5 @@ export async function loadEligibleGtdProjects(userId: string): Promise<EligibleG
 export async function loadGtdProjectOptionsFromProfiles(userId: string) {
 	return loadEligibleGtdProjects(userId);
 }
+
+export { auditGtdProjectProfiles };

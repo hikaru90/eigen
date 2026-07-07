@@ -1,7 +1,7 @@
 /**
  * Apache AGE graph adapter (OpenCypher via `ag_catalog.cypher` on `AGE_GRAPH_NAME`).
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { filterGraphVizEdgesToNodes } from '$lib/graph/sanitize-viz-snapshot';
 import { getDb } from '$lib/server/db';
 import { rowsFromDbExecute } from '$lib/server/db/execute-rows';
@@ -477,6 +477,31 @@ export async function fetchGraphVisualizationSnapshot(input: {
 			});
 		}
 
+		if (nodes.length > 0) {
+			const nodeIds = nodes.map((node) => node.id);
+			const projectRows = await getDb()
+				.select({
+					id: canonicalEntity.id,
+					projectStatus: canonicalEntity.projectStatus,
+					projectSource: canonicalEntity.projectSource
+				})
+				.from(canonicalEntity)
+				.where(
+					and(
+						eq(canonicalEntity.userId, input.userId),
+						inArray(canonicalEntity.id, nodeIds),
+						isNotNull(canonicalEntity.projectStatus)
+					)
+				);
+			const projectById = new Map(projectRows.map((row) => [row.id, row]));
+			for (const node of nodes) {
+				const project = projectById.get(node.id);
+				if (!project) continue;
+				node.projectStatus = project.projectStatus;
+				node.projectSource = project.projectSource;
+			}
+		}
+
 		const edges: GraphVizEdge[] = [];
 		let edgeSeq = 0;
 		const pushEdge = (
@@ -548,6 +573,8 @@ export async function upsertEntityNode(input: {
 	canonicalKey: string;
 	label: string;
 	entityType: string;
+	projectStatus?: string | null;
+	projectSource?: string | null;
 }): Promise<void> {
 	const id = validateNonEmptyEntityId(input.id, 'id');
 	await runGraphQueryWithRetry(input.userId, 'age.upsert_entity', async () => {
@@ -559,6 +586,8 @@ export async function upsertEntityNode(input: {
 			    e.canonical_key = $canonical_key,
 			    e.label = $label,
 			    e.entity_type = $entity_type,
+			    e.project_status = $project_status,
+			    e.project_source = $project_source,
 			    e.updated_at = timestamp()
 			RETURN e.id
 			`,
@@ -567,7 +596,9 @@ export async function upsertEntityNode(input: {
 					user_id: input.userId,
 					canonical_key: input.canonicalKey,
 					label: input.label,
-					entity_type: input.entityType
+					entity_type: input.entityType,
+					project_status: input.projectStatus ?? null,
+					project_source: input.projectSource ?? null
 				},
 			'ok agtype'
 		);

@@ -17,6 +17,7 @@ vi.mock('$lib/server/memory/project-entity', () => ({
 }));
 
 vi.mock('$lib/server/memory/project-eligibility', () => ({
+	ensureProject: ensureProjectProfileMock,
 	ensureProjectProfile: ensureProjectProfileMock
 }));
 

@@ -1,19 +1,14 @@
 /**
  * Detect projects from thought content during enrichment.
- *
- * Simple approach: If the user mentions a project, it IS a project.
- * - Extract the project name from the thought
- * - Check if a similar project exists
- * - If exists: associate thought with it
- * - If not: create the project
  */
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content';
 import { m } from '$lib/paraglide/messages.js';
+import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project';
 import { loadEligibleGtdProjects } from '$lib/server/memory/project-list';
-import { upsertGraphHubEntity, promoteHubEntityType } from '$lib/server/memory/project-entity';
-import { ensureProjectProfile } from '$lib/server/memory/project-eligibility';
+import { upsertGraphHubEntity } from '$lib/server/memory/project-entity';
+import { linkThoughtToProject } from '$lib/server/memory/project-next-action';
 
 export type ProjectDetectionResult = {
 	projectLabel: string | null;
@@ -22,6 +17,7 @@ export type ProjectDetectionResult = {
 export type ProjectDetectionInput = {
 	userId: string;
 	normalizedText: string;
+	thoughtId?: string;
 };
 
 function extractChatContent(response: unknown): string {
@@ -78,9 +74,6 @@ function buildDetectionPrompt(input: ProjectDetectionInput): string {
 	].join('\n');
 }
 
-/**
- * Extract project name from thought if one is mentioned.
- */
 export async function detectProjectFromThought(
 	input: ProjectDetectionInput
 ): Promise<ProjectDetectionResult> {
@@ -100,9 +93,6 @@ export async function detectProjectFromThought(
 	return parseProjectDetectionPayload(parsed);
 }
 
-/**
- * Find an existing project with a similar name.
- */
 async function findSimilarProject(
 	userId: string,
 	projectLabel: string
@@ -110,14 +100,12 @@ async function findSimilarProject(
 	const projects = await loadEligibleGtdProjects(userId);
 	const normalized = projectLabel.toLowerCase().trim();
 
-	// Exact match
 	for (const project of projects) {
 		if (project.label.toLowerCase().trim() === normalized) {
 			return { entityId: project.entityId, label: project.label };
 		}
 	}
 
-	// Fuzzy match - check if either name contains the other
 	for (const project of projects) {
 		const existingLabel = project.label.toLowerCase().trim();
 		if (normalized.includes(existingLabel) || existingLabel.includes(normalized)) {
@@ -128,14 +116,10 @@ async function findSimilarProject(
 	return null;
 }
 
-/**
- * Detect project from thought and create/associate as needed.
- * Returns the project entity ID if found or created, null otherwise.
- */
+/** Detect project from thought and promote through the unified LLM judge path. */
 export async function detectAndCreateProjectFromThought(
 	input: ProjectDetectionInput
 ): Promise<string | null> {
-	// Extract project name from thought
 	const detection = await detectProjectFromThought(input);
 
 	if (!detection.projectLabel) {
@@ -146,25 +130,36 @@ export async function detectAndCreateProjectFromThought(
 		return null;
 	}
 
-	// Check for similar existing project
 	const existing = await findSimilarProject(input.userId, detection.projectLabel);
 	if (existing) {
-		console.log('[project-detection] Found existing project', {
-			userId: input.userId,
-			detectedLabel: detection.projectLabel,
-			existingEntityId: existing.entityId,
-			existingLabel: existing.label
-		});
+		if (input.thoughtId) {
+			await linkThoughtToProject(input.userId, existing.entityId, input.thoughtId, 'ingest');
+		}
 		return existing.entityId;
 	}
 
-	// Create new project
 	const entityId = await upsertGraphHubEntity(input.userId, detection.projectLabel, 'project');
-	await promoteHubEntityType(input.userId, entityId, detection.projectLabel);
-	await ensureProjectProfile(input.userId, entityId, 'active', 'capture');
+	const promoted = await promoteEntityToProject({
+		userId: input.userId,
+		entityId,
+		source: 'capture',
+		forceJudge: false
+	});
 
-	// Log the creation for audit
-	console.log('[project-detection] Created new project', {
+	if (!promoted) {
+		console.log('[project-detection] LLM judge rejected project promotion', {
+			userId: input.userId,
+			entityId,
+			label: detection.projectLabel
+		});
+		return null;
+	}
+
+	if (input.thoughtId) {
+		await linkThoughtToProject(input.userId, entityId, input.thoughtId, 'ingest');
+	}
+
+	console.log('[project-detection] Promoted new project', {
 		userId: input.userId,
 		entityId,
 		label: detection.projectLabel

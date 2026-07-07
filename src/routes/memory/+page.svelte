@@ -235,6 +235,8 @@
   let entityEditorBusy = $state(false);
   let entityEditorSyncBusy = $state(false);
   let entityEditorDeleteBusy = $state(false);
+  let graphProjectBusy = $state(false);
+  let graphProjectErr = $state<string | null>(null);
   let entityEditorStored = $state<GraphEntityEditorStored | null>(null);
   let graphDeleteDialogOpen = $state(false);
   let graphDeleteTarget = $state<"thought" | "entity" | null>(null);
@@ -567,6 +569,59 @@
       entityEditorErr = e instanceof Error ? e.message : String(e);
     } finally {
       entityEditorDeleteBusy = false;
+    }
+  }
+
+  async function declareEntityAsProject() {
+    const node = selectedNode;
+    if (!node || node.kind !== "Entity") return;
+    const label = (node.label || entityEditorDraft).trim();
+    if (!label) return;
+    graphProjectBusy = true;
+    graphProjectErr = null;
+    try {
+      const res = await fetch("/api/timeline/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label, status: "active" }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const body = (await res.json()) as { entityId: string; label: string; status: string };
+      selectedNode = {
+        ...node,
+        id: body.entityId,
+        label: body.label,
+        subtype: "project",
+        projectStatus: body.status,
+        projectSource: "manual",
+      };
+      await invalidateAll();
+    } catch (e) {
+      graphProjectErr = e instanceof Error ? e.message : String(e);
+    } finally {
+      graphProjectBusy = false;
+    }
+  }
+
+  async function dismissEntityProject() {
+    const node = selectedNode;
+    if (!node || node.kind !== "Entity" || !node.id) return;
+    graphProjectBusy = true;
+    graphProjectErr = null;
+    try {
+      const res = await fetch(`/api/timeline/projects/${encodeURIComponent(node.id)}/dismiss`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      selectedNode = {
+        ...node,
+        projectStatus: "dismissed",
+      };
+      await invalidateAll();
+    } catch (e) {
+      graphProjectErr = e instanceof Error ? e.message : String(e);
+    } finally {
+      graphProjectBusy = false;
     }
   }
 
@@ -2122,6 +2177,17 @@
                     {selectedNode.subtype || "—"}
                   </dd>
                 </div>
+                {#if selectedNode.projectStatus}
+                  <div class="contents">
+                    <dt class="text-muted-foreground/80">{m.graph_timeline_projects()}</dt>
+                    <dd class="text-foreground truncate">
+                      {selectedNode.projectStatus}
+                      {#if selectedNode.projectSource === "manual"}
+                        <span class="text-muted-foreground"> · manual</span>
+                      {/if}
+                    </dd>
+                  </div>
+                {/if}
                 <div class="contents sm:col-span-2">
                   <dt class="text-muted-foreground/80">{m.graph_drawer_id()}</dt>
                   <dd class="text-foreground truncate">{selectedNode.id}</dd>
@@ -2162,6 +2228,37 @@
             </div>
           {/if}
           {#if selectedNode.kind === "Entity"}
+          <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
+            <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
+              {m.graph_timeline_projects()}
+            </p>
+            {#if graphProjectErr}
+              <p class="text-destructive mb-2 text-xs">{graphProjectErr}</p>
+            {/if}
+            <div class="flex flex-wrap gap-2">
+              {#if !selectedNode.projectStatus || selectedNode.projectStatus === "dismissed"}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={graphProjectBusy || !entityEditorDraft.trim()}
+                  onclick={() => void declareEntityAsProject()}
+                >
+                  {m.graph_timeline_create_project()}
+                </Button>
+              {:else if selectedNode.projectStatus === "active" || selectedNode.projectStatus === "someday"}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={graphProjectBusy}
+                  onclick={() => void dismissEntityProject()}
+                >
+                  {m.graph_timeline_delete_project()}
+                </Button>
+              {/if}
+            </div>
+          </div>
           <div class="mt-3 border-t border-black/5 pt-3 dark:border-white/10">
             <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
               {m.graph_drawer_edit()}

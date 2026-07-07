@@ -1,5 +1,5 @@
 import type { ProjectStatus } from '$lib/server/db/schema';
-import { ensureProjectProfile } from '$lib/server/memory/project-eligibility';
+import { ensureProject } from '$lib/server/memory/project-eligibility';
 import { promoteHubEntityType, upsertGraphHubEntity } from '$lib/server/memory/project-entity';
 
 export type CreateUserProjectInput = {
@@ -27,7 +27,7 @@ export async function createUserDeclaredProject(
 
 	const entityId = await upsertGraphHubEntity(input.userId, label, 'project');
 	await promoteHubEntityType(input.userId, entityId, label);
-	await ensureProjectProfile(input.userId, entityId, status, 'manual');
+	await ensureProject(input.userId, entityId, status, 'manual');
 
 	return {
 		entityId,

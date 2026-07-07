@@ -1,12 +1,11 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	canonicalEntity,
 	entityAlias,
-	projectProfile,
 	thought,
 	thoughtEntity,
-	type ProjectProfileSource
+	type ProjectSource
 } from '$lib/server/db/schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
@@ -351,11 +350,11 @@ export async function resolveProjectIdentity(
 		...context.hubCandidates.map((h) => h.entityId)
 	]);
 
-	const allProfileRows = await getDb()
-		.select({ entityId: projectProfile.projectEntityId })
-		.from(projectProfile)
-		.where(eq(projectProfile.userId, input.userId));
-	for (const row of allProfileRows) {
+	const allProjectRows = await getDb()
+		.select({ entityId: canonicalEntity.id })
+		.from(canonicalEntity)
+		.where(and(eq(canonicalEntity.userId, input.userId), isNotNull(canonicalEntity.projectStatus)));
+	for (const row of allProjectRows) {
 		allowedEntityIds.add(row.entityId);
 	}
 
@@ -426,19 +425,20 @@ export async function mergeProjectEntities(
 	if (losers.length === 0) return;
 
 	// SAFEGUARD: Check if any loser is a manual project — manual projects must never be merged
-	const loserProfiles = await getDb()
+	const loserProjects = await getDb()
 		.select({
-			projectEntityId: projectProfile.projectEntityId,
-			source: projectProfile.source
+			entityId: canonicalEntity.id,
+			source: canonicalEntity.projectSource
 		})
-		.from(projectProfile)
+		.from(canonicalEntity)
 		.where(
 			and(
-				eq(projectProfile.userId, userId),
-				inArray(projectProfile.projectEntityId, losers)
+				eq(canonicalEntity.userId, userId),
+				inArray(canonicalEntity.id, losers),
+				isNotNull(canonicalEntity.projectStatus)
 			)
 		);
-	const manualLosers = loserProfiles.filter((p) => p.source === 'manual');
+	const manualLosers = loserProjects.filter((p) => p.source === 'manual');
 	if (manualLosers.length > 0) {
 		console.error('[merge-projects] Refusing to merge manual projects', {
 			userId,
@@ -446,7 +446,7 @@ export async function mergeProjectEntities(
 			manualLosers: manualLosers.map((p) => p.projectEntityId)
 		});
 		// Filter out manual losers
-		const manualSet = new Set(manualLosers.map((p) => p.projectEntityId));
+		const manualSet = new Set(manualLosers.map((p) => p.entityId));
 		const protectedLosers = losers.filter((id) => !manualSet.has(id));
 		if (protectedLosers.length === 0) return;
 		losers.length = 0;
@@ -506,48 +506,62 @@ export async function mergeProjectEntities(
 			.delete(thoughtEntity)
 			.where(and(eq(thoughtEntity.userId, userId), eq(thoughtEntity.entityId, loser.id)));
 
-		const [loserProfile] = await getDb()
+		const [loserProject] = await getDb()
 			.select({
-				nextActionThoughtId: projectProfile.nextActionThoughtId,
-				status: projectProfile.status,
-				source: projectProfile.source
+				nextActionThoughtId: canonicalEntity.nextActionThoughtId,
+				status: canonicalEntity.projectStatus,
+				source: canonicalEntity.projectSource
 			})
-			.from(projectProfile)
-			.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, loser.id)))
+			.from(canonicalEntity)
+			.where(
+				and(
+					eq(canonicalEntity.userId, userId),
+					eq(canonicalEntity.id, loser.id),
+					isNotNull(canonicalEntity.projectStatus)
+				)
+			)
 			.limit(1);
 
-		if (loserProfile) {
-			const [winnerProfile] = await getDb()
-				.select({ nextActionThoughtId: projectProfile.nextActionThoughtId })
-				.from(projectProfile)
+		if (loserProject) {
+			const [winnerProject] = await getDb()
+				.select({ nextActionThoughtId: canonicalEntity.nextActionThoughtId })
+				.from(canonicalEntity)
 				.where(
-					and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, winner))
+					and(
+						eq(canonicalEntity.userId, userId),
+						eq(canonicalEntity.id, winner),
+						isNotNull(canonicalEntity.projectStatus)
+					)
 				)
 				.limit(1);
 
-			if (!winnerProfile) {
+			if (!winnerProject) {
 				await getDb()
-					.insert(projectProfile)
-					.values({
-						userId,
-						projectEntityId: winner,
-						status: loserProfile.status,
-						source: loserProfile.source as ProjectProfileSource,
-						nextActionThoughtId: loserProfile.nextActionThoughtId
+					.update(canonicalEntity)
+					.set({
+						projectStatus: loserProject.status,
+						projectSource: loserProject.source as ProjectSource,
+						nextActionThoughtId: loserProject.nextActionThoughtId,
+						entityType: 'project'
 					})
-					.onConflictDoNothing();
-			} else if (!winnerProfile.nextActionThoughtId && loserProfile.nextActionThoughtId) {
+					.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, winner)));
+			} else if (!winnerProject.nextActionThoughtId && loserProject.nextActionThoughtId) {
 				await getDb()
-					.update(projectProfile)
-					.set({ nextActionThoughtId: loserProfile.nextActionThoughtId })
-					.where(
-						and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, winner))
-					);
+					.update(canonicalEntity)
+					.set({ nextActionThoughtId: loserProject.nextActionThoughtId })
+					.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, winner)));
 			}
 
 			await getDb()
-				.delete(projectProfile)
-				.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, loser.id)));
+				.update(canonicalEntity)
+				.set({
+					projectStatus: null,
+					projectSource: null,
+					nextActionThoughtId: null,
+					projectDesignatedAt: null,
+					entityType: 'other'
+				})
+				.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, loser.id)));
 		}
 
 		await getDb()

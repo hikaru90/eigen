@@ -28,7 +28,13 @@ export async function syncThoughtEntityLinks(userId: string, thoughtId: string):
 	const db = getDb();
 	await db
 		.delete(thoughtEntity)
-		.where(and(eq(thoughtEntity.userId, userId), eq(thoughtEntity.thoughtId, thoughtId)));
+		.where(
+			and(
+				eq(thoughtEntity.userId, userId),
+				eq(thoughtEntity.thoughtId, thoughtId),
+				eq(thoughtEntity.source, 'ingest')
+			)
+		);
 
 	const logs = await db
 		.select({
@@ -59,7 +65,8 @@ export async function syncThoughtEntityLinks(userId: string, thoughtId: string):
 			userId,
 			thoughtId,
 			entityId,
-			salience
+			salience,
+			source: 'ingest' as const
 		}))
 	);
 

@@ -1,41 +1,42 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import {
-	canonicalEntity,
-	projectProfile,
-	type ProjectProfileSource,
-	type ProjectStatus
-} from '$lib/server/db/schema';
+import { canonicalEntity, type ProjectSource, type ProjectStatus } from '$lib/server/db/schema';
 import {
 	judgeGtdProjectHub,
 	loadHubJudgmentContext,
 	shouldInvokeGtdProjectJudge
 } from '$lib/server/memory/judge-gtd-project';
+import { ensureProject } from '$lib/server/memory/project-eligibility';
 import { promoteHubEntityType } from '$lib/server/memory/project-entity';
-import { ensureProjectProfile } from '$lib/server/memory/project-eligibility';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
 
 export type PromoteGtdProjectInput = {
 	userId: string;
 	entityId: string;
-	source?: ProjectProfileSource;
+	source?: ProjectSource;
 	status?: ProjectStatus;
 	/** Manual assign always invokes the LLM judge. */
 	forceJudge?: boolean;
 };
 
 /** Promote a graph hub to a listed GTD project only after LLM judge approves. */
-export async function maybePromoteHubToGtdProject(input: PromoteGtdProjectInput): Promise<boolean> {
+export async function promoteEntityToProject(input: PromoteGtdProjectInput): Promise<boolean> {
 	const entityId = validateNonEmptyEntityId(input.entityId, 'entityId');
 	const source = input.source ?? 'capture';
 
-	const [existingProfile] = await getDb()
-		.select({ projectEntityId: projectProfile.projectEntityId })
-		.from(projectProfile)
-		.where(and(eq(projectProfile.userId, input.userId), eq(projectProfile.projectEntityId, entityId)))
+	const [existingProject] = await getDb()
+		.select({ id: canonicalEntity.id })
+		.from(canonicalEntity)
+		.where(
+			and(
+				eq(canonicalEntity.userId, input.userId),
+				eq(canonicalEntity.id, entityId),
+				isNotNull(canonicalEntity.projectStatus)
+			)
+		)
 		.limit(1);
 
-	if (existingProfile) {
+	if (existingProject) {
 		return true;
 	}
 
@@ -60,11 +61,9 @@ export async function maybePromoteHubToGtdProject(input: PromoteGtdProjectInput)
 	}
 
 	await promoteHubEntityType(input.userId, entityId, judgment.canonicalLabel);
-	await ensureProjectProfile(
-		input.userId,
-		entityId,
-		input.status ?? 'active',
-		source
-	);
+	await ensureProject(input.userId, entityId, input.status ?? 'active', source);
 	return true;
 }
+
+/** @deprecated Use promoteEntityToProject */
+export const maybePromoteHubToGtdProject = promoteEntityToProject;

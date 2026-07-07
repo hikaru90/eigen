@@ -146,13 +146,13 @@
 		}
 	}
 
-	const activeProjectLabels = $derived(
-		phase.kind === 'ready' ? new Set(phase.projects.map((p) => p.label)) : new Set<string>()
+	const activeProjectIds = $derived(
+		phase.kind === 'ready' ? new Set(phase.projects.map((p) => p.entityId)) : new Set<string>()
 	);
 
 	const unassignedTasks = $derived(
 		allTasks
-			.filter((t) => t.projectLabel === null || !activeProjectLabels.has(t.projectLabel))
+			.filter((t) => t.projectEntityId === null || !activeProjectIds.has(t.projectEntityId))
 			.sort((a, b) => {
 				const cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
 				return sortDirection === 'asc' ? cmp : -cmp;
@@ -256,7 +256,7 @@
 	}
 
 	function tasksForProject(project: ProjectListItem): TemporalEventListItem[] {
-		return allTasks.filter((t) => t.projectLabel === project.label);
+		return allTasks.filter((t) => t.projectEntityId === project.entityId);
 	}
 
 	/** Get the next action for a project: either the designated one or the earliest due task */

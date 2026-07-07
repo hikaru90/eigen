@@ -33,6 +33,7 @@ vi.mock('$lib/server/memory/resolve-project-identity', () => ({
 }));
 
 vi.mock('$lib/server/memory/maybe-promote-gtd-project', () => ({
+	promoteEntityToProject: maybePromoteHubToGtdProjectMock,
 	maybePromoteHubToGtdProject: maybePromoteHubToGtdProjectMock
 }));
 
@@ -60,7 +61,7 @@ describe('assignThoughtToProject', () => {
 			eligible: true,
 			isGtdProject: true
 		});
-		expect(linkThoughtToProjectMock).toHaveBeenCalledWith('u1', 'p1', 't1');
+		expect(linkThoughtToProjectMock).toHaveBeenCalledWith('u1', 'p1', 't1', 'manual');
 	});
 
 	it('uses LLM promotion path for new label', async () => {

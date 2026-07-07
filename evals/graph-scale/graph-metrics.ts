@@ -1,7 +1,7 @@
-import { count, eq } from 'drizzle-orm';
+import { count, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import type { AppDatabase } from '$lib/server/db';
-import { canonicalEntity, graphCommunity, projectProfile, thought } from '$lib/server/db/schema';
+import { canonicalEntity, graphCommunity, thought } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
 
 export type GraphScaleMetrics = {
@@ -38,8 +38,8 @@ export async function collectGraphScaleMetrics(
 			.where(eq(graphCommunity.userId, userId)),
 		database
 			.select({ n: count() })
-			.from(projectProfile)
-			.where(eq(projectProfile.userId, userId)),
+			.from(canonicalEntity)
+			.where(and(eq(canonicalEntity.userId, userId), isNotNull(canonicalEntity.projectStatus))),
 		fetchEntityEdgesForUser({ userId })
 	]);
 

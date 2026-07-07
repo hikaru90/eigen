@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { canonicalEntity, projectProfile, temporalEvent } from '$lib/server/db/schema';
-import { maybePromoteHubToGtdProject } from '$lib/server/memory/maybe-promote-gtd-project';
+import { canonicalEntity, temporalEvent } from '$lib/server/db/schema';
+import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project';
 import { designateNextAction, linkThoughtToProject } from '$lib/server/memory/project-next-action';
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity';
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args';
@@ -36,14 +36,13 @@ export async function assignThoughtToProject(
 				label: canonicalEntity.label
 			})
 			.from(canonicalEntity)
-			.innerJoin(
-				projectProfile,
+			.where(
 				and(
-					eq(projectProfile.projectEntityId, canonicalEntity.id),
-					eq(projectProfile.userId, userId)
+					eq(canonicalEntity.userId, userId),
+					eq(canonicalEntity.id, projectEntityId),
+					isNotNull(canonicalEntity.projectStatus)
 				)
 			)
-			.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, projectEntityId)))
 			.limit(1);
 		if (!entity) {
 			throw new Error(`assignThoughtToProject: eligible project ${projectEntityId} not found`);
@@ -66,17 +65,15 @@ export async function assignThoughtToProject(
 		created = resolution.shouldCreateHub;
 	}
 
-	await linkThoughtToProject(userId, projectEntityId, tid);
+	await linkThoughtToProject(userId, projectEntityId, tid, 'manual');
 
-	/** Auto-designate as next action if project has no next action yet */
-	const [profile] = await getDb()
-		.select({ nextActionThoughtId: projectProfile.nextActionThoughtId })
-		.from(projectProfile)
-		.where(and(eq(projectProfile.userId, userId), eq(projectProfile.projectEntityId, projectEntityId)))
+	const [entity] = await getDb()
+		.select({ nextActionThoughtId: canonicalEntity.nextActionThoughtId })
+		.from(canonicalEntity)
+		.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, projectEntityId)))
 		.limit(1);
 
-	if (!profile?.nextActionThoughtId) {
-		/** Check if the thought has a temporal event with startAt (due date) */
+	if (!entity?.nextActionThoughtId) {
 		const [eventRow] = await getDb()
 			.select({ startAt: temporalEvent.startAt })
 			.from(temporalEvent)
@@ -88,7 +85,7 @@ export async function assignThoughtToProject(
 		}
 	}
 
-	const isGtdProject = await maybePromoteHubToGtdProject({
+	const isGtdProject = await promoteEntityToProject({
 		userId,
 		entityId: projectEntityId,
 		source: 'manual',

@@ -1,11 +1,10 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { getDb } from '$lib/server/db';
 import {
 	canonicalEntity,
 	entityResolutionLog,
-	projectProfile,
 	temporalEvent,
 	thought,
 	thoughtEntity,
@@ -112,20 +111,23 @@ export async function loadThoughtCaptureResult(
 			.select({ label: canonicalEntity.label })
 			.from(thoughtEntity)
 			.innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
-			.innerJoin(
-				projectProfile,
+			.where(
 				and(
-					eq(projectProfile.projectEntityId, canonicalEntity.id),
-					eq(projectProfile.userId, userId)
+					eq(thoughtEntity.userId, userId),
+					eq(thoughtEntity.thoughtId, thoughtId),
+					isNotNull(canonicalEntity.projectStatus)
 				)
 			)
-			.where(and(eq(thoughtEntity.userId, userId), eq(thoughtEntity.thoughtId, thoughtId)))
 			.limit(1),
 		getDb()
-			.select({ projectEntityId: projectProfile.projectEntityId })
-			.from(projectProfile)
+			.select({ projectEntityId: canonicalEntity.id })
+			.from(canonicalEntity)
 			.where(
-				and(eq(projectProfile.userId, userId), eq(projectProfile.nextActionThoughtId, thoughtId))
+				and(
+					eq(canonicalEntity.userId, userId),
+					eq(canonicalEntity.nextActionThoughtId, thoughtId),
+					isNotNull(canonicalEntity.projectStatus)
+				)
 			)
 			.limit(1),
 		listTextFilesForThought(userId, thoughtId)

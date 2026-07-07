@@ -7,6 +7,10 @@ export type GraphVizNode = {
 	kind: GraphVizNodeKind;
 	label: string;
 	subtype: string;
+	/** GTD project status when entity is a listed project. */
+	projectStatus?: string | null;
+	/** GTD project provenance when entity is a listed project. */
+	projectSource?: string | null;
 	/** Author filter layers that mention this entity (from entity_resolution_log). */
 	authorLayerKeys?: string[];
 };

@@ -4,7 +4,6 @@ import {
 	canonicalEntity,
 	entityAlias,
 	entityResolutionLog,
-	projectProfile,
 	thought,
 	thoughtEntity
 } from '$lib/server/db/schema';
@@ -280,11 +279,11 @@ export async function consolidateCanonicalEntityAliasesForUser(
 	userId: string
 ): Promise<ConsolidateCanonicalEntityAliasesResult> {
 	const db = getDb();
-	const profileRows = await db
-		.select({ entityId: projectProfile.projectEntityId })
-		.from(projectProfile)
-		.where(eq(projectProfile.userId, userId));
-	const gtdProjectEntityIds = profileRows.map((row) => row.entityId);
+	const projectRows = await db
+		.select({ entityId: canonicalEntity.id })
+		.from(canonicalEntity)
+		.where(and(eq(canonicalEntity.userId, userId), isNotNull(canonicalEntity.projectStatus)));
+	const gtdProjectEntityIds = projectRows.map((row) => row.entityId);
 
 	const rows = await db
 		.select({

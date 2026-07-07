@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { thoughtEntity, projectProfile, canonicalEntity } from '$lib/server/db/schema';
+import { canonicalEntity, thoughtEntity } from '$lib/server/db/schema';
 
 export type ProjectContext = {
 	projectEntityIds: string[];
@@ -15,19 +15,18 @@ export async function loadProjectContextForThought(
 
 	const rows = await db
 		.select({
-			projectEntityId: projectProfile.projectEntityId,
+			projectEntityId: canonicalEntity.id,
 			label: canonicalEntity.label
 		})
 		.from(thoughtEntity)
-		.innerJoin(
-			projectProfile,
-			and(
-				eq(projectProfile.projectEntityId, thoughtEntity.entityId),
-				eq(projectProfile.userId, userId)
-			)
-		)
 		.innerJoin(canonicalEntity, eq(canonicalEntity.id, thoughtEntity.entityId))
-		.where(and(eq(thoughtEntity.thoughtId, thoughtId), eq(thoughtEntity.userId, userId)));
+		.where(
+			and(
+				eq(thoughtEntity.thoughtId, thoughtId),
+				eq(thoughtEntity.userId, userId),
+				isNotNull(canonicalEntity.projectStatus)
+			)
+		);
 
 	return {
 		projectEntityIds: rows.map((r) => r.projectEntityId),
@@ -47,24 +46,20 @@ export async function loadProjectContextForThoughts(
 	const rows = await db
 		.select({
 			thoughtId: thoughtEntity.thoughtId,
-			projectEntityId: projectProfile.projectEntityId,
+			projectEntityId: canonicalEntity.id,
 			label: canonicalEntity.label
 		})
 		.from(thoughtEntity)
-		.innerJoin(
-			projectProfile,
-			and(
-				eq(projectProfile.projectEntityId, thoughtEntity.entityId),
-				eq(projectProfile.userId, userId)
-			)
-		)
 		.innerJoin(canonicalEntity, eq(canonicalEntity.id, thoughtEntity.entityId))
 		.where(
-			and(eq(thoughtEntity.userId, userId))
+			and(
+				eq(thoughtEntity.userId, userId),
+				inArray(thoughtEntity.thoughtId, thoughtIds),
+				isNotNull(canonicalEntity.projectStatus)
+			)
 		);
 
 	for (const row of rows) {
-		if (!thoughtIds.includes(row.thoughtId)) continue;
 		let ctx = result.get(row.thoughtId);
 		if (!ctx) {
 			ctx = { projectEntityIds: [], projectLabels: [] };

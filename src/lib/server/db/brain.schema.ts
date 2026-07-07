@@ -612,6 +612,18 @@ export const userGroundingProfile = pgTable('user_grounding_profile', {
 
 export type UserGroundingProfile = InferSelectModel<typeof userGroundingProfile>;
 
+export const projectStatusValues = ['active', 'someday', 'completed', 'dismissed'] as const;
+export type ProjectStatus = (typeof projectStatusValues)[number];
+
+export const projectSourceValues = ['grounding', 'capture', 'manual'] as const;
+export type ProjectSource = (typeof projectSourceValues)[number];
+
+/** @deprecated Use ProjectSource */
+export type ProjectProfileSource = ProjectSource;
+
+/** @deprecated Use projectSourceValues */
+export const projectProfileSourceValues = projectSourceValues;
+
 /** Canonical entities for Graphiti-style resolution (per-tenant). */
 export const canonicalEntity = pgTable(
 	'canonical_entity',
@@ -628,6 +640,13 @@ export const canonicalEntity = pgTable(
 		author: text('author').$type<MemoryAuthor>().notNull().default('user'),
 		authorLabel: text('author_label'),
 		authorKeyId: uuid('author_key_id'),
+		/** GTD project status; NULL means this entity is not a listed project. */
+		projectStatus: text('project_status', { enum: projectStatusValues }),
+		projectSource: text('project_source', { enum: projectSourceValues }),
+		nextActionThoughtId: uuid('next_action_thought_id').references(() => thought.id, {
+			onDelete: 'set null'
+		}),
+		projectDesignatedAt: timestamp('project_designated_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -638,7 +657,8 @@ export const canonicalEntity = pgTable(
 		index('canonical_entity_user_idx').on(t.userId),
 		index('canonical_entity_author_idx').on(t.userId, t.author),
 		uniqueIndex('canonical_entity_user_canonical_uidx').on(t.userId, t.canonicalKey),
-		index('canonical_entity_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops'))
+		index('canonical_entity_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+		index('canonical_entity_user_project_idx').on(t.userId)
 	]
 );
 
@@ -664,6 +684,9 @@ export const entityAlias = pgTable(
 );
 
 /** Materialized thought→entity links (from enrich); replaces AGE MENTIONS at query time. */
+export const thoughtEntitySourceValues = ['ingest', 'manual'] as const;
+export type ThoughtEntitySource = (typeof thoughtEntitySourceValues)[number];
+
 export const thoughtEntity = pgTable(
 	'thought_entity',
 	{
@@ -677,46 +700,13 @@ export const thoughtEntity = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		salience: real('salience').notNull().default(1),
+		source: text('source', { enum: thoughtEntitySourceValues }).notNull().default('ingest'),
 		createdAt: timestamp('created_at').defaultNow().notNull()
 	},
 	(t) => [
 		primaryKey({ columns: [t.thoughtId, t.entityId], name: 'thought_entity_pk' }),
 		index('thought_entity_user_idx').on(t.userId),
 		index('thought_entity_entity_idx').on(t.entityId)
-	]
-);
-
-export const projectStatusValues = ['active', 'someday', 'completed', 'dismissed'] as const;
-export type ProjectStatus = (typeof projectStatusValues)[number];
-
-export const projectProfileSourceValues = ['grounding', 'capture', 'manual'] as const;
-export type ProjectProfileSource = (typeof projectProfileSourceValues)[number];
-
-/** GTD project metadata keyed by canonical project entity. */
-export const projectProfile = pgTable(
-	'project_profile',
-	{
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
-		projectEntityId: uuid('project_entity_id')
-			.notNull()
-			.references(() => canonicalEntity.id, { onDelete: 'cascade' }),
-		status: text('status', { enum: projectStatusValues }).notNull().default('active'),
-		source: text('source', { enum: projectProfileSourceValues }).notNull().default('capture'),
-		nextActionThoughtId: uuid('next_action_thought_id').references(() => thought.id, {
-			onDelete: 'set null'
-		}),
-		designatedAt: timestamp('designated_at'),
-		updatedAt: timestamp('updated_at')
-			.defaultNow()
-			.$onUpdate(() => new Date())
-			.notNull()
-	},
-	(t) => [
-		primaryKey({ columns: [t.userId, t.projectEntityId], name: 'project_profile_pk' }),
-		index('project_profile_user_idx').on(t.userId),
-		index('project_profile_next_action_idx').on(t.nextActionThoughtId)
 	]
 );
 
