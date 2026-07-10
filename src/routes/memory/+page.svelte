@@ -32,12 +32,20 @@
     drawGraphCanvasScene,
     findNearestGraphNode,
     GRAPH_CANVAS_POP_IN_DURATION_MS,
-    GRAPH_NODE_HIT_PADDING,
     readGraphCanvasTheme,
     screenToWorld,
     type GraphCanvasHull,
     type GraphCanvasPopIn,
   } from "$lib/graph/graph-canvas-render";
+  import {
+    clearGraphForceLayoutCache,
+    getGraphForceLayoutPosition,
+    graphLayoutRestartAlpha,
+    graphNodesMissingLayoutPositions,
+    pruneGraphForceLayoutCache,
+    restoreGraphForceLayoutPositions,
+    writeGraphForceLayoutPositions,
+  } from "$lib/graph/graph-force-layout-cache";
   import {
     canonicalCommunityLevels,
     COMMUNITY_LEAF_LEVEL,
@@ -45,6 +53,8 @@
   import {
     clustersForZoomLod,
     graphClusterBadgeRadius,
+    GRAPH_ZOOM_CLUSTER_LEVEL_0_MAX,
+    GRAPH_ZOOM_CLUSTER_LEVEL_1_MAX,
     graphZoomClusterExitScale,
     graphZoomClusterLevelForScale,
     graphZoomLodMode,
@@ -849,6 +859,11 @@
         let s = persistentNodes.get(n.id);
         if (!s) {
           s = { id: n.id, kind: n.kind, label: n.label, subtype: n.subtype };
+          const cached = getGraphForceLayoutPosition(n.id);
+          if (cached) {
+            s.x = cached.x;
+            s.y = cached.y;
+          }
           persistentNodes.set(n.id, s);
         } else {
           s.kind = n.kind;
@@ -863,6 +878,7 @@
         for (const id of persistentNodes.keys()) {
           if (!keep.has(id)) persistentNodes.delete(id);
         }
+        pruneGraphForceLayoutCache(keep);
       }
 
       const canvas = d3
@@ -892,6 +908,20 @@
         .node() as HTMLDivElement;
 
       rootEl.style.position = "relative";
+
+      function pointerInSvg(event: Event): [number, number] | null {
+        const svgEl = svg.node();
+        if (!svgEl) return null;
+        const source =
+          (event as { sourceEvent?: Event | null }).sourceEvent instanceof Event
+            ? (event as { sourceEvent: Event }).sourceEvent
+            : event;
+        if (!("clientX" in source) || !("clientY" in source)) return null;
+        const { clientX, clientY } = source as MouseEvent;
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+        const pt = d3.pointer(source, svgEl);
+        return Number.isFinite(pt[0]) && Number.isFinite(pt[1]) ? pt : null;
+      }
 
       const coarsePointerGraph = isCoarsePointerGraphDevice();
       let zoomLodMode: GraphZoomLodMode = "nodes";
@@ -1000,16 +1030,33 @@
           return;
         }
         applyLabelFontScale(scale);
+        resizeSummaryLabelBackgrounds();
         if (zoomLabelEndTimer !== undefined) clearTimeout(zoomLabelEndTimer);
         zoomLabelEndTimer = setTimeout(() => {
           zoomLabelEndTimer = undefined;
-          flushZoomLabelChrome(currentZoomScale);
+          // Paint-order restack only — font + bg rects update live during pinch.
+          bringFocusedSummaryToFront();
         }, ZOOM_LABEL_CHROME_DELAY_MS);
       }
 
       const zoom = d3
         .zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.15, 8])
+        .filter((event) => {
+          if (event.type === "wheel" || event.type === "dblclick") return true;
+          if (zoomLodMode === "clusters") return true;
+          if (
+            event.type !== "mousedown" &&
+            event.type !== "pointerdown" &&
+            event.type !== "touchstart"
+          ) {
+            return true;
+          }
+          const pt = pointerInSvg(event);
+          if (!pt) return true;
+          const world = screenToWorld(pt[0], pt[1], currentZoomTransform);
+          return findSimNodeAtWorld(world.x, world.y) === null;
+        })
         .on("zoom", (event) => {
           currentZoomScale = event.transform.k;
           currentZoomTransform = {
@@ -1039,8 +1086,9 @@
           }
           return;
         }
-        const [px, py] = d3.pointer(event, svgEl);
-        const world = screenToWorld(px, py, currentZoomTransform);
+        const pt = pointerInSvg(event);
+        if (!pt) return;
+        const world = screenToWorld(pt[0], pt[1], currentZoomTransform);
         const hit = findSimNodeAtWorld(world.x, world.y);
         if (
           !hit &&
@@ -1238,12 +1286,6 @@
       let clusterSelection = gClusterMarkers.selectAll<SVGGElement, GraphZoomCluster>("g.graph-cluster");
 
       function findSimNodeAtWorld(worldX: number, worldY: number): SimNode | null {
-        const fromSim = simulation?.find(
-          worldX,
-          worldY,
-          nodeRadius({} as SimNode) + GRAPH_NODE_HIT_PADDING,
-        );
-        if (fromSim) return fromSim;
         const nearest = findNearestGraphNode(
           worldX,
           worldY,
@@ -1267,17 +1309,15 @@
         .drag<SVGSVGElement, unknown>()
         .filter((event) => {
           if (zoomLodMode === "clusters") return false;
-          const svgEl = svg.node();
-          if (!svgEl) return false;
-          const [px, py] = d3.pointer(event, svgEl);
-          const world = screenToWorld(px, py, currentZoomTransform);
+          const pt = pointerInSvg(event);
+          if (!pt) return false;
+          const world = screenToWorld(pt[0], pt[1], currentZoomTransform);
           return findSimNodeAtWorld(world.x, world.y) !== null;
         })
         .subject((event) => {
-          const svgEl = svg.node();
-          if (!svgEl) return null;
-          const [px, py] = d3.pointer(event, svgEl);
-          const world = screenToWorld(px, py, currentZoomTransform);
+          const pt = pointerInSvg(event);
+          if (!pt) return null;
+          const world = screenToWorld(pt[0], pt[1], currentZoomTransform);
           return findSimNodeAtWorld(world.x, world.y);
         })
         .on("start", (event) => {
@@ -1293,16 +1333,18 @@
         .on("drag", (event) => {
           const d = dragSubjectNode;
           if (!d) return;
-          const svgEl = svg.node();
-          if (!svgEl) return;
-          const [px, py] = d3.pointer(event, svgEl);
-          const world = screenToWorld(px, py, currentZoomTransform);
+          const pt = pointerInSvg(event.sourceEvent ?? event);
+          if (!pt) return;
+          const world = screenToWorld(pt[0], pt[1], currentZoomTransform);
           d.fx = world.x;
           d.fy = world.y;
+          d.x = world.x;
+          d.y = world.y;
           if (dragStartScreen) {
             const dist = Math.hypot(event.x - dragStartScreen.x, event.y - dragStartScreen.y);
             if (dist > DRAG_CLICK_THRESHOLD_PX) didPointerDrag = true;
           }
+          simulation?.tick();
           requestGraphDraw();
         })
         .on("end", (event) => {
@@ -1311,8 +1353,11 @@
           dragStartScreen = null;
           if (!d) return;
           if (!event.active) simulation?.alphaTarget(0);
+          if (Number.isFinite(d.fx)) d.x = d.fx;
+          if (Number.isFinite(d.fy)) d.y = d.fy;
           d.fx = null;
           d.fy = null;
+          if (simulation) writeGraphForceLayoutPositions(simulation.nodes());
           if (!didPointerDrag) {
             onNodeClick(event.sourceEvent as MouseEvent, d);
           }
@@ -1330,8 +1375,13 @@
             }
             const svgEl = svg.node();
             if (!svgEl || !rootEl) return;
-            const [px, py] = d3.pointer(event, svgEl);
-            const world = screenToWorld(px, py, currentZoomTransform);
+            const pt = pointerInSvg(event);
+            if (!pt) {
+              graphTooltip.classList.add("hidden");
+              hoveredNodeId = null;
+              return;
+            }
+            const world = screenToWorld(pt[0], pt[1], currentZoomTransform);
             const hit = findSimNodeAtWorld(world.x, world.y);
             if (!hit) {
               graphTooltip.classList.add("hidden");
@@ -1603,7 +1653,12 @@
           (vizCtx.communities ?? []).map((c) => c.level),
         );
         const level = graphZoomClusterLevelForScale(scale, levels);
-        const scaleBucket = scale < 0.34 ? 0 : scale < 0.54 ? 1 : 2;
+        const scaleBucket =
+          scale < GRAPH_ZOOM_CLUSTER_LEVEL_0_MAX
+            ? 0
+            : scale < GRAPH_ZOOM_CLUSTER_LEVEL_1_MAX
+              ? 1
+              : 2;
         return `${level ?? "spatial"}:${nodes.length}:${scaleBucket}`;
       }
 
@@ -1866,6 +1921,7 @@
         const links: SimLink[] = resolveForceLinks(nodes, safeEdges);
         currentGraphNodes = nodes;
         currentGraphLinks = links;
+        restoreGraphForceLayoutPositions(nodes);
 
         const popInIds = pendingPopInNodeIds;
         for (const nodeId of popInIds) {
@@ -1888,6 +1944,9 @@
             .force("collision", d3.forceCollide<SimNode>().radius(40))
             .on("tick", ticked)
             .on("end", () => {
+              if (simulation) {
+                writeGraphForceLayoutPositions(simulation.nodes());
+              }
               if (zoomLodMode === "nodes" && simulation) {
                 positionCommunityHulls(simulation.nodes());
               }
@@ -1895,8 +1954,12 @@
           simulation.stop();
           for (let i = 0; i < INITIAL_LAYOUT_SYNC_TICKS; i++) simulation.tick();
           ticked();
-          if (zoomLodMode !== "clusters") {
-            simulation.restart();
+          if (zoomLodMode !== "clusters" && graphNodesMissingLayoutPositions(nodes)) {
+            simulation.alpha(graphLayoutRestartAlpha(nodes)).restart();
+          } else {
+            simulation.stop();
+            simulation.alphaTarget(0);
+            writeGraphForceLayoutPositions(nodes);
           }
         } else {
           simulation.nodes(nodes);
@@ -1917,8 +1980,12 @@
             pendingEnrichGraphUpdate = false;
             simulation.alpha(0.12).restart();
             restorePreservedGraphZoom();
+          } else if (graphNodesMissingLayoutPositions(nodes)) {
+            simulation.alpha(graphLayoutRestartAlpha(nodes)).restart();
           } else {
-            simulation.alpha(0.35).restart();
+            simulation.stop();
+            simulation.alphaTarget(0);
+            writeGraphForceLayoutPositions(nodes);
           }
         }
 
@@ -1944,13 +2011,19 @@
         if (!dims || !simulation || zoomLodMode === "clusters") return;
         simulation.force("x", d3.forceX<SimNode>(dims.w / 2).strength(0.08));
         simulation.force("y", d3.forceY<SimNode>(dims.h / 2).strength(0.08));
-        simulation.alpha(0.08).restart();
+        if (graphNodesMissingLayoutPositions(simulation.nodes())) {
+          simulation.alpha(0.08).restart();
+        } else {
+          simulation.stop();
+          simulation.alphaTarget(0);
+        }
       }
 
       scheduleGraphUpdate = updateGraph;
       scheduleGraphResize = resizeGraph;
       scheduleGraphRelayout = () => {
         if (!simulation || zoomLodMode === "clusters") return;
+        clearGraphForceLayoutCache();
         simulation.alpha(1).restart();
       };
       schedulePreserveGraphZoom = preserveGraphZoom;

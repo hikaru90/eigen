@@ -36,10 +36,18 @@ export function isCoarsePointerGraphDevice(): boolean {
 	return navigator.maxTouchPoints > 0;
 }
 
-const CLUSTER_ENTER_COARSE = 0.82;
-const CLUSTER_EXIT_COARSE = 0.96;
-const CLUSTER_ENTER_FINE = 0.58;
-const CLUSTER_EXIT_FINE = 0.72;
+/** Halve scale thresholds so nodes stay visible ~2× further when zooming out. */
+const GRAPH_ZOOM_LOD_DELAY_FACTOR = 0.5;
+
+const CLUSTER_ENTER_COARSE = 0.82 * GRAPH_ZOOM_LOD_DELAY_FACTOR;
+const CLUSTER_EXIT_COARSE = 0.96 * GRAPH_ZOOM_LOD_DELAY_FACTOR;
+const CLUSTER_ENTER_FINE = 0.58 * GRAPH_ZOOM_LOD_DELAY_FACTOR;
+const CLUSTER_EXIT_FINE = 0.72 * GRAPH_ZOOM_LOD_DELAY_FACTOR;
+
+/** Scale below which the coarsest community level is used. */
+export const GRAPH_ZOOM_CLUSTER_LEVEL_0_MAX = 0.34 * GRAPH_ZOOM_LOD_DELAY_FACTOR;
+/** Scale below which the middle community level is used. */
+export const GRAPH_ZOOM_CLUSTER_LEVEL_1_MAX = 0.54 * GRAPH_ZOOM_LOD_DELAY_FACTOR;
 
 /** Hysteresis avoids flicker when the user pinches around the threshold. */
 export function graphZoomLodMode(
@@ -65,8 +73,8 @@ export function graphZoomClusterLevelForScale(
 	if (levels.length === 0) return null;
 	const finest = levels[0];
 	const coarsest = levels[levels.length - 1];
-	if (scale < 0.34) return levels.includes(0) ? 0 : coarsest;
-	if (scale < 0.54) return levels.includes(1) ? 1 : finest;
+	if (scale < GRAPH_ZOOM_CLUSTER_LEVEL_0_MAX) return levels.includes(0) ? 0 : coarsest;
+	if (scale < GRAPH_ZOOM_CLUSTER_LEVEL_1_MAX) return levels.includes(1) ? 1 : finest;
 	return finest;
 }
 

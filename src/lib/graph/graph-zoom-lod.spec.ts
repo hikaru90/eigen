@@ -11,23 +11,23 @@ import {
 
 describe('graphZoomLodMode', () => {
 	it('enters cluster mode below the coarse-pointer threshold', () => {
-		expect(graphZoomLodMode(0.7, true, 'nodes')).toBe('clusters');
-		expect(graphZoomLodMode(0.9, true, 'clusters')).toBe('clusters');
-		expect(graphZoomLodMode(0.98, true, 'clusters')).toBe('nodes');
+		expect(graphZoomLodMode(0.35, true, 'nodes')).toBe('clusters');
+		expect(graphZoomLodMode(0.45, true, 'clusters')).toBe('clusters');
+		expect(graphZoomLodMode(0.49, true, 'clusters')).toBe('nodes');
 	});
 
 	it('uses hysteresis on fine pointers', () => {
-		expect(graphZoomLodMode(0.5, false, 'nodes')).toBe('clusters');
-		expect(graphZoomLodMode(0.7, false, 'clusters')).toBe('clusters');
-		expect(graphZoomLodMode(0.75, false, 'clusters')).toBe('nodes');
+		expect(graphZoomLodMode(0.25, false, 'nodes')).toBe('clusters');
+		expect(graphZoomLodMode(0.35, false, 'clusters')).toBe('clusters');
+		expect(graphZoomLodMode(0.37, false, 'clusters')).toBe('nodes');
 	});
 });
 
 describe('graphZoomClusterLevelForScale', () => {
 	it('picks coarser levels when zoomed further out', () => {
-		expect(graphZoomClusterLevelForScale(0.2, [2, 1, 0])).toBe(0);
-		expect(graphZoomClusterLevelForScale(0.45, [2, 1, 0])).toBe(1);
-		expect(graphZoomClusterLevelForScale(0.8, [2, 1, 0])).toBe(2);
+		expect(graphZoomClusterLevelForScale(0.1, [2, 1, 0])).toBe(0);
+		expect(graphZoomClusterLevelForScale(0.22, [2, 1, 0])).toBe(1);
+		expect(graphZoomClusterLevelForScale(0.4, [2, 1, 0])).toBe(2);
 	});
 });
 
