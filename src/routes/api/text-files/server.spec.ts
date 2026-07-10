@@ -50,7 +50,11 @@ describe('/api/text-files', () => {
 			url: new URL('http://localhost/api/text-files?q=carbonara&limit=5')
 		} as never);
 		expect(res.status).toBe(200);
-		expect(searchTextFilesMock).toHaveBeenCalledWith('u1', { query: 'carbonara', topK: 5 });
+		expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
+			query: 'carbonara',
+			topK: 5,
+			authorLayerKey: null
+		});
 		const body = await res.json();
 		expect(body.results[0].id).toBe('f1');
 		expect(listTextFilesMock).not.toHaveBeenCalled();

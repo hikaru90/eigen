@@ -13,6 +13,18 @@ Canonical color set for the project. Used as the source of truth for graph node 
 | Tangerine | `#FF4632` | Warning / Urgency / CTA — warm aggressive red-orange |
 | Black | `#191414` | Grounding Typography / Background — rich off-black (warmer tone) |
 
+## Eigen Gradient (Penpot origin)
+
+| Name | Hex | Role |
+|---|---|---|
+| Eigen Green | `#28F97F` | Primary accent / gradient start+end |
+| Eigen Lime | `#A2F928` | Gradient midpoint — bright yellow-green |
+
+**CSS usage:**
+- `var(--gradient-eigen)` → `linear-gradient(90deg, #28F97F 0%, #A2F928 60%, #28F97F 99%)`
+- `var(--color-eigen-green)` → `#28F97F`
+- `var(--color-eigen-lime)` → `#A2F928`
+
 ## Supernal Gradient
 
 | Name | Hex | Notes |

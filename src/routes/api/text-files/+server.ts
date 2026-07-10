@@ -29,15 +29,21 @@ export const GET: RequestHandler = async (event) => {
 	if (!user) error(401, 'Unauthorized');
 
 	const query = event.url.searchParams.get('q')?.trim() ?? '';
+	const authorLayerKey = event.url.searchParams.get('authorLayerKey');
 	if (query) {
 		const topK = parseLimit(event.url);
-		const results = await searchTextFiles(user.id, { query, topK });
+		const results = await searchTextFiles(user.id, {
+			query,
+			topK,
+			authorLayerKey
+		});
 		return json({ count: results.length, results });
 	}
 
 	const files = await listTextFiles(user.id, {
 		limit: parseLimit(event.url),
-		cursor: parseCursor(event.url)
+		cursor: parseCursor(event.url),
+		authorLayerKey
 	});
 
 	return json({ count: files.length, textFiles: files });

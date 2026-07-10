@@ -15,6 +15,8 @@
   import { startCaptureQueueRunner } from "$lib/capture/queue";
   import { startPushNavigationFromServiceWorker } from "$lib/push/navigation-from-sw";
   import { startThoughtSync } from "$lib/stores/thought-sync";
+  import { initCurrentUserViewStore } from "$lib/stores/current-user-view";
+  import type { AuthorLayerMeta } from "$lib/graph/graph-author-layers";
   import { getLocale, setLocale } from "$lib/paraglide/runtime";
   import { m } from "$lib/paraglide/messages.js";
   import {
@@ -80,6 +82,14 @@
     } else {
       resetPostHog();
     }
+  });
+
+  $effect(() => {
+    if (!browser) return;
+    const user = (page.data as { user?: { id: string } | null }).user;
+    if (!user) return;
+    const layers = (page.data as { authorLayers?: AuthorLayerMeta[] }).authorLayers ?? [];
+    initCurrentUserViewStore(layers);
   });
 
   onMount(() => {

@@ -18,13 +18,10 @@
 	import {
 		captureThoughtAuthorship,
 		isAgentAuthoredCapture,
-		recentListHasAgentCaptures,
 		recentThoughtPrimaryLabel,
-		recentThoughtSecondaryLabel,
-		type CaptureAuthorFilter
+		recentThoughtSecondaryLabel
 	} from '$lib/capture/recent-thought-display';
 	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
-	import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte';
 	import {
 		captureIndexingListStatus,
 		captureIndexingRetryEligible
@@ -80,7 +77,7 @@
 		onEditRequestChange: (value: string) => void;
 		onSubmitEdit: () => void;
 		onCancelEdit: () => void;
-		onFilterChange?: (filter: { author?: 'user' | 'agent'; category?: string; memoryType?: string }) => void;
+		onFilterChange?: (filter: { category?: string; memoryType?: string }) => void;
 		hasAgentCaptures?: boolean;
 	} = $props();
 
@@ -145,13 +142,8 @@
 	const tabTriggerClass =
 		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
 
-	let authorFilter = $state<CaptureAuthorFilter>('all');
 	let categoryFilter = $state<string>('all');
 	let memoryTypeFilter = $state<string>('all');
-
-	const showAuthorFilter = $derived(
-		hasAgentCaptures ?? recentListHasAgentCaptures(thoughts, thoughtDetails)
-	);
 
 	const categories = $derived(
 		[...new Set(thoughts.map((t) => t.category).filter(Boolean))].sort()
@@ -162,9 +154,7 @@
 	);
 
 	function handleFilterChange() {
-		const filter: { author?: 'user' | 'agent'; category?: string; memoryType?: string } = {};
-		if (authorFilter === 'human') filter.author = 'user';
-		else if (authorFilter === 'agent') filter.author = 'agent';
+		const filter: { category?: string; memoryType?: string } = {};
 		if (categoryFilter !== 'all') filter.category = categoryFilter;
 		if (memoryTypeFilter !== 'all') filter.memoryType = memoryTypeFilter;
 		onFilterChange?.(filter);
@@ -173,12 +163,6 @@
 	// Server handles filtering — no client-side filter needed.
 	// When filter changes, parent refetches from server with filter params.
 	const filteredThoughts = $derived(thoughts);
-
-	function recentAuthorFilterClass(active: boolean): string {
-		return `inline-flex items-center gap-1 rounded-none px-0.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
-			active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground'
-		}`;
-	}
 </script>
 
 {#if thoughts.length > 0}
@@ -189,46 +173,6 @@
 			<div class="flex flex-wrap items-center justify-between gap-2">
 				<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent</h2>
 				<div class="flex flex-wrap items-center gap-2">
-					{#if showAuthorFilter}
-						<div
-							class="inline-flex items-center gap-2"
-							role="group"
-							aria-label="Filter recent captures by author"
-						>
-							<button
-								type="button"
-								class={recentAuthorFilterClass(authorFilter === 'all')}
-								onclick={() => {
-								authorFilter = 'all';
-								handleFilterChange();
-							}}
-							>
-								All
-							</button>
-							<button
-								type="button"
-								class={recentAuthorFilterClass(authorFilter === 'human')}
-								onclick={() => {
-								authorFilter = 'human';
-								handleFilterChange();
-							}}
-							>
-								<AuthorLayerIcon kind="user" />
-								You
-							</button>
-							<button
-								type="button"
-								class={recentAuthorFilterClass(authorFilter === 'agent')}
-								onclick={() => {
-								authorFilter = 'agent';
-								handleFilterChange();
-							}}
-							>
-								<AuthorLayerIcon kind="agent" />
-								Agent
-							</button>
-						</div>
-					{/if}
 					{#if categories.length > 1}
 						<Select.Root
 							type="single"
@@ -479,7 +423,7 @@
 			{/each}
 			{#if filteredThoughts.length === 0}
 				<p class="text-xs text-muted-foreground px-1 py-2">
-					No {authorFilter === 'agent' ? 'agent' : 'human'}-authored captures in recent list.
+					No captures match the current filters.
 				</p>
 			{/if}
 			</div>

@@ -50,7 +50,8 @@ export const GET: RequestHandler = async (event) => {
 		url.searchParams.get('includeOpenLoops') !== 'false';
 	const orderBy = url.searchParams.get('orderBy') as 'ingest' | 'todo' | null;
 	const sortDirection = url.searchParams.get('sortDirection') as 'asc' | 'desc' | null;
-	const author = parseAuthor(url.searchParams.get('author'));
+	const authorLayerKey = url.searchParams.get('authorLayerKey');
+	const author = authorLayerKey ? undefined : parseAuthor(url.searchParams.get('author'));
 
 	const { items, nextCursor } = await listTemporalEventsForUser({
 		userId: user.id,
@@ -63,7 +64,8 @@ export const GET: RequestHandler = async (event) => {
 		cursorId,
 		orderBy: orderBy ?? 'todo',
 		sortDirection: sortDirection ?? 'desc',
-		author
+		author,
+		authorLayerKey
 	});
 
 	return json({ items, nextCursor } satisfies TemporalEventsResponse);

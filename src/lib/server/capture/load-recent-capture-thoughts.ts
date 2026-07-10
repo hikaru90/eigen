@@ -15,6 +15,7 @@ export type RecentCaptureThoughtsPayload = {
 
 export type RecentCaptureFilter = {
 	author?: MemoryAuthor;
+	authorLayerKey?: string | null;
 	category?: string;
 	memoryType?: string;
 	dateFrom?: Date;
@@ -31,6 +32,7 @@ export async function loadRecentCaptureThoughts(
 		fields: 'snippet',
 		limit,
 		authorFilter: filter?.author,
+		authorLayerKey: filter?.authorLayerKey,
 		categoryFilter: filter?.category,
 		memoryTypeFilter: filter?.memoryType,
 		dateFrom: filter?.dateFrom,

@@ -21,6 +21,8 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
+install-*.log
+posthog-setup-report.md
 
 # Vite
 vite.config.js.timestamp-*

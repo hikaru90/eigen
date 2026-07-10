@@ -74,8 +74,6 @@
   } from "$lib/graph/embedding-map-projection";
   import EmbeddingMap from "../graph/EmbeddingMap.svelte";
   import GraphFiltersToolbar from "../graph/graph-filters-toolbar.svelte";
-  import GraphEntityKindsLegend from "../graph/graph-entity-kinds-legend.svelte";
-  import GraphAuthorLayersLegend from "../graph/graph-author-layers-legend.svelte";
   import MemoryAuthorBadge from "$lib/components/memory-author-badge.svelte";
   import ThoughtLinkedNotes from "$lib/components/thought-linked-notes.svelte";
   import type { EmbeddingSnapshotItem } from "../api/embeddings/snapshot/+server";
@@ -85,6 +83,9 @@
   } from "$lib/graph/graph-i18n";
   import { m } from "$lib/paraglide/messages.js";
   import { graphFilters } from "$lib/stores/graph-filters";
+  import { currentUserView } from "$lib/stores/current-user-view";
+  import { viewToVisibleAuthorLayers } from "$lib/memory/current-user-view";
+  import { get } from "svelte/store";
 
   let { data }: { data: PageData } = $props();
 
@@ -136,6 +137,15 @@
   let visibleEntityTypes = $state<Set<string>>($graphFilters.visibleEntityTypes);
   let visibleAuthorLayers = $state<Set<string>>($graphFilters.visibleAuthorLayers);
   let communityLevel = $state<string>($graphFilters.communityLevel);
+
+  let dataView = $state(get(currentUserView));
+
+  $effect(() => {
+    return currentUserView.subscribe((view) => {
+      dataView = view;
+      visibleAuthorLayers = viewToVisibleAuthorLayers(view);
+    });
+  });
   
   // Sync filter state to store for persistence across tab switches
   $effect(() => {
@@ -1995,7 +2005,7 @@
 </script>
 
 <div class="-mb-28 h-svh overflow-hidden overscroll-none">
-  <Card.Root class="relative flex h-full flex-col overflow-hidden bg-transparent shadow-none">
+  <Card.Root class="p-0 relative flex h-full flex-col overflow-hidden bg-transparent shadow-none">
     <Tabs.Root value={activeTab} class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <Card.Content class="flex h-full min-h-0 flex-1 flex-col p-0">
         <Tabs.Content
@@ -2010,16 +2020,9 @@
               aria-label={m.graph_aria_visualization()}
             ></div>
             <div
-              class="pointer-events-none absolute top-10 right-3 left-3 z-10 flex items-start justify-between gap-3 md:top-14"
+              class="pointer-events-none absolute top-14 right-4 left-3 z-50 flex items-start justify-end gap-3 md:top-16"
               aria-label={m.graph_aria_legend_filters()}
             >
-              <div class="flex w-[min(calc(100vw-1.5rem),11rem)] shrink-0 flex-col gap-2">
-                <GraphEntityKindsLegend bind:visibleEntityTypes {legendSections} {graphStats} />
-                <GraphAuthorLayersLegend
-                  bind:visibleAuthorLayers
-                  authorLayers={data.authorLayers ?? []}
-                />
-              </div>
               <div
                 class="pointer-events-auto flex shrink-0 flex-col items-end gap-1 overscroll-contain"
                 onwheel={(e) => e.stopPropagation()}
@@ -2029,6 +2032,8 @@
                   bind:edgeKind
                   bind:communityLevel
                   {availableCommunityLevels}
+                  {legendSections}
+                  bind:visibleEntityTypes
                 />
                 {#if status}
                   <p
@@ -2049,7 +2054,6 @@
             <EmbeddingMap
               visible={activeTab === "embeddings"}
               graphLegendSections={data.graphLegendSections ?? []}
-              authorLayers={data.authorLayers ?? []}
               bind:visibleEntityTypes
               bind:visibleAuthorLayers
               onSelectItem={handleEmbeddingSelect}

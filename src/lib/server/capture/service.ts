@@ -37,7 +37,7 @@ import { enrichQueuedThought } from '$lib/server/capture/enrich-queued-thought';
 import type { CaptureSource, MemoryAuthor } from '$lib/server/db/schema';
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types';
-import { resolveMemoryAuthorship, authorshipInsertValues, graphAuthorProperty } from '$lib/server/memory/authorship';
+import { resolveMemoryAuthorship, authorshipInsertValues, graphAuthorProperty, resolveAuthorSqlCondition } from '$lib/server/memory/authorship';
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): { normalized: string; metadata: Record<string, unknown> } {
@@ -838,6 +838,7 @@ export async function listThoughts(
 		fields?: 'snippet' | 'full';
 		cursor?: { createdAt: Date; id: string };
 		authorFilter?: MemoryAuthor;
+		authorLayerKey?: string | null;
 		categoryFilter?: string;
 		memoryTypeFilter?: string;
 		dateFrom?: Date;
@@ -848,15 +849,25 @@ export async function listThoughts(
 	const fields = options?.fields ?? 'full';
 	const cursor = options?.cursor;
 	const authorFilter = options?.authorFilter;
+	const authorLayerKey = options?.authorLayerKey;
 	const categoryFilter = options?.categoryFilter;
 	const memoryTypeFilter = options?.memoryTypeFilter;
 	const dateFrom = options?.dateFrom;
 	const dateTo = options?.dateTo;
 
+	const authorSql = resolveAuthorSqlCondition(
+		{
+			author: thought.author,
+			authorKeyId: thought.authorKeyId,
+			authorLabel: thought.authorLabel
+		},
+		{ author: authorFilter, authorLayerKey }
+	);
+
 	const conditions = [
 		eq(thought.userId, userId),
 		activeThoughtLifecycleCondition(),
-		authorFilter ? eq(thought.author, authorFilter) : undefined,
+		authorSql,
 		categoryFilter ? eq(thought.category, categoryFilter) : undefined,
 		memoryTypeFilter ? eq(thought.memoryType, memoryTypeFilter) : undefined,
 		dateFrom ? gte(thought.createdAt, dateFrom) : undefined,

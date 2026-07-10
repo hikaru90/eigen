@@ -21,7 +21,6 @@ import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 		isTaskListItem,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
-		type TemporalAuthorFilter,
 		thoughtIdFromTaskItemId,
 		type NowSegment
 	} from './temporal-events-utils';
@@ -44,6 +43,9 @@ import * as Select from '$lib/components/ui/select';
 		notifyThoughtRefreshAll,
 		subscribeThoughtSync
 	} from '$lib/stores/thought-sync';
+	import { currentUserView } from '$lib/stores/current-user-view';
+	import { appendViewToSearchParams, type CurrentUserView } from '$lib/memory/current-user-view';
+	import { get } from 'svelte/store';
 
 	type Props = {
 		onSelectItem?: (item: TemporalEventListItem | null) => void;
@@ -92,11 +94,7 @@ import * as Select from '$lib/components/ui/select';
 			? (localStorage.getItem('timeline-sort-direction') as 'asc' | 'desc') ?? 'desc'
 			: 'desc'
 	);
-	let authorFilter = $state<TemporalAuthorFilter>(
-		typeof localStorage !== 'undefined'
-			? (localStorage.getItem('timeline-author-filter') as TemporalAuthorFilter) ?? 'user'
-			: 'user'
-	);
+	let dataView = $state<CurrentUserView>(get(currentUserView));
 	let projectsMode = $state(
 		typeof localStorage !== 'undefined'
 			? localStorage.getItem('timeline-projects-mode') === 'true'
@@ -121,11 +119,6 @@ import * as Select from '$lib/components/ui/select';
 		}
 	});
 
-	$effect(() => {
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem('timeline-author-filter', authorFilter);
-		}
-	});
 	let nowSegment = $state<NowSegment>('todo');
 	let updatingEventId = $state<string | null>(null);
 	let actionBusy = $state(false);
@@ -147,8 +140,7 @@ import * as Select from '$lib/components/ui/select';
 	const filtersActive = $derived(
 		statusFilter !== 'open' ||
 			rangeFilter !== 'relevant' ||
-			kindFilter.length > 0 ||
-			authorFilter !== 'user'
+			kindFilter.length > 0
 	);
 
 	const selectionControlled = $derived(onSelectItem !== undefined);
@@ -241,9 +233,9 @@ import * as Select from '$lib/components/ui/select';
 				status: 'all',
 				includeTasks: 'true',
 				orderBy,
-				sortDirection,
-				author: authorFilter
+				sortDirection
 			});
+			appendViewToSearchParams(params, dataView);
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			if (append && phase.kind === 'ready' && phase.nextCursor) {
 				params.set('cursorStartAt', phase.nextCursor.startAt);
@@ -317,9 +309,9 @@ import * as Select from '$lib/components/ui/select';
 				status: 'open',
 				includeTasks: 'true',
 				orderBy,
-				sortDirection,
-				author: authorFilter
+				sortDirection
 			});
+			appendViewToSearchParams(params, dataView);
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			const res = await fetch(`/api/temporal-events?${params}`);
 			if (!res.ok) {
@@ -345,9 +337,9 @@ import * as Select from '$lib/components/ui/select';
 			const params = new SvelteURLSearchParams({
 				range: 'all',
 				status: 'all',
-				includeTasks: 'true',
-				author: authorFilter
+				includeTasks: 'true'
 			});
+			appendViewToSearchParams(params, dataView);
 			if (kindFilter.length > 0) params.set('kinds', kindFilter.join(','));
 			const res = await fetch(`/api/temporal-events?${params}`);
 			if (!res.ok) {
@@ -572,6 +564,13 @@ import * as Select from '$lib/components/ui/select';
 		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
 	}
 
+	$effect(() => {
+		return currentUserView.subscribe((view) => {
+			dataView = view;
+			onFilterChange();
+		});
+	});
+
 	function setStatusFilter(next: TemporalStatusFilter) {
 		statusFilter = next;
 		onFilterChange();
@@ -586,11 +585,6 @@ import * as Select from '$lib/components/ui/select';
 
 	function clearKindFilter() {
 		kindFilter = [];
-		onFilterChange();
-	}
-
-	function setAuthorFilter(next: TemporalAuthorFilter) {
-		authorFilter = next;
 		onFilterChange();
 	}
 
@@ -664,9 +658,9 @@ import * as Select from '$lib/components/ui/select';
 		assignProjectItem = null;
 	}
 
-	function applyProjectLabelLocally(thoughtId: string, projectLabel: string) {
+	function applyProjectLabelLocally(thoughtId: string, projectLabel: string, projectEntityId: string) {
 		const patch = (item: TemporalEventListItem) =>
-			item.thoughtId === thoughtId ? { ...item, projectLabel } : item;
+			item.thoughtId === thoughtId ? { ...item, projectLabel, projectEntityId } : item;
 		if (phase.kind === 'ready') {
 			phase = {
 				kind: 'ready',
@@ -680,7 +674,7 @@ import * as Select from '$lib/components/ui/select';
 
 	function onProjectAssigned(payload: AssignProjectResponse & { thoughtId: string }) {
 		if (payload.isGtdProject) {
-			applyProjectLabelLocally(payload.thoughtId, payload.projectLabel);
+			applyProjectLabelLocally(payload.thoughtId, payload.projectLabel, payload.projectEntityId);
 		}
 		lastActionSummary = payload.eligible
 			? m.graph_timeline_assign_project_success({ project: payload.projectLabel })
@@ -713,7 +707,6 @@ import * as Select from '$lib/components/ui/select';
 			{statusFilter}
 			{rangeFilter}
 			{kindFilter}
-			{authorFilter}
 			onStatusFilterChange={setStatusFilter}
 			onRangeFilterChange={(next) => {
 				rangeFilter = next;
@@ -721,7 +714,6 @@ import * as Select from '$lib/components/ui/select';
 			}}
 			onToggleKind={toggleKind}
 			onClearKinds={clearKindFilter}
-			onAuthorFilterChange={setAuthorFilter}
 		/>
 	{/snippet}
 

@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	USER_AUTHORSHIP,
 	authorLayerKeyFromThought,
+	authorLayerKeySqlCondition,
 	authorshipFromAuthenticatedApiKey,
 	resolveAuthorFromPrefix,
+	resolveAuthorSqlCondition,
 	resolveMcpCaptureAuthorship,
 	resolveMemoryAuthorship
 } from './authorship';
+import { thought } from '$lib/server/db/schema';
 
 const { getDbMock, selectMock } = vi.hoisted(() => ({
 	getDbMock: vi.fn(),
@@ -156,5 +159,33 @@ describe('authorLayerKeyFromThought', () => {
 				authorLabel: 'Legacy Agent'
 			})
 		).toBe('label:Legacy Agent');
+	});
+});
+
+describe('authorLayerKeySqlCondition', () => {
+	const cols = {
+		author: thought.author,
+		authorKeyId: thought.authorKeyId,
+		authorLabel: thought.authorLabel
+	};
+
+	it('builds user filter', () => {
+		expect(authorLayerKeySqlCondition('user', cols)).toBeDefined();
+	});
+
+	it('builds apikey filter', () => {
+		expect(authorLayerKeySqlCondition('apikey:key-1', cols)).toBeDefined();
+	});
+
+	it('builds label filter for legacy agents', () => {
+		expect(authorLayerKeySqlCondition('label:Legacy Agent', cols)).toBeDefined();
+	});
+
+	it('resolveAuthorSqlCondition prefers authorLayerKey', () => {
+		const sql = resolveAuthorSqlCondition(cols, {
+			author: 'user',
+			authorLayerKey: 'apikey:key-1'
+		});
+		expect(sql).toBeDefined();
 	});
 });

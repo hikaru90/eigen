@@ -5,7 +5,7 @@ import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenan
 import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { buildLexicalTsQuery } from '$lib/server/retrieval/lexical';
 import type { MemoryAuthorship } from '$lib/server/memory/authorship';
-import { authorshipInsertValues, USER_AUTHORSHIP } from '$lib/server/memory/authorship';
+import { authorshipInsertValues, USER_AUTHORSHIP, resolveAuthorSqlCondition } from '$lib/server/memory/authorship';
 
 export const MAX_TEXT_FILE_BODY_BYTES = 512 * 1024;
 export const TEXT_FILE_PREVIEW_LEN = 200;
@@ -229,10 +229,21 @@ export async function listTextFiles(
 	options?: {
 		limit?: number;
 		cursor?: { updatedAt: Date; id: string };
+		authorLayerKey?: string | null;
 	}
 ): Promise<TextFileRecord[]> {
 	const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
 	const cursor = options?.cursor;
+	const authorSql = options?.authorLayerKey
+		? resolveAuthorSqlCondition(
+				{
+					author: textFile.author,
+					authorKeyId: textFile.authorKeyId,
+					authorLabel: textFile.authorLabel
+				},
+				{ authorLayerKey: options.authorLayerKey }
+			)
+		: undefined;
 
 	const rows = await getDb()
 		.select({
@@ -250,6 +261,7 @@ export async function listTextFiles(
 		.where(
 			and(
 				eq(textFile.userId, userId),
+				authorSql,
 				cursor
 					? or(
 							lt(textFile.updatedAt, cursor.updatedAt),
@@ -266,7 +278,7 @@ export async function listTextFiles(
 
 export async function searchTextFiles(
 	userId: string,
-	input: { query: string; topK?: number; authorFilter?: 'user' | 'agent' }
+	input: { query: string; topK?: number; authorFilter?: 'user' | 'agent'; authorLayerKey?: string | null }
 ): Promise<TextFileSearchHit[]> {
 	const limit = Math.max(1, Math.min(input.topK ?? 10, 50));
 	const tsQueryString = buildLexicalTsQuery(input.query);
@@ -276,6 +288,14 @@ export async function searchTextFiles(
 	const tsQueryExpr = sql`to_tsquery('simple', ${tsQueryString})`;
 	const rankExpr = sql<number>`ts_rank_cd(${lexicalVector}, ${tsQueryExpr})`;
 	const matchExpr = sql<boolean>`${lexicalVector} @@ ${tsQueryExpr}`;
+	const authorSql = resolveAuthorSqlCondition(
+		{
+			author: textFile.author,
+			authorKeyId: textFile.authorKeyId,
+			authorLabel: textFile.authorLabel
+		},
+		{ author: input.authorFilter, authorLayerKey: input.authorLayerKey }
+	);
 
 	const rows = await getDb()
 		.select({
@@ -295,7 +315,7 @@ export async function searchTextFiles(
 			and(
 				eq(textFile.userId, userId),
 				matchExpr,
-				input.authorFilter ? eq(textFile.author, input.authorFilter) : undefined
+				authorSql
 			)
 		)
 		.orderBy(desc(rankExpr))

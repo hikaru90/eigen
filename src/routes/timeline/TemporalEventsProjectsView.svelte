@@ -13,6 +13,9 @@
 	import TimelineAgentAssignDialog from './TimelineAgentAssignDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
+	import { currentUserView } from '$lib/stores/current-user-view';
+	import type { CurrentUserView } from '$lib/memory/current-user-view';
+	import { get } from 'svelte/store';
 
 	type Props = {
 		onGoToTask: (itemId: string) => void;
@@ -34,7 +37,7 @@
 		| { kind: 'error'; message: string };
 
 	let phase = $state<Phase>({ kind: 'loading' });
-	let authorFilter = $state<'human' | 'all'>('human');
+	let dataView = $state<CurrentUserView>(get(currentUserView));
 	let createDialogOpen = $state(false);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
@@ -51,7 +54,7 @@
 		if (!silent) phase = { kind: 'loading' };
 		try {
 			const params = new URLSearchParams();
-			params.set('author', authorFilter === 'human' ? 'user' : 'all');
+			params.set('author', dataView === 'user' ? 'user' : 'all');
 			const res = await fetch(`/api/timeline/projects?${params.toString()}`);
 			if (!res.ok) {
 				const text = await res.text();
@@ -70,16 +73,15 @@
 		}
 	}
 
-	function setAuthorFilter(next: 'human' | 'all') {
-		if (authorFilter === next) return;
-		authorFilter = next;
-		void loadProjects({ silent: false });
-	}
-
 	onMount(() => {
 		void loadProjects({ silent: false });
 
-		return subscribeThoughtSync((message) => {
+		const unsubView = currentUserView.subscribe((view) => {
+			dataView = view;
+			void loadProjects({ silent: phase.kind === 'ready' });
+		});
+
+		const unsubSync = subscribeThoughtSync((message) => {
 			const reloadProjects =
 				message.type === 'refresh-all' ||
 				(message.type === 'changed' && message.scope === 'global');
@@ -87,6 +89,11 @@
 				void loadProjects({ silent: true });
 			}
 		});
+
+		return () => {
+			unsubView();
+			unsubSync();
+		};
 	});
 
 	function statusLabel(status: ProjectListItem['status']): string {
@@ -231,6 +238,7 @@
 		assignProjectOpen = false;
 		assignProjectItem = null;
 		onTaskUpdated?.(payload.thoughtId, payload.projectEntityId, payload.projectLabel);
+		void loadProjects({ silent: true });
 	}
 
 	function openAssignAgent(task: TemporalEventListItem) {
@@ -320,26 +328,6 @@
 				<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					{m.graph_timeline_projects_aria()}
 				</h2>
-				<div
-					class="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 p-0.5"
-					role="group"
-					aria-label={m.graph_timeline_projects_filter_aria()}
-				>
-					<button
-						type="button"
-						class={authorFilter === 'human' ? filledPillClass : ghostPillClass}
-						onclick={() => setAuthorFilter('human')}
-					>
-						{m.graph_timeline_projects_filter_human()}
-					</button>
-					<button
-						type="button"
-						class={authorFilter === 'all' ? filledPillClass : ghostPillClass}
-						onclick={() => setAuthorFilter('all')}
-					>
-						{m.graph_timeline_projects_filter_all()}
-					</button>
-				</div>
 			</div>
 			<Button
 				type="button"

@@ -15,6 +15,7 @@
 		"generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "eslint .",
+		"assert:oss-secrets": "node scripts/assert-oss-no-secrets.mjs",
 		"test:unit": "vitest run --config vitest.config.ts",
 		"test:unit:watch": "vitest --config vitest.config.ts",
 		"test:unit:run": "vitest run --config vitest.config.ts",

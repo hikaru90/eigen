@@ -48,6 +48,8 @@
 	import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh';
 	import { unlinkTextFileFromThought } from '$lib/text-files/api';
 	import { captureInputDraft } from '$lib/stores/page-input-drafts';
+	import { currentUserView } from '$lib/stores/current-user-view';
+	import { appendViewToSearchParams, type CurrentUserView } from '$lib/memory/current-user-view';
 	import { get } from 'svelte/store';
 	import { trackInsufficientCredits } from '$lib/analytics/billing-events';
 	import { capture as captureEvent } from '$lib/analytics/posthog-client';
@@ -139,7 +141,8 @@ import { logErrorToServer } from '$lib/client-log';
 	});
 	let recentThoughts = $state<CaptureRecentThoughtSnippet[]>([]);
 	let thoughtDetails = $state<Record<string, CaptureSubmitResult>>({});
-	let recentFilter = $state<{ author?: 'user' | 'agent'; category?: string; memoryType?: string }>({});
+	let recentFilter = $state<{ category?: string; memoryType?: string }>({});
+	let dataView = $state<CurrentUserView>(get(currentUserView));
 	let hasAgentCaptures = $derived(
 		Object.values(thoughtDetails).some((d) => d.author === 'agent') ||
 		data.recentThoughtDetails.some((d) => d.author === 'agent')
@@ -152,18 +155,13 @@ import { logErrorToServer } from '$lib/client-log';
 		);
 	});
 
-	async function handleRecentFilterChange(filter: {
-		author?: 'user' | 'agent';
-		category?: string;
-		memoryType?: string;
-	}) {
-		recentFilter = filter;
+	async function reloadRecentThoughts() {
 		try {
 			const params = new URLSearchParams();
 			params.set('limit', String(RECENT_THOUGHTS_LIMIT));
-			if (filter.author) params.set('author', filter.author);
-			if (filter.category) params.set('category', filter.category);
-			if (filter.memoryType) params.set('memoryType', filter.memoryType);
+			appendViewToSearchParams(params, dataView);
+			if (recentFilter.category) params.set('category', recentFilter.category);
+			if (recentFilter.memoryType) params.set('memoryType', recentFilter.memoryType);
 			const res = await fetch(`/api/capture/recent?${params.toString()}`);
 			if (!res.ok) return;
 			const payload = (await res.json()) as {
@@ -178,6 +176,21 @@ import { logErrorToServer } from '$lib/client-log';
 			// Transient errors — poll will retry.
 		}
 	}
+
+	async function handleRecentFilterChange(filter: {
+		category?: string;
+		memoryType?: string;
+	}) {
+		recentFilter = filter;
+		await reloadRecentThoughts();
+	}
+
+	$effect(() => {
+		return currentUserView.subscribe((view) => {
+			dataView = view;
+			void reloadRecentThoughts();
+		});
+	});
 	let expandedThoughtId = $state<string | null>(null);
 	let editingThoughtId = $state<string | null>(null);
 	let err = $state<string | null>(null);

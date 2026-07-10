@@ -101,7 +101,12 @@ if (!existsSync(cliBin)) {
 }
 
 const host = resolvePostHogCliHost();
-const projectId = process.env.POSTHOG_CLI_PROJECT_ID?.trim() || '208285';
+const projectId = process.env.POSTHOG_CLI_PROJECT_ID?.trim() || '';
+if (!projectId) {
+	abortOrSkip(
+		'POSTHOG_CLI_PROJECT_ID is not set. Set your PostHog project id when POSTHOG_SOURCEMAPS_REQUIRED=1.'
+	);
+}
 const releaseName = process.env.POSTHOG_RELEASE_NAME?.trim() || 'eigen';
 const releaseVersion =
 	process.env.SOURCE_VERSION?.trim() ||

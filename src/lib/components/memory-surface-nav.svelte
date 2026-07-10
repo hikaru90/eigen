@@ -51,7 +51,7 @@
         class={cn(
           "flex h-full items-center rounded-full px-3 text-xs whitespace-nowrap",
           activeTab === tab.id
-            ? "bg-black text-white hover:text-white dark:bg-foreground dark:text-background dark:hover:text-background"
+            ? "bg-[#28F97F] text-black hover:text-black dark:bg-[#28F97F] dark:text-black dark:hover:text-black"
             : "text-black hover:text-black dark:text-foreground dark:hover:text-foreground",
         )}
         aria-current={activeTab === tab.id ? "page" : undefined}

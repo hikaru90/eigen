@@ -20,7 +20,7 @@ export function graphFilterGlassPanelClass(expanded: boolean): string {
 		: `${GRAPH_FILTER_GLASS_BASE} ${GRAPH_FILTER_PILL_RADIUS} ${GRAPH_FILTER_RADIUS_TRANSITION}`;
 }
 
-export const GRAPH_FILTER_GLASS_ROW = `${GRAPH_FILTER_GLASS} flex h-9 w-fit shrink-0 items-stretch gap-0.5 p-0.5`;
+export const GRAPH_FILTER_GLASS_ROW = `${GRAPH_FILTER_GLASS} flex flex-col w-fit shrink-0 items-stretch gap-0.5 p-0.5`;
 
 /** Popover panels — same frosted chrome as the icon row, not default shadcn popover surface. */
 export const GRAPH_FILTER_GLASS_POPOVER = `${GRAPH_FILTER_GLASS_BASE} rounded-xl text-foreground ring-0`;

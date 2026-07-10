@@ -26,6 +26,13 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import PencilLine from '@lucide/svelte/icons/pencil-line';
 	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
+	import { currentUserView } from '$lib/stores/current-user-view';
+	import {
+		appendViewToSearchParams,
+		matchesCurrentUserView,
+		type CurrentUserView
+	} from '$lib/memory/current-user-view';
+	import { get } from 'svelte/store';
 
 	type ListItem = {
 		id: string;
@@ -34,11 +41,12 @@
 		updatedAt: string;
 		author?: 'user' | 'agent';
 		authorLabel?: string | null;
+		authorKeyId?: string | null;
 	};
 
 	const PAGE_SIZE = 20;
 
-	let hideAgentNotes = $state(false);
+	let dataView = $state<CurrentUserView>(get(currentUserView));
 
 	let searchQuery = $state('');
 	let listItems = $state<ListItem[]>([]);
@@ -68,7 +76,16 @@
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const visibleListItems = $derived(
-		hideAgentNotes ? listItems.filter((item) => item.author !== 'agent') : listItems
+		listItems.filter((item) =>
+			matchesCurrentUserView(
+				{
+					author: item.author ?? 'user',
+					authorLabel: item.authorLabel,
+					authorKeyId: item.authorKeyId
+				},
+				dataView
+			)
+		)
 	);
 
 	function toListItem(record: TextFileRecord): ListItem {
@@ -78,7 +95,8 @@
 			preview: record.body.slice(0, 200),
 			updatedAt: record.updatedAt,
 			author: record.author,
-			authorLabel: record.authorLabel
+			authorLabel: record.authorLabel,
+			authorKeyId: record.authorKeyId
 		};
 	}
 
@@ -102,11 +120,15 @@
 		try {
 			const q = searchQuery.trim();
 			if (q) {
-				const results = await searchTextFiles(q, PAGE_SIZE);
+				const results = await searchTextFiles(q, PAGE_SIZE, dataView);
 				listItems = results.map(toListItemFromHit);
 				hasMore = false;
 			} else {
-				const files = await fetchTextFiles(PAGE_SIZE, reset ? undefined : listCursor ?? undefined);
+				const files = await fetchTextFiles(
+					PAGE_SIZE,
+					reset ? undefined : listCursor ?? undefined,
+					dataView
+				);
 				const mapped = files.map(toListItem);
 				listItems = reset ? mapped : [...listItems, ...mapped];
 				hasMore = files.length === PAGE_SIZE;
@@ -221,6 +243,11 @@
 			const noteId = page.url.searchParams.get('note')?.trim();
 			if (noteId) void openNote(noteId);
 		});
+
+		return currentUserView.subscribe((view) => {
+			dataView = view;
+			void loadList(true);
+		});
 	});
 </script>
 
@@ -247,10 +274,6 @@
 			placeholder={m.notes_search_placeholder()}
 			class="rounded-none border-border bg-background"
 		/>
-		<label class="flex items-center gap-2 text-xs text-muted-foreground">
-			<input type="checkbox" bind:checked={hideAgentNotes} />
-			Hide AI-authored notes
-		</label>
 	</div>
 
 	<div class="min-h-0 flex-1 overflow-y-auto">

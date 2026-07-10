@@ -6,6 +6,7 @@ export type TextFileRecord = {
 	body: string;
 	author?: 'user' | 'agent';
 	authorLabel?: string | null;
+	authorKeyId?: string | null;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -30,12 +31,20 @@ export type TextFileListCursor = {
 
 export async function fetchTextFiles(
 	limit = 20,
-	cursor?: TextFileListCursor
+	cursor?: TextFileListCursor,
+	view?: string
 ): Promise<TextFileRecord[]> {
 	const params = new URLSearchParams({ limit: String(limit) });
 	if (cursor) {
 		params.set('cursor_updated_at', cursor.updatedAt);
 		params.set('cursor_id', cursor.id);
+	}
+	if (view && view !== 'all') {
+		if (view === 'user') {
+			params.set('authorLayerKey', 'user');
+		} else {
+			params.set('authorLayerKey', view);
+		}
 	}
 	const res = await fetch(`/api/text-files?${params}`);
 	if (!res.ok) {
@@ -50,8 +59,19 @@ export async function fetchTextFiles(
 	return data.textFiles;
 }
 
-export async function searchTextFiles(query: string, topK = 20): Promise<TextFileSearchHit[]> {
+export async function searchTextFiles(
+	query: string,
+	topK = 20,
+	view?: string
+): Promise<TextFileSearchHit[]> {
 	const params = new URLSearchParams({ q: query, limit: String(topK) });
+	if (view && view !== 'all') {
+		if (view === 'user') {
+			params.set('authorLayerKey', 'user');
+		} else {
+			params.set('authorLayerKey', view);
+		}
+	}
 	const res = await fetch(`/api/text-files?${params}`);
 	if (!res.ok) {
 		throw new Error(`Failed to search text files (${res.status})`);

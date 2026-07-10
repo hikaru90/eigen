@@ -23,7 +23,7 @@ export function authorLegendItemStateClass(input: {
 	filterActive: boolean;
 	isSelected: boolean;
 }): string {
-	if (input.filterActive && !input.isSelected) return 'opacity-40';
+	if (input.filterActive && input.isSelected) return 'bg-black/10 dark:bg-white/15';
 	return '';
 }
 

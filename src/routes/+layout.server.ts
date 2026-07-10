@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { userPreference } from '$lib/server/db/schema';
 import { isUserAdmin } from '$lib/server/auth/user-role';
+import { listAuthorLayersForUser } from '$lib/server/memory/authorship';
 import { normalizeUiLocale } from '$lib/i18n/ui-locale';
 import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime';
 
@@ -10,9 +11,11 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	let preferredUiLocale: string | null = null;
 	let preferredLanguage = 'en';
 	let isAdmin = false;
+	let authorLayers: Awaited<ReturnType<typeof listAuthorLayersForUser>> = [];
 
 	if (locals.user) {
 		isAdmin = await isUserAdmin(locals.user.id);
+		authorLayers = await listAuthorLayersForUser(locals.user.id);
 		const [pref] = await getDb()
 			.select({
 				preferredUiLocale: userPreference.preferredUiLocale,
@@ -39,6 +42,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 		user: locals.user ?? null,
 		isAdmin,
 		preferredUiLocale,
-		preferredLanguage
+		preferredLanguage,
+		authorLayers
 	};
 };

@@ -8,11 +8,9 @@
 		type GraphLegendSection
 	} from '$lib/graph/graph-ontology-legend';
 	import GraphEntityKindsLegend from './graph-entity-kinds-legend.svelte';
-	import GraphAuthorLayersLegend from './graph-author-layers-legend.svelte';
 	import {
 		filterNodesByAuthorLayers,
-		isEmbeddingItemVisibleByAuthorLayers,
-		type AuthorLayerMeta
+		isEmbeddingItemVisibleByAuthorLayers
 	} from '$lib/graph/graph-author-layers';
 	import { m } from '$lib/paraglide/messages.js';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -27,7 +25,6 @@
 
 	type Props = {
 		graphLegendSections: GraphLegendSection[];
-		authorLayers?: AuthorLayerMeta[];
 		visibleEntityTypes?: Set<string>;
 		visibleAuthorLayers?: Set<string>;
 		/** When false the tab panel is hidden — resize only; projection is prefetched at /memory layout. */
@@ -38,7 +35,6 @@
 
 	let {
 		graphLegendSections,
-		authorLayers = [],
 		visibleEntityTypes = $bindable(new Set<string>()),
 		visibleAuthorLayers = $bindable(new Set<string>()),
 		visible = true,
@@ -252,11 +248,6 @@
 				legendSections={graphLegendSections}
 				graphStats={embeddingStats}
 				panelId="embedding-map-legend-panel"
-			/>
-			<GraphAuthorLayersLegend
-				bind:visibleAuthorLayers
-				{authorLayers}
-				panelId="embedding-map-author-layers-panel"
 			/>
 		</div>
 

@@ -1,4 +1,5 @@
-import { and, eq, like, sql } from 'drizzle-orm';
+import { and, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
+import type { AnyColumn } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { userApiKey, thought, type MemoryAuthor } from '$lib/server/db/schema';
 
@@ -110,6 +111,47 @@ export type AuthorLayerMeta = {
 	label: string;
 	kind: 'user' | 'agent';
 };
+
+export type AuthorLayerSqlColumns = {
+	author: AnyColumn;
+	authorKeyId: AnyColumn;
+	authorLabel: AnyColumn;
+};
+
+/** Drizzle WHERE fragment for a single author layer key (format parse only). */
+export function authorLayerKeySqlCondition(
+	key: string,
+	cols: AuthorLayerSqlColumns
+): SQL | undefined {
+	if (key === 'user') {
+		return eq(cols.author, 'user');
+	}
+	if (key.startsWith('apikey:')) {
+		const id = key.slice('apikey:'.length);
+		if (!id) return undefined;
+		return and(eq(cols.author, 'agent'), eq(cols.authorKeyId, id));
+	}
+	if (key.startsWith('label:')) {
+		const label = key.slice('label:'.length);
+		if (!label) return undefined;
+		return and(eq(cols.author, 'agent'), isNull(cols.authorKeyId), eq(cols.authorLabel, label));
+	}
+	return undefined;
+}
+
+/** Prefer authorLayerKey when set; otherwise coarse MemoryAuthor filter. */
+export function resolveAuthorSqlCondition(
+	cols: AuthorLayerSqlColumns,
+	input: { author?: MemoryAuthor; authorLayerKey?: string | null }
+): SQL | undefined {
+	if (input.authorLayerKey) {
+		return authorLayerKeySqlCondition(input.authorLayerKey, cols);
+	}
+	if (input.author) {
+		return eq(cols.author, input.author);
+	}
+	return undefined;
+}
 
 /** Stable filter-layer key for a thought row or authorship tuple. */
 export function authorLayerKeyFromThought(input: {

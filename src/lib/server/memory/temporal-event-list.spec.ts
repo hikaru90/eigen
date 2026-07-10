@@ -101,4 +101,37 @@ describe('listTemporalEventsForUser author filter', () => {
 		expect(eventWhereSpy).toHaveBeenCalled();
 		expect(taskThoughtWhereSpy).toHaveBeenCalled();
 	});
+
+	it('queries with authorLayerKey when provided', async () => {
+		const eventWhereSpy = vi.fn();
+		const taskEventWhereSpy = vi.fn();
+		const taskThoughtWhereSpy = vi.fn();
+		let selectCall = 0;
+
+		getDbMock.mockImplementation(() => ({
+			select: vi.fn(() => {
+				selectCall += 1;
+				if (selectCall === 1) {
+					return makeSelectChain(eventWhereSpy, []);
+				}
+				if (selectCall === 2) {
+					return makeSelectChain(taskEventWhereSpy, []);
+				}
+				if (selectCall === 3) {
+					return makeSelectChain(taskThoughtWhereSpy, []);
+				}
+				return makeSelectChain(vi.fn(), []);
+			})
+		}));
+
+		await listTemporalEventsForUser({
+			userId: 'u1',
+			status: 'open',
+			includeTasks: true,
+			authorLayerKey: 'apikey:key-1'
+		});
+
+		expect(eventWhereSpy).toHaveBeenCalled();
+		expect(taskThoughtWhereSpy).toHaveBeenCalled();
+	});
 });

@@ -199,6 +199,39 @@ log "Preflight: checking .env.example..."
 [ -f "$ENV_EXAMPLE" ] || die ".env.example not found in ${SCRIPT_DIR}"
 log_ok ".env.example found at $ENV_EXAMPLE"
 
+# Operator credentials must never ship in .env.example (open-source release guard).
+OPERATOR_SECRET_KEYS="
+SERVICE_API_KEY_EUROUTER
+SERVICE_API_KEY_OPENROUTER
+LLM_API_KEY
+OPENROUTER_API_KEY
+PAYPAL_CLIENT_ID
+PAYPAL_CLIENT_SECRET
+PAYPAL_SECRET
+POSTHOG_API_KEY
+POSTHOG_CLI_API_KEY
+POSTHOG_PERSONAL_API_KEY
+PUBLIC_POSTHOG_KEY
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GITHUB_CLIENT_ID
+GITHUB_CLIENT_SECRET
+PAYPAL_SANDBOX_BUYER_EMAIL
+PAYPAL_SANDBOX_BUYER_PASSWORD
+"
+log "Preflight: verifying .env.example has no operator API keys..."
+for key in $OPERATOR_SECRET_KEYS; do
+	line=$(grep "^${key}=" "$ENV_EXAMPLE" 2>/dev/null | head -1 || true)
+	if [ -z "$line" ]; then
+		continue
+	fi
+	val=$(printf '%s' "$line" | sed -n 's/^[^=]*="\?\([^"]*\)"\?$/\1/p')
+	if [ -n "$val" ]; then
+		die ".env.example must not ship with ${key} set — redact before publishing open source"
+	fi
+done
+log_ok ".env.example has no operator API keys"
+
 log "Preflight: checking write permissions..."
 if ! touch "${ENV_FILE}.test" 2>/dev/null; then
 	die "Cannot write to $(dirname "${ENV_FILE}") — check permissions or run from a writable directory"
@@ -255,6 +288,12 @@ log "  NOTE: DATABASE_URL uses internal Docker hostname 'db' — this is correct
 log "Copying .env.example -> .env..."
 cp "$ENV_EXAMPLE" "$ENV_FILE"
 log_ok "Copied .env.example to $ENV_FILE"
+
+log "Clearing operator API keys in .env (must be added manually after install)..."
+for key in $OPERATOR_SECRET_KEYS; do
+	set_env_var "$key" "" "$ENV_FILE"
+done
+log_ok "Operator API key slots cleared"
 
 # ── Write all env vars ─────────────────────────────────────────────────────
 log "Writing environment variables to .env..."
@@ -353,10 +392,11 @@ fi
 
 # ── Dump final .env summary (without secrets) ─────────────────────────────
 log "Final .env summary (secrets redacted)..."
-grep -v -E '^(POSTGRES_PASSWORD|EIGEN_APP_DB_PASSWORD|BETTER_AUTH_SECRET|TENANT_MASTER_KEY|ADMIN_CONSOLIDATION_KEY|DATABASE_URL|DATABASE_ADMIN_URL)=' "$ENV_FILE" | while IFS= read -r line; do
+REDACTED_KEYS='^(POSTGRES_PASSWORD|EIGEN_APP_DB_PASSWORD|BETTER_AUTH_SECRET|TENANT_MASTER_KEY|ADMIN_CONSOLIDATION_KEY|ADMIN_PASSWORD|DATABASE_URL|DATABASE_ADMIN_URL|VAPID_PUBLIC_KEY|VAPID_PRIVATE_KEY|SERVICE_API_KEY_EUROUTER|SERVICE_API_KEY_OPENROUTER|LLM_API_KEY|OPENROUTER_API_KEY|PAYPAL_CLIENT_ID|PAYPAL_CLIENT_SECRET|PAYPAL_SECRET|POSTHOG_API_KEY|POSTHOG_CLI_API_KEY|POSTHOG_PERSONAL_API_KEY|PUBLIC_POSTHOG_KEY|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|GITHUB_CLIENT_ID|GITHUB_CLIENT_SECRET|PAYPAL_SANDBOX_BUYER_EMAIL|PAYPAL_SANDBOX_BUYER_PASSWORD)='
+grep -v -E "$REDACTED_KEYS" "$ENV_FILE" | while IFS= read -r line; do
 	log "  $line"
 done
-log "(Database secrets and URLs redacted from summary above)"
+log "(Secrets and operator credentials redacted from summary above)"
 
 # ── Docker preflight: check if compose stack is already running ────────────
 log "Checking Docker Compose stack status..."

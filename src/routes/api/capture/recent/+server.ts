@@ -22,6 +22,12 @@ export const GET: RequestHandler = async (event) => {
 		filter.author = authorParam as MemoryAuthor;
 	}
 
+	const authorLayerKey = url.searchParams.get('authorLayerKey');
+	if (authorLayerKey) {
+		filter.authorLayerKey = authorLayerKey;
+		filter.author = undefined;
+	}
+
 	const categoryParam = url.searchParams.get('category');
 	if (categoryParam) {
 		filter.category = categoryParam;

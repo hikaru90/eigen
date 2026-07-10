@@ -10,6 +10,7 @@ import type {
 } from '$lib/server/db/brain.schema';
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption';
 import { computeFocusRank } from '$lib/server/memory/compute-focus-rank';
+import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship';
 
 export const TASK_ITEM_PREFIX = 'task:';
 /** @deprecated Legacy timeline IDs — still accepted when parsing. */
@@ -71,6 +72,7 @@ export type TemporalEventListQuery = {
 	orderBy?: 'ingest' | 'todo';
 	sortDirection?: 'asc' | 'desc';
 	author?: MemoryAuthor;
+	authorLayerKey?: string | null;
 };
 
 export function isTaskListItem(item: TemporalEventListItem): boolean {
@@ -187,7 +189,7 @@ async function listTaskThoughtsForUser(
 	status: TemporalEventListQuery['status'],
 	orderBy: TemporalEventListQuery['orderBy'] = 'ingest',
 	sortDirection: TemporalEventListQuery['sortDirection'] = 'desc',
-	author?: MemoryAuthor
+	authorFilter?: { author?: MemoryAuthor; authorLayerKey?: string | null }
 ): Promise<TemporalEventListItem[]> {
 	const eventRows = await getDb()
 		.select({ thoughtId: temporalEvent.thoughtId })
@@ -196,8 +198,16 @@ async function listTaskThoughtsForUser(
 	const eventThoughtIds = eventRows.map((r) => r.thoughtId);
 
 	const conditions: SQL[] = [eq(thought.userId, userId), eq(thought.category, 'task')];
-	if (author) {
-		conditions.push(eq(thought.author, author));
+	const authorSql = resolveAuthorSqlCondition(
+		{
+			author: thought.author,
+			authorKeyId: thought.authorKeyId,
+			authorLabel: thought.authorLabel
+		},
+		authorFilter ?? {}
+	);
+	if (authorSql) {
+		conditions.push(authorSql);
 	}
 	if (status === 'open') {
 		conditions.push(eq(thought.lifecycleStatus, 'open'));
@@ -391,8 +401,16 @@ export async function listTemporalEventsForUser(
 		conditions.push(eq(temporalEvent.lifecycleStatus, 'open'));
 	}
 
-	if (query.author) {
-		conditions.push(eq(thought.author, query.author));
+	const authorSql = resolveAuthorSqlCondition(
+		{
+			author: thought.author,
+			authorKeyId: thought.authorKeyId,
+			authorLabel: thought.authorLabel
+		},
+		{ author: query.author, authorLayerKey: query.authorLayerKey }
+	);
+	if (authorSql) {
+		conditions.push(authorSql);
 	}
 
 	const kinds = query.kinds?.filter((k) => k.trim()) as TemporalEventKind[] | undefined;
@@ -519,7 +537,7 @@ export async function listTemporalEventsForUser(
 			query.status ?? 'open',
 			query.orderBy,
 			query.sortDirection,
-			query.author
+			{ author: query.author, authorLayerKey: query.authorLayerKey }
 		);
 		merged = [...items, ...tasks];
 

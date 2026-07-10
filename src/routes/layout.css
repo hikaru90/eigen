@@ -46,6 +46,10 @@
 		--chart-3: oklch(0.439 0 0);
 		--chart-4: oklch(0.371 0 0);
 		--chart-5: oklch(0.269 0 0);
+		/* Eigen CI gradient — Penpot origin */
+		--gradient-eigen: linear-gradient(90deg, #28F97F 0%, #A2F928 60%, #28F97F 99%);
+		--color-eigen-green: #28F97F;
+		--color-eigen-lime: #A2F928;
 		/* DESIGN: capture button ~4px; cards sharp */
 		--radius: 0.25rem;
 		--sidebar: oklch(0.985 0 0);
