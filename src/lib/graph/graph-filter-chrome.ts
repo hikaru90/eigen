@@ -2,25 +2,17 @@
 const GRAPH_FILTER_GLASS_BASE =
 	'border border-white/80 bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card';
 
-/** Pill cap for h-9 controls — half height, not 9999px (which explodes when a panel grows). */
-const GRAPH_FILTER_PILL_RADIUS = 'rounded-[1.125rem]';
-
 /** Single-line pill controls (icon rows, popover triggers). */
 export const GRAPH_FILTER_GLASS = `rounded-full ${GRAPH_FILTER_GLASS_BASE}`;
 
-/** Expanded filter panel — static top cap, rounded-xl bottom (original open state). */
-export const GRAPH_FILTER_GLASS_PANEL = `${GRAPH_FILTER_GLASS_BASE} rounded-t-[1.125rem] rounded-b-xl`;
+/** Graph filter shell — collapsed row and expanded panel share rounded-2xl corners. */
+export const GRAPH_FILTER_GLASS_PANEL = `${GRAPH_FILTER_GLASS_BASE} rounded-[20px]`;
 
-const GRAPH_FILTER_RADIUS_TRANSITION = 'transition-[border-radius] duration-200 ease-out';
-
-/** Collapsed pill cap; expanded keeps the same static top radius, xl below. */
-export function graphFilterGlassPanelClass(expanded: boolean): string {
-	return expanded
-		? `${GRAPH_FILTER_GLASS_PANEL} ${GRAPH_FILTER_RADIUS_TRANSITION}`
-		: `${GRAPH_FILTER_GLASS_BASE} ${GRAPH_FILTER_PILL_RADIUS} ${GRAPH_FILTER_RADIUS_TRANSITION}`;
+export function graphFilterGlassPanelClass(_expanded: boolean): string {
+	return GRAPH_FILTER_GLASS_PANEL;
 }
 
-export const GRAPH_FILTER_GLASS_ROW = `${GRAPH_FILTER_GLASS} flex flex-col w-fit shrink-0 items-stretch gap-0.5 p-0.5`;
+export const GRAPH_FILTER_GLASS_ROW = `${GRAPH_FILTER_GLASS_PANEL} flex flex-col w-fit shrink-0 items-stretch gap-0.5 p-0.5`;
 
 /** Popover panels — same frosted chrome as the icon row, not default shadcn popover surface. */
 export const GRAPH_FILTER_GLASS_POPOVER = `${GRAPH_FILTER_GLASS_BASE} rounded-xl text-foreground ring-0`;

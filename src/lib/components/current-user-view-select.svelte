@@ -54,11 +54,13 @@
 			? authorAgentLegendIconFrameClass
 			: 'inline-flex shrink-0 items-center justify-center rounded-full bg-[#111] p-0.5 dark:bg-white'
 	);
+
+	const triggerLabel = $derived(viewLabel(view, authorLayers));
 </script>
 
 <Popover.Root bind:open>
 	<Popover.Trigger
-		class="flex h-9 max-w-32 items-center gap-1.5 bg-transparent px-1 text-xs font-medium text-[#111] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 dark:text-white"
+		class="flex h-9 items-center gap-1.5 bg-transparent px-1 text-xs font-medium text-[#111] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 dark:text-white"
 		aria-label="Data view"
 	>
 		<div class={triggerIconFrameClass}>
@@ -68,7 +70,11 @@
 				class={triggerIconKind === 'user' ? 'text-white dark:text-black' : ''}
 			/>
 		</div>
-		<span class="min-w-0 truncate">{viewLabel(view, authorLayers)}</span>
+		<span
+			class="inline-block min-w-0 max-w-[60px] shrink overflow-hidden whitespace-nowrap"
+			style="-webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent); mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);"
+			title={triggerLabel}
+		>{triggerLabel}</span>
 		<ChevronDown class="size-3 shrink-0 text-[#111] dark:text-white" strokeWidth={2} aria-hidden="true" />
 	</Popover.Trigger>
 	<Popover.Content
@@ -78,33 +84,33 @@
 		class="{GRAPH_FILTER_GLASS_POPOVER} w-52 gap-1 p-1 shadow-xl shadow-black/5"
 	>
 		<button type="button" class={optionClass('user')} onclick={() => select('user')}>
-			{#if view === 'user'}
-				<span class="text-foreground mr-auto">✓</span>
-			{:else}
-				<span class="w-4"></span>
-			{/if}
 			<AuthorLayerIcon kind="user" size="sm" />
 			<span class="truncate">You</span>
+			{#if view === 'user'}
+				<span class="ml-auto text-foreground">✓</span>
+			{:else}
+				<span class="ml-auto w-4"></span>
+			{/if}
 		</button>
 		{#each agentLayers as layer (layer.key)}
 			<button type="button" class={optionClass(layer.key)} onclick={() => select(layer.key)}>
-				{#if view === layer.key}
-					<span class="text-foreground mr-auto">✓</span>
-				{:else}
-					<span class="w-4"></span>
-				{/if}
 				<span class="text-[#28F97F]"><AuthorLayerIcon kind="agent" size="sm" /></span>
 				<span class="truncate">{layer.label}</span>
+				{#if view === layer.key}
+					<span class="ml-auto text-foreground">✓</span>
+				{:else}
+					<span class="ml-auto w-4"></span>
+				{/if}
 			</button>
 		{/each}
 		<div class="my-1 border-t border-white/40 dark:border-white/20" role="separator"></div>
 		<button type="button" class={optionClass('all')} onclick={() => select('all')}>
-			{#if view === 'all'}
-				<span class="text-foreground mr-auto">✓</span>
-			{:else}
-				<span class="w-4"></span>
-			{/if}
 			<span class="truncate">Everything</span>
+			{#if view === 'all'}
+				<span class="ml-auto text-foreground">✓</span>
+			{:else}
+				<span class="ml-auto w-4"></span>
+			{/if}
 		</button>
 	</Popover.Content>
 </Popover.Root>

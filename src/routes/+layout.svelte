@@ -46,7 +46,6 @@
       (page.route.id != null && authPaths.has(page.route.id)),
   );
 
-  let currentPath = $derived(page.url.pathname);
   let themePreference = "system";
 
   const bottomNavItems = $derived([
@@ -54,21 +53,18 @@
       label: m.nav_memory(),
       href: "/memory",
       icon: Brain,
-      active: currentPath.includes("/memory"),
       variant: "secondary" as const,
     },
     {
       label: m.nav_capture(),
       href: "/capture",
       icon: Plus,
-      active: currentPath.includes("/capture"),
       variant: "primary" as const,
     },
     {
       label: m.nav_chat(),
       href: "/chat",
       icon: MessageSquareText,
-      active: currentPath.includes("/chat"),
       variant: "secondary" as const,
     },
   ]);
@@ -195,20 +191,15 @@
           <a
             href={resolve(item.href as Pathname)}
             class={cn(
-              "flex items-center justify-center rounded-full py-3",
+              "flex items-center justify-center py-3",
               item.variant === "primary"
-                ? "bg-primary text-primary-foreground shadow-md grow"
-                : "px-3 text-foreground hover:bg-black/10 dark:text-white dark:hover:bg-white/10",
+                ? "rounded-full bg-primary text-primary-foreground shadow-md grow"
+                : "rounded-lg w-11 h-11 text-foreground hover:bg-black/10 dark:text-white dark:hover:bg-white/10",
             )}
             aria-label={item.label}
           >
             <item.icon class="size-5" strokeWidth={1.75} />
           </a>
-          {#if item.active}
-            <div class="absolute -bottom-2 flex h-0 w-full items-center justify-center">
-              <div class="bg-foreground absolute size-2 rounded-full dark:bg-white"></div>
-            </div>
-          {/if}
         </div>
       {/each}
     </div>

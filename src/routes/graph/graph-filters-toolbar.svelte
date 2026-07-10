@@ -52,6 +52,13 @@
 	let translateY = $state(0);
 	let placeholderW = $state(0);
 	let placeholderH = $state(0);
+	let backdropBlurred = $state(false);
+
+	const BACKDROP_BLUR_PX = 12;
+
+	const backdropStyle = $derived(
+		`-webkit-backdrop-filter: blur(${backdropBlurred ? BACKDROP_BLUR_PX : 0}px); backdrop-filter: blur(${backdropBlurred ? BACKDROP_BLUR_PX : 0}px); transition: backdrop-filter ${MORPH_MS}ms ease-out, -webkit-backdrop-filter ${MORPH_MS}ms ease-out; -webkit-mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%); mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%);`
+	);
 
 	const searchFilterActive = $derived(search.trim().length > 0);
 	const edgeFilterActive = $derived(edgeKind !== 'all');
@@ -71,7 +78,7 @@
 
 	const morphStyle = $derived(
 		isFixed
-			? `top:${anchorTop}px;left:${anchorLeft}px;transform:translate(${translateX}px,${translateY}px);transition:transform ${MORPH_MS}ms ease-out,width ${MORPH_MS}ms ease-out,border-radius 200ms ease-out;`
+			? `top:${anchorTop}px;left:${anchorLeft}px;transform:translate(${translateX}px,${translateY}px);transition:transform ${MORPH_MS}ms ease-out,width ${MORPH_MS}ms ease-out;`
 			: ''
 	);
 
@@ -90,13 +97,12 @@
 		visibleEntityTypes = new Set();
 	}
 
-	function computeOpenTransform(width: number, height: number) {
+	function computeOpenTransform(width: number) {
 		if (!browser) return { x: 0, y: 0 };
 		const targetX = (window.innerWidth - width) / 2;
-		const targetY = (window.innerHeight - height) / 2;
 		return {
 			x: targetX - anchorLeft,
-			y: targetY - anchorTop
+			y: 0
 		};
 	}
 
@@ -106,7 +112,7 @@
 				const el = toolbarEl;
 				if (!el || !filterOpen) return;
 				const rect = el.getBoundingClientRect();
-				const t = computeOpenTransform(rect.width, rect.height);
+				const t = computeOpenTransform(rect.width);
 				translateX = t.x;
 				translateY = t.y;
 			});
@@ -176,13 +182,24 @@
 		window.addEventListener('resize', onResize);
 		return () => window.removeEventListener('resize', onResize);
 	});
+	$effect(() => {
+		if (!browser || !filterOpen || !isFixed) {
+			backdropBlurred = false;
+			return;
+		}
+		backdropBlurred = false;
+		const id = requestAnimationFrame(() => {
+			backdropBlurred = true;
+		});
+		return () => cancelAnimationFrame(id);
+	});
 </script>
 
 {#if isFixed}
 	<button
 		type="button"
-		class="fixed inset-0 z-40 bg-black/15 backdrop-blur-[3px] transition-opacity duration-280 ease-out"
-		class:opacity-0={!filterOpen}
+		class="fixed inset-0 z-40 bg-transparent"
+		style={backdropStyle}
 		aria-label={m.graph_close()}
 		onclick={closeFilter}
 	></button>
@@ -201,7 +218,11 @@
 		aria-modal={filterOpen}
 		aria-label={m.graph_aria_legend_filters()}
 	>
-		<div class="flex shrink-0 items-center gap-0.5 {filterOpen ? 'justify-center' : 'justify-end'}">
+		<div
+			class="flex shrink-0 gap-0.5 {filterOpen
+				? 'flex-row items-center justify-center'
+				: 'flex-col items-end'}"
+		>
 			{#if searchFilterActive && !filterOpen}
 				<button
 					type="button"
