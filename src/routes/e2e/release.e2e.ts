@@ -42,7 +42,9 @@ test.describe('Release smoke @release', () => {
 		await test.step('capture a thought through the UI', async () => {
 			await captureThoughtViaUi(page, releaseThought);
 			await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible();
-			await expect(page.getByRole('button', { name: 'Collapse thought' })).toContainText('Lisbon');
+			await expect(
+				page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first()
+			).toContainText('Lisbon');
 		});
 
 		await test.step('projects: create, capture, edit, dismiss', async () => {

@@ -92,7 +92,9 @@ async function waitForCaptureIndexed(page: Page, raw: string): Promise<void> {
 				return true;
 			}
 			if (await visible(page.getByRole('heading', { name: 'Recent' }))) {
-				const recent = page.getByRole('button', { name: 'Collapse thought' }).first();
+				const recent = page
+					.getByRole('button', { name: /Expand thought|Collapse thought/ })
+					.first();
 				const text = (await recent.textContent().catch(() => null)) ?? '';
 				if (thoughtTextMatches(text, raw)) return true;
 			}

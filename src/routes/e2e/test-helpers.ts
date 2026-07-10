@@ -1,4 +1,4 @@
-import type { Page, BrowserContext } from '@playwright/test';
+import { expect, type Page, type BrowserContext } from '@playwright/test';
 import { HARNESS_E2E_PASSWORD } from '$lib/e2e/harness-credentials';
 
 export const TEST_PASSWORD = HARNESS_E2E_PASSWORD;
@@ -24,10 +24,23 @@ export async function registerUser(
 	const email = `e2e-${id}@${emailDomain}`;
 
 	await page.goto('/signup');
-	await page.fill('#name', `Test User ${id}`);
-	await page.fill('#email', email);
-	await page.fill('#password', TEST_PASSWORD);
-	await page.click('button:has-text("Create account")');
+	await page.getByRole('button', { name: 'Create account' }).waitFor({ state: 'visible' });
+
+	const displayName = `Test User ${id}`;
+	const nameInput = page.locator('#name');
+	const emailInput = page.locator('#email');
+	const passwordInput = page.locator('#password');
+
+	// Fill email/password first, then name last — early fills can be cleared by Svelte hydration.
+	await emailInput.fill(email);
+	await passwordInput.fill(TEST_PASSWORD);
+	await nameInput.fill(displayName);
+
+	await expect(nameInput).toHaveValue(displayName);
+	await expect(emailInput).toHaveValue(email);
+	await expect(passwordInput).toHaveValue(TEST_PASSWORD);
+
+	await page.getByRole('button', { name: 'Create account' }).click();
 
 	await page.waitForURL(/\/capture/);
 	return { email };
