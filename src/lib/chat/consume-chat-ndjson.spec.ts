@@ -77,6 +77,13 @@ describe('consumeChatNdjsonStream', () => {
 		);
 	});
 
+	it('throws deterministically on corrupt NDJSON line', async () => {
+		const res = ndjsonResponse(['not-json\n']);
+		await expect(consumeChatNdjsonStream(res, () => undefined)).rejects.toThrow(
+			/invalid data/i
+		);
+	});
+
 	it('throws when response body is missing', async () => {
 		const res = new Response(null);
 		await expect(consumeChatNdjsonStream(res, () => undefined)).rejects.toThrow(

@@ -54,7 +54,18 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
 	retrieve_thoughts: { title: 'Searching your memories', category: 'search', icon: 'search' },
 	answer_question: { title: 'Answering your question', category: 'compose', icon: 'sparkles' },
 	edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
-	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' }
+	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' },
+	set_status: { title: 'Updating status', category: 'write', icon: 'pencil' },
+	list_temporal_events: { title: 'Checking your schedule', category: 'memory', icon: 'list' },
+	manage_temporal_event: { title: 'Updating calendar event', category: 'write', icon: 'pencil' },
+	create_text_file: { title: 'Creating text note', category: 'write', icon: 'save' },
+	list_text_files: { title: 'Listing text notes', category: 'memory', icon: 'list' },
+	get_text_file: { title: 'Opening text note', category: 'memory', icon: 'list' },
+	update_text_file: { title: 'Updating text note', category: 'write', icon: 'pencil' },
+	delete_text_file: { title: 'Deleting text note', category: 'destructive', icon: 'trash' },
+	search_text_files: { title: 'Searching text notes', category: 'search', icon: 'search' },
+	link_text_file_to_thought: { title: 'Linking note to memory', category: 'write', icon: 'pencil' },
+	unlink_text_file_from_thought: { title: 'Unlinking note from memory', category: 'write', icon: 'pencil' }
 };
 
 const UNKNOWN_TOOL_VISUAL: ChatToolVisual = {
@@ -215,6 +226,25 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 		if (parsed.deleted) return { kind: 'text', text: 'Thought deleted.' };
 	}
 
+	if (tool === 'list_temporal_events' && Array.isArray(parsed.items)) {
+		const lines = parsed.items
+			.map((row) => {
+				if (!row || typeof row !== 'object') return null;
+				const item = row as Record<string, unknown>;
+				const summary =
+					typeof item.semanticSummary === 'string'
+						? item.semanticSummary.trim()
+						: typeof item.title === 'string'
+							? item.title.trim()
+							: '';
+				if (!summary) return null;
+				return summary;
+			})
+			.filter((line): line is string => Boolean(line));
+		if (lines.length === 0) return { kind: 'text', text: 'No schedule items found.' };
+		return { kind: 'lines', lines };
+	}
+
 	if (tool !== 'answer_question') {
 		const memoryHits = memoryHitsFromPayload(parsed);
 		if (memoryHits) return memoryHits;
@@ -228,7 +258,7 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 }
 
 function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView | null {
-	const sources = [parsed.results, parsed.candidates, parsed.retrieved, parsed.thoughts].find(
+	const sources = [parsed.results, parsed.candidates, parsed.retrieved, parsed.thoughts, parsed.items].find(
 		Array.isArray
 	);
 	if (!Array.isArray(sources)) return null;
@@ -408,7 +438,37 @@ function decodeToolResultPayload(source: string): Record<string, unknown> | null
 
 export function looksLikeRawToolJson(value: string): boolean {
 	const trimmed = value.trim();
-	return trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('"');
+	if (!trimmed) return false;
+	if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('"')) {
+		return true;
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		if (!parsed || typeof parsed !== 'object') return false;
+		const obj = parsed as Record<string, unknown>;
+		return (
+			typeof obj.tool === 'string' ||
+			(typeof obj.arguments === 'object' && obj.arguments !== null) ||
+			Array.isArray(obj.results) ||
+			Array.isArray(obj.items) ||
+			(typeof obj.answer === 'string' && /^\s*\{/.test(obj.answer))
+		);
+	} catch {
+		return false;
+	}
+}
+
+export class FinalAnswerFormatError extends Error {
+	constructor(message = 'The assistant could not format a readable answer.') {
+		super(message);
+		this.name = 'FinalAnswerFormatError';
+	}
+}
+
+export function isUnpresentableFinalAnswer(value: string): boolean {
+	const trimmed = value.trim();
+	if (!trimmed) return true;
+	return looksLikeRawToolJson(trimmed);
 }
 
 export function parseToolResultPreview(tool: string, preview: string): ToolResultView | null {
@@ -470,6 +530,9 @@ export function resolveToolResultText(
 export function formatToolResultForDisplay(tool: string, preview: string): string {
 	const view = parseToolResultPreview(tool, preview);
 	if (view) return toolResultViewToText(view);
+	if (looksLikeRawToolJson(preview)) {
+		return 'Could not read stored results for this step.';
+	}
 	return preview.length > 500 ? `${preview.slice(0, 500)}...` : preview;
 }
 
@@ -588,4 +651,18 @@ export function parseFinalAnswerText(response: string, toolResultPreview?: strin
 		}
 	}
 	return parseComposedAnswerSections(response).answerText;
+}
+
+/** Parse and reject raw JSON/tool payloads before they reach the answer bubble. */
+export function sanitizeFinalAnswerText(response: string, toolResultPreview?: string): string {
+	const answerText = parseFinalAnswerText(response, toolResultPreview).trim();
+	if (!answerText) {
+		throw new FinalAnswerFormatError('The assistant returned an empty response.');
+	}
+	if (isUnpresentableFinalAnswer(answerText)) {
+		throw new FinalAnswerFormatError(
+			'The assistant returned unreadable data instead of a natural-language answer.'
+		);
+	}
+	return answerText;
 }

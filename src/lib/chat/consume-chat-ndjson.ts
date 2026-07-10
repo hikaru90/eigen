@@ -32,7 +32,11 @@ export { isInsufficientCreditsChatError };
 function parseNdjsonLine(line: string): ChatStreamEvent | null {
 	const trimmed = line.trim();
 	if (!trimmed) return null;
-	return JSON.parse(trimmed) as ChatStreamEvent;
+	try {
+		return JSON.parse(trimmed) as ChatStreamEvent;
+	} catch {
+		throw new Error(`Chat stream contained invalid data (${trimmed.slice(0, 80)}).`);
+	}
 }
 
 export async function consumeChatNdjsonStream(

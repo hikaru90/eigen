@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	CHAT_TOOL_COPY,
 	coerceToolResultSource,
 	evidenceHitsFromAnswerQuestionPayload,
 	formatToolArgumentsSummary,
@@ -8,9 +9,11 @@ import {
 	parseComposedAnswerSections,
 	parseFinalAnswerText,
 	resolveToolResultView,
+	sanitizeFinalAnswerText,
 	toolCategoryClasses,
 	toolVisual
 } from './chat-stream-types';
+import { MCP_AGENT_TOOL_NAMES } from '$lib/server/mcp/registry';
 
 describe('chat-stream-types', () => {
 	it('assigns distinct categories per known tool', () => {
@@ -238,5 +241,36 @@ describe('chat-stream-types', () => {
 		const view = resolveToolResultView('retrieve_thoughts', raw, raw);
 		expect(view.kind).not.toBe('text');
 		if (view.kind === 'text') expect(view.text).not.toContain('"results"');
+	});
+
+	it('lists human-readable copy for every agent tool', () => {
+		for (const tool of MCP_AGENT_TOOL_NAMES) {
+			expect(CHAT_TOOL_COPY[tool], `${tool} missing from CHAT_TOOL_COPY`).toBeDefined();
+			expect(toolVisual(tool).title).not.toMatch(/Running\s+[a-z]+_/);
+		}
+	});
+
+	it('formats list_temporal_events with readable title and item summaries', () => {
+		expect(toolVisual('list_temporal_events').title).toBe('Checking your schedule');
+		const preview = JSON.stringify({
+			items: [{ semanticSummary: 'Team standup at 9am' }]
+		});
+		expect(formatToolResultForDisplay('list_temporal_events', preview)).toBe('Team standup at 9am');
+	});
+
+	it('sanitizeFinalAnswerText rejects raw JSON tool payloads', () => {
+		expect(() =>
+			sanitizeFinalAnswerText('{"tool":"list_temporal_events","arguments":{"range":"relevant"}}')
+		).toThrow(/unreadable data/i);
+	});
+
+	it('formatToolResultForDisplay never returns raw JSON for unknown tools', () => {
+		const preview = JSON.stringify({
+			tool: 'list_temporal_events',
+			arguments: { range: 'relevant' }
+		});
+		expect(formatToolResultForDisplay('unknown_tool', preview)).toBe(
+			'Could not read stored results for this step.'
+		);
 	});
 });

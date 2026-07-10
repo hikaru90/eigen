@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { formatToolResultForDisplay, parseFinalAnswerText } from '$lib/chat/chat-stream-types';
+import { formatToolResultForDisplay, sanitizeFinalAnswerText } from '$lib/chat/chat-stream-types';
 import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
 import type { ChatMessage } from '$lib/server/llm/llm-client';
@@ -323,7 +323,7 @@ export async function handleAgentChatPost(
 					typeof result.response === 'string' && result.response.trim().length > 0
 						? result.response
 						: 'The assistant did not produce a response.';
-				const responseText = parseFinalAnswerText(rawResponse, lastAnswerQuestionPreview);
+				const responseText = sanitizeFinalAnswerText(rawResponse, lastAnswerQuestionPreview);
 				const messageId = await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
 				sendTerminal({
 					type: 'done',
@@ -396,7 +396,8 @@ export async function handleAgentChatPost(
 			})
 		);
 
-		const messageId = await persistAssistantMessage(db, sessionId, user.id, result.response);
+		const responseText = sanitizeFinalAnswerText(result.response);
+		const messageId = await persistAssistantMessage(db, sessionId, user.id, responseText);
 
 		if (isFirstMessage && !bootstrap && message.length > 0) {
 			const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
@@ -404,7 +405,7 @@ export async function handleAgentChatPost(
 		}
 
 		return json({
-			response: result.response,
+			response: responseText,
 			history: result.messages.filter((m) => m.role !== 'system'),
 			sessionId,
 			messageId

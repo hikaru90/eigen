@@ -97,3 +97,84 @@ export async function assertRedirectsToLogin(page: Page, path: string): Promise<
 	await page.goto(path);
 	await page.waitForURL(/\/login/);
 }
+
+/** Detects raw JSON/tool payloads that must never appear in user-visible chat text. */
+export const CHAT_RAW_JSON_PATTERN =
+	/\{"|\btool"\s*:|"arguments"\s*:|"results"\s*:|"items"\s*:/;
+
+export const CHAT_SNAKE_CASE_TOOL_PATTERN = /Running\s+[a-z]+_[a-z0-9_]+/i;
+
+export function assertChatLogHasNoRawJson(logText: string): void {
+	expect(logText, 'chat should not expose raw JSON to the user').not.toMatch(CHAT_RAW_JSON_PATTERN);
+	expect(logText, 'chat should not show snake_case tool names').not.toMatch(
+		CHAT_SNAKE_CASE_TOOL_PATTERN
+	);
+}
+
+export async function startNewChatSession(page: Page): Promise<void> {
+	await page.goto('/chat');
+	await expect(page.getByPlaceholder('Ask a question about your memories...')).toBeVisible({
+		timeout: 30_000
+	});
+
+	const toggle = page.getByRole('button', { name: 'Toggle session list' });
+	if (!(await toggle.isVisible().catch(() => false))) return;
+
+	await toggle.click();
+	const newChat = page.getByRole('button', { name: 'New chat', exact: true });
+	if (await newChat.isVisible({ timeout: 5_000 }).catch(() => false)) {
+		await newChat.click();
+	}
+	const closeSidebar = page.getByRole('button', { name: 'Close sidebar' });
+	if (await closeSidebar.isVisible().catch(() => false)) {
+		await closeSidebar.click();
+	}
+}
+
+export async function askChatQuestion(page: Page, question: string): Promise<void> {
+	const input = page.getByPlaceholder('Ask a question about your memories...');
+	await expect(input).toBeVisible();
+	await input.click();
+	await input.fill(question);
+	await expect(input).toHaveValue(question);
+	await input.press('Enter');
+	await expect(page.getByRole('log', { name: 'Chat messages' }).getByText(question)).toBeVisible({
+		timeout: 15_000
+	});
+}
+
+export async function waitForChatIdle(page: Page, timeoutMs = 120_000): Promise<void> {
+	const input = page.getByPlaceholder('Ask a question about your memories...');
+	await expect(input).toBeEnabled({ timeout: timeoutMs });
+}
+
+export async function assertChatLoadingVisible(page: Page): Promise<void> {
+	const progress = page.getByText(
+		/Connecting…|Working…|Planning next step|Searching your memories|Preparing your reply|Answering your question|Checking your schedule/i
+	);
+	const spinner = page.locator('.animate-spin').first();
+	await expect
+		.poll(
+			async () =>
+				(await progress.first().isVisible().catch(() => false)) ||
+				(await spinner.isVisible().catch(() => false)),
+			{ timeout: 10_000, intervals: [100, 250, 500] }
+		)
+		.toBe(true);
+}
+
+export async function waitForChatAnswerMarker(
+	page: Page,
+	marker: RegExp | string,
+	timeoutMs = 120_000
+): Promise<string> {
+	const log = page.getByRole('log', { name: 'Chat messages' });
+	const pattern = typeof marker === 'string' ? new RegExp(marker, 'i') : marker;
+	await waitForChatIdle(page, timeoutMs);
+	await expect
+		.poll(async () => (await log.textContent()) ?? '', { timeout: timeoutMs })
+		.toMatch(pattern);
+	const logText = (await log.textContent()) ?? '';
+	assertChatLogHasNoRawJson(logText);
+	return logText;
+}

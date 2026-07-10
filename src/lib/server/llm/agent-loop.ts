@@ -12,7 +12,10 @@ import {
 import type { ChatSessionMode } from '$lib/server/db/brain.schema';
 import type { McpToolContext } from '$lib/server/mcp/tools';
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types';
-import { formatToolResultForDisplay } from '$lib/chat/chat-stream-types';
+import {
+	formatToolResultForDisplay,
+	isUnpresentableFinalAnswer
+} from '$lib/chat/chat-stream-types';
 import {
 	formatComposedAnswerForUser,
 	type ComposedAnswer
@@ -36,6 +39,14 @@ import {
 } from '$lib/server/retrieval/resolve-delete-target';
 
 const MAX_ITERATIONS = 10;
+const MAX_PARSE_RETRIES = 3;
+
+export class AgentParseError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'AgentParseError';
+	}
+}
 
 const DELETE_NOT_FOUND_RESPONSE =
 	'I could not find a stored thought matching your delete request, so nothing was deleted.';
@@ -73,6 +84,10 @@ type AgentResponse = {
 } | {
 	type: 'final';
 	content: string;
+	thinking: string;
+} | {
+	type: 'parse_error';
+	reason: string;
 	thinking: string;
 };
 
@@ -126,15 +141,23 @@ function parseResponse(text: string): AgentResponse {
 	}
 
 	if (!parsed) {
-		console.error('[agent-loop] LLM response is not valid JSON — treating as final answer', {
+		console.error('[agent-loop] LLM response is not valid JSON', {
 			preview: trimmed.slice(0, 300)
 		});
-		return { type: 'final', content: trimmed, thinking };
+		return {
+			type: 'parse_error',
+			reason: 'The model response was not valid JSON.',
+			thinking
+		};
 	}
 
 	if (typeof parsed !== 'object' || !parsed) {
-		console.error('[agent-loop] LLM response is not a JSON object — treating as final', { parsed });
-		return { type: 'final', content: trimmed, thinking };
+		console.error('[agent-loop] LLM response is not a JSON object', { parsed });
+		return {
+			type: 'parse_error',
+			reason: 'The model response was not a JSON object.',
+			thinking
+		};
 	}
 
 	const obj = parsed as Record<string, unknown>;
@@ -154,11 +177,15 @@ function parseResponse(text: string): AgentResponse {
 		return { type: 'final', content: obj.answer, thinking };
 	}
 
-	console.error('[agent-loop] JSON object has neither "tool" nor "answer" key — treating as final', {
+	console.error('[agent-loop] JSON object has neither "tool" nor "answer" key', {
 		keys: Object.keys(obj),
 		preview: trimmed.slice(0, 300)
 	});
-	return { type: 'final', content: trimmed, thinking };
+	return {
+		type: 'parse_error',
+		reason: 'The model JSON must include either a "tool" or an "answer" field.',
+		thinking
+	};
 }
 
 export type AgentChatResult = {
@@ -583,6 +610,7 @@ export async function agentChat(input: {
 		{ role: 'system', content: AGENT_SYSTEM_PROMPT },
 		...input.messages
 	];
+	let parseFailureCount = 0;
 
 	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		console.error('[agent-loop] iteration', { iteration, messageCount: messages.length });
@@ -623,6 +651,19 @@ export async function agentChat(input: {
 			input.onEvent?.({ type: 'thinking', content: parsed.thinking });
 		}
 
+		if (parsed.type === 'parse_error') {
+			parseFailureCount += 1;
+			if (parseFailureCount >= MAX_PARSE_RETRIES) {
+				throw new AgentParseError(parsed.reason);
+			}
+			messages.push({ role: 'assistant', content });
+			messages.push({
+				role: 'user',
+				content: `Error: ${parsed.reason} Respond with valid JSON only — either {"tool": "<tool_name>", "arguments": {...}} or {"answer": "<your response>"}.`
+			});
+			continue;
+		}
+
 		if (parsed.type === 'tool_call') {
 			const handler = MCP_TOOL_MAP.get(parsed.tool);
 			if (!handler || !isAgentTool(parsed.tool)) {
@@ -646,6 +687,7 @@ export async function agentChat(input: {
 				return { response: outcome.response, messages };
 			}
 
+			parseFailureCount = 0;
 			messages.push({ role: 'assistant', content });
 			messages.push({
 				role: 'user',
@@ -654,6 +696,23 @@ export async function agentChat(input: {
 			continue;
 		}
 
+		if (isUnpresentableFinalAnswer(parsed.content)) {
+			parseFailureCount += 1;
+			if (parseFailureCount >= MAX_PARSE_RETRIES) {
+				throw new AgentParseError(
+					'The assistant returned unreadable data instead of a natural-language answer.'
+				);
+			}
+			messages.push({ role: 'assistant', content });
+			messages.push({
+				role: 'user',
+				content:
+					'Error: Your last response was not valid user-facing text. Reply with {"answer": "<natural language answer for the user>"} only.'
+			});
+			continue;
+		}
+
+		parseFailureCount = 0;
 		messages.push({ role: 'assistant', content });
 		return { response: parsed.content, messages };
 	}

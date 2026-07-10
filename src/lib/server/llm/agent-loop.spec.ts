@@ -75,7 +75,7 @@ vi.mock('$lib/server/mcp/registry', () => ({
 }));
 
 import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact';
-import { agentChat } from './agent-loop';
+import { agentChat, AgentParseError } from './agent-loop';
 
 function llmJson(payload: unknown) {
 	return {
@@ -136,6 +136,34 @@ describe('agentChat', () => {
 		expect(result.response).toBe('Hello from memory.');
 	});
 
+	it('fails deterministically after repeated invalid model JSON', async () => {
+		llmChatCompletionMock.mockResolvedValue(llmJson({ unexpected: 'field' }));
+
+		await expect(
+			agentChat({
+				userId: 'u1',
+				messages: [{ role: 'user', content: 'Hi' }]
+			})
+		).rejects.toThrow(AgentParseError);
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(3);
+	});
+
+	it('never returns raw tool JSON as the final response', async () => {
+		llmChatCompletionMock.mockResolvedValue(
+			llmJson({
+				answer: '{"tool":"list_temporal_events","arguments":{"range":"relevant"}}'
+			})
+		);
+
+		await expect(
+			agentChat({
+				userId: 'u1',
+				messages: [{ role: 'user', content: 'What is on my schedule?' }]
+			})
+		).rejects.toThrow(AgentParseError);
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(3);
+	});
+
 	it('executes a tool call and returns after the model answers', async () => {
 		listThoughtsMock.mockResolvedValue({ thoughts: [{ id: 't1' }] });
 		llmChatCompletionMock
@@ -173,17 +201,17 @@ describe('agentChat', () => {
 		expect(result.response).toMatch(/did not produce a response/i);
 	});
 
-	it('treats invalid JSON as a final answer', async () => {
+	it('fails deterministically when the model returns invalid JSON', async () => {
 		llmChatCompletionMock.mockResolvedValue({
 			choices: [{ message: { content: 'Just plain text.' } }]
 		});
 
-		const result = await agentChat({
-			userId: 'u1',
-			messages: [{ role: 'user', content: 'Hello' }]
-		});
-
-		expect(result.response).toBe('Just plain text.');
+		await expect(
+			agentChat({
+				userId: 'u1',
+				messages: [{ role: 'user', content: 'Hello' }]
+			})
+		).rejects.toThrow(AgentParseError);
 	});
 
 	it('returns answer_question results directly without another LLM turn', async () => {
@@ -733,22 +761,26 @@ describe('agentChat', () => {
 		expect(result.response).toBe('Done.');
 	});
 
-	it('treats non-object JSON and objects without tool/answer as final text', async () => {
-		llmChatCompletionMock
-			.mockResolvedValueOnce({ choices: [{ message: { content: '42' } }] })
-			.mockResolvedValueOnce({ choices: [{ message: { content: '{"status":"ok"}' } }] });
+	it('fails deterministically for non-object JSON and objects without tool/answer', async () => {
+		llmChatCompletionMock.mockResolvedValue({ choices: [{ message: { content: '42' } }] });
 
-		const numeric = await agentChat({
-			userId: 'u1',
-			messages: [{ role: 'user', content: 'one' }]
-		});
-		expect(numeric.response).toBe('42');
+		await expect(
+			agentChat({
+				userId: 'u1',
+				messages: [{ role: 'user', content: 'one' }]
+			})
+		).rejects.toThrow(AgentParseError);
 
-		const orphan = await agentChat({
-			userId: 'u1',
-			messages: [{ role: 'user', content: 'two' }]
+		llmChatCompletionMock.mockResolvedValue({
+			choices: [{ message: { content: '{"status":"ok"}' } }]
 		});
-		expect(orphan.response).toBe('{"status":"ok"}');
+
+		await expect(
+			agentChat({
+				userId: 'u1',
+				messages: [{ role: 'user', content: 'two' }]
+			})
+		).rejects.toThrow(AgentParseError);
 	});
 
 	it('returns fallback when the LLM response has no choices content', async () => {

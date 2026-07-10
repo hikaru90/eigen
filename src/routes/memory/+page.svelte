@@ -25,13 +25,19 @@
   import { filterGraphVizEdgesToNodes, resolveForceLinks } from "$lib/graph/sanitize-viz-snapshot";
   import {
     COMMUNITY_HULL_ACCENT,
-    COMMUNITY_HULL_GRADIENT,
     communityCircleFromPositions,
-    communityGradientId,
-    communityHullChromeStyleForLevel,
-    communityHullFill,
-    communityHullFillOpacityForZoom,
   } from "$lib/graph/community-hull";
+  import {
+    createDrawScheduler,
+    drawGraphCanvasScene,
+    findNearestGraphNode,
+    GRAPH_CANVAS_POP_IN_DURATION_MS,
+    GRAPH_NODE_HIT_PADDING,
+    readGraphCanvasTheme,
+    screenToWorld,
+    type GraphCanvasHull,
+    type GraphCanvasPopIn,
+  } from "$lib/graph/graph-canvas-render";
   import {
     canonicalCommunityLevels,
     COMMUNITY_LEAF_LEVEL,
@@ -859,69 +865,122 @@
         }
       }
 
+      const canvas = d3
+        .select(rootEl)
+        .append("canvas")
+        .attr("class", "graph-canvas pointer-events-none absolute inset-0 block h-full w-full")
+        .node() as HTMLCanvasElement;
+      const canvasCtx = canvas.getContext("2d");
+      if (!canvasCtx) return;
+
       const svg = d3
         .select(rootEl)
         .append("svg")
-        .attr("class", "graph-svg block h-full w-full touch-none");
-      svg
-        .append("defs")
-        .append("filter")
-        .attr("id", "graph-node-selected-glow")
-        .attr("x", "-40%")
-        .attr("y", "-40%")
-        .attr("width", "180%")
-        .attr("height", "180%")
-        .call((f) => {
-          f.append("feGaussianBlur")
-            .attr("in", "SourceAlpha")
-            .attr("stdDeviation", 2)
-            .attr("result", "graphBlur");
-          const m = f.append("feMerge");
-          m.append("feMergeNode").attr("in", "graphBlur");
-          m.append("feMergeNode").attr("in", "SourceGraphic");
-        });
-
-      const defs = svg.select("defs");
-      const grad = defs
-        .append("radialGradient")
-        .attr("id", communityGradientId())
-        .attr("cx", "50%")
-        .attr("cy", "50%")
-        .attr("r", "50%");
-      grad.append("stop").attr("offset", "0%").attr("stop-color", COMMUNITY_HULL_GRADIENT.center);
-      grad.append("stop").attr("offset", "65%").attr("stop-color", COMMUNITY_HULL_GRADIENT.mid);
-      grad.append("stop").attr("offset", "100%").attr("stop-color", COMMUNITY_HULL_GRADIENT.edge);
+        .attr("class", "graph-svg absolute inset-0 block h-full w-full touch-none");
 
       const gZoom = svg.append("g");
-      const gCommunityFills = gZoom
-        .append("g")
-        .attr("class", "graph-community-fills")
-        .attr("pointer-events", "none");
-      const gLinks = gZoom
-        .append("g")
-        .attr("class", "graph-links")
-        .attr("stroke", "currentColor")
-        .attr("stroke-opacity", 0.35);
-      const gNodes = gZoom.append("g").attr("class", "graph-nodes");
       const gCommunityChrome = gZoom
         .append("g")
         .attr("class", "graph-community-chrome")
         .attr("pointer-events", "none");
       const gClusterMarkers = gZoom.append("g").attr("class", "graph-cluster-markers");
 
+      const graphTooltip = d3
+        .select(rootEl)
+        .append("div")
+        .attr("class", "graph-node-tooltip pointer-events-none absolute z-10 hidden max-w-[14rem] truncate whitespace-pre-line rounded border border-border/70 bg-background/90 px-1.5 py-0.5 font-mono text-[10px] text-foreground shadow-sm")
+        .node() as HTMLDivElement;
+
+      rootEl.style.position = "relative";
+
       const coarsePointerGraph = isCoarsePointerGraphDevice();
       let zoomLodMode: GraphZoomLodMode = "nodes";
       let currentZoomScale = 1;
+      let currentZoomTransform = { k: 1, x: 0, y: 0 };
       let lastClusterRebuildKey = "";
       let zoomLabelEndTimer: ReturnType<typeof setTimeout> | undefined;
-      const EDGE_LABEL_MIN_ZOOM = 1.1;
       const INITIAL_LAYOUT_SYNC_TICKS = 32;
       const ZOOM_LABEL_CHROME_DELAY_MS = 120;
+      const DRAG_CLICK_THRESHOLD_PX = 4;
 
-      function applyCommunityHullZoomOpacity(scale = 1) {
-        communityFillGroupSelection
-          .select("circle")
-          .attr("fill-opacity", (d) => communityHullFillOpacityForZoom(scale, d.level));
+      let currentGraphNodes: SimNode[] = [];
+      let currentGraphLinks: SimLink[] = [];
+      let canvasHulls: GraphCanvasHull[] = [];
+      const popInAnims = new Map<string, number>();
+      let dragStartScreen: { x: number; y: number } | null = null;
+      let didPointerDrag = false;
+      let hoveredNodeId: string | null = null;
+
+      function graphTheme() {
+        return readGraphCanvasTheme(rootEl!);
+      }
+
+      function drawGraph() {
+        if (!canvasCtx || !rootEl) return;
+        const dims = resizeGraphViewport();
+        if (!dims) return;
+
+        const selectedId = selectedNode?.id ?? null;
+        const nowMs = performance.now();
+        let popInsStillAnimating = false;
+
+        const popIns: GraphCanvasPopIn[] = [];
+        for (const [nodeId, startMs] of popInAnims) {
+          const elapsed = nowMs - startMs;
+          if (elapsed < GRAPH_CANVAS_POP_IN_DURATION_MS) {
+            popInsStillAnimating = true;
+            popIns.push({
+              nodeId,
+              startMs,
+              durationMs: GRAPH_CANVAS_POP_IN_DURATION_MS,
+            });
+          }
+        }
+        if (!popInsStillAnimating && popInAnims.size > 0) {
+          popInAnims.clear();
+        }
+
+        if (zoomLodMode === "clusters") {
+          canvasCtx.setTransform(dims.dpr, 0, 0, dims.dpr, 0, 0);
+          canvasCtx.clearRect(0, 0, dims.w, dims.h);
+          if (popInsStillAnimating) drawScheduler.requestDraw();
+          return;
+        }
+
+        drawGraphCanvasScene(canvasCtx, {
+          width: dims.w,
+          height: dims.h,
+          dpr: dims.dpr,
+          transform: currentZoomTransform,
+          zoomScale: currentZoomScale,
+          hulls: canvasHulls,
+          links: currentGraphLinks.map((link) => ({
+            sourceX: (link.source as SimNode).x ?? 0,
+            sourceY: (link.source as SimNode).y ?? 0,
+            targetX: (link.target as SimNode).x ?? 0,
+            targetY: (link.target as SimNode).y ?? 0,
+          })),
+          nodes: currentGraphNodes.map((node) => ({
+            id: node.id,
+            x: node.x ?? 0,
+            y: node.y ?? 0,
+            radius: nodeRadius(node),
+            fill: nodeFill(node),
+            label: labelText(node),
+            selected: selectedId === node.id,
+          })),
+          popIns,
+          nowMs,
+          theme: graphTheme(),
+        });
+
+        if (popInsStillAnimating) drawScheduler.requestDraw();
+      }
+
+      const drawScheduler = createDrawScheduler(drawGraph);
+
+      function requestGraphDraw() {
+        drawScheduler.requestDraw();
       }
 
       function flushZoomLabelChrome(scale: number) {
@@ -948,29 +1007,47 @@
         }, ZOOM_LABEL_CHROME_DELAY_MS);
       }
 
-      function updateEdgeLabelVisibility(scale: number) {
-        const show = scale >= EDGE_LABEL_MIN_ZOOM;
-        linkSelection.select("text").style("display", show ? null : "none");
-        linkSelection.select("circle").style("display", show ? null : "none");
-      }
-
       const zoom = d3
         .zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.15, 8])
         .on("zoom", (event) => {
           currentZoomScale = event.transform.k;
+          currentZoomTransform = {
+            k: event.transform.k,
+            x: event.transform.x,
+            y: event.transform.y,
+          };
           gZoom.attr("transform", event.transform.toString());
-          applyCommunityHullZoomOpacity(event.transform.k);
           applyZoomLod(event.transform.k);
-          updateEdgeLabelVisibility(event.transform.k);
           scheduleZoomLabelChrome(event.transform.k, !event.sourceEvent);
+          requestGraphDraw();
         });
       svg.call(zoom);
       svg.on("click.details-clear", (event) => {
         const el = event.target as Element | null;
-        if (!el?.closest?.(".graph-node")) selectedNode = null;
+        if (didPointerDrag) {
+          didPointerDrag = false;
+          return;
+        }
         if (!el?.closest?.(".community-hull-label-wrap") && !el?.closest?.(".graph-cluster")) {
           selectedCommunityId = null;
+        }
+        const svgEl = svg.node();
+        if (!svgEl || zoomLodMode === "clusters") {
+          if (!el?.closest?.(".community-hull-label-wrap") && !el?.closest?.(".graph-cluster")) {
+            selectedNode = null;
+          }
+          return;
+        }
+        const [px, py] = d3.pointer(event, svgEl);
+        const world = screenToWorld(px, py, currentZoomTransform);
+        const hit = findSimNodeAtWorld(world.x, world.y);
+        if (
+          !hit &&
+          !el?.closest?.(".community-hull-label-wrap") &&
+          !el?.closest?.(".graph-cluster")
+        ) {
+          selectedNode = null;
         }
       });
 
@@ -1030,7 +1107,7 @@
         const t = preEntityZoomTransform;
         preEntityZoomTransform = null;
         focusSessionBaseK = null;
-        resizeSvg();
+        resizeGraphViewport();
         const next = d3.zoomIdentity.translate(t.x, t.y).scale(t.k);
         svg.interrupt("zoom-center");
         svg
@@ -1051,7 +1128,7 @@
       function centerViewOnNode(d: SimNode, mode: "focus" | "panOnly" = "focus") {
         const svgEl = svg.node();
         if (!svgEl || !rootEl) return;
-        resizeSvg();
+        resizeGraphViewport();
 
         const runPan = () => {
           const nx = d.x ?? 0;
@@ -1111,7 +1188,7 @@
             simulation!.tick();
             ticks++;
           }
-          tickSimulationPositions();
+          ticked();
           requestAnimationFrame(step);
         };
         requestAnimationFrame(step);
@@ -1141,37 +1218,140 @@
         });
       }
 
-      function resizeSvg() {
+      function resizeGraphViewport() {
         if (!rootEl) return;
         const w = rootEl.clientWidth;
         const h = Math.max(1, rootEl.clientHeight);
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
         svg.attr("width", w).attr("height", h);
-        return { w, h };
+        return { w, h, dpr };
       }
 
       let simulation: d3.Simulation<SimNode, SimLink> | null = null;
-      let linkSelection = gLinks.selectAll<SVGGElement, SimLink>("g");
-      let communityFillGroupSelection = gCommunityFills.selectAll<SVGGElement, CommunityHull>("g");
-      let communityChromeGroupSelection = gCommunityChrome.selectAll<SVGGElement, CommunityHull>("g");
-      let nodeSelection = gNodes.selectAll<SVGGElement, SimNode>("g.graph-node");
+      let communityChromeGroupSelection = gCommunityChrome.selectAll<SVGGElement, CommunityHull>(
+        "g.community-hull-chrome",
+      );
       let clusterSelection = gClusterMarkers.selectAll<SVGGElement, GraphZoomCluster>("g.graph-cluster");
 
-      const dragBehavior = d3
-        .drag<SVGGElement, SimNode>()
-        .on("start", (event, d) => {
+      function findSimNodeAtWorld(worldX: number, worldY: number): SimNode | null {
+        const fromSim = simulation?.find(
+          worldX,
+          worldY,
+          nodeRadius({} as SimNode) + GRAPH_NODE_HIT_PADDING,
+        );
+        if (fromSim) return fromSim;
+        const nearest = findNearestGraphNode(
+          worldX,
+          worldY,
+          currentGraphNodes.map((node) => ({
+            id: node.id,
+            x: node.x ?? 0,
+            y: node.y ?? 0,
+            radius: nodeRadius(node),
+            fill: "",
+            label: "",
+            selected: false,
+          })),
+        );
+        if (!nearest) return null;
+        return currentGraphNodes.find((node) => node.id === nearest.id) ?? null;
+      }
+
+      let dragSubjectNode: SimNode | null = null;
+
+      const pointerDrag = d3
+        .drag<SVGSVGElement, unknown>()
+        .filter((event) => {
+          if (zoomLodMode === "clusters") return false;
+          const svgEl = svg.node();
+          if (!svgEl) return false;
+          const [px, py] = d3.pointer(event, svgEl);
+          const world = screenToWorld(px, py, currentZoomTransform);
+          return findSimNodeAtWorld(world.x, world.y) !== null;
+        })
+        .subject((event) => {
+          const svgEl = svg.node();
+          if (!svgEl) return null;
+          const [px, py] = d3.pointer(event, svgEl);
+          const world = screenToWorld(px, py, currentZoomTransform);
+          return findSimNodeAtWorld(world.x, world.y);
+        })
+        .on("start", (event) => {
+          const d = event.subject as SimNode | null;
+          if (!d) return;
+          dragSubjectNode = d;
+          dragStartScreen = { x: event.x, y: event.y };
+          didPointerDrag = false;
           if (!event.active) simulation?.alphaTarget(0.35).restart();
           d.fx = d.x;
           d.fy = d.y;
         })
-        .on("drag", (event, d) => {
-          d.fx = event.x;
-          d.fy = event.y;
+        .on("drag", (event) => {
+          const d = dragSubjectNode;
+          if (!d) return;
+          const svgEl = svg.node();
+          if (!svgEl) return;
+          const [px, py] = d3.pointer(event, svgEl);
+          const world = screenToWorld(px, py, currentZoomTransform);
+          d.fx = world.x;
+          d.fy = world.y;
+          if (dragStartScreen) {
+            const dist = Math.hypot(event.x - dragStartScreen.x, event.y - dragStartScreen.y);
+            if (dist > DRAG_CLICK_THRESHOLD_PX) didPointerDrag = true;
+          }
+          requestGraphDraw();
         })
-        .on("end", (event, d) => {
+        .on("end", (event) => {
+          const d = dragSubjectNode;
+          dragSubjectNode = null;
+          dragStartScreen = null;
+          if (!d) return;
           if (!event.active) simulation?.alphaTarget(0);
           d.fx = null;
           d.fy = null;
+          if (!didPointerDrag) {
+            onNodeClick(event.sourceEvent as MouseEvent, d);
+          }
         });
+
+      svg.call(pointerDrag);
+
+      if (!coarsePointerGraph) {
+        svg
+          .on("pointermove.graph-tooltip", (event) => {
+            if (zoomLodMode === "clusters") {
+              graphTooltip.classList.add("hidden");
+              hoveredNodeId = null;
+              return;
+            }
+            const svgEl = svg.node();
+            if (!svgEl || !rootEl) return;
+            const [px, py] = d3.pointer(event, svgEl);
+            const world = screenToWorld(px, py, currentZoomTransform);
+            const hit = findSimNodeAtWorld(world.x, world.y);
+            if (!hit) {
+              graphTooltip.classList.add("hidden");
+              hoveredNodeId = null;
+              return;
+            }
+            if (hoveredNodeId !== hit.id) {
+              hoveredNodeId = hit.id;
+              graphTooltip.textContent = `${hit.kind}: ${hit.label || hit.id}\n${hit.subtype}`;
+            }
+            const rect = rootEl.getBoundingClientRect();
+            graphTooltip.classList.remove("hidden");
+            graphTooltip.style.left = `${event.clientX - rect.left + 12}px`;
+            graphTooltip.style.top = `${event.clientY - rect.top + 12}px`;
+          })
+          .on("pointerleave.graph-tooltip", () => {
+            graphTooltip.classList.add("hidden");
+            hoveredNodeId = null;
+          });
+      }
 
       function nodeRadius(_d: SimNode) {
         return 8;
@@ -1278,16 +1458,8 @@
         return base.length > 42 ? `${base.slice(0, 40)}…` : base;
       }
 
-      function applyHighlight(selectedId: string | null) {
-        nodeSelection.each(function (d) {
-          const sel = d3.select(this);
-          const circle = sel.select<SVGCircleElement>(".graph-node-core, circle");
-          const on = selectedId !== null && d.id === selectedId;
-          circle
-            .attr("stroke-width", on ? 3.2 : 1)
-            .attr("stroke", on ? "#fbbf24" : "currentColor")
-            .attr("filter", on ? "url(#graph-node-selected-glow)" : null);
-        });
+      function applyHighlight(_selectedId: string | null) {
+        requestGraphDraw();
       }
 
       function communityHullsForNodes(nodes: SimNode[]): CommunityHull[] {
@@ -1326,27 +1498,19 @@
         return hulls.sort((a, b) => a.level - b.level);
       }
 
+      function syncCanvasHulls(hulls: CommunityHull[]) {
+        canvasHulls = hulls.map((h) => ({
+          id: h.id,
+          level: h.level,
+          cx: h.cx,
+          cy: h.cy,
+          r: h.r,
+        }));
+      }
+
       function rebuildCommunityHulls(nodes: SimNode[]) {
         const hulls = communityHullsForNodes(nodes);
-
-        communityFillGroupSelection = gCommunityFills
-          .selectAll<SVGGElement, CommunityHull>("g.community-hull-fill")
-          .data(hulls, (d) => d.id)
-          .join(
-            (enter) => {
-              const g = enter.append("g").attr("class", "community-hull-fill");
-              g.append("circle").attr("stroke", "none");
-              return g;
-            },
-            (update) => update,
-            (exit) => exit.remove(),
-          )
-          .attr("transform", (d) => `translate(${d.cx},${d.cy})`);
-        communityFillGroupSelection
-          .select("circle")
-          .attr("r", (d) => d.r)
-          .attr("fill", (d) => communityHullFill(d.level));
-        applyCommunityHullZoomOpacity(currentZoomScale);
+        syncCanvasHulls(hulls);
 
         communityChromeGroupSelection = gCommunityChrome
           .selectAll<SVGGElement, CommunityHull>("g.community-hull-chrome")
@@ -1354,13 +1518,6 @@
           .join(
             (enter) => {
               const g = enter.append("g").attr("class", "community-hull-chrome");
-              g.append("circle")
-                .attr("class", "community-hull-border")
-                .attr("fill", "none")
-                .attr("stroke", COMMUNITY_HULL_ACCENT)
-                .attr("stroke-width", 1.25)
-                .attr("stroke-dasharray", "3 4")
-                .attr("pointer-events", "none");
               const labelWrap = g
                 .append("g")
                 .attr("class", "community-hull-label-wrap")
@@ -1386,13 +1543,6 @@
           .attr("transform", (d) => `translate(${d.cx},${d.cy})`)
           .each(function (d) {
             const g = d3.select(this);
-            const chrome = communityHullChromeStyleForLevel(d.level);
-            g.select("circle.community-hull-border")
-              .attr("r", d.r)
-              .attr("stroke", chrome.stroke)
-              .attr("stroke-width", chrome.strokeWidth)
-              .attr("stroke-dasharray", chrome.strokeDasharray)
-              .attr("stroke-opacity", chrome.strokeOpacity);
             const labelWrap = g.select("g.community-hull-label-wrap");
             labelWrap.attr("transform", `translate(0, ${-(d.r + 8)})`);
             const label = labelWrap.select("text.community-hull-label").text(d.name);
@@ -1412,33 +1562,27 @@
             labelWrap.style("cursor", "pointer").on("click", (event, hull) => onCommunityClick(event, hull));
           });
         scheduleZoomLabelChrome(currentZoomScale, true);
+        requestGraphDraw();
       }
 
       /** Position-only hull update during force simulation ticks (no join / getBBox). */
       function positionCommunityHulls(nodes: SimNode[]) {
         const hulls = communityHullsForNodes(nodes);
-        if (hulls.length === 0) return;
-        if (
-          communityFillGroupSelection.size() !== hulls.length ||
-          communityChromeGroupSelection.size() !== hulls.length
-        ) {
+        if (hulls.length === 0) {
+          canvasHulls = [];
+          return;
+        }
+        if (communityChromeGroupSelection.size() !== hulls.length) {
           rebuildCommunityHulls(nodes);
           return;
         }
+        syncCanvasHulls(hulls);
         const hullById = new Map(hulls.map((h) => [h.id, h]));
-        communityFillGroupSelection.each(function (d) {
-          const h = hullById.get(d.id);
-          if (!h) return;
-          const g = d3.select(this);
-          g.attr("transform", `translate(${h.cx},${h.cy})`);
-          g.select("circle").attr("r", h.r);
-        });
         communityChromeGroupSelection.each(function (d) {
           const h = hullById.get(d.id);
           if (!h) return;
           const g = d3.select(this);
           g.attr("transform", `translate(${h.cx},${h.cy})`);
-          g.select("circle.community-hull-border").attr("r", h.r);
           g.select("g.community-hull-label-wrap").attr("transform", `translate(0, ${-(h.r + 8)})`);
         });
       }
@@ -1568,9 +1712,6 @@
 
       function setZoomLodPresentation(mode: GraphZoomLodMode) {
         const clustered = mode === "clusters";
-        gNodes.style("display", clustered ? "none" : null);
-        gLinks.style("display", clustered ? "none" : null);
-        gCommunityFills.style("display", clustered ? "none" : null);
         gCommunityChrome.style("display", clustered ? "none" : null);
         gClusterMarkers.style("display", clustered ? null : "none");
         if (clustered) {
@@ -1581,6 +1722,7 @@
           simulation.alphaTarget(0);
           simulation.alpha(0.12).restart();
         }
+        requestGraphDraw();
       }
 
       function applyZoomLod(scale: number) {
@@ -1597,7 +1739,7 @@
       function zoomToCluster(cluster: GraphZoomCluster) {
         const svgEl = svg.node();
         if (!svgEl || !rootEl) return;
-        resizeSvg();
+        resizeGraphViewport();
 
         const w = Math.max(1, rootEl.clientWidth);
         const h = Math.max(1, rootEl.clientHeight);
@@ -1626,40 +1768,11 @@
         zoomToCluster(cluster);
       }
 
-      function tickSimulationPositions() {
-        if (zoomLodMode === "clusters") return;
-
-        linkSelection
-          .select("line")
-          .attr("x1", (d) => (d.source as SimNode).x ?? 0)
-          .attr("y1", (d) => (d.source as SimNode).y ?? 0)
-          .attr("x2", (d) => (d.target as SimNode).x ?? 0)
-          .attr("y2", (d) => (d.target as SimNode).y ?? 0);
-
-        linkSelection.select("circle").attr("cx", midpointX).attr("cy", midpointY);
-
-        linkSelection.select("text").attr("x", midpointX).attr("y", midpointY);
-
-        nodeSelection.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
-      }
-
       function ticked() {
-        tickSimulationPositions();
         if (zoomLodMode === "nodes") {
           positionCommunityHulls(simulation?.nodes() ?? []);
         }
-      }
-
-      function midpointX(d: SimLink) {
-        const sx = (d.source as SimNode).x ?? 0;
-        const tx = (d.target as SimNode).x ?? 0;
-        return (sx + tx) / 2;
-      }
-
-      function midpointY(d: SimLink) {
-        const sy = (d.source as SimNode).y ?? 0;
-        const ty = (d.target as SimNode).y ?? 0;
-        return (sy + ty) / 2;
+        requestGraphDraw();
       }
 
       function onNodeClick(event: MouseEvent, d: SimNode) {
@@ -1693,7 +1806,7 @@
       }
 
       function updateGraph() {
-        const dims = resizeSvg();
+        const dims = resizeGraphViewport();
         if (!dims) return;
 
         customEntityFills = customEntityFillsFromLegendSections(vizCtx.legendSections);
@@ -1751,119 +1864,13 @@
           vizCtx.snapshot.edges.filter(edgeFilter),
         ).edges;
         const links: SimLink[] = resolveForceLinks(nodes, safeEdges);
-
-        linkSelection = gLinks
-          .selectAll<SVGGElement, SimLink>("g")
-          .data(links, (d) => d.id)
-          .join(
-            (enter) => {
-              const g = enter.append("g").attr("class", "graph-link");
-              g.append("line").attr("stroke-width", 1.2);
-              g.append("circle").attr("r", 2).attr("fill", "currentColor").attr("stroke", "none");
-              g.append("text")
-                .attr("class", "fill-muted-foreground text-[9px] font-mono")
-                .attr("text-anchor", "middle")
-                .attr("dy", "1.4em")
-                .attr("stroke", "var(--background)")
-                .attr("stroke-width", "2.5")
-                .attr("paint-order", "stroke")
-                .text((d) => d.relationType || d.kind);
-              return g;
-            },
-            (update) => {
-              update.select("text").text((d) => d.relationType || d.kind);
-              return update;
-            },
-            (exit) => exit.remove(),
-          );
-
-        updateEdgeLabelVisibility(currentZoomScale);
+        currentGraphNodes = nodes;
+        currentGraphLinks = links;
 
         const popInIds = pendingPopInNodeIds;
-
-        nodeSelection = gNodes
-          .selectAll<SVGGElement, SimNode>("g.graph-node")
-          .data(nodes, (d) => d.id)
-          .join(
-            (enter) => {
-              const g = enter.append("g").attr("class", "graph-node");
-              g.each(function (d) {
-                const node = d3.select(this);
-                const inner = node.append("g").attr("class", "graph-node-inner");
-                const shouldPop = popInIds.has(d.id);
-                if (shouldPop) {
-                  inner
-                    .append("circle")
-                    .attr("class", "graph-node-flash-bg")
-                    .attr("r", nodeRadius(d))
-                    .attr("fill", "#28F97F")
-                    .attr("stroke", "none")
-                    .attr("opacity", 0);
-                  inner
-                    .append("circle")
-                    .attr("class", "graph-node-reveal-ring")
-                    .attr("r", nodeRadius(d))
-                    .attr("fill", "none")
-                    .attr("stroke", "#28F97F")
-                    .attr("stroke-width", 2)
-                    .attr("opacity", 0);
-                }
-                inner
-                  .append("circle")
-                  .attr("class", "graph-node-core")
-                  .attr("r", nodeRadius(d))
-                  .attr("fill", nodeFill(d))
-                  .attr("stroke", "currentColor")
-                  .attr("stroke-width", 1);
-                node.append("title").text(`${d.kind}: ${d.label || d.id}\n${d.subtype}`);
-                inner
-                  .append("text")
-                  .attr("x", 12)
-                  .attr("y", 4)
-                  .attr("class", "fill-foreground text-[10px] font-mono")
-                  .text(labelText(d));
-                if (shouldPop) {
-                  inner.attr("opacity", 0).attr("transform", "scale(0.08)");
-                  inner
-                    .transition("graph-node-pop")
-                    .duration(520)
-                    .ease(d3.easeCubicOut)
-                    .attr("opacity", 1)
-                    .attr("transform", "scale(1)");
-                  inner
-                    .select(".graph-node-flash-bg")
-                    .transition("graph-node-flash")
-                    .duration(520)
-                    .attr("opacity", 0.4)
-                    .attr("r", nodeRadius(d) + 5)
-                    .transition()
-                    .attr("opacity", 0);
-                  inner
-                    .select(".graph-node-reveal-ring")
-                    .transition("graph-node-ring")
-                    .duration(520)
-                    .attr("opacity", 0.6)
-                    .attr("r", nodeRadius(d) + 24)
-                    .transition()
-                    .attr("opacity", 0);
-                }
-              });
-              return g;
-            },
-            (update) => {
-              update.select("title").text((d) => `${d.kind}: ${d.label || d.id}\n${d.subtype}`);
-              update.select(".graph-node-inner text").text(labelText);
-              update
-                .select(".graph-node-core")
-                .attr("r", nodeRadius)
-                .attr("fill", nodeFill);
-              return update;
-            },
-            (exit) => exit.remove(),
-          )
-          .style("cursor", "pointer")
-          .call(dragBehavior)
-          .on("click.details", onNodeClick);
+        for (const nodeId of popInIds) {
+          popInAnims.set(nodeId, performance.now());
+        }
 
         if (!simulation) {
           simulation = d3
@@ -1923,13 +1930,17 @@
         graphStats = m.graph_stats_nodes_edges({ nodes: nodes.length, edges: links.length });
         const svgEl = svg.node();
         if (svgEl) {
-          currentZoomScale = d3.zoomTransform(svgEl).k;
+          const t = d3.zoomTransform(svgEl);
+          currentZoomScale = t.k;
+          currentZoomTransform = { k: t.k, x: t.x, y: t.y };
           applyZoomLod(currentZoomScale);
         }
+        requestGraphDraw();
       }
 
       function resizeGraph() {
-        const dims = resizeSvg();
+        const dims = resizeGraphViewport();
+        requestGraphDraw();
         if (!dims || !simulation || zoomLodMode === "clusters") return;
         simulation.force("x", d3.forceX<SimNode>(dims.w / 2).strength(0.08));
         simulation.force("y", d3.forceY<SimNode>(dims.h / 2).strength(0.08));
@@ -1975,6 +1986,7 @@
       teardown = () => {
         cancelled = true;
         if (zoomLabelEndTimer !== undefined) clearTimeout(zoomLabelEndTimer);
+        drawScheduler.dispose();
         enrichPollCancel();
         unsubCaptureQueue();
         for (const cancel of fastEnrichPollCancelByThoughtId.values()) cancel();
@@ -1996,6 +2008,11 @@
         focusSessionBaseK = null;
         simulation?.stop();
         ro.disconnect();
+        svg.on("pointermove.graph-tooltip", null);
+        svg.on("pointerleave.graph-tooltip", null);
+        canvas.remove();
+        graphTooltip.remove();
+        if (rootEl) rootEl.style.position = "";
         svg.remove();
       };
     })();

@@ -25,7 +25,7 @@
   import ChatMarkdown from "$lib/components/chat-markdown.svelte";
   import { consumeChatNdjsonStream, type ChatProgressEvent, isInsufficientCreditsChatError } from "$lib/chat/consume-chat-ndjson";
   import { insufficientCreditsTopUpHint } from "$lib/billing/insufficient-credits";
-  import { parseFinalAnswerText } from "$lib/chat/chat-stream-types";
+  import { sanitizeFinalAnswerText, toolLabel } from "$lib/chat/chat-stream-types";
   import {
     normalizeChatDisplay,
     sessionMessagesToChatEntries,
@@ -68,6 +68,23 @@
   let agentStatus = $state<string | null>(null);
   let messagesEl: HTMLDivElement | undefined;
   let chatPanelEl: HTMLDivElement | undefined;
+  const STREAM_IDLE_MS = 120_000;
+  let streamIdleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  function resetStreamIdleTimeout(ac: AbortController) {
+    if (streamIdleTimeoutId) clearTimeout(streamIdleTimeoutId);
+    streamIdleTimeoutId = setTimeout(() => {
+      streamAbortReason = "timeout";
+      ac.abort();
+    }, STREAM_IDLE_MS);
+  }
+
+  function clearStreamIdleTimeout() {
+    if (streamIdleTimeoutId) {
+      clearTimeout(streamIdleTimeoutId);
+      streamIdleTimeoutId = null;
+    }
+  }
 
   let messageSeq = 0;
   function appendMessage(entry: ChatDisplayEntry) {
@@ -267,7 +284,7 @@
         variant: "timeline",
         kind: "tool_call",
         tool: event.tool,
-        label: streamEventLabel(event, `Tool call · ${event.tool}`),
+        label: streamEventLabel(event, toolLabel(event.tool)),
         arguments: event.arguments ?? {},
       });
       return;
@@ -279,7 +296,7 @@
         variant: "timeline",
         kind: "tool_executing",
         tool: event.tool,
-        label: streamEventLabel(event, `Executing tool · ${event.tool}`),
+        label: streamEventLabel(event, toolLabel(event.tool)),
       });
       return;
     }
@@ -295,7 +312,7 @@
       return;
     }
     if (event.type === "tool_result") {
-      agentStatus = null;
+      agentStatus = "Preparing your reply…";
       const preview = event.preview ?? "";
       if (event.tool === "answer_question") {
         ctx.lastAnswerQuestionPreview.current = preview;
@@ -305,7 +322,7 @@
         variant: "timeline",
         kind: "tool_result",
         tool: event.tool,
-        label: streamEventLabel(event, `Tool result · ${event.tool}`),
+        label: streamEventLabel(event, toolLabel(event.tool)),
         content: preview,
         failed: event.failed === true,
       });
@@ -329,10 +346,7 @@
 
     const ac = new AbortController();
     abortController = ac;
-    const timeoutId = setTimeout(() => {
-      streamAbortReason = "timeout";
-      ac.abort();
-    }, 120_000);
+    resetStreamIdleTimeout(ac);
 
     try {
       const res = await fetch("/api/chat", {
@@ -345,8 +359,6 @@
         body: JSON.stringify(body),
       });
 
-      clearTimeout(timeoutId);
-
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
         throw new Error(errBody?.message ?? `HTTP ${res.status}`);
@@ -357,10 +369,13 @@
       };
       const done = await consumeChatNdjsonStream(
         res,
-        (event) => pushStreamEvent(event, streamCtx),
+        (event) => {
+          resetStreamIdleTimeout(ac);
+          pushStreamEvent(event, streamCtx);
+        },
         ac.signal,
       );
-      const responseText = parseFinalAnswerText(
+      const responseText = sanitizeFinalAnswerText(
         done.response ?? "",
         streamCtx.lastAnswerQuestionPreview.current,
       ).trim();
@@ -398,6 +413,7 @@
         });
       }
     } finally {
+      clearStreamIdleTimeout();
       loading = false;
       abortController = null;
       streamAbortReason = null;
@@ -661,10 +677,7 @@
             content={msg.content}
             failed={msg.failed}
             hideProse={msg.hideProse}
-            running={loading &&
-              i === displayMessages.length - 1 &&
-              msg.kind !== "tool_result" &&
-              msg.kind !== "llm_progress"}
+            running={loading && i === displayMessages.length - 1 && msg.variant === "timeline"}
           />
         {:else if msg.variant === "text"}
           <div class="group flex min-w-0 w-full flex-row items-start gap-0 py-1">

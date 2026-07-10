@@ -1,7 +1,17 @@
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { expect, type Frame, type Locator, type Page } from '@playwright/test';
-import { loginUser, registerUser, TEST_PASSWORD } from './test-helpers';
+import {
+	assertChatLoadingVisible,
+	assertChatLogHasNoRawJson,
+	askChatQuestion,
+	loginUser,
+	registerUser,
+	startNewChatSession,
+	TEST_PASSWORD,
+	waitForChatAnswerMarker,
+	waitForChatIdle
+} from './test-helpers';
 import {
 	assertVoiceTranscribeApi,
 	exerciseVoiceCaptureUi,
@@ -932,6 +942,7 @@ export async function exerciseAuthenticatedUi(page: Page): Promise<void> {
 	await exerciseMemoryUi(page);
 	await exerciseCaptureUi(page);
 	await exerciseChatUi(page);
+	await exerciseChatFailureUi(page);
 	await exerciseSettingsUi(page);
 	await exerciseApiKeysUi(page);
 	await exerciseActivityUi(page);
@@ -1031,38 +1042,65 @@ async function exerciseCaptureUi(page: Page): Promise<void> {
 }
 
 async function exerciseChatUi(page: Page): Promise<void> {
-	await page.goto('/chat');
+	await startNewChatSession(page);
 
-	await page.getByRole('button', { name: 'Toggle session list' }).click();
-	await page.getByRole('button', { name: 'New chat', exact: true }).click();
-	await expect(page.getByRole('button', { name: 'Close sidebar' })).toBeHidden();
-
-	const input = page.getByPlaceholder('Ask a question about your memories...');
-	await expect(input).toBeVisible();
 	const question = 'What city did I mention in my recent capture?';
-	await input.fill(question);
-	await input.press('Enter');
-
-	// Release smoke: question posted and agent run started. Full Q&A can exceed RELEASE_WAIT_MS.
+	await askChatQuestion(page, question);
 	await expect(page.getByText(question)).toBeVisible({ timeout: RELEASE_WAIT_MS });
-	await expect
-		.poll(
-			async () => {
-				const progress = page.getByText(
-					/Connecting|Working|Planning next step|Searching your memories|Thinking|Composing/i
-				);
-				if (await progress.first().isVisible().catch(() => false)) {
-					return true;
-				}
-				if (await page.getByRole('button', { name: 'Regenerate answer' }).isVisible().catch(() => false)) {
-					return true;
-				}
-				const logText = (await page.getByRole('log', { name: 'Chat messages' }).textContent()) ?? '';
-				return /Lisbon/i.test(logText);
-			},
-			{ timeout: RELEASE_WAIT_MS, intervals: [500, 1000] }
-		)
-		.toBe(true);
+
+	await assertChatLoadingVisible(page);
+	await waitForChatAnswerMarker(page, /Lisbon/i, RELEASE_INDEXING_WAIT_MS);
+	await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+		timeout: RELEASE_WAIT_MS
+	});
+
+	const logText = (await page.getByRole('log', { name: 'Chat messages' }).textContent()) ?? '';
+	assertChatLogHasNoRawJson(logText);
+	await expect(page.locator('.animate-spin')).toHaveCount(0);
+	await waitForChatIdle(page, RELEASE_WAIT_MS);
+}
+
+async function exerciseChatFailureUi(page: Page): Promise<void> {
+	await page.route('**/api/chat', async (route) => {
+		if (route.request().method() !== 'POST') {
+			await route.continue();
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 750));
+		await route.fulfill({
+			status: 200,
+			headers: { 'content-type': 'application/x-ndjson; charset=utf-8' },
+			body:
+				'{"type":"agent_progress","label":"Planning next step…"}\n' +
+				'{"type":"error","error":"Chat service unavailable for this test."}\n'
+		});
+	});
+
+	try {
+		await startNewChatSession(page);
+		await askChatQuestion(page, 'What did I capture recently?');
+
+		await expect
+			.poll(
+				async () =>
+					(await page.getByText(/Planning next step|Connecting…|Working…/i).first().isVisible().catch(() => false)) ||
+					(await page.locator('.animate-spin').first().isVisible().catch(() => false)) ||
+					(await page.getByText(/Chat service unavailable for this test/i).isVisible().catch(() => false)),
+				{ timeout: RELEASE_WAIT_MS, intervals: [100, 250, 500] }
+			)
+			.toBe(true);
+
+		await expect(page.getByText(/Chat service unavailable for this test/i)).toBeVisible({
+			timeout: RELEASE_WAIT_MS
+		});
+		await waitForChatIdle(page, RELEASE_WAIT_MS);
+
+		const logText = (await page.getByRole('log', { name: 'Chat messages' }).textContent()) ?? '';
+		assertChatLogHasNoRawJson(logText);
+		await expect(page.locator('.animate-spin')).toHaveCount(0);
+	} finally {
+		await page.unroute('**/api/chat');
+	}
 }
 
 async function exerciseSettingsUi(page: Page): Promise<void> {
