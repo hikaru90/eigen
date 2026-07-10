@@ -862,52 +862,61 @@ export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
 	await pollUntil('dismissed project stays gone', async () => !(await findProject(page, created.entityId)));
 }
 
+type ScheduledTaskSnapshot = {
+	activeRun?: unknown;
+	lastRunAt?: string | null;
+	lastRunStatus?: string | null;
+};
+
+async function fetchScheduledTask(page: Page): Promise<ScheduledTaskSnapshot | null> {
+	const res = await page.request.get('/api/scheduled-tasks');
+	if (!res.ok()) return null;
+	const body = (await res.json()) as { tasks?: ScheduledTaskSnapshot[] };
+	return body.tasks?.[0] ?? null;
+}
+
 /** Run overnight consolidation from Settings → Heartbeat and wait for completion. */
 export async function exerciseOvernightConsolidation(page: Page): Promise<void> {
 	await page.goto('/settings/scheduled-tasks');
 	await expect(page.getByRole('heading', { name: 'Heartbeat' })).toBeVisible();
 
+	const baseline = await fetchScheduledTask(page);
+	const baselineLastRunAt = baseline?.lastRunAt ?? null;
+
 	const runNow = page.getByRole('button', { name: 'Run now' });
+	let triggered = false;
 	if (await runNow.isVisible().catch(() => false)) {
+		// POST blocks until drainUserJobQueue finishes — do not poll UI before this returns.
+		const triggerResponse = page.waitForResponse(
+			(res) =>
+				res.request().method() === 'POST' &&
+				/\/api\/scheduled-tasks\/[^/]+$/.test(res.url()) &&
+				(res.status() === 202 || res.status() === 409),
+			{ timeout: RELEASE_HEARTBEAT_WAIT_MS }
+		);
 		await runNow.click();
+		const response = await triggerResponse;
+		if (!response.ok() && response.status() !== 409) {
+			throw new Error(`Heartbeat trigger failed (${response.status()}): ${await response.text()}`);
+		}
+		triggered = true;
 	}
 
 	await expect
 		.poll(
 			async () => {
-				const progress = page.getByRole('progressbar', { name: 'Heartbeat progress' });
-				if (await progress.isVisible().catch(() => false)) {
-					return true;
-				}
-				const mainText = (await page.locator('main').textContent()) ?? '';
-				return /Running|Starting|Heartbeat finished|Finished/i.test(mainText);
-			},
-			{ timeout: RELEASE_WAIT_MS, intervals: [500, 1000] }
-		)
-		.toBe(true);
-
-	await expect
-		.poll(
-			async () => {
-				const res = await page.request.get('/api/scheduled-tasks');
-				if (!res.ok()) return false;
-				const body = (await res.json()) as {
-					tasks?: Array<{
-						activeRun?: unknown;
-						lastRunStatus?: string;
-					}>;
-				};
-				const task = body.tasks?.[0];
+				const task = await fetchScheduledTask(page);
 				if (!task) return false;
-				return task.lastRunStatus === 'completed' && !task.activeRun;
+				if (task.activeRun || task.lastRunStatus === 'running') return false;
+				if (task.lastRunStatus !== 'completed' || !task.lastRunAt) return false;
+				if (triggered) return task.lastRunAt !== baselineLastRunAt;
+				return true;
 			},
 			{ timeout: RELEASE_HEARTBEAT_WAIT_MS, intervals: [1000, 2000, 3000] }
 		)
 		.toBe(true);
 
-	await expect(page.getByText(/Heartbeat finished|Finished/i).first()).toBeVisible({
-		timeout: RELEASE_WAIT_MS
-	});
+	await expect(page.getByText('Heartbeat finished.')).toBeVisible({ timeout: RELEASE_WAIT_MS });
 }
 
 /** Click through primary chrome, tabs, filters, and non-destructive dialogs. */

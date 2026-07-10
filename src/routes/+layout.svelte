@@ -41,6 +41,15 @@
     return p || "/";
   }
 
+  function isNavItemActive(href: string): boolean {
+    const current = normalizePathname(page.url.pathname);
+    const target = normalizePathname(href);
+    if (current === target) return true;
+    if (target === "/memory") return current.startsWith("/memory");
+    if (target === "/chat") return current.startsWith("/chat");
+    return current.startsWith(`${target}/`);
+  }
+
   const hideAppChrome = $derived(
     authPaths.has(normalizePathname(page.url.pathname)) ||
       (page.route.id != null && authPaths.has(page.route.id)),
@@ -182,23 +191,28 @@
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
-    <div class="relative flex flex-row items-center gap-1 px-1.5 pb-safe">
+    <div class="relative flex flex-row items-center justify-between px-4 pb-safe gap-2">
       <div
         class="pointer-events-none absolute inset-x-0 -top-24 bottom-0 -z-10 bg-linear-to-t from-background to-transparent"
       ></div>
       {#each bottomNavItems as item}
+        {@const isActive = isNavItemActive(item.href)}
         <div class={cn("relative", item.variant === "primary" ? "grow" : "")}>
           <a
             href={resolve(item.href as Pathname)}
             class={cn(
-              "flex items-center justify-center py-3",
+              "flex items-center justify-center py-4",
               item.variant === "primary"
                 ? "rounded-full bg-primary text-primary-foreground shadow-md grow"
-                : "rounded-lg w-11 h-11 text-foreground hover:bg-black/10 dark:text-white dark:hover:bg-white/10",
+                : "rounded-full size-9 bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
             )}
             aria-label={item.label}
+            aria-current={isActive ? "page" : undefined}
           >
-            <item.icon class="size-5" strokeWidth={1.75} />
+            <item.icon
+              class={cn("size-4.5", isActive && "text-[#28F97F]")}
+              strokeWidth={1.75}
+            />
           </a>
         </div>
       {/each}

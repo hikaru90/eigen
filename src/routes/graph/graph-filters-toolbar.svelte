@@ -54,7 +54,7 @@
 	let placeholderH = $state(0);
 	let backdropBlurred = $state(false);
 
-	const BACKDROP_BLUR_PX = 12;
+	const BACKDROP_BLUR_PX = 20;
 
 	const backdropStyle = $derived(
 		`-webkit-backdrop-filter: blur(${backdropBlurred ? BACKDROP_BLUR_PX : 0}px); backdrop-filter: blur(${backdropBlurred ? BACKDROP_BLUR_PX : 0}px); transition: backdrop-filter ${MORPH_MS}ms ease-out, -webkit-backdrop-filter ${MORPH_MS}ms ease-out; -webkit-mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%); mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%);`
@@ -139,9 +139,6 @@
 	}
 
 	function closeFilter() {
-		if (activePanel === 'search') {
-			search = '';
-		}
 		translateX = 0;
 		translateY = 0;
 		filterOpen = false;

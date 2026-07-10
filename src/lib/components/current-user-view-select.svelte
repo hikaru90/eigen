@@ -12,6 +12,7 @@
 	} from '$lib/memory/current-user-view';
 	import { currentUserView } from '$lib/stores/current-user-view';
 	import { GRAPH_FILTER_GLASS_POPOVER } from '$lib/graph/graph-filter-chrome';
+	import { m } from '$lib/paraglide/messages.js';
 	import {
 		authorAgentLegendIconFrameClass,
 		authorLegendItemClassForLayer,
@@ -55,7 +56,9 @@
 			: 'inline-flex shrink-0 items-center justify-center rounded-full bg-[#111] p-0.5 dark:bg-white'
 	);
 
-	const triggerLabel = $derived(viewLabel(view, authorLayers));
+	const triggerLabel = $derived(
+		view === 'all' ? m.memory_view_all_users() : viewLabel(view, authorLayers)
+	);
 </script>
 
 <Popover.Root bind:open>
@@ -71,7 +74,7 @@
 			/>
 		</div>
 		<span
-			class="inline-block min-w-0 max-w-[60px] shrink overflow-hidden whitespace-nowrap"
+			class="inline-block min-w-0 max-w-[30px] shrink overflow-hidden whitespace-nowrap"
 			style="-webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent); mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);"
 			title={triggerLabel}
 		>{triggerLabel}</span>
@@ -105,7 +108,7 @@
 		{/each}
 		<div class="my-1 border-t border-white/40 dark:border-white/20" role="separator"></div>
 		<button type="button" class={optionClass('all')} onclick={() => select('all')}>
-			<span class="truncate">Everything</span>
+			<span class="truncate">{m.memory_view_all_users()}</span>
 			{#if view === 'all'}
 				<span class="ml-auto text-foreground">✓</span>
 			{:else}

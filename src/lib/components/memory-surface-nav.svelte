@@ -39,7 +39,7 @@
 </script>
 
 <div
-  class="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-2 bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)]"
+  class="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-2 bottom-[calc(env(safe-area-inset-bottom,0px)+6rem)]"
   aria-label={m.memory_aria_view_tabs()}
 >
   <nav

@@ -2125,7 +2125,7 @@
               <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
                 {m.graph_drawer_entities({ count: selectedCommunityMembers.length })}
               </p>
-              <ul class="max-h-40 space-y-1.5 overflow-y-auto font-mono text-[11px]">
+              <ul class="space-y-1.5 font-mono text-[11px]">
                 {#each selectedCommunityMembers as member (member.id)}
                   <li class="text-foreground flex min-w-0 items-baseline gap-x-2">
                     {#if member.subtype}
@@ -2210,7 +2210,7 @@
               <p class="text-muted-foreground mb-2 text-[10px] font-medium tracking-wide uppercase">
                 {m.graph_drawer_connections({ count: selectedEdges.length })}
               </p>
-              <ul class="max-h-32 space-y-1.5 overflow-y-auto font-mono text-[11px]">
+              <ul class="space-y-1.5 font-mono text-[11px]">
                 {#each selectedEdges as e (e.id)}
                   {@const otherId = e.sourceId === selectedNode.id ? e.targetId : e.sourceId}
                   {@const other = nodeById.get(otherId)}
@@ -2396,7 +2396,7 @@
                 {:else if entityCaptures.length === 0}
                   <p class="text-muted-foreground text-xs">{m.graph_no_linked_captures()}</p>
                 {:else}
-                  <ul class="max-h-48 space-y-2 overflow-y-auto">
+                  <ul class="space-y-2">
                     {#each entityCaptures as cap (cap.id)}
                       <li class="rounded-md border border-black/5 p-2 dark:border-white/10">
                         <div class="flex flex-wrap items-center gap-2">

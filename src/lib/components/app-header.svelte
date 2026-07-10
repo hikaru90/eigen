@@ -131,8 +131,8 @@
       <Popover.Content
         align="end"
         side="bottom"
-        sideOffset={8}
-        class="{GRAPH_FILTER_GLASS_POPOVER} w-44 gap-0 px-1 pt-3 pb-2 shadow-xl shadow-black/5"
+        sideOffset={4}
+        class="{GRAPH_FILTER_GLASS_POPOVER} w-44 gap-1 px-1 pt-2 pb-2 shadow-xl shadow-black/5 -mr-1"
       >
         <a
           href={resolve("/activity")}
