@@ -7,9 +7,9 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override
 const slowMo = process.env.PW_SLOW_MO ? Number(process.env.PW_SLOW_MO) : undefined;
 const isCi = Boolean(process.env.CI);
 
-/** Local e2e default: attach to `npm run dev` (vite on 5173). CI builds preview on 4173. */
-const devUrl = 'http://localhost:5173';
-const previewUrl = 'http://localhost:4173';
+/** Local e2e default: attach to `npm run dev` (vite on 5173). Use 127.0.0.1 — Node fetch resolves localhost to ::1, which Vite often does not bind. */
+const devUrl = 'http://127.0.0.1:5173';
+const previewUrl = 'http://127.0.0.1:4173';
 
 export default defineConfig({
 	webServer: isCi

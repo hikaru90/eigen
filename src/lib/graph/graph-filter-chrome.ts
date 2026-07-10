@@ -20,9 +20,17 @@ export const GRAPH_FILTER_GLASS_POPOVER = `${GRAPH_FILTER_GLASS_BASE} rounded-[1
 /** Fits within graph overlay padding (left-3 right-3); popover is align-end on the toolbar. */
 export const GRAPH_FILTER_POPOVER_WIDTH = 'w-[min(18rem,calc(100vw-1.5rem))]';
 
-export function graphFilterTriggerClass(active: boolean): string {
-	return `inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
-		active
+export function graphFilterTriggerClass(
+	active: boolean,
+	variant: 'icon' | 'label' = 'icon'
+): string {
+	const sizeClass =
+		variant === 'icon'
+			? 'inline-flex size-7 shrink-0 items-center justify-center'
+			: 'inline-flex h-7 min-w-0 items-center justify-start gap-1.5 px-2.5 text-left';
+	const showActive = active && variant === 'icon';
+	return `${sizeClass} rounded-full text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
+		showActive
 			? 'bg-black text-white dark:bg-foreground dark:text-background'
 			: 'text-black hover:text-black/80 dark:text-foreground dark:hover:text-foreground/80'
 	}`;

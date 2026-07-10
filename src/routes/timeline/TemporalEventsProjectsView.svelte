@@ -487,9 +487,17 @@
 	/>
 
 	{#if confirmDismissProjectId}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div
+			class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
+			role="alertdialog"
+			aria-modal="true"
+			aria-labelledby="project-delete-confirm-title"
+			data-testid="project-delete-confirm"
+		>
 			<div class="bg-background mx-4 max-w-sm rounded-lg border p-4 shadow-lg">
-				<h3 class="text-foreground text-sm font-medium">{m.graph_timeline_delete_project_title()}</h3>
+				<h3 id="project-delete-confirm-title" class="text-foreground text-sm font-medium">
+					{m.graph_timeline_delete_project_title()}
+				</h3>
 				<p class="text-muted-foreground mt-2 text-sm">
 					{m.graph_timeline_delete_project_description({ name: confirmDismissProjectLabel ?? '' })}
 				</p>

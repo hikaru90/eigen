@@ -34,6 +34,18 @@ const QUICK_MS = 1_500;
 /** One interactive attempt (open dialog, click save, …). */
 const ACTION_MS = 6_000;
 
+/** Locale-neutral timeline project UI labels (EN + DE). */
+const PROJECTS_TAB = /^(Projects|Projekte)$/;
+const ADD_PROJECT_BTN = /Add project|Projekt anlegen/i;
+const CREATE_PROJECT_SUBMIT = /Create project|Projekt anlegen/i;
+const EDIT_PROJECT_BTN = /Edit project|Projekt bearbeiten/i;
+const SAVE_PROJECT_BTN = /Save changes|Änderungen speichern/i;
+const OPEN_PROJECT_BTN = /^Open$|^Öffnen$/i;
+const DELETE_PROJECT_BTN = /^Delete$|^Löschen$/i;
+const DELETE_PROJECT_CONFIRM_TITLE = /Delete project\?|Projekt löschen\?/i;
+const PROJECTS_LISTBOX = /Projects and next actions|Projekte und nächste Schritte/i;
+const DIALOG_CANCEL_BTN = /Cancel|Abbrechen/i;
+
 async function visible(locator: Locator, timeoutMs = QUICK_MS): Promise<boolean> {
 	return locator.isVisible({ timeout: timeoutMs }).catch(() => false);
 }
@@ -61,93 +73,97 @@ type CaptureThoughtRow = {
 	queueError?: string | null;
 };
 
-function thoughtTextMatches(normalizedText: string | undefined, raw: string): boolean {
-	const stored = (normalizedText ?? '').toLowerCase();
-	const input = raw.trim().toLowerCase();
-	if (!stored || !input) return false;
-	if (stored.includes(input.slice(0, 48))) return true;
-	const words = input.split(/\s+/).filter((w) => w.length > 3).slice(0, 6);
-	return words.length > 0 && words.every((w) => stored.includes(w));
-}
-
-async function fetchRecentThoughtDetails(page: Page): Promise<CaptureThoughtRow[]> {
-	const res = await page.request.get('/api/capture/recent');
-	if (!res.ok()) return [];
-	const body = (await res.json()) as { recentThoughtDetails?: CaptureThoughtRow[] };
-	return body.recentThoughtDetails ?? [];
-}
-
 async function fetchCaptureThoughtResult(
 	page: Page,
 	thoughtId: string
 ): Promise<CaptureThoughtRow | null> {
-	const res = await page.request.get(`/api/capture/result/${encodeURIComponent(thoughtId)}`);
-	if (!res.ok()) return null;
-	const body = (await res.json()) as { thought?: CaptureThoughtRow };
-	return body.thought ?? null;
+	return page.evaluate(async (id) => {
+		const res = await fetch(`/api/capture/result/${encodeURIComponent(id)}`);
+		if (!res.ok) return null;
+		const body = (await res.json()) as { thought?: CaptureThoughtRow };
+		return body.thought ?? null;
+	}, thoughtId);
 }
 
-/** Persist is fast; enrichment (indexing) is the only long wait. */
-async function waitForCaptureIndexed(page: Page, raw: string): Promise<void> {
-	let thoughtId: string | null = null;
+function parseCaptureSubmitThoughtId(bodyText: string, contentType: string): string {
+	if (contentType.includes('application/x-ndjson')) {
+		let thoughtId = '';
+		for (const line of bodyText.split('\n')) {
+			const trimmedLine = line.trim();
+			if (!trimmedLine) continue;
+			const obj = JSON.parse(trimmedLine) as {
+				type?: string;
+				thought?: { id?: string };
+				error?: string;
+			};
+			if (obj.type === 'error') {
+				throw new Error(obj.error ?? 'Capture failed');
+			}
+			if (obj.type === 'done' && obj.thought?.id) {
+				thoughtId = obj.thought.id;
+			}
+		}
+		return thoughtId;
+	}
 
-	await pollUntil(
-		`capture persisted "${raw.slice(0, 40)}…"`,
-		async () => {
-			const match = (await fetchRecentThoughtDetails(page)).find((row) =>
-				thoughtTextMatches(row.normalizedText, raw)
-			);
-			if (match?.id) {
-				thoughtId = match.id;
-				return true;
-			}
-			if (await visible(page.getByRole('heading', { name: 'Recent' }))) {
-				const recent = page
-					.getByRole('button', { name: /Expand thought|Collapse thought/ })
-					.first();
-				const text = (await recent.textContent().catch(() => null)) ?? '';
-				if (thoughtTextMatches(text, raw)) return true;
-			}
-			return false;
-		},
-		{ timeoutMs: RELEASE_WAIT_MS, intervalMs: 750 }
+	const json = JSON.parse(bodyText) as { thought?: { id?: string }; error?: string };
+	if (json.error) {
+		throw new Error(json.error);
+	}
+	return json.thought?.id ?? '';
+}
+
+function captureIndexingInFlight(thought: CaptureThoughtRow | null): boolean {
+	if (!thought || thought.enrichmentComplete) return false;
+	if (thought.queueStatus === 'failed') return false;
+	return (
+		thought.queueStatus === 'pending' ||
+		thought.queueStatus === 'processing' ||
+		thought.queueStatus === null ||
+		thought.queueStatus === undefined
 	);
+}
 
-	if (!thoughtId) {
-		const match = (await fetchRecentThoughtDetails(page)).find((row) =>
-			thoughtTextMatches(row.normalizedText, raw)
-		);
-		thoughtId = match?.id ?? null;
-	}
+/** Wait for background enrichment only while the capture queue is actually in flight. */
+async function waitForThoughtIndexed(page: Page, thoughtId: string, raw: string): Promise<void> {
+	await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: RELEASE_WAIT_MS });
+	await expect(
+		page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first()
+	).toContainText(raw.slice(0, 48), { timeout: RELEASE_WAIT_MS });
 
-	if (!thoughtId) {
-		throw new Error(`Could not resolve thought id after capture for "${raw.slice(0, 40)}…"`);
-	}
+	await expect
+		.poll(
+			async () => {
+				const thought = await fetchCaptureThoughtResult(page, thoughtId);
+				if (!thought) return 'missing';
 
-	const id = thoughtId;
-	await pollUntil(
-		`thought indexing "${raw.slice(0, 40)}…"`,
-		async () => {
-			const thought =
-				(await fetchCaptureThoughtResult(page, id)) ??
-				(await fetchRecentThoughtDetails(page)).find((row) => row.id === id);
-			if (!thought) return false;
-			if (thought.queueStatus === 'failed') {
+				if (thought.queueStatus === 'failed') {
+					throw new Error(
+						`Indexing failed${thought.queueError ? `: ${thought.queueError}` : ''}`
+					);
+				}
+				if (thought.enrichmentComplete) return 'done';
+
+				if (captureIndexingInFlight(thought)) return 'indexing';
+
 				throw new Error(
-					`Indexing failed${thought.queueError ? `: ${thought.queueError}` : ''}`
+					`Thought "${raw.slice(0, 40)}…" saved but indexing stopped without completing (queueStatus=${thought.queueStatus ?? 'unknown'})`
 				);
-			}
-			return thought.enrichmentComplete === true;
-		},
-		{ timeoutMs: RELEASE_INDEXING_WAIT_MS, intervalMs: 2_000 }
-	);
+			},
+			{ timeout: RELEASE_INDEXING_WAIT_MS, intervals: [500, 1000, 2000] }
+		)
+		.toBe('done');
 }
 
 /** Clear drawers/dialogs without blocking on one strategy. Idempotent. */
 async function dismissBlockingLayers(page: Page): Promise<void> {
-	const projectDrawer = page.getByRole('button', { name: 'Edit project' });
+	if (await visible(page.getByTestId('project-delete-confirm'), QUICK_MS)) {
+		return;
+	}
+
+	const projectDrawer = page.getByRole('button', { name: EDIT_PROJECT_BTN });
 	const namedDialog = page.getByRole('dialog').filter({
-		has: page.getByRole('button', { name: /Cancel|Save changes|Create project/ })
+		has: page.getByRole('button', { name: /Cancel|Abbrechen|Save changes|Änderungen speichern|Create project|Projekt anlegen/ })
 	});
 
 	const blocking = async (): Promise<boolean> =>
@@ -163,8 +179,8 @@ async function dismissBlockingLayers(page: Page): Promise<void> {
 				.locator('[data-vaul-overlay], [data-slot="drawer-overlay"]')
 				.first()
 				.click({ position: { x: 6, y: 6 }, force: true }),
-		() => page.getByRole('button', { name: 'Cancel' }).first().click(),
-		() => page.getByRole('button', { name: 'Tasks', exact: true }).click(),
+		() => page.getByRole('button', { name: DIALOG_CANCEL_BTN }).first().click(),
+		() => page.getByRole('button', { name: /Tasks|Aufgaben/, exact: true }).click(),
 		() => page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' }),
 		() => page.goto('/capture', { waitUntil: 'domcontentloaded' })
 	];
@@ -692,14 +708,32 @@ export async function captureThoughtViaUi(page: Page, raw: string): Promise<void
 	}
 
 	const errorBanner = page.locator('p.text-destructive.text-sm').first();
+
+	const submitResponsePromise = page.waitForResponse(
+		(res) => res.url().includes('/api/capture/submit') && res.request().method() === 'POST',
+		{ timeout: RELEASE_WAIT_MS }
+	);
 	await captureBtn.click();
 
-	if (await visible(errorBanner, QUICK_MS)) {
-		const message = (await errorBanner.textContent())?.trim();
-		throw new Error(message ? `Capture failed: ${message}` : 'Capture failed');
+	const submitRes = await submitResponsePromise;
+	const submitBody = await submitRes.text();
+	if (!submitRes.ok()) {
+		throw new Error(submitBody.trim() || `Capture submit failed (${submitRes.status()})`);
 	}
 
-	await waitForCaptureIndexed(page, raw);
+	const thoughtId = parseCaptureSubmitThoughtId(
+		submitBody,
+		submitRes.headers()['content-type'] ?? ''
+	);
+	if (!thoughtId) {
+		if (await visible(errorBanner, QUICK_MS)) {
+			const message = (await errorBanner.textContent())?.trim();
+			throw new Error(message ? `Capture failed: ${message}` : 'Capture failed');
+		}
+		throw new Error('Capture submit succeeded but returned no thought id');
+	}
+
+	await waitForThoughtIndexed(page, thoughtId, raw);
 }
 
 export async function visitAuthenticatedSurfaces(page: Page): Promise<void> {
@@ -714,11 +748,14 @@ type TimelineProjectRow = {
 };
 
 async function fetchTimelineProjects(page: Page): Promise<TimelineProjectRow[]> {
-	const res = await page.request.get('/api/timeline/projects?author=user');
-	if (!res.ok()) {
-		throw new Error(`fetchTimelineProjects failed (${res.status()}): ${await res.text()}`);
+	const body = await page.evaluate(async () => {
+		const res = await fetch('/api/timeline/projects?author=user');
+		if (!res.ok) return null;
+		return (await res.json()) as { projects?: TimelineProjectRow[] };
+	});
+	if (!body) {
+		throw new Error('fetchTimelineProjects failed');
 	}
-	const body = (await res.json()) as { projects?: TimelineProjectRow[] };
 	return body.projects ?? [];
 }
 
@@ -731,11 +768,11 @@ async function gotoTimelineProjectsView(page: Page): Promise<void> {
 	await page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' });
 
 	for (let attempt = 0; attempt < 4; attempt++) {
-		const projectsToggle = page.getByRole('button', { name: 'Projects', exact: true });
+		const projectsToggle = page.getByRole('button', { name: PROJECTS_TAB });
 		if (await visible(projectsToggle)) {
 			await projectsToggle.click().catch(() => undefined);
 		}
-		if (await visible(page.getByRole('button', { name: 'Add project' }))) {
+		if (await visible(page.getByRole('button', { name: ADD_PROJECT_BTN }))) {
 			return;
 		}
 		await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
@@ -745,29 +782,37 @@ async function gotoTimelineProjectsView(page: Page): Promise<void> {
 
 async function createProjectViaUi(page: Page, label: string): Promise<TimelineProjectRow> {
 	await gotoTimelineProjectsView(page);
-	await page.getByRole('button', { name: 'Add project' }).click();
-	const createDialog = page.getByRole('dialog', { name: 'Add project' });
+	await page.getByRole('button', { name: ADD_PROJECT_BTN }).click();
+	const createDialog = page.getByRole('dialog').filter({ has: page.locator('#create-project-label') });
 	if (!(await visible(createDialog, ACTION_MS))) {
 		throw new Error('Add project dialog did not open');
 	}
 	await createDialog.locator('#create-project-label').fill(label);
-	await createDialog.getByRole('button', { name: 'Create project' }).click();
-	await createDialog.waitFor({ state: 'hidden', timeout: ACTION_MS }).catch(() => dismissBlockingLayers(page));
+
+	const createResponse = page.waitForResponse(
+		(res) => res.url().includes('/api/timeline/projects') && res.request().method() === 'POST',
+		{ timeout: ACTION_MS }
+	);
+	await createDialog.getByRole('button', { name: CREATE_PROJECT_SUBMIT }).click();
+	const res = await createResponse;
+	if (!res.ok()) {
+		throw new Error(`create project failed (${res.status()}): ${await res.text()}`);
+	}
+	await expect(createDialog).toBeHidden({ timeout: QUICK_MS });
 	await dismissBlockingLayers(page);
 
-	await pollUntil(`project "${label}" appears in API`, async () =>
-		(await fetchTimelineProjects(page)).some((p) => p.label === label)
-	);
 	const created = (await fetchTimelineProjects(page)).find((p) => p.label === label);
-	if (!created) throw new Error(`Project "${label}" missing after create`);
+	if (!created) {
+		throw new Error(`Project "${label}" missing in API immediately after create`);
+	}
 	return created;
 }
 
 async function openProjectDetail(page: Page, projectLabel: string): Promise<void> {
 	await gotoTimelineProjectsView(page);
-	const listbox = page.getByRole('listbox', { name: 'Projects and next actions' });
+	const listbox = page.getByRole('listbox', { name: PROJECTS_LISTBOX });
 	const row = listbox.locator('div').filter({ has: page.getByText(projectLabel, { exact: true }) }).first();
-	const openBtn = row.getByRole('button', { name: 'Open', exact: true });
+	const openBtn = row.getByRole('button', { name: OPEN_PROJECT_BTN });
 
 	if (await visible(openBtn)) {
 		await openBtn.click();
@@ -777,7 +822,7 @@ async function openProjectDetail(page: Page, projectLabel: string): Promise<void
 		throw new Error(`Project "${projectLabel}" not found in list`);
 	}
 
-	if (!(await visible(page.getByRole('button', { name: 'Edit project' }), ACTION_MS))) {
+	if (!(await visible(page.getByRole('button', { name: EDIT_PROJECT_BTN }), ACTION_MS))) {
 		throw new Error(`Project detail drawer did not open for "${projectLabel}"`);
 	}
 }
@@ -788,42 +833,63 @@ async function renameProjectViaUi(
 	renamedProject: string
 ): Promise<void> {
 	await openProjectDetail(page, projectName);
-	await page.getByRole('button', { name: 'Edit project' }).click();
+	await page.getByRole('button', { name: EDIT_PROJECT_BTN }).click();
 
-	const editDialog = page.getByRole('dialog', { name: 'Edit project' });
+	const editDialog = page.getByRole('dialog').filter({ has: page.locator('#edit-project-label') });
 	if (!(await visible(editDialog, ACTION_MS))) {
 		throw new Error('Edit project dialog did not open');
 	}
 	await editDialog.locator('#edit-project-label').fill(renamedProject);
-	await editDialog.getByRole('button', { name: 'Save changes' }).click();
-	await editDialog.waitFor({ state: 'hidden', timeout: ACTION_MS }).catch(() => dismissBlockingLayers(page));
+
+	const updateResponse = page.waitForResponse(
+		(res) => /\/api\/timeline\/projects\/[^/]+\/update$/.test(res.url()) && res.request().method() === 'PUT',
+		{ timeout: ACTION_MS }
+	);
+	await editDialog.getByRole('button', { name: SAVE_PROJECT_BTN }).click();
+	const res = await updateResponse;
+	if (!res.ok()) {
+		throw new Error(`project rename failed (${res.status()}): ${await res.text()}`);
+	}
+	await expect(editDialog).toBeHidden({ timeout: QUICK_MS });
 	await dismissBlockingLayers(page);
 }
 
-async function dismissProjectViaUi(page: Page, entityId: string, projectLabel: string): Promise<void> {
-	await openProjectDetail(page, projectLabel).catch(() => undefined);
+async function confirmProjectDeleteModal(page: Page): Promise<void> {
+	const modal = page.getByTestId('project-delete-confirm');
+	await expect(modal).toBeVisible({ timeout: ACTION_MS });
+	await expect(modal.getByRole('heading', { name: DELETE_PROJECT_CONFIRM_TITLE })).toBeVisible();
 
-	if (await visible(page.getByRole('button', { name: 'Delete' }))) {
-		await page.getByRole('button', { name: 'Delete' }).click();
-		const confirm = page.getByRole('heading', { name: 'Delete project?' });
-		if (await visible(confirm, ACTION_MS)) {
-			await page
-				.locator('div.fixed.inset-0')
-				.getByRole('button', { name: 'Delete', exact: true })
-				.click();
-			await confirm.waitFor({ state: 'hidden', timeout: ACTION_MS }).catch(() => undefined);
-		}
+	const dismissResponse = page.waitForResponse(
+		(res) =>
+			/\/api\/timeline\/projects\/[^/]+\/dismiss$/.test(res.url()) &&
+			res.request().method() === 'POST',
+		{ timeout: ACTION_MS }
+	);
+	await modal.getByRole('button', { name: DELETE_PROJECT_BTN }).click();
+
+	const res = await dismissResponse;
+	if (!res.ok()) {
+		throw new Error(`project dismiss failed (${res.status()}): ${await res.text()}`);
+	}
+	await expect(modal).toBeHidden({ timeout: QUICK_MS });
+}
+
+async function dismissProjectViaUi(page: Page, entityId: string, projectLabel: string): Promise<void> {
+	await openProjectDetail(page, projectLabel);
+
+	const deleteTrigger = page.getByRole('button', { name: DELETE_PROJECT_BTN }).first();
+	if (!(await visible(deleteTrigger, ACTION_MS))) {
+		throw new Error(`Delete control not found in project detail for "${projectLabel}"`);
 	}
 
+	await deleteTrigger.click();
+	await confirmProjectDeleteModal(page);
+
 	if (await findProject(page, entityId)) {
-		const res = await page.request.post(`/api/timeline/projects/${entityId}/dismiss`);
-		if (!res.ok()) {
-			throw new Error(`dismiss project failed (${res.status()}): ${await res.text()}`);
-		}
+		throw new Error(`Project "${projectLabel}" (${entityId}) still listed after confirm delete`);
 	}
 
 	await dismissBlockingLayers(page);
-	await pollUntil(`project "${projectLabel}" dismissed`, async () => !(await findProject(page, entityId)));
 }
 
 /**
@@ -849,14 +915,12 @@ export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
 	);
 
 	await renameProjectViaUi(page, projectName, renamedProject);
-	await pollUntil(
-		`project renamed to "${renamedProject}"`,
-		async () => {
-			const row = await findProject(page, created.entityId);
-			return row?.label === renamedProject && row.openTaskCount >= 1;
-		},
-		{ timeoutMs: RELEASE_WAIT_MS, intervalMs: 750 }
-	);
+	const renamedRow = await findProject(page, created.entityId);
+	if (renamedRow?.label !== renamedProject) {
+		throw new Error(
+			`Expected project label "${renamedProject}" after rename, got "${renamedRow?.label ?? 'missing'}"`
+		);
+	}
 
 	await captureThoughtViaUi(page, postRenameThought);
 	await pollUntil(
@@ -871,7 +935,9 @@ export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
 	await dismissProjectViaUi(page, created.entityId, renamedProject);
 
 	await captureThoughtViaUi(page, postDismissThought);
-	await pollUntil('dismissed project stays gone', async () => !(await findProject(page, created.entityId)));
+	if (await findProject(page, created.entityId)) {
+		throw new Error('Dismissed project reappeared after follow-up capture');
+	}
 }
 
 type ScheduledTaskSnapshot = {

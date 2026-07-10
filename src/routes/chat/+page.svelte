@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fade, fly } from "svelte/transition";
   import { browser } from "$app/environment";
   import { page } from "$app/state";
   import type { PageData } from "./$types";
@@ -9,13 +10,18 @@
   import * as Card from "$lib/components/ui/card";
   import { Separator } from "$lib/components/ui/separator";
   import { chatSidebarOpen } from "$lib/stores/chat-sidebar";
+  import {
+    GRAPH_FILTER_GLASS_ROW,
+    graphFilterTriggerClass,
+  } from "$lib/graph/graph-filter-chrome";
+  import PanelRightClose from "@lucide/svelte/icons/panel-right-close";
+  import PanelLeftClose from "@lucide/svelte/icons/panel-left-close";
   import { chatInputDraft } from "$lib/stores/page-input-drafts";
   import { get } from "svelte/store";
   import SendHorizontal from "@lucide/svelte/icons/send-horizontal";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import X from "@lucide/svelte/icons/x";
   import Redo2 from "@lucide/svelte/icons/redo-2";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Square from "@lucide/svelte/icons/square";
@@ -540,12 +546,14 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-50 cursor-pointer bg-black/20"
+    transition:fade={{ duration: 200 }}
     onclick={() => ($chatSidebarOpen = false)}
   ></div>
   <div
     class="fixed left-0 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-white pt-safe dark:bg-card"
     role="dialog"
     aria-label="Chat sessions"
+    transition:fly={{ x: -256, duration: 280 }}
   >
     <div class="px-5 pb-3">
       <button
@@ -553,7 +561,7 @@
         onclick={() => ($chatSidebarOpen = false)}
         aria-label="Close sidebar"
       >
-        <X class="size-5" strokeWidth={1.75} />
+        <PanelLeftClose class="size-4" strokeWidth={1.75} aria-hidden="true" />
       </button>
     </div>
 
@@ -605,6 +613,25 @@
     ? 'top-[10.25rem]'
     : 'top-0'}"
 >
+  <div
+    class="pointer-events-none absolute top-14 left-3 z-50 md:top-16"
+    aria-label="Chat session list"
+  >
+    <div class="pointer-events-auto">
+      <div class={GRAPH_FILTER_GLASS_ROW}>
+        <button
+          type="button"
+          class={graphFilterTriggerClass(false, 'label')}
+          onclick={() => chatSidebarOpen.update((v) => !v)}
+          aria-label="Toggle session list"
+          aria-pressed={$chatSidebarOpen}
+        >
+          <PanelRightClose class="size-3.5 shrink-0 opacity-90" strokeWidth={1.75} aria-hidden="true" />
+          <span class="truncate">Chats</span>
+        </button>
+      </div>
+    </div>
+  </div>
   <div
     bind:this={messagesEl}
     class="absolute inset-0 overflow-y-auto overflow-x-clip"

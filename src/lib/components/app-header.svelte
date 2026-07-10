@@ -21,8 +21,6 @@
   import { resetPostHog } from "$lib/analytics/posthog-client";
   import { GRAPH_FILTER_GLASS_POPOVER } from "$lib/graph/graph-filter-chrome";
 
-  const isChatRoute = $derived(page.route.id === "/chat");
-
   let menuOpen = $state(false);
 
   $effect(() => {
@@ -98,20 +96,7 @@
   <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 backdrop-blur-sm" style="-webkit-mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 40%, transparent 55%); mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 40%, transparent 55%);"></div>
   <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 bg-linear-to-b from-background to-transparent"></div>
   <div class="relative z-10 mx-auto flex w-full items-center justify-between pb-3">
-    {#if isChatRoute}
-      <div class="flex items-center gap-1">
-        <button
-          class="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-          onclick={() => chatSidebarOpen.update((v) => !v)}
-          aria-label="Toggle session list"
-        >
-          <Menu class="size-5" strokeWidth={1.75} />
-        </button>
-        {#if showViewSelect}
-          <CurrentUserViewSelect />
-        {/if}
-      </div>
-    {:else if showViewSelect}
+    {#if showViewSelect}
       <CurrentUserViewSelect />
     {:else}
       <div class="w-10"></div>
@@ -132,32 +117,32 @@
         align="end"
         side="bottom"
         sideOffset={4}
-        class="{GRAPH_FILTER_GLASS_POPOVER} w-44 gap-1 px-1 pt-2 pb-2 shadow-xl shadow-black/5 -mr-1"
+        class="{GRAPH_FILTER_GLASS_POPOVER} w-44 gap-1.5 pt-2 pb-2 shadow-xl shadow-black/5 -mr-1"
       >
         <a
           href={resolve("/activity")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <ActivityIcon class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
         </a>
         <a
           href={resolve("/api-keys")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <KeyRound class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
         </a>
         <a
           href={resolve("/settings/agents")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Send class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Webhooks
         </a>
         <a
           href={resolve("/settings/llm")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Cpu class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Credits
@@ -165,14 +150,14 @@
         {#if isAdmin}
           <a
             href={resolve("/admin/queue")}
-            class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <Layers class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin queue
           </a>
           <a
             href={resolve("/admin/spend")}
-            class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <BarChart3 class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin spend
@@ -181,7 +166,7 @@
         {#if dev}
           <a
             href={resolve("/eval")}
-            class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <ClipboardCheck class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
             Evals
@@ -189,26 +174,26 @@
         {/if}
         <a
           href={resolve("/settings/scheduled-tasks")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <HeartPulse class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Heartbeat
         </a>
         <a
           href={resolve("/settings")}
-          class="flex items-center gap-2 rounded-sm px-3 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Settings class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
           Settings
         </a>
         {#if user?.email}
-          <div class="mt-1 truncate border-t border-white/40 px-3 pt-3 text-xs text-muted-foreground dark:border-white/20">
+          <div class="mt-1 truncate border-t border-white/40 px-1 pt-3 text-xs text-muted-foreground dark:border-white/20">
             {user.email}
           </div>
         {/if}
         <button
           type="button"
-          class="flex w-full items-center gap-2 rounded-full px-3 py-1 text-left text-xs text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
+          class="flex w-full items-center gap-2 rounded-full px-1 py-1 text-left text-xs text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
           onclick={() => void signOut()}
         >
           <LogOut class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />

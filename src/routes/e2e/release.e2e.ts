@@ -20,7 +20,7 @@ test.describe('Release smoke @release', () => {
 
 	test('register → onboard → PayPal → capture → exercise UI → re-login', async ({ page, context, baseURL }) => {
 		await context.grantPermissions(['microphone'], {
-			origin: baseURL ?? 'http://localhost:5173'
+			origin: baseURL ?? 'http://127.0.0.1:5173'
 		});
 		const releaseThought =
 			'Release smoke thought: planning a team offsite in Lisbon next quarter';

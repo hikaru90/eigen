@@ -241,14 +241,17 @@
 
 	{#if phase.kind === 'ready' && phase.items.length > 0}
 		<div
-			class="pointer-events-none absolute top-10 left-3 z-20 flex w-[min(calc(100vw-1.5rem),11rem)] shrink-0 flex-col gap-2 md:top-14"
+			class="pointer-events-none absolute top-14 left-3 z-50 md:top-16"
+			aria-label={m.graph_aria_entity_type_filter()}
 		>
-			<GraphEntityKindsLegend
-				bind:visibleEntityTypes
-				legendSections={graphLegendSections}
-				graphStats={embeddingStats}
-				panelId="embedding-map-legend-panel"
-			/>
+			<div class="pointer-events-auto w-[min(calc(100vw-1.5rem),11rem)]">
+				<GraphEntityKindsLegend
+					bind:visibleEntityTypes
+					legendSections={graphLegendSections}
+					graphStats={embeddingStats}
+					panelId="embedding-map-legend-panel"
+				/>
+			</div>
 		</div>
 
 		<p class="text-muted-foreground/50 pointer-events-none absolute top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap text-[9px] md:top-12">
