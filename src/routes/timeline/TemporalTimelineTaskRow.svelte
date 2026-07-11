@@ -6,8 +6,7 @@
 		formatWhen,
 		formatCreatedDate,
 		isTaskListItem,
-		isTemporalEventCompleted,
-		priorityDotColor
+		isTemporalEventCompleted
 	} from './temporal-events-utils';
 	import { bucketOverdueElapsed, overdueElapsedMs } from '$lib/graph/timeline-overdue';
 	import { graphEnergyLevelLabel } from '$lib/graph/graph-i18n';
@@ -102,7 +101,7 @@
 <li
 	role="option"
 	aria-selected={selectedItemId === item.id}
-	class="border-border flex w-full items-start gap-2.5 border-b px-4 py-3 last:border-b-0 transition-colors {selectedItemId ===
+	class="border-border flex w-full items-start gap-2 border-b py-2 pr-3.5 pl-5 last:border-b-0 transition-colors {selectedItemId ===
 	item.id
 		? 'bg-muted/50'
 		: 'hover:bg-muted/30'}"
@@ -114,56 +113,59 @@
 >
 	<TemporalEventStatusButton {item} {updatingEventId} compact onQuickAction={onQuickAction} />
 	<button type="button" class="flex min-w-0 flex-1 flex-col gap-1 text-left" onclick={onClickSelect}>
-		<div class="flex min-w-0 items-start gap-2">
-			<span
-				class="mt-1.5 size-2 shrink-0 rounded-full"
-				style="background-color: {priorityDotColor(item)}"
-				aria-hidden="true"
-			></span>
-			<span
-				class="text-foreground min-w-0 flex-1 text-sm font-medium leading-snug {completedEventSummaryClass(
-					completed
-				)}"
-			>
-				{item.semanticSummary}
+		<span
+			class="text-foreground line-clamp-2 text-sm leading-snug {completedEventSummaryClass(completed)}"
+		>
+			{item.semanticSummary}
+		</span>
+
+		{#if item.projectLabel}
+			<span class="text-muted-foreground text-[10px] leading-tight">
+				{item.projectLabel}
 			</span>
-		</div>
-		<div class="flex flex-wrap items-center gap-2 pl-4">
-			{#if item.projectLabel}
-				<span
-					class="text-muted-foreground rounded-full border border-border bg-muted/30 px-2 py-0.5 font-mono text-[10px]"
-				>
-					{item.projectLabel}
-				</span>
-			{/if}
-			{#if item.durationMinutes}
-				<span class="text-muted-foreground font-mono text-[11px]">
-					{m.graph_timeline_duration_min({ minutes: item.durationMinutes })}
-				</span>
-			{/if}
-			{#if item.energyLevel}
-				<span
-					class="rounded-full border px-2 py-0.5 text-[10px] {energyPillClasses(
-						item.energyLevel
-					)}"
-				>
-					{graphEnergyLevelLabel(item.energyLevel)}
-				</span>
-			{/if}
-			{#if isTaskListItem(item)}
-				<span
-					class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
-				>
-					{m.graph_timeline_open_loop()}
-				</span>
-			{/if}
+		{/if}
+
+		<div class="flex flex-col gap-0.5">
 			{#if showWhen && item.startAt}
-				<span class="text-muted-foreground font-mono text-[11px]">Due: {formatWhen(item, timeZone)}</span>
+				<div class="flex items-baseline gap-3 text-[10px] leading-tight">
+					<span class="text-muted-foreground/70 shrink-0">{m.graph_temporal_when()}</span>
+					<span class="text-muted-foreground font-mono">{formatWhen(item, timeZone)}</span>
+				</div>
 			{/if}
-			<span class="text-muted-foreground font-mono text-[10px]">created {formatCreatedDate(item)}</span>
+			<div class="flex items-baseline gap-3 text-[10px] leading-tight">
+				<span class="text-muted-foreground/70 shrink-0">Created</span>
+				<span class="text-muted-foreground font-mono">{formatCreatedDate(item)}</span>
+			</div>
 			{#if overdueLabel}
-				<span class="text-destructive font-mono text-[11px]">{overdueLabel}</span>
+				<div class="flex items-baseline gap-3 text-[10px] leading-tight">
+					<span class="text-destructive/80 shrink-0">{m.graph_timeline_pill_overdue()}</span>
+					<span class="text-destructive font-mono">{overdueLabel}</span>
+				</div>
 			{/if}
 		</div>
+
+		{#if item.durationMinutes || item.energyLevel || isTaskListItem(item)}
+			<div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+				{#if item.durationMinutes}
+					<span class="text-muted-foreground font-mono text-[10px]">
+						{m.graph_timeline_duration_min({ minutes: item.durationMinutes })}
+					</span>
+				{/if}
+				{#if item.energyLevel}
+					<span
+						class="rounded-full border px-2 py-0.5 text-[10px] {energyPillClasses(item.energyLevel)}"
+					>
+						{graphEnergyLevelLabel(item.energyLevel)}
+					</span>
+				{/if}
+				{#if isTaskListItem(item)}
+					<span
+						class="text-muted-foreground rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase"
+					>
+						{m.graph_timeline_open_loop()}
+					</span>
+				{/if}
+			</div>
+		{/if}
 	</button>
 </li>

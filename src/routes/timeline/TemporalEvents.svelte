@@ -4,9 +4,7 @@
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
-import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
-import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
+	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import {
 		filterActiveItems,
 		filterItemsByKinds,
@@ -28,13 +26,12 @@ import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import { isTemporalEventCompleted } from './temporal-events-utils';
 	import { m } from '$lib/paraglide/messages.js';
 	import { Button } from '$lib/components/ui/button';
-import * as Select from '$lib/components/ui/select';
 	import TemporalEventDetail from './TemporalEventDetail.svelte';
 	import TemporalEventsTodayView from './TemporalEventsTodayView.svelte';
 	import TemporalEventsProjectsView from './TemporalEventsProjectsView.svelte';
 	import TemporalTimelineHeader from './TemporalTimelineHeader.svelte';
 	import TemporalTimelineNudge from './TemporalTimelineNudge.svelte';
-	import TemporalTimelineFiltersPopover from './TemporalTimelineFiltersPopover.svelte';
+	import TemporalTimelineOptionsPopover from './TemporalTimelineOptionsPopover.svelte';
 	import TimelineProjectAssignDialog from './TimelineProjectAssignDialog.svelte';
 	import TimelineAgentAssignDialog from './TimelineAgentAssignDialog.svelte';
 	import TemporalTodaySegmentTabs from './TemporalTodaySegmentTabs.svelte';
@@ -700,23 +697,6 @@ import * as Select from '$lib/components/ui/select';
 </script>
 
 <div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 pb-28 md:pt-24">
-	{#snippet timelineFilters()}
-		<TemporalTimelineFiltersPopover
-			bind:open={filtersPopoverOpen}
-			{filtersActive}
-			{statusFilter}
-			{rangeFilter}
-			{kindFilter}
-			onStatusFilterChange={setStatusFilter}
-			onRangeFilterChange={(next) => {
-				rangeFilter = next;
-				onFilterChange();
-			}}
-			onToggleKind={toggleKind}
-			onClearKinds={clearKindFilter}
-		/>
-	{/snippet}
-
 	<TemporalTimelineHeader
 		{projectsMode}
 		nowSegment={nowSegment}
@@ -724,58 +704,46 @@ import * as Select from '$lib/components/ui/select';
 	>
 		{#snippet titleActions()}
 			<div
-				class={showFiltersInHeader ? '' : 'pointer-events-none invisible'}
+				class="flex items-center gap-1 {showFiltersInHeader ? '' : 'pointer-events-none invisible'}"
 				aria-hidden={!showFiltersInHeader}
 			>
-				{@render timelineFilters()}
-			</div>
-			<Select.Root
-				type="single"
-				value={orderBy}
-				onValueChange={(v) => {
-					if (v === 'ingest' || v === 'todo') {
-						orderBy = v;
+				<TemporalTimelineOptionsPopover
+					bind:open={filtersPopoverOpen}
+					{filtersActive}
+					{statusFilter}
+					{rangeFilter}
+					{kindFilter}
+					{orderBy}
+					{sortDirection}
+					onStatusFilterChange={setStatusFilter}
+					onRangeFilterChange={(next) => {
+						rangeFilter = next;
 						onFilterChange();
-					}
-				}}
-			>
-				<Select.Trigger class="h-7 w-auto gap-1 px-2 text-[11px]">
-					{orderBy === 'ingest' ? 'Ingest order' : 'Todo order'}
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="ingest">Ingest order</Select.Item>
-					<Select.Item value="todo">Todo order</Select.Item>
-				</Select.Content>
-			</Select.Root>
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon"
-				class="size-7 shrink-0"
-				title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
-				onclick={() => {
-					sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-					onFilterChange();
-				}}
-			>
-				{#if sortDirection === 'asc'}
-					<ArrowUpIcon class="size-3.5" aria-hidden="true" />
-				{:else}
-					<ArrowDownIcon class="size-3.5" aria-hidden="true" />
-				{/if}
-			</Button>
-			<Button
-				type="button"
-				variant="outline"
-				size="icon"
-				class="size-7 shrink-0 border-black text-black hover:bg-black/5 dark:border-foreground dark:text-foreground dark:hover:bg-white/10"
-				title={m.graph_temporal_refresh()}
-				disabled={refreshBusy}
-				onclick={refreshAll}
-			>
-				<RefreshCwIcon class="size-3.5 {refreshBusy ? 'animate-spin' : ''}" aria-hidden="true" />
-				<span class="sr-only">{m.graph_temporal_refresh()}</span>
-			</Button>
+					}}
+					onToggleKind={toggleKind}
+					onClearKinds={clearKindFilter}
+					onOrderByChange={(next) => {
+						orderBy = next;
+						onFilterChange();
+					}}
+					onSortDirectionToggle={() => {
+						sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+						onFilterChange();
+					}}
+				/>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					class="size-7 shrink-0 text-black hover:bg-black/5 dark:text-foreground dark:hover:bg-white/10"
+					title={m.graph_temporal_refresh()}
+					disabled={refreshBusy}
+					onclick={refreshAll}
+				>
+					<RefreshCwIcon class="size-3.5 {refreshBusy ? 'animate-spin' : ''}" aria-hidden="true" />
+					<span class="sr-only">{m.graph_temporal_refresh()}</span>
+				</Button>
+			</div>
 		{/snippet}
 		{#if !projectsMode}
 			<TemporalTodaySegmentTabs

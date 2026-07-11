@@ -80,33 +80,32 @@
 </script>
 
 <div
-	class="border-border grid w-full grid-cols-3 border"
+	class="grid w-full grid-cols-3 rounded-2xl border border-white/80 bg-white/5 p-0.5 dark:border-white/20 dark:bg-white/5"
 	role="tablist"
 	aria-label={m.graph_timeline_tasks_segments_aria()}
 >
-	{#each todayTabItems as tab, index (tab.segment)}
+	{#each todayTabItems as tab (tab.segment)}
 		<button
 			type="button"
 			role="tab"
 			aria-selected={nav.segment === tab.segment}
-			class="border-border px-1.5 py-1 text-center {index < todayTabItems.length - 1
-				? 'border-r'
-				: ''} {nav.segment === tab.segment
-				? 'bg-black text-white dark:bg-foreground dark:text-background'
-				: 'bg-muted/20 text-black hover:bg-muted/40 dark:text-foreground'}"
+			class="flex flex-col items-center justify-center bg-transparent px-1.5 py-1 text-center transition-opacity hover:opacity-80 {nav.segment ===
+			tab.segment
+				? 'opacity-100'
+				: 'opacity-60'}"
 			onclick={() => nav.onSegmentChange(tab.segment)}
 		>
 			<p
-				class="text-sm font-semibold tabular-nums leading-none {nav.segment === tab.segment
-					? 'text-white dark:text-background'
+				class="text-base font-semibold tabular-nums leading-none {nav.segment === tab.segment
+					? 'text-foreground'
 					: tab.countClass}"
 			>
 				{tab.count > 0 || tab.segment !== 'overdue' ? tab.count : '—'}
 			</p>
 			<p
-				class="mt-0.5 text-[8px] uppercase tracking-wide {nav.segment === tab.segment
-					? 'text-white/80 dark:text-background/80'
-					: 'text-black dark:text-foreground'}"
+				class="text-foreground mt-0.5 text-[10px] uppercase tracking-wide {nav.segment === tab.segment
+					? 'font-medium'
+					: 'font-normal'}"
 			>
 				{tab.label}
 			</p>

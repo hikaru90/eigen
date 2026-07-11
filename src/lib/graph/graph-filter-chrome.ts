@@ -17,6 +17,9 @@ export const GRAPH_FILTER_GLASS_ROW = `${GRAPH_FILTER_GLASS_PANEL} flex flex-col
 /** Popover panels — same frosted chrome as the icon row, not default shadcn popover surface. */
 export const GRAPH_FILTER_GLASS_POPOVER = `${GRAPH_FILTER_GLASS_BASE} rounded-[19px] text-foreground ring-0`;
 
+/** Select dropdown menus — match graph/memory frosted popover chrome. */
+export const GRAPH_FILTER_GLASS_SELECT = GRAPH_FILTER_GLASS_POPOVER;
+
 /** Fits within graph overlay padding (left-3 right-3); popover is align-end on the toolbar. */
 export const GRAPH_FILTER_POPOVER_WIDTH = 'w-[min(18rem,calc(100vw-1.5rem))]';
 

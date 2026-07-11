@@ -106,14 +106,10 @@
 	let confirmDismissProjectId = $state<string | null>(null);
 	let confirmDismissProjectLabel = $state<string | null>(null);
 
-	const tabEntryClass =
-		'flex flex-col overflow-visible bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card';
-	const tabTriggerClass =
-		'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground';
 	const filledPillClass =
 		'h-auto shrink-0 rounded-full border border-black bg-black px-3 py-1 text-xs font-medium text-white hover:bg-black/90 dark:border-foreground dark:bg-foreground dark:text-background dark:hover:bg-foreground/90';
-	const ghostPillClass =
-		'h-auto shrink-0 gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground';
+	const projectCardClass =
+		'mb-2 flex w-full flex-col gap-y-1 bg-white py-3.5 px-4 text-left shadow-[4px_4px_0_0_#111111] transition-opacity hover:bg-white/95 dark:bg-card dark:shadow-[4px_4px_0_0_rgb(17_17_17_/_0.35)] dark:hover:bg-card/95';
 
 	function openProjectDetail(project: ProjectListItem) {
 		detailProject = project;
@@ -361,73 +357,62 @@
 					{@const projectNextAction = getNextAction(project)}
 					{@const openLoopCount =
 						tasksForProject(project).length}
-					<div
-						class="{tabEntryClass} min-w-0 transition-opacity {project.status === 'someday' ? 'opacity-50' : ''}"
+					<button
+						type="button"
+						class="{projectCardClass} min-w-0 {project.status === 'someday' ? 'opacity-50' : ''}"
+						onclick={() => openProjectDetail(project)}
 					>
-						<div
-							class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
-						>
-							<div class="min-w-0 flex-1">
-								<p class="truncate text-sm font-medium text-foreground">{project.label}</p>
-								<div
-									class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
-								>
-									<span class="font-medium text-foreground">{statusLabel(project.status)}</span>
-									{#if openLoopCount > 0}
-										<span>
-											{m.graph_timeline_project_open_loops({ count: openLoopCount })}
-										</span>
-									{/if}
-									{#if projectNextAction}
-										<span class="line-clamp-1">{projectNextAction.summary}</span>
-									{/if}
-								</div>
-							</div>
-							<Button
-								type="button"
-								variant="ghost"
-								class={ghostPillClass}
-								onclick={() => openProjectDetail(project)}
-							>
-								{m.graph_timeline_open_project()}
-							</Button>
+						<div class="flex w-full min-w-0 items-start justify-between gap-2">
+							<p class="truncate text-sm leading-[1.2] text-foreground">{project.label}</p>
+							{#if openLoopCount > 0}
+								<span class="shrink-0 text-[10px] leading-[1.2] text-muted-foreground">
+									{m.graph_timeline_project_open_loops({ count: openLoopCount })}
+								</span>
+							{/if}
 						</div>
-					</div>
+						<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+							<span class="text-[10px] leading-[1.2] text-foreground">{statusLabel(project.status)}</span>
+						</div>
+						{#if projectNextAction}
+							<div class="flex items-start gap-x-[11px]">
+								<span class="shrink-0 text-[10px] leading-[1.2] text-foreground">Next</span>
+								<span class="line-clamp-2 text-[10px] leading-[1.2] text-muted-foreground">
+									{projectNextAction.summary}
+								</span>
+							</div>
+						{/if}
+					</button>
 				{/each}
 			{/if}
 
 			{#if unassignedTasks.length > 0}
-				<div class="mt-2">
-					<h3 class="mb-2 px-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<div class="mt-2 pt-3">
+					<h3 class="px-2 py-1.5 text-[10px] leading-[1.2] text-muted-foreground">
 						{m.graph_timeline_project_no_project()} ({unassignedTasks.length})
 					</h3>
-					<div class="flex flex-col gap-2">
+					<div class="flex flex-col">
 						{#each unassignedTasks as task (task.id)}
-							<div class="{tabEntryClass} min-w-0">
-								<div
-									class="flex w-full min-w-0 items-start justify-between gap-2 {tabTriggerClass}"
+							<div class="flex w-full min-w-0 items-start justify-between gap-2 py-3 px-2">
+								<button
+									type="button"
+									class="min-w-0 flex-1 text-left"
+									onclick={() => onGoToTask(task.id)}
 								>
-									<button
-										type="button"
-										class="min-w-0 flex-1 text-left"
-										onclick={() => onGoToTask(task.id)}
-									>
-										<p class="line-clamp-2 text-sm text-foreground">{task.semanticSummary}</p>
-										{#if task.thoughtText !== task.semanticSummary}
-											<p class="mt-1 line-clamp-1 text-xs text-muted-foreground">
-												{task.thoughtText}
-											</p>
-										{/if}
-									</button>
-									<Button
-										type="button"
-										variant="ghost"
-										class="h-auto shrink-0 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-										onclick={() => openAssignProject(task)}
-									>
-										Assign
-									</Button>
-								</div>
+									<p class="text-xs leading-[1.2] text-foreground">{task.semanticSummary}</p>
+									{#if task.thoughtText !== task.semanticSummary}
+										<p class="mt-px line-clamp-1 text-[10px] leading-[1.2] text-muted-foreground">
+											{task.thoughtText}
+										</p>
+									{/if}
+								</button>
+								<Button
+									type="button"
+									variant="ghost"
+									class="h-auto shrink-0 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+									onclick={() => openAssignProject(task)}
+								>
+									Assign
+								</Button>
 							</div>
 						{/each}
 					</div>
