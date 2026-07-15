@@ -1,6 +1,14 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { bindAgentToProject, unbindAgentFromProject } from '$lib/server/agents/service';
+import { bindAgentToProject, listAgentProjectBindings } from '$lib/server/agents/service';
+
+export const GET: RequestHandler = async (event) => {
+	const user = event.locals.user;
+	if (!user) return json({ error: 'Unauthorized' }, { status: 401 });
+
+	const bindings = await listAgentProjectBindings(user.id, event.params.id);
+	return json({ bindings });
+};
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;

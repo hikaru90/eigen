@@ -1,7 +1,9 @@
 <script lang="ts">
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import Bot from '@lucide/svelte/icons/bot';
-	import * as Dialog from '$lib/components/ui/dialog';
+	import XIcon from '@lucide/svelte/icons/x';
+	import * as Drawer from '$lib/components/ui/drawer';
+	import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages.js';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
@@ -23,11 +25,13 @@
 	type Props = {
 		open: boolean;
 		item: TemporalEventListItem | null;
+		/** When true, stacks above another open MemorySurfaceDrawer. */
+		nested?: boolean;
 		onClose: () => void;
 		onAssigned: (payload: AssignAgentResponse) => void;
 	};
 
-	let { open = $bindable(false), item, onClose, onAssigned }: Props = $props();
+	let { open = $bindable(false), item, nested = false, onClose, onAssigned }: Props = $props();
 
 	let agents = $state<ConnectedAgentListItem[]>([]);
 	let loading = $state(false);
@@ -79,25 +83,37 @@
 		}
 	}
 
-	function onDialogOpenChange(next: boolean) {
+	function onDrawerOpenChange(next: boolean) {
 		open = next;
 		if (!next) onClose();
 	}
 </script>
 
-<Dialog.Root {open} onOpenChange={onDialogOpenChange}>
-	<Dialog.Content class="max-w-sm rounded-lg">
-		<Dialog.Header>
-			<Dialog.Title class="flex items-center gap-2 text-base">
-				<Bot class="size-4" strokeWidth={1.75} />
-				{m.graph_timeline_assign_agent()}
-			</Dialog.Title>
-			{#if item}
-				<Dialog.Description class="line-clamp-2 text-xs">{item.semanticSummary}</Dialog.Description>
-			{/if}
-		</Dialog.Header>
+<MemorySurfaceDrawer bind:open {nested} narrow onOpenChange={onDrawerOpenChange}>
+	<div class="flex min-h-0 flex-1 flex-col overflow-hidden" data-vaul-no-drag>
+		<Drawer.Header class="shrink-0 space-y-1 border-b border-border px-4 pb-3 pt-4 text-left">
+			<div class="flex items-start justify-between gap-3">
+				<div class="min-w-0 flex-1">
+					<Drawer.Title class="flex items-center gap-2 text-base font-semibold">
+						<Bot class="text-muted-foreground size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+						{m.graph_timeline_assign_agent()}
+					</Drawer.Title>
+					{#if item}
+						<Drawer.Description class="text-muted-foreground line-clamp-2 text-xs">
+							{item.semanticSummary}
+						</Drawer.Description>
+					{/if}
+				</div>
+				<Drawer.Close
+					class="text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1.5 transition-colors"
+					aria-label={m.graph_close()}
+				>
+					<XIcon class="size-4" aria-hidden="true" />
+				</Drawer.Close>
+			</div>
+		</Drawer.Header>
 
-		<div class="min-h-[8rem]">
+		<div class="min-h-32 flex-1 overflow-y-auto px-4 py-3">
 			{#if loading}
 				<div class="flex items-center justify-center gap-2 py-8">
 					<LoaderCircleIcon class="size-4 animate-spin text-muted-foreground" />
@@ -129,10 +145,10 @@
 			{/if}
 		</div>
 
-		<Dialog.Footer>
-			<Button type="button" variant="outline" class="w-full text-xs" onclick={() => onDialogOpenChange(false)}>
+		<div class="border-border shrink-0 border-t px-4 py-3 pb-8">
+			<Button type="button" variant="outline" class="h-9 w-full text-xs" onclick={() => onDrawerOpenChange(false)}>
 				{m.graph_dialog_cancel()}
 			</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+		</div>
+	</div>
+</MemorySurfaceDrawer>

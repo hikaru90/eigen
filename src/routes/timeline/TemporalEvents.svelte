@@ -17,6 +17,7 @@
 		filterSnoozedItems,
 		isTaskItemId,
 		isTaskListItem,
+		findTemporalListItemByRef,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
 		thoughtIdFromTaskItemId,
@@ -371,11 +372,12 @@
 
 	function goToTaskFromProjects(itemId: string) {
 		if (phase.kind !== 'ready') return;
-		const item =
-			todayTodoSourceItems.find((i) => i.id === itemId) ??
-			doneItems.find((i) => i.id === itemId) ??
-			overdueItems.find((i) => i.id === itemId) ??
-			phase.items.find((i) => i.id === itemId);
+		const pools = [todayTodoSourceItems, doneItems, overdueItems, phase.items];
+		let item: TemporalEventListItem | null = null;
+		for (const pool of pools) {
+			item = findTemporalListItemByRef(pool, itemId);
+			if (item) break;
+		}
 		if (!item) return;
 		lastActionSummary = null;
 		setSelection(item);
@@ -618,21 +620,7 @@
 	 * If project info is provided, updates local state directly.
 	 * Otherwise, the projects view manages its own refresh.
 	 */
-	function onProjectTaskUpdated(
-		thoughtId?: string,
-		projectEntityId?: string,
-		projectLabel?: string
-	) {
-		if (!thoughtId || !projectEntityId || !projectLabel) return;
-		if (phase.kind !== 'ready') return;
-		phase = {
-			kind: 'ready',
-			items: phase.items.map((item) =>
-				item.thoughtId === thoughtId ? { ...item, projectEntityId, projectLabel } : item
-			),
-			nextCursor: phase.nextCursor
-		};
-	}
+
 
 	function setNowSegment(segment: NowSegment) {
 		nowSegment = segment;
@@ -670,14 +658,14 @@
 	}
 
 	function onProjectAssigned(payload: AssignProjectResponse & { thoughtId: string }) {
-		if (payload.isGtdProject) {
-			applyProjectLabelLocally(payload.thoughtId, payload.projectLabel, payload.projectEntityId);
-		}
+		applyProjectLabelLocally(payload.thoughtId, payload.projectLabel, payload.projectEntityId);
 		lastActionSummary = payload.eligible
 			? m.graph_timeline_assign_project_success({ project: payload.projectLabel })
 			: m.graph_timeline_assign_project_linked_hub({ name: payload.projectLabel });
 		closeProjectAssign();
 		bumpStats();
+		// Reload from server to ensure derived values and child components reflect the change
+		void loadEvents(false, { silent: true });
 	}
 
 	function openAgentAssign(item: TemporalEventListItem) {
@@ -696,7 +684,7 @@
 	}
 </script>
 
-<div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 pb-28 md:pt-24">
+<div class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 md:pt-24">
 	<TemporalTimelineHeader
 		{projectsMode}
 		nowSegment={nowSegment}
@@ -803,8 +791,6 @@
 			{#if projectsMode}
 				<TemporalEventsProjectsView
 					onGoToTask={goToTaskFromProjects}
-					allTasks={todayTodoSourceItems}
-					onTaskUpdated={onProjectTaskUpdated}
 					{orderBy}
 					{sortDirection}
 				/>
@@ -826,12 +812,14 @@
 					onGoToOverdue={goToOverdue}
 				/>
 				{#if nowSegment === 'todo'}
-					<TemporalTimelineNudge onAccept={onReschedule} />
+					<div class="shrink-0" class:pb-28={projectsMode || !phase.nextCursor}>
+						<TemporalTimelineNudge onAccept={onReschedule} />
+					</div>
 				{/if}
 			{/if}
 
 			{#if !projectsMode && phase.nextCursor}
-				<div class="border-border shrink-0 border-t px-3 py-2 text-center">
+				<div class="border-border shrink-0 border-t px-3 py-2 pb-28 text-center">
 					<Button type="button" variant="outline" size="sm" class="h-8 text-xs" onclick={() => loadEvents(true)}>
 						{m.graph_timeline_load_more()}
 					</Button>
@@ -856,7 +844,10 @@
 		{onQuickAction}
 		{onInstruction}
 		{onDelete}
-		showAssignAgent={selectedItem ? isTaskListItem(selectedItem) : false}
+		showAssignAgent={selectedItem
+			? !isTemporalEventCompleted(selectedItem) &&
+				(isTaskListItem(selectedItem) || selectedItem.projectEntityId !== null)
+			: false}
 		onAssignAgent={selectedItem ? () => openAgentAssign(selectedItem) : undefined}
 		onClose={deselectItem}
 	/>
@@ -871,6 +862,7 @@
 	<TimelineAgentAssignDialog
 		bind:open={assignAgentOpen}
 		item={assignAgentItem}
+		nested={selectedItem !== null}
 		onClose={closeAgentAssign}
 		onAssigned={onAgentAssigned}
 	/>

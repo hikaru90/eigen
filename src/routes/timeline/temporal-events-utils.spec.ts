@@ -20,6 +20,10 @@ import {
 	groupByKind,
 	groupByMatrixQuadrant,
 	groupByProject,
+	findTemporalListItemByRef,
+	isTaskListItem,
+	agentsAssignableToProject,
+	projectHasAssignableAgent,
 	localViewDayKey,
 	overdueDebtMinutes,
 	projectsLayoutOptions,
@@ -47,7 +51,7 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		graphSyncError: null,
 		thoughtId: 't1',
 		thoughtText: 'thought',
-		thoughtCategory: 'task',
+		thoughtCategory: 'fact',
 		thoughtStatus: 'open',
 		lifecycleStatus: 'open',
 		snoozedUntil: null,
@@ -68,6 +72,87 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
 		...overrides
 	};
 }
+
+describe('isTaskListItem', () => {
+	it('recognizes task-only rows by itemType and id prefix', () => {
+		expect(isTaskListItem(item({ id: 'task:abc', itemType: 'task' }))).toBe(true);
+		expect(isTaskListItem(item({ id: 'open-loop:abc', itemType: 'open_loop' as 'task' }))).toBe(
+			true
+		);
+	});
+
+	it('recognizes scheduled task thoughts rendered as temporal events', () => {
+		expect(
+			isTaskListItem(
+				item({
+					id: 'event-uuid',
+					itemType: 'event',
+					thoughtCategory: 'task',
+					kind: 'deadline'
+				})
+			)
+		).toBe(true);
+	});
+
+	it('recognizes legacy open_loop memory type rows', () => {
+		expect(
+			isTaskListItem(
+				item({
+					id: 'event-uuid',
+					itemType: 'event',
+					thoughtCategory: 'fact',
+					memoryType: 'open_loop',
+					kind: 'reminder'
+				})
+			)
+		).toBe(true);
+	});
+
+	it('does not treat non-task temporal events as tasks', () => {
+		expect(
+			isTaskListItem(
+				item({
+					id: 'event-uuid',
+					itemType: 'event',
+					thoughtCategory: 'fact',
+					kind: 'appointment'
+				})
+			)
+		).toBe(false);
+	});
+});
+
+describe('findTemporalListItemByRef', () => {
+	it('finds rows by event id or task:thoughtId ref', () => {
+		const rows = [
+			item({ id: 'event-1', thoughtId: 'thought-1' }),
+			item({ id: 'task:thought-2', itemType: 'task', thoughtId: 'thought-2' })
+		];
+		expect(findTemporalListItemByRef(rows, 'event-1')?.id).toBe('event-1');
+		expect(findTemporalListItemByRef(rows, 'task:thought-1')?.id).toBe('event-1');
+		expect(findTemporalListItemByRef(rows, 'task:thought-2')?.id).toBe('task:thought-2');
+	});
+});
+
+describe('agentsAssignableToProject', () => {
+	const agents = [
+		{ id: 'global', enabled: true },
+		{ id: 'bound', enabled: true },
+		{ id: 'other', enabled: true }
+	];
+
+	it('includes global agents and project-bound agents only', () => {
+		const bindings = {
+			global: [],
+			bound: [{ projectEntityId: 'proj-a' }],
+			other: [{ projectEntityId: 'proj-b' }]
+		};
+		const assignable = agentsAssignableToProject(agents, bindings, 'proj-a').map((a) => a.id);
+		expect(assignable).toEqual(['global', 'bound']);
+		expect(projectHasAssignableAgent(agents, bindings, 'proj-a')).toBe(true);
+		expect(projectHasAssignableAgent(agents, bindings, 'proj-z')).toBe(true);
+	});
+});
 
 describe('filterItemsByStatus', () => {
 	it('hides completed events when filter is open', () => {

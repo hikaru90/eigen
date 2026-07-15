@@ -29,9 +29,9 @@
 {#if compact}
 	<button
 		type="button"
-		class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-50 {completed
-			? 'border-[#111] bg-[#111] text-white dark:border-foreground dark:bg-foreground dark:text-background'
-			: 'border-[#111]/70 bg-transparent text-transparent hover:border-[#111] hover:bg-white/40 dark:border-foreground/70 dark:hover:border-foreground dark:hover:bg-white/10'}"
+		class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-none border border-black bg-white transition-colors shadow-[3px_3px_0px_0px_#000] disabled:opacity-50 dark:border-border dark:bg-card dark:shadow-none {completed
+			? 'text-black dark:text-foreground'
+			: 'text-transparent hover:bg-black/5 dark:hover:bg-white/10'}"
 		title={actionLabel}
 		aria-label={actionLabel}
 		disabled={busy}

@@ -8,8 +8,8 @@
 		isTaskListItem,
 		isTemporalEventCompleted
 	} from './temporal-events-utils';
-	import { bucketOverdueElapsed, overdueElapsedMs } from '$lib/graph/timeline-overdue';
 	import { graphEnergyLevelLabel } from '$lib/graph/graph-i18n';
+	import { hapticPress } from '$lib/haptics';
 	import { m } from '$lib/paraglide/messages.js';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
@@ -39,17 +39,6 @@
 
 	const completed = $derived(isTemporalEventCompleted(item));
 
-	const overdueLabel = $derived.by(() => {
-		if (!showOverdueDuration) return null;
-		const elapsed = overdueElapsedMs(item);
-		if (elapsed == null) return null;
-		const bucket = bucketOverdueElapsed(elapsed);
-		if (bucket.unit === 'minutes') return m.graph_timeline_overdue_since_min({ minutes: bucket.value });
-		if (bucket.unit === 'hours') return m.graph_timeline_overdue_since_hours({ hours: bucket.value });
-		if (bucket.value === 1) return m.graph_timeline_overdue_since_one_day();
-		return m.graph_timeline_overdue_since_days({ days: bucket.value });
-	});
-
 	const LONG_PRESS_MS = 500;
 	const MOVE_THRESHOLD_PX = 12;
 
@@ -74,7 +63,7 @@
 			longPressTriggered = true;
 			onLongPress?.(item);
 			if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-				navigator.vibrate(12);
+				hapticPress(12);
 			}
 		}, LONG_PRESS_MS);
 	}
@@ -101,7 +90,7 @@
 <li
 	role="option"
 	aria-selected={selectedItemId === item.id}
-	class="border-border flex w-full items-start gap-2 border-b py-2 pr-3.5 pl-5 last:border-b-0 transition-colors {selectedItemId ===
+	class="border-border flex w-full items-start gap-4 border-b py-2 pr-5 pl-5 last:border-b-0 transition-colors {selectedItemId ===
 	item.id
 		? 'bg-muted/50'
 		: 'hover:bg-muted/30'}"
@@ -113,39 +102,28 @@
 >
 	<TemporalEventStatusButton {item} {updatingEventId} compact onQuickAction={onQuickAction} />
 	<button type="button" class="flex min-w-0 flex-1 flex-col gap-1 text-left" onclick={onClickSelect}>
-		<span
-			class="text-foreground line-clamp-2 text-sm leading-snug {completedEventSummaryClass(completed)}"
-		>
-			{item.semanticSummary}
-		</span>
-
-		{#if item.projectLabel}
-			<span class="text-muted-foreground text-[10px] leading-tight">
-				{item.projectLabel}
+		<div class="flex w-full min-w-0 items-start justify-between gap-2">
+			<span
+				class="text-foreground min-w-0 flex-1 text-sm leading-snug {completedEventSummaryClass(completed)}"
+			>
+				{item.semanticSummary}
 			</span>
-		{/if}
-
-		<div class="flex flex-col gap-0.5">
-			{#if showWhen && item.startAt}
-				<div class="flex items-baseline gap-3 text-[10px] leading-tight">
-					<span class="text-muted-foreground/70 shrink-0">{m.graph_temporal_when()}</span>
-					<span class="text-muted-foreground font-mono">{formatWhen(item, timeZone)}</span>
-				</div>
-			{/if}
-			<div class="flex items-baseline gap-3 text-[10px] leading-tight">
-				<span class="text-muted-foreground/70 shrink-0">Created</span>
-				<span class="text-muted-foreground font-mono">{formatCreatedDate(item)}</span>
-			</div>
-			{#if overdueLabel}
-				<div class="flex items-baseline gap-3 text-[10px] leading-tight">
-					<span class="text-destructive/80 shrink-0">{m.graph_timeline_pill_overdue()}</span>
-					<span class="text-destructive font-mono">{overdueLabel}</span>
-				</div>
+			{#if item.projectLabel}
+				<span class="text-black shrink-0 rounded-full border border-white px-2 py-0.5 text-[10px] leading-tight dark:text-foreground">
+					{item.projectLabel}
+				</span>
 			{/if}
 		</div>
 
+		<div class="flex flex-col gap-0.5">
+			{#if showWhen && item.startAt}
+				<span class="text-foreground/60 font-mono text-[10px] leading-tight">{m.graph_temporal_when()} {formatWhen(item, timeZone)}</span>
+			{/if}
+			<span class="text-muted-foreground font-mono text-[10px] leading-tight">Created {formatCreatedDate(item)}</span>
+		</div>
+
 		{#if item.durationMinutes || item.energyLevel || isTaskListItem(item)}
-			<div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+			<div class="flex flex-wrap items-center gap-1.5">
 				{#if item.durationMinutes}
 					<span class="text-muted-foreground font-mono text-[10px]">
 						{m.graph_timeline_duration_min({ minutes: item.durationMinutes })}

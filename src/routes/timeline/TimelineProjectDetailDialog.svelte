@@ -6,9 +6,10 @@
 	import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages.js';
-	import { isTaskListItem } from './temporal-events-utils';
+	import { isTemporalEventCompleted, completedEventSummaryClass, formatWhen, formatCreatedDate } from './temporal-events-utils';
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import type { ProjectListItem } from '$lib/server/memory/project-list';
+	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
 	type Props = {
 		open: boolean;
@@ -39,7 +40,7 @@
 	}: Props = $props();
 
 	const ghostPillClass =
-		'h-auto shrink-0 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground';
+		'h-auto shrink-0 rounded-full border border-white px-2 py-0.5 text-xs text-black hover:text-black/70 dark:text-foreground dark:hover:text-foreground/70';
 
 	function closeDrawer() {
 		open = false;
@@ -97,22 +98,36 @@
 			</Drawer.Header>
 
 			<div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 pb-10">
-				{#if nextAction}
-					<div class="flex items-start gap-2 rounded-lg border border-border px-3 py-2">
+				{#if nextAction && nextActionItem}
+					{@const nextCompleted = isTemporalEventCompleted(nextActionItem)}
+					<div class="border-border flex items-start gap-4 border-b py-2">
+						<TemporalEventStatusButton
+							item={nextActionItem}
+							compact
+							onQuickAction={() => {}}
+						/>
 						<button
 							type="button"
-							class="hover:bg-muted/40 min-w-0 flex-1 rounded text-left transition-colors"
+							class="flex min-w-0 flex-1 flex-col gap-1 text-left"
 							onclick={() => {
 								onGoToTask(nextAction.itemId);
 								closeDrawer();
 							}}
 						>
-							<p class="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+							<span class="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
 								{m.graph_timeline_project_next_action()}
-							</p>
-							<p class="text-foreground mt-0.5 text-sm">{nextAction.summary}</p>
+							</span>
+							<span class="text-foreground text-sm leading-snug {completedEventSummaryClass(nextCompleted)}">
+								{nextAction.summary}
+							</span>
+							<div class="flex flex-col gap-0.5">
+								{#if nextActionItem.startAt}
+									<span class="text-foreground/60 font-mono text-[10px] leading-tight">{m.graph_temporal_when()} {formatWhen(nextActionItem)}</span>
+								{/if}
+								<span class="text-muted-foreground font-mono text-[10px] leading-tight">Created {formatCreatedDate(nextActionItem)}</span>
+							</div>
 						</button>
-						{#if nextActionItem && isTaskListItem(nextActionItem)}
+						{#if !nextCompleted}
 							<Button
 								type="button"
 								variant="ghost"
@@ -123,28 +138,42 @@
 							</Button>
 						{/if}
 					</div>
-				{:else}
+				{:else if !nextAction}
 					<p class="text-muted-foreground text-xs">{m.graph_timeline_project_no_next_action()}</p>
 				{/if}
 
 				{#if tasks.length > 0}
-					<div class="space-y-1">
-						<p class="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+					<div class="flex flex-col">
+						<p class="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">
 							{m.graph_timeline_project_open_loops({ count: tasks.length })}
 						</p>
 						{#each tasks as task (task.id)}
-							<div class="flex items-center gap-2 rounded border border-border/50 px-2 py-1.5">
+							{@const taskCompleted = isTemporalEventCompleted(task)}
+							<div class="border-border flex items-start gap-4 border-b py-2 last:border-b-0">
+								<TemporalEventStatusButton
+									item={task}
+									compact
+									onQuickAction={() => {}}
+								/>
 								<button
 									type="button"
-									class="hover:bg-muted/40 min-w-0 flex-1 rounded text-left transition-colors"
+									class="flex min-w-0 flex-1 flex-col gap-1 text-left"
 									onclick={() => {
 										onGoToTask(task.id);
 										closeDrawer();
 									}}
 								>
-									<p class="text-foreground truncate text-xs">{task.semanticSummary}</p>
+									<span class="text-foreground text-sm leading-snug {completedEventSummaryClass(taskCompleted)}">
+										{task.semanticSummary}
+									</span>
+									<div class="flex flex-col gap-0.5">
+										{#if task.startAt}
+											<span class="text-foreground/60 font-mono text-[10px] leading-tight">{m.graph_temporal_when()} {formatWhen(task)}</span>
+										{/if}
+										<span class="text-muted-foreground font-mono text-[10px] leading-tight">Created {formatCreatedDate(task)}</span>
+									</div>
 								</button>
-								{#if isTaskListItem(task)}
+								{#if !taskCompleted}
 									<Button
 										type="button"
 										variant="ghost"

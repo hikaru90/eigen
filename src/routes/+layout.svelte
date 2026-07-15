@@ -191,20 +191,20 @@
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
-    <div class="relative flex flex-row items-center justify-between px-4 pb-safe gap-2">
+    <div class="relative flex flex-row items-center justify-between gap-2 px-4 pb-safe">
       <div
         class="pointer-events-none absolute inset-x-0 -top-24 bottom-0 -z-10 bg-linear-to-t from-background to-transparent"
       ></div>
       {#each bottomNavItems as item}
         {@const isActive = isNavItemActive(item.href)}
-        <div class={cn("relative", item.variant === "primary" ? "grow" : "")}>
+        <div class={cn("relative", item.variant === "primary" ? "min-h-10 flex-1" : "shrink-0")}>
           <a
             href={resolve(item.href as Pathname)}
             class={cn(
-              "flex items-center justify-center py-4",
+              "flex items-center justify-center",
               item.variant === "primary"
-                ? "rounded-full bg-primary text-primary-foreground shadow-md grow"
-                : "rounded-full size-9 bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
+                ? "w-full rounded-full bg-primary py-4 text-primary-foreground shadow-md"
+                : "size-10 rounded-full bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
             )}
             aria-label={item.label}
             aria-current={isActive ? "page" : undefined}

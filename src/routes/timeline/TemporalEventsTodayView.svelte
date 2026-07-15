@@ -40,7 +40,12 @@
 	}: Props = $props();
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto pb-4" role="listbox" aria-label={m.graph_timeline_tasks_aria()}>
+<div class="relative min-h-0 flex-1">
+	<div
+		class="absolute inset-0 overflow-y-auto pb-28 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+		role="listbox"
+		aria-label={m.graph_timeline_tasks_aria()}
+	>
 	{#if segment === 'todo'}
 		{#if items.length === 0}
 			<p class="text-muted-foreground px-4 py-8 text-center text-sm">{m.graph_timeline_focus_empty()}</p>
@@ -103,4 +108,5 @@
 			{/each}
 		</ul>
 	{/if}
+	</div>
 </div>

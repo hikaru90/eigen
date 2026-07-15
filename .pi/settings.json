@@ -1,3 +1,9 @@
 {
-  "extensions": [".pi/extensions/eigen-mcp.ts"]
+  "extensions": [".pi/extensions/eigen-mcp.ts"],
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
 }

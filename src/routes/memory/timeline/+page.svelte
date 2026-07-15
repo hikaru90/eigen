@@ -8,7 +8,7 @@
 	const initialEventId = $derived(page.url.searchParams.get('event'));
 </script>
 
-<div class="-mb-28 h-dvh overflow-hidden overscroll-none">
+<div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none">
 	<TemporalEvents
 		initialEventId={initialEventId}
 		prefetchedEvents={data.prefetchedTemporalEvents}

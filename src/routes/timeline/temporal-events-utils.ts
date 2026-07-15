@@ -20,6 +20,8 @@ export const TASK_ITEM_PREFIX = 'task:';
 export const LEGACY_OPEN_LOOP_ITEM_PREFIX = 'open-loop:';
 
 export function isTaskListItem(item: TemporalEventListItem): boolean {
+	if (item.thoughtCategory === 'task') return true;
+	if (item.memoryType === 'open_loop') return true;
 	const itemType = item.itemType as string;
 	return (
 		itemType === 'task' ||
@@ -27,6 +29,42 @@ export function isTaskListItem(item: TemporalEventListItem): boolean {
 		item.id.startsWith(TASK_ITEM_PREFIX) ||
 		item.id.startsWith(LEGACY_OPEN_LOOP_ITEM_PREFIX)
 	);
+}
+
+/** Resolve a timeline row by list id or legacy task:/open-loop: thought ref. */
+export function findTemporalListItemByRef(
+	items: TemporalEventListItem[],
+	itemId: string
+): TemporalEventListItem | null {
+	const direct = items.find((t) => t.id === itemId);
+	if (direct) return direct;
+	const thoughtId = thoughtIdFromTaskItemId(itemId);
+	if (thoughtId) return items.find((t) => t.thoughtId === thoughtId) ?? null;
+	return items.find((t) => t.thoughtId === itemId) ?? null;
+}
+
+export type AgentProjectBindingRef = { projectEntityId: string };
+
+/** Agents that can receive assignments for a GTD project (global agents or project-bound). */
+export function agentsAssignableToProject(
+	agents: Array<{ id: string; enabled: boolean }>,
+	bindingsByAgent: Record<string, AgentProjectBindingRef[]>,
+	projectEntityId: string
+): Array<{ id: string; enabled: boolean }> {
+	return agents.filter((agent) => {
+		if (!agent.enabled) return false;
+		const bindings = bindingsByAgent[agent.id] ?? [];
+		if (bindings.length === 0) return true;
+		return bindings.some((b) => b.projectEntityId === projectEntityId);
+	});
+}
+
+export function projectHasAssignableAgent(
+	agents: Array<{ id: string; enabled: boolean }>,
+	bindingsByAgent: Record<string, AgentProjectBindingRef[]>,
+	projectEntityId: string
+): boolean {
+	return agentsAssignableToProject(agents, bindingsByAgent, projectEntityId).length > 0;
 }
 
 export function isTaskItemId(itemId: string): boolean {
