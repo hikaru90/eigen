@@ -17,10 +17,13 @@ vi.mock('$lib/server/job-queue/enqueue', () => ({
 	hasActiveJobForUser: hasActiveJobForUserMock
 }));
 
+vi.mock('$lib/server/job-queue/recover-overnight', () => ({
+	recoverOrphanedOvernightState: vi.fn(async () => undefined)
+}));
+
 vi.mock('$lib/server/consolidation/heartbeat-run-ledger', () => ({
 	loadActiveHeartbeatRun: vi.fn(async () => null),
 	loadLastUserHeartbeatRun: vi.fn(async () => null),
-	recoverOrphanedHeartbeatRun: vi.fn(async () => undefined),
 	heartbeatProgressPct: vi.fn(() => 0),
 	isHeartbeatRunActive: vi.fn(() => false)
 }));
@@ -48,6 +51,7 @@ describe('listScheduledTasks', () => {
 		expect(tasks[0].title).toBe('Overnight memory heartbeat');
 		expect(tasks[0].active).toBe(true);
 		expect(tasks[0].configured).toBe(true);
+		expect(tasks[0].queueActive).toBe(false);
 		expect(tasks[0].scheduleLabel).toContain('2:00');
 	});
 });

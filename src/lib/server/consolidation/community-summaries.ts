@@ -1,48 +1,61 @@
 /**
- * Community summary generation job.
+ * Community summary generation — retrieval-focused L1 routing reports.
  *
- * GraphRAG-style bottom-up reports: each community gets a thematic title and
- * summary (not an entity keyword list). Higher levels incorporate child
- * community summaries when available.
- *
- * After generating each summary, embeds the title + short routing text (1536d)
- * for HNSW semantic search. Community summaries are the primary index for
- * global sensemaking queries.
+ * Only domain-level (L1) communities with ≥2 members and ≥1 linked thought
+ * receive LLM summaries. Multiple communities are summarized per structured
+ * JSON batch call; embeddings are batched via createThoughtEmbeddings.
  */
 
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	graphCommunity,
 	communitySummary,
 	communityMember,
 	canonicalEntity,
-	thought
+	thought,
+	thoughtEntity
 } from '$lib/server/db/schema';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
-import { createThoughtEmbedding } from '$lib/server/llm/embedding';
+import { createThoughtEmbeddings } from '$lib/server/llm/embedding';
 import { loadCommunityThoughtIds } from './community-bundles';
-import {
-	COMMUNITY_HIERARCHY_DEPTH,
-	COMMUNITY_LEAF_LEVEL,
-	COMMUNITY_MID_LEVEL
-} from './community-levels';
+import { COMMUNITY_MID_LEVEL } from './community-levels';
 
-const SUMMARY_BATCH_SIZE = 20;
+/** Communities per structured LLM chat call. */
+export const SUMMARY_LLM_BATCH_SIZE = 8;
+
+/** Max routing summaries generated per heartbeat run (resumable). */
+export const DEFAULT_SUMMARY_REPORT_BUDGET = 50;
 
 export type CommunitySummaryResult = {
+	/** Eligible L1 routing communities. */
 	total: number;
 	summarized: number;
 	generated: number;
 	pending: number;
+	/** Work remaining because the per-run budget was exhausted. */
+	deferred: number;
+	/** True when a batch contract/provider error occurred. */
+	failed: boolean;
 };
 
-export type CommunitySummaryStats = Pick<CommunitySummaryResult, 'total' | 'summarized' | 'pending'>;
+export type CommunitySummaryStats = Pick<
+	CommunitySummaryResult,
+	'total' | 'summarized' | 'pending' | 'deferred'
+>;
 
 export type CommunitySummaryOptions = {
 	batchSize?: number;
+	reportBudget?: number;
 	shouldCancel?: () => boolean | Promise<boolean>;
 };
+
+export class CommunitySummaryBatchError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'CommunitySummaryBatchError';
+	}
+}
 
 function toPgVectorLiteral(values: number[]): string {
 	return `[${values.join(',')}]`;
@@ -68,66 +81,103 @@ async function communityStillExists(userId: string, communityId: string): Promis
 	return Boolean(row);
 }
 
-export function formatCommunitySummaryDetail(stats: CommunitySummaryStats): string {
-	if (stats.total === 0) return 'no communities';
-	const base = `${stats.summarized} of ${stats.total} summarized`;
-	if (stats.pending > 0) return `${base}, ${stats.pending} pending`;
-	return base;
+/** Remove L2/L0 summaries — retrieval uses L1 routing reports only. */
+export async function removeNonRoutingCommunitySummaries(userId: string): Promise<number> {
+	const db = getDb();
+	const deleted = await db
+		.delete(communitySummary)
+		.where(
+			and(
+				eq(communitySummary.userId, userId),
+				sql`${communitySummary.level} <> ${COMMUNITY_MID_LEVEL}`
+			)
+		)
+		.returning({ id: communitySummary.id });
+	return deleted.length;
+}
+
+export function formatCommunitySummaryDetail(stats: CommunitySummaryStats & { generated?: number }): string {
+	if (stats.total === 0) return 'no eligible L1 communities';
+	const base = `${stats.summarized} of ${stats.total} L1 routing summaries`;
+	const parts: string[] = [base];
+	if (typeof stats.generated === 'number' && stats.generated > 0) {
+		parts.push(`${stats.generated} new`);
+	}
+	if (stats.pending > 0) parts.push(`${stats.pending} pending`);
+	if (stats.deferred > 0) parts.push(`${stats.deferred} deferred`);
+	return parts.join(', ');
+}
+
+/** Eligible L1 community with ≥2 members and ≥1 thought linked via members. */
+export async function countEligibleRoutingCommunities(userId: string): Promise<number> {
+	const db = getDb();
+	const [row] = await db
+		.select({ n: sql<number>`count(distinct ${graphCommunity.id})::int` })
+		.from(graphCommunity)
+		.innerJoin(communityMember, eq(communityMember.communityId, graphCommunity.id))
+		.innerJoin(
+			thoughtEntity,
+			and(
+				eq(thoughtEntity.entityId, communityMember.canonicalEntityId),
+				eq(thoughtEntity.userId, graphCommunity.userId)
+			)
+		)
+		.where(
+			and(
+				eq(graphCommunity.userId, userId),
+				eq(graphCommunity.level, COMMUNITY_MID_LEVEL),
+				sql`${graphCommunity.memberCount} >= 2`
+			)
+		);
+	return row?.n ?? 0;
 }
 
 export async function getCommunitySummaryStats(userId: string): Promise<CommunitySummaryStats> {
 	const db = getDb();
-	const [totalRow] = await db
-		.select({ n: sql<number>`count(*)::int` })
-		.from(graphCommunity)
-		.where(eq(graphCommunity.userId, userId));
-	const total = totalRow?.n ?? 0;
-	if (total === 0) return { total: 0, pending: 0, summarized: 0 };
+	const total = await countEligibleRoutingCommunities(userId);
+	if (total === 0) return { total: 0, pending: 0, summarized: 0, deferred: 0 };
 
 	const [pendingRow] = await db
-		.select({ n: sql<number>`count(*)::int` })
+		.select({ n: sql<number>`count(distinct ${graphCommunity.id})::int` })
 		.from(graphCommunity)
+		.innerJoin(communityMember, eq(communityMember.communityId, graphCommunity.id))
+		.innerJoin(
+			thoughtEntity,
+			and(
+				eq(thoughtEntity.entityId, communityMember.canonicalEntityId),
+				eq(thoughtEntity.userId, graphCommunity.userId)
+			)
+		)
 		.leftJoin(communitySummary, eq(communitySummary.communityId, graphCommunity.id))
-		.where(and(eq(graphCommunity.userId, userId), sql`${communitySummary.communityId} IS NULL`));
+		.where(
+			and(
+				eq(graphCommunity.userId, userId),
+				eq(graphCommunity.level, COMMUNITY_MID_LEVEL),
+				sql`${graphCommunity.memberCount} >= 2`,
+				sql`(
+					${communitySummary.communityId} IS NULL
+					OR (${graphCommunity.dirtyAt} IS NOT NULL AND ${graphCommunity.dirtyAt} > ${communitySummary.generatedAt})
+				)`
+			)
+		);
+
 	const pending = pendingRow?.n ?? 0;
-	return { total, pending, summarized: total - pending };
+	return { total, pending, summarized: total - pending, deferred: 0 };
 }
 
-const SUMMARY_SYSTEM = [
-	'You write GraphRAG-style community reports for a personal knowledge graph.',
-	'Each community is a cluster of related entities and memories discovered by graph structure.',
-	'Respond with JSON only: {"title":"...","summary":"..."}',
+const BATCH_SUMMARY_SYSTEM = [
+	'You write GraphRAG-style domain community reports for a personal knowledge graph.',
+	'Each community is a mid-level cluster of related entities and memories.',
+	'Respond with JSON only: {"reports":[{"communityId":"...","title":"...","summary":"..."}, ...]}',
+	'- Include exactly one report per communityId requested — no extras, no omissions.',
 	'- title: 3–8 word thematic label. Never a comma-separated list of entity names.',
 	'- summary: 2–3 concise sentences describing what unifies this cluster thematically.',
-	'Do NOT assert biographical facts about the user (primary workplace, job title, personality, identity).',
-	'Describe thematic cohesion of entities and memories — do not promote a place or object entity into a life-fact about the user.',
+	'Do NOT assert biographical facts about the user.',
 	'Write in the same language as the thought samples when present; otherwise English.'
 ].join(' ');
 
-/** Exported for unit tests — community summary LLM system prompt. */
-export const COMMUNITY_SUMMARY_SYSTEM_PROMPT = SUMMARY_SYSTEM;
-
-function summaryTaskForLevel(level: number): string {
-	if (level === COMMUNITY_LEAF_LEVEL) {
-		return [
-			'Leaf cluster (finest granularity).',
-			'Describe the concrete topic this tight entity group represents.',
-			'Ground the summary in the thought samples; mention key themes, not a name dump.'
-		].join(' ');
-	}
-	if (level === COMMUNITY_MID_LEVEL) {
-		return [
-			'Domain cluster (mid-level).',
-			'Synthesize the child community reports below into one domain-level theme.',
-			'Highlight recurring relationships and topics across the sub-clusters.'
-		].join(' ');
-	}
-	return [
-		'Root cluster (broadest).',
-		'Synthesize the child domain reports into overarching personal themes.',
-		'Write the summary in second person (you/your) as interpretive sensemaking.'
-	].join(' ');
-}
+/** Exported for unit tests — batch community summary LLM system prompt. */
+export const COMMUNITY_SUMMARY_SYSTEM_PROMPT = BATCH_SUMMARY_SYSTEM;
 
 type CommunityContext = {
 	communityId: string;
@@ -136,40 +186,9 @@ type CommunityContext = {
 	entityTypes: string[];
 	relatedThoughts: string[];
 	thoughtCount: number;
-	childSummaries: string[];
 };
 
-async function loadChildCommunitySummaries(
-	userId: string,
-	communityId: string,
-	limit = 8
-): Promise<string[]> {
-	const db = getDb();
-	const rows = await db
-		.select({
-			title: communitySummary.summaryShort,
-			summary: communitySummary.summaryText
-		})
-		.from(graphCommunity)
-		.innerJoin(communitySummary, eq(communitySummary.communityId, graphCommunity.id))
-		.where(
-			and(
-				eq(graphCommunity.userId, userId),
-				eq(graphCommunity.parentCommunityId, communityId),
-				isNotNull(communitySummary.summaryText)
-			)
-		)
-		.limit(limit);
-
-	return rows
-		.map((row) => {
-			const title = row.title?.trim();
-			const body = row.summary.trim();
-			if (title && body) return `${title}: ${body}`;
-			return title || body;
-		})
-		.filter((text) => text.length > 0);
-}
+export type { CommunityContext };
 
 async function loadCommunityContext(
 	userId: string,
@@ -195,13 +214,10 @@ async function loadCommunityContext(
 		.where(eq(graphCommunity.id, communityId))
 		.limit(1);
 
-	const level = communityRow?.level ?? COMMUNITY_LEAF_LEVEL;
-
-	let relatedThoughts: string[] = [];
-	let thoughtCount = 0;
+	const level = communityRow?.level ?? COMMUNITY_MID_LEVEL;
 
 	const thoughtIds = await loadCommunityThoughtIds(userId, communityId, 20);
-	thoughtCount = thoughtIds.length;
+	let relatedThoughts: string[] = [];
 
 	if (thoughtIds.length > 0) {
 		const samples = await db
@@ -212,202 +228,308 @@ async function loadCommunityContext(
 		relatedThoughts = samples.map((t) => t.normalizedText.slice(0, 300));
 	}
 
-	const childSummaries =
-		level < COMMUNITY_LEAF_LEVEL
-			? await loadChildCommunitySummaries(userId, communityId)
-			: [];
-
 	return {
 		communityId,
 		level,
 		entityLabels: members.map((m) => m.label),
 		entityTypes: [...new Set(members.map((m) => m.entityType))],
 		relatedThoughts,
-		thoughtCount,
-		childSummaries
+		thoughtCount: thoughtIds.length
 	};
 }
 
-function buildSummaryPrompt(ctx: CommunityContext): string {
+export function buildCommunityContextBlock(ctx: CommunityContext): string {
 	const entityList = ctx.entityLabels.slice(0, 12).join(', ');
 	const typeList = ctx.entityTypes.join(', ');
-	const thoughtSamples = ctx.relatedThoughts
-		.map((t, i) => `${i + 1}. ${t}`)
-		.join('\n');
-	const childBlock =
-		ctx.childSummaries.length > 0
-			? ['Child community reports:', ...ctx.childSummaries.map((s, i) => `${i + 1}. ${s}`)].join(
-					'\n'
-				)
-			: '';
+	const thoughtSamples = ctx.relatedThoughts.map((t, i) => `${i + 1}. ${t}`).join('\n');
 
 	return [
-		summaryTaskForLevel(ctx.level),
-		'',
+		`communityId: ${ctx.communityId}`,
+		'Domain cluster (L1 routing).',
 		`Entity count: ${ctx.entityLabels.length}`,
-		entityList ? `Sample entities (context only — do not list in title): ${entityList}` : '',
+		entityList ? `Sample entities (context only): ${entityList}` : '',
 		typeList ? `Entity types: ${typeList}` : '',
 		`Thought count: ${ctx.thoughtCount}`,
-		thoughtSamples ? `Thought samples:\n${thoughtSamples}` : '',
-		childBlock
+		thoughtSamples ? `Thought samples:\n${thoughtSamples}` : ''
 	]
 		.filter((line) => line.length > 0)
 		.join('\n');
 }
 
-type ParsedCommunityReport = {
+export function buildBatchSummaryPrompt(contexts: CommunityContext[]): string {
+	const blocks = contexts.map((ctx, i) => [`--- Community ${i + 1} ---`, buildCommunityContextBlock(ctx)].join('\n'));
+	return [
+		`Generate exactly ${contexts.length} reports for these communities:`,
+		'',
+		...blocks
+	].join('\n');
+}
+
+export type ParsedBatchReport = {
+	communityId: string;
 	title: string;
 	summary: string;
 };
 
-function parseCommunityReport(content: string): ParsedCommunityReport | null {
+export function parseBatchCommunityReports(
+	content: string,
+	expectedIds: string[]
+): ParsedBatchReport[] {
 	const cleaned = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+	let parsed: unknown;
 	try {
-		const parsed = JSON.parse(cleaned) as { title?: unknown; summary?: unknown };
-		const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
-		const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
-		if (!title || !summary) return null;
-		return { title: title.slice(0, 120), summary: summary.slice(0, 4000) };
+		parsed = JSON.parse(cleaned);
 	} catch {
-		const trimmed = cleaned.trim();
-		if (!trimmed) return null;
-		const firstSentence = trimmed.split(/[.!?]/)[0]?.trim() ?? trimmed;
-		return {
-			title: firstSentence.slice(0, 80),
-			summary: trimmed.slice(0, 4000)
-		};
-	}
-}
-
-/**
- * Generate and persist summaries for communities that don't have one yet.
- * Processes communities in batches until none are pending, cancel is requested,
- * or a batch makes no progress.
- */
-export async function runCommunitySummaryGeneration(
-	userId: string,
-	options?: CommunitySummaryOptions
-): Promise<CommunitySummaryResult> {
-	const batchSize = options?.batchSize ?? SUMMARY_BATCH_SIZE;
-	let totalGenerated = 0;
-	let last: CommunitySummaryResult = { total: 0, summarized: 0, generated: 0, pending: 0 };
-
-	while (true) {
-		if (options?.shouldCancel && (await options.shouldCancel())) break;
-
-		last = await runCommunitySummaryBatch(userId, batchSize);
-		totalGenerated += last.generated;
-
-		if (last.pending === 0) break;
-		if (last.generated === 0) break;
+		throw new CommunitySummaryBatchError('community summary batch response is not valid JSON');
 	}
 
-	return { ...last, generated: totalGenerated };
+	if (!parsed || typeof parsed !== 'object' || !('reports' in parsed)) {
+		throw new CommunitySummaryBatchError('community summary batch response missing reports array');
+	}
+
+	const reportsRaw = (parsed as { reports?: unknown }).reports;
+	if (!Array.isArray(reportsRaw)) {
+		throw new CommunitySummaryBatchError('community summary batch reports must be an array');
+	}
+
+	const byId = new Map<string, ParsedBatchReport>();
+	for (const item of reportsRaw) {
+		if (!item || typeof item !== 'object') {
+			throw new CommunitySummaryBatchError('community summary batch report item is invalid');
+		}
+		const communityId =
+			typeof (item as { communityId?: unknown }).communityId === 'string'
+				? (item as { communityId: string }).communityId.trim()
+				: '';
+		const title =
+			typeof (item as { title?: unknown }).title === 'string'
+				? (item as { title: string }).title.trim()
+				: '';
+		const summary =
+			typeof (item as { summary?: unknown }).summary === 'string'
+				? (item as { summary: string }).summary.trim()
+				: '';
+		if (!communityId || !title || !summary) {
+			throw new CommunitySummaryBatchError('community summary batch report missing required fields');
+		}
+		if (byId.has(communityId)) {
+			throw new CommunitySummaryBatchError(`duplicate communityId in batch response: ${communityId}`);
+		}
+		byId.set(communityId, {
+			communityId,
+			title: title.slice(0, 120),
+			summary: summary.slice(0, 4000)
+		});
+	}
+
+	const expectedSet = new Set(expectedIds);
+	for (const id of expectedIds) {
+		if (!byId.has(id)) {
+			throw new CommunitySummaryBatchError(`batch response missing report for communityId ${id}`);
+		}
+	}
+
+	for (const id of byId.keys()) {
+		if (!expectedSet.has(id)) {
+			throw new CommunitySummaryBatchError(`batch response contains unexpected communityId ${id}`);
+		}
+	}
+
+	return expectedIds.map((id) => byId.get(id)!);
 }
 
-async function runCommunitySummaryBatch(
+async function listPendingRoutingCommunityIds(
 	userId: string,
-	batchSize: number
-): Promise<CommunitySummaryResult> {
+	limit: number
+): Promise<string[]> {
 	const db = getDb();
+	const rows = await db
+		.select({ id: graphCommunity.id })
+		.from(graphCommunity)
+		.innerJoin(communityMember, eq(communityMember.communityId, graphCommunity.id))
+		.innerJoin(
+			thoughtEntity,
+			and(
+				eq(thoughtEntity.entityId, communityMember.canonicalEntityId),
+				eq(thoughtEntity.userId, graphCommunity.userId)
+			)
+		)
+		.leftJoin(communitySummary, eq(communitySummary.communityId, graphCommunity.id))
+		.where(
+			and(
+				eq(graphCommunity.userId, userId),
+				eq(graphCommunity.level, COMMUNITY_MID_LEVEL),
+				sql`${graphCommunity.memberCount} >= 2`,
+				sql`(
+					${communitySummary.communityId} IS NULL
+					OR (${graphCommunity.dirtyAt} IS NOT NULL AND ${graphCommunity.dirtyAt} > ${communitySummary.generatedAt})
+				)`
+			)
+		)
+		.groupBy(graphCommunity.id, graphCommunity.memberCount, graphCommunity.dirtyAt, communitySummary.communityId)
+		.orderBy(
+			sql`CASE WHEN ${communitySummary.communityId} IS NULL THEN 0 ELSE 1 END`,
+			sql`${graphCommunity.memberCount} DESC`,
+			sql`${graphCommunity.id}`
+		)
+		.limit(limit);
 
-	const stats = await getCommunitySummaryStats(userId);
-	if (stats.total === 0) {
-		return { total: 0, summarized: 0, generated: 0, pending: 0 };
+	return rows.map((r) => r.id);
+}
+
+async function generateSummaryBatch(
+	userId: string,
+	communityIds: string[]
+): Promise<number> {
+	if (communityIds.length === 0) return 0;
+
+	const contexts = await Promise.all(
+		communityIds.map((id) => loadCommunityContext(userId, id))
+	);
+
+	const response = await llmChatCompletion({
+		userId,
+		messages: [
+			{ role: 'system', content: BATCH_SUMMARY_SYSTEM },
+			{ role: 'user', content: buildBatchSummaryPrompt(contexts) }
+		],
+		temperature: 0,
+		maxTokens: 280 * communityIds.length,
+		responseFormat: 'json_object',
+		logContext: 'community_summary_batch'
+	});
+
+	const choices = (response as { choices?: unknown }).choices;
+	if (!Array.isArray(choices) || choices.length === 0) {
+		throw new CommunitySummaryBatchError('community summary batch returned no choices');
+	}
+	const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
+	if (typeof content !== 'string' || !content.trim()) {
+		throw new CommunitySummaryBatchError('community summary batch returned empty content');
 	}
 
-	const communities = await db
-		.select({ id: graphCommunity.id, level: graphCommunity.level, memberCount: graphCommunity.memberCount })
-		.from(graphCommunity)
-		.where(eq(graphCommunity.userId, userId))
-		.orderBy(sql`${graphCommunity.level} DESC`)
-		.limit(batchSize * COMMUNITY_HIERARCHY_DEPTH);
+	const reports = parseBatchCommunityReports(content, communityIds);
+	const embeddingSources = reports.map(
+		(r) => `${r.title.slice(0, 500)}. ${r.summary}`.slice(0, 2000)
+	);
+	const embeddings = await createThoughtEmbeddings(userId, embeddingSources);
 
-	const existingSummaryIds = await db
-		.select({ communityId: communitySummary.communityId })
-		.from(communitySummary)
-		.where(eq(communitySummary.userId, userId));
+	const db = getDb();
+	const ctxById = new Map(contexts.map((c) => [c.communityId, c]));
 
-	const existingSet = new Set(existingSummaryIds.map((s) => s.communityId));
-	const needSummary = communities.filter((c) => !existingSet.has(c.id)).slice(0, batchSize);
+	for (const report of reports) {
+		if (!(await communityStillExists(userId, report.communityId))) {
+			throw new CommunitySummaryBatchError(
+				`community ${report.communityId} no longer exists after batch generation`
+			);
+		}
+	}
 
-	let generated = 0;
-
-	for (const community of needSummary) {
-		try {
-			const ctx = await loadCommunityContext(userId, community.id);
-			const prompt = buildSummaryPrompt(ctx);
-
-			const response = await llmChatCompletion({
-				userId,
-				messages: [
-					{ role: 'system', content: SUMMARY_SYSTEM },
-					{ role: 'user', content: prompt }
-				],
-				temperature: 0,
-				maxTokens: 280,
-				logContext: 'community_summary'
-			});
-
-			const choices = (response as { choices?: unknown }).choices;
-			if (!Array.isArray(choices) || choices.length === 0) continue;
-			const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
-			if (typeof content !== 'string' || !content.trim()) continue;
-
-			const report = parseCommunityReport(content);
-			if (!report) continue;
-
-			const summaryShort = report.title.slice(0, 500);
-			const summaryText = report.summary;
-			const embeddingSource = `${summaryShort}. ${summaryText}`.slice(0, 2000);
-
-			const embedding = await createThoughtEmbedding(userId, embeddingSource);
-
-			if (!(await communityStillExists(userId, community.id))) {
-				console.warn('[consolidation.summary] stale community skipped (graph was rebuilt)', {
-					communityId: community.id
-				});
-				continue;
+	await db.transaction(async (tx) => {
+		for (let i = 0; i < reports.length; i++) {
+			const report = reports[i]!;
+			const ctx = ctxById.get(report.communityId);
+			if (!ctx) {
+				throw new CommunitySummaryBatchError(`missing context for ${report.communityId}`);
 			}
 
-			await db
+			await tx
 				.insert(communitySummary)
 				.values({
 					userId,
-					communityId: community.id,
-					level: community.level,
-					summaryShort,
-					summaryText,
-					summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
+					communityId: report.communityId,
+					level: COMMUNITY_MID_LEVEL,
+					summaryShort: report.title.slice(0, 500),
+					summaryText: report.summary,
+					summaryEmbedding: sql`${toPgVectorLiteral(embeddings[i]!)}::vector`,
 					entityCount: ctx.entityLabels.length,
 					thoughtCount: ctx.thoughtCount
 				})
 				.onConflictDoUpdate({
 					target: communitySummary.communityId,
 					set: {
-						summaryShort,
-						summaryText,
-						summaryEmbedding: sql`${toPgVectorLiteral(embedding)}::vector`,
+						summaryShort: report.title.slice(0, 500),
+						summaryText: report.summary,
+						summaryEmbedding: sql`${toPgVectorLiteral(embeddings[i]!)}::vector`,
 						entityCount: ctx.entityLabels.length,
 						thoughtCount: ctx.thoughtCount,
 						generatedAt: sql`now()`
 					}
 				});
 
-			generated++;
+			await tx
+				.update(graphCommunity)
+				.set({ dirtyAt: null })
+				.where(
+					and(eq(graphCommunity.id, report.communityId), eq(graphCommunity.userId, userId))
+				);
+		}
+	});
+
+	return reports.length;
+}
+
+/**
+ * Generate L1 routing summaries in bounded batches until budget exhausted or work complete.
+ */
+export async function runCommunitySummaryGeneration(
+	userId: string,
+	options?: CommunitySummaryOptions
+): Promise<CommunitySummaryResult> {
+	const batchSize = options?.batchSize ?? SUMMARY_LLM_BATCH_SIZE;
+	const reportBudget = options?.reportBudget ?? DEFAULT_SUMMARY_REPORT_BUDGET;
+
+	await removeNonRoutingCommunitySummaries(userId);
+
+	let generated = 0;
+	let failed = false;
+
+	while (generated < reportBudget) {
+		if (options?.shouldCancel && (await options.shouldCancel())) break;
+
+		const stats = await getCommunitySummaryStats(userId);
+		if (stats.pending === 0) {
+			return { ...stats, generated, deferred: 0, failed: false };
+		}
+
+		const remainingBudget = reportBudget - generated;
+		const take = Math.min(batchSize, remainingBudget, stats.pending);
+		const communityIds = await listPendingRoutingCommunityIds(userId, take);
+		if (communityIds.length === 0) {
+			return { ...(await getCommunitySummaryStats(userId)), generated, deferred: 0, failed: false };
+		}
+
+		try {
+			const batchGenerated = await generateSummaryBatch(userId, communityIds);
+			generated += batchGenerated;
 		} catch (err) {
-			console.error('[consolidation.summary] failed for community', {
-				communityId: community.id,
+			console.error('[consolidation.summary] batch failed', {
+				userId,
+				count: communityIds.length,
 				message: dbErrorMessage(err)
 			});
+			failed = true;
+			break;
 		}
 	}
 
-	const after = await getCommunitySummaryStats(userId);
+	const finalStats = await getCommunitySummaryStats(userId);
+	const deferred = finalStats.pending > 0 && generated >= reportBudget ? finalStats.pending : 0;
+
 	return {
-		total: after.total,
-		summarized: after.summarized,
+		total: finalStats.total,
+		summarized: finalStats.summarized,
 		generated,
-		pending: after.pending
+		pending: finalStats.pending,
+		deferred,
+		failed
 	};
+}
+
+/** @deprecated Use runCommunitySummaryGeneration — kept for incremental import compatibility. */
+export async function runCommunitySummaryBatch(
+	userId: string,
+	batchSize: number
+): Promise<CommunitySummaryResult> {
+	return runCommunitySummaryGeneration(userId, { batchSize, reportBudget: batchSize });
 }

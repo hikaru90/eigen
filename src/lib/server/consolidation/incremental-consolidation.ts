@@ -6,16 +6,13 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
 	communityMember,
-	communitySummary,
 	graphCommunity,
 	thoughtEntity
 } from '$lib/server/db/schema';
 import { buildCommunityBundle } from './community-bundles';
-import { runCommunitySummaryGeneration } from './community-summaries';
+import { COMMUNITY_MID_LEVEL } from './community-levels';
 
-const MEMBERSHIP_CHURN_THRESHOLD = 0.1;
-
-/** Mark communities containing entities linked to this thought as dirty. */
+/** Mark L1 communities containing entities linked to this thought as dirty. */
 export async function markCommunitiesDirtyForThought(
 	userId: string,
 	thoughtId: string
@@ -32,10 +29,12 @@ export async function markCommunitiesDirtyForThought(
 	const communityRows = await db
 		.select({ communityId: communityMember.communityId })
 		.from(communityMember)
+		.innerJoin(graphCommunity, eq(communityMember.communityId, graphCommunity.id))
 		.where(
 			and(
 				eq(communityMember.userId, userId),
-				inArray(communityMember.canonicalEntityId, entityIds)
+				inArray(communityMember.canonicalEntityId, entityIds),
+				eq(graphCommunity.level, COMMUNITY_MID_LEVEL)
 			)
 		);
 
@@ -52,7 +51,7 @@ export async function markCommunitiesDirtyForThought(
 	return communityIds;
 }
 
-/** Refresh bundles (and summaries if stale) for dirty communities. Fire-and-forget safe. */
+/** Refresh bundles for dirty L1 communities. Summaries run on the next heartbeat batch. */
 export async function refreshDirtyCommunitiesForUser(userId: string): Promise<{
 	bundlesRefreshed: number;
 	summariesTriggered: boolean;
@@ -61,12 +60,15 @@ export async function refreshDirtyCommunitiesForUser(userId: string): Promise<{
 	const dirty = await db
 		.select({
 			id: graphCommunity.id,
-			memberCount: graphCommunity.memberCount,
 			level: graphCommunity.level
 		})
 		.from(graphCommunity)
 		.where(
-			and(eq(graphCommunity.userId, userId), sql`${graphCommunity.dirtyAt} IS NOT NULL`)
+			and(
+				eq(graphCommunity.userId, userId),
+				eq(graphCommunity.level, COMMUNITY_MID_LEVEL),
+				sql`${graphCommunity.dirtyAt} IS NOT NULL`
+			)
 		)
 		.limit(50);
 
@@ -75,62 +77,12 @@ export async function refreshDirtyCommunitiesForUser(userId: string): Promise<{
 	}
 
 	let bundlesRefreshed = 0;
-	let needsSummaryRefresh = false;
-
 	for (const community of dirty) {
 		const built = await buildCommunityBundle(userId, community.id);
 		if (built) bundlesRefreshed++;
-
-		const [summary] = await db
-			.select({
-				entityCount: communitySummary.entityCount,
-				thoughtCount: communitySummary.thoughtCount,
-				generatedAt: communitySummary.generatedAt
-			})
-			.from(communitySummary)
-			.where(eq(communitySummary.communityId, community.id))
-			.limit(1);
-
-		if (!summary) {
-			needsSummaryRefresh = true;
-			continue;
-		}
-
-		const entityChurn =
-			summary.entityCount > 0
-				? Math.abs(community.memberCount - summary.entityCount) / summary.entityCount
-				: 1;
-		if (entityChurn >= MEMBERSHIP_CHURN_THRESHOLD) {
-			needsSummaryRefresh = true;
-			await db
-				.delete(communitySummary)
-				.where(
-					and(
-						eq(communitySummary.userId, userId),
-						eq(communitySummary.communityId, community.id)
-					)
-				);
-		}
 	}
 
-	if (needsSummaryRefresh) {
-		await runCommunitySummaryGeneration(userId, { batchSize: 10 });
-	}
-
-	await db
-		.update(graphCommunity)
-		.set({ dirtyAt: null })
-		.where(
-			and(
-				eq(graphCommunity.userId, userId),
-				inArray(
-					graphCommunity.id,
-					dirty.map((d) => d.id)
-				)
-			)
-		);
-
-	return { bundlesRefreshed, summariesTriggered: needsSummaryRefresh };
+	return { bundlesRefreshed, summariesTriggered: dirty.length > 0 };
 }
 
 /** Schedule incremental refresh after enrich (non-blocking). */

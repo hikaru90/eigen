@@ -47,7 +47,7 @@ function mockCommunityDb(rows: unknown[]) {
 describe('fetchRelevantCommunitySummaries', () => {
 	it('returns ordered summaries from the vector search without calling the LLM', async () => {
 		mockCommunityDb([
-			{ communityId: 'c1', level: 0, summaryText: 'Theme one', distance: 0.1 },
+			{ communityId: 'c1', level: 1, summaryText: 'Theme one', distance: 0.1 },
 			{ communityId: 'c2', level: 1, summaryText: 'Theme two', distance: 0.2 }
 		]);
 
@@ -58,7 +58,7 @@ describe('fetchRelevantCommunitySummaries', () => {
 		});
 
 		expect(out).toEqual([
-			{ communityId: 'c1', level: 0, summaryText: 'Theme one' },
+			{ communityId: 'c1', level: 1, summaryText: 'Theme one' },
 			{ communityId: 'c2', level: 1, summaryText: 'Theme two' }
 		]);
 		expect(llmChatCompletionMock).not.toHaveBeenCalled();
@@ -124,12 +124,11 @@ describe('searchGlobal', () => {
 		expect(result.sources[0]?.communityId).toBe('c1');
 	});
 
-	it('selects preferred level when enough candidates match preferLevel', async () => {
+	it('uses L1 routing summaries only (preferLevel ignored)', async () => {
 		mockCommunityDb([
 			{ id: 'cs1', communityId: 'c1', level: 1, summaryText: 'Theme A', distance: 0.1 },
 			{ id: 'cs2', communityId: 'c2', level: 1, summaryText: 'Theme B', distance: 0.2 },
-			{ id: 'cs3', communityId: 'c3', level: 1, summaryText: 'Theme C', distance: 0.3 },
-			{ id: 'cs4', communityId: 'c4', level: 0, summaryText: 'Root theme', distance: 0.05 }
+			{ id: 'cs3', communityId: 'c3', level: 1, summaryText: 'Theme C', distance: 0.3 }
 		]);
 
 		llmChatCompletionMock
@@ -150,23 +149,19 @@ describe('searchGlobal', () => {
 			userId: 'u1',
 			query: 'What themes recur?',
 			topCommunities: 5,
-			preferLevel: 1
+			preferLevel: 0
 		});
 
 		expect(llmChatCompletionMock).toHaveBeenCalledTimes(4);
 	});
 
-	it('falls back to all candidates when preferred level is sparse', async () => {
+	it('processes all returned L1 candidates without preferring other levels', async () => {
 		mockCommunityDb([
-			{ id: 'cs1', communityId: 'c1', level: 2, summaryText: 'Leaf only', distance: 0.1 },
 			{ id: 'cs2', communityId: 'c2', level: 1, summaryText: 'Theme one', distance: 0.2 },
 			{ id: 'cs3', communityId: 'c3', level: 1, summaryText: 'Theme two', distance: 0.3 }
 		]);
 
 		llmChatCompletionMock
-			.mockResolvedValueOnce({
-				choices: [{ message: { content: '{"answer":"Leaf insight.","score":90}' } }]
-			})
 			.mockResolvedValueOnce({
 				choices: [{ message: { content: '{"answer":"Theme insight.","score":80}' } }]
 			})
@@ -184,7 +179,7 @@ describe('searchGlobal', () => {
 			preferLevel: 2
 		});
 
-		expect(llmChatCompletionMock).toHaveBeenCalledTimes(4);
+		expect(llmChatCompletionMock).toHaveBeenCalledTimes(3);
 	});
 
 	it.each([

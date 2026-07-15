@@ -6,6 +6,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import {
+	canonicalEntity,
 	entityResolutionLog,
 	entityTopThoughts,
 	thought,
@@ -17,60 +18,114 @@ import {
 const RERANK_SNIPPET_LEN = 300;
 const ENTITY_TOP_THOUGHTS_LIMIT = 20;
 
-function confidenceToSalience(confidence: string): number {
+export class ThoughtEntityLinkIntegrityError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'ThoughtEntityLinkIntegrityError';
+	}
+}
+
+/** Map entity_resolution_log confidence to thought_entity salience. */
+export function confidenceToSalience(confidence: string): number {
 	if (confidence === 'high') return 1.0;
 	if (confidence === 'medium') return 0.7;
+	if (confidence === 'low') return 0.4;
+	const parsed = Number.parseFloat(confidence);
+	if (Number.isFinite(parsed)) {
+		return Math.max(0, Math.min(1, parsed));
+	}
 	return 0.4;
 }
 
 /** Sync thought_entity rows from entity_resolution_log for one thought. */
 export async function syncThoughtEntityLinks(userId: string, thoughtId: string): Promise<number> {
 	const db = getDb();
-	await db
-		.delete(thoughtEntity)
-		.where(
-			and(
-				eq(thoughtEntity.userId, userId),
-				eq(thoughtEntity.thoughtId, thoughtId),
-				eq(thoughtEntity.source, 'ingest')
+
+	return db.transaction(async (tx) => {
+		const manualRows = await tx
+			.select({ entityId: thoughtEntity.entityId })
+			.from(thoughtEntity)
+			.where(
+				and(
+					eq(thoughtEntity.userId, userId),
+					eq(thoughtEntity.thoughtId, thoughtId),
+					eq(thoughtEntity.source, 'manual')
+				)
+			);
+		const manualEntityIds = new Set(manualRows.map((r) => r.entityId));
+
+		await tx
+			.delete(thoughtEntity)
+			.where(
+				and(
+					eq(thoughtEntity.userId, userId),
+					eq(thoughtEntity.thoughtId, thoughtId),
+					eq(thoughtEntity.source, 'ingest')
+				)
+			);
+
+		const logs = await tx
+			.select({
+				entityId: entityResolutionLog.canonicalEntityId,
+				confidence: entityResolutionLog.confidence
+			})
+			.from(entityResolutionLog)
+			.where(
+				and(
+					eq(entityResolutionLog.userId, userId),
+					eq(entityResolutionLog.thoughtId, thoughtId),
+					sql`${entityResolutionLog.canonicalEntityId} IS NOT NULL`
+				)
+			);
+
+		const referencedEntityIds = [
+			...new Set(
+				logs
+					.map((row) => row.entityId)
+					.filter((id): id is string => typeof id === 'string' && id.length > 0)
 			)
+		];
+
+		if (referencedEntityIds.length === 0) return 0;
+
+		const validEntities = await tx
+			.select({ id: canonicalEntity.id })
+			.from(canonicalEntity)
+			.where(
+				and(eq(canonicalEntity.userId, userId), inArray(canonicalEntity.id, referencedEntityIds))
+			);
+
+		const validEntityIds = new Set(validEntities.map((row) => row.id));
+		const staleEntityIds = referencedEntityIds.filter((id) => !validEntityIds.has(id));
+		if (staleEntityIds.length > 0) {
+			throw new ThoughtEntityLinkIntegrityError(
+				`entity_resolution_log references missing canonical entities for thought ${thoughtId}: ${staleEntityIds.join(', ')}`
+			);
+		}
+
+		const byEntity = new Map<string, number>();
+		for (const row of logs) {
+			if (!row.entityId || !validEntityIds.has(row.entityId)) continue;
+			if (manualEntityIds.has(row.entityId)) continue;
+			const salience = confidenceToSalience(row.confidence);
+			const prev = byEntity.get(row.entityId) ?? 0;
+			byEntity.set(row.entityId, Math.max(prev, salience));
+		}
+
+		if (byEntity.size === 0) return 0;
+
+		await tx.insert(thoughtEntity).values(
+			[...byEntity.entries()].map(([entityId, salience]) => ({
+				userId,
+				thoughtId,
+				entityId,
+				salience,
+				source: 'ingest' as const
+			}))
 		);
 
-	const logs = await db
-		.select({
-			entityId: entityResolutionLog.canonicalEntityId,
-			confidence: entityResolutionLog.confidence
-		})
-		.from(entityResolutionLog)
-		.where(
-			and(
-				eq(entityResolutionLog.userId, userId),
-				eq(entityResolutionLog.thoughtId, thoughtId),
-				sql`${entityResolutionLog.canonicalEntityId} IS NOT NULL`
-			)
-		);
-
-	const byEntity = new Map<string, number>();
-	for (const row of logs) {
-		if (!row.entityId) continue;
-		const salience = confidenceToSalience(row.confidence);
-		const prev = byEntity.get(row.entityId) ?? 0;
-		byEntity.set(row.entityId, Math.max(prev, salience));
-	}
-
-	if (byEntity.size === 0) return 0;
-
-	await db.insert(thoughtEntity).values(
-		[...byEntity.entries()].map(([entityId, salience]) => ({
-			userId,
-			thoughtId,
-			entityId,
-			salience,
-			source: 'ingest' as const
-		}))
-	);
-
-	return byEntity.size;
+		return byEntity.size;
+	});
 }
 
 /** Sync thought_neighbor rows from thought_relation for one source thought. */

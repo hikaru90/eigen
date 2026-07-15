@@ -18,7 +18,7 @@ See [ingest-retrieval-timing.md § Three memory tiers](../planning/ingest-retrie
 |------|----------------------|
 | **1 — Hot** | FTS on `lexical_text` (+ `cues[]` after tier 2) |
 | **2 — Enrich** | pgvector ANN on `thought.embedding`; `thought_entity`, `thought_neighbor` |
-| **3 — Consolidation** | `community_summary` ANN + `community_bundle.top_thought_ids`; salience / recency features on `thought` |
+| **3 — Consolidation** | `community_summary` ANN (**L1 only**) + `community_bundle.top_thought_ids`; salience / recency features on `thought` |
 
 **Precomputed artifacts:**
 
@@ -29,7 +29,7 @@ See [ingest-retrieval-timing.md § Three memory tiers](../planning/ingest-retrie
 | Thought neighbors | `thought_neighbor` | Tier 2 (enrich) |
 | Entity → top thoughts | `entity_top_thoughts` | Tier 2 + tier 3 backfill |
 | Community bundles | `community_bundle` | Tier 3 (nightly + incremental) |
-| Routing summary | `community_summary.summary_short` + embedding | Tier 3 |
+| L1 routing summary | `community_summary.summary_short` + embedding | Tier 3 (batched, budgeted) |
 | Thought features | `thought.primary_community_ids`, centrality, specificity, recency | Tier 3 |
 
 **Query time (`retrieveEvidence`):** embed query once → parallel ANN + FTS + community ANN → bundle/key fetch → weighted merge → rerank top pool → return top K. **No live AGE reads.**

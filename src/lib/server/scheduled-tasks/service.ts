@@ -11,8 +11,7 @@ import {
 	heartbeatProgressPct,
 	isHeartbeatRunActive,
 	loadActiveHeartbeatRun,
-	loadLastUserHeartbeatRun,
-	recoverOrphanedHeartbeatRun
+	loadLastUserHeartbeatRun
 } from '$lib/server/consolidation/heartbeat-run-ledger';
 import {
 	getCommunitySummaryStats,
@@ -28,6 +27,7 @@ import {
 	setUserScheduledTaskPaused as setQueueTaskPaused
 } from '$lib/server/job-queue';
 import { hasActiveJobForUser } from '$lib/server/job-queue/enqueue';
+import { recoverOrphanedOvernightState } from '$lib/server/job-queue/recover-overnight';
 
 export type ScheduledTaskStatus = {
 	id: string;
@@ -37,6 +37,8 @@ export type ScheduledTaskStatus = {
 	active: boolean;
 	/** True when the per-user schedule row exists (always after first load). */
 	configured: boolean;
+	/** True when an overnight queue job is pending/running (blocks fresh Run now). */
+	queueActive: boolean;
 	lastRunAt: string | null;
 	lastRunStatus: 'completed' | 'failed' | 'running' | 'cancelled' | null;
 	lastRunError: string | null;
@@ -81,15 +83,12 @@ async function loadLastConsolidationRun(userId: string): Promise<{
 export async function listScheduledTasks(userId: string): Promise<ScheduledTaskStatus[]> {
 	const schedule = await getOrCreateUserScheduledTask(userId, OVERNIGHT_CONSOLIDATION_JOB);
 
+	await recoverOrphanedOvernightState(userId).catch(() => {});
+
 	let activeRun = await loadActiveHeartbeatRun(userId).catch(() => null);
-	const queueRunning = await hasActiveJobForUser(userId, OVERNIGHT_CONSOLIDATION_JOB).catch(
+	const queueActive = await hasActiveJobForUser(userId, OVERNIGHT_CONSOLIDATION_JOB).catch(
 		() => false
 	);
-
-	if (activeRun && !queueRunning) {
-		await recoverOrphanedHeartbeatRun(userId).catch(() => {});
-		activeRun = null;
-	}
 
 	const lastRun = await loadLastConsolidationRun(userId).catch(() => null);
 
@@ -111,6 +110,7 @@ export async function listScheduledTasks(userId: string): Promise<ScheduledTaskS
 			),
 			active: !schedule.paused,
 			configured: true,
+			queueActive,
 			lastRunAt: activeRun
 				? activeRun.startedAt.toISOString()
 				: lastRun

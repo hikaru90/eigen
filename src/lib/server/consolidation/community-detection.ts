@@ -1,20 +1,15 @@
 /**
  * Community detection consolidation job.
  *
- * Fetches entity-entity edges from the AGE graph, runs the Leiden community detection
- * algorithm, then persists:
- *   - graph_community rows (3 levels: L2 leaf → L0 root)
- *   - community_member rows (entity → community membership per level)
+ * Fetches entity-entity edges from the AGE graph, runs Leiden community detection,
+ * then persists graph_community + community_member rows.
  *
- * Should be triggered by the nightly consolidation runner on every heartbeat.
- *
- * Idempotent: compares the new Leiden partition to persisted membership and skips
- * DB writes when unchanged (preserving community_summary rows). When the graph
- * changes, deletes all existing community/member rows for the user before writing
- * new ones (community_summary rows cascade via FK).
+ * Idempotent: skips DB writes when the full membership fingerprint is unchanged.
+ * On change, diffs member sets by (level, sorted members) and reuses stable
+ * community IDs so summaries/bundles for unchanged clusters survive.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { graphCommunity, communityMember, canonicalEntity } from '$lib/server/db/schema';
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age';
@@ -28,7 +23,7 @@ import { detectCommunities, type CommunityHierarchy } from './leiden';
 
 export type CommunityDetectionResult = {
 	entityCount: number;
-	communityCounts: number[];  // per level, index 0 = leaf (L2)
+	communityCounts: number[];
 	totalCommunities: number;
 	/** False when Leiden partition matches persisted membership (no DB rewrite). */
 	changed: boolean;
@@ -53,6 +48,15 @@ export type CommunityGraphHealth = {
 	lowConfidence: boolean;
 	reasons: string[];
 };
+
+/** Canonical key for matching communities across detection runs. */
+export function buildMemberSignature(memberIds: Iterable<string>): string {
+	return [...memberIds].sort().join(',');
+}
+
+export function buildCommunitySignature(dbLevel: number, memberIds: Iterable<string>): string {
+	return `L${dbLevel}:${buildMemberSignature(memberIds)}`;
+}
 
 function buildGraphHealth(input: {
 	nodeIds: string[];
@@ -132,7 +136,7 @@ function buildMembershipFingerprint(
 		const commMap = byLevel.get(dbLevel)!;
 		const entityAssignments: string[] = [];
 		for (const members of commMap.values()) {
-			const signature = [...members].sort().join(',');
+			const signature = buildMemberSignature(members);
 			for (const entityId of members) {
 				entityAssignments.push(`${entityId}=${signature}`);
 			}
@@ -149,8 +153,9 @@ function buildHierarchyFingerprint(hierarchy: CommunityHierarchy): string {
 		const level = hierarchy.levels[i];
 		const dbLevel = LEVEL_SCHEMA_INDEX[i];
 		const levelMap = new Map<string, Set<string>>();
-		for (const [commKey, members] of level.communities) {
-			levelMap.set(commKey, new Set(members));
+		for (const [, members] of level.communities) {
+			const signature = buildMemberSignature(members);
+			levelMap.set(signature, new Set(members));
 		}
 		byLevel.set(dbLevel, levelMap);
 	}
@@ -196,16 +201,167 @@ async function loadStoredCommunityCounts(userId: string): Promise<number[]> {
 	return LEVEL_SCHEMA_INDEX.map((level) => countsByLevel.get(level) ?? 0);
 }
 
+type StoredCommunity = {
+	id: string;
+	level: number;
+	signature: string;
+	memberIds: Set<string>;
+};
+
+async function loadStoredCommunities(userId: string): Promise<StoredCommunity[]> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			id: graphCommunity.id,
+			level: graphCommunity.level,
+			entityId: communityMember.canonicalEntityId
+		})
+		.from(graphCommunity)
+		.leftJoin(communityMember, eq(communityMember.communityId, graphCommunity.id))
+		.where(eq(graphCommunity.userId, userId));
+
+	const byId = new Map<string, StoredCommunity>();
+	for (const row of rows) {
+		let entry = byId.get(row.id);
+		if (!entry) {
+			entry = { id: row.id, level: row.level, signature: '', memberIds: new Set() };
+			byId.set(row.id, entry);
+		}
+		if (row.entityId) entry.memberIds.add(row.entityId);
+	}
+
+	for (const entry of byId.values()) {
+		entry.signature = buildCommunitySignature(entry.level, entry.memberIds);
+	}
+	return [...byId.values()];
+}
+
+type NextCommunity = {
+	commKey: string;
+	dbLevel: number;
+	members: Set<string>;
+	signature: string;
+	parentCommKey: string | null;
+};
+
+function flattenHierarchy(hierarchy: CommunityHierarchy): NextCommunity[] {
+	const result: NextCommunity[] = [];
+	for (let i = 0; i < hierarchy.levels.length; i++) {
+		const level = hierarchy.levels[i];
+		const dbLevel = LEVEL_SCHEMA_INDEX[i];
+		const parentLevel = i < hierarchy.levels.length - 1 ? hierarchy.levels[i + 1] : null;
+
+		for (const [commKey, members] of level.communities) {
+			let parentCommKey: string | null = null;
+			if (parentLevel) {
+				const anyMember = [...members][0];
+				if (anyMember) {
+					parentCommKey = parentLevel.membership.get(anyMember) ?? null;
+				}
+			}
+			result.push({
+				commKey,
+				dbLevel,
+				members,
+				signature: buildCommunitySignature(dbLevel, members),
+				parentCommKey
+			});
+		}
+	}
+	return result;
+}
+
+async function persistCommunityDiff(
+	userId: string,
+	hierarchy: CommunityHierarchy
+): Promise<number[]> {
+	const db = getDb();
+	const nextCommunities = flattenHierarchy(hierarchy);
+	const stored = await loadStoredCommunities(userId);
+	const signatureToStoredId = new Map(stored.map((row) => [row.signature, row.id]));
+
+	return db.transaction(async (tx) => {
+		const commKeyToId = new Map<string, string>();
+		const reusedIds = new Set<string>();
+		const newCommunityIds: string[] = [];
+
+		// Root → leaf so parent IDs exist before children are linked.
+		const sorted = [...nextCommunities].sort((a, b) => a.dbLevel - b.dbLevel);
+
+		for (const community of sorted) {
+			const existingId = signatureToStoredId.get(community.signature);
+			if (existingId) {
+				commKeyToId.set(community.commKey, existingId);
+				reusedIds.add(existingId);
+			} else {
+				const [inserted] = await tx
+					.insert(graphCommunity)
+					.values({
+						userId,
+						level: community.dbLevel,
+						memberCount: community.members.size
+					})
+					.returning({ id: graphCommunity.id });
+				commKeyToId.set(community.commKey, inserted.id);
+				newCommunityIds.push(inserted.id);
+
+				const memberRows = [...community.members].map((entityId) => ({
+					communityId: inserted.id,
+					canonicalEntityId: entityId,
+					userId
+				}));
+				if (memberRows.length > 0) {
+					const CHUNK = 500;
+					for (let j = 0; j < memberRows.length; j += CHUNK) {
+						await tx.insert(communityMember).values(memberRows.slice(j, j + CHUNK));
+					}
+				}
+			}
+		}
+
+		for (const community of sorted) {
+			const communityId = commKeyToId.get(community.commKey);
+			if (!communityId) continue;
+			const parentCommunityId =
+				community.parentCommKey !== null
+					? (commKeyToId.get(community.parentCommKey) ?? null)
+					: null;
+			await tx
+				.update(graphCommunity)
+				.set({
+					parentCommunityId,
+					memberCount: community.members.size,
+					updatedAt: sql`now()`
+				})
+				.where(and(eq(graphCommunity.id, communityId), eq(graphCommunity.userId, userId)));
+		}
+
+		const obsoleteIds = stored
+			.map((row) => row.id)
+			.filter((id) => !reusedIds.has(id) && !newCommunityIds.includes(id));
+
+		if (obsoleteIds.length > 0) {
+			await tx
+				.delete(graphCommunity)
+				.where(
+					and(eq(graphCommunity.userId, userId), inArray(graphCommunity.id, obsoleteIds))
+				);
+		}
+
+		const countsByLevel = new Map<number, number>();
+		for (const community of nextCommunities) {
+			countsByLevel.set(community.dbLevel, (countsByLevel.get(community.dbLevel) ?? 0) + 1);
+		}
+		return LEVEL_SCHEMA_INDEX.map((level) => countsByLevel.get(level) ?? 0);
+	});
+}
+
 /**
  * Run community detection for a user and persist results.
- * Returns detection statistics.
- *
- * Throws on DB or graph errors (caller should catch and log).
  */
 export async function runCommunityDetection(userId: string): Promise<CommunityDetectionResult> {
 	const db = getDb();
 
-	// Load all canonical entities for this user.
 	const entities = await db
 		.select({ id: canonicalEntity.id })
 		.from(canonicalEntity)
@@ -226,7 +382,6 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 	};
 
 	if (nodeIds.length < 2) {
-		// Not enough entities for meaningful communities.
 		const storedFingerprint = await loadStoredMembershipFingerprint(userId);
 		const changed = storedFingerprint !== null;
 		if (changed) {
@@ -241,11 +396,9 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 		};
 	}
 
-	// Load entity-entity edges with weights from the AGE graph.
 	const edges = await fetchEntityEdgesForUser({ userId });
 	const graphHealth = buildGraphHealth({ nodeIds, edges });
 
-	// Run Leiden community detection (3 levels: L2 leaf → L0 root).
 	const hierarchy = detectCommunities(nodeIds, edges, COMMUNITY_HIERARCHY_DEPTH);
 	const nextFingerprint = buildHierarchyFingerprint(hierarchy);
 	const storedFingerprint = await loadStoredMembershipFingerprint(userId);
@@ -261,78 +414,7 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 		};
 	}
 
-	// Delete existing community data for this user (cascade deletes community_member
-	// and community_summary rows via FK cascade).
-	await db.delete(graphCommunity).where(eq(graphCommunity.userId, userId));
-
-	// Persist communities and memberships for each level.
-	// L2 = leaf, L0 = root. hierarchy.levels[0] = leaf, hierarchy.levels[2] = root.
-	const communityCounts: number[] = [];
-
-	// We need to build parent relationships between levels.
-	// communityIdMap: algorithmCommunityKey → DB uuid
-	const levelDbIds: Array<Map<string, string>> = [];
-
-	for (let i = 0; i < hierarchy.levels.length; i++) {
-		const level = hierarchy.levels[i];
-		const dbLevel = LEVEL_SCHEMA_INDEX[i];
-
-		// Determine parent community UUIDs from level i+1 (coarser).
-		// The "parent" of a community at level i is the community that the same
-		// nodes map to at level i+1.
-		const parentDbIdMap = i < hierarchy.levels.length - 1 ? levelDbIds[i + 1] : undefined;
-
-		const communityDbIdMap = new Map<string, string>();
-		const uniqueComms = [...level.communities.keys()];
-		communityCounts.push(uniqueComms.length);
-
-		// Batch insert graph_community rows.
-		for (const commKey of uniqueComms) {
-			const members = level.communities.get(commKey)!;
-
-			// Find parent community: look up any member at level i+1.
-			let parentCommunityId: string | null = null;
-			if (parentDbIdMap) {
-				const parentLevel = hierarchy.levels[i + 1];
-				const anyMember = [...members][0];
-				if (anyMember) {
-					const parentKey = parentLevel.membership.get(anyMember);
-					if (parentKey) parentCommunityId = parentDbIdMap.get(parentKey) ?? null;
-				}
-			}
-
-			const [inserted] = await db
-				.insert(graphCommunity)
-				.values({
-					userId,
-					level: dbLevel,
-					parentCommunityId: parentCommunityId ?? undefined,
-					memberCount: members.size
-				})
-				.returning({ id: graphCommunity.id });
-
-			communityDbIdMap.set(commKey, inserted.id);
-		}
-
-		levelDbIds[i] = communityDbIdMap;
-
-		// Batch insert community_member rows.
-		const memberRows: Array<{ communityId: string; canonicalEntityId: string; userId: string }> = [];
-		for (const [commKey, members] of level.communities) {
-			const communityId = communityDbIdMap.get(commKey)!;
-			for (const entityId of members) {
-				memberRows.push({ communityId, canonicalEntityId: entityId, userId });
-			}
-		}
-
-		if (memberRows.length > 0) {
-			// Insert in chunks to avoid hitting prepared statement limits.
-			const CHUNK = 500;
-			for (let j = 0; j < memberRows.length; j += CHUNK) {
-				await db.insert(communityMember).values(memberRows.slice(j, j + CHUNK));
-			}
-		}
-	}
+	const communityCounts = await persistCommunityDiff(userId, hierarchy);
 
 	return {
 		entityCount: nodeIds.length,

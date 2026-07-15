@@ -79,12 +79,29 @@ describe('isHeartbeatRunFullyComplete', () => {
 				plannedJobs,
 				jobs: plannedJobs.map((job) =>
 					job === 'community_summaries'
-						? okJob(job, '20 of 24 summarized (20 new, 4 pending)')
+						? okJob(job, '20 of 24 L1 routing summaries, 20 new, 4 pending')
 						: okJob(job)
 				),
 				currentJob: null
 			})
 		).toBe(false);
+	});
+
+	it('returns true when remaining summaries are deferred for the next run', () => {
+		expect(
+			isHeartbeatRunFullyComplete({
+				plannedJobs,
+				jobs: plannedJobs.map((job) =>
+					job === 'community_summaries'
+						? okJob(
+								job,
+								'20 of 24 L1 routing summaries, 20 new, 4 pending, 4 deferred — will resume next run'
+							)
+						: okJob(job)
+				),
+				currentJob: null
+			})
+		).toBe(true);
 	});
 });
 

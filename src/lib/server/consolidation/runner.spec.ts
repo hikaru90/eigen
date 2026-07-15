@@ -49,7 +49,26 @@ vi.mock('./community-detection', () => ({
 }));
 vi.mock('./community-summaries', () => ({
 	runCommunitySummaryGeneration: runSummariesMock,
-	getCommunitySummaryStats: vi.fn().mockResolvedValue({ total: 0, summarized: 0, pending: 0 })
+	getCommunitySummaryStats: vi.fn().mockResolvedValue({
+		total: 0,
+		summarized: 0,
+		pending: 0,
+		deferred: 0
+	}),
+	formatCommunitySummaryDetail: (stats: {
+		total: number;
+		summarized: number;
+		generated?: number;
+		pending: number;
+		deferred?: number;
+	}) => {
+		if (stats.total === 0) return 'no eligible L1 communities';
+		const parts = [`${stats.summarized} of ${stats.total} L1 routing summaries`];
+		if (stats.generated && stats.generated > 0) parts.push(`${stats.generated} new`);
+		if (stats.pending > 0) parts.push(`${stats.pending} pending`);
+		if (stats.deferred && stats.deferred > 0) parts.push(`${stats.deferred} deferred`);
+		return parts.join(', ');
+	}
 }));
 
 import { consolidateForUser, formatConsolidationJobErrors, formatConsolidationJobSummaries } from './runner';
@@ -69,13 +88,13 @@ describe('formatConsolidationJobSummaries', () => {
 					phase: 'rem',
 					job: 'community_summaries',
 					ok: true,
-					detail: '12 of 45 summarized (3 new, 30 pending)',
+					detail: '12 of 45 L1 routing summaries, 3 new, 30 pending',
 					durationMs: 4500
 				}
 			])
 		).toEqual([
 			'ontology prune: 0 entity kinds pruned (120ms)',
-			'community summaries: 12 of 45 summarized (3 new, 30 pending) (4.5s)'
+			'community summaries: 12 of 45 L1 routing summaries, 3 new, 30 pending (4.5s)'
 		]);
 	});
 
@@ -86,11 +105,11 @@ describe('formatConsolidationJobSummaries', () => {
 					phase: 'rem',
 					job: 'community_summaries',
 					ok: true,
-					detail: '45 of 45 summarized',
+					detail: '45 of 45 L1 routing summaries',
 					durationMs: 50
 				}
 			])
-		).toEqual(['community summaries: 45 of 45 summarized (50ms)']);
+		).toEqual(['community summaries: 45 of 45 L1 routing summaries (50ms)']);
 	});
 });
 
@@ -160,17 +179,35 @@ describe('consolidateForUser', () => {
 		expect(runDetectionMock).toHaveBeenCalled();
 	});
 
-	it('marks community summaries failed when communities remain pending', async () => {
+	it('marks community summaries failed only on contract/provider failure', async () => {
 		runSummariesMock.mockResolvedValueOnce({
 			total: 24,
 			summarized: 20,
 			generated: 20,
-			pending: 4
+			pending: 4,
+			deferred: 4,
+			failed: false
+		});
+
+		const result = await consolidateForUser('u1');
+		const summariesJob = result.jobs.find((j) => j.job === 'community_summaries');
+		expect(summariesJob?.ok).toBe(true);
+		expect(summariesJob?.detail).toContain('deferred');
+		expect(summariesJob?.detail).toContain('will resume next run');
+	});
+
+	it('marks community summaries failed when batch generation fails', async () => {
+		runSummariesMock.mockResolvedValueOnce({
+			total: 24,
+			summarized: 10,
+			generated: 8,
+			pending: 14,
+			deferred: 0,
+			failed: true
 		});
 
 		const result = await consolidateForUser('u1');
 		const summariesJob = result.jobs.find((j) => j.job === 'community_summaries');
 		expect(summariesJob?.ok).toBe(false);
-		expect(summariesJob?.detail).toContain('4 still pending');
 	});
 });

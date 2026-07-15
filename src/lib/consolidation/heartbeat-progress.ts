@@ -8,16 +8,20 @@ export type HeartbeatRunProgress = {
 
 export function parseSummaryProgress(
 	detail?: string
-): { summarized: number; total: number; pending: number } | null {
+): { summarized: number; total: number; pending: number; deferred: number } | null {
 	if (!detail) return null;
-	const counts = detail.match(/(\d+) of (\d+) summarized/);
+	const counts =
+		detail.match(/(\d+) of (\d+) L1 routing summaries/) ??
+		detail.match(/(\d+) of (\d+) summarized/);
 	if (!counts) return null;
 	const summarized = Number(counts[1]);
 	const total = Number(counts[2]);
 	if (!Number.isFinite(summarized) || !Number.isFinite(total) || total <= 0) return null;
 	const pendingMatch = detail.match(/(\d+) pending/);
+	const deferredMatch = detail.match(/(\d+) deferred/);
 	const pending = pendingMatch ? Number(pendingMatch[1]) : Math.max(0, total - summarized);
-	return { summarized, total, pending };
+	const deferred = deferredMatch ? Number(deferredMatch[1]) : 0;
+	return { summarized, total, pending, deferred };
 }
 
 function jobResultFor(run: HeartbeatRunProgress, jobId: string): HeartbeatJobResult | undefined {
@@ -36,7 +40,10 @@ export function isHeartbeatRunFullyComplete(run: HeartbeatRunProgress): boolean 
 	const summaryJob = jobResultFor(run, 'community_summaries');
 	if (summaryJob) {
 		const parsed = parseSummaryProgress(summaryJob.detail);
-		if (parsed && parsed.pending > 0) return false;
+		// Deferred work is intentional budget exhaustion — run completed, resumes next heartbeat.
+		if (parsed && parsed.pending > 0 && parsed.deferred === 0 && !summaryJob.detail?.includes('will resume')) {
+			return false;
+		}
 	}
 	return true;
 }

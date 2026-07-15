@@ -24,11 +24,21 @@ Per-user work runs inside `withDbUser` so RLS applies.
 
 - Community detection clusters over **`ENTITY_RELATES`** graph edges only (`edgePolicy: entity_relates_only`); co-mention edges are visualization support, not clustering input.
 - Level semantics are fixed:
-  - `L3` leaf = tight operational groups
-  - `L2` = sub-domain thematic lanes
-  - `L1` = domain-level structure
+  - `L2` leaf = tight operational groups
+  - `L1` = domain-level thematic lanes (retrieval routing)
   - `L0` root = broad worldview partitions
+- Detection diffs membership by `(level, sorted member IDs)` and **reuses stable community IDs** so unchanged summaries/bundles survive partial graph changes.
 - Before writing communities, detection computes graph-health diagnostics (components, isolation ratio, relation density) and marks low-confidence runs when relation structure is too weak.
+
+## Community summaries (L1 routing only)
+
+See [`docs/planning/community-summary-scaling.md`](../planning/community-summary-scaling.md).
+
+- Only **eligible L1** communities (≥2 members, ≥1 linked thought) get LLM reports.
+- Multiple communities are summarized per structured JSON chat call; embeddings are batched.
+- Per-run report budget; remaining work is **deferred** (job succeeds, resumes next heartbeat). Contract/provider errors fail the job.
+- Enrich marks L1 communities dirty and refreshes bundles only; summary generation is heartbeat-owned.
+- Obsolete L2/L0 summary rows are removed as derived artifacts.
 
 ## Job queue tables
 
@@ -70,5 +80,4 @@ Admin bulk endpoint [`POST /api/admin/consolidate`](../../src/routes/api/admin/c
 
 - `ontology_proposal` generation from clustering
 - Declarative fact merging
-- Stale community summary refresh when `community.updatedAt > summary.generatedAt`
 - Persist graph edge fingerprint at detection time for finer staleness (same entity IDs, rewired edges)

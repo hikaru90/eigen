@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DELETE, PATCH, POST } from './+server';
 import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants';
 
@@ -8,14 +8,16 @@ const {
 	hasActiveJobForUserMock,
 	drainUserJobQueueMock,
 	loadActiveHeartbeatRunMock,
-	cancelUserHeartbeatMock
+	recoverOrphanedOvernightStateMock,
+	stopOvernightHeartbeatMock
 } = vi.hoisted(() => ({
 	setUserScheduledTaskPausedMock: vi.fn(),
 	enqueueUserJobMock: vi.fn(),
 	hasActiveJobForUserMock: vi.fn(),
 	drainUserJobQueueMock: vi.fn(),
 	loadActiveHeartbeatRunMock: vi.fn(),
-	cancelUserHeartbeatMock: vi.fn()
+	recoverOrphanedOvernightStateMock: vi.fn(async () => undefined),
+	stopOvernightHeartbeatMock: vi.fn()
 }));
 
 vi.mock('$lib/server/scheduled-tasks/service', () => ({
@@ -37,8 +39,9 @@ vi.mock('$lib/consolidation/heartbeat-job-plan', () => ({
 	getHeartbeatJobPlan: vi.fn(() => ['salience_compute', 'community_detection'])
 }));
 
-vi.mock('$lib/server/consolidation/heartbeat-worker', () => ({
-	cancelUserHeartbeat: cancelUserHeartbeatMock
+vi.mock('$lib/server/job-queue/recover-overnight', () => ({
+	recoverOrphanedOvernightState: recoverOrphanedOvernightStateMock,
+	stopOvernightHeartbeat: stopOvernightHeartbeatMock
 }));
 
 function patchRequest(body: unknown) {
@@ -75,6 +78,11 @@ describe('PATCH /api/scheduled-tasks/[taskId]', () => {
 });
 
 describe('POST /api/scheduled-tasks/[taskId]', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		recoverOrphanedOvernightStateMock.mockResolvedValue(undefined);
+	});
+
 	it('returns 409 when heartbeat is already running', async () => {
 		hasActiveJobForUserMock.mockResolvedValue(true);
 		loadActiveHeartbeatRunMock.mockResolvedValue({ runId: 'run-1' });
@@ -92,11 +100,10 @@ describe('POST /api/scheduled-tasks/[taskId]', () => {
 		});
 	});
 
-	it('queues heartbeat and returns 202', async () => {
+	it('queues heartbeat, drains in background, and returns 202 immediately', async () => {
 		hasActiveJobForUserMock.mockResolvedValue(false);
 		enqueueUserJobMock.mockResolvedValue({ enqueued: true, jobId: 'job-1' });
 		drainUserJobQueueMock.mockResolvedValue({ claimed: 1, completed: 1, failed: 0 });
-		loadActiveHeartbeatRunMock.mockResolvedValue({ runId: 'run-2' });
 
 		const res = await POST({
 			locals: { user: { id: 'u1' } },
@@ -104,29 +111,61 @@ describe('POST /api/scheduled-tasks/[taskId]', () => {
 		} as never);
 
 		expect(res.status).toBe(202);
-		expect(drainUserJobQueueMock).toHaveBeenCalledWith({ userId: 'u1', limit: 1 });
+		expect(recoverOrphanedOvernightStateMock).toHaveBeenCalledWith('u1');
 		expect(await res.json()).toMatchObject({
 			ok: true,
-			runId: 'run-2',
-			status: 'running',
-			message: 'Heartbeat queued.'
+			jobId: 'job-1',
+			status: 'queued',
+			message: 'Heartbeat started.'
 		});
+		// Drain is fire-and-forget — allow microtask flush.
+		await Promise.resolve();
+		expect(drainUserJobQueueMock).toHaveBeenCalledWith({ userId: 'u1', limit: 1 });
 	});
 });
 
 describe('DELETE /api/scheduled-tasks/[taskId]', () => {
-	it('requests stop for running heartbeat', async () => {
-		cancelUserHeartbeatMock.mockResolvedValue(true);
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('stops a live heartbeat via soft cancel', async () => {
+		stopOvernightHeartbeatMock.mockResolvedValue({
+			softCancelled: true,
+			clearedStuck: false,
+			message: 'Stop requested — finishing current step, then you can run again.'
+		});
 
 		const res = await DELETE({
 			locals: { user: { id: 'u1' } },
 			params: { taskId: SLEEP_CONSOLIDATION_TASK_ID }
 		} as never);
 
-		expect(cancelUserHeartbeatMock).toHaveBeenCalledWith('u1');
+		expect(stopOvernightHeartbeatMock).toHaveBeenCalledWith('u1');
 		expect(await res.json()).toEqual({
 			ok: true,
-			message: 'Stop requested — finishing current step.'
+			softCancelled: true,
+			clearedStuck: false,
+			message: 'Stop requested — finishing current step, then you can run again.'
+		});
+	});
+
+	it('clears stuck/orphaned state so Run now works again', async () => {
+		stopOvernightHeartbeatMock.mockResolvedValue({
+			softCancelled: false,
+			clearedStuck: true,
+			message: 'Heartbeat stopped. You can run again.'
+		});
+
+		const res = await DELETE({
+			locals: { user: { id: 'u1' } },
+			params: { taskId: SLEEP_CONSOLIDATION_TASK_ID }
+		} as never);
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			ok: true,
+			clearedStuck: true
 		});
 	});
 });

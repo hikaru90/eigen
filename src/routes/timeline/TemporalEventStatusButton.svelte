@@ -2,6 +2,7 @@
 	import type { TemporalEventListItem } from '../api/temporal-events/+server';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import { hapticConfirm } from '$lib/haptics';
 	import { isTemporalEventCompleted } from './temporal-events-utils';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -22,6 +23,7 @@
 		event.stopPropagation();
 		event.preventDefault();
 		if (busy) return;
+		hapticConfirm();
 		onQuickAction(item.id, completed ? 'reopen' : 'mark_done');
 	}
 </script>

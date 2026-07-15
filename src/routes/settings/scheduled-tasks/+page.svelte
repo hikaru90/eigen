@@ -146,7 +146,7 @@
     if (jobId !== "community_summaries") return null;
     const stats = task.activeRun?.summaryStats;
     if (!stats || stats.total === 0) return null;
-    const base = `${stats.summarized} of ${stats.total} summarized`;
+    const base = `${stats.summarized} of ${stats.total} L1 routing summaries`;
     return stats.pending > 0 ? `${base}, ${stats.pending} pending` : base;
   }
 
@@ -172,16 +172,20 @@
   }
 
   function syncTrackedRun(task: TaskRow) {
-    if (!trackedRun) return;
-
-    if (task.activeRun?.runId === trackedRun.runId) {
-      trackedRun.plannedJobs = task.activeRun.plannedJobs;
-      trackedRun.currentJob = task.activeRun.currentJob;
-      trackedRun.jobs = task.activeRun.jobs;
-      trackedRun.cancelRequested = task.activeRun.cancelRequested;
-      trackedRun.finishedAt = null;
+    if (task.activeRun) {
+      trackedRun = {
+        runId: task.activeRun.runId,
+        plannedJobs: task.activeRun.plannedJobs,
+        currentJob: task.activeRun.currentJob,
+        jobs: task.activeRun.jobs,
+        cancelRequested: task.activeRun.cancelRequested,
+        finishedAt: null,
+      };
+      busyTaskId = null;
       return;
     }
+
+    if (!trackedRun) return;
 
     if (
       trackedRun.finishedAt === null &&
@@ -194,6 +198,7 @@
       }
       trackedRun.currentJob = null;
       trackedRun.finishedAt = Date.now();
+      busyTaskId = null;
     }
   }
 
@@ -221,8 +226,17 @@
     if (task) syncTrackedRun(task);
 
     const serverRunning = body.tasks.some(
-      (t) => t.activeRun !== null || t.lastRunStatus === "running"
+      (t) => t.activeRun !== null || t.lastRunStatus === "running" || t.queueActive
     );
+
+    if (!serverRunning && trackedRun !== null && trackedRun.finishedAt === null) {
+      trackedRun = {
+        ...trackedRun,
+        currentJob: null,
+        finishedAt: Date.now(),
+      };
+    }
+
     const trackedLive = trackedRun !== null && trackedRun.finishedAt === null;
 
     if (!serverRunning && !trackedLive) {
@@ -282,53 +296,92 @@
         error?: string;
         status?: string;
         runId?: string;
+        jobId?: string;
         plannedJobs?: string[];
       };
       if (res.status === 409) {
-        actionMessage = "Heartbeat is already running.";
+        actionMessage = "Heartbeat is already running — click Stop to cancel it, then Run now.";
         startPolling();
         await refreshTasks();
+        busyTaskId = null;
         return;
       }
       if (!res.ok) {
         throw new Error(body.error ?? `Request failed (${res.status})`);
       }
-      if (body.runId && body.plannedJobs?.length) {
-        trackedRun = {
-          runId: body.runId,
-          plannedJobs: body.plannedJobs,
-          currentJob: body.plannedJobs[0] ?? null,
-          jobs: [],
-          cancelRequested: false,
-          finishedAt: null,
-        };
-      }
-      actionMessage = body.message ?? "Heartbeat queued.";
+      const plannedJobs = body.plannedJobs?.length
+        ? body.plannedJobs
+        : [];
+      trackedRun = {
+        runId: body.runId ?? body.jobId ?? "pending",
+        plannedJobs,
+        currentJob: plannedJobs[0] ?? null,
+        jobs: [],
+        cancelRequested: false,
+        finishedAt: null,
+      };
+      actionMessage = body.message ?? "Heartbeat started.";
       startPolling();
-      busyTaskId = null;
       await refreshTasks();
+      // Keep Stop visible until the server reports an active run or completion.
+      if (tasks.some((t) => t.activeRun !== null)) {
+        busyTaskId = null;
+      }
     } catch (err) {
       actionError = err instanceof Error ? err.message : String(err);
-      busyTaskId = null;
-      trackedRun = null;
+      // Server may still have started — poll so Stop / progress can appear.
+      startPolling();
+      try {
+        await refreshTasks();
+      } catch {
+        /* ignore refresh failure after network error */
+      }
+      if (!tasks.some((t) => t.activeRun !== null) && trackedRun === null) {
+        busyTaskId = null;
+      }
     }
   }
 
   async function stopRun(task: TaskRow) {
-    const live = task.activeRun !== null || (trackedRun !== null && trackedRun.finishedAt === null);
-    if (!live) return;
+    const live =
+      busyTaskId === task.id ||
+      task.activeRun !== null ||
+      task.queueActive ||
+      (trackedRun !== null && trackedRun.finishedAt === null);
+    if (!live && task.lastRunStatus !== "running") return;
     stoppingTaskId = task.id;
     actionError = null;
     try {
       const res = await fetch(`/api/scheduled-tasks/${encodeURIComponent(task.id)}`, {
         method: "DELETE",
       });
-      const body = (await res.json()) as { ok?: boolean; error?: string; message?: string };
+      const body = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        softCancelled?: boolean;
+      };
       if (!res.ok) {
         throw new Error(body.error ?? `Request failed (${res.status})`);
       }
-      actionMessage = body.message ?? "Stop requested.";
+      actionMessage = body.message ?? "Heartbeat stopped.";
+      if (trackedRun && trackedRun.finishedAt === null) {
+        trackedRun = {
+          ...trackedRun,
+          cancelRequested: true,
+          currentJob: null,
+          finishedAt: body.softCancelled ? null : Date.now(),
+        };
+      }
+      startPolling();
       await refreshTasks();
+      if (!body.softCancelled) {
+        busyTaskId = null;
+        trackedRun = trackedRun
+          ? { ...trackedRun, finishedAt: trackedRun.finishedAt ?? Date.now(), cancelRequested: true }
+          : null;
+        stopPolling();
+      }
     } catch (err) {
       actionError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -352,8 +405,9 @@
 <main class="mx-auto max-w-lg px-5 pb-16 pt-24">
   <h1 class="text-lg font-semibold tracking-tight">Heartbeat</h1>
   <p class="text-muted-foreground mt-1 text-sm leading-relaxed">
-    A background rhythm that organizes and maintains your memories. You can run it early or pause
-    the overnight heartbeat if needed.
+    A background rhythm that organizes and maintains your memories. Use Stop to cancel a run in
+    progress (work already finished is kept). Pause schedule only affects the overnight timer —
+    not a mid-run stop.
   </p>
 
   {#if pageError}
@@ -468,7 +522,7 @@
             </div>
           </div>
           <div class="flex flex-wrap gap-2 border-t border-border/60 pt-3">
-            {#if (run?.live ?? false) || task.activeRun}
+            {#if (run?.live ?? false) || task.activeRun || busyTaskId === task.id || task.queueActive}
               <Button
                 type="button"
                 variant="outline"
@@ -504,7 +558,7 @@
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={busyTaskId !== null || (run?.live ?? false)}
+                disabled={busyTaskId !== null || (run?.live ?? false) || task.activeRun !== null}
                 onclick={() => void togglePause(task)}
               >
                 {#if task.active}
@@ -512,7 +566,7 @@
                 {:else}
                   <Play class="size-3.5 shrink-0" aria-hidden="true" />
                 {/if}
-                {task.active ? "Pause" : "Resume"}
+                {task.active ? "Pause schedule" : "Resume schedule"}
               </Button>
             {/if}
           </div>

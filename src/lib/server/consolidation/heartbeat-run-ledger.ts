@@ -233,12 +233,23 @@ export async function loadLastUserHeartbeatRun(userId: string): Promise<Heartbea
 export async function recoverOrphanedHeartbeatRun(userId: string): Promise<boolean> {
 	return withDbUser(userId, async () => {
 		const db = getDb();
+		const [active] = await db
+			.select({ cancelRequested: heartbeatRun.cancelRequested })
+			.from(heartbeatRun)
+			.where(and(eq(heartbeatRun.userId, userId), eq(heartbeatRun.status, 'running')))
+			.limit(1);
+		if (!active) return false;
+
+		const status: HeartbeatRunStatus = active.cancelRequested ? 'cancelled' : 'failed';
 		const rows = await db
 			.update(heartbeatRun)
 			.set({
-				status: 'failed' satisfies HeartbeatRunStatus,
+				status,
 				currentJob: null,
-				errorMessage: 'Heartbeat stopped unexpectedly (server reload or crash).',
+				errorMessage:
+					status === 'failed'
+						? 'Heartbeat stopped unexpectedly (server reload or crash).'
+						: null,
 				finishedAt: new Date()
 			})
 			.where(and(eq(heartbeatRun.userId, userId), eq(heartbeatRun.status, 'running')))

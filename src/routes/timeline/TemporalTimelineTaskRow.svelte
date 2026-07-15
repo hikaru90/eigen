@@ -9,7 +9,7 @@
 		isTemporalEventCompleted
 	} from './temporal-events-utils';
 	import { graphEnergyLevelLabel } from '$lib/graph/graph-i18n';
-	import { hapticPress } from '$lib/haptics';
+	import { hapticConfirm } from '$lib/haptics';
 	import { m } from '$lib/paraglide/messages.js';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
@@ -62,9 +62,6 @@
 			longPressTimer = null;
 			longPressTriggered = true;
 			onLongPress?.(item);
-			if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-				hapticPress(12);
-			}
 		}, LONG_PRESS_MS);
 	}
 
@@ -75,6 +72,10 @@
 	}
 
 	function onPointerUp() {
+		if (longPressTriggered) {
+			// Vibration must run in a user-gesture handler; setTimeout loses activation on Android.
+			hapticConfirm();
+		}
 		clearLongPressTimer();
 	}
 

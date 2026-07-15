@@ -3,7 +3,6 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants';
 import { setUserScheduledTaskPaused } from '$lib/server/scheduled-tasks/service';
-import { cancelUserHeartbeat } from '$lib/server/consolidation/heartbeat-worker';
 import { loadActiveHeartbeatRun } from '$lib/server/consolidation/heartbeat-run-ledger';
 import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan';
 import {
@@ -12,6 +11,10 @@ import {
 	enqueueUserJob,
 	hasActiveJobForUser
 } from '$lib/server/job-queue';
+import {
+	recoverOrphanedOvernightState,
+	stopOvernightHeartbeat
+} from '$lib/server/job-queue/recover-overnight';
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	if (!locals.user) {
@@ -60,6 +63,10 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 
 	try {
 		const userId = locals.user.id;
+
+		// Clear stale orphans from a prior crash/reload before checking active work.
+		await recoverOrphanedOvernightState(userId).catch(() => {});
+
 		if (await hasActiveJobForUser(userId, OVERNIGHT_CONSOLIDATION_JOB)) {
 			const active = await loadActiveHeartbeatRun(userId).catch(() => null);
 			return json(
@@ -88,18 +95,24 @@ export const POST: RequestHandler = async ({ locals, params }) => {
 			);
 		}
 
-		await drainUserJobQueue({ userId, limit: 1 });
-
-		const active = await loadActiveHeartbeatRun(userId).catch(() => null);
 		const plannedJobs = getHeartbeatJobPlan();
+
+		// Drain in the background so the client can show Stop and poll progress.
+		void drainUserJobQueue({ userId, limit: 1 }).catch((err) => {
+			console.error('[scheduled-tasks] background drain failed', {
+				userId,
+				jobId: outcome.jobId,
+				message: err instanceof Error ? err.message : String(err)
+			});
+		});
 
 		return json(
 			{
 				ok: true,
-				runId: active?.runId ?? outcome.jobId,
+				jobId: outcome.jobId,
 				plannedJobs,
-				status: active ? 'running' : 'queued',
-				message: 'Heartbeat queued.'
+				status: 'queued',
+				message: 'Heartbeat started.'
 			},
 			{ status: 202 }
 		);
@@ -124,10 +137,12 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		error(404, 'Unknown scheduled task');
 	}
 
-	const cancelled = await cancelUserHeartbeat(locals.user.id);
-	if (!cancelled) {
-		return json({ ok: false, error: 'No heartbeat is running.' }, { status: 404 });
-	}
-
-	return json({ ok: true, message: 'Stop requested — finishing current step.' });
+	const userId = locals.user.id;
+	const result = await stopOvernightHeartbeat(userId);
+	return json({
+		ok: true,
+		softCancelled: result.softCancelled,
+		clearedStuck: result.clearedStuck,
+		message: result.message
+	});
 };

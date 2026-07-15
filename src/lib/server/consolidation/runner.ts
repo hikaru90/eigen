@@ -20,7 +20,13 @@ import {
 import { runSalienceCompute } from './compute-salience';
 import { repairEntityRelationsForUser } from './repair-entity-relations';
 import { runCommunityDetection } from './community-detection';
-import { runCommunitySummaryGeneration, getCommunitySummaryStats, type CommunitySummaryResult } from './community-summaries';
+import {
+	runCommunitySummaryGeneration,
+	getCommunitySummaryStats,
+	formatCommunitySummaryDetail,
+	type CommunitySummaryResult,
+	type CommunitySummaryStats
+} from './community-summaries';
 import { buildAllCommunityBundles } from './community-bundles';
 import { computeThoughtRetrievalFeatures } from './thought-retrieval-features';
 import { backfillRetrievalLinksForUser } from '$lib/server/retrieval/materialize-links';
@@ -107,15 +113,7 @@ function formatJobResultDetail(detail: unknown): string | undefined {
 	}
 	if ('summarized' in detail && 'total' in detail) {
 		const r = detail as CommunitySummaryResult;
-		if (r.total === 0) return 'no communities';
-		const base = `${r.summarized} of ${r.total} summarized`;
-		if (r.generated > 0) {
-			return r.pending > 0
-				? `${base} (${r.generated} new, ${r.pending} pending)`
-				: `${base} (${r.generated} new)`;
-		}
-		if (r.pending > 0) return `${base}, ${r.pending} pending`;
-		return base;
+		return formatCommunitySummaryDetail(r);
 	}
 	if ('generated' in detail) {
 		const r = detail as { generated: number; pending?: number };
@@ -336,14 +334,14 @@ export async function consolidateForUser(
 
 async function skipCommunitySummariesJob(
 	userId: string,
-	stats: { total: number; summarized: number; pending: number },
+	stats: CommunitySummaryStats,
 	options?: ConsolidateForUserOptions
 ): Promise<ConsolidationJobResult> {
 	const start = Date.now();
 	const detail =
 		stats.total === 0
 			? 'skipped (communities unchanged)'
-			: `${stats.summarized} of ${stats.total} summarized — skipped (communities unchanged)`;
+			: `${formatCommunitySummaryDetail(stats)} — skipped (communities unchanged)`;
 	try {
 		await options?.onJobStart?.('community_summaries');
 	} catch (err) {
@@ -392,19 +390,20 @@ async function runCommunitySummariesJob(
 		const summaryResult = await runCommunitySummaryGeneration(userId, {
 			shouldCancel: () => shouldStop(options)
 		});
-		const detail = jobDetailFromResult(summaryResult);
-		const complete = summaryResult.total === 0 || summaryResult.pending === 0;
+		const detail = formatCommunitySummaryDetail(summaryResult);
+		// Budget exhaustion is resumable work, not a failed heartbeat.
+		const ok = !summaryResult.failed;
 		const result: ConsolidationJobResult = {
 			phase: 'rem',
 			job: 'community_summaries',
-			ok: complete,
-			detail: complete
-				? detail
-				: `${detail ?? `${summaryResult.summarized} of ${summaryResult.total} summarized`} — ${summaryResult.pending} still pending`,
+			ok,
+			detail: summaryResult.deferred > 0 ? `${detail} — will resume next run` : detail,
 			durationMs: Date.now() - start
 		};
-		if (!complete) {
-			console.error('[consolidation] community summaries incomplete', summaryResult);
+		if (summaryResult.failed) {
+			console.error('[consolidation] community summaries failed', summaryResult);
+		} else if (summaryResult.deferred > 0) {
+			console.info('[consolidation] community summaries deferred to next run', summaryResult);
 		}
 		try {
 			await options?.onJobComplete?.(result);

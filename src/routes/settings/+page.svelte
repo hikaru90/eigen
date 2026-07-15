@@ -45,6 +45,12 @@
 		postUnsubscribe,
 		postTestPush
 	} from '$lib/push/client';
+	import {
+		getHapticEnvironment,
+		testHapticFeedback,
+		type HapticEnvironment,
+		type HapticTestResult
+	} from '$lib/haptics';
 	import { saveNotificationSettings as persistNotificationSettings } from '$lib/settings/notification-settings-api';
 
 	function notificationSettingsFromServer(pageData: PageData) {
@@ -117,6 +123,12 @@
 	let pushError = $state<string | null>(null);
 	let pushSubscribed = $state(false);
 	let pushSubscriptionCount = $state(0);
+	let hapticEnvironment = $state<HapticEnvironment>({
+		apiAvailable: false,
+		secureContext: false,
+		hint: 'Loading…'
+	});
+	let hapticTestResult = $state<HapticTestResult | null>(null);
 	let notificationSaveBusy = $state(false);
 	let notificationMessage = $state<string | null>(null);
 	let notificationError = $state<string | null>(null);
@@ -391,9 +403,15 @@
 		if (data.preferredTimezoneOffsetMinutes === null) {
 			applyInferredBrowserTimezone();
 		}
+		hapticEnvironment = getHapticEnvironment();
 		void refreshPushState();
 		void loadNotificationStatus();
 	});
+
+	function runHapticTest() {
+		hapticTestResult = testHapticFeedback();
+		hapticEnvironment = getHapticEnvironment();
+	}
 
 	function dismissGraphRearrangeStatus() {
 		graphRearrangeResult = null;
@@ -779,6 +797,47 @@
 				{/if}
 				{#if pushError}
 					<p class="text-destructive mt-2 text-xs">{pushError}</p>
+				{/if}
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root>
+			<Card.Header class="pb-3">
+				<Card.Title class="text-sm">Haptic feedback</Card.Title>
+				<Card.Description>
+					Android Chrome only. Desktop and iOS have no web vibration motor. Requires HTTPS or localhost.
+				</Card.Description>
+			</Card.Header>
+			<Card.Content class="space-y-2 pt-0 text-xs">
+				<div class="flex justify-between gap-4">
+					<span class="text-muted-foreground">API available</span>
+					<span class={hapticEnvironment.apiAvailable ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
+						{hapticEnvironment.apiAvailable ? 'Yes' : 'No'}
+					</span>
+				</div>
+				<div class="flex justify-between gap-4">
+					<span class="text-muted-foreground">Secure context</span>
+					<span>{hapticEnvironment.secureContext ? 'Yes' : 'No'}</span>
+				</div>
+				<p class="text-muted-foreground">{hapticEnvironment.hint}</p>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					class="rounded-[4px]"
+					onclick={runHapticTest}
+				>
+					Test vibration
+				</Button>
+				{#if hapticTestResult}
+					<p class="text-muted-foreground">
+						{hapticTestResult.requested
+							? hapticTestResult.accepted
+								? 'Request accepted.'
+								: 'Request rejected.'
+							: 'Request not sent.'}
+						{hapticTestResult.hint}
+					</p>
 				{/if}
 			</Card.Content>
 		</Card.Root>

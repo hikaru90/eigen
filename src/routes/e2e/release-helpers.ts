@@ -964,7 +964,7 @@ export async function exerciseOvernightConsolidation(page: Page): Promise<void> 
 	const runNow = page.getByRole('button', { name: 'Run now' });
 	let triggered = false;
 	if (await runNow.isVisible().catch(() => false)) {
-		// POST blocks until drainUserJobQueue finishes — do not poll UI before this returns.
+		// POST returns 202 immediately; drain continues in the background.
 		const triggerResponse = page.waitForResponse(
 			(res) =>
 				res.request().method() === 'POST' &&

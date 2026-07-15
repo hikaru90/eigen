@@ -10,7 +10,7 @@ How Eigen LLM/gateway spend scales as the knowledge graph grows, and how to meas
 |---------|----------------------------------------|----------------|
 | **Capture / enrich** | Mostly **flat** (~5–6 chats + embeds per thought) | Volume of captures, not entity count |
 | **Q&A / retrieval** | **Designed flat** (capped ANN pools + 0–1 rerank + compose) | Query volume |
-| **Overnight consolidation** | **Grows with community count** O(C) | Community summaries (1 chat + 1 embed each) |
+| **Overnight consolidation** | **Grows with eligible L1 communities** O(C_L1 / B) | Batched L1 routing summaries (B communities per chat + embed batch) |
 | **GTD project prompts** | **Grows with project count** O(P) | Reconcile, assignment, audit catalogs |
 
 Precomputed link tables (`community_bundle`, `entity_top_thoughts`, `thought_neighbor`) keep query-time retrieval from loading unbounded graph context. See [`ingest-retrieval-timing.md`](ingest-retrieval-timing.md) and [`../repo-map/retrieval.md`](../repo-map/retrieval.md).
@@ -20,10 +20,12 @@ Precomputed link tables (`community_bundle`, `entity_top_thoughts`, `thought_nei
 ```
 lifetime_usd ≈
   N_captures × ~$0.003–0.006 per capture (model-dependent)
-+ C_communities × ~$0.002–0.005 per summary (chat + embed)
++ ceil(C_eligible_L1 / B) × batch_cost (chat + embed batch; B≈8, budgeted per night)
 + N_qa × ~$0.004–0.008 per answer
 + P_projects × occasional O(P) reconcile/audit calls
 ```
+
+L2/L0 structural communities remain for hierarchy/bundles but do **not** receive LLM summaries. See [`community-summary-scaling.md`](community-summary-scaling.md).
 
 Fractional **Eigen credits** in Activity or admin spend totals come from summing per-call USD × 1000, not from LLM token counts. Wallet debits are always whole credits.
 
@@ -93,7 +95,7 @@ npm run graph-scale -- --sizes 500,1000 --confirm-spend
 |-------|-------------------|----------------|
 | **A — capture** | Does **one more atomic capture** cost more as the graph grows? | Flat USD per probe capture ± noise |
 | **B — qa** | Does retrieval/Q&A stay flat? | Flat USD per fixed query set |
-| **C — consolidation** | What does overnight cost at this graph size? | ~linear in communities summarized |
+| **C — consolidation** | What does overnight cost at this graph size? | ~linear in **eligible L1** communities / batch size |
 
 Each size **N** uses a fresh harness tenant `graph-scale-corpus-<runId>-<N>` with **N** standalone captures from the single-thought corpus (parametric overflow when N > 60).
 

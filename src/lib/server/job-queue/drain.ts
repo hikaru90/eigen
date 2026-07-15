@@ -44,6 +44,10 @@ import { JOB_QUEUE_BATCH_LIMIT, OVERNIGHT_CONSOLIDATION_JOB, WEBHOOK_DELIVERY_JO
 import { createAdminSql } from './admin-db';
 import { processOvernightConsolidationJob } from './process-overnight';
 import {
+	markOvernightJobActive,
+	markOvernightJobInactive
+} from './active-overnight-jobs';
+import {
 	WebhookDeliveryError,
 	processWebhookDeliveryJob,
 	markWebhookDeliveryFailed,
@@ -165,7 +169,12 @@ async function requeueJob(job: ClaimedJob, lastError: string): Promise<void> {
 async function dispatchJob(job: ClaimedJob): Promise<void> {
 	switch (job.jobType as UserJobType) {
 		case OVERNIGHT_CONSOLIDATION_JOB:
-			await processOvernightConsolidationJob(job);
+			markOvernightJobActive(job.id);
+			try {
+				await processOvernightConsolidationJob(job);
+			} finally {
+				markOvernightJobInactive(job.id);
+			}
 			return;
 		case WEBHOOK_DELIVERY_JOB:
 			await processWebhookDeliveryJob(job);

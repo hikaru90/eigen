@@ -25,6 +25,7 @@ import { getDb } from '$lib/server/db';
 import { communitySummary } from '$lib/server/db/schema';
 import { createThoughtEmbedding } from '$lib/server/llm/embedding';
 import { llmChatCompletion } from '$lib/server/llm/llm-client';
+import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels';
 
 export type GlobalSearchResult = {
 	answer: string;
@@ -80,6 +81,7 @@ export async function fetchRelevantCommunitySummaries(params: {
 		.where(
 			and(
 				eq(communitySummary.userId, params.userId),
+				eq(communitySummary.level, COMMUNITY_MID_LEVEL),
 				isNotNull(communitySummary.summaryEmbedding)
 			)
 		)
@@ -132,11 +134,12 @@ export async function searchGlobal(params: {
 		.where(
 			and(
 				eq(communitySummary.userId, userId),
+				eq(communitySummary.level, COMMUNITY_MID_LEVEL),
 				isNotNull(communitySummary.summaryEmbedding)
 			)
 		)
 		.orderBy(distanceExpr)
-		.limit(topK * 2); // fetch more to filter by level preference
+		.limit(topK);
 
 	if (candidates.length === 0) {
 		return {
@@ -146,14 +149,9 @@ export async function searchGlobal(params: {
 		};
 	}
 
-	// Prefer the requested level; fall back to whatever is available.
-	const preferredCandidates = candidates
-		.filter((c) => c.level === preferLevel)
-		.slice(0, topK);
+	void preferLevel;
 
-	const selected = preferredCandidates.length >= Math.ceil(topK / 2)
-		? preferredCandidates
-		: candidates.slice(0, topK);
+	const selected = candidates;
 
 	// Map step: generate a partial answer from each community summary.
 	const partialAnswers: Array<{ text: string; helpfulness: number; communityId: string; level: number; excerpt: string }> = [];

@@ -21,6 +21,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
+	import { hapticConfirm } from '$lib/haptics';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Label } from '$lib/components/ui/label';
 	import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from '$lib/capture/ingest-phases';
@@ -717,7 +718,10 @@ import { logErrorToServer } from '$lib/client-log';
 						type="button"
 						class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
 						disabled={!raw.trim() || captureBlocked || loading}
-						onclick={capture}
+						onclick={() => {
+							hapticConfirm();
+							void capture();
+						}}
 					>
 						Capture
 					</Button>

@@ -1202,11 +1202,9 @@ export const communityBundle = pgTable(
 export type CommunityBundle = typeof communityBundle.$inferSelect;
 
 /**
- * LLM-generated summaries for each community level.
- * L2 (leaf): factual — concrete themes from member thoughts.
- * L1 (domain): structural — synthesised from child leaf reports.
- * L0 (root): interpretive — personal patterns, written in second person.
- * summaryEmbedding enables HNSW search for global sensemaking queries.
+ * LLM-generated L1 (domain) routing summaries for eligible communities.
+ * Only mid-level communities with ≥2 members and linked thoughts are summarized.
+ * summaryEmbedding enables HNSW search for community ANN / global theme hints.
  */
 export const communitySummary = pgTable(
 	'community_summary',
