@@ -6,6 +6,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Play from "@lucide/svelte/icons/play";
   import Pause from "@lucide/svelte/icons/pause";
+  import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import Square from "@lucide/svelte/icons/square";
   import Check from "@lucide/svelte/icons/check";
   import Circle from "@lucide/svelte/icons/circle";
@@ -14,8 +15,12 @@
   import {
     heartbeatProgressPctFromRun,
     isHeartbeatRunFullyComplete,
+    resolveHeartbeatJobReport,
     type HeartbeatJobResult,
   } from "$lib/consolidation/heartbeat-progress";
+  import { getHeartbeatJobPlan } from "$lib/consolidation/heartbeat-job-plan";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import { resolve } from "$app/paths";
 
   let { data }: { data: PageData } = $props();
 
@@ -68,6 +73,8 @@
   let trackedRun = $state<TrackedRun | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let stoppingTaskId = $state<string | null>(null);
+  let expandedJobKey = $state<string | null>(null);
+  let retryingJobKey = $state<string | null>(null);
 
   const timeFmt = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -95,6 +102,15 @@
 
   function jobLabel(jobId: string): string {
     return jobId.replace(/_/g, " ");
+  }
+
+  function stepExpandKey(runId: string, jobId: string): string {
+    return `${runId}:${jobId}`;
+  }
+
+  function toggleStepExpand(runId: string, jobId: string) {
+    const key = stepExpandKey(runId, jobId);
+    expandedJobKey = expandedJobKey === key ? null : key;
   }
 
   function isRunFullyComplete(run: {
@@ -142,12 +158,22 @@
     task: TaskRow
   ): string | null {
     const completed = run.jobs.find((j) => j.job === jobId);
+    if (completed?.report?.summary) return completed.report.summary;
     if (completed?.detail) return completed.detail;
     if (jobId !== "community_summaries") return null;
     const stats = task.activeRun?.summaryStats;
     if (!stats || stats.total === 0) return null;
     const base = `${stats.summarized} of ${stats.total} L1 routing summaries`;
     return stats.pending > 0 ? `${base}, ${stats.pending} pending` : base;
+  }
+
+  function stepReport(jobId: string, run: DisplayRun, task: TaskRow) {
+    const completed = run.jobs.find((j) => j.job === jobId) ?? null;
+    const liveDetail =
+      jobId === "community_summaries" && !completed
+        ? stepDetail(jobId, run, task)
+        : null;
+    return resolveHeartbeatJobReport(jobId, completed, { liveDetail });
   }
 
   function displayRunFor(task: TaskRow): DisplayRun | null {
@@ -168,7 +194,59 @@
       };
     }
     if (trackedRun) return toDisplayRun(trackedRun);
+    if (task.lastRunJobs && task.lastRunJobs.length > 0) {
+      const plannedJobs = getHeartbeatJobPlan();
+      const jobs = task.lastRunJobs;
+      const runState = { plannedJobs, jobs, currentJob: null };
+      return {
+        runId: task.lastRunId ?? `last:${task.lastRunAt ?? "unknown"}`,
+        currentJob: null,
+        plannedJobs,
+        jobs,
+        progressPct: progressPctFromRun(runState),
+        cancelRequested: task.lastRunStatus === "cancelled",
+        live: false,
+      };
+    }
     return null;
+  }
+
+  async function retryFailedStep(task: TaskRow, run: DisplayRun, jobId: string) {
+    if (run.live || retryingJobKey !== null || busyTaskId !== null) return;
+    if (!task.lastRunId && !run.runId) return;
+    const runId = task.lastRunId ?? run.runId;
+    if (runId.startsWith("last:")) {
+      actionError = "Cannot retry this step — run id is missing. Refresh and try again.";
+      return;
+    }
+    const key = stepExpandKey(runId, jobId);
+    retryingJobKey = key;
+    actionMessage = null;
+    actionError = null;
+    try {
+      const res = await fetch(`/api/scheduled-tasks/${encodeURIComponent(task.id)}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, jobId }),
+      });
+      const body = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        job?: { ok?: boolean; detail?: string };
+      };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      await refreshTasks();
+      actionMessage =
+        body.message ??
+        (body.job?.ok ? `Retried ${jobLabel(jobId)} successfully.` : `Retry of ${jobLabel(jobId)} failed again.`);
+    } catch (err) {
+      actionError = err instanceof Error ? err.message : String(err);
+    } finally {
+      retryingJobKey = null;
+    }
   }
 
   function syncTrackedRun(task: TaskRow) {
@@ -470,40 +548,132 @@
                     {#each run.plannedJobs as jobId (jobId)}
                       {@const state = stepState(run, jobId)}
                       {@const detail = stepDetail(jobId, run, task)}
-                      <li class="flex items-start gap-2 text-[11px] leading-relaxed">
-                        <span class="mt-0.5 shrink-0" aria-hidden="true">
-                          {#if state === "running"}
-                            <LoaderCircle class="text-primary size-3.5 animate-spin" />
-                          {:else if state === "done"}
-                            <Check class="size-3.5 text-green-600 dark:text-green-400" />
-                          {:else if state === "failed"}
-                            <X class="text-destructive size-3.5" />
-                          {:else}
-                            <Circle class="text-muted-foreground/40 size-3.5" />
-                          {/if}
-                        </span>
-                        <span
-                          class={state === "running"
-                            ? "text-foreground"
-                            : state === "done"
-                              ? "text-muted-foreground"
-                              : state === "failed"
-                                ? "text-destructive"
-                                : "text-muted-foreground/60"}
+                      {@const report = stepReport(jobId, run, task)}
+                      {@const expandKey = stepExpandKey(run.runId, jobId)}
+                      {@const expanded = expandedJobKey === expandKey}
+                      {@const stepRetrying = retryingJobKey === expandKey}
+                      <li class="text-[11px] leading-relaxed">
+                        <button
+                          type="button"
+                          class="hover:bg-muted/50 -mx-1 flex w-[calc(100%+0.5rem)] items-start gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors"
+                          aria-expanded={expanded}
+                          onclick={() => toggleStepExpand(run.runId, jobId)}
                         >
-                          {jobLabel(jobId)}
-                          {#if detail}
-                            <span
-                              class={state === "failed"
-                                ? "text-destructive"
-                                : "text-muted-foreground"}
+                          <ChevronRight
+                            class="text-muted-foreground mt-0.5 size-3.5 shrink-0 transition-transform {expanded
+                              ? 'rotate-90'
+                              : ''}"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          />
+                          <span class="mt-0.5 shrink-0" aria-hidden="true">
+                            {#if state === "running"}
+                              <LoaderCircle class="text-primary size-3.5 animate-spin" />
+                            {:else if state === "done"}
+                              <Check class="size-3.5 text-green-600 dark:text-green-400" />
+                            {:else if state === "failed"}
+                              <X class="text-destructive size-3.5" />
+                            {:else}
+                              <Circle class="text-muted-foreground/40 size-3.5" />
+                            {/if}
+                          </span>
+                          <span
+                            class="min-w-0 flex-1 {state === 'running'
+                              ? 'text-foreground'
+                              : state === 'done'
+                                ? 'text-muted-foreground'
+                                : state === 'failed'
+                                  ? 'text-destructive'
+                                  : 'text-muted-foreground/60'}"
+                          >
+                            {jobLabel(jobId)}
+                            {#if detail}
+                              <span
+                                class={state === "failed"
+                                  ? "text-destructive"
+                                  : "text-muted-foreground"}
+                              >
+                                — {detail}
+                              </span>
+                            {:else if state === "failed"}
+                              <span class="text-destructive"> — failed</span>
+                            {/if}
+                          </span>
+                        </button>
+                        {#if expanded}
+                          <div
+                            class="border-border/50 bg-muted/30 mt-1 ml-5 space-y-2 rounded-md border px-2.5 py-2"
+                          >
+                            <p class="text-muted-foreground text-[11px] leading-relaxed">
+                              {report.explanation}
+                            </p>
+                            <p
+                              class="text-[11px] font-medium {report.verdict === 'attention'
+                                ? 'text-amber-700 dark:text-amber-400'
+                                : report.verdict === 'healthy'
+                                  ? 'text-green-700 dark:text-green-400'
+                                  : 'text-foreground'}"
                             >
-                              — {detail}
-                            </span>
-                          {:else if state === "failed"}
-                            <span class="text-destructive"> — failed</span>
-                          {/if}
-                        </span>
+                              {report.verdictLabel}
+                            </p>
+                            {#if report.samples && report.samples.length > 0}
+                              <p class="text-foreground text-[10px] font-medium tracking-wide uppercase">
+                                What changed
+                              </p>
+                              <ul class="space-y-1">
+                                {#each report.samples as sample, i (sample.id ?? `${sample.label}-${i}`)}
+                                  <li class="text-muted-foreground text-[11px] leading-snug">
+                                    {#if sample.kind === "thought" && sample.id}
+                                      <a
+                                        href="{resolve('/memory')}?thought={encodeURIComponent(sample.id)}"
+                                        class="text-foreground underline-offset-2 hover:underline"
+                                      >
+                                        {sample.label}
+                                      </a>
+                                    {:else}
+                                      <span class="text-foreground">{sample.label}</span>
+                                    {/if}
+                                    {#if sample.note}
+                                      <span class="text-muted-foreground"> — {sample.note}</span>
+                                    {/if}
+                                  </li>
+                                {/each}
+                              </ul>
+                              {#if report.sampleNote}
+                                <p class="text-muted-foreground/80 text-[10px]">
+                                  {report.sampleNote}
+                                </p>
+                              {/if}
+                            {:else if state === "done" || state === "failed"}
+                              <p class="text-muted-foreground/80 text-[10px]">
+                                No item change log for this step (often means nothing was
+                                deleted/merged — expand still explains how to judge the counts).
+                              </p>
+                            {/if}
+                            {#if state === "failed" && !run.live}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                class="mt-1 h-7 text-[11px]"
+                                disabled={retryingJobKey !== null ||
+                                  busyTaskId !== null ||
+                                  task.queueActive}
+                                onclick={(e) => {
+                                  e.stopPropagation();
+                                  void retryFailedStep(task, run, jobId);
+                                }}
+                              >
+                                {#if stepRetrying}
+                                  <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
+                                {:else}
+                                  <RotateCw class="size-3.5 shrink-0" aria-hidden="true" />
+                                {/if}
+                                Retry step
+                              </Button>
+                            {/if}
+                          </div>
+                        {/if}
                       </li>
                     {/each}
                   </ul>
@@ -542,7 +712,7 @@
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={busyTaskId !== null}
+                disabled={busyTaskId !== null || retryingJobKey !== null}
                 onclick={() => void runNow(task)}
               >
                 {#if busyTaskId === task.id}

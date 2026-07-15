@@ -13,7 +13,11 @@ const protectedEntityKeys = new Set(DEFAULT_ALL_ONTOLOGY_KIND_KEYS);
 export async function pruneUnusedOntologyEntityKinds(
 	db: AppDatabase,
 	userId: string
-): Promise<{ deletedEntityKindIds: string[]; deletedRelationKindIds: string[] }> {
+): Promise<{
+	deletedEntityKindIds: string[];
+	deletedRelationKindIds: string[];
+	deletedKeys: string[];
+}> {
 	const entities = await db
 		.select({ id: ontologyEntityKind.id, key: ontologyEntityKind.key })
 		.from(ontologyEntityKind)
@@ -36,17 +40,17 @@ export async function pruneUnusedOntologyEntityKinds(
 		.where(eq(thought.userId, userId));
 	const usedCategoryKeys = new Set(categoryRows.map((r) => r.key.trim()).filter((k) => k.length > 0));
 
-	const entityIdsToDelete = entities
-		.filter(
-			(e) =>
-				!protectedEntityKeys.has(e.key) &&
-				!usedIds.has(e.id) &&
-				!usedCategoryKeys.has(e.key)
-		)
-		.map((e) => e.id);
+	const entitiesToDelete = entities.filter(
+		(e) =>
+			!protectedEntityKeys.has(e.key) &&
+			!usedIds.has(e.id) &&
+			!usedCategoryKeys.has(e.key)
+	);
+	const entityIdsToDelete = entitiesToDelete.map((e) => e.id);
+	const deletedKeys = entitiesToDelete.map((e) => e.key);
 
 	if (entityIdsToDelete.length === 0) {
-		return { deletedEntityKindIds: [], deletedRelationKindIds: [] };
+		return { deletedEntityKindIds: [], deletedRelationKindIds: [], deletedKeys: [] };
 	}
 
 	const idSet = new Set(entityIdsToDelete);
@@ -83,6 +87,7 @@ export async function pruneUnusedOntologyEntityKinds(
 
 	return {
 		deletedEntityKindIds: entityIdsToDelete,
-		deletedRelationKindIds: relationIdsToDelete
+		deletedRelationKindIds: relationIdsToDelete,
+		deletedKeys
 	};
 }

@@ -17,3 +17,7 @@ export type HeartbeatJobId = (typeof HEARTBEAT_JOB_PLAN)[number];
 export function getHeartbeatJobPlan(): string[] {
 	return [...HEARTBEAT_JOB_PLAN];
 }
+
+export function isHeartbeatJobId(jobId: string): jobId is HeartbeatJobId {
+	return (HEARTBEAT_JOB_PLAN as readonly string[]).includes(jobId);
+}

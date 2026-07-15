@@ -43,7 +43,7 @@
   aria-label={m.memory_aria_view_tabs()}
 >
   <nav
-    class="bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card pointer-events-auto flex h-9 max-w-[calc(100vw-1rem)] shrink-0 items-stretch gap-1 overflow-x-auto rounded-full border border-white/80 p-0.5"
+    class="pointer-events-auto flex h-9 max-w-[calc(100vw-1rem)] shrink-0 items-stretch gap-1 overflow-x-auto rounded-full border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100"
   >
     {#each tabs as tab (tab.id)}
       <a
@@ -51,7 +51,7 @@
         class={cn(
           "flex h-full items-center rounded-full px-3 text-xs whitespace-nowrap",
           activeTab === tab.id
-            ? "bg-[#28F97F] text-black hover:text-black dark:bg-[#28F97F] dark:text-black dark:hover:text-black"
+            ? "bg-[var(--color-eigen-green)] text-black hover:text-black dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:text-black"
             : "text-black hover:text-black dark:text-foreground dark:hover:text-foreground",
         )}
         aria-current={activeTab === tab.id ? "page" : undefined}

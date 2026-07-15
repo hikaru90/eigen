@@ -13,6 +13,7 @@ import {
 	thoughtEntity
 } from '$lib/server/db/schema';
 import { COMMUNITY_MID_LEVEL } from './community-levels';
+import { loadBundleSamples } from './heartbeat-change-samples';
 
 const TOP_THOUGHTS_PER_COMMUNITY = 20;
 const TOP_ENTITIES_PER_COMMUNITY = 10;
@@ -20,6 +21,8 @@ const TOP_ENTITIES_PER_COMMUNITY = 10;
 export type CommunityBundleBuildResult = {
 	built: number;
 	skipped: number;
+	samples: import('$lib/consolidation/heartbeat-job-report').HeartbeatJobSample[];
+	sampleTotal: number;
 };
 
 /** Thoughts mentioning member entities, ranked by salience + recency. */
@@ -171,10 +174,14 @@ export async function buildAllCommunityBundles(userId: string): Promise<Communit
 
 	let built = 0;
 	let skipped = 0;
+	const builtIds: string[] = [];
 	for (const c of communities) {
 		const ok = await buildCommunityBundle(userId, c.id);
-		if (ok) built++;
-		else skipped++;
+		if (ok) {
+			built++;
+			if (builtIds.length < 12) builtIds.push(c.id);
+		} else skipped++;
 	}
-	return { built, skipped };
+	const samples = await loadBundleSamples(userId, builtIds).catch(() => []);
+	return { built, skipped, samples, sampleTotal: built };
 }

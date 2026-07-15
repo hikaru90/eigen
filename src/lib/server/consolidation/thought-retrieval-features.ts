@@ -21,7 +21,11 @@ function recencyBucket(createdAt: Date): number {
 }
 
 /** Assign primary communities and ranking features to thoughts for a user. */
-export async function computeThoughtRetrievalFeatures(userId: string): Promise<number> {
+export async function computeThoughtRetrievalFeatures(userId: string): Promise<{
+	updated: number;
+	samples: { kind: 'thought'; id: string; label: string; note: string }[];
+	sampleTotal: number;
+}> {
 	const db = getDb();
 
 	// Entity degree proxy: count of thought_entity links per entity.
@@ -109,11 +113,12 @@ export async function computeThoughtRetrievalFeatures(userId: string): Promise<n
 	}
 
 	const thoughts = await db
-		.select({ id: thought.id, createdAt: thought.createdAt })
+		.select({ id: thought.id, createdAt: thought.createdAt, normalizedText: thought.normalizedText })
 		.from(thought)
 		.where(eq(thought.userId, userId));
 
 	let updated = 0;
+	const samples: { kind: 'thought'; id: string; label: string; note: string }[] = [];
 	for (const t of thoughts) {
 		const feat = featuresByThought.get(t.id);
 		const primaryCommunityIds = feat ? [...feat.communityIds].slice(0, 3) : [];
@@ -131,7 +136,18 @@ export async function computeThoughtRetrievalFeatures(userId: string): Promise<n
 			})
 			.where(and(eq(thought.userId, userId), eq(thought.id, t.id)));
 		updated++;
+		if (samples.length < 12) {
+			samples.push({
+				kind: 'thought',
+				id: t.id,
+				label: t.normalizedText.trim().replace(/\s+/g, ' ').slice(0, 90),
+				note:
+					primaryCommunityIds.length > 0
+						? `ranking features · ${primaryCommunityIds.length} communities`
+						: 'ranking features · no community yet'
+			});
+		}
 	}
 
-	return updated;
+	return { updated, samples, sampleTotal: updated };
 }

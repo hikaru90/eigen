@@ -24,12 +24,12 @@ import { COMMUNITY_LEAF_LEVEL } from './community-levels';
 export { COMMUNITY_LEAF_LEVEL };
 
 /** Brand mesh accent — mesh.svg / DESIGN.md; community borders and label chips. */
-export const COMMUNITY_HULL_ACCENT = '#28F97F';
+export const COMMUNITY_HULL_ACCENT = '#22E876';
 
 /** White radial hull fill — leaf (L2) only; pair with zoom-scaled opacity. */
 export const COMMUNITY_HULL_GRADIENT = {
-	center: 'oklch(1 0 0 / 0.88)',
-	mid: 'oklch(1 0 0 / 0.14)',
+	center: 'oklch(1 0 0 / 0.20)',
+	mid: 'oklch(1 0 0 / 0.04)',
 	edge: 'oklch(1 0 0 / 0)'
 };
 

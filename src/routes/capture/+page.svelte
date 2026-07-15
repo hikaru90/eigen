@@ -76,10 +76,23 @@ import { logErrorToServer } from '$lib/client-log';
 		}
 	});
 
-	type GroundingQuestionPayload = { facetKey: string; question: string } | null;
-	let groundingQuestion = $state<GroundingQuestionPayload>(null);
+	type CheckInQuestionPayload =
+		| { kind: 'grounding'; facetKey: string; question: string }
+		| {
+				kind: 'relevance';
+				thoughtId: string;
+				snippet: string;
+				question: string;
+		  }
+		| null;
+	let groundingQuestion = $state<CheckInQuestionPayload>(null);
 	let groundingQuestionDismissed = $state(false);
 	let groundingQuestionLoading = $state(false);
+
+	function shouldScrollToCheckIn(): boolean {
+		const params = page.url.searchParams;
+		return params.get('checkin') === '1' || params.get('grounding') === '1';
+	}
 
 	async function fetchGroundingQuestion() {
 		if (!data.groundingQuestionEligible || groundingQuestionDismissed || groundingQuestionLoading) {
@@ -90,10 +103,38 @@ import { logErrorToServer } from '$lib/client-log';
 			const res = await fetch('/api/grounding/question', { cache: 'no-store' });
 			if (!res.ok) return;
 			const payload = (await res.json()) as {
-				question?: { facetKey: string; question: string } | null;
+				question?:
+					| {
+							kind?: 'grounding' | 'relevance';
+							facetKey?: string;
+							thoughtId?: string;
+							snippet?: string;
+							question?: string;
+					  }
+					| null;
 			};
-			groundingQuestion = payload.question?.question ? payload.question : null;
-			if (groundingQuestion && page.url.searchParams.get('grounding') === '1') {
+			const q = payload.question;
+			if (!q?.question) {
+				groundingQuestion = null;
+				return;
+			}
+			if (q.kind === 'relevance' && q.thoughtId && q.snippet) {
+				groundingQuestion = {
+					kind: 'relevance',
+					thoughtId: q.thoughtId,
+					snippet: q.snippet,
+					question: q.question
+				};
+			} else if (q.facetKey) {
+				groundingQuestion = {
+					kind: 'grounding',
+					facetKey: q.facetKey,
+					question: q.question
+				};
+			} else {
+				groundingQuestion = null;
+			}
+			if (groundingQuestion && shouldScrollToCheckIn()) {
 				queueMicrotask(() => {
 					document.getElementById('grounding-question')?.scrollIntoView({
 						behavior: 'smooth',
@@ -646,18 +687,36 @@ import { logErrorToServer } from '$lib/client-log';
 <div class="fixed inset-x-0 top-20 bottom-0 z-0 mx-auto flex max-w-xl flex-col overflow-hidden">
 	<div class="relative z-10 shrink-0 space-y-4 bg-background px-5">
 		{#if groundingQuestion && !groundingQuestionDismissed}
-			<GroundingQuestionCard
-				facetKey={groundingQuestion.facetKey}
-				question={groundingQuestion.question}
-				onDismiss={() => {
-					groundingQuestionDismissed = true;
-					groundingQuestion = null;
-				}}
-				onSaved={() => {
-					groundingQuestionDismissed = true;
-					groundingQuestion = null;
-				}}
-			/>
+			{#if groundingQuestion.kind === 'relevance'}
+				<GroundingQuestionCard
+					kind="relevance"
+					thoughtId={groundingQuestion.thoughtId}
+					snippet={groundingQuestion.snippet}
+					question={groundingQuestion.question}
+					onDismiss={() => {
+						groundingQuestionDismissed = true;
+						groundingQuestion = null;
+					}}
+					onSaved={() => {
+						groundingQuestionDismissed = true;
+						groundingQuestion = null;
+					}}
+				/>
+			{:else}
+				<GroundingQuestionCard
+					kind="grounding"
+					facetKey={groundingQuestion.facetKey}
+					question={groundingQuestion.question}
+					onDismiss={() => {
+						groundingQuestionDismissed = true;
+						groundingQuestion = null;
+					}}
+					onSaved={() => {
+						groundingQuestionDismissed = true;
+						groundingQuestion = null;
+					}}
+				/>
+			{/if}
 		{/if}
 		{#if captureBlocked}
 			<Card.Root class="shrink-0 border-2 border-black dark:border-border">

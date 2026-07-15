@@ -97,7 +97,7 @@
 		</button>
 		{#each agentLayers as layer (layer.key)}
 			<button type="button" class={optionClass(layer.key)} onclick={() => select(layer.key)}>
-				<span class="text-[#28F97F]"><AuthorLayerIcon kind="agent" size="sm" /></span>
+				<span class="text-[var(--color-eigen-green)]"><AuthorLayerIcon kind="agent" size="sm" /></span>
 				<span class="truncate">{layer.label}</span>
 				{#if view === layer.key}
 					<span class="ml-auto text-foreground">✓</span>

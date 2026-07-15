@@ -17,6 +17,14 @@ import {
 	consolidateCanonicalEntityAliasesForUser,
 	repairCanonicalEntityTypesForUser
 } from '$lib/server/memory/canonical-entity-admin';
+import {
+	buildHeartbeatJobReport,
+	type HeartbeatJobReport
+} from '$lib/consolidation/heartbeat-job-report';
+import {
+	isHeartbeatJobId,
+	type HeartbeatJobId
+} from '$lib/consolidation/heartbeat-job-plan';
 import { runSalienceCompute } from './compute-salience';
 import { repairEntityRelationsForUser } from './repair-entity-relations';
 import { runCommunityDetection } from './community-detection';
@@ -39,6 +47,8 @@ export type ConsolidationJobResult = {
 	ok: boolean;
 	detail?: string;
 	durationMs: number;
+	/** Plain-language explanation + optional samples for the Heartbeat UI. */
+	report?: HeartbeatJobReport;
 };
 
 export type ConsolidationRunResult = {
@@ -134,6 +144,14 @@ function formatJobResultDetail(detail: unknown): string | undefined {
 		if (r.openTasks > 0) parts.push(`${r.openTasks} open tasks raised`);
 		return parts.length > 0 ? parts.join(', ') : 'nothing to adjust';
 	}
+	if ('updated' in detail && typeof (detail as { updated: unknown }).updated === 'number') {
+		const n = (detail as { updated: number }).updated;
+		return `${n} thoughts updated`;
+	}
+	if ('built' in detail && 'skipped' in detail) {
+		const r = detail as { built: number; skipped: number };
+		return `${r.built} bundles built${r.skipped > 0 ? `, ${r.skipped} skipped` : ''}`;
+	}
 	return undefined;
 }
 
@@ -153,6 +171,25 @@ export function formatConsolidationJobSummaries(jobs: ConsolidationJobResult[]):
 function jobDetailFromResult(detail: unknown): string | undefined {
 	if (typeof detail === 'string' && detail.trim()) return detail;
 	return formatJobResultDetail(detail);
+}
+
+function attachJobReport(
+	job: string,
+	ok: boolean,
+	raw: unknown,
+	detail: string | undefined
+): { detail: string; report: HeartbeatJobReport } {
+	const report = buildHeartbeatJobReport(job, raw, { ok, detail });
+	// Preserve operator-facing suffixes the structured summary would drop.
+	if (
+		typeof detail === 'string' &&
+		detail.trim() &&
+		(detail.includes('skipped (communities unchanged)') ||
+			detail.includes('will resume next run'))
+	) {
+		report.summary = detail;
+	}
+	return { detail: report.summary, report };
 }
 
 export type ConsolidateForUserOptions = {
@@ -176,12 +213,15 @@ async function runJob(
 	}
 	try {
 		console.info('[consolidation] job executing', { phase, job: name });
-		const detail = await fn();
+		const raw = await fn();
+		const detail = jobDetailFromResult(raw);
+		const withReport = attachJobReport(name, true, raw, detail);
 		const result: ConsolidationJobResult = {
 			phase,
 			job: name,
 			ok: true,
-			detail: jobDetailFromResult(detail),
+			detail: withReport.detail,
+			report: withReport.report,
 			durationMs: Date.now() - start
 		};
 		try {
@@ -197,11 +237,13 @@ async function runJob(
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error('[consolidation] job failed', { phase, job: name, message });
+		const withReport = attachJobReport(name, false, null, message);
 		const result: ConsolidationJobResult = {
 			phase,
 			job: name,
 			ok: false,
-			detail: message,
+			detail: withReport.detail,
+			report: withReport.report,
 			durationMs: Date.now() - start
 		};
 		try {
@@ -224,6 +266,83 @@ async function shouldStop(options?: ConsolidateForUserOptions): Promise<boolean>
 }
 
 /**
+ * Run a single consolidation job (for retrying a failed heartbeat step).
+ * Does not run other phases — only the requested job id.
+ */
+export async function runConsolidationJobForUser(
+	userId: string,
+	jobId: HeartbeatJobId,
+	options?: ConsolidateForUserOptions
+): Promise<ConsolidationJobResult> {
+	if (!isHeartbeatJobId(jobId)) {
+		throw new Error(`Unknown consolidation job: ${jobId}`);
+	}
+	return withDbUser(userId, () => executeConsolidationJob(userId, jobId, options));
+}
+
+async function executeConsolidationJob(
+	userId: string,
+	jobId: HeartbeatJobId,
+	options?: ConsolidateForUserOptions
+): Promise<ConsolidationJobResult> {
+	switch (jobId) {
+		case 'salience_compute':
+			return runJob('deep_sleep', 'salience_compute', () => runSalienceCompute(userId), options);
+		case 'ontology_prune':
+			return runJob(
+				'deep_sleep',
+				'ontology_prune',
+				async () => pruneUnusedOntologyEntityKinds(getDb(), userId),
+				options
+			);
+		case 'repair_canonical_entity_types':
+			return runJob(
+				'deep_sleep',
+				'repair_canonical_entity_types',
+				() => repairCanonicalEntityTypesForUser(userId),
+				options
+			);
+		case 'dedup_canonical_entities':
+			return runJob(
+				'deep_sleep',
+				'dedup_canonical_entities',
+				() => consolidateCanonicalEntityAliasesForUser(userId),
+				options
+			);
+		case 'repair_entity_relations':
+			return runJob(
+				'deep_sleep',
+				'repair_entity_relations',
+				() =>
+					repairEntityRelationsForUser(userId, {
+						shouldCancel: () => shouldStop(options)
+					}),
+				options
+			);
+		case 'community_detection':
+			return runJob('rem', 'community_detection', () => runCommunityDetection(userId), options);
+		case 'community_summaries':
+			return runCommunitySummariesJob(userId, options);
+		case 'community_bundles':
+			return runJob('rem', 'community_bundles', () => buildAllCommunityBundles(userId), options);
+		case 'retrieval_links_backfill':
+			return runJob(
+				'rem',
+				'retrieval_links_backfill',
+				() => backfillRetrievalLinksForUser(userId),
+				options
+			);
+		case 'thought_retrieval_features':
+			return runJob(
+				'rem',
+				'thought_retrieval_features',
+				() => computeThoughtRetrievalFeatures(userId),
+				options
+			);
+	}
+}
+
+/**
  * Run all consolidation jobs for a single user (RLS-scoped via {@link withDbUser}).
  */
 export async function consolidateForUser(
@@ -238,43 +357,27 @@ export async function consolidateForUser(
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('deep_sleep', 'salience_compute', () => runSalienceCompute(userId), options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'salience_compute', options));
 
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('deep_sleep', 'ontology_prune', async () => {
-				const pruned = await pruneUnusedOntologyEntityKinds(getDb(), userId);
-				return pruned;
-			}, options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'ontology_prune', options));
 
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('deep_sleep', 'repair_canonical_entity_types', () =>
-				repairCanonicalEntityTypesForUser(userId), options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'repair_canonical_entity_types', options));
 
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('deep_sleep', 'dedup_canonical_entities', () =>
-				consolidateCanonicalEntityAliasesForUser(userId), options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'dedup_canonical_entities', options));
 
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('deep_sleep', 'repair_entity_relations', () =>
-				repairEntityRelationsForUser(userId, { shouldCancel: () => shouldStop(options) }), options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'repair_entity_relations', options));
 
 		// ---- Phase 2: REM --------------------------------------------------------
 		if (await shouldStop(options)) {
@@ -306,27 +409,18 @@ export async function consolidateForUser(
 			if (await shouldStop(options)) {
 				return { userId, jobs, totalDurationMs: Date.now() - start };
 			}
-			jobs.push(
-				await runJob('rem', 'community_bundles', () => buildAllCommunityBundles(userId), options)
-			);
+			jobs.push(await executeConsolidationJob(userId, 'community_bundles', options));
 		}
 
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('rem', 'retrieval_links_backfill', () => backfillRetrievalLinksForUser(userId), options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'retrieval_links_backfill', options));
 
 		if (await shouldStop(options)) {
 			return { userId, jobs, totalDurationMs: Date.now() - start };
 		}
-		jobs.push(
-			await runJob('rem', 'thought_retrieval_features', async () => {
-				const updated = await computeThoughtRetrievalFeatures(userId);
-				return `${updated} thoughts updated`;
-			}, options)
-		);
+		jobs.push(await executeConsolidationJob(userId, 'thought_retrieval_features', options));
 
 		return { userId, jobs, totalDurationMs: Date.now() - start };
 	});
@@ -351,11 +445,13 @@ async function skipCommunitySummariesJob(
 			message
 		});
 	}
+	const withReport = attachJobReport('community_summaries', true, stats, detail);
 	const result: ConsolidationJobResult = {
 		phase: 'rem',
 		job: 'community_summaries',
 		ok: true,
-		detail,
+		detail: withReport.detail,
+		report: withReport.report,
 		durationMs: Date.now() - start
 	};
 	console.info('[consolidation] job skipped', { phase: 'rem', job: 'community_summaries', detail });
@@ -393,11 +489,15 @@ async function runCommunitySummariesJob(
 		const detail = formatCommunitySummaryDetail(summaryResult);
 		// Budget exhaustion is resumable work, not a failed heartbeat.
 		const ok = !summaryResult.failed;
+		const detailWithResume =
+			summaryResult.deferred > 0 ? `${detail} — will resume next run` : detail;
+		const withReport = attachJobReport('community_summaries', ok, summaryResult, detailWithResume);
 		const result: ConsolidationJobResult = {
 			phase: 'rem',
 			job: 'community_summaries',
 			ok,
-			detail: summaryResult.deferred > 0 ? `${detail} — will resume next run` : detail,
+			detail: withReport.detail,
+			report: withReport.report,
 			durationMs: Date.now() - start
 		};
 		if (summaryResult.failed) {
@@ -418,11 +518,13 @@ async function runCommunitySummariesJob(
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		console.error('[consolidation] job failed', { phase: 'rem', job: 'community_summaries', message });
+		const withReport = attachJobReport('community_summaries', false, null, message);
 		const result: ConsolidationJobResult = {
 			phase: 'rem',
 			job: 'community_summaries',
 			ok: false,
-			detail: message,
+			detail: withReport.detail,
+			report: withReport.report,
 			durationMs: Date.now() - start
 		};
 		try {

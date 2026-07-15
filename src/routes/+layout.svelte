@@ -191,10 +191,23 @@
     class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
     aria-label="Main navigation"
   >
-    <div class="relative flex flex-row items-center justify-between gap-2 px-4 pb-safe">
-      <div
-        class="pointer-events-none absolute inset-x-0 -top-24 bottom-0 -z-10 bg-linear-to-t from-background to-transparent"
-      ></div>
+    <!-- Gradient blur stack (mirrors header, inverted): full at bottom, fades upward -->
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-20 backdrop-blur-sm"
+      style="-webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
+    ></div>
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-20 backdrop-blur-[2px]"
+      style="-webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
+    ></div>
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-20"
+      style="background: linear-gradient(to top, var(--background) 0%, color-mix(in oklab, var(--background) 72%, transparent) 22%, color-mix(in oklab, var(--background) 40%, transparent) 48%, color-mix(in oklab, var(--background) 14%, transparent) 74%, transparent 100%);"
+    ></div>
+    <div class="relative z-10 flex flex-row items-center justify-between gap-2 px-4 pb-safe">
       {#each bottomNavItems as item}
         {@const isActive = isNavItemActive(item.href)}
         <div class={cn("relative", item.variant === "primary" ? "min-h-10 flex-1" : "shrink-0")}>
@@ -203,14 +216,14 @@
             class={cn(
               "flex items-center justify-center",
               item.variant === "primary"
-                ? "w-full rounded-full bg-primary py-4 text-primary-foreground shadow-md"
-                : "size-10 rounded-full bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
+                ? "w-full rounded-full bg-primary py-4 text-primary-foreground shadow-md dark:border dark:border-white/15 dark:bg-black/70 dark:text-white dark:shadow-none dark:backdrop-blur-md dark:hover:bg-black/80"
+                : "size-10 rounded-full border border-transparent bg-black text-white hover:bg-black/90 dark:border-white/15 dark:bg-black/70 dark:text-white dark:backdrop-blur-md dark:hover:bg-black/80",
             )}
             aria-label={item.label}
             aria-current={isActive ? "page" : undefined}
           >
             <item.icon
-              class={cn("size-4.5", isActive && "text-[#28F97F]")}
+              class={cn("size-4.5", isActive && "text-[var(--color-eigen-green)]")}
               strokeWidth={1.75}
             />
           </a>

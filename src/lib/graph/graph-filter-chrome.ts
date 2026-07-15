@@ -1,6 +1,6 @@
 /** Shared frosted chrome for graph / timeline filter controls (matches bottom view tabs). */
 const GRAPH_FILTER_GLASS_BASE =
-	'border border-white/80 bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card';
+	'border border-white/80 bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100';
 
 /** Single-line pill controls (icon rows, popover triggers). */
 export const GRAPH_FILTER_GLASS = `rounded-full ${GRAPH_FILTER_GLASS_BASE}`;

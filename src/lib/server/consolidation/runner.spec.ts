@@ -70,8 +70,22 @@ vi.mock('./community-summaries', () => ({
 		return parts.join(', ');
 	}
 }));
+vi.mock('./community-bundles', () => ({
+	buildAllCommunityBundles: vi.fn().mockResolvedValue({ communities: 0, bundled: 0 })
+}));
+vi.mock('./thought-retrieval-features', () => ({
+	computeThoughtRetrievalFeatures: vi.fn().mockResolvedValue({ updated: 0 })
+}));
+vi.mock('$lib/server/retrieval/materialize-links', () => ({
+	backfillRetrievalLinksForUser: vi.fn().mockResolvedValue({ entities: 0, thoughts: 0 })
+}));
 
-import { consolidateForUser, formatConsolidationJobErrors, formatConsolidationJobSummaries } from './runner';
+import {
+	consolidateForUser,
+	formatConsolidationJobErrors,
+	formatConsolidationJobSummaries,
+	runConsolidationJobForUser
+} from './runner';
 
 describe('formatConsolidationJobSummaries', () => {
 	it('includes timing and work detail for each step', () => {
@@ -124,6 +138,25 @@ describe('formatConsolidationJobErrors', () => {
 	});
 });
 
+describe('runConsolidationJobForUser', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('runs only the requested job', async () => {
+		const result = await runConsolidationJobForUser('u1', 'repair_entity_relations');
+
+		expect(repairRelationsMock).toHaveBeenCalledWith(
+			'u1',
+			expect.objectContaining({ shouldCancel: expect.any(Function) })
+		);
+		expect(salienceComputeMock).not.toHaveBeenCalled();
+		expect(runDetectionMock).not.toHaveBeenCalled();
+		expect(result.job).toBe('repair_entity_relations');
+		expect(result.ok).toBe(true);
+	});
+});
+
 describe('consolidateForUser', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -137,9 +170,15 @@ describe('consolidateForUser', () => {
 		expect(pruneMock).toHaveBeenCalled();
 		expect(repairTypesMock).toHaveBeenCalledWith('u1');
 		expect(dedupEntitiesMock).toHaveBeenCalledWith('u1');
-		expect(repairRelationsMock).toHaveBeenCalledWith('u1', expect.objectContaining({ shouldCancel: expect.any(Function) }));
+		expect(repairRelationsMock).toHaveBeenCalledWith(
+			'u1',
+			expect.objectContaining({ shouldCancel: expect.any(Function) })
+		);
 		expect(runDetectionMock).toHaveBeenCalledWith('u1');
-		expect(runSummariesMock).toHaveBeenCalledWith('u1', expect.objectContaining({ shouldCancel: expect.any(Function) }));
+		expect(runSummariesMock).toHaveBeenCalledWith(
+			'u1',
+			expect.objectContaining({ shouldCancel: expect.any(Function) })
+		);
 
 		const phases = result.jobs.map((j) => j.phase);
 		const deepSleepEnd = phases.lastIndexOf('deep_sleep');

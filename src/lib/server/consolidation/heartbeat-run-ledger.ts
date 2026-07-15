@@ -284,6 +284,90 @@ export async function loadHeartbeatRunById(
 	});
 }
 
+/**
+ * Replace one job result on a finished heartbeat run (single-step retry).
+ * Recomputes run status from the updated jobs list.
+ */
+export async function replaceFinishedHeartbeatJobResult(
+	userId: string,
+	runId: string,
+	jobResult: ConsolidationJobResult
+): Promise<HeartbeatRunSnapshot> {
+	return withDbUser(userId, async () => {
+		const db = getDb();
+		const [row] = await db
+			.select({
+				id: heartbeatRun.id,
+				startedAt: heartbeatRun.startedAt,
+				status: heartbeatRun.status,
+				plannedJobs: heartbeatRun.plannedJobs,
+				currentJob: heartbeatRun.currentJob,
+				cancelRequested: heartbeatRun.cancelRequested,
+				jobs: heartbeatRun.jobs,
+				totalDurationMs: heartbeatRun.totalDurationMs,
+				errorMessage: heartbeatRun.errorMessage
+			})
+			.from(heartbeatRun)
+			.where(and(eq(heartbeatRun.id, runId), eq(heartbeatRun.userId, userId)))
+			.limit(1);
+
+		if (!row) {
+			throw new Error('Heartbeat run not found');
+		}
+		if (row.status === 'running') {
+			throw new Error('Cannot replace a job while the heartbeat is still running');
+		}
+
+		const existingJobs = (row.jobs ?? []) as ConsolidationJobResult[];
+		const idx = existingJobs.findIndex((j) => j.job === jobResult.job);
+		if (idx < 0) {
+			throw new Error(`Job ${jobResult.job} is not part of this heartbeat run`);
+		}
+
+		const previous = existingJobs[idx];
+		const nextJobs = [...existingJobs];
+		nextJobs[idx] = jobResult;
+		const errors = formatConsolidationJobErrors(nextJobs);
+		const nextStatus: HeartbeatRunStatus =
+			row.status === 'cancelled'
+				? 'cancelled'
+				: errors.length > 0
+					? 'failed'
+					: 'completed';
+		const totalDurationMs = Math.max(
+			0,
+			row.totalDurationMs - previous.durationMs + jobResult.durationMs
+		);
+
+		const [updated] = await db
+			.update(heartbeatRun)
+			.set({
+				status: nextStatus,
+				jobs: nextJobs as ConsolidationJobResult[],
+				totalDurationMs,
+				errorMessage: errors.length > 0 ? errors.join('; ') : null,
+				currentJob: null
+			})
+			.where(and(eq(heartbeatRun.id, runId), eq(heartbeatRun.userId, userId)))
+			.returning({
+				id: heartbeatRun.id,
+				startedAt: heartbeatRun.startedAt,
+				status: heartbeatRun.status,
+				plannedJobs: heartbeatRun.plannedJobs,
+				currentJob: heartbeatRun.currentJob,
+				cancelRequested: heartbeatRun.cancelRequested,
+				jobs: heartbeatRun.jobs,
+				totalDurationMs: heartbeatRun.totalDurationMs,
+				errorMessage: heartbeatRun.errorMessage
+			});
+
+		if (!updated) {
+			throw new Error('Failed to update heartbeat run after job retry');
+		}
+		return rowToSnapshot({ ...updated, status: updated.status as HeartbeatRunStatus });
+	});
+}
+
 export function heartbeatProgressPct(
 	snapshot: HeartbeatRunSnapshot,
 	summaryStats?: CommunitySummaryStats | null

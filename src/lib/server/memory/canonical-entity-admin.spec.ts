@@ -357,7 +357,7 @@ describe('canonical-entity-admin', () => {
 			}))
 		});
 
-		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toEqual({ repaired: 0 });
+		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toEqual({ repaired: 0, samples: [], sampleTotal: 0 });
 	});
 
 	it('updateCanonicalEntityForUser rejects empty label', async () => {
@@ -407,7 +407,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 1,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -445,7 +447,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 2,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -470,7 +474,7 @@ describe('canonical-entity-admin', () => {
 			}))
 		});
 
-		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toEqual({ repaired: 1 });
+		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toMatchObject({ repaired: 1, sampleTotal: 1 });
 		expect(upsertEntityNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'ent-1', entityType: 'concept' })
 		);
@@ -663,7 +667,7 @@ describe('canonical-entity-admin', () => {
 			}))
 		});
 
-		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toEqual({ repaired: 1 });
+		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toMatchObject({ repaired: 1, sampleTotal: 1 });
 		expect(upsertEntityNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'ent-2', entityType: 'person' })
 		);
@@ -691,7 +695,7 @@ describe('canonical-entity-admin', () => {
 			}))
 		});
 
-		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toEqual({ repaired: 1 });
+		await expect(repairCanonicalEntityTypesForUser('u1')).resolves.toMatchObject({ repaired: 1, sampleTotal: 1 });
 		expect(upsertEntityNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'ent-3', entityType: 'alpha' })
 		);
@@ -731,7 +735,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 1,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -771,7 +777,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 2,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -802,7 +810,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 2,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -841,7 +851,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 2,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -880,7 +892,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 2,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -928,10 +942,11 @@ describe('canonical-entity-admin', () => {
 		});
 		getDbMock.mockReturnValue(db);
 
-		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
+		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toMatchObject({
 			scanned: 2,
 			candidates: 1,
-			merged: 1
+			merged: 1,
+			sampleTotal: 1
 		});
 		expect(db.update).toHaveBeenCalled();
 		expect(db.insert).toHaveBeenCalled();
@@ -955,7 +970,9 @@ describe('canonical-entity-admin', () => {
 		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
 			scanned: 0,
 			candidates: 0,
-			merged: 0
+			merged: 0,
+			samples: [],
+			sampleTotal: 0
 		});
 	});
 
@@ -1003,10 +1020,11 @@ describe('canonical-entity-admin', () => {
 		});
 		getDbMock.mockReturnValue(db);
 
-		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
+		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toMatchObject({
 			scanned: 2,
 			candidates: 1,
-			merged: 1
+			merged: 1,
+			sampleTotal: 1
 		});
 		expect(upsertEntityNodeMock).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'e2', userId: 'u1' })
@@ -1078,10 +1096,11 @@ describe('canonical-entity-admin', () => {
 		});
 		getDbMock.mockReturnValue(db);
 
-		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toEqual({
+		await expect(consolidateCanonicalEntityAliasesForUser('u1')).resolves.toMatchObject({
 			scanned: 3,
 			candidates: 1,
-			merged: 1
+			merged: 1,
+			sampleTotal: 1
 		});
 	});
 });

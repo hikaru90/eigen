@@ -259,6 +259,8 @@ export async function materializeRetrievalLinksForThought(input: {
 export async function backfillRetrievalLinksForUser(userId: string): Promise<{
 	thoughts: number;
 	entities: number;
+	samples: { kind: 'thought'; id: string; label: string; note: string }[];
+	sampleTotal: number;
 }> {
 	const db = getDb();
 	const thoughts = await db
@@ -282,5 +284,17 @@ export async function backfillRetrievalLinksForUser(userId: string): Promise<{
 	const uniqueEntityIds = [...new Set(entityIds.map((r) => r.entityId))];
 	await rebuildEntityTopThoughtsForEntities(userId, uniqueEntityIds);
 
-	return { thoughts: thoughts.length, entities: uniqueEntityIds.length };
+	const samples = thoughts.slice(0, 12).map((row) => ({
+		kind: 'thought' as const,
+		id: row.id,
+		label: row.normalizedText.trim().replace(/\s+/g, ' ').slice(0, 90),
+		note: 'search links refreshed'
+	}));
+
+	return {
+		thoughts: thoughts.length,
+		entities: uniqueEntityIds.length,
+		samples,
+		sampleTotal: thoughts.length
+	};
 }

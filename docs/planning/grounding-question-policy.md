@@ -4,6 +4,8 @@
 
 Optional capture cards and grounding conversations both persist into `user_grounding_profile`. This document defines **when** we may ask, **how** questions should sound, and **what** answers are for.
 
+The Capture card slot is shared with **relevance check-ins** (same cadence). Prefer a grounding blank when one exists; otherwise see [`relevance-checkin-policy.md`](./relevance-checkin-policy.md).
+
 Related: [`grounding-onboarding.md`](./grounding-onboarding.md) (onboarding chat), [`qa-grounding-hardening.md`](./qa-grounding-hardening.md) (profile use at answer time).
 
 ---
@@ -125,15 +127,16 @@ Eigen uses this literature to decide **which blanks are worth filling**. Wording
 
 ## Implementation
 
-Optional capture cards call `generateGroundingQuestion()`:
+Optional capture cards call `generateCheckInQuestion()` (grounding first, then relevance):
 
-1. LLM selects an approved `templateId` (and optional `anchor` from captures) or returns `skip`.
+1. For grounding: LLM selects an approved `templateId` (and optional `anchor` from captures) or returns `skip`.
 2. [`question-templates.ts`](../../src/lib/server/grounding/question-templates.ts) builds the final question text — no free-form LLM wording.
-3. Invalid template, missing required anchor, or skip → no card shown.
+3. Invalid template, missing required anchor, or skip → try relevance / no card shown.
 
 Code touchpoints:
 
-- [`src/lib/server/grounding/next-question.ts`](../../src/lib/server/grounding/next-question.ts) — template selection
+- [`src/lib/server/grounding/next-check-in.ts`](../../src/lib/server/grounding/next-check-in.ts) — shared check-in entry
+- [`src/lib/server/grounding/next-question.ts`](../../src/lib/server/grounding/next-question.ts) — grounding template selection
 - [`src/lib/server/grounding/question-templates.ts`](../../src/lib/server/grounding/question-templates.ts) — approved questions
 - [`src/lib/components/grounding-question-card.svelte`](../../src/lib/components/grounding-question-card.svelte) — UI copy
 

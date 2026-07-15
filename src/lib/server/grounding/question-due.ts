@@ -38,6 +38,9 @@ export async function isGroundingQuestionDue(
 	return true;
 }
 
+/** Shared check-in cadence: grounding blank or relevance (one slot). */
+export const isCheckInQuestionDue = isGroundingQuestionDue;
+
 export async function loadRecentThoughtsForGroundingQuestion(
 	userId: string,
 	limit = 8
@@ -73,3 +76,6 @@ export async function touchGroundingQuestionPrompt(userId: string): Promise<void
 			}
 		});
 }
+
+/** Shared check-in cooldown touch (grounding or relevance). */
+export const touchCheckInQuestionPrompt = touchGroundingQuestionPrompt;

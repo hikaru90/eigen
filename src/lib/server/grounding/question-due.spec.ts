@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { isGroundingQuestionDue } from '$lib/server/grounding/question-due';
+import {
+	isCheckInQuestionDue,
+	isGroundingQuestionDue
+} from '$lib/server/grounding/question-due';
 
 const { countMock, loadGroundingProfileRowMock } = vi.hoisted(() => ({
 	countMock: vi.fn(),
@@ -48,5 +51,10 @@ describe('isGroundingQuestionDue', () => {
 	it('is not due off-interval capture counts', async () => {
 		countMock.mockResolvedValue([{ count: 11 }]);
 		expect(await isGroundingQuestionDue('u1')).toBe(false);
+	});
+
+	it('shares cadence alias for check-ins', async () => {
+		expect(isCheckInQuestionDue).toBe(isGroundingQuestionDue);
+		expect(await isCheckInQuestionDue('u1')).toBe(true);
 	});
 });

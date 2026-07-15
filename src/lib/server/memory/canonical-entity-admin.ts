@@ -120,7 +120,13 @@ export async function updateCanonicalEntityForUser(
  * one of the user's **active entity_type** ontology kind keys — e.g. legacy rows typed with old cognitive keys.
  * Picks the first still-active entity type kind as fallback (defaults to 'concept').
  */
-export async function repairCanonicalEntityTypesForUser(userId: string): Promise<{ repaired: number }> {
+export async function repairCanonicalEntityTypesForUser(
+	userId: string
+): Promise<{
+	repaired: number;
+	samples: { kind: 'entity'; id: string; label: string; note: string }[];
+	sampleTotal: number;
+}> {
 	await ensureUserOntologySeeded(getDb(), userId);
 	// Upgrade path: insert entity type kinds if the user only has the old cognitive ontology
 	await ensureEntityTypeKindsSeeded(getDb(), userId);
@@ -155,7 +161,14 @@ export async function repairCanonicalEntityTypesForUser(userId: string): Promise
 		.from(canonicalEntity)
 		.where(and(eq(canonicalEntity.userId, userId), notInArray(canonicalEntity.entityType, activeTypeList)));
 
-	if (stale.length === 0) return { repaired: 0 };
+	if (stale.length === 0) return { repaired: 0, samples: [], sampleTotal: 0 };
+
+	const samples = stale.slice(0, 12).map((row) => ({
+		kind: 'entity' as const,
+		id: row.id,
+		label: row.label.trim() || row.canonicalKey,
+		note: `${row.entityType} → ${fallback}`
+	}));
 
 	for (const row of stale) {
 		await getDb()
@@ -171,7 +184,7 @@ export async function repairCanonicalEntityTypesForUser(userId: string): Promise
 		});
 	}
 
-	return { repaired: stale.length };
+	return { repaired: stale.length, samples, sampleTotal: stale.length };
 }
 
 export async function syncCanonicalEntityVertexToGraph(
@@ -269,6 +282,8 @@ export type ConsolidateCanonicalEntityAliasesResult = {
 	scanned: number;
 	candidates: number;
 	merged: number;
+	samples: { kind: 'entity'; id: string; label: string; note: string }[];
+	sampleTotal: number;
 };
 
 /**
@@ -309,11 +324,14 @@ export async function consolidateCanonicalEntityAliasesForUser(
 	const available = rows.filter(
 		(row): row is typeof row & { embedding: number[] } => Array.isArray(row.embedding)
 	);
-	if (available.length < 2) return { scanned: available.length, candidates: 0, merged: 0 };
+	if (available.length < 2) {
+		return { scanned: available.length, candidates: 0, merged: 0, samples: [], sampleTotal: 0 };
+	}
 
 	const mergedIds = new Set<string>();
 	let candidates = 0;
 	let merged = 0;
+	const samples: ConsolidateCanonicalEntityAliasesResult['samples'] = [];
 
 	for (const row of available) {
 		if (mergedIds.has(row.id)) continue;
@@ -382,7 +400,15 @@ export async function consolidateCanonicalEntityAliasesForUser(
 			.delete(canonicalEntity)
 			.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, secondary.id)));
 		merged++;
+		if (samples.length < 12) {
+			samples.push({
+				kind: 'entity',
+				id: primary.id,
+				label: primary.canonicalKey,
+				note: `kept; merged away “${secondary.canonicalKey}”`
+			});
+		}
 	}
 
-	return { scanned: available.length, candidates, merged };
+	return { scanned: available.length, candidates, merged, samples, sampleTotal: merged };
 }

@@ -101,7 +101,7 @@
 	"graph_embedding_empty_hint": "Erfassen Sie Gedanken — Einbettungen werden bei der Erfassung berechnet.",
 	"graph_embedding_aria": "Einbettungskarte — 3D-UMAP-Projektion Ihrer Gedanken und Entitäten",
 	"graph_embedding_stats": "{thoughts} Gedanken · {entities} Entitäten",
-	"graph_embedding_controls": "Ziehen zum Drehen · Umschalt+Ziehen oder Zwei-Finger-Ziehen zum Verschieben · Kneifen oder Scrollen zum Zoomen · Punkt anklicken zum Inspizieren",
+	"graph_embedding_controls": "Kneifen oder Scrollen zum Zoomen · Punkt anklicken zum Inspizieren",
 	"graph_temporal_agenda": "Agenda",
 	"graph_temporal_calendar": "Kalender",
 	"graph_temporal_range_relevant": "Relevant",

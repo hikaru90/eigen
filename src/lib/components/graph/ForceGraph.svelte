@@ -250,7 +250,7 @@
 						.append('circle')
 						.attr('class', 'fg-node-flash-bg')
 						.attr('r', 8)
-						.attr('fill', '#28F97F')
+						.attr('fill', '#22E876')
 						.attr('stroke', 'none')
 						.attr('opacity', 0);
 					inner
@@ -258,7 +258,7 @@
 						.attr('class', 'fg-node-reveal-ring')
 						.attr('r', 8)
 						.attr('fill', 'none')
-						.attr('stroke', '#28F97F')
+						.attr('stroke', '#22E876')
 						.attr('stroke-width', 2)
 						.attr('opacity', 0);
 					inner
@@ -375,7 +375,7 @@
 
 					inner
 						.select('.fg-node-core')
-						.attr('fill', revealFlash > 0.02 ? '#28F97F' : nodeFill(d));
+						.attr('fill', revealFlash > 0.02 ? '#22E876' : nodeFill(d));
 
 					const ringOpacity = at > 0 && rawT > 0 && rawT < 1 ? (1 - rawT) * 0.55 : 0;
 					inner

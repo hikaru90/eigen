@@ -1,4 +1,35 @@
-export type HeartbeatJobResult = { job: string; ok: boolean; detail?: string };
+import type { HeartbeatJobReport } from './heartbeat-job-report';
+import { buildHeartbeatJobReport, catalogForJob } from './heartbeat-job-report';
+
+export type HeartbeatJobResult = {
+	job: string;
+	ok: boolean;
+	detail?: string;
+	report?: HeartbeatJobReport;
+};
+
+/** Resolve a report for UI expand panels (live job, completed job, or catalog-only). */
+export function resolveHeartbeatJobReport(
+	jobId: string,
+	job?: HeartbeatJobResult | null,
+	options?: { liveDetail?: string | null }
+): HeartbeatJobReport {
+	if (job?.report) return job.report;
+	const detail = job?.detail ?? options?.liveDetail ?? undefined;
+	if (job || detail) {
+		return buildHeartbeatJobReport(jobId, null, {
+			ok: job?.ok !== false,
+			detail
+		});
+	}
+	const catalog = catalogForJob(jobId);
+	return {
+		summary: 'Not run yet',
+		explanation: catalog.explanation,
+		verdict: 'info',
+		verdictLabel: 'Waiting'
+	};
+}
 
 export type HeartbeatRunProgress = {
 	plannedJobs: string[];

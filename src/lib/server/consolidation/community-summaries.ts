@@ -37,6 +37,8 @@ export type CommunitySummaryResult = {
 	deferred: number;
 	/** True when a batch contract/provider error occurred. */
 	failed: boolean;
+	samples?: import('$lib/consolidation/heartbeat-job-report').HeartbeatJobSample[];
+	sampleTotal?: number;
 };
 
 export type CommunitySummaryStats = Pick<
@@ -380,8 +382,8 @@ async function listPendingRoutingCommunityIds(
 async function generateSummaryBatch(
 	userId: string,
 	communityIds: string[]
-): Promise<number> {
-	if (communityIds.length === 0) return 0;
+): Promise<{ count: number; samples: { id: string; label: string; note: string }[] }> {
+	if (communityIds.length === 0) return { count: 0, samples: [] };
 
 	const contexts = await Promise.all(
 		communityIds.map((id) => loadCommunityContext(userId, id))
@@ -466,7 +468,20 @@ async function generateSummaryBatch(
 		}
 	});
 
-	return reports.length;
+	return {
+		count: reports.length,
+		samples: reports.slice(0, 12).map((r) => {
+			const ctx = ctxById.get(r.communityId);
+			const entities = ctx?.entityLabels.slice(0, 3).join(', ') ?? '';
+			return {
+				id: r.communityId,
+				label: r.title.slice(0, 90),
+				note: entities
+					? `summarized · e.g. ${entities}`
+					: `summarized · ${ctx?.thoughtCount ?? 0} thoughts`
+			};
+		})
+	};
 }
 
 /**
@@ -483,25 +498,46 @@ export async function runCommunitySummaryGeneration(
 
 	let generated = 0;
 	let failed = false;
+	const samples: { kind: 'note'; id: string; label: string; note: string }[] = [];
 
 	while (generated < reportBudget) {
 		if (options?.shouldCancel && (await options.shouldCancel())) break;
 
 		const stats = await getCommunitySummaryStats(userId);
 		if (stats.pending === 0) {
-			return { ...stats, generated, deferred: 0, failed: false };
+			return {
+				...stats,
+				generated,
+				deferred: 0,
+				failed: false,
+				samples,
+				sampleTotal: samples.length
+			};
 		}
 
 		const remainingBudget = reportBudget - generated;
 		const take = Math.min(batchSize, remainingBudget, stats.pending);
 		const communityIds = await listPendingRoutingCommunityIds(userId, take);
 		if (communityIds.length === 0) {
-			return { ...(await getCommunitySummaryStats(userId)), generated, deferred: 0, failed: false };
+			const final = await getCommunitySummaryStats(userId);
+			return {
+				...final,
+				generated,
+				deferred: 0,
+				failed: false,
+				samples,
+				sampleTotal: samples.length
+			};
 		}
 
 		try {
-			const batchGenerated = await generateSummaryBatch(userId, communityIds);
-			generated += batchGenerated;
+			const batch = await generateSummaryBatch(userId, communityIds);
+			generated += batch.count;
+			for (const s of batch.samples) {
+				if (samples.length < 12) {
+					samples.push({ kind: 'note', ...s });
+				}
+			}
 		} catch (err) {
 			console.error('[consolidation.summary] batch failed', {
 				userId,
@@ -522,7 +558,9 @@ export async function runCommunitySummaryGeneration(
 		generated,
 		pending: finalStats.pending,
 		deferred,
-		failed
+		failed,
+		samples,
+		sampleTotal: generated
 	};
 }
 

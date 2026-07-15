@@ -47,7 +47,8 @@ export const load: PageServerLoad = async (event) => {
 			.then((rows) => rows[0]),
 		checkCaptureAllowed(userId),
 		getOrCreateWallet(userId),
-		isGroundingQuestionDue(userId)
+		isGroundingQuestionDue(userId) // shared check-in cadence (grounding | relevance)
+
 	]);
 
 	const paypalConfigured = isPayPalConfigured();

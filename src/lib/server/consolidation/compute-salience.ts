@@ -10,10 +10,14 @@
  * - Exempt thoughts (fact/decision/preference, metadata.neverStale): skip decay
  */
 
-import { and, eq, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { thought } from '$lib/server/db/schema';
 import { NEVER_STALE_MEMORY_TYPES } from '$lib/server/memory/thought-staleness';
+import {
+	clipThoughtSample,
+	type HeartbeatJobSample
+} from '$lib/consolidation/heartbeat-job-report';
 
 /** Daily decay multiplier per inactive day beyond the grace window. */
 export const DECAY_FACTOR_PER_DAY = 0.97;
@@ -25,10 +29,13 @@ export const INACTIVE_GRACE_DAYS = 7;
 export const TASK_RISE_PER_DAY = 0.15;
 
 const EXEMPT_MEMORY_TYPES = [...NEVER_STALE_MEMORY_TYPES];
+const SAMPLE_LIMIT = 12;
 
 export type SalienceComputeResult = {
 	decayed: number;
 	openTasks: number;
+	samples: HeartbeatJobSample[];
+	sampleTotal: number;
 };
 
 function inactiveDaysSql() {
@@ -84,8 +91,51 @@ export async function runSalienceCompute(userId: string): Promise<SalienceComput
 			)
 			.returning({ id: thought.id });
 
-		const result = { decayed: decayed.length, openTasks: openTasks.length };
-		console.info('[consolidation.salience_compute] finished', { userId, ...result });
+		const decayIds = decayed.map((r) => r.id);
+		const taskIds = openTasks.map((r) => r.id);
+		const sampleIds = [
+			...decayIds.slice(0, Math.ceil(SAMPLE_LIMIT / 2)),
+			...taskIds.slice(0, Math.floor(SAMPLE_LIMIT / 2))
+		];
+		const uniqueSampleIds = [...new Set(sampleIds)].slice(0, SAMPLE_LIMIT);
+		const decayIdSet = new Set(decayIds);
+		const taskIdSet = new Set(taskIds);
+
+		let samples: HeartbeatJobSample[] = [];
+		if (uniqueSampleIds.length > 0) {
+			const rows = await db
+				.select({ id: thought.id, normalizedText: thought.normalizedText })
+				.from(thought)
+				.where(and(eq(thought.userId, userId), inArray(thought.id, uniqueSampleIds)));
+			const byId = new Map(rows.map((r) => [r.id, r.normalizedText]));
+			samples = uniqueSampleIds.flatMap((id) => {
+				const text = byId.get(id);
+				if (!text) return [];
+				const notes: string[] = [];
+				if (decayIdSet.has(id)) notes.push('faded');
+				if (taskIdSet.has(id)) notes.push('open task boosted');
+				return [
+					{
+						kind: 'thought' as const,
+						id,
+						label: clipThoughtSample(text),
+						note: notes.join(', ')
+					}
+				];
+			});
+		}
+
+		const result: SalienceComputeResult = {
+			decayed: decayed.length,
+			openTasks: openTasks.length,
+			samples,
+			sampleTotal: decayed.length + openTasks.length
+		};
+		console.info('[consolidation.salience_compute] finished', {
+			userId,
+			decayed: result.decayed,
+			openTasks: result.openTasks
+		});
 		return result;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

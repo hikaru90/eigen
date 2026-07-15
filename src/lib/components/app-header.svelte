@@ -91,10 +91,22 @@
 </script>
 
 <header class="fixed top-0 right-0 left-0 z-40 w-full bg-transparent px-5 pt-safe">
-  <!-- Gradient blur stack: full blur at top, fading to none -->
-  <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 backdrop-blur-md" style="-webkit-mask-image: linear-gradient(to bottom, black 0%, black 20%, transparent 40%); mask-image: linear-gradient(to bottom, black 0%, black 20%, transparent 40%);"></div>
-  <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 backdrop-blur-sm" style="-webkit-mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 40%, transparent 55%); mask-image: linear-gradient(to bottom, transparent 15%, black 30%, black 40%, transparent 55%);"></div>
-  <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 bg-linear-to-b from-background to-transparent"></div>
+  <!-- Gradient blur stack: blur amount is the strength dial; mask gradient is the falloff dial -->
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 backdrop-blur-sm"
+    style="-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
+  ></div>
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 backdrop-blur-[2px]"
+    style="-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
+  ></div>
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-20"
+    style="background: linear-gradient(to bottom, var(--background) 0%, color-mix(in oklab, var(--background) 72%, transparent) 22%, color-mix(in oklab, var(--background) 40%, transparent) 48%, color-mix(in oklab, var(--background) 14%, transparent) 74%, transparent 100%);"
+  ></div>
   <div class="relative z-10 mx-auto flex w-full items-center justify-between pb-3">
     {#if showViewSelect}
       <CurrentUserViewSelect />

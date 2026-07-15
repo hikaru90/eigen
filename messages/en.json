@@ -101,7 +101,7 @@
 	"graph_embedding_empty_hint": "Capture some thoughts — embeddings are computed during ingest.",
 	"graph_embedding_aria": "Embedding map — 3D UMAP projection of your thoughts and entities",
 	"graph_embedding_stats": "{thoughts} thoughts · {entities} entities",
-	"graph_embedding_controls": "Drag to orbit · shift-drag or two-finger drag to pan · pinch or scroll to zoom · click a dot to inspect",
+	"graph_embedding_controls": "Pinch or scroll to zoom · click a dot to inspect",
 	"graph_temporal_agenda": "Agenda",
 	"graph_temporal_calendar": "Calendar",
 	"graph_temporal_range_relevant": "Relevant",

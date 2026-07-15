@@ -2,27 +2,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question';
 
 const {
-	isGroundingQuestionDueMock,
+	isCheckInQuestionDueMock,
 	listPushSubscriptionsForUserMock,
-	generateGroundingQuestionMock,
+	generateCheckInQuestionMock,
 	sendPushToUserMock
 } = vi.hoisted(() => ({
-	isGroundingQuestionDueMock: vi.fn(),
+	isCheckInQuestionDueMock: vi.fn(),
 	listPushSubscriptionsForUserMock: vi.fn(),
-	generateGroundingQuestionMock: vi.fn(),
+	generateCheckInQuestionMock: vi.fn(),
 	sendPushToUserMock: vi.fn()
 }));
 
 vi.mock('$lib/server/grounding/question-due', () => ({
-	isGroundingQuestionDue: isGroundingQuestionDueMock
+	isCheckInQuestionDue: isCheckInQuestionDueMock
 }));
 
 vi.mock('$lib/server/push/subscription', () => ({
 	listPushSubscriptionsForUser: listPushSubscriptionsForUserMock
 }));
 
-vi.mock('$lib/server/grounding/next-question', () => ({
-	generateGroundingQuestion: generateGroundingQuestionMock
+vi.mock('$lib/server/grounding/next-check-in', () => ({
+	generateCheckInQuestion: generateCheckInQuestionMock
 }));
 
 vi.mock('$lib/server/push/send', () => ({
@@ -32,9 +32,10 @@ vi.mock('$lib/server/push/send', () => ({
 describe('maybeNotifyGroundingQuestionPush', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		isGroundingQuestionDueMock.mockResolvedValue(true);
+		isCheckInQuestionDueMock.mockResolvedValue(true);
 		listPushSubscriptionsForUserMock.mockResolvedValue([{ id: 'sub1' }]);
-		generateGroundingQuestionMock.mockResolvedValue({
+		generateCheckInQuestionMock.mockResolvedValue({
+			kind: 'grounding',
 			facetKey: 'work',
 			question: 'What kind of work do you do?'
 		});
@@ -43,22 +44,41 @@ describe('maybeNotifyGroundingQuestionPush', () => {
 
 	it('skips off-interval capture counts', async () => {
 		await maybeNotifyGroundingQuestionPush('u1', 11);
-		expect(isGroundingQuestionDueMock).not.toHaveBeenCalled();
+		expect(isCheckInQuestionDueMock).not.toHaveBeenCalled();
 	});
 
-	it('sends push with capture link when due and subscribed', async () => {
+	it('sends grounding push with check-in link when due and subscribed', async () => {
 		await maybeNotifyGroundingQuestionPush('u1', 10);
 
 		expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
 			title: 'Improve capture quality',
 			body: 'What kind of work do you do?',
-			url: '/capture?grounding=1',
-			tag: 'grounding-question-10'
+			url: '/capture?checkin=1',
+			tag: 'check-in-question-10'
+		});
+	});
+
+	it('uses memory-check title for relevance questions', async () => {
+		generateCheckInQuestionMock.mockResolvedValue({
+			kind: 'relevance',
+			templateId: 'thought_still_relevant',
+			thoughtId: 't1',
+			snippet: 'Old note',
+			question: 'Still relevant for you?'
+		});
+
+		await maybeNotifyGroundingQuestionPush('u1', 20);
+
+		expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
+			title: 'Quick memory check',
+			body: 'Still relevant for you?',
+			url: '/capture?checkin=1',
+			tag: 'check-in-question-20'
 		});
 	});
 
 	it('skips when not due', async () => {
-		isGroundingQuestionDueMock.mockResolvedValue(false);
+		isCheckInQuestionDueMock.mockResolvedValue(false);
 		await maybeNotifyGroundingQuestionPush('u1', 10);
 		expect(sendPushToUserMock).not.toHaveBeenCalled();
 	});

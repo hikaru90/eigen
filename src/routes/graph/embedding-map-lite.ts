@@ -57,7 +57,7 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 
 	const canvas = document.createElement('canvas');
 	canvas.className = 'embedding-map-lite touch-none';
-	canvas.style.cursor = 'grab';
+	canvas.style.cursor = 'default';
 	canvas.style.width = '100%';
 	canvas.style.height = '100%';
 	container.appendChild(canvas);
@@ -87,8 +87,6 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 	let isDragging = false;
 	let dragStartX = 0;
 	let dragStartY = 0;
-	let lastPointerX = 0;
-	let lastPointerY = 0;
 
 	function resize() {
 		const w = container.clientWidth;
@@ -242,8 +240,6 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 		isDragging = false;
 		dragStartX = e.clientX;
 		dragStartY = e.clientY;
-		lastPointerX = e.clientX;
-		lastPointerY = e.clientY;
 	}
 
 	function onPointerMove(e: PointerEvent) {
@@ -251,22 +247,6 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 		const dy = e.clientY - dragStartY;
 		if (Math.hypot(dx, dy) > 4) {
 			isDragging = true;
-			canvas.style.cursor = 'grabbing';
-		}
-
-		if (isDragging) {
-			const rect = canvas.getBoundingClientRect();
-			const w = rect.width;
-			const h = rect.height;
-
-			const moveX = (e.clientX - lastPointerX) / (w / 2) / scale;
-			const moveY = (e.clientY - lastPointerY) / (h / 2) / scale;
-			offsetX += moveX;
-			offsetY -= moveY;
-
-			lastPointerX = e.clientX;
-			lastPointerY = e.clientY;
-			render();
 		}
 	}
 
@@ -278,7 +258,6 @@ export function createEmbeddingMapLite(options: CreateEmbeddingMapLiteOptions): 
 			const item = findNearestPoint(sx, sy);
 			onSelectItem?.(item);
 		}
-		canvas.style.cursor = 'grab';
 	}
 
 	function onWheel(e: WheelEvent) {

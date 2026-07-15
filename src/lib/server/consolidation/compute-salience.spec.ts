@@ -26,11 +26,24 @@ describe('runSalienceCompute', () => {
 			.fn()
 			.mockImplementationOnce(() => ({ set: decaySet }))
 			.mockImplementationOnce(() => ({ set: openSet }));
+		const select = vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(async () => [
+					{ id: 't1', normalizedText: 'old memory about travel' },
+					{ id: 't2', normalizedText: 'call the dentist' }
+				])
+			}))
+		}));
 
-		getDbMock.mockReturnValue({ update });
+		getDbMock.mockReturnValue({ update, select });
 
-		await expect(runSalienceCompute('u1')).resolves.toEqual({ decayed: 1, openTasks: 2 });
+		await expect(runSalienceCompute('u1')).resolves.toMatchObject({
+			decayed: 1,
+			openTasks: 2,
+			sampleTotal: 3
+		});
 		expect(update).toHaveBeenCalledTimes(2);
+		expect(select).toHaveBeenCalled();
 	});
 
 	it('task update filters on metadata.status not resolvedAt', () => {

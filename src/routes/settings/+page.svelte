@@ -100,7 +100,7 @@
 	] as const;
 
 	const settingsTabListClass =
-		'bg-white/20 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:bg-card flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 p-0.5';
+		'flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100';
 	const settingsTabTriggerClass =
 		'!h-full shrink-0 !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background';
 

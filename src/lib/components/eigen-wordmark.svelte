@@ -67,7 +67,9 @@
 		aria-hidden="true"
 		class={cn(
 			'pointer-events-none relative shrink-0 text-base font-light tracking-[0.35em]',
-			inverted ? 'text-white' : 'text-black dark:text-white'
+			inverted
+				? 'text-white [text-shadow:0_0_4px_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.85),0_1px_3px_rgba(0,0,0,1)]'
+				: 'text-black [text-shadow:0_0_4px_rgba(232,237,229,1),0_0_10px_rgba(232,237,229,0.95),0_0_2px_rgba(255,255,255,1)] dark:text-white dark:[text-shadow:0_0_4px_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.85),0_1px_3px_rgba(0,0,0,1)]'
 		)}
 		style="font-family: 'Geist Mono', ui-sans-serif, system-ui, sans-serif; font-weight: 300;"
 	>
@@ -75,7 +77,7 @@
 		<img
 			src={logoGreen}
 			alt=""
-			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-8 -z-10"
+			class="absolute left-1/2 top-1/2 -z-10 h-8 -translate-x-1/2 -translate-y-1/2 brightness-[0.82]"
 			loading="eager"
 			decoding="async"
 		/>

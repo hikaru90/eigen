@@ -10,6 +10,6 @@ describe('author-layer-chrome', () => {
 	});
 
 	it('exports EigenMesh accent for agent icon styling', () => {
-		expect(EIGEN_MESH_ACCENT).toBe('#28F97F');
+		expect(EIGEN_MESH_ACCENT).toBe('#22E876');
 	});
 });

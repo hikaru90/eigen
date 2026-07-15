@@ -20,6 +20,8 @@ import {
 	COMMUNITY_ROOT_LEVEL
 } from './community-levels';
 import { detectCommunities, type CommunityHierarchy } from './leiden';
+import { loadLargestCommunitySamples } from './heartbeat-change-samples';
+import type { HeartbeatJobSample } from '$lib/consolidation/heartbeat-job-report';
 
 export type CommunityDetectionResult = {
 	entityCount: number;
@@ -28,6 +30,8 @@ export type CommunityDetectionResult = {
 	/** False when Leiden partition matches persisted membership (no DB rewrite). */
 	changed: boolean;
 	graphHealth: CommunityGraphHealth;
+	samples: import('$lib/consolidation/heartbeat-job-report').HeartbeatJobSample[];
+	sampleTotal: number;
 };
 
 /** DB level values in leaf→root order (matches hierarchy.levels indexing). */
@@ -381,19 +385,36 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 		reasons: nodeIds.length > 0 ? ['insufficient relation edges'] : []
 	};
 
+	async function withSamples(
+		base: Omit<CommunityDetectionResult, 'samples' | 'sampleTotal'>
+	): Promise<CommunityDetectionResult> {
+		const healthNotes: HeartbeatJobSample[] = base.graphHealth.reasons.map((reason) => ({
+			kind: 'note',
+			label: reason,
+			note: 'graph health signal'
+		}));
+		const communities = await loadLargestCommunitySamples(userId).catch(() => []);
+		const samples = [...healthNotes, ...communities].slice(0, 12);
+		return {
+			...base,
+			samples,
+			sampleTotal: healthNotes.length + communities.length
+		};
+	}
+
 	if (nodeIds.length < 2) {
 		const storedFingerprint = await loadStoredMembershipFingerprint(userId);
 		const changed = storedFingerprint !== null;
 		if (changed) {
 			await db.delete(graphCommunity).where(eq(graphCommunity.userId, userId));
 		}
-		return {
+		return withSamples({
 			entityCount: nodeIds.length,
 			communityCounts: [],
 			totalCommunities: 0,
 			changed,
 			graphHealth: emptyHealth
-		};
+		});
 	}
 
 	const edges = await fetchEntityEdgesForUser({ userId });
@@ -405,22 +426,22 @@ export async function runCommunityDetection(userId: string): Promise<CommunityDe
 
 	if (storedFingerprint !== null && storedFingerprint === nextFingerprint) {
 		const communityCounts = await loadStoredCommunityCounts(userId);
-		return {
+		return withSamples({
 			entityCount: nodeIds.length,
 			communityCounts,
 			totalCommunities: communityCounts.reduce((s, n) => s + n, 0),
 			changed: false,
 			graphHealth
-		};
+		});
 	}
 
 	const communityCounts = await persistCommunityDiff(userId, hierarchy);
 
-	return {
+	return withSamples({
 		entityCount: nodeIds.length,
 		communityCounts,
 		totalCommunities: communityCounts.reduce((s, n) => s + n, 0),
 		changed: true,
 		graphHealth
-	};
+	});
 }

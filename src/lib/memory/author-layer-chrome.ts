@@ -1,12 +1,12 @@
 /** Shared author-layer visual tokens (graph legend, capture list, badges). */
 
 /** Eigen / EigenMesh marketing accent — graph pop-in, community hulls. */
-export const EIGEN_MESH_ACCENT = '#28F97F';
+export const EIGEN_MESH_ACCENT = '#22E876';
 
 export const authorAgentChipClass =
 	'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full bg-black px-2.5 py-1 text-xs font-medium leading-none text-white dark:bg-white dark:text-black';
 
-export const authorAgentIconClass = 'text-[#28F97F]';
+export const authorAgentIconClass = 'text-[var(--color-eigen-green)]';
 
 /** Graph legend — black square behind agent icon only; label stays plain text. */
 export const authorAgentLegendIconFrameClass =

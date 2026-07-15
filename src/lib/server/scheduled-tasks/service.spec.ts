@@ -1,8 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { getOrCreateUserScheduledTaskMock, hasActiveJobForUserMock } = vi.hoisted(() => ({
+const {
+	getOrCreateUserScheduledTaskMock,
+	hasActiveJobForUserMock,
+	loadHeartbeatRunByIdMock,
+	loadActiveHeartbeatRunMock,
+	runConsolidationJobForUserMock,
+	replaceFinishedHeartbeatJobResultMock
+} = vi.hoisted(() => ({
 	getOrCreateUserScheduledTaskMock: vi.fn(),
-	hasActiveJobForUserMock: vi.fn()
+	hasActiveJobForUserMock: vi.fn(),
+	loadHeartbeatRunByIdMock: vi.fn(),
+	loadActiveHeartbeatRunMock: vi.fn(),
+	runConsolidationJobForUserMock: vi.fn(),
+	replaceFinishedHeartbeatJobResultMock: vi.fn()
 }));
 
 vi.mock('$lib/server/job-queue', () => ({
@@ -22,10 +33,17 @@ vi.mock('$lib/server/job-queue/recover-overnight', () => ({
 }));
 
 vi.mock('$lib/server/consolidation/heartbeat-run-ledger', () => ({
-	loadActiveHeartbeatRun: vi.fn(async () => null),
+	loadActiveHeartbeatRun: loadActiveHeartbeatRunMock,
 	loadLastUserHeartbeatRun: vi.fn(async () => null),
+	loadHeartbeatRunById: loadHeartbeatRunByIdMock,
+	replaceFinishedHeartbeatJobResult: replaceFinishedHeartbeatJobResultMock,
 	heartbeatProgressPct: vi.fn(() => 0),
-	isHeartbeatRunActive: vi.fn(() => false)
+	isHeartbeatRunActive: (status: string) => status === 'running'
+}));
+
+vi.mock('$lib/server/consolidation/runner', () => ({
+	formatConsolidationJobSummaries: vi.fn(() => []),
+	runConsolidationJobForUser: runConsolidationJobForUserMock
 }));
 
 describe('listScheduledTasks', () => {
@@ -43,6 +61,7 @@ describe('listScheduledTasks', () => {
 			paused: false
 		});
 		hasActiveJobForUserMock.mockResolvedValue(false);
+		loadActiveHeartbeatRunMock.mockResolvedValue(null);
 
 		const { listScheduledTasks } = await import('./service');
 		const tasks = await listScheduledTasks('user-1');
@@ -53,5 +72,85 @@ describe('listScheduledTasks', () => {
 		expect(tasks[0].configured).toBe(true);
 		expect(tasks[0].queueActive).toBe(false);
 		expect(tasks[0].scheduleLabel).toContain('2:00');
+	});
+});
+
+describe('retryFailedHeartbeatJob', () => {
+	afterEach(() => {
+		vi.resetModules();
+		vi.clearAllMocks();
+	});
+
+	it('re-runs only a failed step and patches the finished run', async () => {
+		hasActiveJobForUserMock.mockResolvedValue(false);
+		loadActiveHeartbeatRunMock.mockResolvedValue(null);
+		loadHeartbeatRunByIdMock.mockResolvedValue({
+			runId: 'r1',
+			status: 'failed',
+			jobs: [
+				{
+					phase: 'deep_sleep',
+					job: 'repair_entity_relations',
+					ok: false,
+					detail: 'LLM HTTP 400',
+					durationMs: 10
+				}
+			]
+		});
+		runConsolidationJobForUserMock.mockResolvedValue({
+			phase: 'deep_sleep',
+			job: 'repair_entity_relations',
+			ok: true,
+			detail: 'repaired 2',
+			durationMs: 20
+		});
+		replaceFinishedHeartbeatJobResultMock.mockResolvedValue({
+			runId: 'r1',
+			status: 'completed',
+			jobs: [
+				{
+					phase: 'deep_sleep',
+					job: 'repair_entity_relations',
+					ok: true,
+					detail: 'repaired 2',
+					durationMs: 20
+				}
+			]
+		});
+
+		const { retryFailedHeartbeatJob } = await import('./service');
+		const result = await retryFailedHeartbeatJob('u1', {
+			runId: 'r1',
+			jobId: 'repair_entity_relations'
+		});
+
+		expect(runConsolidationJobForUserMock).toHaveBeenCalledWith('u1', 'repair_entity_relations');
+		expect(replaceFinishedHeartbeatJobResultMock).toHaveBeenCalled();
+		expect(result.job.ok).toBe(true);
+		expect(result.run.status).toBe('completed');
+	});
+
+	it('rejects retry of a successful step', async () => {
+		hasActiveJobForUserMock.mockResolvedValue(false);
+		loadActiveHeartbeatRunMock.mockResolvedValue(null);
+		loadHeartbeatRunByIdMock.mockResolvedValue({
+			runId: 'r1',
+			status: 'failed',
+			jobs: [
+				{
+					phase: 'deep_sleep',
+					job: 'repair_entity_relations',
+					ok: true,
+					detail: 'ok',
+					durationMs: 10
+				}
+			]
+		});
+
+		const { retryFailedHeartbeatJob, HeartbeatJobRetryError } = await import('./service');
+		await expect(
+			retryFailedHeartbeatJob('u1', { runId: 'r1', jobId: 'repair_entity_relations' })
+		).rejects.toBeInstanceOf(HeartbeatJobRetryError);
+		expect(runConsolidationJobForUserMock).not.toHaveBeenCalled();
 	});
 });

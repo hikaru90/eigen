@@ -13,7 +13,7 @@ import {
 describe('COMMUNITY_HULL_GRADIENT', () => {
 	it('keeps the white radial stops', () => {
 		expect(COMMUNITY_HULL_GRADIENT.center).toContain('oklch(1 0 0');
-		expect(COMMUNITY_HULL_GRADIENT.center).toContain('/ 0.88)');
+		expect(COMMUNITY_HULL_GRADIENT.center).toContain('/ 0.20)');
 	});
 });
 

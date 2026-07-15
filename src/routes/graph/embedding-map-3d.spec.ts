@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
 	embeddingMapLabelText,
 	embeddingMapShouldSuppressSelectionClick,
-	embeddingMapWheelMode,
-	embeddingMapWheelPanDeltas,
 	screenSpacePointScale
 } from './embedding-map-3d';
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
@@ -33,71 +31,10 @@ describe('screenSpacePointScale', () => {
 	});
 });
 
-describe('embeddingMapWheelMode', () => {
-	it('zooms on pinch-style ctrl/meta wheel', () => {
-		expect(
-			embeddingMapWheelMode({
-				ctrlKey: true,
-				metaKey: false,
-				shiftKey: false,
-				deltaX: 0,
-				deltaY: -12,
-				deltaMode: 0
-			})
-		).toBe('zoom');
-	});
-
-	it('pans on shift wheel', () => {
-		expect(
-			embeddingMapWheelMode({
-				ctrlKey: false,
-				metaKey: false,
-				shiftKey: true,
-				deltaX: 0,
-				deltaY: 8,
-				deltaMode: 1
-			})
-		).toBe('pan');
-	});
-
-	it('pans on trackpad pixel wheel', () => {
-		expect(
-			embeddingMapWheelMode({
-				ctrlKey: false,
-				metaKey: false,
-				shiftKey: false,
-				deltaX: 3,
-				deltaY: -2,
-				deltaMode: 0
-			})
-		).toBe('pan');
-	});
-
-	it('zooms on mouse line wheel', () => {
-		expect(
-			embeddingMapWheelMode({
-				ctrlKey: false,
-				metaKey: false,
-				shiftKey: false,
-				deltaX: 0,
-				deltaY: 120,
-				deltaMode: 1
-			})
-		).toBe('zoom');
-	});
-});
-
-describe('embeddingMapWheelPanDeltas', () => {
-	it('inverts wheel deltas for natural trackpad pan direction', () => {
-		expect(embeddingMapWheelPanDeltas(12, -8)).toEqual({ x: -12, y: 8 });
-	});
-});
-
 describe('embeddingMapShouldSuppressSelectionClick', () => {
-	it('suppresses click after drag or with shift held', () => {
-		expect(embeddingMapShouldSuppressSelectionClick({ dragged: true, shiftKey: false })).toBe(true);
-		expect(embeddingMapShouldSuppressSelectionClick({ dragged: false, shiftKey: true })).toBe(true);
-		expect(embeddingMapShouldSuppressSelectionClick({ dragged: false, shiftKey: false })).toBe(false);
+	it('suppresses click after drag', () => {
+		expect(embeddingMapShouldSuppressSelectionClick({ dragged: true })).toBe(true);
+		expect(embeddingMapShouldSuppressSelectionClick({ dragged: false })).toBe(false);
 	});
 });
 
