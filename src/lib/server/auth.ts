@@ -7,6 +7,7 @@ import { authDb } from '$lib/server/db/auth-db';
 import { buildSocialProvidersConfig, listEnabledSocialProviderIds } from '$lib/server/auth-social';
 import { resolveAccountKindForNewUser } from '$lib/auth/account-kind';
 import { isUseSendMailConfigured, sendTransactionalEmail } from '$lib/server/email/usesend';
+import { recordVerificationLink } from '$lib/server/e2e/verification-link-store';
 
 const socialProviders = buildSocialProvidersConfig(env);
 const enabledSocialProviderIds = listEnabledSocialProviderIds(env);
@@ -84,6 +85,7 @@ export const auth = betterAuth({
 						user: { email: string };
 						url: string;
 					}) => {
+						recordVerificationLink(user.email, url);
 						queueTransactionalEmail({
 							to: user.email,
 							subject: 'Verify your Eigen email',

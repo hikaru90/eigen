@@ -236,18 +236,7 @@
 				const text = await res.text();
 				throw new Error(text || `Request failed (${res.status})`);
 			}
-			const nowIso = new Date().toISOString();
-			tasks = tasks.map((task) =>
-				task.id === itemId
-					? {
-							...task,
-							thoughtStatus: status,
-							lifecycleStatus: status,
-							completedAt: status === 'completed' ? nowIso : null,
-							lifecycleUpdatedAt: nowIso
-						}
-					: task
-			);
+			await loadTasks(true);
 			notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
 			void loadProjects(true);
 		} catch (err) {

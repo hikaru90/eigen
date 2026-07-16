@@ -42,8 +42,56 @@ export async function registerUser(
 
 	await page.getByRole('button', { name: 'Create account' }).click();
 
+	await completeEmailVerificationIfRequired(page, email);
+
 	await page.waitForURL(/\/capture/);
 	return { email };
+}
+
+/**
+ * When email verification is enabled (useSend configured), signup stays on /signup and shows a
+ * "check your email" notice instead of redirecting. The dev-only harness endpoint exposes the
+ * verification link Better Auth generated so we can follow it and land on /capture.
+ */
+async function completeEmailVerificationIfRequired(page: Page, email: string): Promise<void> {
+	const checkEmailNotice = page.getByText(/Check your email for a verification link/i);
+	const landed = await Promise.race([
+		page.waitForURL(/\/capture/, { timeout: 15_000 }).then(() => 'capture' as const),
+		checkEmailNotice.waitFor({ state: 'visible', timeout: 15_000 }).then(() => 'verify' as const)
+	]).catch(() => 'unknown' as const);
+
+	if (landed === 'capture') return;
+
+	const link = await fetchVerificationLink(page, email);
+	const target = new URL(link);
+	await page.goto(`${target.pathname}${target.search}`);
+}
+
+async function fetchVerificationLink(page: Page, email: string): Promise<string> {
+	let link: string | null = null;
+	await expect
+		.poll(
+			async () => {
+				const res = await page.request.get(
+					`/api/e2e/harness/verification-link?email=${encodeURIComponent(email)}`
+				);
+				if (!res.ok()) {
+					throw new Error(
+						`verification-link endpoint failed (${res.status()}): ${await res.text()}`
+					);
+				}
+				const body = (await res.json()) as { link?: string | null };
+				link = body.link ?? null;
+				return link;
+			},
+			{ timeout: 15_000, intervals: [250, 500, 1000] }
+		)
+		.not.toBeNull();
+
+	if (!link) {
+		throw new Error(`No verification link captured for ${email}`);
+	}
+	return link;
 }
 
 /**

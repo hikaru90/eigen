@@ -337,6 +337,30 @@ describe('filterTodayTodoOpenItems', () => {
 		const { focus, later } = splitTodayFocusAndLater([overdue, upcoming], 'Europe/Berlin', now);
 		expect(focus.length + later.length).toBe(todos.length);
 	});
+
+	it('excludes completed rows that remain in an overdue merge (timeline todo prop contract)', () => {
+		const now = new Date('2026-06-16T17:00:00.000Z');
+		const completedOverdue = item({
+			id: 'done-overdue',
+			startAt: '2026-06-15T08:00:00.000Z',
+			endAt: '2026-06-15T09:00:00.000Z',
+			timezone: 'Europe/Berlin',
+			lifecycleStatus: 'completed',
+			thoughtStatus: 'completed'
+		});
+		const openSoon = item({
+			id: 'soon',
+			startAt: '2026-06-16T20:00:00.000Z',
+			endAt: '2026-06-16T21:00:00.000Z',
+			timezone: 'Europe/Berlin'
+		});
+		const todos = filterTodayTodoOpenItems(
+			[completedOverdue, openSoon],
+			'Europe/Berlin',
+			now
+		);
+		expect(todos.map((i) => i.id)).toEqual(['soon']);
+	});
 });
 
 describe('splitTodayFocusAndLater', () => {

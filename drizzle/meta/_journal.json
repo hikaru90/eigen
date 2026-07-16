@@ -435,6 +435,13 @@
       "when": 1783432200000,
       "tag": "0061_project_on_entity",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1784239280000,
+      "tag": "0062_connected_agent_signature_mode",
+      "breakpoints": true
     }
   ]
 }

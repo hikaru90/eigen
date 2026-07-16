@@ -383,56 +383,6 @@
 		setSelection(item);
 	}
 
-	function applyItemLocally(updated: TemporalEventListItem) {
-		if (phase.kind !== 'ready') return;
-		phase = {
-			kind: 'ready',
-			items: phase.items.map((item) => (item.id === updated.id ? updated : item)),
-			nextCursor: phase.nextCursor
-		};
-	}
-
-	function removeItemLocally(itemId: string) {
-		if (phase.kind !== 'ready') return;
-		phase = {
-			kind: 'ready',
-			items: phase.items.filter((i) => i.id !== itemId),
-			nextCursor: phase.nextCursor
-		};
-	}
-
-	function shouldDropFromOpenList(item: TemporalEventListItem): boolean {
-		return isTemporalEventCompleted(item) && statusFilter === 'open';
-	}
-
-	function syncListsAfterStatusChange(updated: TemporalEventListItem) {
-		if (shouldDropFromOpenList(updated)) {
-			removeItemLocally(updated.id);
-			if (activeSelectedItemId === updated.id) deselectItem();
-		} else {
-			applyItemLocally(updated);
-		}
-
-		overdueItems = overdueItems.filter((i) => i.id !== updated.id);
-		if (isTemporalEventCompleted(updated)) {
-			doneItems = filterCompletedTodayItems(
-				filterActiveItems([...doneItems.filter((i) => i.id !== updated.id), updated]),
-				userTimeZone
-			);
-		} else {
-			doneItems = doneItems.filter((i) => i.id !== updated.id);
-		}
-
-		bumpStats();
-		void loadEvents(false, { silent: true });
-		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
-		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
-
-		if (updated.thoughtId) {
-			notifyThoughtChanged(updated.thoughtId, 'lifecycle', 'global');
-		}
-	}
-
 	async function postEventAction(
 		eventId: string,
 		body: { action?: string; instruction?: string; startAt?: string; endAt?: string }
@@ -452,7 +402,10 @@
 				throw new Error(text || `Request failed (${res.status})`);
 			}
 			const result = (await res.json()) as { item: TemporalEventListItem; summary: string };
-			syncListsAfterStatusChange(result.item);
+			await reloadTimelineData({ silent: true });
+			if (result.item.thoughtId) {
+				notifyThoughtChanged(result.item.thoughtId, 'lifecycle', 'global');
+			}
 			lastActionSummary = result.summary;
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
@@ -478,30 +431,8 @@
 				const text = await res.text();
 				throw new Error(text || `Request failed (${res.status})`);
 			}
-			const existing =
-				phase.kind === 'ready' ? phase.items.find((item) => item.id === itemId) : undefined;
-			if (existing) {
-				const nowIso = new Date().toISOString();
-				if (status === 'archived') {
-					removeItemLocally(itemId);
-					overdueItems = overdueItems.filter((i) => i.id !== itemId);
-					doneItems = doneItems.filter((i) => i.id !== itemId);
-				} else {
-					syncListsAfterStatusChange({
-						...existing,
-						thoughtStatus: status,
-						lifecycleStatus: status,
-						completedAt: status === 'completed' ? nowIso : null,
-						lifecycleUpdatedAt: nowIso
-					});
-				}
-			} else {
-				bumpStats();
-				void loadEvents(false, { silent: true });
-				if (nowSegment === 'overdue') void loadOverdueItems();
-				if (nowSegment === 'done') void loadDoneItems();
-				notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
-			}
+			await reloadTimelineData({ silent: true });
+			notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
 			lastActionSummary =
 				status === 'completed'
 					? m.graph_timeline_open_loop_done()
@@ -544,12 +475,9 @@
 				throw new Error(text || `Request failed (${res.status})`);
 			}
 			const result = (await res.json()) as { summary: string };
-			removeItemLocally(eventId);
-			overdueItems = overdueItems.filter((i) => i.id !== eventId);
-			doneItems = doneItems.filter((i) => i.id !== eventId);
-			bumpStats();
-			lastActionSummary = result.summary;
 			if (activeSelectedItemId === eventId) deselectItem();
+			await reloadTimelineData({ silent: true });
+			lastActionSummary = result.summary;
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -614,13 +542,6 @@
 		projectsMode = !projectsMode;
 		filtersPopoverOpen = false;
 	}
-
-	/**
-	 * Called when a task is updated in projects mode.
-	 * If project info is provided, updates local state directly.
-	 * Otherwise, the projects view manages its own refresh.
-	 */
-
 
 	function setNowSegment(segment: NowSegment) {
 		nowSegment = segment;
@@ -796,7 +717,7 @@
 				/>
 			{:else}
 				<TemporalEventsTodayView
-					items={todayTodoSourceItems}
+					items={todayTodoItems}
 					{doneItems}
 					{doneLoading}
 					{overdueItems}
