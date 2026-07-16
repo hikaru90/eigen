@@ -41,7 +41,15 @@ export function decryptEnvelope(payloadJson: string, key: Buffer, aad: string): 
 		throw new Error('Envelope key must be 32 bytes');
 	}
 	const parsed = JSON.parse(payloadJson) as Partial<EnvelopePayload>;
-	if (parsed.v !== 1 || !parsed.iv || !parsed.tag || !parsed.data) {
+	// `data` may be "" (empty plaintext); only iv/tag must be non-empty.
+	if (
+		parsed.v !== 1 ||
+		typeof parsed.iv !== 'string' ||
+		!parsed.iv ||
+		typeof parsed.tag !== 'string' ||
+		!parsed.tag ||
+		typeof parsed.data !== 'string'
+	) {
 		throw new Error('Invalid encrypted envelope payload');
 	}
 	const decipher = createDecipheriv(ALGO, key, decodeBase64(parsed.iv));
