@@ -118,7 +118,7 @@
 	const titles = [
 		'Your memory, not theirs.',
 		'Just drop it in.',
-		'Install Eigen',
+		'Install Eigen Mesh',
 		'Stay in the loop'
 	] as const;
 	const title = $derived(titles[step] ?? titles[0]);
@@ -179,7 +179,7 @@
 			} else {
 				installError = ios
 					? 'Use Share → Add to Home Screen, then return here.'
-					: 'Use your browser menu to install Eigen, then return here.';
+					: 'Use your browser menu to install Eigen Mesh, then return here.';
 			}
 		} catch (e) {
 			installError = e instanceof Error ? e.message : String(e);
@@ -262,8 +262,8 @@
 			<Card.Content class="space-y-3 text-sm text-card-foreground">
 				{#if step === 0}
 					<p class="text-xs leading-relaxed">
-						Eigen Mesh captures what's on your mind and keeps it organized, searchable, and yours —
-						across every AI tool you use. Nothing to file, nothing to tag.
+						Your memory shouldn't live inside one chat vendor or hyperscaler. Eigen Mesh is yours —
+						portable across every AI tool you use, not locked to theirs.
 					</p>
 					<p class="text-xs leading-relaxed">
 						You start with {startingFreeCredits.toLocaleString('en-US')} free credits to try it — no
@@ -271,8 +271,12 @@
 					</p>
 				{:else if step === 1}
 					<p class="text-xs leading-relaxed">
-						Type it or say it. Eigen Mesh files it away and remembers it for you — so next time you
-						ask, it already knows what you knew.
+						Eigen Mesh captures what's on your mind and keeps it organized and searchable. Nothing to
+						file, nothing to tag.
+					</p>
+					<p class="text-xs leading-relaxed">
+						Type it or say it. It files it away and remembers it for you — so next time you ask, it
+						already knows what you knew.
 					</p>
 					{#if !creditsOk}
 						<p class="text-xs text-muted-foreground leading-relaxed">
@@ -281,36 +285,76 @@
 					{/if}
 				{:else if step === 2}
 					<p class="text-xs leading-relaxed">
-						Install Eigen on your device so capture and reminders are one tap away — like a real
-						app, not a browser tab.
+						Install Eigen Mesh on your device so capture and reminders are one tap away.
 					</p>
 					{#if installDone}
 						<p class="text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
 							Installed. You're ready for the next step.
 						</p>
-					{:else if ios}
-						<ol class="list-decimal space-y-1 pl-4 text-xs leading-relaxed">
-							<li>Tap the Share button in Safari</li>
-							<li>Choose <span class="font-medium">Add to Home Screen</span></li>
-							<li>Open Eigen from your home screen, then return here</li>
-						</ol>
 					{:else}
-						<p class="text-xs text-muted-foreground leading-relaxed">
-							{#if deferredInstall}
-								Tap Install below — your browser will confirm.
+						{#if ios}
+							<ol class="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed">
+								<li>Tap the Share button in Safari</li>
+								<li>Choose <span class="font-medium">Add to Home Screen</span></li>
+								<li>Open Eigen Mesh from your home screen, then confirm below</li>
+							</ol>
+						{:else if deferredInstall}
+							<p class="text-xs text-muted-foreground leading-relaxed">
+								Tap Install — your browser will ask you to confirm.
+							</p>
+						{:else}
+							<p class="text-xs text-muted-foreground leading-relaxed">
+								Tap Install to add Eigen Mesh to your device. If nothing appears, use your
+								browser’s Install app / Add to dock menu, then confirm.
+							</p>
+						{/if}
+						{#if installError}
+							<p class="text-destructive text-xs">{installError}</p>
+						{/if}
+						<div class="flex flex-col gap-2 pt-1">
+							{#if ios}
+								<Button
+									type="button"
+									class="h-11 w-full rounded-[4px] text-sm font-medium"
+									onclick={markInstalledManually}
+								>
+									I've installed it
+								</Button>
 							{:else}
-								If your browser offers an install banner or menu item (“Install app” / “Add to
-								dock”), use that. Then confirm below.
+								<Button
+									type="button"
+									class="h-11 w-full rounded-[4px] text-sm font-medium"
+									disabled={installBusy}
+									onclick={() => void onInstallClick()}
+								>
+									{installBusy ? 'Installing…' : 'Install app'}
+								</Button>
+								<Button
+									type="button"
+									variant="outline"
+									class="h-9 w-full rounded-[4px] text-xs"
+									onclick={markInstalledManually}
+								>
+									I've already installed it
+								</Button>
 							{/if}
-						</p>
-					{/if}
-					{#if installError}
-						<p class="text-destructive text-xs">{installError}</p>
+							<Button
+								type="button"
+								variant="ghost"
+								class="h-8 w-full rounded-[4px] text-xs text-muted-foreground"
+								onclick={() => {
+									capture('onboarding_pwa_skipped', {});
+									step = 3;
+								}}
+							>
+								Continue without installing
+							</Button>
+						</div>
 					{/if}
 				{:else}
 					<p class="text-xs leading-relaxed">
-						Enable notifications so Eigen can nudge you with a quick question after setup — and
-						later for reminders and memory check-ins.
+						Enable notifications so Eigen Mesh can nudge you with a quick question after setup —
+						and later for reminders and memory check-ins.
 					</p>
 					{#if pushDone}
 						<p class="text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
@@ -321,9 +365,53 @@
 							Push isn't available here ({pushUnsupportedReason}). You can continue and enable
 							later in Settings.
 						</p>
-					{/if}
-					{#if pushError}
-						<p class="text-destructive text-xs">{pushError}</p>
+					{:else}
+						{#if pushError}
+							<p class="text-destructive text-xs">{pushError}</p>
+						{/if}
+						<div class="flex flex-col gap-2 pt-1">
+							<Button
+								type="button"
+								class="h-11 w-full rounded-[4px] text-sm font-medium"
+								disabled={pushBusy}
+								onclick={() => void onEnableNotifications()}
+							>
+								{pushBusy ? 'Enabling…' : 'Enable notifications'}
+							</Button>
+							{#if creditsOk}
+								<form
+									method="post"
+									action="?/completeOnboarding"
+									use:enhance={completeOnboardingEnhance}
+									class="w-full"
+								>
+									<Button
+										type="submit"
+										variant="ghost"
+										class="h-8 w-full rounded-[4px] text-xs text-muted-foreground"
+										onclick={() => capture('onboarding_push_skipped', {})}
+									>
+										Continue without notifications
+									</Button>
+								</form>
+							{:else}
+								<form
+									method="post"
+									action="?/skipOnboarding"
+									use:enhance={skipOnboardingEnhance}
+									class="w-full"
+								>
+									<Button
+										type="submit"
+										variant="ghost"
+										class="h-8 w-full rounded-[4px] text-xs text-muted-foreground"
+										onclick={() => capture('onboarding_push_skipped', {})}
+									>
+										Continue without notifications
+									</Button>
+								</form>
+							{/if}
+						</div>
 					{/if}
 				{/if}
 			</Card.Content>
@@ -352,60 +440,11 @@
 				{#if step < 2}
 					<Button type="button" class="rounded-[4px] text-xs" onclick={() => (step += 1)}>Next</Button>
 				{:else if step === 2}
-					<div class="flex flex-wrap items-center justify-end gap-2">
-						{#if !installDone}
-							{#if deferredInstall}
-								<Button
-									type="button"
-									class="rounded-[4px] text-xs"
-									disabled={installBusy}
-									onclick={() => void onInstallClick()}
-								>
-									{installBusy ? 'Installing…' : 'Install app'}
-								</Button>
-							{:else if ios}
-								<Button
-									type="button"
-									class="rounded-[4px] text-xs"
-									onclick={markInstalledManually}
-								>
-									I've installed it
-								</Button>
-							{:else}
-								<Button
-									type="button"
-									class="rounded-[4px] text-xs"
-									disabled={installBusy}
-									onclick={() => void onInstallClick()}
-								>
-									{installBusy ? 'Checking…' : 'Install app'}
-								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									class="rounded-[4px] text-xs"
-									onclick={markInstalledManually}
-								>
-									I've installed it
-								</Button>
-							{/if}
-							<Button
-								type="button"
-								variant="ghost"
-								class="rounded-[4px] text-xs text-muted-foreground"
-								onclick={() => {
-									capture('onboarding_pwa_skipped', {});
-									step = 3;
-								}}
-							>
-								Continue without installing
-							</Button>
-						{:else}
-							<Button type="button" class="rounded-[4px] text-xs" onclick={advanceFromInstall}>
-								Next
-							</Button>
-						{/if}
-					</div>
+					{#if installDone}
+						<Button type="button" class="rounded-[4px] text-xs" onclick={advanceFromInstall}>
+							Next
+						</Button>
+					{/if}
 				{:else if pushDone || pushUnsupportedReason}
 					{#if creditsOk}
 						<form method="post" action="?/completeOnboarding" use:enhance={completeOnboardingEnhance}>
@@ -416,44 +455,6 @@
 							<Button type="submit" class="rounded-[4px] text-xs">Start capturing →</Button>
 						</form>
 					{/if}
-				{:else}
-					<div class="flex flex-wrap items-center justify-end gap-2">
-						<Button
-							type="button"
-							class="rounded-[4px] text-xs"
-							disabled={pushBusy}
-							onclick={() => void onEnableNotifications()}
-						>
-							{pushBusy ? 'Enabling…' : 'Enable notifications'}
-						</Button>
-						{#if creditsOk}
-							<form
-								method="post"
-								action="?/completeOnboarding"
-								use:enhance={completeOnboardingEnhance}
-							>
-								<Button
-									type="submit"
-									variant="ghost"
-									class="rounded-[4px] text-xs text-muted-foreground"
-									onclick={() => capture('onboarding_push_skipped', {})}
-								>
-									Continue without notifications
-								</Button>
-							</form>
-						{:else}
-							<form method="post" action="?/skipOnboarding" use:enhance={skipOnboardingEnhance}>
-								<Button
-									type="submit"
-									variant="ghost"
-									class="rounded-[4px] text-xs text-muted-foreground"
-									onclick={() => capture('onboarding_push_skipped', {})}
-								>
-									Continue without notifications
-								</Button>
-							</form>
-						{/if}
-					</div>
 				{/if}
 			</Card.Footer>
 		</Card.Root>

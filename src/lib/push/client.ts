@@ -173,6 +173,11 @@ export async function postSubscribe(subscription: PushSubscriptionJSON): Promise
 			body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
 				? body.message
 				: `Subscribe failed (${res.status})`;
+		if (msg.includes('Failed query:') || msg.includes('push_subscription')) {
+			throw new Error(
+				'Could not save notification settings for this device. Try again, or enable later in Settings.'
+			);
+		}
 		throw new Error(msg);
 	}
 }

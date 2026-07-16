@@ -18,15 +18,19 @@ describe('capture-onboarding-overlay.svelte', () => {
 		await expect.element(page.getByText('Step 1 of 4')).toBeInTheDocument();
 		await expect.element(page.getByText('Your memory, not theirs.')).toBeInTheDocument();
 		await expect
-			.element(page.getByText(/Eigen Mesh captures what's on your mind/))
+			.element(page.getByText(/shouldn't live inside one chat vendor or hyperscaler/))
 			.toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument();
 		await page.getByRole('button', { name: 'Next' }).click();
 		await expect.element(page.getByText('Step 2 of 4')).toBeInTheDocument();
 		await expect.element(page.getByText('Just drop it in.')).toBeInTheDocument();
+		await expect
+			.element(page.getByText(/Eigen Mesh captures what's on your mind/))
+			.toBeInTheDocument();
 		await page.getByRole('button', { name: 'Next' }).click();
 		await expect.element(page.getByText('Step 3 of 4')).toBeInTheDocument();
-		await expect.element(page.getByText('Install Eigen')).toBeInTheDocument();
+		await expect.element(page.getByText('Install Eigen Mesh')).toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Install app' })).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('button', { name: 'Continue without installing' }))
 			.toBeInTheDocument();

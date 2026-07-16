@@ -8,7 +8,9 @@ const { parsePushSubscriptionBodyMock, upsertPushSubscriptionMock } = vi.hoisted
 
 vi.mock('$lib/server/push/subscription', () => ({
 	parsePushSubscriptionBody: parsePushSubscriptionBodyMock,
-	upsertPushSubscription: upsertPushSubscriptionMock
+	upsertPushSubscription: upsertPushSubscriptionMock,
+	PUSH_SUBSCRIBE_USER_ERROR:
+		'Could not save notification settings for this device. Try again, or enable later in Settings.'
 }));
 
 describe('POST /api/push/subscribe', () => {
@@ -64,5 +66,37 @@ describe('POST /api/push/subscribe', () => {
 				})
 			} as never)
 		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('returns a user-safe message when persist fails', async () => {
+		parsePushSubscriptionBodyMock.mockReturnValue({
+			endpoint: 'https://push.example/x',
+			keys: { p256dh: 'p', auth: 'a' }
+		});
+		upsertPushSubscriptionMock.mockRejectedValue(
+			new Error(
+				'Failed query: insert into "push_subscription" ("id", "user_id") values (default, $1)'
+			)
+		);
+
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: new Request('http://localhost/api/push/subscribe', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						endpoint: 'https://push.example/x',
+						keys: { p256dh: 'p', auth: 'a' }
+					})
+				})
+			} as never)
+		).rejects.toMatchObject({
+			status: 500,
+			body: {
+				message:
+					'Could not save notification settings for this device. Try again, or enable later in Settings.'
+			}
+		});
 	});
 });

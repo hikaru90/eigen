@@ -1,6 +1,10 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { parsePushSubscriptionBody, upsertPushSubscription } from '$lib/server/push/subscription';
+import {
+	parsePushSubscriptionBody,
+	PUSH_SUBSCRIBE_USER_ERROR,
+	upsertPushSubscription
+} from '$lib/server/push/subscription';
 
 export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
@@ -27,7 +31,10 @@ export const POST: RequestHandler = async (event) => {
 		const row = await upsertPushSubscription(user.id, input, userAgent);
 		return json({ ok: true as const, id: row.id });
 	} catch (e) {
-		const msg = e instanceof Error ? e.message : String(e);
-		error(500, msg);
+		console.error('[push/subscribe] persist failed', {
+			userId: user.id,
+			message: e instanceof Error ? e.message : String(e)
+		});
+		error(500, PUSH_SUBSCRIBE_USER_ERROR);
 	}
 };

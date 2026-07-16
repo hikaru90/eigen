@@ -649,7 +649,7 @@ export async function topUpCreditsViaPayPalSandbox(
 
 function onboardingDialog(page: Page): Locator {
 	return page.getByRole('dialog', {
-		name: /Your memory, not theirs\.|Just drop it in\.|Install Eigen|Stay in the loop/
+		name: /Your memory, not theirs\.|Just drop it in\.|Install Eigen Mesh|Stay in the loop/
 	});
 }
 
@@ -672,7 +672,7 @@ export async function completeOnboardingOverlay(
 	await expect(dialog.getByText('Step 2 of 4')).toBeVisible();
 
 	await dialog.getByRole('button', { name: 'Next' }).click();
-	await expect(dialog.getByText('Install Eigen')).toBeVisible({ timeout: 10_000 });
+	await expect(dialog.getByText('Install Eigen Mesh')).toBeVisible({ timeout: 10_000 });
 	await expect(dialog.getByText('Step 3 of 4')).toBeVisible();
 	await dialog.getByRole('button', { name: 'Continue without installing' }).click();
 
