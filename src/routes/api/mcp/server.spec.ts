@@ -17,7 +17,15 @@ vi.mock('$lib/server/mcp/tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
 	runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
 	runEditThoughtTool: runEditThoughtToolMock,
-	runDeleteThoughtTool: runDeleteThoughtToolMock
+	runDeleteThoughtTool: runDeleteThoughtToolMock,
+	runCreateTextFileTool: vi.fn(),
+	runListTextFilesTool: vi.fn(),
+	runGetTextFileTool: vi.fn(),
+	runUpdateTextFileTool: vi.fn(),
+	runDeleteTextFileTool: vi.fn(),
+	runSearchTextFilesTool: vi.fn(),
+	runLinkTextFileToThoughtTool: vi.fn(),
+	runUnlinkTextFileFromThoughtTool: vi.fn()
 }));
 
 function makeRequest(body: unknown, method = 'POST'): Request {

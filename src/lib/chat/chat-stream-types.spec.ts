@@ -252,12 +252,36 @@ describe('chat-stream-types', () => {
 			'capture_thought',
 			'retrieve_thoughts',
 			'edit_thought',
-			'delete_thought'
+			'delete_thought',
+			'create_text_file',
+			'list_text_files',
+			'get_text_file',
+			'update_text_file',
+			'delete_text_file',
+			'search_text_files',
+			'link_text_file_to_thought',
+			'unlink_text_file_from_thought'
 		]);
 	});
 
 	it('falls back to unknown-tool visual for removed chat-only tools', () => {
 		expect(toolVisual('list_temporal_events').title).toMatch(/Running list_temporal_events/);
+	});
+
+	it('summarizes create_text_file body argument', () => {
+		expect(
+			formatToolArgumentsSummary('create_text_file', { body: 'Shopping list: eggs, milk' })
+		).toBe('Shopping list: eggs, milk');
+	});
+
+	it('formats create_text_file result for display', () => {
+		const preview = JSON.stringify({
+			textFileId: 'f1',
+			textFile: { title: 'Shopping', body: 'eggs, milk' }
+		});
+		expect(formatToolResultForDisplay('create_text_file', preview)).toBe(
+			'Shopping: eggs, milk'
+		);
 	});
 
 	it('sanitizeFinalAnswerText rejects raw JSON tool payloads', () => {

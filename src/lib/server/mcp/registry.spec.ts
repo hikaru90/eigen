@@ -8,8 +8,19 @@ import {
 	MCP_TOOL_DEFINITIONS
 } from './registry';
 
+const TEXT_NOTE_TOOLS = [
+	'create_text_file',
+	'list_text_files',
+	'get_text_file',
+	'update_text_file',
+	'delete_text_file',
+	'search_text_files',
+	'link_text_file_to_thought',
+	'unlink_text_file_from_thought'
+] as const;
+
 describe('MCP tool registry exposure', () => {
-	it('exposes only the four client memory tools over HTTP MCP and chat', () => {
+	it('exposes only the four client memory tools over HTTP MCP', () => {
 		expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toEqual([
 			'capture_thought',
 			'retrieve_thoughts',
@@ -17,11 +28,17 @@ describe('MCP tool registry exposure', () => {
 			'delete_thought'
 		]);
 		expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
-		expect(MCP_AGENT_TOOL_NAMES).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
-		expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
 	});
 
-	it('does not register chat-only tools', () => {
+	it('gives the in-app chat agent thought CRUD plus text-note tools', () => {
+		expect(MCP_AGENT_TOOL_NAMES).toEqual([
+			...MCP_CLIENT_EXPOSED_TOOL_NAMES,
+			...TEXT_NOTE_TOOLS
+		]);
+		expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES);
+	});
+
+	it('does not register removed chat-only tools', () => {
 		expect(MCP_AGENT_TOOL_NAMES).not.toContain('list_thoughts');
 		expect(MCP_AGENT_TOOL_NAMES).not.toContain('answer_question');
 		expect(MCP_AGENT_TOOL_NAMES).not.toContain('set_status');
@@ -29,13 +46,23 @@ describe('MCP tool registry exposure', () => {
 		expect(MCP_AGENT_TOOL_NAMES).not.toContain('manage_temporal_event');
 	});
 
-	it('isMcpExposedTool and isAgentTool gate the same four-tool surface', () => {
+	it('keeps text-note tools chat-only (not HTTP MCP)', () => {
+		for (const name of TEXT_NOTE_TOOLS) {
+			expect(isMcpExposedTool(name)).toBe(false);
+			expect(isAgentTool(name)).toBe(true);
+		}
+	});
+
+	it('isMcpExposedTool and isAgentTool gate the correct surfaces', () => {
 		expect(isMcpExposedTool('capture_thought')).toBe(true);
+		expect(isMcpExposedTool('create_text_file')).toBe(false);
 		expect(isMcpExposedTool('list_thoughts')).toBe(false);
 		expect(isMcpExposedTool('answer_question')).toBe(false);
 
 		expect(isAgentTool('capture_thought')).toBe(true);
 		expect(isAgentTool('retrieve_thoughts')).toBe(true);
+		expect(isAgentTool('create_text_file')).toBe(true);
+		expect(isAgentTool('delete_text_file')).toBe(true);
 		expect(isAgentTool('list_thoughts')).toBe(false);
 		expect(isAgentTool('answer_question')).toBe(false);
 		expect(isAgentTool('nope')).toBe(false);
@@ -52,5 +79,11 @@ describe('MCP tool registry exposure', () => {
 		const del = MCP_EXPOSED_TOOL_DEFINITIONS.find((t) => t.name === 'delete_thought');
 		expect(del?.description).toMatch(/soft-remove/i);
 		expect(del?.description).toMatch(/any category/i);
+	});
+
+	it('documents create_text_file as a Notes document, not a thought', () => {
+		const create = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'create_text_file');
+		expect(create?.description).toMatch(/not a thought/i);
+		expect(create?.description).toMatch(/capture_thought/i);
 	});
 });

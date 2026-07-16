@@ -7,6 +7,7 @@ const {
 	deleteThoughtMock,
 	editThoughtMock,
 	captureThoughtMock,
+	createTextFileMock,
 	getDbMock,
 	mcpToolMap
 } = vi.hoisted(() => {
@@ -14,11 +15,13 @@ const {
 	const deleteThoughtMock = vi.fn();
 	const editThoughtMock = vi.fn();
 	const captureThoughtMock = vi.fn();
+	const createTextFileMock = vi.fn();
 	const mcpToolMap = new Map<string, typeof retrieveThoughtsMock>([
 		['retrieve_thoughts', retrieveThoughtsMock],
 		['delete_thought', deleteThoughtMock],
 		['edit_thought', editThoughtMock],
-		['capture_thought', captureThoughtMock]
+		['capture_thought', captureThoughtMock],
+		['create_text_file', createTextFileMock]
 	]);
 	return {
 		llmChatCompletionMock: vi.fn(),
@@ -27,6 +30,7 @@ const {
 		deleteThoughtMock,
 		editThoughtMock,
 		captureThoughtMock,
+		createTextFileMock,
 		getDbMock: vi.fn(),
 		mcpToolMap
 	};
@@ -48,12 +52,33 @@ vi.mock('$lib/server/mcp/registry', () => ({
 		'capture_thought',
 		'retrieve_thoughts',
 		'edit_thought',
-		'delete_thought'
+		'delete_thought',
+		'create_text_file',
+		'list_text_files',
+		'get_text_file',
+		'update_text_file',
+		'delete_text_file',
+		'search_text_files',
+		'link_text_file_to_thought',
+		'unlink_text_file_from_thought'
 	],
 	MCP_EXPOSED_TOOL_DEFINITIONS: [],
 	buildAgentToolDescriptionBlock: () => '',
 	isAgentTool: (name: string) =>
-		['capture_thought', 'retrieve_thoughts', 'edit_thought', 'delete_thought'].includes(name)
+		[
+			'capture_thought',
+			'retrieve_thoughts',
+			'edit_thought',
+			'delete_thought',
+			'create_text_file',
+			'list_text_files',
+			'get_text_file',
+			'update_text_file',
+			'delete_text_file',
+			'search_text_files',
+			'link_text_file_to_thought',
+			'unlink_text_file_from_thought'
+		].includes(name)
 }));
 
 import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact';
@@ -455,5 +480,32 @@ describe('agentChat', () => {
 			raw: 'I love mirin'
 		});
 		expect(result.response).toBe('Saved.');
+	});
+
+	it('creates a text note via create_text_file when the model chooses it', async () => {
+		createTextFileMock.mockResolvedValue({
+			textFileId: 'f1',
+			textFile: { id: 'f1', title: 'Shopping', body: 'eggs' }
+		});
+		llmChatCompletionMock
+			.mockResolvedValueOnce(
+				llmJson({
+					tool: 'create_text_file',
+					arguments: { title: 'Shopping', body: 'eggs' }
+				})
+			)
+			.mockResolvedValueOnce(llmJson({ answer: 'Note created.' }));
+
+		const result = await agentChat({
+			userId: 'u1',
+			messages: [{ role: 'user', content: 'add a note titled Shopping: eggs' }]
+		});
+
+		expect(createTextFileMock).toHaveBeenCalledWith(expect.anything(), {
+			title: 'Shopping',
+			body: 'eggs'
+		});
+		expect(captureThoughtMock).not.toHaveBeenCalled();
+		expect(result.response).toBe('Note created.');
 	});
 });

@@ -23,7 +23,15 @@ vi.mock('./tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
 	runEditThoughtTool: vi.fn(),
 	runDeleteThoughtTool: vi.fn(),
-	runRetrieveThoughtsTool: runSearchThoughtsToolMock
+	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
+	runCreateTextFileTool: vi.fn(),
+	runListTextFilesTool: vi.fn(),
+	runGetTextFileTool: vi.fn(),
+	runUpdateTextFileTool: vi.fn(),
+	runDeleteTextFileTool: vi.fn(),
+	runSearchTextFilesTool: vi.fn(),
+	runLinkTextFileToThoughtTool: vi.fn(),
+	runUnlinkTextFileFromThoughtTool: vi.fn()
 }));
 
 describe('createMcpServer', () => {

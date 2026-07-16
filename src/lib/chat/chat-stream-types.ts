@@ -47,7 +47,15 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
 	capture_thought: { title: 'Saving to memory', category: 'write', icon: 'save' },
 	retrieve_thoughts: { title: 'Searching your memories', category: 'search', icon: 'search' },
 	edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
-	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' }
+	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' },
+	create_text_file: { title: 'Creating text note', category: 'write', icon: 'save' },
+	list_text_files: { title: 'Listing text notes', category: 'memory', icon: 'list' },
+	get_text_file: { title: 'Opening text note', category: 'memory', icon: 'list' },
+	update_text_file: { title: 'Updating text note', category: 'write', icon: 'pencil' },
+	delete_text_file: { title: 'Deleting text note', category: 'destructive', icon: 'trash' },
+	search_text_files: { title: 'Searching text notes', category: 'search', icon: 'search' },
+	link_text_file_to_thought: { title: 'Linking note to memory', category: 'write', icon: 'pencil' },
+	unlink_text_file_from_thought: { title: 'Unlinking note from memory', category: 'write', icon: 'pencil' }
 };
 
 const UNKNOWN_TOOL_VISUAL: ChatToolVisual = {
@@ -118,6 +126,26 @@ export function formatToolArgumentsSummary(
 		if (typeof id === 'string' && id.trim()) return `Thought ${id.slice(0, 8)}…`;
 	}
 
+	if (tool === 'create_text_file') {
+		const title = args.title;
+		const body = args.body;
+		if (typeof title === 'string' && title.trim()) return title.trim();
+		if (typeof body === 'string' && body.trim()) {
+			const t = body.trim();
+			return t.length > 120 ? `${t.slice(0, 117)}…` : t;
+		}
+	}
+
+	if (tool === 'update_text_file' || tool === 'delete_text_file' || tool === 'get_text_file') {
+		const id = args.text_file_id ?? args.textFileId ?? args.id;
+		if (typeof id === 'string' && id.trim()) return `Note ${id.slice(0, 8)}…`;
+	}
+
+	if (tool === 'search_text_files') {
+		const q = args.query;
+		if (typeof q === 'string' && q.trim()) return q.trim();
+	}
+
 	return null;
 }
 
@@ -161,6 +189,51 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 		const cat = t.category ? ` (${t.category})` : '';
 		const body = t.normalizedText ?? t.snippet ?? '(no text)';
 		return { kind: 'text', text: `Saved${cat}: ${body}` };
+	}
+
+	if (
+		(tool === 'create_text_file' || tool === 'update_text_file' || tool === 'get_text_file') &&
+		parsed.textFile &&
+		typeof parsed.textFile === 'object'
+	) {
+		const f = parsed.textFile as { title?: string; body?: string };
+		const title = typeof f.title === 'string' && f.title.trim() ? f.title.trim() : 'Untitled note';
+		const body = typeof f.body === 'string' ? f.body : '';
+		const preview = body.length > 200 ? `${body.slice(0, 197)}…` : body;
+		return { kind: 'text', text: `${title}${preview ? `: ${preview}` : ''}` };
+	}
+
+	if (tool === 'delete_text_file' && parsed.deleted === true) {
+		const id = typeof parsed.textFileId === 'string' ? parsed.textFileId : null;
+		return {
+			kind: 'text',
+			text: id ? `Deleted note ${id.slice(0, 8)}…` : 'Deleted note'
+		};
+	}
+
+	if (tool === 'list_text_files' && Array.isArray(parsed.textFiles)) {
+		const files = parsed.textFiles as Array<{ title?: string; body?: string; id?: string }>;
+		if (files.length === 0) return { kind: 'text', text: 'No text notes.' };
+		return {
+			kind: 'lines',
+			lines: files.map((f, i) => {
+				const title = typeof f.title === 'string' && f.title.trim() ? f.title.trim() : 'Untitled';
+				return `${i + 1}. ${title}`;
+			})
+		};
+	}
+
+	if (tool === 'search_text_files' && Array.isArray(parsed.results)) {
+		const results = parsed.results as Array<{ title?: string; preview?: string }>;
+		if (results.length === 0) return { kind: 'text', text: 'No matching notes.' };
+		return {
+			kind: 'lines',
+			lines: results.map((r, i) => {
+				const title = typeof r.title === 'string' && r.title.trim() ? r.title.trim() : 'Untitled';
+				const preview = typeof r.preview === 'string' ? r.preview : '';
+				return preview ? `${i + 1}. ${title}: ${preview}` : `${i + 1}. ${title}`;
+			})
+		};
 	}
 
 	if (tool === 'edit_thought') {

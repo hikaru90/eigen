@@ -6,8 +6,7 @@ import {
 	buildAgentToolDescriptionBlock,
 	isAgentTool,
 	MCP_AGENT_TOOL_NAMES,
-	MCP_EXPOSED_TOOL_DEFINITIONS,
-	MCP_EXPOSED_TOOL_MAP
+	MCP_TOOL_MAP
 } from '$lib/server/mcp/registry';
 import type { ChatSessionMode } from '$lib/server/db/brain.schema';
 import type { McpToolContext } from '$lib/server/mcp/tools';
@@ -34,12 +33,12 @@ export class AgentParseError extends Error {
 const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock();
 
 /**
- * Thin chat agent: same 4 MCP tools as HTTP clients, plus streaming visual feedback.
- * No router, classifiers, or chat-only tools.
+ * Thin chat agent: HTTP MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
+ * No router or classifiers.
  */
 const AGENT_SYSTEM_PROMPT = [
-	"You are a text interface over the user's personal memory MCP tools.",
-	'You have exactly the same four tools as any MCP client. Use them to fulfill the user request, then answer.',
+	"You are a text interface over the user's personal memory tools.",
+	'Use the available tools to fulfill the user request, then answer.',
 	'',
 	'Respond with JSON only. To call a tool:',
 	'{"tool": "<tool_name>", "arguments": {<args>}}',
@@ -50,11 +49,14 @@ const AGENT_SYSTEM_PROMPT = [
 	TOOL_DESCRIPTION_BLOCK,
 	'',
 	'=== RULES ===',
-	'- Questions: retrieve_thoughts with a search query, then answer from the returned snippets (cite ids when helpful).',
-	'- Capture / remember / note something new: capture_thought with the text to store.',
-	'- Mark done / complete / finished / reopen / archive / irrelevant / outdated: retrieve_thoughts to find the thought id, then edit_thought (e.g. edit_request "mark as done", "archive", "not relevant") or delete_thought. Done/complete → completed; delete/irrelevant/outdated → archived. Both soft-remove from active memory.',
-	'- Category never matters for lifecycle: task, idea, observation, fact, etc. are interchangeable. Never refuse "mark as done" because something is "a thought not a todo".',
-	'- Delete / remove a memory: retrieve_thoughts to find the id, then delete_thought with that thought_id (soft archive — same family as mark done).',
+	'- Questions about memories: retrieve_thoughts with a search query, then answer from the returned snippets (cite ids when helpful).',
+	'- Add / create / write a note (Notes tab document): create_text_file with body (and optional title). Never use capture_thought for notes.',
+	'- Edit / update a note: list_text_files or search_text_files to find text_file_id, then update_text_file.',
+	'- Delete a note: list_text_files or search_text_files to find text_file_id, then delete_text_file.',
+	'- Capture / remember something as a memory thought (not a Notes document): capture_thought with the text to store.',
+	'- Mark done / complete / finished / reopen / archive / irrelevant / outdated on a thought: retrieve_thoughts to find the thought id, then edit_thought (e.g. edit_request "mark as done", "archive", "not relevant") or delete_thought. Done/complete → completed; delete/irrelevant/outdated → archived. Both soft-remove from active memory.',
+	'- Category never matters for thought lifecycle: task, idea, observation, fact, etc. are interchangeable. Never refuse "mark as done" because something is "a thought not a todo".',
+	'- Delete / remove a memory thought: retrieve_thoughts to find the id, then delete_thought with that thought_id (soft archive — same family as mark done).',
 	'- Never claim an edit/delete succeeded unless the tool succeeded in this turn.',
 	'- If a tool errors, explain in your final answer.',
 	'- Output ONLY the JSON object.'
@@ -204,7 +206,7 @@ async function executeAgentToolCall(input: {
 	const { tool, exec } = input;
 	const args = normalizeAgentToolArgs(tool, input.arguments);
 
-	const handler = MCP_EXPOSED_TOOL_MAP.get(tool);
+	const handler = MCP_TOOL_MAP.get(tool);
 	const allowed = isAgentTool(tool);
 	if (!handler || !allowed) {
 		return {
@@ -352,7 +354,7 @@ export async function agentChat(input: {
 		}
 
 		if (parsed.type === 'tool_call') {
-			const handler = MCP_EXPOSED_TOOL_MAP.get(parsed.tool);
+			const handler = MCP_TOOL_MAP.get(parsed.tool);
 			if (!handler || !isAgentTool(parsed.tool)) {
 				console.error('[agent-loop] unknown tool requested', { tool: parsed.tool });
 				messages.push({ role: 'assistant', content });

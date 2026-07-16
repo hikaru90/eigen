@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	runCaptureThoughtTool,
+	runCreateTextFileTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
-	runRetrieveThoughtsTool
+	runRetrieveThoughtsTool,
+	runSearchTextFilesTool
 } from './tools';
 
 const {
@@ -14,6 +16,7 @@ const {
 	archiveThoughtForUserMock,
 	getDbSelectMock,
 	loadTemporalContextByThoughtIdsMock,
+	createTextFileMock,
 	searchTextFilesMock,
 	resolveMcpCaptureAuthorshipMock
 } = vi.hoisted(() => ({
@@ -24,6 +27,7 @@ const {
 	archiveThoughtForUserMock: vi.fn(),
 	getDbSelectMock: vi.fn(),
 	loadTemporalContextByThoughtIdsMock: vi.fn(),
+	createTextFileMock: vi.fn(),
 	searchTextFilesMock: vi.fn(),
 	resolveMcpCaptureAuthorshipMock: vi.fn()
 }));
@@ -66,6 +70,7 @@ vi.mock('$lib/server/db', () => ({
 }));
 
 vi.mock('$lib/server/text-files/service', () => ({
+	createTextFile: createTextFileMock,
 	searchTextFiles: searchTextFilesMock
 }));
 
@@ -454,5 +459,66 @@ describe('MCP tools', () => {
 		await expect(
 			runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi', author: 'bad' })
 		).rejects.toThrow(/No API key matches/);
+	});
+
+	it('runCreateTextFileTool passes resolved authorship', async () => {
+		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
+			author: 'agent',
+			authorLabel: 'claude',
+			authorKeyId: 'key-1'
+		});
+		createTextFileMock.mockResolvedValue({
+			id: 'f1',
+			title: 'Note',
+			body: 'hello',
+			author: 'agent',
+			authorLabel: 'claude',
+			authorKeyId: 'key-1',
+			createdAt: '2026-07-16T00:00:00.000Z',
+			updatedAt: '2026-07-16T00:00:00.000Z'
+		});
+		await runCreateTextFileTool(
+			{ userId: 'u1' },
+			{ body: 'hello', title: 'Note', author: 'eigen_xyz' }
+		);
+		expect(createTextFileMock).toHaveBeenCalledWith('u1', {
+			title: 'Note',
+			body: 'hello',
+			authorship: {
+				author: 'agent',
+				authorLabel: 'claude',
+				authorKeyId: 'key-1'
+			}
+		});
+	});
+
+	it('runCreateTextFileTool returns sanitized payload without embedding', async () => {
+		createTextFileMock.mockResolvedValue({
+			id: 'f1',
+			title: 'Note',
+			body: 'hello',
+			author: 'user',
+			authorLabel: null,
+			authorKeyId: null,
+			createdAt: '2026-07-16T00:00:00.000Z',
+			updatedAt: '2026-07-16T00:00:00.000Z'
+		});
+		const out = await runCreateTextFileTool({ userId: 'u1' }, { body: 'hello', title: 'Note' });
+		expect(out).toMatchObject({ textFileId: 'f1', textFile: { body: 'hello' } });
+		expect(out).not.toHaveProperty('embedding');
+	});
+
+	it('runSearchTextFilesTool searches notes with author filter', async () => {
+		searchTextFilesMock.mockResolvedValue([{ id: 'f1', title: 'R', preview: 'x', lexicalScore: 1 }]);
+		const out = await runSearchTextFilesTool(
+			{ userId: 'u1' },
+			{ query: 'hello', top_k: 10, author: 'agent' }
+		);
+		expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
+			query: 'hello',
+			topK: 10,
+			authorFilter: 'agent'
+		});
+		expect(out).toMatchObject({ count: 1 });
 	});
 });
