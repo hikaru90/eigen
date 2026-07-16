@@ -95,10 +95,10 @@ describe('extractRelations', () => {
 		expect(userPrompt).not.toContain('Use related_to for any two thoughts');
 		expect(systemPrompt).not.toContain('prefer related_to over returning an empty array');
 
-		// Must instruct the model to prefer specific types
+		// Must instruct the model to prefer specific types (related_to only when nothing else fits)
 		expect(userPrompt).toMatch(/most specific/i);
-		// "last resort" framing lives in the system message
-		expect(systemPrompt).toMatch(/last resort/i);
+		expect(userPrompt).toMatch(/related_to only when no other type fits/i);
+		expect(systemPrompt).toMatch(/extract relations/i);
 
 		// Must include few-shot examples covering specific types
 		expect(userPrompt).toContain('refines');

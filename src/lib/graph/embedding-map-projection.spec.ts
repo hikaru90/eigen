@@ -25,6 +25,46 @@ function makeItem(id: string) {
 	};
 }
 
+function mockEmbeddingFetch(handlers: {
+	revision?: string | (() => string);
+	snapshot?: { revision: string; items: ReturnType<typeof makeItem>[] } | (() => {
+		revision: string;
+		items: ReturnType<typeof makeItem>[];
+	});
+	project?:
+		| { revision: string; coords: number[][]; method: 'umap' | 'fallback' }
+		| (() => { revision: string; coords: number[][]; method: 'umap' | 'fallback' })
+		| null;
+}) {
+	const fetchMock = vi.mocked(fetch);
+	fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+		const url = String(input);
+		if (url.includes('/api/embeddings/revision')) {
+			const revision =
+				typeof handlers.revision === 'function' ? handlers.revision() : handlers.revision;
+			if (revision === undefined) throw new Error('unexpected revision fetch');
+			return new Response(JSON.stringify({ revision }), { status: 200 });
+		}
+		if (url.includes('/api/embeddings/project')) {
+			if (handlers.project === null) {
+				return new Response('unavailable', { status: 503 });
+			}
+			const body =
+				typeof handlers.project === 'function' ? handlers.project() : handlers.project;
+			if (!body) throw new Error('unexpected project fetch');
+			return new Response(JSON.stringify(body), { status: 200 });
+		}
+		if (url.includes('/api/embeddings/snapshot')) {
+			const body =
+				typeof handlers.snapshot === 'function' ? handlers.snapshot() : handlers.snapshot;
+			if (!body) throw new Error('unexpected snapshot fetch');
+			return new Response(JSON.stringify(body), { status: 200 });
+		}
+		throw new Error(`unexpected fetch: ${url}`);
+	});
+	return fetchMock;
+}
+
 describe('embedding-map-projection', () => {
 	beforeEach(() => {
 		invalidateEmbeddingProjection();
@@ -39,20 +79,25 @@ describe('embedding-map-projection', () => {
 	it('reuses cached projection when revision is unchanged', async () => {
 		const revision = 'rev-1';
 		const items = [makeItem('t1')];
-		const fetchMock = vi.mocked(fetch);
-		fetchMock
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ revision, items }), { status: 200 })
-			)
-			.mockResolvedValueOnce(new Response(JSON.stringify({ revision }), { status: 200 }));
+		const fetchMock = mockEmbeddingFetch({
+			revision,
+			snapshot: { revision, items },
+			project: {
+				revision,
+				coords: [[0, 0, 0]],
+				method: 'fallback'
+			}
+		});
 
 		await ensureEmbeddingProjection();
 		expect(getEmbeddingProjectionPhase().kind).toBe('ready');
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		// Cold start: snapshot + server project
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 
 		await ensureEmbeddingProjection();
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/embeddings/revision');
+		// Cache hit: revision check only
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/embeddings/revision');
 		expect(getEmbeddingProjectionPhase().kind).toBe('ready');
 	});
 
@@ -61,14 +106,27 @@ describe('embedding-map-projection', () => {
 		const revisionB = 'rev-b';
 		const itemsA = [makeItem('t1')];
 		const itemsB = [makeItem('t1'), makeItem('t2')];
-		const fetchMock = vi.mocked(fetch);
-		fetchMock
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ revision: revisionA, items: itemsA }), { status: 200 })
-			)
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ revision: revisionB, items: itemsB }), { status: 200 })
-			);
+		let snapshotRound = 0;
+		mockEmbeddingFetch({
+			revision: () => (snapshotRound === 0 ? revisionA : revisionB),
+			snapshot: () => {
+				snapshotRound += 1;
+				return snapshotRound === 1
+					? { revision: revisionA, items: itemsA }
+					: { revision: revisionB, items: itemsB };
+			},
+			project: () =>
+				snapshotRound === 1
+					? { revision: revisionA, coords: [[0, 0, 0]], method: 'fallback' }
+					: {
+							revision: revisionB,
+							coords: [
+								[0, 0, 0],
+								[1, 1, 1]
+							],
+							method: 'fallback'
+						}
+		});
 
 		await ensureEmbeddingProjection();
 		await ensureEmbeddingProjection(true);

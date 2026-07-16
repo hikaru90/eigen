@@ -42,12 +42,16 @@ A change is Done only when all items below are satisfied:
 - Coverage report path: `coverage/index.html`.
 
 ## Merge Gates (PR-Level)
-- CI (`.github/workflows/test-coverage.yml`): `npm run lint`, `npm run check`, `npm run test:coverage`, and smoke E2E (`npm run test:e2e:smoke` with Postgres via Docker Compose).
+- CI (`.github/workflows/test-coverage.yml`):
+  - **Required:** `npm run lint`, `npm run check`, `npm run test:unit` (blocks merge on failure).
+  - **Reported:** `npm run test:coverage` with `CI=true` (applies per-tier thresholds in `vite.config.ts`; currently `continue-on-error` because critical domains are below the 95% target — see [docs/testing/README.md](../testing/README.md)).
+- CI (`.github/workflows/oss-secrets-guard.yml`): `npm run assert:oss-secrets` plus the OSS secret-guard unit spec.
 - All required tests pass for impacted risk level.
 - Lint/type checks pass.
 - No security policy regressions (Better Auth + RLS).
 - PR references relevant requirement IDs and acceptance criteria.
 - For critical changes, at least one explicit critical-path test update is present.
+- Playwright E2E and Q&A evals are **operator-run** locally (or via headed scripts); they are not currently merge-blocking CI jobs. See [docs/testing/README.md](../testing/README.md).
 
 ## Release Gates
 - All critical-path E2E scenarios pass.

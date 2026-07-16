@@ -673,7 +673,9 @@ export async function completeOnboardingOverlay(
 	await expect(dialog.getByText('Step 2 of 4')).toBeVisible();
 
 	await dialog.getByRole('button', { name: 'Next' }).click();
-	await expect(dialog.getByText('Install Eigen Mesh')).toBeVisible({ timeout: 10_000 });
+	await expect(dialog.getByText('Install Eigen Mesh', { exact: true })).toBeVisible({
+		timeout: 10_000
+	});
 	await expect(dialog.getByText('Step 3 of 4')).toBeVisible();
 	await dialog.getByRole('button', { name: 'Continue without installing' }).click();
 

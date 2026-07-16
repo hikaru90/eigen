@@ -14,6 +14,7 @@ How to use this layer: pick a domain → read its L2 file → if it points to a 
 
 Supporting docs (not domain maps):
 
+- [Testing](../testing/README.md) — how to run unit/E2E/evals and what CI enforces.
 - [answer-protocol.md](./answer-protocol.md) — how the coding assistant should answer when maps and code disagree.
 - [maintenance.md](./maintenance.md) — when to update which layer after a change.
 - [Embeddings DB-only boundary](../planning/embeddings-db-only-boundary.md) — vectors in Postgres only; never in MCP tools or LLM calls.

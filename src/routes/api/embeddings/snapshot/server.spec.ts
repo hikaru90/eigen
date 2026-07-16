@@ -41,7 +41,11 @@ function makeDbWithRows(thoughtRows: unknown[], entityRows: unknown[]) {
 		return chain(entityRows);
 	});
 
-	getDbMock.mockReturnValue({ select });
+	getDbMock.mockReturnValue({
+		select,
+		/** buildEntityAuthorLayerIndex calls getDb().execute(sql`…`). */
+		execute: vi.fn(async () => [])
+	});
 }
 
 describe('GET /api/embeddings/snapshot', () => {

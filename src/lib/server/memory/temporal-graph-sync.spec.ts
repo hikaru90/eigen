@@ -45,7 +45,17 @@ function makeDb(existingRows: Array<{ id: string; graphNodeId: string | null }> 
 	const insertValues = vi.fn(() => ({ returning: insertReturning }));
 	const insertFn = vi.fn(() => ({ values: insertValues }));
 
-	const selectWhere = vi.fn(async () => existingRows);
+	const authorshipRow = { author: 'user', authorLabel: null, authorKeyId: null };
+	/** First select is thought authorship (.limit); later selects await where for temporal rows. */
+	const selectWhere = vi.fn(() => ({
+		limit: vi.fn(async () => [authorshipRow]),
+		then(
+			onFulfilled?: (value: unknown) => unknown,
+			onRejected?: (error: unknown) => unknown
+		) {
+			return Promise.resolve(existingRows).then(onFulfilled, onRejected);
+		}
+	}));
 	const selectFrom = vi.fn(() => ({ where: selectWhere }));
 	const selectFn = vi.fn(() => ({ from: selectFrom }));
 

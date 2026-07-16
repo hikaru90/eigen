@@ -25,8 +25,19 @@ describe('layout server load', () => {
 					where: vi.fn().mockReturnValue({
 						limit: vi.fn().mockResolvedValue([
 							{ preferredUiLocale: 'en', preferredLanguage: 'de' }
-						])
+						]),
+						then(
+							onFulfilled?: (value: unknown) => unknown,
+							onRejected?: (error: unknown) => unknown
+						) {
+							return Promise.resolve([]).then(onFulfilled, onRejected);
+						}
 					})
+				})
+			}),
+			selectDistinct: vi.fn().mockReturnValue({
+				from: vi.fn().mockReturnValue({
+					where: vi.fn().mockResolvedValue([])
 				})
 			})
 		});
@@ -36,14 +47,16 @@ describe('layout server load', () => {
 			user: { id: 'u1' },
 			isAdmin: false,
 			preferredUiLocale: 'en',
-			preferredLanguage: 'de'
+			preferredLanguage: 'de',
+			authorLayers: [{ key: 'user', label: 'You', kind: 'user' }]
 		});
 
 		await expect(load({ locals: { user: undefined }, cookies } as never)).resolves.toEqual({
 			user: null,
 			isAdmin: false,
 			preferredUiLocale: null,
-			preferredLanguage: 'en'
+			preferredLanguage: 'en',
+			authorLayers: []
 		});
 	});
 });

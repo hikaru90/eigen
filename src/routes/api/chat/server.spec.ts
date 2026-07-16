@@ -45,6 +45,20 @@ function jsonRequest(body: unknown) {
 	return chatRequest(body, { ndjson: false });
 }
 
+/** Drizzle where-clause mock: supports .limit(), .orderBy(), and bare await. */
+function thenableWhere(rows: unknown[]) {
+	return {
+		limit: vi.fn().mockResolvedValue(rows),
+		orderBy: vi.fn().mockResolvedValue(rows),
+		then(
+			onFulfilled?: (value: unknown) => unknown,
+			onRejected?: (error: unknown) => unknown
+		) {
+			return Promise.resolve(rows).then(onFulfilled, onRejected);
+		}
+	};
+}
+
 function buildMainDb() {
 	const insertValues = vi
 		.fn()
@@ -57,9 +71,7 @@ function buildMainDb() {
 		});
 	const insert = vi.fn().mockReturnValue({ values: insertValues });
 
-	const whereForSelect = vi.fn().mockReturnValue({
-		limit: vi.fn().mockResolvedValue([{ id: SESSION_ID }])
-	});
+	const whereForSelect = vi.fn().mockImplementation(() => thenableWhere([{ count: 1 }]));
 	const select = vi.fn().mockReturnValue({
 		from: vi.fn().mockReturnValue({
 			where: whereForSelect
@@ -72,10 +84,11 @@ function buildMainDb() {
 		})
 	});
 
-	whereForSelect.mockReturnValueOnce({
-		limit: vi.fn().mockResolvedValue([{ id: SESSION_ID, mode: 'default' }])
-	});
-	whereForSelect.mockResolvedValue([{ count: 1 }]);
+	whereForSelect.mockImplementationOnce(() =>
+		thenableWhere([{ id: SESSION_ID, mode: 'default' }])
+	);
+	whereForSelect.mockImplementationOnce(() => thenableWhere([]));
+	whereForSelect.mockImplementation(() => thenableWhere([{ count: 1 }]));
 
 	return { insert, select, update };
 }

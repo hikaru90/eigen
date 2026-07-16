@@ -115,6 +115,13 @@ vi.mock('$lib/server/memory/entity-graph-hints', () => ({
 	loadIngestKnownEntityHints: vi.fn(async () => [])
 }));
 
+vi.mock('$lib/server/agents/notify', () => ({
+	notifyThoughtCreated: vi.fn(),
+	notifyThoughtEnriched: vi.fn(),
+	notifyThoughtDeleted: vi.fn(),
+	notifyThoughtUpdated: vi.fn()
+}));
+
 /**
  * Enrichment is mocked here; pipeline behavior is tested in enrich.spec.ts.
  */
@@ -152,6 +159,42 @@ function makeInsertReturning(value: unknown) {
 	return {
 		values: vi.fn(() => ({
 			returning: vi.fn(async () => [value])
+		}))
+	};
+}
+
+/** Drizzle where mock: `.limit()` for single-row loads; bare await for multi-row cascades. */
+function thenableWhere(limitRows: unknown[], awaitRows: unknown[] = []) {
+	return {
+		limit: vi.fn(async () => limitRows),
+		then(
+			onFulfilled?: (value: unknown) => unknown,
+			onRejected?: (error: unknown) => unknown
+		) {
+			return Promise.resolve(awaitRows).then(onFulfilled, onRejected);
+		}
+	};
+}
+
+function makeLifecycleEditDb(existing: Record<string, unknown>, updated?: Record<string, unknown>) {
+	const returning = updated ?? existing;
+	return {
+		select: vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(() => thenableWhere([existing], []))
+			}))
+		})),
+		update: vi.fn(() => ({
+			set: vi.fn(() => ({
+				where: vi.fn(() => ({
+					returning: vi.fn(async () => [
+						{
+							id: (returning as { id: string }).id,
+							category: (returning as { category: string }).category
+						}
+					])
+				}))
+			}))
 		}))
 	};
 }
@@ -379,23 +422,12 @@ describe('editStoredThought', () => {
 			lexicalText: 'buy milk'
 		};
 		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [existing])
-					}))
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({
-					where: vi.fn(() => ({
-						returning: vi.fn(async () => [updated])
-					}))
-				}))
-			}))
-		};
-		getDbMock.mockReturnValue(db);
+		getDbMock.mockReturnValue(makeLifecycleEditDb(existing, updated));
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			metadata: updated.metadata
+		});
 		applyThoughtEditRequestMock.mockResolvedValue({
 			rawText: 'Buy milk',
 			status: 'completed',
@@ -418,23 +450,12 @@ describe('editStoredThought', () => {
 			lexicalText: 'buy milk'
 		};
 		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [existing])
-					}))
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({
-					where: vi.fn(() => ({
-						returning: vi.fn(async () => [updated])
-					}))
-				}))
-			}))
-		};
-		getDbMock.mockReturnValue(db);
+		getDbMock.mockReturnValue(makeLifecycleEditDb(existing, updated));
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			metadata: updated.metadata
+		});
 		applyThoughtEditRequestMock.mockResolvedValue({
 			rawText: 'Buy milk',
 			status: 'completed',
@@ -457,23 +478,12 @@ describe('editStoredThought', () => {
 			lexicalText: 'buy milk'
 		};
 		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [existing])
-					}))
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({
-					where: vi.fn(() => ({
-						returning: vi.fn(async () => [updated])
-					}))
-				}))
-			}))
-		};
-		getDbMock.mockReturnValue(db);
+		getDbMock.mockReturnValue(makeLifecycleEditDb(existing, updated));
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			metadata: updated.metadata
+		});
 		applyThoughtEditRequestMock.mockResolvedValue({
 			rawText: 'Buy milk',
 			status: 'completed',
@@ -503,23 +513,13 @@ describe('editStoredThought', () => {
 			lexicalText: 'buy milk'
 		};
 		const updated = { ...existing, metadata: { status: 'completed', lastEditSummary: 'Marked complete' } };
-		const db = {
-			select: vi.fn(() => ({
-				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						limit: vi.fn(async () => [existing])
-					}))
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({
-					where: vi.fn(() => ({
-						returning: vi.fn(async () => [updated])
-					}))
-				}))
-			}))
-		};
-		getDbMock.mockReturnValue(db);
+		getDbMock.mockReturnValue(makeLifecycleEditDb(existing, updated));
+		loadThoughtCaptureResultMock.mockResolvedValue({
+			...defaultCaptureResult,
+			id: 't1',
+			normalizedText: 'Buy milk',
+			metadata: updated.metadata
+		});
 		applyThoughtEditRequestMock.mockResolvedValue({
 			rawText: 'Buy milk',
 			status: 'completed',
@@ -881,6 +881,13 @@ describe('deleteThoughtForUser', () => {
 			.mockReturnValueOnce({
 				from: vi.fn(() => ({
 					where: vi.fn(async () => [{ id: 'ev1', graphNodeId: 'ev-graph-1' }])
+				}))
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					innerJoin: vi.fn(() => ({
+						where: vi.fn(async () => [])
+					}))
 				}))
 			});
 		const db = {

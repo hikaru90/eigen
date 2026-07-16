@@ -7,8 +7,10 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override
 const slowMo = process.env.PW_SLOW_MO ? Number(process.env.PW_SLOW_MO) : undefined;
 const isCi = Boolean(process.env.CI);
 
-/** Local e2e default: attach to `npm run dev` (vite on 5173). Use 127.0.0.1 — Node fetch resolves localhost to ::1, which Vite often does not bind. */
+/** webServer readiness poll uses Node fetch — keep 127.0.0.1 because localhost resolves to ::1, which Vite often does not bind. */
 const devUrl = 'http://127.0.0.1:5173';
+/** Browser baseURL must match ORIGIN (localhost) so Better Auth serves /api/auth/* (e.g. email verification links) on the same host it signs cookies for. */
+const devBrowserUrl = 'http://localhost:5173';
 const previewUrl = 'http://127.0.0.1:4173';
 
 export default defineConfig({
@@ -29,7 +31,7 @@ export default defineConfig({
 	timeout: 60_000,
 	expect: { timeout: 15_000 },
 	use: {
-		baseURL: isCi ? previewUrl : devUrl,
+		baseURL: isCi ? previewUrl : devBrowserUrl,
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		video: 'retain-on-failure',

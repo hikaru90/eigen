@@ -2,7 +2,14 @@
 
 - **Language**: TypeScript
 - **Package Manager**: npm
-- **Add-ons**: eslint, vitest, playwright, tailwindcss, sveltekit-adapter, drizzle, better-auth, paraglide, mdsvex
+- **Add-ons**: eslint, vitest, playwright, drizzle, better-auth, paraglide, mdsvex
+
+## Testing (run and enforce)
+
+- **How to run / what CI gates:** [`docs/testing/README.md`](docs/testing/README.md)
+- **Unit suite:** `npm run test:unit` (or `npm run test:coverage` for a report + threshold check).
+- **CI:** `.github/workflows/test-coverage.yml` runs lint, check, and **`test:unit`** on every PR (merge gate). Coverage is reported in the same workflow but is not yet required until tier thresholds are met.
+- **E2E / evals:** operator-owned; see testing README and the eval section below. Do not skip the unit suite because evals exist.
 
 ## Database migrations (agent — non-negotiable)
 
