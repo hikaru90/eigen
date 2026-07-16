@@ -101,10 +101,10 @@ export default defineConfig({
 							// `npm run test:coverage` fails on regressions; raise toward 95% as
 							// more critical-path specs land, then make CI coverage merge-blocking.
 							'src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity}/**': {
-								lines: 83,
-								branches: 73,
-								functions: 83,
-								statements: 82
+								lines: 89,
+								branches: 77,
+								functions: 90,
+								statements: 87
 							},
 							'src/lib/server/db/**': {
 								lines: 80,

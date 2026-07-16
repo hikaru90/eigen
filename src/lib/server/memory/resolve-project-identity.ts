@@ -443,7 +443,7 @@ export async function mergeProjectEntities(
 		console.error('[merge-projects] Refusing to merge manual projects', {
 			userId,
 			winnerId,
-			manualLosers: manualLosers.map((p) => p.projectEntityId)
+			manualLosers: manualLosers.map((p) => p.entityId)
 		});
 		// Filter out manual losers
 		const manualSet = new Set(manualLosers.map((p) => p.entityId));

@@ -4,11 +4,13 @@ import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hint
 import {
 	captureThought,
 	normalizeThoughtText,
+	persistCapturedThought,
 	editStoredThought,
 	setThoughtLifecycleStatus,
 	relinkThoughtGraph,
 	deleteThoughtForUser,
-	listThoughts
+	listThoughts,
+	toPgVectorLiteral
 } from './service';
 
 const {
@@ -152,6 +154,110 @@ describe('normalizeThoughtText', () => {
 		const result = normalizeThoughtText('  hello   world  ');
 		expect(result.normalized).toBe('hello world');
 		expect(result.metadata.pipeline).toBe('ontology_llm_v1');
+	});
+});
+
+describe('toPgVectorLiteral', () => {
+	it('formats embedding numbers as a pgvector literal', () => {
+		expect(toPgVectorLiteral([0.1, 0.2, 0.3])).toBe('[0.1,0.2,0.3]');
+	});
+});
+
+describe('persistCapturedThought', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		upsertThoughtNodeMock.mockResolvedValue(undefined);
+		vi.mocked(encryptTenantValue).mockImplementation(
+			async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`
+		);
+	});
+
+	it('persists session + thought, anchors graph, and returns count', async () => {
+		const progress: string[] = [];
+		getDbMock.mockReturnValue(makeCaptureDb({ thoughtCountAfterInsert: 3 }));
+
+		const result = await persistCapturedThought({
+			userId: 'u1',
+			rawInput: 'raw input',
+			normalized: 'raw input',
+			metadata: { pipeline: 'ontology_llm_v1' },
+			category: 'task',
+			ontologyEntityKindId: 'kind-1',
+			embedding: [0.1, 0.2],
+			ingestKnownEntities: [{ label: 'Eigen', entityType: 'organization' }],
+			onProgress: async (event) => {
+				if (!event.parallel) progress.push(event.phase);
+			}
+		});
+
+		expect(result.stored.id).toBe('thought-1');
+		expect(result.thoughtCountAfterInsert).toBe(3);
+		expect(result.ingestKnownEntities).toEqual([
+			{ label: 'Eigen', entityType: 'organization' }
+		]);
+		expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'thought-1', userId: 'u1', category: 'task' })
+		);
+		expect(progress).toEqual(['session', 'persist', 'graph']);
+	});
+
+	it('records near-duplicate metadata when distance is below threshold', async () => {
+		const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+		getDbMock.mockReturnValue(
+			makeCaptureDb({
+				nearestDuplicate: {
+					id: 'existing-1',
+					normalizedText: 'almost the same thought body',
+					distance: 0.02
+				}
+			})
+		);
+
+		await persistCapturedThought({
+			userId: 'u1',
+			rawInput: 'raw input',
+			normalized: 'raw input',
+			metadata: { pipeline: 'ontology_llm_v1' },
+			category: 'task',
+			ontologyEntityKindId: 'kind-1',
+			embedding: [0.1, 0.2],
+			ingestKnownEntities: []
+		});
+
+		expect(infoSpy).toHaveBeenCalledWith(
+			'[capture.dedup] near-duplicate detected',
+			expect.objectContaining({ existingId: 'existing-1', distance: 0.02 })
+		);
+		expect(encryptTenantValue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				column: 'metadata',
+				plaintext: expect.stringContaining('"nearDuplicate"')
+			})
+		);
+		infoSpy.mockRestore();
+	});
+
+	it('continues when dedup query fails', async () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		getDbMock.mockReturnValue(makeCaptureDb({ dedupFails: true }));
+
+		const result = await persistCapturedThought({
+			userId: 'u1',
+			rawInput: 'raw input',
+			normalized: 'raw input',
+			metadata: { pipeline: 'ontology_llm_v1' },
+			category: 'task',
+			ontologyEntityKindId: 'kind-1',
+			embedding: [0.1, 0.2],
+			ingestKnownEntities: []
+		});
+
+		expect(result.stored.id).toBe('thought-1');
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[capture.dedup] dedup check failed, proceeding',
+			expect.objectContaining({ message: 'dedup query failed' })
+		);
+		warnSpy.mockRestore();
 	});
 });
 

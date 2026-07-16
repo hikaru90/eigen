@@ -7,6 +7,7 @@
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { Button } from '$lib/components/ui/button';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import TimelineCreateProjectDialog from './TimelineCreateProjectDialog.svelte';
 	import TimelineEditProjectDialog from './TimelineEditProjectDialog.svelte';
 	import TimelineProjectDetailDialog from './TimelineProjectDetailDialog.svelte';
@@ -423,24 +424,34 @@
 		onAssigned={onAgentAssigned}
 	/>
 
-	{#if confirmDismissProjectId}
-		<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" role="alertdialog" aria-modal="true" aria-labelledby="project-delete-confirm-title" data-testid="project-delete-confirm">
-			<div class="bg-background mx-4 max-w-sm rounded-lg border p-4 shadow-lg">
-				<h3 id="project-delete-confirm-title" class="text-foreground text-sm font-medium">
-					{m.graph_timeline_delete_project_title()}
-				</h3>
-				<p class="text-muted-foreground mt-2 text-sm">
+	<AlertDialog.Root
+		open={confirmDismissProjectId !== null}
+		onOpenChange={(open) => {
+			if (!open) {
+				confirmDismissProjectId = null;
+				confirmDismissProjectLabel = null;
+			}
+		}}
+	>
+		<AlertDialog.Content class="max-w-sm rounded-[4px]" data-testid="project-delete-confirm">
+			<AlertDialog.Header>
+				<AlertDialog.Title>{m.graph_timeline_delete_project_title()}</AlertDialog.Title>
+				<AlertDialog.Description>
 					{m.graph_timeline_delete_project_description({ name: confirmDismissProjectLabel ?? '' })}
-				</p>
-				<div class="mt-4 flex justify-end gap-2">
-					<Button variant="outline" size="sm" onclick={() => { confirmDismissProjectId = null; confirmDismissProjectLabel = null; }}>
-						{m.graph_dialog_cancel()}
-					</Button>
-					<Button variant="destructive" size="sm" onclick={confirmDismissProject}>
-						{m.graph_timeline_delete_project()}
-					</Button>
-				</div>
-			</div>
-		</div>
-	{/if}
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel class="rounded-[4px]">{m.graph_dialog_cancel()}</AlertDialog.Cancel>
+				<Button
+					type="button"
+					variant="destructive"
+					size="sm"
+					class="rounded-[4px]"
+					onclick={() => void confirmDismissProject()}
+				>
+					{m.graph_timeline_delete_project()}
+				</Button>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 </div>

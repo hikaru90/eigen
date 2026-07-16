@@ -79,7 +79,7 @@ If `test` / `test:unit` / `test:coverage` scripts are missing from `package.json
 
 Defined in [vite.config.ts](../../vite.config.ts) and documented in [03-guardrails-quality-gates.md](../planning/03-guardrails-quality-gates.md):
 
-- Critical (`capture|retrieval|llm|pricing|validation|observability|memory|ingest|activity`): **95%** product target; **enforced floors** in `vite.config.ts` are ratcheted to current measured coverage (~83% lines / ~73% branches) so `npm run test:coverage` fails on regressions. Raise floors toward 95% as specs land.
+- Critical (`capture|retrieval|llm|pricing|validation|observability|memory|ingest|activity`): **95%** product target; **enforced floors** in `vite.config.ts` are ratcheted to current measured coverage (~89% lines / ~77% branches) so `npm run test:coverage` fails on regressions. Raise floors toward 95% as specs land.
 - High (`db`, `auth.ts`, `auth-form-errors.ts`, `routes/**/+server.ts`): **~80%** (routes currently meet the high-tier floors).
 
 When critical floors reach 95%, make the coverage CI job required (drop `continue-on-error`).
