@@ -1,42 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	runCaptureThoughtTool,
-	runCreateTextFileTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
-	runListThoughtsTool,
-	runRetrieveThoughtsTool,
-	runSetStatusTool,
-	runAnswerQuestionTool
+	runRetrieveThoughtsTool
 } from './tools';
 
 const {
 	searchThoughtsMock,
-	composeAnswerMock,
 	captureThoughtMock,
 	listThoughtsMock,
 	editStoredThoughtMock,
 	archiveThoughtForUserMock,
-	setItemLifecycleStatusMock,
 	getDbSelectMock,
 	loadTemporalContextByThoughtIdsMock,
-	createTextFileMock,
 	searchTextFilesMock,
-	resolveAuthorFromPrefixMock,
 	resolveMcpCaptureAuthorshipMock
 } = vi.hoisted(() => ({
 	searchThoughtsMock: vi.fn(),
-	composeAnswerMock: vi.fn(),
 	captureThoughtMock: vi.fn(),
 	listThoughtsMock: vi.fn(),
 	editStoredThoughtMock: vi.fn(),
 	archiveThoughtForUserMock: vi.fn(),
-	setItemLifecycleStatusMock: vi.fn(),
 	getDbSelectMock: vi.fn(),
 	loadTemporalContextByThoughtIdsMock: vi.fn(),
-	createTextFileMock: vi.fn(),
 	searchTextFilesMock: vi.fn(),
-	resolveAuthorFromPrefixMock: vi.fn(),
 	resolveMcpCaptureAuthorshipMock: vi.fn()
 }));
 
@@ -61,10 +49,6 @@ vi.mock('$lib/server/retrieval/service', () => ({
 	searchThoughts: searchThoughtsMock
 }));
 
-vi.mock('$lib/server/qa/compose-answer', () => ({
-	composeAnswer: composeAnswerMock
-}));
-
 vi.mock('$lib/server/capture/service', () => ({
 	captureThought: captureThoughtMock,
 	listThoughts: listThoughtsMock,
@@ -72,8 +56,7 @@ vi.mock('$lib/server/capture/service', () => ({
 }));
 
 vi.mock('$lib/server/memory/lifecycle', () => ({
-	archiveThoughtForUser: archiveThoughtForUserMock,
-	setItemLifecycleStatus: setItemLifecycleStatusMock
+	archiveThoughtForUser: archiveThoughtForUserMock
 }));
 
 vi.mock('$lib/server/db', () => ({
@@ -83,7 +66,6 @@ vi.mock('$lib/server/db', () => ({
 }));
 
 vi.mock('$lib/server/text-files/service', () => ({
-	createTextFile: createTextFileMock,
 	searchTextFiles: searchTextFilesMock
 }));
 
@@ -91,7 +73,6 @@ vi.mock('$lib/server/memory/authorship', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/server/memory/authorship')>();
 	return {
 		...actual,
-		resolveAuthorFromPrefix: resolveAuthorFromPrefixMock,
 		resolveMcpCaptureAuthorship: resolveMcpCaptureAuthorshipMock
 	};
 });
@@ -111,11 +92,6 @@ describe('MCP tools', () => {
 		vi.clearAllMocks();
 		loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map());
 		searchTextFilesMock.mockResolvedValue([]);
-		resolveAuthorFromPrefixMock.mockResolvedValue({
-			author: 'user',
-			authorLabel: null,
-			authorKeyId: null
-		});
 		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
 			author: 'user',
 			authorLabel: null,
@@ -206,61 +182,6 @@ describe('MCP tools', () => {
 			/raw is required/
 		);
 		await expect(runCaptureThoughtTool({ userId: 'u1' }, null)).rejects.toThrow(/raw is required/);
-	});
-
-	it('runListThoughtsTool returns snippet shape by default', async () => {
-		listThoughtsMock.mockResolvedValue([
-			{
-				id: 't1',
-				normalizedText: 'hello world',
-				category: 'thought',
-				createdAt: new Date('2024-01-01'),
-				embedding: Array.from({ length: 1536 }, () => 0.1)
-			}
-		]);
-		const out = (await runListThoughtsTool({ userId: 'u1' }, {})) as {
-			count: number;
-			thoughts: Array<Record<string, unknown>>;
-		};
-		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
-			limit: 20,
-			fields: 'snippet',
-			cursor: undefined,
-			authorFilter: 'user'
-		});
-		expect(out.count).toBe(1);
-		expect(out.thoughts[0]).toMatchObject({
-			id: 't1',
-			category: 'thought',
-			snippet: expect.stringContaining('hello world'),
-			temporalStatus: 'none',
-			createdAt: '2024-01-01T00:00:00.000Z'
-		});
-	});
-
-	it('runListThoughtsTool forwards detail=full', async () => {
-		listThoughtsMock.mockResolvedValue([{ id: 't1', normalizedText: 'hello' }]);
-		await runListThoughtsTool({ userId: 'u1' }, { detail: 'full' });
-		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
-			limit: 20,
-			fields: 'full',
-			cursor: undefined,
-			authorFilter: 'user'
-		});
-	});
-
-	it('runListThoughtsTool forwards explicit limit and cursor when both halves are present', async () => {
-		listThoughtsMock.mockResolvedValue([]);
-		await runListThoughtsTool(
-			{ userId: 'u1' },
-			{ limit: 5, cursor_created_at: '2024-01-01T00:00:00.000Z', cursor_id: 't9' }
-		);
-		expect(listThoughtsMock).toHaveBeenCalledWith('u1', {
-			limit: 5,
-			fields: 'snippet',
-			cursor: { createdAt: new Date('2024-01-01T00:00:00.000Z'), id: 't9' },
-			authorFilter: 'user'
-		});
 	});
 
 	it('runRetrieveThoughtsTool lists recent thoughts when query is omitted', async () => {
@@ -505,33 +426,6 @@ describe('MCP tools', () => {
 		});
 	});
 
-	it('runSetStatusTool sets lifecycle on any item id', async () => {
-		setItemLifecycleStatusMock.mockResolvedValue({
-			ok: true,
-			kind: 'thought',
-			thought: { id: 't1', category: 'task' }
-		});
-		const out = await runSetStatusTool(
-			{ userId: 'u1' },
-			{ item_id: 't1', status: 'completed' }
-		);
-		expect(setItemLifecycleStatusMock).toHaveBeenCalledWith('u1', 't1', 'completed');
-		expect(out).toMatchObject({ itemId: 't1', status: 'completed', thoughtId: 't1' });
-	});
-
-	it('runAnswerQuestionTool calls composeAnswer and returns result', async () => {
-		composeAnswerMock.mockResolvedValue({
-			answer: 'Some answer.',
-			citations: ['t1'],
-			retrieved: []
-		});
-		const out = await runAnswerQuestionTool({ userId: 'u1' }, { question: 'what is X?' });
-		expect(composeAnswerMock).toHaveBeenCalledWith(
-			expect.objectContaining({ userId: 'u1', question: 'what is X?', authorFilter: 'user' })
-		);
-		expect(out.answer).toBe('Some answer.');
-	});
-
 	it('runCaptureThoughtTool resolves author prefix to agent authorship', async () => {
 		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
 			author: 'agent',
@@ -560,46 +454,5 @@ describe('MCP tools', () => {
 		await expect(
 			runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi', author: 'bad' })
 		).rejects.toThrow(/No API key matches/);
-	});
-
-	it('runCreateTextFileTool passes resolved authorship', async () => {
-		resolveMcpCaptureAuthorshipMock.mockResolvedValue({
-			author: 'agent',
-			authorLabel: 'claude',
-			authorKeyId: 'key-2'
-		});
-		createTextFileMock.mockResolvedValue({
-			id: 'f1',
-			title: 'Note',
-			body: 'hello',
-			author: 'agent',
-			authorLabel: 'claude',
-			authorKeyId: 'key-2',
-			createdAt: '2026-01-01T00:00:00.000Z',
-			updatedAt: '2026-01-01T00:00:00.000Z'
-		});
-		await runCreateTextFileTool({ userId: 'u1' }, { body: 'hello', title: 'Note', author: 'eigen_xyz' });
-		expect(createTextFileMock).toHaveBeenCalledWith('u1', {
-			title: 'Note',
-			body: 'hello',
-			authorship: {
-				author: 'agent',
-				authorLabel: 'claude',
-				authorKeyId: 'key-2'
-			}
-		});
-	});
-
-	it('runCreateTextFileTool returns sanitized payload without embedding', async () => {
-		createTextFileMock.mockResolvedValue({
-			id: 'f1',
-			title: 'Note',
-			body: 'hello',
-			createdAt: '2026-01-01T00:00:00.000Z',
-			updatedAt: '2026-01-01T00:00:00.000Z'
-		});
-		const out = await runCreateTextFileTool({ userId: 'u1' }, { body: 'hello', title: 'Note' });
-		expect(out).toMatchObject({ textFileId: 'f1', textFile: { body: 'hello' } });
-		expect(out).not.toHaveProperty('embedding');
 	});
 });

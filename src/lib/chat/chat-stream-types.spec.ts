@@ -248,26 +248,28 @@ describe('chat-stream-types', () => {
 			expect(CHAT_TOOL_COPY[tool], `${tool} missing from CHAT_TOOL_COPY`).toBeDefined();
 			expect(toolVisual(tool).title).not.toMatch(/Running\s+[a-z]+_/);
 		}
+		expect(MCP_AGENT_TOOL_NAMES).toEqual([
+			'capture_thought',
+			'retrieve_thoughts',
+			'edit_thought',
+			'delete_thought'
+		]);
 	});
 
-	it('formats list_temporal_events with readable title and item summaries', () => {
-		expect(toolVisual('list_temporal_events').title).toBe('Checking your schedule');
-		const preview = JSON.stringify({
-			items: [{ semanticSummary: 'Team standup at 9am' }]
-		});
-		expect(formatToolResultForDisplay('list_temporal_events', preview)).toBe('Team standup at 9am');
+	it('falls back to unknown-tool visual for removed chat-only tools', () => {
+		expect(toolVisual('list_temporal_events').title).toMatch(/Running list_temporal_events/);
 	});
 
 	it('sanitizeFinalAnswerText rejects raw JSON tool payloads', () => {
 		expect(() =>
-			sanitizeFinalAnswerText('{"tool":"list_temporal_events","arguments":{"range":"relevant"}}')
+			sanitizeFinalAnswerText('{"tool":"retrieve_thoughts","arguments":{"query":"x"}}')
 		).toThrow(/unreadable data/i);
 	});
 
 	it('formatToolResultForDisplay never returns raw JSON for unknown tools', () => {
 		const preview = JSON.stringify({
-			tool: 'list_temporal_events',
-			arguments: { range: 'relevant' }
+			tool: 'retrieve_thoughts',
+			arguments: { query: 'x' }
 		});
 		expect(formatToolResultForDisplay('unknown_tool', preview)).toBe(
 			'Could not read stored results for this step.'

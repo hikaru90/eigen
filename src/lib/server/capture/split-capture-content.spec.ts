@@ -40,6 +40,24 @@ describe('resolveCaptureContentSplit', () => {
 		expect(result.attachmentBody).toBe('');
 	});
 
+	it('forces thought_only thoughtText to verbatim capture when LLM paraphrases', async () => {
+		const original =
+			'When I open a project in the project pane and I click on the checkbox, the task on the project view doesn\'t get marked as done.';
+		mockLlmJson({
+			mode: 'thought_only',
+			thoughtText: 'Task can be marked as done',
+			rationale: 'STT cleanup.'
+		});
+
+		const result = await resolveCaptureContentSplit({
+			userId: 'u1',
+			rawText: original
+		});
+
+		expect(result.mode).toBe('thought_only');
+		expect(result.thoughtText).toBe(original);
+	});
+
 	it('returns split with attachment when LLM partitions input', async () => {
 		mockLlmJson({
 			mode: 'split',

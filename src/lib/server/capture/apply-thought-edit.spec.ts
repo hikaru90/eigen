@@ -24,9 +24,31 @@ describe('parseLifecycleEditRequest', () => {
 		expect(parseLifecycleEditRequest('mark as completed — fixed language detection')).toBe('completed');
 	});
 
+	it('recognizes natural done phrasing with fillers (any category vocabulary)', () => {
+		expect(parseLifecycleEditRequest('please mark this thought as done')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark this as done')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark it done')).toBe('completed');
+		expect(parseLifecycleEditRequest('mark this todo as complete')).toBe('completed');
+	});
+
 	it('recognizes reopen commands', () => {
 		expect(parseLifecycleEditRequest('reopen')).toBe('open');
 		expect(parseLifecycleEditRequest('mark as open')).toBe('open');
+	});
+
+	it('recognizes archive / irrelevant / outdated / delete as soft-remove', () => {
+		expect(parseLifecycleEditRequest('archive')).toBe('archived');
+		expect(parseLifecycleEditRequest('not relevant')).toBe('archived');
+		expect(parseLifecycleEditRequest('irrelevant')).toBe('archived');
+		expect(parseLifecycleEditRequest('outdated')).toBe('archived');
+		expect(parseLifecycleEditRequest('not up to date')).toBe('archived');
+		expect(parseLifecycleEditRequest('please delete this thought')).toBe('archived');
+		expect(parseLifecycleEditRequest('delete')).toBe('archived');
+	});
+
+	it('does not treat text-edit delete requests as archive', () => {
+		expect(parseLifecycleEditRequest('delete the second sentence')).toBeNull();
+		expect(parseLifecycleEditRequest('delete the word milk')).toBeNull();
 	});
 
 	it('returns null for substantive edit requests', () => {

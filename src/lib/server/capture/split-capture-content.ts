@@ -7,7 +7,11 @@ export type CaptureContentSplitMode = 'thought_only' | 'split';
 
 export type CaptureContentSplitResult = {
 	mode: CaptureContentSplitMode;
-	/** Text stored on the thought row (normalized downstream). */
+	/**
+	 * Text used for `normalized_text` downstream.
+	 * For `thought_only`, always the verbatim capture (no LLM rewrite).
+	 * For `split`, the distilled pointer/title line.
+	 */
 	thoughtText: string;
 	/** Present when mode is split — remainder stored as a linked text note. */
 	attachmentTitle: string;
@@ -97,12 +101,13 @@ async function resolveCaptureContentSplitOnce(
 		'',
 		'Rules:',
 		'- Length alone does NOT decide split. Judge by **role**: atomic memory note vs reusable reference document.',
-		'- Use "thought_only" when the entire message is a concise personal memory note (task, fact, decision, reminder, fleeting observation). thoughtText is the full capture (light cleanup only — fix obvious STT glitches, do not rewrite meaning).',
+		'- Use "thought_only" when the entire message is a concise personal memory note (task, fact, decision, reminder, fleeting observation, bug report).',
+		'- When mode is "thought_only": thoughtText MUST be the full capture returned unchanged. Do not rephrase, summarize, shorten, paraphrase, or "fix" wording. Prefer copying the user message exactly.',
 		'- Use "split" when part of the message is a **pointer/intent line** and the rest is **reference material** that should live as its own editable note — even if the input is not very long. Examples:',
 		'    • Recipe, checklist, template, procedure, spec, code block, meeting agenda, letter draft',
 		'    • Long paste, transcript, email body, or voice-to-text ramble with an implicit summary',
 		'    • Any structured document the user may revise over time or link from multiple future thoughts',
-		'- thoughtText: the distilled capture line — intent, title, or why this was saved (e.g. "Pasta carbonara recipe from Nonna", "Weekly standup template").',
+		'- When mode is "split": thoughtText is the distilled capture line — intent, title, or why this was saved (e.g. "Pasta carbonara recipe from Nonna", "Weekly standup template").',
 		'- attachmentBody: the reference document body — recipe steps, template text, transcript, etc. Keep verbatim except obvious STT fixes; do not summarize into attachmentBody.',
 		'- attachmentTitle: short label when split (e.g. "Carbonara recipe", "Meeting transcript").',
 		'- When the whole input is reference material with no separate intent line, still use split: thoughtText = short descriptive title; attachmentBody = full document.',
@@ -121,7 +126,7 @@ async function resolveCaptureContentSplitOnce(
 			{
 				role: 'system',
 				content:
-					'You partition user capture input into a memory thought (pointer/intent) vs an optional attached reference note (recipes, templates, documents). Split is semantic — not based on length. Return only valid JSON matching the schema in the user message.'
+					'You partition user capture input into a memory thought (pointer/intent) vs an optional attached reference note (recipes, templates, documents). Split is semantic — not based on length. For thought_only, never rewrite the user text. Return only valid JSON matching the schema in the user message.'
 			},
 			{ role: 'user', content: prompt }
 		],
@@ -138,6 +143,7 @@ async function resolveCaptureContentSplitOnce(
 
 /**
  * LLM judge: whole input → thought, or thought pointer + linked reference note.
+ * For thought_only, thoughtText is forced to the verbatim capture (no LLM rewrite).
  */
 export async function resolveCaptureContentSplit(input: {
 	userId: string;
@@ -148,15 +154,21 @@ export async function resolveCaptureContentSplit(input: {
 		throw new Error('resolveCaptureContentSplit: rawText is required');
 	}
 
+	let result: CaptureContentSplitResult;
 	try {
-		return await resolveCaptureContentSplitOnce(input, 'default');
+		result = await resolveCaptureContentSplitOnce({ ...input, rawText }, 'default');
 	} catch (firstErr) {
 		try {
-			return await resolveCaptureContentSplitOnce(input, 'retry_strict');
+			result = await resolveCaptureContentSplitOnce({ ...input, rawText }, 'retry_strict');
 		} catch {
 			throw firstErr;
 		}
 	}
+
+	if (result.mode === 'thought_only') {
+		return { ...result, thoughtText: rawText };
+	}
+	return result;
 }
 
 export function normalizedThoughtFromSplit(thoughtText: string): string {

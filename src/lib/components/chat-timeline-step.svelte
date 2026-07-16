@@ -10,9 +10,9 @@
     formatToolArgumentsSummary,
     parseFinalAnswerText,
     resolveToolResultView,
-    type ChatTimelineKind,
     type ToolResultMemoryHit,
   } from "$lib/chat/chat-stream-types";
+  import type { ChatTimelineKind } from "$lib/chat/normalize-messages";
 
   type Props = {
     kind: ChatTimelineKind;

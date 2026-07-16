@@ -13,40 +13,84 @@ const LIFECYCLE_COMPLETE_COMMANDS = [
 	'mark as completed',
 	'mark as complete',
 	'mark complete',
-	'mark as done'
+	'mark as done',
+	'mark done',
+	'set as done',
+	'set to done',
+	'set to completed',
+	'set to complete'
 ] as const;
 
-const LIFECYCLE_OPEN_COMMANDS = ['reopen', 'mark as open'] as const;
+const LIFECYCLE_OPEN_COMMANDS = ['reopen', 'mark as open', 'set to open'] as const;
 
 const LIFECYCLE_ARCHIVE_COMMANDS = [
 	'archive',
 	'mark as archived',
 	'dismiss',
 	'not relevant',
-	'remove from active'
+	'no longer relevant',
+	'irrelevant',
+	'outdated',
+	'out of date',
+	'not up to date',
+	'remove from active',
+	'soft delete',
+	'soft-delete',
+	'delete'
 ] as const;
+
+/** Strip polite / deictic filler so protocol verbs still match (e.g. "please mark this thought as done"). */
+function normalizeLifecycleProtocolText(editRequest: string): string {
+	return editRequest
+		.trim()
+		.toLowerCase()
+		.replace(/^(please|kindly|can you|could you)\s+/i, '')
+		.replace(/\b(this|that|the)\s+(thought|todo|to-do|task|item|memory|one)\b/g, '')
+		.replace(/\b(this|that|it)\b/g, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function matchesLifecycleCommand(
+	normalized: string,
+	command: string,
+	opts?: { exactOnly?: boolean }
+): boolean {
+	if (opts?.exactOnly) {
+		return normalized === command;
+	}
+	return (
+		normalized === command ||
+		normalized.startsWith(`${command} `) ||
+		normalized.startsWith(`${command}—`) ||
+		normalized.startsWith(`${command}-`)
+	);
+}
 
 /**
  * Recognize explicit lifecycle edit commands (MCP/UI protocol).
  * Not semantic classification of thought content — only routes known status verbs.
+ * Category is irrelevant: any thought may be completed or archived.
  */
 export function parseLifecycleEditRequest(editRequest: string): LifecycleStatus | null {
-	const trimmed = editRequest.trim();
-	if (!trimmed) return null;
-	const lower = trimmed.toLowerCase();
+	const normalized = normalizeLifecycleProtocolText(editRequest);
+	if (!normalized) return null;
 
 	for (const command of LIFECYCLE_COMPLETE_COMMANDS) {
-		if (lower === command || lower.startsWith(`${command} `) || lower.startsWith(`${command}—`) || lower.startsWith(`${command}-`)) {
+		if (matchesLifecycleCommand(normalized, command)) {
 			return 'completed';
 		}
 	}
 	for (const command of LIFECYCLE_OPEN_COMMANDS) {
-		if (lower === command || lower.startsWith(`${command} `)) {
+		if (matchesLifecycleCommand(normalized, command)) {
 			return 'open';
 		}
 	}
 	for (const command of LIFECYCLE_ARCHIVE_COMMANDS) {
-		if (lower === command || lower.startsWith(`${command} `)) {
+		// Bare "delete" only after filler stripping ("delete this thought" → "delete").
+		// Do not treat "delete the second sentence" as archive.
+		const exactOnly = command === 'delete';
+		if (matchesLifecycleCommand(normalized, command, { exactOnly })) {
 			return 'archived';
 		}
 	}
@@ -118,8 +162,9 @@ export async function applyThoughtEditRequest(input: {
 				`{ "rawText": "<full updated thought body>", "status": ${lifecycleStatusEnum.map((s) => `"${s}"`).join(' | ')} | null, "summary": "<one sentence: what changed>" }`,
 				'Rules:',
 				'- rawText must be the complete updated thought, not the edit instruction alone.',
-				'- When marking complete, keep the original meaning; set status to "completed" unless the user also rewrites the text.',
-				'- When archiving or dismissing as not relevant, set status to "archived".',
+				'- Category is metadata only. Never refuse a status change because the category is not "task" — thoughts, ideas, observations, and tasks are interchangeable for done/archive/delete.',
+				'- When marking done/complete/finished, keep the original meaning; set status to "completed" unless the user also rewrites the text.',
+				'- When archiving, dismissing, deleting, or calling something irrelevant/outdated/not up to date, set status to "archived" (soft-remove; same outcome as delete_thought).',
 				'- Do not invent facts beyond the edit request.',
 				'- summary must name the concrete change (e.g. marked complete, fixed typo, shortened).'
 			].join('\n')
@@ -127,7 +172,7 @@ export async function applyThoughtEditRequest(input: {
 		{
 			role: 'user',
 			content: [
-				`Category: ${input.category}`,
+				`Category (informational only — does not restrict status): ${input.category}`,
 				`Current text:\n${input.existingRawText}`,
 				`Edit request: ${editRequest}`
 			].join('\n\n')

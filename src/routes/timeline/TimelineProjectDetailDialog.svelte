@@ -18,8 +18,10 @@
 		nextActionItem: TemporalEventListItem | null;
 		tasks: TemporalEventListItem[];
 		statusLabel: string;
+		updatingEventId?: string | null;
 		onClose: () => void;
 		onGoToTask: (itemId: string) => void;
+		onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void;
 		onAssignAgent: (task: TemporalEventListItem) => void;
 		onEdit: () => void;
 		onDelete: () => void;
@@ -32,8 +34,10 @@
 		nextActionItem,
 		tasks,
 		statusLabel,
+		updatingEventId = null,
 		onClose,
 		onGoToTask,
+		onQuickAction,
 		onAssignAgent,
 		onEdit,
 		onDelete
@@ -104,7 +108,8 @@
 						<TemporalEventStatusButton
 							item={nextActionItem}
 							compact
-							onQuickAction={() => {}}
+							{updatingEventId}
+							{onQuickAction}
 						/>
 						<button
 							type="button"
@@ -153,7 +158,8 @@
 								<TemporalEventStatusButton
 									item={task}
 									compact
-									onQuickAction={() => {}}
+									{updatingEventId}
+									{onQuickAction}
 								/>
 								<button
 									type="button"

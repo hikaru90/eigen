@@ -12,6 +12,7 @@ import { computeLexicalText } from '$lib/server/memory/lexical-text';
 import { createTextFile, linkTextFileToThought } from '$lib/server/text-files/service';
 
 export type AppliedCaptureContentSplit = {
+	/** Always the original capture text — never overwritten by content-split. */
 	rawText: string;
 	normalizedText: string;
 	split: CaptureContentSplitResult;
@@ -52,7 +53,10 @@ async function encryptMetadataPatch(
 }
 
 /**
- * During enrich: LLM decides thought vs thought+attachment, updates the row, links text_file when split.
+ * During enrich: LLM decides thought vs thought+attachment.
+ * Never overwrites `raw_text`. For thought_only, keeps whitespace-normalized original
+ * as `normalized_text`. For split, may distill a pointer onto `normalized_text` and
+ * link a text_file for the reference body.
  */
 export async function applyCaptureContentSplitIfNeeded(input: {
 	userId: string;
@@ -64,8 +68,11 @@ export async function applyCaptureContentSplitIfNeeded(input: {
 		rawText: input.rawText
 	});
 
-	const thoughtText = split.thoughtText;
-	const normalizedText = normalizedThoughtFromSplit(thoughtText);
+	const rawText = input.rawText;
+	const normalizedText =
+		split.mode === 'thought_only'
+			? normalizeThoughtText(rawText).normalized
+			: normalizedThoughtFromSplit(split.thoughtText);
 	let attachedFileId: string | null = null;
 
 	if (split.mode === 'split') {
@@ -94,20 +101,12 @@ export async function applyCaptureContentSplitIfNeeded(input: {
 		attachedFileId = file.id;
 	}
 
-	const [rawTextEncrypted, normalizedTextEncrypted] = await Promise.all([
-		encryptTenantValue({
-			userId: input.userId,
-			table: 'thought',
-			column: 'raw_text',
-			plaintext: thoughtText
-		}),
-		encryptTenantValue({
-			userId: input.userId,
-			table: 'thought',
-			column: 'normalized_text',
-			plaintext: normalizedText
-		})
-	]);
+	const normalizedTextEncrypted = await encryptTenantValue({
+		userId: input.userId,
+		table: 'thought',
+		column: 'normalized_text',
+		plaintext: normalizedText
+	});
 
 	const metadataEncrypted = await encryptMetadataPatch(input.userId, input.thoughtId, {
 		captureContentSplit: {
@@ -120,8 +119,6 @@ export async function applyCaptureContentSplitIfNeeded(input: {
 	await getDb()
 		.update(thought)
 		.set({
-			rawText: thoughtText,
-			rawTextEncrypted,
 			normalizedText,
 			normalizedTextEncrypted,
 			lexicalText: computeLexicalText(normalizedText),
@@ -130,21 +127,28 @@ export async function applyCaptureContentSplitIfNeeded(input: {
 		.where(eq(thought.id, input.thoughtId));
 
 	return {
-		rawText: thoughtText,
+		rawText,
 		normalizedText,
 		split,
 		attachedFileId
 	};
 }
 
-/** Test helper: apply split result without LLM. */
+/** Test helper: apply split result without LLM. raw_text stays the original input. */
 export function applySplitResultLocally(
 	rawInput: string,
 	split: CaptureContentSplitResult
 ): { rawText: string; normalizedText: string } {
-	const thoughtText = split.thoughtText.trim() || rawInput.trim();
+	const rawText = rawInput.trim();
+	if (split.mode === 'thought_only') {
+		return {
+			rawText,
+			normalizedText: normalizeThoughtText(rawText).normalized
+		};
+	}
+	const thoughtText = split.thoughtText.trim() || rawText;
 	return {
-		rawText: thoughtText,
+		rawText,
 		normalizedText: normalizeThoughtText(thoughtText).normalized
 	};
 }

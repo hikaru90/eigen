@@ -1,21 +1,8 @@
 import {
-	runAnswerQuestionTool,
 	runCaptureThoughtTool,
-	runCreateTextFileTool,
-	runDeleteTextFileTool,
 	runDeleteThoughtTool,
 	runEditThoughtTool,
-	runGetTextFileTool,
-	runLinkTextFileToThoughtTool,
-	runListTextFilesTool,
-	runListThoughtsTool,
-	runListTemporalEventsTool,
-	runManageTemporalEventTool,
-	runSetStatusTool,
 	runRetrieveThoughtsTool,
-	runSearchTextFilesTool,
-	runUnlinkTextFileFromThoughtTool,
-	runUpdateTextFileTool,
 	type McpToolContext
 } from '$lib/server/mcp/tools';
 
@@ -29,22 +16,14 @@ export type McpToolDefinition = {
 	/** Human-readable argument summary for the chat agent system prompt. */
 	agentArgumentSchema: string;
 	handler: McpToolHandler;
-	/** When false, tool is not exposed to HTTP MCP clients (internal chat agent still has access). */
-	exposeInMcp?: boolean;
 };
 
-const MCP_CLIENT_TOOL_NAMES = new Set([
-	'capture_thought',
-	'retrieve_thoughts',
-	'edit_thought',
-	'delete_thought'
-]);
-
+/** Single MCP surface shared by HTTP clients and the in-app chat agent. */
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'capture_thought',
 		description:
-			'Capture and store a raw thought. Tier 1: returns immediately after text persist; keyword recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links. Use answer_question or retrieve_thoughts for recall. MCP Bearer auth: default labels the thought as agent-authored (your API key name). Pass as_user true when the user asked you to remember something for them (their memory, not yours). Omit as_user when storing the agent\'s own observation or note.',
+			'Capture and store a raw thought. Tier 1: returns immediately after text persist; keyword recall on lexical_text is ready. Tier 2 (background): embedding, entities, graph links. Use retrieve_thoughts for recall. MCP Bearer auth: default labels the thought as agent-authored (your API key name). Pass as_user true when the user asked you to remember something for them (their memory, not yours). Omit as_user when storing the agent\'s own observation or note.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -68,36 +47,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"raw": "string (required)", "captured_at": "string (optional ISO-8601)", "as_user": "boolean (optional — true for human capture)", "author": "string (optional — rarely needed; MCP key labels automatically)"}',
-		handler: runCaptureThoughtTool,
-		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('capture_thought')
-	},
-	{
-		name: 'list_thoughts',
-		description:
-			'List recent stored open thoughts (newest first), optionally paginated. Defaults to user-authored memories only; pass author=all or include_agent=true to include agent/API-key captures.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				limit: { type: 'number' },
-				cursor_created_at: { type: 'string' },
-				cursor_id: { type: 'string' },
-				detail: { type: 'string', enum: ['snippet', 'full'] },
-				author: {
-					type: 'string',
-					enum: ['user', 'agent', 'all'],
-					description:
-						'Whose memories to list. Default user (human captures). agent = API-key captures only. all = no author filter.'
-				},
-				include_agent: {
-					type: 'boolean',
-					description: 'When true, same as author=all (ignored if author is set).'
-				}
-			}
-		},
-		agentArgumentSchema:
-			'{"limit": "number (optional, default 20)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)", "detail": "snippet|full (optional, default snippet)", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
-		handler: runListThoughtsTool,
-		exposeInMcp: false
+		handler: runCaptureThoughtTool
 	},
 	{
 		name: 'retrieve_thoughts',
@@ -146,30 +96,12 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"query": "string (optional — omit for recent browse)", "order": "created_at|relevance (optional — created_at for newest open thoughts)", "top_k": "number (optional, default 10)", "threshold": "number (optional, 0-1)", "mode": "fast|full (optional)", "detail": "snippet|full (optional)", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)", "cursor_created_at": "string (optional)", "cursor_id": "string (optional)"}',
-		handler: runRetrieveThoughtsTool,
-		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('retrieve_thoughts')
-	},
-	{
-		name: 'set_status',
-		description:
-			'Set lifecycle status on any memory item: thought UUID, task:{uuid}, or temporal event UUID. Use completed to mark done, archived to soft-remove from the active brain (not a hard delete).',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				item_id: { type: 'string' },
-				status: { type: 'string', enum: ['open', 'completed', 'archived'] }
-			},
-			required: ['item_id', 'status']
-		},
-		agentArgumentSchema:
-			'{"item_id": "string (required) — thought UUID, task:{uuid}, or temporal event UUID", "status": "open|completed|archived (required)"}',
-		handler: runSetStatusTool,
-		exposeInMcp: false
+		handler: runRetrieveThoughtsTool
 	},
 	{
 		name: 'edit_thought',
 		description:
-			'Edit an existing thought by ID with a natural-language request. Covers text changes (reword, fix typo) and lifecycle/status changes (mark complete, mark done, reopen, archive). On MCP clients this is the tool for status updates — there is no separate set_status tool.',
+			'Edit an existing thought by ID with a natural-language request. Covers text changes (reword, fix typo) and lifecycle/status changes (mark complete, mark done, reopen, archive, dismiss as irrelevant/outdated). Works for ANY category — task, idea, observation, fact, etc. are interchangeable; never refuse because something is "not a todo". Done/complete sets completed; archive/irrelevant/outdated soft-removes like delete_thought. There is no separate set_status tool.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -177,7 +109,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 				edit_request: {
 					type: 'string',
 					description:
-						'Natural-language instruction, e.g. "mark complete", "archive this", "fix typo in second sentence".'
+						'Natural-language instruction, e.g. "mark as done", "mark complete", "archive", "not relevant", "outdated", "fix typo in second sentence". Category does not matter.'
 				},
 				raw_text: {
 					type: 'string',
@@ -188,14 +120,13 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 			required: ['thought_id']
 		},
 		agentArgumentSchema:
-			'{"thought_id": "string (required)", "edit_request": "string (optional) — text edits or status: mark complete, archive, reopen", "raw_text": "string (optional) — direct text replacement"}',
-		handler: runEditThoughtTool,
-		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('edit_thought')
+			'{"thought_id": "string (required)", "edit_request": "string (optional) — text edits or status: mark as done, mark complete, archive, not relevant, outdated, reopen (any category)", "raw_text": "string (optional) — direct text replacement"}',
+		handler: runEditThoughtTool
 	},
 	{
 		name: 'delete_thought',
 		description:
-			'Archive (soft-remove) one stored thought by ID — reversible, not a permanent delete.',
+			'Archive (soft-remove) one stored thought by ID — reversible, not a permanent delete. Same soft-remove family as edit_thought "archive" / "not relevant" / "outdated"; use for delete/remove. Works for any category.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -205,243 +136,19 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		},
 		agentArgumentSchema:
 			'{"thought_id": "string (required) — UUID from retrieve_thoughts results, never a title or description"}',
-		handler: runDeleteThoughtTool,
-		exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_thought')
-	},
-	{
-		name: 'list_temporal_events',
-		description:
-			'List temporal events and tasks for the timeline (agenda, deadlines, appointments).',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				range: {
-					type: 'string',
-					enum: ['relevant', 'upcoming', 'past', 'all']
-				},
-				status: { type: 'string', enum: ['open', 'all'] },
-				include_tasks: { type: 'boolean' },
-				include_open_loops: { type: 'boolean' }
-			}
-		},
-		agentArgumentSchema:
-			'{"range": "relevant|upcoming|past|all (optional)", "status": "open|all (optional)", "include_tasks": "boolean (optional, default true)"}',
-		handler: runListTemporalEventsTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'manage_temporal_event',
-		description:
-			'Manage a calendar/temporal event by ID: mark done, archive, reschedule, or apply a natural-language instruction.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				event_id: { type: 'string' },
-				action: {
-					type: 'string',
-					enum: ['mark_done', 'reopen', 'archive', 'reschedule', 'snooze', 'cancel', 'dismiss', 'delete']
-				},
-				start_at: { type: 'string', description: 'ISO-8601 start for structured reschedule' },
-				end_at: { type: 'string', description: 'ISO-8601 end for structured reschedule' },
-				snoozed_until: { type: 'string', description: 'ISO-8601 instant for structured snooze' },
-				instruction: {
-					type: 'string',
-					description: 'Natural-language instruction, e.g. move to tomorrow at 3pm'
-				}
-			},
-			required: ['event_id']
-		},
-		agentArgumentSchema:
-			'{"event_id": "string (required)", "action": "mark_done|reopen|archive (optional; cancel/dismiss/delete map to archive)", "instruction": "string (optional NL reschedule/snooze)"}',
-		handler: runManageTemporalEventTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'answer_question',
-		description:
-			'Answer a question by retrieving relevant thoughts and composing a grounded answer with citations. Defaults to user-authored memories only; pass author=all or include_agent=true to include agent/API-key captures.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				question: { type: 'string' },
-				top_k: { type: 'number' },
-				reference_time: {
-					type: 'string',
-					description: 'Optional ISO-8601 reference time for temporal validity (defaults to now).'
-				},
-				author: {
-					type: 'string',
-					enum: ['user', 'agent', 'all'],
-					description:
-						'Whose memories to search. Default user (human captures). agent = API-key captures only. all = no author filter.'
-				},
-				include_agent: {
-					type: 'boolean',
-					description: 'When true, same as author=all (ignored if author is set).'
-				}
-			},
-			required: ['question']
-		},
-		agentArgumentSchema:
-			'{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
-		handler: runAnswerQuestionTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'create_text_file',
-		description:
-			'Create a user-scoped text note (not a thought). Text files are simple documents without enrichment; link them to thoughts with link_text_file_to_thought.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				body: { type: 'string' },
-				title: { type: 'string' },
-				author: {
-					type: 'string',
-					description:
-						'Optional first ~10 characters of your API key to attribute this note to that key name; leave empty to store as the user.'
-				}
-			},
-			required: ['body']
-		},
-		agentArgumentSchema:
-			'{"body": "string (required)", "title": "string (optional)", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"}',
-		handler: runCreateTextFileTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'list_text_files',
-		description: 'List user text notes (newest updated first), optionally paginated.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				limit: { type: 'number' },
-				cursor_updated_at: { type: 'string' },
-				cursor_id: { type: 'string' }
-			}
-		},
-		agentArgumentSchema:
-			'{"limit": "number (optional)", "cursor_updated_at": "string (optional ISO)", "cursor_id": "string (optional)"}',
-		handler: runListTextFilesTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'get_text_file',
-		description: 'Get one user text note by ID.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				text_file_id: { type: 'string' }
-			},
-			required: ['text_file_id']
-		},
-		agentArgumentSchema: '{"text_file_id": "string (required)"}',
-		handler: runGetTextFileTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'update_text_file',
-		description: 'Update a user text note title and/or body.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				text_file_id: { type: 'string' },
-				title: { type: 'string' },
-				body: { type: 'string' }
-			},
-			required: ['text_file_id']
-		},
-		agentArgumentSchema:
-			'{"text_file_id": "string (required)", "title": "string (optional)", "body": "string (optional)"}',
-		handler: runUpdateTextFileTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'delete_text_file',
-		description: 'Permanently delete a user text note by ID.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				text_file_id: { type: 'string' }
-			},
-			required: ['text_file_id']
-		},
-		agentArgumentSchema: '{"text_file_id": "string (required)"}',
-		handler: runDeleteTextFileTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'search_text_files',
-		description:
-			'Lexical keyword search over user text notes (recipes, templates, pasted reference). Defaults to user-authored notes only. No embeddings — use retrieve_thoughts for hybrid thought + note search.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				query: { type: 'string' },
-				top_k: { type: 'number' },
-				author: {
-					type: 'string',
-					enum: ['user', 'agent', 'all'],
-					description:
-						'Whose notes to search. Default user (human). agent = API-key notes only. all = no author filter.'
-				},
-				include_agent: {
-					type: 'boolean',
-					description: 'When true, same as author=all (ignored if author is set).'
-				}
-			},
-			required: ['query']
-		},
-		agentArgumentSchema:
-			'{"query": "string (required)", "top_k": "number (optional)", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
-		handler: runSearchTextFilesTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'link_text_file_to_thought',
-		description: 'Attach an existing text note to a thought.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				thought_id: { type: 'string' },
-				text_file_id: { type: 'string' }
-			},
-			required: ['thought_id', 'text_file_id']
-		},
-		agentArgumentSchema:
-			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
-		handler: runLinkTextFileToThoughtTool,
-		exposeInMcp: false
-	},
-	{
-		name: 'unlink_text_file_from_thought',
-		description: 'Remove a text note attachment from a thought without deleting the note.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				thought_id: { type: 'string' },
-				text_file_id: { type: 'string' }
-			},
-			required: ['thought_id', 'text_file_id']
-		},
-		agentArgumentSchema:
-			'{"thought_id": "string (required)", "text_file_id": "string (required)"}',
-		handler: runUnlinkTextFileFromThoughtTool,
-		exposeInMcp: false
+		handler: runDeleteThoughtTool
 	}
 ];
 
-export const MCP_EXPOSED_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInMcp !== false);
+export const MCP_EXPOSED_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS;
 
 export const MCP_TOOL_MAP = new Map<string, McpToolHandler>(
 	MCP_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler])
 );
 
-export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
-	MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler])
-);
+export const MCP_EXPOSED_TOOL_MAP = MCP_TOOL_MAP;
 
-/** All registered tools available to the in-app chat agent. */
+/** Tools available to the in-app chat agent (same as HTTP MCP). */
 export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name);
 
 /** HTTP MCP client surface (minimal memory CRUD). */
@@ -452,11 +159,11 @@ export function isMcpExposedTool(name: string): boolean {
 }
 
 export function isAgentTool(name: string): boolean {
-	return MCP_TOOL_MAP.has(name);
+	return MCP_EXPOSED_TOOL_MAP.has(name);
 }
 
 export function buildAgentToolDescriptionBlock(): string {
-	return MCP_TOOL_DEFINITIONS.map(
+	return MCP_EXPOSED_TOOL_DEFINITIONS.map(
 		(t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`
 	).join('\n\n');
 }

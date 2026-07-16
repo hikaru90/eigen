@@ -3,47 +3,21 @@ import { POST } from './+server';
 
 const {
 	runCaptureThoughtToolMock,
-	runListThoughtsToolMock,
 	runRetrieveThoughtsToolMock,
 	runEditThoughtToolMock,
-	runDeleteThoughtToolMock,
-	runListTemporalEventsToolMock,
-	runManageTemporalEventToolMock,
-	runAnswerQuestionToolMock,
-	runCaptureGroundingToolMock,
-	runCompleteGroundingSessionToolMock
+	runDeleteThoughtToolMock
 } = vi.hoisted(() => ({
 	runCaptureThoughtToolMock: vi.fn(),
-	runListThoughtsToolMock: vi.fn(),
 	runRetrieveThoughtsToolMock: vi.fn(),
 	runEditThoughtToolMock: vi.fn(),
-	runDeleteThoughtToolMock: vi.fn(),
-	runListTemporalEventsToolMock: vi.fn(),
-	runManageTemporalEventToolMock: vi.fn(),
-	runAnswerQuestionToolMock: vi.fn(),
-	runCaptureGroundingToolMock: vi.fn(),
-	runCompleteGroundingSessionToolMock: vi.fn()
+	runDeleteThoughtToolMock: vi.fn()
 }));
 
 vi.mock('$lib/server/mcp/tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
-	runListThoughtsTool: runListThoughtsToolMock,
 	runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
 	runEditThoughtTool: runEditThoughtToolMock,
-	runDeleteThoughtTool: runDeleteThoughtToolMock,
-	runListTemporalEventsTool: runListTemporalEventsToolMock,
-	runManageTemporalEventTool: runManageTemporalEventToolMock,
-	runAnswerQuestionTool: runAnswerQuestionToolMock,
-	runCreateTextFileTool: vi.fn(),
-	runListTextFilesTool: vi.fn(),
-	runGetTextFileTool: vi.fn(),
-	runUpdateTextFileTool: vi.fn(),
-	runDeleteTextFileTool: vi.fn(),
-	runSearchTextFilesTool: vi.fn(),
-	runLinkTextFileToThoughtTool: vi.fn(),
-	runUnlinkTextFileFromThoughtTool: vi.fn(),
-	runCaptureGroundingTool: runCaptureGroundingToolMock,
-	runCompleteGroundingSessionTool: runCompleteGroundingSessionToolMock
+	runDeleteThoughtTool: runDeleteThoughtToolMock
 }));
 
 function makeRequest(body: unknown, method = 'POST'): Request {

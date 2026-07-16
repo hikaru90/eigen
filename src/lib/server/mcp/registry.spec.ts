@@ -9,7 +9,7 @@ import {
 } from './registry';
 
 describe('MCP tool registry exposure', () => {
-	it('exposes only the four client memory tools over HTTP MCP', () => {
+	it('exposes only the four client memory tools over HTTP MCP and chat', () => {
 		expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toEqual([
 			'capture_thought',
 			'retrieve_thoughts',
@@ -17,24 +17,27 @@ describe('MCP tool registry exposure', () => {
 			'delete_thought'
 		]);
 		expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
+		expect(MCP_AGENT_TOOL_NAMES).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
+		expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
 	});
 
-	it('keeps internal chat tools registered but hidden from MCP clients', () => {
-		expect(MCP_TOOL_DEFINITIONS.length).toBeGreaterThan(MCP_EXPOSED_TOOL_DEFINITIONS.length);
-		expect(MCP_AGENT_TOOL_NAMES).toEqual(MCP_TOOL_DEFINITIONS.map((t) => t.name));
-		expect(MCP_AGENT_TOOL_NAMES).toContain('list_thoughts');
-		expect(MCP_AGENT_TOOL_NAMES).toContain('answer_question');
-		expect(MCP_AGENT_TOOL_NAMES).toContain('set_status');
-		expect(MCP_AGENT_TOOL_NAMES).not.toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES);
+	it('does not register chat-only tools', () => {
+		expect(MCP_AGENT_TOOL_NAMES).not.toContain('list_thoughts');
+		expect(MCP_AGENT_TOOL_NAMES).not.toContain('answer_question');
+		expect(MCP_AGENT_TOOL_NAMES).not.toContain('set_status');
+		expect(MCP_AGENT_TOOL_NAMES).not.toContain('list_temporal_events');
+		expect(MCP_AGENT_TOOL_NAMES).not.toContain('manage_temporal_event');
 	});
 
-	it('isMcpExposedTool gates HTTP MCP; isAgentTool gates in-app chat', () => {
+	it('isMcpExposedTool and isAgentTool gate the same four-tool surface', () => {
 		expect(isMcpExposedTool('capture_thought')).toBe(true);
 		expect(isMcpExposedTool('list_thoughts')).toBe(false);
 		expect(isMcpExposedTool('answer_question')).toBe(false);
 
-		expect(isAgentTool('list_thoughts')).toBe(true);
-		expect(isAgentTool('answer_question')).toBe(true);
+		expect(isAgentTool('capture_thought')).toBe(true);
+		expect(isAgentTool('retrieve_thoughts')).toBe(true);
+		expect(isAgentTool('list_thoughts')).toBe(false);
+		expect(isAgentTool('answer_question')).toBe(false);
 		expect(isAgentTool('nope')).toBe(false);
 	});
 
@@ -43,5 +46,11 @@ describe('MCP tool registry exposure', () => {
 		expect(edit?.description).toMatch(/mark complete/i);
 		expect(edit?.description).toMatch(/archive/i);
 		expect(edit?.description).toMatch(/set_status/i);
+		expect(edit?.description).toMatch(/any category/i);
+		expect(edit?.description).toMatch(/not a todo/i);
+
+		const del = MCP_EXPOSED_TOOL_DEFINITIONS.find((t) => t.name === 'delete_thought');
+		expect(del?.description).toMatch(/soft-remove/i);
+		expect(del?.description).toMatch(/any category/i);
 	});
 });

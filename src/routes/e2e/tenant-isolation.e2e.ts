@@ -35,15 +35,19 @@ test.describe('Tenant isolation (AC-018)', () => {
 		await registerUser(contextB, pageB);
 
 		const res = await pageB.request.post('/api/mcp', {
-			data: { method: 'tools/call', params: { name: 'list_thoughts', arguments: { limit: 50 } } }
+			data: {
+				method: 'tools/call',
+				params: { name: 'retrieve_thoughts', arguments: { order: 'created_at', top_k: 50 } }
+			}
 		});
 		expect(res.ok()).toBeTruthy();
 		const body = (await res.json()) as { content?: Array<{ text: string }> };
 		const text = body.content?.[0]?.text ?? '{}';
-		const result = JSON.parse(text) as { thoughts?: Array<{ id: string; normalizedText: string }> };
-		const thoughts = result.thoughts ?? [];
+		const result = JSON.parse(text) as { results?: Array<{ id: string; snippet?: string; normalizedText?: string }> };
+		const thoughts = result.results ?? [];
 		for (const t of thoughts) {
-			expect(t.normalizedText).not.toContain('User A private note');
+			const bodyText = t.normalizedText ?? t.snippet ?? '';
+			expect(bodyText).not.toContain('User A private note');
 		}
 
 		await contextA.close();

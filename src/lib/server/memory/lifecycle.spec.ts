@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	resolveLifecycleTarget,
-	setItemLifecycleStatus,
 	setThoughtLifecycleStatus
 } from './lifecycle';
 
@@ -129,27 +128,5 @@ describe('lifecycle service', () => {
 		expect(mocks.updateCalls[0]).toMatchObject({
 			lifecycleStatus: 'completed'
 		});
-	});
-
-	it('setItemLifecycleStatus archives by thought id', async () => {
-		chainSelect([
-			[],
-			[{ id: THOUGHT_ID }],
-			[
-				{
-					id: THOUGHT_ID,
-					userId: 'u1',
-					normalizedText: 'Note',
-					metadata: {},
-					category: 'idea'
-				}
-			],
-			[]
-		]);
-		const result = await setItemLifecycleStatus('u1', THOUGHT_ID, 'archived');
-		expect(result.ok).toBe(true);
-		if (result.ok && result.kind === 'thought') {
-			expect(result.thought.id).toBe(THOUGHT_ID);
-		}
 	});
 });

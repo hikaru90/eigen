@@ -28,11 +28,6 @@ export type ChatStreamEvent =
 
 /** In-tool step labels streamed while a tool handler is still running. */
 export const CHAT_TOOL_PROGRESS_LABELS: Record<string, Record<string, string>> = {
-	answer_question: {
-		embedding: 'Embedding your question…',
-		searching: 'Searching your memories…',
-		composing: 'Composing answer from matches…'
-	},
 	retrieve_thoughts: {
 		searching: 'Searching your memories…'
 	}
@@ -50,22 +45,9 @@ export type ChatToolVisual = {
 
 export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
 	capture_thought: { title: 'Saving to memory', category: 'write', icon: 'save' },
-	list_thoughts: { title: 'Listing thoughts', category: 'memory', icon: 'list' },
 	retrieve_thoughts: { title: 'Searching your memories', category: 'search', icon: 'search' },
-	answer_question: { title: 'Answering your question', category: 'compose', icon: 'sparkles' },
 	edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
-	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' },
-	set_status: { title: 'Updating status', category: 'write', icon: 'pencil' },
-	list_temporal_events: { title: 'Checking your schedule', category: 'memory', icon: 'list' },
-	manage_temporal_event: { title: 'Updating calendar event', category: 'write', icon: 'pencil' },
-	create_text_file: { title: 'Creating text note', category: 'write', icon: 'save' },
-	list_text_files: { title: 'Listing text notes', category: 'memory', icon: 'list' },
-	get_text_file: { title: 'Opening text note', category: 'memory', icon: 'list' },
-	update_text_file: { title: 'Updating text note', category: 'write', icon: 'pencil' },
-	delete_text_file: { title: 'Deleting text note', category: 'destructive', icon: 'trash' },
-	search_text_files: { title: 'Searching text notes', category: 'search', icon: 'search' },
-	link_text_file_to_thought: { title: 'Linking note to memory', category: 'write', icon: 'pencil' },
-	unlink_text_file_from_thought: { title: 'Unlinking note from memory', category: 'write', icon: 'pencil' }
+	delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' }
 };
 
 const UNKNOWN_TOOL_VISUAL: ChatToolVisual = {
@@ -105,8 +87,8 @@ export function formatToolArgumentsSummary(
 ): string | null {
 	if (!args || Object.keys(args).length === 0) return null;
 
-	if (tool === 'retrieve_thoughts' || tool === 'answer_question') {
-		const q = args.query ?? args.question;
+	if (tool === 'retrieve_thoughts') {
+		const q = args.query;
 		if (typeof q === 'string' && q.trim()) return q.trim();
 	}
 
@@ -120,7 +102,8 @@ export function formatToolArgumentsSummary(
 
 	if (tool === 'edit_thought') {
 		const id = args.thought_id ?? args.thoughtId ?? args.id;
-		const instruction = args.instruction ?? args.edit ?? args.request;
+		const instruction =
+			args.edit_request ?? args.instruction ?? args.edit ?? args.request;
 		const parts: string[] = [];
 		if (typeof id === 'string' && id.trim()) parts.push(`Thought ${id.slice(0, 8)}…`);
 		if (typeof instruction === 'string' && instruction.trim()) {
@@ -133,11 +116,6 @@ export function formatToolArgumentsSummary(
 	if (tool === 'delete_thought') {
 		const id = args.thought_id ?? args.thoughtId ?? args.id;
 		if (typeof id === 'string' && id.trim()) return `Thought ${id.slice(0, 8)}…`;
-	}
-
-	if (tool === 'list_thoughts') {
-		const limit = args.limit;
-		if (typeof limit === 'number') return `Up to ${limit} thoughts`;
 	}
 
 	return null;
@@ -226,29 +204,8 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 		if (parsed.deleted) return { kind: 'text', text: 'Thought deleted.' };
 	}
 
-	if (tool === 'list_temporal_events' && Array.isArray(parsed.items)) {
-		const lines = parsed.items
-			.map((row) => {
-				if (!row || typeof row !== 'object') return null;
-				const item = row as Record<string, unknown>;
-				const summary =
-					typeof item.semanticSummary === 'string'
-						? item.semanticSummary.trim()
-						: typeof item.title === 'string'
-							? item.title.trim()
-							: '';
-				if (!summary) return null;
-				return summary;
-			})
-			.filter((line): line is string => Boolean(line));
-		if (lines.length === 0) return { kind: 'text', text: 'No schedule items found.' };
-		return { kind: 'lines', lines };
-	}
-
-	if (tool !== 'answer_question') {
-		const memoryHits = memoryHitsFromPayload(parsed);
-		if (memoryHits) return memoryHits;
-	}
+	const memoryHits = memoryHitsFromPayload(parsed);
+	if (memoryHits) return memoryHits;
 
 	if (typeof parsed.answer === 'string' && parsed.answer.trim()) {
 		return { kind: 'text', text: parsed.answer.trim() };

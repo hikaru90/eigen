@@ -21,24 +21,9 @@ vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
 
 vi.mock('./tools', () => ({
 	runCaptureThoughtTool: runCaptureThoughtToolMock,
-	runListThoughtsTool: vi.fn(),
 	runEditThoughtTool: vi.fn(),
 	runDeleteThoughtTool: vi.fn(),
-	runListTemporalEventsTool: vi.fn(),
-	runManageTemporalEventTool: vi.fn(),
-	runRetrieveThoughtsTool: runSearchThoughtsToolMock,
-	runSetStatusTool: vi.fn(),
-	runAnswerQuestionTool: vi.fn(),
-	runCreateTextFileTool: vi.fn(),
-	runListTextFilesTool: vi.fn(),
-	runGetTextFileTool: vi.fn(),
-	runUpdateTextFileTool: vi.fn(),
-	runDeleteTextFileTool: vi.fn(),
-	runSearchTextFilesTool: vi.fn(),
-	runLinkTextFileToThoughtTool: vi.fn(),
-	runUnlinkTextFileFromThoughtTool: vi.fn(),
-	runCaptureGroundingTool: vi.fn(),
-	runCompleteGroundingSessionTool: vi.fn()
+	runRetrieveThoughtsTool: runSearchThoughtsToolMock
 }));
 
 describe('createMcpServer', () => {

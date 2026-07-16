@@ -340,26 +340,6 @@ export async function setTemporalEventLifecycleStatus(
 	return { ok: true, kind: 'event', item, summary };
 }
 
-/** Unified entry: thought uuid, task:{uuid}, or temporal_event uuid. */
-export async function setItemLifecycleStatus(
-	userId: string,
-	itemId: string,
-	status: LifecycleStatus
-): Promise<SetLifecycleResult> {
-	const target = await resolveLifecycleTarget(userId, itemId);
-	if (!target) {
-		return { ok: false, reason: 'not_found' };
-	}
-
-	if (target.kind === 'thought') {
-		const result = await setThoughtLifecycleStatus(userId, target.id, status);
-		if (!result.ok) return result;
-		return { ok: true, kind: 'thought', thought: result.thought };
-	}
-
-	return setTemporalEventLifecycleStatus(userId, target.id, status);
-}
-
 /** Soft-remove alias used by delete_thought and timeline archive actions. */
 export async function archiveThoughtForUser(userId: string, thoughtId: string) {
 	return setThoughtLifecycleStatus(userId, thoughtId, 'archived');

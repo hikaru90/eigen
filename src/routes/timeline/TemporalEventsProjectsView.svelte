@@ -22,7 +22,7 @@
 		thoughtIdFromTaskItemId
 	} from './temporal-events-utils';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
-	import { subscribeThoughtSync } from '$lib/stores/thought-sync';
+	import { notifyThoughtChanged, subscribeThoughtSync } from '$lib/stores/thought-sync';
 	import { currentUserView } from '$lib/stores/current-user-view';
 	import type { CurrentUserView } from '$lib/memory/current-user-view';
 	import { get } from 'svelte/store';
@@ -45,6 +45,7 @@
 	let tasks = $state<TemporalEventListItem[]>([]);
 	let tasksLoading = $state(false);
 	let tasksError = $state<string | null>(null);
+	let updatingEventId = $state<string | null>(null);
 
 	let dataView = $state<CurrentUserView>(get(currentUserView));
 	let createDialogOpen = $state(false);
@@ -60,8 +61,8 @@
 	let confirmDismissProjectId = $state<string | null>(null);
 	let confirmDismissProjectLabel = $state<string | null>(null);
 
-	async function loadTasks() {
-		tasksLoading = true;
+	async function loadTasks(silent = false) {
+		if (!silent) tasksLoading = true;
 		tasksError = null;
 		try {
 			const params = new URLSearchParams({
@@ -78,7 +79,7 @@
 			tasks = body.items;
 		} catch (err) {
 			tasksError = err instanceof Error ? err.message : String(err);
-			tasks = [];
+			if (!silent) tasks = [];
 		} finally {
 			tasksLoading = false;
 		}
@@ -142,12 +143,21 @@
 	/* ── Helpers ── */
 
 	function getNextAction(project: ProjectListItem): { summary: string; itemId: string } | null {
-		if (project.nextAction) return project.nextAction;
-		const projectTasks = tasks.filter((t) => t.projectEntityId === project.entityId);
-		const withDue = projectTasks.filter((t) => t.startAt).sort((a, b) => new Date(a.startAt!).getTime() - new Date(b.startAt!).getTime());
+		if (project.nextAction) {
+			const nextItem = findTemporalListItemByRef(tasks, project.nextAction.itemId);
+			if (!nextItem || !isTemporalEventCompleted(nextItem)) return project.nextAction;
+		}
+		const projectTasks = tasks.filter(
+			(t) => t.projectEntityId === project.entityId && !isTemporalEventCompleted(t)
+		);
+		const withDue = projectTasks
+			.filter((t) => t.startAt)
+			.sort((a, b) => new Date(a.startAt!).getTime() - new Date(b.startAt!).getTime());
 		if (withDue.length > 0) return { summary: withDue[0].semanticSummary, itemId: withDue[0].id };
 		if (projectTasks.length > 0) {
-			const sorted = [...projectTasks].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+			const sorted = [...projectTasks].sort(
+				(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+			);
 			return { summary: sorted[0].semanticSummary, itemId: sorted[0].id };
 		}
 		return null;
@@ -212,6 +222,46 @@
 		}
 	}
 
+	async function postTaskStatus(itemId: string, status: 'open' | 'completed') {
+		const thoughtId = thoughtIdFromTaskItemId(itemId);
+		if (!thoughtId) return;
+		updatingEventId = itemId;
+		try {
+			const res = await fetch(`/api/thoughts/${thoughtId}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ status })
+			});
+			if (!res.ok) {
+				const text = await res.text();
+				throw new Error(text || `Request failed (${res.status})`);
+			}
+			const nowIso = new Date().toISOString();
+			tasks = tasks.map((task) =>
+				task.id === itemId
+					? {
+							...task,
+							thoughtStatus: status,
+							lifecycleStatus: status,
+							completedAt: status === 'completed' ? nowIso : null,
+							lifecycleUpdatedAt: nowIso
+						}
+					: task
+			);
+			notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
+			void loadProjects(true);
+		} catch (err) {
+			console.error('Failed to update task status', err);
+			void loadTasks();
+		} finally {
+			updatingEventId = null;
+		}
+	}
+
+	function onQuickAction(eventId: string, action: 'mark_done' | 'reopen') {
+		void postTaskStatus(eventId, action === 'mark_done' ? 'completed' : 'open');
+	}
+
 	/* ── Lifecycle ── */
 
 	onMount(() => {
@@ -226,7 +276,7 @@
 
 		const unsubSync = subscribeThoughtSync((msg) => {
 			if (msg.type === 'refresh-all' || (msg.type === 'changed' && msg.scope === 'global')) {
-				void loadTasks();
+				void loadTasks(true);
 				void loadProjects(true);
 			}
 		});
@@ -312,7 +362,8 @@
 										<TemporalEventStatusButton
 											item={task}
 											compact
-											onQuickAction={() => {}}
+											{updatingEventId}
+											{onQuickAction}
 										/>
 										<button type="button" class="flex min-w-0 flex-1 flex-col gap-1 text-left" onclick={() => onGoToTask(task.id)}>
 											<span class="text-foreground text-sm leading-snug {completedEventSummaryClass(taskCompleted)}">
@@ -352,8 +403,10 @@
 		nextActionItem={detailNextActionItem}
 		tasks={detailTasks}
 		statusLabel={detailProject ? statusLabel(detailProject.status) : ''}
+		{updatingEventId}
 		onClose={() => { detailDialogOpen = false; detailProject = null; }}
 		onGoToTask={onGoToTask}
+		{onQuickAction}
 		onAssignAgent={(task) => { assignAgentItem = task; assignAgentOpen = true; }}
 		onEdit={() => { if (detailProject) { editProjectItem = detailProject; editProjectOpen = true; } }}
 		onDelete={() => { if (detailProject) { confirmDismissProjectId = detailProject.entityId; confirmDismissProjectLabel = detailProject.label; } }}
