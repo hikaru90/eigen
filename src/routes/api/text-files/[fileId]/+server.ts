@@ -1,4 +1,4 @@
-import { error, json } from '@sveltejs/kit';
+import { error, isHttpError, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { deleteTextFile, getTextFile, updateTextFile } from '$lib/server/text-files/service';
 
@@ -46,6 +46,7 @@ export const PATCH: RequestHandler = async (event) => {
 		if (!textFile) error(404, 'Text file not found');
 		return json({ textFile });
 	} catch (e) {
+		if (isHttpError(e)) throw e;
 		const message = e instanceof Error ? e.message : String(e);
 		error(400, message);
 	}

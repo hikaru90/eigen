@@ -30,13 +30,14 @@ A change is Done only when all items below are satisfied:
 
 ## Coverage Thresholds
 - Coverage is enforced by risk tier with explicit thresholds:
-  - Critical tier: 95% lines/branches/functions/statements.
-  - High tier: 80% lines/branches/functions/statements.
+  - Critical tier: **95%** product target (lines/branches/functions/statements). Enforced floors in `vite.config.ts` ratchet upward from measured coverage until the target is met.
+  - High tier: 80% lines/functions/statements (branches may be slightly lower where noted in `vite.config.ts`).
   - Normal tier: 80% lines/branches/functions/statements.
 - Tier glob mapping for CI thresholds:
   - Critical: `src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity}/**`
   - High: `src/lib/server/{graph,db}/**`, `src/lib/server/auth.ts`, `src/lib/server/auth-form-errors.ts`, `src/routes/**/+server.ts`, `src/routes/+layout.server.ts`
   - Note: `src/routes/**/+page.server.ts` is listed here for risk ownership but is **excluded** from enforced coverage thresholds in `vite.config.ts` (load functions are thin data adapters; route `+server.ts` handlers remain enforced).
+  - Note: `src/routes/api/e2e/**` is excluded from coverage (harness-only endpoints).
   - Normal: `src/lib/components/**/*.svelte`, `src/routes/**/*.svelte`
 - Exclusions: generated outputs and scaffolding (`src/lib/paraglide/**`, `src/lib/server/db/auth.schema.ts`, `src/routes/demo/**`, config files, and other non-runtime assets).
 - Coverage report path: `coverage/index.html`.
@@ -44,7 +45,7 @@ A change is Done only when all items below are satisfied:
 ## Merge Gates (PR-Level)
 - CI (`.github/workflows/test-coverage.yml`):
   - **Required:** `npm run lint`, `npm run check`, `npm run test:unit` (blocks merge on failure).
-  - **Reported:** `npm run test:coverage` with `CI=true` (applies per-tier thresholds in `vite.config.ts`; currently `continue-on-error` because critical domains are below the 95% target — see [docs/testing/README.md](../testing/README.md)).
+  - **Reported:** `npm run test:coverage` with `CI=true` (applies per-tier floors in `vite.config.ts`; `continue-on-error` until critical floors reach the 95% product target — see [docs/testing/README.md](../testing/README.md)).
 - CI (`.github/workflows/oss-secrets-guard.yml`): `npm run assert:oss-secrets` plus the OSS secret-guard unit spec.
 - All required tests pass for impacted risk level.
 - Lint/type checks pass.
