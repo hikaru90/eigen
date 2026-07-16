@@ -165,7 +165,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'create_text_file',
 		description:
-			'Create a user-scoped text note (not a thought). Text notes appear in Notes — they are simple documents without enrichment or task classification. Do not use capture_thought for "add a note".',
+			'Create a user-scoped text note (not a thought). Text notes appear in Notes — they are simple documents without enrichment or task classification. Provide title and/or body (at least one required). Title-only is valid for empty lists/notebooks. Do not use capture_thought for "add a note".',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -176,11 +176,10 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 					description:
 						'Optional first ~10 characters of your API key to attribute this note to that key name; leave empty to store as the user.'
 				}
-			},
-			required: ['body']
+			}
 		},
 		agentArgumentSchema:
-			'{"body": "string (required)", "title": "string (optional)", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"}',
+			'{"title": "string (optional)", "body": "string (optional)", "author": "string (optional) — first ~10 chars of your API key to label authorship; empty means user"} — at least one of title or body required',
 		handler: runCreateTextFileTool,
 		exposeInMcp: false
 	},

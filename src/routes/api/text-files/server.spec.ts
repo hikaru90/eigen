@@ -78,4 +78,41 @@ describe('/api/text-files', () => {
 		} as never);
 		expect(res.status).toBe(201);
 	});
+
+	it('POST creates a title-only note', async () => {
+		createTextFileMock.mockResolvedValue({
+			id: 'f2',
+			title: 'shopping list',
+			body: '',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			updatedAt: '2026-01-01T00:00:00.000Z'
+		});
+		const res = await POST({
+			locals: { user: { id: 'u1' } },
+			request: new Request('http://localhost', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ title: 'shopping list' })
+			})
+		} as never);
+		expect(res.status).toBe(201);
+		expect(createTextFileMock).toHaveBeenCalledWith('u1', {
+			title: 'shopping list',
+			body: undefined
+		});
+	});
+
+	it('POST rejects when title and body are both missing', async () => {
+		await expect(
+			POST({
+				locals: { user: { id: 'u1' } },
+				request: new Request('http://localhost', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({})
+				})
+			} as never)
+		).rejects.toMatchObject({ status: 400 });
+		expect(createTextFileMock).not.toHaveBeenCalled();
+	});
 });

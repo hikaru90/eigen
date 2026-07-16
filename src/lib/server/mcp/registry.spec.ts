@@ -85,5 +85,7 @@ describe('MCP tool registry exposure', () => {
 		const create = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'create_text_file');
 		expect(create?.description).toMatch(/not a thought/i);
 		expect(create?.description).toMatch(/capture_thought/i);
+		expect(create?.inputSchema).not.toHaveProperty('required');
+		expect(create?.agentArgumentSchema).toMatch(/title or body required/i);
 	});
 });

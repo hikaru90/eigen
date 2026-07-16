@@ -67,8 +67,8 @@ export const POST: RequestHandler = async (event) => {
 	const rawBody =
 		typeof body === 'object' && body && 'body' in body && typeof body.body === 'string'
 			? body.body
-			: '';
-	if (!rawBody.trim()) error(400, 'body is required');
+			: undefined;
+	if (!(title?.trim() || rawBody?.trim())) error(400, 'title or body is required');
 
 	try {
 		const textFile = await createTextFile(user.id, { title, body: rawBody });

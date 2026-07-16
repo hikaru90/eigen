@@ -41,11 +41,8 @@ export type TextFileLinkedThought = {
 	normalizedText: string;
 };
 
-function assertNonEmptyBody(body: string): string {
+function assertBodyWithinLimit(body: string): string {
 	const trimmed = body.trim();
-	if (!trimmed) {
-		throw new Error('body is required');
-	}
 	const bytes = new TextEncoder().encode(trimmed).byteLength;
 	if (bytes > MAX_TEXT_FILE_BODY_BYTES) {
 		throw new Error(`body exceeds maximum size of ${MAX_TEXT_FILE_BODY_BYTES} bytes`);
@@ -55,6 +52,12 @@ function assertNonEmptyBody(body: string): string {
 
 function normalizeTitle(title: string | undefined): string {
 	return (title ?? '').trim();
+}
+
+function assertTitleOrBody(title: string, body: string): void {
+	if (!title && !body) {
+		throw new Error('title or body is required');
+	}
 }
 
 function toPreview(body: string): string {
@@ -96,10 +99,11 @@ async function decryptTextFileRow<
 
 export async function createTextFile(
 	userId: string,
-	input: { title?: string; body: string; authorship?: MemoryAuthorship }
+	input: { title?: string; body?: string; authorship?: MemoryAuthorship }
 ): Promise<TextFileRecord> {
-	const body = assertNonEmptyBody(input.body);
 	const title = normalizeTitle(input.title);
+	const body = assertBodyWithinLimit(typeof input.body === 'string' ? input.body : '');
+	assertTitleOrBody(title, body);
 	const lexicalText = computeLexicalText(`${title} ${body}`);
 	const authorValues = authorshipInsertValues(
 		input.authorship ?? USER_AUTHORSHIP
@@ -161,7 +165,9 @@ export async function updateTextFile(
 
 	const current = await decryptTextFileRow(userId, existing);
 	const nextTitle = input.title !== undefined ? normalizeTitle(input.title) : current.title;
-	const nextBody = input.body !== undefined ? assertNonEmptyBody(input.body) : current.body;
+	const nextBody =
+		input.body !== undefined ? assertBodyWithinLimit(input.body) : current.body;
+	assertTitleOrBody(nextTitle, nextBody);
 	const lexicalText = computeLexicalText(`${nextTitle} ${nextBody}`);
 	const bodyTextEncrypted = await encryptTenantValue({
 		userId,

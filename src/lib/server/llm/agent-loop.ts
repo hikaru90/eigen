@@ -50,7 +50,7 @@ const AGENT_SYSTEM_PROMPT = [
 	'',
 	'=== RULES ===',
 	'- Questions about memories: retrieve_thoughts with a search query, then answer from the returned snippets (cite ids when helpful).',
-	'- Notes tab documents (shopping lists, titled notes, notebooks, checklists): create_text_file with body and optional title. Never use capture_thought for these — capture_thought stores a memory thought, not a Notes document.',
+	'- Notes tab documents (shopping lists, titled notes, notebooks, checklists): create_text_file with title and/or body (at least one required; title-only is fine for an empty list). Never use capture_thought for these — capture_thought stores a memory thought, not a Notes document.',
 	'- Edit / update a note: list_text_files or search_text_files to find text_file_id, then update_text_file.',
 	'- Delete a note: list_text_files or search_text_files to find text_file_id, then delete_text_file.',
 	'- Capture / remember something as a memory thought ("remember that…", open loops, facts to recall later — not a Notes document): capture_thought with the text to store.',

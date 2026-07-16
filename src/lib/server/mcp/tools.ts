@@ -487,9 +487,9 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
 
 export async function runCreateTextFileTool(context: McpToolContext, args: unknown) {
 	const body = asObject(args);
-	const rawBody = typeof body.body === 'string' ? body.body : '';
-	if (!rawBody.trim()) throw new Error('body is required');
+	const rawBody = typeof body.body === 'string' ? body.body : undefined;
 	const title = typeof body.title === 'string' ? body.title : undefined;
+	if (!(title?.trim() || rawBody?.trim())) throw new Error('title or body is required');
 	const authorPrefix = typeof body.author === 'string' ? body.author : undefined;
 	const asUser = body.as_user === true;
 	const authorship = await resolveMcpCaptureAuthorship({

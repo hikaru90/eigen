@@ -166,7 +166,7 @@
 				<Button
 					type="button"
 					class="rounded-none"
-					disabled={busy || !newBody.trim()}
+					disabled={busy || !(newTitle.trim() || newBody.trim())}
 					onclick={() => void createAndLink()}
 				>
 					Create and attach

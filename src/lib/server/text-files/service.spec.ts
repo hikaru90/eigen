@@ -69,8 +69,40 @@ describe('text-files service', () => {
 		});
 	});
 
-	it('rejects empty body on create', async () => {
-		await expect(createTextFile('u1', { body: '   ' })).rejects.toThrow(/body is required/);
+	it('rejects create when title and body are both empty', async () => {
+		await expect(createTextFile('u1', { body: '   ' })).rejects.toThrow(
+			/title or body is required/
+		);
+		await expect(createTextFile('u1', { title: '   ' })).rejects.toThrow(
+			/title or body is required/
+		);
+	});
+
+	it('createTextFile allows title-only notes with empty body', async () => {
+		const createdAt = new Date('2026-06-05T12:00:00.000Z');
+		getDbMock.mockReturnValue({
+			insert: vi.fn(() =>
+				makeReturningInsert({
+					id: 'f2',
+					title: 'shopping list',
+					bodyText: '',
+					bodyTextEncrypted: 'enc:',
+					createdAt,
+					updatedAt: createdAt
+				})
+			)
+		});
+
+		const result = await createTextFile('u1', { title: 'shopping list' });
+
+		expect(encryptTenantValueMock).toHaveBeenCalledWith(
+			expect.objectContaining({ plaintext: '' })
+		);
+		expect(result).toMatchObject({
+			id: 'f2',
+			title: 'shopping list',
+			body: ''
+		});
 	});
 
 	it('updateTextFile returns null when missing', async () => {

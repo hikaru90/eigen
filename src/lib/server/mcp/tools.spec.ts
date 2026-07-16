@@ -508,6 +508,32 @@ describe('MCP tools', () => {
 		expect(out).not.toHaveProperty('embedding');
 	});
 
+	it('runCreateTextFileTool accepts title-only notes', async () => {
+		createTextFileMock.mockResolvedValue({
+			id: 'f2',
+			title: 'shopping list',
+			body: '',
+			author: 'user',
+			authorLabel: null,
+			authorKeyId: null,
+			createdAt: '2026-07-16T00:00:00.000Z',
+			updatedAt: '2026-07-16T00:00:00.000Z'
+		});
+		const out = await runCreateTextFileTool({ userId: 'u1' }, { title: 'shopping list' });
+		expect(createTextFileMock).toHaveBeenCalledWith(
+			'u1',
+			expect.objectContaining({ title: 'shopping list', body: undefined })
+		);
+		expect(out).toMatchObject({ textFileId: 'f2', textFile: { title: 'shopping list', body: '' } });
+	});
+
+	it('runCreateTextFileTool rejects when title and body are both empty', async () => {
+		await expect(runCreateTextFileTool({ userId: 'u1' }, {})).rejects.toThrow(
+			/title or body is required/
+		);
+		expect(createTextFileMock).not.toHaveBeenCalled();
+	});
+
 	it('runSearchTextFilesTool searches notes with author filter', async () => {
 		searchTextFilesMock.mockResolvedValue([{ id: 'f1', title: 'R', preview: 'x', lexicalScore: 1 }]);
 		const out = await runSearchTextFilesTool(

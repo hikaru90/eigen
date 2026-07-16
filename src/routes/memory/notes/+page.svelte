@@ -445,7 +445,7 @@
 			<Button
 				type="button"
 				class="rounded-none"
-				disabled={createBusy || !createBody.trim()}
+				disabled={createBusy || !(createTitle.trim() || createBody.trim())}
 				onclick={() => void submitCreate()}
 			>
 				{m.notes_create()}

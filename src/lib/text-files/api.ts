@@ -100,7 +100,7 @@ export async function fetchLinkedThoughts(fileId: string): Promise<TextFileLinke
 
 export async function createTextFile(input: {
 	title?: string;
-	body: string;
+	body?: string;
 }): Promise<TextFileRecord> {
 	const res = await fetch('/api/text-files', {
 		method: 'POST',
