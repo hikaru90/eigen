@@ -27,7 +27,7 @@ describe('POST /api/push/test', () => {
 		} as never);
 		expect(sendPushToUserMock).toHaveBeenCalledWith(
 			'u1',
-			expect.objectContaining({ title: 'Eigen test', tag: 'eigen-test' })
+			expect.objectContaining({ title: 'Eigen Mesh test', tag: 'eigen-test' })
 		);
 		expect(await res.json()).toMatchObject({ ok: true, sent: 1 });
 	});

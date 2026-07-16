@@ -177,7 +177,10 @@
   });
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<svelte:head>
+  <title>Eigen Mesh</title>
+  <link rel="icon" href={favicon} />
+</svelte:head>
 
 <div class="bg-background min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome}>
   {#if !hideAppChrome}

@@ -8,7 +8,7 @@ export const POST: RequestHandler = async (event) => {
 
 	try {
 		const result = await sendPushToUser(user.id, {
-			title: 'Eigen test',
+			title: 'Eigen Mesh test',
 			body: 'Push notifications are working for this device.',
 			url: '/settings',
 			tag: 'eigen-test'

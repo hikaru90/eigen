@@ -1,6 +1,6 @@
 {
-	"name": "Eigen",
-	"short_name": "Eigen",
+	"name": "Eigen Mesh",
+	"short_name": "Eigen Mesh",
 	"description": "Self-hostable memory infrastructure",
 	"start_url": "/login",
 	"scope": "/",

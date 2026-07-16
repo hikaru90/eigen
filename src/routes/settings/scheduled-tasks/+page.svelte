@@ -477,7 +477,7 @@
 </script>
 
 <svelte:head>
-  <title>Heartbeat · Eigen</title>
+  <title>Heartbeat · Eigen Mesh</title>
 </svelte:head>
 
 <main class="mx-auto max-w-lg px-5 pb-16 pt-24">

@@ -92,7 +92,8 @@ function parsePushPayload(event: PushEvent): PushPayload {
 
 self.addEventListener('push', (event) => {
 	const payload = parsePushPayload(event);
-	const title = typeof payload.title === 'string' && payload.title.trim() ? payload.title : 'Eigen';
+	const title =
+		typeof payload.title === 'string' && payload.title.trim() ? payload.title : 'Eigen Mesh';
 	const body =
 		typeof payload.body === 'string' && payload.body.trim()
 			? payload.body
@@ -105,8 +106,8 @@ self.addEventListener('push', (event) => {
 			body,
 			tag,
 			data: { url },
-			icon: '/pwa-192.png',
-			badge: '/pwa-192.png'
+			icon: '/notification-icon.png',
+			badge: '/notification-badge.png'
 		})
 	);
 });
