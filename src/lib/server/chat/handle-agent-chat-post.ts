@@ -3,7 +3,6 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { formatToolResultForDisplay, sanitizeFinalAnswerText } from '$lib/chat/chat-stream-types';
 import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages';
 import { agentChat } from '$lib/server/llm/agent-loop';
-import type { ChatMessage } from '$lib/server/llm/llm-client';
 import { tenantUserAsyncLocal } from '$lib/server/billing/context';
 import {
 	appDbAsyncLocal,
@@ -14,12 +13,13 @@ import {
 	deactivateTenantDbSession
 } from '$lib/server/db';
 import { chatSession, chatMessage, type ChatSessionMode } from '$lib/server/db/brain.schema';
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { runWithTrace } from '$lib/server/activity/trace-context';
 import {
 	insufficientCreditsPayload,
 	isInsufficientCreditsError
 } from '$lib/server/billing/insufficient-credits';
+import { sessionMessagesToAgentHistory } from '$lib/server/chat/session-history-for-agent';
 
 function collectErrorMessages(input: unknown): string[] {
 	const parts: string[] = [];
@@ -108,6 +108,36 @@ async function persistAssistantMessage(
 	return msg.id;
 }
 
+/**
+ * Persist a completed streamed turn in live-UI order: compacted tool/thinking steps,
+ * then the final assistant text. Callers should emit `done` after this returns.
+ */
+export async function persistStreamedAssistantTurn(input: {
+	db: ReturnType<typeof getDb>;
+	sessionId: string;
+	userId: string;
+	responseText: string;
+	intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }>;
+}): Promise<{ messageId: string; storedStepCount: number }> {
+	const storedSteps = compactChatIntermediateSteps(input.intermediateSteps);
+	for (const step of storedSteps) {
+		await input.db.insert(chatMessage).values({
+			sessionId: input.sessionId,
+			userId: input.userId,
+			role: 'assistant',
+			content: step.content,
+			metadata: step.metadata
+		});
+	}
+	const messageId = await persistAssistantMessage(
+		input.db,
+		input.sessionId,
+		input.userId,
+		input.responseText
+	);
+	return { messageId, storedStepCount: storedSteps.length };
+}
+
 export type AgentChatPostBody = {
 	message?: unknown;
 	history?: unknown;
@@ -151,19 +181,6 @@ export async function handleAgentChatPost(
 
 	const agentUserMessage = options.resolveAgentUserMessage({ bootstrap, message, briefingPeriod });
 
-	const rawHistory = Array.isArray(body.history) ? body.history : [];
-	const history: ChatMessage[] = [];
-	for (const entry of rawHistory) {
-		if (
-			typeof entry === 'object' &&
-			entry &&
-			typeof (entry as { role?: unknown }).role === 'string' &&
-			typeof (entry as { content?: unknown }).content === 'string'
-		) {
-			history.push(entry as ChatMessage);
-		}
-	}
-
 	const db = getDb();
 	const sessionKey =
 		typeof body.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : null;
@@ -173,6 +190,18 @@ export async function handleAgentChatPost(
 		sessionKey,
 		options.sessionMode
 	);
+
+	// Load prior turns before inserting this user message so history excludes the current turn.
+	const priorRows = await db
+		.select({
+			role: chatMessage.role,
+			content: chatMessage.content,
+			metadata: chatMessage.metadata
+		})
+		.from(chatMessage)
+		.where(eq(chatMessage.sessionId, sessionId))
+		.orderBy(asc(chatMessage.createdAt));
+	const history = sessionMessagesToAgentHistory(priorRows);
 
 	if (!bootstrap) {
 		await db.insert(chatMessage).values({
@@ -324,7 +353,13 @@ export async function handleAgentChatPost(
 						? result.response
 						: 'The assistant did not produce a response.';
 				const responseText = sanitizeFinalAnswerText(rawResponse, lastAnswerQuestionPreview);
-				const messageId = await persistAssistantMessage(scopedDb, sessionId, user.id, responseText);
+				const { messageId } = await persistStreamedAssistantTurn({
+					db: scopedDb,
+					sessionId,
+					userId: user.id,
+					responseText,
+					intermediateSteps
+				});
 				sendTerminal({
 					type: 'done',
 					response: responseText,
@@ -332,16 +367,6 @@ export async function handleAgentChatPost(
 					messageId
 				});
 
-				const storedSteps = compactChatIntermediateSteps(intermediateSteps);
-				for (const step of storedSteps) {
-					await scopedDb.insert(chatMessage).values({
-						sessionId,
-						userId: user.id,
-						role: 'assistant',
-						content: step.content,
-						metadata: step.metadata
-					});
-				}
 				if (isFirstMessage && !bootstrap && message.length > 0) {
 					const title = message.length > 80 ? message.slice(0, 77) + '...' : message;
 					await scopedDb

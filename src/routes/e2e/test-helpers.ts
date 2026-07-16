@@ -178,3 +178,67 @@ export async function waitForChatAnswerMarker(
 	assertChatLogHasNoRawJson(logText);
 	return logText;
 }
+
+export function normalizeChatLogText(text: string): string {
+	return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Final assistant answer bubble (the message with "Regenerate answer").
+ * Ephemeral stream progress labels are excluded by design.
+ */
+export async function readChatFinalAnswerText(page: Page): Promise<string> {
+	const regenerate = page.getByRole('button', { name: 'Regenerate answer' }).last();
+	await expect(regenerate).toBeVisible();
+	const bubble = regenerate.locator(
+		'xpath=ancestor::div[contains(@class,"group")][1]'
+	);
+	return normalizeChatLogText((await bubble.innerText()) ?? '');
+}
+
+/**
+ * After a completed stream turn: reload the chat page and assert the persisted
+ * session answer matches what the live NDJSON stream rendered.
+ */
+export async function assertChatStreamMatchesReload(
+	page: Page,
+	options?: { timeoutMs?: number; answerMarker?: RegExp | string }
+): Promise<void> {
+	const timeoutMs = options?.timeoutMs ?? 120_000;
+	const marker =
+		typeof options?.answerMarker === 'string'
+			? new RegExp(options.answerMarker, 'i')
+			: (options?.answerMarker ?? /./);
+
+	await waitForChatIdle(page, timeoutMs);
+	await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+		timeout: timeoutMs
+	});
+
+	const streamAnswer = await readChatFinalAnswerText(page);
+	expect(streamAnswer.length, 'stream should produce a non-empty answer').toBeGreaterThan(0);
+	expect(streamAnswer, 'stream answer should include expected marker').toMatch(marker);
+	assertChatLogHasNoRawJson(streamAnswer);
+
+	await page.reload();
+	await expect(page.getByPlaceholder('Ask a question about your memories...')).toBeVisible({
+		timeout: timeoutMs
+	});
+	await waitForChatIdle(page, timeoutMs);
+
+	const log = page.getByRole('log', { name: 'Chat messages' });
+	await expect
+		.poll(async () => normalizeChatLogText((await log.textContent()) ?? ''), {
+			timeout: timeoutMs
+		})
+		.toMatch(marker);
+	await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+		timeout: timeoutMs
+	});
+
+	const reloadedAnswer = await readChatFinalAnswerText(page);
+	assertChatLogHasNoRawJson(reloadedAnswer);
+	expect(reloadedAnswer, 'persisted chat answer on reload should match stream response').toBe(
+		streamAnswer
+	);
+}

@@ -356,6 +356,51 @@ describe('compactChatIntermediateSteps', () => {
 		expect(out[0].metadata.tool).toBe('answer_question');
 	});
 
+	it('coalesces tool_call through executing/progress to tool_result', () => {
+		const out = compactChatIntermediateSteps([
+			{
+				content: '{"tool":"retrieve_thoughts"}',
+				metadata: {
+					variant: 'tool_call',
+					tool: 'retrieve_thoughts',
+					arguments: { query: 'x' }
+				}
+			},
+			{
+				content: 'retrieve_thoughts',
+				metadata: { variant: 'tool_executing', tool: 'retrieve_thoughts' }
+			},
+			{
+				content: 'Searching your memories…',
+				metadata: {
+					variant: 'tool_progress',
+					tool: 'retrieve_thoughts',
+					phase: 'searching',
+					label: 'Searching your memories…'
+				}
+			},
+			{
+				content: '{"results":[]}',
+				metadata: {
+					variant: 'tool_result',
+					tool: 'retrieve_thoughts',
+					displaySummary: 'No results'
+				}
+			}
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toEqual({
+			content: '{"results":[]}',
+			metadata: {
+				variant: 'tool_step',
+				tool: 'retrieve_thoughts',
+				arguments: { query: 'x' },
+				displaySummary: 'No results',
+				failed: false
+			}
+		});
+	});
+
 	it('shouldSkipDuplicateFinalAnswer when tool_step present', () => {
 		const steps = compactChatIntermediateSteps([
 			{

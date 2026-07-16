@@ -4,6 +4,7 @@ import { expect, type Frame, type Locator, type Page } from '@playwright/test';
 import {
 	assertChatLoadingVisible,
 	assertChatLogHasNoRawJson,
+	assertChatStreamMatchesReload,
 	askChatQuestion,
 	loginUser,
 	registerUser,
@@ -1125,6 +1126,12 @@ async function exerciseChatUi(page: Page): Promise<void> {
 	assertChatLogHasNoRawJson(logText);
 	await expect(page.locator('.animate-spin')).toHaveCount(0);
 	await waitForChatIdle(page, RELEASE_WAIT_MS);
+
+	// Streamed answer must match the session reload from the server.
+	await assertChatStreamMatchesReload(page, {
+		timeoutMs: RELEASE_WAIT_MS,
+		answerMarker: /Lisbon/i
+	});
 }
 
 async function exerciseChatFailureUi(page: Page): Promise<void> {

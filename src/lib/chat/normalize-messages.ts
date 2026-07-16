@@ -272,32 +272,52 @@ export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEn
 	return out;
 }
 
-/** Persist one row per tool run instead of separate tool_call + tool_result rows. */
+/**
+ * Persist one row per tool run. Live streams emit tool_call → tool_executing →
+ * tool_progress → tool_result; coalesce call+result across those intermediates and
+ * drop executing/progress from storage.
+ */
 export function compactChatIntermediateSteps(steps: StoredChatStep[]): StoredChatStep[] {
 	const out: StoredChatStep[] = [];
 	for (let i = 0; i < steps.length; i++) {
 		const cur = steps[i];
-		const next = steps[i + 1];
-		const tool = cur.metadata.tool;
-		if (
-			cur.metadata.variant === 'tool_call' &&
-			next?.metadata.variant === 'tool_result' &&
-			typeof tool === 'string' &&
-			tool === next.metadata.tool
-		) {
-			out.push({
-				content: next.content,
-				metadata: {
-					variant: 'tool_step',
-					tool,
-					arguments: cur.metadata.arguments ?? {},
-					displaySummary: next.metadata.displaySummary,
-					failed: next.metadata.failed === true
-				}
-			});
-			i += 1;
+		const variant = cur.metadata.variant;
+
+		if (variant === 'tool_executing' || variant === 'tool_progress') {
 			continue;
 		}
+
+		if (variant === 'tool_call') {
+			const tool = cur.metadata.tool;
+			let j = i + 1;
+			while (
+				j < steps.length &&
+				(steps[j].metadata.variant === 'tool_executing' ||
+					steps[j].metadata.variant === 'tool_progress')
+			) {
+				j += 1;
+			}
+			const result = steps[j];
+			if (
+				typeof tool === 'string' &&
+				result?.metadata.variant === 'tool_result' &&
+				result.metadata.tool === tool
+			) {
+				out.push({
+					content: result.content,
+					metadata: {
+						variant: 'tool_step',
+						tool,
+						arguments: cur.metadata.arguments ?? {},
+						displaySummary: result.metadata.displaySummary,
+						failed: result.metadata.failed === true
+					}
+				});
+				i = j;
+				continue;
+			}
+		}
+
 		out.push(cur);
 	}
 	return out;
