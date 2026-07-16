@@ -36,6 +36,8 @@ export function buildEnvelope(input: {
 }): Record<string, unknown> {
 	return sanitizeWebhookPayload({
 		event: input.eventType,
+		// Hermes body detector looks for event_type / type; keep event as canonical.
+		event_type: input.eventType,
 		eventId: input.eventId,
 		timestamp: new Date().toISOString(),
 		data: input.payload

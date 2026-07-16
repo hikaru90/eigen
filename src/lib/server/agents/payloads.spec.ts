@@ -21,8 +21,19 @@ describe('buildEnvelope', () => {
 			payload: { thoughtId: 't1', normalizedText: 'hello' }
 		});
 		expect(envelope.event).toBe('thought.created');
+		expect(envelope.event_type).toBe('thought.created');
 		expect(envelope.eventId).toBe('t1');
 		expect((envelope.data as { normalizedText: string }).normalizedText).toBe('hello');
+	});
+
+	it('mirrors event into event_type for Hermes body detection', () => {
+		const envelope = buildEnvelope({
+			eventType: 'webhook.test',
+			eventId: 'd1',
+			payload: { message: 'Eigenmesh webhook test' }
+		});
+		expect(envelope.event).toBe('webhook.test');
+		expect(envelope.event_type).toBe('webhook.test');
 	});
 
 	it('includes projectEntityIds and projectLabels in payload when provided', () => {

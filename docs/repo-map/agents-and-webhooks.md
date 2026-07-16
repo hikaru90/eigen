@@ -20,25 +20,27 @@ Settings → **Connected agents** (`/settings/agents`):
 
 ## Outbound webhooks
 
-Eigen POSTs JSON to your webhook URL with headers:
+Eigen POSTs JSON to your webhook URL. Generic mode (default) headers:
 
-- `X-Eigen-Event` — event type
-- `X-Eigen-Delivery-Id` — delivery UUID
-- `X-Eigen-Timestamp` — Unix seconds
-- `X-Eigen-Signature` — `sha256=<hex>` over `{timestamp}.{rawBody}`
+- `X-Event-Type` — event type (e.g. `thought.enriched`, `webhook.test`)
+- `X-Request-ID` — delivery UUID
+- `X-Webhook-Signature` — HMAC-SHA256 hex of the raw body (no `sha256=` prefix)
+
+GitHub / GitLab signature modes use the corresponding platform headers (`X-GitHub-Event`, `X-Gitlab-Event`, etc.).
 
 Payload envelope:
 
 ```json
 {
   "event": "thought.enriched",
+  "event_type": "thought.enriched",
   "eventId": "<thought-uuid>",
   "timestamp": "2026-06-23T12:00:00.000Z",
   "data": { "thoughtId": "...", "category": "task", "memoryType": "open_loop" }
 }
 ```
 
-Embeddings are never included.
+`event` is canonical; `event_type` is the same string for receivers (e.g. Hermes) that only inspect the body field `event_type`. Embeddings are never included.
 
 ## Task assignment
 

@@ -125,8 +125,8 @@ Stand: 2026-07-08
 |---|-------|-------|--------|
 | 8.1 | Agent-Registrierung: Name + HTTPS Webhook-URL + Event-Selektion | — | ☐ |
 | 8.2 | Signing Secret + Callback Token werden einmalig angezeigt | — | ☐ |
-| 8.3 | Outbound Webhook: korrekte Headers (`X-Eigen-Event`, `X-Eigen-Signature` sha256) | — | ☐ |
-| 8.4 | Payload-Envelope: `event`, `eventId`, `timestamp`, `data` (keine Embeddings) | — | ☐ |
+| 8.3 | Outbound Webhook: korrekte Headers (`X-Event-Type`, `X-Webhook-Signature`, `X-Request-ID`) | — | ☐ |
+| 8.4 | Payload-Envelope: `event`, `event_type`, `eventId`, `timestamp`, `data` (keine Embeddings) | — | ☐ |
 | 8.5 | Event-Typen: `thought.created`, `thought.enriched`, `thought.updated`, `thought.deleted` | — | ☐ |
 | 8.6 | Task-Assignment: `agent.task.assigned` mit `assignmentId`, `thoughtId`, Text-Context | — | ☐ |
 | 8.7 | Inbound Completion: `POST /api/agents/callback/complete` mit Bearer `eigen_cb_…` | — | ☐ |
