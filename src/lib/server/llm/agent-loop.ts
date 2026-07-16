@@ -407,6 +407,3 @@ export async function agentChat(input: {
 		messages
 	};
 }
-
-// Re-export for tests that assert tool surface parity with MCP server.
-export { MCP_EXPOSED_TOOL_DEFINITIONS as MCP_TOOL_DEFINITIONS };

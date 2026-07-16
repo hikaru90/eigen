@@ -62,7 +62,6 @@ vi.mock('$lib/server/mcp/registry', () => ({
 		'link_text_file_to_thought',
 		'unlink_text_file_from_thought'
 	],
-	MCP_EXPOSED_TOOL_DEFINITIONS: [],
 	buildAgentToolDescriptionBlock: () => '',
 	isAgentTool: (name: string) =>
 		[
