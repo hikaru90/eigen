@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { GROUNDING_FACET_KEY_SET, type GroundingFacetKey } from '$lib/server/grounding/constants';
 import { generateCheckInQuestion } from '$lib/server/grounding/next-check-in';
+import { getOnboardingWelcomeQuestionIfAvailable } from '$lib/server/grounding/onboarding-welcome-push';
 import {
 	isCheckInQuestionDue,
 	touchCheckInQuestionPrompt
@@ -22,20 +23,24 @@ export const GET: RequestHandler = async (event) => {
 	if (!user) error(401, 'Unauthorized');
 
 	const due = await isCheckInQuestionDue(user.id);
-	if (!due) {
-		return json({ question: null, due: false });
+	if (due) {
+		const generated = await generateCheckInQuestion(user.id);
+		if (!generated) {
+			await touchCheckInQuestionPrompt(user.id);
+			return json({ question: null, due: true });
+		}
+		return json({
+			due: true,
+			question: generated
+		});
 	}
 
-	const generated = await generateCheckInQuestion(user.id);
-	if (!generated) {
-		await touchCheckInQuestionPrompt(user.id);
-		return json({ question: null, due: true });
+	const welcome = await getOnboardingWelcomeQuestionIfAvailable(user.id);
+	if (welcome) {
+		return json({ due: false, welcome: true, question: welcome });
 	}
 
-	return json({
-		due: true,
-		question: generated
-	});
+	return json({ question: null, due: false });
 };
 
 export const POST: RequestHandler = async (event) => {

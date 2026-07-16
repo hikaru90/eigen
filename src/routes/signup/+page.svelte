@@ -56,6 +56,14 @@
 
 	<Card.Root class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-8 border border-black/10 bg-card">
 		<Card.Content class="space-y-4 pt-6">
+			{#if form?.checkEmail}
+				<p class="text-foreground text-xs">
+					{form.message ?? 'Check your email for a verification link before signing in.'}
+				</p>
+				<p class="text-muted-foreground text-center text-xs">
+					<a href={resolve('/login')} class="text-foreground underline-offset-2 hover:underline">Sign in</a>
+				</p>
+			{:else}
 			{#if data.socialProviders.length > 0}
 				<AuthSocialButtons providers={data.socialProviders} />
 				<div class="relative py-1">
@@ -128,6 +136,7 @@
 				Already have an account?
 				<a href={resolve('/login')} class="text-foreground underline-offset-2 hover:underline">Sign in</a>
 			</p>
+			{/if}
 		</Card.Content>
 	</Card.Root>
 </div>

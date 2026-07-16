@@ -5,7 +5,9 @@
 	import type { PageData } from './$types';
 	import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte';
 	import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte';
+	import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte';
 	import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte';
+	import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge';
 	import { enhance } from '$app/forms';
 	import CaptureQueueList from '$lib/components/capture-queue-list.svelte';
 	import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte';
@@ -50,7 +52,7 @@
 	import { unlinkTextFileFromThought } from '$lib/text-files/api';
 	import { captureInputDraft } from '$lib/stores/page-input-drafts';
 	import { currentUserView } from '$lib/stores/current-user-view';
-	import { appendViewToSearchParams, type CurrentUserView } from '$lib/memory/current-user-view';
+	import { appendViewToSearchParams, viewToListApiParams, type CurrentUserView } from '$lib/memory/current-user-view';
 	import { get } from 'svelte/store';
 	import { trackInsufficientCredits } from '$lib/analytics/billing-events';
 	import { capture as captureEvent } from '$lib/analytics/posthog-client';
@@ -88,14 +90,27 @@ import { logErrorToServer } from '$lib/client-log';
 	let groundingQuestion = $state<CheckInQuestionPayload>(null);
 	let groundingQuestionDismissed = $state(false);
 	let groundingQuestionLoading = $state(false);
+	/** True when this page load started with zero recent thoughts (first-capture nudge). */
+	let startedWithEmptyRecent = $state(false);
+	let seededEmptyRecentFlag = $state(false);
+	let firstCaptureNudgeDismissed = $state(false);
+	let firstCaptureNudgeHydrated = $state(false);
 
 	function shouldScrollToCheckIn(): boolean {
 		const params = page.url.searchParams;
-		return params.get('checkin') === '1' || params.get('grounding') === '1';
+		return (
+			params.get('checkin') === '1' ||
+			params.get('grounding') === '1' ||
+			params.get('welcome') === '1'
+		);
+	}
+
+	function shouldFetchCheckInQuestion(): boolean {
+		return data.groundingQuestionEligible || shouldScrollToCheckIn();
 	}
 
 	async function fetchGroundingQuestion() {
-		if (!data.groundingQuestionEligible || groundingQuestionDismissed || groundingQuestionLoading) {
+		if (!shouldFetchCheckInQuestion() || groundingQuestionDismissed || groundingQuestionLoading) {
 			return;
 		}
 		groundingQuestionLoading = true;
@@ -150,14 +165,16 @@ import { logErrorToServer } from '$lib/client-log';
 	}
 
 	onMount(() => {
-		if (data.groundingQuestionEligible && !groundingQuestionDismissed) {
+		firstCaptureNudgeDismissed = isFirstCaptureNudgeDismissed(data.user.id);
+		firstCaptureNudgeHydrated = true;
+		if (shouldFetchCheckInQuestion() && !groundingQuestionDismissed) {
 			groundingQuestion = null;
 			void fetchGroundingQuestion();
 		}
 	});
 
 	$effect(() => {
-		if (!data.groundingQuestionEligible) {
+		if (!shouldFetchCheckInQuestion()) {
 			groundingQuestion = null;
 			return;
 		}
@@ -195,7 +212,19 @@ import { logErrorToServer } from '$lib/client-log';
 		thoughtDetails = Object.fromEntries(
 			data.recentThoughtDetails.map((thought) => [thought.id, thought])
 		);
+		if (!seededEmptyRecentFlag) {
+			startedWithEmptyRecent = data.recentThoughts.length === 0;
+			seededEmptyRecentFlag = true;
+		}
 	});
+
+	const showFirstCaptureNudge = $derived(
+		firstCaptureNudgeHydrated &&
+			startedWithEmptyRecent &&
+			recentThoughts.length > 0 &&
+			!firstCaptureNudgeDismissed &&
+			!showOnboarding
+	);
 
 	async function reloadRecentThoughts() {
 		try {
@@ -320,7 +349,7 @@ import { logErrorToServer } from '$lib/client-log';
 		try {
 			const merged = await fetchRecentCaptureMerge({
 				limit: RECENT_THOUGHTS_LIMIT,
-				filter: recentFilter,
+				filter: { ...recentFilter, ...viewToListApiParams(dataView) },
 				getState: () => ({ snippets: recentThoughts, details: thoughtDetails })
 			});
 			applyRecentCaptureSync(merged);
@@ -523,7 +552,7 @@ import { logErrorToServer } from '$lib/client-log';
 
 		const cancelRecentSync = pollCaptureRecentSync({
 			limit: RECENT_THOUGHTS_LIMIT,
-			getFilter: () => recentFilter,
+			getFilter: () => ({ ...recentFilter, ...viewToListApiParams(dataView) }),
 			getState: () => ({ snippets: recentThoughts, details: thoughtDetails }),
 			onSync: applyRecentCaptureSync
 		});
@@ -787,6 +816,16 @@ import { logErrorToServer } from '$lib/client-log';
 				</div>
 			</Card.Footer>
 		</Card.Root>
+
+		{#if showFirstCaptureNudge}
+			<FirstCaptureNudge
+				open={true}
+				userId={data.user.id}
+				onDismiss={() => {
+					firstCaptureNudgeDismissed = true;
+				}}
+			/>
+		{/if}
 	</div>
 
 	<div class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-6 pb-20">
@@ -848,10 +887,6 @@ import { logErrorToServer } from '$lib/client-log';
 	open={showOnboarding}
 	walletAvailableCredits={localWalletCredits}
 	minCaptureCredits={data.minCaptureCredits}
-	paypalConfigured={data.paypalConfigured}
-	paypalClientId={data.paypalClientId}
-	paypalSdkUrl={data.paypalSdkUrl}
-	byokUiEnabled={data.byokUiEnabled}
 	creditsGatePassed={data.creditsGatePassed || localWalletCredits >= data.minCaptureCredits}
 	startingFreeCredits={data.startingFreeCredits}
 />

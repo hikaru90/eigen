@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { actions, load } from './+page.server';
 
-const { signUpEmailMock } = vi.hoisted(() => ({ signUpEmailMock: vi.fn() }));
+const { signUpEmailMock, isUseSendMailConfiguredMock } = vi.hoisted(() => ({
+	signUpEmailMock: vi.fn(),
+	isUseSendMailConfiguredMock: vi.fn(() => false)
+}));
 vi.mock('$lib/server/auth', () => ({ auth: { api: { signUpEmail: signUpEmailMock } } }));
 vi.mock('$lib/server/auth-form-errors', () => ({ getSafeErrorMessage: (e: unknown) => `safe: ${e}` }));
+vi.mock('$lib/server/email/usesend', () => ({
+	isUseSendMailConfigured: isUseSendMailConfiguredMock
+}));
 
 describe('signup page server', () => {
 	it('returns plan from valid query param', () => {
@@ -81,5 +87,24 @@ describe('signup page server', () => {
 		expect(result).toMatchObject({ status: 400 });
 		expect(result.data.message).toContain('safe:');
 		expect(result.data.message).toContain('Database error');
+	});
+
+	it('asks user to verify email when useSend is configured', async () => {
+		isUseSendMailConfiguredMock.mockReturnValue(true);
+		signUpEmailMock.mockResolvedValue({ user: { id: 'u1' }, token: null });
+		const request = new Request('http://localhost/signup', {
+			method: 'POST',
+			body: new URLSearchParams({ name: 'Test User', email: 'test@example.com', password: 'pass1234' })
+		});
+		const result = await actions.signUpEmail({ request } as never);
+		expect(result).toMatchObject({
+			checkEmail: true,
+			message: 'Check your email for a verification link before signing in.'
+		});
+		expect(signUpEmailMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: expect.objectContaining({ callbackURL: '/capture' })
+			})
+		);
 	});
 });

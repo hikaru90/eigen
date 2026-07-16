@@ -143,7 +143,7 @@ export async function exerciseVoiceCaptureUi(
 ): Promise<void> {
 	const timeoutMs = options?.timeoutMs ?? 120_000;
 	await page.goto('/capture');
-	await expect(page.getByRole('dialog', { name: 'Welcome to Eigen' })).toBeHidden({
+	await expect(page.getByRole('dialog', { name: /Your memory, not theirs\.|Just drop it in\./ })).toBeHidden({
 		timeout: 15_000
 	});
 	await expect(page.locator('#thought')).toBeVisible();

@@ -10,6 +10,7 @@ export type RecentCaptureMergeResult = ReturnType<typeof mergeRecentCaptureFromS
 
 export type RecentCaptureSyncFilter = {
 	author?: 'user' | 'agent';
+	authorLayerKey?: string;
 	category?: string;
 	memoryType?: string;
 };
@@ -18,7 +19,11 @@ export async function fetchRecentCaptureSyncPayload(
 	filter?: RecentCaptureSyncFilter
 ): Promise<RecentCaptureSyncPayload> {
 	const params = new URLSearchParams();
-	if (filter?.author) params.set('author', filter.author);
+	if (filter?.authorLayerKey) {
+		params.set('authorLayerKey', filter.authorLayerKey);
+	} else if (filter?.author) {
+		params.set('author', filter.author);
+	}
 	if (filter?.category) params.set('category', filter.category);
 	if (filter?.memoryType) params.set('memoryType', filter.memoryType);
 	const url = params.toString() ? `/api/capture/recent?${params.toString()}` : '/api/capture/recent';

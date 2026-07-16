@@ -48,6 +48,7 @@ describe('platform-pricing', () => {
 	it('formats credits as USD for balance display', () => {
 		expect(formatCreditsAsUsd(1000)).toBe('$1.00');
 		expect(formatCreditsAsUsd(10000)).toBe('$10.00');
+		expect(formatCreditsAsUsd(100)).toBe('$0.10');
 		expect(formatCreditsAsUsd(0)).toBe('$0.00');
 		expect(formatCreditsAsUsd(-1)).toBeNull();
 	});

@@ -136,18 +136,20 @@
 		<div>
 			<p class="text-muted-foreground text-xs">Current balance</p>
 			<p class="text-3xl font-semibold tracking-tight tabular-nums">
-				{balanceUsd ?? '—'}
-				<span class="text-muted-foreground text-base font-normal"> USD</span>
+				{formatWalletBalance(walletAvailableCredits)}
+				<span class="text-muted-foreground text-base font-normal"> credits</span>
 			</p>
 			<p class="text-muted-foreground mt-0.5 text-xs tabular-nums">
-				{formatWalletBalance(walletAvailableCredits)} Eigen credits
+				{balanceUsd ?? '—'} USD gateway value
 			</p>
 		</div>
 	{:else}
 		<p class="text-muted-foreground text-xs tabular-nums">
 			Balance:
-			<span class="text-foreground font-medium">{balanceUsd ?? '—'} USD</span>
-			<span class="text-muted-foreground">({formatWalletBalance(walletAvailableCredits)} credits)</span>
+			<span class="text-foreground font-medium"
+				>{formatWalletBalance(walletAvailableCredits)} credits</span
+			>
+			<span class="text-muted-foreground">({balanceUsd ?? '—'} USD)</span>
 		</p>
 	{/if}
 

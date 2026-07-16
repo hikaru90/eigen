@@ -3,7 +3,8 @@
 	import { cn } from '$lib/utils.js';
 	import light from '$lib/assets/images/logo.png';
 	import dark from '$lib/assets/images/logo-dark.png';
-	import logoGreen from '$lib/assets/images/icon-green.svg';
+	import logoGreenLight from '$lib/assets/images/icon-neongreen.svg';
+	import logoGreenDark from '$lib/assets/images/icon-green.svg';
 
 	type Props = HTMLAttributes<HTMLDivElement> & {
 		heightClass?: string;
@@ -75,9 +76,16 @@
 	>
 		MESH
 		<img
-			src={logoGreen}
+			src={logoGreenLight}
 			alt=""
-			class="absolute left-1/2 top-1/2 -z-10 h-8 -translate-x-1/2 -translate-y-1/2 brightness-[0.82]"
+			class="absolute left-1/2 top-1/2 -z-10 h-8 -translate-x-1/2 -translate-y-1/2 dark:hidden"
+			loading="eager"
+			decoding="async"
+		/>
+		<img
+			src={logoGreenDark}
+			alt=""
+			class="absolute left-1/2 top-1/2 -z-10 hidden h-8 -translate-x-1/2 -translate-y-1/2 brightness-[0.82] dark:block"
 			loading="eager"
 			decoding="async"
 		/>

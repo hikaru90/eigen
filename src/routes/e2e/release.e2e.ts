@@ -30,7 +30,7 @@ test.describe('Release smoke @release', () => {
 		await test.step('create account', async () => {
 			({ email } = await registerUser(context, page, { emailDomain: 'example.com' }));
 			await expect(page).toHaveURL(/\/capture/);
-			await expect(page.getByRole('dialog', { name: 'Welcome to Eigen' })).toBeVisible({
+			await expect(page.getByRole('dialog', { name: /Your memory, not theirs\./ })).toBeVisible({
 				timeout: 30_000
 			});
 		});

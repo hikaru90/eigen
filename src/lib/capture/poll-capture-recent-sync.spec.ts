@@ -146,4 +146,58 @@ describe('pollCaptureRecentSync', () => {
 		expect(syncSnippetIds).toEqual([[]]);
 		cancel();
 	});
+
+	it('passes authorLayerKey to fetch when user view is an agent', async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({
+				recentThoughts: [],
+				recentThoughtDetails: []
+			})
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const cancel = pollCaptureRecentSync({
+			limit: 8,
+			getFilter: () => ({ authorLayerKey: 'apikey:key-1' }),
+			getState: () => ({ snippets: [], details: {} }),
+			pollMs: 100,
+			onSync: () => {}
+		});
+
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/capture/recent?authorLayerKey=apikey%3Akey-1',
+			{ cache: 'no-store' }
+		);
+		cancel();
+	});
+
+	it('passes author=user to fetch when user view is "user"', async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({
+				recentThoughts: [],
+				recentThoughtDetails: []
+			})
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const cancel = pollCaptureRecentSync({
+			limit: 8,
+			getFilter: () => ({ author: 'user' }),
+			getState: () => ({ snippets: [], details: {} }),
+			pollMs: 100,
+			onSync: () => {}
+		});
+
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/capture/recent?author=user',
+			{ cache: 'no-store' }
+		);
+		cancel();
+	});
 });

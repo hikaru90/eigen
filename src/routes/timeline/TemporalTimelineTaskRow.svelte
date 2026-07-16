@@ -110,7 +110,7 @@
 				{item.semanticSummary}
 			</span>
 			{#if item.projectLabel}
-				<span class="text-black shrink-0 rounded-full border border-white px-2 py-0.5 text-[10px] leading-tight dark:text-foreground">
+				<span class="text-black shrink-0 max-w-[120px] truncate rounded-full border border-white px-2 py-0.5 text-[10px] leading-tight dark:text-foreground" title={item.projectLabel}>
 					{item.projectLabel}
 				</span>
 			{/if}

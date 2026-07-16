@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TOUCH } from 'three';
+import { MOUSE, TOUCH } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server';
@@ -103,7 +103,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 	renderer.setClearColor(0x000000, 0);
 	renderer.domElement.className = 'embedding-map-3d touch-none';
-	renderer.domElement.style.cursor = 'default';
+	renderer.domElement.style.cursor = 'grab';
 	container.appendChild(renderer.domElement);
 
 	const labelRenderer = new CSS2DRenderer();
@@ -121,14 +121,20 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 	stackLayer(labelRenderer.domElement, 1);
 
 	const controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableRotate = false;
-	controls.enablePan = false;
+	controls.enablePan = true;
 	controls.enableDamping = true;
 	controls.dampingFactor = 0.08;
+	controls.rotateSpeed = 0.65;
 	controls.zoomSpeed = 0.9;
+	controls.panSpeed = 0.75;
 	controls.minDistance = 0.4;
 	controls.maxDistance = 8;
-	/** Two-finger pinch zooms; pan is off via enablePan. One-finger does nothing (rotate off). */
+	controls.mouseButtons = {
+		LEFT: MOUSE.ROTATE,
+		MIDDLE: MOUSE.DOLLY,
+		RIGHT: MOUSE.PAN
+	};
+	/** One-finger rotates; two-finger pinch zooms / pan. */
 	controls.touches = {
 		ONE: TOUCH.ROTATE,
 		TWO: TOUCH.DOLLY_PAN

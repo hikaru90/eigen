@@ -53,7 +53,7 @@
 	const triggerIconFrameClass = $derived(
 		triggerIconKind === 'agent'
 			? authorAgentLegendIconFrameClass
-			: 'inline-flex shrink-0 items-center justify-center rounded-full bg-[#111] p-0.5 dark:bg-white'
+			: 'inline-flex shrink-0 items-center justify-center rounded-full bg-[#111] p-1 dark:bg-white'
 	);
 
 	const triggerLabel = $derived(
@@ -63,7 +63,7 @@
 
 <Popover.Root bind:open>
 	<Popover.Trigger
-		class="flex h-9 items-center gap-1.5 bg-transparent px-1 text-xs font-medium text-[#111] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 dark:text-white"
+		class="flex h-10 items-center gap-2 bg-transparent px-1.5 text-sm font-medium text-[#111] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 dark:text-white"
 		aria-label="Data view"
 	>
 		<div class={triggerIconFrameClass}>
@@ -74,17 +74,17 @@
 			/>
 		</div>
 		<span
-			class="inline-block min-w-0 max-w-[30px] shrink overflow-hidden whitespace-nowrap"
+			class="inline-block min-w-0 max-w-[30px] shrink overflow-hidden whitespace-nowrap md:max-w-none"
 			style="-webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent); mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);"
 			title={triggerLabel}
 		>{triggerLabel}</span>
-		<ChevronDown class="size-3 shrink-0 text-[#111] dark:text-white" strokeWidth={2} aria-hidden="true" />
+		<ChevronDown class="size-4 shrink-0 text-[#111] dark:text-white" strokeWidth={2} aria-hidden="true" />
 	</Popover.Trigger>
 	<Popover.Content
 		align="start"
 		side="bottom"
 		sideOffset={8}
-		class="{GRAPH_FILTER_GLASS_POPOVER} w-52 gap-1 p-1 shadow-xl shadow-black/5"
+		class="{GRAPH_FILTER_GLASS_POPOVER} w-52 gap-1 p-1.5 shadow-xl shadow-black/5"
 	>
 		<button type="button" class={optionClass('user')} onclick={() => select('user')}>
 			<AuthorLayerIcon kind="user" size="sm" />

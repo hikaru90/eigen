@@ -457,10 +457,13 @@
     sendStreaming(text);
   }
 
+let voiceStopFn = $state<(() => void) | undefined>(undefined);
+
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
 
+    voiceStopFn?.();
     input = "";
     appendUserMessage(text);
 
@@ -576,7 +579,10 @@
 
     <div class="flex-1 overflow-y-auto px-2 py-2">
       {#if sessions.length === 0}
-        <p class="text-muted-foreground px-2 py-8 text-center text-xs">No conversations yet</p>
+        <p class="text-muted-foreground px-2 py-8 text-center text-xs leading-relaxed">
+          No conversations yet. Capture a thought first, then ask Eigen Mesh about it.
+          <a href="/capture" class="mt-2 block underline">Go to Capture</a>
+        </p>
       {/if}
       {#each sessions as s (s.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -764,6 +770,7 @@
         <VoiceInputButton
           language={(page.data as { preferredLanguage?: string }).preferredLanguage ?? "en"}
           disabled={loading || loadingSession}
+          bind:stopRef={voiceStopFn}
           ontranscript={(text) => {
             input = text;
           }}

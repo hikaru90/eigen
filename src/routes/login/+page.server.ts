@@ -6,6 +6,10 @@ import { signInSchema } from '$lib/validation/auth';
 import { env } from '$env/dynamic/private';
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social';
 
+function isEmailNotVerifiedError(error: unknown): boolean {
+	return getSafeErrorMessage(error, '') === 'Email not verified';
+}
+
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {
 		throw redirect(302, '/capture');
@@ -32,9 +36,20 @@ export const actions: Actions = {
 
 		try {
 			await auth.api.signInEmail({
-				body: { email: validation.data.email, password: validation.data.password, rememberMe: true }
+				body: {
+					email: validation.data.email,
+					password: validation.data.password,
+					rememberMe: true,
+					callbackURL: '/capture'
+				}
 			});
 		} catch (error) {
+			if (isEmailNotVerifiedError(error)) {
+				return fail(403, {
+					message:
+						'Email not verified. Check your inbox for a verification link (a new one was sent if mail is configured).'
+				});
+			}
 			const safeMessage = getSafeErrorMessage(error, 'Sign in failed');
 			return fail(401, { message: safeMessage });
 		}

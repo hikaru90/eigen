@@ -40,7 +40,12 @@ function mapJobRow(row: RawUserJobQueueRow): UserJobQueue {
 		finishedAt: row.finished_at
 	};
 }
-import { JOB_QUEUE_BATCH_LIMIT, OVERNIGHT_CONSOLIDATION_JOB, WEBHOOK_DELIVERY_JOB } from './constants';
+import {
+	JOB_QUEUE_BATCH_LIMIT,
+	ONBOARDING_GROUNDING_PUSH_JOB,
+	OVERNIGHT_CONSOLIDATION_JOB,
+	WEBHOOK_DELIVERY_JOB
+} from './constants';
 import { createAdminSql } from './admin-db';
 import { processOvernightConsolidationJob } from './process-overnight';
 import {
@@ -54,6 +59,7 @@ import {
 	disableConnectedAgent,
 	loadWebhookDeliveryAgentId
 } from '$lib/server/agents/deliver';
+import { processOnboardingGroundingPushJob } from '$lib/server/grounding/onboarding-welcome-push';
 
 type ClaimedJob = UserJobQueue;
 
@@ -178,6 +184,9 @@ async function dispatchJob(job: ClaimedJob): Promise<void> {
 			return;
 		case WEBHOOK_DELIVERY_JOB:
 			await processWebhookDeliveryJob(job);
+			return;
+		case ONBOARDING_GROUNDING_PUSH_JOB:
+			await processOnboardingGroundingPushJob(job.userId);
 			return;
 		default:
 			throw new Error(`Unknown job type: ${job.jobType}`);

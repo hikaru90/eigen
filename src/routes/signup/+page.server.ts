@@ -6,6 +6,7 @@ import { signUpSchema } from '$lib/validation/auth';
 import { env } from '$env/dynamic/private';
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social';
 import { parseSignupPlanParam } from '$lib/auth/signup-plan';
+import { isUseSendMailConfigured } from '$lib/server/email/usesend';
 
 export const load: PageServerLoad = (event) => {
 	if (event.locals.user) {
@@ -21,7 +22,8 @@ export const load: PageServerLoad = (event) => {
 
 	return {
 		socialProviders: listEnabledSocialProviderIds(env),
-		plan
+		plan,
+		emailVerificationRequired: isUseSendMailConfigured(env)
 	};
 };
 
@@ -40,17 +42,27 @@ export const actions: Actions = {
 			return fail(400, { message });
 		}
 
+		const emailVerificationRequired = isUseSendMailConfigured(env);
+
 		try {
 			await auth.api.signUpEmail({
 				body: {
 					name: validation.data.name,
 					email: validation.data.email,
-					password: validation.data.password
+					password: validation.data.password,
+					callbackURL: '/capture'
 				}
 			});
 		} catch (error) {
 			const safeMessage = getSafeErrorMessage(error, 'Registration failed');
 			return fail(400, { message: safeMessage });
+		}
+
+		if (emailVerificationRequired) {
+			return {
+				checkEmail: true,
+				message: 'Check your email for a verification link before signing in.'
+			};
 		}
 
 		throw redirect(302, '/capture');

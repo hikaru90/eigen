@@ -29,8 +29,8 @@ export function graphFilterTriggerClass(
 ): string {
 	const sizeClass =
 		variant === 'icon'
-			? 'inline-flex size-7 shrink-0 items-center justify-center'
-			: 'inline-flex h-7 min-w-0 items-center justify-start gap-1.5 px-2.5 text-left';
+			? 'inline-flex size-8 shrink-0 items-center justify-center'
+			: 'inline-flex h-8 min-w-0 items-center justify-start gap-1.5 px-3 text-left';
 	const showActive = active && variant === 'icon';
 	return `${sizeClass} rounded-full text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 ${
 		showActive

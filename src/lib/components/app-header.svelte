@@ -116,11 +116,11 @@
     <EigenWordmark heightClass="h-8" />
     <Popover.Root bind:open={menuOpen}>
       <Popover.Trigger
-        class="relative flex size-9 cursor-pointer items-center justify-center bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+        class="relative flex size-10 cursor-pointer items-center justify-center bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
         aria-label="Account menu"
       >
         <Menu
-          class="pointer-events-none relative z-10 size-5 shrink-0 text-black dark:text-white"
+          class="pointer-events-none relative z-10 size-6 shrink-0 text-black dark:text-white"
           aria-hidden="true"
           strokeWidth={1.75}
         />
@@ -129,86 +129,86 @@
         align="end"
         side="bottom"
         sideOffset={4}
-        class="{GRAPH_FILTER_GLASS_POPOVER} w-44 gap-1.5 pt-2 pb-2 shadow-xl shadow-black/5 -mr-1"
+        class="{GRAPH_FILTER_GLASS_POPOVER} w-48 gap-1.5 pt-2.5 pb-2.5 shadow-xl shadow-black/5 -mr-1"
       >
         <a
           href={resolve("/activity")}
-          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <ActivityIcon class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <ActivityIcon class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
         </a>
         <a
           href={resolve("/api-keys")}
-          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <KeyRound class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <KeyRound class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
         </a>
         <a
           href={resolve("/settings/agents")}
-          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <Send class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <Send class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Webhooks
         </a>
         <a
           href={resolve("/settings/llm")}
-          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <Cpu class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <Cpu class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Credits
         </a>
         {#if isAdmin}
           <a
             href={resolve("/admin/queue")}
-            class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
-            <Layers class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+            <Layers class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin queue
           </a>
           <a
             href={resolve("/admin/spend")}
-            class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
-            <BarChart3 class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+            <BarChart3 class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin spend
           </a>
         {/if}
         {#if dev}
           <a
             href={resolve("/eval")}
-            class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
-            <ClipboardCheck class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+            <ClipboardCheck class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Evals
           </a>
         {/if}
         <a
           href={resolve("/settings/scheduled-tasks")}
-          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <HeartPulse class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <HeartPulse class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Heartbeat
         </a>
         <a
           href={resolve("/settings")}
-          class="flex items-center gap-2 rounded-sm px-1 py-1 text-xs text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <Settings class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <Settings class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Settings
         </a>
         {#if user?.email}
-          <div class="mt-1 truncate border-t border-white/40 px-1 pt-3 text-xs text-muted-foreground dark:border-white/20">
+          <div class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-sm text-muted-foreground dark:border-white/20">
             {user.email}
           </div>
         {/if}
         <button
           type="button"
-          class="flex w-full items-center gap-2 rounded-full px-1 py-1 text-left text-xs text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
+          class="flex w-full items-center gap-2.5 rounded-full px-2 py-1.5 text-left text-sm text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
           onclick={() => void signOut()}
         >
-          <LogOut class="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <LogOut class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Log out
         </button>
       </Popover.Content>

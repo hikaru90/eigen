@@ -34,18 +34,33 @@ vi.mock('$lib/server/db/auth-db', () => ({
 }));
 
 describe('auth config', () => {
-	it('constructs better-auth with expected fields', async () => {
+	it('constructs better-auth without verification mailer when useSend unset', async () => {
 		const mod = await import('./auth');
 		expect(mod.auth).toBeDefined();
-		expect(drizzleAdapterMock).toHaveBeenCalled();
-		expect(sveltekitCookiesMock).toHaveBeenCalled();
 		expect(betterAuthMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				baseURL: mod.normalizeAuthOrigin(env.ORIGIN),
 				secret: env.BETTER_AUTH_SECRET,
-				emailAndPassword: { enabled: true }
+				emailAndPassword: expect.objectContaining({
+					enabled: true,
+					requireEmailVerification: false
+				}),
+				user: expect.objectContaining({
+					changeEmail: expect.objectContaining({
+						enabled: true,
+						updateEmailWithoutVerification: true
+					})
+				})
 			})
 		);
+		const config = betterAuthMock.mock.calls[0][0] as {
+			emailVerification?: unknown;
+			emailAndPassword: { sendResetPassword?: unknown };
+			user: { changeEmail: { sendChangeEmailConfirmation?: unknown } };
+		};
+		expect(config.emailVerification).toBeUndefined();
+		expect(config.emailAndPassword.sendResetPassword).toBeUndefined();
+		expect(config.user.changeEmail.sendChangeEmailConfirmation).toBeUndefined();
 	});
 });
 

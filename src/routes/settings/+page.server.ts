@@ -219,7 +219,10 @@ export const actions: Actions = {
 					newEmail
 				}
 			});
-			return { emailMessage: 'Email change requested. Follow any verification email prompts.' };
+			return {
+				emailMessage:
+					'If your account requires email confirmation, check your inbox; otherwise your email was updated.'
+			};
 		} catch (error) {
 			return fail(400, { emailMessage: getSafeErrorMessage(error, 'Unable to change email.') });
 		}

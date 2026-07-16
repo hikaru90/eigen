@@ -1384,7 +1384,11 @@ export const userJobQueueStatusEnum = [
 ] as const;
 export type UserJobQueueStatus = (typeof userJobQueueStatusEnum)[number];
 
-export const userJobTypeEnum = ['overnight_consolidation', 'webhook_delivery'] as const;
+export const userJobTypeEnum = [
+	'overnight_consolidation',
+	'webhook_delivery',
+	'onboarding_grounding_push'
+] as const;
 export type UserJobType = (typeof userJobTypeEnum)[number];
 
 // ---------------------------------------------------------------------------

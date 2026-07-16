@@ -193,7 +193,7 @@ const ACTIVITY_UI_TIMEOUT_MS = 120_000;
 /** Open capture so headed runs show the app instead of about:blank. */
 export async function openGraphScaleSpendCapturePage(page: Page): Promise<void> {
 	await page.goto('/capture');
-	await expect(page.getByRole('dialog', { name: 'Welcome to Eigen' })).toBeHidden({
+	await expect(page.getByRole('dialog', { name: /Your memory, not theirs\.|Just drop it in\./ })).toBeHidden({
 		timeout: 15_000
 	});
 	await expect(page.getByText('Before your first capture')).toBeHidden();

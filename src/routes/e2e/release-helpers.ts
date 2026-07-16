@@ -648,19 +648,15 @@ export async function topUpCreditsViaPayPalSandbox(
 }
 
 function onboardingDialog(page: Page): Locator {
-	return page.getByRole('dialog', { name: 'Welcome to Eigen' });
-}
-
-/** Welcome is step 1/3 in the UI (internal step index 0). */
-async function advanceOnboardingToCreditsStep(dialog: Locator): Promise<void> {
-	if (await dialog.getByText('Step 1 of 3').isVisible().catch(() => false)) {
-		await dialog.getByRole('button', { name: 'Next' }).click();
-		await expect(dialog.getByText('Step 2 of 3')).toBeVisible({ timeout: 15_000 });
-	}
+	return page.getByRole('dialog', {
+		name: /Your memory, not theirs\.|Just drop it in\.|Install Eigen|Stay in the loop/
+	});
 }
 
 /**
- * Step through the welcome overlay: credits (PayPal) → ready → Get started.
+ * Step through the welcome overlay (product → install → notifications), then
+ * optionally top up via API (PayPal lives outside onboarding — Settings / capture gate).
+ * E2E skips real PWA install / notification permission via the continue-without actions.
  */
 export async function completeOnboardingOverlay(
 	page: Page,
@@ -668,23 +664,28 @@ export async function completeOnboardingOverlay(
 ): Promise<void> {
 	const dialog = onboardingDialog(page);
 	await expect(dialog).toBeVisible();
-
-	await advanceOnboardingToCreditsStep(dialog);
-
-	await topUpCreditsViaPayPalSandbox(page, {
-		amountCredits: options?.creditAmount ?? 1000
-	});
-
-	await expect(dialog).toBeVisible({ timeout: RELEASE_WAIT_MS });
-	// Reload after capture resets the overlay to step 1; advance again with fresh wallet data.
-	await advanceOnboardingToCreditsStep(dialog);
-	await expect(dialog.getByText(/Enough credits to capture/i)).toBeVisible({ timeout: RELEASE_WAIT_MS });
+	await expect(dialog.getByText('Step 1 of 4')).toBeVisible();
+	await expect(dialog.getByText('Your memory, not theirs.')).toBeVisible();
 
 	await dialog.getByRole('button', { name: 'Next' }).click();
-	await expect(dialog.getByText('Step 3 of 3')).toBeVisible({ timeout: 10_000 });
-	await dialog.getByRole('button', { name: 'Get started' }).click();
+	await expect(dialog.getByText('Just drop it in.')).toBeVisible({ timeout: 10_000 });
+	await expect(dialog.getByText('Step 2 of 4')).toBeVisible();
 
+	await dialog.getByRole('button', { name: 'Next' }).click();
+	await expect(dialog.getByText('Install Eigen')).toBeVisible({ timeout: 10_000 });
+	await expect(dialog.getByText('Step 3 of 4')).toBeVisible();
+	await dialog.getByRole('button', { name: 'Continue without installing' }).click();
+
+	await expect(dialog.getByText('Stay in the loop')).toBeVisible({ timeout: 10_000 });
+	await expect(dialog.getByText('Step 4 of 4')).toBeVisible();
+	await dialog.getByRole('button', { name: 'Continue without notifications' }).click();
 	await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+	if (options?.creditAmount != null) {
+		await topUpCreditsViaPayPalSandbox(page, {
+			amountCredits: options.creditAmount
+		});
+	}
 }
 
 export async function captureThoughtViaUi(page: Page, raw: string): Promise<void> {

@@ -165,7 +165,14 @@
 	const filteredThoughts = $derived(thoughts);
 </script>
 
-{#if thoughts.length > 0}
+{#if thoughts.length === 0}
+	<div class="flex h-full min-h-0 flex-col items-center justify-center px-2 py-10">
+		<p class="text-muted-foreground text-center text-xs leading-relaxed">
+			Captures appear here after you submit. Type or dictate a thought above — nothing to file or
+			tag.
+		</p>
+	</div>
+{:else}
 	<div class="flex h-full min-h-0 flex-col overflow-hidden">
 		<div
 			class="relative z-10 shrink-0 bg-background pb-2"

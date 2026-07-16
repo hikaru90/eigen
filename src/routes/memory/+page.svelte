@@ -2110,11 +2110,11 @@
               aria-label={m.graph_aria_visualization()}
             ></div>
             <div
-              class="pointer-events-none absolute top-14 right-4 left-3 z-50 flex items-start justify-end gap-3 md:top-16"
+              class="pointer-events-none absolute top-14 right-4.5 left-4.5 z-50 flex items-start justify-end gap-3 md:top-16"
               aria-label={m.graph_aria_legend_filters()}
             >
               <div
-                class="pointer-events-auto flex shrink-0 flex-col items-end gap-1 overscroll-contain"
+                class="pointer-events-auto flex shrink-0 flex-col items-end justify-center gap-1 overscroll-contain"
                 onwheel={(e) => e.stopPropagation()}
               >
                 <GraphFiltersToolbar

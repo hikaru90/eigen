@@ -13,7 +13,7 @@
 		class?: string;
 	} = $props();
 
-	const sizeClass = $derived(size === 'md' ? 'size-3.5' : 'size-3');
+	const sizeClass = $derived(size === 'md' ? 'size-4' : 'size-3.5');
 	const toneClass = $derived(kind === 'agent' ? authorAgentIconClass : 'text-current');
 </script>
 
