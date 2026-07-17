@@ -8,6 +8,9 @@ import {
 	filterActiveItems,
 	filterItemsByRange,
 	filterItemsByStatus,
+	filterDefaultVisibleTimelineItems,
+	filterUnassignedOpenTimelineItems,
+	filterOpenTimelineItemsForProject,
 	filterSnoozedItems,
 	filterItemsForTodayView,
 	filterItemsForUpcomingView,
@@ -190,6 +193,96 @@ describe('filterItemsByStatus', () => {
 			})
 		];
 		expect(filterItemsByStatus(items, 'open').map((i) => i.id)).toEqual(['a']);
+	});
+});
+
+describe('default-visible timeline items (hide completed by default)', () => {
+	it('filterDefaultVisibleTimelineItems drops completed and archived', () => {
+		const items = [
+			item({ id: 'open', lifecycleStatus: 'open' }),
+			item({ id: 'done', lifecycleStatus: 'completed' }),
+			item({ id: 'archived', lifecycleStatus: 'archived' })
+		];
+		expect(filterDefaultVisibleTimelineItems(items).map((i) => i.id)).toEqual(['open']);
+	});
+
+	it('filterUnassignedOpenTimelineItems hides completed and assigned rows', () => {
+		const items = [
+			item({
+				id: 'task:a',
+				itemType: 'task',
+				projectEntityId: null,
+				lifecycleStatus: 'open',
+				createdAt: '2026-05-19T00:00:00.000Z'
+			}),
+			item({
+				id: 'task:b',
+				itemType: 'task',
+				projectEntityId: null,
+				lifecycleStatus: 'completed',
+				createdAt: '2026-05-20T00:00:00.000Z'
+			}),
+			item({
+				id: 'task:c',
+				itemType: 'task',
+				projectEntityId: 'proj-1',
+				lifecycleStatus: 'open',
+				createdAt: '2026-05-21T00:00:00.000Z'
+			})
+		];
+		expect(filterUnassignedOpenTimelineItems(items).map((i) => i.id)).toEqual(['task:a']);
+	});
+
+	it('filterOpenTimelineItemsForProject hides completed and can exclude next action', () => {
+		const items = [
+			item({
+				id: 'task:next',
+				itemType: 'task',
+				thoughtId: 't-next',
+				projectEntityId: 'proj-1',
+				lifecycleStatus: 'open'
+			}),
+			item({
+				id: 'task:other',
+				itemType: 'task',
+				thoughtId: 't-other',
+				projectEntityId: 'proj-1',
+				lifecycleStatus: 'open'
+			}),
+			item({
+				id: 'task:done',
+				itemType: 'task',
+				thoughtId: 't-done',
+				projectEntityId: 'proj-1',
+				lifecycleStatus: 'completed'
+			}),
+			item({
+				id: 'task:else',
+				itemType: 'task',
+				projectEntityId: 'proj-2',
+				lifecycleStatus: 'open'
+			})
+		];
+		expect(
+			filterOpenTimelineItemsForProject(items, 'proj-1', {
+				excludeItemId: 'task:next',
+				excludeThoughtId: 't-next'
+			}).map((i) => i.id)
+		).toEqual(['task:other']);
+	});
+});
+
+describe('projects view default-visibility wiring', () => {
+	it('ProjectsView uses shared open-only filters (not raw completed rows)', async () => {
+		const { readFileSync } = await import('node:fs');
+		const { fileURLToPath } = await import('node:url');
+		const path = await import('node:path');
+		const source = readFileSync(
+			path.join(path.dirname(fileURLToPath(import.meta.url)), 'TemporalEventsProjectsView.svelte'),
+			'utf-8'
+		);
+		expect(source).toContain('filterUnassignedOpenTimelineItems');
+		expect(source).toContain('filterOpenTimelineItemsForProject');
 	});
 });
 

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { expect, type Frame, type Locator, type Page } from '@playwright/test';
+import { expect, type Frame, type Locator, type Page, type Request } from '@playwright/test';
 import {
 	assertChatLoadingVisible,
 	assertChatLogHasNoRawJson,
@@ -18,6 +18,12 @@ import {
 	exerciseVoiceCaptureUi,
 	installVoiceCaptureMocks
 } from './voice-capture-helpers';
+import {
+	TIMELINE_MOUNT_FETCH_BUDGET,
+	classifyTemporalEventsFetch,
+	findMountFetchBudgetViolations,
+	isTimelineStatsFetch
+} from '../timeline/timeline-client-loads';
 
 // Playwright workers may not inherit .env from the parent shell; load explicitly for preflight.
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override: true });
@@ -897,6 +903,92 @@ async function dismissProjectViaUi(page: Page, entityId: string, projectLabel: s
 }
 
 /**
+ * Headed guard: mark-done from Projects grouping uses the same
+ * `POST /api/temporal-events/:id/action` client as Tasks (no forked thoughts PATCH).
+ */
+export async function assertMarkDoneFromProjectsView(page: Page): Promise<void> {
+	const marker = `markdone-${Date.now()}`;
+	await captureThoughtViaUi(page, `TODO: ${marker} finish the release checklist item`);
+
+	let itemId = '';
+	await pollUntil(
+		'open task available for projects mark-done',
+		async () => {
+			const found = await page.evaluate(async (m) => {
+				const res = await fetch(
+					'/api/temporal-events?range=all&status=open&includeTasks=true&author=user'
+				);
+				if (!res.ok) return null;
+				const body = (await res.json()) as {
+					items: Array<{ id: string; semanticSummary: string }>;
+				};
+				return body.items.find((i) => i.semanticSummary.includes(m)) ?? null;
+			}, marker);
+			if (!found) return false;
+			itemId = found.id;
+			return true;
+		},
+		{ timeoutMs: RELEASE_INDEXING_WAIT_MS, intervalMs: 2_000 }
+	);
+
+	await gotoTimelineProjectsView(page);
+
+	const row = page.locator('div').filter({ hasText: marker }).first();
+	const markBtn = row.getByRole('button', { name: /Mark done|Als erledigt markieren/i });
+	await expect(markBtn).toBeVisible({ timeout: RELEASE_WAIT_MS });
+
+	const actionResponse = page.waitForResponse(
+		(res) => {
+			const url = res.url();
+			return (
+				url.includes('/api/temporal-events/') &&
+				url.includes('/action') &&
+				res.request().method() === 'POST'
+			);
+		},
+		{ timeout: RELEASE_WAIT_MS }
+	);
+	await markBtn.click();
+	const res = await actionResponse;
+	if (!res.ok()) {
+		throw new Error(`projects mark-done failed (${res.status()}): ${await res.text()}`);
+	}
+	const posted = res.request().postDataJSON() as { action?: string } | null;
+	if (posted?.action !== 'mark_done') {
+		throw new Error(`Expected mark_done action body, got ${JSON.stringify(posted)}`);
+	}
+
+	await pollUntil(
+		'task completed after projects mark-done',
+		async () => {
+			const status = await page.evaluate(async (id) => {
+				const listRes = await fetch(
+					'/api/temporal-events?range=all&status=all&includeTasks=true&author=user'
+				);
+				if (!listRes.ok) return null;
+				const body = (await listRes.json()) as {
+					items: Array<{
+						id: string;
+						lifecycleStatus: string;
+						thoughtStatus: string;
+					}>;
+				};
+				const item = body.items.find((i) => i.id === id);
+				if (!item) return null;
+				return item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed'
+					? 'completed'
+					: item.lifecycleStatus;
+			}, itemId);
+			return status === 'completed';
+		},
+		{ timeoutMs: RELEASE_WAIT_MS, intervalMs: 500 }
+	);
+
+	// Default Projects list hides completed tasks.
+	await expect(page.getByText(marker)).toHaveCount(0, { timeout: RELEASE_WAIT_MS });
+}
+
+/**
  * Manual GTD project lifecycle: create → capture-linked task → rename → dismiss → no resurrection.
  */
 export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
@@ -999,6 +1091,58 @@ export async function exerciseOvernightConsolidation(page: Page): Promise<void> 
 		.toBe(true);
 
 	await expect(page.getByText('Heartbeat finished.')).toBeVisible({ timeout: RELEASE_WAIT_MS });
+}
+
+/**
+ * Headed-release guard: cold `/memory/timeline` must stay within
+ * `TIMELINE_MOUNT_FETCH_BUDGET` (shared with unit eval in timeline-client-loads.spec.ts).
+ */
+export async function assertTimelineMountFetchBudget(page: Page): Promise<void> {
+	await page.goto('/capture', { waitUntil: 'domcontentloaded' });
+	await page.evaluate(() => {
+		localStorage.setItem('timeline-projects-mode', 'false');
+	});
+
+	const urls: string[] = [];
+	const onRequest = (request: Request) => {
+		if (request.method() !== 'GET') return;
+		const url = request.url();
+		if (url.includes('/api/temporal-events') || url.includes('/api/timeline/stats')) {
+			urls.push(url);
+		}
+	};
+	page.on('request', onRequest);
+
+	try {
+		await page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' });
+		await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS });
+
+		await pollUntil(
+			`timeline cold-mount fetch budget (≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsRelevant} relevant, ≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsOverdueOpen} overdue-open, ≤${TIMELINE_MOUNT_FETCH_BUDGET.timelineStats} stats)`,
+			async () => {
+				const relevant = urls.filter((u) => classifyTemporalEventsFetch(u) === 'relevant').length;
+				const overdueOpen = urls.filter(
+					(u) => classifyTemporalEventsFetch(u) === 'overdue-open'
+				).length;
+				const stats = urls.filter((u) => isTimelineStatsFetch(u)).length;
+				if (relevant < 1 || overdueOpen < 1 || stats < 1) return false;
+
+				const before = urls.length;
+				await new Promise((r) => setTimeout(r, 750));
+				if (urls.length !== before) return false;
+				return findMountFetchBudgetViolations(urls).length === 0;
+			},
+			{ timeoutMs: RELEASE_WAIT_MS, intervalMs: 100 }
+		);
+
+		const violations = findMountFetchBudgetViolations(urls);
+		expect(
+			violations,
+			`Timeline cold-mount fetch budget exceeded.\nViolations: ${violations.join('; ')}\nURLs:\n${urls.join('\n')}`
+		).toEqual([]);
+	} finally {
+		page.off('request', onRequest);
+	}
 }
 
 /** Click through primary chrome, tabs, filters, and non-destructive dialogs. */

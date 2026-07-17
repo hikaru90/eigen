@@ -7,6 +7,7 @@
 ## Testing (run and enforce)
 
 - **How to run / what CI gates:** [`docs/testing/README.md`](docs/testing/README.md)
+- **TDD (mandatory for features/fixes/plans):** define end goal → write unit tests + headed Playwright (`test:e2e:release:headed`) **first** → only then implement → code until green / nothing else broke. Skill: [`.cursor/skills/tdd-tests-first/SKILL.md`](.cursor/skills/tdd-tests-first/SKILL.md).
 - **Unit suite:** `npm run test:unit` (or `npm run test:coverage` for a report + threshold check).
 - **CI:** `.github/workflows/test-coverage.yml` runs lint, check, and **`test:unit`** on every PR (merge gate). Coverage is reported in the same workflow but is not yet required until tier thresholds are met.
 - **E2E / evals:** operator-owned; see testing README and the eval section below. Do not skip the unit suite because evals exist.
@@ -26,6 +27,14 @@ Every schema change needs **both** a SQL file and a journal entry in the **same 
 
 - **Prefer the registry over hand-built UI.** Before implementing menus, overlays, popovers, dialogs, sheets, comboboxes, etc. with raw markup, native controls (`<details>`), or custom click-outside / focus logic, **check [shadcn-svelte components](https://www.shadcn-svelte.com/docs/components)** and existing primitives under `src/lib/components/ui/`.
 - **Install missing pieces** with the official CLI (e.g. `npx shadcn-svelte@latest add popover`) instead of reimplementing accessibility, focus trap, and dismiss-on-outside behavior by hand.
+
+## Svelte: no `$effect` for control flow (non-negotiable)
+
+- **Do not use `$effect`** (or `$effect.pre`) when the work can be done with a deterministic event: `onMount` / page load, click/submit handlers, form actions, store `subscribe` in `onMount` with explicit cleanup, or a function called after a mutation completes.
+- **Preferred pattern:** on page load → fetch once; on user action (e.g. checkmark) → save → fetch the updated list. Fail and succeed on those boundaries — not on reactive “something changed” cascades.
+- **`$derived` / `$derived.by` are fine** for pure computed view state from existing data. That is not control flow.
+- **Forbidden anti-pattern:** `$effect(() => { void someKey; void fetch(...) })`, `$effect` writing to `localStorage`, `$effect` syncing props into local state, `$effect` opening/closing dialogs because a prop flipped. Those hide causality and cause duplicate fetches / non-deterministic prod behavior.
+- **If you think you need `$effect`:** stop and wire an explicit event or call site instead. React-style “sync in useEffect” thinking does not belong here — this is SvelteKit.
 
 ## Repository map (orientation)
 

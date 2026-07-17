@@ -1,0 +1,27 @@
+---
+description: Prefer deterministic events over $effect for fetches and control flow
+alwaysApply: true
+---
+
+# No `$effect` for control flow
+
+**Never** use `$effect` / `$effect.pre` to fetch, persist, open dialogs, or sync props when a deterministic event exists.
+
+## Non-negotiable
+
+- Do **not** `$effect(() => { void key; void fetch(...) })`.
+- Do **not** `$effect` to write `localStorage` / sync props into `$state` / open-close overlays from prop changes.
+- Do **not** treat Svelte like React `useEffect`.
+
+## Required approach
+
+- **Page load:** `onMount` (or `+page` load) fetches once.
+- **User action:** click/submit handler saves, then explicitly refetches.
+- **Store changes:** `subscribe` inside `onMount`, cleanup on destroy; skip the initial echo when mount already loaded.
+- **Pure view math:** `$derived` / `$derived.by` only.
+
+## Review checklist
+
+- Would a named function called from mount / click / after-mutation work instead?
+- If yes → remove `$effect`.
+- Canonical rule: [`AGENTS.md`](../../AGENTS.md) § “Svelte: no `$effect` for control flow”.

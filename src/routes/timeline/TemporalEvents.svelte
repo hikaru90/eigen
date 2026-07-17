@@ -15,12 +15,10 @@
 		mergePriorDayOverdueIntoItems,
 		filterPriorDayOverdueItems,
 		filterSnoozedItems,
-		isTaskItemId,
 		isTaskListItem,
 		findTemporalListItemByRef,
 		type TemporalRangeFilter,
 		type TemporalStatusFilter,
-		thoughtIdFromTaskItemId,
 		type NowSegment
 	} from './temporal-events-utils';
 	import { filterCompletedTodayItems } from '$lib/graph/timeline-completed-today';
@@ -43,6 +41,11 @@
 	} from '$lib/stores/thought-sync';
 	import { currentUserView } from '$lib/stores/current-user-view';
 	import { appendViewToSearchParams, type CurrentUserView } from '$lib/memory/current-user-view';
+	import { shouldRefetchForViewChange } from './timeline-client-loads';
+	import {
+		postTimelineQuickAction,
+		type TimelineQuickAction
+	} from './timeline-item-actions';
 	import { get } from 'svelte/store';
 
 	type Props = {
@@ -99,24 +102,6 @@
 			: false
 	);
 
-	$effect(() => {
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem('timeline-projects-mode', String(projectsMode));
-		}
-	});
-
-	$effect(() => {
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem('timeline-order-by', orderBy);
-		}
-	});
-
-	$effect(() => {
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem('timeline-sort-direction', sortDirection);
-		}
-	});
-
 	let nowSegment = $state<NowSegment>('todo');
 	let updatingEventId = $state<string | null>(null);
 	let actionBusy = $state(false);
@@ -126,7 +111,12 @@
 	let overdueLoading = $state(false);
 	let doneItems = $state<TemporalEventListItem[]>([]);
 	let doneLoading = $state(false);
-	let statsRefreshKey = $state(0);
+	type TimelineStats = {
+		todoTodayCount: number;
+		doneTodayCount: number;
+		overdueCount: number;
+	};
+	let timelineStats = $state<TimelineStats | null>(null);
 	let assignProjectOpen = $state(false);
 	let assignProjectItem = $state<TemporalEventListItem | null>(null);
 	let assignAgentOpen = $state(false);
@@ -134,6 +124,8 @@
 	let refreshingAll = $state(false);
 	let internalSelectedItemId = $state<string | null>(null);
 	let filtersPopoverOpen = $state(false);
+	/** Block thought-sync reload while this surface already refreshed + is notifying. */
+	let suppressThoughtSyncReload = $state(false);
 
 	const filtersActive = $derived(
 		statusFilter !== 'open' ||
@@ -170,11 +162,19 @@
 	);
 	const todayTodoItems = $derived(filterTodayTodoOpenItems(todayTodoSourceItems, userTimeZone));
 
-	const nowTabCounts = $derived({
-		todo: todayTodoItems.length,
-		done: doneItems.length,
-		overdue: overdueItems.length
-	});
+	const nowTabCounts = $derived(
+		timelineStats
+			? {
+					todo: timelineStats.todoTodayCount,
+					done: timelineStats.doneTodayCount,
+					overdue: timelineStats.overdueCount
+				}
+			: {
+					todo: todayTodoItems.length,
+					done: doneItems.length,
+					overdue: overdueItems.length
+				}
+	);
 
 	const selectedItem = $derived.by(() => {
 		if (phase.kind !== 'ready' || !activeSelectedItemId) return null;
@@ -203,23 +203,11 @@
 
 	const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0);
 
-	// Update phase when prefetched data changes (e.g., after SvelteKit invalidation)
-	$effect(() => {
-		const events = prefetchedEvents;
-		if (events && events.length > 0 && phase.kind === 'ready') {
-			// Only update if the data actually changed (different items or count)
-			const currentIds = phase.items.map((i) => i.id).join(',');
-			const newIds = events.map((i) => i.id).join(',');
-			if (currentIds !== newIds) {
-				phase = {
-					kind: 'ready',
-					items: events,
-					nextCursor: prefetchedNextCursor ?? null
-				};
-			}
+	function persistLocal(key: string, value: string) {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem(key, value);
 		}
-	});
-
+	}
 
 	async function loadEvents(append = false, options?: { silent?: boolean }) {
 		const silent = options?.silent ?? false;
@@ -270,7 +258,7 @@
 	}
 
 	onMount(() => {
-		// Use prefetched data from page server load for instant render, then fetch all tasks
+		// Page load: show prefetch if present, then fetch list + stats once.
 		if (prefetchedEvents && prefetchedEvents.length > 0) {
 			phase = {
 				kind: 'ready',
@@ -281,14 +269,24 @@
 				setSelection(prefetchedEvents.find((i) => i.id === initialEventId) ?? null);
 			}
 		}
-		// Always fetch all tasks (prefetched data may only have open tasks)
 		void loadEvents(false, { silent: phase.kind === 'ready' });
 		void loadOverdueItems();
+		void loadStats();
 		if (initialSegment === 'overdue') {
 			setNowSegment('overdue');
 		}
 
-		return subscribeThoughtSync((message) => {
+		let previousView: CurrentUserView | null = null;
+		const unsubscribeView = currentUserView.subscribe((view) => {
+			const refetch = shouldRefetchForViewChange(previousView, view);
+			previousView = view;
+			dataView = view;
+			// Initial store subscribe mirrors current value — mount already loaded lists.
+			if (refetch) onFilterChange();
+		});
+
+		const unsubscribeSync = subscribeThoughtSync((message) => {
+			if (suppressThoughtSyncReload) return;
 			const reloadTimeline =
 				message.type === 'refresh-all' ||
 				(message.type === 'changed' && message.scope === 'global');
@@ -296,7 +294,21 @@
 				void reloadTimelineData({ silent: true });
 			}
 		});
+
+		return () => {
+			unsubscribeView();
+			unsubscribeSync();
+		};
 	});
+
+	async function withThoughtSyncReloadSuppressedAsync<T>(fn: () => Promise<T>): Promise<T> {
+		suppressThoughtSyncReload = true;
+		try {
+			return await fn();
+		} finally {
+			suppressThoughtSyncReload = false;
+		}
+	}
 
 	async function loadOverdueItems(options?: { silent?: boolean }) {
 		const silent = options?.silent ?? overdueItems.length > 0;
@@ -356,8 +368,14 @@
 		}
 	}
 
-	function bumpStats() {
-		statsRefreshKey += 1;
+	async function loadStats() {
+		try {
+			const res = await fetch('/api/timeline/stats');
+			if (!res.ok) return;
+			timelineStats = (await res.json()) as TimelineStats;
+		} catch {
+			// ignore
+		}
 	}
 
 	function selectItem(item: TemporalEventListItem) {
@@ -402,10 +420,12 @@
 				throw new Error(text || `Request failed (${res.status})`);
 			}
 			const result = (await res.json()) as { item: TemporalEventListItem; summary: string };
-			await reloadTimelineData({ silent: true });
-			if (result.item.thoughtId) {
-				notifyThoughtChanged(result.item.thoughtId, 'lifecycle', 'global');
-			}
+			await withThoughtSyncReloadSuppressedAsync(async () => {
+				await reloadTimelineData({ silent: true });
+				if (result.item.thoughtId) {
+					notifyThoughtChanged(result.item.thoughtId, 'lifecycle', 'global');
+				}
+			});
 			lastActionSummary = result.summary;
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
@@ -415,30 +435,21 @@
 		}
 	}
 
-	async function postTaskStatus(itemId: string, status: 'open' | 'completed' | 'archived') {
-		const thoughtId = thoughtIdFromTaskItemId(itemId);
-		if (!thoughtId) return;
+	/** Same mark-done / reopen / archive path for Tasks, Projects, and project detail. */
+	async function runTimelineQuickAction(eventId: string, action: TimelineQuickAction) {
 		actionError = null;
+		lastActionSummary = null;
 		actionBusy = true;
-		updatingEventId = itemId;
+		updatingEventId = eventId;
 		try {
-			const res = await fetch(`/api/thoughts/${thoughtId}`, {
-				method: 'PATCH',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ status })
+			const result = await postTimelineQuickAction(eventId, action);
+			await withThoughtSyncReloadSuppressedAsync(async () => {
+				await reloadTimelineData({ silent: true });
+				if (result.item.thoughtId) {
+					notifyThoughtChanged(result.item.thoughtId, 'lifecycle', 'global');
+				}
 			});
-			if (!res.ok) {
-				const text = await res.text();
-				throw new Error(text || `Request failed (${res.status})`);
-			}
-			await reloadTimelineData({ silent: true });
-			notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
-			lastActionSummary =
-				status === 'completed'
-					? m.graph_timeline_open_loop_done()
-					: status === 'archived'
-						? m.graph_temporal_remove_event()
-						: m.graph_timeline_open_loop_reopen();
+			lastActionSummary = result.summary;
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -448,13 +459,7 @@
 	}
 
 	function onQuickAction(eventId: string, action: 'mark_done' | 'reopen' | 'archive') {
-		if (isTaskItemId(eventId)) {
-			const status =
-				action === 'mark_done' ? 'completed' : action === 'archive' ? 'archived' : 'open';
-			void postTaskStatus(eventId, status);
-			return;
-		}
-		void postEventAction(eventId, { action });
+		void runTimelineQuickAction(eventId, action);
 	}
 
 	function onInstruction(eventId: string, instruction: string) {
@@ -489,14 +494,8 @@
 		void loadEvents(false, { silent: silentReloadEligible });
 		if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
 		if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
+		void loadStats();
 	}
-
-	$effect(() => {
-		return currentUserView.subscribe((view) => {
-			dataView = view;
-			onFilterChange();
-		});
-	});
 
 	function setStatusFilter(next: TemporalStatusFilter) {
 		statusFilter = next;
@@ -521,8 +520,10 @@
 		refreshingAll = true;
 		void (async () => {
 			try {
-				await reloadTimelineData({ silent: silentReloadEligible });
-				notifyThoughtRefreshAll('manual', 'global');
+				await withThoughtSyncReloadSuppressedAsync(async () => {
+					await reloadTimelineData({ silent: silentReloadEligible });
+					notifyThoughtRefreshAll('manual', 'global');
+				});
 			} finally {
 				refreshingAll = false;
 			}
@@ -531,21 +532,25 @@
 
 	async function reloadTimelineData(options?: { silent?: boolean }) {
 		await loadEvents(false, { silent: options?.silent ?? false });
-		bumpStats();
 		await Promise.all([
 			loadOverdueItems({ silent: overdueItems.length > 0 }),
-			loadDoneItems({ silent: doneItems.length > 0 })
+			loadDoneItems({ silent: doneItems.length > 0 }),
+			loadStats()
 		]);
 	}
 
 	function toggleProjectsMode() {
 		projectsMode = !projectsMode;
+		persistLocal('timeline-projects-mode', String(projectsMode));
 		filtersPopoverOpen = false;
 	}
 
 	function setNowSegment(segment: NowSegment) {
 		nowSegment = segment;
-		if (projectsMode) projectsMode = false;
+		if (projectsMode) {
+			projectsMode = false;
+			persistLocal('timeline-projects-mode', 'false');
+		}
 		if (segment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 });
 		if (segment === 'done') void loadDoneItems({ silent: doneItems.length > 0 });
 	}
@@ -584,9 +589,8 @@
 			? m.graph_timeline_assign_project_success({ project: payload.projectLabel })
 			: m.graph_timeline_assign_project_linked_hub({ name: payload.projectLabel });
 		closeProjectAssign();
-		bumpStats();
-		// Reload from server to ensure derived values and child components reflect the change
 		void loadEvents(false, { silent: true });
+		void loadStats();
 	}
 
 	function openAgentAssign(item: TemporalEventListItem) {
@@ -633,10 +637,12 @@
 					onClearKinds={clearKindFilter}
 					onOrderByChange={(next) => {
 						orderBy = next;
+						persistLocal('timeline-order-by', next);
 						onFilterChange();
 					}}
 					onSortDirectionToggle={() => {
 						sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+						persistLocal('timeline-sort-direction', sortDirection);
 						onFilterChange();
 					}}
 				/>
@@ -656,12 +662,9 @@
 		{/snippet}
 		{#if !projectsMode}
 			<TemporalTodaySegmentTabs
-				nav={{
-					segment: nowSegment,
-					tabCounts: nowTabCounts,
-					statsRefreshKey,
-					onSegmentChange: setNowSegment
-				}}
+				segment={nowSegment}
+				tabCounts={nowTabCounts}
+				onSegmentChange={setNowSegment}
 			/>
 		{/if}
 	</TemporalTimelineHeader>

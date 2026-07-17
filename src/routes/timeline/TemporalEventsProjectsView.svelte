@@ -18,10 +18,13 @@
 		findTemporalListItemByRef,
 		isTemporalEventCompleted,
 		completedEventSummaryClass,
+		filterUnassignedOpenTimelineItems,
+		filterOpenTimelineItemsForProject,
 		formatWhen,
 		formatCreatedDate,
 		thoughtIdFromTaskItemId
 	} from './temporal-events-utils';
+	import { postTimelineQuickAction } from './timeline-item-actions';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
 	import { notifyThoughtChanged, subscribeThoughtSync } from '$lib/stores/thought-sync';
@@ -29,6 +32,7 @@
 	import type { CurrentUserView } from '$lib/memory/current-user-view';
 	import { get } from 'svelte/store';
 	import { appendViewToSearchParams } from '$lib/memory/current-user-view';
+	import { shouldRefetchForViewChange } from './timeline-client-loads';
 
 	type Props = {
 		onGoToTask: (itemId: string) => void;
@@ -107,16 +111,12 @@
 
 	/* ── Derived ── */
 
-	const unassignedTasks = $derived(
-		tasks
-			.filter((t) => t.projectEntityId === null)
-			.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-	);
+	const unassignedTasks = $derived(filterUnassignedOpenTimelineItems(tasks));
 
 	const sortedProjects = $derived.by(() => {
 		return [...projects].sort((a, b) => {
-			const aTasks = tasks.filter((t) => t.projectEntityId === a.entityId);
-			const bTasks = tasks.filter((t) => t.projectEntityId === b.entityId);
+			const aTasks = filterOpenTimelineItemsForProject(tasks, a.entityId);
+			const bTasks = filterOpenTimelineItemsForProject(tasks, b.entityId);
 			const aLatest = aTasks.length > 0 ? Math.max(...aTasks.map((t) => new Date(t.createdAt).getTime())) : 0;
 			const bLatest = bTasks.length > 0 ? Math.max(...bTasks.map((t) => new Date(t.createdAt).getTime())) : 0;
 			return bLatest - aLatest;
@@ -129,16 +129,13 @@
 	);
 	const detailTasks = $derived.by(() => {
 		if (!detailProject) return [];
-		const pid = detailProject.entityId;
 		const nextThoughtId =
 			(detailNextAction ? thoughtIdFromTaskItemId(detailNextAction.itemId) : null) ??
 			detailNextActionItem?.thoughtId ??
 			null;
-		return tasks.filter((t) => {
-			if (t.projectEntityId !== pid) return false;
-			if (nextThoughtId && t.thoughtId === nextThoughtId) return false;
-			if (detailNextAction?.itemId && t.id === detailNextAction.itemId) return false;
-			return true;
+		return filterOpenTimelineItemsForProject(tasks, detailProject.entityId, {
+			excludeItemId: detailNextAction?.itemId ?? null,
+			excludeThoughtId: nextThoughtId
 		});
 	});
 
@@ -149,9 +146,7 @@
 			const nextItem = findTemporalListItemByRef(tasks, project.nextAction.itemId);
 			if (!nextItem || !isTemporalEventCompleted(nextItem)) return project.nextAction;
 		}
-		const projectTasks = tasks.filter(
-			(t) => t.projectEntityId === project.entityId && !isTemporalEventCompleted(t)
-		);
+		const projectTasks = filterOpenTimelineItemsForProject(tasks, project.entityId);
 		const withDue = projectTasks
 			.filter((t) => t.startAt)
 			.sort((a, b) => new Date(a.startAt!).getTime() - new Date(b.startAt!).getTime());
@@ -224,22 +219,15 @@
 		}
 	}
 
-	async function postTaskStatus(itemId: string, status: 'open' | 'completed') {
-		const thoughtId = thoughtIdFromTaskItemId(itemId);
-		if (!thoughtId) return;
-		updatingEventId = itemId;
+	/** Same utility as Tasks today — project grouping does not change lifecycle. */
+	async function onQuickAction(eventId: string, action: 'mark_done' | 'reopen') {
+		updatingEventId = eventId;
 		try {
-			const res = await fetch(`/api/thoughts/${thoughtId}`, {
-				method: 'PATCH',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ status })
-			});
-			if (!res.ok) {
-				const text = await res.text();
-				throw new Error(text || `Request failed (${res.status})`);
-			}
+			const result = await postTimelineQuickAction(eventId, action);
 			await loadTasks(true);
-			notifyThoughtChanged(thoughtId, 'lifecycle', 'global');
+			if (result.item.thoughtId) {
+				notifyThoughtChanged(result.item.thoughtId, 'lifecycle', 'global');
+			}
 			void loadProjects(true);
 		} catch (err) {
 			console.error('Failed to update task status', err);
@@ -249,18 +237,18 @@
 		}
 	}
 
-	function onQuickAction(eventId: string, action: 'mark_done' | 'reopen') {
-		void postTaskStatus(eventId, action === 'mark_done' ? 'completed' : 'open');
-	}
-
 	/* ── Lifecycle ── */
 
 	onMount(() => {
 		void loadTasks();
 		void loadProjects();
 
+		let previousView: CurrentUserView | null = null;
 		const unsubView = currentUserView.subscribe((view) => {
+			const refetch = shouldRefetchForViewChange(previousView, view);
+			previousView = view;
 			dataView = view;
+			if (!refetch) return;
 			void loadTasks();
 			void loadProjects(true);
 		});
@@ -313,7 +301,8 @@
 				<div class="flex flex-col gap-2">
 					{#each sortedProjects as project (project.entityId)}
 						{@const projectNextAction = getNextAction(project)}
-						{@const openLoopCount = tasks.filter((t) => t.projectEntityId === project.entityId).length}
+						{@const openLoopCount = filterOpenTimelineItemsForProject(tasks, project.entityId)
+							.length}
 						<button
 							type="button"
 							class="{projectCardClass} min-w-0 {project.status === 'someday' ? 'opacity-50' : ''}"

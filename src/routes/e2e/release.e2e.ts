@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
 	assertReleasePreflight,
+	assertMarkDoneFromProjectsView,
+	assertTimelineMountFetchBudget,
 	captureThoughtViaUi,
 	completeOnboardingOverlay,
 	exerciseAuthenticatedUi,
@@ -46,6 +48,14 @@ test.describe('Release smoke @release', () => {
 			await expect(
 				page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first()
 			).toContainText('Lisbon');
+		});
+
+		await test.step('timeline cold-mount fetch budget (no duplicate list/stats)', async () => {
+			await assertTimelineMountFetchBudget(page);
+		});
+
+		await test.step('projects: mark-done uses shared timeline quick action', async () => {
+			await assertMarkDoneFromProjectsView(page);
 		});
 
 		await test.step('projects: create, capture, edit, dismiss', async () => {

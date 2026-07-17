@@ -283,6 +283,41 @@ export function filterItemsByStatus(
 	return items.filter((item) => isTemporalEventOpen(item));
 }
 
+/**
+ * Default list visibility for Tasks/Projects surfaces: hide completed/archived.
+ * Opt in to completed rows only via an explicit Done / status=all view.
+ */
+export function filterDefaultVisibleTimelineItems(
+	items: readonly TemporalEventListItem[]
+): TemporalEventListItem[] {
+	return filterItemsByStatus([...items], 'open');
+}
+
+/** Open tasks with no project — default Projects “unassigned” bucket. */
+export function filterUnassignedOpenTimelineItems(
+	items: readonly TemporalEventListItem[]
+): TemporalEventListItem[] {
+	return filterDefaultVisibleTimelineItems(items)
+		.filter((t) => t.projectEntityId === null)
+		.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+/** Open tasks for one project, excluding the current next-action row when provided. */
+export function filterOpenTimelineItemsForProject(
+	items: readonly TemporalEventListItem[],
+	projectEntityId: string,
+	options?: { excludeItemId?: string | null; excludeThoughtId?: string | null }
+): TemporalEventListItem[] {
+	const excludeItemId = options?.excludeItemId ?? null;
+	const excludeThoughtId = options?.excludeThoughtId ?? null;
+	return filterDefaultVisibleTimelineItems(items).filter((t) => {
+		if (t.projectEntityId !== projectEntityId) return false;
+		if (excludeThoughtId && t.thoughtId === excludeThoughtId) return false;
+		if (excludeItemId && t.id === excludeItemId) return false;
+		return true;
+	});
+}
+
 export function completedEventSummaryClass(completed: boolean): string {
 	return completed ? 'opacity-60 line-through' : '';
 }
