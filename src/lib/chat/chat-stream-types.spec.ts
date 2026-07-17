@@ -257,11 +257,30 @@ describe('chat-stream-types', () => {
 			'list_text_files',
 			'get_text_file',
 			'update_text_file',
+			'append_text_file',
 			'delete_text_file',
 			'search_text_files',
 			'link_text_file_to_thought',
 			'unlink_text_file_from_thought'
 		]);
+	});
+
+	it('summarizes append_text_file arguments', () => {
+		expect(
+			formatToolArgumentsSummary('append_text_file', {
+				text_file_id: 'abcdef12-3456-7890-abcd-ef1234567890',
+				text: 'milk'
+			})
+		).toBe('Note abcdef12… · milk');
+	});
+
+	it('formats append_text_file result for display', () => {
+		const preview = JSON.stringify({
+			textFile: { title: 'Shopping', body: 'eggs\nmilk' }
+		});
+		expect(formatToolResultForDisplay('append_text_file', preview)).toBe(
+			'Shopping: eggs\nmilk'
+		);
 	});
 
 	it('falls back to unknown-tool visual for removed chat-only tools', () => {

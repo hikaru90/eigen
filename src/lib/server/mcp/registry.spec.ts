@@ -13,6 +13,7 @@ const TEXT_NOTE_TOOLS = [
 	'list_text_files',
 	'get_text_file',
 	'update_text_file',
+	'append_text_file',
 	'delete_text_file',
 	'search_text_files',
 	'link_text_file_to_thought',
@@ -85,7 +86,24 @@ describe('MCP tool registry exposure', () => {
 		const create = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'create_text_file');
 		expect(create?.description).toMatch(/not a thought/i);
 		expect(create?.description).toMatch(/capture_thought/i);
+		expect(create?.description).toMatch(/NEW/i);
+		expect(create?.description).toMatch(/append_text_file/i);
+		expect(create?.description).toMatch(/never use this to add items/i);
 		expect(create?.inputSchema).not.toHaveProperty('required');
 		expect(create?.agentArgumentSchema).toMatch(/title or body required/i);
+	});
+
+	it('documents append_text_file for additive list edits and keeps it chat-only', () => {
+		const append = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'append_text_file');
+		expect(append).toBeDefined();
+		expect(append?.exposeInMcp).toBe(false);
+		expect(append?.description).toMatch(/append/i);
+		expect(append?.description).toMatch(/shopping lists/i);
+		expect(append?.description).toMatch(/Do not create_text_file/i);
+		expect(append?.inputSchema).toMatchObject({
+			required: ['text_file_id', 'text']
+		});
+		expect(isMcpExposedTool('append_text_file')).toBe(false);
+		expect(isAgentTool('append_text_file')).toBe(true);
 	});
 });

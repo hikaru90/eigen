@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	appendTextFile,
 	createTextFile,
 	deleteTextFile,
 	getTextFile,
@@ -118,6 +119,180 @@ describe('text-files service', () => {
 
 		const result = await updateTextFile('u1', 'missing', { body: 'next' });
 		expect(result).toBeNull();
+	});
+
+	it('appendTextFile returns null when missing', async () => {
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [])
+					}))
+				}))
+			}))
+		});
+
+		const result = await appendTextFile('u1', 'missing', { text: 'milk' });
+		expect(result).toBeNull();
+	});
+
+	it('appendTextFile rejects blank text', async () => {
+		await expect(appendTextFile('u1', 'f1', { text: '   ' })).rejects.toThrow(/text is required/);
+	});
+
+	it('appendTextFile inserts a newline between existing body and new text', async () => {
+		const createdAt = new Date('2026-06-05T12:00:00.000Z');
+		const updatedAt = new Date('2026-06-05T13:00:00.000Z');
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [
+							{
+								id: 'f1',
+								title: 'shopping list',
+								bodyText: '',
+								bodyTextEncrypted: 'enc:eggs',
+								author: 'user',
+								authorLabel: null,
+								authorKeyId: null,
+								createdAt,
+								updatedAt: createdAt
+							}
+						])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [
+							{
+								id: 'f1',
+								title: 'shopping list',
+								bodyText: '',
+								bodyTextEncrypted: 'enc:eggs\nmilk',
+								author: 'user',
+								authorLabel: null,
+								authorKeyId: null,
+								createdAt,
+								updatedAt
+							}
+						])
+					}))
+				}))
+			}))
+		});
+
+		const result = await appendTextFile('u1', 'f1', { text: 'milk' });
+
+		expect(encryptTenantValueMock).toHaveBeenCalledWith(
+			expect.objectContaining({ plaintext: 'eggs\nmilk' })
+		);
+		expect(result).toMatchObject({
+			id: 'f1',
+			title: 'shopping list',
+			body: 'eggs\nmilk'
+		});
+	});
+
+	it('appendTextFile does not double-newline when body already ends with newline', async () => {
+		const createdAt = new Date('2026-06-05T12:00:00.000Z');
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [
+							{
+								id: 'f1',
+								title: 'list',
+								bodyText: '',
+								bodyTextEncrypted: 'enc:eggs\n',
+								author: 'user',
+								authorLabel: null,
+								authorKeyId: null,
+								createdAt,
+								updatedAt: createdAt
+							}
+						])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [
+							{
+								id: 'f1',
+								title: 'list',
+								bodyText: '',
+								bodyTextEncrypted: 'enc:eggs\nmilk',
+								author: 'user',
+								authorLabel: null,
+								authorKeyId: null,
+								createdAt,
+								updatedAt: createdAt
+							}
+						])
+					}))
+				}))
+			}))
+		});
+
+		await appendTextFile('u1', 'f1', { text: 'milk' });
+		expect(encryptTenantValueMock).toHaveBeenCalledWith(
+			expect.objectContaining({ plaintext: 'eggs\nmilk' })
+		);
+	});
+
+	it('appendTextFile appends without separator when body is empty', async () => {
+		const createdAt = new Date('2026-06-05T12:00:00.000Z');
+		getDbMock.mockReturnValue({
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn(async () => [
+							{
+								id: 'f1',
+								title: 'shopping list',
+								bodyText: '',
+								bodyTextEncrypted: 'enc:',
+								author: 'user',
+								authorLabel: null,
+								authorKeyId: null,
+								createdAt,
+								updatedAt: createdAt
+							}
+						])
+					}))
+				}))
+			})),
+			update: vi.fn(() => ({
+				set: vi.fn(() => ({
+					where: vi.fn(() => ({
+						returning: vi.fn(async () => [
+							{
+								id: 'f1',
+								title: 'shopping list',
+								bodyText: '',
+								bodyTextEncrypted: 'enc:milk',
+								author: 'user',
+								authorLabel: null,
+								authorKeyId: null,
+								createdAt,
+								updatedAt: createdAt
+							}
+						])
+					}))
+				}))
+			}))
+		});
+
+		const result = await appendTextFile('u1', 'f1', { text: 'milk' });
+		expect(encryptTenantValueMock).toHaveBeenCalledWith(
+			expect.objectContaining({ plaintext: 'milk' })
+		);
+		expect(result?.body).toBe('milk');
 	});
 
 	it('deleteTextFile reports whether a row was removed', async () => {

@@ -1111,6 +1111,96 @@ async function exerciseCaptureUi(page: Page): Promise<void> {
 	}
 }
 
+type TextFileApiRow = {
+	id: string;
+	title: string;
+	body: string;
+};
+
+async function listTextFilesViaApi(page: Page): Promise<TextFileApiRow[]> {
+	const res = await page.request.get('/api/text-files?limit=100');
+	if (!res.ok()) {
+		throw new Error(`GET /api/text-files failed (${res.status()}): ${await res.text()}`);
+	}
+	const body = (await res.json()) as { textFiles?: TextFileApiRow[] };
+	return body.textFiles ?? [];
+}
+
+/**
+ * Create a shopping-list note in the Notes UI, ask chat to append an item, and
+ * assert the existing note was updated (no duplicate text_file row).
+ */
+export async function exerciseNotesShoppingListAppend(page: Page): Promise<void> {
+	const noteTitle = 'Shopping list';
+	const initialBody = 'eggs';
+	const appendItem = 'milk';
+
+	await page.goto('/memory/notes');
+	await expect(page.getByRole('heading', { name: 'Notes', exact: true })).toBeVisible({
+		timeout: RELEASE_WAIT_MS
+	});
+
+	await page.getByRole('button', { name: 'New note', exact: true }).click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog).toBeVisible({ timeout: RELEASE_WAIT_MS });
+	await dialog.locator('#create-title').fill(noteTitle);
+	await dialog.locator('#create-body').fill(initialBody);
+	await dialog.getByRole('button', { name: 'New note', exact: true }).click();
+	await expect(dialog).toBeHidden({ timeout: RELEASE_WAIT_MS });
+	await expect(page.getByRole('button', { name: new RegExp(noteTitle, 'i') }).first()).toBeVisible({
+		timeout: RELEASE_WAIT_MS
+	});
+
+	const before = await listTextFilesViaApi(page);
+	const shoppingBefore = before.filter((f) => f.title.trim().toLowerCase() === noteTitle.toLowerCase());
+	expect(
+		shoppingBefore,
+		'expected exactly one Shopping list note after create'
+	).toHaveLength(1);
+	expect(shoppingBefore[0]?.body).toContain(initialBody);
+	const noteId = shoppingBefore[0]!.id;
+
+	await startNewChatSession(page);
+	const question = `Add ${appendItem} to my shopping list note`;
+	await askChatQuestion(page, question);
+	await expect(page.getByText(question)).toBeVisible({ timeout: RELEASE_WAIT_MS });
+
+	await assertChatLoadingVisible(page);
+	await waitForChatIdle(page, RELEASE_INDEXING_WAIT_MS);
+	await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+		timeout: RELEASE_INDEXING_WAIT_MS
+	});
+
+	const logText = (await page.getByRole('log', { name: 'Chat messages' }).textContent()) ?? '';
+	assertChatLogHasNoRawJson(logText);
+	await expect(page.locator('.animate-spin')).toHaveCount(0);
+
+	await expect
+		.poll(
+			async () => {
+				const files = await listTextFilesViaApi(page);
+				const shopping = files.filter(
+					(f) => f.title.trim().toLowerCase() === noteTitle.toLowerCase()
+				);
+				if (shopping.length !== 1) return `count=${shopping.length}`;
+				const body = shopping[0]?.body ?? '';
+				if (shopping[0]?.id !== noteId) return 'id-changed';
+				if (!body.includes(initialBody)) return 'missing-eggs';
+				if (!body.includes(appendItem)) return 'missing-milk';
+				return 'ok';
+			},
+			{ timeout: RELEASE_WAIT_MS, intervals: [500, 1000, 2000] }
+		)
+		.toBe('ok');
+
+	await page.goto('/memory/notes');
+	await expect(page.getByText(appendItem, { exact: false }).first()).toBeVisible({
+		timeout: RELEASE_WAIT_MS
+	});
+	const listButtons = page.getByRole('button', { name: new RegExp(noteTitle, 'i') });
+	await expect(listButtons).toHaveCount(1);
+}
+
 async function exerciseChatUi(page: Page): Promise<void> {
 	await startNewChatSession(page);
 

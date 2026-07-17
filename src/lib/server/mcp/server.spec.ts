@@ -28,6 +28,7 @@ vi.mock('./tools', () => ({
 	runListTextFilesTool: vi.fn(),
 	runGetTextFileTool: vi.fn(),
 	runUpdateTextFileTool: vi.fn(),
+	runAppendTextFileTool: vi.fn(),
 	runDeleteTextFileTool: vi.fn(),
 	runSearchTextFilesTool: vi.fn(),
 	runLinkTextFileToThoughtTool: vi.fn(),

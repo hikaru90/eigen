@@ -62,6 +62,8 @@
 	let detailError = $state<string | null>(null);
 	let editTitle = $state('');
 	let editBody = $state('');
+	let editAuthor = $state<'user' | 'agent'>('user');
+	let editAuthorLabel = $state<string | null>(null);
 	let linkedThoughts = $state<TextFileLinkedThought[]>([]);
 	let saving = $state(false);
 	let deleting = $state(false);
@@ -105,7 +107,10 @@
 			id: hit.id,
 			title: hit.title,
 			preview: hit.preview,
-			updatedAt: hit.updatedAt
+			updatedAt: hit.updatedAt,
+			author: hit.author,
+			authorLabel: hit.authorLabel,
+			authorKeyId: hit.authorKeyId
 		};
 	}
 
@@ -153,6 +158,9 @@
 		detailError = null;
 		savedFlash = false;
 		linkedThoughts = [];
+		const fromList = listItems.find((item) => item.id === id);
+		editAuthor = fromList?.author ?? 'user';
+		editAuthorLabel = fromList?.authorLabel ?? null;
 		try {
 			const [file, thoughts] = await Promise.all([
 				fetchTextFile(id),
@@ -160,6 +168,8 @@
 			]);
 			editTitle = file.title;
 			editBody = file.body;
+			editAuthor = file.author ?? 'user';
+			editAuthorLabel = file.authorLabel ?? null;
 			linkedThoughts = thoughts;
 		} catch (e) {
 			detailError = e instanceof Error ? e.message : String(e);
@@ -339,7 +349,10 @@
 <MemorySurfaceDrawer bind:open={drawerOpen}>
 	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-4 pb-10" data-vaul-no-drag>
 			<Drawer.Header class="space-y-1 px-0 pt-0 text-left">
-				<Drawer.Title class="text-base font-semibold">{m.notes_edit_title()}</Drawer.Title>
+				<div class="flex flex-wrap items-center gap-2">
+					<Drawer.Title class="text-base font-semibold">{m.notes_edit_title()}</Drawer.Title>
+					<MemoryAuthorBadge author={editAuthor} authorLabel={editAuthorLabel} />
+				</div>
 				<Drawer.Description class="text-xs">{m.notes_edit_description()}</Drawer.Description>
 			</Drawer.Header>
 			{#if detailLoading}

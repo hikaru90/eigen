@@ -34,6 +34,9 @@ export type TextFileSearchHit = {
 	preview: string;
 	lexicalScore: number;
 	updatedAt: string;
+	author: 'user' | 'agent';
+	authorLabel: string | null;
+	authorKeyId: string | null;
 };
 
 export type TextFileLinkedThought = {
@@ -201,6 +204,79 @@ export async function updateTextFile(
 	return decryptTextFileRow(userId, row);
 }
 
+/**
+ * Append text to an existing note body (deterministic concat).
+ * Default separator is a single newline when the current body is non-empty and does not already end with a newline.
+ */
+export async function appendTextFile(
+	userId: string,
+	fileId: string,
+	input: { text: string; separator?: string }
+): Promise<TextFileRecord | null> {
+	const appendText = typeof input.text === 'string' ? input.text.trim() : '';
+	if (!appendText) {
+		throw new Error('text is required');
+	}
+
+	const [existing] = await getDb()
+		.select({
+			id: textFile.id,
+			title: textFile.title,
+			bodyText: textFile.bodyText,
+			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
+			createdAt: textFile.createdAt,
+			updatedAt: textFile.updatedAt
+		})
+		.from(textFile)
+		.where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
+		.limit(1);
+
+	if (!existing) return null;
+
+	const current = await decryptTextFileRow(userId, existing);
+	const separator =
+		input.separator !== undefined
+			? input.separator
+			: current.body.length === 0 || current.body.endsWith('\n')
+				? ''
+				: '\n';
+	const nextBody = assertBodyWithinLimit(`${current.body}${separator}${appendText}`);
+	assertTitleOrBody(current.title, nextBody);
+	const lexicalText = computeLexicalText(`${current.title} ${nextBody}`);
+	const bodyTextEncrypted = await encryptTenantValue({
+		userId,
+		table: 'text_file',
+		column: 'body_text',
+		plaintext: nextBody
+	});
+
+	const [row] = await getDb()
+		.update(textFile)
+		.set({
+			bodyText: '',
+			bodyTextEncrypted,
+			lexicalText,
+			updatedAt: new Date()
+		})
+		.where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
+		.returning({
+			id: textFile.id,
+			title: textFile.title,
+			bodyText: textFile.bodyText,
+			bodyTextEncrypted: textFile.bodyTextEncrypted,
+			author: textFile.author,
+			authorLabel: textFile.authorLabel,
+			authorKeyId: textFile.authorKeyId,
+			createdAt: textFile.createdAt,
+			updatedAt: textFile.updatedAt
+		});
+
+	return decryptTextFileRow(userId, row);
+}
+
 export async function deleteTextFile(userId: string, fileId: string): Promise<boolean> {
 	const deleted = await getDb()
 		.delete(textFile)
@@ -335,7 +411,10 @@ export async function searchTextFiles(
 				title: file.title,
 				preview: toPreview(file.body),
 				lexicalScore: row.lexicalScore ?? 0,
-				updatedAt: file.updatedAt
+				updatedAt: file.updatedAt,
+				author: file.author,
+				authorLabel: file.authorLabel,
+				authorKeyId: file.authorKeyId
 			};
 		})
 	);

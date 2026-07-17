@@ -535,7 +535,18 @@ describe('MCP tools', () => {
 	});
 
 	it('runSearchTextFilesTool searches notes with author filter', async () => {
-		searchTextFilesMock.mockResolvedValue([{ id: 'f1', title: 'R', preview: 'x', lexicalScore: 1 }]);
+		searchTextFilesMock.mockResolvedValue([
+			{
+				id: 'f1',
+				title: 'R',
+				preview: 'x',
+				lexicalScore: 1,
+				updatedAt: '2026-01-01T00:00:00.000Z',
+				author: 'user',
+				authorLabel: null,
+				authorKeyId: null
+			}
+		]);
 		const out = await runSearchTextFilesTool(
 			{ userId: 'u1' },
 			{ query: 'hello', top_k: 10, author: 'agent' }

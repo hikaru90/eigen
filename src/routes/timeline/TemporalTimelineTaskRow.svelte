@@ -10,6 +10,7 @@
 	} from './temporal-events-utils';
 	import { graphEnergyLevelLabel } from '$lib/graph/graph-i18n';
 	import { hapticConfirm } from '$lib/haptics';
+	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
 
@@ -104,11 +105,14 @@
 	<TemporalEventStatusButton {item} {updatingEventId} compact onQuickAction={onQuickAction} />
 	<button type="button" class="flex min-w-0 flex-1 flex-col gap-1 text-left" onclick={onClickSelect}>
 		<div class="flex w-full min-w-0 items-start justify-between gap-2">
-			<span
-				class="text-foreground min-w-0 flex-1 text-sm leading-snug {completedEventSummaryClass(completed)}"
-			>
-				{item.semanticSummary}
-			</span>
+			<div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+				<span
+					class="text-foreground min-w-0 text-sm leading-snug {completedEventSummaryClass(completed)}"
+				>
+					{item.semanticSummary}
+				</span>
+				<MemoryAuthorBadge author={item.author} authorLabel={item.authorLabel} size="sm" />
+			</div>
 			{#if item.projectLabel}
 				<span class="text-black shrink-0 max-w-[120px] truncate rounded-full border border-white px-2 py-0.5 text-[10px] leading-tight dark:text-foreground" title={item.projectLabel}>
 					{item.projectLabel}

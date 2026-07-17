@@ -1,4 +1,5 @@
 import {
+	runAppendTextFileTool,
 	runCaptureThoughtTool,
 	runCreateTextFileTool,
 	runDeleteTextFileTool,
@@ -165,7 +166,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	{
 		name: 'create_text_file',
 		description:
-			'Create a user-scoped text note (not a thought). Text notes appear in Notes — they are simple documents without enrichment or task classification. Provide title and/or body (at least one required). Title-only is valid for empty lists/notebooks. Do not use capture_thought for "add a note".',
+			'Create a NEW user-scoped text note (not a thought). Inserts a new Notes-tab document — never use this to add items to an existing list or amend a named note. For additive edits (e.g. add milk to shopping list), search_text_files or list_text_files, then append_text_file. Provide title and/or body (at least one required). Title-only is valid for empty new lists/notebooks. Do not use capture_thought for Notes documents.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -215,7 +216,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 	},
 	{
 		name: 'update_text_file',
-		description: 'Update a user text note title and/or body.',
+		description:
+			'Replace a user text note title and/or full body. Prefer append_text_file when adding lines/items to an existing list or checklist.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -228,6 +230,31 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 		agentArgumentSchema:
 			'{"text_file_id": "string (required)", "title": "string (optional)", "body": "string (optional)"}',
 		handler: runUpdateTextFileTool,
+		exposeInMcp: false
+	},
+	{
+		name: 'append_text_file',
+		description:
+			'Append text to an existing Notes document (shopping lists, checklists, notebooks). Find text_file_id via search_text_files or list_text_files first. Do not create_text_file for additive requests.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				text_file_id: { type: 'string' },
+				text: {
+					type: 'string',
+					description: 'Content to append (e.g. a list item).'
+				},
+				separator: {
+					type: 'string',
+					description:
+						'Optional string between existing body and text. Default: newline when body is non-empty.'
+				}
+			},
+			required: ['text_file_id', 'text']
+		},
+		agentArgumentSchema:
+			'{"text_file_id": "string (required)", "text": "string (required)", "separator": "string (optional)"}',
+		handler: runAppendTextFileTool,
 		exposeInMcp: false
 	},
 	{

@@ -23,6 +23,7 @@
 		thoughtIdFromTaskItemId
 	} from './temporal-events-utils';
 	import TemporalEventStatusButton from './TemporalEventStatusButton.svelte';
+	import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte';
 	import { notifyThoughtChanged, subscribeThoughtSync } from '$lib/stores/thought-sync';
 	import { currentUserView } from '$lib/stores/current-user-view';
 	import type { CurrentUserView } from '$lib/memory/current-user-view';
@@ -356,9 +357,12 @@
 											{onQuickAction}
 										/>
 										<button type="button" class="flex min-w-0 flex-1 flex-col gap-1 text-left" onclick={() => onGoToTask(task.id)}>
-											<span class="text-foreground text-sm leading-snug {completedEventSummaryClass(taskCompleted)}">
-												{task.semanticSummary}
-											</span>
+											<div class="flex min-w-0 flex-wrap items-center gap-1.5">
+												<span class="text-foreground text-sm leading-snug {completedEventSummaryClass(taskCompleted)}">
+													{task.semanticSummary}
+												</span>
+												<MemoryAuthorBadge author={task.author} authorLabel={task.authorLabel} size="sm" />
+											</div>
 											<div class="flex flex-col gap-0.5">
 												{#if task.startAt}
 													<span class="text-foreground/60 font-mono text-[10px] leading-tight">{m.graph_temporal_when()} {formatWhen(task)}</span>

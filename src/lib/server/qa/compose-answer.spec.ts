@@ -504,7 +504,10 @@ describe('composeAnswer', () => {
 				title: 'Carbonara recipe',
 				preview: '200g spaghetti, guanciale, eggs…',
 				lexicalScore: 0.42,
-				updatedAt: '2026-01-01T00:00:00.000Z'
+				updatedAt: '2026-01-01T00:00:00.000Z',
+				author: 'user',
+				authorLabel: null,
+				authorKeyId: null
 			}
 		]);
 		await composeAnswer({ userId: 'u1', question: 'carbonara recipe' });

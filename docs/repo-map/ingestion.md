@@ -103,15 +103,15 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 
 - **Purpose:** Primary capture UI; **new submits** via `enqueueCapture` (queue). **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
 
-### Text files (attachments)
+### Notes (text files)
 
-- **Purpose:** User-scoped text notes stored in `text_file` — **not** thoughts. No enrich queue, embedding, or graph pipeline.
+- **Purpose:** First-class Keep-style documents stored in `text_file` — shopping lists, notebooks, checklists, pasted reference. **Not** thoughts: no enrich queue, embedding, or graph pipeline. UI: [`/memory/notes`](../../src/routes/memory/notes/+page.svelte).
+- **Optional thought links:** Capture may auto-split reference material into a linked note during enrich; Capture UI “Attach note” and chat tools `link_text_file_to_thought` / `unlink_text_file_from_thought` for manual linking. Join table: `thought_text_file` (deleting a thought removes links only; notes remain in the library).
 - **Automatic split on enrich:** During background enrich, an LLM judge (`split-capture-content.ts`) partitions capture input when appropriate. **Verbatim invariant:** `thought.raw_text` is the user’s submitted text and is **never** overwritten by content-split (only an explicit edit may change it). `thought_only` (tasks, bug reports, ordinary notes) keeps `normalized_text` as whitespace-normalized original — no LLM paraphrase. `split` may distill a short pointer onto `normalized_text` and store reference material (recipes, templates, procedures, transcripts, pasted bodies) as a linked **text note**; the full original remains on `raw_text`. Split is based on **content role**, not message length.
-- **Manual link (optional):** Capture UI “Attach note” and MCP `link_text_file_to_thought` for operator/agent linking after the fact.
-- **Linking:** `thought_text_file` join table; deleting a thought removes links only; notes remain in the user's library.
-- **Service:** [`src/lib/server/text-files/service.ts`](../../src/lib/server/text-files/service.ts)
-- **MCP:** `create_text_file`, `list_text_files`, `get_text_file`, `update_text_file`, `delete_text_file`, `search_text_files`, `link_text_file_to_thought`, `unlink_text_file_from_thought`
-- **Retrieval:** Lexical keyword search via `searchTextFiles` / MCP `search_text_files` and `retrieve_thoughts` (`textFiles` hits). Included in `composeAnswer` context (no embeddings on `text_file`). Full body via `get_text_file`.
+- **Service:** [`src/lib/server/text-files/service.ts`](../../src/lib/server/text-files/service.ts) — CRUD plus `appendTextFile` (deterministic body concat for list/checklist edits).
+- **Chat agent tools** (in-app only; `exposeInMcp: false` — **not** on HTTP MCP): `create_text_file`, `list_text_files`, `get_text_file`, `update_text_file`, `append_text_file`, `delete_text_file`, `search_text_files`, `link_text_file_to_thought`, `unlink_text_file_from_thought`. HTTP MCP remains the four thought tools only.
+- **Agent contract:** Create a **new** note with `create_text_file`. Additive edits on a referenced note/list (e.g. “add milk to my shopping list”) must `search_text_files` / `list_text_files` → `append_text_file` (or get + full `update_text_file`). Never `create_text_file` for additive requests; never `capture_thought` for Notes documents. See [`agent-loop.ts`](../../src/lib/server/llm/agent-loop.ts).
+- **Retrieval:** Lexical keyword search via `searchTextFiles` / `search_text_files` and `retrieve_thoughts` (`textFiles` hits). Included in `composeAnswer` context (no embeddings on `text_file`). Full body via `get_text_file`.
 
 ## Related but not canonical for “ingest contract”
 

@@ -43,13 +43,12 @@
 	const alternatives = $derived(parseCategoryAlternatives(thought.metadata));
 	const nearDuplicate = $derived(formatNearDuplicate(thought.metadata));
 	const indexingMessage = $derived(captureIndexingDetailMessage(thought));
-	const isAgent = $derived(thought.author === 'agent');
 </script>
 
 {#snippet summaryBody()}
 	<Card.Content class="p-0 space-y-3 text-sm">
-		{#if isAgent && !embedded}
-			<MemoryAuthorBadge author={thought.author} authorLabel={thought.authorLabel} />
+		{#if !embedded}
+			<MemoryAuthorBadge author={thought.author ?? 'user'} authorLabel={thought.authorLabel} />
 		{/if}
 		<p class="text-card-foreground whitespace-pre-wrap">{thought.normalizedText}</p>
 

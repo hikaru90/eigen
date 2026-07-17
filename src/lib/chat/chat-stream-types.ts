@@ -52,6 +52,7 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
 	list_text_files: { title: 'Listing text notes', category: 'memory', icon: 'list' },
 	get_text_file: { title: 'Opening text note', category: 'memory', icon: 'list' },
 	update_text_file: { title: 'Updating text note', category: 'write', icon: 'pencil' },
+	append_text_file: { title: 'Appending to text note', category: 'write', icon: 'pencil' },
 	delete_text_file: { title: 'Deleting text note', category: 'destructive', icon: 'trash' },
 	search_text_files: { title: 'Searching text notes', category: 'search', icon: 'search' },
 	link_text_file_to_thought: { title: 'Linking note to memory', category: 'write', icon: 'pencil' },
@@ -136,9 +137,20 @@ export function formatToolArgumentsSummary(
 		}
 	}
 
-	if (tool === 'update_text_file' || tool === 'delete_text_file' || tool === 'get_text_file') {
+	if (tool === 'update_text_file' || tool === 'append_text_file' || tool === 'delete_text_file' || tool === 'get_text_file') {
 		const id = args.text_file_id ?? args.textFileId ?? args.id;
-		if (typeof id === 'string' && id.trim()) return `Note ${id.slice(0, 8)}…`;
+		if (typeof id === 'string' && id.trim()) {
+			if (tool === 'append_text_file') {
+				const text = args.text;
+				const idPart = `Note ${id.slice(0, 8)}…`;
+				if (typeof text === 'string' && text.trim()) {
+					const t = text.trim();
+					return `${idPart} · ${t.length > 80 ? `${t.slice(0, 77)}…` : t}`;
+				}
+				return idPart;
+			}
+			return `Note ${id.slice(0, 8)}…`;
+		}
 	}
 
 	if (tool === 'search_text_files') {
@@ -192,7 +204,10 @@ function parseToolResultObject(tool: string, parsed: Record<string, unknown>): T
 	}
 
 	if (
-		(tool === 'create_text_file' || tool === 'update_text_file' || tool === 'get_text_file') &&
+		(tool === 'create_text_file' ||
+			tool === 'update_text_file' ||
+			tool === 'append_text_file' ||
+			tool === 'get_text_file') &&
 		parsed.textFile &&
 		typeof parsed.textFile === 'object'
 	) {

@@ -17,6 +17,9 @@ export type TextFileSearchHit = {
 	preview: string;
 	lexicalScore: number;
 	updatedAt: string;
+	author?: 'user' | 'agent';
+	authorLabel?: string | null;
+	authorKeyId?: string | null;
 };
 
 export type TextFileLinkedThought = {

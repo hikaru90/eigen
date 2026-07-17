@@ -4,6 +4,7 @@ import {
 	captureThoughtViaUi,
 	completeOnboardingOverlay,
 	exerciseAuthenticatedUi,
+	exerciseNotesShoppingListAppend,
 	exerciseOvernightConsolidation,
 	exerciseProjectsLifecycle,
 	loginUser,
@@ -53,6 +54,10 @@ test.describe('Release smoke @release', () => {
 
 		await test.step('overnight consolidation heartbeat', async () => {
 			await exerciseOvernightConsolidation(page);
+		});
+
+		await test.step('notes: create shopping list then append via chat', async () => {
+			await exerciseNotesShoppingListAppend(page);
 		});
 
 		await test.step('exercise authenticated surfaces and controls', async () => {

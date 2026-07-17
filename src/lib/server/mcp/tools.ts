@@ -25,6 +25,7 @@ import {
 	loadTemporalContextByThoughtIds
 } from '$lib/server/memory/temporal-context';
 import {
+	appendTextFile,
 	createTextFile,
 	deleteTextFile,
 	getTextFile,
@@ -541,6 +542,18 @@ export async function runUpdateTextFileTool(context: McpToolContext, args: unkno
 		throw new Error('title or body is required');
 	}
 	const textFile = await updateTextFile(context.userId, textFileId, { title, body: rawBody });
+	if (!textFile) throw new Error('Text file not found');
+	return sanitizeMcpToolResult({ textFile });
+}
+
+export async function runAppendTextFileTool(context: McpToolContext, args: unknown) {
+	const body = asObject(args);
+	const textFileId = typeof body.text_file_id === 'string' ? body.text_file_id.trim() : '';
+	if (!textFileId) throw new Error('text_file_id is required');
+	const text = typeof body.text === 'string' ? body.text : '';
+	if (!text.trim()) throw new Error('text is required');
+	const separator = typeof body.separator === 'string' ? body.separator : undefined;
+	const textFile = await appendTextFile(context.userId, textFileId, { text, separator });
 	if (!textFile) throw new Error('Text file not found');
 	return sanitizeMcpToolResult({ textFile });
 }

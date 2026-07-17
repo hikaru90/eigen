@@ -17,7 +17,6 @@
 	import X from '@lucide/svelte/icons/x';
 	import {
 		captureThoughtAuthorship,
-		isAgentAuthoredCapture,
 		recentThoughtPrimaryLabel,
 		recentThoughtSecondaryLabel
 	} from '$lib/capture/recent-thought-display';
@@ -225,7 +224,6 @@
 			{#each filteredThoughts as snippet (snippet.id)}
 				{@const detail = thoughtDetails[snippet.id]}
 				{@const authorship = captureThoughtAuthorship(detail, snippet)}
-				{@const isAgent = isAgentAuthoredCapture(detail, snippet)}
 				{@const expanded = expandedId === snippet.id}
 				{@const loadingDetail = loadingDetailId === snippet.id}
 				{@const enrichStatus = enrichListStatus(snippet.id, detail)}
@@ -263,9 +261,7 @@
 								<div
 									class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
 								>
-									{#if isAgent}
-										<MemoryAuthorBadge author={authorship.author} authorLabel={authorship.authorLabel} />
-									{/if}
+									<MemoryAuthorBadge author={authorship.author} authorLabel={authorship.authorLabel} />
 									<span class="font-medium text-foreground">
 										{recentThoughtPrimaryLabel(detail, snippet)}
 									</span>
