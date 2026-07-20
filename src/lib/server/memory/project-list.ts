@@ -177,11 +177,19 @@ export async function listProjectsForUser(
 	});
 }
 
-/** Dismiss a project so it no longer appears in the active projects list. */
+/** Dismiss a project so it no longer appears in the active projects list.
+ * Also removes the thought→entity links so thoughts are no longer tagged to the project.
+ * The thoughts themselves are preserved. */
 export async function dismissProject(userId: string, entityId: string): Promise<void> {
+	// Remove all thought-entity links for this project so thoughts are untagged.
+	await getDb()
+		.delete(thoughtEntity)
+		.where(and(eq(thoughtEntity.userId, userId), eq(thoughtEntity.entityId, entityId)));
+
+	// Dismiss the project entity and clear nextActionThoughtId.
 	await getDb()
 		.update(canonicalEntity)
-		.set({ projectStatus: 'dismissed', updatedAt: new Date() })
+		.set({ projectStatus: 'dismissed', nextActionThoughtId: null, updatedAt: new Date() })
 		.where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, entityId)));
 }
 
