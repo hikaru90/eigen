@@ -5,10 +5,10 @@ import {
   eq,
   gte,
   inArray,
+  isNull,
   isNotNull,
   lt,
   lte,
-  notInArray,
   or,
   sql,
   type SQL,
@@ -238,13 +238,12 @@ async function listTaskThoughtsForUser(
   sortDirection: TemporalEventListQuery['sortDirection'] = 'desc',
   authorFilter?: { author?: MemoryAuthor; authorLayerKey?: string | null },
 ): Promise<TemporalEventListItem[]> {
-  const eventRows = await getDb()
-    .select({ thoughtId: temporalEvent.thoughtId })
-    .from(temporalEvent)
-    .where(eq(temporalEvent.userId, userId))
-  const eventThoughtIds = eventRows.map((r) => r.thoughtId)
-
-  const conditions: SQL[] = [eq(thought.userId, userId), eq(thought.category, 'task')]
+  // Anti-join: tasks with no temporal_event row — avoids unbounded thoughtId preload.
+  const conditions: SQL[] = [
+    eq(thought.userId, userId),
+    eq(thought.category, 'task'),
+    isNull(temporalEvent.id),
+  ]
   const authorSql = resolveAuthorSqlCondition(
     {
       author: thought.author,
@@ -258,9 +257,6 @@ async function listTaskThoughtsForUser(
   }
   if (status === 'open') {
     conditions.push(eq(thought.lifecycleStatus, 'open'))
-  }
-  if (eventThoughtIds.length > 0) {
-    conditions.push(notInArray(thought.id, eventThoughtIds))
   }
 
   const rows = await getDb()
@@ -281,6 +277,10 @@ async function listTaskThoughtsForUser(
       authorLabel: thought.authorLabel,
     })
     .from(thought)
+    .leftJoin(
+      temporalEvent,
+      and(eq(temporalEvent.thoughtId, thought.id), eq(temporalEvent.userId, userId)),
+    )
     .where(and(...conditions))
     .orderBy(
       sortDirection === 'asc' ? asc(thought.createdAt) : desc(thought.createdAt),

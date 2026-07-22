@@ -127,7 +127,8 @@ export async function waitForThoughtEnrichment(input: {
       )
     }
 
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+    const remaining = timeoutMs - elapsed
+    await new Promise((r) => setTimeout(r, Math.min(POLL_INTERVAL_MS, remaining)))
   }
 }
 

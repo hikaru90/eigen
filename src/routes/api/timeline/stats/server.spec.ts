@@ -53,4 +53,17 @@ describe('GET /api/timeline/stats', () => {
       }),
     )
   })
+
+  it('omits author filter when author query param is absent', async () => {
+    computeTimelineStatsForUserMock.mockResolvedValue({
+      todoTodayCount: 0,
+      doneTodayCount: 0,
+      overdueCount: 0,
+    })
+    const res = await GET(event({ id: 'u1' }))
+    expect(res.status).toBe(200)
+    expect(computeTimelineStatsForUserMock).toHaveBeenCalledWith(
+      expect.objectContaining({ author: undefined }),
+    )
+  })
 })

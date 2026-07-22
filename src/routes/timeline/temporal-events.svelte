@@ -41,7 +41,11 @@
     subscribeCurrentUserView,
   } from '$lib/stores/current-user-view.svelte'
   import { appendViewToSearchParams, type CurrentUserView } from '$lib/memory/current-user-view'
-  import { shouldRefetchForViewChange } from './timeline-client-loads'
+  import {
+    planFilterChangeFetches,
+    shouldRefetchForViewChange,
+    type TimelineFilterChangeKind,
+  } from './timeline-client-loads'
   import { postTimelineQuickAction, type TimelineQuickAction } from './timeline-item-actions'
 
   type Props = {
@@ -280,13 +284,13 @@
       setNowSegment('overdue')
     }
 
-    let previousView: CurrentUserView | null = null
+    // Seed with the view used for mount fetches so a stored 'all'/agent view refetches once.
+    let previousView: CurrentUserView | null = dataView
     const unsubscribeView = subscribeCurrentUserView((view) => {
       const refetch = shouldRefetchForViewChange(previousView, view)
       previousView = view
       dataView = view
-      // Initial store subscribe mirrors current value — mount already loaded lists.
-      if (refetch) onFilterChange()
+      if (refetch) onFilterChange('dataView')
     })
 
     const unsubscribeSync = subscribeThoughtSync((message) => {
@@ -488,16 +492,16 @@
     }
   }
 
-  function onFilterChange() {
-    void loadEvents(false, { silent: silentReloadEligible })
-    if (nowSegment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 })
-    if (nowSegment === 'done') void loadDoneItems({ silent: doneItems.length > 0 })
-    void loadStats()
+  function onFilterChange(kind: TimelineFilterChangeKind = 'dateRange') {
+    const plan = planFilterChangeFetches(kind, { nowSegment })
+    if (plan.loadEvents) void loadEvents(false, { silent: silentReloadEligible })
+    if (plan.loadOverdue) void loadOverdueItems({ silent: overdueItems.length > 0 })
+    if (plan.loadDone) void loadDoneItems({ silent: doneItems.length > 0 })
+    if (plan.loadStats) void loadStats()
   }
 
   function setStatusFilter(next: TemporalStatusFilter) {
     statusFilter = next
-    onFilterChange()
   }
 
   function onDateRangeChange(next: {
@@ -507,7 +511,7 @@
     label: string
   }) {
     dateRange = next
-    onFilterChange()
+    onFilterChange('dateRange')
   }
 
   const showFiltersInHeader = $derived(true)
@@ -636,12 +640,12 @@
           onOrderByChange={(next) => {
             orderBy = next
             persistLocal('timeline-order-by', next)
-            onFilterChange()
+            onFilterChange('orderBy')
           }}
           onSortDirectionToggle={() => {
             sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'
             persistLocal('timeline-sort-direction', sortDirection)
-            onFilterChange()
+            onFilterChange('orderBy')
           }}
         />
         <Button

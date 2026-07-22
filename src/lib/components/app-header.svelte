@@ -115,7 +115,10 @@
     {:else}
       <div class="w-10"></div>
     {/if}
-    <EigenWordmark heightClass="h-8 lg:h-12" />
+    <EigenWordmark
+      class="absolute left-1/2 top-1/2 w-auto -translate-x-1/2 -translate-y-1/2"
+      heightClass="h-8 lg:h-12"
+    />
     <Popover.Root bind:open={menuOpen}>
       <Popover.Trigger
         class="relative flex size-10 cursor-pointer items-center justify-center bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"

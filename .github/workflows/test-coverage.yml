@@ -32,6 +32,26 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+  components:
+    name: Component browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Component browser tests
+        run: npm run test:components
+
   coverage:
     name: Coverage report (thresholds not yet merge-blocking)
     runs-on: ubuntu-latest

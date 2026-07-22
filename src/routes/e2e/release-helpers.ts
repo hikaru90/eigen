@@ -1203,10 +1203,12 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
   })
 
   const listUrls: string[] = []
+  const statsUrls: string[] = []
   const onRequest = (request: Request) => {
     if (request.method() !== 'GET') return
     const url = request.url()
     if (url.includes('/api/temporal-events')) listUrls.push(url)
+    if (url.includes('/api/timeline/stats')) statsUrls.push(url)
   }
   page.on('request', onRequest)
 
@@ -1258,6 +1260,25 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
       afterProjectsClick.every((u) => !u.includes('range=all&status=all')),
       'Projects mode must not refetch range=all&status=all independently',
     ).toBe(true)
+
+    // Status filter ("Show completed") is client-side only — zero new list/stats fetches.
+    const beforeStatusToggle = listUrls.length
+    const statsBefore = statsUrls.length
+    await filtersTrigger.click()
+    const showCompleted = page.getByRole('checkbox', {
+      name: /show completed|erledigte anzeigen/i,
+    })
+    await expect(showCompleted).toBeVisible({ timeout: RELEASE_WAIT_MS })
+    await showCompleted.click()
+    await page.keyboard.press('Escape')
+    await new Promise((r) => setTimeout(r, 400))
+    expect(
+      listUrls.length,
+      'Show completed must not refetch /api/temporal-events',
+    ).toBe(beforeStatusToggle)
+    expect(statsUrls.length, 'Show completed must not refetch /api/timeline/stats').toBe(
+      statsBefore,
+    )
   } finally {
     page.off('request', onRequest)
     await page.unroute('**/api/timeline/parse-date-range').catch(() => undefined)

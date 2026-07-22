@@ -23,9 +23,10 @@ function parseKinds(raw: string | null): string[] | undefined {
 }
 
 function parseAuthor(raw: string | null): MemoryAuthor | undefined {
-  if (raw === 'all') return undefined
+  if (raw === null || raw === 'all') return undefined
   if (raw === 'agent') return 'agent'
-  return 'user'
+  if (raw === 'user') return 'user'
+  return undefined
 }
 
 function parseOptionalIso(raw: string | null): string | null | undefined {

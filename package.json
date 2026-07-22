@@ -1,7 +1,7 @@
 {
   "name": "eigen",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -23,6 +23,8 @@
     "test:unit": "vitest run --config vitest.config.ts",
     "test:unit:watch": "vitest --config vitest.config.ts",
     "test:unit:run": "vitest run --config vitest.config.ts",
+    "test:components": "node scripts/patch-vitest-browser-iframeid.mjs && vitest run --config vitest.browser.config.ts",
+    "test:components:watch": "node scripts/patch-vitest-browser-iframeid.mjs && vitest --config vitest.browser.config.ts",
     "test:coverage": "vitest run --coverage",
     "test:coverage:watch": "vitest --coverage",
     "test": "npm run test:unit:run && npm run test:e2e",

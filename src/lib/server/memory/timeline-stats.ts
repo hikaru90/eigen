@@ -36,6 +36,36 @@ function startOfWeek(date: Date): Date {
   return d
 }
 
+function startOfLocalDay(date: Date): Date {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function localDayKey(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** Compute consecutive completion streak from completion instants (server-local calendar days). */
+export function computeStreakDaysFromCompletions(
+  completionAts: readonly Date[],
+  now: Date,
+  maxDays = 30,
+): number {
+  const daysWithCompletion = new Set(completionAts.map((at) => localDayKey(at)))
+  let streakDays = 0
+  for (let offset = 0; offset < maxDays; offset++) {
+    const day = new Date(now)
+    day.setDate(now.getDate() - offset)
+    if (!daysWithCompletion.has(localDayKey(day))) break
+    streakDays += 1
+  }
+  return streakDays
+}
+
 export async function computeTimelineStatsForUser(
   input: string | TimelineStatsQuery,
 ): Promise<TimelineStats> {
@@ -44,105 +74,63 @@ export async function computeTimelineStatsForUser(
   const now = new Date()
   const timeZone = await getUserPreferredTimezone(userId)
   const weekStart = startOfWeek(now)
+  const streakWindowStart = startOfLocalDay(now)
+  streakWindowStart.setDate(streakWindowStart.getDate() - 29)
   const from = query.from !== undefined ? query.from : null
   const to = query.to !== undefined ? query.to : null
   const includeUndated = query.includeUndated !== undefined ? query.includeUndated : true
 
-  const eventCompletions = await getDb()
-    .select({ id: temporalEvent.id })
-    .from(temporalEvent)
-    .where(
-      and(
-        eq(temporalEvent.userId, userId),
-        eq(temporalEvent.lifecycleStatus, 'completed'),
-        gte(temporalEvent.lifecycleUpdatedAt, weekStart),
-        lte(temporalEvent.lifecycleUpdatedAt, now),
-      ),
-    )
-
-  const taskCompletions = await getDb()
-    .select({ id: thought.id })
-    .from(thought)
-    .where(
-      and(
-        eq(thought.userId, userId),
-        eq(thought.category, 'task'),
-        eq(thought.lifecycleStatus, 'completed'),
-        gte(thought.lifecycleUpdatedAt, weekStart),
-        lte(thought.lifecycleUpdatedAt, now),
-      ),
-    )
-
-  const completionsThisWeek = [...eventCompletions, ...taskCompletions]
-
-  let streakDays = 0
-  for (let offset = 0; offset < 30; offset++) {
-    const dayStart = new Date(now)
-    dayStart.setDate(now.getDate() - offset)
-    dayStart.setHours(0, 0, 0, 0)
-    const dayEnd = new Date(dayStart)
-    dayEnd.setHours(23, 59, 59, 999)
-
-    const eventRows = await getDb()
-      .select({ id: temporalEvent.id })
+  // One windowed query each for events + tasks covering the streak lookback;
+  // week completions and streak are derived in-process (no per-day loop).
+  const [eventCompletions, taskCompletions] = await Promise.all([
+    getDb()
+      .select({ at: temporalEvent.lifecycleUpdatedAt })
       .from(temporalEvent)
       .where(
         and(
           eq(temporalEvent.userId, userId),
           eq(temporalEvent.lifecycleStatus, 'completed'),
-          gte(temporalEvent.lifecycleUpdatedAt, dayStart),
-          lte(temporalEvent.lifecycleUpdatedAt, dayEnd),
+          gte(temporalEvent.lifecycleUpdatedAt, streakWindowStart),
+          lte(temporalEvent.lifecycleUpdatedAt, now),
         ),
-      )
-      .limit(1)
+      ),
+    getDb()
+      .select({ at: thought.lifecycleUpdatedAt })
+      .from(thought)
+      .where(
+        and(
+          eq(thought.userId, userId),
+          eq(thought.category, 'task'),
+          eq(thought.lifecycleStatus, 'completed'),
+          gte(thought.lifecycleUpdatedAt, streakWindowStart),
+          lte(thought.lifecycleUpdatedAt, now),
+        ),
+      ),
+  ])
 
-    const taskRows =
-      eventRows.length === 0
-        ? await getDb()
-            .select({ id: thought.id })
-            .from(thought)
-            .where(
-              and(
-                eq(thought.userId, userId),
-                eq(thought.category, 'task'),
-                eq(thought.lifecycleStatus, 'completed'),
-                gte(thought.lifecycleUpdatedAt, dayStart),
-                lte(thought.lifecycleUpdatedAt, dayEnd),
-              ),
-            )
-            .limit(1)
-        : []
+  const completionAts = [...eventCompletions, ...taskCompletions]
+    .map((r) => r.at)
+    .filter((at): at is Date => at instanceof Date)
 
-    const rows = eventRows.length > 0 ? eventRows : taskRows
+  const completionsThisWeek = completionAts.filter((at) => at >= weekStart && at <= now).length
+  const streakDays = computeStreakDaysFromCompletions(completionAts, now)
 
-    if (rows.length === 0) break
-    streakDays += 1
-  }
-
-  const listBase = {
+  const { items: allItems } = await listTemporalEventsForUser({
     userId,
-    includeTasks: true as const,
+    includeTasks: true,
     from,
     to,
     includeUndated,
     author: query.author,
     authorLayerKey: query.authorLayerKey,
-  }
-
-  const { items: openItems } = await listTemporalEventsForUser({
-    ...listBase,
-    status: 'open',
-  })
-
-  const { items: allItems } = await listTemporalEventsForUser({
-    ...listBase,
     status: 'all',
   })
 
+  const openItems = allItems.filter((item) => item.lifecycleStatus === 'open')
   const todoToday = filterOpenTodoTodayItems(openItems, now, timeZone)
 
   return {
-    completionsThisWeek: completionsThisWeek.length,
+    completionsThisWeek,
     streakDays,
     overdueDebtMinutes: overdueDebtMinutes(openItems, now),
     overdueCount: priorDayOverdueCount(openItems, timeZone, now),

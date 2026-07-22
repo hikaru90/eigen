@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { computeTimelineStatsForUser } from './timeline-stats'
+import { computeStreakDaysFromCompletions, computeTimelineStatsForUser } from './timeline-stats'
 
 const { getDbMock, listTemporalEventsForUserMock, getUserPreferredTimezoneMock } = vi.hoisted(
   () => ({
@@ -62,15 +62,18 @@ describe('computeTimelineStatsForUser', () => {
       select: vi.fn(() => makeAwaitableChain([])),
     })
 
-    listTemporalEventsForUserMock
-      .mockResolvedValueOnce({
-        items: [priorDayOverdue, taskItem],
-      })
-      .mockResolvedValueOnce({ items: [] })
+    // Single list call with status=all; open items derived in-process
+    listTemporalEventsForUserMock.mockResolvedValueOnce({
+      items: [priorDayOverdue, taskItem],
+    })
 
     const stats = await computeTimelineStatsForUser('u1')
     expect(stats.overdueCount).toBe(1)
     expect(stats.todoTodayCount).toBe(2)
+    expect(listTemporalEventsForUserMock).toHaveBeenCalledTimes(1)
+    expect(listTemporalEventsForUserMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'all' }),
+    )
   })
 
   it('counts prior-day overdue in todoTodayCount when nothing is scheduled today', async () => {
@@ -89,12 +92,37 @@ describe('computeTimelineStatsForUser', () => {
       select: vi.fn(() => makeAwaitableChain([])),
     })
 
-    listTemporalEventsForUserMock
-      .mockResolvedValueOnce({ items: [priorDayOverdue] })
-      .mockResolvedValueOnce({ items: [] })
+    listTemporalEventsForUserMock.mockResolvedValueOnce({ items: [priorDayOverdue] })
 
     const stats = await computeTimelineStatsForUser('u1')
     expect(stats.overdueCount).toBe(1)
     expect(stats.todoTodayCount).toBe(1)
+    expect(listTemporalEventsForUserMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds DB round-trips: no per-day streak loop (≤4 selects)', async () => {
+    const selectMock = vi.fn(() => makeAwaitableChain([]))
+    getDbMock.mockReturnValue({ select: selectMock })
+    listTemporalEventsForUserMock.mockResolvedValueOnce({ items: [] })
+
+    await computeTimelineStatsForUser('u1')
+
+    // Completions week (events + tasks) + streak window (events + tasks) = 4 max.
+    // Must not be 2 + (30 * up to 2) per-day loops.
+    expect(selectMock.mock.calls.length).toBeLessThanOrEqual(4)
+    expect(selectMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('computes consecutive streak days from completion timestamps', () => {
+    const now = new Date('2026-07-22T15:00:00.000Z')
+    const day = (offset: number) => {
+      const d = new Date(now)
+      d.setDate(now.getDate() - offset)
+      d.setHours(10, 0, 0, 0)
+      return d
+    }
+    expect(computeStreakDaysFromCompletions([day(0), day(1), day(2)], now)).toBe(3)
+    expect(computeStreakDaysFromCompletions([day(0), day(2)], now)).toBe(1)
+    expect(computeStreakDaysFromCompletions([], now)).toBe(0)
   })
 })

@@ -15,7 +15,12 @@ export const TIMELINE_MOUNT_FETCH_BUDGET = {
 
 /**
  * Store subscribe fires immediately with the current value. Mount already loads
- * lists in `onMount`, so the initial subscribe must not refetch.
+ * lists in `onMount`, so the initial subscribe must not refetch when `previous`
+ * is null (caller has not yet seeded the mount-fetch view).
+ *
+ * Callers that seed `previous` with the view used for the mount fetch will
+ * refetch when localStorage / store value differs (e.g. mount used `user`,
+ * store holds `all`).
  */
 export function shouldRefetchForViewChange(
   previous: CurrentUserView | null,
@@ -23,6 +28,34 @@ export function shouldRefetchForViewChange(
 ): boolean {
   if (previous === null) return false
   return previous !== next
+}
+
+export type TimelineFilterChangeKind = 'status' | 'dateRange' | 'dataView' | 'orderBy'
+
+export type TimelineFilterFetchPlan = {
+  loadEvents: boolean
+  loadOverdue: boolean
+  loadDone: boolean
+  loadStats: boolean
+}
+
+/**
+ * Decides which server fetches a filter change requires.
+ * `status` ("Show completed") is applied client-side — zero server fetches.
+ */
+export function planFilterChangeFetches(
+  kind: TimelineFilterChangeKind,
+  options: { nowSegment: 'todo' | 'done' | 'overdue' },
+): TimelineFilterFetchPlan {
+  if (kind === 'status') {
+    return { loadEvents: false, loadOverdue: false, loadDone: false, loadStats: false }
+  }
+  return {
+    loadEvents: true,
+    loadOverdue: options.nowSegment === 'overdue',
+    loadDone: options.nowSegment === 'done',
+    loadStats: true,
+  }
 }
 
 /**

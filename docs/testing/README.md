@@ -22,9 +22,11 @@ Architecture map: [docs/repo-map/index.md](../repo-map/index.md). Product requir
 ```mermaid
 flowchart LR
   unit[Unit Vitest]
+  components[Component browser Vitest]
   e2e[Playwright E2E]
   evals[Q&A evals UI]
   unit -->|merge gate CI| merge[PR merge]
+  components -->|merge gate CI| merge
   e2e -->|operator local| ship[Release confidence]
   evals -->|operator /eval| ship
 ```
@@ -47,7 +49,20 @@ Run a slice while fixing:
 npm run test:unit -- src/lib/server/capture/service.spec.ts
 ```
 
-### 2. Playwright E2E — **operator-owned (not CI merge gate today)**
+### 2. Component browser tests (Vitest + Playwright) — **merge-blocking**
+
+- Config: [vitest.browser.config.ts](../../vitest.browser.config.ts) — kept out of `test:unit` for speed.
+- Provider: `@vitest/browser-playwright` + `vitest-browser-svelte`.
+- Needs Chromium: `npx playwright install chromium` (CI installs with `--with-deps`).
+- Script runs `scripts/patch-vitest-browser-iframeid.mjs` first so absolute paths containing `+` (e.g. local `+Code/`) work with Vitest’s browser iframe query params.
+- Current merge-gate include: `smoke.svelte.spec.ts` + `temporal-timeline-filters-panel.svelte.spec.ts`. Other `*.svelte.spec.ts` files remain excluded from this job until `$app/*` stubs / locator updates land.
+
+```bash
+npm run test:components          # merge-gate browser component specs once
+npm run test:components:watch    # watch mode
+```
+
+### 3. Playwright E2E — **operator-owned (not CI merge gate today)**
 
 ```bash
 npm run test:e2e                      # full Playwright suite (needs local stack)
@@ -56,7 +71,7 @@ npm run test:e2e:release:headed       # headed release smoke
 
 Requires Docker/Postgres and app env; see [README.md](../../README.md).
 
-### 3. Q&A evals — **operator-owned via `/eval` UI**
+### 4. Q&A evals — **operator-owned via `/eval` UI**
 
 Do **not** treat CLI eval scripts as the agent’s verification path. After eval-related code changes, run **unit** harness specs only; the operator validates end-to-end from the UI:
 
@@ -70,7 +85,7 @@ Scripts `eval`, `eval:smoke`, `eval:all`, etc. exist in `package.json` for opera
 
 | Workflow                                                                                   | What it runs                                                                                                                                    |
 | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`.github/workflows/test-coverage.yml`](../../.github/workflows/test-coverage.yml)         | **Required:** `lint` → `check` → `test:unit`. **Reported:** `test:coverage` with `CI=true` (`continue-on-error` until tier thresholds are met). |
+| [`.github/workflows/test-coverage.yml`](../../.github/workflows/test-coverage.yml)         | **Required:** `lint` → `check` → `test:unit`; **Component browser tests** → `test:components`. **Reported:** `test:coverage` with `CI=true` (`continue-on-error` until tier thresholds are met). |
 | [`.github/workflows/oss-secrets-guard.yml`](../../.github/workflows/oss-secrets-guard.yml) | `assert:oss-secrets` + its unit spec                                                                                                            |
 
 If `test` / `test:unit` / `test:coverage` scripts are missing from `package.json`, CI and local workflows are broken — restore them; do not treat the suite as optional.

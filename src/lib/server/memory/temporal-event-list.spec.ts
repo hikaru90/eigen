@@ -36,28 +36,48 @@ describe('listTemporalEventsForUser author filter', () => {
     vi.clearAllMocks()
   })
 
-  it('queries temporal events and task thoughts when author is user', async () => {
-    const eventWhereSpy = vi.fn()
-    const taskEventWhereSpy = vi.fn()
-    const taskThoughtWhereSpy = vi.fn()
-    const projectWhereSpy = vi.fn()
+  function mockListSelects(spies: {
+    eventWhere: ReturnType<typeof vi.fn>
+    taskWhere: ReturnType<typeof vi.fn>
+    projectWhere?: ReturnType<typeof vi.fn>
+  }) {
     let selectCall = 0
-
     getDbMock.mockImplementation(() => ({
       select: vi.fn(() => {
         selectCall += 1
         if (selectCall === 1) {
-          return makeSelectChain(eventWhereSpy, [])
+          return makeSelectChain(spies.eventWhere, [])
         }
         if (selectCall === 2) {
-          return makeSelectChain(taskEventWhereSpy, [])
+          const limit = vi.fn(async () => [])
+          const orderBy = vi.fn(() => ({ limit }))
+          const where = spies.taskWhere.mockImplementation(() => ({
+            orderBy,
+            limit,
+            then(
+              onFulfilled: (value: unknown) => unknown,
+              onRejected?: (error: unknown) => unknown,
+            ) {
+              return Promise.resolve([]).then(onFulfilled, onRejected)
+            },
+          }))
+          return {
+            from: vi.fn(() => ({
+              leftJoin: vi.fn(() => ({ where })),
+              where,
+            })),
+          }
         }
-        if (selectCall === 3) {
-          return makeSelectChain(taskThoughtWhereSpy, [])
-        }
-        return makeSelectChain(projectWhereSpy, [])
+        return makeSelectChain(spies.projectWhere ?? vi.fn(), [])
       }),
     }))
+    return () => selectCall
+  }
+
+  it('queries temporal events and task thoughts when author is user', async () => {
+    const eventWhere = vi.fn()
+    const taskWhere = vi.fn()
+    mockListSelects({ eventWhere, taskWhere })
 
     await listTemporalEventsForUser({
       userId: 'u1',
@@ -66,32 +86,14 @@ describe('listTemporalEventsForUser author filter', () => {
       author: 'user',
     })
 
-    expect(eventWhereSpy).toHaveBeenCalled()
-    expect(taskEventWhereSpy).toHaveBeenCalled()
-    expect(taskThoughtWhereSpy).toHaveBeenCalled()
+    expect(eventWhere).toHaveBeenCalled()
+    expect(taskWhere).toHaveBeenCalled()
   })
 
   it('queries without author constraint when author is omitted', async () => {
-    const eventWhereSpy = vi.fn()
-    const taskEventWhereSpy = vi.fn()
-    const taskThoughtWhereSpy = vi.fn()
-    let selectCall = 0
-
-    getDbMock.mockImplementation(() => ({
-      select: vi.fn(() => {
-        selectCall += 1
-        if (selectCall === 1) {
-          return makeSelectChain(eventWhereSpy, [])
-        }
-        if (selectCall === 2) {
-          return makeSelectChain(taskEventWhereSpy, [])
-        }
-        if (selectCall === 3) {
-          return makeSelectChain(taskThoughtWhereSpy, [])
-        }
-        return makeSelectChain(vi.fn(), [])
-      }),
-    }))
+    const eventWhere = vi.fn()
+    const taskWhere = vi.fn()
+    mockListSelects({ eventWhere, taskWhere })
 
     await listTemporalEventsForUser({
       userId: 'u1',
@@ -99,31 +101,14 @@ describe('listTemporalEventsForUser author filter', () => {
       includeTasks: true,
     })
 
-    expect(eventWhereSpy).toHaveBeenCalled()
-    expect(taskThoughtWhereSpy).toHaveBeenCalled()
+    expect(eventWhere).toHaveBeenCalled()
+    expect(taskWhere).toHaveBeenCalled()
   })
 
   it('queries with authorLayerKey when provided', async () => {
-    const eventWhereSpy = vi.fn()
-    const taskEventWhereSpy = vi.fn()
-    const taskThoughtWhereSpy = vi.fn()
-    let selectCall = 0
-
-    getDbMock.mockImplementation(() => ({
-      select: vi.fn(() => {
-        selectCall += 1
-        if (selectCall === 1) {
-          return makeSelectChain(eventWhereSpy, [])
-        }
-        if (selectCall === 2) {
-          return makeSelectChain(taskEventWhereSpy, [])
-        }
-        if (selectCall === 3) {
-          return makeSelectChain(taskThoughtWhereSpy, [])
-        }
-        return makeSelectChain(vi.fn(), [])
-      }),
-    }))
+    const eventWhere = vi.fn()
+    const taskWhere = vi.fn()
+    mockListSelects({ eventWhere, taskWhere })
 
     await listTemporalEventsForUser({
       userId: 'u1',
@@ -132,8 +117,8 @@ describe('listTemporalEventsForUser author filter', () => {
       authorLayerKey: 'apikey:key-1',
     })
 
-    expect(eventWhereSpy).toHaveBeenCalled()
-    expect(taskThoughtWhereSpy).toHaveBeenCalled()
+    expect(eventWhere).toHaveBeenCalled()
+    expect(taskWhere).toHaveBeenCalled()
   })
 })
 
@@ -182,5 +167,61 @@ describe('listTemporalEventsForUser absolute from/to', () => {
     })
 
     expect(eventWhereSpy).toHaveBeenCalled()
+  })
+
+  it('merges tasks without an unbounded temporal_event thoughtId preload', async () => {
+    const eventWhereSpy = vi.fn()
+    const taskWhereSpy = vi.fn()
+    const projectWhereSpy = vi.fn()
+    let selectCall = 0
+    const leftJoins: unknown[] = []
+
+    getDbMock.mockImplementation(() => ({
+      select: vi.fn(() => {
+        selectCall += 1
+        if (selectCall === 1) {
+          return makeSelectChain(eventWhereSpy, [])
+        }
+        if (selectCall === 2) {
+          // Task thoughts: leftJoin temporal_event + isNull — no prior thoughtId dump
+          const limit = vi.fn(async () => [])
+          const orderBy = vi.fn(() => ({ limit }))
+          const where = taskWhereSpy.mockImplementation(() => ({
+            orderBy,
+            limit,
+            then(
+              onFulfilled: (value: unknown) => unknown,
+              onRejected?: (error: unknown) => unknown,
+            ) {
+              return Promise.resolve([]).then(onFulfilled, onRejected)
+            },
+          }))
+          return {
+            from: vi.fn(() => ({
+              leftJoin: vi.fn((...args: unknown[]) => {
+                leftJoins.push(args)
+                return { where }
+              }),
+              where,
+            })),
+          }
+        }
+        return makeSelectChain(projectWhereSpy, [])
+      }),
+    }))
+
+    await listTemporalEventsForUser({
+      userId: 'u1',
+      status: 'open',
+      includeTasks: true,
+      from: '2026-07-14T00:00:00.000Z',
+      to: '2026-07-20T23:59:59.999Z',
+      includeUndated: true,
+    })
+
+    // Events + tasks anti-join; project-links select is skipped when thoughtIds empty
+    expect(selectCall).toBe(2)
+    expect(leftJoins.length).toBe(1)
+    expect(taskWhereSpy).toHaveBeenCalled()
   })
 })

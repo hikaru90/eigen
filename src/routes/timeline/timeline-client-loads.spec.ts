@@ -7,6 +7,7 @@ import {
   classifyTemporalEventsFetch,
   findMountFetchBudgetViolations,
   isTimelineStatsFetch,
+  planFilterChangeFetches,
   shouldFetchTimelineStats,
   shouldRefetchForViewChange,
 } from './timeline-client-loads'
@@ -18,11 +19,54 @@ function readTimeline(relative: string): string {
 }
 
 describe('timeline client load policy', () => {
-  it('skips refetch on the initial currentUserView subscribe', () => {
+  it('skips refetch on the initial currentUserView subscribe when null previous', () => {
     expect(shouldRefetchForViewChange(null, 'user')).toBe(false)
     expect(shouldRefetchForViewChange('user', 'user')).toBe(false)
     expect(shouldRefetchForViewChange('user', 'all')).toBe(true)
     expect(shouldRefetchForViewChange('all', 'user')).toBe(true)
+  })
+
+  it('refetches when first subscribe differs from the view used for mount fetch', () => {
+    // Mount fetched with default 'user'; localStorage holds 'all'
+    expect(shouldRefetchForViewChange('user', 'all')).toBe(true)
+    // Mount fetched with default 'user'; store echoes 'user' — no refetch
+    expect(shouldRefetchForViewChange('user', 'user')).toBe(false)
+  })
+
+  it('statusFilter toggles issue zero server fetches (client-side only)', () => {
+    expect(planFilterChangeFetches('status', { nowSegment: 'todo' })).toEqual({
+      loadEvents: false,
+      loadOverdue: false,
+      loadDone: false,
+      loadStats: false,
+    })
+    expect(planFilterChangeFetches('status', { nowSegment: 'overdue' })).toEqual({
+      loadEvents: false,
+      loadOverdue: false,
+      loadDone: false,
+      loadStats: false,
+    })
+  })
+
+  it('date-range / data-view / order changes load list + stats once (not overdue/done unless active)', () => {
+    expect(planFilterChangeFetches('dateRange', { nowSegment: 'todo' })).toEqual({
+      loadEvents: true,
+      loadOverdue: false,
+      loadDone: false,
+      loadStats: true,
+    })
+    expect(planFilterChangeFetches('dataView', { nowSegment: 'overdue' })).toEqual({
+      loadEvents: true,
+      loadOverdue: true,
+      loadDone: false,
+      loadStats: true,
+    })
+    expect(planFilterChangeFetches('orderBy', { nowSegment: 'done' })).toEqual({
+      loadEvents: true,
+      loadOverdue: false,
+      loadDone: true,
+      loadStats: true,
+    })
   })
 
   it('fetches timeline stats only on mount and explicit reload keys', () => {
@@ -94,6 +138,17 @@ describe('timeline client load wiring contract', () => {
     expect(events).toContain('onMount(')
     expect(events).toContain('void loadStats()')
     expect(events).toContain('shouldRefetchForViewChange')
+  })
+
+  it('wires planFilterChangeFetches and seeds previousView from mount dataView', () => {
+    const events = readTimeline('temporal-events.svelte')
+    expect(events).toContain('planFilterChangeFetches')
+    expect(events).toContain('null = dataView')
+    expect(events).toMatch(/function setStatusFilter[\s\S]*?statusFilter\s*=\s*next/)
+    // statusFilter must not call the full server fan-out
+    expect(events).toMatch(
+      /function setStatusFilter\(next: TemporalStatusFilter\) \{\s*statusFilter = next\s*\}/,
+    )
   })
 
   it('keeps segment tabs presentational (parent owns stats fetch)', () => {

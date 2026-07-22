@@ -45,3 +45,7 @@ evals/datasets/retrieval/embeddings.cache.json
 
 # opencode
 opencode.json
+
+# Vitest browser failure artifacts
+.vitest-attachments/
+**/__screenshots__/
