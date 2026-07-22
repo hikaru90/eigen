@@ -117,17 +117,20 @@ export async function waitForThoughtEnrichment(input: {
         )
         logEval(`enrichment kick complete: ${target.id}`)
       })
+      // Re-poll immediately; if the short test timeout already elapsed, the next
+      // iteration must throw without sleeping a full POLL_INTERVAL.
       continue
     }
 
-    if (elapsed >= timeoutMs) {
+    const elapsedAfterWork = Date.now() - pollStart
+    if (elapsedAfterWork >= timeoutMs) {
       throw new Error(
         `[eval] enrichment timeout after ${timeoutMs}ms — ${missing.length} thought(s) ` +
           `never received entities: ${missing.map((t) => t.id).join(', ')}`,
       )
     }
 
-    const remaining = timeoutMs - elapsed
+    const remaining = timeoutMs - elapsedAfterWork
     await new Promise((r) => setTimeout(r, Math.min(POLL_INTERVAL_MS, remaining)))
   }
 }

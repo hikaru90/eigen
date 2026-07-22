@@ -1,10 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   appendVoiceTranscript,
+  audioUploadExtension,
   parseTranscribeErrorResponse,
   transcribeRecordedAudio,
   transcribeAudioChunk,
 } from './transcribe-audio'
+
+describe('audioUploadExtension', () => {
+  it('maps wav MIME to .wav (not default .webm)', () => {
+    expect(audioUploadExtension('audio/wav')).toBe('wav')
+    expect(audioUploadExtension('audio/wave')).toBe('wav')
+  })
+
+  it('maps webm and ogg', () => {
+    expect(audioUploadExtension('audio/webm;codecs=opus')).toBe('webm')
+    expect(audioUploadExtension('audio/ogg')).toBe('ogg')
+  })
+})
 
 describe('appendVoiceTranscript', () => {
   it('appends transcript to a non-empty draft with a single space', () => {
@@ -57,6 +70,15 @@ describe('transcribe-audio client', () => {
     )
     const body = fetchMock.mock.calls[0]?.[1]?.body
     expect(body).toBeInstanceOf(FormData)
+    expect((body as FormData).get('audio')).toBeInstanceOf(File)
+    expect(((body as FormData).get('audio') as File).name).toBe('recording.webm')
+  })
+
+  it('uploads wav recordings with a .wav filename', async () => {
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' })
+    await transcribeRecordedAudio(blob)
+    const body = vi.mocked(fetch).mock.calls[0]?.[1]?.body as FormData
+    expect((body.get('audio') as File).name).toBe('recording.wav')
   })
 
   it('parseTranscribeErrorResponse reads json error', async () => {

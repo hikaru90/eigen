@@ -44,8 +44,11 @@ export async function installVoiceCaptureMocks(page: Page): Promise<void> {
       window.AudioContext = MockAudioContext as typeof AudioContext
 
       class FakeMediaRecorder extends EventTarget {
-        static isTypeSupported() {
-          return true
+        static isTypeSupported(mimeType?: string) {
+          // Release fixture is WAV — do not claim webm/opus support or the UI
+          // labels WAV bytes as webm and STT returns empty / errors.
+          if (!mimeType) return true
+          return mimeType.includes('wav') || mimeType.includes('wave')
         }
 
         mimeType: string
@@ -158,8 +161,11 @@ export async function exerciseVoiceCaptureUi(
 
   await mic.click()
   await expect(stopMic).toBeVisible()
+  // Let the mock recorder settle (startRecording is async through getUserMedia).
+  await expect(stopMic).toHaveAttribute('aria-pressed', 'true')
   await stopMic.click()
 
+  let lastValue: string | null = null
   await expect
     .poll(
       async () => {
@@ -171,9 +177,13 @@ export async function exerciseVoiceCaptureUi(
           throw new Error(message ? `Voice capture failed: ${message}` : 'Voice capture failed')
         }
         const value = await page.locator('#thought').inputValue()
-        return value.trim().length > 0 ? value : null
+        const trimmed = value.trim()
+        lastValue = trimmed.length > 0 ? value : null
+        return lastValue
       },
       { timeout: timeoutMs, intervals: [500, 1000, 2000] },
     )
-    .toMatch(/release|voice|smoke|capture|test/i)
+    .not.toBeNull()
+
+  expect(lastValue, 'voice capture left #thought empty').toMatch(/release|voice|smoke|capture|test/i)
 }

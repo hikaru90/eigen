@@ -129,11 +129,17 @@
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/webm')
           ? 'audio/webm'
-          : ''
+          : MediaRecorder.isTypeSupported('audio/wav')
+            ? 'audio/wav'
+            : ''
       recorderMimeType = preferredMime || 'audio/webm'
       const recorder = preferredMime
         ? new MediaRecorder(mediaStream, { mimeType: preferredMime })
         : new MediaRecorder(mediaStream)
+      // Prefer the recorder's reported MIME (mock fixtures may be WAV).
+      if (recorder.mimeType?.trim()) {
+        recorderMimeType = recorder.mimeType
+      }
       recorder.ondataavailable = (ev) => {
         if (ev.data.size > 0) {
           chunks.push(ev.data)

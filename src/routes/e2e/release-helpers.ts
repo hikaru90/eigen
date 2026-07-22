@@ -1425,12 +1425,22 @@ export async function exerciseNotesShoppingListAppend(page: Page): Promise<void>
   })
 
   await page.getByRole('button', { name: 'New note', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible({ timeout: RELEASE_WAIT_MS })
-  await dialog.locator('#create-title').fill(noteTitle)
-  await dialog.locator('#create-body').fill(initialBody)
-  await dialog.getByRole('button', { name: 'New note', exact: true }).click()
-  await expect(dialog).toBeHidden({ timeout: RELEASE_WAIT_MS })
+  const createDialog = page.getByRole('dialog').filter({
+    has: page.locator('#create-title'),
+  })
+  await expect(createDialog).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await createDialog.locator('#create-title').fill(noteTitle)
+  await createDialog.locator('#create-body').fill(initialBody)
+  await createDialog.getByRole('button', { name: 'New note', exact: true }).click()
+  // Create dialog closes; product then opens the edit drawer for the new note.
+  await expect(createDialog).toBeHidden({ timeout: RELEASE_WAIT_MS })
+  const editDrawer = page.getByRole('dialog').filter({
+    has: page.locator('#note-title'),
+  })
+  await expect(editDrawer).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await expect(editDrawer.locator('#note-title')).toHaveValue(noteTitle)
+  await page.keyboard.press('Escape')
+  await expect(editDrawer).toBeHidden({ timeout: RELEASE_WAIT_MS })
   await expect(page.getByRole('button', { name: new RegExp(noteTitle, 'i') }).first()).toBeVisible({
     timeout: RELEASE_WAIT_MS,
   })

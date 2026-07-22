@@ -4,6 +4,19 @@ export type TranscribeAudioOptions = {
 }
 
 /**
+ * File extension for multipart upload from a Blob MIME type.
+ * Must match the bytes (e.g. WAV fixture must not be labeled `.webm`).
+ */
+export function audioUploadExtension(mimeType: string): 'webm' | 'ogg' | 'wav' | 'mp4' {
+  const type = mimeType.toLowerCase()
+  if (type.includes('webm')) return 'webm'
+  if (type.includes('ogg')) return 'ogg'
+  if (type.includes('wav') || type.includes('wave')) return 'wav'
+  if (type.includes('mp4') || type.includes('m4a') || type.includes('aac')) return 'mp4'
+  return 'webm'
+}
+
+/**
  * Combines a pre-existing draft with a voice transcript by appending the
  * transcript to the draft — audio capture must not overwrite text the user
  * already typed. Both sides are trimmed and separated by a single space.
@@ -41,7 +54,7 @@ export async function transcribeRecordedAudio(
   options?: TranscribeAudioOptions,
 ): Promise<string> {
   const formData = new FormData()
-  const ext = blob.type.includes('webm') ? 'webm' : blob.type.includes('ogg') ? 'ogg' : 'webm'
+  const ext = audioUploadExtension(blob.type)
   formData.append('audio', blob, `recording.${ext}`)
   if (options?.language?.trim()) {
     formData.append('language', options.language.trim().toLowerCase())
@@ -74,7 +87,7 @@ export async function transcribeAudioChunk(
   options?: TranscribeAudioOptions,
 ): Promise<string> {
   const formData = new FormData()
-  const ext = chunk.type.includes('webm') ? 'webm' : chunk.type.includes('ogg') ? 'ogg' : 'webm'
+  const ext = audioUploadExtension(chunk.type)
   formData.append('audio', chunk, `chunk.${ext}`)
   if (options?.language?.trim()) {
     formData.append('language', options.language.trim().toLowerCase())
