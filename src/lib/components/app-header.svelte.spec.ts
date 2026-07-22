@@ -34,11 +34,20 @@ describe('app-header.svelte', () => {
     expect(gotoMock).toHaveBeenCalledWith('/login', { invalidateAll: true })
   })
 
-  it('renders a Feedback menu entry linking to /feedback', async () => {
+  it('renders a Give us Feedback menu entry linking to /feedback', async () => {
     render(AppHeader)
     await page.getByLabelText('Account menu').click()
-    const feedbackLink = page.getByRole('link', { name: 'Feedback' })
+    const feedbackLink = page.getByRole('link', { name: 'Give us Feedback' })
     await expect.element(feedbackLink).toBeInTheDocument()
     await expect.element(feedbackLink).toHaveAttribute('href', '/feedback')
+
+    const logOut = page.getByRole('button', { name: 'Log out' })
+    const feedbackEl = feedbackLink.element()
+    const logOutEl = logOut.element()
+    expect(
+      Boolean(
+        logOutEl.compareDocumentPosition(feedbackEl) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true)
   })
 })

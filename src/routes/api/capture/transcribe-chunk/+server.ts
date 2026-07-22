@@ -9,8 +9,13 @@ import { transcribeAudio } from '$lib/server/llm/stt-client'
 
 const LANGUAGE_PATTERN = /^[a-z]{2}$/
 
-/** Max size for a single streaming chunk (~2s webm/opus ≈ 20–40 KB). */
-const CHUNK_MAX_AUDIO_BYTES = 512 * 1024
+/**
+ * Max size for a streaming partial. The scheduler sends the **cumulative** audio
+ * blob on every partial (not a single 2 s slice), so this must match the final
+ * upload ceiling in {@link STT_MAX_AUDIO_BYTES} — otherwise longer recordings
+ * 400 out once the cumulative blob outgrows a per-slice cap.
+ */
+const CHUNK_MAX_AUDIO_BYTES = STT_MAX_AUDIO_BYTES
 
 export const POST: RequestHandler = async (event) => {
   const user = event.locals.user

@@ -10,6 +10,7 @@ const {
   loadGroundingProfileRowMock,
   canSendGroundingPushTodayMock,
   recordGroundingPushSentMock,
+  queueEmailMock,
 } = vi.hoisted(() => ({
   isCheckInQuestionDueMock: vi.fn(),
   listPushSubscriptionsForUserMock: vi.fn(),
@@ -18,6 +19,7 @@ const {
   loadGroundingProfileRowMock: vi.fn(),
   canSendGroundingPushTodayMock: vi.fn(),
   recordGroundingPushSentMock: vi.fn(),
+  queueEmailMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/grounding/question-due', () => ({
@@ -34,6 +36,10 @@ vi.mock('$lib/server/grounding/next-check-in', () => ({
 
 vi.mock('$lib/server/push/send', () => ({
   sendPushToUser: sendPushToUserMock,
+}))
+
+vi.mock('$lib/server/notify/notification-email', () => ({
+  queueNotificationEmail: queueEmailMock,
 }))
 
 vi.mock('$lib/server/grounding/profile', () => ({
@@ -58,6 +64,7 @@ describe('maybeNotifyGroundingQuestionPush', () => {
     listPushSubscriptionsForUserMock.mockResolvedValue([{ id: 'sub1' }])
     generateCheckInQuestionMock.mockResolvedValue(SAMPLE_QUESTION)
     sendPushToUserMock.mockResolvedValue({ sent: 1, failed: 0, removed: 0, errors: [] })
+    queueEmailMock.mockResolvedValue(undefined)
     loadGroundingProfileRowMock.mockResolvedValue(null)
     canSendGroundingPushTodayMock.mockReturnValue(true)
     recordGroundingPushSentMock.mockResolvedValue(undefined)
@@ -72,6 +79,12 @@ describe('maybeNotifyGroundingQuestionPush', () => {
     await maybeNotifyGroundingQuestionPush('u1', 10)
 
     expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
+      title: 'Improve capture quality',
+      body: 'What kind of work do you do?',
+      url: '/capture?checkin=1',
+      tag: GROUNDING_CHECK_IN_TAG,
+    })
+    expect(queueEmailMock).toHaveBeenCalledWith('u1', {
       title: 'Improve capture quality',
       body: 'What kind of work do you do?',
       url: '/capture?checkin=1',
@@ -155,6 +168,7 @@ describe('maybeNotifyGroundingQuestionPush', () => {
 
     expect(sendPushToUserMock).toHaveBeenCalledTimes(1)
     expect(recordGroundingPushSentMock).not.toHaveBeenCalled()
+    expect(queueEmailMock).not.toHaveBeenCalled()
   })
 
   it('does not re-send when called again at the same milestone after the due gate blocks', async () => {

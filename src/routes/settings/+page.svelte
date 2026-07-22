@@ -454,18 +454,6 @@
       graphRearrangeBusy = false
     }
   }
-
-  function confirmQualityChange(event: SubmitEvent) {
-    const formElement = event.currentTarget as HTMLFormElement
-    const selectedQuality =
-      new FormData(formElement).get('preferredTranscriptionQuality')?.toString() ?? 'low'
-    if (selectedQuality === data.preferredTranscriptionQuality) return
-    const selectedOption = data.qualityOptions.find((option) => option.value === selectedQuality)
-    const message = `This may download about ${selectedOption?.sizeMb ?? 0} MB for ${selectedOption?.label ?? 'selected'} quality (${selectedOption?.model ?? ''}). Please confirm you are not on mobile data. Continue?`
-    if (!window.confirm(message)) {
-      event.preventDefault()
-    }
-  }
 </script>
 
 <div class="mx-auto max-w-2xl space-y-6 px-5 pb-10 pt-16">
@@ -581,7 +569,7 @@
         <div>
           <h2 class="text-sm font-semibold">Speech</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">
-            Transcription language and on-device model quality.
+            Transcription language for speech input.
           </p>
         </div>
       </div>
@@ -611,46 +599,6 @@
             </Button>
             {#if form?.settingsMessage}
               <p class="text-muted-foreground text-xs">{form.settingsMessage}</p>
-            {/if}
-          </form>
-        </Card.Content>
-      </Card.Root>
-
-      <Card.Root>
-        <Card.Header class="pb-3">
-          <Card.Title class="text-sm">Speech recognition quality</Card.Title>
-          <Card.Description>Low = faster/smaller, High = larger/better accuracy.</Card.Description>
-        </Card.Header>
-        <Card.Content class="pt-0">
-          <form
-            method="post"
-            action="?/updateQuality"
-            use:enhance
-            onsubmit={confirmQualityChange}
-            class="space-y-2"
-          >
-            <div class="space-y-1">
-              <Label for="quality">Quality level</Label>
-              <select
-                id="quality"
-                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-                name="preferredTranscriptionQuality"
-              >
-                {#each data.qualityOptions as option (option.value)}
-                  <option
-                    value={option.value}
-                    selected={option.value === data.preferredTranscriptionQuality}
-                  >
-                    {option.label} ({option.sizeMb} MB)
-                  </option>
-                {/each}
-              </select>
-            </div>
-            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]"
-              >Save quality</Button
-            >
-            {#if form?.qualityMessage}
-              <p class="text-muted-foreground text-xs">{form.qualityMessage}</p>
             {/if}
           </form>
         </Card.Content>

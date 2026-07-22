@@ -3,6 +3,23 @@ export type TranscribeAudioOptions = {
   signal?: AbortSignal
 }
 
+/**
+ * Combines a pre-existing draft with a voice transcript by appending the
+ * transcript to the draft — audio capture must not overwrite text the user
+ * already typed. Both sides are trimmed and separated by a single space.
+ * Returns the draft unchanged when the transcript is empty, and the transcript
+ * alone when the draft is empty. Streaming partials are cumulative (the full
+ * running transcript, not a delta), so this is recomputed from the original
+ * draft on every partial — no duplication.
+ */
+export function appendVoiceTranscript(draft: string, transcript: string): string {
+  const text = transcript.trim()
+  if (!text) return draft
+  const base = draft.trimEnd()
+  if (!base) return text
+  return `${base} ${text}`
+}
+
 export async function parseTranscribeErrorResponse(res: Response): Promise<string> {
   let serverMessage = ''
   try {

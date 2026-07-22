@@ -31,17 +31,34 @@ describe('MCP tool registry exposure', () => {
     expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES)
   })
 
-  it('gives the in-app chat agent thought CRUD plus text-note tools', () => {
-    expect(MCP_AGENT_TOOL_NAMES).toEqual([...MCP_CLIENT_EXPOSED_TOOL_NAMES, ...TEXT_NOTE_TOOLS])
+  it('gives the in-app chat agent thought CRUD, grounded Q&A, plus text-note tools', () => {
+    expect(MCP_AGENT_TOOL_NAMES).toEqual([
+      'capture_thought',
+      'answer_question',
+      'retrieve_thoughts',
+      'edit_thought',
+      'delete_thought',
+      ...TEXT_NOTE_TOOLS,
+    ])
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)
   })
 
   it('does not register removed chat-only tools', () => {
     expect(MCP_AGENT_TOOL_NAMES).not.toContain('list_thoughts')
-    expect(MCP_AGENT_TOOL_NAMES).not.toContain('answer_question')
     expect(MCP_AGENT_TOOL_NAMES).not.toContain('set_status')
     expect(MCP_AGENT_TOOL_NAMES).not.toContain('list_temporal_events')
     expect(MCP_AGENT_TOOL_NAMES).not.toContain('manage_temporal_event')
+  })
+
+  it('keeps answer_question chat-only (not HTTP MCP)', () => {
+    expect(MCP_AGENT_TOOL_NAMES).toContain('answer_question')
+    expect(isAgentTool('answer_question')).toBe(true)
+    expect(isMcpExposedTool('answer_question')).toBe(false)
+    const def = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'answer_question')
+    expect(def?.exposeInMcp).toBe(false)
+    expect(def?.description).toMatch(/retrieving relevant thoughts/i)
+    expect(def?.description).toMatch(/grounded answer/i)
+    expect(def?.inputSchema).toMatchObject({ required: ['question'] })
   })
 
   it('keeps text-note tools chat-only (not HTTP MCP)', () => {
@@ -59,10 +76,10 @@ describe('MCP tool registry exposure', () => {
 
     expect(isAgentTool('capture_thought')).toBe(true)
     expect(isAgentTool('retrieve_thoughts')).toBe(true)
+    expect(isAgentTool('answer_question')).toBe(true)
     expect(isAgentTool('create_text_file')).toBe(true)
     expect(isAgentTool('delete_text_file')).toBe(true)
     expect(isAgentTool('list_thoughts')).toBe(false)
-    expect(isAgentTool('answer_question')).toBe(false)
     expect(isAgentTool('nope')).toBe(false)
   })
 

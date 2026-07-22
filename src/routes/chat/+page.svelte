@@ -22,6 +22,7 @@
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import Square from '@lucide/svelte/icons/square'
   import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import ChatTimelineStep from '$lib/components/chat-timeline-step.svelte'
   import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
   import ChatMarkdown from '$lib/components/chat-markdown.svelte'
@@ -480,6 +481,8 @@
    */
   const inputEpoch: InputEpoch = createInputEpoch()
   let recordEpoch = 0
+  /** Draft text present when the current recording started; transcripts append to it. */
+  let voiceBaseText = ''
 
   async function send() {
     const text = input.trim()
@@ -804,13 +807,16 @@
             disabled={loading || loadingSession}
             bind:stopRef={voiceStopFn}
             onstart={() => {
+              voiceBaseText = input
               recordEpoch = bumpInputEpoch(inputEpoch)
             }}
             ontranscript={(text) => {
-              if (isFreshTranscript(inputEpoch, recordEpoch)) syncChatDraft(text)
+              if (isFreshTranscript(inputEpoch, recordEpoch))
+                syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
             }}
             onpartialtranscript={(text) => {
-              if (isFreshTranscript(inputEpoch, recordEpoch)) syncChatDraft(text)
+              if (isFreshTranscript(inputEpoch, recordEpoch))
+                syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
             }}
             onerror={(message) => {
               console.error('voice input failed', message)

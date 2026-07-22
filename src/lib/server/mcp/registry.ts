@@ -1,4 +1,5 @@
 import {
+  runAnswerQuestionTool,
   runAppendTextFileTool,
   runCaptureThoughtTool,
   runCreateTextFileTool,
@@ -71,6 +72,37 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"raw": "string (required)", "captured_at": "string (optional ISO-8601)", "as_user": "boolean (optional — true for human capture)", "author": "string (optional — rarely needed; MCP key labels automatically)"}',
     handler: runCaptureThoughtTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('capture_thought'),
+  },
+  {
+    name: 'answer_question',
+    description:
+      'Answer a question by retrieving relevant thoughts and composing a grounded answer with citations. Defaults to user-authored memories only; pass author=all or include_agent=true to include agent/API-key captures.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string' },
+        top_k: { type: 'number' },
+        reference_time: {
+          type: 'string',
+          description: 'Optional ISO-8601 reference time for temporal validity (defaults to now).',
+        },
+        author: {
+          type: 'string',
+          enum: ['user', 'agent', 'all'],
+          description:
+            'Whose memories to search. Default user (human captures). agent = API-key captures only. all = no author filter.',
+        },
+        include_agent: {
+          type: 'boolean',
+          description: 'When true, same as author=all (ignored if author is set).',
+        },
+      },
+      required: ['question'],
+    },
+    agentArgumentSchema:
+      '{"question": "string (required)", "top_k": "number (optional)", "reference_time": "string (optional ISO-8601) — as-of time for temporal questions", "author": "user|agent|all (optional, default user)", "include_agent": "boolean (optional — shorthand for author=all)"}',
+    handler: runAnswerQuestionTool,
+    exposeInMcp: false,
   },
   {
     name: 'retrieve_thoughts',

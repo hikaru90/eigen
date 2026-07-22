@@ -21,6 +21,7 @@ vi.mock('@modelcontextprotocol/sdk/types.js', () => ({
 
 vi.mock('./tools', () => ({
   runCaptureThoughtTool: runCaptureThoughtToolMock,
+  runAnswerQuestionTool: vi.fn(),
   runEditThoughtTool: vi.fn(),
   runDeleteThoughtTool: vi.fn(),
   runRetrieveThoughtsTool: runSearchThoughtsToolMock,

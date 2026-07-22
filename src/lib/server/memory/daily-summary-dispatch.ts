@@ -8,6 +8,7 @@ import {
 import { listDailySummaryCandidates } from '$lib/server/memory/notification-dispatch-admin'
 import { localDayKey } from '$lib/server/memory/timeline-today-server'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { queueNotificationEmail } from '$lib/server/notify/notification-email'
 import { sendPushToUser } from '$lib/server/push/send'
 
 export type DispatchDailySummariesResult = {
@@ -73,6 +74,12 @@ export async function dispatchDueDailySummaries(
         if (pushResult.sent < 1) {
           throw new Error('Push delivery failed: no device accepted the notification')
         }
+        await queueNotificationEmail(row.userId, {
+          title: push.title,
+          body: push.body,
+          url: push.url,
+          tag: `daily-summary-${todayKey}`,
+        })
         await getDb()
           .update(userPreference)
           .set({

@@ -6,6 +6,7 @@ import {
   type DueEventReminderRow,
 } from '$lib/server/memory/notification-dispatch-admin'
 import { getUserEventNotificationPrefs } from '$lib/server/memory/user-timezone'
+import { queueNotificationEmail } from '$lib/server/notify/notification-email'
 import { sendPushToUser } from '$lib/server/push/send'
 
 const CATCHUP_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -93,6 +94,7 @@ async function dispatchOneEventReminder(
 
   try {
     await sendPushToUser(row.userId, { title, body, url, tag })
+    await queueNotificationEmail(row.userId, { title, body, url, tag })
     await markSchedule(row.scheduleId, 'sent')
     result.sent += 1
   } catch (err) {

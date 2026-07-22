@@ -4,6 +4,7 @@ import { archiveThoughtForUser } from '$lib/server/memory/lifecycle'
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
 import { searchThoughts } from '$lib/server/retrieval/service'
+import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
@@ -317,6 +318,45 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
     resultCount: filtered.length,
   })
   return out
+}
+
+export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const question = typeof body.question === 'string' ? body.question.trim() : ''
+  if (!question) {
+    throw new Error('question is required')
+  }
+  const topK = typeof body.top_k === 'number' ? body.top_k : undefined
+  const referenceTime = parseOptionalIsoTimestamp(body.reference_time, 'reference_time')
+  const authorFilter = parseAuthorScope(body)
+  const answerStart = Date.now()
+  console.info('[mcp.tool:answer_question] start', { question, topK: topK ?? null })
+  const result = await composeAnswer({
+    userId: context.userId,
+    question,
+    ...(topK != null ? { topK } : {}),
+    ...(referenceTime ? { referenceTime } : {}),
+    ...(authorFilter ? { authorFilter } : {}),
+    onProgress: async (phase) => {
+      const labels: Record<string, string> = {
+        embedding: 'Embedding your question…',
+        searching: 'Searching your memories…',
+        composing: 'Composing answer from matches…',
+      }
+      console.info('[mcp.tool:answer_question] progress', { phase })
+      context.onToolProgress?.({
+        tool: 'answer_question',
+        phase,
+        label: labels[phase] ?? 'Working…',
+      })
+    },
+  })
+  console.info('[mcp.tool:answer_question] done', {
+    durationMs: Date.now() - answerStart,
+    citationCount: result.citations.length,
+    retrievedCount: result.retrieved.length,
+  })
+  return sanitizeMcpToolResult(result)
 }
 
 export async function runDeleteThoughtTool(context: McpToolContext, args: unknown) {

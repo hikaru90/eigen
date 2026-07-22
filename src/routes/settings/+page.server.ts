@@ -30,28 +30,12 @@ const LANGUAGE_OPTIONS = [
 
 const LANGUAGE_VALUES = new Set(LANGUAGE_OPTIONS.map((option) => option.value))
 
-const QUALITY_OPTIONS = [
-  { value: 'low', label: 'Low', model: 'whisper-tiny', sizeMb: 64 },
-  { value: 'medium', label: 'Medium', model: 'whisper-base', sizeMb: 136 },
-  { value: 'high', label: 'High', model: 'whisper-small', sizeMb: 510 },
-] as const
-
-const QUALITY_VALUES = new Set(QUALITY_OPTIONS.map((option) => option.value))
-
 const normalizeLanguage = (value: string) => {
   const code = value.trim().toLowerCase()
   if (LANGUAGE_VALUES.has(code as (typeof LANGUAGE_OPTIONS)[number]['value'])) {
     return code as (typeof LANGUAGE_OPTIONS)[number]['value']
   }
   return 'en'
-}
-
-const normalizeQuality = (value: string) => {
-  const quality = value.trim().toLowerCase()
-  if (QUALITY_VALUES.has(quality as (typeof QUALITY_OPTIONS)[number]['value'])) {
-    return quality as (typeof QUALITY_OPTIONS)[number]['value']
-  }
-  return 'low'
 }
 
 const getSafeErrorMessage = (error: unknown, fallback: string) => {
@@ -73,7 +57,6 @@ export const load: PageServerLoad = async (event) => {
     .select({
       preferredLanguage: userPreference.preferredLanguage,
       preferredUiLocale: userPreference.preferredUiLocale,
-      preferredTranscriptionQuality: userPreference.preferredTranscriptionQuality,
       preferredTimezone: userPreference.preferredTimezone,
       preferredTimezoneOffsetMinutes: userPreference.preferredTimezoneOffsetMinutes,
       eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
@@ -94,7 +77,6 @@ export const load: PageServerLoad = async (event) => {
     user: event.locals.user,
     preferredLanguage: pref?.preferredLanguage ?? 'en',
     preferredUiLocale: pref?.preferredUiLocale ?? 'en',
-    preferredTranscriptionQuality: pref?.preferredTranscriptionQuality ?? 'low',
     preferredTimezoneOffsetMinutes: offsetMinutesForUiPreference(
       pref?.preferredTimezone,
       pref?.preferredTimezoneOffsetMinutes ?? null,
@@ -103,7 +85,6 @@ export const load: PageServerLoad = async (event) => {
     eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
     languageOptions: LANGUAGE_OPTIONS,
     uiLocaleOptions: UI_LOCALE_OPTIONS,
-    qualityOptions: QUALITY_OPTIONS,
     pushSubscriptionCount: pushRows.length,
     dailySummaryEnabled: pref?.dailySummaryEnabled ?? false,
     dailySummaryTimeLocal: formatMinutesLocal(pref?.dailySummaryMinutesLocal ?? 480),
@@ -162,37 +143,6 @@ export const actions: Actions = {
     } catch (error) {
       return fail(400, {
         settingsMessage: getSafeErrorMessage(error, 'Unable to save language preference.'),
-      })
-    }
-  },
-
-  updateQuality: async (event) => {
-    if (!event.locals.user) {
-      return fail(401, { qualityMessage: 'You must be signed in.' })
-    }
-
-    const formData = await event.request.formData()
-    const preferredTranscriptionQuality = normalizeQuality(
-      formData.get('preferredTranscriptionQuality')?.toString() ?? '',
-    )
-    const qualityOption = QUALITY_OPTIONS.find(
-      (option) => option.value === preferredTranscriptionQuality,
-    )
-
-    try {
-      await getDb()
-        .insert(userPreference)
-        .values({ userId: event.locals.user.id, preferredTranscriptionQuality })
-        .onConflictDoUpdate({
-          target: userPreference.userId,
-          set: { preferredTranscriptionQuality, updatedAt: new Date() },
-        })
-      return {
-        qualityMessage: `Speech recognition quality set to ${qualityOption?.label ?? 'Low'} (${qualityOption?.sizeMb ?? 64} MB).`,
-      }
-    } catch (error) {
-      return fail(400, {
-        qualityMessage: getSafeErrorMessage(error, 'Unable to save quality preference.'),
       })
     }
   },

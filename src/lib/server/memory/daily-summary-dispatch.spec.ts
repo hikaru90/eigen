@@ -10,6 +10,7 @@ const {
   previewMock,
   sendPushMock,
   localDayKeyMock,
+  queueEmailMock,
 } = vi.hoisted(() => ({
   listCandidatesMock: vi.fn(),
   withDbUserMock: vi.fn(),
@@ -19,6 +20,7 @@ const {
   previewMock: vi.fn(),
   sendPushMock: vi.fn(),
   localDayKeyMock: vi.fn(() => '2026-01-01'),
+  queueEmailMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/notification-dispatch-admin', () => ({
@@ -47,6 +49,10 @@ vi.mock('$lib/server/push/send', () => ({
   sendPushToUser: sendPushMock,
 }))
 
+vi.mock('$lib/server/notify/notification-email', () => ({
+  queueNotificationEmail: queueEmailMock,
+}))
+
 describe('dispatchDueDailySummaries', () => {
   const updateWhere = vi.fn(async () => undefined)
   const updateSet = vi.fn(() => ({ where: updateWhere }))
@@ -65,6 +71,7 @@ describe('dispatchDueDailySummaries', () => {
       url: '/memory/timeline',
     })
     sendPushMock.mockResolvedValue({ sent: 1 })
+    queueEmailMock.mockResolvedValue(undefined)
     evaluateMock.mockReturnValue({ wouldDispatch: true })
 
     let selectCall = 0
@@ -125,6 +132,14 @@ describe('dispatchDueDailySummaries', () => {
     const result = await dispatchDueDailySummaries(new Date('2026-01-01T08:00:00.000Z'))
     expect(result.sent).toBe(1)
     expect(sendPushMock).toHaveBeenCalled()
+    expect(queueEmailMock).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({
+        title: 'Daily',
+        body: 'Summary',
+        url: '/memory/timeline',
+      }),
+    )
     expect(update).toHaveBeenCalled()
   })
 
@@ -141,6 +156,7 @@ describe('dispatchDueDailySummaries', () => {
     sendPushMock.mockResolvedValue({ sent: 0 })
     const result = await dispatchDueDailySummaries(new Date('2026-01-01T08:00:00.000Z'))
     expect(result.failed).toBe(1)
+    expect(queueEmailMock).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
 })

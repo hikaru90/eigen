@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { POST } from './+server'
+import { STT_MAX_AUDIO_BYTES } from '$lib/server/llm/stt-audio'
 
 const { transcribeAudioMock } = vi.hoisted(() => ({
   transcribeAudioMock: vi.fn(),
@@ -59,7 +60,7 @@ describe('POST /api/capture/transcribe-chunk', () => {
     await expect(
       POST({
         locals: { user: { id: 'u1' } },
-        request: multipartRequest({ audio: makeChunkFile(600 * 1024) }),
+        request: multipartRequest({ audio: makeChunkFile(STT_MAX_AUDIO_BYTES + 1) }),
       } as never),
     ).rejects.toMatchObject({ status: 400 })
   })

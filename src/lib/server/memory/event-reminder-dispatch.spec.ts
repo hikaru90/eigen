@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dispatchDueEventReminders } from './event-reminder-dispatch'
 
-const { listDueMock, withDbUserMock, getDbMock, prefsMock, sendPushMock } = vi.hoisted(() => ({
+const { listDueMock, withDbUserMock, getDbMock, prefsMock, sendPushMock, queueEmailMock } = vi.hoisted(() => ({
   listDueMock: vi.fn(),
   withDbUserMock: vi.fn(),
   getDbMock: vi.fn(),
   prefsMock: vi.fn(),
   sendPushMock: vi.fn(),
+  queueEmailMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/notification-dispatch-admin', () => ({
@@ -24,6 +25,10 @@ vi.mock('$lib/server/memory/user-timezone', () => ({
 
 vi.mock('$lib/server/push/send', () => ({
   sendPushToUser: sendPushMock,
+}))
+
+vi.mock('$lib/server/notify/notification-email', () => ({
+  queueNotificationEmail: queueEmailMock,
 }))
 
 function dueRow(overrides: Record<string, unknown> = {}) {
@@ -59,6 +64,7 @@ describe('dispatchDueEventReminders', () => {
     getDbMock.mockReturnValue({ select, update })
     prefsMock.mockResolvedValue({ eventNotificationsEnabled: true })
     sendPushMock.mockResolvedValue({ sent: 1 })
+    queueEmailMock.mockResolvedValue(undefined)
     selectLimit.mockResolvedValue([{ id: 'sub1' }])
     listDueMock.mockResolvedValue([])
   })
@@ -112,6 +118,13 @@ describe('dispatchDueEventReminders', () => {
         body: 'In 30 min · Dentist',
       }),
     )
+    expect(queueEmailMock).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({
+        title: 'Appointment',
+        body: 'In 30 min · Dentist',
+      }),
+    )
   })
 
   it('marks failed when push throws', async () => {
@@ -120,6 +133,7 @@ describe('dispatchDueEventReminders', () => {
     listDueMock.mockResolvedValue([dueRow()])
     const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
     expect(result.failed).toBe(1)
+    expect(queueEmailMock).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
 })

@@ -267,6 +267,7 @@ describe('chat-stream-types', () => {
     }
     expect(MCP_AGENT_TOOL_NAMES).toEqual([
       'capture_thought',
+      'answer_question',
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',

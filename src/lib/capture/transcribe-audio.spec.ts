@@ -1,9 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  appendVoiceTranscript,
   parseTranscribeErrorResponse,
   transcribeRecordedAudio,
   transcribeAudioChunk,
 } from './transcribe-audio'
+
+describe('appendVoiceTranscript', () => {
+  it('appends transcript to a non-empty draft with a single space', () => {
+    expect(appendVoiceTranscript('Foo', 'bar')).toBe('Foo bar')
+  })
+
+  it('returns the transcript alone when the draft is empty', () => {
+    expect(appendVoiceTranscript('', 'bar')).toBe('bar')
+    expect(appendVoiceTranscript('   ', 'bar')).toBe('bar')
+  })
+
+  it('returns the draft unchanged when the transcript is empty', () => {
+    expect(appendVoiceTranscript('Foo', '')).toBe('Foo')
+    expect(appendVoiceTranscript('Foo', '   ')).toBe('Foo')
+  })
+
+  it('collapses surrounding whitespace and avoids double spaces', () => {
+    expect(appendVoiceTranscript('Foo   ', '   bar')).toBe('Foo bar')
+  })
+
+  it('recomputes from the original draft on every cumulative partial (no duplication)', () => {
+    const draft = 'Foo'
+    expect(appendVoiceTranscript(draft, 'hello')).toBe('Foo hello')
+    expect(appendVoiceTranscript(draft, 'hello world')).toBe('Foo hello world')
+  })
+})
 
 describe('transcribe-audio client', () => {
   beforeEach(() => {

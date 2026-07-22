@@ -8,6 +8,7 @@ const {
   editThoughtMock,
   captureThoughtMock,
   createTextFileMock,
+  answerQuestionMock,
   getDbMock,
   mcpToolMap,
 } = vi.hoisted(() => {
@@ -16,12 +17,14 @@ const {
   const editThoughtMock = vi.fn()
   const captureThoughtMock = vi.fn()
   const createTextFileMock = vi.fn()
+  const answerQuestionMock = vi.fn()
   const mcpToolMap = new Map<string, typeof retrieveThoughtsMock>([
     ['retrieve_thoughts', retrieveThoughtsMock],
     ['delete_thought', deleteThoughtMock],
     ['edit_thought', editThoughtMock],
     ['capture_thought', captureThoughtMock],
     ['create_text_file', createTextFileMock],
+    ['answer_question', answerQuestionMock],
   ])
   return {
     llmChatCompletionMock: vi.fn(),
@@ -31,6 +34,7 @@ const {
     editThoughtMock,
     captureThoughtMock,
     createTextFileMock,
+    answerQuestionMock,
     getDbMock: vi.fn(),
     mcpToolMap,
   }
@@ -51,6 +55,7 @@ vi.mock('$lib/server/mcp/registry', () => ({
   MCP_AGENT_TOOL_NAMES: [
     'capture_thought',
     'retrieve_thoughts',
+    'answer_question',
     'edit_thought',
     'delete_thought',
     'create_text_file',
@@ -68,6 +73,7 @@ vi.mock('$lib/server/mcp/registry', () => ({
     [
       'capture_thought',
       'retrieve_thoughts',
+      'answer_question',
       'edit_thought',
       'delete_thought',
       'create_text_file',
@@ -108,6 +114,47 @@ describe('agentChat', () => {
     })
 
     expect(result.response).toBe('Hello from memory.')
+  })
+
+  it('returns answer_question results directly without another LLM turn', async () => {
+    answerQuestionMock.mockResolvedValue({
+      answer: 'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
+      citations: ['t1'],
+      retrieved: [],
+      conflicts: [],
+    })
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'What bread do I like?' } }),
+    )
+
+    const result = await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'What bread do I like?' }],
+    })
+
+    expect(answerQuestionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1' }),
+      { question: 'What bread do I like?' },
+    )
+    expect(result.response).toBe(
+      'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
+    )
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('mandates answer_question for memory questions in the system prompt', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmJson({ answer: 'ok' }))
+
+    await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'Where do I work?' }],
+    })
+
+    const system = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]
+    expect(system?.role).toBe('system')
+    expect(system?.content).toMatch(/answer_question/)
+    expect(system?.content).toMatch(/never answer a question from your own knowledge/i)
+    expect(system?.content).toMatch(/retrieve_thoughts is for browsing/i)
   })
 
   it('fails deterministically after repeated invalid model JSON', async () => {

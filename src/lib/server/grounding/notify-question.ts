@@ -11,6 +11,7 @@ import {
 } from '$lib/server/grounding/push-throttle'
 import { sendPushToUser } from '$lib/server/push/send'
 import { listPushSubscriptionsForUser } from '$lib/server/push/subscription'
+import { queueNotificationEmail } from '$lib/server/notify/notification-email'
 
 const CHECK_IN_CAPTURE_URL = '/capture?checkin=1'
 const GROUNDING_NOTIFY_TITLE = 'Improve capture quality'
@@ -53,6 +54,12 @@ export async function maybeNotifyGroundingQuestionPush(
         : 'Answer a quick question on Capture to improve classification.')
 
     await sendPushToUser(userId, {
+      title: isRelevance ? RELEVANCE_NOTIFY_TITLE : GROUNDING_NOTIFY_TITLE,
+      body: truncateBody(body),
+      url: CHECK_IN_CAPTURE_URL,
+      tag: GROUNDING_CHECK_IN_TAG,
+    })
+    await queueNotificationEmail(userId, {
       title: isRelevance ? RELEVANCE_NOTIFY_TITLE : GROUNDING_NOTIFY_TITLE,
       body: truncateBody(body),
       url: CHECK_IN_CAPTURE_URL,

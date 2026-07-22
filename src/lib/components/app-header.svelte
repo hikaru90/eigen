@@ -131,7 +131,7 @@
         align="end"
         side="bottom"
         sideOffset={4}
-        class="{GRAPH_FILTER_GLASS_POPOVER} w-48 gap-1.5 pt-2.5 pb-2.5 shadow-xl shadow-black/5 -mr-1"
+        class="{GRAPH_FILTER_GLASS_POPOVER} w-48 gap-1.5 overflow-hidden pt-2.5 pb-2 shadow-xl shadow-black/5 -mr-1"
       >
         <a
           href={resolve('/activity')}
@@ -139,13 +139,6 @@
         >
           <ActivityIcon class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
-        </a>
-        <a
-          href={resolve('/feedback')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
-        >
-          <MessageSquare class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
-          Feedback
         </a>
         <a
           href={resolve('/api-keys')}
@@ -222,6 +215,13 @@
           <LogOut class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Log out
         </button>
+        <a
+          href={resolve('/feedback')}
+          class="mt-1.5 flex items-center justify-center gap-2 rounded-[10px] shadow-xl shadow-green-400/40 mb-0.5 bg-[var(--color-eigen-green)] px-3 py-2.5 text-sm font-medium text-black hover:brightness-95 dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:brightness-95"
+        >
+          <MessageSquare class="size-3.5 shrink-0" strokeWidth={1.75} />
+          Give us Feedback
+        </a>
       </Popover.Content>
     </Popover.Root>
   </div>

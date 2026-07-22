@@ -8,6 +8,7 @@
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
+  import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import { enhance } from '$app/forms'
   import CaptureQueueList from '$lib/components/capture-queue-list.svelte'
   import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte'
@@ -191,6 +192,8 @@
   let raw = $state(pageInputDrafts.capture)
   let editRequest = $state('')
   let voiceStopFn = $state<(() => void) | undefined>(undefined)
+  /** Draft text present when the current recording started; transcripts append to it. */
+  let voiceBaseText = ''
   let recentThoughts = $state<CaptureRecentThoughtSnippet[]>(data.recentThoughts)
   let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
     Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought])),
@@ -813,11 +816,14 @@
             language={data.preferredLanguage}
             disabled={loading}
             bind:stopRef={voiceStopFn}
+            onstart={() => {
+              voiceBaseText = raw
+            }}
             ontranscript={(text) => {
-              syncCaptureDraft(text)
+              syncCaptureDraft(appendVoiceTranscript(voiceBaseText, text))
             }}
             onpartialtranscript={(text) => {
-              syncCaptureDraft(text)
+              syncCaptureDraft(appendVoiceTranscript(voiceBaseText, text))
             }}
             onerror={(message) => {
               err = message

@@ -15,6 +15,7 @@ const {
 
 vi.mock('$lib/server/mcp/tools', () => ({
   runCaptureThoughtTool: runCaptureThoughtToolMock,
+  runAnswerQuestionTool: vi.fn(),
   runRetrieveThoughtsTool: runRetrieveThoughtsToolMock,
   runEditThoughtTool: runEditThoughtToolMock,
   runDeleteThoughtTool: runDeleteThoughtToolMock,

@@ -31,6 +31,11 @@ export const CHAT_TOOL_PROGRESS_LABELS: Record<string, Record<string, string>> =
   retrieve_thoughts: {
     searching: 'Searching your memories…',
   },
+  answer_question: {
+    embedding: 'Embedding your question…',
+    searching: 'Searching your memories…',
+    composing: 'Composing answer from matches…',
+  },
 }
 
 export type ChatToolCategory = 'memory' | 'search' | 'compose' | 'write' | 'destructive'
@@ -46,6 +51,7 @@ export type ChatToolVisual = {
 export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
   capture_thought: { title: 'Saving to memory', category: 'write', icon: 'save' },
   retrieve_thoughts: { title: 'Searching your memories', category: 'search', icon: 'search' },
+  answer_question: { title: 'Answering your question', category: 'compose', icon: 'sparkles' },
   edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
   delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' },
   create_text_file: { title: 'Creating text note', category: 'write', icon: 'save' },
@@ -100,8 +106,8 @@ export function formatToolArgumentsSummary(
 ): string | null {
   if (!args || Object.keys(args).length === 0) return null
 
-  if (tool === 'retrieve_thoughts') {
-    const q = args.query
+  if (tool === 'retrieve_thoughts' || tool === 'answer_question') {
+    const q = tool === 'answer_question' ? args.question : args.query
     if (typeof q === 'string' && q.trim()) return q.trim()
   }
 

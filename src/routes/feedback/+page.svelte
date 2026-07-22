@@ -62,9 +62,10 @@
     </div>
     <div>
       <p class="text-muted-foreground text-xs">Feedback</p>
-      <h1 class="text-sm font-semibold">Send feedback</h1>
+      <h1 class="text-sm font-semibold">Help shape Eigen Mesh</h1>
       <p class="text-muted-foreground mt-0.5 text-xs">
-        Tell us what's working, what's broken, or what you wish Eigen did differently.
+        Eigen Mesh is in beta, and your feedback is invaluable. Tell us what works, what's broken, or
+        what you wish existed.
       </p>
     </div>
   </header>
@@ -73,7 +74,7 @@
     <Card.Header class="pb-3">
       <Card.Title class="text-sm">Your message</Card.Title>
       <Card.Description>
-        Your feedback is stored on your account ({data.user.email}) and helps shape the product.
+        Saved to your account ({data.user.email}). We read every note.
       </Card.Description>
     </Card.Header>
     <Card.Content class="space-y-3 pt-0">
@@ -83,7 +84,7 @@
           role="status"
         >
           <Check class="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-          <span>Thanks — your feedback was recorded.</span>
+          <span>Got it — thank you. This helps more than you know.</span>
         </div>
         <Button
           type="button"
@@ -92,7 +93,7 @@
           class="rounded-[4px]"
           onclick={resetToForm}
         >
-          Send another message
+          Send another note
         </Button>
       {:else}
         <form
@@ -108,7 +109,7 @@
               id="feedback-message"
               bind:value={message}
               maxlength={FEEDBACK_MAX_LENGTH}
-              placeholder="What's on your mind?"
+              placeholder="What works, what's broken, what you wish existed…"
               class="min-h-32"
               disabled={busy}
             />

@@ -19,6 +19,10 @@ import {
   formatToolResultForAgentMessage,
   formatToolResultPreview,
 } from '$lib/server/llm/agent-tool-result-compact'
+import {
+  formatComposedAnswerForUser,
+  type ComposedAnswer,
+} from '$lib/server/qa/compose-answer'
 
 const MAX_ITERATIONS = 8
 const MAX_PARSE_RETRIES = 3
@@ -49,7 +53,9 @@ export const AGENT_SYSTEM_PROMPT = [
   TOOL_DESCRIPTION_BLOCK,
   '',
   '=== RULES ===',
-  '- Questions about memories: retrieve_thoughts with a search query, then answer from the returned snippets (cite ids when helpful).',
+  '- Any question (how/what/when/who/why, any language): call answer_question — never answer a question from your own knowledge.',
+  '- retrieve_thoughts is for browsing/listing recent thoughts, not for answering questions.',
+  '- When unsure between capture and answer, prefer answer_question.',
   '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — never capture_thought for these (that stores a memory thought, not a Notes document).',
   '- Create a NEW note/list only: create_text_file with title and/or body (title-only is fine for an empty new list). Use create only when the user wants a fresh document, not when amending one that already exists.',
   '- Add / append / change content on a referenced note (e.g. "add milk to my shopping list"): search_text_files or list_text_files to find text_file_id, then append_text_file (or get_text_file + update_text_file for a full rewrite). Never create_text_file for additive requests on an existing named note/list.',
@@ -207,7 +213,10 @@ async function executeAgentToolCall(input: {
   tool: string
   arguments: Record<string, unknown>
   exec: ToolExecutionContext
-}): Promise<{ done: false; result: unknown; assistantContent: string }> {
+}): Promise<
+  | { done: true; response: string }
+  | { done: false; result: unknown; assistantContent: string }
+> {
   const { tool, exec } = input
   const args = normalizeAgentToolArgs(tool, input.arguments)
 
@@ -248,6 +257,19 @@ async function executeAgentToolCall(input: {
         .join(', '),
       durationMs: Date.now() - toolStart,
     })
+
+    if (
+      tool === 'answer_question' &&
+      result &&
+      typeof result === 'object' &&
+      'answer' in result &&
+      typeof (result as ComposedAnswer).answer === 'string'
+    ) {
+      return {
+        done: true,
+        response: formatComposedAnswerForUser((result as ComposedAnswer).answer),
+      }
+    }
   } catch (err) {
     console.error('[agent-loop] tool error', {
       tool,
@@ -377,6 +399,12 @@ export async function agentChat(input: {
       })
 
       parseFailureCount = 0
+      if (outcome.done) {
+        messages.push({ role: 'assistant', content })
+        messages.push({ role: 'assistant', content: outcome.response })
+        return { response: outcome.response, messages }
+      }
+
       messages.push({ role: 'assistant', content })
       messages.push({
         role: 'user',
