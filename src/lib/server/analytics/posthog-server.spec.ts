@@ -1,63 +1,63 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const { captureMock, captureExceptionMock, PostHogMock } = vi.hoisted(() => {
-	const captureMock = vi.fn();
-	const captureExceptionMock = vi.fn();
-	const PostHogMock = vi.fn(function PostHog(this: unknown) {
-		return {
-			capture: captureMock,
-			captureException: captureExceptionMock
-		};
-	});
-	return { captureMock, captureExceptionMock, PostHogMock };
-});
+  const captureMock = vi.fn()
+  const captureExceptionMock = vi.fn()
+  const PostHogMock = vi.fn(function PostHog(this: unknown) {
+    return {
+      capture: captureMock,
+      captureException: captureExceptionMock,
+    }
+  })
+  return { captureMock, captureExceptionMock, PostHogMock }
+})
 
 vi.mock('posthog-node', () => ({
-	PostHog: PostHogMock
-}));
+  PostHog: PostHogMock,
+}))
 
 vi.mock('$env/dynamic/private', () => ({
-	env: {
-		POSTHOG_API_KEY: '',
-		PUBLIC_POSTHOG_HOST: ''
-	}
-}));
+  env: {
+    POSTHOG_API_KEY: '',
+    PUBLIC_POSTHOG_HOST: '',
+  },
+}))
 
 describe('posthog-server', () => {
-	beforeEach(() => {
-		vi.resetModules();
-		captureMock.mockClear();
-		captureExceptionMock.mockClear();
-		PostHogMock.mockClear();
-	});
+  beforeEach(() => {
+    vi.resetModules()
+    captureMock.mockClear()
+    captureExceptionMock.mockClear()
+    PostHogMock.mockClear()
+  })
 
-	it('captureServerEvent is a no-op when POSTHOG_API_KEY is unset', async () => {
-		const { captureServerEvent } = await import('./posthog-server');
-		captureServerEvent({
-			distinctId: 'user-1',
-			event: 'billing_order_created',
-			properties: { amount_credits: 1000 }
-		});
-		expect(PostHogMock).not.toHaveBeenCalled();
-		expect(captureMock).not.toHaveBeenCalled();
-	});
+  it('captureServerEvent is a no-op when POSTHOG_API_KEY is unset', async () => {
+    const { captureServerEvent } = await import('./posthog-server')
+    captureServerEvent({
+      distinctId: 'user-1',
+      event: 'billing_order_created',
+      properties: { amount_credits: 1000 },
+    })
+    expect(PostHogMock).not.toHaveBeenCalled()
+    expect(captureMock).not.toHaveBeenCalled()
+  })
 
-	it('captureServerEvent sends events when POSTHOG_API_KEY is set', async () => {
-		const envModule = await import('$env/dynamic/private');
-		(envModule.env as unknown as { POSTHOG_API_KEY: string }).POSTHOG_API_KEY = 'phc_server_key';
-		const { captureServerEvent } = await import('./posthog-server');
-		captureServerEvent({
-			distinctId: 'user-1',
-			event: 'billing_order_created',
-			properties: { amount_credits: 5000 }
-		});
-		expect(PostHogMock).toHaveBeenCalledWith('phc_server_key', {
-			host: 'https://eu.i.posthog.com'
-		});
-		expect(captureMock).toHaveBeenCalledWith({
-			distinctId: 'user-1',
-			event: 'billing_order_created',
-			properties: { amount_credits: 5000 }
-		});
-	});
-});
+  it('captureServerEvent sends events when POSTHOG_API_KEY is set', async () => {
+    const envModule = await import('$env/dynamic/private')
+    ;(envModule.env as unknown as { POSTHOG_API_KEY: string }).POSTHOG_API_KEY = 'phc_server_key'
+    const { captureServerEvent } = await import('./posthog-server')
+    captureServerEvent({
+      distinctId: 'user-1',
+      event: 'billing_order_created',
+      properties: { amount_credits: 5000 },
+    })
+    expect(PostHogMock).toHaveBeenCalledWith('phc_server_key', {
+      host: 'https://eu.i.posthog.com',
+    })
+    expect(captureMock).toHaveBeenCalledWith({
+      distinctId: 'user-1',
+      event: 'billing_order_created',
+      properties: { amount_credits: 5000 },
+    })
+  })
+})

@@ -12,18 +12,20 @@ A new module that analyzes thought content to detect multi-step projects:
 - **Deduplication**: Checks for similar existing projects before creating
 
 Key features:
+
 ```typescript
 export async function detectAndCreateProjectFromThought(input: {
-  userId: string;
-  normalizedText: string;
-  memoryType: string | null;
-  category: string;
+  userId: string
+  normalizedText: string
+  memoryType: string | null
+  category: string
 }): Promise<string | null>
 ```
 
 ### 2. Integration into Enrichment Pipeline (`enrich.ts`)
 
 Added project detection as a new phase in the enrichment pipeline:
+
 - Runs after GTD assignment
 - Catches and logs errors without failing the entire enrichment
 - Uses the existing `ingestTimer` for performance tracking
@@ -31,8 +33,9 @@ Added project detection as a new phase in the enrichment pipeline:
 ### 3. Database Schema Update (`brain.schema.ts`)
 
 Added 'dismissed' status to ProjectStatus:
+
 ```typescript
-export const projectStatusValues = ['active', 'someday', 'completed', 'dismissed'] as const;
+export const projectStatusValues = ['active', 'someday', 'completed', 'dismissed'] as const
 ```
 
 ### 4. Project List Updates (`project-list.ts`)
@@ -43,11 +46,12 @@ export const projectStatusValues = ['active', 'someday', 'completed', 'dismissed
 ### 5. Dismiss API Endpoint (`/api/timeline/projects/[entityId]/dismiss`)
 
 New POST endpoint to dismiss a project:
+
 - Validates user authentication
 - Calls `dismissProject` function
 - Returns success/error response
 
-### 6. UI Updates (`TemporalEventsProjectsView.svelte`)
+### 6. UI Updates (`temporal-events-projects-view.svelte`)
 
 - Added dismiss button (X icon) on active projects
 - Added status label for dismissed projects
@@ -56,6 +60,7 @@ New POST endpoint to dismiss a project:
 ### 7. Ingest Phases Update (`ingest-phases.ts`)
 
 Added `project_detection` phase with UI copy:
+
 ```typescript
 project_detection: {
   title: 'Detecting projects',

@@ -6,10 +6,10 @@
 
 ## Sleep phases
 
-| Phase | Analog | Jobs |
-|-------|--------|------|
+| Phase         | Analog                            | Jobs                                                                                                                         |
+| ------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **DeepSleep** | Slow-wave / declarative + pruning | `salience_compute`, `ontology_prune`, `repair_canonical_entity_types`, `dedup_canonical_entities`, `repair_entity_relations` |
-| **REM** | Integration + procedural | `community_detection`, `community_summaries` |
+| **REM**       | Integration + procedural          | `community_detection`, `community_summaries`                                                                                 |
 
 Orchestrator: [`src/lib/server/consolidation/runner.ts`](../../src/lib/server/consolidation/runner.ts)
 
@@ -42,10 +42,10 @@ See [`docs/planning/community-summary-scaling.md`](../planning/community-summary
 
 ## Job queue tables
 
-| Table | Purpose |
-|-------|---------|
+| Table                 | Purpose                                                            |
+| --------------------- | ------------------------------------------------------------------ |
 | `user_scheduled_task` | Per-user schedule (`run_hour`, `run_minute`, `timezone`, `paused`) |
-| `user_job_queue` | Pending/running/completed work (`overnight_consolidation`, …) |
+| `user_job_queue`      | Pending/running/completed work (`overnight_consolidation`, …)      |
 
 Global ticker: [`src/lib/server/job-queue/ticker.ts`](../../src/lib/server/job-queue/ticker.ts) (started from [`hooks.server.ts`](../../src/hooks.server.ts)).
 

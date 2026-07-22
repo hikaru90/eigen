@@ -1,32 +1,32 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-	canonicalKeyFromSurface,
-	matchCanonicalEntitiesByEmbedding,
-	resolveOrCreateCanonicalEntity
-} from './entity-resolution';
+  canonicalKeyFromSurface,
+  matchCanonicalEntitiesByEmbedding,
+  resolveOrCreateCanonicalEntity,
+} from './entity-resolution'
 
 const { createThoughtEmbeddingMock, getDbMock, fetchEntityEdgesForUserMock } = vi.hoisted(() => ({
-	createThoughtEmbeddingMock: vi.fn(),
-	getDbMock: vi.fn(),
-	fetchEntityEdgesForUserMock: vi.fn()
-}));
+  createThoughtEmbeddingMock: vi.fn(),
+  getDbMock: vi.fn(),
+  fetchEntityEdgesForUserMock: vi.fn(),
+}))
 
 vi.mock('$lib/server/llm/embedding', () => ({
-	createThoughtEmbedding: createThoughtEmbeddingMock
-}));
+  createThoughtEmbedding: createThoughtEmbeddingMock,
+}))
 
 vi.mock('$lib/server/db', () => ({
-	getDb: getDbMock
-}));
+  getDb: getDbMock,
+}))
 
 vi.mock('$lib/server/graph/age', () => ({
-	fetchEntityEdgesForUser: fetchEntityEdgesForUserMock
-}));
+  fetchEntityEdgesForUser: fetchEntityEdgesForUserMock,
+}))
 
-const EMBEDDING_DIMENSIONS = 1536;
-const fakeEmbedding = (): number[] => new Array(EMBEDDING_DIMENSIONS).fill(0.001);
+const EMBEDDING_DIMENSIONS = 1536
+const fakeEmbedding = (): number[] => new Array(EMBEDDING_DIMENSIONS).fill(0.001)
 
-type SelectResult = unknown[] | (() => unknown[]) | { throw: unknown };
+type SelectResult = unknown[] | (() => unknown[]) | { throw: unknown }
 
 /**
  * Each entry in `selects` provides the rows returned by the next `db.select(...)`
@@ -41,490 +41,487 @@ type SelectResult = unknown[] | (() => unknown[]) | { throw: unknown };
  * is the `{ rows }` shape postgres-js returns, or `{ throw: err }`.
  */
 function buildDb(config: {
-	selects: SelectResult[];
-	inserts?: Array<unknown[] | 'void'>;
-	executes?: Array<{ rows: unknown[] } | { throw: unknown }>;
+  selects: SelectResult[]
+  inserts?: Array<unknown[] | 'void'>
+  executes?: Array<{ rows: unknown[] } | { throw: unknown }>
 }) {
-	let selectIdx = 0;
-	let insertIdx = 0;
-	let executeIdx = 0;
-	const insertCalls: Array<{ values: Record<string, unknown> }> = [];
+  let selectIdx = 0
+  let insertIdx = 0
+  let executeIdx = 0
+  const insertCalls: Array<{ values: Record<string, unknown> }> = []
 
-	const takeSelect = () => {
-		const next = config.selects[selectIdx] ?? [];
-		selectIdx += 1;
-		if (next && typeof next === 'object' && !Array.isArray(next) && 'throw' in next) {
-			throw next.throw;
-		}
-		return typeof next === 'function' ? next() : (next as unknown[]);
-	};
+  const takeSelect = () => {
+    const next = config.selects[selectIdx] ?? []
+    selectIdx += 1
+    if (next && typeof next === 'object' && !Array.isArray(next) && 'throw' in next) {
+      throw next.throw
+    }
+    return typeof next === 'function' ? next() : (next as unknown[])
+  }
 
-	const chainableSelect = () => {
-		const fromObj: Record<string, unknown> = {};
-		const whereAware = {
-			where: vi.fn(() => ({
-				limit: vi.fn(async () => takeSelect()),
-				orderBy: vi.fn(() => ({
-					limit: vi.fn(async () => takeSelect())
-				}))
-			}))
-		};
-		Object.assign(fromObj, whereAware, {
-			innerJoin: vi.fn(() => whereAware)
-		});
-		return {
-			from: vi.fn(() => fromObj)
-		};
-	};
+  const chainableSelect = () => {
+    const fromObj: Record<string, unknown> = {}
+    const whereAware = {
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => takeSelect()),
+        orderBy: vi.fn(() => ({
+          limit: vi.fn(async () => takeSelect()),
+        })),
+      })),
+    }
+    Object.assign(fromObj, whereAware, {
+      innerJoin: vi.fn(() => whereAware),
+    })
+    return {
+      from: vi.fn(() => fromObj),
+    }
+  }
 
-	return {
-		select: vi.fn(() => chainableSelect()),
-		insert: vi.fn(() => ({
-			values: vi.fn((values: Record<string, unknown>) => {
-				insertCalls.push({ values });
-				const next = config.inserts?.[insertIdx];
-				insertIdx += 1;
-				if (next === 'void' || next === undefined) {
-					return Promise.resolve();
-				}
-				return {
-					returning: vi.fn(async () => next)
-				};
-			})
-		})),
-		update: vi.fn(() => ({
-			set: vi.fn(() => ({
-				where: vi.fn(async () => ({ rowCount: 1 }))
-			}))
-		})),
-		execute: vi.fn(async () => {
-			const next = config.executes?.[executeIdx] ?? { rows: [] };
-			executeIdx += 1;
-			if ('throw' in next) throw next.throw;
-			return next;
-		}),
-		insertCalls
-	};
+  return {
+    select: vi.fn(() => chainableSelect()),
+    insert: vi.fn(() => ({
+      values: vi.fn((values: Record<string, unknown>) => {
+        insertCalls.push({ values })
+        const next = config.inserts?.[insertIdx]
+        insertIdx += 1
+        if (next === 'void' || next === undefined) {
+          return Promise.resolve()
+        }
+        return {
+          returning: vi.fn(async () => next),
+        }
+      }),
+    })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(async () => ({ rowCount: 1 })),
+      })),
+    })),
+    execute: vi.fn(async () => {
+      const next = config.executes?.[executeIdx] ?? { rows: [] }
+      executeIdx += 1
+      if ('throw' in next) throw next.throw
+      return next
+    }),
+    insertCalls,
+  }
 }
 
 describe('canonicalKeyFromSurface', () => {
-	it('NFKC-folds, lowercases, and collapses whitespace', () => {
-		expect(canonicalKeyFromSurface('  Sam   Smith  ')).toBe('sam smith');
-	});
-});
+  it('NFKC-folds, lowercases, and collapses whitespace', () => {
+    expect(canonicalKeyFromSurface('  Sam   Smith  ')).toBe('sam smith')
+  })
+})
 
 describe('resolveOrCreateCanonicalEntity', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		fetchEntityEdgesForUserMock.mockResolvedValue([]);
-	});
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchEntityEdgesForUserMock.mockResolvedValue([])
+  })
 
-	it('returns merged when canonical_key already matches', async () => {
-		const db = buildDb({
-			selects: [[{ id: 'e1', canonicalKey: 'sam', label: 'Sam' }]],
-			inserts: ['void']
-		});
-		getDbMock.mockReturnValue(db);
+  it('returns merged when canonical_key already matches', async () => {
+    const db = buildDb({
+      selects: [[{ id: 'e1', canonicalKey: 'sam', label: 'Sam' }]],
+      inserts: ['void'],
+    })
+    getDbMock.mockReturnValue(db)
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Sam',
-			entityType: 'person',
-			confidence: 0.9
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Sam',
+      entityType: 'person',
+      confidence: 0.9,
+    })
 
-		expect(out).toEqual({ entityId: 'e1', canonicalKey: 'sam', decision: 'merged' });
-		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
-		expect(db.insertCalls[0]?.values).toMatchObject({
-			canonicalEntityId: 'e1',
-			decision: 'merged',
-			metadata: { reason: 'canonical_key_match' }
-		});
-	});
+    expect(out).toEqual({ entityId: 'e1', canonicalKey: 'sam', decision: 'merged' })
+    expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
+    expect(db.insertCalls[0]?.values).toMatchObject({
+      canonicalEntityId: 'e1',
+      decision: 'merged',
+      metadata: { reason: 'canonical_key_match' },
+    })
+  })
 
-	it('returns merged when an alias matches the canonical key', async () => {
-		const db = buildDb({
-			selects: [
-				[], // canonical key lookup empty
-				[{ entityId: 'e2', canonicalKey: 'samuel' }] // alias lookup hits
-			],
-			inserts: ['void']
-		});
-		getDbMock.mockReturnValue(db);
+  it('returns merged when an alias matches the canonical key', async () => {
+    const db = buildDb({
+      selects: [
+        [], // canonical key lookup empty
+        [{ entityId: 'e2', canonicalKey: 'samuel' }], // alias lookup hits
+      ],
+      inserts: ['void'],
+    })
+    getDbMock.mockReturnValue(db)
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Sam',
-			entityType: 'person',
-			confidence: 0.5
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Sam',
+      entityType: 'person',
+      confidence: 0.5,
+    })
 
-		expect(out).toEqual({ entityId: 'e2', canonicalKey: 'samuel', decision: 'merged' });
-		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
-		expect(db.insertCalls[0]?.values).toMatchObject({
-			canonicalEntityId: 'e2',
-			decision: 'merged',
-			metadata: { reason: 'alias_match' }
-		});
-	});
+    expect(out).toEqual({ entityId: 'e2', canonicalKey: 'samuel', decision: 'merged' })
+    expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
+    expect(db.insertCalls[0]?.values).toMatchObject({
+      canonicalEntityId: 'e2',
+      decision: 'merged',
+      metadata: { reason: 'alias_match' },
+    })
+  })
 
-	it('merges via graph context when mention key exactly matches canonical key', async () => {
-		fetchEntityEdgesForUserMock.mockResolvedValue([
-			{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'located_in' }
-		]);
-		const db = buildDb({
-			selects: [
-				[], // canonical key
-				[], // alias
-				[{ id: 'e-samuel', canonicalKey: 'samuel', label: 'Samuel', entityType: 'person' }],
-				[] // aliasExists
-			],
-			inserts: ['void', 'void']
-		});
-		getDbMock.mockReturnValue(db);
+  it('merges via graph context when mention key exactly matches canonical key', async () => {
+    fetchEntityEdgesForUserMock.mockResolvedValue([
+      { sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'located_in' },
+    ])
+    const db = buildDb({
+      selects: [
+        [], // canonical key
+        [], // alias
+        [{ id: 'e-samuel', canonicalKey: 'samuel', label: 'Samuel', entityType: 'person' }],
+        [], // aliasExists
+      ],
+      inserts: ['void', 'void'],
+    })
+    getDbMock.mockReturnValue(db)
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Samuel',
-			entityType: 'person',
-			confidence: 0.4,
-			coMentionEntityIds: ['e-berlin']
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Samuel',
+      entityType: 'person',
+      confidence: 0.4,
+      coMentionEntityIds: ['e-berlin'],
+    })
 
-		expect(out).toEqual({ entityId: 'e-samuel', canonicalKey: 'samuel', decision: 'merged' });
-		expect(createThoughtEmbeddingMock).not.toHaveBeenCalled();
-		expect(db.insertCalls[1]?.values).toMatchObject({
-			decision: 'merged',
-			metadata: expect.objectContaining({ reason: 'graph_context_match' })
-		});
-	});
+    expect(out).toEqual({ entityId: 'e-samuel', canonicalKey: 'samuel', decision: 'merged' })
+    expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
+    expect(db.insertCalls[1]?.values).toMatchObject({
+      decision: 'merged',
+      metadata: expect.objectContaining({ reason: 'graph_context_match' }),
+    })
+  })
 
-	it('creates a new entity when graph neighbor lacks lexical overlap with the mention', async () => {
-		fetchEntityEdgesForUserMock.mockResolvedValue([
-			{ sourceId: 'e-hallo', targetId: 'e-annie', weight: 1, predicate: 'related_to' }
-		]);
-		const db = buildDb({
-			selects: [
-				[],
-				[],
-				[{ id: 'e-annie', canonicalKey: 'annie', label: 'annie', entityType: 'person' }]
-			],
-			inserts: [[{ id: 'new-alex', canonicalKey: 'alex' }], 'void', 'void']
-		});
-		getDbMock.mockReturnValue(db);
-		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+  it('creates a new entity when graph neighbor lacks lexical overlap with the mention', async () => {
+    fetchEntityEdgesForUserMock.mockResolvedValue([
+      { sourceId: 'e-hallo', targetId: 'e-annie', weight: 1, predicate: 'related_to' },
+    ])
+    const db = buildDb({
+      selects: [
+        [],
+        [],
+        [{ id: 'e-annie', canonicalKey: 'annie', label: 'annie', entityType: 'person' }],
+      ],
+      inserts: [[{ id: 'new-alex', canonicalKey: 'alex' }], 'void', 'void'],
+    })
+    getDbMock.mockReturnValue(db)
+    createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding())
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Alex',
-			entityType: 'person',
-			confidence: 0.9,
-			coMentionEntityIds: ['e-hallo']
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Alex',
+      entityType: 'person',
+      confidence: 0.9,
+      coMentionEntityIds: ['e-hallo'],
+    })
 
-		expect(out).toEqual({
-			entityId: 'new-alex',
-			canonicalKey: 'alex',
-			decision: 'created'
-		});
-		expect(createThoughtEmbeddingMock).toHaveBeenCalled();
-	});
+    expect(out).toEqual({
+      entityId: 'new-alex',
+      canonicalKey: 'alex',
+      decision: 'created',
+    })
+    expect(createThoughtEmbeddingMock).toHaveBeenCalled()
+  })
 
-	it('creates a new entity when graph candidates are ambiguous', async () => {
-		fetchEntityEdgesForUserMock.mockResolvedValue([
-			{ sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'related_to' },
-			{ sourceId: 'e-berlin', targetId: 'e-sammy', weight: 1, predicate: 'related_to' }
-		]);
-		const db = buildDb({
-			selects: [
-				[],
-				[],
-				[
-					{ id: 'e-samuel', canonicalKey: 'samuel', label: 'Samuel', entityType: 'person' },
-					{ id: 'e-sammy', canonicalKey: 'sammy', label: 'Sammy', entityType: 'person' }
-				]
-			],
-			inserts: [[{ id: 'new-1', canonicalKey: 'sam' }], 'void', 'void']
-		});
-		getDbMock.mockReturnValue(db);
-		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+  it('creates a new entity when graph candidates are ambiguous', async () => {
+    fetchEntityEdgesForUserMock.mockResolvedValue([
+      { sourceId: 'e-berlin', targetId: 'e-samuel', weight: 1, predicate: 'related_to' },
+      { sourceId: 'e-berlin', targetId: 'e-sammy', weight: 1, predicate: 'related_to' },
+    ])
+    const db = buildDb({
+      selects: [
+        [],
+        [],
+        [
+          { id: 'e-samuel', canonicalKey: 'samuel', label: 'Samuel', entityType: 'person' },
+          { id: 'e-sammy', canonicalKey: 'sammy', label: 'Sammy', entityType: 'person' },
+        ],
+      ],
+      inserts: [[{ id: 'new-1', canonicalKey: 'sam' }], 'void', 'void'],
+    })
+    getDbMock.mockReturnValue(db)
+    createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding())
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Sam',
-			entityType: 'person',
-			confidence: 0.4,
-			coMentionEntityIds: ['e-berlin']
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Sam',
+      entityType: 'person',
+      confidence: 0.4,
+      coMentionEntityIds: ['e-berlin'],
+    })
 
-		expect(out.decision).toBe('created');
-		expect(db.insertCalls[2]?.values).toMatchObject({
-			decision: 'created',
-			metadata: expect.objectContaining({ reason: 'ambiguous_graph_context_create_new' })
-		});
-	});
+    expect(out.decision).toBe('created')
+    expect(db.insertCalls[2]?.values).toMatchObject({
+      decision: 'created',
+      metadata: expect.objectContaining({ reason: 'ambiguous_graph_context_create_new' }),
+    })
+  })
 
-	it('creates instead of embedding-neighbor merge when graph context is absent', async () => {
-		const db = buildDb({
-			selects: [[], []],
-			inserts: [[{ id: 'new-1', canonicalKey: 'sam' }], 'void', 'void']
-		});
-		getDbMock.mockReturnValue(db);
-		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+  it('creates instead of embedding-neighbor merge when graph context is absent', async () => {
+    const db = buildDb({
+      selects: [[], []],
+      inserts: [[{ id: 'new-1', canonicalKey: 'sam' }], 'void', 'void'],
+    })
+    getDbMock.mockReturnValue(db)
+    createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding())
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Sam',
-			entityType: 'person',
-			confidence: 0.4
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Sam',
+      entityType: 'person',
+      confidence: 0.4,
+    })
 
-		expect(out.decision).toBe('created');
-		expect(db.insertCalls[2]?.values).toMatchObject({
-			metadata: { entityType: 'person' }
-		});
-	});
+    expect(out.decision).toBe('created')
+    expect(db.insertCalls[2]?.values).toMatchObject({
+      metadata: { entityType: 'person' },
+    })
+  })
 
-	it('creates a fresh canonical entity, alias, and log when nothing matches', async () => {
-		const db = buildDb({
-			selects: [
-				[], // canonical key
-				[] // alias
-			],
-			inserts: [[{ id: 'new-1', canonicalKey: 'fresh' }], 'void', 'void']
-		});
-		getDbMock.mockReturnValue(db);
-		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+  it('creates a fresh canonical entity, alias, and log when nothing matches', async () => {
+    const db = buildDb({
+      selects: [
+        [], // canonical key
+        [], // alias
+      ],
+      inserts: [[{ id: 'new-1', canonicalKey: 'fresh' }], 'void', 'void'],
+    })
+    getDbMock.mockReturnValue(db)
+    createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding())
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Fresh',
-			entityType: 'topic',
-			confidence: 1
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Fresh',
+      entityType: 'topic',
+      confidence: 1,
+    })
 
-		expect(out).toEqual({ entityId: 'new-1', canonicalKey: 'fresh', decision: 'created' });
-		expect(db.insertCalls[0]?.values).toMatchObject({
-			canonicalKey: 'fresh',
-			label: 'Fresh',
-			entityType: 'topic'
-		});
-		expect(db.insertCalls[1]?.values).toMatchObject({
-			canonicalEntityId: 'new-1',
-			aliasText: 'fresh'
-		});
-		expect(db.insertCalls[2]?.values).toMatchObject({
-			canonicalEntityId: 'new-1',
-			decision: 'created',
-			metadata: { entityType: 'topic' }
-		});
-	});
+    expect(out).toEqual({ entityId: 'new-1', canonicalKey: 'fresh', decision: 'created' })
+    expect(db.insertCalls[0]?.values).toMatchObject({
+      canonicalKey: 'fresh',
+      label: 'Fresh',
+      entityType: 'topic',
+    })
+    expect(db.insertCalls[1]?.values).toMatchObject({
+      canonicalEntityId: 'new-1',
+      aliasText: 'fresh',
+    })
+    expect(db.insertCalls[2]?.values).toMatchObject({
+      canonicalEntityId: 'new-1',
+      decision: 'created',
+      metadata: { entityType: 'topic' },
+    })
+  })
 
-	it('treats empty graph context as a create path', async () => {
-		const db = buildDb({
-			selects: [[], []],
-			inserts: [[{ id: 'new-2', canonicalKey: 'fresh' }], 'void', 'void']
-		});
-		getDbMock.mockReturnValue(db);
-		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+  it('treats empty graph context as a create path', async () => {
+    const db = buildDb({
+      selects: [[], []],
+      inserts: [[{ id: 'new-2', canonicalKey: 'fresh' }], 'void', 'void'],
+    })
+    getDbMock.mockReturnValue(db)
+    createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding())
 
-		const out = await resolveOrCreateCanonicalEntity({
-			userId: 'u1',
-			thoughtId: 't1',
-			surface: 'Fresh',
-			entityType: 'topic',
-			confidence: 0.3
-		});
+    const out = await resolveOrCreateCanonicalEntity({
+      userId: 'u1',
+      thoughtId: 't1',
+      surface: 'Fresh',
+      entityType: 'topic',
+      confidence: 0.3,
+    })
 
-		expect(out.decision).toBe('created');
-	});
+    expect(out.decision).toBe('created')
+  })
 
-	it('throws when canonical entity insert returns no row', async () => {
-		const db = buildDb({
-			selects: [[], []],
-			inserts: [[]]
-		});
-		getDbMock.mockReturnValue(db);
-		createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding());
+  it('throws when canonical entity insert returns no row', async () => {
+    const db = buildDb({
+      selects: [[], []],
+      inserts: [[]],
+    })
+    getDbMock.mockReturnValue(db)
+    createThoughtEmbeddingMock.mockResolvedValue(fakeEmbedding())
 
-		await expect(
-			resolveOrCreateCanonicalEntity({
-				userId: 'u1',
-				thoughtId: 't1',
-				surface: 'Fresh',
-				entityType: 'topic',
-				confidence: 0.3
-			})
-		).rejects.toThrow(/insert returned no row/);
-	});
-});
+    await expect(
+      resolveOrCreateCanonicalEntity({
+        userId: 'u1',
+        thoughtId: 't1',
+        surface: 'Fresh',
+        entityType: 'topic',
+        confidence: 0.3,
+      }),
+    ).rejects.toThrow(/insert returned no row/)
+  })
+})
 
 describe('matchCanonicalEntitiesByEmbedding', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
-	it('returns nearest neighbors clamped to bounded limit', async () => {
-		const db = buildDb({
-			selects: [
-				[
-					{ id: 'e1', label: 'A', distance: 0.1 },
-					{ id: 'e2', label: 'B', distance: 0.2 }
-				]
-			]
-		});
-		getDbMock.mockReturnValue(db);
+  it('returns nearest neighbors clamped to bounded limit', async () => {
+    const db = buildDb({
+      selects: [
+        [
+          { id: 'e1', label: 'A', distance: 0.1 },
+          { id: 'e2', label: 'B', distance: 0.2 },
+        ],
+      ],
+    })
+    getDbMock.mockReturnValue(db)
 
-		const out = await matchCanonicalEntitiesByEmbedding({
-			userId: 'u1',
-			embedding: fakeEmbedding(),
-			limit: 100
-		});
+    const out = await matchCanonicalEntitiesByEmbedding({
+      userId: 'u1',
+      embedding: fakeEmbedding(),
+      limit: 100,
+    })
 
-		expect(out).toEqual([
-			{ id: 'e1', label: 'A', distance: 0.1 },
-			{ id: 'e2', label: 'B', distance: 0.2 }
-		]);
-	});
+    expect(out).toEqual([
+      { id: 'e1', label: 'A', distance: 0.1 },
+      { id: 'e2', label: 'B', distance: 0.2 },
+    ])
+  })
 
-	it('clamps limit floor to 1 and filters non-numeric distances', async () => {
-		const db = buildDb({
-			selects: [
-				[
-					{ id: 'e1', label: 'A', distance: 0.1 },
-					{ id: 'e2', label: 'B', distance: 'oops' }
-				]
-			]
-		});
-		getDbMock.mockReturnValue(db);
+  it('clamps limit floor to 1 and filters non-numeric distances', async () => {
+    const db = buildDb({
+      selects: [
+        [
+          { id: 'e1', label: 'A', distance: 0.1 },
+          { id: 'e2', label: 'B', distance: 'oops' },
+        ],
+      ],
+    })
+    getDbMock.mockReturnValue(db)
 
-		const out = await matchCanonicalEntitiesByEmbedding({
-			userId: 'u1',
-			embedding: fakeEmbedding(),
-			limit: 0
-		});
+    const out = await matchCanonicalEntitiesByEmbedding({
+      userId: 'u1',
+      embedding: fakeEmbedding(),
+      limit: 0,
+    })
 
-		expect(out).toEqual([{ id: 'e1', label: 'A', distance: 0.1 }]);
-	});
+    expect(out).toEqual([{ id: 'e1', label: 'A', distance: 0.1 }])
+  })
 
-	it('rejects embeddings with non-finite values', async () => {
-		const bad = fakeEmbedding();
-		bad[0] = Number.NaN;
-		await expect(
-			matchCanonicalEntitiesByEmbedding({ userId: 'u1', embedding: bad, limit: 5 })
-		).rejects.toThrow(/finite numeric values/);
-	});
+  it('rejects embeddings with non-finite values', async () => {
+    const bad = fakeEmbedding()
+    bad[0] = Number.NaN
+    await expect(
+      matchCanonicalEntitiesByEmbedding({ userId: 'u1', embedding: bad, limit: 5 }),
+    ).rejects.toThrow(/finite numeric values/)
+  })
 
-	it('rejects embeddings with wrong dimensionality', async () => {
-		await expect(
-			matchCanonicalEntitiesByEmbedding({ userId: 'u1', embedding: [0.1, 0.2], limit: 5 })
-		).rejects.toThrow(/Invalid embedding vector length/);
-	});
+  it('rejects embeddings with wrong dimensionality', async () => {
+    await expect(
+      matchCanonicalEntitiesByEmbedding({ userId: 'u1', embedding: [0.1, 0.2], limit: 5 }),
+    ).rejects.toThrow(/Invalid embedding vector length/)
+  })
 
-	it('translates "missing relation" Postgres error into a migration-friendly message', async () => {
-		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-		const pgError = Object.assign(new Error('relation does not exist'), { code: '42P01' });
-		const db = buildDb({
-			selects: [{ throw: pgError }],
-			executes: [{ rows: [{ relname: null }] }]
-		});
-		getDbMock.mockReturnValue(db);
+  it('translates "missing relation" Postgres error into a migration-friendly message', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const pgError = Object.assign(new Error('relation does not exist'), { code: '42P01' })
+    const db = buildDb({
+      selects: [{ throw: pgError }],
+      executes: [{ rows: [{ relname: null }] }],
+    })
+    getDbMock.mockReturnValue(db)
 
-		await expect(
-			matchCanonicalEntitiesByEmbedding({
-				userId: 'u1',
-				embedding: fakeEmbedding(),
-				limit: 5
-			})
-		).rejects.toThrow(/Run database migrations/);
-		expect(consoleSpy).toHaveBeenCalled();
-		consoleSpy.mockRestore();
-	});
+    await expect(
+      matchCanonicalEntitiesByEmbedding({
+        userId: 'u1',
+        embedding: fakeEmbedding(),
+        limit: 5,
+      }),
+    ).rejects.toThrow(/Run database migrations/)
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
 
-	it('rethrows non-42P01 errors after logging diagnostics from existing relation', async () => {
-		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-		const pgError = Object.assign(new Error('dimension mismatch'), {
-			code: '22023',
-			detail: 'd',
-			hint: 'h',
-			where: 'w'
-		});
-		const db = buildDb({
-			selects: [{ throw: pgError }],
-			executes: [
-				{ rows: [{ relname: 'canonical_entity' }] },
-				{
-					rows: [
-						{
-							column_type: 'vector(1536)',
-							stored_dims: 1536,
-							non_null_embeddings: 7
-						}
-					]
-				}
-			]
-		});
-		getDbMock.mockReturnValue(db);
+  it('rethrows non-42P01 errors after logging diagnostics from existing relation', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const pgError = Object.assign(new Error('dimension mismatch'), {
+      code: '22023',
+      detail: 'd',
+      hint: 'h',
+      where: 'w',
+    })
+    const db = buildDb({
+      selects: [{ throw: pgError }],
+      executes: [
+        { rows: [{ relname: 'canonical_entity' }] },
+        {
+          rows: [
+            {
+              column_type: 'vector(1536)',
+              stored_dims: 1536,
+              non_null_embeddings: 7,
+            },
+          ],
+        },
+      ],
+    })
+    getDbMock.mockReturnValue(db)
 
-		await expect(
-			matchCanonicalEntitiesByEmbedding({
-				userId: 'u1',
-				embedding: fakeEmbedding(),
-				limit: 5
-			})
-		).rejects.toThrow(/dimension mismatch/);
-		consoleSpy.mockRestore();
-	});
+    await expect(
+      matchCanonicalEntitiesByEmbedding({
+        userId: 'u1',
+        embedding: fakeEmbedding(),
+        limit: 5,
+      }),
+    ).rejects.toThrow(/dimension mismatch/)
+    consoleSpy.mockRestore()
+  })
 
-	it('falls back to null diagnostic fields when the second execute returns an empty/sparse row', async () => {
-		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-		const pgError = Object.assign(new Error('boom'), { code: 'XX000' });
-		const db = buildDb({
-			selects: [{ throw: pgError }],
-			executes: [
-				{ rows: [{ relname: 'canonical_entity' }] },
-				{ rows: [] }
-			]
-		});
-		getDbMock.mockReturnValue(db);
+  it('falls back to null diagnostic fields when the second execute returns an empty/sparse row', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const pgError = Object.assign(new Error('boom'), { code: 'XX000' })
+    const db = buildDb({
+      selects: [{ throw: pgError }],
+      executes: [{ rows: [{ relname: 'canonical_entity' }] }, { rows: [] }],
+    })
+    getDbMock.mockReturnValue(db)
 
-		await expect(
-			matchCanonicalEntitiesByEmbedding({
-				userId: 'u1',
-				embedding: fakeEmbedding(),
-				limit: 5
-			})
-		).rejects.toThrow(/boom/);
-		const logged = consoleSpy.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
-		expect(logged?.columnType).toBeNull();
-		expect(logged?.storedDims).toBeNull();
-		expect(logged?.nonNullEmbeddings).toBeNull();
-		consoleSpy.mockRestore();
-	});
+    await expect(
+      matchCanonicalEntitiesByEmbedding({
+        userId: 'u1',
+        embedding: fakeEmbedding(),
+        limit: 5,
+      }),
+    ).rejects.toThrow(/boom/)
+    const logged = consoleSpy.mock.calls[0]?.[1] as Record<string, unknown> | undefined
+    expect(logged?.columnType).toBeNull()
+    expect(logged?.storedDims).toBeNull()
+    expect(logged?.nonNullEmbeddings).toBeNull()
+    consoleSpy.mockRestore()
+  })
 
-	it('survives diagnostic execute failures and still rethrows the original error', async () => {
-		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-		const pgError = Object.assign(new Error('boom'), { code: 'XX000' });
-		const db = buildDb({
-			selects: [{ throw: pgError }],
-			executes: [{ throw: new Error('diagnostic query failed') }]
-		});
-		getDbMock.mockReturnValue(db);
+  it('survives diagnostic execute failures and still rethrows the original error', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const pgError = Object.assign(new Error('boom'), { code: 'XX000' })
+    const db = buildDb({
+      selects: [{ throw: pgError }],
+      executes: [{ throw: new Error('diagnostic query failed') }],
+    })
+    getDbMock.mockReturnValue(db)
 
-		await expect(
-			matchCanonicalEntitiesByEmbedding({
-				userId: 'u1',
-				embedding: fakeEmbedding(),
-				limit: 5
-			})
-		).rejects.toThrow(/boom/);
-		consoleSpy.mockRestore();
-	});
-});
+    await expect(
+      matchCanonicalEntitiesByEmbedding({
+        userId: 'u1',
+        embedding: fakeEmbedding(),
+        limit: 5,
+      }),
+    ).rejects.toThrow(/boom/)
+    consoleSpy.mockRestore()
+  })
+})

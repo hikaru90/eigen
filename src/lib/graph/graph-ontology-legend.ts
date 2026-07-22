@@ -13,57 +13,57 @@
 
 /** Short copy for the graph legend header. */
 export const graphOntologyLegendIntro =
-	'Graph nodes use the same ontology kind keys for typing and colors. Edge kind is the connector shape; chips below are semantic types.';
+  'Graph nodes use the same ontology kind keys for typing and colors. Edge kind is the connector shape; chips below are semantic types.'
 
 /**
  * Brand palette — canonical color set used for all graph node fills.
  * Ordering alternates warm ↔ cool so consecutive legend chips contrast.
  */
 const BRAND_PALETTE = [
-	'#4100F5', // Klein Blue
-	'#FF4632', // Tangerine
-	'#AFF005', // Supernal Green
-	'#F037A5', // Fushia
-	'#0062E6', // Electric Blue
-	'#FF5511', // Bright Orange
-	'#9BF0E1', // Aquamarine
-	'#FFC107', // Golden Yellow
-	'#A7B6FF', // Soft Lavender/Blue
-	'#007E33', // Deep Forest Green
-	'#FE86B1', // Vibrant Pink
-	'#CDF564', // Citric
-	'#1A1A4E', // Dark Indigo
-	'#E8FFA7', // Supernal Light Green
-	'#FFF4E0', // Cream/Off-White
-	'#A3D8F4', // Sky Blue
-	'#B8E9D0', // Pale Mint
-	'#808064', // Dark Warm Gray
-	'#C3C3B6', // Warm Gray
-	'#F6F0E6', // Off-White
-	'#0D1B1E', // Deep Charcoal
-	'#191414', // Black (off-black)
-	'#000000', // Black
-	'#FFFFFF', // White
-] as const;
+  '#4100F5', // Klein Blue
+  '#FF4632', // Tangerine
+  '#AFF005', // Supernal Green
+  '#F037A5', // Fushia
+  '#0062E6', // Electric Blue
+  '#FF5511', // Bright Orange
+  '#9BF0E1', // Aquamarine
+  '#FFC107', // Golden Yellow
+  '#A7B6FF', // Soft Lavender/Blue
+  '#007E33', // Deep Forest Green
+  '#FE86B1', // Vibrant Pink
+  '#CDF564', // Citric
+  '#1A1A4E', // Dark Indigo
+  '#E8FFA7', // Supernal Light Green
+  '#FFF4E0', // Cream/Off-White
+  '#A3D8F4', // Sky Blue
+  '#B8E9D0', // Pale Mint
+  '#808064', // Dark Warm Gray
+  '#C3C3B6', // Warm Gray
+  '#F6F0E6', // Off-White
+  '#0D1B1E', // Deep Charcoal
+  '#191414', // Black (off-black)
+  '#000000', // Black
+  '#FFFFFF', // White
+] as const
 
 /** Deterministic fill for a user ontology entity kind key (no TS closed union). */
 export function ontologyFillForKey(key: string): string {
-	let h = 0;
-	for (let i = 0; i < key.length; i++) {
-		h = (h * 31 + key.charCodeAt(i)) >>> 0;
-	}
-	return BRAND_PALETTE[h % BRAND_PALETTE.length];
+  let h = 0
+  for (let i = 0; i < key.length; i++) {
+    h = (h * 31 + key.charCodeAt(i)) >>> 0
+  }
+  return BRAND_PALETTE[h % BRAND_PALETTE.length]
 }
 
 /** `kind` is graph snapshot kind: `Thought` | `Entity`. Both use ontology entity kind keys for `subtype`. */
 export function nodeFillForGraph(
-	kind: string,
-	subtype: string,
-	customEntityFills?: Map<string, string>
+  kind: string,
+  subtype: string,
+  customEntityFills?: Map<string, string>,
 ): string {
-	void kind;
-	if (customEntityFills?.has(subtype)) return customEntityFills.get(subtype)!;
-	return ontologyFillForKey(subtype);
+  void kind
+  if (customEntityFills?.has(subtype)) return customEntityFills.get(subtype)!
+  return ontologyFillForKey(subtype)
 }
 
 /**
@@ -72,86 +72,88 @@ export function nodeFillForGraph(
  * color as their legend chip.
  */
 export function customEntityFillsFromLegendSections(
-	sections: { title: string; items: { key: string; fill?: string }[] }[]
+  sections: { title: string; items: { key: string; fill?: string }[] }[],
 ): Map<string, string> {
-	const map = new Map<string, string>();
-	for (const section of sections) {
-		if (section.title !== 'Your ontology: entity kinds') continue;
-		for (const item of section.items) {
-			const key = entityKindKeyFromLegendItem(item.key);
-			if (item.fill) map.set(key, item.fill);
-		}
-	}
-	return map;
+  const map = new Map<string, string>()
+  for (const section of sections) {
+    if (section.title !== 'Your ontology: entity kinds') continue
+    for (const item of section.items) {
+      const key = entityKindKeyFromLegendItem(item.key)
+      if (item.fill) map.set(key, item.fill)
+    }
+  }
+  return map
 }
 
 /** Strip `onto-entity-` prefix from legend item keys to match node.subtype. */
 export function entityKindKeyFromLegendItem(key: string): string {
-	return key.replace(/^onto-entity-/, '');
+  return key.replace(/^onto-entity-/, '')
 }
 
 /** Empty visibleTypes = show all; otherwise keep nodes whose subtype is in the set. */
 export function filterNodesByEntityTypes<T extends { subtype: string }>(
-	nodes: T[],
-	visibleTypes: ReadonlySet<string>
+  nodes: T[],
+  visibleTypes: ReadonlySet<string>,
 ): T[] {
-	if (visibleTypes.size === 0) return nodes;
-	return nodes.filter((n) => visibleTypes.has(n.subtype));
+  if (visibleTypes.size === 0) return nodes
+  return nodes.filter((n) => visibleTypes.has(n.subtype))
 }
 
 export type GraphLegendItem = {
-	key: string;
-	label: string;
-	hint: string;
-	/** When set, legend shows a color dot (node ontology). Omit for relation vocabulary chips. */
-	fill?: string;
-};
+  key: string
+  label: string
+  hint: string
+  /** When set, legend shows a color dot (node ontology). Omit for relation vocabulary chips. */
+  fill?: string
+}
 
 export type GraphLegendSection = {
-	title: string;
-	items: GraphLegendItem[];
-};
+  title: string
+  items: GraphLegendItem[]
+}
 
 export type UserOntologyLegendInput = {
-	entityKinds: { key: string; name: string; definition: string; active: boolean }[];
-	relationKinds: {
-		key: string;
-		meaning: string;
-		active: boolean;
-		fromKindKey: string;
-		toKindKey: string;
-	}[];
-};
+  entityKinds: { key: string; name: string; definition: string; active: boolean }[]
+  relationKinds: {
+    key: string
+    meaning: string
+    active: boolean
+    fromKindKey: string
+    toKindKey: string
+  }[]
+}
 
-export function mergeGraphLegendWithUserOntology(ontology: UserOntologyLegendInput): GraphLegendSection[] {
-	const entityByKey = new Map(ontology.entityKinds.map((e) => [e.key, e]));
-	const cognitiveEntities: GraphLegendItem[] = ontology.entityKinds
-		.filter((e) => e.active)
-		.map((e) => ({
-			key: `onto-entity-${e.key}`,
-			label: e.name,
-			hint: e.definition,
-			fill: ontologyFillForKey(e.key)
-		}));
+export function mergeGraphLegendWithUserOntology(
+  ontology: UserOntologyLegendInput,
+): GraphLegendSection[] {
+  const entityByKey = new Map(ontology.entityKinds.map((e) => [e.key, e]))
+  const cognitiveEntities: GraphLegendItem[] = ontology.entityKinds
+    .filter((e) => e.active)
+    .map((e) => ({
+      key: `onto-entity-${e.key}`,
+      label: e.name,
+      hint: e.definition,
+      fill: ontologyFillForKey(e.key),
+    }))
 
-	const cognitiveRelations: GraphLegendItem[] = ontology.relationKinds
-		.filter((r) => r.active)
-		.map((r) => {
-			const from = entityByKey.get(r.fromKindKey)?.name ?? r.fromKindKey;
-			const to = entityByKey.get(r.toKindKey)?.name ?? r.toKindKey;
-			return {
-				key: `onto-rel-${r.key}`,
-				label: r.key,
-				hint: `${from} → ${to}. ${r.meaning}`
-			};
-		});
+  const cognitiveRelations: GraphLegendItem[] = ontology.relationKinds
+    .filter((r) => r.active)
+    .map((r) => {
+      const from = entityByKey.get(r.fromKindKey)?.name ?? r.fromKindKey
+      const to = entityByKey.get(r.toKindKey)?.name ?? r.toKindKey
+      return {
+        key: `onto-rel-${r.key}`,
+        label: r.key,
+        hint: `${from} → ${to}. ${r.meaning}`,
+      }
+    })
 
-	const sections: GraphLegendSection[] = [];
-	if (cognitiveEntities.length > 0) {
-		sections.push({ title: 'Your ontology: entity kinds', items: cognitiveEntities });
-	}
-	if (cognitiveRelations.length > 0) {
-		sections.push({ title: 'Your ontology: relation kinds', items: cognitiveRelations });
-	}
-	return sections;
+  const sections: GraphLegendSection[] = []
+  if (cognitiveEntities.length > 0) {
+    sections.push({ title: 'Your ontology: entity kinds', items: cognitiveEntities })
+  }
+  if (cognitiveRelations.length > 0) {
+    sections.push({ title: 'Your ontology: relation kinds', items: cognitiveRelations })
+  }
+  return sections
 }

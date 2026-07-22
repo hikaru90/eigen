@@ -1,12 +1,12 @@
 <script lang="ts">
-  import CircleX from "@lucide/svelte/icons/circle-x";
+  import CircleX from '@lucide/svelte/icons/circle-x'
 
   type Props = {
-    message: string;
-    class?: string;
-  };
+    message: string
+    class?: string
+  }
 
-  let { message, class: className = "" }: Props = $props();
+  let { message, class: className = '' }: Props = $props()
 </script>
 
 <div

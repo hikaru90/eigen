@@ -15,9 +15,9 @@ BYOK credential forms are **not** shown in onboarding; they live under Settings 
 
 ## MCP tools
 
-| Tool | Purpose |
-|------|---------|
-| `capture_grounding` | Incremental facet persistence during chat |
+| Tool                         | Purpose                                                         |
+| ---------------------------- | --------------------------------------------------------------- |
+| `capture_grounding`          | Incremental facet persistence during chat                       |
 | `complete_grounding_session` | Mark session complete; sets `initial_completed_at` on first run |
 
 Grounding chat exposes only these two tools via `/api/grounding/chat`.

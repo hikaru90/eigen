@@ -1,59 +1,57 @@
 <!doctype html>
 
 <html lang="%paraglide.lang%" dir="%paraglide.dir%">
-	<head>
-		<meta charset="utf-8" />
+  <head>
+    <meta charset="utf-8" />
 
-		<meta
-			name="viewport"
-			content="width=device-width, initial-scale=1, viewport-fit=cover"
-		/>
-		<meta name="mobile-web-app-capable" content="yes" />
-		<meta name="apple-mobile-web-app-capable" content="yes" />
-		<meta name="apple-mobile-web-app-title" content="Eigen Mesh" />
-		<meta name="application-name" content="Eigen Mesh" />
-		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Eigen Mesh" />
+    <meta name="application-name" content="Eigen Mesh" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
-		<meta name="theme-color" content="#e8ede5" id="theme-color-meta" />
-		<meta name="description" content="Self-hostable memory infrastructure" />
-		<link rel="manifest" href="/manifest.webmanifest" />
-		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-		<link
-			rel="apple-touch-icon"
-			href="/apple-touch-icon-dark.png"
-			media="(prefers-color-scheme: dark)"
-		/>
+    <meta name="theme-color" content="#e8ede5" id="theme-color-meta" />
+    <meta name="description" content="Self-hostable memory infrastructure" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link
+      rel="apple-touch-icon"
+      href="/apple-touch-icon-dark.png"
+      media="(prefers-color-scheme: dark)"
+    />
 
-		<meta name="text-scale" content="scale" />
-		<script>
-			(function () {
-				var pref = localStorage.getItem("theme-preference");
-				var isDark =
-					pref === "dark" ||
-					(pref !== "light" &&
-						window.matchMedia("(prefers-color-scheme: dark)").matches);
-				if (isDark) {
-					document.documentElement.classList.add("dark");
-					document.documentElement.style.colorScheme = "dark";
-				} else {
-					document.documentElement.style.colorScheme = "light";
-				}
-				var themeMeta = document.getElementById("theme-color-meta");
-				if (themeMeta) {
-					themeMeta.setAttribute("content", isDark ? "#141c16" : "#e8ede5");
-				}
-				var isStandalone =
-					window.matchMedia("(display-mode: standalone)").matches ||
-					window.matchMedia("(display-mode: fullscreen)").matches ||
-					window.matchMedia("(display-mode: minimal-ui)").matches ||
-					window.navigator.standalone === true;
-				if (isStandalone) {
-					document.documentElement.classList.add("pwa-standalone");
-				}
-			})();
-		</script>
-		%sveltekit.head%
-	</head>
+    <meta name="text-scale" content="scale" />
+    <script>
+      ;(function () {
+        var pref = localStorage.getItem('theme-preference')
+        var isDark =
+          pref === 'dark' ||
+          (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (isDark) {
+          document.documentElement.classList.add('dark')
+          document.documentElement.style.colorScheme = 'dark'
+        } else {
+          document.documentElement.style.colorScheme = 'light'
+        }
+        var themeMeta = document.getElementById('theme-color-meta')
+        if (themeMeta) {
+          themeMeta.setAttribute('content', isDark ? '#141c16' : '#e8ede5')
+        }
+        var isStandalone =
+          window.matchMedia('(display-mode: standalone)').matches ||
+          window.matchMedia('(display-mode: fullscreen)').matches ||
+          window.matchMedia('(display-mode: minimal-ui)').matches ||
+          window.navigator.standalone === true
+        if (isStandalone) {
+          document.documentElement.classList.add('pwa-standalone')
+        }
+      })()
+    </script>
+    %sveltekit.head%
+  </head>
 
-	<body data-sveltekit-preload-data="hover"><div style="display: contents">%sveltekit.body%</div></body>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
 </html>

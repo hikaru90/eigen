@@ -1,103 +1,104 @@
-import { withDbUser } from '$lib/server/db';
-import { createAdminSql } from './admin-db';
-import { loadJobQueueSnapshot, type JobQueueSnapshot } from './snapshot';
-import { loadOpsHealthSnapshot, type OpsHealthSnapshot } from '$lib/server/ops/health-snapshot';
+import { withDbUser } from '$lib/server/db'
+import { createAdminSql } from './admin-db'
+import { loadJobQueueSnapshot, type JobQueueSnapshot } from './snapshot'
+import { loadOpsHealthSnapshot, type OpsHealthSnapshot } from '$lib/server/ops/health-snapshot'
 import {
-	buildDailySummaryPreviewForUser,
-	dailySummaryDispatchReasonLabel,
-	evaluateDailySummaryDispatch,
-	type DailySummaryDispatchEvaluation,
-	type DailySummaryPreview
-} from '$lib/server/memory/daily-summary-visibility';
-import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
+  buildDailySummaryPreviewForUser,
+  dailySummaryDispatchReasonLabel,
+  evaluateDailySummaryDispatch,
+  type DailySummaryDispatchEvaluation,
+  type DailySummaryPreview,
+} from '$lib/server/memory/daily-summary-visibility'
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 
 export type AdminQueueJobRow = {
-	id: string;
-	userId: string;
-	userEmail: string | null;
-	accountKind: string;
-	jobType: string;
-	status: string;
-	runAfter: string;
-	attemptCount: number;
-	maxAttempts: number;
-	lastError: string | null;
-	dedupeKey: string | null;
-	createdAt: string;
-	startedAt: string | null;
-	finishedAt: string | null;
-};
+  id: string
+  userId: string
+  userEmail: string | null
+  accountKind: string
+  jobType: string
+  status: string
+  runAfter: string
+  attemptCount: number
+  maxAttempts: number
+  lastError: string | null
+  dedupeKey: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
 
 export type AdminDailySummaryRow = {
-	userId: string;
-	userEmail: string | null;
-	accountKind: string;
-	timeZone: string;
-	scheduledTimeLocal: string;
-	lastSentLocalDate: string | null;
-	pushDeviceCount: number;
-	dispatch: DailySummaryDispatchEvaluation;
-	preview: DailySummaryPreview;
-	statusLabel: string;
-};
+  userId: string
+  userEmail: string | null
+  accountKind: string
+  timeZone: string
+  scheduledTimeLocal: string
+  lastSentLocalDate: string | null
+  pushDeviceCount: number
+  dispatch: DailySummaryDispatchEvaluation
+  preview: DailySummaryPreview
+  statusLabel: string
+}
 
 export type AdminQueueDashboard = {
-	at: string;
-	summary: JobQueueSnapshot;
-	ops: OpsHealthSnapshot;
-	dailySummaries: AdminDailySummaryRow[];
-	jobs: AdminQueueJobRow[];
-};
+  at: string
+  summary: JobQueueSnapshot
+  ops: OpsHealthSnapshot
+  dailySummaries: AdminDailySummaryRow[]
+  jobs: AdminQueueJobRow[]
+}
 
 type RawJobRow = {
-	id: string;
-	user_id: string;
-	user_email: string | null;
-	account_kind: string;
-	job_type: string;
-	status: string;
-	run_after: Date;
-	attempt_count: number;
-	max_attempts: number;
-	last_error: string | null;
-	dedupe_key: string | null;
-	created_at: Date;
-	started_at: Date | null;
-	finished_at: Date | null;
-};
+  id: string
+  user_id: string
+  user_email: string | null
+  account_kind: string
+  job_type: string
+  status: string
+  run_after: Date
+  attempt_count: number
+  max_attempts: number
+  last_error: string | null
+  dedupe_key: string | null
+  created_at: Date
+  started_at: Date | null
+  finished_at: Date | null
+}
 
 export type AdminQueueListOptions = {
-	limit?: number;
-	status?: 'all' | 'pending' | 'running' | 'failed' | 'completed' | 'cancelled';
-	includeHarness?: boolean;
-};
+  limit?: number
+  status?: 'all' | 'pending' | 'running' | 'failed' | 'completed' | 'cancelled'
+  includeHarness?: boolean
+}
 
 function mapJobRow(row: RawJobRow): AdminQueueJobRow {
-	return {
-		id: row.id,
-		userId: row.user_id,
-		userEmail: row.user_email,
-		accountKind: row.account_kind,
-		jobType: row.job_type,
-		status: row.status,
-		runAfter: row.run_after.toISOString(),
-		attemptCount: row.attempt_count,
-		maxAttempts: row.max_attempts,
-		lastError: row.last_error,
-		dedupeKey: row.dedupe_key,
-		createdAt: row.created_at.toISOString(),
-		startedAt: row.started_at?.toISOString() ?? null,
-		finishedAt: row.finished_at?.toISOString() ?? null
-	};
+  return {
+    id: row.id,
+    userId: row.user_id,
+    userEmail: row.user_email,
+    accountKind: row.account_kind,
+    jobType: row.job_type,
+    status: row.status,
+    runAfter: row.run_after.toISOString(),
+    attemptCount: row.attempt_count,
+    maxAttempts: row.max_attempts,
+    lastError: row.last_error,
+    dedupeKey: row.dedupe_key,
+    createdAt: row.created_at.toISOString(),
+    startedAt: row.started_at?.toISOString() ?? null,
+    finishedAt: row.finished_at?.toISOString() ?? null,
+  }
 }
 
 async function listQueueJobs(options: AdminQueueListOptions): Promise<AdminQueueJobRow[]> {
-	const limit = options.limit ?? 100;
-	const sql = createAdminSql(1);
-	try {
-		const rows = options.status && options.status !== 'all'
-			? options.includeHarness
-				? await sql<RawJobRow[]>`
+  const limit = options.limit ?? 100
+  const sql = createAdminSql(1)
+  try {
+    const rows =
+      options.status && options.status !== 'all'
+        ? options.includeHarness
+          ? await sql<RawJobRow[]>`
 					SELECT
 						q.id,
 						q.user_id,
@@ -119,7 +120,7 @@ async function listQueueJobs(options: AdminQueueListOptions): Promise<AdminQueue
 					ORDER BY q.run_after DESC, q.created_at DESC
 					LIMIT ${limit}
 				`
-				: await sql<RawJobRow[]>`
+          : await sql<RawJobRow[]>`
 					SELECT
 						q.id,
 						q.user_id,
@@ -142,8 +143,8 @@ async function listQueueJobs(options: AdminQueueListOptions): Promise<AdminQueue
 					ORDER BY q.run_after DESC, q.created_at DESC
 					LIMIT ${limit}
 				`
-			: options.includeHarness
-				? await sql<RawJobRow[]>`
+        : options.includeHarness
+          ? await sql<RawJobRow[]>`
 					SELECT
 						q.id,
 						q.user_id,
@@ -173,7 +174,7 @@ async function listQueueJobs(options: AdminQueueListOptions): Promise<AdminQueue
 						q.created_at DESC
 					LIMIT ${limit}
 				`
-				: await sql<RawJobRow[]>`
+          : await sql<RawJobRow[]>`
 					SELECT
 						q.id,
 						q.user_id,
@@ -203,30 +204,30 @@ async function listQueueJobs(options: AdminQueueListOptions): Promise<AdminQueue
 						q.run_after ASC,
 						q.created_at DESC
 					LIMIT ${limit}
-				`;
+				`
 
-		return rows.map(mapJobRow);
-	} finally {
-		await sql.end();
-	}
+    return rows.map(mapJobRow)
+  } finally {
+    await sql.end()
+  }
 }
 
 type RawDailySummaryRow = {
-	user_id: string;
-	user_email: string | null;
-	account_kind: string;
-	daily_summary_minutes_local: number;
-	last_daily_summary_local_date: string | null;
-	last_daily_summary_dispatch_error: string | null;
-	push_count: string;
-};
+  user_id: string
+  user_email: string | null
+  account_kind: string
+  daily_summary_minutes_local: number
+  last_daily_summary_local_date: string | null
+  last_daily_summary_dispatch_error: string | null
+  push_count: string
+}
 
 async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDailySummaryRow[]> {
-	const sql = createAdminSql(1);
-	const now = new Date();
-	try {
-		const rows = includeHarness
-			? await sql<RawDailySummaryRow[]>`
+  const sql = createAdminSql(1)
+  const now = new Date()
+  try {
+    const rows = includeHarness
+      ? await sql<RawDailySummaryRow[]>`
 				SELECT
 					u.id AS user_id,
 					u.email AS user_email,
@@ -240,7 +241,7 @@ async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDaily
 				WHERE up.daily_summary_enabled = true
 				ORDER BY u.email NULLS LAST, u.id
 			`
-			: await sql<RawDailySummaryRow[]>`
+      : await sql<RawDailySummaryRow[]>`
 				SELECT
 					u.id AS user_id,
 					u.email AS user_email,
@@ -254,61 +255,58 @@ async function listDailySummaryRows(includeHarness: boolean): Promise<AdminDaily
 				WHERE up.daily_summary_enabled = true
 					AND u.account_kind = 'production'
 				ORDER BY u.email NULLS LAST, u.id
-			`;
+			`
 
-		const result: AdminDailySummaryRow[] = [];
-		for (const row of rows) {
-			await withDbUser(row.user_id, async () => {
-				const timeZone = await getUserPreferredTimezone(row.user_id);
-				const pushDeviceCount = Number(row.push_count);
-				const dispatch = evaluateDailySummaryDispatch({
-					now,
-					timeZone,
-					dailySummaryMinutesLocal: row.daily_summary_minutes_local,
-					lastDailySummaryLocalDate: row.last_daily_summary_local_date,
-					lastDailySummaryDispatchError: row.last_daily_summary_dispatch_error,
-					pushDeviceCount
-				});
-				const preview = await buildDailySummaryPreviewForUser(row.user_id, now);
-				result.push({
-					userId: row.user_id,
-					userEmail: row.user_email,
-					accountKind: row.account_kind,
-					timeZone,
-					scheduledTimeLocal: dispatch.scheduledTimeLocal,
-					lastSentLocalDate: row.last_daily_summary_local_date,
-					pushDeviceCount,
-					dispatch,
-					preview,
-					statusLabel: dailySummaryDispatchReasonLabel(
-						dispatch.reason,
-						dispatch.lastDispatchError
-					)
-				});
-			});
-		}
-		return result;
-	} finally {
-		await sql.end();
-	}
+    const result: AdminDailySummaryRow[] = []
+    for (const row of rows) {
+      await withDbUser(row.user_id, async () => {
+        const timeZone = await getUserPreferredTimezone(row.user_id)
+        const pushDeviceCount = Number(row.push_count)
+        const dispatch = evaluateDailySummaryDispatch({
+          now,
+          timeZone,
+          dailySummaryMinutesLocal: row.daily_summary_minutes_local,
+          lastDailySummaryLocalDate: row.last_daily_summary_local_date,
+          lastDailySummaryDispatchError: row.last_daily_summary_dispatch_error,
+          pushDeviceCount,
+        })
+        const preview = await buildDailySummaryPreviewForUser(row.user_id, now)
+        result.push({
+          userId: row.user_id,
+          userEmail: row.user_email,
+          accountKind: row.account_kind,
+          timeZone,
+          scheduledTimeLocal: dispatch.scheduledTimeLocal,
+          lastSentLocalDate: row.last_daily_summary_local_date,
+          pushDeviceCount,
+          dispatch,
+          preview,
+          statusLabel: dailySummaryDispatchReasonLabel(dispatch.reason, dispatch.lastDispatchError),
+        })
+      })
+    }
+    return result
+  } finally {
+    await sql.end()
+  }
 }
 
 export async function loadAdminQueueDashboard(
-	options: AdminQueueListOptions = {}
+  options: AdminQueueListOptions = {},
 ): Promise<AdminQueueDashboard> {
-	const includeHarness = options.includeHarness ?? false;
-	const [summary, ops, dailySummaries, jobs] = await Promise.all([
-		loadJobQueueSnapshot(),
-		loadOpsHealthSnapshot(),
-		listDailySummaryRows(includeHarness),
-		listQueueJobs(options)
-	]);
+  const includeHarness = options.includeHarness ?? false
+  const [summary, ops, dailySummaries, jobs] = await Promise.all([
+    loadJobQueueSnapshot(),
+    loadOpsHealthSnapshot(),
+    listDailySummaryRows(includeHarness),
+    listQueueJobs(options),
+  ])
 
-	return {
-		at: new Date().toISOString(),
-		summary,
-		ops,
-		dailySummaries,
-		jobs
-	};
+  return {
+    at: new Date().toISOString(),
+    summary,
+    ops,
+    dailySummaries,
+    jobs,
+  }
 }

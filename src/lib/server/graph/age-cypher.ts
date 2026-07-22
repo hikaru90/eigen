@@ -1,224 +1,226 @@
-import { env } from '$env/dynamic/private';
-import { getDb } from '$lib/server/db';
-import { logActivityCall } from '$lib/server/activity/log-call';
-import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet';
-import { sql } from 'drizzle-orm';
+import { env } from '$env/dynamic/private'
+import { getDb } from '$lib/server/db'
+import { logActivityCall } from '$lib/server/activity/log-call'
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import { sql } from 'drizzle-orm'
 
 function requiredEnv(name: 'AGE_GRAPH_NAME'): string {
-	const value = env[name]?.trim();
-	if (!value) {
-		throw new Error(`${name} is required and must be non-empty`);
-	}
-	return value;
+  const value = env[name]?.trim()
+  if (!value) {
+    throw new Error(`${name} is required and must be non-empty`)
+  }
+  return value
 }
 
 export function ageGraphName(): string {
-	return requiredEnv('AGE_GRAPH_NAME');
+  return requiredEnv('AGE_GRAPH_NAME')
 }
 
 export function toCypherLiteral(value: unknown): string {
-	if (value === null || value === undefined) return 'null';
-	if (typeof value === 'number') {
-		if (!Number.isFinite(value)) throw new Error('Invalid cypher number literal');
-		return String(value);
-	}
-	if (typeof value === 'boolean') return value ? 'true' : 'false';
-	if (typeof value === 'string') {
-		return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-	}
-	if (Array.isArray(value)) {
-		return `[${value.map((item) => toCypherLiteral(item)).join(', ')}]`;
-	}
-	throw new Error(`Unsupported cypher literal type: ${typeof value}`);
+  if (value === null || value === undefined) return 'null'
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('Invalid cypher number literal')
+    return String(value)
+  }
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'string') {
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => toCypherLiteral(item)).join(', ')}]`
+  }
+  throw new Error(`Unsupported cypher literal type: ${typeof value}`)
 }
 
 export function renderCypherQuery(query: string, params?: Record<string, unknown>): string {
-	if (!params) return query;
-	return query.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_full, key) => {
-		if (!(key in params)) {
-			throw new Error(`Missing cypher parameter: ${key}`);
-		}
-		return toCypherLiteral(params[key]);
-	});
+  if (!params) return query
+  return query.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_full, key) => {
+    if (!(key in params)) {
+      throw new Error(`Missing cypher parameter: ${key}`)
+    }
+    return toCypherLiteral(params[key])
+  })
 }
 
 function decodeAgtypeValue(value: unknown): unknown {
-	if (value === null || value === undefined) return value;
-	if (typeof value !== 'string') return value;
-	const trimmed = value.trim();
-	if (!trimmed) return '';
+  if (value === null || value === undefined) return value
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (!trimmed) return ''
 
-	const withoutType = trimmed.replace(/::[a-zA-Z_][a-zA-Z0-9_]*$/, '');
-	if (withoutType === 'null') return null;
-	if (withoutType === 'true') return true;
-	if (withoutType === 'false') return false;
-	if (/^-?\d+(\.\d+)?$/.test(withoutType)) return Number(withoutType);
-	if (withoutType.startsWith('"') && withoutType.endsWith('"')) {
-		try {
-			return JSON.parse(withoutType);
-		} catch {
-			return withoutType.slice(1, -1);
-		}
-	}
-	return withoutType;
+  const withoutType = trimmed.replace(/::[a-zA-Z_][a-zA-Z0-9_]*$/, '')
+  if (withoutType === 'null') return null
+  if (withoutType === 'true') return true
+  if (withoutType === 'false') return false
+  if (/^-?\d+(\.\d+)?$/.test(withoutType)) return Number(withoutType)
+  if (withoutType.startsWith('"') && withoutType.endsWith('"')) {
+    try {
+      return JSON.parse(withoutType)
+    } catch {
+      return withoutType.slice(1, -1)
+    }
+  }
+  return withoutType
 }
 
 /** AGE requires the Cypher query argument to be a PostgreSQL dollar-quoted string, not single-quoted. */
 export function wrapAgeCypherDollarQuote(cypher: string): string {
-	if (!cypher.includes('$$')) {
-		return `$$${cypher}$$`;
-	}
-	let tag = 'age_cypher';
-	while (cypher.includes(`$${tag}$`)) {
-		tag += '_';
-	}
-	return `$${tag}$${cypher}$${tag}$`;
+  if (!cypher.includes('$$')) {
+    return `$$${cypher}$$`
+  }
+  let tag = 'age_cypher'
+  while (cypher.includes(`$${tag}$`)) {
+    tag += '_'
+  }
+  return `$${tag}$${cypher}$${tag}$`
 }
 
 function formatAgeCypherError(err: unknown, graph: string, cypher: string): Error {
-	const cause = err instanceof Error ? err : new Error(String(err));
-	const nested =
-		cause instanceof Error && 'cause' in cause && cause.cause instanceof Error
-			? cause.cause.message
-			: undefined;
-	const detail = nested && nested !== cause.message ? nested : cause.message;
-	const preview = cypher.replace(/\s+/g, ' ').trim().slice(0, 160);
-	return new Error(`Apache AGE cypher failed on graph "${graph}": ${detail} [${preview}]`, {
-		cause: err
-	});
+  const cause = err instanceof Error ? err : new Error(String(err))
+  const nested =
+    cause instanceof Error && 'cause' in cause && cause.cause instanceof Error
+      ? cause.cause.message
+      : undefined
+  const detail = nested && nested !== cause.message ? nested : cause.message
+  const preview = cypher.replace(/\s+/g, ' ').trim().slice(0, 160)
+  return new Error(`Apache AGE cypher failed on graph "${graph}": ${detail} [${preview}]`, {
+    cause: err,
+  })
 }
 
 export function assertTenantScopedCypherParams(
-	userId: string,
-	params?: Record<string, unknown>
+  userId: string,
+  params?: Record<string, unknown>,
 ): void {
-	if (!userId.trim()) {
-		throw new Error('Tenant-scoped Cypher requires a non-empty userId');
-	}
-	if (!params || !('user_id' in params)) {
-		throw new Error('Tenant-scoped Cypher requires params.user_id');
-	}
-	if (params.user_id !== userId) {
-		throw new Error('Tenant-scoped Cypher params.user_id must match userId');
-	}
+  if (!userId.trim()) {
+    throw new Error('Tenant-scoped Cypher requires a non-empty userId')
+  }
+  if (!params || !('user_id' in params)) {
+    throw new Error('Tenant-scoped Cypher requires params.user_id')
+  }
+  if (params.user_id !== userId) {
+    throw new Error('Tenant-scoped Cypher params.user_id must match userId')
+  }
 }
 
 export async function runTenantScopedCypher(
-	userId: string,
-	query: string,
-	params: Record<string, unknown>,
-	columnDefs: string
+  userId: string,
+  query: string,
+  params: Record<string, unknown>,
+  columnDefs: string,
 ): Promise<Array<Record<string, unknown>>> {
-	assertTenantScopedCypherParams(userId, params);
-	return runAgeCypher(renderCypherQuery(query, params), columnDefs);
+  assertTenantScopedCypherParams(userId, params)
+  return runAgeCypher(renderCypherQuery(query, params), columnDefs)
 }
 
 export async function runAgeCypher(
-	cypher: string,
-	columnDefs: string
+  cypher: string,
+  columnDefs: string,
 ): Promise<Array<Record<string, unknown>>> {
-	const db = getDb();
-	const graph = ageGraphName();
-	// AGE is preloaded via shared_preload_libraries; LOAD 'age' fails under SET ROLE eigen_app.
-	await db.execute(sql.raw(`SET search_path = ag_catalog, "$user", public`));
-	const escapedGraph = graph.replace(/'/g, "''");
-	const quotedCypher = wrapAgeCypherDollarQuote(cypher);
-	let raw: unknown;
-	try {
-		raw = await db.execute(
-			sql.raw(`SELECT * FROM ag_catalog.cypher('${escapedGraph}', ${quotedCypher}) AS (${columnDefs})`)
-		);
-	} catch (err) {
-		throw formatAgeCypherError(err, graph, cypher);
-	}
-	const rows = Array.isArray(raw)
-		? (raw as Array<Record<string, unknown>>)
-		: (((raw as { rows?: Array<Record<string, unknown>> }).rows ?? []) as Array<
-				Record<string, unknown>
-			>);
-	return rows.map((row) => {
-		const out: Record<string, unknown> = {};
-		for (const [k, v] of Object.entries(row)) {
-			out[k] = decodeAgtypeValue(v);
-		}
-		return out;
-	});
+  const db = getDb()
+  const graph = ageGraphName()
+  // AGE is preloaded via shared_preload_libraries; LOAD 'age' fails under SET ROLE eigen_app.
+  await db.execute(sql.raw(`SET search_path = ag_catalog, "$user", public`))
+  const escapedGraph = graph.replace(/'/g, "''")
+  const quotedCypher = wrapAgeCypherDollarQuote(cypher)
+  let raw: unknown
+  try {
+    raw = await db.execute(
+      sql.raw(
+        `SELECT * FROM ag_catalog.cypher('${escapedGraph}', ${quotedCypher}) AS (${columnDefs})`,
+      ),
+    )
+  } catch (err) {
+    throw formatAgeCypherError(err, graph, cypher)
+  }
+  const rows = Array.isArray(raw)
+    ? (raw as Array<Record<string, unknown>>)
+    : (((raw as { rows?: Array<Record<string, unknown>> }).rows ?? []) as Array<
+        Record<string, unknown>
+      >)
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(row)) {
+      out[k] = decodeAgtypeValue(v)
+    }
+    return out
+  })
 }
 
 async function logGraphActivityCall(
-	userId: string,
-	input: { operation: string; context?: string; durationMs: number }
+  userId: string,
+  input: { operation: string; context?: string; durationMs: number },
 ): Promise<void> {
-	try {
-		await logActivityCall(getDb(), userId, {
-			provider: 'apache_age',
-			operation: input.operation,
-			baseCostUsd: 0,
-			context: input.context,
-			durationMs: input.durationMs
-		});
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.warn('[age] activity_call_log insert failed', {
-			userId,
-			operation: input.operation,
-			message
-		});
-	}
+  try {
+    await logActivityCall(getDb(), userId, {
+      provider: 'apache_age',
+      operation: input.operation,
+      baseCostUsd: 0,
+      context: input.context,
+      durationMs: input.durationMs,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[age] activity_call_log insert failed', {
+      userId,
+      operation: input.operation,
+      message,
+    })
+  }
 }
 
 export async function runGraphQueryWithRetry<T>(
-	userId: string,
-	operation: string,
-	query: () => Promise<T>,
-	context?: string
+  userId: string,
+  operation: string,
+  query: () => Promise<T>,
+  context?: string,
 ): Promise<T> {
-	const maxAttempts = 3;
-	let lastError: unknown;
-	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		const attemptStart = Date.now();
-		try {
-			const result = await query();
-			await logGraphActivityCall(userId, {
-				operation: `${operation}.success(attempt=${attempt})`,
-				context,
-				durationMs: Date.now() - attemptStart
-			});
-			return result;
-		} catch (err) {
-			lastError = err;
-			if (!isGraphScaleQuiet()) {
-				const message = err instanceof Error ? err.message : String(err);
-				console.error('[age] query attempt failed', {
-					userId,
-					operation,
-					attempt,
-					context: context ?? null,
-					message,
-					stack: err instanceof Error ? err.stack : undefined
-				});
-			}
-			await logGraphActivityCall(userId, {
-				operation: `${operation}.error(attempt=${attempt})`,
-				context,
-				durationMs: Date.now() - attemptStart
-			});
-		}
-	}
+  const maxAttempts = 3
+  let lastError: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const attemptStart = Date.now()
+    try {
+      const result = await query()
+      await logGraphActivityCall(userId, {
+        operation: `${operation}.success(attempt=${attempt})`,
+        context,
+        durationMs: Date.now() - attemptStart,
+      })
+      return result
+    } catch (err) {
+      lastError = err
+      if (!isGraphScaleQuiet()) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[age] query attempt failed', {
+          userId,
+          operation,
+          attempt,
+          context: context ?? null,
+          message,
+          stack: err instanceof Error ? err.stack : undefined,
+        })
+      }
+      await logGraphActivityCall(userId, {
+        operation: `${operation}.error(attempt=${attempt})`,
+        context,
+        durationMs: Date.now() - attemptStart,
+      })
+    }
+  }
 
-	const message =
-		lastError instanceof Error
-			? lastError.message
-			: `Apache AGE graph operation failed after ${maxAttempts} attempts`;
-	if (!isGraphScaleQuiet()) {
-		console.error('[age] query exhausted retries', {
-			userId,
-			operation,
-			maxAttempts,
-			context: context ?? null,
-			message,
-			stack: lastError instanceof Error ? lastError.stack : undefined
-		});
-	}
-	throw lastError instanceof Error ? lastError : new Error(message);
+  const message =
+    lastError instanceof Error
+      ? lastError.message
+      : `Apache AGE graph operation failed after ${maxAttempts} attempts`
+  if (!isGraphScaleQuiet()) {
+    console.error('[age] query exhausted retries', {
+      userId,
+      operation,
+      maxAttempts,
+      context: context ?? null,
+      message,
+      stack: lastError instanceof Error ? lastError.stack : undefined,
+    })
+  }
+  throw lastError instanceof Error ? lastError : new Error(message)
 }

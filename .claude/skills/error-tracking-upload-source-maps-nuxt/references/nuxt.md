@@ -59,11 +59,11 @@ For older versions of Nuxt, you'll need to manually configure source map generat
 
     If you are using the CLI in a CI/CD environment such as GitHub Actions, you can set environment variables to authenticate:
 
-    | Environment Variable | Description | Source |
-    | --- | --- | --- |
-    | POSTHOG_CLI_HOST | The PostHog host to connect to [default: https://us.posthog.com] | [Project settings](https://app.posthog.com/settings/project#variables) |
-    | POSTHOG_CLI_PROJECT_ID | PostHog project ID | [Project settings](https://app.posthog.com/settings/project#variables) |
-    | POSTHOG_CLI_API_KEY | Personal API key with error tracking write and organization read scopes | [API key settings](https://app.posthog.com/settings/user-api-keys#variables) |
+    | Environment Variable   | Description                                                             | Source                                                                       |
+    | ---------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+    | POSTHOG_CLI_HOST       | The PostHog host to connect to [default: https://us.posthog.com]        | [Project settings](https://app.posthog.com/settings/project#variables)       |
+    | POSTHOG_CLI_PROJECT_ID | PostHog project ID                                                      | [Project settings](https://app.posthog.com/settings/project#variables)       |
+    | POSTHOG_CLI_API_KEY    | Personal API key with error tracking write and organization read scopes | [API key settings](https://app.posthog.com/settings/user-api-keys#variables) |
 
     You can also use the `--host` option instead of the `POSTHOG_CLI_HOST` environment variable to target a different PostHog instance or region. For EU users:
 
@@ -135,7 +135,7 @@ For older versions of Nuxt, you'll need to manually configure source map generat
 
     Checkpoint
 
-    *Confirm source maps are being properly uploaded*
+    _Confirm source maps are being properly uploaded_
 
     Before proceeding, confirm that source maps are being properly uploaded.
 

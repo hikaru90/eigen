@@ -1,24 +1,24 @@
 <script lang="ts">
-  import type { VersionEvalOverview } from './version-overview-types';
-  import * as Card from '$lib/components/ui/card';
-  import { excerpt, formatPercent } from '$lib/eval/display';
+  import type { VersionEvalOverview } from './version-overview-types'
+  import * as Card from '$lib/components/ui/card'
+  import { excerpt, formatPercent } from '$lib/eval/display'
 
-  let { overview }: { overview: VersionEvalOverview } = $props();
+  let { overview }: { overview: VersionEvalOverview } = $props()
 
   function statusLabel(status: string | null): string {
-    if (!status) return 'Not run';
-    if (status === 'completed') return 'Completed';
-    if (status === 'failed') return 'Failed';
-    if (status === 'running') return 'Running';
-    return status;
+    if (!status) return 'Not run'
+    if (status === 'completed') return 'Completed'
+    if (status === 'failed') return 'Failed'
+    if (status === 'running') return 'Running'
+    return status
   }
 
   function statusClass(status: string | null): string {
-    if (!status) return 'text-muted-foreground';
-    if (status === 'completed') return 'text-green-700 dark:text-green-400';
-    if (status === 'failed') return 'text-orange-700 dark:text-orange-400';
-    if (status === 'running') return 'text-primary';
-    return 'text-muted-foreground';
+    if (!status) return 'text-muted-foreground'
+    if (status === 'completed') return 'text-green-700 dark:text-green-400'
+    if (status === 'failed') return 'text-orange-700 dark:text-orange-400'
+    if (status === 'running') return 'text-primary'
+    return 'text-muted-foreground'
   }
 </script>
 

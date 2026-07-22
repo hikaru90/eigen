@@ -1,39 +1,39 @@
 <script lang="ts">
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-  import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus';
-  import List from '@lucide/svelte/icons/list';
-  import Search from '@lucide/svelte/icons/search';
-  import Sparkles from '@lucide/svelte/icons/sparkles';
-  import PencilLine from '@lucide/svelte/icons/pencil-line';
-  import Trash2 from '@lucide/svelte/icons/trash-2';
-  import Bot from '@lucide/svelte/icons/bot';
-  import CheckIcon from '@lucide/svelte/icons/check';
-  import ChatMarkdown from '$lib/components/chat-markdown.svelte';
-  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte';
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus'
+  import List from '@lucide/svelte/icons/list'
+  import Search from '@lucide/svelte/icons/search'
+  import Sparkles from '@lucide/svelte/icons/sparkles'
+  import PencilLine from '@lucide/svelte/icons/pencil-line'
+  import Trash2 from '@lucide/svelte/icons/trash-2'
+  import Bot from '@lucide/svelte/icons/bot'
+  import CheckIcon from '@lucide/svelte/icons/check'
+  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
+  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
   import {
     toolLabel,
     toolStatusBadgeClasses,
     toolCategoryClasses,
     toolVisual,
     type ChatToolIcon,
-    type ToolResultView
-  } from '$lib/chat/chat-stream-types';
+    type ToolResultView,
+  } from '$lib/chat/chat-stream-types'
 
   type Props = {
-    tool: string;
-    status: 'running' | 'done' | 'failed';
-    argSummary?: string | null;
-    progress?: string;
-    resultView?: ToolResultView | null;
-  };
+    tool: string
+    status: 'running' | 'done' | 'failed'
+    argSummary?: string | null
+    progress?: string
+    resultView?: ToolResultView | null
+  }
 
-  let { tool, status, argSummary = null, progress, resultView = null }: Props = $props();
+  let { tool, status, argSummary = null, progress, resultView = null }: Props = $props()
 
-  const visual = $derived(toolVisual(tool));
-  const classes = $derived(toolCategoryClasses(visual.category));
-  const icon = $derived(visual.icon);
+  const visual = $derived(toolVisual(tool))
+  const classes = $derived(toolCategoryClasses(visual.category))
+  const icon = $derived(visual.icon)
 
-  const statusLabel = $derived(status === 'running' ? 'Running' : 'Failed');
+  const statusLabel = $derived(status === 'running' ? 'Running' : 'Failed')
 </script>
 
 {#snippet ToolIcon(name: ChatToolIcon)}
@@ -57,12 +57,11 @@
 <div class="flex min-w-0 max-w-full flex-col gap-2 py-1">
   <div class="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
     {@render ToolIcon(icon)}
-    <span class="min-w-0 break-all text-sm font-medium tracking-tight text-foreground">{toolLabel(tool)}</span>
+    <span class="min-w-0 break-all text-sm font-medium tracking-tight text-foreground"
+      >{toolLabel(tool)}</span
+    >
     {#if status === 'done'}
-      <CheckIcon
-        class="size-3.5 shrink-0 text-green-600 dark:text-green-500"
-        aria-label="Done"
-      />
+      <CheckIcon class="size-3.5 shrink-0 text-green-600 dark:text-green-500" aria-label="Done" />
     {:else}
       <span class="text-xs font-medium uppercase tracking-widest {toolStatusBadgeClasses(status)}">
         {statusLabel}
@@ -88,7 +87,7 @@
           <p class="text-sm text-muted-foreground">No matching memories.</p>
         {:else}
           <ul class="flex flex-col gap-2.5 list-none m-0 p-0">
-      {#each resultView.hits as hit, i (`${i}:${hit.id ?? hit.text}`)}
+            {#each resultView.hits as hit, i (`${i}:${hit.id ?? hit.text}`)}
               <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} />
             {/each}
           </ul>
@@ -100,7 +99,9 @@
           {/each}
         </div>
       {:else if resultView.kind === 'error'}
-        <p class="min-w-0 break-all text-sm leading-relaxed text-foreground">{resultView.message}</p>
+        <p class="min-w-0 break-all text-sm leading-relaxed text-foreground">
+          {resultView.message}
+        </p>
       {:else if resultView.kind === 'text'}
         <ChatMarkdown content={resultView.text} />
       {/if}

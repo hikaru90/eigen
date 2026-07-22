@@ -26,11 +26,11 @@ Every question must fill a **specific blank** — something captures alone have 
 
 Four gates (all must pass):
 
-| Gate | Question |
-|------|----------|
-| **Blank** | Is there a concrete unknown? (Not "we know little about identity.") |
-| **Evidence** | Did recent captures or failed resolution surface the gap? |
-| **Utility** | Would the answer change classification, entity linking, or retrieval? |
+| Gate           | Question                                                              |
+| -------------- | --------------------------------------------------------------------- |
+| **Blank**      | Is there a concrete unknown? (Not "we know little about identity.")   |
+| **Evidence**   | Did recent captures or failed resolution surface the gap?             |
+| **Utility**    | Would the answer change classification, entity linking, or retrieval? |
 | **Askability** | Can the user answer in one or two plain sentences without performing? |
 
 If any gate fails → **skip**. Silence is better than noise.
@@ -68,10 +68,10 @@ Use research to choose **topic areas**. Use everyday language for **wording**.
 
 When the gap comes from captures, tie the question to what Eigen already saw:
 
-- *"You mention SPACE a lot — is that where you work?"*
-- *"When you write 'Alex,' do you mean yourself or someone else?"*
+- _"You mention SPACE a lot — is that where you work?"_
+- _"When you write 'Alex,' do you mean yourself or someone else?"_
 
-When onboarding and no captures exist yet, a simple standalone question is fine (*"Where do you work?"*) — still concrete, still one thing at a time.
+When onboarding and no captures exist yet, a simple standalone question is fine (_"Where do you work?"_) — still concrete, still one thing at a time.
 
 ### 5. Default to skip
 
@@ -83,16 +83,16 @@ If recent captures give no useful angle → do not invent a question. Optional p
 
 These map to facet keys in [`src/lib/server/grounding/constants.ts`](../../src/lib/server/grounding/constants.ts) but **must not be asked using facet labels**.
 
-| We want to understand… | Everyday question examples | Facet (internal) |
-|------------------------|----------------------------|------------------|
-| Work and workplace | Where do you work? What do you do for a living? | `work` |
-| Daily rhythm and place | What does a normal weekday look like? Where are you usually based? | `routines` |
-| Commute and movement | Do you take the train, drive, or bike? | `routines` |
-| Household and family | Do you have kids? Who do you live with? | `relationships` |
-| People in their life | Who is [name] — colleague, friend, family? | `relationships` |
+| We want to understand…  | Everyday question examples                                         | Facet (internal)      |
+| ----------------------- | ------------------------------------------------------------------ | --------------------- |
+| Work and workplace      | Where do you work? What do you do for a living?                    | `work`                |
+| Daily rhythm and place  | What does a normal weekday look like? Where are you usually based? | `routines`            |
+| Commute and movement    | Do you take the train, drive, or bike?                             | `routines`            |
+| Household and family    | Do you have kids? Who do you live with?                            | `relationships`       |
+| People in their life    | Who is [name] — colleague, friend, family?                         | `relationships`       |
 | Free time and interests | What do you do in your spare time? What kind of music do you like? | `routines` / `values` |
-| What they're building | What's the main thing you're working on right now? | `projects` |
-| Self vs others in text | When you say "I" or [first name], is that you? | `identity` |
+| What they're building   | What's the main thing you're working on right now?                 | `projects`            |
+| Self vs others in text  | When you say "I" or [first name], is that you?                     | `identity`            |
 
 **Demote or avoid** open-ended `psychology` questions ("how do you think about…", "what motivates you deep down"). If the blank is practical, ask practically.
 
@@ -100,14 +100,14 @@ These map to facet keys in [`src/lib/server/grounding/constants.ts`](../../src/l
 
 ## Good vs bad examples
 
-| Bad | Why | Better (if blank exists) |
-|-----|-----|--------------------------|
-| What's the story behind your name? | No enrichment utility; performative | Are you the Alex in your captures, or someone else? |
-| How has your name shaped how you connect with others? | Therapy cosplay; unanswerable honestly | *(skip)* |
-| Which domains do you operate in? | Academic; nobody speaks this way | Where do you work? |
-| Tell me about your values | Vague; invites essay | Do you mostly capture tasks, ideas, or personal notes here? |
-| What moves you? | Coaching brochure | What do you do in your spare time? |
-| What's your narrative identity? | Research jargon | What are you trying to get done this year? |
+| Bad                                                   | Why                                    | Better (if blank exists)                                    |
+| ----------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------- |
+| What's the story behind your name?                    | No enrichment utility; performative    | Are you the Alex in your captures, or someone else?         |
+| How has your name shaped how you connect with others? | Therapy cosplay; unanswerable honestly | _(skip)_                                                    |
+| Which domains do you operate in?                      | Academic; nobody speaks this way       | Where do you work?                                          |
+| Tell me about your values                             | Vague; invites essay                   | Do you mostly capture tasks, ideas, or personal notes here? |
+| What moves you?                                       | Coaching brochure                      | What do you do in your spare time?                          |
+| What's your narrative identity?                       | Research jargon                        | What are you trying to get done this year?                  |
 
 ---
 

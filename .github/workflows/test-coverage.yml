@@ -23,6 +23,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Svelte naming
+        run: npm run assert:svelte-naming
+
       - name: Typecheck
         run: npm run check
 

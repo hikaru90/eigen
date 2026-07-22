@@ -8,11 +8,11 @@
 thoughts:
   # ── Cluster A: sourdough / cooking ────────────────────────────────
   - id: ec_001
-    rawText: "Started a new sourdough starter today, 50/50 rye and bread flour, 100% hydration."
+    rawText: 'Started a new sourdough starter today, 50/50 rye and bread flour, 100% hydration.'
     cluster: A
 
   - id: ec_002
-    rawText: "Marcus said his starter doubles in 4 hours at room temp. Mine takes 6. Probably my apartment is cooler."
+    rawText: 'Marcus said his starter doubles in 4 hours at room temp. Mine takes 6. Probably my apartment is cooler.'
     cluster: A
 
   - id: ec_003
@@ -20,19 +20,19 @@ thoughts:
     cluster: A
 
   - id: ec_004
-    rawText: "Had brunch at Tartine with Marcus. We split the morning bun and the country loaf."
+    rawText: 'Had brunch at Tartine with Marcus. We split the morning bun and the country loaf.'
     cluster: A
 
   - id: ec_005
-    rawText: "Idea: cold ferment overnight in the fridge to deepen flavor without extra labor."
+    rawText: 'Idea: cold ferment overnight in the fridge to deepen flavor without extra labor.'
     cluster: A
 
   - id: ec_006
-    rawText: "Marcus suggested using a banneton with rice flour to prevent sticking. Worth trying."
+    rawText: 'Marcus suggested using a banneton with rice flour to prevent sticking. Worth trying.'
     cluster: A
 
   - id: ec_007
-    rawText: "Bought a new lame for scoring loaves. The curved blade gives prettier ears."
+    rawText: 'Bought a new lame for scoring loaves. The curved blade gives prettier ears.'
     cluster: A
 
   - id: ec_008
@@ -40,11 +40,11 @@ thoughts:
     cluster: A
 
   - id: ec_009
-    rawText: "Need to buy more bread flour and a kitchen scale that goes to 0.1g resolution."
+    rawText: 'Need to buy more bread flour and a kitchen scale that goes to 0.1g resolution.'
     cluster: A
 
   - id: ec_010
-    rawText: "Made focaccia for the first time. Surprisingly forgiving compared to sourdough."
+    rawText: 'Made focaccia for the first time. Surprisingly forgiving compared to sourdough.'
     cluster: A
 
   - id: ec_011
@@ -52,15 +52,15 @@ thoughts:
     cluster: A
 
   - id: ec_012
-    rawText: "Tartine sells day-old loaves for half price after 3pm. Worth a detour."
+    rawText: 'Tartine sells day-old loaves for half price after 3pm. Worth a detour.'
     cluster: A
 
   - id: ec_013
-    rawText: "Fermentation temperature matters more than time. 78F is the sweet spot for my flour."
+    rawText: 'Fermentation temperature matters more than time. 78F is the sweet spot for my flour.'
     cluster: A
 
   - id: ec_014
-    rawText: "Made pasta from scratch. The rolling pin technique is harder than the recipe makes it sound."
+    rawText: 'Made pasta from scratch. The rolling pin technique is harder than the recipe makes it sound.'
     cluster: A
 
   - id: ec_015
@@ -69,39 +69,39 @@ thoughts:
 
   # ── Cluster B: Eigen engineering ──────────────────────────────────
   - id: ec_019
-    rawText: "Decided on exactly 3 retries for every LLM call, no cross-model fallback."
+    rawText: 'Decided on exactly 3 retries for every LLM call, no cross-model fallback.'
     cluster: B
 
   - id: ec_020
-    rawText: "Sarah suggested using pgvector with the cosine distance operator instead of L2."
+    rawText: 'Sarah suggested using pgvector with the cosine distance operator instead of L2.'
     cluster: B
 
   - id: ec_021
-    rawText: "Embedding dim 1536 matches OpenAI text-embedding-3-small. Lock that in."
+    rawText: 'Embedding dim 1536 matches OpenAI text-embedding-3-small. Lock that in.'
     cluster: B
 
   - id: ec_022
-    rawText: "Pair-programmed with Sarah on the auth retry logic. Pinned the Better Auth version."
+    rawText: 'Pair-programmed with Sarah on the auth retry logic. Pinned the Better Auth version.'
     cluster: B
 
   - id: ec_023
-    rawText: "Idea: a precomputed lexical_text column for tsvector keyword fusion alongside vector search."
+    rawText: 'Idea: a precomputed lexical_text column for tsvector keyword fusion alongside vector search.'
     cluster: B
 
   - id: ec_024
-    rawText: "Sarah pointed out that RLS policies need to use the session-level user_id, not the connection role."
+    rawText: 'Sarah pointed out that RLS policies need to use the session-level user_id, not the connection role.'
     cluster: B
 
   - id: ec_025
-    rawText: "TODO: add a markup_rate column to activity_call_log so 20% is auditable, not implicit."
+    rawText: 'TODO: add a markup_rate column to activity_call_log so 20% is auditable, not implicit.'
     cluster: B
 
   - id: ec_026
-    rawText: "Default retrieval weights are 0.7 vector + 0.3 graph for the non-relation path."
+    rawText: 'Default retrieval weights are 0.7 vector + 0.3 graph for the non-relation path.'
     cluster: B
 
   - id: ec_027
-    rawText: "Sarah and I disagreed on whether to use Apache AGE or a separate graph database for the graph layer. We went with Apache AGE in Postgres."
+    rawText: 'Sarah and I disagreed on whether to use Apache AGE or a separate graph database for the graph layer. We went with Apache AGE in Postgres.'
     cluster: B
 
   - id: ec_028
@@ -109,7 +109,7 @@ thoughts:
     cluster: B
 
   - id: ec_029
-    rawText: "Capture should persist on submit and return a natural-language summary, not preview-then-confirm."
+    rawText: 'Capture should persist on submit and return a natural-language summary, not preview-then-confirm.'
     cluster: B
 
   - id: ec_030
@@ -117,11 +117,11 @@ thoughts:
     cluster: B
 
   - id: ec_031
-    rawText: "Thought: graph expansion is meaningless if no relations exist. Seed relations explicitly in tests."
+    rawText: 'Thought: graph expansion is meaningless if no relations exist. Seed relations explicitly in tests.'
     cluster: B
 
   - id: ec_032
-    rawText: "The MCP tool boundary must validate IDs and numeric search bounds before any DB or LLM work."
+    rawText: 'The MCP tool boundary must validate IDs and numeric search bounds before any DB or LLM work.'
     cluster: B
 
   - id: ec_033
@@ -129,20 +129,20 @@ thoughts:
     cluster: B
 
   - id: ec_034
-    rawText: "Performance target: p95 capture <= 8s for text, retrieval <= 8s. Log if we drift."
+    rawText: 'Performance target: p95 capture <= 8s for text, retrieval <= 8s. Log if we drift.'
     cluster: B
 
   # ── Cluster C: strength training ──────────────────────────────────
   - id: ec_037
-    rawText: "Squat hit 315 today for a single. Form felt clean."
+    rawText: 'Squat hit 315 today for a single. Form felt clean.'
     cluster: C
 
   - id: ec_038
-    rawText: "Diego said deload weeks every 4th week saved his lower back."
+    rawText: 'Diego said deload weeks every 4th week saved his lower back.'
     cluster: C
 
   - id: ec_039
-    rawText: "Started 5/3/1 programming. Three days a week, big four lifts."
+    rawText: 'Started 5/3/1 programming. Three days a week, big four lifts.'
     cluster: C
 
   - id: ec_040
@@ -150,64 +150,64 @@ thoughts:
     cluster: C
 
   - id: ec_041
-    rawText: "Sleep under 7 hours and my bench numbers crash the next day. Pattern is unmistakable."
+    rawText: 'Sleep under 7 hours and my bench numbers crash the next day. Pattern is unmistakable.'
     cluster: C
 
   - id: ec_042
-    rawText: "Diego recommended switching to low-bar squat. Hip drive feels stronger."
+    rawText: 'Diego recommended switching to low-bar squat. Hip drive feels stronger.'
     cluster: C
 
   - id: ec_043
-    rawText: "Hydration matters more than I thought. Cramps on light days correlate with low water intake."
+    rawText: 'Hydration matters more than I thought. Cramps on light days correlate with low water intake.'
     cluster: C
 
   - id: ec_044
-    rawText: "TODO: re-bandage left wrist before bench. Old strain is flaring up."
+    rawText: 'TODO: re-bandage left wrist before bench. Old strain is flaring up.'
     cluster: C
 
   - id: ec_045
-    rawText: "Diego is moving to Austin in June. Need to find a new training partner."
+    rawText: 'Diego is moving to Austin in June. Need to find a new training partner.'
     cluster: C
 
   - id: ec_046
-    rawText: "Caffeine before training: 200mg works, 400mg makes me jittery."
+    rawText: 'Caffeine before training: 200mg works, 400mg makes me jittery.'
     cluster: C
 
   - id: ec_047
-    rawText: "Goal: 405 deadlift by end of year. Currently at 365."
+    rawText: 'Goal: 405 deadlift by end of year. Currently at 365.'
     cluster: C
 
   - id: ec_048
-    rawText: "Protein around 1g per pound of bodyweight. Easier with cottage cheese in the morning."
+    rawText: 'Protein around 1g per pound of bodyweight. Easier with cottage cheese in the morning.'
     cluster: C
 
   # ── Cluster D: climbing / outdoors ────────────────────────────────
   - id: ec_051
-    rawText: "Sent my first 5.11a today. Tom belayed."
+    rawText: 'Sent my first 5.11a today. Tom belayed.'
     cluster: D
 
   - id: ec_052
-    rawText: "Tom suggested switching to La Sportiva Solutions for steeper routes."
+    rawText: 'Tom suggested switching to La Sportiva Solutions for steeper routes.'
     cluster: D
 
   - id: ec_053
-    rawText: "Yosemite trip planned for late September. Tom is driving."
+    rawText: 'Yosemite trip planned for late September. Tom is driving.'
     cluster: D
 
   - id: ec_054
-    rawText: "Tahoe climbing in winter is brutal but the granite is incredible."
+    rawText: 'Tahoe climbing in winter is brutal but the granite is incredible.'
     cluster: D
 
   - id: ec_055
-    rawText: "Idea: hangboard 2x per week, max hangs only, on rest days from climbing."
+    rawText: 'Idea: hangboard 2x per week, max hangs only, on rest days from climbing.'
     cluster: D
 
   - id: ec_056
-    rawText: "Tom broke his ankle bouldering. Out for at least 8 weeks."
+    rawText: 'Tom broke his ankle bouldering. Out for at least 8 weeks.'
     cluster: D
 
   - id: ec_057
-    rawText: "TODO: replace the worn quickdraws before Yosemite. Three of them are sketchy."
+    rawText: 'TODO: replace the worn quickdraws before Yosemite. Three of them are sketchy.'
     cluster: D
 
   - id: ec_058
@@ -215,7 +215,7 @@ thoughts:
     cluster: D
 
   - id: ec_059
-    rawText: "Crimps strain the A2 pulley. Open hand grip is safer for repeat sessions."
+    rawText: 'Crimps strain the A2 pulley. Open hand grip is safer for repeat sessions.'
     cluster: D
 
   - id: ec_060
@@ -223,20 +223,20 @@ thoughts:
     cluster: D
 
   - id: ec_061
-    rawText: "Hiked Half Dome cables route in May. Brutal but worth it."
+    rawText: 'Hiked Half Dome cables route in May. Brutal but worth it.'
     cluster: D
 
   - id: ec_062
-    rawText: "Idea: build a home hangboard setup. Saves the gym trip on busy weeks."
+    rawText: 'Idea: build a home hangboard setup. Saves the gym trip on busy weeks.'
     cluster: D
 
   # ── Cluster E: books and ideas ────────────────────────────────────
   - id: ec_065
-    rawText: "Started Thinking Fast and Slow by Kahneman. Priya recommended it years ago."
+    rawText: 'Started Thinking Fast and Slow by Kahneman. Priya recommended it years ago.'
     cluster: E
 
   - id: ec_066
-    rawText: "Anchoring effect: the first number you hear shapes the negotiation. Used it on my last raise."
+    rawText: 'Anchoring effect: the first number you hear shapes the negotiation. Used it on my last raise.'
     cluster: E
 
   - id: ec_067
@@ -244,11 +244,11 @@ thoughts:
     cluster: E
 
   - id: ec_068
-    rawText: "Antifragile concept: things that gain from disorder. Applies to startups, biology, training."
+    rawText: 'Antifragile concept: things that gain from disorder. Applies to startups, biology, training.'
     cluster: E
 
   - id: ec_069
-    rawText: "Priya said the Almanack of Naval is best read in small pieces over months, not binged."
+    rawText: 'Priya said the Almanack of Naval is best read in small pieces over months, not binged.'
     cluster: E
 
   - id: ec_070
@@ -256,11 +256,11 @@ thoughts:
     cluster: E
 
   - id: ec_071
-    rawText: "Naval: leverage = capital, labor, code, and media. Code and media scale without permission."
+    rawText: 'Naval: leverage = capital, labor, code, and media. Code and media scale without permission.'
     cluster: E
 
   - id: ec_072
-    rawText: "Priya is now at Anthropic on alignment work. Should ping her about embedding evals."
+    rawText: 'Priya is now at Anthropic on alignment work. Should ping her about embedding evals.'
     cluster: E
 
   - id: ec_073
@@ -268,11 +268,11 @@ thoughts:
     cluster: E
 
   - id: ec_074
-    rawText: "Idea: replace social-media doomscroll with re-reading one chapter of a book I already loved."
+    rawText: 'Idea: replace social-media doomscroll with re-reading one chapter of a book I already loved.'
     cluster: E
 
   - id: ec_075
-    rawText: "Loss aversion is roughly 2x: we feel a loss twice as much as an equal gain. Kahneman."
+    rawText: 'Loss aversion is roughly 2x: we feel a loss twice as much as an equal gain. Kahneman.'
     cluster: E
 
   - id: ec_076
@@ -281,28 +281,28 @@ thoughts:
 
   # ── Cluster F: finance and admin ──────────────────────────────────
   - id: ec_079
-    rawText: "Backdoor Roth IRA: contribute to traditional, immediately convert to Roth. Same calendar year."
+    rawText: 'Backdoor Roth IRA: contribute to traditional, immediately convert to Roth. Same calendar year.'
     cluster: F
-    createdAt: "2025-03-01T09:00:00Z"
+    createdAt: '2025-03-01T09:00:00Z'
 
   - id: ec_080
-    rawText: "Quarterly estimated taxes due April 15, June 15, Sept 15, Jan 15. Set calendar reminders."
+    rawText: 'Quarterly estimated taxes due April 15, June 15, Sept 15, Jan 15. Set calendar reminders.'
     cluster: F
 
   - id: ec_081
-    rawText: "Idea: automate brokerage transfers on the 1st of every month. Removes the timing temptation."
+    rawText: 'Idea: automate brokerage transfers on the 1st of every month. Removes the timing temptation.'
     cluster: F
 
   - id: ec_082
-    rawText: "TODO: switch the high-yield savings account to one with at least 4.5% APY."
+    rawText: 'TODO: switch the high-yield savings account to one with at least 4.5% APY.'
     cluster: F
 
   - id: ec_083
-    rawText: "401k match is free money. Always contribute at least up to the full match."
+    rawText: '401k match is free money. Always contribute at least up to the full match.'
     cluster: F
 
   - id: ec_084
-    rawText: "Tax-loss harvesting in December lowers basis on losers, banks the loss for offsetting gains."
+    rawText: 'Tax-loss harvesting in December lowers basis on losers, banks the loss for offsetting gains.'
     cluster: F
 
   - id: ec_085
@@ -310,88 +310,88 @@ thoughts:
     cluster: F
 
   - id: ec_086
-    rawText: "TODO: file the W-9 for the consulting work before the end of the month."
+    rawText: 'TODO: file the W-9 for the consulting work before the end of the month.'
     cluster: F
 
   - id: ec_087
-    rawText: "Naval point: long-term wealth comes from owning equity, not selling time."
+    rawText: 'Naval point: long-term wealth comes from owning equity, not selling time.'
     cluster: F
 
   - id: ec_088
-    rawText: "Insurance audit annually: term life, umbrella, disability. Skip whole life products."
+    rawText: 'Insurance audit annually: term life, umbrella, disability. Skip whole life products.'
     cluster: F
 
   # ── Cluster G: temporal sequence (D2 — temporal reasoning) ────────
   - id: ec_091
-    rawText: "Thinking about moving to Austin. The tech scene there is growing fast and cost of living is better."
+    rawText: 'Thinking about moving to Austin. The tech scene there is growing fast and cost of living is better.'
     cluster: G
-    createdAt: "2025-06-01T09:00:00Z"
+    createdAt: '2025-06-01T09:00:00Z'
 
   - id: ec_092
-    rawText: "Got a job offer from a fintech startup in Austin. Salary is 20% above what I make now."
+    rawText: 'Got a job offer from a fintech startup in Austin. Salary is 20% above what I make now.'
     cluster: G
-    createdAt: "2025-12-10T09:00:00Z"
+    createdAt: '2025-12-10T09:00:00Z'
 
   - id: ec_093
-    rawText: "Checked blood pressure today: 118/76. Feeling good. Consistent with last few months."
+    rawText: 'Checked blood pressure today: 118/76. Feeling good. Consistent with last few months.'
     cluster: G
-    createdAt: "2026-04-30T09:00:00Z"
+    createdAt: '2026-04-30T09:00:00Z'
 
   - id: ec_094
-    rawText: "Blood pressure reading two weeks ago was 130/85. Slightly elevated — started watching sodium intake."
+    rawText: 'Blood pressure reading two weeks ago was 130/85. Slightly elevated — started watching sodium intake.'
     cluster: G
-    createdAt: "2026-05-02T09:00:00Z"
+    createdAt: '2026-05-02T09:00:00Z'
 
   - id: ec_095
-    rawText: "Started meditating every morning for 10 minutes. Using the Waking Up app."
+    rawText: 'Started meditating every morning for 10 minutes. Using the Waking Up app.'
     cluster: G
-    createdAt: "2025-02-14T09:00:00Z"
+    createdAt: '2025-02-14T09:00:00Z'
 
   # ── Cluster H: contradiction pairs (D7 — contradiction detection) ──
   - id: ec_101
-    rawText: "Remote work is terrible for me. I lose all discipline and end up doing nothing. Need an office."
+    rawText: 'Remote work is terrible for me. I lose all discipline and end up doing nothing. Need an office.'
     cluster: H
-    createdAt: "2024-09-15T09:00:00Z"
+    createdAt: '2024-09-15T09:00:00Z'
 
   - id: ec_102
     rawText: "Working from home is actually great. I'm more productive, calmer, and the commute savings are real."
     cluster: H
-    createdAt: "2025-11-20T09:00:00Z"
+    createdAt: '2025-11-20T09:00:00Z'
 
   - id: ec_103
     rawText: "I eat meat and I don't feel guilty about it. Vegetarianism seems like performative sacrifice."
     cluster: H
-    createdAt: "2024-06-10T09:00:00Z"
+    createdAt: '2024-06-10T09:00:00Z'
 
   - id: ec_104
-    rawText: "Decided to go vegetarian for a month as an experiment. Surprisingly easy and I feel lighter."
+    rawText: 'Decided to go vegetarian for a month as an experiment. Surprisingly easy and I feel lighter.'
     cluster: H
-    createdAt: "2026-03-01T09:00:00Z"
+    createdAt: '2026-03-01T09:00:00Z'
 
   # ── Cluster I: staleness / decay (D10 — memory decay) ─────────────
   - id: ec_111
     rawText: "I'm unhappy at this job. The culture is toxic and I'm not learning anything. Need to leave."
     cluster: I
-    createdAt: "2025-03-10T09:00:00Z"
+    createdAt: '2025-03-10T09:00:00Z'
 
   - id: ec_112
-    rawText: "Been working on a multiplayer chess app as a side project. Got the basic board rendering done."
+    rawText: 'Been working on a multiplayer chess app as a side project. Got the basic board rendering done.'
     cluster: I
-    createdAt: "2024-05-20T09:00:00Z"
+    createdAt: '2024-05-20T09:00:00Z'
 
   - id: ec_113
-    rawText: "I live in Berlin now. Just moved here from London last month."
+    rawText: 'I live in Berlin now. Just moved here from London last month.'
     cluster: I
-    createdAt: "2025-08-01T09:00:00Z"
+    createdAt: '2025-08-01T09:00:00Z'
 
   - id: ec_114
-    rawText: "Moved to London. Found a flat in Hackney, taking over in September."
+    rawText: 'Moved to London. Found a flat in Hackney, taking over in September.'
     cluster: I
-    createdAt: "2025-01-15T09:00:00Z"
+    createdAt: '2025-01-15T09:00:00Z'
 
   # ── Cluster J: personalization signals (D4 — personalization) ──────
   - id: ec_121
-    rawText: "I think better with bullet points. Long paragraphs in docs lose me fast."
+    rawText: 'I think better with bullet points. Long paragraphs in docs lose me fast.'
     cluster: J
 
   - id: ec_122
@@ -399,11 +399,11 @@ thoughts:
     cluster: J
 
   - id: ec_123
-    rawText: "At work I care most about the problem being genuinely hard, and having real autonomy to solve it."
+    rawText: 'At work I care most about the problem being genuinely hard, and having real autonomy to solve it.'
     cluster: J
 
   - id: ec_124
-    rawText: "My best thinking happens early morning, before email. I try to protect 6–9am every day."
+    rawText: 'My best thinking happens early morning, before email. I try to protect 6–9am every day.'
     cluster: J
 
   - id: ec_125
@@ -416,41 +416,41 @@ thoughts:
 
   # ── Cluster L: Alex / Eigen agent context ─────────────────────────
   - id: ec_301
-    rawText: "Building a memory eval framework for the eigen system using TypeScript and vitest"
+    rawText: 'Building a memory eval framework for the eigen system using TypeScript and vitest'
     cluster: L
 
   - id: ec_302
-    rawText: "The agent eval needs to cover three phases: ingest quality, retrieval precision, and answer fidelity"
+    rawText: 'The agent eval needs to cover three phases: ingest quality, retrieval precision, and answer fidelity'
     cluster: L
 
   - id: ec_303
-    rawText: "Decided to use fresh isolated eval users per run so tests reflect real agent cold-start behavior"
+    rawText: 'Decided to use fresh isolated eval users per run so tests reflect real agent cold-start behavior'
     cluster: L
 
   - id: ec_304
-    rawText: "Alex keeps a morning routine: 30 minutes of reading before any screens"
+    rawText: 'Alex keeps a morning routine: 30 minutes of reading before any screens'
     cluster: L
 
   - id: ec_305
-    rawText: "Favorite book right now is Thinking Fast and Slow by Daniel Kahneman"
+    rawText: 'Favorite book right now is Thinking Fast and Slow by Daniel Kahneman'
     cluster: L
 
   - id: ec_306
-    rawText: "Alex and the team met in Berlin in March to review the memory system architecture"
+    rawText: 'Alex and the team met in Berlin in March to review the memory system architecture'
     cluster: L
 
   - id: ec_307
-    rawText: "Alex is the primary user of the eigen memory system and uses it to track project decisions"
+    rawText: 'Alex is the primary user of the eigen memory system and uses it to track project decisions'
     cluster: L
 
   - id: ec_308
-    rawText: "The Berlin architecture review led to the decision to add graph-based retrieval to eigen"
+    rawText: 'The Berlin architecture review led to the decision to add graph-based retrieval to eigen'
     cluster: L
 
   - id: ec_309
-    rawText: "Goal: achieve Recall@3 of at least 0.8 on the agent memory eval before shipping"
+    rawText: 'Goal: achieve Recall@3 of at least 0.8 on the agent memory eval before shipping'
     cluster: L
 
   - id: ec_310
-    rawText: "Reminder: run eval after every significant change to the capture pipeline"
+    rawText: 'Reminder: run eval after every significant change to the capture pipeline'
     cluster: L

@@ -68,21 +68,21 @@ Each QA run expands to: **captures** → **check** (deterministic) → optional 
 
 ## Concern coverage (seeded QAs)
 
-| Concern | Seeded QA(s) |
-|--------|----------------|
-| Graph working | all (graph.requireThoughtNodes) |
-| Thoughts linked | qa_contradiction_remote_work (relations) |
-| Entity counts / surfaces | qa_smoke_dinner, qa_haystack_walnut, … |
-| Ontology in classification | all (ontology.requireActiveCategories) |
-| Ontology extends over time | qa_ontology_growth (profile cursor + guidance) |
-| Extraction / enrichment | all (extraction.requireEnriched) |
-| Ontology qualitative fit | answer acceptance text per QA |
-| Embedding + lexical | all (embedding.requireVector) |
-| Recall / NDCG | qa_haystack_walnut, retrieval QAs |
-| Needle in haystack | qa_haystack_walnut (needleFixtureId + top-K) |
-| Summarize | qa_synthesis_priya_books |
-| Learn from user | qa_edit_allergy_update |
-| Improve over time | qa_ontology_growth, retrieval learning flags |
+| Concern                       | Seeded QA(s)                                                                |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| Graph working                 | all (graph.requireThoughtNodes)                                             |
+| Thoughts linked               | qa_contradiction_remote_work (relations)                                    |
+| Entity counts / surfaces      | qa_smoke_dinner, qa_haystack_walnut, …                                      |
+| Ontology in classification    | all (ontology.requireActiveCategories)                                      |
+| Ontology extends over time    | qa_ontology_growth (profile cursor + guidance)                              |
+| Extraction / enrichment       | all (extraction.requireEnriched)                                            |
+| Ontology qualitative fit      | answer acceptance text per QA                                               |
+| Embedding + lexical           | all (embedding.requireVector)                                               |
+| Recall / NDCG                 | qa_haystack_walnut, retrieval QAs                                           |
+| Needle in haystack            | qa_haystack_walnut (needleFixtureId + top-K)                                |
+| Summarize                     | qa_synthesis_priya_books                                                    |
+| Learn from user               | qa_edit_allergy_update                                                      |
+| Improve over time             | qa_ontology_growth, retrieval learning flags                                |
 | Dense operative detail recall | `qa_surgical_*` (tag `surgical_memory`) — numeric/landmark/device specifics |
 
 ## Graph-scale cost benchmark

@@ -1,1 +1,1 @@
-export type Intensity = 'lite' | 'full' | 'ultra';
+export type Intensity = 'lite' | 'full' | 'ultra'

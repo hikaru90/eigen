@@ -45,7 +45,7 @@
       modules: ['@posthog/nuxt'],
       // Enable source maps generation in both vue and nitro
       sourcemap: {
-        client: 'hidden'
+        client: 'hidden',
       },
       nitro: {
         rollupConfig: {
@@ -80,9 +80,9 @@
 
     The module will automatically:
 
-    -   Initialize PostHog on both Vue (client side) and Nitro (server side)
-    -   Capture exceptions on both client and server
-    -   Generate and upload source maps during build
+    - Initialize PostHog on both Vue (client side) and Nitro (server side)
+    - Capture exceptions on both client and server
+    - Generate and upload source maps during build
 
 2.  2
 
@@ -103,7 +103,7 @@
       const { $posthog } = useNuxtApp()
       if ($posthog) {
         const posthog = $posthog()
-        posthog.captureException(new Error("Important error message"))
+        posthog.captureException(new Error('Important error message'))
       }
     </script>
     ```
@@ -116,12 +116,9 @@
 
     ```javascript
     const runtimeConfig = useRuntimeConfig()
-    const posthog = new PostHog(
-      runtimeConfig.public.posthogPublicKey,
-      {
-        host: runtimeConfig.public.posthogHost,
-      }
-    );
+    const posthog = new PostHog(runtimeConfig.public.posthogPublicKey, {
+      host: runtimeConfig.public.posthogHost,
+    })
     try {
       const results = await DB.query.users.findMany()
       return results
@@ -152,7 +149,7 @@
 
     Recommended
 
-    *Confirm events are being sent to PostHog*
+    _Confirm events are being sent to PostHog_
 
     Before proceeding, let's make sure exception events are being captured and sent to PostHog. You should see events appear in the activity feed.
 

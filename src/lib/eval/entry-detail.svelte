@@ -1,72 +1,66 @@
 <script lang="ts">
-  import type { EvalEntrySummary } from './types';
-  import EvalGraphPanel from '$lib/eval/eval-graph-panel.svelte';
+  import type { EvalEntrySummary } from './types'
+  import EvalGraphPanel from '$lib/eval/eval-graph-panel.svelte'
   import {
     humanCategory,
     humanizeCheckAssertion,
     humanNdcg,
     memoryTextForFixture,
-    parseEvalGraphSnapshot
-  } from './display';
+    parseEvalGraphSnapshot,
+  } from './display'
 
   let {
     entry,
     allEntries = [],
-    compact = false
+    compact = false,
   }: {
-    entry: EvalEntrySummary;
-    allEntries?: EvalEntrySummary[];
-    compact?: boolean;
-  } = $props();
+    entry: EvalEntrySummary
+    allEntries?: EvalEntrySummary[]
+    compact?: boolean
+  } = $props()
 
-  type RetrievedThought = { id?: string; normalizedText?: string; category?: string };
+  type RetrievedThought = { id?: string; normalizedText?: string; category?: string }
 
   const rawSubmitted = $derived(
-    entry.kind === 'capture'
-      ? String(entry.result?.rawText ?? entry.input.rawText ?? '')
-      : ''
-  );
+    entry.kind === 'capture' ? String(entry.result?.rawText ?? entry.input.rawText ?? '') : '',
+  )
   const normalizedStored = $derived(
-    entry.kind === 'capture' ? String(entry.result?.normalizedText ?? '') : ''
-  );
-  const category = $derived(
-    entry.kind === 'capture' ? String(entry.result?.category ?? '') : ''
-  );
+    entry.kind === 'capture' ? String(entry.result?.normalizedText ?? '') : '',
+  )
+  const category = $derived(entry.kind === 'capture' ? String(entry.result?.category ?? '') : '')
   const retrievedThoughts = $derived(
-    (Array.isArray(entry.result?.retrieved) ? entry.result.retrieved : []) as RetrievedThought[]
-  );
+    (Array.isArray(entry.result?.retrieved) ? entry.result.retrieved : []) as RetrievedThought[],
+  )
   const topRanked = $derived(
-    Array.isArray(entry.result?.topRanked) ? (entry.result.topRanked as string[]) : []
-  );
-  const acceptance = $derived(
-    String(entry.result?.acceptance ?? entry.expected.acceptance ?? '')
-  );
+    Array.isArray(entry.result?.topRanked) ? (entry.result.topRanked as string[]) : [],
+  )
+  const acceptance = $derived(String(entry.result?.acceptance ?? entry.expected.acceptance ?? ''))
 
   type CheckAssertion = {
-    id?: string;
-    label?: string;
-    passed?: boolean;
-    evidence?: string;
-    fixtureId?: string;
-    thoughtPreview?: string;
-  };
+    id?: string
+    label?: string
+    passed?: boolean
+    evidence?: string
+    fixtureId?: string
+    thoughtPreview?: string
+  }
 
   const checkAssertions = $derived(
-    (Array.isArray(entry.result?.assertions) ? entry.result.assertions : []) as CheckAssertion[]
-  );
+    (Array.isArray(entry.result?.assertions) ? entry.result.assertions : []) as CheckAssertion[],
+  )
   const checkSummary = $derived(
     entry.kind === 'check' && entry.result
       ? `${entry.result.passedCount ?? 0} of ${checkAssertions.length} checks passed`
-      : ''
-  );
+      : '',
+  )
 
   const humanizedChecks = $derived(
-    checkAssertions.map((a) => humanizeCheckAssertion(a, allEntries))
-  );
+    checkAssertions.map((a) => humanizeCheckAssertion(a, allEntries)),
+  )
 
   const graphSnapshot = $derived(
-    entry.kind === 'check' ? parseEvalGraphSnapshot(entry.result?.graphSnapshot) : null
-  );
+    entry.kind === 'check' ? parseEvalGraphSnapshot(entry.result?.graphSnapshot) : null,
+  )
 </script>
 
 {#snippet textPanel(label: string, text: string, variant: 'in' | 'out' = 'in')}
@@ -88,7 +82,9 @@
     {#if normalizedStored}
       <div class="space-y-1">
         <p class="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-          Stored in memory{#if category}<span class="text-foreground normal-case"> · {humanCategory(category)}</span>{/if}
+          Stored in memory{#if category}<span class="text-foreground normal-case">
+              · {humanCategory(category)}</span
+            >{/if}
         </p>
         <p class="bg-background rounded-md border p-3 text-sm leading-relaxed whitespace-pre-wrap">
           {normalizedStored}
@@ -113,7 +109,9 @@
     {/if}
     {#if acceptance}
       <details class="text-xs" open={!compact}>
-        <summary class="text-muted-foreground cursor-pointer">What a good answer should include</summary>
+        <summary class="text-muted-foreground cursor-pointer"
+          >What a good answer should include</summary
+        >
         <p class="mt-1 rounded-md border bg-muted/30 p-2 whitespace-pre-wrap">{acceptance}</p>
       </details>
     {/if}

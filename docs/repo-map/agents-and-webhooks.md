@@ -4,11 +4,11 @@ Eigenmesh orchestration: connect external agents to your brain via signed webhoo
 
 ## Layers
 
-| Layer | Role |
-|-------|------|
-| **Brain** | Thoughts, enrichment, GTD, MCP memory tools |
+| Layer         | Role                                                              |
+| ------------- | ----------------------------------------------------------------- |
+| **Brain**     | Thoughts, enrichment, GTD, MCP memory tools                       |
 | **Eigenmesh** | Agent registry, event push, task assignment, completion callbacks |
-| **Agents** | Workers that receive webhooks and optionally use MCP |
+| **Agents**    | Workers that receive webhooks and optionally use MCP              |
 
 ## Register an agent
 

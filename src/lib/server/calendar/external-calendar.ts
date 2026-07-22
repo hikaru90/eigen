@@ -4,22 +4,22 @@
  */
 
 export type ExternalBusyBlock = {
-	id: string;
-	title: string;
-	startAt: string;
-	endAt: string;
-	source: 'google' | 'apple' | 'unknown';
-	readOnly: true;
-};
+  id: string
+  title: string
+  startAt: string
+  endAt: string
+  source: 'google' | 'apple' | 'unknown'
+  readOnly: true
+}
 
 export type ExternalCalendarOverlayQuery = {
-	userId: string;
-	rangeStart: Date;
-	rangeEnd: Date;
-};
+  userId: string
+  rangeStart: Date
+  rangeEnd: Date
+}
 
 export async function listExternalBusyBlocks(
-	_query: ExternalCalendarOverlayQuery
+  _query: ExternalCalendarOverlayQuery,
 ): Promise<ExternalBusyBlock[]> {
-	return [];
+  return []
 }

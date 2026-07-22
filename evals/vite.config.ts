@@ -9,35 +9,35 @@
  *
  * Anything beyond that should remain in the main config.
  */
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, type Plugin } from 'vite'
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
-const STUB_ENV_ID = '\0eigen-eval/env-dynamic-private';
+const STUB_ENV_ID = '\0eigen-eval/env-dynamic-private'
 
 function envDynamicPrivateStub(): Plugin {
-	return {
-		name: 'eigen-eval-env-dynamic-private-stub',
-		resolveId(source) {
-			if (source === '$env/dynamic/private') {
-				return STUB_ENV_ID;
-			}
-			return null;
-		},
-		load(id) {
-			if (id !== STUB_ENV_ID) return null;
-			return `export const env = process.env;`;
-		}
-	};
+  return {
+    name: 'eigen-eval-env-dynamic-private-stub',
+    resolveId(source) {
+      if (source === '$env/dynamic/private') {
+        return STUB_ENV_ID
+      }
+      return null
+    },
+    load(id) {
+      if (id !== STUB_ENV_ID) return null
+      return `export const env = process.env;`
+    },
+  }
 }
 
 export default defineConfig({
-	plugins: [envDynamicPrivateStub()],
-	resolve: {
-		alias: {
-			$lib: resolve(__dirname, '../src/lib')
-		}
-	}
-});
+  plugins: [envDynamicPrivateStub()],
+  resolve: {
+    alias: {
+      $lib: resolve(__dirname, '../src/lib'),
+    },
+  },
+})

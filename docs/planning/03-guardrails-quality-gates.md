@@ -1,7 +1,9 @@
 # Eigen Guardrails and Quality Gate Policy
 
 ## Definition of Ready (DoR)
+
 A change is Ready only when all items below are satisfied:
+
 - Requirement is documented and scoped (in/out boundaries clear).
 - Acceptance criteria exist in Given/When/Then form.
 - Risk classification is assigned (`critical`, `high`, `normal`).
@@ -11,7 +13,9 @@ A change is Ready only when all items below are satisfied:
 - Security impact is reviewed (auth, tenancy, RLS implications).
 
 ## Definition of Done (DoD)
+
 A change is Done only when all items below are satisfied:
+
 - Unit, integration, and Playwright E2E tests are implemented and passing.
 - Critical-path scenarios for touched domains are passing.
 - No unresolved high-severity defects.
@@ -20,6 +24,7 @@ A change is Done only when all items below are satisfied:
 - Ingest/retrieval/enrichment fixes **generalize to arbitrary thoughts** — no thought-id, fixture-text, or single-capture special cases in production code (see **Generalize ingest fixes** in [`AGENTS.md`](../../AGENTS.md)).
 
 ## Risk Classification Rules
+
 - `critical`:
   - Ingest flow, retrieval routing, context selection, tenancy/RLS, auth, pricing/cost accounting.
   - Must include regression tests and release-blocking checks.
@@ -29,6 +34,7 @@ A change is Done only when all items below are satisfied:
   - Non-critical UI polish and low-risk refactors.
 
 ## Coverage Thresholds
+
 - Coverage is enforced by risk tier with explicit thresholds:
   - Critical tier: **95%** product target (lines/branches/functions/statements). Enforced floors in `vite.config.ts` ratchet upward from measured coverage until the target is met.
   - High tier: 80% lines/functions/statements (branches may be slightly lower where noted in `vite.config.ts`).
@@ -43,6 +49,7 @@ A change is Done only when all items below are satisfied:
 - Coverage report path: `coverage/index.html`.
 
 ## Merge Gates (PR-Level)
+
 - CI (`.github/workflows/test-coverage.yml`):
   - **Required:** `npm run lint`, `npm run check`, `npm run test:unit` (blocks merge on failure).
   - **Reported:** `npm run test:coverage` with `CI=true` (applies per-tier floors in `vite.config.ts`; `continue-on-error` until critical floors reach the 95% product target — see [docs/testing/README.md](../testing/README.md)).
@@ -55,6 +62,7 @@ A change is Done only when all items below are satisfied:
 - Playwright E2E and Q&A evals are **operator-run** locally (or via headed scripts); they are not currently merge-blocking CI jobs. See [docs/testing/README.md](../testing/README.md).
 
 ## Release Gates
+
 - All critical-path E2E scenarios pass.
 - Deterministic retry behavior validated:
   - Exactly 3 retries for each LLM call (same model and endpoint).
@@ -65,6 +73,7 @@ A change is Done only when all items below are satisfied:
 - No fallback paths or silent degradation introduced.
 
 ## Non-Negotiable Guardrails
+
 - **Generalize ingest fixes:** never ship a fix that only works for one captured thought (specific id, exact text, or eval row). Pipeline changes must hold for all ingested thoughts; example strings belong in tests, not as production special cases.
 - No fallbacks.
 - No silent degradation.
@@ -80,7 +89,9 @@ A change is Done only when all items below are satisfied:
 - **Embeddings DB-only:** vectors may be stored and used for retrieval, but must never appear in MCP tool results, agent/LLM messages, or logs. See [embeddings-db-only-boundary.md](./embeddings-db-only-boundary.md).
 
 ## Change Control for Core Policies
+
 Any change to these requires explicit requirement update before implementation:
+
 - Retry count policy (currently 3).
 - Context selection weights.
 - Tenant key model (`user_id`).

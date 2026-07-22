@@ -4,10 +4,10 @@ Eigen bills LLM usage in two modes. Wallet top-ups use PayPal when the operator 
 
 ## Billing modes
 
-| Mode | `user_preference.billing_mode` | Who pays the gateway | API keys used |
-|------|------------------------------|----------------------|---------------|
-| **Eigen platform credits** (default) | `platform_credits` | User wallet (PayPal top-ups) | Operator service keys (`SERVICE_API_KEY_EUROUTER`, `SERVICE_API_KEY_OPENROUTER`) |
-| **Bring your own key (BYOK)** | `byok` | User's gateway account | User keys saved under Settings → LLM → BYOK (with optional env fallbacks) |
+| Mode                                 | `user_preference.billing_mode` | Who pays the gateway         | API keys used                                                                    |
+| ------------------------------------ | ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------- |
+| **Eigen platform credits** (default) | `platform_credits`             | User wallet (PayPal top-ups) | Operator service keys (`SERVICE_API_KEY_EUROUTER`, `SERVICE_API_KEY_OPENROUTER`) |
+| **Bring your own key (BYOK)**        | `byok`                         | User's gateway account       | User keys saved under Settings → LLM → BYOK (with optional env fallbacks)        |
 
 Users switch mode on **Settings → LLM** under **Billing method**.
 
@@ -17,19 +17,19 @@ Users switch mode on **Settings → LLM** under **Billing method**.
 
 Users see **Eigen platform credits** only in Settings — not EUR, USD, or cent amounts. Internally:
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `CREDITS_PER_USD` | `1000` | Display and ledger unit |
+| Constant               | Value  | Meaning                                          |
+| ---------------------- | ------ | ------------------------------------------------ |
+| `CREDITS_PER_USD`      | `1000` | Display and ledger unit                          |
 | `MICRO_USD_PER_CREDIT` | `1000` | `debitedCredits = floor(pendingMicroUsd / 1000)` |
 
 Each user has one row in `user_wallet` (tenant-isolated via RLS):
 
-| Column | Meaning |
-|--------|---------|
-| `available_credits` | Spendable balance (integer Eigen credits) |
-| `reserved_credits` | Held for pre-call reservations (reserved API exists; capture uses post-call debit) |
-| `pending_billing_micro_usd` | Sub-cent USD gateway charges accumulated until whole credits debit |
-| `currency` | Audit only (`USD`); not shown in UI |
+| Column                      | Meaning                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| `available_credits`         | Spendable balance (integer Eigen credits)                                          |
+| `reserved_credits`          | Held for pre-call reservations (reserved API exists; capture uses post-call debit) |
+| `pending_billing_micro_usd` | Sub-cent USD gateway charges accumulated until whole credits debit                 |
+| `currency`                  | Audit only (`USD`); not shown in UI                                                |
 
 Gateway `usage.cost` is **USD**. Platform billing converts provider cost to micro-USD, applies **20% markup**, then debits whole credits from `available_credits`.
 
@@ -54,43 +54,43 @@ There is no user-facing billing currency picker; PayPal settlement is always USD
 
 ### Operator env vars (PayPal)
 
-| Variable | Purpose |
-|----------|---------|
-| `PAYPAL_API_BASE` | REST API base (`https://api-m.sandbox.paypal.com` or `https://api-m.paypal.com`) |
-| `PAYPAL_CLIENT_ID` | REST + JS SDK client id |
-| `PAYPAL_CLIENT_SECRET` | Capture secret (alias: `PAYPAL_SECRET`) |
-| `PAYPAL_WEB_SDK_URL` | Optional v6 SDK script URL (sandbox vs live) |
+| Variable               | Purpose                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `PAYPAL_API_BASE`      | REST API base (`https://api-m.sandbox.paypal.com` or `https://api-m.paypal.com`) |
+| `PAYPAL_CLIENT_ID`     | REST + JS SDK client id                                                          |
+| `PAYPAL_CLIENT_SECRET` | Capture secret (alias: `PAYPAL_SECRET`)                                          |
+| `PAYPAL_WEB_SDK_URL`   | Optional v6 SDK script URL (sandbox vs live)                                     |
 
 ## What gets billed (platform credits)
 
-| Surface | Billable calls |
-|---------|----------------|
-| **Capture** | Ontology classify (`llmChatCompletion`) + embedding (`llmCreateEmbeddings`); pipeline pre-check requires at least **50 credits** (`MIN_CAPTURE_PIPELINE_CREDITS`, ~$0.05 USD) |
-| **Dictation** | `POST /api/capture/transcribe` → OpenRouter STT (`llmCreateTranscription`) |
-| **Chat / agent** | `llmChatCompletion` |
-| **Retrieval / QA** | Embeddings and chat as used by retrieval and compose-answer |
-| **Enrichment** | Background enrich paths that call the LLM |
+| Surface            | Billable calls                                                                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Capture**        | Ontology classify (`llmChatCompletion`) + embedding (`llmCreateEmbeddings`); pipeline pre-check requires at least **50 credits** (`MIN_CAPTURE_PIPELINE_CREDITS`, ~$0.05 USD) |
+| **Dictation**      | `POST /api/capture/transcribe` → OpenRouter STT (`llmCreateTranscription`)                                                                                                    |
+| **Chat / agent**   | `llmChatCompletion`                                                                                                                                                           |
+| **Retrieval / QA** | Embeddings and chat as used by retrieval and compose-answer                                                                                                                   |
+| **Enrichment**     | Background enrich paths that call the LLM                                                                                                                                     |
 
 Each successful platform call debits only **provider-reported** `usage.cost` (no token estimates). Missing cost fails the request (hard failure per project guardrails).
 
 ## Operator env vars (platform LLM)
 
-| Variable | Purpose |
-|----------|---------|
-| `LLM_BASE_URL` | EUrouter origin for platform chat/embeddings |
-| `SERVICE_API_KEY_EUROUTER` | EUrouter service key |
-| `OPENROUTER_BASE_URL` | OpenRouter origin (platform STT and OpenRouter platform path) |
-| `SERVICE_API_KEY_OPENROUTER` | OpenRouter service key for platform STT and OpenRouter platform chat/embeddings |
-| `LLM_RULE_CHAT` / `LLM_RULE_EMBEDDING` | EUrouter routing rule UUIDs |
-| `LLM_MODEL_STT` | Optional STT model override (default: `qwen/qwen3-asr-flash-2026-02-10`) |
+| Variable                               | Purpose                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------- |
+| `LLM_BASE_URL`                         | EUrouter origin for platform chat/embeddings                                    |
+| `SERVICE_API_KEY_EUROUTER`             | EUrouter service key                                                            |
+| `OPENROUTER_BASE_URL`                  | OpenRouter origin (platform STT and OpenRouter platform path)                   |
+| `SERVICE_API_KEY_OPENROUTER`           | OpenRouter service key for platform STT and OpenRouter platform chat/embeddings |
+| `LLM_RULE_CHAT` / `LLM_RULE_EMBEDDING` | EUrouter routing rule UUIDs                                                     |
+| `LLM_MODEL_STT`                        | Optional STT model override (default: `qwen/qwen3-asr-flash-2026-02-10`)        |
 
 ## User BYOK env fallbacks
 
 When no DB row exists under Settings → LLM → BYOK:
 
-| Variable | Provider |
-|----------|----------|
-| `LLM_BASE_URL` + `LLM_API_KEY` | EUrouter |
+| Variable                                     | Provider                   |
+| -------------------------------------------- | -------------------------- |
+| `LLM_BASE_URL` + `LLM_API_KEY`               | EUrouter                   |
 | `OPENROUTER_BASE_URL` + `OPENROUTER_API_KEY` | OpenRouter (including STT) |
 
 Saved DB credentials always take priority over env for BYOK.
@@ -130,10 +130,10 @@ Policies live in [`src/lib/server/db/enable_rls.sql`](../src/lib/server/db/enabl
 
 ## Error codes
 
-| HTTP | `code` | When |
-|------|--------|------|
-| 402 | `insufficient_credits` | Platform credits: wallet empty, below capture minimum, or post-call debit exceeds balance |
-| 500 | — | Gateway misconfiguration, missing `usage.cost`, or other hard failures |
+| HTTP | `code`                 | When                                                                                      |
+| ---- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| 402  | `insufficient_credits` | Platform credits: wallet empty, below capture minimum, or post-call debit exceeds balance |
+| 500  | —                      | Gateway misconfiguration, missing `usage.cost`, or other hard failures                    |
 
 Response body includes `error`, `availableCredits`, `creditsPerUsd`, and optionally `requiredCredits` and `phase` (`precheck` | `settle`). No fiat `currency` field.
 
@@ -153,11 +153,11 @@ Each eval run uses an isolated **eval tenant** (`evalUserId`) for thoughts and R
 
 Deployment operators with `user.role = 'admin'` can open **`/admin/spend`** to see per-user billing aggregates for **this deployment only** (not cross-deployment).
 
-| Requirement | Detail |
-|-------------|--------|
-| Access | Signed-in session with `role = 'admin'` (`grantAdminByEmail` or `scripts/create-admin.mjs` for the first user) |
-| Database | Uses the same Postgres as the app (`DATABASE_URL` by default). Admin queries open a separate connection **without** `SET ROLE eigen_app`, so the default Docker user (`eigen`) sees all tenants. Optional `DATABASE_ADMIN_URL` only if `DATABASE_URL` uses a restricted role. |
-| Scope | All rows in the deployment's `user`, `activity_call_log`, `user_wallet`, and `wallet_ledger_entry` tables |
+| Requirement | Detail                                                                                                                                                                                                                                                                        |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Access      | Signed-in session with `role = 'admin'` (`grantAdminByEmail` or `scripts/create-admin.mjs` for the first user)                                                                                                                                                                |
+| Database    | Uses the same Postgres as the app (`DATABASE_URL` by default). Admin queries open a separate connection **without** `SET ROLE eigen_app`, so the default Docker user (`eigen`) sees all tenants. Optional `DATABASE_ADMIN_URL` only if `DATABASE_URL` uses a restricted role. |
+| Scope       | All rows in the deployment's `user`, `activity_call_log`, `user_wallet`, and `wallet_ledger_entry` tables                                                                                                                                                                     |
 
 The page shows email, billing mode, wallet balance, gateway spend (Eigen credits), credits debited, and last activity. Default range is the last 30 days; **All time** and custom date filters are available.
 

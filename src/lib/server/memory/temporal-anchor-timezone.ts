@@ -3,6 +3,6 @@
  * Prefer {@link getUserPreferredTimezone} in async server paths.
  */
 export function getTemporalAnchorTimezone(): string {
-	const fromEnv = process.env.TEMPORAL_ANCHOR_TZ?.trim();
-	return fromEnv || 'UTC';
+  const fromEnv = process.env.TEMPORAL_ANCHOR_TZ?.trim()
+  return fromEnv || 'UTC'
 }

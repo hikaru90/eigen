@@ -1,44 +1,44 @@
-import type { ExtractedEntityMention } from '$lib/server/memory/entity-extraction';
+import type { ExtractedEntityMention } from '$lib/server/memory/entity-extraction'
 
 /** Prompt lines shared across entity extraction passes (LLM instructions — not code classification). */
 export const ENTITY_EXTRACTION_OMIT_RULES = [
-	'Omit greetings and interjections (hello, hallo, hi, hey, etc.) — never treat them as person, place, or organization names.',
-	'Omit generic pronouns, discourse markers, and filler words.',
-	'When someone identifies themselves ("it\'s me, X", "ich bin X", "ich bin\'s, X"), extract X as the person speaking — not other people from memory unless the text clearly names them.',
-	'Return surfaces exactly as written in the text. Never substitute a known entity label for a different name appearing in the text.',
-	'person is ONLY for human beings with actual names. Software features, system actions, and abstract concepts are never people — even when mentioned in contexts like "X identified Y" or "Y is a feature".'
-];
+  'Omit greetings and interjections (hello, hallo, hi, hey, etc.) — never treat them as person, place, or organization names.',
+  'Omit generic pronouns, discourse markers, and filler words.',
+  'When someone identifies themselves ("it\'s me, X", "ich bin X", "ich bin\'s, X"), extract X as the person speaking — not other people from memory unless the text clearly names them.',
+  'Return surfaces exactly as written in the text. Never substitute a known entity label for a different name appearing in the text.',
+  'person is ONLY for human beings with actual names. Software features, system actions, and abstract concepts are never people — even when mentioned in contexts like "X identified Y" or "Y is a feature".',
+]
 
 /** Keep compound titles intact — prevents recipe/dish names fragmenting into mislabeled single words. */
 export const ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES = [
-	'Keep each multi-word title, heading, recipe name, or dish name as one surface spanning the full phrase as written (e.g. "Miso Glazed Salmon", not separate "Miso", "Glazed", "Salmon").',
-	'Markdown headings (# Title) and section labels introduce parent entities; bullets and list items under that heading belong to that parent.',
-	'Do not split adjective+noun or noun+noun compounds that name a single dish, recipe, project, or artifact unless the text clearly treats each word as an independent named entity.',
-	'Use person only when the text clearly refers to a human being — never because a word is capitalized, title-cased, or looks like a proper noun.'
-];
+  'Keep each multi-word title, heading, recipe name, or dish name as one surface spanning the full phrase as written (e.g. "Miso Glazed Salmon", not separate "Miso", "Glazed", "Salmon").',
+  'Markdown headings (# Title) and section labels introduce parent entities; bullets and list items under that heading belong to that parent.',
+  'Do not split adjective+noun or noun+noun compounds that name a single dish, recipe, project, or artifact unless the text clearly treats each word as an independent named entity.',
+  'Use person only when the text clearly refers to a human being — never because a word is capitalized, title-cased, or looks like a proper noun.',
+]
 
 /** Ontology key selection hints shared by mention and graph-bundle extraction. */
 export const ENTITY_EXTRACTION_TYPE_GUIDANCE = [
-	'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics and food ingredients, artifact for documents/recipes/named dishes, project for bodies of work or initiatives, event for time-bounded occurrences or procedures.',
-	'Never invent entityType labels such as procedure, anatomy, device, food, or landmark — map them to the keys above.'
-];
+  'Pick the single best-matching real-world entity type for each surface. Use organization (never "org"), technology for tools/systems/devices, place for locations/anatomy sites when typed as a location, concept for abstract topics and food ingredients, artifact for documents/recipes/named dishes, project for bodies of work or initiatives, event for time-bounded occurrences or procedures.',
+  'Never invent entityType labels such as procedure, anatomy, device, food, or landmark — map them to the keys above.',
+]
 
 /** Triple wiring for graph-bundle extraction (mentions + edges in one LLM call). */
 export const ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE = [
-	'When bullets or ingredients appear under a recipe, dish, or section heading, emit part_of triples from each ingredient or component surface to the parent recipe/dish/section surface.',
-	'Prefer part_of over related_to for ingredients, components, and sub-items listed under a parent entity.',
-	'When the text is about bringing, preparing, or listing items for an event or initiative (e.g. "bring fish for the picnic"), extract both the item and the parent event/initiative when the text names or clearly refers to the parent, and emit part_of or related_to from the item to the parent.',
-	'Compound surfaces (e.g. "picnic blanket") are their own mention; when a parent hub exists in the graph context (e.g. picnic), emit part_of from the compound to that parent hub.',
-	'Triples may use an existing graph entity label as object or subject when wiring to a node from the graph context block, even if that label is not repeated as a new mention in this thought.'
-];
+  'When bullets or ingredients appear under a recipe, dish, or section heading, emit part_of triples from each ingredient or component surface to the parent recipe/dish/section surface.',
+  'Prefer part_of over related_to for ingredients, components, and sub-items listed under a parent entity.',
+  'When the text is about bringing, preparing, or listing items for an event or initiative (e.g. "bring fish for the picnic"), extract both the item and the parent event/initiative when the text names or clearly refers to the parent, and emit part_of or related_to from the item to the parent.',
+  'Compound surfaces (e.g. "picnic blanket") are their own mention; when a parent hub exists in the graph context (e.g. picnic), emit part_of from the compound to that parent hub.',
+  'Triples may use an existing graph entity label as object or subject when wiring to a node from the graph context block, even if that label is not repeated as a new mention in this thought.',
+]
 
 /** Extraction quality — what entities deserve a graph node for this capture. */
 export const ENTITY_EXTRACTION_QUALITY_GUIDANCE = [
-	'Extract the concrete entities the user is tracking: people, places, events, initiatives, artifacts, supplies, and named concepts that matter for recall.',
-	'When a thought is about an activity or event (picnic, trip, project), extract the activity/event hub AND separate item entities when the text names supplies or components.',
-	'When existing graph entities are listed in context, prefer reusing them: extract matching surfaces from the text instead of inventing parallel hubs.',
-	'Do not under-extract: if the text names both an item and the activity it belongs to, return both as mentions.'
-];
+  'Extract the concrete entities the user is tracking: people, places, events, initiatives, artifacts, supplies, and named concepts that matter for recall.',
+  'When a thought is about an activity or event (picnic, trip, project), extract the activity/event hub AND separate item entities when the text names supplies or components.',
+  'When existing graph entities are listed in context, prefer reusing them: extract matching surfaces from the text instead of inventing parallel hubs.',
+  'Do not under-extract: if the text names both an item and the activity it belongs to, return both as mentions.',
+]
 
 /**
  * XXX REMOVED — greeting/stop-list surface rejection via keyword Set.
@@ -46,11 +46,11 @@ export const ENTITY_EXTRACTION_QUALITY_GUIDANCE = [
  * See .cursor/rules/no-string-heuristics.mdc
  */
 export function isRejectedEntitySurface(_surface: string): boolean {
-	return false;
+  return false
 }
 
 export function filterAcceptedEntityMentions(
-	mentions: ExtractedEntityMention[]
+  mentions: ExtractedEntityMention[],
 ): ExtractedEntityMention[] {
-	return mentions;
+  return mentions
 }

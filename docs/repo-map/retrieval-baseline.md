@@ -4,17 +4,17 @@ Historical reference for what made retrieval slow before `retrieveEvidence` (202
 
 ## Previous query-time cost stack
 
-| Phase | What ran | Typical cost driver |
-|-------|----------|---------------------|
-| Embed | `createThoughtEmbedding` per search pass | 1+ LLM calls |
-| Vector | pgvector HNSW on `thought.embedding` | Fast (ms) |
-| Lexical | FTS on `lexical_text` + `cues` | Fast (ms) |
-| Entity | `matchCanonicalEntitiesByEmbedding` | Fast (ms) |
-| Graph | AGE `expandNeighborsByIds` + `expandThoughtIdsFromEntitySeeds` | Cypher latency |
-| Temporal | `filterTemporalEvents` + `traverseTemporalContext` | SQL + AGE |
-| Hydrate | Second DB round-trip for graph-only hits | Extra query |
-| Decrypt | Per-thought tenant decrypt across channels | CPU |
-| Compose (Q&A only) | Extra `searchThoughts` passes + hint graph search | 2–3× retrieval |
+| Phase              | What ran                                                       | Typical cost driver |
+| ------------------ | -------------------------------------------------------------- | ------------------- |
+| Embed              | `createThoughtEmbedding` per search pass                       | 1+ LLM calls        |
+| Vector             | pgvector HNSW on `thought.embedding`                           | Fast (ms)           |
+| Lexical            | FTS on `lexical_text` + `cues`                                 | Fast (ms)           |
+| Entity             | `matchCanonicalEntitiesByEmbedding`                            | Fast (ms)           |
+| Graph              | AGE `expandNeighborsByIds` + `expandThoughtIdsFromEntitySeeds` | Cypher latency      |
+| Temporal           | `filterTemporalEvents` + `traverseTemporalContext`             | SQL + AGE           |
+| Hydrate            | Second DB round-trip for graph-only hits                       | Extra query         |
+| Decrypt            | Per-thought tenant decrypt across channels                     | CPU                 |
+| Compose (Q&A only) | Extra `searchThoughts` passes + hint graph search              | 2–3× retrieval      |
 
 `composeAnswer` could run up to **three** `searchThoughts` calls plus `graphOnlySearchByQuery` hint anchors before compose LLM.
 

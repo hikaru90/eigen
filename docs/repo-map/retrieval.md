@@ -8,29 +8,29 @@
 
 **Timing / LLM step breakdown:** [ingest-retrieval-timing.md](../planning/ingest-retrieval-timing.md)
 
-**External references (competitor concepts, local):** [Elastic Atlas](../competitor-concepts/elastic-agent-memory-atlas.md) · [GBrain](../competitor-concepts/gbrain.md) — folder is gitignored.
+**External references (competitor concepts, local):** [Elastic Atlas](../competitor-concepts/elastic-agent-memory-atlas.md) · [GBrain](../competitor-concepts/gbrain.md) · [claude-mem — Progressive Disclosure](../competitor-concepts/claude-mem-progressive-disclosure.md) — folder is gitignored.
 
 ## Memory tiers and retrieval
 
 See [ingest-retrieval-timing.md § Three memory tiers](../planning/ingest-retrieval-timing.md#three-memory-tiers-capture--recall).
 
-| Tier | Recall at query time |
-|------|----------------------|
-| **1 — Hot** | FTS on `lexical_text` (+ `cues[]` after tier 2) |
-| **2 — Enrich** | pgvector ANN on `thought.embedding`; `thought_entity`, `thought_neighbor` |
+| Tier                  | Recall at query time                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **1 — Hot**           | FTS on `lexical_text` (+ `cues[]` after tier 2)                                                                      |
+| **2 — Enrich**        | pgvector ANN on `thought.embedding`; `thought_entity`, `thought_neighbor`                                            |
 | **3 — Consolidation** | `community_summary` ANN (**L1 only**) + `community_bundle.top_thought_ids`; salience / recency features on `thought` |
 
 **Precomputed artifacts:**
 
-| Artifact | Table / field | Built when |
-|----------|---------------|------------|
-| Keyword surface | `thought.lexical_text` | Tier 1 (capture) |
-| Entity links | `thought_entity` | Tier 2 (enrich) |
-| Thought neighbors | `thought_neighbor` | Tier 2 (enrich) |
-| Entity → top thoughts | `entity_top_thoughts` | Tier 2 + tier 3 backfill |
-| Community bundles | `community_bundle` | Tier 3 (nightly + incremental) |
-| L1 routing summary | `community_summary.summary_short` + embedding | Tier 3 (batched, budgeted) |
-| Thought features | `thought.primary_community_ids`, centrality, specificity, recency | Tier 3 |
+| Artifact              | Table / field                                                     | Built when                     |
+| --------------------- | ----------------------------------------------------------------- | ------------------------------ |
+| Keyword surface       | `thought.lexical_text`                                            | Tier 1 (capture)               |
+| Entity links          | `thought_entity`                                                  | Tier 2 (enrich)                |
+| Thought neighbors     | `thought_neighbor`                                                | Tier 2 (enrich)                |
+| Entity → top thoughts | `entity_top_thoughts`                                             | Tier 2 + tier 3 backfill       |
+| Community bundles     | `community_bundle`                                                | Tier 3 (nightly + incremental) |
+| L1 routing summary    | `community_summary.summary_short` + embedding                     | Tier 3 (batched, budgeted)     |
+| Thought features      | `thought.primary_community_ids`, centrality, specificity, recency | Tier 3                         |
 
 **Query time (`retrieveEvidence`):** embed query once → parallel ANN + FTS + community ANN → bundle/key fetch → weighted merge → rerank top pool → return top K. **No live AGE reads.**
 

@@ -30,12 +30,15 @@ This automatically stores the thought as agent-authored with your API key name (
 ## Examples
 
 ### Bug Fix
+
 > "Fixed: notification click handler in service-worker.ts now navigates existing window to the notification URL instead of just focusing it. This ensures mobile push notifications lead to the correct page."
 
 ### UI Fix
+
 > "Fixed: Safari bottom menu overlapping plus icon button on mobile. Changed memory-surface-nav.svelte from static bottom-20 to bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] to account for iPhone safe area insets."
 
 ### Feature
+
 > "Added: grounding question notification now sends users to /capture?grounding=1 with auto-scroll to the question card."
 
 ## When to Apply

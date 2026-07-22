@@ -1,64 +1,64 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { clearNextActionIfCompleted, designateNextAction } from './project-next-action';
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearNextActionIfCompleted, designateNextAction } from './project-next-action'
 
 const { getDbMock, upsertMentionEdgeMock } = vi.hoisted(() => ({
-	getDbMock: vi.fn(),
-	upsertMentionEdgeMock: vi.fn(async () => undefined)
-}));
+  getDbMock: vi.fn(),
+  upsertMentionEdgeMock: vi.fn(async () => undefined),
+}))
 
 vi.mock('$lib/server/db', () => ({
-	getDb: getDbMock
-}));
+  getDb: getDbMock,
+}))
 
 vi.mock('$lib/server/graph/age', () => ({
-	upsertMentionEdge: upsertMentionEdgeMock
-}));
+  upsertMentionEdge: upsertMentionEdgeMock,
+}))
 
 function makeLimitChain(rows: unknown[]) {
-	const chain = {
-		from: vi.fn(() => chain),
-		where: vi.fn(() => chain),
-		limit: vi.fn(async () => rows)
-	};
-	return chain;
+  const chain = {
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    limit: vi.fn(async () => rows),
+  }
+  return chain
 }
 
 describe('project-next-action', () => {
-	beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => vi.clearAllMocks())
 
-	it('designateNextAction links thought to GTD project entity', async () => {
-		const updateWhereMock = vi.fn(async () => undefined);
-		getDbMock.mockReturnValue({
-			select: vi.fn().mockReturnValue(makeLimitChain([{ id: 'project-1' }])),
-			insert: vi.fn(() => ({
-				values: vi.fn(() => ({
-					onConflictDoNothing: vi.fn(async () => undefined),
-					onConflictDoUpdate: vi.fn(async () => undefined)
-				}))
-			})),
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({ where: updateWhereMock }))
-			}))
-		});
+  it('designateNextAction links thought to GTD project entity', async () => {
+    const updateWhereMock = vi.fn(async () => undefined)
+    getDbMock.mockReturnValue({
+      select: vi.fn().mockReturnValue(makeLimitChain([{ id: 'project-1' }])),
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({
+          onConflictDoNothing: vi.fn(async () => undefined),
+          onConflictDoUpdate: vi.fn(async () => undefined),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhereMock })),
+      })),
+    })
 
-		await designateNextAction('u1', 'project-1', 'thought-1');
-		expect(upsertMentionEdgeMock).toHaveBeenCalledWith({
-			userId: 'u1',
-			thoughtId: 'thought-1',
-			entityId: 'project-1'
-		});
-		expect(updateWhereMock).toHaveBeenCalled();
-	});
+    await designateNextAction('u1', 'project-1', 'thought-1')
+    expect(upsertMentionEdgeMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      thoughtId: 'thought-1',
+      entityId: 'project-1',
+    })
+    expect(updateWhereMock).toHaveBeenCalled()
+  })
 
-	it('clearNextActionIfCompleted clears matching entity row', async () => {
-		const whereMock = vi.fn(async () => undefined);
-		getDbMock.mockReturnValue({
-			update: vi.fn(() => ({
-				set: vi.fn(() => ({ where: whereMock }))
-			}))
-		});
+  it('clearNextActionIfCompleted clears matching entity row', async () => {
+    const whereMock = vi.fn(async () => undefined)
+    getDbMock.mockReturnValue({
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: whereMock })),
+      })),
+    })
 
-		await clearNextActionIfCompleted('u1', 'thought-1');
-		expect(whereMock).toHaveBeenCalled();
-	});
-});
+    await clearNextActionIfCompleted('u1', 'thought-1')
+    expect(whereMock).toHaveBeenCalled()
+  })
+})

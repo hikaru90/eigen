@@ -1,92 +1,94 @@
 <script lang="ts">
-  import { dev } from "$app/environment";
-  import { base, resolve } from "$app/paths";
-  import { goto } from "$app/navigation";
-  import { page } from "$app/state";
-  import EigenWordmark from "$lib/components/eigen-wordmark.svelte";
-  import CurrentUserViewSelect from "$lib/components/current-user-view-select.svelte";
-  import * as Popover from "$lib/components/ui/popover";
-  import { chatSidebarOpen } from "$lib/stores/chat-sidebar";
-  import ActivityIcon from "@lucide/svelte/icons/activity";
-  import Menu from "@lucide/svelte/icons/menu";
-  import Settings from "@lucide/svelte/icons/settings";
-  import KeyRound from "@lucide/svelte/icons/key-round";
-  import LogOut from "@lucide/svelte/icons/log-out";
-  import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
-  import Cpu from "@lucide/svelte/icons/cpu";
-  import HeartPulse from "@lucide/svelte/icons/heart-pulse";
-  import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
-  import Layers from "@lucide/svelte/icons/layers";
-  import Send from "@lucide/svelte/icons/send";
-  import { resetPostHog } from "$lib/analytics/posthog-client";
-  import { GRAPH_FILTER_GLASS_POPOVER } from "$lib/graph/graph-filter-chrome";
+  import { onMount } from 'svelte'
+  import { dev } from '$app/environment'
+  import { base, resolve } from '$app/paths'
+  import { afterNavigate, goto } from '$app/navigation'
+  import { page } from '$app/state'
+  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
+  import CurrentUserViewSelect from '$lib/components/current-user-view-select.svelte'
+  import * as Popover from '$lib/components/ui/popover'
+  import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
+  import ActivityIcon from '@lucide/svelte/icons/activity'
+  import Menu from '@lucide/svelte/icons/menu'
+  import Settings from '@lucide/svelte/icons/settings'
+  import KeyRound from '@lucide/svelte/icons/key-round'
+  import LogOut from '@lucide/svelte/icons/log-out'
+  import ClipboardCheck from '@lucide/svelte/icons/clipboard-check'
+  import Cpu from '@lucide/svelte/icons/cpu'
+  import HeartPulse from '@lucide/svelte/icons/heart-pulse'
+  import BarChart3 from '@lucide/svelte/icons/bar-chart-3'
+  import Layers from '@lucide/svelte/icons/layers'
+  import Send from '@lucide/svelte/icons/send'
+  import MessageSquare from '@lucide/svelte/icons/message-square'
+  import { resetPostHog } from '$lib/analytics/posthog-client'
+  import { GRAPH_FILTER_GLASS_POPOVER } from '$lib/graph/graph-filter-chrome'
 
-  let menuOpen = $state(false);
+  let menuOpen = $state(false)
 
-  $effect(() => {
-    // Close the popover on any client-side navigation.
-    page.url.pathname;
-    menuOpen = false;
-    chatSidebarOpen.set(false);
-  });
+  onMount(() => {
+    return afterNavigate(() => {
+      menuOpen = false
+      chatSidebar.open = false
+    })
+  })
   const user = $derived(
     (page.data as { user?: { email?: string | null; name?: string | null } }).user ?? null,
-  );
-  const showViewSelect = $derived(Boolean(user));
-  const isAdmin = $derived((page.data as { isAdmin?: boolean }).isAdmin ?? false);
-  const userEmail = $derived(user?.email?.trim().toLowerCase() || "anonymous");
+  )
+  const showViewSelect = $derived(Boolean(user))
+  const isAdmin = $derived((page.data as { isAdmin?: boolean }).isAdmin ?? false)
+  const userEmail = $derived(user?.email?.trim().toLowerCase() || 'anonymous')
 
   function hashString(input: string): number {
-    let hash = 2166136261;
+    let hash = 2166136261
     for (let i = 0; i < input.length; i++) {
-      hash ^= input.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
+      hash ^= input.charCodeAt(i)
+      hash = Math.imul(hash, 16777619)
     }
-    return hash >>> 0;
+    return hash >>> 0
   }
 
   function createSeededRandom(seed: number): () => number {
     return () => {
-      seed += 0x6d2b79f5;
-      let t = seed;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
+      seed += 0x6d2b79f5
+      let t = seed
+      t = Math.imul(t ^ (t >>> 15), t | 1)
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
   }
 
   function createTextureDataUri(email: string): string {
-    const seed = hashString(email);
-    const rand = createSeededRandom(seed);
-    const hue = Math.floor(rand() * 360);
-    const bg = "#242424";
-    const fg = "#E3EADE";
-    const dots: string[] = [];
+    const seed = hashString(email)
+    const rand = createSeededRandom(seed)
+    const hue = Math.floor(rand() * 360)
+    const bg = '#242424'
+    const fg = '#E3EADE'
+    const dots: string[] = []
     for (let i = 0; i < 72; i++) {
-      const x = (rand() * 64).toFixed(2);
-      const y = (rand() * 64).toFixed(2);
-      const r = (rand() * 1.2 + 0.55).toFixed(2);
-      const a = (rand() * 0.58 + 0.06).toFixed(3);
-      dots.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="${fg}" opacity="${a}" />`);
+      const x = (rand() * 64).toFixed(2)
+      const y = (rand() * 64).toFixed(2)
+      const r = (rand() * 1.2 + 0.55).toFixed(2)
+      const a = (rand() * 0.58 + 0.06).toFixed(3)
+      dots.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="${fg}" opacity="${a}" />`)
     }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="${bg}"/>${dots.join("")}</svg>`;
-    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="${bg}"/>${dots.join('')}</svg>`
+    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`
   }
 
-  const avatarTexture = $derived(createTextureDataUri(userEmail));
+  const avatarTexture = $derived(createTextureDataUri(userEmail))
 
   async function signOut() {
-    menuOpen = false;
+    menuOpen = false
     const res = await fetch(`${base}/api/session/sign-out`, {
-      method: "POST",
-      credentials: "include",
-    });
+      method: 'POST',
+      credentials: 'include',
+    })
     if (!res.ok) {
-      console.error("Sign out failed", res.status, await res.text().catch(() => ""));
-      return;
+      console.error('Sign out failed', res.status, await res.text().catch(() => ''))
+      return
     }
-    resetPostHog();
-    await goto(resolve("/login"), { invalidateAll: true });
+    resetPostHog()
+    await goto(resolve('/login'), { invalidateAll: true })
   }
 </script>
 
@@ -113,7 +115,7 @@
     {:else}
       <div class="w-10"></div>
     {/if}
-    <EigenWordmark heightClass="h-8" />
+    <EigenWordmark heightClass="h-8 lg:h-12" />
     <Popover.Root bind:open={menuOpen}>
       <Popover.Trigger
         class="relative flex size-10 cursor-pointer items-center justify-center bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -132,28 +134,35 @@
         class="{GRAPH_FILTER_GLASS_POPOVER} w-48 gap-1.5 pt-2.5 pb-2.5 shadow-xl shadow-black/5 -mr-1"
       >
         <a
-          href={resolve("/activity")}
+          href={resolve('/activity')}
           class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <ActivityIcon class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
         </a>
         <a
-          href={resolve("/api-keys")}
+          href={resolve('/feedback')}
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+        >
+          <MessageSquare class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
+          Feedback
+        </a>
+        <a
+          href={resolve('/api-keys')}
           class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <KeyRound class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
         </a>
         <a
-          href={resolve("/settings/agents")}
+          href={resolve('/settings/agents')}
           class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Send class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Webhooks
         </a>
         <a
-          href={resolve("/settings/llm")}
+          href={resolve('/settings/llm')}
           class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Cpu class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
@@ -161,14 +170,14 @@
         </a>
         {#if isAdmin}
           <a
-            href={resolve("/admin/queue")}
+            href={resolve('/admin/queue')}
             class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <Layers class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin queue
           </a>
           <a
-            href={resolve("/admin/spend")}
+            href={resolve('/admin/spend')}
             class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <BarChart3 class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
@@ -177,7 +186,7 @@
         {/if}
         {#if dev}
           <a
-            href={resolve("/eval")}
+            href={resolve('/eval')}
             class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <ClipboardCheck class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
@@ -185,21 +194,23 @@
           </a>
         {/if}
         <a
-          href={resolve("/settings/scheduled-tasks")}
+          href={resolve('/settings/scheduled-tasks')}
           class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <HeartPulse class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Heartbeat
         </a>
         <a
-          href={resolve("/settings")}
+          href={resolve('/settings')}
           class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Settings class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Settings
         </a>
         {#if user?.email}
-          <div class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-sm text-muted-foreground dark:border-white/20">
+          <div
+            class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-sm text-muted-foreground dark:border-white/20"
+          >
             {user.email}
           </div>
         {/if}

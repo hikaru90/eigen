@@ -18,9 +18,9 @@ As a corpus grows, automatic salience decay fades unused memories. Relevance che
 
 ### 1. Same channel, different write path
 
-| Kind | Delivery | Answer effect |
-|------|----------|---------------|
-| `grounding` | Capture card + optional push | Facet on `user_grounding_profile` |
+| Kind        | Delivery                       | Answer effect                                      |
+| ----------- | ------------------------------ | -------------------------------------------------- |
+| `grounding` | Capture card + optional push   | Facet on `user_grounding_profile`                  |
 | `relevance` | Same card slot + optional push | Keep → access/salience bump; Not anymore → archive |
 
 One prompt slot under the shared cadence (every 10 captures, ≥7 days since last check-in). Prefer grounding when a concrete enrichment blank exists; otherwise relevance.
@@ -29,11 +29,11 @@ One prompt slot under the shared cadence (every 10 captures, ≥7 days since las
 
 Gates (all must pass):
 
-| Gate | Question |
-|------|----------|
-| **Candidate** | Is there an open, non-task thought inactive long enough with structural fade signals? |
-| **Utility** | Would Keep or Archive change ranking / retrieval / graph visibility? |
-| **Askability** | Can the user decide with one tap (still relevant / not anymore)? |
+| Gate           | Question                                                                              |
+| -------------- | ------------------------------------------------------------------------------------- |
+| **Candidate**  | Is there an open, non-task thought inactive long enough with structural fade signals? |
+| **Utility**    | Would Keep or Archive change ranking / retrieval / graph visibility?                  |
+| **Askability** | Can the user decide with one tap (still relevant / not anymore)?                      |
 
 If the LLM skips or no candidates → silence.
 

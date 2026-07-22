@@ -1,28 +1,28 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import ForceGraph from '$lib/components/graph/ForceGraph.svelte';
-  import type { EvalGraphSnapshotView } from './display';
+  import { onMount } from 'svelte'
+  import ForceGraph from '$lib/components/graph/force-graph.svelte'
+  import type { EvalGraphSnapshotView } from './display'
 
   let {
-    snapshot
+    snapshot,
   }: {
-    snapshot: EvalGraphSnapshotView;
-  } = $props();
+    snapshot: EvalGraphSnapshotView
+  } = $props()
 
-  let hostEl: HTMLDivElement | undefined;
-  let ready = $state(false);
+  let hostEl: HTMLDivElement | undefined
+  let ready = $state(false)
 
   onMount(() => {
-    if (!hostEl) return;
+    if (!hostEl) return
     const io = new IntersectionObserver(
       ([entry]) => {
-        if (entry?.isIntersecting) ready = true;
+        if (entry?.isIntersecting) ready = true
       },
-      { rootMargin: '64px' }
-    );
-    io.observe(hostEl);
-    return () => io.disconnect();
-  });
+      { rootMargin: '64px' },
+    )
+    io.observe(hostEl)
+    return () => io.disconnect()
+  })
 </script>
 
 <div bind:this={hostEl} class="bg-muted/20 flex h-80 flex-col rounded-md border">

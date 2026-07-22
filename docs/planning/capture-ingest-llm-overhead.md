@@ -34,18 +34,18 @@ flowchart TD
   entCtx --> ent[extractEntityGraphBundle]
 ```
 
-| # | Function | Module | Typical LLM label |
-|---|----------|--------|-------------------|
-| 1 | `resolveCaptureContentSplit` | [`split-capture-content.ts`](../../src/lib/server/capture/split-capture-content.ts) | `[llm.chat:chat]` |
-| 2 | `extractThoughtMetadata` | [`extract-thought-metadata.ts`](../../src/lib/server/memory/extract-thought-metadata.ts) | `[llm.chat:chat]` |
-| 3 | `extractTemporalMentions` | [`temporal-extraction.ts`](../../src/lib/server/memory/temporal-extraction.ts) | `[llm.chat:chat]` |
-| 4 | `resolveThoughtCategory` | [`classify-thought-category.ts`](../../src/lib/server/ontology/classify-thought-category.ts) | `[llm.chat:thought_category]` |
-| 5 | `createThoughtEmbedding` | [`embedding.ts`](../../src/lib/server/llm/embedding.ts) | `[llm.embedding]` |
-| 6 | `extractEntityGraphBundle` | [`entity-extraction.ts`](../../src/lib/server/memory/entity-extraction.ts) | `[llm.chat:chat]` |
-| 7 | Entity mention embeddings | entity resolution | `[llm.embedding]` × N |
-| 8 | `detectAndCreateProjectFromThought` | [`detect-project-from-thought.ts`](../../src/lib/server/memory/detect-project-from-thought.ts) | `[llm.chat:chat]` |
-| 9 | Retrieval rerank (inside `searchThoughts`) | [`relation-extraction.ts`](../../src/lib/server/memory/relation-extraction.ts) | `[llm.chat:retrieval_rerank]` |
-| 10 | `extractRelations` | [`relation-extraction.ts`](../../src/lib/server/memory/relation-extraction.ts) | `[llm.chat:chat]` |
+| #   | Function                                   | Module                                                                                         | Typical LLM label             |
+| --- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
+| 1   | `resolveCaptureContentSplit`               | [`split-capture-content.ts`](../../src/lib/server/capture/split-capture-content.ts)            | `[llm.chat:chat]`             |
+| 2   | `extractThoughtMetadata`                   | [`extract-thought-metadata.ts`](../../src/lib/server/memory/extract-thought-metadata.ts)       | `[llm.chat:chat]`             |
+| 3   | `extractTemporalMentions`                  | [`temporal-extraction.ts`](../../src/lib/server/memory/temporal-extraction.ts)                 | `[llm.chat:chat]`             |
+| 4   | `resolveThoughtCategory`                   | [`classify-thought-category.ts`](../../src/lib/server/ontology/classify-thought-category.ts)   | `[llm.chat:thought_category]` |
+| 5   | `createThoughtEmbedding`                   | [`embedding.ts`](../../src/lib/server/llm/embedding.ts)                                        | `[llm.embedding]`             |
+| 6   | `extractEntityGraphBundle`                 | [`entity-extraction.ts`](../../src/lib/server/memory/entity-extraction.ts)                     | `[llm.chat:chat]`             |
+| 7   | Entity mention embeddings                  | entity resolution                                                                              | `[llm.embedding]` × N         |
+| 8   | `detectAndCreateProjectFromThought`        | [`detect-project-from-thought.ts`](../../src/lib/server/memory/detect-project-from-thought.ts) | `[llm.chat:chat]`             |
+| 9   | Retrieval rerank (inside `searchThoughts`) | [`relation-extraction.ts`](../../src/lib/server/memory/relation-extraction.ts)                 | `[llm.chat:retrieval_rerank]` |
+| 10  | `extractRelations`                         | [`relation-extraction.ts`](../../src/lib/server/memory/relation-extraction.ts)                 | `[llm.chat:chat]`             |
 
 **Orchestration:** [`enrich-queued-thought.ts`](../../src/lib/server/capture/enrich-queued-thought.ts) prefetches category, metadata, temporal in parallel; entities after embedding. [`enrich.ts`](../../src/lib/server/capture/enrich.ts) syncs graph, GTD, project detection, then relations inline (`deferRelations: false`).
 
@@ -61,18 +61,18 @@ flowchart TD
 
 ## Example measurements (131-char verification note)
 
-| Call | Prompt tokens | Completion tokens | Latency |
-|------|---------------|-------------------|---------|
-| Content split | 483 | 78 | ~0.9s |
-| Memory type + cues | 662 | 58 | ~0.7s |
-| Temporal | 832 | 2 | ~1.5s |
-| Category | 1,340 | 70 | ~21.6s |
-| Entity graph | 2,601 | 119 | ~30.2s |
-| Project detect | 259 | 10 | ~2.9s |
-| Retrieval rerank | 890 | 139 | ~5.1s |
-| Relations | 1,040 | 107 | ~0.8s |
-| **Chat subtotal** | **~7,107** | **~583** | |
-| + embeddings | — | — | 1 thought + N mentions |
+| Call               | Prompt tokens | Completion tokens | Latency                |
+| ------------------ | ------------- | ----------------- | ---------------------- |
+| Content split      | 483           | 78                | ~0.9s                  |
+| Memory type + cues | 662           | 58                | ~0.7s                  |
+| Temporal           | 832           | 2                 | ~1.5s                  |
+| Category           | 1,340         | 70                | ~21.6s                 |
+| Entity graph       | 2,601         | 119               | ~30.2s                 |
+| Project detect     | 259           | 10                | ~2.9s                  |
+| Retrieval rerank   | 890           | 139               | ~5.1s                  |
+| Relations          | 1,040         | 107               | ~0.8s                  |
+| **Chat subtotal**  | **~7,107**    | **~583**          |                        |
+| + embeddings       | —             | —                 | 1 thought + N mentions |
 
 - **Wall time:** `[capture.timing] wallMs` ~74s (category + entity dominated gateway latency).
 - **Billing precheck:** 50 credits (`assertCapturePipelineAffordable`).
@@ -89,11 +89,11 @@ flowchart TD
 
 ## Incremental mitigations (implemented)
 
-| Change | Rationale |
-|--------|-----------|
-| **`extractEnrichThoughtBundle`** | Single LLM call for category, memory type, cues, temporal, and entities — grounding injected once |
-| Capture-first prompt sections | Capture text precedes grounding in all enrich LLM prompts; explicit cues-from-capture rule |
-| `deferRelations: true` on queue enrich | Relations + rerank LLM run via `scheduleRelationEnrichment` after core enrich |
+| Change                                 | Rationale                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **`extractEnrichThoughtBundle`**       | Single LLM call for category, memory type, cues, temporal, and entities — grounding injected once |
+| Capture-first prompt sections          | Capture text precedes grounding in all enrich LLM prompts; explicit cues-from-capture rule        |
+| `deferRelations: true` on queue enrich | Relations + rerank LLM run via `scheduleRelationEnrichment` after core enrich                     |
 
 ---
 

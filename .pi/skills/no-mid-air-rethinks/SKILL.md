@@ -74,6 +74,7 @@ This wastes the user's time and creates confusion. You've now done the reading, 
 ## How to check yourself
 
 Before starting implementation, ask:
+
 1. Do I understand the problem fully?
 2. Do I understand the code I'm about to change?
 3. Am I confident this fix addresses the root cause?

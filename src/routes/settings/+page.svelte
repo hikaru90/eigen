@@ -1,1224 +1,1240 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
-	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
-	import type { ActionData, PageData } from './$types';
-	import { Button } from '$lib/components/ui/button';
-	import { Label } from '$lib/components/ui/label';
-	import { Input } from '$lib/components/ui/input';
-	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import * as Card from '$lib/components/ui/card';
-	import * as Tabs from '$lib/components/ui/tabs';
-	import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime';
-	import Bell from '@lucide/svelte/icons/bell';
-	import Check from '@lucide/svelte/icons/check';
-	import CopyIcon from '@lucide/svelte/icons/copy';
-	import Database from '@lucide/svelte/icons/database';
-	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import Mic from '@lucide/svelte/icons/mic';
-	import Palette from '@lucide/svelte/icons/palette';
-	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
-	import UserRound from '@lucide/svelte/icons/user-round';
-	import { rearrangeGraph } from '$lib/graph/graph-edit-api';
-	import type { GraphRearrangeResult } from '$lib/graph/graph-edit-api';
-	import type {
-		GraphRearrangePhase,
-		GraphRearrangeTaskProgress
-	} from '$lib/graph/graph-rearrange-phases';
-	import GraphRearrangeStatus from '../graph/GraphRearrangeStatus.svelte';
-	import {
-		DEFAULT_TIMEZONE_OFFSET_MINUTES,
-		inferBrowserOffsetLabel,
-		inferBrowserOffsetMinutes,
-		nearestOptionOffset,
-		TIMEZONE_OFFSET_OPTIONS
-	} from '$lib/i18n/timezone-offset';
-	import {
-		getPushSupportState,
-		getExistingPushSubscription,
-		subscribeToPush,
-		postSubscribe,
-		unsubscribeFromPush,
-		postUnsubscribe,
-		postTestPush
-	} from '$lib/push/client';
-	import {
-		getHapticEnvironment,
-		testHapticFeedback,
-		type HapticEnvironment,
-		type HapticTestResult
-	} from '$lib/haptics';
-	import { saveNotificationSettings as persistNotificationSettings } from '$lib/settings/notification-settings-api';
+  import { browser } from '$app/environment'
+  import { enhance } from '$app/forms'
+  import { invalidateAll } from '$app/navigation'
+  import { onMount } from 'svelte'
+  import type { ActionData, PageData } from './$types'
+  import { Button } from '$lib/components/ui/button'
+  import { Label } from '$lib/components/ui/label'
+  import { Input } from '$lib/components/ui/input'
+  import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import * as Card from '$lib/components/ui/card'
+  import * as Tabs from '$lib/components/ui/tabs'
+  import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation'
+  import { m } from '$lib/paraglide/messages.js'
+  import { getLocale } from '$lib/paraglide/runtime'
+  import Bell from '@lucide/svelte/icons/bell'
+  import Check from '@lucide/svelte/icons/check'
+  import CopyIcon from '@lucide/svelte/icons/copy'
+  import Database from '@lucide/svelte/icons/database'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import Mic from '@lucide/svelte/icons/mic'
+  import Palette from '@lucide/svelte/icons/palette'
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
+  import UserRound from '@lucide/svelte/icons/user-round'
+  import { rearrangeGraph } from '$lib/graph/graph-edit-api'
+  import type { GraphRearrangeResult } from '$lib/graph/graph-edit-api'
+  import type {
+    GraphRearrangePhase,
+    GraphRearrangeTaskProgress,
+  } from '$lib/graph/graph-rearrange-phases'
+  import GraphRearrangeStatus from '../graph/graph-rearrange-status.svelte'
+  import {
+    DEFAULT_TIMEZONE_OFFSET_MINUTES,
+    inferBrowserOffsetLabel,
+    inferBrowserOffsetMinutes,
+    nearestOptionOffset,
+    TIMEZONE_OFFSET_OPTIONS,
+  } from '$lib/i18n/timezone-offset'
+  import {
+    getPushSupportState,
+    getExistingPushSubscription,
+    subscribeToPush,
+    postSubscribe,
+    unsubscribeFromPush,
+    postUnsubscribe,
+    postTestPush,
+  } from '$lib/push/client'
+  import {
+    getHapticEnvironment,
+    testHapticFeedback,
+    type HapticEnvironment,
+    type HapticTestResult,
+  } from '$lib/haptics'
+  import { saveNotificationSettings as persistNotificationSettings } from '$lib/settings/notification-settings-api'
 
-	function notificationSettingsFromServer(pageData: PageData) {
-		const hasSavedTimezone = pageData.preferredTimezoneOffsetMinutes !== null;
-		const inferredOffset = browser
-			? nearestOptionOffset(inferBrowserOffsetMinutes())
-			: DEFAULT_TIMEZONE_OFFSET_MINUTES;
-		return {
-			timezoneOffsetMinutes: hasSavedTimezone
-				? String(pageData.preferredTimezoneOffsetMinutes)
-				: String(inferredOffset),
-			timezoneInferred: !hasSavedTimezone,
-			detectedTimezoneLabel:
-				!hasSavedTimezone && browser ? inferBrowserOffsetLabel() : null,
-			eventNotificationsEnabled: pageData.eventNotificationsEnabled,
-			eventReminderLeadMinutes: pageData.eventReminderLeadMinutes,
-			dailySummaryEnabled: pageData.dailySummaryEnabled,
-			dailySummaryTimeLocal: pageData.dailySummaryTimeLocal
-		};
-	}
+  function notificationSettingsFromServer(pageData: PageData) {
+    const hasSavedTimezone = pageData.preferredTimezoneOffsetMinutes !== null
+    const inferredOffset = browser
+      ? nearestOptionOffset(inferBrowserOffsetMinutes())
+      : DEFAULT_TIMEZONE_OFFSET_MINUTES
+    return {
+      timezoneOffsetMinutes: hasSavedTimezone
+        ? String(pageData.preferredTimezoneOffsetMinutes)
+        : String(inferredOffset),
+      timezoneInferred: !hasSavedTimezone,
+      detectedTimezoneLabel: !hasSavedTimezone && browser ? inferBrowserOffsetLabel() : null,
+      eventNotificationsEnabled: pageData.eventNotificationsEnabled,
+      eventReminderLeadMinutes: pageData.eventReminderLeadMinutes,
+      dailySummaryEnabled: pageData.dailySummaryEnabled,
+      dailySummaryTimeLocal: pageData.dailySummaryTimeLocal,
+    }
+  }
 
-	function applyInferredBrowserTimezone() {
-		timezoneOffsetMinutes = String(nearestOptionOffset(inferBrowserOffsetMinutes()));
-		timezoneInferred = true;
-		detectedTimezoneLabel = inferBrowserOffsetLabel();
-	}
+  function applyInferredBrowserTimezone() {
+    timezoneOffsetMinutes = String(nearestOptionOffset(inferBrowserOffsetMinutes()))
+    timezoneInferred = true
+    detectedTimezoneLabel = inferBrowserOffsetLabel()
+  }
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
-	const initialNotificationSettings = notificationSettingsFromServer(data);
-	let activeTab = $state('appearance');
-	let themePreference = $state('system');
-	let timezoneOffsetMinutes = $state(initialNotificationSettings.timezoneOffsetMinutes);
-	let timezoneInferred = $state(initialNotificationSettings.timezoneInferred);
-	let detectedTimezoneLabel = $state(initialNotificationSettings.detectedTimezoneLabel);
-	let eventNotificationsEnabled = $state(initialNotificationSettings.eventNotificationsEnabled);
-	let eventReminderLeadMinutes = $state(initialNotificationSettings.eventReminderLeadMinutes);
-	let dailySummaryEnabled = $state(initialNotificationSettings.dailySummaryEnabled);
-	let dailySummaryTimeLocal = $state(initialNotificationSettings.dailySummaryTimeLocal);
+  let { data, form }: { data: PageData; form: ActionData } = $props()
+  const initialNotificationSettings = notificationSettingsFromServer(data)
+  let activeTab = $state('appearance')
+  let themePreference = $state('system')
+  let timezoneOffsetMinutes = $state(initialNotificationSettings.timezoneOffsetMinutes)
+  let timezoneInferred = $state(initialNotificationSettings.timezoneInferred)
+  let detectedTimezoneLabel = $state(initialNotificationSettings.detectedTimezoneLabel)
+  let eventNotificationsEnabled = $state(initialNotificationSettings.eventNotificationsEnabled)
+  let eventReminderLeadMinutes = $state(initialNotificationSettings.eventReminderLeadMinutes)
+  let dailySummaryEnabled = $state(initialNotificationSettings.dailySummaryEnabled)
+  let dailySummaryTimeLocal = $state(initialNotificationSettings.dailySummaryTimeLocal)
 
-	const settingsTabs = [
-		{ value: 'appearance', label: 'Appearance' },
-		{ value: 'speech', label: 'Speech' },
-		{ value: 'account', label: 'Account' },
-		{ value: 'notifications', label: 'Notifications' },
-		{ value: 'memory', label: 'Memory' },
-		{ value: 'danger', label: 'Danger zone' }
-	] as const;
+  const settingsTabs = [
+    { value: 'appearance', label: 'Appearance' },
+    { value: 'speech', label: 'Speech' },
+    { value: 'account', label: 'Account' },
+    { value: 'notifications', label: 'Notifications' },
+    { value: 'memory', label: 'Memory' },
+    { value: 'danger', label: 'Danger zone' },
+  ] as const
 
-	const settingsTabListClass =
-		'flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100';
-	const settingsTabTriggerClass =
-		'!h-full shrink-0 !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background';
+  const settingsTabListClass =
+    'flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100'
+  const settingsTabTriggerClass =
+    '!h-full shrink-0 !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background'
 
-	let exportBusy = $state(false);
-	let exportError = $state<string | null>(null);
+  let exportBusy = $state(false)
+  let exportError = $state<string | null>(null)
 
-	let deleteDialogOpen = $state(false);
-	let deleteConfirmation = $state('');
-	let deleteBusy = $state(false);
-	let deleteError = $state<string | null>(null);
-	let deleteSuccess = $state<string | null>(null);
-	let deletePhraseCopied = $state(false);
+  let deleteDialogOpen = $state(false)
+  let deleteConfirmation = $state('')
+  let deleteBusy = $state(false)
+  let deleteError = $state<string | null>(null)
+  let deleteSuccess = $state<string | null>(null)
+  let deletePhraseCopied = $state(false)
 
-	let pushSupport = $state<ReturnType<typeof getPushSupportState>>({
-		supported: false,
-		reason: 'Loading…'
-	});
-	let pushBusy = $state(false);
-	let pushMessage = $state<string | null>(null);
-	let pushError = $state<string | null>(null);
-	let pushSubscribed = $state(false);
-	let pushSubscriptionCount = $state(0);
-	let hapticEnvironment = $state<HapticEnvironment>({
-		apiAvailable: false,
-		secureContext: false,
-		hint: 'Loading…'
-	});
-	let hapticTestResult = $state<HapticTestResult | null>(null);
-	let notificationSaveBusy = $state(false);
-	let notificationMessage = $state<string | null>(null);
-	let notificationError = $state<string | null>(null);
+  let pushSupport = $state<ReturnType<typeof getPushSupportState>>({
+    supported: false,
+    reason: 'Loading…',
+  })
+  let pushBusy = $state(false)
+  let pushMessage = $state<string | null>(null)
+  let pushError = $state<string | null>(null)
+  let pushSubscribed = $state(false)
+  let pushSubscriptionCount = $state(data.pushSubscriptionCount)
+  let hapticEnvironment = $state<HapticEnvironment>({
+    apiAvailable: false,
+    secureContext: false,
+    hint: 'Loading…',
+  })
+  let hapticTestResult = $state<HapticTestResult | null>(null)
+  let notificationSaveBusy = $state(false)
+  let notificationMessage = $state<string | null>(null)
+  let notificationError = $state<string | null>(null)
 
-	type NotificationPipelineStatus = {
-		at: string;
-		serverPushReady: boolean;
-		pushDevicesRegistered: number;
-		eventNotificationsEnabled: boolean;
-		dailySummaryEnabled: boolean;
-		dailySummary: {
-			scheduledTimeLocal: string;
-			timeZone: string;
-			lastSentLocalDate: string | null;
-			dispatch: {
-				reason: string;
-				todayLocalDate: string;
-				currentMinutesLocal: number;
-				scheduledTimeLocal: string;
-				windowStartLocal: string;
-				windowEndLocal: string;
-				wouldDispatch: boolean;
-				lastDispatchError: string | null;
-			};
-			statusLabel: string;
-			lastDispatchError: string | null;
-			preview: { title: string; body: string; url: string } | null;
-		};
-		reminders: {
-			pending: number;
-			dueNow: number;
-			nextFireAt: string | null;
-			lastDispatch: {
-				status: string;
-				sentAt: string | null;
-				fireAt: string;
-			} | null;
-		};
-		jobQueue: { pending: number; running: number; failed: number };
-	};
+  type NotificationPipelineStatus = {
+    at: string
+    serverPushReady: boolean
+    pushDevicesRegistered: number
+    eventNotificationsEnabled: boolean
+    dailySummaryEnabled: boolean
+    dailySummary: {
+      scheduledTimeLocal: string
+      timeZone: string
+      lastSentLocalDate: string | null
+      dispatch: {
+        reason: string
+        todayLocalDate: string
+        currentMinutesLocal: number
+        scheduledTimeLocal: string
+        windowStartLocal: string
+        windowEndLocal: string
+        wouldDispatch: boolean
+        lastDispatchError: string | null
+      }
+      statusLabel: string
+      lastDispatchError: string | null
+      preview: { title: string; body: string; url: string } | null
+    }
+    reminders: {
+      pending: number
+      dueNow: number
+      nextFireAt: string | null
+      lastDispatch: {
+        status: string
+        sentAt: string | null
+        fireAt: string
+      } | null
+    }
+    jobQueue: { pending: number; running: number; failed: number }
+  }
 
-	let notificationStatus = $state<NotificationPipelineStatus | null>(null);
-	let notificationStatusError = $state<string | null>(null);
-	let notificationStatusBusy = $state(false);
+  let notificationStatus = $state<NotificationPipelineStatus | null>(null)
+  let notificationStatusError = $state<string | null>(null)
+  let notificationStatusBusy = $state(false)
 
-	$effect(() => {
-		pushSubscriptionCount = data.pushSubscriptionCount;
-	});
+  let graphRearrangeBusy = $state(false)
+  let graphRearrangeComplete = $state(false)
+  let graphRearrangeErr = $state<string | null>(null)
+  let graphRearrangeResult = $state<GraphRearrangeResult | null>(null)
+  let graphRearrangePhaseEvents = $state<GraphRearrangePhase[]>([])
+  let graphRearrangeActiveTask = $state<GraphRearrangeTaskProgress | null>(null)
+  let graphRearrangeStartedAt = $state<number | null>(null)
 
-	let graphRearrangeBusy = $state(false);
-	let graphRearrangeComplete = $state(false);
-	let graphRearrangeErr = $state<string | null>(null);
-	let graphRearrangeResult = $state<GraphRearrangeResult | null>(null);
-	let graphRearrangePhaseEvents = $state<GraphRearrangePhase[]>([]);
-	let graphRearrangeActiveTask = $state<GraphRearrangeTaskProgress | null>(null);
-	let graphRearrangeStartedAt = $state<number | null>(null);
+  const deleteConfirmationValid = $derived(
+    deleteConfirmation.trim() === DELETE_ALL_MEMORIES_CONFIRMATION,
+  )
 
-	const deleteConfirmationValid = $derived(
-		deleteConfirmation.trim() === DELETE_ALL_MEMORIES_CONFIRMATION
-	);
+  function openDeleteMemoriesDialog() {
+    deleteConfirmation = ''
+    deleteError = null
+    deletePhraseCopied = false
+    deleteDialogOpen = true
+  }
 
-	function openDeleteMemoriesDialog() {
-		deleteConfirmation = '';
-		deleteError = null;
-		deletePhraseCopied = false;
-		deleteDialogOpen = true;
-	}
+  async function copyDeleteConfirmationPhrase() {
+    await navigator.clipboard.writeText(DELETE_ALL_MEMORIES_CONFIRMATION)
+    deletePhraseCopied = true
+    setTimeout(() => (deletePhraseCopied = false), 2000)
+  }
 
-	async function copyDeleteConfirmationPhrase() {
-		await navigator.clipboard.writeText(DELETE_ALL_MEMORIES_CONFIRMATION);
-		deletePhraseCopied = true;
-		setTimeout(() => (deletePhraseCopied = false), 2000);
-	}
+  async function exportMemoryZip() {
+    if (exportBusy) return
+    exportBusy = true
+    exportError = null
+    try {
+      const res = await fetch('/api/memory/export')
+      if (!res.ok) {
+        throw new Error(`Export failed (${res.status})`)
+      }
+      const blob = await res.blob()
+      const disposition = res.headers.get('content-disposition') ?? ''
+      const filenameMatch = disposition.match(/filename="([^"]+)"/)
+      const filename = filenameMatch?.[1] ?? 'eigen-memory-export.zip'
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      exportError = e instanceof Error ? e.message : String(e)
+    } finally {
+      exportBusy = false
+    }
+  }
 
-	async function exportMemoryZip() {
-		if (exportBusy) return;
-		exportBusy = true;
-		exportError = null;
-		try {
-			const res = await fetch('/api/memory/export');
-			if (!res.ok) {
-				throw new Error(`Export failed (${res.status})`);
-			}
-			const blob = await res.blob();
-			const disposition = res.headers.get('content-disposition') ?? '';
-			const filenameMatch = disposition.match(/filename="([^"]+)"/);
-			const filename = filenameMatch?.[1] ?? 'eigen-memory-export.zip';
-			const url = URL.createObjectURL(blob);
-			const anchor = document.createElement('a');
-			anchor.href = url;
-			anchor.download = filename;
-			anchor.click();
-			URL.revokeObjectURL(url);
-		} catch (e) {
-			exportError = e instanceof Error ? e.message : String(e);
-		} finally {
-			exportBusy = false;
-		}
-	}
+  async function deleteAllMemories() {
+    if (!deleteConfirmationValid || deleteBusy) return
+    deleteBusy = true
+    deleteError = null
+    deleteSuccess = null
+    try {
+      const res = await fetch('/api/memories', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmation: deleteConfirmation.trim() }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(
+          typeof body?.message === 'string' ? body.message : `Request failed (${res.status})`,
+        )
+      }
+      deleteDialogOpen = false
+      deleteConfirmation = ''
+      const thoughts = typeof body?.thoughtsDeleted === 'number' ? body.thoughtsDeleted : 0
+      const entities = typeof body?.entitiesDeleted === 'number' ? body.entitiesDeleted : 0
+      deleteSuccess = `Deleted ${thoughts} thought${thoughts === 1 ? '' : 's'} and ${entities} entit${entities === 1 ? 'y' : 'ies'}. Your graph memory was cleared.`
+    } catch (e) {
+      deleteError = e instanceof Error ? e.message : String(e)
+    } finally {
+      deleteBusy = false
+    }
+  }
 
-	async function deleteAllMemories() {
-		if (!deleteConfirmationValid || deleteBusy) return;
-		deleteBusy = true;
-		deleteError = null;
-		deleteSuccess = null;
-		try {
-			const res = await fetch('/api/memories', {
-				method: 'DELETE',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ confirmation: deleteConfirmation.trim() })
-			});
-			const body = await res.json().catch(() => null);
-			if (!res.ok) {
-				throw new Error(
-					typeof body?.message === 'string' ? body.message : `Request failed (${res.status})`
-				);
-			}
-			deleteDialogOpen = false;
-			deleteConfirmation = '';
-			const thoughts = typeof body?.thoughtsDeleted === 'number' ? body.thoughtsDeleted : 0;
-			const entities = typeof body?.entitiesDeleted === 'number' ? body.entitiesDeleted : 0;
-			deleteSuccess = `Deleted ${thoughts} thought${thoughts === 1 ? '' : 's'} and ${entities} entit${entities === 1 ? 'y' : 'ies'}. Your graph memory was cleared.`;
-		} catch (e) {
-			deleteError = e instanceof Error ? e.message : String(e);
-		} finally {
-			deleteBusy = false;
-		}
-	}
+  function applyThemePreference(preference: string) {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const useDark = preference === 'dark' || (preference === 'system' && media.matches)
+    document.documentElement.classList.toggle('dark', useDark)
+    document.documentElement.style.colorScheme = useDark ? 'dark' : 'light'
+  }
 
-	function applyThemePreference(preference: string) {
-		const media = window.matchMedia('(prefers-color-scheme: dark)');
-		const useDark = preference === 'dark' || (preference === 'system' && media.matches);
-		document.documentElement.classList.toggle('dark', useDark);
-		document.documentElement.style.colorScheme = useDark ? 'dark' : 'light';
-	}
+  function updateThemePreference(preference: string) {
+    themePreference = preference
+    localStorage.setItem('theme-preference', preference)
+    applyThemePreference(preference)
+    window.dispatchEvent(new CustomEvent('theme-preference-change', { detail: { preference } }))
+  }
 
-	function updateThemePreference(preference: string) {
-		themePreference = preference;
-		localStorage.setItem('theme-preference', preference);
-		applyThemePreference(preference);
-		window.dispatchEvent(new CustomEvent('theme-preference-change', { detail: { preference } }));
-	}
+  async function refreshPushState() {
+    pushSupport = getPushSupportState()
+    if (!pushSupport.supported) {
+      pushSubscribed = false
+      return
+    }
+    try {
+      const sub = await getExistingPushSubscription()
+      pushSubscribed = sub !== null
+    } catch {
+      pushSubscribed = false
+    }
+  }
 
-	async function refreshPushState() {
-		pushSupport = getPushSupportState();
-		if (!pushSupport.supported) {
-			pushSubscribed = false;
-			return;
-		}
-		try {
-			const sub = await getExistingPushSubscription();
-			pushSubscribed = sub !== null;
-		} catch {
-			pushSubscribed = false;
-		}
-	}
+  async function enablePush() {
+    if (pushBusy) return
+    pushBusy = true
+    pushError = null
+    pushMessage = null
+    try {
+      const json = await subscribeToPush()
+      await postSubscribe(json)
+      pushSubscribed = true
+      pushSubscriptionCount = Math.max(pushSubscriptionCount, 1)
+      pushMessage = 'Push notifications enabled for this device.'
+      void loadNotificationStatus()
+    } catch (e) {
+      pushError = e instanceof Error ? e.message : String(e)
+    } finally {
+      pushBusy = false
+    }
+  }
 
-	async function enablePush() {
-		if (pushBusy) return;
-		pushBusy = true;
-		pushError = null;
-		pushMessage = null;
-		try {
-			const json = await subscribeToPush();
-			await postSubscribe(json);
-			pushSubscribed = true;
-			pushSubscriptionCount = Math.max(pushSubscriptionCount, 1);
-			pushMessage = 'Push notifications enabled for this device.';
-			void loadNotificationStatus();
-		} catch (e) {
-			pushError = e instanceof Error ? e.message : String(e);
-		} finally {
-			pushBusy = false;
-		}
-	}
+  async function disablePush() {
+    if (pushBusy) return
+    pushBusy = true
+    pushError = null
+    pushMessage = null
+    try {
+      const endpoint = await unsubscribeFromPush()
+      if (endpoint) await postUnsubscribe(endpoint)
+      pushSubscribed = false
+      pushSubscriptionCount = 0
+      pushMessage = 'Push notifications disabled for this device.'
+    } catch (e) {
+      pushError = e instanceof Error ? e.message : String(e)
+    } finally {
+      pushBusy = false
+    }
+  }
 
-	async function disablePush() {
-		if (pushBusy) return;
-		pushBusy = true;
-		pushError = null;
-		pushMessage = null;
-		try {
-			const endpoint = await unsubscribeFromPush();
-			if (endpoint) await postUnsubscribe(endpoint);
-			pushSubscribed = false;
-			pushSubscriptionCount = 0;
-			pushMessage = 'Push notifications disabled for this device.';
-		} catch (e) {
-			pushError = e instanceof Error ? e.message : String(e);
-		} finally {
-			pushBusy = false;
-		}
-	}
+  async function saveNotificationSettings() {
+    if (notificationSaveBusy) return
+    notificationSaveBusy = true
+    notificationMessage = null
+    notificationError = null
+    try {
+      const leadMinutes = Number(eventReminderLeadMinutes)
+      if (!Number.isFinite(leadMinutes) || leadMinutes < 1) {
+        throw new Error('Reminder lead time must be at least 1 minute.')
+      }
+      const parsedOffset = Number.parseInt(timezoneOffsetMinutes, 10)
+      const result = await persistNotificationSettings({
+        timezoneOffsetMinutes: Number.isFinite(parsedOffset) ? parsedOffset : 60,
+        eventNotificationsEnabled,
+        eventReminderLeadMinutes: leadMinutes,
+        dailySummaryEnabled,
+        dailySummaryTimeLocal,
+      })
+      timezoneOffsetMinutes = String(result.timezoneOffsetMinutes)
+      timezoneInferred = false
+      detectedTimezoneLabel = null
+      eventNotificationsEnabled = result.eventNotificationsEnabled
+      eventReminderLeadMinutes = result.eventReminderLeadMinutes
+      dailySummaryEnabled = result.dailySummaryEnabled
+      dailySummaryTimeLocal = result.dailySummaryTimeLocal
+      notificationMessage = result.message
+    } catch (e) {
+      notificationError = e instanceof Error ? e.message : String(e)
+    } finally {
+      notificationSaveBusy = false
+    }
+  }
 
-	async function saveNotificationSettings() {
-		if (notificationSaveBusy) return;
-		notificationSaveBusy = true;
-		notificationMessage = null;
-		notificationError = null;
-		try {
-			const leadMinutes = Number(eventReminderLeadMinutes);
-			if (!Number.isFinite(leadMinutes) || leadMinutes < 1) {
-				throw new Error('Reminder lead time must be at least 1 minute.');
-			}
-			const parsedOffset = Number.parseInt(timezoneOffsetMinutes, 10);
-			const result = await persistNotificationSettings({
-				timezoneOffsetMinutes: Number.isFinite(parsedOffset) ? parsedOffset : 60,
-				eventNotificationsEnabled,
-				eventReminderLeadMinutes: leadMinutes,
-				dailySummaryEnabled,
-				dailySummaryTimeLocal
-			});
-			timezoneOffsetMinutes = String(result.timezoneOffsetMinutes);
-			timezoneInferred = false;
-			detectedTimezoneLabel = null;
-			eventNotificationsEnabled = result.eventNotificationsEnabled;
-			eventReminderLeadMinutes = result.eventReminderLeadMinutes;
-			dailySummaryEnabled = result.dailySummaryEnabled;
-			dailySummaryTimeLocal = result.dailySummaryTimeLocal;
-			notificationMessage = result.message;
-		} catch (e) {
-			notificationError = e instanceof Error ? e.message : String(e);
-		} finally {
-			notificationSaveBusy = false;
-		}
-	}
+  async function loadNotificationStatus() {
+    notificationStatusBusy = true
+    notificationStatusError = null
+    try {
+      const res = await fetch('/api/settings/notifications/status')
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(
+          typeof body?.message === 'string' ? body.message : `Status failed (${res.status})`,
+        )
+      }
+      notificationStatus = body as NotificationPipelineStatus
+    } catch (e) {
+      notificationStatusError = e instanceof Error ? e.message : String(e)
+    } finally {
+      notificationStatusBusy = false
+    }
+  }
 
-	async function loadNotificationStatus() {
-		notificationStatusBusy = true;
-		notificationStatusError = null;
-		try {
-			const res = await fetch('/api/settings/notifications/status');
-			const body = await res.json().catch(() => null);
-			if (!res.ok) {
-				throw new Error(
-					typeof body?.message === 'string' ? body.message : `Status failed (${res.status})`
-				);
-			}
-			notificationStatus = body as NotificationPipelineStatus;
-		} catch (e) {
-			notificationStatusError = e instanceof Error ? e.message : String(e);
-		} finally {
-			notificationStatusBusy = false;
-		}
-	}
+  function formatStatusTime(iso: string | null): string {
+    if (!iso) return '—'
+    const date = new Date(iso)
+    return Number.isNaN(date.getTime()) ? iso : date.toLocaleString()
+  }
 
-	function formatStatusTime(iso: string | null): string {
-		if (!iso) return '—';
-		const date = new Date(iso);
-		return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
-	}
+  async function sendTestPush() {
+    if (pushBusy) return
+    pushBusy = true
+    pushError = null
+    pushMessage = null
+    try {
+      const result = await postTestPush()
+      pushMessage = `Test notification sent (${result.sent} device${result.sent === 1 ? '' : 's'}).`
+      void loadNotificationStatus()
+    } catch (e) {
+      pushError = e instanceof Error ? e.message : String(e)
+    } finally {
+      pushBusy = false
+    }
+  }
 
-	async function sendTestPush() {
-		if (pushBusy) return;
-		pushBusy = true;
-		pushError = null;
-		pushMessage = null;
-		try {
-			const result = await postTestPush();
-			pushMessage = `Test notification sent (${result.sent} device${result.sent === 1 ? '' : 's'}).`;
-			void loadNotificationStatus();
-		} catch (e) {
-			pushError = e instanceof Error ? e.message : String(e);
-		} finally {
-			pushBusy = false;
-		}
-	}
+  onMount(() => {
+    const savedPreference = localStorage.getItem('theme-preference') ?? 'system'
+    themePreference = savedPreference
+    if (data.preferredTimezoneOffsetMinutes === null) {
+      applyInferredBrowserTimezone()
+    }
+    hapticEnvironment = getHapticEnvironment()
+    void refreshPushState()
+    void loadNotificationStatus()
+  })
 
-	onMount(() => {
-		const savedPreference = localStorage.getItem('theme-preference') ?? 'system';
-		themePreference = savedPreference;
-		if (data.preferredTimezoneOffsetMinutes === null) {
-			applyInferredBrowserTimezone();
-		}
-		hapticEnvironment = getHapticEnvironment();
-		void refreshPushState();
-		void loadNotificationStatus();
-	});
+  function runHapticTest() {
+    hapticTestResult = testHapticFeedback()
+    hapticEnvironment = getHapticEnvironment()
+  }
 
-	function runHapticTest() {
-		hapticTestResult = testHapticFeedback();
-		hapticEnvironment = getHapticEnvironment();
-	}
+  function dismissGraphRearrangeStatus() {
+    graphRearrangeResult = null
+    graphRearrangeComplete = false
+    graphRearrangePhaseEvents = []
+    graphRearrangeActiveTask = null
+    graphRearrangeStartedAt = null
+  }
 
-	function dismissGraphRearrangeStatus() {
-		graphRearrangeResult = null;
-		graphRearrangeComplete = false;
-		graphRearrangePhaseEvents = [];
-		graphRearrangeActiveTask = null;
-		graphRearrangeStartedAt = null;
-	}
+  function applyGraphRearrangeProgress(event: {
+    phase: GraphRearrangePhase
+    processed?: number
+    total?: number
+  }) {
+    const lastPhase = graphRearrangePhaseEvents.at(-1)
+    if (lastPhase !== event.phase) {
+      graphRearrangePhaseEvents = [...graphRearrangePhaseEvents, event.phase]
+    }
+    if (event.processed !== undefined && event.total !== undefined) {
+      graphRearrangeActiveTask = { processed: event.processed, total: event.total }
+    } else {
+      graphRearrangeActiveTask = null
+    }
+  }
 
-	function applyGraphRearrangeProgress(event: {
-		phase: GraphRearrangePhase;
-		processed?: number;
-		total?: number;
-	}) {
-		const lastPhase = graphRearrangePhaseEvents.at(-1);
-		if (lastPhase !== event.phase) {
-			graphRearrangePhaseEvents = [...graphRearrangePhaseEvents, event.phase];
-		}
-		if (event.processed !== undefined && event.total !== undefined) {
-			graphRearrangeActiveTask = { processed: event.processed, total: event.total };
-		} else {
-			graphRearrangeActiveTask = null;
-		}
-	}
+  async function submitRearrangeGraph() {
+    graphRearrangeErr = null
+    graphRearrangeResult = null
+    graphRearrangeComplete = false
+    graphRearrangePhaseEvents = []
+    graphRearrangeActiveTask = null
+    graphRearrangeStartedAt = Date.now()
+    graphRearrangeBusy = true
+    try {
+      const result = await rearrangeGraph({
+        onProgress: applyGraphRearrangeProgress,
+      })
+      graphRearrangeResult = result
+      graphRearrangeComplete = true
+      await invalidateAll()
+    } catch (e) {
+      graphRearrangeErr = e instanceof Error ? e.message : String(e)
+      dismissGraphRearrangeStatus()
+    } finally {
+      graphRearrangeBusy = false
+    }
+  }
 
-	async function submitRearrangeGraph() {
-		graphRearrangeErr = null;
-		graphRearrangeResult = null;
-		graphRearrangeComplete = false;
-		graphRearrangePhaseEvents = [];
-		graphRearrangeActiveTask = null;
-		graphRearrangeStartedAt = Date.now();
-		graphRearrangeBusy = true;
-		try {
-			const result = await rearrangeGraph({
-				onProgress: applyGraphRearrangeProgress
-			});
-			graphRearrangeResult = result;
-			graphRearrangeComplete = true;
-			await invalidateAll();
-		} catch (e) {
-			graphRearrangeErr = e instanceof Error ? e.message : String(e);
-			dismissGraphRearrangeStatus();
-		} finally {
-			graphRearrangeBusy = false;
-		}
-	}
-
-	function confirmQualityChange(event: SubmitEvent) {
-		const formElement = event.currentTarget as HTMLFormElement;
-		const selectedQuality =
-			new FormData(formElement).get('preferredTranscriptionQuality')?.toString() ?? 'low';
-		if (selectedQuality === data.preferredTranscriptionQuality) return;
-		const selectedOption = data.qualityOptions.find((option) => option.value === selectedQuality);
-		const message = `This may download about ${selectedOption?.sizeMb ?? 0} MB for ${selectedOption?.label ?? 'selected'} quality (${selectedOption?.model ?? ''}). Please confirm you are not on mobile data. Continue?`;
-		if (!window.confirm(message)) {
-			event.preventDefault();
-		}
-	}
+  function confirmQualityChange(event: SubmitEvent) {
+    const formElement = event.currentTarget as HTMLFormElement
+    const selectedQuality =
+      new FormData(formElement).get('preferredTranscriptionQuality')?.toString() ?? 'low'
+    if (selectedQuality === data.preferredTranscriptionQuality) return
+    const selectedOption = data.qualityOptions.find((option) => option.value === selectedQuality)
+    const message = `This may download about ${selectedOption?.sizeMb ?? 0} MB for ${selectedOption?.label ?? 'selected'} quality (${selectedOption?.model ?? ''}). Please confirm you are not on mobile data. Continue?`
+    if (!window.confirm(message)) {
+      event.preventDefault()
+    }
+  }
 </script>
 
 <div class="mx-auto max-w-2xl space-y-6 px-5 pb-10 pt-16">
-	<Tabs.Root bind:value={activeTab} class="space-y-4">
-		<div
-			class="-mx-5 overflow-x-auto px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-			aria-label="Settings tabs"
-		>
-			<Tabs.List class={settingsTabListClass}>
-				{#each settingsTabs as tab (tab.value)}
-					<Tabs.Trigger value={tab.value} class={settingsTabTriggerClass}>
-						{tab.label}
-					</Tabs.Trigger>
-				{/each}
-			</Tabs.List>
-		</div>
+  <Tabs.Root bind:value={activeTab} class="space-y-4">
+    <div
+      class="-mx-5 overflow-x-auto px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+      aria-label="Settings tabs"
+    >
+      <Tabs.List class={settingsTabListClass}>
+        {#each settingsTabs as tab (tab.value)}
+          <Tabs.Trigger value={tab.value} class={settingsTabTriggerClass}>
+            {tab.label}
+          </Tabs.Trigger>
+        {/each}
+      </Tabs.List>
+    </div>
 
-		<Tabs.Content value="appearance" class="space-y-3">
-		<div class="flex items-start gap-3">
-			<div
-				class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-			>
-				<Palette class="size-4" strokeWidth={1.75} aria-hidden="true" />
-			</div>
-			<div>
-				<h2 class="text-sm font-semibold">Appearance</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Theme, language, and onboarding.</p>
-			</div>
-		</div>
+    <Tabs.Content value="appearance" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div
+          class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <Palette class="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold">Appearance</h2>
+          <p class="text-muted-foreground mt-0.5 text-xs">Theme, language, and onboarding.</p>
+        </div>
+      </div>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">{m.settings_theme_title()}</Card.Title>
-				<Card.Description>{m.settings_theme_description()}</Card.Description>
-			</Card.Header>
-			<Card.Content class="space-y-2 pt-0">
-				<div class="space-y-1">
-					<Label for="theme-mode">{m.settings_theme_mode()}</Label>
-					<select
-						id="theme-mode"
-						class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-						value={themePreference}
-						onchange={(event) =>
-							updateThemePreference((event.currentTarget as HTMLSelectElement).value)}
-					>
-						<option value="system">{m.settings_theme_system()}</option>
-						<option value="light">{m.settings_theme_light()}</option>
-						<option value="dark">{m.settings_theme_dark()}</option>
-					</select>
-				</div>
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">{m.settings_theme_title()}</Card.Title>
+          <Card.Description>{m.settings_theme_description()}</Card.Description>
+        </Card.Header>
+        <Card.Content class="space-y-2 pt-0">
+          <div class="space-y-1">
+            <Label for="theme-mode">{m.settings_theme_mode()}</Label>
+            <select
+              id="theme-mode"
+              class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+              value={themePreference}
+              onchange={(event) =>
+                updateThemePreference((event.currentTarget as HTMLSelectElement).value)}
+            >
+              <option value="system">{m.settings_theme_system()}</option>
+              <option value="light">{m.settings_theme_light()}</option>
+              <option value="dark">{m.settings_theme_dark()}</option>
+            </select>
+          </div>
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">{m.settings_display_language_title()}</Card.Title>
-				<Card.Description>{m.settings_display_language_description()}</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<form method="post" action="?/updateUiLocale" use:enhance class="space-y-2">
-					<div class="space-y-1">
-						<Label for="ui-locale">{m.settings_display_language_label()}</Label>
-						<select
-							id="ui-locale"
-							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-							name="preferredUiLocale"
-						>
-							{#each data.uiLocaleOptions as option (option.value)}
-								<option
-									value={option.value}
-									selected={option.value === (data.preferredUiLocale ?? getLocale())}
-								>
-									{option.label} ({option.value})
-								</option>
-							{/each}
-						</select>
-					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-						{m.settings_display_language_save()}
-					</Button>
-					{#if form?.uiLocaleMessage}
-						<p class="text-muted-foreground text-xs">{form.uiLocaleMessage}</p>
-					{/if}
-				</form>
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">{m.settings_display_language_title()}</Card.Title>
+          <Card.Description>{m.settings_display_language_description()}</Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <form method="post" action="?/updateUiLocale" use:enhance class="space-y-2">
+            <div class="space-y-1">
+              <Label for="ui-locale">{m.settings_display_language_label()}</Label>
+              <select
+                id="ui-locale"
+                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+                name="preferredUiLocale"
+              >
+                {#each data.uiLocaleOptions as option (option.value)}
+                  <option
+                    value={option.value}
+                    selected={option.value === (data.preferredUiLocale ?? getLocale())}
+                  >
+                    {option.label} ({option.value})
+                  </option>
+                {/each}
+              </select>
+            </div>
+            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+              {m.settings_display_language_save()}
+            </Button>
+            {#if form?.uiLocaleMessage}
+              <p class="text-muted-foreground text-xs">{form.uiLocaleMessage}</p>
+            {/if}
+          </form>
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Onboarding</Card.Title>
-				<Card.Description>Show the welcome tour again.</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<form method="post" action="?/resetOnboarding" use:enhance class="space-y-2">
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-						Restart onboarding
-					</Button>
-					{#if form?.onboardingMessage}
-						<p class="text-destructive text-xs">{form.onboardingMessage}</p>
-					{/if}
-				</form>
-			</Card.Content>
-		</Card.Root>
-		</Tabs.Content>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Onboarding</Card.Title>
+          <Card.Description>Show the welcome tour again.</Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <form method="post" action="?/resetOnboarding" use:enhance class="space-y-2">
+            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+              Restart onboarding
+            </Button>
+            {#if form?.onboardingMessage}
+              <p class="text-destructive text-xs">{form.onboardingMessage}</p>
+            {/if}
+          </form>
+        </Card.Content>
+      </Card.Root>
+    </Tabs.Content>
 
-		<Tabs.Content value="speech" class="space-y-3">
-		<div class="flex items-start gap-3">
-			<div
-				class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-			>
-				<Mic class="size-4" strokeWidth={1.75} aria-hidden="true" />
-			</div>
-			<div>
-				<h2 class="text-sm font-semibold">Speech</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Transcription language and on-device model quality.</p>
-			</div>
-		</div>
+    <Tabs.Content value="speech" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div
+          class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <Mic class="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold">Speech</h2>
+          <p class="text-muted-foreground mt-0.5 text-xs">
+            Transcription language and on-device model quality.
+          </p>
+        </div>
+      </div>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">{m.settings_transcription_language_title()}</Card.Title>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<form method="post" action="?/updateLanguage" use:enhance class="space-y-2">
-					<div class="space-y-1">
-						<Label for="lang">{m.settings_transcription_language_label()}</Label>
-						<select
-							id="lang"
-							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-							name="preferredLanguage"
-						>
-							{#each data.languageOptions as option (option.value)}
-								<option value={option.value} selected={option.value === data.preferredLanguage}>
-									{option.label} ({option.value})
-								</option>
-							{/each}
-						</select>
-					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
-						{m.settings_transcription_language_save()}
-					</Button>
-					{#if form?.settingsMessage}
-						<p class="text-muted-foreground text-xs">{form.settingsMessage}</p>
-					{/if}
-				</form>
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">{m.settings_transcription_language_title()}</Card.Title>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <form method="post" action="?/updateLanguage" use:enhance class="space-y-2">
+            <div class="space-y-1">
+              <Label for="lang">{m.settings_transcription_language_label()}</Label>
+              <select
+                id="lang"
+                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+                name="preferredLanguage"
+              >
+                {#each data.languageOptions as option (option.value)}
+                  <option value={option.value} selected={option.value === data.preferredLanguage}>
+                    {option.label} ({option.value})
+                  </option>
+                {/each}
+              </select>
+            </div>
+            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+              {m.settings_transcription_language_save()}
+            </Button>
+            {#if form?.settingsMessage}
+              <p class="text-muted-foreground text-xs">{form.settingsMessage}</p>
+            {/if}
+          </form>
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Speech recognition quality</Card.Title>
-				<Card.Description>Low = faster/smaller, High = larger/better accuracy.</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<form
-					method="post"
-					action="?/updateQuality"
-					use:enhance
-					onsubmit={confirmQualityChange}
-					class="space-y-2"
-				>
-					<div class="space-y-1">
-						<Label for="quality">Quality level</Label>
-						<select
-							id="quality"
-							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-							name="preferredTranscriptionQuality"
-						>
-							{#each data.qualityOptions as option (option.value)}
-								<option
-									value={option.value}
-									selected={option.value === data.preferredTranscriptionQuality}
-								>
-									{option.label} ({option.sizeMb} MB)
-								</option>
-							{/each}
-						</select>
-					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Save quality</Button>
-					{#if form?.qualityMessage}
-						<p class="text-muted-foreground text-xs">{form.qualityMessage}</p>
-					{/if}
-				</form>
-			</Card.Content>
-		</Card.Root>
-		</Tabs.Content>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Speech recognition quality</Card.Title>
+          <Card.Description>Low = faster/smaller, High = larger/better accuracy.</Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <form
+            method="post"
+            action="?/updateQuality"
+            use:enhance
+            onsubmit={confirmQualityChange}
+            class="space-y-2"
+          >
+            <div class="space-y-1">
+              <Label for="quality">Quality level</Label>
+              <select
+                id="quality"
+                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+                name="preferredTranscriptionQuality"
+              >
+                {#each data.qualityOptions as option (option.value)}
+                  <option
+                    value={option.value}
+                    selected={option.value === data.preferredTranscriptionQuality}
+                  >
+                    {option.label} ({option.sizeMb} MB)
+                  </option>
+                {/each}
+              </select>
+            </div>
+            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]"
+              >Save quality</Button
+            >
+            {#if form?.qualityMessage}
+              <p class="text-muted-foreground text-xs">{form.qualityMessage}</p>
+            {/if}
+          </form>
+        </Card.Content>
+      </Card.Root>
+    </Tabs.Content>
 
-		<Tabs.Content value="account" class="space-y-3">
-		<div class="flex items-start gap-3">
-			<div
-				class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-			>
-				<UserRound class="size-4" strokeWidth={1.75} aria-hidden="true" />
-			</div>
-			<div>
-				<h2 class="text-sm font-semibold">Account</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Email and password for this account.</p>
-			</div>
-		</div>
+    <Tabs.Content value="account" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div
+          class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <UserRound class="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold">Account</h2>
+          <p class="text-muted-foreground mt-0.5 text-xs">Email and password for this account.</p>
+        </div>
+      </div>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Change email</Card.Title>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<form method="post" action="?/changeEmail" use:enhance class="space-y-2">
-					<div class="space-y-1">
-						<Label for="newEmail">New email</Label>
-						<input
-							id="newEmail"
-							type="email"
-							name="newEmail"
-							placeholder="you@example.com"
-							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-						/>
-					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update email</Button>
-					{#if form?.emailMessage}
-						<p class="text-muted-foreground text-xs">{form.emailMessage}</p>
-					{/if}
-				</form>
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Change email</Card.Title>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <form method="post" action="?/changeEmail" use:enhance class="space-y-2">
+            <div class="space-y-1">
+              <Label for="newEmail">New email</Label>
+              <input
+                id="newEmail"
+                type="email"
+                name="newEmail"
+                placeholder="you@example.com"
+                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+              />
+            </div>
+            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]"
+              >Update email</Button
+            >
+            {#if form?.emailMessage}
+              <p class="text-muted-foreground text-xs">{form.emailMessage}</p>
+            {/if}
+          </form>
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Change password</Card.Title>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<form method="post" action="?/changePassword" use:enhance class="space-y-2">
-					<div class="space-y-1">
-						<Label for="cur">Current password</Label>
-						<input
-							id="cur"
-							type="password"
-							name="currentPassword"
-							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-						/>
-					</div>
-					<div class="space-y-1">
-						<Label for="newpw">New password</Label>
-						<input
-							id="newpw"
-							type="password"
-							name="newPassword"
-							class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
-						/>
-					</div>
-					<Button type="submit" variant="outline" size="sm" class="rounded-[4px]">Update password</Button>
-					{#if form?.passwordMessage}
-						<p class="text-muted-foreground text-xs">{form.passwordMessage}</p>
-					{/if}
-				</form>
-			</Card.Content>
-		</Card.Root>
-		</Tabs.Content>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Change password</Card.Title>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <form method="post" action="?/changePassword" use:enhance class="space-y-2">
+            <div class="space-y-1">
+              <Label for="cur">Current password</Label>
+              <input
+                id="cur"
+                type="password"
+                name="currentPassword"
+                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <Label for="newpw">New password</Label>
+              <input
+                id="newpw"
+                type="password"
+                name="newPassword"
+                class="border-input bg-background text-foreground h-9 w-full rounded-[4px] border px-2.5 text-xs"
+              />
+            </div>
+            <Button type="submit" variant="outline" size="sm" class="rounded-[4px]"
+              >Update password</Button
+            >
+            {#if form?.passwordMessage}
+              <p class="text-muted-foreground text-xs">{form.passwordMessage}</p>
+            {/if}
+          </form>
+        </Card.Content>
+      </Card.Root>
+    </Tabs.Content>
 
-		<Tabs.Content value="notifications" class="space-y-3">
-		<div class="flex items-start gap-3">
-			<div
-				class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-			>
-				<Bell class="size-4" strokeWidth={1.75} aria-hidden="true" />
-			</div>
-			<div>
-				<h2 class="text-sm font-semibold">Notifications</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Push alerts and event reminders.</p>
-			</div>
-		</div>
+    <Tabs.Content value="notifications" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div
+          class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <Bell class="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold">Notifications</h2>
+          <p class="text-muted-foreground mt-0.5 text-xs">Push alerts and event reminders.</p>
+        </div>
+      </div>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Push notifications</Card.Title>
-				<Card.Description>
-					Requires a registered service worker (reload once after opening the app). Install as a PWA for
-					the best experience on macOS.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				{#if !pushSupport.supported}
-					<p class="text-muted-foreground text-xs">{pushSupport.reason}</p>
-				{:else}
-					<p class="text-muted-foreground text-xs">
-						Permission: {pushSupport.permission}. Registered devices: {pushSubscriptionCount}.
-					</p>
-					<div class="mt-2 flex flex-wrap gap-2">
-						{#if !pushSubscribed}
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								class="rounded-[4px]"
-								disabled={pushBusy || pushSupport.permission === 'denied'}
-								onclick={() => void enablePush()}
-							>
-								{pushBusy ? 'Working…' : 'Enable push'}
-							</Button>
-						{:else}
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								class="rounded-[4px]"
-								disabled={pushBusy}
-								onclick={() => void disablePush()}
-							>
-								{pushBusy ? 'Working…' : 'Disable push'}
-							</Button>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								class="rounded-[4px]"
-								disabled={pushBusy}
-								onclick={() => void sendTestPush()}
-							>
-								{pushBusy ? 'Sending…' : 'Send test notification'}
-							</Button>
-						{/if}
-					</div>
-				{/if}
-				{#if pushMessage}
-					<p class="text-muted-foreground mt-2 text-xs">{pushMessage}</p>
-				{/if}
-				{#if pushError}
-					<p class="text-destructive mt-2 text-xs">{pushError}</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Push notifications</Card.Title>
+          <Card.Description>
+            Requires a registered service worker (reload once after opening the app). Install as a
+            PWA for the best experience on macOS.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          {#if !pushSupport.supported}
+            <p class="text-muted-foreground text-xs">{pushSupport.reason}</p>
+          {:else}
+            <p class="text-muted-foreground text-xs">
+              Permission: {pushSupport.permission}. Registered devices: {pushSubscriptionCount}.
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              {#if !pushSubscribed}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="rounded-[4px]"
+                  disabled={pushBusy || pushSupport.permission === 'denied'}
+                  onclick={() => void enablePush()}
+                >
+                  {pushBusy ? 'Working…' : 'Enable push'}
+                </Button>
+              {:else}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="rounded-[4px]"
+                  disabled={pushBusy}
+                  onclick={() => void disablePush()}
+                >
+                  {pushBusy ? 'Working…' : 'Disable push'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="rounded-[4px]"
+                  disabled={pushBusy}
+                  onclick={() => void sendTestPush()}
+                >
+                  {pushBusy ? 'Sending…' : 'Send test notification'}
+                </Button>
+              {/if}
+            </div>
+          {/if}
+          {#if pushMessage}
+            <p class="text-muted-foreground mt-2 text-xs">{pushMessage}</p>
+          {/if}
+          {#if pushError}
+            <p class="text-destructive mt-2 text-xs">{pushError}</p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Haptic feedback</Card.Title>
-				<Card.Description>
-					Android Chrome only. Desktop and iOS have no web vibration motor. Requires HTTPS or localhost.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="space-y-2 pt-0 text-xs">
-				<div class="flex justify-between gap-4">
-					<span class="text-muted-foreground">API available</span>
-					<span class={hapticEnvironment.apiAvailable ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
-						{hapticEnvironment.apiAvailable ? 'Yes' : 'No'}
-					</span>
-				</div>
-				<div class="flex justify-between gap-4">
-					<span class="text-muted-foreground">Secure context</span>
-					<span>{hapticEnvironment.secureContext ? 'Yes' : 'No'}</span>
-				</div>
-				<p class="text-muted-foreground">{hapticEnvironment.hint}</p>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					class="rounded-[4px]"
-					onclick={runHapticTest}
-				>
-					Test vibration
-				</Button>
-				{#if hapticTestResult}
-					<p class="text-muted-foreground">
-						{hapticTestResult.requested
-							? hapticTestResult.accepted
-								? 'Request accepted.'
-								: 'Request rejected.'
-							: 'Request not sent.'}
-						{hapticTestResult.hint}
-					</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Haptic feedback</Card.Title>
+          <Card.Description>
+            Android Chrome only. Desktop and iOS have no web vibration motor. Requires HTTPS or
+            localhost.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="space-y-2 pt-0 text-xs">
+          <div class="flex justify-between gap-4">
+            <span class="text-muted-foreground">API available</span>
+            <span
+              class={hapticEnvironment.apiAvailable
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-destructive'}
+            >
+              {hapticEnvironment.apiAvailable ? 'Yes' : 'No'}
+            </span>
+          </div>
+          <div class="flex justify-between gap-4">
+            <span class="text-muted-foreground">Secure context</span>
+            <span>{hapticEnvironment.secureContext ? 'Yes' : 'No'}</span>
+          </div>
+          <p class="text-muted-foreground">{hapticEnvironment.hint}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="rounded-[4px]"
+            onclick={runHapticTest}
+          >
+            Test vibration
+          </Button>
+          {#if hapticTestResult}
+            <p class="text-muted-foreground">
+              {hapticTestResult.requested
+                ? hapticTestResult.accepted
+                  ? 'Request accepted.'
+                  : 'Request rejected.'
+                : 'Request not sent.'}
+              {hapticTestResult.hint}
+            </p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<div class="flex flex-wrap items-center justify-between gap-2">
-					<div>
-						<Card.Title class="text-sm">Delivery status</Card.Title>
-						<Card.Description>
-							What the server would send and why it has or has not fired yet.
-						</Card.Description>
-					</div>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						class="rounded-[4px]"
-						disabled={notificationStatusBusy}
-						onclick={() => void loadNotificationStatus()}
-					>
-						{notificationStatusBusy ? 'Refreshing…' : 'Refresh status'}
-					</Button>
-				</div>
-			</Card.Header>
-			<Card.Content class="space-y-3 pt-0 text-xs">
-				{#if notificationStatusError}
-					<p class="text-destructive">{notificationStatusError}</p>
-				{:else if !notificationStatus}
-					<p class="text-muted-foreground">Loading…</p>
-				{:else}
-					<div class="space-y-2">
-						<div class="flex justify-between gap-4">
-							<span class="text-muted-foreground">Server push ready</span>
-							<span class={notificationStatus.serverPushReady ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
-								{notificationStatus.serverPushReady ? 'Yes' : 'No'}
-							</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="text-muted-foreground">Registered devices</span>
-							<span class="font-mono tabular-nums">{notificationStatus.pushDevicesRegistered}</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="text-muted-foreground">Event reminders</span>
-							<span>{notificationStatus.eventNotificationsEnabled ? 'On' : 'Off'}</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="text-muted-foreground">Reminders pending</span>
-							<span class="font-mono tabular-nums">
-								{notificationStatus.reminders.pending}
-								{#if notificationStatus.reminders.dueNow > 0}
-									<span class="text-amber-700 dark:text-amber-400">
-										({notificationStatus.reminders.dueNow} due now)
-									</span>
-								{/if}
-							</span>
-						</div>
-						{#if notificationStatus.reminders.nextFireAt}
-							<div class="flex justify-between gap-4">
-								<span class="text-muted-foreground">Next reminder</span>
-								<span>{formatStatusTime(notificationStatus.reminders.nextFireAt)}</span>
-							</div>
-						{/if}
-					</div>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <Card.Title class="text-sm">Delivery status</Card.Title>
+              <Card.Description>
+                What the server would send and why it has or has not fired yet.
+              </Card.Description>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              class="rounded-[4px]"
+              disabled={notificationStatusBusy}
+              onclick={() => void loadNotificationStatus()}
+            >
+              {notificationStatusBusy ? 'Refreshing…' : 'Refresh status'}
+            </Button>
+          </div>
+        </Card.Header>
+        <Card.Content class="space-y-3 pt-0 text-xs">
+          {#if notificationStatusError}
+            <p class="text-destructive">{notificationStatusError}</p>
+          {:else if !notificationStatus}
+            <p class="text-muted-foreground">Loading…</p>
+          {:else}
+            <div class="space-y-2">
+              <div class="flex justify-between gap-4">
+                <span class="text-muted-foreground">Server push ready</span>
+                <span
+                  class={notificationStatus.serverPushReady
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-destructive'}
+                >
+                  {notificationStatus.serverPushReady ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div class="flex justify-between gap-4">
+                <span class="text-muted-foreground">Registered devices</span>
+                <span class="font-mono tabular-nums"
+                  >{notificationStatus.pushDevicesRegistered}</span
+                >
+              </div>
+              <div class="flex justify-between gap-4">
+                <span class="text-muted-foreground">Event reminders</span>
+                <span>{notificationStatus.eventNotificationsEnabled ? 'On' : 'Off'}</span>
+              </div>
+              <div class="flex justify-between gap-4">
+                <span class="text-muted-foreground">Reminders pending</span>
+                <span class="font-mono tabular-nums">
+                  {notificationStatus.reminders.pending}
+                  {#if notificationStatus.reminders.dueNow > 0}
+                    <span class="text-amber-700 dark:text-amber-400">
+                      ({notificationStatus.reminders.dueNow} due now)
+                    </span>
+                  {/if}
+                </span>
+              </div>
+              {#if notificationStatus.reminders.nextFireAt}
+                <div class="flex justify-between gap-4">
+                  <span class="text-muted-foreground">Next reminder</span>
+                  <span>{formatStatusTime(notificationStatus.reminders.nextFireAt)}</span>
+                </div>
+              {/if}
+            </div>
 
-					{#if notificationStatus.dailySummaryEnabled}
-						<div class="border-border/60 space-y-2 rounded-lg border bg-muted/30 p-3">
-							<p class="font-medium">Daily summary</p>
-							<div class="flex justify-between gap-4">
-								<span class="text-muted-foreground">Scheduled (local)</span>
-								<span class="font-mono">
-									{notificationStatus.dailySummary.scheduledTimeLocal}
-									<span class="text-muted-foreground">({notificationStatus.dailySummary.timeZone})</span>
-								</span>
-							</div>
-							<div class="flex justify-between gap-4">
-								<span class="text-muted-foreground">Dispatch window</span>
-								<span class="font-mono">
-									{notificationStatus.dailySummary.dispatch.windowStartLocal}–{notificationStatus.dailySummary.dispatch.windowEndLocal}
-								</span>
-							</div>
-							<div class="flex justify-between gap-4">
-								<span class="text-muted-foreground">Last sent (local date)</span>
-								<span class="font-mono">
-									{notificationStatus.dailySummary.lastSentLocalDate ?? 'Never'}
-								</span>
-							</div>
-							<div class="flex justify-between gap-4">
-								<span class="text-muted-foreground">Status</span>
-								<span
-									class={notificationStatus.dailySummary.dispatch.reason === 'send_failed'
-										? 'text-destructive'
-										: notificationStatus.dailySummary.dispatch.wouldDispatch
-											? 'text-emerald-700 dark:text-emerald-400'
-											: 'text-amber-700 dark:text-amber-400'}
-								>
-									{notificationStatus.dailySummary.statusLabel}
-								</span>
-							</div>
-							{#if notificationStatus.dailySummary.preview}
-								<div class="space-y-1">
-									<p class="text-muted-foreground">Would send now</p>
-									<p class="font-medium">{notificationStatus.dailySummary.preview.title}</p>
-									<p class="text-muted-foreground">{notificationStatus.dailySummary.preview.body}</p>
-									<p class="font-mono text-[11px]">{notificationStatus.dailySummary.preview.url}</p>
-								</div>
-							{/if}
-						</div>
-					{/if}
-					<p class="text-muted-foreground text-[11px]">
-						Checked {formatStatusTime(notificationStatus.at)}
-					</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+            {#if notificationStatus.dailySummaryEnabled}
+              <div class="border-border/60 space-y-2 rounded-lg border bg-muted/30 p-3">
+                <p class="font-medium">Daily summary</p>
+                <div class="flex justify-between gap-4">
+                  <span class="text-muted-foreground">Scheduled (local)</span>
+                  <span class="font-mono">
+                    {notificationStatus.dailySummary.scheduledTimeLocal}
+                    <span class="text-muted-foreground"
+                      >({notificationStatus.dailySummary.timeZone})</span
+                    >
+                  </span>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <span class="text-muted-foreground">Dispatch window</span>
+                  <span class="font-mono">
+                    {notificationStatus.dailySummary.dispatch.windowStartLocal}–{notificationStatus
+                      .dailySummary.dispatch.windowEndLocal}
+                  </span>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <span class="text-muted-foreground">Last sent (local date)</span>
+                  <span class="font-mono">
+                    {notificationStatus.dailySummary.lastSentLocalDate ?? 'Never'}
+                  </span>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <span class="text-muted-foreground">Status</span>
+                  <span
+                    class={notificationStatus.dailySummary.dispatch.reason === 'send_failed'
+                      ? 'text-destructive'
+                      : notificationStatus.dailySummary.dispatch.wouldDispatch
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-amber-700 dark:text-amber-400'}
+                  >
+                    {notificationStatus.dailySummary.statusLabel}
+                  </span>
+                </div>
+                {#if notificationStatus.dailySummary.preview}
+                  <div class="space-y-1">
+                    <p class="text-muted-foreground">Would send now</p>
+                    <p class="font-medium">{notificationStatus.dailySummary.preview.title}</p>
+                    <p class="text-muted-foreground">
+                      {notificationStatus.dailySummary.preview.body}
+                    </p>
+                    <p class="font-mono text-[11px]">
+                      {notificationStatus.dailySummary.preview.url}
+                    </p>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+            <p class="text-muted-foreground text-[11px]">
+              Checked {formatStatusTime(notificationStatus.at)}
+            </p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Task & event notifications</Card.Title>
-				<Card.Description>
-					Lead-time reminders before scheduled items, plus an optional once-daily summary
-					(completions, overdue, due today). Requires push enabled above.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<div class="space-y-3">
-					<div class="space-y-1">
-						<Label for="timezoneOffsetMinutes">Timezone</Label>
-						<select
-							id="timezoneOffsetMinutes"
-							bind:value={timezoneOffsetMinutes}
-							onchange={() => (timezoneInferred = false)}
-							class="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full max-w-xs rounded-md border px-2 font-mono text-xs focus-visible:ring-1 focus-visible:outline-none"
-						>
-							{#each TIMEZONE_OFFSET_OPTIONS as option (option.value)}
-								<option value={String(option.value)}>{option.label}</option>
-							{/each}
-						</select>
-						{#if timezoneInferred}
-							<p class="text-muted-foreground text-[11px]">
-								{#if detectedTimezoneLabel}
-									Detected as {detectedTimezoneLabel} from your device — change if needed.
-								{:else}
-									Detected from your device — change if needed.
-								{/if}
-							</p>
-						{/if}
-					</div>
-					<label class="flex items-center gap-2 text-xs">
-						<input
-							type="checkbox"
-							bind:checked={eventNotificationsEnabled}
-							class="size-3.5"
-						/>
-						Enable event reminders
-					</label>
-					<div class="space-y-1">
-						<Label for="eventReminderLeadMinutes">Remind me (minutes before)</Label>
-						<Input
-							id="eventReminderLeadMinutes"
-							type="number"
-							min="1"
-							max="1440"
-							bind:value={eventReminderLeadMinutes}
-							class="h-9 w-24 font-mono text-xs"
-						/>
-					</div>
-					<label class="flex items-center gap-2 text-xs">
-						<input
-							type="checkbox"
-							bind:checked={dailySummaryEnabled}
-							class="size-3.5"
-						/>
-						Daily task summary
-					</label>
-					<div class="space-y-1">
-						<Label for="dailySummaryTimeLocal">Daily summary time (local)</Label>
-						<Input
-							id="dailySummaryTimeLocal"
-							type="time"
-							bind:value={dailySummaryTimeLocal}
-							class="h-9 w-32 font-mono text-xs"
-						/>
-					</div>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						class="rounded-[4px]"
-						disabled={notificationSaveBusy}
-						onclick={() => void saveNotificationSettings()}
-					>
-						{notificationSaveBusy ? 'Saving…' : 'Save notification settings'}
-					</Button>
-					{#if notificationMessage}
-						<p class="text-muted-foreground text-xs">{notificationMessage}</p>
-					{/if}
-					{#if notificationError}
-						<p class="text-destructive text-xs">{notificationError}</p>
-					{/if}
-				</div>
-			</Card.Content>
-		</Card.Root>
-		</Tabs.Content>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Task & event notifications</Card.Title>
+          <Card.Description>
+            Lead-time reminders before scheduled items, plus an optional once-daily summary
+            (completions, overdue, due today). Requires push enabled above.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <div class="space-y-3">
+            <div class="space-y-1">
+              <Label for="timezoneOffsetMinutes">Timezone</Label>
+              <select
+                id="timezoneOffsetMinutes"
+                bind:value={timezoneOffsetMinutes}
+                onchange={() => (timezoneInferred = false)}
+                class="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full max-w-xs rounded-md border px-2 font-mono text-xs focus-visible:ring-1 focus-visible:outline-none"
+              >
+                {#each TIMEZONE_OFFSET_OPTIONS as option (option.value)}
+                  <option value={String(option.value)}>{option.label}</option>
+                {/each}
+              </select>
+              {#if timezoneInferred}
+                <p class="text-muted-foreground text-[11px]">
+                  {#if detectedTimezoneLabel}
+                    Detected as {detectedTimezoneLabel} from your device — change if needed.
+                  {:else}
+                    Detected from your device — change if needed.
+                  {/if}
+                </p>
+              {/if}
+            </div>
+            <label class="flex items-center gap-2 text-xs">
+              <input type="checkbox" bind:checked={eventNotificationsEnabled} class="size-3.5" />
+              Enable event reminders
+            </label>
+            <div class="space-y-1">
+              <Label for="eventReminderLeadMinutes">Remind me (minutes before)</Label>
+              <Input
+                id="eventReminderLeadMinutes"
+                type="number"
+                min="1"
+                max="1440"
+                bind:value={eventReminderLeadMinutes}
+                class="h-9 w-24 font-mono text-xs"
+              />
+            </div>
+            <label class="flex items-center gap-2 text-xs">
+              <input type="checkbox" bind:checked={dailySummaryEnabled} class="size-3.5" />
+              Daily task summary
+            </label>
+            <div class="space-y-1">
+              <Label for="dailySummaryTimeLocal">Daily summary time (local)</Label>
+              <Input
+                id="dailySummaryTimeLocal"
+                type="time"
+                bind:value={dailySummaryTimeLocal}
+                class="h-9 w-32 font-mono text-xs"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              class="rounded-[4px]"
+              disabled={notificationSaveBusy}
+              onclick={() => void saveNotificationSettings()}
+            >
+              {notificationSaveBusy ? 'Saving…' : 'Save notification settings'}
+            </Button>
+            {#if notificationMessage}
+              <p class="text-muted-foreground text-xs">{notificationMessage}</p>
+            {/if}
+            {#if notificationError}
+              <p class="text-destructive text-xs">{notificationError}</p>
+            {/if}
+          </div>
+        </Card.Content>
+      </Card.Root>
+    </Tabs.Content>
 
-		<Tabs.Content value="memory" class="space-y-3">
-		<div class="flex items-start gap-3">
-			<div
-				class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-			>
-				<Database class="size-4" strokeWidth={1.75} aria-hidden="true" />
-			</div>
-			<div>
-				<h2 class="text-sm font-semibold">Memory</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Graph maintenance and data export.</p>
-			</div>
-		</div>
+    <Tabs.Content value="memory" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div
+          class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <Database class="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold">Memory</h2>
+          <p class="text-muted-foreground mt-0.5 text-xs">Graph maintenance and data export.</p>
+        </div>
+      </div>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Rearrange and clean up graph</Card.Title>
-				<Card.Description>
-					Prune weak edges, remove orphan nodes, and repair missing entity relations across your memory
-					graph. Run this when the graph feels cluttered or after bulk imports.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="space-y-3 pt-0">
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					class="rounded-[4px]"
-					disabled={graphRearrangeBusy}
-					onclick={() => void submitRearrangeGraph()}
-				>
-					{#if graphRearrangeBusy}
-						<LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
-					{/if}
-					{graphRearrangeBusy ? 'Cleaning up…' : 'Rearrange and clean up graph'}
-				</Button>
-				{#if graphRearrangeErr}
-					<p class="text-destructive text-xs">{graphRearrangeErr}</p>
-				{/if}
-				{#if graphRearrangeBusy || graphRearrangeResult}
-					<div class="border-border/60 rounded-lg border bg-muted/40 px-1">
-						<GraphRearrangeStatus
-							busy={graphRearrangeBusy}
-							complete={graphRearrangeComplete}
-							phaseEvents={graphRearrangePhaseEvents}
-							activeTask={graphRearrangeActiveTask}
-							result={graphRearrangeResult}
-							startedAt={graphRearrangeStartedAt}
-							onDismiss={dismissGraphRearrangeStatus}
-						/>
-					</div>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Rearrange and clean up graph</Card.Title>
+          <Card.Description>
+            Prune weak edges, remove orphan nodes, and repair missing entity relations across your
+            memory graph. Run this when the graph feels cluttered or after bulk imports.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="space-y-3 pt-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="rounded-[4px]"
+            disabled={graphRearrangeBusy}
+            onclick={() => void submitRearrangeGraph()}
+          >
+            {#if graphRearrangeBusy}
+              <LoaderCircleIcon class="mr-1 size-3 shrink-0 animate-spin" aria-hidden="true" />
+            {/if}
+            {graphRearrangeBusy ? 'Cleaning up…' : 'Rearrange and clean up graph'}
+          </Button>
+          {#if graphRearrangeErr}
+            <p class="text-destructive text-xs">{graphRearrangeErr}</p>
+          {/if}
+          {#if graphRearrangeBusy || graphRearrangeResult}
+            <div class="border-border/60 rounded-lg border bg-muted/40 px-1">
+              <GraphRearrangeStatus
+                busy={graphRearrangeBusy}
+                complete={graphRearrangeComplete}
+                phaseEvents={graphRearrangePhaseEvents}
+                activeTask={graphRearrangeActiveTask}
+                result={graphRearrangeResult}
+                startedAt={graphRearrangeStartedAt}
+                onDismiss={dismissGraphRearrangeStatus}
+              />
+            </div>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-		<Card.Root>
-			<Card.Header class="pb-3">
-				<Card.Title class="text-sm">Data export</Card.Title>
-				<Card.Description>
-					Download all memory data as a ZIP: thoughts, entities, relations, temporal events, and graph
-					structure (CSV files plus graph.json).
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					class="rounded-[4px]"
-					disabled={exportBusy}
-					onclick={() => void exportMemoryZip()}
-				>
-					{exportBusy ? 'Exporting…' : 'Export all memory data'}
-				</Button>
-				{#if exportError}
-					<p class="text-destructive mt-2 text-xs">{exportError}</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
-		</Tabs.Content>
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm">Data export</Card.Title>
+          <Card.Description>
+            Download all memory data as a ZIP: thoughts, entities, relations, temporal events, and
+            graph structure (CSV files plus graph.json).
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="rounded-[4px]"
+            disabled={exportBusy}
+            onclick={() => void exportMemoryZip()}
+          >
+            {exportBusy ? 'Exporting…' : 'Export all memory data'}
+          </Button>
+          {#if exportError}
+            <p class="text-destructive mt-2 text-xs">{exportError}</p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
+    </Tabs.Content>
 
-		<Tabs.Content value="danger" class="space-y-3">
-		<div class="flex items-start gap-3">
-			<div
-				class="bg-destructive/10 text-destructive mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-			>
-				<TriangleAlert class="size-4" strokeWidth={1.75} aria-hidden="true" />
-			</div>
-			<div>
-				<h2 class="text-destructive text-sm font-semibold">Danger zone</h2>
-				<p class="text-muted-foreground mt-0.5 text-xs">Irreversible actions for your memory data.</p>
-			</div>
-		</div>
+    <Tabs.Content value="danger" class="space-y-3">
+      <div class="flex items-start gap-3">
+        <div
+          class="bg-destructive/10 text-destructive mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <TriangleAlert class="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </div>
+        <div>
+          <h2 class="text-destructive text-sm font-semibold">Danger zone</h2>
+          <p class="text-muted-foreground mt-0.5 text-xs">
+            Irreversible actions for your memory data.
+          </p>
+        </div>
+      </div>
 
-		<Card.Root class="border-destructive/40">
-			<Card.Header class="pb-3">
-				<Card.Title class="text-destructive text-sm">Delete all memories</Card.Title>
-				<Card.Description>
-					Permanently delete all captured thoughts, entities, temporal events, and your memory graph for
-					this account. Settings, API keys, and chat history are not removed.
-				</Card.Description>
-			</Card.Header>
-			<Card.Content class="pt-0">
-				<Button
-					type="button"
-					variant="destructive"
-					size="sm"
-					class="rounded-[4px]"
-					onclick={openDeleteMemoriesDialog}
-				>
-					Delete all my memories
-				</Button>
-				{#if deleteSuccess}
-					<p class="text-muted-foreground mt-2 text-xs">{deleteSuccess}</p>
-				{/if}
-			</Card.Content>
-		</Card.Root>
-		</Tabs.Content>
-	</Tabs.Root>
+      <Card.Root class="border-destructive/40">
+        <Card.Header class="pb-3">
+          <Card.Title class="text-destructive text-sm">Delete all memories</Card.Title>
+          <Card.Description>
+            Permanently delete all captured thoughts, entities, temporal events, and your memory
+            graph for this account. Settings, API keys, and chat history are not removed.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content class="pt-0">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            class="rounded-[4px]"
+            onclick={openDeleteMemoriesDialog}
+          >
+            Delete all my memories
+          </Button>
+          {#if deleteSuccess}
+            <p class="text-muted-foreground mt-2 text-xs">{deleteSuccess}</p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
+    </Tabs.Content>
+  </Tabs.Root>
 </div>
 
 <AlertDialog.Root bind:open={deleteDialogOpen}>
-	<AlertDialog.Content class="max-w-sm rounded-[4px]">
-		<AlertDialog.Header>
-			<AlertDialog.Title>Delete all memories?</AlertDialog.Title>
-			<AlertDialog.Description>
-				This cannot be undone. All semantic entries and graph data for your account will be removed.
-			</AlertDialog.Description>
-		</AlertDialog.Header>
+  <AlertDialog.Content class="max-w-sm rounded-[4px]">
+    <AlertDialog.Header>
+      <AlertDialog.Title>Delete all memories?</AlertDialog.Title>
+      <AlertDialog.Description>
+        This cannot be undone. All semantic entries and graph data for your account will be removed.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
 
-		<div class="space-y-1.5">
-			<Label for="delete-confirmation" class="text-xs">Type this phrase to confirm</Label>
-			<div class="relative">
-				<code
-					class="border-input bg-muted block break-all rounded-sm border px-3 py-2 pr-9 font-mono text-xs leading-relaxed select-all"
-				>{DELETE_ALL_MEMORIES_CONFIRMATION}</code>
-				<button
-					type="button"
-					class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10"
-					onclick={() => void copyDeleteConfirmationPhrase()}
-					aria-label="Copy confirmation phrase"
-				>
-					{#if deletePhraseCopied}
-						<Check class="size-4 text-green-500" strokeWidth={2} />
-					{:else}
-						<CopyIcon class="size-4" strokeWidth={1.75} />
-					{/if}
-				</button>
-			</div>
-			<Input
-				id="delete-confirmation"
-				class="rounded-[4px] font-mono text-xs h-8"
-				bind:value={deleteConfirmation}
-				autocomplete="off"
-				spellcheck={false}
-				disabled={deleteBusy}
-				onkeydown={(e) => {
-					if (e.key === 'Enter') void deleteAllMemories();
-				}}
-			/>
-			{#if deleteError}
-				<p class="text-destructive text-xs">{deleteError}</p>
-			{/if}
-		</div>
+    <div class="space-y-1.5">
+      <Label for="delete-confirmation" class="text-xs">Type this phrase to confirm</Label>
+      <div class="relative">
+        <code
+          class="border-input bg-muted block break-all rounded-sm border px-3 py-2 pr-9 font-mono text-xs leading-relaxed select-all"
+          >{DELETE_ALL_MEMORIES_CONFIRMATION}</code
+        >
+        <button
+          type="button"
+          class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10"
+          onclick={() => void copyDeleteConfirmationPhrase()}
+          aria-label="Copy confirmation phrase"
+        >
+          {#if deletePhraseCopied}
+            <Check class="size-4 text-green-500" strokeWidth={2} />
+          {:else}
+            <CopyIcon class="size-4" strokeWidth={1.75} />
+          {/if}
+        </button>
+      </div>
+      <Input
+        id="delete-confirmation"
+        class="rounded-[4px] font-mono text-xs h-8"
+        bind:value={deleteConfirmation}
+        autocomplete="off"
+        spellcheck={false}
+        disabled={deleteBusy}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') void deleteAllMemories()
+        }}
+      />
+      {#if deleteError}
+        <p class="text-destructive text-xs">{deleteError}</p>
+      {/if}
+    </div>
 
-		<AlertDialog.Footer>
-			<AlertDialog.Cancel class="rounded-[4px]" disabled={deleteBusy}>Cancel</AlertDialog.Cancel>
-			<Button
-				type="button"
-				variant="destructive"
-				size="sm"
-				class="rounded-[4px]"
-				disabled={!deleteConfirmationValid || deleteBusy}
-				onclick={() => void deleteAllMemories()}
-			>
-				{deleteBusy ? 'Deleting…' : 'Delete all memories'}
-			</Button>
-		</AlertDialog.Footer>
-	</AlertDialog.Content>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel class="rounded-[4px]" disabled={deleteBusy}>Cancel</AlertDialog.Cancel>
+      <Button
+        type="button"
+        variant="destructive"
+        size="sm"
+        class="rounded-[4px]"
+        disabled={!deleteConfirmationValid || deleteBusy}
+        onclick={() => void deleteAllMemories()}
+      >
+        {deleteBusy ? 'Deleting…' : 'Delete all memories'}
+      </Button>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
 </AlertDialog.Root>

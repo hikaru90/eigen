@@ -1,25 +1,25 @@
 <script lang="ts">
-  import { formatPercent, formatPointsLine } from './display';
+  import { formatPercent, formatPointsLine } from './display'
 
   let {
     earned,
     possible,
     percent,
     label,
-    size = 'md'
+    size = 'md',
   }: {
-    earned: number;
-    possible: number;
-    percent: number;
-    label?: string;
-    size?: 'sm' | 'md' | 'lg';
-  } = $props();
+    earned: number
+    possible: number
+    percent: number
+    label?: string
+    size?: 'sm' | 'md' | 'lg'
+  } = $props()
 
-  const barPct = $derived(possible > 0 ? Math.min(100, Math.round((earned / possible) * 100)) : 0);
+  const barPct = $derived(possible > 0 ? Math.min(100, Math.round((earned / possible) * 100)) : 0)
   const tone = $derived(
-    percent >= 80 ? 'bg-green-600' : percent >= 50 ? 'bg-amber-500' : 'bg-orange-600'
-  );
-  const textSize = $derived(size === 'lg' ? 'text-lg' : size === 'sm' ? 'text-xs' : 'text-sm');
+    percent >= 80 ? 'bg-green-600' : percent >= 50 ? 'bg-amber-500' : 'bg-orange-600',
+  )
+  const textSize = $derived(size === 'lg' ? 'text-lg' : size === 'sm' ? 'text-xs' : 'text-sm')
 </script>
 
 <div class="space-y-2">

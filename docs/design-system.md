@@ -10,13 +10,13 @@ A brand positioning diagram built around high whitespace, a glowing data path, a
 
 ### Color Mapping
 
-| Role | Brand Token | Hex |
-|---|---|---|
-| Canvas Background | Off-White | `#F6F0E6` |
-| Glow Primary (connecting path) | Aquamarine | `#9BF0E1` |
-| Highlight Node | Tangerine | `#FF4632` |
-| Typography & Nodes | Black | `#191414` |
-| UI Accents / pill containers | Warm Gray | `#C3C3B6` |
+| Role                           | Brand Token | Hex       |
+| ------------------------------ | ----------- | --------- |
+| Canvas Background              | Off-White   | `#F6F0E6` |
+| Glow Primary (connecting path) | Aquamarine  | `#9BF0E1` |
+| Highlight Node                 | Tangerine   | `#FF4632` |
+| Typography & Nodes             | Black       | `#191414` |
+| UI Accents / pill containers   | Warm Gray   | `#C3C3B6` |
 
 ### Typography & Layout
 
@@ -34,13 +34,13 @@ A brand positioning diagram built around high whitespace, a glowing data path, a
 
 ### Brand Positioning Encoded
 
-| Dimension | Positioning |
-|---|---|
-| Temperament | Lean towards Optimistic |
-| Era | Strongly Futuristic (highlighted node) |
-| Persona | Strongly Supportive |
-| Reliability | Strongly Trustworthy |
-| Origin | Balanced, slightly Human-Focused |
+| Dimension   | Positioning                            |
+| ----------- | -------------------------------------- |
+| Temperament | Lean towards Optimistic                |
+| Era         | Strongly Futuristic (highlighted node) |
+| Persona     | Strongly Supportive                    |
+| Reliability | Strongly Trustworthy                   |
+| Origin      | Balanced, slightly Human-Focused       |
 
 ---
 
@@ -50,15 +50,15 @@ An architectural diagram meets Bauhaus-inspired composition. Strict grid geometr
 
 ### Color Mapping
 
-| Role | Brand Token | Hex |
-|---|---|---|
-| Canvas Background | Warm Gray | `#C3C3B6` |
-| Primary accent | Tangerine | `#FF4632` |
-| Secondary accent | Pale Mint | `#B8E9D0` |
-| Tertiary accent | Vibrant Pink | `#FE86B1` |
-| Quaternary accent | Sky Blue | `#A3D8F4` |
-| Highlight / energy | Citric | `#CDF564` |
-| Primary node & connectors | Black | `#191414` |
+| Role                      | Brand Token  | Hex       |
+| ------------------------- | ------------ | --------- |
+| Canvas Background         | Warm Gray    | `#C3C3B6` |
+| Primary accent            | Tangerine    | `#FF4632` |
+| Secondary accent          | Pale Mint    | `#B8E9D0` |
+| Tertiary accent           | Vibrant Pink | `#FE86B1` |
+| Quaternary accent         | Sky Blue     | `#A3D8F4` |
+| Highlight / energy        | Citric       | `#CDF564` |
+| Primary node & connectors | Black        | `#191414` |
 
 ### Typography & Grid
 
@@ -75,12 +75,12 @@ An architectural diagram meets Bauhaus-inspired composition. Strict grid geometr
 
 ### Style Attributes
 
-| Element | Direction |
-|---|---|
-| Aesthetic | Functionalist / Information Art |
-| Composition | Asymmetrical but balanced |
-| Line Work | Precision-weighted, non-tapered |
-| Depth | Flat (2D) with layering |
+| Element     | Direction                       |
+| ----------- | ------------------------------- |
+| Aesthetic   | Functionalist / Information Art |
+| Composition | Asymmetrical but balanced       |
+| Line Work   | Precision-weighted, non-tapered |
+| Depth       | Flat (2D) with layering         |
 
 ---
 

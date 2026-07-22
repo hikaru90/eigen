@@ -16,6 +16,7 @@ Every runtime dependency must be explicitly present or the process must crash wi
 ## Forbidden patterns
 
 ### Hardcoded fallback values
+
 ```bash
 # BAD: silently uses wrong password if env var is missing
 APP_PASSWORD="${EIGEN_APP_DB_PASSWORD:-eigen_app}"
@@ -26,27 +27,29 @@ APP_PASSWORD="${EIGEN_APP_DB_PASSWORD:?EIGEN_APP_DB_PASSWORD must be set}"
 
 ```javascript
 // BAD: falls back to localhost if DATABASE_URL is missing
-const url = process.env.DATABASE_URL || 'postgres://localhost:5432/eigen';
+const url = process.env.DATABASE_URL || 'postgres://localhost:5432/eigen'
 
 // GOOD: crash immediately
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('DATABASE_URL is required');
+const url = process.env.DATABASE_URL
+if (!url) throw new Error('DATABASE_URL is required')
 ```
 
 ### Catch-and-continue
+
 ```javascript
 // BAD: swallows the error, continues with undefined state
 try {
-  await setupDatabase();
+  await setupDatabase()
 } catch (e) {
-  console.warn('DB setup failed, continuing anyway');
+  console.warn('DB setup failed, continuing anyway')
 }
 
 // GOOD: let it crash
-await setupDatabase(); // no try/catch — if it fails, the process dies
+await setupDatabase() // no try/catch — if it fails, the process dies
 ```
 
 ### Silent degradation
+
 ```bash
 # BAD: silently skips if command not found
 command -v docker && docker compose up
@@ -56,12 +59,13 @@ command -v docker >/dev/null 2>&1 || { echo "docker is required"; exit 1; }
 ```
 
 ### Placeholder secrets
+
 ```javascript
 // BAD: build-time placeholder that looks like a real value
-const apiKey = process.env.API_KEY || 'sk-placeholder-build-time';
+const apiKey = process.env.API_KEY || 'sk-placeholder-build-time'
 
 // GOOD: no placeholder — require it at runtime
-const apiKey = process.env.API_KEY; // undefined if missing, crash on first use
+const apiKey = process.env.API_KEY // undefined if missing, crash on first use
 ```
 
 ## Acceptable exceptions

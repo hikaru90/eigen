@@ -28,6 +28,7 @@ Before writing or editing any file, you MUST:
 **Goal:** Fix the billing error where harness users have 0 credits
 
 **Plan:**
+
 1. Read `src/lib/server/billing/usage-gate.ts` to see where credits are checked
 2. Read `src/lib/server/capture/capture-enrich-worker.ts` to see the enrich flow
 3. Identify where `ensureHarnessWalletCredits` should be called but isn't
@@ -35,6 +36,7 @@ Before writing or editing any file, you MUST:
 5. Verify by checking the code reads correctly
 
 **Execute:**
+
 - [x] Step 1: Read usage-gate.ts ✓
 - [x] Step 2: Read capture-enrich-worker.ts ✓
 - [x] Step 3: Found gap in enrich worker
@@ -51,6 +53,7 @@ Before writing or editing any file, you MUST:
 ## Recovery from Loops
 
 If you hit the loop guard:
+
 1. Stop immediately
 2. State what you were trying to do
 3. List what you already know

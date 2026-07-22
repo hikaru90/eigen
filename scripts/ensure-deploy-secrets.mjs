@@ -1,7 +1,7 @@
-import './load-env.mjs';
-import { ensureDeploySecrets } from './ensure-deploy-secrets-lib.mjs';
+import './load-env.mjs'
+import { ensureDeploySecrets } from './ensure-deploy-secrets-lib.mjs'
 
-const result = ensureDeploySecrets();
+const result = ensureDeploySecrets()
 if (!result.generatedAdminKey && !result.generatedVapid) {
-	console.log('[eigen] deploy secrets already configured');
+  console.log('[eigen] deploy secrets already configured')
 }

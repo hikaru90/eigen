@@ -6,12 +6,12 @@ How Eigen LLM/gateway spend scales as the knowledge graph grows, and how to meas
 
 ## Scaling summary (architecture)
 
-| Surface | Per-operation LLM cost vs graph size | Primary driver |
-|---------|----------------------------------------|----------------|
-| **Capture / enrich** | Mostly **flat** (~5–6 chats + embeds per thought) | Volume of captures, not entity count |
-| **Q&A / retrieval** | **Designed flat** (capped ANN pools + 0–1 rerank + compose) | Query volume |
-| **Overnight consolidation** | **Grows with eligible L1 communities** O(C_L1 / B) | Batched L1 routing summaries (B communities per chat + embed batch) |
-| **GTD project prompts** | **Grows with project count** O(P) | Reconcile, assignment, audit catalogs |
+| Surface                     | Per-operation LLM cost vs graph size                        | Primary driver                                                      |
+| --------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Capture / enrich**        | Mostly **flat** (~5–6 chats + embeds per thought)           | Volume of captures, not entity count                                |
+| **Q&A / retrieval**         | **Designed flat** (capped ANN pools + 0–1 rerank + compose) | Query volume                                                        |
+| **Overnight consolidation** | **Grows with eligible L1 communities** O(C_L1 / B)          | Batched L1 routing summaries (B communities per chat + embed batch) |
+| **GTD project prompts**     | **Grows with project count** O(P)                           | Reconcile, assignment, audit catalogs                               |
 
 Precomputed link tables (`community_bundle`, `entity_top_thoughts`, `thought_neighbor`) keep query-time retrieval from loading unbounded graph context. See [`ingest-retrieval-timing.md`](ingest-retrieval-timing.md) and [`../repo-map/retrieval.md`](../repo-map/retrieval.md).
 
@@ -69,7 +69,7 @@ tail -f evals/graph-scale/runs/report-<timestamp>.jsonl
 Each line includes an `at` timestamp. During the run you mostly see compact **`progress`** lines:
 
 ```json
-{"at":"…","step":"progress","pct":37,"etaSec":840,"label":"N=50 seed enrich"}
+{ "at": "…", "step": "progress", "pct": 37, "etaSec": 840, "label": "N=50 seed enrich" }
 ```
 
 Milestones only: `run_started`, `point_completed` (per corpus size), `run_finished` or `run_failed`. Final JSON/CSV written at the end.
@@ -91,11 +91,11 @@ npm run graph-scale -- --sizes 500,1000 --confirm-spend
 
 ### Tracks
 
-| Track | Question answered | Expected curve |
-|-------|-------------------|----------------|
-| **A — capture** | Does **one more atomic capture** cost more as the graph grows? | Flat USD per probe capture ± noise |
-| **B — qa** | Does retrieval/Q&A stay flat? | Flat USD per fixed query set |
-| **C — consolidation** | What does overnight cost at this graph size? | ~linear in **eligible L1** communities / batch size |
+| Track                 | Question answered                                              | Expected curve                                      |
+| --------------------- | -------------------------------------------------------------- | --------------------------------------------------- |
+| **A — capture**       | Does **one more atomic capture** cost more as the graph grows? | Flat USD per probe capture ± noise                  |
+| **B — qa**            | Does retrieval/Q&A stay flat?                                  | Flat USD per fixed query set                        |
+| **C — consolidation** | What does overnight cost at this graph size?                   | ~linear in **eligible L1** communities / batch size |
 
 Each size **N** uses a fresh harness tenant `graph-scale-corpus-<runId>-<N>` with **N** standalone captures from the single-thought corpus (parametric overflow when N > 60).
 
@@ -132,10 +132,10 @@ npm run test:unit -- evals/graph-scale
 
 ## Related tooling
 
-| Tool | Purpose |
-|------|---------|
-| `npm run measure:ingest` | Single capture phase breakdown |
-| `npm run eval:longmemeval` | Large realistic corpus for QA accuracy (not economics) |
-| `/eval` UI | QA pass/fail on eval corpus (not graph-scale economics) |
-| `/activity` | Per-call gateway cost for manual inspection |
-| `/admin/spend` | Deployment spend with harness filter |
+| Tool                       | Purpose                                                 |
+| -------------------------- | ------------------------------------------------------- |
+| `npm run measure:ingest`   | Single capture phase breakdown                          |
+| `npm run eval:longmemeval` | Large realistic corpus for QA accuracy (not economics)  |
+| `/eval` UI                 | QA pass/fail on eval corpus (not graph-scale economics) |
+| `/activity`                | Per-call gateway cost for manual inspection             |
+| `/admin/spend`             | Deployment spend with harness filter                    |

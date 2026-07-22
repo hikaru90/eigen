@@ -1,41 +1,41 @@
 <script lang="ts">
-  import { resolve } from "$app/paths";
-  import { page } from "$app/state";
-  import { cn } from "$lib/utils";
-  import { activeMemorySurfaceTab } from "$lib/memory/memory-surface-nav";
-  import { m } from "$lib/paraglide/messages.js";
+  import { resolve } from '$app/paths'
+  import { page } from '$app/state'
+  import { cn } from '$lib/utils'
+  import { activeMemorySurfaceTab } from '$lib/memory/memory-surface-nav'
+  import { m } from '$lib/paraglide/messages.js'
 
-  type MemoryTabPath = "/memory" | "/memory/timeline" | "/memory/notes";
+  type MemoryTabPath = '/memory' | '/memory/timeline' | '/memory/notes'
 
   const tabs: Array<{
-    id: "graph" | "embeddings" | "timeline" | "notes";
-    label: () => string;
-    pathname: MemoryTabPath;
-    search?: string;
+    id: 'graph' | 'embeddings' | 'timeline' | 'notes'
+    label: () => string
+    pathname: MemoryTabPath
+    search?: string
   }> = [
-    { id: "graph", label: () => m.graph_tab_graph(), pathname: "/memory" },
+    { id: 'graph', label: () => m.graph_tab_graph(), pathname: '/memory' },
     {
-      id: "embeddings",
+      id: 'embeddings',
       label: () => m.graph_tab_embeddings(),
-      pathname: "/memory",
-      search: "view=embeddings",
+      pathname: '/memory',
+      search: 'view=embeddings',
     },
     {
-      id: "timeline",
+      id: 'timeline',
       label: () => m.graph_tab_timeline(),
-      pathname: "/memory/timeline",
+      pathname: '/memory/timeline',
     },
-    { id: "notes", label: () => m.memory_tab_notes(), pathname: "/memory/notes" },
-  ];
+    { id: 'notes', label: () => m.memory_tab_notes(), pathname: '/memory/notes' },
+  ]
 
   function tabHref(pathname: MemoryTabPath, search?: string): string {
-    const base = resolve(pathname);
-    return search ? `${base}?${search}` : base;
+    const base = resolve(pathname)
+    return search ? `${base}?${search}` : base
   }
 
   const activeTab = $derived(
-    activeMemorySurfaceTab(page.url.pathname, page.url.searchParams.get("view")),
-  );
+    activeMemorySurfaceTab(page.url.pathname, page.url.searchParams.get('view')),
+  )
 </script>
 
 <div
@@ -49,12 +49,12 @@
       <a
         href={tabHref(tab.pathname, tab.search)}
         class={cn(
-          "flex h-full items-center rounded-full px-3 text-xs whitespace-nowrap",
+          'flex h-full items-center rounded-full px-3 text-xs whitespace-nowrap',
           activeTab === tab.id
-            ? "bg-[var(--color-eigen-green)] text-black hover:text-black dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:text-black"
-            : "text-black hover:text-black dark:text-foreground dark:hover:text-foreground",
+            ? 'bg-[var(--color-eigen-green)] text-black hover:text-black dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:text-black'
+            : 'text-black hover:text-black dark:text-foreground dark:hover:text-foreground',
         )}
-        aria-current={activeTab === tab.id ? "page" : undefined}
+        aria-current={activeTab === tab.id ? 'page' : undefined}
       >
         {tab.label()}
       </a>

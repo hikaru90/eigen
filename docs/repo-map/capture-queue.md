@@ -37,16 +37,16 @@ sequenceDiagram
 
 ### Key modules
 
-| Module | Role |
-|--------|------|
-| [`queue/db.ts`](../../src/lib/capture/queue/db.ts) | IndexedDB store `items`: `pending` → `processing` → removed (success) or `failed` |
-| [`queue/runner.ts`](../../src/lib/capture/queue/runner.ts) | `startCaptureQueueRunner()` in [`+layout.svelte`](../../src/routes/+layout.svelte); `enqueueCapture`, `cancelCaptureQueueItem`, `subscribeCaptureQueue`, `getCaptureQueueSnapshot` |
-| [`queue/drain.ts`](../../src/lib/capture/queue/drain.ts) | Processes one pending item at a time; broadcasts lifecycle messages |
-| [`queue/submit-capture.ts`](../../src/lib/capture/queue/submit-capture.ts) | `fetch` submit with `Accept: application/x-ndjson`; [`consume-capture-ndjson.ts`](../../src/lib/capture/consume-capture-ndjson.ts) parses progress |
-| [`queue/snapshot.ts`](../../src/lib/capture/queue/snapshot.ts) | Builds `snapshot` broadcasts including full `items[]` for the UI list |
-| [`queue/ui-state.ts`](../../src/lib/capture/queue/ui-state.ts) | Pure helpers for snapshot/active reconciliation (unit-tested) |
-| [`components/capture-queue-list.svelte`](../../src/lib/components/capture-queue-list.svelte) | Per-item queue rows and remove control |
-| [`capture-progress.ts`](../../src/lib/capture/capture-progress.ts) | Maps `ProgressEvent` → pipeline step labels (used by indicators) |
+| Module                                                                                       | Role                                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`queue/db.ts`](../../src/lib/capture/queue/db.ts)                                           | IndexedDB store `items`: `pending` → `processing` → removed (success) or `failed`                                                                                                  |
+| [`queue/runner.ts`](../../src/lib/capture/queue/runner.ts)                                   | `startCaptureQueueRunner()` in [`+layout.svelte`](../../src/routes/+layout.svelte); `enqueueCapture`, `cancelCaptureQueueItem`, `subscribeCaptureQueue`, `getCaptureQueueSnapshot` |
+| [`queue/drain.ts`](../../src/lib/capture/queue/drain.ts)                                     | Processes one pending item at a time; broadcasts lifecycle messages                                                                                                                |
+| [`queue/submit-capture.ts`](../../src/lib/capture/queue/submit-capture.ts)                   | `fetch` submit with `Accept: application/x-ndjson`; [`consume-capture-ndjson.ts`](../../src/lib/capture/consume-capture-ndjson.ts) parses progress                                 |
+| [`queue/snapshot.ts`](../../src/lib/capture/queue/snapshot.ts)                               | Builds `snapshot` broadcasts including full `items[]` for the UI list                                                                                                              |
+| [`queue/ui-state.ts`](../../src/lib/capture/queue/ui-state.ts)                               | Pure helpers for snapshot/active reconciliation (unit-tested)                                                                                                                      |
+| [`components/capture-queue-list.svelte`](../../src/lib/components/capture-queue-list.svelte) | Per-item queue rows and remove control                                                                                                                                             |
+| [`capture-progress.ts`](../../src/lib/capture/capture-progress.ts)                           | Maps `ProgressEvent` → pipeline step labels (used by indicators)                                                                                                                   |
 
 ### Broadcast contract (`CaptureQueueBroadcast`)
 

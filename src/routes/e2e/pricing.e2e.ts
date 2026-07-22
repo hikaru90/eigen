@@ -1,54 +1,54 @@
-import { expect, test } from '@playwright/test';
-import { registerUser } from './test-helpers';
+import { expect, test } from '@playwright/test'
+import { registerUser } from './test-helpers'
 
 test.describe('Pricing transparency (AC-014, AC-015)', () => {
-	test('activity log shows credits and duration per call after capture', async ({
-		page,
-		context
-	}) => {
-		await registerUser(context, page);
-		await page.goto('/capture');
+  test('activity log shows credits and duration per call after capture', async ({
+    page,
+    context,
+  }) => {
+    await registerUser(context, page)
+    await page.goto('/capture')
 
-		await page.fill('#thought', 'Test thought for pricing verification');
-		await page.click('button:has-text("Capture")');
-		await expect(page.locator('text=Stored thought')).toBeVisible({ timeout: 30000 });
+    await page.fill('#thought', 'Test thought for pricing verification')
+    await page.click('button:has-text("Capture")')
+    await expect(page.locator('text=Stored thought')).toBeVisible({ timeout: 30000 })
 
-		await page.goto('/activity');
+    await page.goto('/activity')
 
-		await expect(page.locator('table')).toBeVisible({ timeout: 10000 });
-		const headers = await page.locator('thead th').allTextContents();
-		const headerText = headers.join(' ');
-		expect(headerText).toContain('Duration');
-		expect(headerText).toContain('Credits');
-		expect(headerText).not.toContain('Base USD');
-		expect(headerText).not.toContain('Total USD');
-		expect(headerText).not.toContain('Markup');
+    await expect(page.locator('table')).toBeVisible({ timeout: 10000 })
+    const headers = await page.locator('thead th').allTextContents()
+    const headerText = headers.join(' ')
+    expect(headerText).toContain('Duration')
+    expect(headerText).toContain('Credits')
+    expect(headerText).not.toContain('Base USD')
+    expect(headerText).not.toContain('Total USD')
+    expect(headerText).not.toContain('Markup')
 
-		const rowCount = await page.locator('tbody tr').count();
-		expect(rowCount).toBeGreaterThanOrEqual(1);
-	});
+    const rowCount = await page.locator('tbody tr').count()
+    expect(rowCount).toBeGreaterThanOrEqual(1)
+  })
 
-	test('activity page shows totals row with credits', async ({ page, context }) => {
-		await registerUser(context, page);
-		await page.goto('/capture');
+  test('activity page shows totals row with credits', async ({ page, context }) => {
+    await registerUser(context, page)
+    await page.goto('/capture')
 
-		await page.fill('#thought', 'Another thought for totals check');
-		await page.click('button:has-text("Capture")');
-		await expect(page.locator('text=Stored thought')).toBeVisible({ timeout: 30000 });
+    await page.fill('#thought', 'Another thought for totals check')
+    await page.click('button:has-text("Capture")')
+    await expect(page.locator('text=Stored thought')).toBeVisible({ timeout: 30000 })
 
-		await page.goto('/activity');
+    await page.goto('/activity')
 
-		await expect(page.locator('tfoot')).toBeVisible();
-		const totals = await page.locator('tfoot td').allTextContents();
-		const totalsText = totals.join(' ');
-		expect(totalsText).toContain('Total (this page)');
-		expect(totalsText).not.toContain('$');
-	});
+    await expect(page.locator('tfoot')).toBeVisible()
+    const totals = await page.locator('tfoot td').allTextContents()
+    const totalsText = totals.join(' ')
+    expect(totalsText).toContain('Total (this page)')
+    expect(totalsText).not.toContain('$')
+  })
 
-	test('empty activity state shows placeholder message', async ({ page, context }) => {
-		await registerUser(context, page);
-		await page.goto('/activity');
+  test('empty activity state shows placeholder message', async ({ page, context }) => {
+    await registerUser(context, page)
+    await page.goto('/activity')
 
-		await expect(page.locator('text=No activity logged yet')).toBeVisible();
-	});
-});
+    await expect(page.locator('text=No activity logged yet')).toBeVisible()
+  })
+})

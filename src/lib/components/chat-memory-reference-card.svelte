@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { citationDisplayLabel } from "$lib/chat/citation-tokens";
+  import { citationDisplayLabel } from '$lib/chat/citation-tokens'
 
   type Props = {
-    id?: string;
-    text: string;
-    category?: string;
-  };
+    id?: string
+    text: string
+    category?: string
+  }
 
-  let { id, text, category }: Props = $props();
+  let { id, text, category }: Props = $props()
 </script>
 
 <li class="flex flex-col gap-1.5 rounded-md border border-border bg-muted px-3 py-2">

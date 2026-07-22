@@ -25,12 +25,14 @@ When something is broken, **don't** immediately start reading every file in the 
 Broken: PWA service worker build fails
 
 Wrong approach:
+
 - Read the entire PWA plugin source
 - Read the entire SvelteKit build pipeline
 - Read the service worker configuration
 - Try 10 different fixes
 
 Right approach:
+
 1. "Was this working before?" → "Yes, 3 commits ago"
 2. `git log --oneline -5` → see recent commits
 3. `git diff HEAD~3..HEAD -- vite.config.ts svelte.config.js` → find what changed

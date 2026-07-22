@@ -1,49 +1,51 @@
-import { redirect } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
-import { eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
-import { userPreference } from '$lib/server/db/schema';
-import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone';
-import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list';
+import { redirect } from '@sveltejs/kit'
+import type { PageServerLoad } from './$types'
+import { eq } from 'drizzle-orm'
+import { getDb } from '$lib/server/db'
+import { userPreference } from '$lib/server/db/schema'
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
 
 export const load: PageServerLoad = async (event) => {
-	if (!event.locals.user) {
-		throw redirect(302, '/login');
-	}
-	const userId = event.locals.user.id;
+  if (!event.locals.user) {
+    throw redirect(302, '/login')
+  }
+  const userId = event.locals.user.id
 
-	// Register dependency on temporal events and thoughts for invalidation
-	event.depends('timeline:temporal-events', 'timeline:thoughts');
+  // Register dependency on temporal events and thoughts for invalidation
+  event.depends('timeline:temporal-events', 'timeline:thoughts')
 
-	const [preferredTimezoneResult, prefResult, temporalEventsResult] = await Promise.all([
-		getUserPreferredTimezone(userId),
-		getDb()
-			.select({
-				eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
-				eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes
-			})
-			.from(userPreference)
-			.where(eq(userPreference.userId, userId))
-			.limit(1),
-		listTemporalEventsForUser({
-			userId,
-			range: 'relevant',
-			status: 'all',
-			includeTasks: true,
-			orderBy: 'todo',
-			sortDirection: 'desc',
-			author: 'user'
-		})
-	]);
+  const [preferredTimezoneResult, prefResult, temporalEventsResult] = await Promise.all([
+    getUserPreferredTimezone(userId),
+    getDb()
+      .select({
+        eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
+        eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
+      })
+      .from(userPreference)
+      .where(eq(userPreference.userId, userId))
+      .limit(1),
+    listTemporalEventsForUser({
+      userId,
+      status: 'all',
+      includeTasks: true,
+      orderBy: 'ingest',
+      sortDirection: 'desc',
+      author: 'user',
+      from: null,
+      to: null,
+      includeUndated: true,
+    }),
+  ])
 
-	const pref = prefResult[0];
+  const pref = prefResult[0]
 
-	return {
-		user: event.locals.user,
-		preferredTimezone: preferredTimezoneResult,
-		eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
-		eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
-		prefetchedTemporalEvents: temporalEventsResult.items,
-		prefetchedNextCursor: temporalEventsResult.nextCursor
-	};
-};
+  return {
+    user: event.locals.user,
+    preferredTimezone: preferredTimezoneResult,
+    eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
+    eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
+    prefetchedTemporalEvents: temporalEventsResult.items,
+    prefetchedNextCursor: temporalEventsResult.nextCursor,
+  }
+}

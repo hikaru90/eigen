@@ -7,11 +7,12 @@ description: Detects stagnation loops — not all repetition is a loop. Distingu
 
 ## Core Principle
 
-**Repetition is not inherently bad.** Iterating on a solution, refining an approach, or trying variations is productive. The signal for a loop is *stagnation* — the same failure state repeating without progress or new information.
+**Repetition is not inherently bad.** Iterating on a solution, refining an approach, or trying variations is productive. The signal for a loop is _stagnation_ — the same failure state repeating without progress or new information.
 
 ## Loop Taxonomy
 
 ### ✅ Productive Iteration (NOT a loop)
+
 - Trying different approaches after each failure
 - Refining a solution based on new feedback
 - Reading the same file after making changes to it
@@ -19,6 +20,7 @@ description: Detects stagnation loops — not all repetition is a loop. Distingu
 - Multiple passes over code during a complex refactor
 
 ### 🔄 Stagnation Loop (REAL loop)
+
 - Same command failing with same error, agent retries unchanged
 - Same question asked after user already answered
 - Same fix proposed after user explicitly rejected it
@@ -28,6 +30,7 @@ description: Detects stagnation loops — not all repetition is a loop. Distingu
 ## Detection Patterns
 
 ### Pattern 1: Failed Action Repetition
+
 ```
 IF  (same action attempted ≥ 2 times)
 AND (same error/outcome each time)
@@ -36,6 +39,7 @@ THEN → Stagnation loop detected
 ```
 
 ### Pattern 2: Ignored User Feedback
+
 ```
 IF  (user said "no" / "that didn't work" / "try X")
 AND (agent proposes same rejected approach)
@@ -43,6 +47,7 @@ THEN → Stagnation loop detected
 ```
 
 ### Pattern 3: Re-Answering Answered Questions
+
 ```
 IF  (agent asks clarifying question)
 AND (user already answered that question in this thread)
@@ -51,6 +56,7 @@ THEN → Stagnation loop detected
 ```
 
 ### Pattern 4: File Read Without Progress
+
 ```
 IF  (agent reads file)
 AND (file content unchanged since last read)
@@ -74,7 +80,7 @@ I notice I'm stuck in a loop. Here's where we are:
 
 **Tried:**
 1. [approach 1] → [result]
-2. [approach 2] → [result]  
+2. [approach 2] → [result]
 3. [approach 3] → [result]
 
 **Constraint:** [what the user said doesn't work]
@@ -86,13 +92,13 @@ I notice I'm stuck in a loop. Here's where we are:
 
 ## Thresholds
 
-| Situation | Threshold | Action |
-|-----------|-----------|--------|
-| Same command failing | 2 failures | Stop, diagnose why before retrying |
-| User-rejected approach | 1 rejection | Never re-propose without new info |
-| Clarifying question | Already answered | Use the answer, don't re-ask |
-| File re-read | Unchanged content | Stop; you have what you need |
-| General spinning | 3 no-progress turns | Pause, summarize, ask for direction |
+| Situation              | Threshold           | Action                              |
+| ---------------------- | ------------------- | ----------------------------------- |
+| Same command failing   | 2 failures          | Stop, diagnose why before retrying  |
+| User-rejected approach | 1 rejection         | Never re-propose without new info   |
+| Clarifying question    | Already answered    | Use the answer, don't re-ask        |
+| File re-read           | Unchanged content   | Stop; you have what you need        |
+| General spinning       | 3 no-progress turns | Pause, summarize, ask for direction |
 
 ## Prevention Rules
 

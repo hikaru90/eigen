@@ -1,6 +1,7 @@
 # Eigen Test Strategy (Unit / Integration / E2E)
 
 ## Strategy Objectives
+
 - Protect critical user flows (capture, retrieval, pricing transparency, isolation).
 - Enforce deterministic behavior (routing, retries, error surfaces).
 - Prevent regressions in no-fallback policy.
@@ -8,9 +9,11 @@
 ## Test Layers and Ownership
 
 ### Unit Tests (Backend + Domain Logic)
+
 Owner: backend/domain implementation
 
 Priority scope:
+
 - Intent classification routing decision (default vs relation-centric).
 - Context selection score calculation:
   - default `0.7 vector + 0.3 graph`
@@ -25,9 +28,11 @@ Priority scope:
   - retry/error mapping for transcription failures
 
 ### Integration Tests (API + DB + Auth/RLS)
+
 Owner: backend/platform implementation
 
 Priority scope:
+
 - Capture flow endpoint orchestration:
   - submit -> persist -> stored-result summary.
   - submit edit request -> targeted update -> updated stored-result summary.
@@ -43,9 +48,11 @@ Priority scope:
 - Activity log write path for per-call costs and markup fields.
 
 ### End-to-End Tests (Playwright)
+
 Owner: product/full-stack implementation
 
 Priority scope:
+
 - User capture journey:
   - enter text thought -> capture -> stored-result feedback.
   - submit voice note -> browser transcription -> stored-result feedback.
@@ -63,6 +70,7 @@ Priority scope:
 ## Scenario Prioritization
 
 ### P0 (Release Blocking)
+
 - Capture correctness (single-submit persist and deterministic update behavior).
 - Voice transcription correctness with browser-side transcription.
 - No server-side transcription invariant.
@@ -72,13 +80,16 @@ Priority scope:
 - Pricing transparency correctness (base/markup/total per call).
 
 ### P1
+
 - MCP tool behavior consistency and idempotency expectations.
 - Knowledge graph view correctness for representative data.
 
 ### P2
+
 - Non-critical UX behavior and low-risk display details.
 
 ## Coverage Expectations by Risk
+
 - Critical domain changes:
   - Must include at least one unit + one integration + one Playwright update.
 - High-risk changes:
@@ -87,6 +98,7 @@ Priority scope:
   - Minimum unit or integration test based on touched area.
 
 ## Test Data and Environment Notes
+
 - Use isolated test tenants (`user_id`) per test suite.
 - Seed representative thought/relationship fixtures for graph+vector paths.
 - Use deterministic mock/fake responses for LLM gateway failure scenarios.

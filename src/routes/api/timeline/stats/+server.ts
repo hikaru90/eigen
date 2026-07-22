@@ -1,11 +1,41 @@
-import { error, json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { computeTimelineStatsForUser } from '$lib/server/memory/timeline-stats';
+import { error, json } from '@sveltejs/kit'
+import type { RequestHandler } from './$types'
+import { computeTimelineStatsForUser } from '$lib/server/memory/timeline-stats'
+import type { MemoryAuthor } from '$lib/server/db/brain.schema'
+
+function parseAuthor(raw: string | null): MemoryAuthor | undefined {
+  if (raw === 'all') return undefined
+  if (raw === 'agent') return 'agent'
+  return 'user'
+}
+
+function parseOptionalIso(raw: string | null): string | null | undefined {
+  if (raw === null) return undefined
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (!Number.isFinite(Date.parse(trimmed))) return undefined
+  return trimmed
+}
 
 export const GET: RequestHandler = async (event) => {
-	const user = event.locals.user;
-	if (!user) error(401, 'Unauthorized');
+  const user = event.locals.user
+  if (!user) error(401, 'Unauthorized')
 
-	const stats = await computeTimelineStatsForUser(user.id);
-	return json(stats);
-};
+  const url = event.url
+  const from = parseOptionalIso(url.searchParams.get('from'))
+  const to = parseOptionalIso(url.searchParams.get('to'))
+  const includeUndatedParam = url.searchParams.get('includeUndated')
+  const includeUndated = includeUndatedParam === null ? undefined : includeUndatedParam !== 'false'
+  const authorLayerKey = url.searchParams.get('authorLayerKey')
+  const author = authorLayerKey ? undefined : parseAuthor(url.searchParams.get('author'))
+
+  const stats = await computeTimelineStatsForUser({
+    userId: user.id,
+    from: from === undefined ? undefined : from,
+    to: to === undefined ? undefined : to,
+    includeUndated,
+    author,
+    authorLayerKey,
+  })
+  return json(stats)
+}

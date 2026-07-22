@@ -1,57 +1,57 @@
-import { sql } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
-import { rowsFromDbExecute } from '$lib/server/db/execute-rows';
+import { sql } from 'drizzle-orm'
+import { getDb } from '$lib/server/db'
+import { rowsFromDbExecute } from '$lib/server/db/execute-rows'
 import {
-	authorLayerKeyFromThought,
-	listAuthorLayersForUser,
-	type AuthorLayerMeta
-} from '$lib/server/memory/authorship';
+  authorLayerKeyFromThought,
+  listAuthorLayersForUser,
+  type AuthorLayerMeta,
+} from '$lib/server/memory/authorship'
 
-export type { AuthorLayerMeta };
+export type { AuthorLayerMeta }
 
-export { authorLayerKeyFromThought, listAuthorLayersForUser };
+export { authorLayerKeyFromThought, listAuthorLayersForUser }
 
 type EntityLayerRow = {
-	entity_id: string;
-	author: string;
-	author_key_id: string | null;
-	author_label: string | null;
-};
+  entity_id: string
+  author: string
+  author_key_id: string | null
+  author_label: string | null
+}
 
 type CoMentionLayerRow = {
-	source_id: string;
-	target_id: string;
-	author: string;
-	author_key_id: string | null;
-	author_label: string | null;
-};
+  source_id: string
+  target_id: string
+  author: string
+  author_key_id: string | null
+  author_label: string | null
+}
 
 function layerKeyFromRow(row: {
-	author: string;
-	author_key_id: string | null;
-	author_label: string | null;
+  author: string
+  author_key_id: string | null
+  author_label: string | null
 }): string {
-	return authorLayerKeyFromThought({
-		author: row.author === 'agent' ? 'agent' : 'user',
-		authorKeyId: row.author_key_id,
-		authorLabel: row.author_label
-	});
+  return authorLayerKeyFromThought({
+    author: row.author === 'agent' ? 'agent' : 'user',
+    authorKeyId: row.author_key_id,
+    authorLabel: row.author_label,
+  })
 }
 
 function addToIndex(index: Map<string, Set<string>>, id: string, layerKey: string): void {
-	let set = index.get(id);
-	if (!set) {
-		set = new Set();
-		index.set(id, set);
-	}
-	set.add(layerKey);
+  let set = index.get(id)
+  if (!set) {
+    set = new Set()
+    index.set(id, set)
+  }
+  set.add(layerKey)
 }
 
 /** Entity id → author layer keys that mentioned it via entity_resolution_log. */
 export async function buildEntityAuthorLayerIndex(
-	userId: string
+  userId: string,
 ): Promise<Map<string, Set<string>>> {
-	const result = await getDb().execute(sql`
+  const result = await getDb().execute(sql`
 		SELECT DISTINCT
 			erl.canonical_entity_id::text AS entity_id,
 			t.author,
@@ -64,22 +64,22 @@ export async function buildEntityAuthorLayerIndex(
 		WHERE
 			erl.user_id = ${userId}
 			AND erl.canonical_entity_id IS NOT NULL
-	`);
+	`)
 
-	const index = new Map<string, Set<string>>();
-	const rows = rowsFromDbExecute<EntityLayerRow>(result);
-	for (const row of rows) {
-		if (!row.entity_id) continue;
-		addToIndex(index, row.entity_id, layerKeyFromRow(row));
-	}
-	return index;
+  const index = new Map<string, Set<string>>()
+  const rows = rowsFromDbExecute<EntityLayerRow>(result)
+  for (const row of rows) {
+    if (!row.entity_id) continue
+    addToIndex(index, row.entity_id, layerKeyFromRow(row))
+  }
+  return index
 }
 
 /** Co-mention edge key "sourceId:targetId" → author layer keys from contributing thoughts. */
 export async function buildCoMentionEdgeLayerIndex(
-	userId: string
+  userId: string,
 ): Promise<Map<string, Set<string>>> {
-	const result = await getDb().execute(sql`
+  const result = await getDb().execute(sql`
 		SELECT DISTINCT
 			LEAST(e1.canonical_entity_id::text, e2.canonical_entity_id::text) AS source_id,
 			GREATEST(e1.canonical_entity_id::text, e2.canonical_entity_id::text) AS target_id,
@@ -98,41 +98,41 @@ export async function buildCoMentionEdgeLayerIndex(
 			e1.user_id = ${userId}
 			AND e1.canonical_entity_id IS NOT NULL
 			AND e2.canonical_entity_id IS NOT NULL
-	`);
+	`)
 
-	const index = new Map<string, Set<string>>();
-	const rows = rowsFromDbExecute<CoMentionLayerRow>(result);
-	for (const row of rows) {
-		if (!row.source_id || !row.target_id) continue;
-		const edgeKey = `${row.source_id}:${row.target_id}`;
-		addToIndex(index, edgeKey, layerKeyFromRow(row));
-	}
-	return index;
+  const index = new Map<string, Set<string>>()
+  const rows = rowsFromDbExecute<CoMentionLayerRow>(result)
+  for (const row of rows) {
+    if (!row.source_id || !row.target_id) continue
+    const edgeKey = `${row.source_id}:${row.target_id}`
+    addToIndex(index, edgeKey, layerKeyFromRow(row))
+  }
+  return index
 }
 
 export function serializeAuthorLayerIndex(
-	index: Map<string, Set<string>>
+  index: Map<string, Set<string>>,
 ): Record<string, string[]> {
-	const out: Record<string, string[]> = {};
-	for (const [id, layers] of index) {
-		out[id] = [...layers].sort();
-	}
-	return out;
+  const out: Record<string, string[]> = {}
+  for (const [id, layers] of index) {
+    out[id] = [...layers].sort()
+  }
+  return out
 }
 
 export async function loadAuthorLayerGraphData(userId: string): Promise<{
-	authorLayers: AuthorLayerMeta[];
-	entityAuthorLayerKeys: Record<string, string[]>;
-	coMentionEdgeLayerKeys: Record<string, string[]>;
+  authorLayers: AuthorLayerMeta[]
+  entityAuthorLayerKeys: Record<string, string[]>
+  coMentionEdgeLayerKeys: Record<string, string[]>
 }> {
-	const [authorLayers, entityIndex, coMentionIndex] = await Promise.all([
-		listAuthorLayersForUser(userId),
-		buildEntityAuthorLayerIndex(userId),
-		buildCoMentionEdgeLayerIndex(userId)
-	]);
-	return {
-		authorLayers,
-		entityAuthorLayerKeys: serializeAuthorLayerIndex(entityIndex),
-		coMentionEdgeLayerKeys: serializeAuthorLayerIndex(coMentionIndex)
-	};
+  const [authorLayers, entityIndex, coMentionIndex] = await Promise.all([
+    listAuthorLayersForUser(userId),
+    buildEntityAuthorLayerIndex(userId),
+    buildCoMentionEdgeLayerIndex(userId),
+  ])
+  return {
+    authorLayers,
+    entityAuthorLayerKeys: serializeAuthorLayerIndex(entityIndex),
+    coMentionEdgeLayerKeys: serializeAuthorLayerIndex(coMentionIndex),
+  }
 }

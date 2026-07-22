@@ -1,9 +1,11 @@
 # Eigen Requirements Baseline (MVP)
 
 ## Problem Statement
+
 People capture thoughts across tools, but memory becomes fragmented and locked into vendor ecosystems. Users need a portable memory layer they own, where thoughts can be captured quickly, enriched by AI, and queried from any compatible client.
 
 ## Product Goals
+
 - Make capture frictionless: raw thought in, structured memory out.
 - Preserve data sovereignty and portability across AI tools.
 - Provide transparent, usage-based pricing per infrastructure call.
@@ -12,11 +14,13 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 - Use deterministic LLM retries (exactly 3 attempts) against the configured LLM gateway.
 
 ## Personas
+
 - Individual operator: captures ideas/tasks/notes and queries memory daily.
 - Knowledge worker: uses AI clients and needs persistent shared memory context.
 - Power user: wants inspectable cost logs and control over data portability.
 
 ## In Scope (MVP)
+
 - Universal SvelteKit application (frontend + backend routes).
 - Capture/ingest interface with single-submit loop:
   - User submits raw thought (text or voice).
@@ -33,7 +37,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - PostgreSQL as system of record.
   - `pgvector` semantic retrieval (cosine kNN over stored embeddings).
   - **Apache AGE** (OpenCypher in Postgres) for memory graph edges and graph expansion during retrieval (`AGE_GRAPH_NAME`, default `eigen_graph`); relational `thought_relation` remains in Postgres for SoR.
-  - Immediate **hybrid** retrieval from day one: **semantic** channel = pgvector + lexical (`ts_rank_cd` over precomputed `lexical_text` / `tsvector`), fused with **graph** channel (neighbor expansion + entity-anchored paths), merged via weighted reciprocal rank fusion (default **0.7** on the combined semantic RRF contribution, **0.3** on graph RRF — see AC-012).
+  - Immediate **hybrid** retrieval from day one: **semantic** channel = pgvector + lexical (`ts_rank_cd` over precomputed `lexical_text` / `tsvector`), fused with **precomputed graph artifacts** (community bundles, entity top thoughts, thought neighbors) via a **weighted linear merge** in `retrieveEvidence` (see `SCORE_WEIGHTS` in [`retrieve-evidence.ts`](../../src/lib/server/retrieval/retrieve-evidence.ts); AC-012). Legacy reciprocal rank fusion helpers remain in-repo for reference/tests only and are **not** used at query time.
   - Deterministic **lexical search surface** on stored thoughts (`lexical_text` derived from normalized text) for Postgres `tsvector` / keyword fusion with semantic search.
   - **Retrieval quality diagnostics (metadata-only):** each search may persist numeric channel diagnostics (e.g. semantic share for top results) in Postgres for effectiveness tracking; **no** query text, thought bodies, thought ids, or embeddings in that row (GDPR-aligned).
   - **MCP and ingest validation:** strict entity IDs and numeric search bounds at the tool boundary; **redaction** of secret-shaped fields in logs and telemetry tied to pricing transparency.
@@ -65,6 +69,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - Knowledge graph visualization as high-priority MVP candidate.
 
 ## Out of Scope (MVP)
+
 - Advanced analytics dashboards.
 - Sharing/collaboration features.
 - Complex workflow automations.
@@ -72,6 +77,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 - Deep observability/audit tooling.
 
 ## Functional Requirements
+
 1. Capture thoughts through a dedicated interface (text and voice).
 2. Use browser-side transcription for voice input before persistence.
    - Transcription execution target: browser runtime.
@@ -83,7 +89,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 5. Provide list/search/edit MCP operations.
 6. Route retrieval through unified `retrieveEvidence` (vector + lexical + precomputed graph artifacts). Unenriched rows are searchable via lexical full text; semantic ANN after enrich completes on the same row.
 7. Apply deterministic context selection weights for the default mode:
-   - Default queries: **0.7** on the combined semantic (vector + lexical) RRF score and **0.3** on the graph RRF score (product shorthand: `0.7 vector + 0.3 graph`; see AC-012).
+   - Default queries: weighted linear merge of thought similarity (vector cosine / lexical rank), community similarity, entity similarity, centrality, specificity, salience, and recency (see `SCORE_WEIGHTS` / AC-012). Graph features only boost candidates that also hit vector or lexical directly.
 8. Log all relevant LLM/API calls with transparent pricing details.
 9. Log transcription calls (including client runtime cost footprint) in activity log.
    - For browser transcription, log client runtime metadata (model id, latency, retry count, device class)
@@ -91,6 +97,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
 10. Apply and display per-call markup policy.
 
 ## Non-Functional Requirements
+
 - Reliability:
   - Deterministic retry policy: exactly 3 retries for every LLM call.
   - On final failure, return clear, easy-to-understand error.
@@ -109,6 +116,7 @@ People capture thoughts across tools, but memory becomes fragmented and locked i
   - Stable retrieval routing criteria for the same intent class.
 
 ## Architecture Constraints
+
 - ORM: Drizzle.
 - E2E testing: Playwright.
 - UI primitives: shadcn-svelte.

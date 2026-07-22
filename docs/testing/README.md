@@ -6,14 +6,14 @@ How this product is tested, how to run the suite, and what CI enforces.
 
 Eigen is Open Brain–style **memory infrastructure**: raw thought capture → autonomous ingest/enrichment → hybrid retrieval (pgvector + lexical + Apache AGE) → MCP / Q&A / Projects. Critical domains under test:
 
-| Domain | What must stay correct |
-| --- | --- |
-| Capture / ingest | Persist on submit, enrich, embed, lexical surface, graph sync |
-| Retrieval / Q&A | Hybrid RRF, evidence compose, no string-heuristic routing |
-| Memory / entities | LLM-as-judge extraction, GTD project promotion, temporal events |
-| Auth / tenancy | Better Auth + RLS (`user_id`) |
-| MCP / agents | Tool contracts, embeddings never in tool/LLM payloads |
-| Billing / activity | Per-call cost + markup transparency |
+| Domain             | What must stay correct                                          |
+| ------------------ | --------------------------------------------------------------- |
+| Capture / ingest   | Persist on submit, enrich, embed, lexical surface, graph sync   |
+| Retrieval / Q&A    | Hybrid RRF, evidence compose, no string-heuristic routing       |
+| Memory / entities  | LLM-as-judge extraction, GTD project promotion, temporal events |
+| Auth / tenancy     | Better Auth + RLS (`user_id`)                                   |
+| MCP / agents       | Tool contracts, embeddings never in tool/LLM payloads           |
+| Billing / activity | Per-call cost + markup transparency                             |
 
 Architecture map: [docs/repo-map/index.md](../repo-map/index.md). Product requirements: [docs/planning/01-requirements-baseline.md](../planning/01-requirements-baseline.md).
 
@@ -68,10 +68,10 @@ Scripts `eval`, `eval:smoke`, `eval:all`, etc. exist in `package.json` for opera
 
 ## CI workflows
 
-| Workflow | What it runs |
-| --- | --- |
-| [`.github/workflows/test-coverage.yml`](../../.github/workflows/test-coverage.yml) | **Required:** `lint` → `check` → `test:unit`. **Reported:** `test:coverage` with `CI=true` (`continue-on-error` until tier thresholds are met). |
-| [`.github/workflows/oss-secrets-guard.yml`](../../.github/workflows/oss-secrets-guard.yml) | `assert:oss-secrets` + its unit spec |
+| Workflow                                                                                   | What it runs                                                                                                                                    |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`.github/workflows/test-coverage.yml`](../../.github/workflows/test-coverage.yml)         | **Required:** `lint` → `check` → `test:unit`. **Reported:** `test:coverage` with `CI=true` (`continue-on-error` until tier thresholds are met). |
+| [`.github/workflows/oss-secrets-guard.yml`](../../.github/workflows/oss-secrets-guard.yml) | `assert:oss-secrets` + its unit spec                                                                                                            |
 
 If `test` / `test:unit` / `test:coverage` scripts are missing from `package.json`, CI and local workflows are broken — restore them; do not treat the suite as optional.
 
@@ -94,20 +94,17 @@ Pattern used across server specs — a where-clause that supports both `.limit()
 
 ```ts
 function thenableWhere(limitRows: unknown[], awaitRows: unknown[] = []) {
-	return {
-		limit: vi.fn(async () => limitRows),
-		orderBy: vi.fn(async () => awaitRows),
-		then(
-			onFulfilled?: (value: unknown) => unknown,
-			onRejected?: (error: unknown) => unknown
-		) {
-			return Promise.resolve(awaitRows).then(onFulfilled, onRejected);
-		}
-	};
+  return {
+    limit: vi.fn(async () => limitRows),
+    orderBy: vi.fn(async () => awaitRows),
+    then(onFulfilled?: (value: unknown) => unknown, onRejected?: (error: unknown) => unknown) {
+      return Promise.resolve(awaitRows).then(onFulfilled, onRejected)
+    },
+  }
 }
 ```
 
-For `getDb().execute(sql\`…\`)`, mock `execute: vi.fn(async () => [])` (or `{ rows: [...] }`). Row normalization: [`rowsFromDbExecute`](../../src/lib/server/db/execute-rows.ts).
+For `getDb().execute(sql\`…\`)`, mock `execute: vi.fn(async () => [])`(or`{ rows: [...] }`). Row normalization: [`rowsFromDbExecute`](../../src/lib/server/db/execute-rows.ts).
 
 ### No string heuristics in production
 

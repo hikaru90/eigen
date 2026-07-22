@@ -1,6 +1,6 @@
 ---
 name: resolve-eigenmesh-todo
-description: "When given a to-do or thought text, retrieve it from EigenMesh, implement the task, and mark it complete. Handles the full lifecycle: find, implement, verify, mark done."
+description: 'When given a to-do or thought text, retrieve it from EigenMesh, implement the task, and mark it complete. Handles the full lifecycle: find, implement, verify, mark done.'
 ---
 
 # Resolve EigenMesh To-Do
@@ -29,6 +29,7 @@ eigen_retrieve_thoughts(
 ```
 
 If the search doesn't find it, try variations:
+
 - Use key phrases from the thought
 - Try without filler words ("todo for eigenmesh:" etc.)
 - Search with `include_agent: true` if it might be an agent thought
@@ -36,6 +37,7 @@ If the search doesn't find it, try variations:
 ### Step 2: Extract the Thought ID
 
 From the search results, get the `id` field:
+
 ```json
 {
   "id": "98e237a1-1fa0-4d8a-bd62-8b4072819896",
@@ -47,6 +49,7 @@ From the search results, get the `id` field:
 ### Step 3: Understand the Task
 
 Before implementing, gather context:
+
 - Read the full thought if needed (check `textFiles` for attached details)
 - Read linked thoughts (`linkedThoughts` in results) for related context
 - Understand what "done" looks like for this task
@@ -54,6 +57,7 @@ Before implementing, gather context:
 ### Step 4: Implement
 
 Follow the project's guardrails:
+
 - Read files before editing
 - Make targeted changes
 - Run tests to verify
@@ -62,6 +66,7 @@ Follow the project's guardrails:
 ### Step 5: Verify
 
 Run appropriate checks:
+
 ```bash
 npm run check          # Type checking
 npm run test:unit:run  # Unit tests
@@ -100,6 +105,7 @@ eigen_capture_thought(
 ## Handling Different Task Types
 
 ### Bug Fixes
+
 - Understand the root cause from the thought text
 - Find the relevant code
 - Fix the bug
@@ -107,6 +113,7 @@ eigen_capture_thought(
 - Mark complete
 
 ### Feature Requests
+
 - Understand the desired behavior
 - Plan the implementation
 - Build the feature
@@ -114,12 +121,14 @@ eigen_capture_thought(
 - Mark complete
 
 ### Questions
+
 - Understand what's being asked
 - Research the answer (code, docs, web)
 - Provide the answer
 - Mark complete if the question is resolved
 
 ### Investigations
+
 - Understand what needs investigating
 - Gather evidence (logs, code, data)
 - Present findings
@@ -135,11 +144,13 @@ eigen_capture_thought(
 ## Recovery
 
 If you can't find the thought:
+
 1. Ask the user for more details
 2. Try different search terms
 3. Check if it might be in a different format
 
 If you can't implement the task:
+
 1. Explain what's blocking you
 2. Ask for clarification
 3. Suggest what needs to happen first

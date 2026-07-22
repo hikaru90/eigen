@@ -442,6 +442,27 @@
       "when": 1784239280000,
       "tag": "0062_connected_agent_signature_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1784325680000,
+      "tag": "0063_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1784412080000,
+      "tag": "0064_grounding_push_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1784498480000,
+      "tag": "0065_schema_integrity",
+      "breakpoints": true
     }
   ]
 }

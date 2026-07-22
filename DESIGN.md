@@ -13,29 +13,29 @@
 
 ### Typography
 
-| Element | Style |
-|---|---|
-| Logo / Wordmark | Serif display font, heavy weight, decorative/gothic style |
-| Tagline | Sans-serif, regular weight, small size, muted color |
-| Input placeholder | Sans-serif, regular weight, muted/gray |
-| Button label | Sans-serif, medium weight, white |
-| Keyboard shortcut hint | Sans-serif, small, muted gray |
+| Element                | Style                                                     |
+| ---------------------- | --------------------------------------------------------- |
+| Logo / Wordmark        | Serif display font, heavy weight, decorative/gothic style |
+| Tagline                | Sans-serif, regular weight, small size, muted color       |
+| Input placeholder      | Sans-serif, regular weight, muted/gray                    |
+| Button label           | Sans-serif, medium weight, white                          |
+| Keyboard shortcut hint | Sans-serif, small, muted gray                             |
 
 ### Color Palette
 
-| Role | Value |
-|---|---|
-| **Accent** | `#28F97F` — bright green; marketing metaballs, highlights |
-| **Accent dark** | `#557416` — deep green; marketing emphasis text, borders, dots |
-| Background | `#E8EDE5` — soft sage green |
-| Card / Input background | `#FFFFFF` — white |
-| Card shadow | Subtle offset box shadow, dark |
-| Primary button | `#111111` — near black |
-| Button text | `#FFFFFF` — white |
-| Body / placeholder text | `#999999` — medium gray |
-| Hint text | `#AAAAAA` — light gray |
-| Bottom nav background | `#111111` — near black |
-| Bottom nav icons | `#FFFFFF` — white |
+| Role                    | Value                                                          |
+| ----------------------- | -------------------------------------------------------------- |
+| **Accent**              | `#28F97F` — bright green; marketing metaballs, highlights      |
+| **Accent dark**         | `#557416` — deep green; marketing emphasis text, borders, dots |
+| Background              | `#E8EDE5` — soft sage green                                    |
+| Card / Input background | `#FFFFFF` — white                                              |
+| Card shadow             | Subtle offset box shadow, dark                                 |
+| Primary button          | `#111111` — near black                                         |
+| Button text             | `#FFFFFF` — white                                              |
+| Body / placeholder text | `#999999` — medium gray                                        |
+| Hint text               | `#AAAAAA` — light gray                                         |
+| Bottom nav background   | `#111111` — near black                                         |
+| Bottom nav icons        | `#FFFFFF` — white                                              |
 
 ---
 
@@ -99,14 +99,14 @@
 
 ## Spacing & Sizing
 
-| Element | Value |
-|---|---|
-| Header top padding | ~40px |
-| Card horizontal margin | ~20px |
-| Card input height | ~120px |
-| Card bottom bar height | ~52px |
-| Bottom nav height | ~56px |
-| Bottom nav bottom margin | ~24px |
+| Element                  | Value  |
+| ------------------------ | ------ |
+| Header top padding       | ~40px  |
+| Card horizontal margin   | ~20px  |
+| Card input height        | ~120px |
+| Card bottom bar height   | ~52px  |
+| Bottom nav height        | ~56px  |
+| Bottom nav bottom margin | ~24px  |
 
 ---
 

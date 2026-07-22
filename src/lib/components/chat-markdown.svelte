@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { renderMarkdownToHtml } from '$lib/chat/render-markdown';
+  import { renderMarkdownToHtml } from '$lib/chat/render-markdown'
 
-  type Tone = 'default' | 'user' | 'muted';
+  type Tone = 'default' | 'user' | 'muted'
 
   type Props = {
-    content: string;
-    tone?: Tone;
-    class?: string;
-  };
+    content: string
+    tone?: Tone
+    class?: string
+  }
 
-  let { content, tone = 'default', class: className = '' }: Props = $props();
+  let { content, tone = 'default', class: className = '' }: Props = $props()
 
-  const html = $derived(renderMarkdownToHtml(content));
+  const html = $derived(renderMarkdownToHtml(content))
 </script>
 
 {#if html}

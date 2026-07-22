@@ -34,12 +34,12 @@ On your first visit to Capture, a **Welcome to Eigen** overlay walks you through
 
 The tour has **four steps**:
 
-| Step | Topic | What you do |
-|------|--------|----------------|
-| 1 | **Welcome** | What Eigen is and what happens next |
-| 2 | **Credits** | PayPal top-up (platform credits) — or skip if you use BYOK in Settings |
-| 3 | **Grounding** | Start the getting-to-know-you chat at `/grounding` |
-| 4 | **Ready** | **Get started** (only when credits and grounding are complete) |
+| Step | Topic         | What you do                                                            |
+| ---- | ------------- | ---------------------------------------------------------------------- |
+| 1    | **Welcome**   | What Eigen is and what happens next                                    |
+| 2    | **Credits**   | PayPal top-up (platform credits) — or skip if you use BYOK in Settings |
+| 3    | **Grounding** | Start the getting-to-know-you chat at `/grounding`                     |
+| 4    | **Ready**     | **Get started** (only when credits and grounding are complete)         |
 
 Both **credits** (for platform billing) and **grounding** are required before your first capture.
 
@@ -94,13 +94,13 @@ See also [Overview & quick start](./README.md) for Docker Compose commands and C
 
 Create only the accounts that match how you want billing and auth to work.
 
-| Account | When you need it | What it is used for |
-|---------|------------------|---------------------|
-| **[EUrouter](https://eurouter.ai)** | Platform credits and/or EUrouter BYOK | Gateway for chat + embeddings via routing rules (`LLM_BASE_URL`, `SERVICE_API_KEY_EUROUTER`, `LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING`). |
-| **[OpenRouter](https://openrouter.ai)** | Platform credits, OpenRouter BYOK, and/or speech-to-text | Gateway for chat, embeddings, and dictation STT (`OPENROUTER_BASE_URL`, `SERVICE_API_KEY_OPENROUTER` or `OPENROUTER_API_KEY`, optional `LLM_MODEL_*`). |
-| **[PayPal Developer](https://developer.paypal.com)** | Wallet top-ups (platform credits) | In-app credit purchases (`PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`). Omit if all users will use BYOK only. |
-| **Google Cloud OAuth client** | Optional social sign-in | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/google`. |
-| **GitHub OAuth app** | Optional social sign-in | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/github`. |
+| Account                                              | When you need it                                         | What it is used for                                                                                                                                    |
+| ---------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[EUrouter](https://eurouter.ai)**                  | Platform credits and/or EUrouter BYOK                    | Gateway for chat + embeddings via routing rules (`LLM_BASE_URL`, `SERVICE_API_KEY_EUROUTER`, `LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING`).                   |
+| **[OpenRouter](https://openrouter.ai)**              | Platform credits, OpenRouter BYOK, and/or speech-to-text | Gateway for chat, embeddings, and dictation STT (`OPENROUTER_BASE_URL`, `SERVICE_API_KEY_OPENROUTER` or `OPENROUTER_API_KEY`, optional `LLM_MODEL_*`). |
+| **[PayPal Developer](https://developer.paypal.com)** | Wallet top-ups (platform credits)                        | In-app credit purchases (`PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`). Omit if all users will use BYOK only.                         |
+| **Google Cloud OAuth client**                        | Optional social sign-in                                  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/google`.                                                             |
+| **GitHub OAuth app**                                 | Optional social sign-in                                  | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/github`.                                                             |
 
 You do **not** need separate accounts for Postgres, pgvector, or Apache AGE — those run inside the Compose stack.
 
@@ -110,14 +110,14 @@ Copy [`.env.example`](./.env.example) to `.env` and set values before `docker co
 
 #### Required — app will not run safely without these
 
-| Variable | Purpose | How to set |
-|----------|---------|------------|
-| `BETTER_AUTH_SECRET` | Session encryption | `openssl rand -base64 32` |
-| `AGE_GRAPH_NAME` | Apache AGE graph name (must match Postgres init) | `eigen_graph` (default) |
-| `ORIGIN` | Public URL users and OAuth callbacks use | e.g. `https://eigen.example.com` |
-| `TENANT_MASTER_KEY` | Master key for per-tenant envelope encryption | Strong random secret (see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md)) |
-| `DATABASE_URL` | App connection string | Compose default: `postgres://eigen:eigen@db:5432/eigen` |
-| `DATABASE_ADMIN_URL` | Migrations, RLS, pg_cron | Same superuser URL as above for self-hosted |
+| Variable             | Purpose                                          | How to set                                                                                              |
+| -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET` | Session encryption                               | `openssl rand -base64 32`                                                                               |
+| `AGE_GRAPH_NAME`     | Apache AGE graph name (must match Postgres init) | `eigen_graph` (default)                                                                                 |
+| `ORIGIN`             | Public URL users and OAuth callbacks use         | e.g. `https://eigen.example.com`                                                                        |
+| `TENANT_MASTER_KEY`  | Master key for per-tenant envelope encryption    | Strong random secret (see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md)) |
+| `DATABASE_URL`       | App connection string                            | Compose default: `postgres://eigen:eigen@db:5432/eigen`                                                 |
+| `DATABASE_ADMIN_URL` | Migrations, RLS, pg_cron                         | Same superuser URL as above for self-hosted                                                             |
 
 #### Required for LLM — at least one billing path must work
 
@@ -125,72 +125,78 @@ Copy [`.env.example`](./.env.example) to `.env` and set values before `docker co
 
 Users top up via PayPal; the app calls your service-account gateway keys.
 
-| Variable | Purpose |
-|----------|---------|
-| `SERVICE_API_KEY_EUROUTER` | EUrouter service key (platform billing) |
-| `LLM_BASE_URL` | EUrouter API origin (no trailing slash), e.g. `https://api.eurouter.ai/v1` |
-| `LLM_RULE_CHAT` | EUrouter routing rule UUID for chat |
-| `LLM_RULE_EMBEDDING` | EUrouter routing rule UUID for embeddings |
-| `SERVICE_API_KEY_OPENROUTER` | OpenRouter service key (if using OpenRouter as platform provider) |
-| `OPENROUTER_BASE_URL` | OpenRouter API origin, e.g. `https://openrouter.ai/api/v1` |
-| `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` (sandbox) or `https://api-m.paypal.com` (live) |
-| `PAYPAL_CLIENT_ID` | PayPal REST app client ID |
-| `PAYPAL_CLIENT_SECRET` | PayPal REST app secret |
+| Variable                     | Purpose                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| `SERVICE_API_KEY_EUROUTER`   | EUrouter service key (platform billing)                                           |
+| `LLM_BASE_URL`               | EUrouter API origin (no trailing slash), e.g. `https://api.eurouter.ai/v1`        |
+| `LLM_RULE_CHAT`              | EUrouter routing rule UUID for chat                                               |
+| `LLM_RULE_EMBEDDING`         | EUrouter routing rule UUID for embeddings                                         |
+| `SERVICE_API_KEY_OPENROUTER` | OpenRouter service key (if using OpenRouter as platform provider)                 |
+| `OPENROUTER_BASE_URL`        | OpenRouter API origin, e.g. `https://openrouter.ai/api/v1`                        |
+| `PAYPAL_API_BASE`            | `https://api-m.sandbox.paypal.com` (sandbox) or `https://api-m.paypal.com` (live) |
+| `PAYPAL_CLIENT_ID`           | PayPal REST app client ID                                                         |
+| `PAYPAL_CLIENT_SECRET`       | PayPal REST app secret                                                            |
 
 **Option B — BYOK only (users supply keys in Settings → LLM → BYOK)**
 
 You may still set env fallbacks used when a user has not saved keys in the database:
 
-| Variable | Purpose |
-|----------|---------|
-| `LLM_BASE_URL` | EUrouter base URL |
-| `LLM_API_KEY` | EUrouter API key fallback |
-| `LLM_RULE_CHAT` / `LLM_RULE_EMBEDDING` | EUrouter rule UUIDs |
-| `OPENROUTER_BASE_URL` | OpenRouter base URL |
-| `OPENROUTER_API_KEY` | OpenRouter API key fallback |
+| Variable                               | Purpose                     |
+| -------------------------------------- | --------------------------- |
+| `LLM_BASE_URL`                         | EUrouter base URL           |
+| `LLM_API_KEY`                          | EUrouter API key fallback   |
+| `LLM_RULE_CHAT` / `LLM_RULE_EMBEDDING` | EUrouter rule UUIDs         |
+| `OPENROUTER_BASE_URL`                  | OpenRouter base URL         |
+| `OPENROUTER_API_KEY`                   | OpenRouter API key fallback |
 
 Users on BYOK must configure credentials in the UI (or rely on these env fallbacks) and set billing mode to **Bring your own key** in Settings.
 
 #### Recommended for production
 
-| Variable | Purpose |
-|----------|---------|
-| `POSTGRES_PASSWORD` | Strong DB password (change from default `eigen`) |
-| `EIGEN_APP_DB_PASSWORD` | Password for RLS app role `eigen_app` |
-| `ADMIN_CONSOLIDATION_KEY` | Secures nightly consolidation webhook (`openssl rand -hex 32`) |
+| Variable                     | Purpose                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`          | Strong DB password (change from default `eigen`)                        |
+| `EIGEN_APP_DB_PASSWORD`      | Password for RLS app role `eigen_app`                                   |
+| `ADMIN_CONSOLIDATION_KEY`    | Secures nightly consolidation webhook (`openssl rand -hex 32`)          |
 | `CONSOLIDATION_INTERNAL_URL` | URL Postgres/pg_cron uses to reach the app (Compose: `http://app:3000`) |
 
 #### Optional
 
-| Variable | Purpose |
-|----------|---------|
+| Variable                                                 | Purpose                                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------- |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web push notifications (`npx web-push generate-vapid-keys`) |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub sign-in |
-| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Bootstrap first admin on container start (see below) |
-| `LLM_MIN_REQUEST_INTERVAL_MS` | Global LLM throttle (default 1000 ms) |
-| `EMBEDDING_COMPRESS_INTENSITY` | Embedding payload compression (`lite` \| `full` \| `ultra`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`               | Google sign-in                                              |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`               | GitHub sign-in                                              |
+| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`            | Bootstrap first admin on container start (see below)        |
+| `LLM_MIN_REQUEST_INTERVAL_MS`                            | Global LLM throttle (default 1000 ms)                       |
+| `EMBEDDING_COMPRESS_INTENSITY`                           | Embedding payload compression (`lite` \| `full` \| `ultra`) |
 
 ### First-run deployment steps
 
 1. **Clone and configure**
+
    ```sh
    git clone https://github.com/hikaru90/eigen.git && cd eigen
    ./install.sh --non-interactive --origin https://your.domain --billing platform
    # Edit .env — add LLM gateway credentials (and PayPal if using platform credits)
    ```
+
    For local development only: `cp .env.example .env` and use `npm run dev` (see [README](../../README.md#development-local-non-containerized)).
 
 2. **Start the stack**
+
    ```sh
    docker compose up -d --build
    ```
+
    The app entrypoint runs migrations and RLS automatically on start ([`entrypoint.sh`](../../entrypoint.sh)).
 
 3. **Optional: bootstrap an admin user** — set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env` before starting the app container (or pass them to `install.sh`), or run:
+
    ```sh
    docker compose exec app node scripts/create-admin.mjs
    ```
+
    The script is idempotent (skips if the email already exists). Admin users still see the welcome tour until they complete or skip onboarding.
 
 4. **Verify** — open `ORIGIN` in a browser, sign up or sign in as admin, complete the welcome tour, and confirm LLM billing (Credits or BYOK) before test captures.
@@ -208,24 +214,24 @@ Direct them to:
 
 ## Quick reference: who configures what
 
-| Concern | Managed (end user) | Self-hosted (operator) | Self-hosted (end user) |
-|---------|-------------------|------------------------|------------------------|
-| Docker / Postgres / AGE | Eigen | You | — |
-| `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `ORIGIN` | Eigen | You | — |
-| Service gateway keys (`SERVICE_API_KEY_*`) | Eigen | You | — |
-| PayPal (wallet top-ups) | Eigen (if offered) | You (optional) | Pays via PayPal UI |
-| Personal LLM keys | Only if switching to BYOK | — | BYOK tab in Settings |
-| Welcome tour | Yes | — | Yes |
-| Capture / Activity / Chat | Yes | — | Yes |
+| Concern                                             | Managed (end user)        | Self-hosted (operator) | Self-hosted (end user) |
+| --------------------------------------------------- | ------------------------- | ---------------------- | ---------------------- |
+| Docker / Postgres / AGE                             | Eigen                     | You                    | —                      |
+| `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `ORIGIN` | Eigen                     | You                    | —                      |
+| Service gateway keys (`SERVICE_API_KEY_*`)          | Eigen                     | You                    | —                      |
+| PayPal (wallet top-ups)                             | Eigen (if offered)        | You (optional)         | Pays via PayPal UI     |
+| Personal LLM keys                                   | Only if switching to BYOK | —                      | BYOK tab in Settings   |
+| Welcome tour                                        | Yes                       | —                      | Yes                    |
+| Capture / Activity / Chat                           | Yes                       | —                      | Yes                    |
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---------|----------------|
-| Capture fails with LLM not configured | Wallet empty (platform credits) or BYOK keys missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
-| PayPal button missing on Credits tab | Operator has not set `PAYPAL_*` env vars. |
-| BYOK option disabled in billing method | No provider saved on **Settings → LLM → BYOK** yet. |
-| OAuth sign-in fails | Callback URL must match `{ORIGIN}/api/auth/callback/<provider>`. |
-| Encrypt/decrypt errors after deploy | `TENANT_MASTER_KEY` missing or changed without re-encryption — see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md). |
+| Symptom                                | Likely cause                                                                                                                                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Capture fails with LLM not configured  | Wallet empty (platform credits) or BYOK keys missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
+| PayPal button missing on Credits tab   | Operator has not set `PAYPAL_*` env vars.                                                                                                                                               |
+| BYOK option disabled in billing method | No provider saved on **Settings → LLM → BYOK** yet.                                                                                                                                     |
+| OAuth sign-in fails                    | Callback URL must match `{ORIGIN}/api/auth/callback/<provider>`.                                                                                                                        |
+| Encrypt/decrypt errors after deploy    | `TENANT_MASTER_KEY` missing or changed without re-encryption — see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md).                                        |

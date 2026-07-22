@@ -56,24 +56,28 @@ Currently, projects must be created manually by the user. The system has enough 
 ## Acceptance Criteria
 
 ### AC-1: High Confidence Project Detection
+
 **Given** a user captures a thought describing a multi-step initiative (e.g., "Working on EigenMesh MVP - need to finish auth, then data layer, then UI")
 **When** the thought is enriched
 **Then** the system detects "EigenMesh" as a project with confidence >= 0.85
 **And** the project is created with evidence: "Multi-step initiative with explicit phases mentioned"
 
 ### AC-2: Low Confidence Rejection
+
 **Given** a user captures a thought mentioning a concept (e.g., "Read about React patterns")
 **When** the thought is enriched
 **Then** the system does NOT create a project for "React patterns"
 **And** the thought is stored without project association
 
 ### AC-3: Project Deduplication
+
 **Given** a project "EigenMesh" already exists
 **When** a new thought mentions "EigenMesh" (e.g., "Fixed a bug in EigenMesh today")
 **Then** the system does NOT create a duplicate project
 **And** the thought is associated with the existing project
 
 ### AC-4: User Dismissal
+
 **Given** a project exists in the projects view
 **When** the user clicks "Dismiss" on the project
 **Then** the project is marked as dismissed
@@ -81,6 +85,7 @@ Currently, projects must be created manually by the user. The system has enough 
 **And** the dismissal is recorded in audit log
 
 ### AC-5: Evidence Storage
+
 **Given** a project is detected and created
 **When** viewing the project details
 **Then** the evidence for detection is visible (e.g., "Detected from 3 thoughts over 2 weeks")
@@ -91,6 +96,7 @@ Currently, projects must be created manually by the user. The system has enough 
 **Risk Level: High**
 
 Rationale:
+
 - Incorrect project detection could pollute the user's project list
 - Over-aggressive detection could create noise and reduce trust
 - Under-aggressive detection could miss important projects

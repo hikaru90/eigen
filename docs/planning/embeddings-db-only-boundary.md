@@ -18,15 +18,15 @@ Text fields (`normalizedText`, snippets, scores) are fine in tools and LLM promp
 
 ## Enforcement layers (defense in depth)
 
-| Layer | Location | Role |
-|-------|----------|------|
-| Query shape | [`listThoughts`](../../src/lib/server/capture/service.ts) and similar | Explicit `.select({ ... })` **without** `embedding` columns for tool-facing reads |
-| MCP tools | [`src/lib/server/mcp/tools.ts`](../../src/lib/server/mcp/tools.ts) | `sanitizeMcpToolResult()` on every tool return |
-| MCP HTTP | [`src/lib/server/mcp/server.ts`](../../src/lib/server/mcp/server.ts) | Sanitize before `JSON.stringify` in `CallTool` responses |
-| Agent loop | [`src/lib/server/llm/agent-loop.ts`](../../src/lib/server/llm/agent-loop.ts) | Sanitize after each tool; compact results for follow-up turns ([`agent-tool-result-compact.ts`](../../src/lib/server/llm/agent-tool-result-compact.ts)) |
-| Chat gateway | [`src/lib/server/llm/llm-client.ts`](../../src/lib/server/llm/llm-client.ts) | `sanitizeChatMessages()` immediately before `POST /chat/completions` |
-| Shared stripper | [`src/lib/server/observability/strip-embeddings.ts`](../../src/lib/server/observability/strip-embeddings.ts) | Removes vector field names and 1536-element numeric arrays recursively |
-| Logs | [`redact-for-log.ts`](../../src/lib/server/observability/redact-for-log.ts), embedding log truncation in `llm-client` | No vector previews in `console` output |
+| Layer           | Location                                                                                                              | Role                                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Query shape     | [`listThoughts`](../../src/lib/server/capture/service.ts) and similar                                                 | Explicit `.select({ ... })` **without** `embedding` columns for tool-facing reads                                                                       |
+| MCP tools       | [`src/lib/server/mcp/tools.ts`](../../src/lib/server/mcp/tools.ts)                                                    | `sanitizeMcpToolResult()` on every tool return                                                                                                          |
+| MCP HTTP        | [`src/lib/server/mcp/server.ts`](../../src/lib/server/mcp/server.ts)                                                  | Sanitize before `JSON.stringify` in `CallTool` responses                                                                                                |
+| Agent loop      | [`src/lib/server/llm/agent-loop.ts`](../../src/lib/server/llm/agent-loop.ts)                                          | Sanitize after each tool; compact results for follow-up turns ([`agent-tool-result-compact.ts`](../../src/lib/server/llm/agent-tool-result-compact.ts)) |
+| Chat gateway    | [`src/lib/server/llm/llm-client.ts`](../../src/lib/server/llm/llm-client.ts)                                          | `sanitizeChatMessages()` immediately before `POST /chat/completions`                                                                                    |
+| Shared stripper | [`src/lib/server/observability/strip-embeddings.ts`](../../src/lib/server/observability/strip-embeddings.ts)          | Removes vector field names and 1536-element numeric arrays recursively                                                                                  |
+| Logs            | [`redact-for-log.ts`](../../src/lib/server/observability/redact-for-log.ts), embedding log truncation in `llm-client` | No vector previews in `console` output                                                                                                                  |
 
 Cursor rule: [`.cursor/rules/no-embeddings-in-llm.mdc`](../../.cursor/rules/no-embeddings-in-llm.mdc). Summary also in [`AGENTS.md`](../../AGENTS.md) (Memory indexing and tool hygiene).
 

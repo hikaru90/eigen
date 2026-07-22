@@ -10,6 +10,7 @@ description: Non-negotiable data safety rules. NEVER touch, overwrite, or modify
 **NEVER** read, write, overwrite, modify, or execute any script that modifies `.env` files in this project.
 
 This includes:
+
 - Running `install.sh` (even with `--force`)
 - Running `cp .env.example .env`
 - Running `set_env_var` or `sed` against `.env`
@@ -17,6 +18,7 @@ This includes:
 - Any command that writes to `.env` directly or indirectly
 
 If a change to `.env` is genuinely needed:
+
 1. Show the user the exact diff or new lines
 2. Let the user apply it manually
 3. Never execute it yourself

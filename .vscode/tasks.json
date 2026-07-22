@@ -1,20 +1,20 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"label": "E2E: release (headed browser)",
-			"type": "npm",
-			"script": "test:e2e:release:headed",
-			"group": {
-				"kind": "test",
-				"isDefault": true
-			},
-			"presentation": {
-				"reveal": "always",
-				"panel": "dedicated",
-				"clear": true
-			},
-			"problemMatcher": []
-		}
-	]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "E2E: release (headed browser)",
+      "type": "npm",
+      "script": "test:e2e:release:headed",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
 }

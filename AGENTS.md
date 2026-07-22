@@ -4,6 +4,15 @@
 - **Package Manager**: npm
 - **Add-ons**: eslint, vitest, playwright, drizzle, better-auth, paraglide, mdsvex
 
+## Not live — prefer clean code over accretion
+
+This project is **not in production** and is **not serving live users**. Agents must not treat the codebase as a fragile production system that can only grow by appending.
+
+- **Prefer delete-and-replace over append-only.** When a problem needs a clean slate, delete obsolete functions, modules, and call paths. Do not keep dead layers “just in case” or stack new helpers on top of the wrong design.
+- **Greenfield is allowed for scoped areas.** Parts of this repo (a feature surface, a pipeline stage, a UI flow) may be treated as greenfield when the correct fix is a rewrite, not another patch. Prefer the simplest correct shape over preserving historical structure.
+- **Refactor aggressively when it serves the goal.** Heavy deletion and restructuring are welcome when they produce cleaner, more coherent code — still keep changes scoped to the problem being solved, update tests accordingly, and do not casually break unrelated systems.
+- **Do not default to “build on top.”** Accretion (wrapper → wrapper → flag → special case) is the wrong default here. If the existing approach is wrong, replace it.
+
 ## Testing (run and enforce)
 
 - **How to run / what CI gates:** [`docs/testing/README.md`](docs/testing/README.md)
@@ -58,16 +67,17 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
 **Forbidden:** shipping multiple speculative fixes (logging + cron + secrets + UI) without evidence; treating partial logs as proof of success; skipping straight to implementation when the user asked what went wrong.
 
 - **When the user expresses frustration or says the work was bad, treat that as a signal to slow down, not speed up.** Acknowledge the frustration sincerely (briefly, without groveling) and make clear you are taking it seriously. The user is not being mean — they genuinely want an answer.
-- **Diagnose and explain root cause first. Do not jump to a plan or to code.** When the user pastes a log, a bad output, or a specific problem, your first job is to investigate and explain *which system failed and why*, citing the actual files and lines. Name the failing layers in order of severity. Only propose a fix after the user has the explanation and agrees on the diagnosis.
-- **Do not confuse a request to understand with a request to implement.** "This is bad / what went wrong?" means *explain it to me first*. Wait for the user to explicitly ask for a plan or for execution before producing one.
+- **Diagnose and explain root cause first. Do not jump to a plan or to code.** When the user pastes a log, a bad output, or a specific problem, your first job is to investigate and explain _which system failed and why_, citing the actual files and lines. Name the failing layers in order of severity. Only propose a fix after the user has the explanation and agrees on the diagnosis.
+- **Do not confuse a request to understand with a request to implement.** "This is bad / what went wrong?" means _explain it to me first_. Wait for the user to explicitly ask for a plan or for execution before producing one.
 - **Answer the actual question.** If the user asks "what went wrong?", deliver a direct, thorough answer to that question — not a redirect, not a summary, not a plan. Match the depth of the request.
-- **Generalize the problem.** A single bad output is evidence of a bug *class*, not a one-off to paper over. Understand the underlying failure so the fix holds for every input, per the no-fallbacks and generalize-ingest-fixes guardrails below.
+- **Generalize the problem.** A single bad output is evidence of a bug _class_, not a one-off to paper over. Understand the underlying failure so the fix holds for every input, per the no-fallbacks and generalize-ingest-fixes guardrails below.
 
 ---
 
 # Project Guardrails: Test-First SvelteKit Open Brain
 
 ## Scope
+
 - This is a universal SvelteKit project (frontend + backend).
 - Product model is Open Brain style memory infrastructure, not a traditional notes UI.
 - Do not start feature implementation until requirements, guardrails, and test design are approved.
@@ -78,18 +88,21 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
 - Use pgvector and Apache AGE together from day one as a core feature (no phased graph deferment).
 
 ## Primary Goals
+
 - Ensure clear, complete, testable requirements.
 - Enforce a strong test strategy before coding.
 - Keep thought capture as the center-stage interaction.
 - Maximize user trust through cost and infrastructure transparency.
 
 ## Pricing Transparency Policy
+
 - Do not hide infrastructure costs behind opaque subscription-only pricing.
 - Maintain a transparent usage log of relevant actions/API calls (including LLM gateway calls).
 - Display per-call cost details to users in understandable terms.
 - Apply markup per call (initial default: 20%) and show markup explicitly.
 
 ## Failure Policy (Non-Negotiable)
+
 - No fallbacks.
 - No silent degradation paths.
 - No temporary bypasses to "keep things working."
@@ -98,6 +111,7 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
 - Prefer hard failure over hidden behavior changes.
 
 ## Mandatory Pre-Coding Requirements
+
 - Every feature must have:
   - A written requirement with explicit in-scope/out-of-scope boundaries.
   - Testable acceptance criteria in Given/When/Then format.
@@ -105,6 +119,7 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
   - Planned test coverage across unit, integration, and E2E layers.
 
 ## Core Interaction Model
+
 - Primary user action: submit a raw thought to an ingest endpoint.
 - The user should not be required to manually structure, tag, or categorize thoughts during capture.
 - Ingestion pipeline must autonomously perform:
@@ -115,17 +130,20 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
 - Post-capture interaction happens mainly through MCP tools (not dashboard-heavy manual CRUD flows).
 
 ## Capture flow (default)
+
 - **Persist on submit:** the thought is stored immediately; there is no separate “preview then explicit accept” gate as the default path.
 - **Feedback after write:** return a clear, natural-language summary of how the thought was stored (type/category, normalized text, key metadata as applicable).
 - **Corrections after persistence:** the user may submit natural-language edit requests from the UI (and later via MCP) to update the stored thought; do not rely on implicit re-capture to rewrite committed rows.
 - **MCP:** post-commit changes continue to go through explicit MCP edit tools where applicable.
 
 ## Ontology Policy
+
 - Start from a simple baseline ontology (seeded silently on first load — no manual ontology setup).
 - **Optional grounding profile:** users may answer occasional, dismissible questions on Capture that persist a `user_grounding_profile` used as supplementary enrichment context. Grounding never blocks capture, never replaces retrieval in Q&A, and is not required before first capture.
 - Re-evaluate ontology labeling profile after 10 captured thoughts (subject to acceptable compute cost).
 
 ## Security Baseline
+
 - Use Better Auth.
 - Enforce tenant isolation with Row Level Security.
 - Use `user_id` as the tenancy key for isolation in MVP.
@@ -155,18 +173,21 @@ A row in the **Projects** tab is a **GTD body of work**, not a graph entity that
 - **Embeddings are DB-only:** vectors may be stored and used for retrieval, but must **never** appear in MCP tool results, agent/LLM messages, or logs. See [`docs/planning/embeddings-db-only-boundary.md`](docs/planning/embeddings-db-only-boundary.md). Use `sanitizeMcpToolResult` / `stripEmbeddingsFromValue` / `sanitizeChatMessages` ([`src/lib/server/observability/strip-embeddings.ts`](src/lib/server/observability/strip-embeddings.ts)); never `select()` embedding columns for tool-facing queries.
 
 ## Definition Of Ready (DoR)
+
 - Requirement is unambiguous and approved.
 - API/data contracts are defined.
 - Edge cases and failure modes are documented.
 - Unit, integration, and E2E test cases are drafted.
 
 ## Definition Of Done (DoD)
+
 - Unit, integration, and E2E tests exist and pass.
 - Critical-path scenarios pass in CI.
 - No unresolved severity-high defects.
 - Behavior and constraints are documented.
 
 ## Risk-Based Quality Gates
+
 - Coverage is enforced by risk tier with explicit thresholds:
   - Critical tier: 95% (lines/branches/functions/statements)
   - High tier: 80% (lines/branches/functions/statements)
@@ -179,6 +200,7 @@ A row in the **Projects** tab is a **GTD body of work**, not a graph entity that
 - Ingestion and semantic retrieval are always critical-path domains.
 
 ## Required Deliverables Before Coding
+
 - Requirements baseline (problem, goals, scope, personas, functional + non-functional requirements).
 - Acceptance criteria catalog (Given/When/Then).
 - Critical-path flow list.
@@ -190,10 +212,12 @@ A row in the **Projects** tab is a **GTD body of work**, not a graph entity that
 - MCP interface spec (tool contracts for capture, list, search, and question-answer retrieval).
 
 ## Workflow
+
 - Requirement -> acceptance criteria -> risk classification -> test planning -> approval -> implementation.
 - Pull requests must reference requirement IDs and related test cases.
 
 ## Eval runs (agent)
+
 - **Do not run Q&A evals** (`npm run eval`, `eval:smoke`, `eval:all`, or `evals/run.ts`). The operator validates from the **`/eval` UI**, not the CLI.
 - **Do not tell the operator to run `npm run eval` or other eval npm scripts** for end-to-end validation. Point them to the UI instead:
   - **One catalog question:** `/eval` → **Questions & answers** → **Run** on the row (e.g. `qa_jonas_creative_silence`).
@@ -203,11 +227,13 @@ A row in the **Projects** tab is a **GTD body of work**, not a graph entity that
 - Diagnose from eval output the user pastes (or saved run detail in the UI); do not re-run evals to reproduce unless they explicitly ask.
 
 ## Agent debugging: root cause, not workaround
+
 - When a **test or eval check fails**, fix the underlying bug (RLS, billing context, enrichment order, LLM config, stale corpus data). Do **not** weaken assertions, skip tests, or add heuristic/fallback paths to green the build. See [`.cursor/rules/fix-root-cause-not-workaround.mdc`](.cursor/rules/fix-root-cause-not-workaround.mdc) and [`no-fallbacks.mdc`](.cursor/rules/no-fallbacks.mdc).
 - **Eval entity checks** depend on real `entity_resolution_log` rows from successful enrichment. Root fixes include: `activity_call_log` inserts under the RLS tenant (`tenantUserAsyncLocal`), eval re-enrich kicks with `billingUserId`, corpus reuse only maps fixtures after entity assert/reenrich, and LLM mention extraction with the existing retry pass (not regex bootstrap after `[]`).
 - Add or update a **unit test** for each invariant you fix so the regression cannot return silently.
 
 ## Generalize ingest fixes (no thought-specific patches)
+
 - Capture, enrichment, retrieval, and entity resolution must work for **every thought any user may ingest** — not only the thought currently in logs, eval output, or the operator’s session.
 - A failing or noisy capture is **evidence of a bug class**, not a specification. Do **not** hardcode fixes keyed on a specific `thought_id`, exact normalized/raw text, eval catalog slug, or one-off corpus row.
 - Do **not** add special-case branches like “if text contains X from this capture, do Y.” Prefer language-level rules, ontology contracts, token/span boundaries, and structural invariants that generalize.

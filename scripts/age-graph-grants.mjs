@@ -9,35 +9,33 @@
  */
 
 export function quoteIdent(value) {
-	return `"${String(value).replace(/"/g, '""')}"`;
+  return `"${String(value).replace(/"/g, '""')}"`
 }
 
 /** @param {import('postgres').Sql} sql */
 export async function ensureAgeGraphGrants(sql, input) {
-	const ageGraph = input.ageGraph.trim();
-	const owner = input.owner.trim();
-	const graphSchema = quoteIdent(ageGraph);
-	const ownerIdent = quoteIdent(owner);
+  const ageGraph = input.ageGraph.trim()
+  const owner = input.owner.trim()
+  const graphSchema = quoteIdent(ageGraph)
+  const ownerIdent = quoteIdent(owner)
 
-	await sql.unsafe(`GRANT USAGE ON SCHEMA ag_catalog TO eigen_app`);
-	await sql.unsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO eigen_app`);
-	await sql.unsafe(`GRANT USAGE ON SCHEMA ${graphSchema} TO eigen_app`);
-	await sql.unsafe(`GRANT CREATE ON SCHEMA ${graphSchema} TO eigen_app`);
-	await sql.unsafe(`GRANT ALL PRIVILEGES ON SCHEMA ${graphSchema} TO eigen_app`);
-	await sql.unsafe(
-		`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${graphSchema} TO eigen_app`
-	);
-	await sql.unsafe(
-		`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${graphSchema} TO eigen_app`
-	);
-	await sql.unsafe(`
+  await sql.unsafe(`GRANT USAGE ON SCHEMA ag_catalog TO eigen_app`)
+  await sql.unsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO eigen_app`)
+  await sql.unsafe(`GRANT USAGE ON SCHEMA ${graphSchema} TO eigen_app`)
+  await sql.unsafe(`GRANT CREATE ON SCHEMA ${graphSchema} TO eigen_app`)
+  await sql.unsafe(`GRANT ALL PRIVILEGES ON SCHEMA ${graphSchema} TO eigen_app`)
+  await sql.unsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${graphSchema} TO eigen_app`,
+  )
+  await sql.unsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${graphSchema} TO eigen_app`)
+  await sql.unsafe(`
 		ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerIdent} IN SCHEMA ${graphSchema}
 		  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO eigen_app
-	`);
-	await sql.unsafe(`
+	`)
+  await sql.unsafe(`
 		ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerIdent} IN SCHEMA ${graphSchema}
 		  GRANT USAGE, SELECT ON SEQUENCES TO eigen_app
-	`);
+	`)
 }
 
 /**
@@ -53,40 +51,40 @@ export async function ensureAgeGraphGrants(sql, input) {
  * @param {{ graphSchema: string, appRole: string }} input
  */
 export async function transferGraphOwnership(sql, input) {
-	const graphSchemaName = input.graphSchema.trim();
-	const appRole = input.appRole.trim();
-	const graphSchemaIdent = quoteIdent(graphSchemaName);
-	const appRoleIdent = quoteIdent(appRole);
+  const graphSchemaName = input.graphSchema.trim()
+  const appRole = input.appRole.trim()
+  const graphSchemaIdent = quoteIdent(graphSchemaName)
+  const appRoleIdent = quoteIdent(appRole)
 
-	// Transfer ownership of all tables in the graph schema.
-	const tables = await sql.unsafe(`
+  // Transfer ownership of all tables in the graph schema.
+  const tables = await sql.unsafe(`
 		SELECT tablename
 		FROM pg_tables
 		WHERE schemaname = '${graphSchemaName}'
-	`);
-	for (const { tablename } of tables) {
-		await sql.unsafe(
-			`ALTER TABLE ${graphSchemaIdent}.${quoteIdent(tablename)} OWNER TO ${appRoleIdent}`
-		);
-	}
+	`)
+  for (const { tablename } of tables) {
+    await sql.unsafe(
+      `ALTER TABLE ${graphSchemaIdent}.${quoteIdent(tablename)} OWNER TO ${appRoleIdent}`,
+    )
+  }
 
-	// Transfer ownership of all sequences in the graph schema.
-	const sequences = await sql.unsafe(`
+  // Transfer ownership of all sequences in the graph schema.
+  const sequences = await sql.unsafe(`
 		SELECT sequencename
 		FROM pg_sequences
 		WHERE schemaname = '${graphSchemaName}'
-	`);
-	for (const { sequencename } of sequences) {
-		await sql.unsafe(
-			`ALTER SEQUENCE ${graphSchemaIdent}.${quoteIdent(sequencename)} OWNER TO ${appRoleIdent}`
-		);
-	}
+	`)
+  for (const { sequencename } of sequences) {
+    await sql.unsafe(
+      `ALTER SEQUENCE ${graphSchemaIdent}.${quoteIdent(sequencename)} OWNER TO ${appRoleIdent}`,
+    )
+  }
 
-	// Transfer schema ownership so future objects are also owned by appRole.
-	await sql.unsafe(`ALTER SCHEMA ${graphSchemaIdent} OWNER TO ${appRoleIdent}`);
+  // Transfer schema ownership so future objects are also owned by appRole.
+  await sql.unsafe(`ALTER SCHEMA ${graphSchemaIdent} OWNER TO ${appRoleIdent}`)
 
-	console.log(
-		`[eigen] Graph ownership transferred: ${tables.length} table(s), ` +
-			`${sequences.length} sequence(s) in ${graphSchemaName} → ${appRole}`
-	);
+  console.log(
+    `[eigen] Graph ownership transferred: ${tables.length} table(s), ` +
+      `${sequences.length} sequence(s) in ${graphSchemaName} → ${appRole}`,
+  )
 }

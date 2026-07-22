@@ -1,180 +1,184 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { browser } from "$app/environment";
-  import { afterNavigate } from "$app/navigation";
-  import type { Pathname } from "$app/types";
-  import { base, resolve } from "$app/paths";
-  import { page } from "$app/state";
-  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
-  import Brain from "@lucide/svelte/icons/brain";
-  import Plus from "@lucide/svelte/icons/plus";
-  import "./layout.css";
-  import favicon from "$lib/assets/favicon.png";
-  import { cn } from "$lib/utils";
-  import AppHeader from "$lib/components/app-header.svelte";
-  import { startCaptureQueueRunner } from "$lib/capture/queue";
-  import { startPushNavigationFromServiceWorker } from "$lib/push/navigation-from-sw";
-  import { startThoughtSync } from "$lib/stores/thought-sync";
-  import { initCurrentUserViewStore } from "$lib/stores/current-user-view";
-  import type { AuthorLayerMeta } from "$lib/graph/graph-author-layers";
-  import { getLocale, setLocale } from "$lib/paraglide/runtime";
-  import { m } from "$lib/paraglide/messages.js";
+  import { onMount } from 'svelte'
+  import { browser } from '$app/environment'
+  import { afterNavigate } from '$app/navigation'
+  import type { Pathname } from '$app/types'
+  import { base, resolve } from '$app/paths'
+  import { page } from '$app/state'
+  import MessageSquareText from '@lucide/svelte/icons/message-square-text'
+  import Brain from '@lucide/svelte/icons/brain'
+  import Plus from '@lucide/svelte/icons/plus'
+  import './layout.css'
+  import favicon from '$lib/assets/favicon.png'
+  import { cn } from '$lib/utils'
+  import AppHeader from '$lib/components/app-header.svelte'
+  import { startCaptureQueueRunner } from '$lib/capture/queue'
+  import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
+  import { startThoughtSync } from '$lib/stores/thought-sync'
+  import { initCurrentUserViewStore } from '$lib/stores/current-user-view.svelte'
+  import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
+  import { getLocale, setLocale } from '$lib/paraglide/runtime'
+  import { m } from '$lib/paraglide/messages.js'
   import {
     isPostHogEnabled,
     identify,
     resetPostHog,
     capturePageview,
-  } from "$lib/analytics/posthog-client";
+  } from '$lib/analytics/posthog-client'
 
-  let { children } = $props();
+  let { children } = $props()
 
-  const authPaths = new Set(["/login", "/signup", "/register"]);
+  const authPaths = new Set(['/login', '/signup', '/register'])
 
   function normalizePathname(pathname: string): string {
-    let p = pathname;
+    let p = pathname
     if (base && p.startsWith(base)) {
-      p = p.slice(base.length) || "/";
+      p = p.slice(base.length) || '/'
     }
-    if (p.length > 1 && p.endsWith("/")) {
-      p = p.slice(0, -1);
+    if (p.length > 1 && p.endsWith('/')) {
+      p = p.slice(0, -1)
     }
-    return p || "/";
+    return p || '/'
   }
 
   function isNavItemActive(href: string): boolean {
-    const current = normalizePathname(page.url.pathname);
-    const target = normalizePathname(href);
-    if (current === target) return true;
-    if (target === "/memory") return current.startsWith("/memory");
-    if (target === "/chat") return current.startsWith("/chat");
-    return current.startsWith(`${target}/`);
+    const current = normalizePathname(page.url.pathname)
+    const target = normalizePathname(href)
+    if (current === target) return true
+    if (target === '/memory') return current.startsWith('/memory')
+    if (target === '/chat') return current.startsWith('/chat')
+    return current.startsWith(`${target}/`)
   }
 
   const hideAppChrome = $derived(
     authPaths.has(normalizePathname(page.url.pathname)) ||
       (page.route.id != null && authPaths.has(page.route.id)),
-  );
+  )
 
-  let themePreference = "system";
+  let themePreference = 'system'
+  let lastIdentifiedUserId: string | null | undefined = undefined
+
+  function syncPostHogIdentity() {
+    if (!browser) return
+    const user = (page.data as { user?: { id: string; email?: string; name?: string } | null }).user
+    const isAdmin = (page.data as { isAdmin?: boolean }).isAdmin ?? false
+    if (user?.id) {
+      if (lastIdentifiedUserId === user.id) return
+      identify(user.id, { email: user.email, name: user.name, is_admin: isAdmin })
+      lastIdentifiedUserId = user.id
+    } else if (lastIdentifiedUserId !== null) {
+      resetPostHog()
+      lastIdentifiedUserId = null
+    }
+  }
 
   const bottomNavItems = $derived([
     {
       label: m.nav_memory(),
-      href: "/memory",
+      href: '/memory',
       icon: Brain,
-      variant: "secondary" as const,
+      variant: 'secondary' as const,
     },
     {
       label: m.nav_capture(),
-      href: "/capture",
+      href: '/capture',
       icon: Plus,
-      variant: "primary" as const,
+      variant: 'primary' as const,
     },
     {
       label: m.nav_chat(),
-      href: "/chat",
+      href: '/chat',
       icon: MessageSquareText,
-      variant: "secondary" as const,
+      variant: 'secondary' as const,
     },
-  ]);
-
-  $effect(() => {
-    if (!browser) return;
-    const user = (page.data as { user?: { id: string; email?: string; name?: string } | null }).user;
-    const isAdmin = (page.data as { isAdmin?: boolean }).isAdmin ?? false;
-    if (user?.id) {
-      identify(user.id, { email: user.email, name: user.name, is_admin: isAdmin });
-    } else {
-      resetPostHog();
-    }
-  });
-
-  $effect(() => {
-    if (!browser) return;
-    const user = (page.data as { user?: { id: string } | null }).user;
-    if (!user) return;
-    const layers = (page.data as { authorLayers?: AuthorLayerMeta[] }).authorLayers ?? [];
-    initCurrentUserViewStore(layers);
-  });
+  ])
 
   onMount(() => {
-    const posthogReady = isPostHogEnabled();
+    syncPostHogIdentity()
+    const layoutUser = (page.data as { user?: { id: string } | null }).user
+    if (layoutUser) {
+      const layers = (page.data as { authorLayers?: AuthorLayerMeta[] }).authorLayers ?? []
+      initCurrentUserViewStore(layers)
+    }
+
+    const posthogReady = isPostHogEnabled()
     if (posthogReady) {
-      const initialPath = normalizePathname(page.url.pathname);
+      const initialPath = normalizePathname(page.url.pathname)
       if (!authPaths.has(initialPath)) {
-        capturePageview(initialPath);
+        capturePageview(initialPath)
       }
     }
     afterNavigate((nav) => {
-      const path = normalizePathname(nav.to?.url.pathname ?? page.url.pathname);
+      syncPostHogIdentity()
+      const path = normalizePathname(nav.to?.url.pathname ?? page.url.pathname)
       if (!authPaths.has(path)) {
-        capturePageview(path);
+        capturePageview(path)
       }
-    });
+    })
 
-    const stopPushNavigation = startPushNavigationFromServiceWorker();
+    const stopPushNavigation = startPushNavigationFromServiceWorker()
 
     if ((page.data as { user?: { id: string } | null }).user) {
-      startCaptureQueueRunner();
-      startThoughtSync();
+      startCaptureQueueRunner()
+      startThoughtSync()
     }
 
-    const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale;
+    const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale
     if (preferredUiLocale && getLocale() !== preferredUiLocale) {
-      setLocale(preferredUiLocale as "en" | "de");
+      setLocale(preferredUiLocale as 'en' | 'de')
     }
 
     void (async () => {
       try {
-        const { pwaInfo } = await import("virtual:pwa-info");
-        if (!pwaInfo) return;
-        const { registerSW } = await import("virtual:pwa-register");
-        registerSW({ immediate: true });
+        const { pwaInfo } = await import('virtual:pwa-info')
+        if (!pwaInfo) return
+        const { registerSW } = await import('virtual:pwa-register')
+        registerSW({ immediate: true })
       } catch {
         /* PWA plugin unavailable (e.g. test env) */
       }
-    })();
+    })()
 
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
     const syncThemeColorMeta = () => {
-      const meta = document.getElementById("theme-color-meta");
-      if (!meta) return;
+      const meta = document.getElementById('theme-color-meta')
+      if (!meta) return
       const themeColor = getComputedStyle(document.documentElement)
-        .getPropertyValue("--theme-color")
-        .trim();
-      if (themeColor) meta.setAttribute("content", themeColor);
-    };
+        .getPropertyValue('--theme-color')
+        .trim()
+      if (themeColor) meta.setAttribute('content', themeColor)
+    }
 
     const applyTheme = (isDark: boolean) => {
-      document.documentElement.classList.toggle("dark", isDark);
-      document.documentElement.style.colorScheme = isDark ? "dark" : "light";
-      syncThemeColorMeta();
-    };
+      document.documentElement.classList.toggle('dark', isDark)
+      document.documentElement.style.colorScheme = isDark ? 'dark' : 'light'
+      syncThemeColorMeta()
+    }
     const applyThemePreference = (preference: string) => {
-      themePreference = preference;
-      const useDark = preference === "dark" || (preference === "system" && media.matches);
-      applyTheme(useDark);
-    };
-    const savedPreference = localStorage.getItem("theme-preference") ?? "system";
-    applyThemePreference(savedPreference);
+      themePreference = preference
+      const useDark = preference === 'dark' || (preference === 'system' && media.matches)
+      applyTheme(useDark)
+    }
+    const savedPreference = localStorage.getItem('theme-preference') ?? 'system'
+    applyThemePreference(savedPreference)
 
     const handleChange = (event: MediaQueryListEvent) => {
-      if (themePreference === "system") {
-        applyTheme(event.matches);
+      if (themePreference === 'system') {
+        applyTheme(event.matches)
       }
-    };
+    }
     const handlePreferenceChange = (event: Event) => {
-      const customEvent = event as CustomEvent<{ preference?: string }>;
-      applyThemePreference(customEvent.detail?.preference ?? "system");
-    };
-    media.addEventListener("change", handleChange);
-    window.addEventListener("theme-preference-change", handlePreferenceChange);
+      const customEvent = event as CustomEvent<{ preference?: string }>
+      applyThemePreference(customEvent.detail?.preference ?? 'system')
+    }
+    media.addEventListener('change', handleChange)
+    window.addEventListener('theme-preference-change', handlePreferenceChange)
     return () => {
-      stopPushNavigation();
-      media.removeEventListener("change", handleChange);
-      window.removeEventListener("theme-preference-change", handlePreferenceChange);
-    };
-  });
+      stopPushNavigation()
+      media.removeEventListener('change', handleChange)
+      window.removeEventListener('theme-preference-change', handlePreferenceChange)
+    }
+  })
 </script>
 
 <svelte:head>
@@ -213,20 +217,20 @@
     <div class="relative z-10 flex flex-row items-center justify-between gap-2 px-4 pb-safe">
       {#each bottomNavItems as item}
         {@const isActive = isNavItemActive(item.href)}
-        <div class={cn("relative", item.variant === "primary" ? "min-h-10 flex-1" : "shrink-0")}>
+        <div class={cn('relative', item.variant === 'primary' ? 'min-h-10 flex-1' : 'shrink-0')}>
           <a
             href={resolve(item.href as Pathname)}
             class={cn(
-              "flex items-center justify-center",
-              item.variant === "primary"
-                ? "w-full rounded-full bg-primary py-4 text-primary-foreground shadow-md dark:border dark:border-white/15 dark:bg-black/70 dark:text-white dark:shadow-none dark:backdrop-blur-md dark:hover:bg-black/80"
-                : "size-10 rounded-full border border-transparent bg-black text-white hover:bg-black/90 dark:border-white/15 dark:bg-black/70 dark:text-white dark:backdrop-blur-md dark:hover:bg-black/80",
+              'flex items-center justify-center',
+              item.variant === 'primary'
+                ? 'w-full rounded-full bg-primary py-4 text-primary-foreground shadow-md dark:border dark:border-white/15 dark:bg-black/70 dark:text-white dark:shadow-none dark:backdrop-blur-md dark:hover:bg-black/80'
+                : 'size-10 rounded-full border border-transparent bg-black text-white hover:bg-black/90 dark:border-white/15 dark:bg-black/70 dark:text-white dark:backdrop-blur-md dark:hover:bg-black/80',
             )}
             aria-label={item.label}
-            aria-current={isActive ? "page" : undefined}
+            aria-current={isActive ? 'page' : undefined}
           >
             <item.icon
-              class={cn("size-4.5", isActive && "text-[var(--color-eigen-green)]")}
+              class={cn('size-4.5', isActive && 'text-[var(--color-eigen-green)]')}
               strokeWidth={1.75}
             />
           </a>
