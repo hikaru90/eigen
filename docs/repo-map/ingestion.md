@@ -31,7 +31,7 @@
 ### Tier 1 — [`queue-capture.ts`](../../src/lib/server/capture/queue-capture.ts)
 
 - **PublicSymbols:** `queueCapture`, `claimNextPendingThought`, `markEnrichQueueComplete`, `markEnrichQueueFailed`.
-- **Purpose:** Hot path text-only insert; row is the queue.
+- **Purpose:** Hot path text-only insert; row is the queue. `capture_session` + `thought` inserts commit in **one transaction**. The AGE `Thought` anchor upsert is **best-effort**: on failure the capture still succeeds and the worker is scheduled — tier-2 enrich always re-ensures the anchor via `entity-graph-sync` (idempotent MERGE). The failure is logged loudly, never swallowed.
 
 ### Tier 2 — enrich worker + context
 

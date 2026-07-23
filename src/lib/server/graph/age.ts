@@ -16,7 +16,6 @@ export type {
   GraphVizNode,
   GraphVizNodeKind,
   TemporalContextHit,
-  TemporalSchedulingConflictGraphHit,
 } from './graph-contract'
 import type {
   EntityThoughtHit,
@@ -24,7 +23,6 @@ import type {
   GraphVizEdgeKind,
   GraphVizNode,
   TemporalContextHit,
-  TemporalSchedulingConflictGraphHit,
 } from './graph-contract'
 
 type CoMentionEdgeRow = {
@@ -1020,74 +1018,6 @@ export async function expandContextFromTemporalEventSeeds(input: {
       }))
       .sort((a, b) => b.hits - a.hits)
       .slice(0, input.limit)
-  })
-}
-
-/**
- * Temporal graph: overlapping Event nodes sharing a person entity with distinct place entities.
- */
-export async function findTemporalSchedulingConflictsInGraph(
-  userId: string,
-): Promise<TemporalSchedulingConflictGraphHit[]> {
-  return runGraphQueryWithRetry(userId, 'age.temporal_scheduling_conflicts', async () => {
-    const rows = await runTenantScopedCypher(
-      userId,
-      `
-			MATCH (e1:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person:Entity {user_id: $user_id}),
-			      (e2:Event {user_id: $user_id})-[:INVOLVES {user_id: $user_id}]->(person)
-			WHERE e1.id < e2.id
-			  AND person.entity_type = 'person'
-			  AND e1.start_at < e2.end_at
-			  AND e2.start_at < e1.end_at
-			MATCH (e1)-[:INVOLVES {user_id: $user_id}]->(place1:Entity {user_id: $user_id}),
-			      (e2)-[:INVOLVES {user_id: $user_id}]->(place2:Entity {user_id: $user_id})
-			WHERE place1.entity_type = 'place'
-			  AND place2.entity_type = 'place'
-			  AND place1.id <> place2.id
-			MATCH (t1:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(e1)
-			MATCH (t2:Thought {user_id: $user_id})-[:OCCURS_IN {user_id: $user_id}]->(e2)
-			RETURN
-			  person.id AS person_entity_id,
-			  person.label AS person_label,
-			  place1.id AS place1_entity_id,
-			  place1.label AS place1_label,
-			  place2.id AS place2_entity_id,
-			  place2.label AS place2_label,
-			  e1.id AS event1_id,
-			  e2.id AS event2_id,
-			  e1.label AS event1_label,
-			  e2.label AS event2_label,
-			  t1.id AS thought1_id,
-			  t2.id AS thought2_id
-			`,
-      { user_id: userId },
-      'person_entity_id agtype, person_label agtype, place1_entity_id agtype, place1_label agtype, place2_entity_id agtype, place2_label agtype, event1_id agtype, event2_id agtype, event1_label agtype, event2_label agtype, thought1_id agtype, thought2_id agtype',
-    )
-
-    const hits: TemporalSchedulingConflictGraphHit[] = []
-    for (const row of rows) {
-      const personEntityId = typeof row.person_entity_id === 'string' ? row.person_entity_id : ''
-      const thought1Id = typeof row.thought1_id === 'string' ? row.thought1_id : ''
-      const thought2Id = typeof row.thought2_id === 'string' ? row.thought2_id : ''
-      const event1Id = typeof row.event1_id === 'string' ? row.event1_id : ''
-      const event2Id = typeof row.event2_id === 'string' ? row.event2_id : ''
-      if (!personEntityId || !thought1Id || !thought2Id || !event1Id || !event2Id) continue
-      hits.push({
-        personEntityId,
-        personLabel: typeof row.person_label === 'string' ? row.person_label : '',
-        place1EntityId: typeof row.place1_entity_id === 'string' ? row.place1_entity_id : '',
-        place1Label: typeof row.place1_label === 'string' ? row.place1_label : '',
-        place2EntityId: typeof row.place2_entity_id === 'string' ? row.place2_entity_id : '',
-        place2Label: typeof row.place2_label === 'string' ? row.place2_label : '',
-        event1Id,
-        event2Id,
-        event1Label: typeof row.event1_label === 'string' ? row.event1_label : '',
-        event2Label: typeof row.event2_label === 'string' ? row.event2_label : '',
-        thought1Id,
-        thought2Id,
-      })
-    }
-    return hits
   })
 }
 

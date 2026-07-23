@@ -1,14 +1,58 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDrawScheduler,
+  drawGraphCanvasScene,
   findNearestGraphNode,
   popInNodeScale,
   roundTripScreenWorld,
   screenToWorld,
   type FrameScheduler,
   type GraphCanvasNode,
+  type GraphCanvasScene,
   worldToScreen,
 } from './graph-canvas-render'
+
+/** Minimal ctx that records paint ops so we can assert label z-order. */
+function recordingCanvasContext() {
+  const ops: string[] = []
+  const ctx = {
+    ops,
+    save() {},
+    restore() {},
+    setTransform() {},
+    clearRect() {},
+    translate() {},
+    scale() {},
+    beginPath() {},
+    arc() {
+      ops.push('arc')
+    },
+    moveTo() {},
+    lineTo() {},
+    fill() {
+      ops.push('fill')
+    },
+    stroke() {
+      ops.push('stroke')
+    },
+    fillText(text: string) {
+      ops.push(`fillText:${text}`)
+    },
+    createRadialGradient() {
+      return { addColorStop() {} }
+    },
+    setLineDash() {},
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    globalAlpha: 1,
+    font: '',
+    textBaseline: 'alphabetic' as CanvasTextBaseline,
+    shadowColor: '',
+    shadowBlur: 0,
+  }
+  return ctx as unknown as CanvasRenderingContext2D & { ops: string[] }
+}
 
 describe('screenToWorld / worldToScreen', () => {
   const transform = { k: 2, x: 100, y: 50 }
@@ -73,5 +117,45 @@ describe('createDrawScheduler', () => {
     queued[0]()
     expect(count).toBe(1)
     scheduler.dispose()
+  })
+})
+
+describe('drawGraphCanvasScene label paint order', () => {
+  it('draws every node label after every node body so labels are never under a neighboring node', () => {
+    const ctx = recordingCanvasContext()
+    const scene: GraphCanvasScene = {
+      width: 200,
+      height: 200,
+      dpr: 1,
+      transform: { k: 1, x: 0, y: 0 },
+      zoomScale: 1,
+      hulls: [],
+      links: [],
+      nodes: [
+        { id: 'a', x: 0, y: 0, radius: 8, fill: '#fff', label: 'Alpha', selected: false },
+        { id: 'b', x: 10, y: 0, radius: 8, fill: '#fff', label: 'Beta', selected: false },
+      ],
+      popIns: [],
+      nowMs: 0,
+      theme: {
+        edgeColor: '#000',
+        edgeOpacity: 0.35,
+        nodeStrokeColor: '#000',
+        labelColor: '#000',
+        selectedStroke: '#fbbf24',
+      },
+    }
+
+    drawGraphCanvasScene(ctx, scene)
+
+    const firstLabel = ctx.ops.findIndex((op) => op.startsWith('fillText:'))
+    expect(firstLabel).toBeGreaterThan(-1)
+    const fillsBeforeLabels = ctx.ops.slice(0, firstLabel).filter((op) => op === 'fill')
+    // One filled arc body per node must precede any label paint.
+    expect(fillsBeforeLabels.length).toBeGreaterThanOrEqual(2)
+    expect(ctx.ops.filter((op) => op.startsWith('fillText:'))).toEqual([
+      'fillText:Alpha',
+      'fillText:Beta',
+    ])
   })
 })

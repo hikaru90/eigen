@@ -23,6 +23,7 @@ const hasDb = Boolean(process.env.DATABASE_URL)
 
 describe.skipIf(!hasDb)('activeThoughtLifecycleCondition metadata guard', () => {
   let withEvalDb: typeof import('../../../../evals/harness/eval-context').withEvalDb
+  let withOperatorDb: typeof import('../../../../evals/harness/eval-context').withOperatorDb
   let listThoughts: typeof import('$lib/server/capture/service').listThoughts
 
   const suffix = `lifecycle_meta_${Date.now().toString(36)}`
@@ -31,9 +32,10 @@ describe.skipIf(!hasDb)('activeThoughtLifecycleCondition metadata guard', () => 
   beforeAll(async () => {
     const ctx = await import('../../../../evals/harness/eval-context')
     withEvalDb = ctx.withEvalDb
+    withOperatorDb = ctx.withOperatorDb
     ;({ listThoughts } = await import('$lib/server/capture/service'))
 
-    await withEvalDb(userId, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: userId,
         name: 'Lifecycle Meta',
@@ -42,10 +44,14 @@ describe.skipIf(!hasDb)('activeThoughtLifecycleCondition metadata guard', () => 
         onboardingCompleted: true,
       })
     })
+
+    // thought_user_category_ontology_fk requires a seeded ontology for the user.
+    const { ensureUserOntologySeeded } = await import('$lib/server/ontology-db')
+    await withEvalDb(userId, async (db) => ensureUserOntologySeeded(db, userId))
   })
 
   afterAll(async () => {
-    await withEvalDb(userId, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.delete(user).where(eq(user.id, userId))
     }).catch(() => undefined)
   })

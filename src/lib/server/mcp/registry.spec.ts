@@ -21,23 +21,33 @@ const TEXT_NOTE_TOOLS = [
 ] as const
 
 describe('MCP tool registry exposure', () => {
-  it('exposes only the four client memory tools over HTTP MCP', () => {
+  it('exposes memory CRUD plus project timeline tools over HTTP MCP', () => {
     expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toEqual([
       'capture_thought',
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',
+      'list_projects',
+      'get_project_timeline',
+      'order_task_in_project',
+      'set_project_milestone',
+      'set_project_deadline',
     ])
     expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES)
   })
 
-  it('gives the in-app chat agent thought CRUD, grounded Q&A, plus text-note tools', () => {
+  it('gives the in-app chat agent thought CRUD, grounded Q&A, project timeline, plus text-note tools', () => {
     expect(MCP_AGENT_TOOL_NAMES).toEqual([
       'capture_thought',
       'answer_question',
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',
+      'list_projects',
+      'get_project_timeline',
+      'order_task_in_project',
+      'set_project_milestone',
+      'set_project_deadline',
       ...TEXT_NOTE_TOOLS,
     ])
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)

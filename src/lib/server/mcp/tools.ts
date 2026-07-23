@@ -9,7 +9,7 @@ import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
-import { readThoughtIdFromToolArgs, validateSearchParams } from '$lib/server/validation/mcp-args'
+import { readThoughtIdFromToolArgs, validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args'
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 import { thoughtSnippet } from '$lib/server/mcp/snippet'
@@ -34,6 +34,13 @@ import {
   resolveMcpCaptureAuthorship,
   type AuthenticatedApiKey,
 } from '$lib/server/memory/authorship'
+import { listProjectsForUser } from '$lib/server/memory/project-list'
+import { orderTaskInProject } from '$lib/server/memory/project-task-sequence'
+import {
+  listMilestonesForProject,
+  setProjectDeadline,
+  setProjectMilestone,
+} from '$lib/server/memory/project-timeline'
 
 export type McpToolProgress = {
   tool: string
@@ -638,4 +645,175 @@ export async function runUnlinkTextFileFromThoughtTool(context: McpToolContext, 
   const unlinked = await unlinkTextFileFromThought(context.userId, thoughtId, textFileId)
   if (!unlinked) throw new Error('Attachment link not found')
   return sanitizeMcpToolResult({ unlinked: true, thoughtId, textFileId })
+}
+
+export async function runListProjectsTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const authorScope =
+    body.author === 'all' || body.include_agent === true
+      ? 'all'
+      : body.author === 'agent'
+        ? 'all'
+        : 'user'
+  const projects = await listProjectsForUser(context.userId, { authorScope })
+  return sanitizeMcpToolResult({
+    count: projects.length,
+    projects: projects.map((project) => ({
+      entityId: project.entityId,
+      label: project.label,
+      status: project.status,
+      source: project.source,
+      openTaskCount: project.openTaskCount,
+      targetDate: project.targetDate,
+      nextAction: project.nextAction,
+      tasks: project.tasks,
+      milestones: project.milestones,
+    })),
+  })
+}
+
+export async function runGetProjectTimelineTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityIdRaw =
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : ''
+  const projectEntityId = validateNonEmptyEntityId(projectEntityIdRaw, 'project_entity_id')
+  const projects = await listProjectsForUser(context.userId, { authorScope: 'all' })
+  const project = projects.find((p) => p.entityId === projectEntityId)
+  if (!project) throw new Error('Project not found')
+  const milestones = await listMilestonesForProject(context.userId, projectEntityId)
+  return sanitizeMcpToolResult({
+    project: {
+      entityId: project.entityId,
+      label: project.label,
+      status: project.status,
+      source: project.source,
+      openTaskCount: project.openTaskCount,
+      targetDate: project.targetDate,
+      nextAction: project.nextAction,
+      tasks: project.tasks,
+      milestones,
+    },
+  })
+}
+
+export async function runOrderTaskInProjectTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityId = validateNonEmptyEntityId(
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : '',
+    'project_entity_id',
+  )
+  const thoughtId = validateNonEmptyEntityId(
+    typeof body.thought_id === 'string'
+      ? body.thought_id
+      : typeof body.thoughtId === 'string'
+        ? body.thoughtId
+        : '',
+    'thought_id',
+  )
+  const afterThoughtIdRaw =
+    typeof body.after_thought_id === 'string'
+      ? body.after_thought_id
+      : typeof body.afterThoughtId === 'string'
+        ? body.afterThoughtId
+        : body.after_thought_id === null || body.afterThoughtId === null
+          ? null
+          : undefined
+  const rankRaw = body.rank
+  const rank =
+    typeof rankRaw === 'number' && Number.isFinite(rankRaw) ? Math.floor(rankRaw) : undefined
+
+  const result = await orderTaskInProject({
+    userId: context.userId,
+    projectEntityId,
+    thoughtId,
+    afterThoughtId: afterThoughtIdRaw,
+    rank,
+  })
+  return sanitizeMcpToolResult(result)
+}
+
+export async function runSetProjectMilestoneTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityId = validateNonEmptyEntityId(
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : '',
+    'project_entity_id',
+  )
+  const label = typeof body.label === 'string' ? body.label : ''
+  const milestoneId =
+    typeof body.milestone_id === 'string'
+      ? body.milestone_id
+      : typeof body.milestoneId === 'string'
+        ? body.milestoneId
+        : undefined
+  const targetDate =
+    typeof body.target_date === 'string'
+      ? body.target_date
+      : typeof body.targetDate === 'string'
+        ? body.targetDate
+        : body.target_date === null || body.targetDate === null
+          ? null
+          : undefined
+  const linkedThoughtId =
+    typeof body.linked_thought_id === 'string'
+      ? body.linked_thought_id
+      : typeof body.linkedThoughtId === 'string'
+        ? body.linkedThoughtId
+        : body.linked_thought_id === null || body.linkedThoughtId === null
+          ? null
+          : undefined
+  const rank = typeof body.rank === 'number' && Number.isFinite(body.rank) ? body.rank : undefined
+  const completed = typeof body.completed === 'boolean' ? body.completed : undefined
+
+  const milestone = await setProjectMilestone({
+    userId: context.userId,
+    projectEntityId,
+    ...(milestoneId ? { milestoneId } : {}),
+    label,
+    ...(targetDate !== undefined ? { targetDate } : {}),
+    ...(linkedThoughtId !== undefined ? { linkedThoughtId } : {}),
+    ...(rank !== undefined ? { rank } : {}),
+    ...(completed !== undefined ? { completed } : {}),
+  })
+  return sanitizeMcpToolResult({ milestone })
+}
+
+export async function runSetProjectDeadlineTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityId = validateNonEmptyEntityId(
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : '',
+    'project_entity_id',
+  )
+  const targetDateRaw =
+    typeof body.target_date === 'string'
+      ? body.target_date
+      : typeof body.targetDate === 'string'
+        ? body.targetDate
+        : body.target_date === null || body.targetDate === null
+          ? null
+          : undefined
+  if (targetDateRaw === undefined) {
+    throw new Error('target_date is required (ISO-8601 string or null)')
+  }
+  const result = await setProjectDeadline({
+    userId: context.userId,
+    projectEntityId,
+    targetDate: targetDateRaw,
+  })
+  return sanitizeMcpToolResult(result)
 }

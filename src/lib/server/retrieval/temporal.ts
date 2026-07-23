@@ -48,14 +48,6 @@ export function resolveQueryTimeRange(
   return intent?.timeWindow ?? null
 }
 
-/** @deprecated Use resolveQueryTimeRange with LLM intent. */
-export function inferQueryTimeRange(
-  _query: string,
-  _referenceDate: Date = new Date(),
-): { start: Date; end: Date } | null {
-  return null
-}
-
 function toVectorLiteral(vector: number[]): string {
   return `[${vector.join(',')}]`
 }

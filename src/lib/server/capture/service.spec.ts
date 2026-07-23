@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hints'
 import {
   captureThought,
   normalizeThoughtText,
-  persistCapturedThought,
   editStoredThought,
   setThoughtLifecycleStatus,
   relinkThoughtGraph,
@@ -163,110 +160,6 @@ describe('toPgVectorLiteral', () => {
   })
 })
 
-describe('persistCapturedThought', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    upsertThoughtNodeMock.mockResolvedValue(undefined)
-    vi.mocked(encryptTenantValue).mockImplementation(
-      async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`,
-    )
-  })
-
-  it('persists session + thought, anchors graph, and returns count', async () => {
-    const progress: string[] = []
-    getDbMock.mockReturnValue(makeCaptureDb({ thoughtCountAfterInsert: 3 }))
-
-    const result = await persistCapturedThought({
-      userId: 'u1',
-      rawInput: 'raw input',
-      normalized: 'raw input',
-      metadata: { pipeline: 'ontology_llm_v1' },
-      category: 'task',
-      ontologyEntityKindId: 'kind-1',
-      embedding: [0.1, 0.2],
-      ingestKnownEntities: [{ label: 'Eigen', entityType: 'organization' }],
-      onProgress: async (event) => {
-        if (!event.parallel) progress.push(event.phase)
-      },
-    })
-
-    expect(result.stored.id).toBe('thought-1')
-    expect(result.thoughtCountAfterInsert).toBe(3)
-    expect(result.ingestKnownEntities).toEqual([{ label: 'Eigen', entityType: 'organization' }])
-    expect(upsertThoughtNodeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'thought-1', userId: 'u1', category: 'task' }),
-    )
-    expect(progress).toEqual(['session', 'persist', 'graph'])
-  })
-
-  it('records near-duplicate metadata when distance is below threshold', async () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
-    getDbMock.mockReturnValue(
-      makeCaptureDb({
-        nearestDuplicate: {
-          id: 'existing-1',
-          normalizedText: 'almost the same thought body',
-          distance: 0.02,
-        },
-      }),
-    )
-
-    await persistCapturedThought({
-      userId: 'u1',
-      rawInput: 'raw input',
-      normalized: 'raw input',
-      metadata: { pipeline: 'ontology_llm_v1' },
-      category: 'task',
-      ontologyEntityKindId: 'kind-1',
-      embedding: [0.1, 0.2],
-      ingestKnownEntities: [],
-    })
-
-    expect(infoSpy).toHaveBeenCalledWith(
-      '[capture.dedup] near-duplicate detected',
-      expect.objectContaining({ existingId: 'existing-1', distance: 0.02 }),
-    )
-    expect(encryptTenantValue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        column: 'metadata',
-        plaintext: expect.stringContaining('"nearDuplicate"'),
-      }),
-    )
-    infoSpy.mockRestore()
-  })
-
-  it('continues when dedup query fails', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    getDbMock.mockReturnValue(makeCaptureDb({ dedupFails: true }))
-
-    const result = await persistCapturedThought({
-      userId: 'u1',
-      rawInput: 'raw input',
-      normalized: 'raw input',
-      metadata: { pipeline: 'ontology_llm_v1' },
-      category: 'task',
-      ontologyEntityKindId: 'kind-1',
-      embedding: [0.1, 0.2],
-      ingestKnownEntities: [],
-    })
-
-    expect(result.stored.id).toBe('thought-1')
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[capture.dedup] dedup check failed, proceeding',
-      expect.objectContaining({ message: 'dedup query failed' }),
-    )
-    warnSpy.mockRestore()
-  })
-})
-
-function makeInsertReturning(value: unknown) {
-  return {
-    values: vi.fn(() => ({
-      returning: vi.fn(async () => [value]),
-    })),
-  }
-}
-
 /** Drizzle where mock: `.limit()` for single-row loads; bare await for multi-row cascades. */
 function thenableWhere(limitRows: unknown[], awaitRows: unknown[] = []) {
   return {
@@ -295,66 +188,6 @@ function makeLifecycleEditDb(existing: Record<string, unknown>, updated?: Record
             },
           ]),
         })),
-      })),
-    })),
-  }
-}
-
-function makeCaptureDb(
-  overrides: {
-    thoughtCountAfterInsert?: number
-    nearestDuplicate?: { id: string; normalizedText: string; distance: number }
-    dedupFails?: boolean
-  } = {},
-) {
-  const thoughtCount = overrides.thoughtCountAfterInsert ?? 1
-  const sessionRow = { id: 'session-1' }
-  const thoughtRow = {
-    id: 'thought-1',
-    userId: 'u1',
-    rawText: 'raw input',
-    normalizedText: 'raw input',
-    lexicalText: 'raw input',
-    category: 'task',
-    metadata: {},
-  }
-  const insertCapture = makeInsertReturning(sessionRow)
-  const insertThought = makeInsertReturning(thoughtRow)
-  const tx = {
-    insert: vi.fn((table: unknown) => {
-      if (
-        table &&
-        typeof table === 'object' &&
-        'sourceThoughtId' in (table as Record<string, unknown>)
-      ) {
-        return { values: vi.fn(async () => []) }
-      }
-      return insertThought
-    }),
-    delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
-  }
-  const dedupLimit = vi.fn(async () => {
-    if (overrides.dedupFails) {
-      throw new Error('dedup query failed')
-    }
-    return overrides.nearestDuplicate ? [overrides.nearestDuplicate] : []
-  })
-  return {
-    insert: vi.fn(() => insertCapture),
-    transaction: vi.fn(async (cb: (txArg: unknown) => unknown) => cb(tx)),
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => {
-          const countResult = thoughtCount > 0 ? [{ n: thoughtCount }] : []
-          return {
-            orderBy: vi.fn().mockReturnValue({
-              limit: dedupLimit,
-            }),
-            limit: vi.fn(async () => countResult),
-            then: (onfulfilled: (v: typeof countResult) => unknown) =>
-              Promise.resolve(countResult).then(onfulfilled),
-          }
-        }),
       })),
     })),
   }

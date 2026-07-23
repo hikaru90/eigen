@@ -3,7 +3,7 @@
  */
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
+import { getDb, withDbUser } from '$lib/server/db'
 import { communityMember, graphCommunity, thoughtEntity } from '$lib/server/db/schema'
 import { buildCommunityBundle } from './community-bundles'
 import { COMMUNITY_MID_LEVEL } from './community-levels'
@@ -79,18 +79,20 @@ export async function refreshDirtyCommunitiesForUser(userId: string): Promise<{
   return { bundlesRefreshed, summariesTriggered: dirty.length > 0 }
 }
 
-/** Schedule incremental refresh after enrich (non-blocking). */
+/**
+ * Schedule incremental refresh after enrich (non-blocking). Self-wraps its own tenant
+ * connection: the detached task may outlive the caller's reserved connection, and under
+ * FORCE RLS an expired tenant session silently reads/writes zero rows.
+ */
 export function scheduleIncrementalConsolidation(userId: string, thoughtId: string): void {
-  void (async () => {
-    try {
-      await markCommunitiesDirtyForThought(userId, thoughtId)
-      await refreshDirtyCommunitiesForUser(userId)
-    } catch (err) {
-      console.warn('[incremental-consolidation] refresh failed', {
-        userId,
-        thoughtId,
-        message: err instanceof Error ? err.message : String(err),
-      })
-    }
-  })()
+  void withDbUser(userId, async () => {
+    await markCommunitiesDirtyForThought(userId, thoughtId)
+    await refreshDirtyCommunitiesForUser(userId)
+  }).catch((err) => {
+    console.warn('[incremental-consolidation] refresh failed', {
+      userId,
+      thoughtId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+  })
 }

@@ -2,7 +2,7 @@ import { type ProjectStatus } from '$lib/server/db/schema'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { m } from '$lib/paraglide/messages.js'
-import { loadEligibleGtdProjects } from '$lib/server/memory/project-list'
+import { listEligibleProjectsForAssignment } from '$lib/server/memory/project-list'
 import {
   designateNextAction,
   linkThoughtToProject,
@@ -36,9 +36,9 @@ function extractChatContent(response: unknown): string {
   return content
 }
 
-/** @deprecated Use loadEligibleGtdProjects from project-list. */
+/** @deprecated Use listEligibleProjectsForAssignment from project-list. */
 export async function loadGtdProjectOptions(userId: string): Promise<GtdProjectOption[]> {
-  const rows = await loadEligibleGtdProjects(userId)
+  const rows = await listEligibleProjectsForAssignment(userId)
   return rows.map((row) => ({
     entityId: row.entityId,
     label: row.label,
@@ -136,7 +136,7 @@ export async function applyGtdAssignment(input: {
     return null
   }
 
-  const projects = await loadEligibleGtdProjects(input.userId)
+  const projects = await listEligibleProjectsForAssignment(input.userId)
   if (projects.length === 0) return null
 
   const assignment = await extractGtdAssignment({

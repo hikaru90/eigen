@@ -56,9 +56,10 @@ jobs:
     name: Coverage report (thresholds not yet merge-blocking)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Thresholds in vite.config.ts are the product target (95%/80%) but the tree
-    # is currently below them (~75% critical). Report the gap without blocking
-    # merges; raise coverage and flip this to a required check when green.
+    # Thresholds in vite.config.ts are the product target (95%/80%) but floors are
+    # ratcheted to current measured coverage (~89% lines / ~77% branches critical).
+    # Report the gap without blocking merges; raise floors toward the target and
+    # flip this to a required check when green.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4

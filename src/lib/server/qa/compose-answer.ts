@@ -39,11 +39,6 @@ import {
   normalizeRetrievalScore,
 } from '$lib/server/retrieval/rrf-scoring'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
-import {
-  findTemporalSchedulingConflicts,
-  formatTemporalConflictsForPrompt,
-  isSchedulingConflictQuery,
-} from '$lib/server/retrieval/temporal-conflicts'
 import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
 import { loadTemporalContextByThoughtIds } from '$lib/server/memory/temporal-context'
 import {
@@ -172,26 +167,6 @@ type SearchHit = Awaited<ReturnType<typeof searchThoughts>>[number]
  */
 export function extractRetrievalHints(_question: string): string | undefined {
   return undefined
-}
-
-/**
- * XXX REMOVED — regex/keyword contradiction detection (polarity, location, topic clusters).
- * Contradictions come from persisted thought_relation rows (LLM ingest) only.
- */
-export function detectContradictions(_items: RetrievalContextItem[]): ConflictPair[] {
-  return []
-}
-
-function mergeConflictPairs(a: ConflictPair[], b: ConflictPair[]): ConflictPair[] {
-  const seen = new Set<string>()
-  const merged: ConflictPair[] = []
-  for (const pair of [...a, ...b]) {
-    const key = [...pair.ids].sort().join('::')
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push(pair)
-  }
-  return merged
 }
 
 /** Contradictions persisted during enrichment (`thought_relation.relation_type`). */
@@ -521,91 +496,6 @@ async function hydrateTemporalContextForThoughts(input: {
   })
 }
 
-async function hydrateConflictThoughts(input: {
-  userId: string
-  contextItems: RetrievalContextItem[]
-  conflictThoughtIds: string[]
-  now: Date
-}): Promise<RetrievalContextItem[]> {
-  const present = new Set(input.contextItems.map((c) => c.id))
-  const missing = input.conflictThoughtIds.filter((id) => !present.has(id))
-  if (missing.length === 0) return input.contextItems
-
-  const rows = await getDb()
-    .select({
-      id: thought.id,
-      normalizedText: thought.normalizedText,
-      normalizedTextEncrypted: thought.normalizedTextEncrypted,
-      category: thought.category,
-      memoryType: thought.memoryType,
-      metadata: thought.metadata,
-      metadataEncrypted: thought.metadataEncrypted,
-      createdAt: thought.createdAt,
-    })
-    .from(thought)
-    .where(and(eq(thought.userId, input.userId), inArray(thought.id, missing)))
-  const decryptedRows = await Promise.all(
-    rows.map(async (row) => {
-      const [normalizedText, metadataJson] = await Promise.all([
-        row.normalizedTextEncrypted
-          ? decryptTenantValue({
-              userId: input.userId,
-              table: 'thought',
-              column: 'normalized_text',
-              ciphertext: row.normalizedTextEncrypted,
-            })
-          : Promise.resolve(row.normalizedText),
-        row.metadataEncrypted
-          ? decryptTenantValue({
-              userId: input.userId,
-              table: 'thought',
-              column: 'metadata',
-              ciphertext: row.metadataEncrypted,
-            })
-          : Promise.resolve(JSON.stringify(row.metadata ?? {})),
-      ])
-      return {
-        ...row,
-        normalizedText,
-        metadata: JSON.parse(metadataJson) as Record<string, unknown>,
-      }
-    }),
-  )
-
-  const hydrated: RetrievalContextItem[] = decryptedRows.map((row) => ({
-    id: row.id,
-    normalizedText: row.normalizedText,
-    category: row.category,
-    score: 1,
-    vectorScore: 0,
-    graphScore: 1,
-    createdAt: row.createdAt,
-    isStale: isThoughtStaleByAge({
-      createdAt: row.createdAt,
-      now: input.now,
-      thresholdMs: STALENESS_THRESHOLD_MS,
-      memoryType: row.memoryType as MemoryType | null,
-      metadata: row.metadata,
-    }),
-    graphProvenance: 'temporal:scheduling_conflict',
-    temporalStatus: 'none',
-    temporalEvents: [],
-  }))
-
-  return [...input.contextItems, ...hydrated]
-}
-
-function prioritizeConflictThoughts(
-  items: RetrievalContextItem[],
-  conflictThoughtIds: Set<string>,
-  topK: number,
-): RetrievalContextItem[] {
-  return [
-    ...items.filter((c) => conflictThoughtIds.has(c.id)),
-    ...items.filter((c) => !conflictThoughtIds.has(c.id)),
-  ].slice(0, topK)
-}
-
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {
   const trimmedQuestion = input.question.trim()
   if (trimmedQuestion.length === 0) {
@@ -684,23 +574,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     results: retrieved.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore })),
   })
 
-  const temporalQuery = retrievalQuery
-  const schedulingConflicts = isSchedulingConflictQuery(temporalQuery)
-    ? await findTemporalSchedulingConflicts({
-        userId: input.userId,
-        query: temporalQuery,
-      })
-    : []
-  const conflictThoughtIdSet = new Set(schedulingConflicts.flatMap((c) => c.thoughtIds))
-
   let contextItems = retrieved.map((r) => searchHitToContextItem(r, now))
-  contextItems = await hydrateConflictThoughts({
-    userId: input.userId,
-    contextItems,
-    conflictThoughtIds: [...conflictThoughtIdSet],
-    now,
-  })
-  contextItems = prioritizeConflictThoughts(contextItems, conflictThoughtIdSet, effectiveTopK)
   contextItems = prioritizePersonNamedThoughts(trimmedQuestion, contextItems, effectiveTopK)
   contextItems = narrowComposeContextToQuestionFocus(trimmedQuestion, contextItems)
   contextItems = await hydrateTemporalContextForThoughts({
@@ -790,17 +664,16 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     ? formatSolverAnswer(solverResult)
     : null
 
-  const conflicts = mergeConflictPairs(
-    detectContradictions(contextItems),
-    await detectStoredThoughtContradictions({ userId: input.userId, items: contextItems }),
-  )
+  const conflicts = await detectStoredThoughtContradictions({
+    userId: input.userId,
+    items: contextItems,
+  })
   console.info('[composeAnswer] phase=searching done', {
     durationMs: Date.now() - phaseStart,
     retrievedCount: retrieved.length,
     textFileCount: textFileHits.length,
     contextCount: contextItems.length,
     conflictCount: conflicts.length,
-    schedulingConflictCount: schedulingConflicts.length,
     temporalSolverKind: solverResult.kind,
     temporalSolverConfidence: solverResult.confidence,
     temporalSeedCount: temporalSeeds.length,
@@ -846,7 +719,6 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
           formatTextFilesForPrompt(textFileHits) +
           communityThemeBlock +
           computedTimelineBlock +
-          formatTemporalConflictsForPrompt(schedulingConflicts) +
           formatConflictsForPrompt(conflicts) +
           `\n\nRespond using the strict format from the system message. Cite ids exactly as written after "id=" above.`,
       },

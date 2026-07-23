@@ -288,10 +288,16 @@ export function drawGraphCanvasScene(ctx: CanvasRenderingContext2D, scene: Graph
   ctx.restore()
 
   const popInById = new Map(popIns.map((p) => [p.nodeId, p]))
+  const invK = 1 / Math.max(transform.k, 0.001)
+  const labelFont = `${10 * invK}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`
+  const labelOffsetX = 12 * invK
+  const labelOffsetY = 4 * invK
 
+  // Pass 1: node bodies (and pop-in chrome). Labels are deferred so a later
+  // neighbor never paints over an earlier node's text.
   for (const node of nodes) {
     const popIn = popInById.get(node.id)
-    const elapsed = popIn ? nowMs - popIn.startMs : popIn ? 0 : GRAPH_CANVAS_POP_IN_DURATION_MS
+    const elapsed = popIn ? nowMs - popIn.startMs : GRAPH_CANVAS_POP_IN_DURATION_MS
     const scale = popIn ? popInNodeScale(elapsed, popIn.durationMs) : 1
     const flashOpacity = popIn ? popInFlashOpacity(elapsed, popIn.durationMs) : 0
     const ringOpacity = popIn ? popInRingOpacity(elapsed, popIn.durationMs) : 0
@@ -314,7 +320,7 @@ export function drawGraphCanvasScene(ctx: CanvasRenderingContext2D, scene: Graph
       ctx.beginPath()
       ctx.arc(0, 0, node.radius + ringExtra, 0, Math.PI * 2)
       ctx.strokeStyle = COMMUNITY_HULL_ACCENT
-      ctx.lineWidth = 2 / Math.max(transform.k, 0.001)
+      ctx.lineWidth = 2 * invK
       ctx.globalAlpha = ringOpacity
       ctx.stroke()
       ctx.globalAlpha = 1
@@ -322,7 +328,7 @@ export function drawGraphCanvasScene(ctx: CanvasRenderingContext2D, scene: Graph
 
     if (node.selected) {
       ctx.shadowColor = theme.selectedStroke
-      ctx.shadowBlur = 8 / Math.max(transform.k, 0.001)
+      ctx.shadowBlur = 8 * invK
     }
 
     ctx.beginPath()
@@ -331,14 +337,25 @@ export function drawGraphCanvasScene(ctx: CanvasRenderingContext2D, scene: Graph
     ctx.fill()
     ctx.shadowBlur = 0
     ctx.strokeStyle = node.selected ? theme.selectedStroke : theme.nodeStrokeColor
-    ctx.lineWidth = (node.selected ? 3.2 : 1) / Math.max(transform.k, 0.001)
+    ctx.lineWidth = (node.selected ? 3.2 : 1) * invK
     ctx.stroke()
 
-    ctx.fillStyle = theme.labelColor
-    ctx.font = `${10 / Math.max(transform.k, 0.001)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`
-    ctx.textBaseline = 'middle'
-    ctx.fillText(node.label, 12 / Math.max(transform.k, 0.001), 4 / Math.max(transform.k, 0.001))
+    ctx.restore()
+  }
 
+  // Pass 2: labels on top of every node body.
+  ctx.fillStyle = theme.labelColor
+  ctx.font = labelFont
+  ctx.textBaseline = 'middle'
+  for (const node of nodes) {
+    const popIn = popInById.get(node.id)
+    const elapsed = popIn ? nowMs - popIn.startMs : GRAPH_CANVAS_POP_IN_DURATION_MS
+    const scale = popIn ? popInNodeScale(elapsed, popIn.durationMs) : 1
+
+    ctx.save()
+    ctx.translate(node.x, node.y)
+    ctx.scale(scale, scale)
+    ctx.fillText(node.label, labelOffsetX, labelOffsetY)
     ctx.restore()
   }
 

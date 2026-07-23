@@ -10,8 +10,6 @@ const {
   decryptTenantValueMock,
   isTemporalQueryMock,
   filterTemporalEventsMock,
-  isSchedulingConflictQueryMock,
-  findTemporalSchedulingConflictsMock,
 } = vi.hoisted(() => ({
   createThoughtEmbeddingMock: vi.fn(),
   getDbMock: vi.fn(),
@@ -21,8 +19,6 @@ const {
   decryptTenantValueMock: vi.fn(),
   isTemporalQueryMock: vi.fn(),
   filterTemporalEventsMock: vi.fn(),
-  isSchedulingConflictQueryMock: vi.fn(),
-  findTemporalSchedulingConflictsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -61,11 +57,6 @@ vi.mock('$lib/server/retrieval/temporal', async (importOriginal) => {
     traverseTemporalContext: vi.fn(async () => []),
   }
 })
-
-vi.mock('$lib/server/retrieval/temporal-conflicts', () => ({
-  isSchedulingConflictQuery: isSchedulingConflictQueryMock,
-  findTemporalSchedulingConflicts: findTemporalSchedulingConflictsMock,
-}))
 
 function makeSequentialDb(selectQueues: unknown[][]) {
   let selectIndex = 0
@@ -122,8 +113,6 @@ describe('retrieveEvidence', () => {
     matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([])
     isTemporalQueryMock.mockReturnValue(false)
     filterTemporalEventsMock.mockResolvedValue([])
-    isSchedulingConflictQueryMock.mockReturnValue(false)
-    findTemporalSchedulingConflictsMock.mockResolvedValue([])
     rerankCandidatesMock.mockImplementation(async (_u, _q, c) => c)
     decryptTenantValueMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       Promise.resolve(ciphertext),
@@ -157,8 +146,6 @@ describe('retrieveEvidence', () => {
     lexicalSearchMock.mockResolvedValue([{ id: 't2' }])
     isTemporalQueryMock.mockReturnValue(true)
     filterTemporalEventsMock.mockResolvedValue([{ thoughtId: 't3' }])
-    isSchedulingConflictQueryMock.mockReturnValue(true)
-    findTemporalSchedulingConflictsMock.mockResolvedValue([{ thoughtIds: ['t4'] }])
 
     getDbMock.mockReturnValue(
       makeSequentialDb([
@@ -359,21 +346,92 @@ describe('retrieveEvidence', () => {
     expect(result.some((r) => r.id === 't-n3')).toBe(false)
   })
 
-  it('assigns temporal provenance from scheduling conflict hits', async () => {
-    isSchedulingConflictQueryMock.mockReturnValue(true)
-    findTemporalSchedulingConflictsMock.mockResolvedValue([{ thoughtIds: ['t-conflict'] }])
-
-    getDbMock.mockReturnValue(
-      makeSequentialDb([[], [], [{ ...thoughtRow, id: 't-conflict', primaryCommunityIds: null }]]),
-    )
-
-    const result = await retrieveEvidence({
-      userId: 'u1',
-      query: 'scheduling conflict in March',
+  it('orders neighbor expansion by weight with a stable tie-break', async () => {
+    const orderBySpy = vi.fn(() => ({ limit: vi.fn(async () => []) }))
+    let selectCall = 0
+    const from = vi.fn(() => ({
+      where: vi.fn(() => {
+        selectCall += 1
+        const call = selectCall
+        // 1 = thought ANN, 2 = community ANN, 3 = thought_neighbor fetch.
+        const rows = call === 1 ? [{ id: 't-seed', distance: 0.05 }] : []
+        if (call === 3) {
+          return Object.assign(Promise.resolve(rows), { orderBy: orderBySpy })
+        }
+        return Object.assign(Promise.resolve(rows), {
+          orderBy: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
+          limit: vi.fn(async () => rows),
+        })
+      }),
+    }))
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({ from })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) })),
     })
 
-    expect(result[0]?.metadata?.graphProvenance).toBe('temporal')
+    await retrieveEvidence({ userId: 'u1', query: 'neighbor ordering' })
+
+    expect(orderBySpy).toHaveBeenCalledTimes(1)
+    // desc(weight), asc(neighborId)
+    expect(orderBySpy.mock.calls[0]).toHaveLength(2)
   })
+
+  it('applies a membership-aware crowded-community penalty without duplicate-id inflation', async () => {
+    const bundleQueues = (topThoughtIds: string[]) => [
+      [], // thought ANN
+      [{ communityId: 'c1', distance: 0.1 }], // community ANN
+      [{ communityId: 'c1', topThoughtIds }], // bundle
+    ]
+
+    // 2 rows each carrying duplicated c1 ids — dedupe must hold the count at 2 (not crowded).
+    getDbMock.mockReturnValue(
+      makeSequentialDb([
+        ...bundleQueues(['t-a', 't-b']),
+        [
+          { ...thoughtRow, id: 't-a', primaryCommunityIds: ['c1', 'c1'] },
+          { ...thoughtRow, id: 't-b', primaryCommunityIds: ['c1', 'c1'] },
+        ],
+      ]),
+    )
+    const uncrowded = await retrieveEvidence({ userId: 'u1', query: 'theme' })
+
+    // 3 distinct rows in c1 — the pool-wide count crosses the crowded threshold.
+    getDbMock.mockReturnValue(
+      makeSequentialDb([
+        ...bundleQueues(['t-a', 't-b', 't-c']),
+        [
+          { ...thoughtRow, id: 't-a', primaryCommunityIds: ['c1'] },
+          { ...thoughtRow, id: 't-b', primaryCommunityIds: ['c1'] },
+          { ...thoughtRow, id: 't-c', primaryCommunityIds: ['c1'] },
+        ],
+      ]),
+    )
+    const crowded = await retrieveEvidence({ userId: 'u1', query: 'theme' })
+
+    // Expansion-only bundle hits: score = 0.42*0.2 (fallback sim) − penalty.
+    // Uncrowded: 0.084 − 0.05 = 0.034; crowded: 0.084 − 0.07 = 0.014.
+    expect(uncrowded.find((r) => r.id === 't-a')?.score).toBeCloseTo(0.034, 3)
+    expect(crowded.find((r) => r.id === 't-a')?.score).toBeCloseTo(0.014, 3)
+  })
+
+  it('pins the flat temporal boost for temporal-intent hits without a direct match', async () => {
+    isTemporalQueryMock.mockReturnValue(true)
+    filterTemporalEventsMock.mockResolvedValue([{ thoughtId: 't-temporal' }])
+
+    getDbMock.mockReturnValue(
+      makeSequentialDb([
+        [], // thought ANN
+        [], // community ANN
+        [{ ...thoughtRow, id: 't-temporal', primaryCommunityIds: null }],
+      ]),
+    )
+
+    const result = await retrieveEvidence({ userId: 'u1', query: 'events last week' })
+
+    // 0.42*0.2 (fallback sim) + 0.18 TEMPORAL_BOOST, no graph bonuses (expansion-only).
+    expect(result.find((r) => r.id === 't-temporal')?.score).toBeCloseTo(0.264, 3)
+  })
+
 
   it('filters distant entity matches and tolerates sparse row scoring fields', async () => {
     matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([

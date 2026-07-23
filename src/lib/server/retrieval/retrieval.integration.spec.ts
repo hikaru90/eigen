@@ -25,6 +25,7 @@ const hasDb = Boolean(process.env.DATABASE_URL)
 
 describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
   let withEvalDb: typeof import('../../../../evals/harness/eval-context').withEvalDb
+  let withOperatorDb: typeof import('../../../../evals/harness/eval-context').withOperatorDb
   let searchThoughts: typeof import('$lib/server/retrieval/service').searchThoughts
 
   const suffix = `it_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`
@@ -35,19 +36,11 @@ describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
   beforeAll(async () => {
     const ctx = await import('../../../../evals/harness/eval-context')
     withEvalDb = ctx.withEvalDb
+    withOperatorDb = ctx.withOperatorDb
     ;({ searchThoughts } = await import('$lib/server/retrieval/service'))
-  })
 
-  afterAll(async () => {
-    for (const uid of [ua, ub]) {
-      await withEvalDb(uid, async (db) => {
-        await db.delete(user).where(eq(user.id, uid))
-      }).catch(() => undefined)
-    }
-  })
-
-  it('searchThoughts does not return other tenants thoughts under RLS', async () => {
-    await withEvalDb(ua, async (db) => {
+    // Identity rows once per run — user inserts are operator operations (FORCE RLS on `user`).
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: ua,
         name: 'RLS A',
@@ -55,8 +48,6 @@ describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
         emailVerified: true,
         onboardingCompleted: true,
       })
-    })
-    await withEvalDb(ub, async (db) => {
       await db.insert(user).values({
         id: ub,
         name: 'RLS B',
@@ -66,6 +57,21 @@ describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
       })
     })
 
+    // thought_user_category_ontology_fk requires a seeded ontology per user.
+    const { ensureUserOntologySeeded } = await import('$lib/server/ontology-db')
+    await withEvalDb(ua, async (db) => ensureUserOntologySeeded(db, ua))
+    await withEvalDb(ub, async (db) => ensureUserOntologySeeded(db, ub))
+  })
+
+  afterAll(async () => {
+    for (const uid of [ua, ub]) {
+      await withOperatorDb(async (db) => {
+        await db.delete(user).where(eq(user.id, uid))
+      }).catch(() => undefined)
+    }
+  })
+
+  it('searchThoughts does not return other tenants thoughts under RLS', async () => {
     const ubThoughtId = await withEvalDb(ub, async (db) => {
       const norm = `${secretToken} unique line`
       const [row] = await db
@@ -75,7 +81,7 @@ describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
           rawText: norm,
           normalizedText: norm,
           lexicalText: computeLexicalText(norm),
-          category: 'thought',
+          category: 'observation',
           metadata: {},
           embedding: embeddingVec(),
         })
@@ -96,16 +102,6 @@ describe.skipIf(!hasDb)('retrieval RLS + quality telemetry integration', () => {
 
   it('searchThoughts excludes completed and archived lifecycle thoughts', async () => {
     const token = `lifecycle_filter_${suffix}`
-    await withEvalDb(ua, async (db) => {
-      await db.insert(user).values({
-        id: ua,
-        name: 'Lifecycle A',
-        email: `${ua}@lifecycle.test`,
-        emailVerified: true,
-        onboardingCompleted: true,
-      })
-    })
-
     const thoughtIds = await withEvalDb(ua, async (db) => {
       const norm = `${token} shared phrase`
       const base = {

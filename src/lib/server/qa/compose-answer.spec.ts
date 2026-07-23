@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import {
   composeAnswer,
-  detectContradictions,
   extractProfileDetailsBlock,
   extractQuestionSubjectName,
   extractRetrievalHints,
@@ -29,7 +28,6 @@ const {
   fetchRelevantCommunitySummariesMock,
   loadGroundingProfileForEnrichmentMock,
   llmChatCompletionMock,
-  findTemporalSchedulingConflictsMock,
   createThoughtEmbeddingMock,
   createThoughtEmbeddingsMock,
   lexicalSearchMock,
@@ -44,7 +42,6 @@ const {
   fetchRelevantCommunitySummariesMock: vi.fn(),
   loadGroundingProfileForEnrichmentMock: vi.fn(),
   llmChatCompletionMock: vi.fn(),
-  findTemporalSchedulingConflictsMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
   createThoughtEmbeddingsMock: vi.fn(),
   lexicalSearchMock: vi.fn(),
@@ -116,13 +113,6 @@ vi.mock('$lib/server/retrieval/lexical', () => ({
 
 vi.mock('$lib/server/graph/age', () => ({
   graphOnlySearchByQuery: graphOnlySearchByQueryMock,
-}))
-
-vi.mock('$lib/server/retrieval/temporal-conflicts', () => ({
-  findTemporalSchedulingConflicts: findTemporalSchedulingConflictsMock,
-  formatTemporalConflictsForPrompt: (conflicts: unknown[]) =>
-    conflicts.length > 0 ? '\n\nTemporal scheduling conflicts (from memory graph):\n' : '',
-  isSchedulingConflictQuery: (q: string) => /conflict|scheduling/i.test(q),
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -408,7 +398,6 @@ describe('composeAnswer', () => {
     fetchRelevantCommunitySummariesMock.mockResolvedValue([])
     searchThoughtsMock.mockResolvedValue(sampleRetrieval)
     searchTextFilesMock.mockResolvedValue([])
-    findTemporalSchedulingConflictsMock.mockResolvedValue([])
     createThoughtEmbeddingMock.mockResolvedValue(new Array(1536).fill(0.1))
     createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
       texts.map(() => new Array(1536).fill(0.1)),
@@ -1021,51 +1010,4 @@ describe('composeAnswer', () => {
     expect(messages[1].content).toContain('EXPIRED')
   })
 
-  it('includes temporal graph conflicts in the prompt when detected', async () => {
-    findTemporalSchedulingConflictsMock.mockResolvedValueOnce([
-      {
-        personEntityId: 'ent-tom',
-        personLabel: 'Tom',
-        events: [],
-        mandatoryThoughtIds: ['t_mandatory'],
-        thoughtIds: ['t_tom', 't_berlin', 't_mandatory'],
-        description: 'Tom has overlapping events in Lisbon and Berlin',
-      },
-    ])
-    await composeAnswer({ userId: 'u1', question: 'Is there a scheduling conflict?' })
-    expect(findTemporalSchedulingConflictsMock).toHaveBeenCalled()
-    const userMessage = (
-      llmChatCompletionMock.mock.calls[0][0] as { messages: Array<{ content: string }> }
-    ).messages[1].content
-    expect(userMessage).toContain('Temporal scheduling conflicts')
-  })
-})
-
-describe('detectContradictions', () => {
-  const now = new Date('2026-06-04T12:00:00.000Z')
-  const base = (id: string, text: string): RetrievalContextItem => ({
-    id,
-    normalizedText: text,
-    category: 'feeling',
-    score: 1,
-    vectorScore: 1,
-    graphScore: 0,
-    createdAt: now,
-    isStale: false,
-    ...noTemporal,
-  })
-
-  it('returns empty — regex contradiction detection removed', () => {
-    const conflicts = detectContradictions([
-      base(
-        'a',
-        'Remote work is terrible for me. I lose all discipline and end up doing nothing. Need an office.',
-      ),
-      base(
-        'b',
-        'Working from home is actually great. I am more productive, calmer, and the commute savings are real.',
-      ),
-    ])
-    expect(conflicts).toEqual([])
-  })
 })

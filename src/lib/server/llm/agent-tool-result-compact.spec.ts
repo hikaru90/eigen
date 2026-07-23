@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as stripEmbeddings from '$lib/server/observability/strip-embeddings'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
-import { maxFusedRrfScore } from '$lib/server/retrieval/rrf-scoring'
+import { MAX_RETRIEVAL_MERGE_SCORE } from '$lib/server/retrieval/rrf-scoring'
 import {
   compactToolResultForLlm,
   findUniqueStrongRetrieveMatch,
@@ -142,7 +142,7 @@ describe('agent-tool-result-compact', () => {
             id: `t-${i}`,
             normalizedText: 'x'.repeat(500),
             category: 'thought',
-            score: maxFusedRrfScore(weights),
+            score: MAX_RETRIEVAL_MERGE_SCORE,
             metadata: { graph: { nodes: Array.from({ length: 20 }, () => 'n') } },
           })),
         },
@@ -348,7 +348,7 @@ describe('agent-tool-result-compact', () => {
         id: `t-${i}`,
         normalizedText: 'x'.repeat(500),
         category: 'thought',
-        score: maxFusedRrfScore(CONTEXT_WEIGHTS.default),
+        score: MAX_RETRIEVAL_MERGE_SCORE,
         metadata: { graph: { nodes: Array.from({ length: 20 }, () => 'n') } },
       }))
       const agentMessage = formatToolResultForAgentMessage('retrieve_thoughts', { results })

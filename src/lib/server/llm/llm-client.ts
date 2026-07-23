@@ -20,6 +20,7 @@ import {
 import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { LlmHttpError } from '$lib/server/llm/errors'
 import {
   assertEurouterGatewayConfigured,
   routingRuleLookupErrorMessage,
@@ -650,7 +651,7 @@ async function llmChatCompletionInner(input: {
           typeof json === 'object' && json && 'error' in json
             ? JSON.stringify((json as { error?: unknown }).error)
             : text.slice(0, 500)
-        throw new Error(`LLM HTTP ${res.status}: ${message}`)
+        throw new LlmHttpError(res.status, message)
       }
 
       const attemptMs = Date.now() - attemptStart
@@ -783,7 +784,7 @@ async function llmCreateEmbeddingsInner(input: {
           typeof json === 'object' && json && 'error' in json
             ? JSON.stringify((json as { error?: unknown }).error)
             : text.slice(0, 500)
-        throw new Error(`LLM HTTP ${res.status}: ${message}`)
+        throw new LlmHttpError(res.status, message)
       }
 
       const baseCost = gatewayReportedCostUsdForLog(json)

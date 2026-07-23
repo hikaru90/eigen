@@ -22,6 +22,7 @@ const hasDb = Boolean(process.env.DATABASE_URL)
 
 describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
   let withEvalDb: typeof import('../../../../evals/harness/eval-context').withEvalDb
+  let withOperatorDb: typeof import('../../../../evals/harness/eval-context').withOperatorDb
 
   const suffix = `onto_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`
   const ua = `onto_ua_${suffix}`
@@ -30,6 +31,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
   beforeAll(async () => {
     const ctx = await import('../../../../evals/harness/eval-context')
     withEvalDb = ctx.withEvalDb
+    withOperatorDb = ctx.withOperatorDb
   })
 
   const uidRel = `onto_rel_${suffix}`
@@ -38,14 +40,14 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
 
   afterAll(async () => {
     for (const uid of [ua, ub, uidRel, uidEnt, uidPrune]) {
-      await withEvalDb(uid, async (db) => {
+      await withOperatorDb(async (db) => {
         await db.delete(user).where(eq(user.id, uid))
       }).catch(() => undefined)
     }
   })
 
   it('seeds default practical ontology once per user and isolates tenants', async () => {
-    await withEvalDb(ua, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: ua,
         name: 'Onto A',
@@ -54,7 +56,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
         onboardingCompleted: true,
       })
     })
-    await withEvalDb(ub, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: ub,
         name: 'Onto B',
@@ -93,7 +95,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
   })
 
   it('deactivateRelationKindWithReconcile clears thought_relation ontology FK', async () => {
-    await withEvalDb(uidRel, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: uidRel,
         name: 'Rel',
@@ -160,7 +162,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
   })
 
   it('deactivateEntityKindWithReconcile clears thought FK and deactivates touching relation kinds', async () => {
-    await withEvalDb(uidEnt, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: uidEnt,
         name: 'Ent',
@@ -216,7 +218,7 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
   })
 
   it('pruneUnusedOntologyEntityKinds deletes custom kinds with no thought refs and touching relations', async () => {
-    await withEvalDb(uidPrune, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: uidPrune,
         name: 'Prune',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { LlmHttpError } from '$lib/server/llm/errors'
 import { INGEST_MAX_RETRIES, isRetryExhaustedError, runIngestWithRetries } from './retry'
 
 describe('runIngestWithRetries', () => {
@@ -47,5 +48,40 @@ describe('runIngestWithRetries', () => {
     })
     expect(v).toBe('ok')
     expect(n).toBe(4)
+  })
+
+  it('does not retry gateway 402 billing failures — fatal immediately', async () => {
+    let n = 0
+    await expect(
+      runIngestWithRetries(async () => {
+        n++
+        throw new LlmHttpError(402, 'insufficient balance')
+      }),
+    ).rejects.toThrow(/Fatal ingest error \(no retry\)/)
+    expect(n).toBe(1)
+  })
+
+  it('retries non-402 gateway failures up to the budget', async () => {
+    let n = 0
+    await expect(
+      runIngestWithRetries(async () => {
+        n++
+        throw new LlmHttpError(500, 'internal')
+      }),
+    ).rejects.toThrow(/4 attempts/)
+    expect(n).toBe(1 + INGEST_MAX_RETRIES)
+  })
+
+  it('treats InsufficientCreditsError-named errors as fatal without retries', async () => {
+    let n = 0
+    const credits = new Error('insufficient credits')
+    credits.name = 'InsufficientCreditsError'
+    await expect(
+      runIngestWithRetries(async () => {
+        n++
+        throw credits
+      }),
+    ).rejects.toThrow(/Fatal ingest error \(no retry\)/)
+    expect(n).toBe(1)
   })
 })

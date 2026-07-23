@@ -32,6 +32,12 @@ export function toCypherLiteral(value: unknown): string {
   throw new Error(`Unsupported cypher literal type: ${typeof value}`)
 }
 
+/**
+ * Substitutes `$name` placeholders with escaped cypher literals. Values are escaped by
+ * `toCypherLiteral` and never re-scanned. Note: `$name` is replaced anywhere in the
+ * template text (including inside hand-written string literals), so templates must only
+ * reference params in value position — all call sites in `age.ts` do.
+ */
 export function renderCypherQuery(query: string, params?: Record<string, unknown>): string {
   if (!params) return query
   return query.replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_full, key) => {

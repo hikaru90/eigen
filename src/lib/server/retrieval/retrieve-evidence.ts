@@ -5,7 +5,7 @@
  * No live AGE graph traversal.
  */
 
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { MemoryAuthor } from '$lib/server/db/schema'
 import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
@@ -37,10 +37,6 @@ import {
   type TemporalQueryIntent,
   type TemporalSearchHit,
 } from '$lib/server/retrieval/temporal'
-import {
-  findTemporalSchedulingConflicts,
-  isSchedulingConflictQuery,
-} from '$lib/server/retrieval/temporal-conflicts'
 import type { RetrievalResult } from '$lib/server/retrieval/service'
 import type { RelevantCommunitySummary } from '$lib/server/retrieval/global'
 
@@ -57,6 +53,11 @@ const NEIGHBOR_PER_SEED = 2
 const MERGE_CANDIDATE_CAP = 80
 const RERANK_POOL = 15
 
+/**
+ * Weights for the weighted merge (sum = 1.0). A flat TEMPORAL_BOOST is added on top for
+ * temporal-intent hits, so the raw merge score tops out at 1.0 + TEMPORAL_BOOST = 1.18;
+ * `normalizeRetrievalScore` clamps to [0, 1] by design for MCP threshold filtering.
+ */
 const SCORE_WEIGHTS = {
   thoughtSim: 0.42,
   communitySim: 0.25,
@@ -66,6 +67,9 @@ const SCORE_WEIGHTS = {
   salience: 0.04,
   recency: 0.06,
 } as const
+
+/** Flat additive boost for temporal-intent hits (outside SCORE_WEIGHTS, see note above). */
+const TEMPORAL_BOOST = 0.18
 
 const SALIENCE_MAX = 5.0
 const SALIENCE_BOOST = 0.05
@@ -107,7 +111,6 @@ type ScoredCandidate = {
   vectorDistance?: number
   communityDistance?: number
   entityDistance?: number
-  bundleRank?: number
   /** Postgres `ts_rank_cd` when surfaced by lexical FTS. */
   lexicalScore?: number
 }
@@ -189,19 +192,47 @@ function prioritizeMergeCandidates(candidates: Map<string, ScoredCandidate>): Sc
   return [...lexical, ...vector, ...rest].slice(0, MERGE_CANDIDATE_CAP)
 }
 
-function redundancyPenalty(
-  candidate: ScoredCandidate,
-  seenCommunityIds: Map<string, number>,
-): number {
-  let penalty = 0
-  if (candidate.sources.has('community_bundle')) penalty += 0.05
-  const communityHits = candidate.communityDistance !== undefined ? 1 : 0
-  if (communityHits > 0) {
-    for (const [, count] of seenCommunityIds) {
-      if (count > 2) penalty += 0.02
+const REDUNDANCY_BUNDLE_PENALTY = 0.05
+const REDUNDANCY_CROWDED_PENALTY = 0.02
+/** A community with more than this many candidates in the pool is crowded. */
+const REDUNDANCY_CROWDED_MIN_ROWS = 2
+const REDUNDANCY_PENALTY_MAX = 0.15
+
+/**
+ * Count each community at most once per candidate row — duplicate ids inside a row's
+ * `primaryCommunityIds` must not inflate crowding.
+ */
+function countCandidatesPerCommunity(
+  rows: Array<{ primaryCommunityIds: string[] | null }>,
+): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    for (const communityId of new Set(row.primaryCommunityIds ?? [])) {
+      counts.set(communityId, (counts.get(communityId) ?? 0) + 1)
     }
   }
-  return Math.min(0.15, penalty)
+  return counts
+}
+
+/**
+ * Deterministic redundancy penalty: bundle-sourced candidates pay a flat surcharge;
+ * community-linked candidates pay per *own* crowded community. Computed from pool-wide
+ * counts, so the result is independent of candidate iteration order.
+ */
+function redundancyPenalty(
+  candidate: ScoredCandidate,
+  row: { primaryCommunityIds: string[] | null },
+  communityCounts: Map<string, number>,
+): number {
+  let penalty = candidate.sources.has('community_bundle') ? REDUNDANCY_BUNDLE_PENALTY : 0
+  if (candidate.communityDistance !== undefined) {
+    for (const communityId of new Set(row.primaryCommunityIds ?? [])) {
+      if ((communityCounts.get(communityId) ?? 0) > REDUNDANCY_CROWDED_MIN_ROWS) {
+        penalty += REDUNDANCY_CROWDED_PENALTY
+      }
+    }
+  }
+  return Math.min(REDUNDANCY_PENALTY_MAX, penalty)
 }
 
 async function fetchCommunityAnn(
@@ -347,7 +378,6 @@ export async function retrieveEvidence(params: {
       )
     if (patch?.entityDistance !== undefined)
       existing.entityDistance = Math.min(existing.entityDistance ?? Infinity, patch.entityDistance)
-    if (patch?.bundleRank !== undefined) existing.bundleRank = patch.bundleRank
     if (patch?.lexicalScore !== undefined) {
       existing.lexicalScore = Math.max(existing.lexicalScore ?? 0, patch.lexicalScore)
     }
@@ -383,12 +413,6 @@ export async function retrieveEvidence(params: {
     .filter((m) => m.distance < ENTITY_MATCH_MAX_DISTANCE)
     .map((m) => m.id)
 
-  for (const m of entityMatches) {
-    if (m.distance >= ENTITY_MATCH_MAX_DISTANCE) continue
-    // entity distance stored per thought via expansion below
-    void m
-  }
-
   timer.mark('graph')
 
   const communityIds = communities.map((c) => c.communityId)
@@ -410,10 +434,9 @@ export async function retrieveEvidence(params: {
 
     for (const bundle of bundles) {
       const dist = communityDistanceById.get(bundle.communityId) ?? 1
-      bundle.topThoughtIds.forEach((thoughtId, rank) => {
+      bundle.topThoughtIds.forEach((thoughtId) => {
         addCandidate(thoughtId, 'community_bundle', {
           communityDistance: dist,
-          bundleRank: rank,
         })
       })
     }
@@ -458,6 +481,8 @@ export async function retrieveEvidence(params: {
           inArray(thoughtNeighbor.thoughtId, vectorSeedIds),
         ),
       )
+      // Deterministic, weight-ordered expansion: strongest neighbors first, stable tie-break.
+      .orderBy(desc(thoughtNeighbor.weight), asc(thoughtNeighbor.neighborId))
       .limit(vectorSeedIds.length * NEIGHBOR_PER_SEED * 2)
 
     const neighborCountBySeed = new Map<string, number>()
@@ -466,16 +491,6 @@ export async function retrieveEvidence(params: {
       if (count >= NEIGHBOR_PER_SEED) continue
       neighborCountBySeed.set(n.thoughtId, count + 1)
       addCandidate(n.neighborId, 'neighbor')
-    }
-  }
-
-  if (isSchedulingConflictQuery(params.query)) {
-    const conflicts = await findTemporalSchedulingConflicts({
-      userId: params.userId,
-      query: params.query,
-    })
-    for (const thoughtId of conflicts.flatMap((c) => c.thoughtIds)) {
-      addCandidate(thoughtId, 'temporal')
     }
   }
 
@@ -509,7 +524,6 @@ export async function retrieveEvidence(params: {
       entityCentralityMax: thought.entityCentralityMax,
       specificityScore: thought.specificityScore,
       recencyBucket: thought.recencyBucket,
-      bundleRank: thought.bundleRank,
       primaryCommunityIds: thought.primaryCommunityIds,
       author: thought.author,
       authorLabel: thought.authorLabel,
@@ -526,7 +540,7 @@ export async function retrieveEvidence(params: {
   const rowById = new Map(rows.map((r) => [r.id, r]))
 
   timer.mark('fuse')
-  const seenCommunityIds = new Map<string, number>()
+  const communityCounts = countCandidatesPerCommunity(rows)
   const scored = candidateList
     .map((c) => {
       const row = rowById.get(c.id)
@@ -541,11 +555,7 @@ export async function retrieveEvidence(params: {
       const entitySim =
         c.entityDistance !== undefined ? cosineSimilarityFromDistance(c.entityDistance) * direct : 0
 
-      for (const cid of row.primaryCommunityIds ?? []) {
-        seenCommunityIds.set(cid, (seenCommunityIds.get(cid) ?? 0) + 1)
-      }
-
-      const temporalBoost = temporalEnabled && c.sources.has('temporal') ? 0.18 : 0
+      const temporalBoost = temporalEnabled && c.sources.has('temporal') ? TEMPORAL_BOOST : 0
 
       const score =
         SCORE_WEIGHTS.thoughtSim * thoughtSim +
@@ -555,7 +565,7 @@ export async function retrieveEvidence(params: {
         SCORE_WEIGHTS.specificity * (row.specificityScore ?? 0) * direct +
         SCORE_WEIGHTS.salience * Math.min((row.salienceScore ?? 1) / SALIENCE_MAX, 1) * direct +
         SCORE_WEIGHTS.recency * (row.recencyBucket ?? 0) * direct -
-        redundancyPenalty(c, seenCommunityIds) +
+        redundancyPenalty(c, row, communityCounts) +
         temporalBoost
 
       return {

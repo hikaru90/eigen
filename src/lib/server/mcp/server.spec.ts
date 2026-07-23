@@ -34,6 +34,11 @@ vi.mock('./tools', () => ({
   runSearchTextFilesTool: vi.fn(),
   runLinkTextFileToThoughtTool: vi.fn(),
   runUnlinkTextFileFromThoughtTool: vi.fn(),
+  runListProjectsTool: vi.fn(),
+  runGetProjectTimelineTool: vi.fn(),
+  runOrderTaskInProjectTool: vi.fn(),
+  runSetProjectMilestoneTool: vi.fn(),
+  runSetProjectDeadlineTool: vi.fn(),
 }))
 
 describe('createMcpServer', () => {
@@ -49,9 +54,13 @@ describe('createMcpServer', () => {
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',
+      'list_projects',
+      'get_project_timeline',
+      'order_task_in_project',
+      'set_project_milestone',
+      'set_project_deadline',
     ])
     expect(result.tools.map((t) => t.name)).not.toContain('list_thoughts')
-    expect(result.tools.map((t) => t.name)).not.toContain('list_projects')
     expect(result.tools.map((t) => t.name)).not.toContain('capture_grounding')
     expect(result.tools.map((t) => t.name)).not.toContain('complete_grounding_session')
   })

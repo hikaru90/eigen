@@ -32,7 +32,7 @@ See [ingest-retrieval-timing.md § Three memory tiers](../planning/ingest-retrie
 | L1 routing summary    | `community_summary.summary_short` + embedding                     | Tier 3 (batched, budgeted)     |
 | Thought features      | `thought.primary_community_ids`, centrality, specificity, recency | Tier 3                         |
 
-**Query time (`retrieveEvidence`):** embed query once → parallel ANN + FTS + community ANN → bundle/key fetch → weighted merge → rerank top pool → return top K. **No live AGE reads.**
+**Query time (`retrieveEvidence`):** embed query once → parallel ANN + FTS + community ANN → bundle/key fetch → weighted merge → rerank top pool → return top K. **No live AGE reads on the main merge path** — graph structure reaches queries only via the materialized tables. Exception: temporal-intent queries traverse the AGE Event/INVOLVES graph live via `traverseTemporalContext` ([`temporal.ts`](../../src/lib/server/retrieval/temporal.ts)).
 
 Tier-1 rows (`enriched_at IS NULL`, no embedding) are intended to surface via **FTS only**. Vector ANN requires `embedding IS NOT NULL`. Same row gains tier 2/3 fields over time — no invalidation.
 
@@ -70,8 +70,8 @@ Apache AGE remains for ingest writes and `/memory` graph visualization only.
 
 ### [`src/lib/server/retrieval/reranker.ts`](../../src/lib/server/retrieval/reranker.ts)
 
-- **Purpose:** LLM listwise reranker over top-60 weighted-merge candidates.
-- **Status:** Wired in `retrieveEvidence` for all callers. Throws `RerankError` on failure (no silent fallback).
+- **Purpose:** LLM listwise reranker over a top-15 pool (`RERANK_POOL`) with a 5-slot lexical reserve (`buildRerankPool`). Skipped by `shouldSkipRerank` when fusion scores already separate winners (top-2 gap ≥ 0.15) or ≤ 1 candidate.
+- **Status:** Wired in `retrieveEvidence` for all callers. Throws `RerankError` on failure (no silent fallback — surfaces as HTTP 500 on search/API by design).
 
 ### [`src/lib/server/retrieval/materialize-links.ts`](../../src/lib/server/retrieval/materialize-links.ts)
 
@@ -105,8 +105,7 @@ Apache AGE remains for ingest writes and `/memory` graph visualization only.
 
 ### [`src/lib/server/retrieval/global.ts`](../../src/lib/server/retrieval/global.ts)
 
-- **Purpose:** `fetchRelevantCommunitySummaries` for non-authoritative theme hints in global-scope compose; `searchGlobal` map-reduce retained for reference/tests but **not** used by `composeAnswer`.
-- **Status:** Community routing at query time lives in `retrieveEvidence` (bundle expansion). Compose uses theme hints only.
+- **Purpose:** `fetchRelevantCommunitySummaries` for non-authoritative theme hints in global-scope compose. The retired `searchGlobal` map-reduce (and `hasCommunitySummaries`) was deleted 2026-07-22 per the qa-grounding-hardening decision (2A); community routing at query time lives in `retrieveEvidence` (bundle expansion).
 
 ### [`src/lib/server/retrieval/global-query.ts`](../../src/lib/server/retrieval/global-query.ts)
 
@@ -120,7 +119,7 @@ Apache AGE remains for ingest writes and `/memory` graph visualization only.
 
 ## Reranking
 
-`retrieveEvidence` always reranks top 60 via LLM listwise (`RerankError` on failure). Cross-encoder rerank remains out of scope.
+`retrieveEvidence` reranks a 15-candidate pool (plus 5 lexical-reserve slots) via LLM listwise, unless `shouldSkipRerank` fires (≤ 1 candidate or top-2 score gap ≥ 0.15). Throws `RerankError` on failure. Cross-encoder rerank remains out of scope.
 
 ## Eval / test harness
 

@@ -33,21 +33,6 @@ export type TemporalContextHit = {
   provenance?: string
 }
 
-export type TemporalSchedulingConflictGraphHit = {
-  personEntityId: string
-  personLabel: string
-  place1EntityId: string
-  place1Label: string
-  place2EntityId: string
-  place2Label: string
-  event1Id: string
-  event2Id: string
-  event1Label: string
-  event2Label: string
-  thought1Id: string
-  thought2Id: string
-}
-
 /** Exported graph operations (runtime adapter must implement all). */
 export const GRAPH_ADAPTER_OPERATIONS = [
   'upsertThoughtNode',
@@ -72,7 +57,6 @@ export const GRAPH_ADAPTER_OPERATIONS = [
   'upsertThoughtOccurrenceEdge',
   'upsertEventInvolvesEntityEdge',
   'expandContextFromTemporalEventSeeds',
-  'findTemporalSchedulingConflictsInGraph',
   'thoughtExistsInGraph',
 ] as const
 

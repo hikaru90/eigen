@@ -254,7 +254,6 @@ export async function enrichQueuedThought(
         thoughtEmbedding: prefetched.embedding,
         thoughtCountAfterInsert,
         preloadedKnownEntities: context.knownEntities,
-        skipThoughtNodeUpsert: true,
         precomputedEntityGraph: prefetched.entityGraph,
         precomputedEntityEnrichmentContext: prefetched.entityEnrichmentContext,
         precomputedMetadata: prefetched.metadata,

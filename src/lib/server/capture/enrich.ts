@@ -66,11 +66,6 @@ export type EnrichThoughtOptions = {
   thoughtCountAfterInsert?: number
   /** Entity hints loaded before persist — threaded into entity extraction. */
   preloadedKnownEntities?: Array<{ entityId?: string; label: string; entityType: string }>
-  /**
-   * When true, skip AGE Thought node upsert (tier-1 queueCapture already wrote it).
-   * Edit/relink paths leave this unset so the anchor is re-ensured.
-   */
-  skipThoughtNodeUpsert?: boolean
   /** Pre-built semantic graph context for entity extraction. */
   precomputedEntityEnrichmentContext?: EntityGraphEnrichmentContext
   /** Pre-fetched batch LLM results — skip redundant extraction calls. */
@@ -142,7 +137,6 @@ export async function enrichThought(
     thoughtEmbedding,
     thoughtCountAfterInsert,
     preloadedKnownEntities,
-    skipThoughtNodeUpsert,
     precomputedEntityGraph,
     precomputedEntityEnrichmentContext,
     precomputedMetadata,
@@ -186,7 +180,6 @@ export async function enrichThought(
         thoughtId,
         normalizedText,
         preloadedKnownEntities,
-        skipThoughtNodeUpsert,
         precomputedEntityGraph,
         precomputedEntityEnrichmentContext,
         thoughtEmbedding,

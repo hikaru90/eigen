@@ -108,49 +108,68 @@ export async function queueCapture(
   })
 
   const db = getDb()
-  const [sessionRow] = await db
-    .insert(captureSession)
-    .values({
-      userId,
-      status: 'accepted',
-      rawInput,
-      rawInputEncrypted,
-      normalizedPreview: normalized,
-      normalizedPreviewEncrypted,
-      category: QUEUE_PLACEHOLDER_CATEGORY,
-      metadataPreview: { encrypted: true },
-      revisionCount: 0,
-      ...authorValues,
-    })
-    .returning({ id: captureSession.id })
-
   const capturedAt = options?.capturedAt
-  const [stored] = await db
-    .insert(thought)
-    .values({
-      userId,
-      rawText: rawInput,
-      rawTextEncrypted,
-      normalizedText: normalized,
-      normalizedTextEncrypted,
-      lexicalText,
-      category: QUEUE_PLACEHOLDER_CATEGORY,
-      ontologyEntityKindId,
-      metadata: { encrypted: true, captureSessionId: sessionRow.id, queueTier: 'pending_enrich' },
-      metadataEncrypted,
-      enrichQueueStatus: 'pending',
-      captureSource: source,
-      ...authorValues,
-      ...(capturedAt ? { createdAt: capturedAt, updatedAt: capturedAt } : {}),
-    })
-    .returning({ id: thought.id })
+  // Tier-1 durability: session + thought commit atomically — no orphaned session rows.
+  const { stored } = await db.transaction(async (tx) => {
+    const [sessionRow] = await tx
+      .insert(captureSession)
+      .values({
+        userId,
+        status: 'accepted',
+        rawInput,
+        rawInputEncrypted,
+        normalizedPreview: normalized,
+        normalizedPreviewEncrypted,
+        category: QUEUE_PLACEHOLDER_CATEGORY,
+        metadataPreview: { encrypted: true },
+        revisionCount: 0,
+        ...authorValues,
+      })
+      .returning({ id: captureSession.id })
 
-  await upsertThoughtNode({
-    id: stored.id,
-    userId,
-    category: QUEUE_PLACEHOLDER_CATEGORY,
-    author: graphAuthorProperty(authorship),
+    const [stored] = await tx
+      .insert(thought)
+      .values({
+        userId,
+        rawText: rawInput,
+        rawTextEncrypted,
+        normalizedText: normalized,
+        normalizedTextEncrypted,
+        lexicalText,
+        category: QUEUE_PLACEHOLDER_CATEGORY,
+        ontologyEntityKindId,
+        metadata: { encrypted: true, captureSessionId: sessionRow.id, queueTier: 'pending_enrich' },
+        metadataEncrypted,
+        enrichQueueStatus: 'pending',
+        captureSource: source,
+        ...authorValues,
+        ...(capturedAt ? { createdAt: capturedAt, updatedAt: capturedAt } : {}),
+      })
+      .returning({ id: thought.id })
+
+    return { stored }
   })
+
+  // Best-effort provenance anchor: tier-2 enrich re-ensures it (entity-graph-sync), so a
+  // transient AGE outage must not fail the capture or strand the queued row — the
+  // committed Postgres row is the tier-1 contract. The failure is loud, not swallowed.
+  try {
+    await upsertThoughtNode({
+      id: stored.id,
+      userId,
+      category: QUEUE_PLACEHOLDER_CATEGORY,
+      author: graphAuthorProperty(authorship),
+    })
+  } catch (err) {
+    console.error(
+      '[queue-capture] tier-1 graph anchor upsert failed; tier-2 enrich will re-ensure it',
+      {
+        userId,
+        thoughtId: stored.id,
+        message: err instanceof Error ? err.message : String(err),
+      },
+    )
+  }
 
   if (!options?.skipWorker) {
     scheduleCaptureEnrichWorker(userId)

@@ -34,7 +34,6 @@ import { evaluateHubsForGtdPromotion } from '$lib/server/memory/promote-eligible
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import {
-  authorshipInsertValues,
   graphAuthorProperty,
   type MemoryAuthorship,
 } from '$lib/server/memory/authorship'
@@ -51,11 +50,6 @@ export async function syncEntityGraphFromThought(input: {
   normalizedText: string
   /** Hints computed before persist (lexical + text-derived). */
   preloadedKnownEntities?: Array<{ entityId?: string; label: string; entityType: string }>
-  /**
-   * When true, skip AGE Thought node upsert — tier-1 already anchored the node.
-   * When preloadedKnownEntities is defined, also skip reloading entity hints.
-   */
-  skipThoughtNodeUpsert?: boolean
   /** Semantic graph context for entity extraction (tier 2). */
   precomputedEntityEnrichmentContext?: EntityGraphEnrichmentContext
   /** Thought embedding for building enrichment context when not precomputed. */
@@ -183,16 +177,15 @@ export async function syncEntityGraphFromThought(input: {
   if (!anchorRow) {
     throw new Error(`Entity graph sync: thought not found (${input.thoughtId})`)
   }
-  // MENTIONS edges MATCH the Thought node — ensure the tier-1 anchor exists (e.g. after graph grant repair).
-  // Skip when the caller already upserted in queueCapture (same enrich turn).
-  if (!input.skipThoughtNodeUpsert) {
-    await upsertThoughtNode({
-      id: input.thoughtId,
-      userId: input.userId,
-      category: anchorRow.category,
-      author: graphAuthorProperty(thoughtAuthorship),
-    })
-  }
+  // MENTIONS edges MATCH the Thought node — always (re-)ensure the anchor. The upsert is an
+  // idempotent MERGE; this also heals tier-1 anchor failures (queue-capture treats its AGE
+  // upsert as best-effort) and graph grant repairs.
+  await upsertThoughtNode({
+    id: input.thoughtId,
+    userId: input.userId,
+    category: anchorRow.category,
+    author: graphAuthorProperty(thoughtAuthorship),
+  })
 
   const surfaceToEntityId = new Map<string, string>()
   const coMentionEntityIds: string[] = []

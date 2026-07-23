@@ -6,11 +6,16 @@ import {
   runDeleteTextFileTool,
   runDeleteThoughtTool,
   runEditThoughtTool,
+  runGetProjectTimelineTool,
   runGetTextFileTool,
   runLinkTextFileToThoughtTool,
+  runListProjectsTool,
   runListTextFilesTool,
+  runOrderTaskInProjectTool,
   runRetrieveThoughtsTool,
   runSearchTextFilesTool,
+  runSetProjectDeadlineTool,
+  runSetProjectMilestoneTool,
   runUnlinkTextFileFromThoughtTool,
   runUpdateTextFileTool,
   type McpToolContext,
@@ -35,6 +40,11 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'retrieve_thoughts',
   'edit_thought',
   'delete_thought',
+  'list_projects',
+  'get_project_timeline',
+  'order_task_in_project',
+  'set_project_milestone',
+  'set_project_deadline',
 ])
 
 /**
@@ -198,6 +208,107 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"thought_id": "string (required) — UUID from retrieve_thoughts results, never a title or description"}',
     handler: runDeleteThoughtTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_thought'),
+  },
+  {
+    name: 'list_projects',
+    description:
+      'List GTD projects with ordered task waterfalls, milestones, project deadline (targetDate), next action, and open task counts. Use this to understand projects and timelines as a whole.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        author: {
+          type: 'string',
+          enum: ['user', 'all'],
+          description: 'Whose projects to list. Default user. all includes agent-linked projects.',
+        },
+        include_agent: {
+          type: 'boolean',
+          description: 'When true, same as author=all.',
+        },
+      },
+    },
+    agentArgumentSchema:
+      '{"author": "user|all (optional, default user)", "include_agent": "boolean (optional)"}',
+    handler: runListProjectsTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('list_projects'),
+  },
+  {
+    name: 'get_project_timeline',
+    description:
+      'Get one project timeline: ordered task waterfall, milestones, target deadline, and next action.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+      },
+      required: ['project_entity_id'],
+    },
+    agentArgumentSchema: '{"project_entity_id": "string (required) — UUID from list_projects"}',
+    handler: runGetProjectTimelineTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('get_project_timeline'),
+  },
+  {
+    name: 'order_task_in_project',
+    description:
+      'Place a task thought in a project waterfall. Pass rank (1-based) or after_thought_id (null to append). Explicit write — not semantic inference.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+        thought_id: { type: 'string' },
+        after_thought_id: {
+          type: ['string', 'null'],
+          description: 'Place after this thought id; null appends. Ignored when rank is set.',
+        },
+        rank: {
+          type: 'number',
+          description: '1-based position in the waterfall.',
+        },
+      },
+      required: ['project_entity_id', 'thought_id'],
+    },
+    agentArgumentSchema:
+      '{"project_entity_id": "string (required)", "thought_id": "string (required)", "after_thought_id": "string|null (optional)", "rank": "number (optional, 1-based)"}',
+    handler: runOrderTaskInProjectTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('order_task_in_project'),
+  },
+  {
+    name: 'set_project_milestone',
+    description:
+      'Create or update a project-scoped milestone (deliverable). Pass milestone_id to update.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+        label: { type: 'string' },
+        milestone_id: { type: 'string' },
+        target_date: { type: ['string', 'null'] },
+        linked_thought_id: { type: ['string', 'null'] },
+        rank: { type: 'number' },
+        completed: { type: 'boolean' },
+      },
+      required: ['project_entity_id', 'label'],
+    },
+    agentArgumentSchema:
+      '{"project_entity_id": "string (required)", "label": "string (required)", "milestone_id": "string (optional)", "target_date": "string|null (optional ISO)", "linked_thought_id": "string|null (optional)", "rank": "number (optional)", "completed": "boolean (optional)"}',
+    handler: runSetProjectMilestoneTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('set_project_milestone'),
+  },
+  {
+    name: 'set_project_deadline',
+    description: 'Set or clear the overall project target_date deadline (ISO-8601 or null).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+        target_date: { type: ['string', 'null'] },
+      },
+      required: ['project_entity_id', 'target_date'],
+    },
+    agentArgumentSchema:
+      '{"project_entity_id": "string (required)", "target_date": "string|null (required ISO-8601 or null)"}',
+    handler: runSetProjectDeadlineTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('set_project_deadline'),
   },
   {
     name: 'create_text_file',

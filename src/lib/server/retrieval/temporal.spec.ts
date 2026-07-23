@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchTemporalEventSeedsForHints,
   filterTemporalEvents,
-  inferQueryTimeRange,
   isTemporalQuery,
   resolveQueryTimeRange,
   traverseTemporalContext,
@@ -74,12 +73,6 @@ describe('resolveQueryTimeRange', () => {
 
   it('returns null when intent has no window', () => {
     expect(resolveQueryTimeRange({ temporal: true, kind: 'ordering', timeWindow: null })).toBeNull()
-  })
-})
-
-describe('inferQueryTimeRange', () => {
-  it('always returns null — query time windows come from LLM intent', () => {
-    expect(inferQueryTimeRange('events in 2026')).toBeNull()
   })
 })
 

@@ -8,30 +8,31 @@ const hasDb = Boolean(process.env.DATABASE_URL)
 
 describe.skipIf(!hasDb)('tenant secrets RLS integration', () => {
   let withEvalDb: typeof import('../../../../evals/harness/eval-context').withEvalDb
+  let withOperatorDb: typeof import('../../../../evals/harness/eval-context').withOperatorDb
 
   const suffix = `sec_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`
   const ua = `sec_ua_${suffix}`
   const ub = `sec_ub_${suffix}`
-  const secretKeyA = `sk-user-a-${suffix}`
   const secretKeyB = `sk-user-b-${suffix}`
 
   beforeAll(async () => {
     const ctx = await import('../../../../evals/harness/eval-context')
     withEvalDb = ctx.withEvalDb
+    withOperatorDb = ctx.withOperatorDb
     await seedUser(ua)
     await seedUser(ub)
   })
 
   afterAll(async () => {
     for (const uid of [ua, ub]) {
-      await withEvalDb(uid, async (db) => {
+      await withOperatorDb(async (db) => {
         await db.delete(user).where(eq(user.id, uid))
       }).catch(() => undefined)
     }
   })
 
   async function seedUser(userId: string) {
-    await withEvalDb(userId, async (db) => {
+    await withOperatorDb(async (db) => {
       await db.insert(user).values({
         id: userId,
         name: userId,

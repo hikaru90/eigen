@@ -19,6 +19,8 @@ const {
   createTextFileMock,
   searchTextFilesMock,
   resolveMcpCaptureAuthorshipMock,
+  listProjectsForUserMock,
+  orderTaskInProjectMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -30,7 +32,21 @@ const {
   createTextFileMock: vi.fn(),
   searchTextFilesMock: vi.fn(),
   resolveMcpCaptureAuthorshipMock: vi.fn(),
+  listProjectsForUserMock: vi.fn(),
+  orderTaskInProjectMock: vi.fn(),
 }))
+
+vi.mock('$lib/server/memory/project-list', () => ({
+  listProjectsForUser: listProjectsForUserMock,
+}))
+
+vi.mock('$lib/server/memory/project-task-sequence', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/memory/project-task-sequence')>()
+  return {
+    ...actual,
+    orderTaskInProject: orderTaskInProjectMock,
+  }
+})
 
 vi.mock('$lib/server/memory/temporal-context', () => ({
   loadTemporalContextByThoughtIds: loadTemporalContextByThoughtIdsMock,
@@ -559,5 +575,75 @@ describe('MCP tools', () => {
       authorFilter: 'agent',
     })
     expect(out).toMatchObject({ count: 1 })
+  })
+
+  it('runListProjectsTool returns waterfall shape without embedding', async () => {
+    listProjectsForUserMock.mockResolvedValue([
+      {
+        entityId: 'p1',
+        label: 'Ship',
+        status: 'active',
+        source: 'manual',
+        nextAction: {
+          thoughtId: 't1',
+          summary: 'Draft',
+          itemId: 'task:t1',
+        },
+        openTaskCount: 2,
+        targetDate: '2026-09-01T00:00:00.000Z',
+        tasks: [
+          { thoughtId: 't1', summary: 'Draft', itemId: 'task:t1', rank: 1 },
+          { thoughtId: 't2', summary: 'Review', itemId: 'task:t2', rank: 2 },
+        ],
+        milestones: [
+          {
+            id: 'm1',
+            label: 'Beta',
+            targetDate: '2026-08-01T00:00:00.000Z',
+            rank: 1,
+            completedAt: null,
+            linkedThoughtId: null,
+          },
+        ],
+      },
+    ])
+    const { runListProjectsTool } = await import('./tools')
+    const out = await runListProjectsTool({ userId: 'u1' }, {})
+    expect(out).toMatchObject({
+      count: 1,
+      projects: [
+        {
+          entityId: 'p1',
+          targetDate: '2026-09-01T00:00:00.000Z',
+        },
+      ],
+    })
+    const projects = (out as { projects: Array<{ tasks: unknown[]; milestones: unknown[] }> })
+      .projects
+    expect(projects[0]?.tasks).toHaveLength(2)
+    expect(projects[0]?.tasks[0]).toMatchObject({ thoughtId: 't1', rank: 1 })
+    expect(projects[0]?.milestones[0]).toMatchObject({ label: 'Beta' })
+    expect(JSON.stringify(out)).not.toContain('embedding')
+  })
+
+  it('runOrderTaskInProjectTool renumbers via shared helper', async () => {
+    orderTaskInProjectMock.mockResolvedValue({
+      projectEntityId: 'p1',
+      orderedThoughtIds: ['t2', 't1'],
+    })
+    const { runOrderTaskInProjectTool } = await import('./tools')
+    const out = await runOrderTaskInProjectTool(
+      { userId: 'u1' },
+      { project_entity_id: 'p1', thought_id: 't2', rank: 1 },
+    )
+    expect(orderTaskInProjectMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      projectEntityId: 'p1',
+      thoughtId: 't2',
+      rank: 1,
+      afterThoughtId: undefined,
+    })
+    expect(out).toMatchObject({ projectEntityId: 'p1', orderedThoughtIds: ['t2', 't1'] })
+    expect(JSON.stringify(out)).not.toContain('embedding')
   })
 })

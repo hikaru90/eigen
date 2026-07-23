@@ -12,6 +12,7 @@ const {
   selectMock,
   updateMock,
   insertMock,
+  transactionMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   scheduleCaptureEnrichWorkerMock: vi.fn(),
@@ -24,6 +25,7 @@ const {
   selectMock: vi.fn(),
   updateMock: vi.fn(),
   insertMock: vi.fn(),
+  transactionMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -97,10 +99,14 @@ describe('queueCapture', () => {
       insertCall += 1
       return insertCall === 1 ? sessionInsert : thoughtInsert
     })
+    transactionMock.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({ insert: insertMock }),
+    )
     getDbMock.mockReturnValue({
-      insert: insertMock,
+      // No root-level `insert`: tier 1 must write through the transaction handle.
       select: selectMock,
       update: updateMock,
+      transaction: transactionMock,
     })
   })
 
@@ -128,6 +134,33 @@ describe('queueCapture', () => {
     expect(notifyThoughtCreatedMock).toHaveBeenCalledWith(
       expect.objectContaining({ createdAt: capturedAt }),
     )
+  })
+
+  it('inserts session and thought atomically inside one transaction', async () => {
+    await queueCapture('u1', 'atomic check')
+    expect(transactionMock).toHaveBeenCalledTimes(1)
+    // Both inserts ran on the transaction handle (insertMock is only exposed via tx).
+    expect(insertMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('still queues and schedules enrich when the tier-1 graph anchor upsert fails', async () => {
+    upsertThoughtNodeMock.mockRejectedValueOnce(new Error('age down'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await queueCapture('u1', 'graph down')
+
+    expect(result).toEqual({
+      thoughtId: 'thought-1',
+      status: 'queued',
+      normalizedText: 'graph down',
+    })
+    expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
+    expect(notifyThoughtCreatedMock).toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[queue-capture] tier-1 graph anchor upsert failed'),
+      expect.objectContaining({ userId: 'u1', thoughtId: 'thought-1' }),
+    )
+    errorSpy.mockRestore()
   })
 
   it('throws when placeholder ontology kind is missing', async () => {

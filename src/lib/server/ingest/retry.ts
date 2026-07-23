@@ -5,6 +5,8 @@
  *
  * Fatal errors (e.g. 402 billing) are NOT retried — they propagate immediately.
  */
+import { LlmHttpError } from '$lib/server/llm/errors'
+
 export const INGEST_MAX_RETRIES = 3 as const
 
 export type RetryExhaustedError = Error & { attempts: number; lastCause: unknown }
@@ -26,8 +28,8 @@ export function isFatalIngestError(e: unknown): e is FatalIngestError {
 function isNonRetryable(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   if (error.name === 'InsufficientCreditsError') return true
-  // LLM HTTP 402 — insufficient balance at gateway level
-  if (error.message.includes('LLM HTTP 402')) return true
+  // Gateway-level insufficient balance — classified by type + status, never by message text.
+  if (error instanceof LlmHttpError && error.status === 402) return true
   return false
 }
 

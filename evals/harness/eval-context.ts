@@ -46,6 +46,21 @@ export async function withEvalDb<T>(
 }
 
 /**
+ * Run `fn` in operator context: plain pool connection, **no `SET ROLE eigen_app`, no tenant GUC**.
+ *
+ * Mirrors the Better Auth superuser pool (`src/lib/server/db/auth-db.ts`). The `user` table has
+ * FORCE RLS with a SELECT-only policy (`enable_rls.sql`), so identity rows can never be written
+ * from a tenant session (`withEvalDb`). Production writes them via the auth pool; test/eval
+ * seeding and teardown of identity rows must go through this helper instead.
+ *
+ * Do NOT use for tenant-data assertions — it bypasses RLS by design.
+ */
+export async function withOperatorDb<T>(fn: (db: AppDatabase) => Promise<T>): Promise<T> {
+  const db = createScopedDrizzle(appSql)
+  return await fn(db)
+}
+
+/**
  * Top-level entry helper for eval scripts: ensures the postgres pool is closed
  * so the process exits even if a downstream import opened keep-alive timers.
  */

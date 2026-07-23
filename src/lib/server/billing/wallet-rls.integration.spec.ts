@@ -8,6 +8,7 @@ const hasDb = Boolean(process.env.DATABASE_URL)
 
 describe.skipIf(!hasDb)('wallet RLS integration', () => {
   let withEvalDb: typeof import('../../../../evals/harness/eval-context').withEvalDb
+  let withOperatorDb: typeof import('../../../../evals/harness/eval-context').withOperatorDb
 
   const suffix = `wallet_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`
   const userA = `wallet_a_${suffix}`
@@ -16,12 +17,13 @@ describe.skipIf(!hasDb)('wallet RLS integration', () => {
   beforeAll(async () => {
     const ctx = await import('../../../../evals/harness/eval-context')
     withEvalDb = ctx.withEvalDb
+    withOperatorDb = ctx.withOperatorDb
 
     for (const [id, email] of [
       [userA, `${userA}@test.local`],
       [userB, `${userB}@test.local`],
     ] as const) {
-      await withEvalDb(id, async (db) => {
+      await withOperatorDb(async (db) => {
         await db.insert(user).values({
           id,
           name: id,
@@ -35,7 +37,7 @@ describe.skipIf(!hasDb)('wallet RLS integration', () => {
 
   afterAll(async () => {
     for (const uid of [userA, userB]) {
-      await withEvalDb(uid, async (db) => {
+      await withOperatorDb(async (db) => {
         await db.delete(walletLedgerEntry).where(eq(walletLedgerEntry.userId, uid))
         await db.delete(paymentOrder).where(eq(paymentOrder.userId, uid))
         await db.delete(userWallet).where(eq(userWallet.userId, uid))

@@ -1,25 +1,12 @@
-import { and, desc, eq, gte, isNotNull, lte, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, lt, or, sql } from 'drizzle-orm'
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
-import {
-  captureSession,
-  temporalEvent,
-  thought,
-  thoughtEntity,
-  thoughtRelation,
-} from '$lib/server/db/schema'
+import { temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
 import { getDb } from '$lib/server/db'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import {
-  removeThoughtGraphArtifacts,
-  upsertThoughtNode,
-  upsertThoughtRelation,
-} from '$lib/server/graph/age'
+import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
 import { pruneCanonicalEntitiesWithNoThoughtLinks } from '$lib/server/memory/canonical-entity-admin'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
-import { extractRelations } from '$lib/server/memory/relation-extraction'
-import { loadIngestKnownEntityHints } from '$lib/server/memory/entity-graph-hints'
-import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync'
-import { maybeRefreshUserOntology, resolveThoughtCategory } from '$lib/server/ontology'
+import { resolveThoughtCategory } from '$lib/server/ontology'
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 import {
   applyThoughtEditRequest,
@@ -35,24 +22,14 @@ import {
   truncateEditPreview,
 } from '$lib/server/capture/edit-phase-timing'
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
-import {
-  createIngestPhaseTimer,
-  logIngestPhaseTiming,
-  type IngestPhase,
-  type IngestPhaseTimer,
-} from '$lib/server/capture/phase-timing'
-import { enrichThought, reenrichThought } from '$lib/server/capture/enrich'
+import { logIngestPhaseTiming, type IngestPhaseTimer } from '$lib/server/capture/phase-timing'
+import { reenrichThought } from '$lib/server/capture/enrich'
 import { queueCapture } from '$lib/server/capture/queue-capture'
 import { enrichQueuedThought } from '$lib/server/capture/enrich-queued-thought'
 import type { CaptureSource, MemoryAuthor } from '$lib/server/db/schema'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
-import {
-  resolveMemoryAuthorship,
-  authorshipInsertValues,
-  graphAuthorProperty,
-  resolveAuthorSqlCondition,
-} from '$lib/server/memory/authorship'
+import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): {
@@ -68,208 +45,6 @@ export function normalizeThoughtText(raw: string): {
 
 export function toPgVectorLiteral(values: number[]): string {
   return `[${values.join(',')}]`
-}
-
-export type PersistCapturedThoughtInput = {
-  userId: string
-  rawInput: string
-  normalized: string
-  metadata: Record<string, unknown>
-  category: string
-  ontologyEntityKindId: string
-  embedding: number[]
-  ingestKnownEntities: Array<{ label: string; entityType: string }>
-  onProgress?: (event: CaptureProgressEvent) => Promise<void>
-  ingestTimer?: IngestPhaseTimer
-  author?: MemoryAuthor
-  authorLabel?: string | null
-  authorKeyId?: string | null
-}
-
-export type PersistCapturedThoughtResult = {
-  stored: {
-    id: string
-    userId: string
-    rawText: string
-    normalizedText: string
-    category: string
-  }
-  embedding: number[]
-  thoughtCountAfterInsert: number
-  ingestKnownEntities: Array<{ label: string; entityType: string }>
-}
-
-/**
- * Persist a classified + embedded thought: session, dedup, thought row, graph anchor.
- * Shared by single and batch capture paths.
- */
-export async function persistCapturedThought(
-  input: PersistCapturedThoughtInput,
-): Promise<PersistCapturedThoughtResult> {
-  const {
-    userId,
-    rawInput,
-    normalized,
-    metadata,
-    category,
-    ontologyEntityKindId,
-    embedding,
-    ingestKnownEntities,
-    onProgress,
-    ingestTimer,
-    author,
-    authorLabel,
-    authorKeyId,
-  } = input
-  const authorship = resolveMemoryAuthorship({ author, authorLabel, authorKeyId })
-  const authorValues = authorshipInsertValues(authorship)
-  const time =
-    ingestTimer?.time.bind(ingestTimer) ??
-    (async <T>(_phase: IngestPhase, fn: () => Promise<T>) => fn())
-
-  await emitProgress(onProgress, 'session')
-  const lexicalText = computeLexicalText(normalized)
-  const vectorLiteral = toPgVectorLiteral(embedding)
-  const [rawInputEncrypted, normalizedPreviewEncrypted, rawTextEncrypted, normalizedTextEncrypted] =
-    await time('persist_session_encrypt', () =>
-      Promise.all([
-        encryptTenantValue({
-          userId,
-          table: 'capture_session',
-          column: 'raw_input',
-          plaintext: rawInput,
-        }),
-        encryptTenantValue({
-          userId,
-          table: 'capture_session',
-          column: 'normalized_preview',
-          plaintext: normalized,
-        }),
-        encryptTenantValue({ userId, table: 'thought', column: 'raw_text', plaintext: rawInput }),
-        encryptTenantValue({
-          userId,
-          table: 'thought',
-          column: 'normalized_text',
-          plaintext: normalized,
-        }),
-      ]),
-    )
-
-  const [sessionRows, nearestRow] = await time('persist_dedup', () =>
-    Promise.all([
-      getDb()
-        .insert(captureSession)
-        .values({
-          userId,
-          status: 'accepted',
-          rawInput,
-          rawInputEncrypted,
-          normalizedPreview: normalized,
-          normalizedPreviewEncrypted,
-          category,
-          metadataPreview: { encrypted: true },
-          revisionCount: 0,
-          ...authorValues,
-        })
-        .returning(),
-      Promise.resolve()
-        .then(() =>
-          getDb()
-            .select({
-              id: thought.id,
-              normalizedText: thought.normalizedText,
-              distance: sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`,
-            })
-            .from(thought)
-            .where(and(eq(thought.userId, userId), isNotNull(thought.embedding)))
-            .orderBy(sql`${thought.embedding} <=> ${vectorLiteral}::vector`)
-            .limit(1),
-        )
-        .catch((err: unknown) => {
-          console.warn('[capture.dedup] dedup check failed, proceeding', {
-            message: err instanceof Error ? err.message : String(err),
-          })
-          return [] as Array<{ id: string; normalizedText: string; distance: number }>
-        }),
-    ]),
-  )
-
-  const sessionRow = sessionRows[0]
-  const nearest = nearestRow[0]
-  let nearDuplicateMeta: { id: string; distance: number; preview: string } | undefined
-  if (nearest && typeof nearest.distance === 'number' && nearest.distance < 0.06) {
-    nearDuplicateMeta = {
-      id: nearest.id,
-      distance: nearest.distance,
-      preview: nearest.normalizedText.slice(0, 120),
-    }
-    console.info('[capture.dedup] near-duplicate detected', {
-      existingId: nearest.id,
-      distance: nearest.distance,
-    })
-  }
-  const metadataEncrypted = await encryptTenantValue({
-    userId,
-    table: 'thought',
-    column: 'metadata',
-    plaintext: JSON.stringify({
-      ...metadata,
-      ...(nearDuplicateMeta ? { nearDuplicate: nearDuplicateMeta } : {}),
-    }),
-  })
-
-  await emitProgress(onProgress, 'persist')
-  const [stored] = await time('persist_insert', () =>
-    getDb().transaction(async (tx) => {
-      const [t] = await tx
-        .insert(thought)
-        .values({
-          userId,
-          rawText: rawInput,
-          rawTextEncrypted,
-          normalizedText: normalized,
-          normalizedTextEncrypted,
-          lexicalText,
-          category,
-          ontologyEntityKindId,
-          metadata: { encrypted: true, captureSessionId: sessionRow.id },
-          metadataEncrypted,
-          embedding: sql`${toPgVectorLiteral(embedding)}::vector`,
-          ...authorValues,
-        })
-        .returning({
-          id: thought.id,
-          userId: thought.userId,
-          rawText: thought.rawText,
-          normalizedText: thought.normalizedText,
-          category: thought.category,
-        })
-      return [t]
-    }),
-  )
-
-  await emitProgress(onProgress, 'graph')
-  await time('graph_anchor', () =>
-    upsertThoughtNode({
-      id: stored.id,
-      userId,
-      category: stored.category,
-      author: graphAuthorProperty(authorship),
-    }),
-  )
-
-  const [countRow] = await getDb()
-    .select({ n: sql<number>`count(*)::int` })
-    .from(thought)
-    .where(eq(thought.userId, userId))
-  const thoughtCountAfterInsert = Number(countRow?.n ?? 0)
-
-  return {
-    stored,
-    embedding,
-    thoughtCountAfterInsert,
-    ingestKnownEntities,
-  }
 }
 
 /** A single sequential phase or a parallel group of phases running concurrently. */
@@ -533,7 +308,7 @@ export async function editStoredThought(
       }
 
       await emitProgress(onProgress, 'persist')
-      const updated = await timer.time('persist_metadata', async () => {
+      await timer.time('persist_metadata', async () => {
         const metadataEncrypted = await timer.time('encrypt_metadata', async () =>
           encryptTenantValue({
             userId,
