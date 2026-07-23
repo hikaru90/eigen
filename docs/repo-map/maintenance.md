@@ -17,13 +17,13 @@ Apply map updates in the **same chat or editing session** as the code change so 
 
 ## Memory hub navigation
 
-- **Bottom nav:** Memory (`/memory`), Capture, Chat — Timeline and Notes are not top-level nav items.
-- **Secondary nav (floating pill on `/memory/*`):** Graph (default `/memory`), Embeddings (`/memory?view=embeddings`), Timeline (`/memory/timeline`), Notes (`/memory/notes`).
-- **Legacy redirects:** `/graph`, `/timeline`, `/notes`, and `/graph?tab=temporal` redirect to the matching `/memory/*` path. Push notifications link to `/memory/timeline`.
+- **Bottom nav:** Memory (`/memory`), Capture, Chat — Tasks, Projects, and Notes are not top-level nav items.
+- **Secondary nav (floating pill on `/memory/*`):** Graph (default `/memory`), Embeddings (`/memory?view=embeddings`), Tasks (`/memory/tasks`), Projects (`/memory/projects`), Notes (`/memory/notes`).
+- **Legacy redirects:** `/graph`, `/timeline`, `/notes`, `/graph?tab=temporal`, and `/memory/timeline` redirect to the matching `/memory/*` path. Push notifications and daily-summary deep links use `/memory/tasks`.
 
-## GTD timeline UI
+## GTD tasks / projects UI
 
-- **Route:** `/memory/timeline` owns the GTD timeline shell. UI components remain under [`src/routes/timeline/`](../../src/routes/timeline/). Legacy `/timeline` and `/graph?tab=temporal` redirect here.
+- **Routes:** `/memory/tasks` (task list with Todo / Done / Overdue segments) and `/memory/projects` (GTD project board). Shared orchestrator and UI components remain under [`src/routes/timeline/`](../../src/routes/timeline/). Legacy `/timeline`, `/memory/timeline`, and `/graph?tab=temporal` redirect to `/memory/tasks`.
 
 ## GTD projects vs graph entity kind `project`
 

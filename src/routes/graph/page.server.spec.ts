@@ -8,13 +8,13 @@ describe('graph legacy redirect', () => {
     ).rejects.toMatchObject({ status: 302, location: '/memory' })
   })
 
-  it('redirects legacy temporal tab to /memory/timeline', async () => {
+  it('redirects legacy temporal tab to /memory/tasks', async () => {
     await expect(
       load({
         locals: { user: { id: 'u1', email: 'a@b.c' } },
         url: new URL('http://localhost/graph?tab=temporal&event=ev1'),
       } as never),
-    ).rejects.toMatchObject({ status: 302, location: '/memory/timeline?event=ev1' })
+    ).rejects.toMatchObject({ status: 302, location: '/memory/tasks?event=ev1' })
   })
 
   it('preserves thought deep link on redirect', async () => {

@@ -89,7 +89,7 @@ async function dispatchOneEventReminder(
 
   const title = KIND_LABELS[row.kind] ?? 'Event'
   const body = `In ${row.leadMinutes} min · ${row.semanticSummary}`
-  const url = `/memory/timeline?event=${row.temporalEventId}`
+  const url = `/memory/tasks?event=${row.temporalEventId}`
   const tag = `event-${row.temporalEventId}-${row.leadMinutes}`
 
   try {

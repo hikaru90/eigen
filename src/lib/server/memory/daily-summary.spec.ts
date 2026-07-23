@@ -96,7 +96,7 @@ describe('buildDailySummaryPush', () => {
     expect(push.body).toContain('1 overdue task.')
     expect(push.body).toContain('2 due today.')
     expect(push.body).toContain('Tap to open your timeline.')
-    expect(push.url).toBe('/memory/timeline?segment=overdue')
+    expect(push.url).toBe('/memory/tasks?segment=overdue')
   })
 
   it('links to timeline when nothing is overdue', () => {
@@ -121,7 +121,7 @@ describe('buildDailySummaryPush', () => {
     const push = buildDailySummaryPush(openItems, allItems, 'UTC', now)
 
     expect(push.body).toContain('Nothing overdue.')
-    expect(push.url).toBe('/memory/timeline')
+    expect(push.url).toBe('/memory/tasks')
   })
 
   it('handles zero completions and zero due today', () => {

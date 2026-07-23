@@ -10,8 +10,12 @@ describe('activeMemorySurfaceTab', () => {
     expect(activeMemorySurfaceTab('/memory', 'embeddings')).toBe('embeddings')
   })
 
-  it('returns timeline for /memory/timeline', () => {
-    expect(activeMemorySurfaceTab('/memory/timeline', null)).toBe('timeline')
+  it('returns tasks for /memory/tasks', () => {
+    expect(activeMemorySurfaceTab('/memory/tasks', null)).toBe('tasks')
+  })
+
+  it('returns projects for /memory/projects', () => {
+    expect(activeMemorySurfaceTab('/memory/projects', null)).toBe('projects')
   })
 
   it('returns notes for /memory/notes', () => {

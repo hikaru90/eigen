@@ -49,6 +49,8 @@
   import { postTimelineQuickAction, type TimelineQuickAction } from './timeline-item-actions'
 
   type Props = {
+    /** Route-owned view: Tasks list or Projects board. */
+    mode: 'tasks' | 'projects'
     onSelectItem?: (item: TemporalEventListItem | null) => void
     selectedItemId?: string | null
     initialEventId?: string | null
@@ -64,6 +66,7 @@
   }
 
   let {
+    mode,
     onSelectItem,
     selectedItemId = null,
     initialEventId = null,
@@ -106,11 +109,6 @@
       : 'desc',
   )
   let dataView = $state<CurrentUserView>(getCurrentUserView())
-  let projectsMode = $state(
-    typeof localStorage !== 'undefined'
-      ? localStorage.getItem('timeline-projects-mode') === 'true'
-      : false,
-  )
 
   let nowSegment = $state<NowSegment>('todo')
   let updatingEventId = $state<string | null>(null)
@@ -200,7 +198,7 @@
   }
 
   const showGlobalEmpty = $derived(
-    phase.kind === 'ready' && filteredItems.length === 0 && !projectsMode && nowSegment === 'todo',
+    phase.kind === 'ready' && filteredItems.length === 0 && mode === 'tasks' && nowSegment === 'todo',
   )
 
   const totalReadyCount = $derived(phase.kind === 'ready' ? phase.items.length : 0)
@@ -539,18 +537,8 @@
     ])
   }
 
-  function toggleProjectsMode() {
-    projectsMode = !projectsMode
-    persistLocal('timeline-projects-mode', String(projectsMode))
-    filtersPopoverOpen = false
-  }
-
   function setNowSegment(segment: NowSegment) {
     nowSegment = segment
-    if (projectsMode) {
-      projectsMode = false
-      persistLocal('timeline-projects-mode', 'false')
-    }
     if (segment === 'overdue') void loadOverdueItems({ silent: overdueItems.length > 0 })
     if (segment === 'done') void loadDoneItems({ silent: doneItems.length > 0 })
   }
@@ -616,7 +604,7 @@
 <div
   class="relative flex h-full min-h-0 w-full flex-col overflow-hidden overscroll-none pt-14 md:pt-24"
 >
-  <TemporalTimelineHeader {projectsMode} {nowSegment} onToggleProjectsMode={toggleProjectsMode}>
+  <TemporalTimelineHeader {mode}>
     {#snippet titleActions()}
       <div
         class="flex items-center gap-1 {showFiltersInHeader ? '' : 'pointer-events-none invisible'}"
@@ -662,7 +650,7 @@
         </Button>
       </div>
     {/snippet}
-    {#if !projectsMode}
+    {#if mode === 'tasks'}
       <TemporalTodaySegmentTabs
         segment={nowSegment}
         tabCounts={nowTabCounts}
@@ -714,7 +702,7 @@
     </div>
   {:else if phase.kind === 'ready'}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {#if projectsMode}
+      {#if mode === 'projects'}
         <TemporalEventsProjectsView
           items={sharedProjectItems}
           onGoToTask={goToTaskFromProjects}
@@ -745,13 +733,13 @@
           onGoToOverdue={goToOverdue}
         />
         {#if nowSegment === 'todo'}
-          <div class="shrink-0" class:pb-28={projectsMode || !phase.nextCursor}>
+          <div class="shrink-0" class:pb-28={mode === 'projects' || !phase.nextCursor}>
             <TemporalTimelineNudge onAccept={onReschedule} />
           </div>
         {/if}
       {/if}
 
-      {#if !projectsMode && phase.nextCursor}
+      {#if mode === 'tasks' && phase.nextCursor}
         <div class="border-border shrink-0 border-t px-3 py-2 pb-28 text-center">
           <Button
             type="button"

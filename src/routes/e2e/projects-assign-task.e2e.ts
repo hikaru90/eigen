@@ -41,11 +41,7 @@ test.describe('Projects: unassigned task assignment @qa', () => {
     })
 
     await test.step('navigate to Projects view', async () => {
-      await page.goto('/memory/timeline')
-      const projectsToggle = page.getByRole('button', { name: /Projects/i })
-      if (await projectsToggle.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await projectsToggle.click()
-      }
+      await page.goto('/memory/projects')
       await page.waitForTimeout(2000)
     })
 

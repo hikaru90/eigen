@@ -10,6 +10,7 @@
 
 <div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none">
   <TemporalEvents
+    mode="projects"
     {initialEventId}
     prefetchedEvents={data.prefetchedTemporalEvents}
     prefetchedNextCursor={data.prefetchedNextCursor}
@@ -17,6 +18,5 @@
     userName={data.user.name}
     eventNotificationsEnabled={data.eventNotificationsEnabled}
     eventReminderLeadMinutes={data.eventReminderLeadMinutes}
-    initialSegment={page.url.searchParams.get('segment') === 'overdue' ? 'overdue' : null}
   />
 </div>

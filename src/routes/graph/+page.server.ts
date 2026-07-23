@@ -6,7 +6,7 @@ function memoryPath(url: URL): string {
   const tab = params.get('tab')
   if (tab === 'temporal') {
     const eventId = params.get('event')
-    return eventId ? `/memory/timeline?event=${encodeURIComponent(eventId)}` : '/memory/timeline'
+    return eventId ? `/memory/tasks?event=${encodeURIComponent(eventId)}` : '/memory/tasks'
   }
   const thought = params.get('thought')
   if (thought) {

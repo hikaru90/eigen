@@ -42,7 +42,6 @@ const QUICK_MS = 1_500
 const ACTION_MS = 6_000
 
 /** Locale-neutral timeline project UI labels (EN + DE). */
-const PROJECTS_TAB = /^(Projects|Projekte)$/
 const ADD_PROJECT_BTN = /Add project|Projekt anlegen/i
 const CREATE_PROJECT_SUBMIT = /Create project|Projekt anlegen/i
 const EDIT_PROJECT_BTN = /Edit project|Projekt bearbeiten/i
@@ -190,7 +189,7 @@ async function dismissBlockingLayers(page: Page): Promise<void> {
         .click({ position: { x: 6, y: 6 }, force: true }),
     () => page.getByRole('button', { name: DIALOG_CANCEL_BTN }).first().click(),
     () => page.getByRole('button', { name: /Tasks|Aufgaben/, exact: true }).click(),
-    () => page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' }),
+    () => page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' }),
     () => page.goto('/capture', { waitUntil: 'domcontentloaded' }),
   ]
 
@@ -249,7 +248,8 @@ export const AUTHENTICATED_SURFACES: AuthenticatedSurface[] = [
   { path: '/capture', label: 'Capture' },
   { path: '/memory', label: 'Memory graph' },
   { path: '/memory?view=embeddings', label: 'Memory embeddings' },
-  { path: '/memory/timeline', label: 'Memory timeline' },
+  { path: '/memory/tasks', label: 'Memory tasks' },
+  { path: '/memory/projects', label: 'Memory projects' },
   { path: '/memory/notes', label: 'Memory notes' },
   { path: '/chat', label: 'Chat' },
   { path: '/activity', label: 'Activity' },
@@ -794,19 +794,15 @@ async function findProject(page: Page, entityId: string): Promise<TimelineProjec
 
 async function gotoTimelineProjectsView(page: Page): Promise<void> {
   await dismissBlockingLayers(page)
-  await page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' })
+  await page.goto('/memory/projects', { waitUntil: 'domcontentloaded' })
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const projectsToggle = page.getByRole('button', { name: PROJECTS_TAB })
-    if (await visible(projectsToggle)) {
-      await projectsToggle.click().catch(() => undefined)
-    }
     if (await visible(page.getByRole('button', { name: ADD_PROJECT_BTN }))) {
       return
     }
     await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined)
   }
-  throw new Error('Timeline projects view did not load')
+  throw new Error('Projects view did not load')
 }
 
 async function createProjectViaUi(page: Page, label: string): Promise<TimelineProjectRow> {
@@ -1129,14 +1125,11 @@ export async function exerciseOvernightConsolidation(page: Page): Promise<void> 
 }
 
 /**
- * Headed-release guard: cold `/memory/timeline` must stay within
+ * Headed-release guard: cold `/memory/tasks` must stay within
  * `TIMELINE_MOUNT_FETCH_BUDGET` (shared with unit eval in timeline-client-loads.spec.ts).
  */
 export async function assertTimelineMountFetchBudget(page: Page): Promise<void> {
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
-  await page.evaluate(() => {
-    localStorage.setItem('timeline-projects-mode', 'false')
-  })
 
   const urls: string[] = []
   const onRequest = (request: Request) => {
@@ -1149,11 +1142,11 @@ export async function assertTimelineMountFetchBudget(page: Page): Promise<void> 
   page.on('request', onRequest)
 
   try {
-    await page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' })
+    await page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
     await pollUntil(
-      `timeline cold-mount fetch budget (≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsRelevant} relevant, ≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsOverdueOpen} overdue-open, ≤${TIMELINE_MOUNT_FETCH_BUDGET.timelineStats} stats)`,
+      `tasks cold-mount fetch budget (≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsRelevant} relevant, ≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsOverdueOpen} overdue-open, ≤${TIMELINE_MOUNT_FETCH_BUDGET.timelineStats} stats)`,
       async () => {
         const relevant = urls.filter((u) => classifyTemporalEventsFetch(u) === 'relevant').length
         const overdueOpen = urls.filter(
@@ -1173,7 +1166,7 @@ export async function assertTimelineMountFetchBudget(page: Page): Promise<void> 
     const violations = findMountFetchBudgetViolations(urls)
     expect(
       violations,
-      `Timeline cold-mount fetch budget exceeded.\nViolations: ${violations.join('; ')}\nURLs:\n${urls.join('\n')}`,
+      `Tasks cold-mount fetch budget exceeded.\nViolations: ${violations.join('; ')}\nURLs:\n${urls.join('\n')}`,
     ).toEqual([])
   } finally {
     page.off('request', onRequest)
@@ -1182,14 +1175,14 @@ export async function assertTimelineMountFetchBudget(page: Page): Promise<void> 
 
 /**
  * Timeline filters: AI date dial + shared Tasks/Projects data; kinds filter gone.
+ * Dial presets (Last week / Last month / All time) resolve locally — no parse-date-range call.
  */
 export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<void> {
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
-  await page.evaluate(() => {
-    localStorage.setItem('timeline-projects-mode', 'false')
-  })
 
+  let parseDateRangeCalls = 0
   await page.route('**/api/timeline/parse-date-range', async (route) => {
+    parseDateRangeCalls += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1213,7 +1206,7 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
   page.on('request', onRequest)
 
   try {
-    await page.goto('/memory/timeline', { waitUntil: 'domcontentloaded' })
+    await page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
     await expect(page.getByLabel(/date range|datumsbereich/i)).toBeVisible({
@@ -1239,32 +1232,44 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
     await lastWeek.click()
 
     await pollUntil(
-      'temporal-events refetch with absolute from/to after dial',
+      'temporal-events refetch with absolute from/to after dial (local preset)',
       async () =>
-        listUrls.some(
-          (u) =>
-            u.includes('from=2026-07-14') && u.includes('to=2026-07-20') && !u.includes('kinds='),
-        ),
+        listUrls.some((u) => {
+          try {
+            const parsed = new URL(u)
+            const from = parsed.searchParams.get('from')
+            const to = parsed.searchParams.get('to')
+            return Boolean(from && to) && !u.includes('kinds=')
+          } catch {
+            return false
+          }
+        }),
       { timeoutMs: RELEASE_WAIT_MS, intervalMs: 200 },
     )
 
-    const projectsToggle = page.getByRole('button', { name: PROJECTS_TAB })
-    await projectsToggle.click()
+    expect(
+      parseDateRangeCalls,
+      'Last week preset must resolve locally — must not call /api/timeline/parse-date-range',
+    ).toBe(0)
+
+    const beforeProjectsNav = listUrls.length
+    await page.goto('/memory/projects', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('button', { name: ADD_PROJECT_BTN })).toBeVisible({
       timeout: RELEASE_WAIT_MS,
     })
 
-    const postToggleTemporal = listUrls.filter((u) => u.includes('/api/temporal-events'))
-    const afterProjectsClick = postToggleTemporal.slice(-3)
+    const postNavTemporal = listUrls.slice(beforeProjectsNav)
     expect(
-      afterProjectsClick.every((u) => !u.includes('range=all&status=all')),
-      'Projects mode must not refetch range=all&status=all independently',
+      postNavTemporal.every((u) => !u.includes('range=all&status=all')),
+      'Projects page must not refetch range=all&status=all independently',
     ).toBe(true)
 
     // Status filter ("Show completed") is client-side only — zero new list/stats fetches.
     const beforeStatusToggle = listUrls.length
     const statsBefore = statsUrls.length
-    await filtersTrigger.click()
+    const projectsFiltersTrigger = page.getByRole('button', { name: /^filters?$/i })
+    await expect(projectsFiltersTrigger).toBeVisible({ timeout: RELEASE_WAIT_MS })
+    await projectsFiltersTrigger.click()
     const showCompleted = page.getByRole('checkbox', {
       name: /show completed|erledigte anzeigen/i,
     })

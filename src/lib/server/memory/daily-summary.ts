@@ -48,6 +48,6 @@ export function buildDailySummaryPush(
   return {
     title: 'Daily summary',
     body,
-    url: overdue > 0 ? '/memory/timeline?segment=overdue' : '/memory/timeline',
+    url: overdue > 0 ? '/memory/tasks?segment=overdue' : '/memory/tasks',
   }
 }

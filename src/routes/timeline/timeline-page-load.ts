@@ -1,0 +1,55 @@
+import { redirect } from '@sveltejs/kit'
+import { eq } from 'drizzle-orm'
+import { getDb } from '$lib/server/db'
+import { userPreference } from '$lib/server/db/schema'
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
+
+type TimelinePageLoadEvent = {
+  locals: App.Locals
+  depends: (...deps: string[]) => void
+}
+
+/** Shared SSR prefetch for Tasks and Projects Memory hub pages. */
+export async function loadTimelinePageData(event: TimelinePageLoadEvent) {
+  if (!event.locals.user) {
+    throw redirect(302, '/login')
+  }
+  const userId = event.locals.user.id
+
+  event.depends('timeline:temporal-events', 'timeline:thoughts')
+
+  const [preferredTimezoneResult, prefResult, temporalEventsResult] = await Promise.all([
+    getUserPreferredTimezone(userId),
+    getDb()
+      .select({
+        eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
+        eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
+      })
+      .from(userPreference)
+      .where(eq(userPreference.userId, userId))
+      .limit(1),
+    listTemporalEventsForUser({
+      userId,
+      status: 'all',
+      includeTasks: true,
+      orderBy: 'ingest',
+      sortDirection: 'desc',
+      author: 'user',
+      from: null,
+      to: null,
+      includeUndated: true,
+    }),
+  ])
+
+  const pref = prefResult[0]
+
+  return {
+    user: event.locals.user,
+    preferredTimezone: preferredTimezoneResult,
+    eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
+    eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
+    prefetchedTemporalEvents: temporalEventsResult.items,
+    prefetchedNextCursor: temporalEventsResult.nextCursor,
+  }
+}

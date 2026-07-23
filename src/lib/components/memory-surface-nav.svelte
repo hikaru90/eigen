@@ -5,10 +5,10 @@
   import { activeMemorySurfaceTab } from '$lib/memory/memory-surface-nav'
   import { m } from '$lib/paraglide/messages.js'
 
-  type MemoryTabPath = '/memory' | '/memory/timeline' | '/memory/notes'
+  type MemoryTabPath = '/memory' | '/memory/tasks' | '/memory/projects' | '/memory/notes'
 
   const tabs: Array<{
-    id: 'graph' | 'embeddings' | 'timeline' | 'notes'
+    id: 'graph' | 'embeddings' | 'tasks' | 'projects' | 'notes'
     label: () => string
     pathname: MemoryTabPath
     search?: string
@@ -21,9 +21,14 @@
       search: 'view=embeddings',
     },
     {
-      id: 'timeline',
-      label: () => m.graph_tab_timeline(),
-      pathname: '/memory/timeline',
+      id: 'tasks',
+      label: () => m.memory_tab_tasks(),
+      pathname: '/memory/tasks',
+    },
+    {
+      id: 'projects',
+      label: () => m.memory_tab_projects(),
+      pathname: '/memory/projects',
     },
     { id: 'notes', label: () => m.memory_tab_notes(), pathname: '/memory/notes' },
   ]

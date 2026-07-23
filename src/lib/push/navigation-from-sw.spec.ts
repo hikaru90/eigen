@@ -32,10 +32,10 @@ describe('startPushNavigationFromServiceWorker', () => {
     expect(messageListeners).toHaveLength(1)
 
     messageListeners[0]({
-      data: { type: 'PUSH_NAVIGATE', url: '/memory/timeline?segment=overdue' },
+      data: { type: 'PUSH_NAVIGATE', url: '/memory/tasks?segment=overdue' },
     } as MessageEvent)
 
-    expect(gotoMock).toHaveBeenCalledWith('/memory/timeline?segment=overdue')
+    expect(gotoMock).toHaveBeenCalledWith('/memory/tasks?segment=overdue')
 
     stop()
     expect(listeners.get('message')?.size).toBe(0)

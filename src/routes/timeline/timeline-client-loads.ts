@@ -1,7 +1,7 @@
 import type { CurrentUserView } from '$lib/memory/current-user-view'
 
 /**
- * Prod fetch budget for a cold `/memory/timeline` mount.
+ * Prod fetch budget for a cold `/memory/tasks` mount.
  * DevTools regressions that exceed this are user-visible waste.
  */
 export const TIMELINE_MOUNT_FETCH_BUDGET = {
