@@ -9,6 +9,7 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 }))
 
 import {
+  isParseDateRangeGatewayFailure,
   parseDateRangePhrase,
   parseDateRangePayload,
   type ParsedDateRange,
@@ -93,6 +94,10 @@ describe('parseDateRangePhrase', () => {
     const call = llmChatCompletionMock.mock.calls[0]?.[0]
     expect(call?.responseFormat).toBe('json_object')
     expect(call?.userId).toBe('u1')
+    expect(call?.logContext).toBe('timeline_parse_date_range')
+    expect(call?.maxTokens).toBe(256)
+    // Same shared client as every other tool — no provider/model override.
+    expect(call?.routingRuleId).toBeUndefined()
     const userContent = call?.messages?.find((m: { role: string }) => m.role === 'user')
       ?.content as string
     expect(userContent).toContain('last week')
@@ -110,5 +115,14 @@ describe('parseDateRangePhrase', () => {
         timeZone: 'UTC',
       }),
     ).rejects.toThrow(/date range/i)
+  })
+})
+
+describe('isParseDateRangeGatewayFailure', () => {
+  it('detects shared-client gateway/timeout failures', () => {
+    expect(isParseDateRangeGatewayFailure('LLM HTTP 502: bad gateway')).toBe(true)
+    expect(isParseDateRangeGatewayFailure('LLM HTTP 503: unavailable')).toBe(true)
+    expect(isParseDateRangeGatewayFailure('LLM request timed out after 60000ms')).toBe(true)
+    expect(isParseDateRangeGatewayFailure('Invalid date range LLM response: x')).toBe(false)
   })
 })

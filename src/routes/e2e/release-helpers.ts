@@ -20,9 +20,8 @@ import {
 } from './voice-capture-helpers'
 import {
   TIMELINE_MOUNT_FETCH_BUDGET,
-  classifyTemporalEventsFetch,
   findMountFetchBudgetViolations,
-  isTimelineStatsFetch,
+  isTimelineUnifiedFetch,
 } from '../timeline/timeline-client-loads'
 
 // Playwright workers may not inherit .env from the parent shell; load explicitly for preflight.
@@ -716,7 +715,7 @@ export async function completeOnboardingOverlay(
   }
 }
 
-export async function captureThoughtViaUi(page: Page, raw: string): Promise<void> {
+export async function captureThoughtViaUi(page: Page, raw: string): Promise<string> {
   await dismissBlockingLayers(page)
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
   await dismissBlockingLayers(page)
@@ -763,6 +762,7 @@ export async function captureThoughtViaUi(page: Page, raw: string): Promise<void
   }
 
   await waitForThoughtIndexed(page, thoughtId, raw)
+  return thoughtId
 }
 
 export async function visitAuthenticatedSurfaces(page: Page): Promise<void> {
@@ -774,6 +774,10 @@ type TimelineProjectRow = {
   label: string
   status: string
   openTaskCount: number
+  targetDate?: string | null
+  tasks?: Array<{ thoughtId: string; summary: string; rank: number }>
+  milestones?: Array<{ label: string; targetDate: string | null }>
+  nextAction?: { thoughtId: string; summary: string; itemId: string } | null
 }
 
 async function fetchTimelineProjects(page: Page): Promise<TimelineProjectRow[]> {
@@ -1067,6 +1071,108 @@ export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Project waterfall + milestone chips on the card; completing the head task advances next-action.
+ */
+export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void> {
+  const stamp = Date.now()
+  const projectLabel = `Waterfall Project ${stamp}`
+  const firstSummary = `waterfall-first-${stamp} draft the outline`
+  const secondSummary = `waterfall-second-${stamp} review with design`
+
+  const createRes = await page.request.post('/api/timeline/projects', {
+    data: { label: projectLabel, status: 'active' },
+  })
+  if (!createRes.ok()) {
+    throw new Error(`create waterfall project failed (${createRes.status()}): ${await createRes.text()}`)
+  }
+  const created = (await createRes.json()) as { entityId: string }
+
+  const firstThoughtId = await captureThoughtViaUi(page, `TODO: ${firstSummary}`)
+  const secondThoughtId = await captureThoughtViaUi(page, `TODO: ${secondSummary}`)
+
+  for (const thoughtId of [firstThoughtId, secondThoughtId]) {
+    const assignRes = await page.request.post('/api/timeline/projects/assign', {
+      data: { thoughtId, projectEntityId: created.entityId },
+    })
+    if (!assignRes.ok()) {
+      throw new Error(`assign waterfall task failed (${assignRes.status()}): ${await assignRes.text()}`)
+    }
+  }
+
+  const orderFirst = await page.request.post(`/api/timeline/projects/${created.entityId}/order`, {
+    data: { thoughtId: firstThoughtId, rank: 1, asNextAction: true },
+  })
+  if (!orderFirst.ok()) {
+    throw new Error(`order first task failed (${orderFirst.status()}): ${await orderFirst.text()}`)
+  }
+  const orderSecond = await page.request.post(`/api/timeline/projects/${created.entityId}/order`, {
+    data: { thoughtId: secondThoughtId, afterThoughtId: firstThoughtId },
+  })
+  if (!orderSecond.ok()) {
+    throw new Error(`order second task failed (${orderSecond.status()}): ${await orderSecond.text()}`)
+  }
+
+  const deadlineRes = await page.request.post(`/api/timeline/projects/${created.entityId}/deadline`, {
+    data: { targetDate: '2026-12-01T00:00:00.000Z' },
+  })
+  if (!deadlineRes.ok()) {
+    throw new Error(`set deadline failed (${deadlineRes.status()}): ${await deadlineRes.text()}`)
+  }
+
+  const milestoneRes = await page.request.post(
+    `/api/timeline/projects/${created.entityId}/milestones`,
+    { data: { label: `Beta ${stamp}`, targetDate: '2026-10-01T00:00:00.000Z', rank: 1 } },
+  )
+  if (!milestoneRes.ok()) {
+    throw new Error(`set milestone failed (${milestoneRes.status()}): ${await milestoneRes.text()}`)
+  }
+
+  await gotoTimelineProjectsView(page)
+  await pollUntil(
+    'project waterfall visible on card',
+    async () => {
+      const waterfall = page.getByTestId('project-waterfall').filter({ hasText: firstSummary })
+      return visible(waterfall, QUICK_MS)
+    },
+    { timeoutMs: RELEASE_WAIT_MS, intervalMs: 1_000 },
+  )
+  await expect(page.getByTestId('project-milestones').getByText(`Beta ${stamp}`)).toBeVisible({
+    timeout: RELEASE_WAIT_MS,
+  })
+
+  const before = await findProject(page, created.entityId)
+  if (!before?.tasks || before.tasks.length < 2) {
+    throw new Error(`Expected sequenced tasks on project, got ${JSON.stringify(before?.tasks)}`)
+  }
+
+  // Complete the head task via temporal-events action (same path as UI mark-done).
+  const headItemId = `task:${firstThoughtId}`
+  const completeRes = await page.request.post(`/api/temporal-events/${encodeURIComponent(headItemId)}/action`, {
+    data: { action: 'mark_done' },
+  })
+  if (!completeRes.ok()) {
+    // Some environments use action without `action` key — try instruction form.
+    const alt = await page.request.post(`/api/temporal-events/${encodeURIComponent(headItemId)}/action`, {
+      data: { instruction: 'mark as done' },
+    })
+    if (!alt.ok()) {
+      throw new Error(
+        `mark head task done failed (${completeRes.status()}/${alt.status()}): ${await completeRes.text()} / ${await alt.text()}`,
+      )
+    }
+  }
+
+  await pollUntil(
+    'next action advanced to second waterfall task',
+    async () => {
+      const row = await findProject(page, created.entityId)
+      return row?.nextAction?.thoughtId === secondThoughtId
+    },
+    { timeoutMs: RELEASE_WAIT_MS, intervalMs: 1_000 },
+  )
+}
+
 type ScheduledTaskSnapshot = {
   activeRun?: unknown
   lastRunAt?: string | null
@@ -1126,7 +1232,7 @@ export async function exerciseOvernightConsolidation(page: Page): Promise<void> 
 
 /**
  * Headed-release guard: cold `/memory/tasks` must stay within
- * `TIMELINE_MOUNT_FETCH_BUDGET` (shared with unit eval in timeline-client-loads.spec.ts).
+ * `TIMELINE_MOUNT_FETCH_BUDGET` (one unified `/api/timeline` fetch).
  */
 export async function assertTimelineMountFetchBudget(page: Page): Promise<void> {
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
@@ -1135,7 +1241,7 @@ export async function assertTimelineMountFetchBudget(page: Page): Promise<void> 
   const onRequest = (request: Request) => {
     if (request.method() !== 'GET') return
     const url = request.url()
-    if (url.includes('/api/temporal-events') || url.includes('/api/timeline/stats')) {
+    if (isTimelineUnifiedFetch(url)) {
       urls.push(url)
     }
   }
@@ -1146,15 +1252,9 @@ export async function assertTimelineMountFetchBudget(page: Page): Promise<void> 
     await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
     await pollUntil(
-      `tasks cold-mount fetch budget (≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsRelevant} relevant, ≤${TIMELINE_MOUNT_FETCH_BUDGET.temporalEventsOverdueOpen} overdue-open, ≤${TIMELINE_MOUNT_FETCH_BUDGET.timelineStats} stats)`,
+      `tasks cold-mount fetch budget (≤${TIMELINE_MOUNT_FETCH_BUDGET.timelineUnified} unified /api/timeline)`,
       async () => {
-        const relevant = urls.filter((u) => classifyTemporalEventsFetch(u) === 'relevant').length
-        const overdueOpen = urls.filter(
-          (u) => classifyTemporalEventsFetch(u) === 'overdue-open',
-        ).length
-        const stats = urls.filter((u) => isTimelineStatsFetch(u)).length
-        if (relevant < 1 || overdueOpen < 1 || stats < 1) return false
-
+        if (urls.length < 1) return false
         const before = urls.length
         await new Promise((r) => setTimeout(r, 750))
         if (urls.length !== before) return false
@@ -1196,12 +1296,10 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
   })
 
   const listUrls: string[] = []
-  const statsUrls: string[] = []
   const onRequest = (request: Request) => {
     if (request.method() !== 'GET') return
     const url = request.url()
-    if (url.includes('/api/temporal-events')) listUrls.push(url)
-    if (url.includes('/api/timeline/stats')) statsUrls.push(url)
+    if (isTimelineUnifiedFetch(url)) listUrls.push(url)
   }
   page.on('request', onRequest)
 
@@ -1232,7 +1330,7 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
     await lastWeek.click()
 
     await pollUntil(
-      'temporal-events refetch with absolute from/to after dial (local preset)',
+      'unified /api/timeline refetch with absolute from/to after dial (local preset)',
       async () =>
         listUrls.some((u) => {
           try {
@@ -1263,30 +1361,76 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
       postNavTemporal.every((u) => !u.includes('range=all&status=all')),
       'Projects page must not refetch range=all&status=all independently',
     ).toBe(true)
-
-    // Status filter ("Show completed") is client-side only — zero new list/stats fetches.
-    const beforeStatusToggle = listUrls.length
-    const statsBefore = statsUrls.length
-    const projectsFiltersTrigger = page.getByRole('button', { name: /^filters?$/i })
-    await expect(projectsFiltersTrigger).toBeVisible({ timeout: RELEASE_WAIT_MS })
-    await projectsFiltersTrigger.click()
-    const showCompleted = page.getByRole('checkbox', {
-      name: /show completed|erledigte anzeigen/i,
-    })
-    await expect(showCompleted).toBeVisible({ timeout: RELEASE_WAIT_MS })
-    await showCompleted.click()
-    await page.keyboard.press('Escape')
-    await new Promise((r) => setTimeout(r, 400))
-    expect(
-      listUrls.length,
-      'Show completed must not refetch /api/temporal-events',
-    ).toBe(beforeStatusToggle)
-    expect(statsUrls.length, 'Show completed must not refetch /api/timeline/stats').toBe(
-      statsBefore,
-    )
   } finally {
     page.off('request', onRequest)
     await page.unroute('**/api/timeline/parse-date-range').catch(() => undefined)
+  }
+}
+
+/**
+ * Single-source-of-truth: tab badge counts match visible list lengths;
+ * overdue badge equals overdue list; project board cards only for projects with tasks in range.
+ */
+export async function assertTimelineSsotCountsAndLists(page: Page): Promise<void> {
+  await page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+  const todoTab = page.getByRole('tab', { name: /to\s*do|offen/i })
+  const doneTab = page.getByRole('tab', { name: /done|erledigt/i })
+  const overdueTab = page.getByRole('tab', { name: /overdue|überfällig/i })
+
+  await expect(todoTab).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+  async function countFromTab(tab: Locator): Promise<number> {
+    const text = (await tab.innerText()).replace(/\s+/g, ' ').trim()
+    const match = text.match(/(\d+)\s*$/)
+    return match ? Number.parseInt(match[1]!, 10) : 0
+  }
+
+  async function visibleRowCount(listbox: Locator): Promise<number> {
+    return listbox.locator('[role="option"], li').count()
+  }
+
+  const listbox = page.getByRole('listbox')
+
+  await todoTab.click()
+  const todoBadge = await countFromTab(todoTab)
+  const todoRows = await visibleRowCount(listbox)
+  expect(todoBadge, 'To Do badge must equal visible To Do rows').toBe(todoRows)
+
+  await doneTab.click()
+  const doneBadge = await countFromTab(doneTab)
+  const doneRows = await visibleRowCount(listbox)
+  expect(doneBadge, 'Done badge must equal visible Done rows').toBe(doneRows)
+
+  await overdueTab.click()
+  const overdueBadge = await countFromTab(overdueTab)
+  const overdueRows = await visibleRowCount(listbox)
+  expect(overdueBadge, 'Overdue badge must equal visible Overdue rows').toBe(overdueRows)
+
+  // Projects board: no separate catalog-only cards without tasks in the loaded set.
+  // Cold projects page must use /api/timeline (same SSOT), not a lone /api/timeline/projects list fan-out for the board.
+  const projectCatalogFetches: string[] = []
+  const onRequest = (request: Request) => {
+    if (request.method() !== 'GET') return
+    const url = request.url()
+    if (url.includes('/api/timeline/projects') && !url.includes('/assign')) {
+      projectCatalogFetches.push(url)
+    }
+  }
+  page.on('request', onRequest)
+  try {
+    await page.goto('/memory/projects', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('button', { name: ADD_PROJECT_BTN })).toBeVisible({
+      timeout: RELEASE_WAIT_MS,
+    })
+    await new Promise((r) => setTimeout(r, 800))
+    expect(
+      projectCatalogFetches,
+      'Projects board must not call GET /api/timeline/projects — catalog comes from unified /api/timeline',
+    ).toEqual([])
+  } finally {
+    page.off('request', onRequest)
   }
 }
 

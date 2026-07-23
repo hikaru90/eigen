@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types'
   import { page } from '$app/state'
-  import TemporalEvents from '../../timeline/temporal-events.svelte'
+  import TimelineShell from '../../timeline/timeline-shell.svelte'
 
   let { data }: { data: PageData } = $props()
 
@@ -9,11 +9,10 @@
 </script>
 
 <div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none">
-  <TemporalEvents
+  <TimelineShell
     mode="projects"
     {initialEventId}
-    prefetchedEvents={data.prefetchedTemporalEvents}
-    prefetchedNextCursor={data.prefetchedNextCursor}
+    prefetchedSource={data.prefetchedTimeline}
     userTimeZone={data.preferredTimezone}
     userName={data.user.name}
     eventNotificationsEnabled={data.eventNotificationsEnabled}

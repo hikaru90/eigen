@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  computePresetAbsoluteRange,
   computeRelevantAbsoluteRange,
+  formatParseDateRangeHttpError,
   itemOverlapsAbsoluteRange,
   RELEVANT_LOOKAHEAD_DAYS,
 } from './timeline-date-range'
@@ -14,6 +16,55 @@ describe('computeRelevantAbsoluteRange', () => {
       new Date(now.getTime() + RELEVANT_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000).toISOString(),
     )
     expect(range.includeUndated).toBe(true)
+  })
+})
+
+describe('computePresetAbsoluteRange', () => {
+  const now = new Date('2026-07-21T12:00:00.000Z')
+
+  it('resolves last-week locally (no LLM): rolling 7 days, exclude undated', () => {
+    const range = computePresetAbsoluteRange('last-week', now)
+    expect(range.label).toBe('Last week')
+    expect(range.includeUndated).toBe(false)
+    expect(range.from).toBe('2026-07-14T00:00:00.000Z')
+    expect(range.to).toBe('2026-07-21T23:59:59.999Z')
+  })
+
+  it('resolves last-month locally: rolling 30 days, exclude undated', () => {
+    const range = computePresetAbsoluteRange('last-month', now)
+    expect(range.label).toBe('Last month')
+    expect(range.includeUndated).toBe(false)
+    expect(range.from).toBe('2026-06-21T00:00:00.000Z')
+    expect(range.to).toBe('2026-07-21T23:59:59.999Z')
+  })
+
+  it('resolves all-time locally: unbounded + include undated', () => {
+    expect(computePresetAbsoluteRange('all-time', now)).toEqual({
+      from: null,
+      to: null,
+      includeUndated: true,
+      label: 'All time',
+    })
+  })
+})
+
+describe('formatParseDateRangeHttpError', () => {
+  it('prefers JSON error from the API', () => {
+    expect(
+      formatParseDateRangeHttpError(
+        502,
+        JSON.stringify({
+          error:
+            'Date parsing is temporarily unavailable. Try Last week / Last month, or try again.',
+        }),
+      ),
+    ).toBe('Date parsing is temporarily unavailable. Try Last week / Last month, or try again.')
+  })
+
+  it('maps bare proxy 502 Bad Gateway to a clear dial message', () => {
+    expect(formatParseDateRangeHttpError(502, 'Bad Gateway')).toBe(
+      'Date parsing is temporarily unavailable. Try Last week / Last month, or try again.',
+    )
   })
 })
 

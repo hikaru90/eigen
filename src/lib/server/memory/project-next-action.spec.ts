@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearNextActionIfCompleted, designateNextAction } from './project-next-action'
 
-const { getDbMock, upsertMentionEdgeMock } = vi.hoisted(() => ({
+const {
+  getDbMock,
+  upsertMentionEdgeMock,
+  loadOrderedThoughtIdsForProjectMock,
+  loadOpenTaskThoughtIdsForProjectMock,
+} = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   upsertMentionEdgeMock: vi.fn(async () => undefined),
+  loadOrderedThoughtIdsForProjectMock: vi.fn(async () => [] as string[]),
+  loadOpenTaskThoughtIdsForProjectMock: vi.fn(async () => new Set<string>()),
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -13,6 +20,15 @@ vi.mock('$lib/server/db', () => ({
 vi.mock('$lib/server/graph/age', () => ({
   upsertMentionEdge: upsertMentionEdgeMock,
 }))
+
+vi.mock('./project-task-sequence', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./project-task-sequence')>()
+  return {
+    ...actual,
+    loadOrderedThoughtIdsForProject: loadOrderedThoughtIdsForProjectMock,
+    loadOpenTaskThoughtIdsForProject: loadOpenTaskThoughtIdsForProjectMock,
+  }
+})
 
 function makeLimitChain(rows: unknown[]) {
   const chain = {
@@ -24,7 +40,11 @@ function makeLimitChain(rows: unknown[]) {
 }
 
 describe('project-next-action', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    loadOrderedThoughtIdsForProjectMock.mockResolvedValue([])
+    loadOpenTaskThoughtIdsForProjectMock.mockResolvedValue(new Set())
+  })
 
   it('designateNextAction links thought to GTD project entity', async () => {
     const updateWhereMock = vi.fn(async () => undefined)
@@ -50,15 +70,39 @@ describe('project-next-action', () => {
     expect(updateWhereMock).toHaveBeenCalled()
   })
 
-  it('clearNextActionIfCompleted clears matching entity row', async () => {
-    const whereMock = vi.fn(async () => undefined)
+  it('clearNextActionIfCompleted clears matching entity row when no sequence', async () => {
+    const setMock = vi.fn(() => ({ where: vi.fn(async () => undefined) }))
     getDbMock.mockReturnValue({
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: whereMock })),
-      })),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [{ id: 'project-1' }]),
+        })),
+      }),
+      update: vi.fn(() => ({ set: setMock })),
     })
 
     await clearNextActionIfCompleted('u1', 'thought-1')
-    expect(whereMock).toHaveBeenCalled()
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ nextActionThoughtId: null, projectDesignatedAt: null }),
+    )
+  })
+
+  it('clearNextActionIfCompleted advances to next open sequenced task', async () => {
+    const setMock = vi.fn(() => ({ where: vi.fn(async () => undefined) }))
+    getDbMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [{ id: 'project-1' }]),
+        })),
+      }),
+      update: vi.fn(() => ({ set: setMock })),
+    })
+    loadOrderedThoughtIdsForProjectMock.mockResolvedValue(['thought-1', 'thought-2'])
+    loadOpenTaskThoughtIdsForProjectMock.mockResolvedValue(new Set(['thought-2']))
+
+    await clearNextActionIfCompleted('u1', 'thought-1')
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({ nextActionThoughtId: 'thought-2' }),
+    )
   })
 })

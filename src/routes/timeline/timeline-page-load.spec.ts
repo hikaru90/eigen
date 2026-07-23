@@ -1,21 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const {
-  getDbMock,
-  getUserPreferredTimezoneMock,
-  listTemporalEventsForUserMock,
-} = vi.hoisted(() => ({
+const { getDbMock, getUserPreferredTimezoneMock, loadUnifiedTimelineMock } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   getUserPreferredTimezoneMock: vi.fn(async () => 'UTC'),
-  listTemporalEventsForUserMock: vi.fn(),
+  loadUnifiedTimelineMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }))
 vi.mock('$lib/server/memory/user-timezone', () => ({
   getUserPreferredTimezone: getUserPreferredTimezoneMock,
 }))
-vi.mock('$lib/server/memory/temporal-event-list', () => ({
-  listTemporalEventsForUser: listTemporalEventsForUserMock,
+vi.mock('$lib/server/memory/timeline-unified', () => ({
+  loadUnifiedTimeline: loadUnifiedTimelineMock,
 }))
 
 import { loadTimelinePageData } from './timeline-page-load'
@@ -35,7 +31,7 @@ describe('loadTimelinePageData', () => {
     getDbMock.mockReturnValue({
       select: vi.fn(() => makePrefChain([])),
     })
-    listTemporalEventsForUserMock.mockResolvedValue({ items: [], nextCursor: null })
+    loadUnifiedTimelineMock.mockResolvedValue({ items: [], projects: [] })
   })
 
   it('redirects unauthenticated users to login', async () => {
@@ -47,22 +43,19 @@ describe('loadTimelinePageData', () => {
     ).rejects.toMatchObject({ status: 302 })
   })
 
-  it('returns prefetch shape with empty events without throwing', async () => {
+  it('returns prefetch shape with empty timeline without throwing', async () => {
     const result = await loadTimelinePageData({
       locals: { user: { id: 'u1', email: 'a@b.c' } },
       depends: vi.fn(),
     } as never)
 
-    expect(result.prefetchedTemporalEvents).toEqual([])
-    expect(result.prefetchedNextCursor).toBeNull()
+    expect(result.prefetchedTimeline).toEqual({ items: [], projects: [] })
     expect(result.preferredTimezone).toBe('UTC')
     expect(result.eventNotificationsEnabled).toBe(false)
     expect(result.eventReminderLeadMinutes).toBe(10)
-    expect(listTemporalEventsForUserMock).toHaveBeenCalledWith(
+    expect(loadUnifiedTimelineMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'u1',
-        status: 'all',
-        includeTasks: true,
         author: 'user',
         from: null,
         to: null,
@@ -71,11 +64,12 @@ describe('loadTimelinePageData', () => {
     )
   })
 
-  it('returns prefetched temporal events from the list helper', async () => {
+  it('returns prefetched timeline from the unified helper', async () => {
     const item = { id: 'ev-1', semanticSummary: 'Dentist' }
-    listTemporalEventsForUserMock.mockResolvedValueOnce({
+    const project = { entityId: 'p1', label: 'Alpha' }
+    loadUnifiedTimelineMock.mockResolvedValueOnce({
       items: [item],
-      nextCursor: { startAt: '2026-07-22T00:00:00.000Z', id: 'ev-1' },
+      projects: [project],
     })
     getDbMock.mockReturnValue({
       select: vi.fn(() =>
@@ -90,11 +84,7 @@ describe('loadTimelinePageData', () => {
       depends: vi.fn(),
     } as never)
 
-    expect(result.prefetchedTemporalEvents).toEqual([item])
-    expect(result.prefetchedNextCursor).toEqual({
-      startAt: '2026-07-22T00:00:00.000Z',
-      id: 'ev-1',
-    })
+    expect(result.prefetchedTimeline).toEqual({ items: [item], projects: [project] })
     expect(result.eventNotificationsEnabled).toBe(true)
     expect(result.eventReminderLeadMinutes).toBe(15)
   })

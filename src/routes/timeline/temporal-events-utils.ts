@@ -966,6 +966,14 @@ export function filterRangeScopedTodoItems(
   return filterActiveItems(filterItemsByStatus([...items], statusFilter), now)
 }
 
+/** Completed, non-snoozed items from a range-scoped shared set (Done tab). */
+export function filterRangeScopedDoneItems(
+  items: readonly TemporalEventListItem[],
+  now = new Date(),
+): TemporalEventListItem[] {
+  return filterActiveItems([...items].filter((item) => isTemporalEventCompleted(item)), now)
+}
+
 export function priorityDotColor(item: TemporalEventListItem): string {
   switch (item.priorityQuadrant) {
     case 'urgent_important':

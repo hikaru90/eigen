@@ -55,7 +55,7 @@ npm run test:unit -- src/lib/server/capture/service.spec.ts
 - Provider: `@vitest/browser-playwright` + `vitest-browser-svelte`.
 - Needs Chromium: `npx playwright install chromium` (CI installs with `--with-deps`).
 - Script runs `scripts/patch-vitest-browser-iframeid.mjs` first so absolute paths containing `+` (e.g. local `+Code/`) work with Vitest’s browser iframe query params.
-- Current merge-gate include: `smoke.svelte.spec.ts` + `temporal-timeline-filters-panel.svelte.spec.ts`. Other `*.svelte.spec.ts` files remain excluded from this job until `$app/*` stubs / locator updates land.
+- Current merge-gate include: `smoke.svelte.spec.ts`. Other `*.svelte.spec.ts` files remain excluded from this job until `$app/*` stubs / locator updates land.
 
 ```bash
 npm run test:components          # merge-gate browser component specs once

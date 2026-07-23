@@ -98,6 +98,12 @@ export type TemporalEventListQuery = {
   to?: string | null
   /** Include undated task thoughts when merging tasks. Default true when from/to used. */
   includeUndated?: boolean
+  /**
+   * When absolute from/to are set, still return every open temporal_event row.
+   * Used by the Tasks/Projects unified timeline so due dates outside the dial
+   * window do not hide open work.
+   */
+  alwaysIncludeOpen?: boolean
 }
 
 export function isTaskListItem(item: TemporalEventListItem): boolean {
@@ -229,6 +235,14 @@ export function absoluteRangeCondition(range: AbsoluteDateRange): SQL | undefine
 
 function hasAbsoluteBounds(query: TemporalEventListQuery): boolean {
   return query.from != null || query.to != null
+}
+
+/**
+ * Absolute mode when `from`/`to` are present on the query object — including
+ * All time (`null`/`null`). Missing keys fall back to legacy enum `range`.
+ */
+export function usesAbsoluteDateFilter(query: TemporalEventListQuery): boolean {
+  return query.from !== undefined || query.to !== undefined
 }
 
 async function listTaskThoughtsForUser(
@@ -463,13 +477,20 @@ export async function listTemporalEventsForUser(
     conditions.push(inArray(temporalEvent.kind, kinds))
   }
 
-  if (hasAbsoluteBounds(query)) {
+  if (usesAbsoluteDateFilter(query)) {
     const absSql = absoluteRangeCondition({
       from: query.from ?? null,
       to: query.to ?? null,
       includeUndated: query.includeUndated ?? true,
     })
-    if (absSql) conditions.push(absSql)
+    if (absSql) {
+      if (query.alwaysIncludeOpen) {
+        conditions.push(or(absSql, eq(temporalEvent.lifecycleStatus, 'open'))!)
+      } else {
+        conditions.push(absSql)
+      }
+    }
+    // from=null & to=null (All time): no date predicate — unbounded.
   } else {
     const rangeSql = rangeCondition(query.range ?? 'relevant', now)
     if (rangeSql) conditions.push(rangeSql)

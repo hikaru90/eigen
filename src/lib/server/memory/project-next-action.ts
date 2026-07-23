@@ -3,6 +3,11 @@ import { getDb } from '$lib/server/db'
 import { canonicalEntity, thoughtEntity, type ThoughtEntitySource } from '$lib/server/db/schema'
 import { upsertMentionEdge } from '$lib/server/graph/age'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
+import {
+  loadOpenTaskThoughtIdsForProject,
+  loadOrderedThoughtIdsForProject,
+  selectNextOpenThoughtAfterCompleted,
+} from '$lib/server/memory/project-task-sequence'
 
 export async function designateNextAction(
   userId: string,
@@ -43,10 +48,35 @@ export async function designateNextAction(
 
 export async function clearNextActionIfCompleted(userId: string, thoughtId: string): Promise<void> {
   const tid = validateNonEmptyEntityId(thoughtId, 'thoughtId')
-  await getDb()
-    .update(canonicalEntity)
-    .set({ nextActionThoughtId: null, projectDesignatedAt: null, updatedAt: new Date() })
+  const projects = await getDb()
+    .select({ id: canonicalEntity.id })
+    .from(canonicalEntity)
     .where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.nextActionThoughtId, tid)))
+
+  const now = new Date()
+  for (const project of projects) {
+    const ordered = await loadOrderedThoughtIdsForProject(userId, project.id)
+    const open = await loadOpenTaskThoughtIdsForProject(userId, project.id)
+    // Completed thought is no longer open; ensure it is excluded from promotion.
+    open.delete(tid)
+    const nextId =
+      ordered.length > 0
+        ? selectNextOpenThoughtAfterCompleted({
+            orderedThoughtIds: ordered,
+            completedThoughtId: tid,
+            openThoughtIds: open,
+          })
+        : null
+
+    await getDb()
+      .update(canonicalEntity)
+      .set({
+        nextActionThoughtId: nextId,
+        projectDesignatedAt: nextId ? now : null,
+        updatedAt: now,
+      })
+      .where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, project.id)))
+  }
 }
 
 export async function linkThoughtToProject(

@@ -25,6 +25,7 @@ import {
   groupByProject,
   groupByProjectEntityId,
   filterRangeScopedTodoItems,
+  filterRangeScopedDoneItems,
   findTemporalListItemByRef,
   isTaskListItem,
   agentsAssignableToProject,
@@ -280,16 +281,13 @@ describe('projects view default-visibility wiring', () => {
     const { fileURLToPath } = await import('node:url')
     const path = await import('node:path')
     const source = readFileSync(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        'temporal-events-projects-view.svelte',
-      ),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'timeline-projects-view.svelte'),
       'utf-8',
     )
-    expect(source).toContain('filterActiveItems')
-    expect(source).toContain('groupByProjectEntityId')
     expect(source).toContain('filterOpenTimelineItemsForProject')
+    expect(source).toContain('projectCards')
     expect(source).not.toContain('filterRangeScopedTodoItems')
+    expect(source).not.toContain("fetch('/api/timeline/projects")
   })
 })
 
@@ -719,60 +717,92 @@ describe('filterRangeScopedTodoItems', () => {
   })
 })
 
-describe('show-completed wiring', () => {
-  it('TemporalEvents passes statusFilter into range-scoped list derivation', async () => {
+describe('filterRangeScopedDoneItems', () => {
+  it('returns completed non-snoozed items from the shared set (no calendar-today gate)', () => {
+    const now = new Date('2026-07-21T12:00:00.000Z')
+    const items = [
+      item({
+        id: 'open',
+        lifecycleStatus: 'open',
+        thoughtStatus: 'open',
+        startAt: null,
+      }),
+      item({
+        id: 'done',
+        lifecycleStatus: 'completed',
+        thoughtStatus: 'completed',
+        startAt: null,
+        completedAt: '2026-07-10T12:00:00.000Z',
+      }),
+      item({
+        id: 'done-snoozed',
+        lifecycleStatus: 'completed',
+        thoughtStatus: 'completed',
+        snoozedUntil: '2026-07-22T12:00:00.000Z',
+        startAt: null,
+        completedAt: '2026-07-10T12:00:00.000Z',
+      }),
+    ]
+    expect(filterRangeScopedDoneItems(items, now).map((i) => i.id)).toEqual(['done'])
+  })
+})
+
+describe('range-scoped list wiring', () => {
+  it('shell derives open/done/overdue from one source without merging overdue into todo', async () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
     const path = await import('node:path')
     const source = readFileSync(
-      path.join(path.dirname(fileURLToPath(import.meta.url)), 'temporal-events.svelte'),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'timeline-shell.svelte'),
       'utf-8',
     )
-    expect(source).toContain(
-      'filterRangeScopedTodoItems(todayTodoSourceItems, new Date(), statusFilter)',
-    )
-    expect(source).toContain('sharedProjectItems')
+    expect(source).toContain('data.openItems')
+    expect(source).toContain('data.doneItems')
+    expect(source).toContain('data.overdueItems')
+    expect(source).not.toContain('mergePriorDayOverdueIntoItems')
+    expect(source).toContain('data.openItems.length === 0')
   })
 })
 
 describe('projects view shared-data wiring', () => {
-  it('ProjectsView receives items prop and does not fetch /api/temporal-events for the main list', async () => {
+  it('ProjectsView receives projectCards and does not fetch timeline/projects catalog', async () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
     const path = await import('node:path')
     const source = readFileSync(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        'temporal-events-projects-view.svelte',
-      ),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'timeline-projects-view.svelte'),
       'utf-8',
     )
-    expect(source).toMatch(/items:\s*TemporalEventListItem\[\]/)
-    expect(source).toContain('groupByProjectEntityId')
+    expect(source).toContain('projectCards: TimelineProjectCard[]')
     expect(source).not.toMatch(/fetch\(`?['"]\/api\/temporal-events/)
+    expect(source).not.toContain("fetch('/api/timeline/projects")
   })
 
-  it('TemporalEvents does not send kinds query params', async () => {
+  it('shell does not send kinds query params', async () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
     const path = await import('node:path')
-    const source = readFileSync(
-      path.join(path.dirname(fileURLToPath(import.meta.url)), 'temporal-events.svelte'),
+    const shell = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'timeline-shell.svelte'),
       'utf-8',
     )
-    expect(source).not.toContain("params.set('kinds'")
-    expect(source).not.toContain('kindFilter')
-    expect(source).toContain('TimelineDateRangeDial')
+    const derive = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'timeline-data-derive.ts'),
+      'utf-8',
+    )
+    expect(shell).toContain('TimelineDateRangeDial')
+    expect(shell).not.toContain("params.set('kinds'")
+    expect(derive).not.toContain('kinds=')
   })
 
-  it('filters panel has no kinds checkboxes', async () => {
+  it('options popover has no kinds checkboxes', async () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
     const path = await import('node:path')
     const source = readFileSync(
       path.join(
         path.dirname(fileURLToPath(import.meta.url)),
-        'temporal-timeline-filters-panel.svelte',
+        'temporal-timeline-options-popover.svelte',
       ),
       'utf-8',
     )

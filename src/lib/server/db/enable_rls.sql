@@ -1,5 +1,11 @@
 -- Eigen: tenant RLS (user_id). Apply with `npm run db:rls` after `DATABASE_URL` is set.
 -- App requests set GUC on the pooled connection: set_config('app.current_user_id', <id>, false) — see src/hooks.server.ts.
+--
+-- Intentional exceptions (no tenant policy, by design):
+--   user              — Better Auth identity; SELECT-only policy below, writes via the superuser auth pool.
+--   consolidation_run — global nightly ledger across users (operator cron context).
+--   eval_qa           — shared operator eval catalog (no user_id column).
+-- Everything else holding tenant data must have ENABLE + FORCE + a user_id policy here.
 
 -- The `user` table is managed by better-auth and may have RLS enabled.
 -- Add a permissive SELECT policy so the app role can read users for FK checks.
@@ -372,6 +378,54 @@ ALTER TABLE thought_text_file ENABLE ROW LEVEL SECURITY;
 ALTER TABLE thought_text_file FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS thought_text_file_isolation ON thought_text_file;
 CREATE POLICY thought_text_file_isolation ON thought_text_file
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE thought_entity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE thought_entity FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thought_entity_isolation ON thought_entity;
+CREATE POLICY thought_entity_isolation ON thought_entity
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE thought_neighbor ENABLE ROW LEVEL SECURITY;
+ALTER TABLE thought_neighbor FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thought_neighbor_isolation ON thought_neighbor;
+CREATE POLICY thought_neighbor_isolation ON thought_neighbor
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE entity_top_thoughts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_top_thoughts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS entity_top_thoughts_isolation ON entity_top_thoughts;
+CREATE POLICY entity_top_thoughts_isolation ON entity_top_thoughts
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE community_bundle ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_bundle FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS community_bundle_isolation ON community_bundle;
+CREATE POLICY community_bundle_isolation ON community_bundle
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE agent_project_binding ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_project_binding FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS agent_project_binding_isolation ON agent_project_binding;
+CREATE POLICY agent_project_binding_isolation ON agent_project_binding
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS feedback_isolation ON feedback;
+CREATE POLICY feedback_isolation ON feedback
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));

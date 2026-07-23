@@ -4,9 +4,13 @@ const { parseDateRangePhraseMock } = vi.hoisted(() => ({
   parseDateRangePhraseMock: vi.fn(),
 }))
 
-vi.mock('$lib/server/memory/parse-date-range', () => ({
-  parseDateRangePhrase: parseDateRangePhraseMock,
-}))
+vi.mock('$lib/server/memory/parse-date-range', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/memory/parse-date-range')>()
+  return {
+    ...actual,
+    parseDateRangePhrase: parseDateRangePhraseMock,
+  }
+})
 
 import { POST } from './+server'
 
@@ -60,6 +64,36 @@ describe('POST /api/timeline/parse-date-range', () => {
   it('rejects empty phrase', async () => {
     await expect(POST(mockEvent({ id: 'u1' }, { phrase: '  ' }))).rejects.toMatchObject({
       status: 400,
+    })
+  })
+
+  it('returns JSON 502 when the shared LLM gateway fails (not an uncaught throw)', async () => {
+    parseDateRangePhraseMock.mockRejectedValueOnce(new Error('LLM HTTP 502: bad gateway'))
+
+    const res = await POST(
+      mockEvent(
+        { id: 'u1' },
+        { phrase: 'last tuesday to today', nowIso: '2026-07-21T12:00:00.000Z', timeZone: 'UTC' },
+      ),
+    )
+    expect(res.status).toBe(502)
+    expect(await res.json()).toEqual({
+      error: 'Date parsing is temporarily unavailable. Try Last week / Last month, or try again.',
+    })
+  })
+
+  it('returns JSON 500 for non-gateway LLM failures', async () => {
+    parseDateRangePhraseMock.mockRejectedValueOnce(new Error('Invalid date range LLM response: x'))
+
+    const res = await POST(
+      mockEvent(
+        { id: 'u1' },
+        { phrase: 'yesterday', nowIso: '2026-07-21T12:00:00.000Z', timeZone: 'UTC' },
+      ),
+    )
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({
+      error: 'Invalid date range LLM response: x',
     })
   })
 })

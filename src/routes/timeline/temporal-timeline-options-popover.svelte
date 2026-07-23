@@ -5,10 +5,7 @@
   import * as Select from '$lib/components/ui/select'
   import * as Popover from '$lib/components/ui/popover'
   import { Button } from '$lib/components/ui/button'
-  import { Separator } from '$lib/components/ui/separator'
   import { Label } from '$lib/components/ui/label'
-  import TemporalTimelineFiltersPanel from './temporal-timeline-filters-panel.svelte'
-  import { type TemporalStatusFilter } from './temporal-events-utils'
   import {
     GRAPH_FILTER_GLASS_POPOVER,
     GRAPH_FILTER_GLASS_SELECT,
@@ -20,11 +17,9 @@
   type Props = {
     open?: boolean
     filtersActive: boolean
-    statusFilter: TemporalStatusFilter
     orderBy: 'ingest' | 'todo'
     sortDirection: 'asc' | 'desc'
     onOpenChange?: (open: boolean) => void
-    onStatusFilterChange: (next: TemporalStatusFilter) => void
     onOrderByChange: (next: 'ingest' | 'todo') => void
     onSortDirectionToggle: () => void
   }
@@ -32,11 +27,9 @@
   let {
     open = $bindable(false),
     filtersActive,
-    statusFilter,
     orderBy,
     sortDirection,
     onOpenChange,
-    onStatusFilterChange,
     onOrderByChange,
     onSortDirectionToggle,
   }: Props = $props()
@@ -60,10 +53,6 @@
     class="{GRAPH_FILTER_GLASS_POPOVER} {GRAPH_FILTER_POPOVER_WIDTH} gap-0 p-3 shadow-xl shadow-black/5"
     aria-labelledby="timeline-options-trigger"
   >
-    <TemporalTimelineFiltersPanel {statusFilter} {onStatusFilterChange} />
-
-    <Separator class="my-3 bg-white/40 dark:bg-white/20" />
-
     <div class="space-y-1.5">
       <Label class="text-xs">Sort</Label>
       <div class="flex items-center gap-1">

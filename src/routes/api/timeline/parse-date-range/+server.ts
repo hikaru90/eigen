@@ -1,6 +1,10 @@
 import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { parseDateRangePhrase } from '$lib/server/memory/parse-date-range'
+import {
+  isParseDateRangeGatewayFailure,
+  PARSE_DATE_RANGE_GATEWAY_USER_ERROR,
+  parseDateRangePhrase,
+} from '$lib/server/memory/parse-date-range'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { parseDateRangeRequestSchema } from '$lib/validation/api-bodies'
 
@@ -23,12 +27,27 @@ export const POST: RequestHandler = async (event) => {
   const timeZone = parsed.data.timeZone ?? (await getUserPreferredTimezone(user.id))
   const nowIso = parsed.data.nowIso ?? new Date().toISOString()
 
-  const result = await parseDateRangePhrase({
-    userId: user.id,
-    phrase: parsed.data.phrase,
-    nowIso,
-    timeZone,
-  })
-
-  return json(result)
+  try {
+    const result = await parseDateRangePhrase({
+      userId: user.id,
+      phrase: parsed.data.phrase,
+      nowIso,
+      timeZone,
+    })
+    return json(result)
+  } catch (err) {
+    if (err && typeof err === 'object' && 'status' in err && typeof err.status === 'number') {
+      throw err
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[timeline.parse-date-range] failed', {
+      userId: user.id,
+      message,
+      stack: err instanceof Error ? err.stack : undefined,
+    })
+    if (isParseDateRangeGatewayFailure(message)) {
+      return json({ error: PARSE_DATE_RANGE_GATEWAY_USER_ERROR }, { status: 502 })
+    }
+    return json({ error: message }, { status: 500 })
+  }
 }

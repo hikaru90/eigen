@@ -1,6 +1,7 @@
 /**
  * Absolute date-range bounds for timeline list/stats (shared client + server).
- * Semantic NL phrases are resolved by the LLM parse endpoint — not here.
+ * Dial presets (Last week / Last month / All time) are resolved locally here.
+ * Free-text NL phrases still go through the shared llmChatCompletion parse endpoint.
  */
 
 export const RELEVANT_LOOKAHEAD_DAYS = 7
@@ -12,6 +13,68 @@ export type AbsoluteDateRange = {
   to: string | null
   /** When true, undated task rows are included in the result set. */
   includeUndated: boolean
+}
+
+export type TimelineDatePresetId = 'last-week' | 'last-month' | 'all-time'
+
+export type TimelineDatePresetRange = AbsoluteDateRange & { label: string }
+
+function startOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+function endOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999))
+}
+
+function rollingUtcWindow(now: Date, daysBack: number): Pick<AbsoluteDateRange, 'from' | 'to'> {
+  const from = new Date(now)
+  from.setUTCDate(now.getUTCDate() - daysBack)
+  return {
+    from: startOfUtcDay(from).toISOString(),
+    to: endOfUtcDay(now).toISOString(),
+  }
+}
+
+/**
+ * Deterministic dial presets — never call the LLM for these.
+ * Historical windows exclude undated tasks; all-time includes them.
+ */
+export function computePresetAbsoluteRange(
+  preset: TimelineDatePresetId,
+  now = new Date(),
+): TimelineDatePresetRange {
+  if (preset === 'all-time') {
+    return { from: null, to: null, includeUndated: true, label: 'All time' }
+  }
+  if (preset === 'last-month') {
+    return {
+      ...rollingUtcWindow(now, 30),
+      includeUndated: false,
+      label: 'Last month',
+    }
+  }
+  return {
+    ...rollingUtcWindow(now, 7),
+    includeUndated: false,
+    label: 'Last week',
+  }
+}
+
+/** User-facing message from POST /api/timeline/parse-date-range failure bodies. */
+export function formatParseDateRangeHttpError(status: number, bodyText: string): string {
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: unknown; message?: unknown }
+    if (typeof parsed.error === 'string' && parsed.error.trim()) return parsed.error.trim()
+    if (typeof parsed.message === 'string' && parsed.message.trim()) return parsed.message.trim()
+  } catch {
+    // Proxy bodies are often plain "Bad Gateway" HTML/text — not JSON.
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return 'Date parsing is temporarily unavailable. Try Last week / Last month, or try again.'
+  }
+  const trimmed = bodyText.trim()
+  return trimmed || `Request failed (${status})`
 }
 
 /** Deterministic default window matching legacy `relevant` semantics (no LLM). */

@@ -98,26 +98,25 @@ describe('timeline quick action contract', () => {
 
 describe('timeline quick action wiring (no forked mark-done clients)', () => {
   it('TemporalEvents owns postTimelineQuickAction; ProjectsView uses onQuickAction prop', () => {
-    const tasks = readTimeline('temporal-events.svelte')
-    const projects = readTimeline('temporal-events-projects-view.svelte')
+    const tasks = readTimeline('timeline-shell.svelte')
+    const projects = readTimeline('timeline-projects-view.svelte')
     expect(tasks).toContain("from './timeline-item-actions'")
     expect(tasks).toContain('postTimelineQuickAction')
     expect(projects).toContain('onQuickAction')
     expect(projects).not.toContain('postTimelineQuickAction')
-    // Prettier may emit shorthand `{onQuickAction}` or explicit `onQuickAction={onQuickAction}`
     expect(
       tasks.includes('onQuickAction={onQuickAction}') || tasks.includes('{onQuickAction}'),
     ).toBe(true)
   })
 
   it('ProjectsView does not fork a thoughts PATCH mark-done path', () => {
-    const projects = readTimeline('temporal-events-projects-view.svelte')
+    const projects = readTimeline('timeline-projects-view.svelte')
     expect(projects).not.toMatch(/fetch\(`\/api\/thoughts\/\$\{/)
     expect(projects).not.toContain('async function postTaskStatus')
   })
 
   it('TemporalEvents does not keep a separate postTaskStatus PATCH path', () => {
-    const tasks = readTimeline('temporal-events.svelte')
+    const tasks = readTimeline('timeline-shell.svelte')
     expect(tasks).not.toContain('async function postTaskStatus')
     expect(tasks).not.toMatch(/fetch\(`\/api\/thoughts\/\$\{/)
   })

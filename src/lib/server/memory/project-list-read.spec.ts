@@ -22,14 +22,25 @@ vi.mock('$lib/server/memory/project-eligibility', async (importOriginal) => {
   }
 })
 
+function emptyWhereChain(rows: unknown[] = []) {
+  const whereResult = Object.assign(Promise.resolve(rows), {
+    orderBy: vi.fn(async () => rows),
+    limit: vi.fn(async () => rows),
+  })
+  return {
+    from: vi.fn(() => ({
+      where: vi.fn(() => whereResult),
+      orderBy: vi.fn(async () => rows),
+      innerJoin: vi.fn(() => ({
+        where: vi.fn(async () => rows),
+      })),
+    })),
+  }
+}
+
 describe('listProjectsForUser', () => {
   it('does not run audit on read', async () => {
-    const chain = {
-      from: vi.fn(() => ({
-        where: vi.fn(async () => []),
-      })),
-    }
-    selectMock.mockReturnValue(chain)
+    selectMock.mockImplementation(() => emptyWhereChain([]))
 
     await listProjectsForUser('u1', { authorScope: 'all' })
 
@@ -45,6 +56,7 @@ describe('listProjectsForUser', () => {
         status: 'active',
         source: 'manual',
         nextActionThoughtId: null,
+        targetDate: null,
       },
       {
         entityId: 'agent-1',
@@ -52,6 +64,7 @@ describe('listProjectsForUser', () => {
         status: 'active',
         source: 'capture',
         nextActionThoughtId: null,
+        targetDate: null,
       },
     ]
 
@@ -65,11 +78,17 @@ describe('listProjectsForUser', () => {
           })),
         }
       }
+      // human-linked ids + sequence/milestones queries
       return {
         from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(async () => []),
+            limit: vi.fn(async () => []),
+          })),
           innerJoin: vi.fn(() => ({
             where: vi.fn(async () => []),
           })),
+          orderBy: vi.fn(async () => []),
         })),
       }
     })
@@ -78,5 +97,11 @@ describe('listProjectsForUser', () => {
 
     expect(projects).toHaveLength(1)
     expect(projects[0]?.entityId).toBe('manual-1')
+    expect(projects[0]).toMatchObject({
+      targetDate: null,
+      tasks: [],
+      milestones: [],
+    })
+    expect(JSON.stringify(projects)).not.toContain('embedding')
   })
 })

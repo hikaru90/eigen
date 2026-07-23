@@ -9,6 +9,11 @@
     GRAPH_FILTER_POPOVER_WIDTH,
     graphFilterTriggerClass,
   } from '$lib/graph/graph-filter-chrome'
+  import {
+    computePresetAbsoluteRange,
+    formatParseDateRangeHttpError,
+    type TimelineDatePresetId,
+  } from '$lib/memory/timeline-date-range'
 
   export type TimelineDateRangeValue = {
     from: string | null
@@ -40,10 +45,10 @@
   let submitting = $state(false)
   let error = $state<string | null>(null)
 
-  const presets = [
-    { id: 'last-week', label: 'Last week', kind: 'phrase' as const, phrase: 'Last week' },
-    { id: 'last-month', label: 'Last month', kind: 'phrase' as const, phrase: 'Last month' },
-    { id: 'all-time', label: 'All time', kind: 'all' as const },
+  const presets: { id: TimelineDatePresetId; label: string }[] = [
+    { id: 'last-week', label: 'Last week' },
+    { id: 'last-month', label: 'Last month' },
+    { id: 'all-time', label: 'All time' },
   ]
 
   const dialActive = $derived(label.trim().toLowerCase() !== 'all time')
@@ -53,10 +58,6 @@
     onChange(range)
     open = false
     phrase = ''
-  }
-
-  function applyAllTime() {
-    applyLocalRange({ from: null, to: null, includeUndated: true, label: 'All time' })
   }
 
   async function submitPhrase(raw: string) {
@@ -75,7 +76,7 @@
         }),
       })
       if (!res.ok) {
-        throw new Error(`${res.status}: ${(await res.text()) || 'unknown'}`)
+        throw new Error(formatParseDateRangeHttpError(res.status, await res.text()))
       }
       const body = (await res.json()) as TimelineDateRangeValue
       applyLocalRange({
@@ -92,11 +93,7 @@
   }
 
   function onPresetClick(preset: (typeof presets)[number]) {
-    if (preset.kind === 'all') {
-      applyAllTime()
-      return
-    }
-    void submitPhrase(preset.phrase)
+    applyLocalRange(computePresetAbsoluteRange(preset.id))
   }
 
   function onPhraseKeydown(event: KeyboardEvent) {

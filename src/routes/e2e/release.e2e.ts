@@ -2,8 +2,10 @@ import { expect, test } from '@playwright/test'
 import {
   assertReleasePreflight,
   assertMarkDoneFromProjectsView,
+  assertProjectWaterfallAndAdvance,
   assertTimelineMountFetchBudget,
   assertTimelineSharedFiltersAndDial,
+  assertTimelineSsotCountsAndLists,
   assertCheckInDeepLinkShowsPendingQuestion,
   captureThoughtViaUi,
   completeOnboardingOverlay,
@@ -67,8 +69,16 @@ test.describe('Release smoke @release', () => {
       await assertTimelineSharedFiltersAndDial(page)
     })
 
+    await test.step('timeline: SSOT counts match lists; projects board has no catalog-only fetch', async () => {
+      await assertTimelineSsotCountsAndLists(page)
+    })
+
     await test.step('projects: mark-done uses shared timeline quick action', async () => {
       await assertMarkDoneFromProjectsView(page)
+    })
+
+    await test.step('projects: waterfall, milestones, advance next-action', async () => {
+      await assertProjectWaterfallAndAdvance(page)
     })
 
     await test.step('projects: create, capture, edit, dismiss', async () => {

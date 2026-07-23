@@ -1,7 +1,12 @@
 import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { computeTimelineStatsForUser } from '$lib/server/memory/timeline-stats'
 import type { MemoryAuthor } from '$lib/server/db/brain.schema'
+import {
+  loadUnifiedTimeline,
+  type TimelineUnifiedResponse,
+} from '$lib/server/memory/timeline-unified'
+
+export type { TimelineUnifiedResponse }
 
 function parseAuthor(raw: string | null): MemoryAuthor | undefined {
   if (raw === null || raw === 'all') return undefined
@@ -29,18 +34,19 @@ export const GET: RequestHandler = async (event) => {
   const includeUndated = includeUndatedParam === null ? undefined : includeUndatedParam !== 'false'
   const authorLayerKey = url.searchParams.get('authorLayerKey')
   const author = authorLayerKey ? undefined : parseAuthor(url.searchParams.get('author'))
+  const orderBy = url.searchParams.get('orderBy') as 'ingest' | 'todo' | null
+  const sortDirection = url.searchParams.get('sortDirection') as 'asc' | 'desc' | null
 
-  const started = Date.now()
-  const stats = await computeTimelineStatsForUser({
+  const body = await loadUnifiedTimeline({
     userId: user.id,
-    from: from === undefined ? undefined : from,
-    to: to === undefined ? undefined : to,
+    from: from === undefined ? null : from,
+    to: to === undefined ? null : to,
     includeUndated,
     author,
     authorLayerKey,
+    orderBy: orderBy ?? 'ingest',
+    sortDirection: sortDirection ?? 'desc',
   })
-  console.info(
-    `[timeline/stats] userId=${user.id} durationMs=${Date.now() - started} from=${from ?? ''} to=${to ?? ''}`,
-  )
-  return json(stats)
+
+  return json(body satisfies TimelineUnifiedResponse)
 }

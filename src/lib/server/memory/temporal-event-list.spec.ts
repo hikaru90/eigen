@@ -10,7 +10,7 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
   decryptTenantValue: vi.fn(async () => '{}'),
 }))
 
-import { listTemporalEventsForUser, absoluteRangeCondition } from './temporal-event-list'
+import { listTemporalEventsForUser, absoluteRangeCondition, usesAbsoluteDateFilter } from './temporal-event-list'
 import type { AbsoluteDateRange } from '$lib/memory/timeline-date-range'
 
 function makeSelectChain(whereSpy: ReturnType<typeof vi.fn>, rows: unknown[] = []) {
@@ -138,6 +138,22 @@ describe('absoluteRangeCondition', () => {
   })
 })
 
+describe('usesAbsoluteDateFilter', () => {
+  it('is true for All time null/null so we never fall back to legacy relevant', () => {
+    expect(usesAbsoluteDateFilter({ userId: 'u1', from: null, to: null })).toBe(true)
+  })
+
+  it('is true when only one bound is set', () => {
+    expect(
+      usesAbsoluteDateFilter({ userId: 'u1', from: '2026-07-14T00:00:00.000Z', to: null }),
+    ).toBe(true)
+  })
+
+  it('is false when from/to keys are omitted (legacy range enum callers)', () => {
+    expect(usesAbsoluteDateFilter({ userId: 'u1', range: 'relevant' })).toBe(false)
+  })
+})
+
 describe('listTemporalEventsForUser absolute from/to', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -164,6 +180,58 @@ describe('listTemporalEventsForUser absolute from/to', () => {
       from: '2026-07-14T00:00:00.000Z',
       to: '2026-07-20T23:59:59.999Z',
       includeUndated: false,
+    })
+
+    expect(eventWhereSpy).toHaveBeenCalled()
+  })
+
+  it('accepts All time null/null without throwing (unbounded absolute mode)', async () => {
+    const eventWhereSpy = vi.fn()
+    let selectCall = 0
+
+    getDbMock.mockImplementation(() => ({
+      select: vi.fn(() => {
+        selectCall += 1
+        if (selectCall === 1) {
+          return makeSelectChain(eventWhereSpy, [])
+        }
+        return makeSelectChain(vi.fn(), [])
+      }),
+    }))
+
+    await listTemporalEventsForUser({
+      userId: 'u1',
+      status: 'all',
+      includeTasks: false,
+      from: null,
+      to: null,
+      alwaysIncludeOpen: true,
+    })
+
+    expect(eventWhereSpy).toHaveBeenCalled()
+  })
+
+  it('accepts alwaysIncludeOpen with absolute from/to without throwing', async () => {
+    const eventWhereSpy = vi.fn()
+    let selectCall = 0
+
+    getDbMock.mockImplementation(() => ({
+      select: vi.fn(() => {
+        selectCall += 1
+        if (selectCall === 1) {
+          return makeSelectChain(eventWhereSpy, [])
+        }
+        return makeSelectChain(vi.fn(), [])
+      }),
+    }))
+
+    await listTemporalEventsForUser({
+      userId: 'u1',
+      status: 'all',
+      includeTasks: false,
+      from: '2026-07-14T00:00:00.000Z',
+      to: '2026-07-20T23:59:59.999Z',
+      alwaysIncludeOpen: true,
     })
 
     expect(eventWhereSpy).toHaveBeenCalled()

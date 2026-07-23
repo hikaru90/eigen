@@ -55,12 +55,9 @@ export default defineConfig({
     name: 'components',
     expect: { requireAssertions: true },
     setupFiles: ['vitest-browser-svelte'],
-    // Phase 4 merge gate: smoke + Timeline filters. Other `*.svelte.spec.ts` need
+    // Phase 4 merge gate: smoke. Other `*.svelte.spec.ts` need
     // `$app/*` stubs / locator API updates before joining this job.
-    include: [
-      'src/lib/components/smoke.svelte.spec.ts',
-      'src/routes/timeline/temporal-timeline-filters-panel.svelte.spec.ts',
-    ],
+    include: ['src/lib/components/smoke.svelte.spec.ts'],
     exclude: ['src/routes/demo/playwright/**/*.ts', '**/*.e2e.ts'],
     fileParallelism: false,
     browser: {

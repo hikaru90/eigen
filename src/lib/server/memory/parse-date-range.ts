@@ -5,6 +5,10 @@ import { parsedDateRangeSchema, type ParsedDateRangeBody } from '$lib/validation
 
 export type ParsedDateRange = ParsedDateRangeBody
 
+/** Shared copy for gateway/proxy failures on the free-text parse path. */
+export const PARSE_DATE_RANGE_GATEWAY_USER_ERROR =
+  'Date parsing is temporarily unavailable. Try Last week / Last month, or try again.'
+
 export function parseDateRangePayload(raw: unknown): ParsedDateRange {
   const parsed = parsedDateRangeSchema.safeParse(raw)
   if (!parsed.success) {
@@ -14,6 +18,22 @@ export function parseDateRangePayload(raw: unknown): ParsedDateRange {
   return parsed.data
 }
 
+/** True when the shared LLM client / proxy failed in a retryable gateway way. */
+export function isParseDateRangeGatewayFailure(message: string): boolean {
+  return (
+    /LLM HTTP 502\b/i.test(message) ||
+    /LLM HTTP 503\b/i.test(message) ||
+    /LLM HTTP 504\b/i.test(message) ||
+    /timed out after \d+ms/i.test(message) ||
+    /bad gateway/i.test(message)
+  )
+}
+
+/**
+ * Free-text NL → absolute timeline range via the same `llmChatCompletion` path
+ * used by capture, enrichment, MCP, and chat (EUrouter/OpenRouter from user LLM config).
+ * Dial presets must not call this — use `computePresetAbsoluteRange` instead.
+ */
 export async function parseDateRangePhrase(input: {
   userId: string
   phrase: string
@@ -51,6 +71,7 @@ export async function parseDateRangePhrase(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    maxTokens: 256,
     responseFormat: 'json_object',
     logContext: 'timeline_parse_date_range',
   })

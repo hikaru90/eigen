@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
   import type { CreateProjectResponse } from '../api/timeline/projects/+server'
   import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server'
   import type { ProjectListItem } from '$lib/server/memory/project-list'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import PlusIcon from '@lucide/svelte/icons/plus'
   import { Button } from '$lib/components/ui/button'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
@@ -19,51 +17,37 @@
     isTemporalEventCompleted,
     completedEventSummaryClass,
     filterOpenTimelineItemsForProject,
-    filterActiveItems,
     formatWhen,
     formatCreatedDate,
-    groupByProjectEntityId,
     thoughtIdFromTaskItemId,
-    type ProjectEntityGroup,
   } from './temporal-events-utils'
   import TemporalEventStatusButton from './temporal-event-status-button.svelte'
   import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import { subscribeThoughtSync } from '$lib/stores/thought-sync'
-  import {
-    getCurrentUserView,
-    subscribeCurrentUserView,
-  } from '$lib/stores/current-user-view.svelte'
-  import type { CurrentUserView } from '$lib/memory/current-user-view'
-  import { shouldRefetchForViewChange } from './timeline-client-loads'
+  import type { TimelineProjectCard } from './timeline-data-derive'
 
   type Props = {
+    projectCards: TimelineProjectCard[]
+    unassignedItems: TemporalEventListItem[]
+    /** Open items — used for next-action / detail task lists. */
     items: TemporalEventListItem[]
+    catalogProjects: ProjectListItem[]
     onGoToTask: (itemId: string) => void
     onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void | Promise<void>
-    /** Called after project assign / dismiss so parent can refresh shared items. */
     onRefresh?: () => void
-    orderBy?: 'ingest' | 'todo'
-    sortDirection?: 'asc' | 'desc'
     updatingEventId?: string | null
   }
 
   let {
+    projectCards,
+    unassignedItems,
     items,
+    catalogProjects: _catalogProjects,
     onGoToTask,
     onQuickAction,
     onRefresh,
-    orderBy: _orderBy = 'ingest',
-    sortDirection: _sortDirection = 'desc',
     updatingEventId = null,
   }: Props = $props()
 
-  /* ── State ── */
-
-  let projects = $state<ProjectListItem[]>([])
-  let projectsLoading = $state(false)
-  let projectsError = $state<string | null>(null)
-
-  let dataView = $state<CurrentUserView>(getCurrentUserView())
   let createDialogOpen = $state(false)
   let assignProjectOpen = $state(false)
   let assignProjectItem = $state<TemporalEventListItem | null>(null)
@@ -77,73 +61,8 @@
   let confirmDismissProjectId = $state<string | null>(null)
   let confirmDismissProjectLabel = $state<string | null>(null)
 
-  async function loadProjects(silent = false) {
-    if (!silent) projectsLoading = true
-    projectsError = null
-    try {
-      const params = new URLSearchParams()
-      params.set('author', dataView === 'user' ? 'user' : 'all')
-      const res = await fetch(`/api/timeline/projects?${params}`)
-      if (!res.ok) throw new Error(`${res.status}: ${(await res.text()) || 'unknown'}`)
-      const body = (await res.json()) as { projects: ProjectListItem[] }
-      projects = body.projects
-    } catch (err) {
-      projectsError = err instanceof Error ? err.message : String(err)
-      if (!silent) projects = []
-    } finally {
-      projectsLoading = false
-    }
-  }
-
-  /* ── Derived ── */
-
-  /** Parent already applied status/range; only drop snoozed for the board. */
-  const scopedItems = $derived(filterActiveItems(items))
-
-  const grouped = $derived(groupByProjectEntityId(scopedItems))
-
-  const projectByEntityId = $derived.by(() => {
-    const map: Record<string, ProjectListItem> = {}
-    for (const project of projects) {
-      map[project.entityId] = project
-    }
-    return map
-  })
-
-  type DisplayProject = {
-    entityId: string
-    label: string
-    status: ProjectListItem['status']
-    catalog: ProjectListItem | null
-    group: ProjectEntityGroup
-  }
-
-  const displayProjects = $derived.by(() => {
-    const rows: DisplayProject[] = grouped.groups.map((group) => {
-      const catalog = projectByEntityId[group.projectEntityId] ?? null
-      return {
-        entityId: group.projectEntityId,
-        label: catalog?.label ?? group.projectLabel,
-        status: catalog?.status ?? 'active',
-        catalog,
-        group,
-      }
-    })
-    return rows.sort((a, b) => {
-      const aLatest =
-        a.group.items.length > 0
-          ? Math.max(...a.group.items.map((t) => new Date(t.createdAt).getTime()))
-          : 0
-      const bLatest =
-        b.group.items.length > 0
-          ? Math.max(...b.group.items.map((t) => new Date(t.createdAt).getTime()))
-          : 0
-      return bLatest - aLatest
-    })
-  })
-
   const unassignedTasks = $derived(
-    [...grouped.unassigned].sort(
+    [...unassignedItems].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     ),
   )
@@ -164,9 +83,7 @@
     })
   })
 
-  /* ── Helpers ── */
-
-  function toProjectListItem(row: DisplayProject): ProjectListItem {
+  function toProjectListItem(row: TimelineProjectCard): ProjectListItem {
     if (row.catalog) return row.catalog
     return {
       entityId: row.entityId,
@@ -175,7 +92,14 @@
       source: 'manual',
       nextAction: null,
       openTaskCount: row.group.items.length,
+      targetDate: null,
+      tasks: [],
+      milestones: [],
     }
+  }
+
+  function formatShortDate(iso: string): string {
+    return new Date(iso).toLocaleDateString()
   }
 
   function getNextAction(project: ProjectListItem): { summary: string; itemId: string } | null {
@@ -204,33 +128,14 @@
     return m.graph_timeline_project_status_active()
   }
 
-  /* ── Actions ── */
-
   function onProjectAssigned(_payload: AssignProjectResponse & { thoughtId: string }) {
     assignProjectOpen = false
     assignProjectItem = null
-    void loadProjects(true)
     onRefresh?.()
   }
 
-  function onProjectCreated(project: CreateProjectResponse) {
-    if (project.status === 'active' || project.status === 'someday') {
-      const exists = projects.some((p) => p.entityId === project.entityId)
-      if (!exists) {
-        projects = [
-          ...projects,
-          {
-            entityId: project.entityId,
-            label: project.label,
-            status: project.status,
-            source: 'manual',
-            nextAction: null,
-            openTaskCount: 0,
-          },
-        ]
-      }
-    }
-    void loadProjects(true)
+  function onProjectCreated(_project: CreateProjectResponse) {
+    onRefresh?.()
   }
 
   function onProjectUpdated(updated?: { entityId: string; label: string }) {
@@ -239,7 +144,7 @@
     if (detailProject && updated?.entityId === detailProject.entityId) {
       detailProject = { ...detailProject, label: updated.label }
     }
-    void loadProjects(true)
+    onRefresh?.()
   }
 
   function onAgentAssigned(payload: { agentName: string }) {
@@ -260,40 +165,11 @@
         detailDialogOpen = false
         detailProject = null
       }
-      void loadProjects(true)
       onRefresh?.()
     } catch (err) {
       console.error('Failed to dismiss project', err)
     }
   }
-
-  /* ── Lifecycle ── */
-
-  onMount(() => {
-    void loadProjects()
-
-    let previousView: CurrentUserView | null = null
-    const unsubView = subscribeCurrentUserView((view) => {
-      const refetch = shouldRefetchForViewChange(previousView, view)
-      previousView = view
-      dataView = view
-      if (!refetch) return
-      void loadProjects(true)
-    })
-
-    const unsubSync = subscribeThoughtSync((msg) => {
-      if (msg.type === 'refresh-all' || (msg.type === 'changed' && msg.scope === 'global')) {
-        void loadProjects(true)
-      }
-    })
-
-    return () => {
-      unsubView()
-      unsubSync()
-    }
-  })
-
-  /* ── Styles ── */
 
   const filledPillClass =
     'h-auto shrink-0 rounded-full border border-black bg-black px-3 py-1 text-xs font-medium text-white hover:bg-black/90 dark:border-foreground dark:bg-foreground dark:text-background dark:hover:bg-foreground/90'
@@ -326,20 +202,13 @@
     <div
       class="absolute inset-0 z-0 overflow-y-auto pb-28 pr-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
     >
-      {#if projectsLoading}
-        <div class="flex flex-col items-center justify-center gap-3 py-12">
-          <LoaderCircleIcon class="text-muted-foreground size-6 animate-spin" aria-hidden="true" />
-          <p class="text-muted-foreground text-sm">{m.graph_temporal_loading()}</p>
-        </div>
-      {:else if projectsError}
-        <p class="text-destructive px-1 py-8 text-center text-sm">{projectsError}</p>
-      {:else if displayProjects.length === 0 && unassignedTasks.length === 0}
+      {#if projectCards.length === 0 && unassignedTasks.length === 0}
         <p class="text-muted-foreground px-1 py-8 text-center text-sm">
           {m.graph_timeline_projects_empty()}
         </p>
       {:else}
         <div class="flex flex-col gap-2">
-          {#each displayProjects as project (project.entityId)}
+          {#each projectCards as project (project.entityId)}
             {@const catalogProject = toProjectListItem(project)}
             {@const projectNextAction = getNextAction(catalogProject)}
             {@const openLoopCount = project.group.items.length}
@@ -370,6 +239,51 @@
                   <span class="line-clamp-2 text-[10px] leading-[1.2] text-muted-foreground">
                     {projectNextAction.summary}
                   </span>
+                </div>
+              {/if}
+              {#if catalogProject.targetDate}
+                <p class="text-[10px] leading-[1.2] text-muted-foreground">
+                  {m.graph_timeline_project_deadline({
+                    date: formatShortDate(catalogProject.targetDate),
+                  })}
+                </p>
+              {/if}
+              {#if catalogProject.tasks.length > 0}
+                {@const visibleTasks = catalogProject.tasks.slice(0, 4)}
+                {@const hiddenTaskCount = catalogProject.tasks.length - visibleTasks.length}
+                <div class="flex flex-col gap-0.5" data-testid="project-waterfall">
+                  <span class="text-[10px] leading-[1.2] text-muted-foreground"
+                    >{m.graph_timeline_project_waterfall()}</span
+                  >
+                  <ol class="flex flex-col gap-0.5">
+                    {#each visibleTasks as task (task.itemId)}
+                      <li class="text-[10px] leading-[1.2] text-muted-foreground">
+                        {task.rank}. {task.summary}
+                      </li>
+                    {/each}
+                  </ol>
+                  {#if hiddenTaskCount > 0}
+                    <span class="text-[10px] leading-[1.2] text-muted-foreground"
+                      >+{hiddenTaskCount} more</span
+                    >
+                  {/if}
+                </div>
+              {/if}
+              {#if catalogProject.milestones.length > 0}
+                <div class="flex flex-col gap-0.5" data-testid="project-milestones">
+                  <span class="text-[10px] leading-[1.2] text-muted-foreground"
+                    >{m.graph_timeline_project_milestones()}</span
+                  >
+                  <div class="flex flex-wrap gap-1">
+                    {#each catalogProject.milestones as milestone (milestone.id)}
+                      <span
+                        class="rounded border border-border px-1.5 py-0.5 text-[10px] leading-[1.2] text-muted-foreground"
+                      >
+                        {milestone.label}{#if milestone.targetDate}
+                          · {formatShortDate(milestone.targetDate)}{/if}
+                      </span>
+                    {/each}
+                  </div>
                 </div>
               {/if}
             </button>
@@ -491,26 +405,30 @@
     project={editProjectItem}
   />
 
-  <TimelineProjectAssignDialog
-    bind:open={assignProjectOpen}
-    item={assignProjectItem}
-    onClose={() => {
-      assignProjectOpen = false
-      assignProjectItem = null
-    }}
-    onAssigned={onProjectAssigned}
-  />
+  {#if assignProjectOpen}
+    <TimelineProjectAssignDialog
+      open={true}
+      item={assignProjectItem}
+      onClose={() => {
+        assignProjectOpen = false
+        assignProjectItem = null
+      }}
+      onAssigned={onProjectAssigned}
+    />
+  {/if}
 
-  <TimelineAgentAssignDialog
-    bind:open={assignAgentOpen}
-    item={assignAgentItem}
-    nested={detailDialogOpen}
-    onClose={() => {
-      assignAgentOpen = false
-      assignAgentItem = null
-    }}
-    onAssigned={onAgentAssigned}
-  />
+  {#if assignAgentOpen}
+    <TimelineAgentAssignDialog
+      open={true}
+      item={assignAgentItem}
+      nested={detailDialogOpen}
+      onClose={() => {
+        assignAgentOpen = false
+        assignAgentItem = null
+      }}
+      onAssigned={onAgentAssigned}
+    />
+  {/if}
 
   <AlertDialog.Root
     open={confirmDismissProjectId !== null}

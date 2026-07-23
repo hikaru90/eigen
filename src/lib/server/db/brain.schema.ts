@@ -659,6 +659,8 @@ export const canonicalEntity = pgTable(
       onDelete: 'set null',
     }),
     projectDesignatedAt: timestamp('project_designated_at'),
+    /** Overall project deadline (distinct from thought-scoped temporal_event deadlines). */
+    targetDate: timestamp('target_date', { withTimezone: true }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -1040,6 +1042,79 @@ export const temporalEvent = pgTable(
 )
 
 export type TemporalEvent = typeof temporalEvent.$inferSelect
+
+/** Ordered task waterfall within a GTD project (1-based ranks). */
+export const projectTaskSequence = pgTable(
+  'project_task_sequence',
+  {
+    projectEntityId: uuid('project_entity_id')
+      .notNull()
+      .references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+    thoughtId: uuid('thought_id')
+      .notNull()
+      .references(() => thought.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    rank: integer('rank').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.projectEntityId, t.thoughtId], name: 'project_task_sequence_pk' }),
+    uniqueIndex('project_task_sequence_user_project_thought_uidx').on(
+      t.userId,
+      t.projectEntityId,
+      t.thoughtId,
+    ),
+    uniqueIndex('project_task_sequence_user_project_rank_uidx').on(
+      t.userId,
+      t.projectEntityId,
+      t.rank,
+    ),
+    index('project_task_sequence_user_idx').on(t.userId),
+  ],
+)
+
+export type ProjectTaskSequence = typeof projectTaskSequence.$inferSelect
+
+/** Project-scoped deliverables (distinct from thought-scoped temporal_event milestones). */
+export const projectMilestone = pgTable(
+  'project_milestone',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectEntityId: uuid('project_entity_id')
+      .notNull()
+      .references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    targetDate: timestamp('target_date', { withTimezone: true }),
+    rank: integer('rank').notNull().default(1),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    linkedThoughtId: uuid('linked_thought_id').references(() => thought.id, {
+      onDelete: 'set null',
+    }),
+    linkedTemporalEventId: uuid('linked_temporal_event_id').references(() => temporalEvent.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index('project_milestone_user_idx').on(t.userId),
+    index('project_milestone_project_idx').on(t.userId, t.projectEntityId),
+  ],
+)
+
+export type ProjectMilestoneRow = typeof projectMilestone.$inferSelect
 
 export const eventReminderScheduleStatusEnum = ['pending', 'sent', 'skipped', 'cancelled'] as const
 export type EventReminderScheduleStatus = (typeof eventReminderScheduleStatusEnum)[number]

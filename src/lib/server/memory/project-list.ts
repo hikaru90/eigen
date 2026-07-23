@@ -1,7 +1,9 @@
-import { and, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
+  projectMilestone,
+  projectTaskSequence,
   thought,
   thoughtEntity,
   type MemoryAuthor,
@@ -16,11 +18,19 @@ import {
   ensureProject,
   thoughtStatusFromMetadata,
 } from '$lib/server/memory/project-eligibility'
+import type { ProjectMilestoneListItem } from '$lib/server/memory/project-timeline'
 
 export type ProjectNextAction = {
   thoughtId: string
   summary: string
   itemId: string
+}
+
+export type ProjectTaskSequenceItem = {
+  thoughtId: string
+  summary: string
+  itemId: string
+  rank: number
 }
 
 export type ProjectListItem = {
@@ -30,6 +40,9 @@ export type ProjectListItem = {
   source: ProjectSource
   nextAction: ProjectNextAction | null
   openTaskCount: number
+  targetDate: string | null
+  tasks: ProjectTaskSequenceItem[]
+  milestones: ProjectMilestoneListItem[]
 }
 
 async function summarizeThought(userId: string, thoughtId: string): Promise<string | null> {
@@ -67,6 +80,70 @@ async function summarizeThought(userId: string, thoughtId: string): Promise<stri
   const trimmed = text.trim()
   if (!trimmed) return null
   return trimmed.length > 120 ? `${trimmed.slice(0, 117).trim()}…` : trimmed
+}
+
+async function loadTaskSequenceForProject(
+  userId: string,
+  projectEntityId: string,
+): Promise<ProjectTaskSequenceItem[]> {
+  const rows = await getDb()
+    .select({
+      thoughtId: projectTaskSequence.thoughtId,
+      rank: projectTaskSequence.rank,
+    })
+    .from(projectTaskSequence)
+    .where(
+      and(
+        eq(projectTaskSequence.userId, userId),
+        eq(projectTaskSequence.projectEntityId, projectEntityId),
+      ),
+    )
+    .orderBy(asc(projectTaskSequence.rank))
+
+  const out: ProjectTaskSequenceItem[] = []
+  for (const row of rows) {
+    const summary = await summarizeThought(userId, row.thoughtId)
+    if (!summary) continue
+    out.push({
+      thoughtId: row.thoughtId,
+      summary,
+      itemId: taskItemId(row.thoughtId),
+      rank: row.rank,
+    })
+  }
+  return out
+}
+
+async function loadMilestonesForProject(
+  userId: string,
+  projectEntityId: string,
+): Promise<ProjectMilestoneListItem[]> {
+  const rows = await getDb()
+    .select({
+      id: projectMilestone.id,
+      label: projectMilestone.label,
+      targetDate: projectMilestone.targetDate,
+      rank: projectMilestone.rank,
+      completedAt: projectMilestone.completedAt,
+      linkedThoughtId: projectMilestone.linkedThoughtId,
+    })
+    .from(projectMilestone)
+    .where(
+      and(
+        eq(projectMilestone.userId, userId),
+        eq(projectMilestone.projectEntityId, projectEntityId),
+      ),
+    )
+    .orderBy(asc(projectMilestone.rank), asc(projectMilestone.createdAt))
+
+  return rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    targetDate: row.targetDate ? row.targetDate.toISOString() : null,
+    rank: row.rank,
+    completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+    linkedThoughtId: row.linkedThoughtId,
+  }))
 }
 
 function projectSortRank(item: ProjectListItem): number {
@@ -118,6 +195,7 @@ export async function listProjectsForUser(
       status: canonicalEntity.projectStatus,
       source: canonicalEntity.projectSource,
       nextActionThoughtId: canonicalEntity.nextActionThoughtId,
+      targetDate: canonicalEntity.targetDate,
     })
     .from(canonicalEntity)
     .where(
@@ -160,6 +238,8 @@ export async function listProjectsForUser(
       }
     }
     const openTaskCount = await countOpenTasksForProjectEntity(userId, row.entityId)
+    const tasks = await loadTaskSequenceForProject(userId, row.entityId)
+    const milestones = await loadMilestonesForProject(userId, row.entityId)
     items.push({
       entityId: row.entityId,
       label: row.label,
@@ -167,6 +247,9 @@ export async function listProjectsForUser(
       source,
       nextAction,
       openTaskCount,
+      targetDate: row.targetDate ? row.targetDate.toISOString() : null,
+      tasks,
+      milestones,
     })
   }
 
@@ -227,8 +310,13 @@ export type EligibleGtdProject = {
   openTaskCount: number
 }
 
-/** Active GTD projects in the assignment catalog. */
-export async function loadEligibleGtdProjects(userId: string): Promise<EligibleGtdProject[]> {
+/**
+ * Shared assignment catalog for the assign dialog AND ingest LLM.
+ * Includes active + someday; excludes completed / dismissed.
+ */
+export async function listEligibleProjectsForAssignment(
+  userId: string,
+): Promise<EligibleGtdProject[]> {
   const rows = await getDb()
     .select({
       entityId: canonicalEntity.id,
@@ -241,7 +329,7 @@ export async function loadEligibleGtdProjects(userId: string): Promise<EligibleG
       and(
         eq(canonicalEntity.userId, userId),
         isNotNull(canonicalEntity.projectStatus),
-        eq(canonicalEntity.projectStatus, 'active'),
+        inArray(canonicalEntity.projectStatus, ['active', 'someday']),
       ),
     )
 
@@ -260,9 +348,81 @@ export async function loadEligibleGtdProjects(userId: string): Promise<EligibleG
   return out
 }
 
-/** @deprecated Use loadEligibleGtdProjects for assignment catalog. */
+/** @deprecated Prefer listEligibleProjectsForAssignment — same catalog. */
+export async function loadEligibleGtdProjects(userId: string): Promise<EligibleGtdProject[]> {
+  return listEligibleProjectsForAssignment(userId)
+}
+
+/** @deprecated Use listEligibleProjectsForAssignment for assignment catalog. */
 export async function loadGtdProjectOptionsFromProfiles(userId: string) {
-  return loadEligibleGtdProjects(userId)
+  return listEligibleProjectsForAssignment(userId)
+}
+
+/**
+ * Load catalog rows for specific project entity IDs (unified timeline join).
+ * Returns only IDs that are still listed GTD projects (active/someday).
+ */
+export async function listProjectsByEntityIds(
+  userId: string,
+  entityIds: string[],
+): Promise<ProjectListItem[]> {
+  if (entityIds.length === 0) return []
+
+  const projectRows = await getDb()
+    .select({
+      entityId: canonicalEntity.id,
+      label: canonicalEntity.label,
+      status: canonicalEntity.projectStatus,
+      source: canonicalEntity.projectSource,
+      nextActionThoughtId: canonicalEntity.nextActionThoughtId,
+      targetDate: canonicalEntity.targetDate,
+    })
+    .from(canonicalEntity)
+    .where(
+      and(
+        eq(canonicalEntity.userId, userId),
+        inArray(canonicalEntity.id, entityIds),
+        isNotNull(canonicalEntity.projectStatus),
+        inArray(canonicalEntity.projectStatus, ['active', 'someday']),
+      ),
+    )
+
+  const items: ProjectListItem[] = []
+  for (const row of projectRows) {
+    const status = row.status as ProjectStatus
+    const source = (row.source ?? 'capture') as ProjectSource
+    let nextAction: ProjectNextAction | null = null
+    if (row.nextActionThoughtId) {
+      const summary = await summarizeThought(userId, row.nextActionThoughtId)
+      if (summary) {
+        nextAction = {
+          thoughtId: row.nextActionThoughtId,
+          summary,
+          itemId: taskItemId(row.nextActionThoughtId),
+        }
+      }
+    }
+    const openTaskCount = await countOpenTasksForProjectEntity(userId, row.entityId)
+    const tasks = await loadTaskSequenceForProject(userId, row.entityId)
+    const milestones = await loadMilestonesForProject(userId, row.entityId)
+    items.push({
+      entityId: row.entityId,
+      label: row.label,
+      status,
+      source,
+      nextAction,
+      openTaskCount,
+      targetDate: row.targetDate ? row.targetDate.toISOString() : null,
+      tasks,
+      milestones,
+    })
+  }
+
+  return items.sort((a, b) => {
+    const rankDiff = projectSortRank(a) - projectSortRank(b)
+    if (rankDiff !== 0) return rankDiff
+    return a.label.localeCompare(b.label)
+  })
 }
 
 export { auditGtdProjectProfiles }

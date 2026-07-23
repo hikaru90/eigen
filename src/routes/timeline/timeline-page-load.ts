@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { userPreference } from '$lib/server/db/schema'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
-import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
+import { loadUnifiedTimeline } from '$lib/server/memory/timeline-unified'
 
 type TimelinePageLoadEvent = {
   locals: App.Locals
@@ -19,7 +19,7 @@ export async function loadTimelinePageData(event: TimelinePageLoadEvent) {
 
   event.depends('timeline:temporal-events', 'timeline:thoughts')
 
-  const [preferredTimezoneResult, prefResult, temporalEventsResult] = await Promise.all([
+  const [preferredTimezoneResult, prefResult, timelineResult] = await Promise.all([
     getUserPreferredTimezone(userId),
     getDb()
       .select({
@@ -29,10 +29,8 @@ export async function loadTimelinePageData(event: TimelinePageLoadEvent) {
       .from(userPreference)
       .where(eq(userPreference.userId, userId))
       .limit(1),
-    listTemporalEventsForUser({
+    loadUnifiedTimeline({
       userId,
-      status: 'all',
-      includeTasks: true,
       orderBy: 'ingest',
       sortDirection: 'desc',
       author: 'user',
@@ -49,7 +47,6 @@ export async function loadTimelinePageData(event: TimelinePageLoadEvent) {
     preferredTimezone: preferredTimezoneResult,
     eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
     eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
-    prefetchedTemporalEvents: temporalEventsResult.items,
-    prefetchedNextCursor: temporalEventsResult.nextCursor,
+    prefetchedTimeline: timelineResult,
   }
 }

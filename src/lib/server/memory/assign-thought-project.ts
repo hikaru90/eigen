@@ -3,6 +3,8 @@ import { getDb } from '$lib/server/db'
 import { canonicalEntity, temporalEvent } from '$lib/server/db/schema'
 import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project'
 import { designateNextAction, linkThoughtToProject } from '$lib/server/memory/project-next-action'
+import { promoteHubEntityType } from '$lib/server/memory/project-entity'
+import { ensureProject } from '$lib/server/memory/project-eligibility'
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
@@ -83,12 +85,21 @@ export async function assignThoughtToProject(
     }
   }
 
-  const isGtdProject = await promoteEntityToProject({
-    userId,
-    entityId: projectEntityId,
-    source: 'manual',
-    forceJudge: true,
-  })
+  let isGtdProject: boolean
+  if ('projectEntityId' in target) {
+    isGtdProject = await promoteEntityToProject({
+      userId,
+      entityId: projectEntityId,
+      source: 'manual',
+      forceJudge: true,
+    })
+  } else {
+    // Manual declaration: the user is the judge. Create as a manual project
+    // so the GTD LLM judge cannot veto an explicit assignment.
+    await promoteHubEntityType(userId, projectEntityId, projectLabel)
+    await ensureProject(userId, projectEntityId, 'active', 'manual')
+    isGtdProject = true
+  }
 
   return {
     projectEntityId,

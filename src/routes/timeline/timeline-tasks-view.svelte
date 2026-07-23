@@ -8,10 +8,7 @@
   type Props = {
     items: TemporalEventListItem[]
     doneItems: TemporalEventListItem[]
-    doneLoading?: boolean
     overdueItems: TemporalEventListItem[]
-    overdueLoading?: boolean
-    overdueCount?: number
     selectedItemId: string | null
     updatingEventId?: string | null
     timeZone: string
@@ -25,10 +22,7 @@
   let {
     items,
     doneItems,
-    doneLoading = false,
     overdueItems,
-    overdueLoading = false,
-    overdueCount = 0,
     selectedItemId,
     updatingEventId = null,
     timeZone,
@@ -36,7 +30,7 @@
     onSelect,
     onQuickAction,
     onLongPress,
-    onGoToOverdue,
+    onGoToOverdue: _onGoToOverdue,
   }: Props = $props()
 </script>
 
@@ -69,11 +63,7 @@
         </ul>
       {/if}
     {:else if segment === 'done'}
-      {#if doneLoading}
-        <p class="text-muted-foreground px-4 py-8 text-center text-sm">
-          {m.graph_temporal_loading()}
-        </p>
-      {:else if doneItems.length === 0}
+      {#if doneItems.length === 0}
         <p class="text-muted-foreground px-4 py-8 text-center text-sm">
           {m.graph_timeline_done_empty()}
         </p>
@@ -93,10 +83,6 @@
           {/each}
         </ul>
       {/if}
-    {:else if overdueLoading}
-      <p class="text-muted-foreground px-4 py-8 text-center text-sm">
-        {m.graph_temporal_loading()}
-      </p>
     {:else if overdueItems.length === 0}
       <p class="text-muted-foreground px-4 py-8 text-center text-sm">
         {m.graph_timeline_overdue_empty()}
