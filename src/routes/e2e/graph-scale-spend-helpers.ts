@@ -261,33 +261,46 @@ export async function captureThoughtThroughUi(
   const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
   await expect(captureBtn).toBeEnabled({ timeout: 30_000 })
 
-  const submitResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/submit') && res.request().method() === 'POST',
+  const interpretResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
     { timeout: 300_000 },
   )
 
   const errorBanner = page.locator('p.text-destructive.text-sm').first()
   await captureBtn.click()
 
-  const submitRes = await submitResponsePromise
-  const submitBody = await submitRes.text()
-  if (!submitRes.ok()) {
-    throw new Error(submitBody.trim() || `Capture submit failed (${submitRes.status()})`)
+  const interpretRes = await interpretResponsePromise
+  const interpretBody = await interpretRes.text()
+  if (!interpretRes.ok()) {
+    throw new Error(interpretBody.trim() || `Capture interpret failed (${interpretRes.status()})`)
   }
 
-  const thoughtId = parseCaptureSubmitThoughtId(
-    submitBody,
-    submitRes.headers()['content-type'] ?? '',
-  )
+  const interpretJson = JSON.parse(interpretBody) as {
+    thoughtId?: string
+    error?: string
+  }
+  if (interpretJson.error) throw new Error(interpretJson.error)
+  const thoughtId = interpretJson.thoughtId ?? ''
   if (!thoughtId) {
     if (await errorBanner.isVisible().catch(() => false)) {
       const message = (await errorBanner.textContent())?.trim()
       throw new Error(message ? `Capture failed: ${message}` : 'Capture failed')
     }
-    throw new Error('Capture submit succeeded but returned no thought id')
+    throw new Error('Capture interpret succeeded but returned no thought id')
   }
 
-  await expect(page.getByText('Stored thought')).toBeVisible({ timeout: 60_000 })
+  const confirmCard = page.getByTestId('capture-confirmation-card')
+  await expect(confirmCard).toBeVisible({ timeout: 60_000 })
+  const confirmResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+    { timeout: 300_000 },
+  )
+  await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+  const confirmRes = await confirmResponsePromise
+  if (!confirmRes.ok()) {
+    throw new Error((await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`)
+  }
+
   await expect(page.getByText('Category:')).toBeVisible({ timeout: 60_000 })
 
   await expect

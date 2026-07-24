@@ -6,7 +6,9 @@
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
+  import CaptureConfirmationCard from '$lib/components/capture-confirmation-card.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
+  import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import { enhance } from '$app/forms'
@@ -34,7 +36,6 @@
   } from '$lib/capture/consume-capture-ndjson'
   import {
     cancelCaptureQueueItem,
-    enqueueCapture,
     getCaptureQueueSnapshot,
     subscribeCaptureQueue,
     type CaptureQueueItem,
@@ -244,11 +245,20 @@
   let editingThoughtId = $state<string | null>(null)
   let err = $state<string | null>(null)
 
+  type PendingConfirmation = {
+    thoughtId: string
+    rawText: string
+    preview: CapturePreviewBundle
+  }
+  let pendingConfirmation = $state<PendingConfirmation | null>(null)
+  let confirmationLoading = $state(false)
+  let confirmationError = $state<string | null>(null)
+
   let queueUi = $state<CaptureQueueUiState>(initialCaptureQueueUiState())
   /** Mirrors in-flight capture id for progress matching (updated synchronously in queue handlers). */
   let processingCaptureId = $state<string | null>(null)
   let pendingCount = $derived(queueUi.pendingCount)
-  let loading = $derived(processingCaptureId !== null)
+  let loading = $derived(processingCaptureId !== null || confirmationLoading)
   const queueActive = $derived(pendingCount > 0 || processingCaptureId !== null)
   const offline = $derived(typeof navigator !== 'undefined' && !navigator.onLine)
 
@@ -656,25 +666,117 @@
   }
 
   async function capture() {
-    if (!raw.trim()) return
+    if (!raw.trim() || confirmationLoading) return
     err = null
+    confirmationError = null
     // Stop voice recording if active before submitting
     voiceStopFn?.()
     const text = raw
     syncCaptureDraft('')
-    queueUi = { ...queueUi, pendingCount: queueUi.pendingCount + 1 }
+    confirmationLoading = true
     captureEvent('capture_submitted', { text_length: text.length })
     try {
-      await enqueueCapture(text)
-      await reconcileQueueState(false)
-      void refreshRecentCaptureFromServer()
+      const res = await fetch('/api/capture/interpret', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ raw: text }),
+        credentials: 'same-origin',
+      })
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string
+          message?: string
+        }
+        throw new Error(payload.message ?? payload.error ?? `Interpret failed (${res.status})`)
+      }
+      const body = (await res.json()) as {
+        thoughtId: string
+        rawText: string
+        preview: CapturePreviewBundle
+        queueStatus: string
+      }
+      pendingConfirmation = {
+        thoughtId: body.thoughtId,
+        rawText: body.rawText ?? text,
+        preview: body.preview,
+      }
+      captureEvent('capture_interpret_ready', { thought_id: body.thoughtId })
     } catch (e) {
       syncCaptureDraft(text)
-      queueUi = {
-        ...queueUi,
-        pendingCount: Math.max(0, queueUi.pendingCount - 1),
-      }
       err = e instanceof Error ? e.message : String(e)
+    } finally {
+      confirmationLoading = false
+    }
+  }
+
+  async function confirmPendingCapture() {
+    if (!pendingConfirmation || confirmationLoading) return
+    const current = pendingConfirmation
+    confirmationLoading = true
+    confirmationError = null
+    err = null
+    try {
+      const res = await fetch('/api/capture/confirm', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ thoughtId: current.thoughtId }),
+        credentials: 'same-origin',
+      })
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string
+          message?: string
+        }
+        throw new Error(payload.message ?? payload.error ?? `Confirm failed (${res.status})`)
+      }
+      pendingConfirmation = null
+      captureEvent('capture_confirmed', { thought_id: current.thoughtId })
+      const thought = await fetchCaptureResult(current.thoughtId)
+      upsertRecentThought(thought, { pinToTop: true })
+      expandedThoughtId = thought.id
+      startBackgroundEnrichPoll(thought.id)
+      void refreshRecentCaptureFromServer()
+    } catch (e) {
+      confirmationError = e instanceof Error ? e.message : String(e)
+    } finally {
+      confirmationLoading = false
+    }
+  }
+
+  async function correctPendingCapture(correction: string) {
+    if (!pendingConfirmation || confirmationLoading) return
+    const current = pendingConfirmation
+    confirmationLoading = true
+    confirmationError = null
+    try {
+      const res = await fetch('/api/capture/correct', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ thoughtId: current.thoughtId, correction }),
+        credentials: 'same-origin',
+      })
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string
+          message?: string
+        }
+        throw new Error(payload.message ?? payload.error ?? `Correct failed (${res.status})`)
+      }
+      const body = (await res.json()) as {
+        thoughtId: string
+        rawText: string
+        preview: CapturePreviewBundle
+      }
+      pendingConfirmation = {
+        thoughtId: body.thoughtId,
+        rawText: body.rawText ?? current.rawText,
+        preview: body.preview,
+      }
+      captureEvent('capture_corrected', { thought_id: body.thoughtId })
+    } catch (e) {
+      confirmationError = e instanceof Error ? e.message : String(e)
+    } finally {
+      confirmationLoading = false
     }
   }
 
@@ -843,6 +945,26 @@
         </div>
       </Card.Footer>
     </Card.Root>
+
+    {#if pendingConfirmation}
+      <CaptureConfirmationCard
+        thoughtId={pendingConfirmation.thoughtId}
+        rawText={pendingConfirmation.rawText}
+        preview={pendingConfirmation.preview}
+        loading={confirmationLoading}
+        error={confirmationError}
+        onConfirm={() => {
+          void confirmPendingCapture()
+        }}
+        onCorrect={(correction) => {
+          void correctPendingCapture(correction)
+        }}
+        onDismiss={() => {
+          pendingConfirmation = null
+          confirmationError = null
+        }}
+      />
+    {/if}
 
     {#if showFirstCaptureNudge}
       <FirstCaptureNudge

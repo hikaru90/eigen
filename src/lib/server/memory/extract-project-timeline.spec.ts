@@ -49,7 +49,7 @@ describe('parseProjectTimelinePayload', () => {
         { targetDate: 'not-a-date', milestones: [{ label: '' }] },
         new Set(),
       ),
-    ).toEqual({ targetDate: null, milestones: [] })
+    ).toEqual({ targetDate: null, milestones: [], tasks: [] })
   })
 
   it('accepts snake_case keys', () => {
@@ -62,6 +62,51 @@ describe('parseProjectTimelinePayload', () => {
     )
     expect(parsed.targetDate).toBeNull()
     expect(parsed.milestones[0]?.targetDate).toBe('2026-12-01T00:00:00.000Z')
+  })
+
+  it('parses ordered task waterfall entries', () => {
+    const parsed = parseProjectTimelinePayload(
+      {
+        targetDate: null,
+        milestones: [],
+        tasks: [
+          {
+            summary: 'Draft outline',
+            kind: 'deadline',
+            suggestedStartAt: '2026-08-01T00:00:00.000Z',
+            suggestedEndAt: '2026-08-02T00:00:00.000Z',
+            isNextAction: true,
+          },
+          {
+            summary: '  ',
+            isNextAction: false,
+          },
+          {
+            summary: 'Review with design',
+            kind: 'not-a-kind',
+            suggested_start_at: null,
+            is_next_action: false,
+          },
+        ],
+      },
+      new Set(),
+    )
+    expect(parsed.tasks).toEqual([
+      {
+        summary: 'Draft outline',
+        kind: 'deadline',
+        suggestedStartAt: '2026-08-01T00:00:00.000Z',
+        suggestedEndAt: '2026-08-02T00:00:00.000Z',
+        isNextAction: true,
+      },
+      {
+        summary: 'Review with design',
+        kind: null,
+        suggestedStartAt: null,
+        suggestedEndAt: null,
+        isNextAction: false,
+      },
+    ])
   })
 })
 

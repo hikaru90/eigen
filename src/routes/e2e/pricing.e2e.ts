@@ -11,7 +11,10 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
 
     await page.fill('#thought', 'Test thought for pricing verification')
     await page.click('button:has-text("Capture")')
-    await expect(page.locator('text=Stored thought')).toBeVisible({ timeout: 30000 })
+    const confirmCard = page.getByTestId('capture-confirmation-card')
+    await expect(confirmCard).toBeVisible({ timeout: 30_000 })
+    await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+    await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
 
@@ -34,7 +37,10 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
 
     await page.fill('#thought', 'Another thought for totals check')
     await page.click('button:has-text("Capture")')
-    await expect(page.locator('text=Stored thought')).toBeVisible({ timeout: 30000 })
+    const confirmCard = page.getByTestId('capture-confirmation-card')
+    await expect(confirmCard).toBeVisible({ timeout: 30_000 })
+    await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+    await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
 

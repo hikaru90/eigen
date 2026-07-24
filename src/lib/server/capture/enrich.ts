@@ -175,15 +175,17 @@ export async function enrichThought(
   let projectLikeEntities: Array<{ entityId: string; label: string }> = []
   const [entitiesResult, metadataResult, temporalResult] = await Promise.allSettled([
     time('enrich_entities', async () => {
-      const entitySync = await syncEntityGraphFromThought({
-        userId,
-        thoughtId,
-        normalizedText,
-        preloadedKnownEntities,
-        precomputedEntityGraph,
-        precomputedEntityEnrichmentContext,
-        thoughtEmbedding,
-      })
+      const entitySync = await withEntitySyncDiagnosticTimeout(thoughtId, () =>
+        syncEntityGraphFromThought({
+          userId,
+          thoughtId,
+          normalizedText,
+          preloadedKnownEntities,
+          precomputedEntityGraph,
+          precomputedEntityEnrichmentContext,
+          thoughtEmbedding,
+        }),
+      )
       projectLikeEntities = entitySync.projectLikeEntities
       if (entitySync.mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
         throw new Error(
@@ -518,4 +520,40 @@ function formatEnrichStepFailures(
     }
   }
   return failures
+}
+
+/**
+ * DIAGNOSTIC (temporary): wrap the entity-graph-sync step in a hard timeout so a silent
+ * DB/AGE lock-wait surfaces as a loud `failed` row instead of stalling the worker and every
+ * background ticker. The underlying query is not cancelled — the goal is to identify which
+ * step hangs via the `[entity-graph-sync] … done` logs, not to recover from the hang here.
+ */
+const ENTITY_SYNC_DIAGNOSTIC_TIMEOUT_MS = 90_000
+function withEntitySyncDiagnosticTimeout<T>(
+  thoughtId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const handle = setTimeout(() => {
+      console.error('[enrich] entity sync diagnostic timeout', {
+        thoughtId,
+        ms: ENTITY_SYNC_DIAGNOSTIC_TIMEOUT_MS,
+      })
+      reject(
+        new Error(
+          `syncEntityGraphFromThought timed out after ${ENTITY_SYNC_DIAGNOSTIC_TIMEOUT_MS}ms`,
+        ),
+      )
+    }, ENTITY_SYNC_DIAGNOSTIC_TIMEOUT_MS)
+    fn().then(
+      (value) => {
+        clearTimeout(handle)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(handle)
+        reject(err)
+      },
+    )
+  })
 }

@@ -59,6 +59,7 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
   order_task_in_project: { title: 'Ordering project tasks', category: 'write', icon: 'pencil' },
   set_project_milestone: { title: 'Setting project milestone', category: 'write', icon: 'pencil' },
   set_project_deadline: { title: 'Setting project deadline', category: 'write', icon: 'pencil' },
+  generate_project_plan: { title: 'Generating project plan', category: 'compose', icon: 'sparkles' },
   create_text_file: { title: 'Creating text note', category: 'write', icon: 'save' },
   list_text_files: { title: 'Listing text notes', category: 'memory', icon: 'list' },
   get_text_file: { title: 'Opening text note', category: 'memory', icon: 'list' },

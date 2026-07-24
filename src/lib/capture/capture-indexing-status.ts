@@ -13,6 +13,9 @@ export function captureIndexingListStatus(
 ): CaptureIndexingListStatus | null {
   if (!detail || detail.enrichmentComplete) return null
 
+  if (detail.queueStatus === 'awaiting_confirmation') {
+    return { label: 'Awaiting confirmation', spinning: false, failed: false }
+  }
   if (detail.queueStatus === 'failed') {
     return { label: 'Indexing failed', spinning: false, failed: true }
   }
@@ -37,6 +40,9 @@ export function captureIndexingDetailMessage(
 ): string | null {
   if (thought.enrichmentComplete) return null
 
+  if (thought.queueStatus === 'awaiting_confirmation') {
+    return 'Confirm how this capture should be stored before indexing starts.'
+  }
   if (thought.queueStatus === 'pending') {
     return 'Queue: waiting for indexing'
   }
@@ -57,6 +63,7 @@ export function captureIndexingRetryEligible(
   listStatus: CaptureIndexingListStatus | null,
 ): boolean {
   if (!detail || detail.enrichmentComplete) return false
+  if (detail.queueStatus === 'awaiting_confirmation') return false
   if (detail.queueStatus === 'failed') return true
   if (detail.queueStatus === 'pending' || detail.queueStatus === 'processing') return true
   if (detail.queueStatus === 'complete') return true

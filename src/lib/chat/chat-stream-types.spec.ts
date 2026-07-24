@@ -276,6 +276,7 @@ describe('chat-stream-types', () => {
       'order_task_in_project',
       'set_project_milestone',
       'set_project_deadline',
+      'generate_project_plan',
       'create_text_file',
       'list_text_files',
       'get_text_file',

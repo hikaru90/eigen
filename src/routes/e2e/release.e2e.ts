@@ -2,12 +2,14 @@ import { expect, test } from '@playwright/test'
 import {
   assertReleasePreflight,
   assertMarkDoneFromProjectsView,
+  assertProjectDetailPageViews,
   assertProjectWaterfallAndAdvance,
   assertTimelineMountFetchBudget,
   assertTimelineSharedFiltersAndDial,
   assertTimelineSsotCountsAndLists,
   assertCheckInDeepLinkShowsPendingQuestion,
   captureThoughtViaUi,
+  captureThoughtViaUiWithCorrection,
   completeOnboardingOverlay,
   exerciseAuthenticatedUi,
   exerciseNotesShoppingListAppend,
@@ -53,12 +55,23 @@ test.describe('Release smoke @release', () => {
       await assertCheckInDeepLinkShowsPendingQuestion(page)
     })
 
-    await test.step('capture a thought through the UI', async () => {
+    await test.step('capture a thought through the UI (interpret → confirm)', async () => {
       await captureThoughtViaUi(page, releaseThought)
       await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible()
       await expect(
         page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
       ).toContainText('Lisbon')
+    })
+
+    await test.step('capture with natural-language correction then confirm', async () => {
+      await captureThoughtViaUiWithCorrection(
+        page,
+        'Release smoke correction: meeting in Lisbon next week',
+        'Change the city to Porto',
+      )
+      await expect(
+        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
+      ).toBeVisible()
     })
 
     await test.step('timeline cold-mount fetch budget (no duplicate list/stats)', async () => {
@@ -79,6 +92,10 @@ test.describe('Release smoke @release', () => {
 
     await test.step('projects: waterfall, milestones, advance next-action', async () => {
       await assertProjectWaterfallAndAdvance(page)
+    })
+
+    await test.step('projects: detail page list/timeline/kanban views', async () => {
+      await assertProjectDetailPageViews(page)
     })
 
     await test.step('projects: create, capture, edit, dismiss', async () => {

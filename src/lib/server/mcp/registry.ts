@@ -16,6 +16,7 @@ import {
   runSearchTextFilesTool,
   runSetProjectDeadlineTool,
   runSetProjectMilestoneTool,
+  runGenerateProjectPlanTool,
   runUnlinkTextFileFromThoughtTool,
   runUpdateTextFileTool,
   type McpToolContext,
@@ -45,6 +46,7 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'order_task_in_project',
   'set_project_milestone',
   'set_project_deadline',
+  'generate_project_plan',
 ])
 
 /**
@@ -309,6 +311,26 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"project_entity_id": "string (required)", "target_date": "string|null (required ISO-8601 or null)"}',
     handler: runSetProjectDeadlineTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('set_project_deadline'),
+  },
+  {
+    name: 'generate_project_plan',
+    description:
+      'Generate an entire project plan via LLM: ordered task waterfall, milestones, and overall deadline. Creates task thoughts, links them to the project, sets ranks, and optionally dates. Pass an optional goal to steer the plan.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+        goal: {
+          type: 'string',
+          description: 'Optional planning goal or constraint (e.g. ship beta by October).',
+        },
+      },
+      required: ['project_entity_id'],
+    },
+    agentArgumentSchema:
+      '{"project_entity_id": "string (required)", "goal": "string (optional planning goal)"}',
+    handler: runGenerateProjectPlanTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('generate_project_plan'),
   },
   {
     name: 'create_text_file',

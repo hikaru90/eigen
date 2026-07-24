@@ -54,7 +54,7 @@
         Ask Eigen Mesh about it in Chat, or see how it connects in Memory.
       </Card.Description>
     </Card.Header>
-    <Card.Footer class="flex flex-wrap items-center gap-2 pt-0">
+    <Card.Footer class="flex flex-wrap items-center gap-2 border-t-0 pt-0">
       <Button href="/chat" class="rounded-[4px] text-xs" onclick={trackChat}>
         Ask about it in Chat
       </Button>

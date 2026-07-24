@@ -116,14 +116,13 @@
     <span class="truncate">{label}</span>
   </Popover.Trigger>
   <Popover.Content
-    id="timeline-date-range-panel"
     align="end"
     side="bottom"
     sideOffset={6}
     class="{GRAPH_FILTER_GLASS_POPOVER} {GRAPH_FILTER_POPOVER_WIDTH} gap-3 p-3 shadow-xl shadow-black/5"
     aria-labelledby="timeline-date-range-trigger"
   >
-    <div class="flex flex-col gap-2">
+    <div id="timeline-date-range-panel" class="flex flex-col gap-2">
       <p class="text-muted-foreground font-mono text-[10px] uppercase tracking-wide">Date range</p>
       <div class="flex gap-1.5">
         <Input

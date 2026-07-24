@@ -57,16 +57,37 @@ describe('captureIndexingListStatus', () => {
     })
     expect(captureIndexingListStatus(thought({ queueStatus: null }), false)).toBeNull()
   })
+  it('shows awaiting confirmation for confirmation-gate drafts', () => {
+    expect(
+      captureIndexingListStatus(thought({ queueStatus: 'awaiting_confirmation' }), false),
+    ).toEqual({
+      label: 'Awaiting confirmation',
+      spinning: false,
+      failed: false,
+    })
+  })
 })
 
 describe('captureIndexingDetailMessage', () => {
   it('describes incomplete queue-complete rows', () => {
     expect(captureIndexingDetailMessage(thought({ queueStatus: 'complete' }))).toContain('Retry')
   })
+
+  it('describes awaiting confirmation drafts', () => {
+    expect(
+      captureIndexingDetailMessage(thought({ queueStatus: 'awaiting_confirmation' })),
+    ).toContain('Confirm')
+  })
 })
 
 describe('captureIndexingRetryEligible', () => {
   it('allows retry for queue-complete rows missing enriched_at', () => {
     expect(captureIndexingRetryEligible(thought({ queueStatus: 'complete' }), null)).toBe(true)
+  })
+
+  it('does not allow enrich retry while awaiting confirmation', () => {
+    expect(
+      captureIndexingRetryEligible(thought({ queueStatus: 'awaiting_confirmation' }), null),
+    ).toBe(false)
   })
 })

@@ -647,6 +647,16 @@ async function llmChatCompletionInner(input: {
       }
 
       if (!res.ok) {
+        console.error(`[llm.chat:${logCtx}] DIAG 4xx`, {
+          status: res.status,
+          model: routing.model,
+          ruleId: routing.ruleId ?? null,
+          provider: routing.provider ?? null,
+          messageCount: messages.length,
+          messageSizes: messages.map((m) => ({ role: m.role, len: m.content.length })),
+          totalChars: messages.reduce((n, m) => n + m.content.length, 0),
+          responseBody: text,
+        })
         const message =
           typeof json === 'object' && json && 'error' in json
             ? JSON.stringify((json as { error?: unknown }).error)

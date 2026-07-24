@@ -36,6 +36,7 @@ import {
 } from '$lib/server/memory/authorship'
 import { listProjectsForUser } from '$lib/server/memory/project-list'
 import { orderTaskInProject } from '$lib/server/memory/project-task-sequence'
+import { generateProjectPlan } from '$lib/server/memory/generate-project-plan'
 import {
   listMilestonesForProject,
   setProjectDeadline,
@@ -814,6 +815,27 @@ export async function runSetProjectDeadlineTool(context: McpToolContext, args: u
     userId: context.userId,
     projectEntityId,
     targetDate: targetDateRaw,
+  })
+  return sanitizeMcpToolResult(result)
+}
+
+export async function runGenerateProjectPlanTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityId = validateNonEmptyEntityId(
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : '',
+    'project_entity_id',
+  )
+  const goal =
+    typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
+
+  const result = await generateProjectPlan({
+    userId: context.userId,
+    projectEntityId,
+    ...(goal ? { goal } : {}),
   })
   return sanitizeMcpToolResult(result)
 }

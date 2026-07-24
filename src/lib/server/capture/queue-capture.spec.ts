@@ -136,6 +136,35 @@ describe('queueCapture', () => {
     )
   })
 
+  it('persists awaiting_confirmation draft without scheduling enrich', async () => {
+    const thoughtInsert = {
+      values: vi.fn(() => ({
+        returning: vi.fn(async () => [{ id: 'thought-1' }]),
+      })),
+    }
+    // Reset insert sequence for this test (session then thought)
+    let insertCall = 0
+    const sessionInsert = {
+      values: vi.fn(() => ({
+        returning: vi.fn(async () => [{ id: 'session-1' }]),
+      })),
+    }
+    insertMock.mockImplementation(() => {
+      insertCall += 1
+      return insertCall === 1 ? sessionInsert : thoughtInsert
+    })
+
+    await queueCapture('u1', 'confirm me', { awaitConfirmation: true, source: 'ui' })
+
+    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+    const thoughtValues = thoughtInsert.values.mock.calls[0]?.[0] as {
+      enrichQueueStatus?: string
+      metadata?: Record<string, unknown>
+    }
+    expect(thoughtValues.enrichQueueStatus).toBe('awaiting_confirmation')
+    expect(thoughtValues.metadata?.confirmationGate).toBe(true)
+  })
+
   it('inserts session and thought atomically inside one transaction', async () => {
     await queueCapture('u1', 'atomic check')
     expect(transactionMock).toHaveBeenCalledTimes(1)

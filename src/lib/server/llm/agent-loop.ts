@@ -53,6 +53,7 @@ export const AGENT_SYSTEM_PROMPT = [
   TOOL_DESCRIPTION_BLOCK,
   '',
   '=== RULES ===',
+  '- You must call at least one tool before giving a final answer. A final answer with no prior tool call in this turn is rejected.',
   '- Any question (how/what/when/who/why, any language): call answer_question — never answer a question from your own knowledge.',
   '- retrieve_thoughts is for browsing/listing recent thoughts, not for answering questions.',
   '- When unsure between capture and answer, prefer answer_question.',
@@ -327,6 +328,7 @@ export async function agentChat(input: {
     ...input.messages,
   ]
   let parseFailureCount = 0
+  let toolRanInTurn = false
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     console.error('[agent-loop] iteration', { iteration, messageCount: messages.length })
@@ -398,6 +400,7 @@ export async function agentChat(input: {
         exec: { ...exec, assistantContentForHistory: content },
       })
 
+      toolRanInTurn = true
       parseFailureCount = 0
       if (outcome.done) {
         messages.push({ role: 'assistant', content })
@@ -409,6 +412,20 @@ export async function agentChat(input: {
       messages.push({
         role: 'user',
         content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`,
+      })
+      continue
+    }
+
+    if (!toolRanInTurn) {
+      parseFailureCount += 1
+      if (parseFailureCount >= MAX_PARSE_RETRIES) {
+        throw new AgentParseError('The assistant tried to answer without calling a tool.')
+      }
+      messages.push({ role: 'assistant', content })
+      messages.push({
+        role: 'user',
+        content:
+          'Error: You must call a tool before answering. For any question, including about yourself, call answer_question. Never answer from your own knowledge. Respond with {"tool": ...} only.',
       })
       continue
     }

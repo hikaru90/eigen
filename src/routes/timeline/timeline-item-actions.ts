@@ -1,7 +1,7 @@
 /**
  * Single timeline lifecycle client for every surface.
  *
- * Surfaces (Tasks today, Projects grouping, project detail drawer, unassigned
+ * Surfaces (Tasks today, Projects grouping, project detail page, unassigned
  * bucket) only decide *where* a row is rendered. Mark done / reopen / archive
  * always goes through {@link postTimelineQuickAction} →
  * `POST /api/temporal-events/:id/action`. Project assignment is irrelevant.

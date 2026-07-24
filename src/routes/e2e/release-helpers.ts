@@ -82,12 +82,13 @@ async function fetchCaptureThoughtResult(
   page: Page,
   thoughtId: string,
 ): Promise<CaptureThoughtRow | null> {
-  return page.evaluate(async (id) => {
-    const res = await fetch(`/api/capture/result/${encodeURIComponent(id)}`)
-    if (!res.ok) return null
-    const body = (await res.json()) as { thought?: CaptureThoughtRow }
-    return body.thought ?? null
-  }, thoughtId)
+  // Use Playwright's request context (not page.evaluate). Capture calls
+  // invalidateAll() when enrichment completes, which remounts the page and
+  // destroys any in-flight page JS context mid-poll.
+  const res = await page.request.get(`/api/capture/result/${encodeURIComponent(thoughtId)}`)
+  if (!res.ok()) return null
+  const body = (await res.json()) as { thought?: CaptureThoughtRow }
+  return body.thought ?? null
 }
 
 function parseCaptureSubmitThoughtId(bodyText: string, contentType: string): string {
@@ -121,6 +122,7 @@ function parseCaptureSubmitThoughtId(bodyText: string, contentType: string): str
 function captureIndexingInFlight(thought: CaptureThoughtRow | null): boolean {
   if (!thought || thought.enrichmentComplete) return false
   if (thought.queueStatus === 'failed') return false
+  if (thought.queueStatus === 'awaiting_confirmation') return false
   return (
     thought.queueStatus === 'pending' ||
     thought.queueStatus === 'processing' ||
@@ -134,9 +136,18 @@ async function waitForThoughtIndexed(page: Page, thoughtId: string, raw: string)
   await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({
     timeout: RELEASE_WAIT_MS,
   })
-  await expect(
-    page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-  ).toContainText(raw.slice(0, 48), { timeout: RELEASE_WAIT_MS })
+  // After interpret→confirm, the list shows interpreted text (may differ from verbatim raw).
+  const tokenMatch = raw.match(/[A-Za-zÄÖÜäöüß]{5,}/)
+  const token = tokenMatch?.[0]
+  if (token) {
+    await expect(
+      page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
+    ).toContainText(token, { timeout: RELEASE_WAIT_MS })
+  } else {
+    await expect(
+      page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
+    ).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  }
 
   await expect
     .poll(
@@ -166,26 +177,22 @@ async function dismissBlockingLayers(page: Page): Promise<void> {
     return
   }
 
-  const projectDrawer = page.getByRole('button', { name: EDIT_PROJECT_BTN })
   const namedDialog = page.getByRole('dialog').filter({
     has: page.getByRole('button', {
       name: /Cancel|Abbrechen|Save changes|Änderungen speichern|Create project|Projekt anlegen/,
     }),
   })
+  const drawerOverlay = page.locator('[data-vaul-overlay], [data-slot="drawer-overlay"]').first()
 
   const blocking = async (): Promise<boolean> =>
-    (await visible(projectDrawer)) || (await visible(namedDialog))
+    (await visible(namedDialog)) || (await visible(drawerOverlay, QUICK_MS))
 
   if (!(await blocking())) return
 
   const attempts: Array<() => Promise<void>> = [
     () => page.keyboard.press('Escape'),
     () => page.keyboard.press('Escape'),
-    () =>
-      page
-        .locator('[data-vaul-overlay], [data-slot="drawer-overlay"]')
-        .first()
-        .click({ position: { x: 6, y: 6 }, force: true }),
+    () => drawerOverlay.click({ position: { x: 6, y: 6 }, force: true }),
     () => page.getByRole('button', { name: DIALOG_CANCEL_BTN }).first().click(),
     () => page.getByRole('button', { name: /Tasks|Aufgaben/, exact: true }).click(),
     () => page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' }),
@@ -715,6 +722,20 @@ export async function completeOnboardingOverlay(
   }
 }
 
+function parseInterpretThoughtId(bodyText: string): string {
+  const json = JSON.parse(bodyText) as {
+    thoughtId?: string
+    error?: string
+    preview?: { interpretedText?: string }
+  }
+  if (json.error) throw new Error(json.error)
+  return json.thoughtId ?? ''
+}
+
+/**
+ * Capture through the UI confirmation gate:
+ * Capture → interpret preview → Confirm → full ingest.
+ */
 export async function captureThoughtViaUi(page: Page, raw: string): Promise<string> {
   await dismissBlockingLayers(page)
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
@@ -736,29 +757,130 @@ export async function captureThoughtViaUi(page: Page, raw: string): Promise<stri
   }
 
   const errorBanner = page.locator('p.text-destructive.text-sm').first()
+  const thoughtId = await submitInterpretViaUi(page, {
+    raw,
+    captureBtn,
+    errorBanner,
+  })
 
-  const submitResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/submit') && res.request().method() === 'POST',
-    { timeout: RELEASE_WAIT_MS },
+  const confirmCard = page.getByTestId('capture-confirmation-card')
+  await expect(confirmCard).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await expect(confirmCard.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
+    timeout: RELEASE_WAIT_MS,
+  })
+
+  const confirmResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+    { timeout: RELEASE_INDEXING_WAIT_MS },
   )
-  await captureBtn.click()
-
-  const submitRes = await submitResponsePromise
-  const submitBody = await submitRes.text()
-  if (!submitRes.ok()) {
-    throw new Error(submitBody.trim() || `Capture submit failed (${submitRes.status()})`)
+  await confirmCard.getByRole('button', { name: /^Confirm$/i }).click()
+  const confirmRes = await confirmResponsePromise
+  if (!confirmRes.ok()) {
+    throw new Error((await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`)
   }
 
-  const thoughtId = parseCaptureSubmitThoughtId(
-    submitBody,
-    submitRes.headers()['content-type'] ?? '',
-  )
-  if (!thoughtId) {
-    if (await visible(errorBanner, QUICK_MS)) {
-      const message = (await errorBanner.textContent())?.trim()
-      throw new Error(message ? `Capture failed: ${message}` : 'Capture failed')
+  await waitForThoughtIndexed(page, thoughtId, raw)
+  return thoughtId
+}
+
+/**
+ * Submit Capture and wait for interpret. Retries once on transient LLM HTTP 400
+ * (provider rejection), which the gateway may return intermittently under load.
+ */
+async function submitInterpretViaUi(
+  page: Page,
+  input: {
+    raw: string
+    captureBtn: Locator
+    errorBanner?: Locator
+  },
+): Promise<string> {
+  let lastError = 'Capture interpret failed'
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      await page.locator('#thought').fill(input.raw)
+      await expect(input.captureBtn).toBeEnabled({ timeout: RELEASE_WAIT_MS })
     }
-    throw new Error('Capture submit succeeded but returned no thought id')
+    const interpretResponsePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
+      { timeout: RELEASE_INDEXING_WAIT_MS },
+    )
+    await input.captureBtn.click()
+    const interpretRes = await interpretResponsePromise
+    const interpretBody = await interpretRes.text()
+    if (interpretRes.ok()) {
+      const thoughtId = parseInterpretThoughtId(interpretBody)
+      if (thoughtId) return thoughtId
+      lastError = 'Capture interpret succeeded but returned no thought id'
+      break
+    }
+    lastError = interpretBody.trim() || `Capture interpret failed (${interpretRes.status()})`
+    const retryable = /LLM HTTP 400|provider rejected|invalid_request_error/i.test(lastError)
+    if (!retryable || attempt === 1) break
+  }
+  if (input.errorBanner && (await visible(input.errorBanner, QUICK_MS))) {
+    const message = (await input.errorBanner.textContent())?.trim()
+    if (message) throw new Error(`Capture failed: ${message}`)
+  }
+  throw new Error(lastError)
+}
+
+/**
+ * Capture → interpret → natural-language correction → Confirm → ingest.
+ * Asserts the preview card updates after correction.
+ */
+export async function captureThoughtViaUiWithCorrection(
+  page: Page,
+  raw: string,
+  correction: string,
+): Promise<string> {
+  await dismissBlockingLayers(page)
+  await page.goto('/capture', { waitUntil: 'domcontentloaded' })
+  await dismissBlockingLayers(page)
+
+  await page.locator('#thought').fill(raw)
+  const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
+  await expect(captureBtn).toBeEnabled({ timeout: RELEASE_WAIT_MS })
+
+  const thoughtId = await submitInterpretViaUi(page, { raw, captureBtn })
+
+  const confirmCard = page.getByTestId('capture-confirmation-card')
+  await expect(confirmCard).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  // Interpret may leave the card briefly in loading; wait until Confirm is idle.
+  await expect(confirmCard.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
+    timeout: RELEASE_WAIT_MS,
+  })
+
+  const correctionInput = confirmCard.locator('#capture-correction')
+  await correctionInput.fill(correction)
+  const updatePreviewBtn = confirmCard.getByRole('button', {
+    name: /Update preview|Vorschau aktualisieren/i,
+  })
+  // Svelte bind:value must accept the fill before the button enables.
+  await expect(updatePreviewBtn).toBeEnabled({ timeout: RELEASE_WAIT_MS })
+
+  const correctResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/correct') && res.request().method() === 'POST',
+    { timeout: RELEASE_INDEXING_WAIT_MS },
+  )
+  await updatePreviewBtn.click()
+  const correctRes = await correctResponsePromise
+  if (!correctRes.ok()) {
+    throw new Error((await correctRes.text()).trim() || 'Capture correct failed')
+  }
+  await expect(confirmCard).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await expect(confirmCard.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
+    timeout: RELEASE_INDEXING_WAIT_MS,
+  })
+
+  const confirmResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+    { timeout: RELEASE_INDEXING_WAIT_MS },
+  )
+  await confirmCard.getByRole('button', { name: /^Confirm$/i }).click()
+  const confirmRes = await confirmResponsePromise
+  if (!confirmRes.ok()) {
+    throw new Error((await confirmRes.text()).trim() || 'Capture confirm failed')
   }
 
   await waitForThoughtIndexed(page, thoughtId, raw)
@@ -781,14 +903,13 @@ type TimelineProjectRow = {
 }
 
 async function fetchTimelineProjects(page: Page): Promise<TimelineProjectRow[]> {
-  const body = await page.evaluate(async () => {
-    const res = await fetch('/api/timeline/projects?author=user')
-    if (!res.ok) return null
-    return (await res.json()) as { projects?: TimelineProjectRow[] }
-  })
-  if (!body) {
-    throw new Error('fetchTimelineProjects failed')
+  // Prefer request context over page.evaluate so invalidateAll() / remounts
+  // during background enrich do not destroy the poll mid-flight.
+  const res = await page.request.get('/api/timeline/projects?author=user')
+  if (!res.ok()) {
+    throw new Error(`fetchTimelineProjects failed (${res.status()}): ${await res.text()}`)
   }
+  const body = (await res.json()) as { projects?: TimelineProjectRow[] }
   return body.projects ?? []
 }
 
@@ -842,22 +963,21 @@ async function createProjectViaUi(page: Page, label: string): Promise<TimelinePr
 async function openProjectDetail(page: Page, projectLabel: string): Promise<void> {
   await gotoTimelineProjectsView(page)
   const listbox = page.getByRole('listbox', { name: PROJECTS_LISTBOX })
-  const row = listbox
-    .locator('div')
+  const card = listbox
+    .locator('[data-testid="project-card"]')
     .filter({ has: page.getByText(projectLabel, { exact: true }) })
     .first()
-  const openBtn = row.getByRole('button', { name: OPEN_PROJECT_BTN })
 
-  if (await visible(openBtn)) {
-    await openBtn.click()
-  } else if (await visible(page.getByText(projectLabel, { exact: true }).first())) {
-    await page.getByText(projectLabel, { exact: true }).first().click()
-  } else {
+  if (!(await visible(card, ACTION_MS))) {
     throw new Error(`Project "${projectLabel}" not found in list`)
   }
 
+  await card.click()
+  await expect(page).toHaveURL(/\/memory\/projects\/[^/?]+/, { timeout: ACTION_MS })
+  await expect(page.getByTestId('project-detail-page')).toBeVisible({ timeout: ACTION_MS })
+
   if (!(await visible(page.getByRole('button', { name: EDIT_PROJECT_BTN }), ACTION_MS))) {
-    throw new Error(`Project detail drawer did not open for "${projectLabel}"`)
+    throw new Error(`Project detail page did not show edit control for "${projectLabel}"`)
   }
 }
 
@@ -937,7 +1057,10 @@ async function dismissProjectViaUi(
  * `POST /api/temporal-events/:id/action` client as Tasks (no forked thoughts PATCH).
  */
 export async function assertMarkDoneFromProjectsView(page: Page): Promise<void> {
-  const marker = `markdone-${Date.now()}`
+  // Use a real-word + nonce marker so the interpret LLM preserves it verbatim. A run-on like
+  // "markdone-<ts>" gets "fixed" into "mark done-<ts>", which breaks both the token check in
+  // waitForThoughtIndexed and the semanticSummary.includes(marker) lookup below.
+  const marker = `marker-${Date.now()}`
   await captureThoughtViaUi(page, `TODO: ${marker} finish the release checklist item`)
 
   let itemId = ''
@@ -1077,8 +1200,11 @@ export async function exerciseProjectsLifecycle(page: Page): Promise<void> {
 export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void> {
   const stamp = Date.now()
   const projectLabel = `Waterfall Project ${stamp}`
-  const firstSummary = `waterfall-first-${stamp} draft the outline`
-  const secondSummary = `waterfall-second-${stamp} review with design`
+  // Stable tokens must survive interpret→confirm rewriting (word order may change).
+  const firstToken = `waterfall-first-${stamp}`
+  const secondToken = `waterfall-second-${stamp}`
+  const firstSummary = `${firstToken} draft the outline`
+  const secondSummary = `${secondToken} review with design`
 
   const createRes = await page.request.post('/api/timeline/projects', {
     data: { label: projectLabel, status: 'active' },
@@ -1132,11 +1258,14 @@ export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void
   await pollUntil(
     'project waterfall visible on card',
     async () => {
-      const waterfall = page.getByTestId('project-waterfall').filter({ hasText: firstSummary })
+      const waterfall = page.getByTestId('project-waterfall').filter({ hasText: firstToken })
       return visible(waterfall, QUICK_MS)
     },
     { timeoutMs: RELEASE_WAIT_MS, intervalMs: 1_000 },
   )
+  await expect(page.getByTestId('project-waterfall').filter({ hasText: secondToken })).toBeVisible({
+    timeout: RELEASE_WAIT_MS,
+  })
   await expect(page.getByTestId('project-milestones').getByText(`Beta ${stamp}`)).toBeVisible({
     timeout: RELEASE_WAIT_MS,
   })
@@ -1171,6 +1300,67 @@ export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void
     },
     { timeoutMs: RELEASE_WAIT_MS, intervalMs: 1_000 },
   )
+}
+
+/**
+ * Project detail page: navigate from card (no drawer), switch list/timeline/kanban,
+ * and keep completed tasks in the kanban Completed column.
+ */
+export async function assertProjectDetailPageViews(page: Page): Promise<void> {
+  const stamp = Date.now()
+  const projectLabel = `Detail Views Project ${stamp}`
+  const openToken = `detail-open-${stamp}`
+  const doneToken = `detail-done-${stamp}`
+
+  const createRes = await page.request.post('/api/timeline/projects', {
+    data: { label: projectLabel, status: 'active' },
+  })
+  if (!createRes.ok()) {
+    throw new Error(`create detail views project failed (${createRes.status()}): ${await createRes.text()}`)
+  }
+  const created = (await createRes.json()) as { entityId: string }
+
+  const openThoughtId = await captureThoughtViaUi(page, `TODO: ${openToken} prepare kickoff notes`)
+  const doneThoughtId = await captureThoughtViaUi(page, `TODO: ${doneToken} finish the checklist`)
+
+  for (const thoughtId of [openThoughtId, doneThoughtId]) {
+    const assignRes = await page.request.post('/api/timeline/projects/assign', {
+      data: { thoughtId, projectEntityId: created.entityId },
+    })
+    if (!assignRes.ok()) {
+      throw new Error(`assign detail views task failed (${assignRes.status()}): ${await assignRes.text()}`)
+    }
+  }
+
+  const doneAction = await page.request.post(
+    `/api/temporal-events/${encodeURIComponent(`task:${doneThoughtId}`)}/action`,
+    { data: { action: 'mark_done' } },
+  )
+  if (!doneAction.ok()) {
+    throw new Error(`mark detail done task failed (${doneAction.status()}): ${await doneAction.text()}`)
+  }
+
+  await openProjectDetail(page, projectLabel)
+  await expect(page.getByTestId('project-list-view')).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await expect(page.getByText(openToken)).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+  await page.getByRole('tab', { name: /Timeline|Zeitachse/i }).click()
+  await expect(page).toHaveURL(/view=timeline/)
+  await expect(page.getByTestId('project-gantt-view')).toBeVisible({ timeout: ACTION_MS })
+
+  await page.getByRole('tab', { name: /Kanban/i }).click()
+  await expect(page).toHaveURL(/view=kanban/)
+  await expect(page.getByTestId('project-kanban-view')).toBeVisible({ timeout: ACTION_MS })
+  await expect(
+    page.getByTestId('project-kanban-column-completed').getByText(doneToken),
+  ).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await expect(page.getByTestId('project-kanban-column-open').getByText(openToken)).toBeVisible({
+    timeout: RELEASE_WAIT_MS,
+  })
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/view=kanban/)
+  await expect(page.getByTestId('project-kanban-view')).toBeVisible({ timeout: ACTION_MS })
 }
 
 type ScheduledTaskSnapshot = {
@@ -1254,7 +1444,7 @@ export async function assertTimelineMountFetchBudget(page: Page): Promise<void> 
     await pollUntil(
       `tasks cold-mount fetch budget (≤${TIMELINE_MOUNT_FETCH_BUDGET.timelineUnified} unified /api/timeline)`,
       async () => {
-        if (urls.length < 1) return false
+        // 0 client fetches is valid: SSR prefetches and onMount skips load() when seeded.
         const before = urls.length
         await new Promise((r) => setTimeout(r, 750))
         if (urls.length !== before) return false
@@ -1307,7 +1497,7 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
     await page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
-    await expect(page.getByLabel(/date range|datumsbereich/i)).toBeVisible({
+    await expect(page.locator('#timeline-date-range-trigger')).toBeVisible({
       timeout: RELEASE_WAIT_MS,
     })
 
@@ -1321,13 +1511,24 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
     await expect(page.getByRole('button', { name: /clear kinds|arten zurücksetzen/i })).toHaveCount(
       0,
     )
+    // Close Filters fully before opening the date dial. Otherwise the dismissable
+    // layer can swallow the dial click as an outside-dismiss (popover never opens).
     await page.keyboard.press('Escape')
+    const filtersPanel = page.locator('#timeline-options-panel')
+    if (await filtersPanel.isVisible().catch(() => false)) {
+      await page.keyboard.press('Escape')
+    }
+    await expect(filtersPanel).toBeHidden({ timeout: ACTION_MS })
 
-    const dial = page.getByLabel(/date range|datumsbereich/i)
+    const dial = page.locator('#timeline-date-range-trigger')
+    await expect(dial).toBeVisible({ timeout: RELEASE_WAIT_MS })
     await dial.click()
-    const lastWeek = page.getByRole('button', { name: /last week|letzte woche/i })
+    const dialPanel = page.locator('#timeline-date-range-panel')
+    await expect(dialPanel).toBeVisible({ timeout: RELEASE_WAIT_MS })
+    const lastWeek = dialPanel.getByRole('button', { name: /last week|letzte woche/i })
     await expect(lastWeek).toBeVisible({ timeout: RELEASE_WAIT_MS })
     await lastWeek.click()
+    await expect(dialPanel).toBeHidden({ timeout: ACTION_MS })
 
     await pollUntil(
       'unified /api/timeline refetch with absolute from/to after dial (local preset)',
@@ -1382,8 +1583,9 @@ export async function assertTimelineSsotCountsAndLists(page: Page): Promise<void
   await expect(todoTab).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
   async function countFromTab(tab: Locator): Promise<number> {
+    // Tabs render count then label ("1 Overdue", "0 To do"). Overdue with 0 shows "—".
     const text = (await tab.innerText()).replace(/\s+/g, ' ').trim()
-    const match = text.match(/(\d+)\s*$/)
+    const match = text.match(/^(\d+)/)
     return match ? Number.parseInt(match[1]!, 10) : 0
   }
 
@@ -1480,7 +1682,7 @@ async function exerciseAccountMenu(page: Page): Promise<void> {
 async function exerciseMemoryUi(page: Page): Promise<void> {
   await page.goto('/memory')
 
-  for (const tab of ['Graph', 'Embeddings', 'Timeline', 'Notes'] as const) {
+  for (const tab of ['Graph', 'Embeddings', 'Tasks', 'Projects', 'Notes'] as const) {
     await page.getByRole('link', { name: tab, exact: true }).click()
     await expect(page).not.toHaveURL(/\/login/)
   }
@@ -1488,16 +1690,17 @@ async function exerciseMemoryUi(page: Page): Promise<void> {
   await page.getByRole('link', { name: 'Graph', exact: true }).click()
   await exerciseGraphFilters(page)
 
-  await page.getByRole('link', { name: 'Timeline', exact: true }).click()
-  // Toggle between Tasks and Projects views
-  await page.getByRole('button', { name: /Tasks|Projects/ }).click()
-  await page.getByRole('button', { name: /Tasks|Projects/ }).click()
+  // Timeline was split into Tasks and Projects routes (commit 26b7bd0); exercise both
+  // instead of the removed Timeline tab and its Tasks/Projects toggle button.
+  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
   for (const segment of ['To do', 'Done', 'Overdue'] as const) {
     const segTab = page.getByRole('tab', { name: segment, exact: true })
     if (await segTab.isVisible().catch(() => false)) {
       await segTab.click()
     }
   }
+
+  await page.getByRole('link', { name: 'Projects', exact: true }).click()
 
   await page.getByRole('link', { name: 'Notes', exact: true }).click()
   const newNote = page.getByRole('button', { name: 'New note', exact: true })

@@ -21,6 +21,7 @@ const {
   resolveMcpCaptureAuthorshipMock,
   listProjectsForUserMock,
   orderTaskInProjectMock,
+  generateProjectPlanMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -34,10 +35,15 @@ const {
   resolveMcpCaptureAuthorshipMock: vi.fn(),
   listProjectsForUserMock: vi.fn(),
   orderTaskInProjectMock: vi.fn(),
+  generateProjectPlanMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/project-list', () => ({
   listProjectsForUser: listProjectsForUserMock,
+}))
+
+vi.mock('$lib/server/memory/generate-project-plan', () => ({
+  generateProjectPlan: generateProjectPlanMock,
 }))
 
 vi.mock('$lib/server/memory/project-task-sequence', async (importOriginal) => {
@@ -644,6 +650,37 @@ describe('MCP tools', () => {
       afterThoughtId: undefined,
     })
     expect(out).toMatchObject({ projectEntityId: 'p1', orderedThoughtIds: ['t2', 't1'] })
+    expect(JSON.stringify(out)).not.toContain('embedding')
+  })
+
+  it('runGenerateProjectPlanTool delegates to generateProjectPlan', async () => {
+    generateProjectPlanMock.mockResolvedValue({
+      projectEntityId: 'p1',
+      projectLabel: 'Launch',
+      targetDate: '2026-12-01T00:00:00.000Z',
+      milestones: [],
+      tasks: [
+        {
+          thoughtId: 't1',
+          summary: 'Draft',
+          rank: 1,
+          isNextAction: true,
+          suggestedStartAt: null,
+          suggestedEndAt: null,
+        },
+      ],
+    })
+    const { runGenerateProjectPlanTool } = await import('./tools')
+    const out = await runGenerateProjectPlanTool(
+      { userId: 'u1' },
+      { project_entity_id: 'p1', goal: 'Ship beta' },
+    )
+    expect(generateProjectPlanMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      projectEntityId: 'p1',
+      goal: 'Ship beta',
+    })
+    expect(out).toMatchObject({ projectEntityId: 'p1', tasks: [{ thoughtId: 't1' }] })
     expect(JSON.stringify(out)).not.toContain('embedding')
   })
 })

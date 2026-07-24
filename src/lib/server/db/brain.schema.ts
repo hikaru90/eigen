@@ -167,7 +167,13 @@ export const memoryTypeEnum = [
 ] as const
 export type MemoryType = (typeof memoryTypeEnum)[number]
 
-export const enrichQueueStatusEnum = ['pending', 'processing', 'complete', 'failed'] as const
+export const enrichQueueStatusEnum = [
+  'awaiting_confirmation',
+  'pending',
+  'processing',
+  'complete',
+  'failed',
+] as const
 export type EnrichQueueStatus = (typeof enrichQueueStatusEnum)[number]
 
 export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent'] as const

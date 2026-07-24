@@ -105,15 +105,16 @@ describe('agentChat', () => {
     logActivityCallMock.mockResolvedValue(undefined)
   })
 
-  it('returns a final answer when the model responds with {"answer": "..."}', async () => {
+  it('rejects a final answer when no tool has run', async () => {
     llmChatCompletionMock.mockResolvedValue(llmJson({ answer: 'Hello from memory.' }))
 
-    const result = await agentChat({
-      userId: 'u1',
-      messages: [{ role: 'user', content: 'Hi' }],
-    })
-
-    expect(result.response).toBe('Hello from memory.')
+    await expect(
+      agentChat({
+        userId: 'u1',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    ).rejects.toThrow(AgentParseError)
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(3)
   })
 
   it('returns answer_question results directly without another LLM turn', async () => {
@@ -143,7 +144,12 @@ describe('agentChat', () => {
   })
 
   it('mandates answer_question for memory questions in the system prompt', async () => {
-    llmChatCompletionMock.mockResolvedValue(llmJson({ answer: 'ok' }))
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'ok' }))
 
     await agentChat({
       userId: 'u1',
@@ -155,6 +161,7 @@ describe('agentChat', () => {
     expect(system?.content).toMatch(/answer_question/)
     expect(system?.content).toMatch(/never answer a question from your own knowledge/i)
     expect(system?.content).toMatch(/retrieve_thoughts is for browsing/i)
+    expect(system?.content).toMatch(/call at least one tool before giving a final answer/i)
   })
 
   it('fails deterministically after repeated invalid model JSON', async () => {
@@ -269,8 +276,12 @@ describe('agentChat', () => {
   })
 
   it('retries when the model requests an unknown tool', async () => {
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
     llmChatCompletionMock
       .mockResolvedValueOnce(llmJson({ tool: 'missing_tool', arguments: {} }))
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
       .mockResolvedValueOnce(llmJson({ answer: 'Recovered.' }))
 
     const result = await agentChat({
@@ -279,7 +290,7 @@ describe('agentChat', () => {
     })
 
     expect(result.response).toBe('Recovered.')
-    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(3)
   })
 
   it('never sends embedding arrays to the LLM even if a tool returns them', async () => {

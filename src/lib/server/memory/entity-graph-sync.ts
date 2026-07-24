@@ -38,6 +38,10 @@ import {
   type MemoryAuthorship,
 } from '$lib/server/memory/authorship'
 
+function logStep(thoughtId: string, name: string, start: number): void {
+  console.info(`[entity-graph-sync] ${name} done`, { thoughtId, ms: Date.now() - start })
+}
+
 /**
  * Graphiti-style ingest: entity mentions → relation triples → canonical resolution → AGE graph.
  * Entity `entityType` values are **entity_type** ontology kind keys (person, place, org, etc.)
@@ -180,20 +184,24 @@ export async function syncEntityGraphFromThought(input: {
   // MENTIONS edges MATCH the Thought node — always (re-)ensure the anchor. The upsert is an
   // idempotent MERGE; this also heals tier-1 anchor failures (queue-capture treats its AGE
   // upsert as best-effort) and graph grant repairs.
+  const anchorStart = Date.now()
   await upsertThoughtNode({
     id: input.thoughtId,
     userId: input.userId,
     category: anchorRow.category,
     author: graphAuthorProperty(thoughtAuthorship),
   })
+  logStep(input.thoughtId, 'anchor_upsert', anchorStart)
 
   const surfaceToEntityId = new Map<string, string>()
   const coMentionEntityIds: string[] = []
   const projectLikeEntities: Array<{ entityId: string; label: string }> = []
 
   const uniqueSurfaces = [...new Set(mentions.map((m) => m.surface.trim()).filter(Boolean))]
+  const surfaceEmbStart = Date.now()
   const prefetchedEmbeddings =
     uniqueSurfaces.length > 0 ? await createThoughtEmbeddings(input.userId, uniqueSurfaces) : []
+  logStep(input.thoughtId, 'surface_embeddings', surfaceEmbStart)
   const embeddingBySurface = new Map(
     uniqueSurfaces.map((surface, index) => [surface, prefetchedEmbeddings[index]!]),
   )
@@ -203,6 +211,7 @@ export async function syncEntityGraphFromThought(input: {
     let entityId: string
     let canonicalKey: string
     let entityTypeForNode = mention.entityType
+    const mentionStart = Date.now()
 
     if (mention.entityType === 'project') {
       const identity = await resolveProjectIdentity({
@@ -245,6 +254,7 @@ export async function syncEntityGraphFromThought(input: {
     surfaceToEntityId.set(mention.surface.trim(), entityId)
     coMentionEntityIds.push(entityId)
 
+    const nodeStart = Date.now()
     await upsertEntityNode({
       id: entityId,
       userId: input.userId,
@@ -252,17 +262,24 @@ export async function syncEntityGraphFromThought(input: {
       label: mention.surface.trim(),
       entityType: entityTypeForNode,
     })
+    logStep(input.thoughtId, `upsert_entity_node(${mention.surface.trim()})`, nodeStart)
 
+    const edgeStart = Date.now()
     await upsertMentionEdge({
       userId: input.userId,
       thoughtId: input.thoughtId,
       entityId,
     })
+    logStep(input.thoughtId, `upsert_mention_edge(${mention.surface.trim()})`, edgeStart)
+    logStep(input.thoughtId, `mention_loop(${mention.surface.trim()})`, mentionStart)
   }
 
   const linkedEntityIds = [...new Set(surfaceToEntityId.values())]
+  const evalStart = Date.now()
   await evaluateHubsForGtdPromotion(input.userId, linkedEntityIds)
+  logStep(input.thoughtId, 'evaluate_hubs_for_gtd_promotion', evalStart)
 
+  const triplesStart = Date.now()
   await upsertEntityRelationTriples({
     userId: input.userId,
     normalizedText: input.normalizedText,
@@ -273,6 +290,7 @@ export async function syncEntityGraphFromThought(input: {
       ? graphEntityIdByLabel(entityEnrichmentContext.graphEntities)
       : undefined,
   })
+  logStep(input.thoughtId, 'upsert_entity_relation_triples', triplesStart)
 
   return { mentionCount: mentions.length, projectLikeEntities }
 }

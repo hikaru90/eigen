@@ -88,7 +88,7 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 ### [`src/lib/server/mcp/tools.ts`](../../src/lib/server/mcp/tools.ts)
 
 - **Purpose:** MCP tool runners; `runCaptureThoughtTool`, `runEditThoughtTool`, and `runListThoughtsTool` call `capture/service` (retrieval tools live in retrieval domain).
-- **Note:** MCP HTTP registration lives in [`registry.ts`](../../src/lib/server/mcp/registry.ts) (`capture_thought`, `list_thoughts`, `retrieve_thoughts`, `edit_thought`, `delete_thought`, `answer_question`). **C002** resolved — see [conflicts.md](./conflicts.md).
+- **Note:** MCP HTTP registration lives in [`registry.ts`](../../src/lib/server/mcp/registry.ts) (`capture_thought`, `retrieve_thoughts`, `edit_thought`, `delete_thought`, project tools including `list_projects`, `get_project_timeline`, `order_task_in_project`, `set_project_milestone`, `set_project_deadline`, `generate_project_plan`). **C002** resolved — see [conflicts.md](./conflicts.md).
 
 ### Client capture queue (browser)
 
@@ -101,7 +101,15 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 
 ### [`src/routes/capture/+page.svelte`](../../src/routes/capture/+page.svelte)
 
-- **Purpose:** Primary capture UI; **new submits** via `enqueueCapture` (queue). **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
+- **Purpose:** Primary capture UI. **New UI submits** go through the confirmation gate: `POST /api/capture/interpret` → preview card → `POST /api/capture/confirm` (or `POST /api/capture/correct` then confirm). Enrich runs only after confirm. Offline IndexedDB queue may still drain to `/api/capture/submit` for backlog. **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
+
+### Confirmation gate
+
+- **Orchestration:** [`src/lib/server/capture/capture-confirmation.ts`](../../src/lib/server/capture/capture-confirmation.ts) — `interpretAndQueueCapture`, `correctCapturePreview`, `confirmCapturePreview`.
+- **LLM interpret:** [`src/lib/server/capture/interpret-thought.ts`](../../src/lib/server/capture/interpret-thought.ts) — preview bundle `{ interpretedText, category, memoryType, entities }`.
+- **HTTP:** `/api/capture/interpret`, `/api/capture/correct`, `/api/capture/confirm`.
+- **Queue status:** `awaiting_confirmation` on draft rows; confirm promotes to `pending` and schedules the enrich worker. UI badge: “Awaiting confirmation”.
+- **Invariant:** `raw_text` never overwritten by interpret/confirm; only `normalized_text` / lexical / category / memoryType update on confirm.
 
 ### Notes (text files)
 

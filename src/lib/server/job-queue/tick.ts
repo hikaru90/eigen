@@ -1,6 +1,7 @@
 import { ensureOvernightJobsEnqueued } from './ensure-overnight'
 import { drainUserJobQueue } from './drain'
 import { loadJobQueueSnapshot } from './snapshot'
+import { recoverStaleRunningJobs } from './recover-stale-running'
 
 export type TickGlobalJobQueueResult = {
   enqueued: number
@@ -23,9 +24,15 @@ export async function tickGlobalJobQueue(): Promise<TickGlobalJobQueueResult> {
   ticking = true
   try {
     tickCount += 1
+    // Reclaim jobs orphaned as `running` by a previous tick killed mid-dispatch
+    // (HMR reload / worker crash) before claiming new pending work.
+    const recoveredStale = await recoverStaleRunningJobs()
+    if (recoveredStale > 0) {
+      console.info('[job-queue] recovered stale running jobs', { recoveredStale })
+    }
     const enqueued = await ensureOvernightJobsEnqueued()
     const drain = await drainUserJobQueue()
-    const hasActivity = enqueued > 0 || drain.claimed > 0
+    const hasActivity = enqueued > 0 || drain.claimed > 0 || recoveredStale > 0
     const shouldHeartbeat = tickCount % HEARTBEAT_EVERY_TICKS === 0
     const shouldInspectBacklog = hasActivity || shouldHeartbeat || drain.claimed === 0
 

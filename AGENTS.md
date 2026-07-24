@@ -131,9 +131,10 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
 
 ## Capture flow (default)
 
-- **Persist on submit:** the thought is stored immediately; there is no separate “preview then explicit accept” gate as the default path.
-- **Feedback after write:** return a clear, natural-language summary of how the thought was stored (type/category, normalized text, key metadata as applicable).
-- **Corrections after persistence:** the user may submit natural-language edit requests from the UI (and later via MCP) to update the stored thought; do not rely on implicit re-capture to rewrite committed rows.
+- **UI path — interpret → confirm → ingest:** On Capture, submit runs an LLM **interpret** pass (`POST /api/capture/interpret`) that drafts `interpretedText` + category + memoryType + entity preview. The row is persisted with `enrich_queue_status=awaiting_confirmation` and **enrich is not scheduled**. The user must **Confirm** (`POST /api/capture/confirm`) or **Correct** in natural language (`POST /api/capture/correct`) before full ingest (embed + entities + relations + temporal + GTD).
+- **Verbatim invariant:** `thought.raw_text` remains the user’s submitted text; confirm writes the accepted interpreted text to `normalized_text` only.
+- **MCP / eval / agent:** Still use `captureThought` without the confirmation gate (persist + schedule enrich, or `awaitEnrichment` for tests).
+- **Feedback after confirm:** Structured stored summary + background indexing status; corrections after persistence continue via natural-language edit (`/api/capture/edit` / MCP `edit_thought`).
 - **MCP:** post-commit changes continue to go through explicit MCP edit tools where applicable.
 
 ## Ontology Policy

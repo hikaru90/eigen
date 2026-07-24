@@ -41,6 +41,11 @@ export type QueueCaptureOptions = {
   authorKeyId?: string | null
   /** When true, skip scheduling background worker (eval inline enrich). */
   skipWorker?: boolean
+  /**
+   * When true, persist draft for UI confirmation gate: enrich_queue_status=awaiting_confirmation
+   * and do not schedule the enrich worker until confirm.
+   */
+  awaitConfirmation?: boolean
   /** Override thought.createdAt (e.g. backdated haystack session date from external driver). */
   capturedAt?: Date
 }
@@ -100,11 +105,21 @@ export async function queueCapture(
       }),
     ])
 
+  const awaitConfirmation = options?.awaitConfirmation === true
+  const queueTier = awaitConfirmation ? 'awaiting_confirmation' : 'pending_enrich'
+  const enrichQueueStatus: EnrichQueueStatus = awaitConfirmation
+    ? 'awaiting_confirmation'
+    : 'pending'
+
   const metadataEncrypted = await encryptTenantValue({
     userId,
     table: 'thought',
     column: 'metadata',
-    plaintext: JSON.stringify({ ...metadata, queueTier: 'pending_enrich' }),
+    plaintext: JSON.stringify({
+      ...metadata,
+      queueTier,
+      ...(awaitConfirmation ? { confirmationGate: true } : {}),
+    }),
   })
 
   const db = getDb()
@@ -138,9 +153,14 @@ export async function queueCapture(
         lexicalText,
         category: QUEUE_PLACEHOLDER_CATEGORY,
         ontologyEntityKindId,
-        metadata: { encrypted: true, captureSessionId: sessionRow.id, queueTier: 'pending_enrich' },
+        metadata: {
+          encrypted: true,
+          captureSessionId: sessionRow.id,
+          queueTier,
+          ...(awaitConfirmation ? { confirmationGate: true } : {}),
+        },
         metadataEncrypted,
-        enrichQueueStatus: 'pending',
+        enrichQueueStatus,
         captureSource: source,
         ...authorValues,
         ...(capturedAt ? { createdAt: capturedAt, updatedAt: capturedAt } : {}),
@@ -171,7 +191,7 @@ export async function queueCapture(
     )
   }
 
-  if (!options?.skipWorker) {
+  if (!options?.skipWorker && !awaitConfirmation) {
     scheduleCaptureEnrichWorker(userId)
   }
 

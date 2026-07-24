@@ -53,7 +53,7 @@ export type CaptureSubmitResult = {
   gtdProjectLabel: string | null
   gtdIsNextAction: boolean
   /** Tiered ingest queue state (null on legacy rows). */
-  queueStatus: 'pending' | 'processing' | 'complete' | 'failed' | null
+  queueStatus: 'awaiting_confirmation' | 'pending' | 'processing' | 'complete' | 'failed' | null
   /** Present when queueStatus is failed or after stale recovery. */
   queueError?: string | null
   author?: CaptureMemoryAuthor

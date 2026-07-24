@@ -35,6 +35,8 @@ describe('timeline client load policy', () => {
   })
 
   it('eval: cold mount stays within the single unified fetch budget', () => {
+    // Prefetched SSR cold mount: zero client /api/timeline fetches is within budget.
+    expect(findMountFetchBudgetViolations([])).toEqual([])
     const coldMountUrls = [
       '/api/timeline?from=&to=&includeUndated=true&orderBy=ingest&sortDirection=desc&author=user',
     ]

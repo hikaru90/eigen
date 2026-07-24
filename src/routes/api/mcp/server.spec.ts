@@ -24,6 +24,7 @@ vi.mock('$lib/server/mcp/tools', () => ({
   runOrderTaskInProjectTool: vi.fn(),
   runSetProjectMilestoneTool: vi.fn(),
   runSetProjectDeadlineTool: vi.fn(),
+  runGenerateProjectPlanTool: vi.fn(),
   runCreateTextFileTool: vi.fn(),
   runListTextFilesTool: vi.fn(),
   runGetTextFileTool: vi.fn(),

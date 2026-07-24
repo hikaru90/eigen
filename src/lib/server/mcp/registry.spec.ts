@@ -32,6 +32,7 @@ describe('MCP tool registry exposure', () => {
       'order_task_in_project',
       'set_project_milestone',
       'set_project_deadline',
+      'generate_project_plan',
     ])
     expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES)
   })
@@ -48,6 +49,7 @@ describe('MCP tool registry exposure', () => {
       'order_task_in_project',
       'set_project_milestone',
       'set_project_deadline',
+      'generate_project_plan',
       ...TEXT_NOTE_TOOLS,
     ])
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)
