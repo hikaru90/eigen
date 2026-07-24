@@ -17,4 +17,8 @@ export type CapturePreviewBundle = {
   category: CapturePreviewCategory
   memoryType: string | null
   entities: CapturePreviewEntity[]
+  /** LLM judge: true when interpretation changes meaning/entities beyond trivial cleanup. */
+  deviatesFromVerbatim: boolean
 }
+
+export type CaptureInterpretStatus = 'ingested' | 'awaiting_confirmation'

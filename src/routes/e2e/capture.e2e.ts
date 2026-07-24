@@ -3,10 +3,21 @@ import { registerUser } from './test-helpers'
 
 async function captureAndConfirm(page: import('@playwright/test').Page, raw: string) {
   await page.fill('#thought', raw)
+  const interpretPromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
+    { timeout: 30_000 },
+  )
   await page.click('button:has-text("Capture")')
-  const confirmCard = page.getByTestId('capture-confirmation-card')
-  await expect(confirmCard).toBeVisible({ timeout: 30_000 })
-  await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+  const interpretRes = await interpretPromise
+  const body = (await interpretRes.json()) as { status?: string; queueStatus?: string }
+  const status =
+    body.status ??
+    (body.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
+  if (status === 'awaiting_confirmation') {
+    const confirmModal = page.getByTestId('capture-confirmation-modal')
+    await expect(confirmModal).toBeVisible({ timeout: 30_000 })
+    await confirmModal.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+  }
 }
 
 test.describe('Capture flow (AC-001, AC-004)', () => {

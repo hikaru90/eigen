@@ -9,6 +9,7 @@ const {
   shouldScheduleMock,
   scheduleWorkerMock,
   isWorkerActiveMock,
+  autoConfirmStaleMock,
 } = vi.hoisted(() => ({
   completeEnrichedMock: vi.fn(),
   recoverStaleMock: vi.fn(),
@@ -18,6 +19,7 @@ const {
   shouldScheduleMock: vi.fn(),
   scheduleWorkerMock: vi.fn(),
   isWorkerActiveMock: vi.fn(),
+  autoConfirmStaleMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/capture/queue-capture', () => ({
@@ -25,6 +27,10 @@ vi.mock('$lib/server/capture/queue-capture', () => ({
   recoverStaleEnrichProcessingRows: recoverStaleMock,
   requeueInFlightProcessingRows: requeueInFlightMock,
   requeueOrphanedCompleteEnrichRows: requeueOrphanedMock,
+}))
+
+vi.mock('$lib/server/capture/capture-confirmation', () => ({
+  autoConfirmStaleAwaitingConfirmationDrafts: autoConfirmStaleMock,
 }))
 
 vi.mock('$lib/server/capture/enrich-pending', () => ({
@@ -54,19 +60,23 @@ describe('syncCaptureEnrichQueue', () => {
     requeueOrphanedMock.mockResolvedValue(0)
     listPendingMock.mockResolvedValue([])
     isWorkerActiveMock.mockReturnValue(false)
+    autoConfirmStaleMock.mockResolvedValue(0)
   })
 
-  it('recovers stale rows and lists active queue ids', async () => {
+  it('recovers stale rows, auto-confirms stranded confirmation drafts, and lists active queue ids', async () => {
     recoverStaleMock.mockResolvedValue(2)
     requeueOrphanedMock.mockResolvedValue(1)
+    autoConfirmStaleMock.mockResolvedValue(3)
     listPendingMock.mockResolvedValue(['t1'])
 
     const result = await syncCaptureEnrichQueue('u1')
+    expect(autoConfirmStaleMock).toHaveBeenCalledWith('u1')
     expect(result).toEqual({
       finalizedEnriched: 0,
       recoveredStale: 2,
       requeuedInFlight: 0,
       requeuedOrphaned: 1,
+      autoConfirmedDrafts: 3,
       activeThoughtIds: ['t1'],
     })
   })

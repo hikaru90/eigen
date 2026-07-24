@@ -44,6 +44,15 @@
     isFreshTranscript,
     type InputEpoch,
   } from './chat-input-epoch'
+  import {
+    CHAT_ACTIVE_SESSION_STORAGE_KEY,
+    clearChatPreferBlank,
+    readChatPreferBlank,
+    resolveChatBootstrapSelection,
+    setChatPreferBlank,
+    shouldApplyLoadedSessionMessages,
+    shouldReplaceMessagesWithSessionLoad,
+  } from './chat-session-lifecycle'
 
   type ChatEntry = ChatDisplayEntry & { _key?: string }
 
@@ -74,6 +83,9 @@
   let abortController = $state<AbortController | null>(null)
   let streamEventsReceived = $state(false)
   let streamAbortReason = $state<'user' | 'timeout' | null>(null)
+  let pendingSelectSessionId = $state<string | null>(null)
+  /** Bumped on New chat / new stream turn / selectSession so stale fetches cannot apply. */
+  let messagesLoadEpoch = 0
   let agentStatus = $state<string | null>(null)
   let messagesEl: HTMLDivElement | undefined
   let chatPanelEl: HTMLDivElement | undefined
@@ -176,8 +188,6 @@
     return base ? `${base} ${next}` : next
   }
 
-  const STORAGE_KEY = 'chat-active-session-id'
-
   function scrollToBottom() {
     const el = messagesEl
     if (!el) return
@@ -207,39 +217,71 @@
     }
   }
 
-  async function loadSessionMessages(sessionId: string) {
+  async function loadSessionMessages(sessionId: string, loadEpoch: number) {
+    if (
+      !shouldApplyLoadedSessionMessages({
+        loadEpoch,
+        currentEpoch: messagesLoadEpoch,
+        streaming: loading,
+      })
+    ) {
+      return
+    }
     loadingSession = true
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`)
       if (!res.ok) throw new Error('Failed to load session')
       const json = await res.json()
+      if (
+        !shouldApplyLoadedSessionMessages({
+          loadEpoch,
+          currentEpoch: messagesLoadEpoch,
+          streaming: loading,
+        })
+      ) {
+        return
+      }
       messages = sessionMessagesToChatEntries(json.messages ?? []).map((entry, idx) => ({
         ...entry,
         _key: `loaded-${sessionId}-${idx}`,
       }))
       scrollToBottom()
     } catch {
-      messages = []
+      if (loadEpoch === messagesLoadEpoch) messages = []
     } finally {
-      loadingSession = false
+      if (loadEpoch === messagesLoadEpoch) loadingSession = false
     }
   }
 
-  async function selectSession(sessionId: string) {
+  async function selectSession(sessionId: string, opts?: { force?: boolean }) {
+    if (browser) clearChatPreferBlank(localStorage)
     if (sessionId === activeSessionId) {
       chatSidebar.open = false
       return
     }
+    if (loading && !opts?.force) {
+      streamAbortReason = 'user'
+      abortController?.abort()
+      pendingSelectSessionId = sessionId
+      chatSidebar.open = false
+      return
+    }
+    const loadEpoch = ++messagesLoadEpoch
     activeSessionId = sessionId
-    if (browser) localStorage.setItem(STORAGE_KEY, sessionId)
-    await loadSessionMessages(sessionId)
+    if (browser) localStorage.setItem(CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId)
+    await loadSessionMessages(sessionId, loadEpoch)
     chatSidebar.open = false
   }
 
   async function newSession() {
+    messagesLoadEpoch += 1
     activeSessionId = null
     messages = []
-    if (browser) localStorage.removeItem(STORAGE_KEY)
+    loadingSession = false
+    if (browser) {
+      localStorage.removeItem(CHAT_ACTIVE_SESSION_STORAGE_KEY)
+      setChatPreferBlank(localStorage)
+    }
     chatSidebar.open = false
     scrollToBottom()
   }
@@ -258,7 +300,7 @@
       if (sessionId === activeSessionId) {
         activeSessionId = null
         messages = []
-        if (browser) localStorage.removeItem(STORAGE_KEY)
+        if (browser) localStorage.removeItem(CHAT_ACTIVE_SESSION_STORAGE_KEY)
       }
     } catch {
       // ignore
@@ -346,6 +388,7 @@
   }
 
   async function sendStreaming(text: string, options?: { bootstrap?: boolean }) {
+    messagesLoadEpoch += 1
     loading = true
     scrollToBottom()
     streamEventsReceived = false
@@ -397,7 +440,10 @@
         throw new Error('The assistant returned an empty response.')
       }
       if (done.sessionId) activeSessionId = done.sessionId
-      if (done.sessionId && browser) localStorage.setItem(STORAGE_KEY, done.sessionId)
+      if (done.sessionId && browser) {
+        localStorage.setItem(CHAT_ACTIVE_SESSION_STORAGE_KEY, done.sessionId)
+        clearChatPreferBlank(localStorage)
+      }
       if (responseText) {
         appendMessage({ role: 'assistant', variant: 'text', content: responseText })
       }
@@ -433,6 +479,16 @@
       streamAbortReason = null
       agentStatus = null
       scrollToBottom()
+    }
+
+    const pending = pendingSelectSessionId
+    if (pending) {
+      pendingSelectSessionId = null
+      const loadEpoch = ++messagesLoadEpoch
+      activeSessionId = pending
+      if (browser) localStorage.setItem(CHAT_ACTIVE_SESSION_STORAGE_KEY, pending)
+      await loadSessionMessages(pending, loadEpoch)
+      chatSidebar.open = false
     }
   }
 
@@ -527,13 +583,16 @@
         return
       }
       await loadSessions()
-      const storedId = browser ? localStorage.getItem(STORAGE_KEY) : null
-      const match = storedId ? sessions.find((s) => s.id === storedId) : null
-      if (storedId && !match && browser) localStorage.removeItem(STORAGE_KEY)
-      if (match) {
-        await selectSession(match.id)
-      } else if (sessions.length > 0) {
-        await selectSession(sessions[0].id)
+      const preferBlank = browser ? readChatPreferBlank(localStorage) : false
+      const storedId = browser ? localStorage.getItem(CHAT_ACTIVE_SESSION_STORAGE_KEY) : null
+      const selection = resolveChatBootstrapSelection({ storedId, sessions, preferBlank })
+      if (storedId && !sessions.some((s) => s.id === storedId) && browser) {
+        localStorage.removeItem(CHAT_ACTIVE_SESSION_STORAGE_KEY)
+      }
+      if (selection.type === 'session') {
+        if (shouldReplaceMessagesWithSessionLoad({ streaming: loading })) {
+          await selectSession(selection.sessionId)
+        }
       }
     })()
 

@@ -1,6 +1,25 @@
 import { expect, test } from '@playwright/test'
 import { registerUser } from './test-helpers'
 
+async function captureViaUi(page: import('@playwright/test').Page, raw: string) {
+  await page.fill('#thought', raw)
+  const interpretPromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
+    { timeout: 30_000 },
+  )
+  await page.click('button:has-text("Capture")')
+  const interpretRes = await interpretPromise
+  const body = (await interpretRes.json()) as { status?: string; queueStatus?: string }
+  const status =
+    body.status ??
+    (body.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
+  if (status === 'awaiting_confirmation') {
+    const confirmModal = page.getByTestId('capture-confirmation-modal')
+    await expect(confirmModal).toBeVisible({ timeout: 30_000 })
+    await confirmModal.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+  }
+}
+
 test.describe('Pricing transparency (AC-014, AC-015)', () => {
   test('activity log shows credits and duration per call after capture', async ({
     page,
@@ -9,11 +28,7 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
     await registerUser(context, page)
     await page.goto('/capture')
 
-    await page.fill('#thought', 'Test thought for pricing verification')
-    await page.click('button:has-text("Capture")')
-    const confirmCard = page.getByTestId('capture-confirmation-card')
-    await expect(confirmCard).toBeVisible({ timeout: 30_000 })
-    await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+    await captureViaUi(page, 'Test thought for pricing verification')
     await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
@@ -35,11 +50,7 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
     await registerUser(context, page)
     await page.goto('/capture')
 
-    await page.fill('#thought', 'Another thought for totals check')
-    await page.click('button:has-text("Capture")')
-    const confirmCard = page.getByTestId('capture-confirmation-card')
-    await expect(confirmCard).toBeVisible({ timeout: 30_000 })
-    await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+    await captureViaUi(page, 'Another thought for totals check')
     await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')

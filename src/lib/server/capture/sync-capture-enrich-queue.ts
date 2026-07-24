@@ -1,5 +1,6 @@
 import { shouldScheduleDevCaptureEnrichWorker } from '$lib/server/auth/harness-account'
 import { listPendingEnrichThoughtIds } from '$lib/server/capture/enrich-pending'
+import { autoConfirmStaleAwaitingConfirmationDrafts } from '$lib/server/capture/capture-confirmation'
 import {
   completeEnrichedQueueRows,
   recoverStaleEnrichProcessingRows,
@@ -12,6 +13,7 @@ export type SyncCaptureEnrichQueueResult = {
   recoveredStale: number
   requeuedInFlight: number
   requeuedOrphaned: number
+  autoConfirmedDrafts: number
   activeThoughtIds: string[]
 }
 
@@ -26,8 +28,16 @@ export async function syncCaptureEnrichQueue(
     ? 0
     : await requeueInFlightProcessingRows(userId)
   const requeuedOrphaned = await requeueOrphanedCompleteEnrichRows(userId)
+  const autoConfirmedDrafts = await autoConfirmStaleAwaitingConfirmationDrafts(userId)
   const activeThoughtIds = await listPendingEnrichThoughtIds(userId)
-  return { finalizedEnriched, recoveredStale, requeuedInFlight, requeuedOrphaned, activeThoughtIds }
+  return {
+    finalizedEnriched,
+    recoveredStale,
+    requeuedInFlight,
+    requeuedOrphaned,
+    autoConfirmedDrafts,
+    activeThoughtIds,
+  }
 }
 
 /** Recover/requeue then schedule the dev worker when this tenant has queue work. */

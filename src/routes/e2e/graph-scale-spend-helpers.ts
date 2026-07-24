@@ -277,6 +277,8 @@ export async function captureThoughtThroughUi(
 
   const interpretJson = JSON.parse(interpretBody) as {
     thoughtId?: string
+    status?: string
+    queueStatus?: string
     error?: string
   }
   if (interpretJson.error) throw new Error(interpretJson.error)
@@ -289,16 +291,23 @@ export async function captureThoughtThroughUi(
     throw new Error('Capture interpret succeeded but returned no thought id')
   }
 
-  const confirmCard = page.getByTestId('capture-confirmation-card')
-  await expect(confirmCard).toBeVisible({ timeout: 60_000 })
-  const confirmResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-    { timeout: 300_000 },
-  )
-  await confirmCard.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
-  const confirmRes = await confirmResponsePromise
-  if (!confirmRes.ok()) {
-    throw new Error((await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`)
+  const status =
+    interpretJson.status ??
+    (interpretJson.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
+  if (status === 'awaiting_confirmation') {
+    const confirmModal = page.getByTestId('capture-confirmation-modal')
+    await expect(confirmModal).toBeVisible({ timeout: 60_000 })
+    const confirmResponsePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+      { timeout: 300_000 },
+    )
+    await confirmModal.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+    const confirmRes = await confirmResponsePromise
+    if (!confirmRes.ok()) {
+      throw new Error(
+        (await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`,
+      )
+    }
   }
 
   await expect(page.getByText('Category:')).toBeVisible({ timeout: 60_000 })

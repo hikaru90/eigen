@@ -48,10 +48,10 @@
       type="button"
       role="tab"
       aria-selected={segment === tab.segment}
-      class="flex flex-col items-center justify-center bg-transparent px-1.5 py-1 text-center transition-opacity hover:opacity-80 {segment ===
+      class="flex cursor-pointer flex-col items-center justify-center rounded-xl px-1.5 py-1.5 text-center transition-colors {segment ===
       tab.segment
-        ? 'opacity-100'
-        : 'opacity-60'}"
+        ? 'bg-muted/60 opacity-100'
+        : 'bg-transparent opacity-70 hover:bg-muted/40 hover:opacity-100'}"
       onclick={() => onSegmentChange(tab.segment)}
     >
       <p

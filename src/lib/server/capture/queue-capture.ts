@@ -28,6 +28,31 @@ import {
 /** Placeholder category until background worker classifies. */
 export const QUEUE_PLACEHOLDER_CATEGORY = 'observation'
 
+/**
+ * Max wait for the best-effort AGE thought-node upsert on the tier-1 path.
+ * A hung AGE/DB lock must not strand `queueCapture` / interpret HTTP (confirm card never mounts).
+ * Tier-2 enrich re-ensures the graph anchor.
+ */
+export const TIER1_GRAPH_ANCHOR_TIMEOUT_MS = 5_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const handle = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`))
+    }, ms)
+    promise.then(
+      (value) => {
+        clearTimeout(handle)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(handle)
+        reject(err)
+      },
+    )
+  })
+}
+
 export type QueueCaptureResult = {
   thoughtId: string
   status: 'queued'
@@ -171,15 +196,20 @@ export async function queueCapture(
   })
 
   // Best-effort provenance anchor: tier-2 enrich re-ensures it (entity-graph-sync), so a
-  // transient AGE outage must not fail the capture or strand the queued row — the
+  // transient AGE outage or hang must not fail the capture or strand the queued row — the
   // committed Postgres row is the tier-1 contract. The failure is loud, not swallowed.
+  // try/catch alone only covers rejects; wrap with a hard timeout so lock-waits reject too.
   try {
-    await upsertThoughtNode({
-      id: stored.id,
-      userId,
-      category: QUEUE_PLACEHOLDER_CATEGORY,
-      author: graphAuthorProperty(authorship),
-    })
+    await withTimeout(
+      upsertThoughtNode({
+        id: stored.id,
+        userId,
+        category: QUEUE_PLACEHOLDER_CATEGORY,
+        author: graphAuthorProperty(authorship),
+      }),
+      TIER1_GRAPH_ANCHOR_TIMEOUT_MS,
+      'tier-1 graph anchor upsert',
+    )
   } catch (err) {
     console.error(
       '[queue-capture] tier-1 graph anchor upsert failed; tier-2 enrich will re-ensure it',
@@ -195,16 +225,19 @@ export async function queueCapture(
     scheduleCaptureEnrichWorker(userId)
   }
 
-  const { notifyThoughtCreated } = await import('$lib/server/agents/notify')
-  notifyThoughtCreated({
-    userId,
-    thoughtId: stored.id,
-    normalizedText: normalized,
-    source,
-    createdAt: capturedAt ?? undefined,
-    projectEntityIds: [],
-    projectLabels: [],
-  })
+  // Drafts awaiting UI confirmation must not broadcast as real thoughts until confirm/verbatim.
+  if (!awaitConfirmation) {
+    const { notifyThoughtCreated } = await import('$lib/server/agents/notify')
+    notifyThoughtCreated({
+      userId,
+      thoughtId: stored.id,
+      normalizedText: normalized,
+      source,
+      createdAt: capturedAt ?? undefined,
+      projectEntityIds: [],
+      projectLabels: [],
+    })
+  }
 
   return {
     thoughtId: stored.id,

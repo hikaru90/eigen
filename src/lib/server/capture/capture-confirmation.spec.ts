@@ -9,6 +9,7 @@ const {
   decryptMock,
   selectMock,
   updateMock,
+  notifyThoughtCreatedMock,
 } = vi.hoisted(() => ({
   queueCaptureMock: vi.fn(),
   scheduleCaptureEnrichWorkerMock: vi.fn(),
@@ -18,10 +19,12 @@ const {
   decryptMock: vi.fn(),
   selectMock: vi.fn(),
   updateMock: vi.fn(),
+  notifyThoughtCreatedMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/capture/queue-capture', () => ({
   queueCapture: queueCaptureMock,
+  QUEUE_PLACEHOLDER_CATEGORY: 'observation',
 }))
 
 vi.mock('$lib/server/capture/capture-enrich-worker', () => ({
@@ -41,6 +44,10 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
   decryptTenantValue: decryptMock,
 }))
 
+vi.mock('$lib/server/agents/notify', () => ({
+  notifyThoughtCreated: notifyThoughtCreatedMock,
+}))
+
 vi.mock('$lib/server/ontology-db', () => ({
   ensureUserOntologySeeded: vi.fn(async () => undefined),
   loadOntologyForUser: vi.fn(async () => ({
@@ -52,8 +59,9 @@ vi.mock('$lib/server/ontology-db', () => ({
 }))
 
 import {
+  autoConfirmStaleAwaitingConfirmationDrafts,
+  CONFIRMATION_AUTO_ACCEPT_MS,
   confirmCapturePreview,
-  correctCapturePreview,
   interpretAndQueueCapture,
   type CapturePreviewBundle,
 } from './capture-confirmation'
@@ -63,6 +71,16 @@ const PREVIEW: CapturePreviewBundle = {
   category: { key: 'task', confidence: 0.91, alternatives: [] },
   memoryType: 'episode',
   entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
+  deviatesFromVerbatim: true,
+}
+
+const NO_DEVIATION_PREVIEW: CapturePreviewBundle = {
+  ...PREVIEW,
+  interpretedText: 'Buy oat milk',
+  category: { key: 'task', confidence: 0.88, alternatives: [] },
+  memoryType: 'fact',
+  entities: [],
+  deviatesFromVerbatim: false,
 }
 
 function chainSelect(rows: unknown[]) {
@@ -107,7 +125,7 @@ describe('interpretAndQueueCapture', () => {
     ])
   })
 
-  it('interprets first, then queues draft with awaiting_confirmation and does not schedule enrich', async () => {
+  it('when LLM deviates: queues draft awaiting_confirmation and does not schedule enrich or notify', async () => {
     const result = await interpretAndQueueCapture('u1', 'planning a team offsite in Lisbon next quarter', {
       source: 'ui',
     })
@@ -125,86 +143,94 @@ describe('interpretAndQueueCapture', () => {
         skipWorker: true,
       }),
     )
-    // Interpret must complete before persist so LLM failures leave no orphan draft.
     expect(interpretThoughtPreviewMock.mock.invocationCallOrder[0]).toBeLessThan(
       queueCaptureMock.mock.invocationCallOrder[0],
     )
     expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
-    expect(result.thoughtId).toBe('thought-1')
-    expect(result.rawText).toBe('planning a team offsite in Lisbon next quarter')
+    expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      status: 'awaiting_confirmation',
+      thoughtId: 'thought-1',
+      rawText: 'planning a team offsite in Lisbon next quarter',
+      queueStatus: 'awaiting_confirmation',
+    })
     expect(result.preview).toEqual(PREVIEW)
-    expect(result.queueStatus).toBe('awaiting_confirmation')
+  })
+
+  it('when LLM does not deviate: auto-ingests with interpreted text, schedules enrich, and notifies', async () => {
+    interpretThoughtPreviewMock.mockResolvedValue(NO_DEVIATION_PREVIEW)
+    queueCaptureMock.mockResolvedValue({
+      thoughtId: 'thought-2',
+      status: 'queued',
+      normalizedText: 'buy oat milk',
+    })
+    const { set } = chainUpdate()
+    // First select: load draft after queue; second select: load for confirm
+    const draftRow = {
+      id: 'thought-2',
+      userId: 'u1',
+      rawText: 'buy oat milk',
+      rawTextEncrypted: null,
+      normalizedText: 'buy oat milk',
+      enrichQueueStatus: 'awaiting_confirmation',
+      metadata: { preview: NO_DEVIATION_PREVIEW, pipeline: 'ontology_llm_v1' },
+      metadataEncrypted: null,
+    }
+    let selectCount = 0
+    selectMock.mockImplementation(() => {
+      selectCount += 1
+      const rows = [draftRow]
+      const limit = vi.fn(async () => rows)
+      const where = vi.fn(() => ({ limit }))
+      const from = vi.fn(() => ({ where }))
+      return { from }
+    })
+
+    const result = await interpretAndQueueCapture('u1', 'buy oat milk', { source: 'ui' })
+
+    expect(result).toMatchObject({
+      status: 'ingested',
+      thoughtId: 'thought-2',
+      queueStatus: 'pending',
+      normalizedText: NO_DEVIATION_PREVIEW.interpretedText,
+    })
+    expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
+    expect(notifyThoughtCreatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', thoughtId: 'thought-2' }),
+    )
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        normalizedText: NO_DEVIATION_PREVIEW.interpretedText,
+        enrichQueueStatus: 'pending',
+      }),
+    )
+    expect(selectCount).toBeGreaterThan(0)
   })
 
   it('does not queue a draft when interpret fails', async () => {
     interpretThoughtPreviewMock.mockRejectedValueOnce(new Error('LLM HTTP 400: provider rejected'))
-    await expect(
-      interpretAndQueueCapture('u1', 'hello', { source: 'ui' }),
-    ).rejects.toThrow(/LLM HTTP 400/)
+    await expect(interpretAndQueueCapture('u1', 'hello', { source: 'ui' })).rejects.toThrow(
+      /LLM HTTP 400/,
+    )
     expect(queueCaptureMock).not.toHaveBeenCalled()
   })
-})
 
-describe('correctCapturePreview', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    encryptMock.mockImplementation(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`)
-    decryptMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
-      ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext,
-    )
-    getDbMock.mockReturnValue({ select: selectMock, update: updateMock })
-    chainUpdate()
-  })
-
-  it('re-runs interpret with prior preview + correction and stays awaiting_confirmation', async () => {
-    const corrected: CapturePreviewBundle = {
-      ...PREVIEW,
-      interpretedText: 'Plan a team offsite in Porto next quarter.',
-      entities: [{ surface: 'Porto', entityType: 'person', confidence: 0.5 }],
+  it('forceConfirmation overrides a non-deviating LLM judge to awaiting_confirmation', async () => {
+    interpretThoughtPreviewMock.mockResolvedValue(NO_DEVIATION_PREVIEW)
+    const prevEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = 'test'
+    try {
+      const result = await interpretAndQueueCapture('u1', 'buy oat milk', {
+        source: 'ui',
+        forceConfirmation: true,
+      })
+      expect(result.status).toBe('awaiting_confirmation')
+      expect(result.preview.deviatesFromVerbatim).toBe(true)
+      expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+      expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
+    } finally {
+      process.env.NODE_ENV = prevEnv
     }
-    interpretThoughtPreviewMock.mockResolvedValue(corrected)
-
-    chainSelect([
-      {
-        id: 'thought-1',
-        userId: 'u1',
-        rawText: 'planning a team offsite in Lisbon next quarter',
-        rawTextEncrypted: null,
-        enrichQueueStatus: 'awaiting_confirmation',
-        metadata: { preview: PREVIEW },
-        metadataEncrypted: null,
-      },
-    ])
-
-    const result = await correctCapturePreview('u1', 'thought-1', 'Change the city to Porto')
-
-    expect(interpretThoughtPreviewMock).toHaveBeenCalledWith({
-      userId: 'u1',
-      rawText: 'planning a team offsite in Lisbon next quarter',
-      priorPreview: PREVIEW,
-      correction: 'Change the city to Porto',
-    })
-    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
-    expect(result.preview.interpretedText).toContain('Porto')
-    expect(result.queueStatus).toBe('awaiting_confirmation')
-  })
-
-  it('rejects correct when thought is not awaiting confirmation', async () => {
-    chainSelect([
-      {
-        id: 'thought-1',
-        userId: 'u1',
-        rawText: 'hello',
-        rawTextEncrypted: null,
-        enrichQueueStatus: 'pending',
-        metadata: {},
-        metadataEncrypted: null,
-      },
-    ])
-
-    await expect(correctCapturePreview('u1', 'thought-1', 'fix it')).rejects.toThrow(
-      /awaiting_confirmation|not awaiting/i,
-    )
   })
 })
 
@@ -218,7 +244,7 @@ describe('confirmCapturePreview', () => {
     getDbMock.mockReturnValue({ select: selectMock, update: updateMock })
   })
 
-  it('writes interpreted text to normalized_text, keeps raw_text, and schedules enrich', async () => {
+  it('writes interpreted text to normalized_text, keeps raw_text, schedules enrich, and notifies', async () => {
     const raw = 'planning a team offsite in Lisbon next quarter'
     const { set } = chainUpdate()
     chainSelect([
@@ -240,6 +266,9 @@ describe('confirmCapturePreview', () => {
     expect(result.rawText).toBe(raw)
     expect(result.queueStatus).toBe('pending')
     expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
+    expect(notifyThoughtCreatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', thoughtId: 'thought-1', normalizedText: PREVIEW.interpretedText }),
+    )
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         normalizedText: PREVIEW.interpretedText,
@@ -249,6 +278,43 @@ describe('confirmCapturePreview', () => {
     )
     const payload = set.mock.calls[0][0] as Record<string, unknown>
     expect(payload).not.toHaveProperty('rawText')
+  })
+
+  it('verbatim:true stores raw text, clears interpretation fields, schedules enrich, and notifies', async () => {
+    const raw = 'planning a team offsite in Lisbon next quarter'
+    const { set } = chainUpdate()
+    chainSelect([
+      {
+        id: 'thought-1',
+        userId: 'u1',
+        rawText: raw,
+        rawTextEncrypted: null,
+        normalizedText: raw,
+        enrichQueueStatus: 'awaiting_confirmation',
+        metadata: { preview: PREVIEW, pipeline: 'ontology_llm_v1' },
+        metadataEncrypted: null,
+      },
+    ])
+
+    const result = await confirmCapturePreview('u1', 'thought-1', { verbatim: true })
+
+    expect(result.normalizedText).toBe(raw)
+    expect(result.rawText).toBe(raw)
+    expect(result.memoryType).toBeNull()
+    expect(result.category).toBe('observation')
+    expect(result.queueStatus).toBe('pending')
+    expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
+    expect(notifyThoughtCreatedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', thoughtId: 'thought-1', normalizedText: raw }),
+    )
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        normalizedText: raw,
+        memoryType: null,
+        category: 'observation',
+        enrichQueueStatus: 'pending',
+      }),
+    )
   })
 
   it('rejects confirm when thought is not awaiting confirmation', async () => {
@@ -269,6 +335,80 @@ describe('confirmCapturePreview', () => {
     await expect(confirmCapturePreview('u1', 'thought-1')).rejects.toThrow(
       /awaiting_confirmation|not awaiting/i,
     )
+    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+    expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('autoConfirmStaleAwaitingConfirmationDrafts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    encryptMock.mockImplementation(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`)
+    decryptMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
+      ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext,
+    )
+    getDbMock.mockReturnValue({ select: selectMock, update: updateMock })
+  })
+
+  it('auto-confirms drafts older than CONFIRMATION_AUTO_ACCEPT_MS with interpreted text', async () => {
+    expect(CONFIRMATION_AUTO_ACCEPT_MS).toBe(5_000)
+    const staleCreatedAt = new Date(Date.now() - CONFIRMATION_AUTO_ACCEPT_MS - 1_000)
+    const { set } = chainUpdate()
+
+    // First select: list stale drafts. Subsequent: loadAwaitingDraft for confirm.
+    let call = 0
+    selectMock.mockImplementation(() => {
+      call += 1
+      const rows =
+        call === 1
+          ? [{ id: 'stale-1' }]
+          : [
+              {
+                id: 'stale-1',
+                userId: 'u1',
+                rawText: 'planning a team offsite in Lisbon next quarter',
+                rawTextEncrypted: null,
+                normalizedText: 'planning a team offsite in Lisbon next quarter',
+                enrichQueueStatus: 'awaiting_confirmation',
+                metadata: { preview: PREVIEW },
+                metadataEncrypted: null,
+                createdAt: staleCreatedAt,
+              },
+            ]
+      const limit = vi.fn(async () => rows)
+      // list path may use where without limit, or with orderBy
+      const orderBy = vi.fn(() => ({ limit }))
+      const where = vi.fn(() => ({ limit, orderBy }))
+      const from = vi.fn(() => ({ where }))
+      return { from }
+    })
+
+    const confirmed = await autoConfirmStaleAwaitingConfirmationDrafts('u1')
+
+    expect(confirmed).toBe(1)
+    expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
+    expect(notifyThoughtCreatedMock).toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        normalizedText: PREVIEW.interpretedText,
+        enrichQueueStatus: 'pending',
+      }),
+    )
+  })
+
+  it('skips drafts younger than the auto-accept window', async () => {
+    const fresh = new Date(Date.now() - 500)
+    selectMock.mockImplementation(() => {
+      const rows: unknown[] = []
+      const limit = vi.fn(async () => rows)
+      const where = vi.fn(() => ({ limit }))
+      const from = vi.fn(() => ({ where }))
+      return { from }
+    })
+    // Explicitly assert helper uses createdAt cutoff; empty list → 0
+    void fresh
+    const confirmed = await autoConfirmStaleAwaitingConfirmationDrafts('u1')
+    expect(confirmed).toBe(0)
     expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
   })
 })

@@ -68,6 +68,7 @@ import {
   requeueEnrichThought,
   requeueInFlightProcessingRows,
   requeueOrphanedCompleteEnrichRows,
+  TIER1_GRAPH_ANCHOR_TIMEOUT_MS,
 } from './queue-capture'
 
 describe('queueCapture', () => {
@@ -157,6 +158,7 @@ describe('queueCapture', () => {
     await queueCapture('u1', 'confirm me', { awaitConfirmation: true, source: 'ui' })
 
     expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+    expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
     const thoughtValues = thoughtInsert.values.mock.calls[0]?.[0] as {
       enrichQueueStatus?: string
       metadata?: Record<string, unknown>
@@ -190,6 +192,37 @@ describe('queueCapture', () => {
       expect.objectContaining({ userId: 'u1', thoughtId: 'thought-1' }),
     )
     errorSpy.mockRestore()
+  })
+
+  it('still returns when the tier-1 graph anchor hangs (does not strand interpret)', async () => {
+    vi.useFakeTimers()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // AGE lock-wait / hung query: never settles. try/catch alone cannot recover.
+    upsertThoughtNodeMock.mockReturnValueOnce(new Promise(() => {}))
+
+    try {
+      const resultPromise = queueCapture('u1', 'graph hang')
+      await vi.advanceTimersByTimeAsync(TIER1_GRAPH_ANCHOR_TIMEOUT_MS)
+      const result = await resultPromise
+
+      expect(result).toEqual({
+        thoughtId: 'thought-1',
+        status: 'queued',
+        normalizedText: 'graph hang',
+      })
+      expect(notifyThoughtCreatedMock).toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[queue-capture] tier-1 graph anchor upsert failed'),
+        expect.objectContaining({
+          userId: 'u1',
+          thoughtId: 'thought-1',
+          message: expect.stringMatching(/timed out/i),
+        }),
+      )
+    } finally {
+      errorSpy.mockRestore()
+      vi.useRealTimers()
+    }
   })
 
   it('throws when placeholder ontology kind is missing', async () => {

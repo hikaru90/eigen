@@ -80,13 +80,14 @@ describe('interpretThoughtPreview', () => {
     loadProfileMock.mockResolvedValue({ version: 2 })
   })
 
-  it('returns schema-conformant preview from LLM (interpreted text + category + memoryType + entities)', async () => {
+  it('returns schema-conformant preview including LLM-judged deviatesFromVerbatim', async () => {
     mockLlmContent(
       JSON.stringify({
         interpretedText: 'Plan a team offsite in Lisbon next quarter.',
         category: { key: 'task', confidence: 0.91, alternatives: [{ key: 'observation', confidence: 0.2 }] },
         memoryType: 'episode',
         entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
+        deviatesFromVerbatim: true,
       }),
     )
 
@@ -97,13 +98,51 @@ describe('interpretThoughtPreview', () => {
 
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
     expect(llmChatCompletionMock.mock.calls[0][0].responseFormat).toBe('json_object')
+    const systemMsg = (
+      llmChatCompletionMock.mock.calls[0][0].messages as Array<{ role: string; content: string }>
+    ).find((m) => m.role === 'system')?.content
+    expect(systemMsg).toContain('deviatesFromVerbatim')
     expect(out.interpretedText).toBe('Plan a team offsite in Lisbon next quarter.')
     expect(out.category.key).toBe('task')
     expect(out.category.confidence).toBeCloseTo(0.91)
     expect(out.memoryType).toBe('episode')
+    expect(out.deviatesFromVerbatim).toBe(true)
     expect(out.entities).toEqual([
       { surface: 'Lisbon', entityType: 'person', confidence: 0.4 },
     ])
+  })
+
+  it('parses false when the LLM judges no meaningful deviation', async () => {
+    mockLlmContent(
+      JSON.stringify({
+        interpretedText: 'Buy oat milk',
+        category: { key: 'task', confidence: 0.88, alternatives: [] },
+        memoryType: 'fact',
+        entities: [],
+        deviatesFromVerbatim: false,
+      }),
+    )
+
+    const out = await interpretThoughtPreview({
+      userId: 'u1',
+      rawText: 'buy oat milk',
+    })
+    expect(out.deviatesFromVerbatim).toBe(false)
+  })
+
+  it('rejects when LLM omits required deviatesFromVerbatim boolean', async () => {
+    mockLlmContent(
+      JSON.stringify({
+        interpretedText: 'Hello',
+        category: { key: 'observation', confidence: 0.8, alternatives: [] },
+        memoryType: 'fact',
+        entities: [],
+      }),
+    )
+
+    await expect(interpretThoughtPreview({ userId: 'u1', rawText: 'hello' })).rejects.toThrow(
+      /deviatesFromVerbatim/i,
+    )
   })
 
   it('includes prior preview and correction in the LLM user message when correcting', async () => {
@@ -113,6 +152,7 @@ describe('interpretThoughtPreview', () => {
         category: { key: 'task', confidence: 0.9, alternatives: [] },
         memoryType: 'episode',
         entities: [{ surface: 'Porto', entityType: 'person', confidence: 0.5 }],
+        deviatesFromVerbatim: true,
       }),
     )
 
@@ -124,6 +164,7 @@ describe('interpretThoughtPreview', () => {
         category: { key: 'task', confidence: 0.91, alternatives: [] },
         memoryType: 'episode',
         entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
+        deviatesFromVerbatim: true,
       },
       correction: 'Change the city to Porto',
     })
@@ -140,9 +181,7 @@ describe('interpretThoughtPreview', () => {
   })
 
   it('rejects empty raw text', async () => {
-    await expect(
-      interpretThoughtPreview({ userId: 'u1', rawText: '   ' }),
-    ).rejects.toThrow(/raw/i)
+    await expect(interpretThoughtPreview({ userId: 'u1', rawText: '   ' })).rejects.toThrow(/raw/i)
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
@@ -153,12 +192,13 @@ describe('interpretThoughtPreview', () => {
         category: { key: 'idea_note', confidence: 0.8, alternatives: [] },
         memoryType: 'fact',
         entities: [],
+        deviatesFromVerbatim: false,
       }),
     )
 
-    await expect(
-      interpretThoughtPreview({ userId: 'u1', rawText: 'hello' }),
-    ).rejects.toThrow(/category/i)
+    await expect(interpretThoughtPreview({ userId: 'u1', rawText: 'hello' })).rejects.toThrow(
+      /category/i,
+    )
   })
 
   it('parses fenced JSON from the LLM response', async () => {
@@ -169,6 +209,7 @@ describe('interpretThoughtPreview', () => {
           category: { key: 'task', confidence: 0.88, alternatives: [] },
           memoryType: 'fact',
           entities: [],
+          deviatesFromVerbatim: false,
         }) +
         '\n```',
     )
@@ -179,5 +220,6 @@ describe('interpretThoughtPreview', () => {
     })
     expect(out.interpretedText).toBe('Buy oat milk')
     expect(out.category.key).toBe('task')
+    expect(out.deviatesFromVerbatim).toBe(false)
   })
 })

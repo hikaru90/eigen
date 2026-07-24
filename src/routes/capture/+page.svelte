@@ -1,12 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { page } from '$app/state'
-  import { invalidateAll } from '$app/navigation'
   import type { PageData } from './$types'
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
-  import CaptureConfirmationCard from '$lib/components/capture-confirmation-card.svelte'
+  import CaptureConfirmationModal from '$lib/components/capture-confirmation-modal.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
@@ -245,14 +244,51 @@
   let editingThoughtId = $state<string | null>(null)
   let err = $state<string | null>(null)
 
+  const CAPTURE_CONFIRM_AUTO_ACCEPT_MS = 5_000
+
   type PendingConfirmation = {
     thoughtId: string
     rawText: string
     preview: CapturePreviewBundle
+    deadlineMs: number
   }
   let pendingConfirmation = $state<PendingConfirmation | null>(null)
   let confirmationLoading = $state(false)
   let confirmationError = $state<string | null>(null)
+  let confirmationCountdown = $state(5)
+  let confirmCountdownTimer: ReturnType<typeof setInterval> | null = null
+  let confirmAutoAcceptFired = false
+
+  function clearConfirmCountdown() {
+    if (confirmCountdownTimer !== null) {
+      clearInterval(confirmCountdownTimer)
+      confirmCountdownTimer = null
+    }
+  }
+
+  function startConfirmCountdown() {
+    clearConfirmCountdown()
+    confirmAutoAcceptFired = false
+    const deadlineMs = Date.now() + CAPTURE_CONFIRM_AUTO_ACCEPT_MS
+    if (pendingConfirmation) {
+      pendingConfirmation = { ...pendingConfirmation, deadlineMs }
+    }
+    confirmationCountdown = Math.ceil(CAPTURE_CONFIRM_AUTO_ACCEPT_MS / 1000)
+    confirmCountdownTimer = setInterval(() => {
+      const pending = pendingConfirmation
+      if (!pending) {
+        clearConfirmCountdown()
+        return
+      }
+      const now = Date.now()
+      confirmationCountdown = Math.max(0, Math.ceil((pending.deadlineMs - now) / 1000))
+      if (now >= pending.deadlineMs && !confirmAutoAcceptFired) {
+        confirmAutoAcceptFired = true
+        clearConfirmCountdown()
+        void confirmPendingCapture()
+      }
+    }, 250)
+  }
 
   let queueUi = $state<CaptureQueueUiState>(initialCaptureQueueUiState())
   /** Mirrors in-flight capture id for progress matching (updated synchronously in queue handlers). */
@@ -290,8 +326,9 @@
         upsertRecentThought(thought)
         if (thought.enrichmentComplete) {
           cancelEnrichPoll(thoughtId)
-          // Invalidate timeline cache so temporal events refresh
-          void invalidateAll()
+          // Do not invalidateAll() here: it remounts Capture and clears the composer
+          // mid-typing / mid-e2e fill (pageInputDrafts is empty after the last submit).
+          // Recent rows are already updated via upsertRecentThought; timeline loads fresh on navigate.
         }
       },
       onTimeout: () => {
@@ -655,6 +692,7 @@
       unsub()
       unsubscribeView()
       window.removeEventListener('keydown', onKey)
+      clearConfirmCountdown()
       for (const cancel of enrichPollCancelByThoughtId.values()) cancel()
       enrichPollCancelByThoughtId.clear()
     }
@@ -694,13 +732,28 @@
         rawText: string
         preview: CapturePreviewBundle
         queueStatus: string
+        status: 'ingested' | 'awaiting_confirmation'
       }
+      captureEvent('capture_interpret_ready', { thought_id: body.thoughtId })
+
+      const awaiting =
+        body.status === 'awaiting_confirmation' || body.queueStatus === 'awaiting_confirmation'
+      if (!awaiting) {
+        const thought = await fetchCaptureResult(body.thoughtId)
+        upsertRecentThought(thought, { pinToTop: true })
+        expandedThoughtId = thought.id
+        startBackgroundEnrichPoll(thought.id)
+        void refreshRecentCaptureFromServer()
+        return
+      }
+
       pendingConfirmation = {
         thoughtId: body.thoughtId,
         rawText: body.rawText ?? text,
         preview: body.preview,
+        deadlineMs: Date.now() + CAPTURE_CONFIRM_AUTO_ACCEPT_MS,
       }
-      captureEvent('capture_interpret_ready', { thought_id: body.thoughtId })
+      startConfirmCountdown()
     } catch (e) {
       syncCaptureDraft(text)
       err = e instanceof Error ? e.message : String(e)
@@ -711,6 +764,7 @@
 
   async function confirmPendingCapture() {
     if (!pendingConfirmation || confirmationLoading) return
+    clearConfirmCountdown()
     const current = pendingConfirmation
     confirmationLoading = true
     confirmationError = null
@@ -743,16 +797,18 @@
     }
   }
 
-  async function correctPendingCapture(correction: string) {
+  async function dismissPendingCaptureVerbatim() {
     if (!pendingConfirmation || confirmationLoading) return
+    clearConfirmCountdown()
     const current = pendingConfirmation
     confirmationLoading = true
     confirmationError = null
+    err = null
     try {
-      const res = await fetch('/api/capture/correct', {
+      const res = await fetch('/api/capture/confirm', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ thoughtId: current.thoughtId, correction }),
+        body: JSON.stringify({ thoughtId: current.thoughtId, verbatim: true }),
         credentials: 'same-origin',
       })
       if (!res.ok) {
@@ -760,19 +816,15 @@
           error?: string
           message?: string
         }
-        throw new Error(payload.message ?? payload.error ?? `Correct failed (${res.status})`)
+        throw new Error(payload.message ?? payload.error ?? `Confirm failed (${res.status})`)
       }
-      const body = (await res.json()) as {
-        thoughtId: string
-        rawText: string
-        preview: CapturePreviewBundle
-      }
-      pendingConfirmation = {
-        thoughtId: body.thoughtId,
-        rawText: body.rawText ?? current.rawText,
-        preview: body.preview,
-      }
-      captureEvent('capture_corrected', { thought_id: body.thoughtId })
+      pendingConfirmation = null
+      captureEvent('capture_dismissed_verbatim', { thought_id: current.thoughtId })
+      const thought = await fetchCaptureResult(current.thoughtId)
+      upsertRecentThought(thought, { pinToTop: true })
+      expandedThoughtId = thought.id
+      startBackgroundEnrichPoll(thought.id)
+      void refreshRecentCaptureFromServer()
     } catch (e) {
       confirmationError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -947,22 +999,16 @@
     </Card.Root>
 
     {#if pendingConfirmation}
-      <CaptureConfirmationCard
+      <CaptureConfirmationModal
+        open={true}
         thoughtId={pendingConfirmation.thoughtId}
         rawText={pendingConfirmation.rawText}
         preview={pendingConfirmation.preview}
+        countdownSeconds={confirmationCountdown}
         loading={confirmationLoading}
         error={confirmationError}
-        onConfirm={() => {
-          void confirmPendingCapture()
-        }}
-        onCorrect={(correction) => {
-          void correctPendingCapture(correction)
-        }}
-        onDismiss={() => {
-          pendingConfirmation = null
-          confirmationError = null
-        }}
+        onConfirm={() => void confirmPendingCapture()}
+        onDismiss={() => void dismissPendingCaptureVerbatim()}
       />
     {/if}
 

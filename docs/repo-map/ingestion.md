@@ -101,15 +101,15 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 
 ### [`src/routes/capture/+page.svelte`](../../src/routes/capture/+page.svelte)
 
-- **Purpose:** Primary capture UI. **New UI submits** go through the confirmation gate: `POST /api/capture/interpret` → preview card → `POST /api/capture/confirm` (or `POST /api/capture/correct` then confirm). Enrich runs only after confirm. Offline IndexedDB queue may still drain to `/api/capture/submit` for backlog. **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
+- **Purpose:** Primary capture UI. **New UI submits** go through the confirmation gate: `POST /api/capture/interpret` → if the LLM sets `deviatesFromVerbatim`, a **modal** with 5s auto-accept (`POST /api/capture/confirm`, or `{ verbatim: true }` on Dismiss); if not, the server auto-ingests. Enrich runs only after ingest/confirm/dismiss. Offline IndexedDB queue may still drain to `/api/capture/submit` for backlog. **Edits** to an already stored thought still `fetch` `/api/capture/edit` with NDJSON progress. See [capture-queue.md](./capture-queue.md).
 
 ### Confirmation gate
 
-- **Orchestration:** [`src/lib/server/capture/capture-confirmation.ts`](../../src/lib/server/capture/capture-confirmation.ts) — `interpretAndQueueCapture`, `correctCapturePreview`, `confirmCapturePreview`.
-- **LLM interpret:** [`src/lib/server/capture/interpret-thought.ts`](../../src/lib/server/capture/interpret-thought.ts) — preview bundle `{ interpretedText, category, memoryType, entities }`.
-- **HTTP:** `/api/capture/interpret`, `/api/capture/correct`, `/api/capture/confirm`.
-- **Queue status:** `awaiting_confirmation` on draft rows; confirm promotes to `pending` and schedules the enrich worker. UI badge: “Awaiting confirmation”.
-- **Invariant:** `raw_text` never overwritten by interpret/confirm; only `normalized_text` / lexical / category / memoryType update on confirm.
+- **Orchestration:** [`src/lib/server/capture/capture-confirmation.ts`](../../src/lib/server/capture/capture-confirmation.ts) — `interpretAndQueueCapture`, `confirmCapturePreview` (optional `verbatim`), `autoConfirmStaleAwaitingConfirmationDrafts`.
+- **LLM interpret:** [`src/lib/server/capture/interpret-thought.ts`](../../src/lib/server/capture/interpret-thought.ts) — preview bundle `{ interpretedText, category, memoryType, entities, deviatesFromVerbatim }`.
+- **HTTP:** `/api/capture/interpret`, `/api/capture/confirm`.
+- **Queue status:** `awaiting_confirmation` on deviation drafts; confirm/dismiss/timeout (or stranded >5s sync) promotes to `pending` and schedules the enrich worker. UI: confirmation modal (not a dead list badge alone).
+- **Invariant:** `raw_text` never overwritten by interpret/confirm; only `normalized_text` / lexical / category / memoryType update on confirm (Dismiss sets `normalized_text` = raw).
 
 ### Notes (text files)
 

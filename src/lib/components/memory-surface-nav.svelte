@@ -48,13 +48,13 @@
   aria-label={m.memory_aria_view_tabs()}
 >
   <nav
-    class="pointer-events-auto flex h-9 max-w-[calc(100vw-1rem)] shrink-0 items-stretch gap-1 overflow-x-auto rounded-full border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100"
+    class="pointer-events-auto flex h-9 max-w-[calc(100vw-1rem)] shrink-0 items-stretch gap-0.5 overflow-x-auto rounded-full border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100"
   >
     {#each tabs as tab (tab.id)}
       <a
         href={tabHref(tab.pathname, tab.search)}
         class={cn(
-          'flex h-full items-center rounded-full px-3 text-xs whitespace-nowrap',
+          'flex h-full items-center rounded-full px-2 text-xs whitespace-nowrap',
           activeTab === tab.id
             ? 'bg-[var(--color-eigen-green)] text-black hover:text-black dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:text-black'
             : 'text-black hover:text-black dark:text-foreground dark:hover:text-foreground',

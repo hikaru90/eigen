@@ -24,8 +24,13 @@ export const POST: RequestHandler = async (event) => {
       : ''
   if (!thoughtId) error(400, 'thoughtId is required')
 
+  const verbatim =
+    typeof body === 'object' && body && 'verbatim' in body
+      ? Boolean((body as { verbatim?: unknown }).verbatim)
+      : false
+
   try {
-    const result = await confirmCapturePreview(user.id, thoughtId)
+    const result = await confirmCapturePreview(user.id, thoughtId, { verbatim })
     return json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to confirm capture'

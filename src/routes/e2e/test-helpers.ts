@@ -173,6 +173,12 @@ export async function startNewChatSession(page: Page): Promise<void> {
   const newChat = page.getByRole('button', { name: 'New chat', exact: true })
   if (await newChat.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await newChat.click()
+    // New chat must leave a blank compose — not a prior session that can race-reload mid-stream.
+    await expect(
+      page.getByText(
+        'Ask about your memories, manage thoughts, or save something new when you want to.',
+      ),
+    ).toBeVisible({ timeout: 10_000 })
   }
   const closeSidebar = page.getByRole('button', { name: 'Close sidebar' })
   if (await closeSidebar.isVisible().catch(() => false)) {

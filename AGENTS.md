@@ -131,7 +131,7 @@ Do **not** change code at random and hope it sticks. When tackling a problem —
 
 ## Capture flow (default)
 
-- **UI path — interpret → confirm → ingest:** On Capture, submit runs an LLM **interpret** pass (`POST /api/capture/interpret`) that drafts `interpretedText` + category + memoryType + entity preview. The row is persisted with `enrich_queue_status=awaiting_confirmation` and **enrich is not scheduled**. The user must **Confirm** (`POST /api/capture/confirm`) or **Correct** in natural language (`POST /api/capture/correct`) before full ingest (embed + entities + relations + temporal + GTD).
+- **UI path — interpret → confirm → ingest:** On Capture, submit runs an LLM **interpret** pass (`POST /api/capture/interpret`) that drafts `interpretedText` + category + memoryType + entity preview and sets `deviatesFromVerbatim`. If the LLM does **not** deviate, the server auto-ingests (normalized text = interpretation, enrich scheduled). If it **does** deviate, the row is persisted with `enrich_queue_status=awaiting_confirmation` and a **modal** offers Confirm (accept interpretation), Dismiss (store verbatim), or auto-accept after 5 seconds. Enrich runs only after confirm/dismiss/timeout.
 - **Verbatim invariant:** `thought.raw_text` remains the user’s submitted text; confirm writes the accepted interpreted text to `normalized_text` only.
 - **MCP / eval / agent:** Still use `captureThought` without the confirmation gate (persist + schedule enrich, or `awaitEnrichment` for tests).
 - **Feedback after confirm:** Structured stored summary + background indexing status; corrections after persistence continue via natural-language edit (`/api/capture/edit` / MCP `edit_thought`).

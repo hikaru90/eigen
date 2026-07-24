@@ -20,6 +20,8 @@
   import ProjectGanttView from '../../../timeline/project-gantt-view.svelte'
   import TemporalEventDetail from '../../../timeline/temporal-event-detail.svelte'
   import TimelineEditProjectDialog from '../../../timeline/timeline-edit-project-dialog.svelte'
+  import ProjectReviewDialog from './project-review-dialog.svelte'
+  import type { ReviewProjectResponse } from '$lib/memory/project-review-types'
   import { postTimelineQuickAction } from '../../../timeline/timeline-item-actions'
   import { onMount } from 'svelte'
 
@@ -39,8 +41,10 @@
   let lastActionSummary = $state<string | null>(null)
   let editOpen = $state(false)
   let dismissOpen = $state(false)
-  let generating = $state(false)
-  let generateError = $state<string | null>(null)
+  let reviewing = $state(false)
+  let reviewError = $state<string | null>(null)
+  let reviewOpen = $state(false)
+  let reviewPayload = $state<ReviewProjectResponse | null>(null)
   let projectLabelOverride = $state<string | null>(null)
 
   const displayLabel = $derived(projectLabelOverride ?? project.label)
@@ -138,12 +142,12 @@
     selectedItem = null
   }
 
-  async function generatePlan() {
-    if (generating) return
-    generating = true
-    generateError = null
+  async function openReview() {
+    if (reviewing) return
+    reviewing = true
+    reviewError = null
     try {
-      const res = await fetch(`/api/timeline/projects/${project.entityId}/generate-plan`, {
+      const res = await fetch(`/api/timeline/projects/${project.entityId}/review`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
@@ -151,13 +155,12 @@
       if (!res.ok) {
         throw new Error((await res.text()) || `Request failed (${res.status})`)
       }
-      await goto(resolve(`/memory/projects/${project.entityId}?view=${viewMode}`), {
-        invalidateAll: true,
-      })
+      reviewPayload = (await res.json()) as ReviewProjectResponse
+      reviewOpen = true
     } catch (err) {
-      generateError = err instanceof Error ? err.message : String(err)
+      reviewError = err instanceof Error ? err.message : String(err)
     } finally {
-      generating = false
+      reviewing = false
     }
   }
 
@@ -237,7 +240,7 @@
       </div>
     </div>
 
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <div
         class="border-border flex items-center gap-0.5 rounded-full border bg-muted/20 p-0.5"
         role="tablist"
@@ -271,30 +274,38 @@
           {m.graph_timeline_project_view_kanban()}
         </button>
       </div>
+    </div>
 
+    <div
+      class="border-border bg-muted/10 flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+      data-testid="project-review-panel"
+    >
+      <p class="text-muted-foreground min-w-0 flex-1 text-xs leading-snug">
+        {m.graph_timeline_project_review_hint()}
+      </p>
       <Button
         type="button"
         class="{filledPillClass} gap-1"
-        disabled={generating}
-        onclick={() => void generatePlan()}
-        data-testid="project-generate-plan"
+        disabled={reviewing}
+        onclick={() => void openReview()}
+        data-testid="project-review"
       >
-        {#if generating}
+        {#if reviewing}
           <LoaderCircleIcon class="size-3.5 animate-spin" aria-hidden="true" />
-          {m.graph_timeline_project_generate_plan_working()}
+          {m.graph_timeline_project_review_working()}
         {:else}
           <SparklesIcon class="size-3.5" aria-hidden="true" />
-          {m.graph_timeline_project_generate_plan()}
+          {m.graph_timeline_project_review()}
         {/if}
       </Button>
     </div>
 
-    {#if generateError}
-      <p class="text-destructive text-xs">{generateError}</p>
+    {#if reviewError}
+      <p class="text-destructive text-xs">{reviewError}</p>
     {/if}
   </header>
 
-  <div class="relative mt-3 min-h-0 flex-1 overflow-hidden">
+  <div class="relative mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
     {#if viewMode === 'list'}
       <ProjectListView
         items={orderedItems}
@@ -343,6 +354,20 @@
     }}
   />
 
+  {#if reviewOpen && reviewPayload}
+    <ProjectReviewDialog
+      bind:open={reviewOpen}
+      projectEntityId={project.entityId}
+      review={reviewPayload}
+      onClose={() => {
+        reviewOpen = false
+      }}
+      onApplied={() => {
+        reviewOpen = false
+        void reloadProject()
+      }}
+    />
+  {/if}
   <AlertDialog.Root bind:open={dismissOpen}>
     <AlertDialog.Content data-testid="project-delete-confirm">
       <AlertDialog.Header>

@@ -42,16 +42,44 @@ describe('POST /api/capture/confirm', () => {
         category: { key: 'observation', confidence: 0.9, alternatives: [] },
         memoryType: 'fact',
         entities: [],
+        deviatesFromVerbatim: true,
       },
     })
     const res = await POST({
       locals: { user: { id: 'u1' } },
       request: { json: vi.fn(async () => ({ thoughtId: 't1' })) },
     } as never)
-    expect(confirmCapturePreviewMock).toHaveBeenCalledWith('u1', 't1')
+    expect(confirmCapturePreviewMock).toHaveBeenCalledWith('u1', 't1', { verbatim: false })
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.queueStatus).toBe('pending')
     expect(body.normalizedText).toBe('Hello.')
+  })
+
+  it('passes verbatim:true through to confirmCapturePreview', async () => {
+    confirmCapturePreviewMock.mockResolvedValue({
+      thoughtId: 't1',
+      rawText: 'hello',
+      normalizedText: 'hello',
+      category: 'observation',
+      memoryType: null,
+      queueStatus: 'pending',
+      preview: {
+        interpretedText: 'Hello.',
+        category: { key: 'observation', confidence: 0.9, alternatives: [] },
+        memoryType: 'fact',
+        entities: [],
+        deviatesFromVerbatim: true,
+      },
+    })
+    const res = await POST({
+      locals: { user: { id: 'u1' } },
+      request: { json: vi.fn(async () => ({ thoughtId: 't1', verbatim: true })) },
+    } as never)
+    expect(confirmCapturePreviewMock).toHaveBeenCalledWith('u1', 't1', { verbatim: true })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.normalizedText).toBe('hello')
+    expect(body.memoryType).toBeNull()
   })
 })

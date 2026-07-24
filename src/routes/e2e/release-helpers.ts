@@ -722,19 +722,53 @@ export async function completeOnboardingOverlay(
   }
 }
 
-function parseInterpretThoughtId(bodyText: string): string {
+function parseInterpretResponse(bodyText: string): {
+  thoughtId: string
+  status: 'ingested' | 'awaiting_confirmation' | string
+} {
   const json = JSON.parse(bodyText) as {
     thoughtId?: string
+    status?: string
+    queueStatus?: string
     error?: string
-    preview?: { interpretedText?: string }
   }
   if (json.error) throw new Error(json.error)
-  return json.thoughtId ?? ''
+  const thoughtId = json.thoughtId ?? ''
+  const status =
+    json.status ??
+    (json.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
+  return { thoughtId, status }
+}
+
+/**
+ * Fill Capture composer and wait until Svelte bind:value has accepted it (button enables).
+ * Early fills after domcontentloaded are often wiped by hydration; re-fill until stable.
+ */
+async function fillCaptureComposer(page: Page, raw: string): Promise<Locator> {
+  const thought = page.locator('#thought')
+  const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
+  await expect(thought).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await thought.click()
+    await thought.fill(raw)
+    const value = await thought.inputValue().catch(() => '')
+    if (value === raw && (await captureBtn.isEnabled().catch(() => false))) {
+      return captureBtn
+    }
+    await page.waitForTimeout(250)
+  }
+
+  const stuckValue = await thought.inputValue().catch(() => '')
+  throw new Error(
+    `Capture button stayed disabled (thought value=${JSON.stringify(stuckValue)}, expected=${JSON.stringify(raw)})`,
+  )
 }
 
 /**
  * Capture through the UI confirmation gate:
- * Capture → interpret preview → Confirm → full ingest.
+ * Capture → interpret → (modal Confirm if LLM deviates) → full ingest.
+ * When the LLM does not deviate, interpret returns ingested and no modal appears.
  */
 export async function captureThoughtViaUi(page: Page, raw: string): Promise<string> {
   await dismissBlockingLayers(page)
@@ -745,38 +779,33 @@ export async function captureThoughtViaUi(page: Page, raw: string): Promise<stri
     throw new Error('Onboarding overlay still open — complete onboarding before capture')
   }
 
-  await page.locator('#thought').fill(raw)
-  const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (await captureBtn.isEnabled().catch(() => false)) break
-    await page.waitForTimeout(500)
-  }
-  if (!(await captureBtn.isEnabled().catch(() => false))) {
-    throw new Error('Capture button stayed disabled')
-  }
+  const captureBtn = await fillCaptureComposer(page, raw)
 
   const errorBanner = page.locator('p.text-destructive.text-sm').first()
-  const thoughtId = await submitInterpretViaUi(page, {
+  const { thoughtId, status } = await submitInterpretViaUi(page, {
     raw,
     captureBtn,
     errorBanner,
   })
 
-  const confirmCard = page.getByTestId('capture-confirmation-card')
-  await expect(confirmCard).toBeVisible({ timeout: RELEASE_WAIT_MS })
-  await expect(confirmCard.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
-    timeout: RELEASE_WAIT_MS,
-  })
+  if (status === 'awaiting_confirmation') {
+    const confirmModal = page.getByTestId('capture-confirmation-modal')
+    await expect(confirmModal).toBeVisible({ timeout: RELEASE_WAIT_MS })
+    await expect(confirmModal.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
+      timeout: RELEASE_WAIT_MS,
+    })
 
-  const confirmResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-    { timeout: RELEASE_INDEXING_WAIT_MS },
-  )
-  await confirmCard.getByRole('button', { name: /^Confirm$/i }).click()
-  const confirmRes = await confirmResponsePromise
-  if (!confirmRes.ok()) {
-    throw new Error((await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`)
+    const confirmResponsePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+      { timeout: RELEASE_INDEXING_WAIT_MS },
+    )
+    await confirmModal.getByRole('button', { name: /^Confirm$/i }).click()
+    const confirmRes = await confirmResponsePromise
+    if (!confirmRes.ok()) {
+      throw new Error(
+        (await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`,
+      )
+    }
   }
 
   await waitForThoughtIndexed(page, thoughtId, raw)
@@ -794,12 +823,11 @@ async function submitInterpretViaUi(
     captureBtn: Locator
     errorBanner?: Locator
   },
-): Promise<string> {
+): Promise<{ thoughtId: string; status: string }> {
   let lastError = 'Capture interpret failed'
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) {
-      await page.locator('#thought').fill(input.raw)
-      await expect(input.captureBtn).toBeEnabled({ timeout: RELEASE_WAIT_MS })
+      await fillCaptureComposer(page, input.raw)
     }
     const interpretResponsePromise = page.waitForResponse(
       (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
@@ -809,8 +837,8 @@ async function submitInterpretViaUi(
     const interpretRes = await interpretResponsePromise
     const interpretBody = await interpretRes.text()
     if (interpretRes.ok()) {
-      const thoughtId = parseInterpretThoughtId(interpretBody)
-      if (thoughtId) return thoughtId
+      const parsed = parseInterpretResponse(interpretBody)
+      if (parsed.thoughtId) return parsed
       lastError = 'Capture interpret succeeded but returned no thought id'
       break
     }
@@ -826,65 +854,118 @@ async function submitInterpretViaUi(
 }
 
 /**
- * Capture → interpret → natural-language correction → Confirm → ingest.
- * Asserts the preview card updates after correction.
+ * Capture → interpret deviation modal → Dismiss → store verbatim.
+ * Injects forceConfirmation on interpret (non-production) so the modal path is
+ * deterministic regardless of the live LLM judge.
  */
-export async function captureThoughtViaUiWithCorrection(
+export async function captureThoughtViaUiDismissVerbatim(
   page: Page,
   raw: string,
-  correction: string,
 ): Promise<string> {
   await dismissBlockingLayers(page)
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
   await dismissBlockingLayers(page)
 
-  await page.locator('#thought').fill(raw)
-  const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
-  await expect(captureBtn).toBeEnabled({ timeout: RELEASE_WAIT_MS })
-
-  const thoughtId = await submitInterpretViaUi(page, { raw, captureBtn })
-
-  const confirmCard = page.getByTestId('capture-confirmation-card')
-  await expect(confirmCard).toBeVisible({ timeout: RELEASE_WAIT_MS })
-  // Interpret may leave the card briefly in loading; wait until Confirm is idle.
-  await expect(confirmCard.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
-    timeout: RELEASE_WAIT_MS,
+  await page.route('**/api/capture/interpret', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const existing = route.request().postDataJSON() as Record<string, unknown>
+    await route.continue({
+      postData: JSON.stringify({ ...existing, forceConfirmation: true }),
+      headers: {
+        ...route.request().headers(),
+        'content-type': 'application/json',
+      },
+    })
   })
 
-  const correctionInput = confirmCard.locator('#capture-correction')
-  await correctionInput.fill(correction)
-  const updatePreviewBtn = confirmCard.getByRole('button', {
-    name: /Update preview|Vorschau aktualisieren/i,
-  })
-  // Svelte bind:value must accept the fill before the button enables.
-  await expect(updatePreviewBtn).toBeEnabled({ timeout: RELEASE_WAIT_MS })
+  try {
+    const captureBtn = await fillCaptureComposer(page, raw)
+    const { thoughtId, status } = await submitInterpretViaUi(page, { raw, captureBtn })
+    if (status !== 'awaiting_confirmation') {
+      throw new Error(
+        `Expected awaiting_confirmation for dismiss-verbatim test, got status=${status}`,
+      )
+    }
 
-  const correctResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/correct') && res.request().method() === 'POST',
-    { timeout: RELEASE_INDEXING_WAIT_MS },
-  )
-  await updatePreviewBtn.click()
-  const correctRes = await correctResponsePromise
-  if (!correctRes.ok()) {
-    throw new Error((await correctRes.text()).trim() || 'Capture correct failed')
+    const confirmModal = page.getByTestId('capture-confirmation-modal')
+    await expect(confirmModal).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+    const confirmResponsePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+      { timeout: RELEASE_INDEXING_WAIT_MS },
+    )
+    await confirmModal.getByRole('button', { name: /^Dismiss$/i }).click()
+    const confirmRes = await confirmResponsePromise
+    if (!confirmRes.ok()) {
+      throw new Error((await confirmRes.text()).trim() || 'Capture dismiss (verbatim) failed')
+    }
+    const thought = await fetchCaptureThoughtResult(page, thoughtId)
+    if (thought?.normalizedText !== raw) {
+      throw new Error(
+        `Expected verbatim normalizedText=${JSON.stringify(raw)}, got ${JSON.stringify(thought?.normalizedText)}`,
+      )
+    }
+
+    await waitForThoughtIndexed(page, thoughtId, raw)
+    return thoughtId
+  } finally {
+    await page.unroute('**/api/capture/interpret')
   }
-  await expect(confirmCard).toBeVisible({ timeout: RELEASE_WAIT_MS })
-  await expect(confirmCard.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
-    timeout: RELEASE_INDEXING_WAIT_MS,
+}
+
+/**
+ * Capture → interpret deviation modal → wait for 5s auto-accept.
+ * Injects forceConfirmation on interpret (non-production) for a deterministic modal.
+ */
+export async function captureThoughtViaUiAutoAccept(page: Page, raw: string): Promise<string> {
+  await dismissBlockingLayers(page)
+  await page.goto('/capture', { waitUntil: 'domcontentloaded' })
+  await dismissBlockingLayers(page)
+
+  await page.route('**/api/capture/interpret', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const existing = route.request().postDataJSON() as Record<string, unknown>
+    await route.continue({
+      postData: JSON.stringify({ ...existing, forceConfirmation: true }),
+      headers: {
+        ...route.request().headers(),
+        'content-type': 'application/json',
+      },
+    })
   })
 
-  const confirmResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-    { timeout: RELEASE_INDEXING_WAIT_MS },
-  )
-  await confirmCard.getByRole('button', { name: /^Confirm$/i }).click()
-  const confirmRes = await confirmResponsePromise
-  if (!confirmRes.ok()) {
-    throw new Error((await confirmRes.text()).trim() || 'Capture confirm failed')
-  }
+  try {
+    const captureBtn = await fillCaptureComposer(page, raw)
+    const { thoughtId, status } = await submitInterpretViaUi(page, { raw, captureBtn })
+    if (status !== 'awaiting_confirmation') {
+      throw new Error(`Expected awaiting_confirmation for auto-accept test, got status=${status}`)
+    }
 
-  await waitForThoughtIndexed(page, thoughtId, raw)
-  return thoughtId
+    const confirmModal = page.getByTestId('capture-confirmation-modal')
+    await expect(confirmModal).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+    const confirmResponsePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
+      { timeout: RELEASE_INDEXING_WAIT_MS },
+    )
+    // Do not click — wait for client 5s countdown to auto-confirm.
+    const confirmRes = await confirmResponsePromise
+    if (!confirmRes.ok()) {
+      throw new Error((await confirmRes.text()).trim() || 'Capture auto-accept failed')
+    }
+    await expect(confirmModal).toBeHidden({ timeout: RELEASE_WAIT_MS })
+
+    await waitForThoughtIndexed(page, thoughtId, raw)
+    return thoughtId
+  } finally {
+    await page.unroute('**/api/capture/interpret')
+  }
 }
 
 export async function visitAuthenticatedSurfaces(page: Page): Promise<void> {
@@ -1056,29 +1137,41 @@ async function dismissProjectViaUi(
  * Headed guard: mark-done from Projects grouping uses the same
  * `POST /api/temporal-events/:id/action` client as Tasks (no forked thoughts PATCH).
  */
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Match rendered text flexibly: collapse any run of whitespace in the pattern to `\s+`. */
+function textMatchPattern(value: string): RegExp {
+  return new RegExp(escapeForRegex(value).replace(/\s+/g, '\\s+'))
+}
+
 export async function assertMarkDoneFromProjectsView(page: Page): Promise<void> {
-  // Use a real-word + nonce marker so the interpret LLM preserves it verbatim. A run-on like
-  // "markdone-<ts>" gets "fixed" into "mark done-<ts>", which breaks both the token check in
-  // waitForThoughtIndexed and the semanticSummary.includes(marker) lookup below.
-  const marker = `marker-${Date.now()}`
-  await captureThoughtViaUi(page, `TODO: ${marker} finish the release checklist item`)
+  // Locate the task by its thoughtId (returned by captureThoughtViaUi), not by a synthetic
+  // "marker-<ts>" token. The interpret LLM reasonably strips a bare `marker-<ts>` as noise —
+  // which has broken this guard twice (first "markdone-<ts>" → "mark done-<ts>", then
+  // "marker-<ts>" dropped entirely). The UI row's accessible name is the rendered
+  // semanticSummary, so we fetch that same value from the API and match it as a substring.
+  const stamp = Date.now()
+  const captureText = `TODO: finish the release checklist item for the ${stamp} release review`
+  const thoughtId = await captureThoughtViaUi(page, captureText)
 
   let itemId = ''
+  let summary = ''
   await pollUntil(
     'open task available for projects mark-done',
     async () => {
-      const found = await page.evaluate(async (m) => {
-        const res = await fetch(
-          '/api/temporal-events?range=all&status=open&includeTasks=true&author=user',
-        )
-        if (!res.ok) return null
-        const body = (await res.json()) as {
-          items: Array<{ id: string; semanticSummary: string }>
-        }
-        return body.items.find((i) => i.semanticSummary.includes(m)) ?? null
-      }, marker)
-      if (!found) return false
+      const res = await page.request.get(
+        '/api/temporal-events?range=all&status=open&includeTasks=true&author=user',
+      )
+      if (!res.ok()) return false
+      const body = (await res.json()) as {
+        items: Array<{ id: string; thoughtId: string; semanticSummary: string }>
+      }
+      const found = body.items.find((i) => i.thoughtId === thoughtId)
+      if (!found || !found.semanticSummary) return false
       itemId = found.id
+      summary = found.semanticSummary
       return true
     },
     { timeoutMs: RELEASE_INDEXING_WAIT_MS, intervalMs: 2_000 },
@@ -1087,9 +1180,9 @@ export async function assertMarkDoneFromProjectsView(page: Page): Promise<void> 
   await gotoTimelineProjectsView(page)
 
   // Scope the mark-done button to this task's row via the task's summary button
-  // (role=button, accessible name contains the unique marker), not a div+substring
+  // (role=button, accessible name contains the rendered semanticSummary), not a div+substring
   // filter that can match an ancestor container holding multiple task rows.
-  const summaryButton = page.getByRole('button', { name: new RegExp(marker) })
+  const summaryButton = page.getByRole('button', { name: textMatchPattern(summary) }).first()
   const markBtn = summaryButton
     .locator('xpath=..')
     .getByRole('button', { name: /Mark done|Als erledigt markieren/i })
@@ -1119,31 +1212,30 @@ export async function assertMarkDoneFromProjectsView(page: Page): Promise<void> 
   await pollUntil(
     'task completed after projects mark-done',
     async () => {
-      const status = await page.evaluate(async (id) => {
-        const listRes = await fetch(
-          '/api/temporal-events?range=all&status=all&includeTasks=true&author=user',
-        )
-        if (!listRes.ok) return null
-        const body = (await listRes.json()) as {
-          items: Array<{
-            id: string
-            lifecycleStatus: string
-            thoughtStatus: string
-          }>
-        }
-        const item = body.items.find((i) => i.id === id)
-        if (!item) return null
-        return item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed'
-          ? 'completed'
-          : item.lifecycleStatus
-      }, itemId)
-      return status === 'completed'
+      const listRes = await page.request.get(
+        '/api/temporal-events?range=all&status=all&includeTasks=true&author=user',
+      )
+      if (!listRes.ok()) return false
+      const body = (await listRes.json()) as {
+        items: Array<{
+          id: string
+          lifecycleStatus: string
+          thoughtStatus: string
+        }>
+      }
+      const item = body.items.find((i) => i.id === itemId)
+      if (!item) return false
+      return (
+        item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed'
+      )
     },
     { timeoutMs: RELEASE_WAIT_MS, intervalMs: 500 },
   )
 
-  // Default Projects list hides completed tasks.
-  await expect(page.getByText(marker)).toHaveCount(0, { timeout: RELEASE_WAIT_MS })
+  // Default Projects list hides completed tasks — the row (and its summary) must be gone.
+  await expect(page.getByRole('button', { name: textMatchPattern(summary) })).toHaveCount(0, {
+    timeout: RELEASE_WAIT_MS,
+  })
 }
 
 /**
@@ -1361,6 +1453,178 @@ export async function assertProjectDetailPageViews(page: Page): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page).toHaveURL(/view=kanban/)
   await expect(page.getByTestId('project-kanban-view')).toBeVisible({ timeout: ACTION_MS })
+}
+
+/**
+ * Project tidy-up review dialog: mock dry-run review, uncheck a new-task suggestion,
+ * apply only the confirmed subset (no unconfirmed task created).
+ */
+export async function assertProjectReviewTidyUp(page: Page): Promise<void> {
+  const stamp = Date.now()
+  const projectLabel = `Tidy Up Project ${stamp}`
+  const openToken = `tidy-open-${stamp}`
+  const doneToken = `tidy-done-${stamp}`
+  const newTaskToken = `tidy-new-${stamp}`
+
+  const createRes = await page.request.post('/api/timeline/projects', {
+    data: { label: projectLabel, status: 'active' },
+  })
+  if (!createRes.ok()) {
+    throw new Error(`create tidy-up project failed (${createRes.status()}): ${await createRes.text()}`)
+  }
+  const created = (await createRes.json()) as { entityId: string }
+
+  const openThoughtId = await captureThoughtViaUi(page, `TODO: ${openToken} prepare kickoff notes`)
+  const doneThoughtId = await captureThoughtViaUi(page, `TODO: ${doneToken} finish the checklist`)
+
+  for (const thoughtId of [openThoughtId, doneThoughtId]) {
+    const assignRes = await page.request.post('/api/timeline/projects/assign', {
+      data: { thoughtId, projectEntityId: created.entityId },
+    })
+    if (!assignRes.ok()) {
+      throw new Error(`assign tidy-up task failed (${assignRes.status()}): ${await assignRes.text()}`)
+    }
+  }
+
+  const reviewPayload = {
+    projectEntityId: created.entityId,
+    projectLabel,
+    projectDeadline: null,
+    tasks: [
+      {
+        thoughtId: openThoughtId,
+        summary: openToken,
+        rank: 1,
+        status: 'open',
+        deadline: null,
+        isNextAction: true,
+      },
+      {
+        thoughtId: doneThoughtId,
+        summary: doneToken,
+        rank: 2,
+        status: 'open',
+        deadline: null,
+        isNextAction: false,
+      },
+    ],
+    linkedThoughts: [],
+    allowedThoughtIds: [openThoughtId, doneThoughtId],
+    review: {
+      projectDeadline: '2026-12-01T00:00:00.000Z',
+      taskReviews: [
+        {
+          thoughtId: openThoughtId,
+          suggestion: 'keep',
+          deadline: null,
+          reason: 'Still needed',
+        },
+        {
+          thoughtId: doneThoughtId,
+          suggestion: 'mark_done',
+          deadline: null,
+          reason: 'Looks finished',
+        },
+      ],
+      order: [openThoughtId, doneThoughtId],
+      newTaskSuggestions: [
+        {
+          summary: `${newTaskToken} book the venue`,
+          kind: 'deadline',
+          suggestedStartAt: null,
+          suggestedEndAt: null,
+          reason: 'Gap in waterfall',
+        },
+      ],
+      nextActionThoughtId: openThoughtId,
+      nextActionIsNewTaskIndex: null,
+    },
+  }
+
+  await page.route(`**/api/timeline/projects/${created.entityId}/review`, async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    // Dry-run only — leave /review/apply unmocked.
+    if (route.request().url().includes('/review/apply')) {
+      await route.continue()
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(reviewPayload),
+    })
+  })
+
+  let applyBody: Record<string, unknown> | null = null
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().includes(`/api/timeline/projects/${created.entityId}/review/apply`)
+    ) {
+      try {
+        applyBody = request.postDataJSON() as Record<string, unknown>
+      } catch {
+        applyBody = null
+      }
+    }
+  })
+
+  try {
+    await openProjectDetail(page, projectLabel)
+    await expect(page.getByTestId('project-review')).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+    const reviewResponse = page.waitForResponse(
+      (res) =>
+        res.url().includes(`/api/timeline/projects/${created.entityId}/review`) &&
+        !res.url().includes('/apply') &&
+        res.request().method() === 'POST',
+      { timeout: ACTION_MS },
+    )
+    await page.getByTestId('project-review').click()
+    await reviewResponse
+
+    const dialog = page.getByTestId('project-review-dialog')
+    await expect(dialog).toBeVisible({ timeout: ACTION_MS })
+    await expect(dialog.getByText(newTaskToken)).toBeVisible({ timeout: ACTION_MS })
+    await expect(dialog.getByText(doneToken)).toBeVisible({ timeout: ACTION_MS })
+
+    // Uncheck the suggested new task so it is not created.
+    const newTaskRow = dialog.getByTestId('project-review-new-task-0')
+    await newTaskRow.locator('[data-slot="checkbox"]').click()
+
+    const applyResponse = page.waitForResponse(
+      (res) =>
+        res.url().includes(`/api/timeline/projects/${created.entityId}/review/apply`) &&
+        res.request().method() === 'POST',
+      { timeout: ACTION_MS },
+    )
+    await dialog.getByRole('button', { name: /Apply selected|Auswahl anwenden/i }).click()
+    const applyRes = await applyResponse
+    if (!applyRes.ok()) {
+      throw new Error(`project review apply failed (${applyRes.status()}): ${await applyRes.text()}`)
+    }
+    await expect(dialog).toBeHidden({ timeout: QUICK_MS })
+
+    if (!applyBody) {
+      throw new Error('Did not capture review/apply request body')
+    }
+    expect(applyBody.newTasks, 'unchecked new task must not be in apply body').toEqual([])
+    expect(applyBody.markDone).toEqual([doneThoughtId])
+    expect(applyBody.nextActionThoughtId).toBe(openThoughtId)
+
+    // Unconfirmed new-task token must not appear on the project list.
+    await expect(page.getByTestId('project-detail-page').getByText(newTaskToken)).toHaveCount(0, {
+      timeout: RELEASE_WAIT_MS,
+    })
+    await expect(page.getByTestId('project-detail-page').getByText(openToken)).toBeVisible({
+      timeout: RELEASE_WAIT_MS,
+    })
+  } finally {
+    await page.unroute(`**/api/timeline/projects/${created.entityId}/review`).catch(() => undefined)
+  }
 }
 
 type ScheduledTaskSnapshot = {

@@ -29,6 +29,8 @@ export type CapturePreviewBundle = {
   category: CapturePreviewCategory
   memoryType: MemoryType | null
   entities: CapturePreviewEntity[]
+  /** LLM judge: true when interpretation changes meaning/entities beyond trivial cleanup. */
+  deviatesFromVerbatim: boolean
 }
 
 function clampConfidence(value: unknown): number {
@@ -89,6 +91,11 @@ function parsePreviewBundle(
     })
   }
 
+  if (typeof obj.deviatesFromVerbatim !== 'boolean') {
+    throw new Error('Interpret LLM response missing required boolean deviatesFromVerbatim')
+  }
+  const deviatesFromVerbatim = obj.deviatesFromVerbatim
+
   return {
     interpretedText,
     category: {
@@ -98,6 +105,7 @@ function parsePreviewBundle(
     },
     memoryType: normalizeMemoryType(obj.memoryType),
     entities,
+    deviatesFromVerbatim,
   }
 }
 
@@ -134,14 +142,15 @@ export async function interpretThoughtPreview(input: {
     {
       role: 'system',
       content: [
-        'You interpret a raw personal capture into a clear stored form for the user to confirm.',
+        'You interpret a raw personal capture into a clear stored form for the user to confirm when needed.',
         'Return JSON only:',
-        `{ "interpretedText": "<clear full thought body>", "category": { "key": "${categoryKeyUnion}", "confidence": 0-1, "alternatives": [{ "key": "...", "confidence": 0-1 }] }, "memoryType": ${MEMORY_TYPE_KEY_UNION} | null, "entities": [{ "surface": "...", "entityType": "${entityKeyUnion}", "confidence": 0-1 }] }`,
+        `{ "interpretedText": "<clear full thought body>", "category": { "key": "${categoryKeyUnion}", "confidence": 0-1, "alternatives": [{ "key": "...", "confidence": 0-1 }] }, "memoryType": ${MEMORY_TYPE_KEY_UNION} | null, "entities": [{ "surface": "...", "entityType": "${entityKeyUnion}", "confidence": 0-1 }], "deviatesFromVerbatim": true|false }`,
         'Rules:',
         '- interpretedText is the clarified/normalized form the user will store. Preserve meaning; fix obvious STT/typos; do not invent facts.',
         '- category.key must be an exact ontology thought_category key from the catalog (no synonyms).',
         '- memoryType must be a canonical storage shape key or null — never a thought_category key.',
         '- entities are provisional mentions for preview only; entityType must be an exact ontology entity_type key.',
+        '- deviatesFromVerbatim must be a boolean. Set true when interpretedText changes meaning or reinterprets/links entities beyond what is literally in the raw capture (more than trivial whitespace/STT/typo cleanup). Set false when you only clarify formatting or fix obvious typos without altering meaning.',
         '- When a correction is provided, apply it to the priorPreview and return a full updated JSON object.',
         ontologyKindsPromptBlock(categoryKinds, profile),
         entityCatalog ? `Entity types:\n${entityCatalog}` : '',

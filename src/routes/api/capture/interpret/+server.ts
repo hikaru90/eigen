@@ -5,7 +5,10 @@ import {
   insufficientCreditsPayload,
 } from '$lib/server/billing/insufficient-credits'
 import { captureGateHttpStatus, captureGateJsonBody } from '$lib/server/onboarding/capture-gate'
-import { interpretAndQueueCapture } from '$lib/server/capture/capture-confirmation'
+import {
+  allowCaptureForceConfirmation,
+  interpretAndQueueCapture,
+} from '$lib/server/capture/capture-confirmation'
 
 export const POST: RequestHandler = async (event) => {
   const user = event.locals.user
@@ -22,8 +25,21 @@ export const POST: RequestHandler = async (event) => {
     typeof body === 'object' && body && 'raw' in body ? String((body as { raw?: unknown }).raw) : ''
   if (!raw.trim()) error(400, 'raw is required')
 
+  const wantsForce =
+    typeof body === 'object' &&
+    body !== null &&
+    'forceConfirmation' in body &&
+    Boolean((body as { forceConfirmation?: unknown }).forceConfirmation)
+
+  if (wantsForce && !allowCaptureForceConfirmation()) {
+    error(400, 'forceConfirmation is not allowed in production')
+  }
+
   try {
-    const result = await interpretAndQueueCapture(user.id, raw, { source: 'ui' })
+    const result = await interpretAndQueueCapture(user.id, raw, {
+      source: 'ui',
+      ...(wantsForce ? { forceConfirmation: true } : {}),
+    })
     return json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to interpret capture'

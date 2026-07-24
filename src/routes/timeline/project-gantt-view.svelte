@@ -48,7 +48,7 @@
 </script>
 
 <div
-  class="flex min-h-0 flex-1 flex-col overflow-auto pb-28"
+  class="flex min-h-0 flex-1 flex-col overflow-auto pb-28 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
   role="region"
   aria-label={m.graph_timeline_project_view_timeline()}
   data-testid="project-gantt-view"

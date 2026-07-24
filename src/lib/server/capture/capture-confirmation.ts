@@ -1,27 +1,57 @@
 /**
- * Capture confirmation gate: interpret → optional correct loop → confirm → enrich.
+ * Capture confirmation gate: interpret → optional modal (deviation) → confirm/verbatim → enrich.
  */
-import { and, eq } from 'drizzle-orm'
+import { and, eq, lt } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { queueCapture } from '$lib/server/capture/queue-capture'
+import { queueCapture, QUEUE_PLACEHOLDER_CATEGORY } from '$lib/server/capture/queue-capture'
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker'
 import {
   interpretThoughtPreview,
   type CapturePreviewBundle,
 } from '$lib/server/capture/interpret-thought'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
+import { notifyThoughtCreated } from '$lib/server/agents/notify'
 
 export type { CapturePreviewBundle }
 
-export type CaptureConfirmationResult = {
-  thoughtId: string
-  rawText: string
-  preview: CapturePreviewBundle
-  queueStatus: 'awaiting_confirmation'
+/** Client countdown + stranded-draft auto-accept window. */
+export const CONFIRMATION_AUTO_ACCEPT_MS = 5_000
+
+/**
+ * E2E/dev-only: force the confirmation modal path regardless of the LLM judge.
+ * Never allowed in production.
+ */
+export function allowCaptureForceConfirmation(): boolean {
+  return process.env.NODE_ENV !== 'production'
 }
+
+export type CaptureInterpretResult =
+  | {
+      status: 'awaiting_confirmation'
+      thoughtId: string
+      rawText: string
+      preview: CapturePreviewBundle
+      queueStatus: 'awaiting_confirmation'
+    }
+  | {
+      status: 'ingested'
+      thoughtId: string
+      rawText: string
+      preview: CapturePreviewBundle
+      queueStatus: 'pending'
+      normalizedText: string
+      category: string
+      memoryType: string | null
+    }
+
+/** @deprecated Prefer CaptureInterpretResult — kept for older callers expecting queueStatus. */
+export type CaptureConfirmationResult = Extract<
+  CaptureInterpretResult,
+  { status: 'awaiting_confirmation' }
+>
 
 export type ConfirmCaptureResult = {
   thoughtId: string
@@ -45,6 +75,7 @@ async function loadAwaitingDraft(userId: string, thoughtId: string) {
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
       ontologyEntityKindId: thought.ontologyEntityKindId,
+      captureSource: thought.captureSource,
     })
     .from(thought)
     .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -132,18 +163,26 @@ async function resolveCategoryKindId(userId: string, categoryKey: string): Promi
 }
 
 /**
- * Run interpret LLM first, then persist draft (awaiting_confirmation). Does not schedule enrich.
- * Ordering avoids orphan drafts when the provider rejects the interpret call.
+ * Run interpret LLM first, then either auto-ingest (no deviation) or persist a draft
+ * awaiting confirmation (deviation). Does not schedule enrich for drafts.
+ *
+ * `forceConfirmation` (non-production only) overrides the LLM judge so e2e can
+ * deterministically exercise Confirm / Dismiss / auto-accept.
  */
 export async function interpretAndQueueCapture(
   userId: string,
   rawInput: string,
-  options?: { source?: CaptureSource },
-): Promise<CaptureConfirmationResult> {
-  const preview = await interpretThoughtPreview({
+  options?: { source?: CaptureSource; forceConfirmation?: boolean },
+): Promise<CaptureInterpretResult> {
+  const llmPreview = await interpretThoughtPreview({
     userId,
     rawText: rawInput,
   })
+  const forceConfirmation =
+    options?.forceConfirmation === true && allowCaptureForceConfirmation()
+  const preview: CapturePreviewBundle = forceConfirmation
+    ? { ...llmPreview, deviatesFromVerbatim: true }
+    : llmPreview
 
   const queued = await queueCapture(userId, rawInput, {
     source: options?.source ?? 'ui',
@@ -162,7 +201,22 @@ export async function interpretAndQueueCapture(
     ontologyEntityKindId,
   )
 
+  if (!preview.deviatesFromVerbatim) {
+    const confirmed = await confirmCapturePreview(userId, queued.thoughtId, { verbatim: false })
+    return {
+      status: 'ingested',
+      thoughtId: confirmed.thoughtId,
+      rawText: confirmed.rawText,
+      preview: confirmed.preview,
+      queueStatus: 'pending',
+      normalizedText: confirmed.normalizedText,
+      category: confirmed.category,
+      memoryType: confirmed.memoryType,
+    }
+  }
+
   return {
+    status: 'awaiting_confirmation',
     thoughtId: queued.thoughtId,
     rawText: rawInput,
     preview,
@@ -171,67 +225,36 @@ export async function interpretAndQueueCapture(
 }
 
 /**
- * Re-run interpret with correction; stay in awaiting_confirmation (no enrich).
- */
-export async function correctCapturePreview(
-  userId: string,
-  thoughtId: string,
-  correction: string,
-): Promise<CaptureConfirmationResult> {
-  const trimmed = correction.trim()
-  if (!trimmed) {
-    throw new Error('correction is required')
-  }
-
-  const draft = await loadAwaitingDraft(userId, thoughtId)
-  const priorPreview = readPreview(draft.metadata)
-
-  const preview = await interpretThoughtPreview({
-    userId,
-    rawText: draft.rawText,
-    priorPreview,
-    correction: trimmed,
-  })
-
-  const ontologyEntityKindId = await resolveCategoryKindId(userId, preview.category.key)
-  await persistPreviewMetadata(
-    userId,
-    thoughtId,
-    draft.metadata,
-    preview,
-    preview.category.key,
-    ontologyEntityKindId,
-  )
-
-  return {
-    thoughtId,
-    rawText: draft.rawText,
-    preview,
-    queueStatus: 'awaiting_confirmation',
-  }
-}
-
-/**
- * Promote interpreted text to normalized_text and schedule full enrich.
- * raw_text stays verbatim.
+ * Promote draft to pending enrich.
+ * verbatim:true → store raw text unchanged; otherwise accept LLM interpretation.
  */
 export async function confirmCapturePreview(
   userId: string,
   thoughtId: string,
+  options?: { verbatim?: boolean },
 ): Promise<ConfirmCaptureResult> {
+  const verbatim = options?.verbatim === true
   const draft = await loadAwaitingDraft(userId, thoughtId)
   const preview = readPreview(draft.metadata)
-  const ontologyEntityKindId = await resolveCategoryKindId(userId, preview.category.key)
 
-  const normalizedText = preview.interpretedText
+  const normalizedText = verbatim ? draft.rawText : preview.interpretedText
   const lexicalText = computeLexicalText(normalizedText)
+  const categoryKey = verbatim ? QUEUE_PLACEHOLDER_CATEGORY : preview.category.key
+  const ontologyEntityKindId = await resolveCategoryKindId(userId, categoryKey)
+  const memoryType = verbatim ? null : preview.memoryType
+
   const nextMetadata = {
     ...draft.metadata,
     preview,
     confirmationGate: true,
     confirmedAt: new Date().toISOString(),
-    categoryConfidence: preview.category.confidence,
-    categoryAlternatives: preview.category.alternatives,
+    confirmedVerbatim: verbatim,
+    ...(verbatim
+      ? {}
+      : {
+          categoryConfidence: preview.category.confidence,
+          categoryAlternatives: preview.category.alternatives,
+        }),
   }
 
   const [normalizedTextEncrypted, metadataEncrypted] = await Promise.all([
@@ -255,9 +278,9 @@ export async function confirmCapturePreview(
       normalizedText,
       normalizedTextEncrypted,
       lexicalText,
-      category: preview.category.key,
+      category: categoryKey,
       ontologyEntityKindId,
-      memoryType: preview.memoryType,
+      memoryType,
       metadata: { encrypted: true, confirmationGate: true },
       metadataEncrypted,
       enrichQueueStatus: 'pending' satisfies EnrichQueueStatus,
@@ -268,13 +291,58 @@ export async function confirmCapturePreview(
 
   scheduleCaptureEnrichWorker(userId)
 
+  notifyThoughtCreated({
+    userId,
+    thoughtId,
+    normalizedText,
+    source: draft.captureSource ?? 'ui',
+    projectEntityIds: [],
+    projectLabels: [],
+  })
+
   return {
     thoughtId,
     rawText: draft.rawText,
     normalizedText,
-    category: preview.category.key,
-    memoryType: preview.memoryType,
+    category: categoryKey,
+    memoryType,
     queueStatus: 'pending',
     preview,
   }
+}
+
+/**
+ * Auto-confirm awaiting_confirmation drafts older than CONFIRMATION_AUTO_ACCEPT_MS
+ * using the stored LLM interpretation (same outcome as the 5s countdown timeout).
+ */
+export async function autoConfirmStaleAwaitingConfirmationDrafts(
+  userId: string,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - CONFIRMATION_AUTO_ACCEPT_MS)
+  const stale = await getDb()
+    .select({ id: thought.id })
+    .from(thought)
+    .where(
+      and(
+        eq(thought.userId, userId),
+        eq(thought.enrichQueueStatus, 'awaiting_confirmation'),
+        lt(thought.createdAt, cutoff),
+      ),
+    )
+    .limit(50)
+
+  let confirmed = 0
+  for (const row of stale) {
+    try {
+      await confirmCapturePreview(userId, row.id, { verbatim: false })
+      confirmed += 1
+    } catch (err) {
+      console.error('[capture-confirmation] failed to auto-confirm stale draft', {
+        userId,
+        thoughtId: row.id,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+  return confirmed
 }

@@ -3,13 +3,15 @@ import {
   assertReleasePreflight,
   assertMarkDoneFromProjectsView,
   assertProjectDetailPageViews,
+  assertProjectReviewTidyUp,
   assertProjectWaterfallAndAdvance,
   assertTimelineMountFetchBudget,
   assertTimelineSharedFiltersAndDial,
   assertTimelineSsotCountsAndLists,
   assertCheckInDeepLinkShowsPendingQuestion,
   captureThoughtViaUi,
-  captureThoughtViaUiWithCorrection,
+  captureThoughtViaUiAutoAccept,
+  captureThoughtViaUiDismissVerbatim,
   completeOnboardingOverlay,
   exerciseAuthenticatedUi,
   exerciseNotesShoppingListAppend,
@@ -55,7 +57,7 @@ test.describe('Release smoke @release', () => {
       await assertCheckInDeepLinkShowsPendingQuestion(page)
     })
 
-    await test.step('capture a thought through the UI (interpret → confirm)', async () => {
+    await test.step('capture a thought through the UI (interpret → confirm if needed)', async () => {
       await captureThoughtViaUi(page, releaseThought)
       await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible()
       await expect(
@@ -63,11 +65,19 @@ test.describe('Release smoke @release', () => {
       ).toContainText('Lisbon')
     })
 
-    await test.step('capture with natural-language correction then confirm', async () => {
-      await captureThoughtViaUiWithCorrection(
+    await test.step('capture deviation modal: dismiss stores verbatim', async () => {
+      const dismissRaw =
+        'Release smoke dismiss: keep this meeting in Lisbon next week exactly as written'
+      await captureThoughtViaUiDismissVerbatim(page, dismissRaw)
+      await expect(
+        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
+      ).toContainText('Lisbon')
+    })
+
+    await test.step('capture deviation modal: auto-accept after countdown', async () => {
+      await captureThoughtViaUiAutoAccept(
         page,
-        'Release smoke correction: meeting in Lisbon next week',
-        'Change the city to Porto',
+        'Release smoke auto-accept: reinterpret this offsite plan for Porto next month',
       )
       await expect(
         page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
@@ -96,6 +106,10 @@ test.describe('Release smoke @release', () => {
 
     await test.step('projects: detail page list/timeline/kanban views', async () => {
       await assertProjectDetailPageViews(page)
+    })
+
+    await test.step('projects: tidy-up review dialog confirms before mutating', async () => {
+      await assertProjectReviewTidyUp(page)
     })
 
     await test.step('projects: create, capture, edit, dismiss', async () => {
