@@ -47,6 +47,11 @@ const LABEL_MARGIN_LEFT_PX = 12
 const LABEL_MARGIN_TOP_PX = 4
 const CLICK_DRAG_THRESHOLD_PX = 4
 
+/** Screen-space radial falloff for label opacity (fraction of half the smaller viewport dim). */
+const LABEL_FALLOFF_RADIUS_FRACTION = 0.6
+const LABEL_FALLOFF_MIN_OPACITY = 0
+const LABEL_OPACITY_WRITE_EPSILON = 0.02
+
 export function embeddingMapShouldSuppressSelectionClick(input: { dragged: boolean }): boolean {
   return input.dragged
 }
@@ -150,6 +155,8 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
 
   const labelByItemId = new Map<string, HTMLDivElement>()
   const pointIndexByItemId = new Map<string, number>()
+  const labelProjVec = new THREE.Vector3()
+  const lastLabelOpacity = new Float32Array(points.length).fill(-1)
 
   for (let i = 0; i < points.length; i++) {
     const point = points[i]
@@ -383,6 +390,9 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
       if (labelEl) {
         labelEl.style.display = visible ? '' : 'none'
       }
+      if (!visible) {
+        lastLabelOpacity[i] = -1
+      }
     }
 
     const visibleCount = visibleFlags.reduce((sum, v) => sum + v, 0)
@@ -393,6 +403,43 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
       if (selectedIdx !== undefined && !visibleFlags[selectedIdx]) {
         setSelectedId(null)
         onSelectItem?.(null)
+      }
+    }
+  }
+
+  function updateLabelOpacities() {
+    const w = renderer.domElement.clientWidth
+    const h = renderer.domElement.clientHeight
+    if (w < 1 || h < 1) return
+    const cx = w / 2
+    const cy = h / 2
+    const radiusPx = LABEL_FALLOFF_RADIUS_FRACTION * (Math.min(w, h) / 2)
+    if (!(radiusPx > 0)) return
+
+    for (let i = 0; i < points.length; i++) {
+      const labelEl = labelByItemId.get(points[i].item.id)
+      if (!labelEl) continue
+      if (!visibleFlags[i]) continue
+
+      let opacity: number
+      if (points[i].item.id === currentSelectedId) {
+        opacity = 1
+      } else {
+        labelProjVec.set(
+          originalPositions[i * 3],
+          originalPositions[i * 3 + 1],
+          originalPositions[i * 3 + 2],
+        )
+        labelProjVec.project(camera)
+        const sx = (labelProjVec.x * 0.5 + 0.5) * w
+        const sy = (-labelProjVec.y * 0.5 + 0.5) * h
+        const dist = Math.hypot(sx - cx, sy - cy)
+        opacity = Math.max(LABEL_FALLOFF_MIN_OPACITY, Math.min(1, 1 - dist / radiusPx))
+      }
+
+      if (Math.abs(opacity - lastLabelOpacity[i]) > LABEL_OPACITY_WRITE_EPSILON) {
+        lastLabelOpacity[i] = opacity
+        labelEl.style.opacity = String(opacity)
       }
     }
   }
@@ -415,6 +462,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
     camera.updateProjectionMatrix()
     renderer.setSize(w, h, true)
     labelRenderer.setSize(w, h)
+    updateLabelOpacities()
   }
 
   let pointerDownX = 0
@@ -516,6 +564,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
     controls.update()
     if (needsDepthSort()) updateDepthSort()
     updateScreenSpacePointScales()
+    updateLabelOpacities()
     renderer.render(scene, camera)
     labelRenderer.render(scene, camera)
   }

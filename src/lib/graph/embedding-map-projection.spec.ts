@@ -1,19 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  __setEmbeddingProjectorForTests,
   ensureEmbeddingProjection,
   getEmbeddingProjectionPhase,
   invalidateEmbeddingProjection,
+  subscribeEmbeddingProjection,
 } from './embedding-map-projection'
-
-vi.mock('umap-js', () => ({
-  UMAP: class {
-    constructor() {}
-    async fitAsync(_embeddings: number[][], onEpoch: (epoch: number) => boolean) {
-      onEpoch(1)
-      return _embeddings.map((_, i) => [i, i, i])
-    }
-  },
-}))
 
 function makeItem(id: string) {
   return {
@@ -65,14 +57,67 @@ function mockEmbeddingFetch(handlers: {
   return fetchMock
 }
 
+/** A fake projector that drives the projection loop on the main thread (for tests). */
+function createFakeProjector(options?: { hang?: boolean }) {
+  let current: {
+    onProgress: (epoch: number, totalEpochs: number) => void
+    signal: { cancelled: boolean }
+    resolve: (coords: number[][]) => void
+    reject: (err: Error) => void
+  } | null = null
+  const projector = {
+    start(
+      _items: ReturnType<typeof makeItem>[],
+      onProgress: (epoch: number, totalEpochs: number) => void,
+      signal: { cancelled: boolean },
+      resolve: (coords: number[][]) => void,
+      reject: (err: Error) => void,
+    ) {
+      current = { onProgress, signal, resolve, reject }
+      if (options?.hang) {
+        // Emit the first epoch synchronously so phase becomes 'projecting', then hang.
+        if (!signal.cancelled) onProgress(1, 2)
+        return
+      }
+      queueMicrotask(() => {
+        if (!current || current.signal.cancelled) return
+        current.onProgress(1, 2)
+        if (current.signal.cancelled) return
+        current.onProgress(2, 2)
+        if (current.signal.cancelled) return
+        const coords = _items.map((_, i) => [i, i, i])
+        current.resolve(coords)
+        current = null
+      })
+    },
+    cancel() {
+      if (current) {
+        current.signal.cancelled = true
+        current.reject(new Error('cancelled'))
+        current = null
+      }
+    },
+    dispose() {
+      if (current) {
+        current.signal.cancelled = true
+        current.reject(new Error('disposed'))
+        current = null
+      }
+    },
+  }
+  return projector
+}
+
 describe('embedding-map-projection', () => {
   beforeEach(() => {
     invalidateEmbeddingProjection()
+    __setEmbeddingProjectorForTests(() => createFakeProjector())
     vi.stubGlobal('fetch', vi.fn())
   })
 
   afterEach(() => {
     invalidateEmbeddingProjection()
+    __setEmbeddingProjectorForTests(null)
     vi.unstubAllGlobals()
   })
 
@@ -136,5 +181,53 @@ describe('embedding-map-projection', () => {
     if (phase.kind === 'ready') {
       expect(phase.items).toHaveLength(2)
     }
+  })
+
+  it('runs client projection in the worker path when server projection is unavailable', async () => {
+    const revision = 'rev-1'
+    const items = [makeItem('t1'), makeItem('t2'), makeItem('t3')]
+    mockEmbeddingFetch({
+      revision,
+      snapshot: { revision, items },
+      project: null, // force client fallback
+    })
+
+    await ensureEmbeddingProjection()
+    const phase = getEmbeddingProjectionPhase()
+    expect(phase.kind).toBe('ready')
+    if (phase.kind === 'ready') {
+      expect(phase.coords).toHaveLength(3)
+    }
+  })
+
+  it('cancels an in-flight client projection when invalidated', async () => {
+    const revision = 'rev-1'
+    const items = [makeItem('t1'), makeItem('t2'), makeItem('t3')]
+    // Hanging projector: never resolves on its own, so only cancel can end it.
+    __setEmbeddingProjectorForTests(() => createFakeProjector({ hang: true }))
+    mockEmbeddingFetch({
+      revision,
+      snapshot: { revision, items },
+      project: null,
+    })
+
+    const phases: string[] = []
+    const unsub = subscribeEmbeddingProjection((p) => phases.push(p.kind))
+
+    const done = ensureEmbeddingProjection()
+    // Flush microtasks until the pipeline reaches the hanging projector.
+    for (let i = 0; i < 50 && getEmbeddingProjectionPhase().kind !== 'projecting'; i++) {
+      await Promise.resolve()
+    }
+
+    expect(getEmbeddingProjectionPhase().kind).toBe('projecting')
+
+    // Navigate away / invalidate mid-run.
+    invalidateEmbeddingProjection()
+    // Pipeline swallows the cancel internally (generation mismatch) — resolves cleanly.
+    await expect(done).resolves.toBeUndefined()
+    expect(getEmbeddingProjectionPhase().kind).toBe('idle')
+
+    unsub()
   })
 })
