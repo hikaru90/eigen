@@ -1941,6 +1941,21 @@ async function exerciseAccountMenu(page: Page): Promise<void> {
     await expect(page).toHaveURL(/\/eval/)
     await page.goto('/capture')
   }
+
+  await openAccountMenu(page)
+  await page.getByRole('link', { name: 'Give us Feedback', exact: true }).click()
+  await expect(page).toHaveURL(/\/feedback/)
+  await exerciseFeedbackSubmit(page)
+}
+
+/** Submit product feedback via the UI; server emails feedback@eigenmesh.de via useSend. */
+export async function exerciseFeedbackSubmit(page: Page): Promise<void> {
+  await page.goto('/feedback')
+  await expect(page.getByRole('heading', { name: 'Help shape Eigen Mesh' })).toBeVisible()
+  const note = `Release smoke feedback ${Date.now()}`
+  await page.getByLabel('Message').fill(note)
+  await page.getByRole('button', { name: 'Send feedback' }).click()
+  await expect(page.getByRole('status')).toContainText(/Got it/i, { timeout: 30_000 })
 }
 
 async function exerciseMemoryUi(page: Page): Promise<void> {

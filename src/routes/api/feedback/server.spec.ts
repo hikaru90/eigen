@@ -2,17 +2,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { isApiErrorBody } from '$lib/server/http/api-error'
 import { POST } from './+server'
 
-const { getDbMock } = vi.hoisted(() => ({
-  getDbMock: vi.fn(),
-}))
+const { getDbMock, assertFeedbackMailConfiguredMock, sendFeedbackInboxEmailMock } = vi.hoisted(
+  () => ({
+    getDbMock: vi.fn(),
+    assertFeedbackMailConfiguredMock: vi.fn(),
+    sendFeedbackInboxEmailMock: vi.fn(),
+  }),
+)
 
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
 }))
 
-function event(overrides: { user?: { id: string } | null; body?: unknown } = {}) {
+vi.mock('$lib/server/feedback/send-feedback-email', () => ({
+  assertFeedbackMailConfigured: assertFeedbackMailConfiguredMock,
+  sendFeedbackInboxEmail: sendFeedbackInboxEmailMock,
+}))
+
+function event(
+  overrides: { user?: { id: string; email?: string } | null; body?: unknown } = {},
+) {
   return {
-    locals: { user: overrides.user === undefined ? { id: 'u1' } : overrides.user },
+    locals: {
+      user:
+        overrides.user === undefined
+          ? { id: 'u1', email: 'u1@example.com' }
+          : overrides.user,
+    },
     request: new Request('http://localhost/api/feedback', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -32,6 +48,8 @@ function mockInsert(returnValue: { id: string } = { id: 'fb1' }) {
 describe('POST /api/feedback', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    assertFeedbackMailConfiguredMock.mockImplementation(() => {})
+    sendFeedbackInboxEmailMock.mockResolvedValue({ emailId: 'em_1' })
   })
 
   it('rejects unauthenticated requests with 401', async () => {
@@ -101,6 +119,40 @@ describe('POST /api/feedback', () => {
     )
     const body = await res.json()
     expect(body).toEqual({ ok: true, id: 'fb-xyz' })
+  })
+
+  it('emails the product inbox after persist', async () => {
+    mockInsert({ id: 'fb-xyz' })
+    const res = await POST(event({ body: { message: '  Love it  ' } }))
+    expect(res.status).toBe(201)
+    expect(assertFeedbackMailConfiguredMock).toHaveBeenCalledTimes(1)
+    expect(sendFeedbackInboxEmailMock).toHaveBeenCalledWith({
+      feedbackId: 'fb-xyz',
+      userId: 'u1',
+      userEmail: 'u1@example.com',
+      message: 'Love it',
+    })
+  })
+
+  it('rejects with 503 when transactional email is not configured', async () => {
+    assertFeedbackMailConfiguredMock.mockImplementation(() => {
+      throw new Error('Feedback email is not configured')
+    })
+    const { insert } = mockInsert()
+    const res = await POST(event())
+    expect(res.status).toBe(503)
+    expect(insert).not.toHaveBeenCalled()
+    expect(sendFeedbackInboxEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects with 502 when inbox email send fails after persist', async () => {
+    mockInsert({ id: 'fb-err' })
+    sendFeedbackInboxEmailMock.mockRejectedValue(new Error('useSend down'))
+    const res = await POST(event({ body: { message: 'still save me' } }))
+    expect(res.status).toBe(502)
+    const body = await res.json()
+    expect(isApiErrorBody(body)).toBe(true)
+    expect(body.error).toMatch(/email/i)
   })
 
   it('ignores extra fields and only stores the message', async () => {

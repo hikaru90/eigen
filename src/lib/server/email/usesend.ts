@@ -14,6 +14,8 @@ export type SendTransactionalEmailInput = {
   subject: string
   html: string
   text: string
+  /** Optional Reply-To so inbox replies reach the submitter. */
+  replyTo?: string
 }
 
 export type UseSendMailConfig = {
@@ -69,6 +71,7 @@ export async function sendTransactionalEmail(
       subject: input.subject,
       html: input.html,
       text: input.text,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
     }),
   })
 

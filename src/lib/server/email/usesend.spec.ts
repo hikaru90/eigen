@@ -80,6 +80,31 @@ describe('sendTransactionalEmail', () => {
     })
   })
 
+  it('includes replyTo when provided', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ emailId: 'em_2' }), { status: 200 }),
+    )
+
+    await sendTransactionalEmail(
+      {
+        USESEND_API_KEY: 'us_test',
+        USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
+        USESEND_EMAIL_FROM: 'hello@eigenmesh.de',
+      },
+      {
+        to: 'feedback@eigenmesh.de',
+        replyTo: 'user@example.com',
+        subject: 'Product feedback',
+        html: '<p>hi</p>',
+        text: 'hi',
+      },
+      fetchImpl as unknown as typeof fetch,
+    )
+
+    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.replyTo).toBe('user@example.com')
+  })
+
   it('throws with API error detail on non-OK response', async () => {
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ message: 'domain not verified' }), { status: 400 }),
