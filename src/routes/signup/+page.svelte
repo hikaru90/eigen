@@ -10,20 +10,35 @@
   import { signUpSchema } from '$lib/validation/auth'
   import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
   import { signupPlanSubtitle } from '$lib/auth/signup-plan'
+  import { websiteLegalUrl } from '$lib/legal/website-legal-urls'
   import type { PageData } from './$types'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
   const homeHref = websiteOrigin || resolve('/' as Pathname)
+  const termsHref = websiteLegalUrl('terms', websiteOrigin)
+  const privacyHref = websiteLegalUrl('privacy', websiteOrigin)
+  const imprintHref = websiteLegalUrl('imprint', websiteOrigin)
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
 
   let name = $state('')
   let email = $state('')
   let password = $state('')
-  let fieldErrors = $state<{ name?: string; email?: string; password?: string }>({})
+  let acceptTerms = $state(false)
+  let fieldErrors = $state<{
+    name?: string
+    email?: string
+    password?: string
+    acceptTerms?: string
+  }>({})
 
   function validate() {
-    const result = signUpSchema.safeParse({ name, email, password })
+    const result = signUpSchema.safeParse({
+      name,
+      email,
+      password,
+      acceptTerms: acceptTerms ? 'on' : undefined,
+    })
     if (result.success) {
       fieldErrors = {}
       return true
@@ -33,6 +48,7 @@
       name: flat.name?.[0],
       email: flat.email?.[0],
       password: flat.password?.[0],
+      acceptTerms: flat.acceptTerms?.[0],
     }
     return false
   }
@@ -68,17 +84,6 @@
           >
         </p>
       {:else}
-        {#if data.socialProviders.length > 0}
-          <AuthSocialButtons providers={data.socialProviders} />
-          <div class="relative py-1">
-            <div class="border-t border-black/10" aria-hidden="true"></div>
-            <p
-              class="text-muted-foreground absolute inset-x-0 top-1/2 -translate-y-1/2 bg-card px-2 text-center text-[10px] mx-auto w-fit"
-            >
-              or
-            </p>
-          </div>
-        {/if}
         <form
           method="post"
           action="?/signUpEmail"
@@ -88,6 +93,73 @@
             if (!validate()) e.preventDefault()
           }}
         >
+          <div class="space-y-1">
+            <label class="flex items-start gap-2 text-xs leading-snug" for="accept-terms">
+              <input
+                id="accept-terms"
+                type="checkbox"
+                name="acceptTerms"
+                value="on"
+                bind:checked={acceptTerms}
+                class="mt-0.5 size-3.5 shrink-0"
+                aria-describedby={fieldErrors.acceptTerms ? 'accept-terms-error' : undefined}
+              />
+              <span>
+                I accept the
+                <a
+                  href={termsHref}
+                  class="text-foreground underline underline-offset-2"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Terms of Service (AGB)
+                </a>
+                and
+                <a
+                  href={privacyHref}
+                  class="text-foreground underline underline-offset-2"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Privacy Policy
+                </a>
+                , including receiving emails related to my account and the Service.
+                <span class="text-muted-foreground">
+                  (
+                  <a
+                    href={imprintHref}
+                    class="underline underline-offset-2"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Imprint
+                  </a>
+                  )
+                </span>
+              </span>
+            </label>
+            {#if fieldErrors.acceptTerms}
+              <p id="accept-terms-error" class="text-destructive text-xs">{fieldErrors.acceptTerms}</p>
+            {/if}
+          </div>
+
+          {#if data.socialProviders.length > 0}
+            <AuthSocialButtons providers={data.socialProviders} disabled={!acceptTerms} />
+            {#if !acceptTerms}
+              <p class="text-muted-foreground text-[10px]">
+                Accept the Terms of Service (AGB) above before continuing with a social provider.
+              </p>
+            {/if}
+            <div class="relative py-1">
+              <div class="border-t border-black/10" aria-hidden="true"></div>
+              <p
+                class="text-muted-foreground absolute inset-x-0 top-1/2 -translate-y-1/2 bg-card px-2 text-center text-[10px] mx-auto w-fit"
+              >
+                or
+              </p>
+            </div>
+          {/if}
+
           <div class="space-y-1">
             <Label for="name">Name</Label>
             <input

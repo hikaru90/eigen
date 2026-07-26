@@ -33,14 +33,16 @@ export const actions: Actions = {
     const name = formData.get('name')?.toString()?.trim() ?? ''
     const email = formData.get('email')?.toString() ?? ''
     const password = formData.get('password')?.toString() ?? ''
+    const acceptTerms = formData.get('acceptTerms')
 
-    const validation = signUpSchema.safeParse({ name, email, password })
+    const validation = signUpSchema.safeParse({ name, email, password, acceptTerms })
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors
       const message =
         fieldErrors.name?.[0] ||
         fieldErrors.email?.[0] ||
         fieldErrors.password?.[0] ||
+        fieldErrors.acceptTerms?.[0] ||
         'Registration failed'
       return fail(400, { message })
     }

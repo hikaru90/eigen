@@ -6,9 +6,12 @@
   let {
     providers,
     callbackURL = '/capture',
+    disabled = false,
   }: {
     providers: SocialProviderId[]
     callbackURL?: string
+    /** When true, social buttons do not start OAuth (e.g. terms not accepted). */
+    disabled?: boolean
   } = $props()
 
   let busy = $state<SocialProviderId | null>(null)
@@ -27,6 +30,7 @@
   }
 
   async function signInWith(provider: SocialProviderId) {
+    if (disabled) return
     busy = provider
     errorMessage = null
     try {
@@ -45,7 +49,7 @@
         type="button"
         variant="outline"
         class={providerButtonClass(provider)}
-        disabled={busy !== null}
+        disabled={disabled || busy !== null}
         onclick={() => signInWith(provider)}
       >
         {#if provider === 'google'}

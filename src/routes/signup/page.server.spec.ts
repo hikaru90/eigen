@@ -34,7 +34,12 @@ describe('signup page server', () => {
   it('returns validation error for empty name', async () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
-      body: new URLSearchParams({ name: '', email: 'test@example.com', password: 'pass1234' }),
+      body: new URLSearchParams({
+        name: '',
+        email: 'test@example.com',
+        password: 'pass1234',
+        acceptTerms: 'on',
+      }),
     })
     const result = await actions.signUpEmail({ request } as never)
     expect(result).toMatchObject({ status: 400, data: { message: 'Name is required' } })
@@ -43,7 +48,12 @@ describe('signup page server', () => {
   it('returns validation error for empty email', async () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
-      body: new URLSearchParams({ name: 'Test User', email: '', password: 'pass1234' }),
+      body: new URLSearchParams({
+        name: 'Test User',
+        email: '',
+        password: 'pass1234',
+        acceptTerms: 'on',
+      }),
     })
     const result = await actions.signUpEmail({ request } as never)
     expect(result).toMatchObject({ status: 400, data: { message: 'Invalid email address' } })
@@ -56,6 +66,7 @@ describe('signup page server', () => {
         name: 'Test User',
         email: 'invalid-email',
         password: 'pass1234',
+        acceptTerms: 'on',
       }),
     })
     const result = await actions.signUpEmail({ request } as never)
@@ -69,6 +80,7 @@ describe('signup page server', () => {
         name: 'Test User',
         email: 'test@example.com',
         password: 'short',
+        acceptTerms: 'on',
       }),
     })
     const result = await actions.signUpEmail({ request } as never)
@@ -76,6 +88,21 @@ describe('signup page server', () => {
       status: 400,
       data: { message: 'Password must be at least 8 characters' },
     })
+  })
+
+  it('returns validation error when terms are not accepted', async () => {
+    const request = new Request('http://localhost/signup', {
+      method: 'POST',
+      body: new URLSearchParams({
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'pass1234',
+      }),
+    })
+    const result = await actions.signUpEmail({ request } as never)
+    expect(result).toMatchObject({ status: 400 })
+    expect(result.data.message).toMatch(/terms|AGB/i)
+    expect(signUpEmailMock).not.toHaveBeenCalled()
   })
 
   it('returns auth error on sign-up failure', async () => {
@@ -86,6 +113,7 @@ describe('signup page server', () => {
         name: 'Test User',
         email: 'test@example.com',
         password: 'pass1234',
+        acceptTerms: 'on',
       }),
     })
     const result = await actions.signUpEmail({ request } as never)
@@ -102,6 +130,7 @@ describe('signup page server', () => {
         name: 'Test User',
         email: 'test@example.com',
         password: 'pass1234',
+        acceptTerms: 'on',
       }),
     })
     const result = await actions.signUpEmail({ request } as never)
@@ -119,6 +148,7 @@ describe('signup page server', () => {
         name: 'Test User',
         email: 'test@example.com',
         password: 'pass1234',
+        acceptTerms: 'on',
       }),
     })
     const result = await actions.signUpEmail({ request } as never)

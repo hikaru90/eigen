@@ -41,6 +41,19 @@ test.describe('Release smoke @release', () => {
 
     let email = ''
 
+    await test.step('signup legal links point at the marketing website', async () => {
+      await page.goto('/signup')
+      const terms = page.getByRole('link', { name: /Terms of Service \(AGB\)/i })
+      const privacy = page.getByRole('link', { name: /Privacy Policy/i })
+      const imprint = page.getByRole('link', { name: /^Imprint$/i })
+      await expect(terms).toHaveAttribute('href', /\/terms$/)
+      await expect(privacy).toHaveAttribute('href', /\/privacy$/)
+      await expect(imprint).toHaveAttribute('href', /\/imprint$/)
+      // Legal docs are hosted on the website, not in the app.
+      await expect(terms).toHaveAttribute('href', /^https?:\/\//)
+      await expect(page.getByRole('checkbox', { name: /Terms of Service|AGB/i })).toBeVisible()
+    })
+
     await test.step('create account', async () => {
       ;({ email } = await registerUser(context, page, { emailDomain: 'example.com' }))
       await expect(page).toHaveURL(/\/capture/)

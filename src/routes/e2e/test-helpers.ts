@@ -40,6 +40,10 @@ export async function registerUser(
   await expect(emailInput).toHaveValue(email)
   await expect(passwordInput).toHaveValue(TEST_PASSWORD)
 
+  const terms = page.getByRole('checkbox', { name: /Terms of Service|AGB/i })
+  await terms.check()
+  await expect(terms).toBeChecked()
+
   await page.getByRole('button', { name: 'Create account' }).click()
 
   await completeEmailVerificationIfRequired(page, email)
