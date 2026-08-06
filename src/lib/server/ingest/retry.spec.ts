@@ -84,4 +84,17 @@ describe('runIngestWithRetries', () => {
     ).rejects.toThrow(/Fatal ingest error \(no retry\)/)
     expect(n).toBe(1)
   })
+
+  it('treats InvalidMemoryTypeError as fatal without outer retries', async () => {
+    let n = 0
+    const invalid = new Error('extractThoughtMetadata: invalid memoryType "task"')
+    invalid.name = 'InvalidMemoryTypeError'
+    await expect(
+      runIngestWithRetries(async () => {
+        n++
+        throw invalid
+      }),
+    ).rejects.toThrow(/Fatal ingest error \(no retry\)/)
+    expect(n).toBe(1)
+  })
 })

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { extractThoughtMetadata, normalizeMemoryType } from './extract-thought-metadata'
+import { MEMORY_TYPE_KEYS, THOUGHT_CATEGORY_ONLY_KEYS } from './memory-type-catalog'
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
@@ -92,7 +93,7 @@ describe('extractThoughtMetadata', () => {
     expect(llmChatCompletionMock.mock.calls[0]?.[0]?.responseFormat).toBe('json_object')
   })
 
-  it('retries with strict prompt when first pass returns drift label', async () => {
+  it('retries with category-confusion prompt when first pass returns drift label', async () => {
     llmChatCompletionMock
       .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
       .mockResolvedValueOnce(
@@ -107,6 +108,34 @@ describe('extractThoughtMetadata', () => {
     expect(result.memoryType).toBe('episode')
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
     expect(llmChatCompletionMock.mock.calls[1]?.[0]?.messages?.[1]?.content).toContain('task')
+  })
+
+  it('strict pass omits forbidden category keys and accepts a valid memoryType', async () => {
+    llmChatCompletionMock
+      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
+      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
+      .mockResolvedValueOnce(
+        makeResponse(JSON.stringify({ memoryType: 'decision', cues: ['elster account'] })),
+      )
+
+    const result = await extractThoughtMetadata({
+      userId: 'u1',
+      normalizedText:
+        'Todo: I must create an Elster account for each of my companies for tax purposes.',
+    })
+
+    expect(result.memoryType).toBe('decision')
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(3)
+    const strictPrompt = llmChatCompletionMock.mock.calls[2]?.[0]?.messages?.[1]?.content as string
+    expect(strictPrompt).not.toContain('FORBIDDEN memoryType values')
+    expect(strictPrompt).not.toContain('category and memoryType are DIFFERENT fields')
+    for (const key of THOUGHT_CATEGORY_ONLY_KEYS) {
+      expect(strictPrompt).not.toMatch(new RegExp(`\\b${key}\\b`))
+    }
+    for (const key of MEMORY_TYPE_KEYS) {
+      expect(strictPrompt).toContain(key)
+    }
+    expect(strictPrompt).toMatch(/choose ONLY from/i)
   })
 
   it('throws when memoryType is invalid on both passes', async () => {

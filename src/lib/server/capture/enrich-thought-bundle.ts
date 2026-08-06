@@ -55,6 +55,7 @@ import {
   CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
   categoryConfusionRetryRule,
   MEMORY_TYPE_KEY_UNION,
+  STRICT_MEMORY_TYPE_FORCED_CHOICE,
 } from '$lib/server/memory/memory-type-catalog'
 
 export type EnrichThoughtBundleResult = {
@@ -114,26 +115,19 @@ function buildEnrichThoughtBundlePrompt(input: {
   )
   const knownEntitiesBlock = formatKnownEntitiesBlock(context.knownEntities)
 
-  const strictMemoryRule =
-    input.pass === 'retry_strict_memory_type'
-      ? [
-          input.rejectedMemoryType
-            ? `Your previous memoryType "${input.rejectedMemoryType}" was rejected.`
-            : 'Your previous memoryType was rejected.',
-          `memoryType must be copied exactly from: ${MEMORY_TYPE_KEY_UNION}.`,
-          'Do not use thought category keys or free-form labels.',
-        ].join(' ')
-      : input.pass === 'retry_category_confusion' && input.rejectedMemoryType
-        ? categoryConfusionRetryRule(input.rejectedMemoryType)
-        : ''
+  const isStrictMemoryType = input.pass === 'retry_strict_memory_type'
+  const strictMemoryRule = isStrictMemoryType
+    ? STRICT_MEMORY_TYPE_FORCED_CHOICE
+    : input.pass === 'retry_category_confusion' && input.rejectedMemoryType
+      ? categoryConfusionRetryRule(input.rejectedMemoryType)
+      : ''
 
   const capturedIso = capturedAt.toISOString()
 
   return [
     captureBlock,
     '',
-    CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
-    '',
+    ...(isStrictMemoryType ? [] : [CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION, '']),
     'Return ONLY JSON with this shape:',
     '{',
     '  "category": { "key": "<thought_category_key>", "confidence": 0.0-1.0, "alternatives": [{"key":"...","confidence":0.0}] },',
@@ -147,7 +141,9 @@ function buildEnrichThoughtBundlePrompt(input: {
     `category.key must be exactly one of: ${categoryKeys.join(', ')}.`,
     'alternatives: max 3 other plausible category keys with confidence.',
     '',
-    `memoryType must be exactly one of: ${MEMORY_TYPE_KEY_UNION} — never copy category.key into memoryType.`,
+    isStrictMemoryType
+      ? null
+      : `memoryType must be exactly one of: ${MEMORY_TYPE_KEY_UNION} — never copy category.key into memoryType.`,
     CUES_FROM_CAPTURE_RULE,
     strictMemoryRule,
     '',

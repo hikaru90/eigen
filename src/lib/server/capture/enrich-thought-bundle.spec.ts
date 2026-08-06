@@ -208,6 +208,61 @@ describe('extractEnrichThoughtBundle', () => {
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
     expect(result.metadata.memoryType).toBe('fact')
   })
+
+  it('strict memoryType pass omits forbidden-key priming and resolves with valid type', async () => {
+    const taskPayload = {
+      category: { key: 'observation', confidence: 0.9, alternatives: [] },
+      memoryType: 'task',
+      cues: ['elster account setup'],
+      temporalMentions: [],
+      mentions: [],
+      triples: [],
+    }
+    llmChatCompletionMock
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: JSON.stringify(taskPayload) } }],
+      })
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: JSON.stringify(taskPayload) } }],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                category: { key: 'observation', confidence: 0.9, alternatives: [] },
+                memoryType: 'decision',
+                cues: ['elster account setup'],
+                temporalMentions: [],
+                mentions: [],
+                triples: [],
+              }),
+            },
+          },
+        ],
+      })
+
+    const result = await extractEnrichThoughtBundle({
+      context: makeContext({
+        normalizedText:
+          'Todo: I must create an Elster account for each of my companies for tax purposes.',
+        rawText:
+          'Todo: I must create an Elster account for each of my companies for tax purposes.',
+      }),
+      capturedAt: new Date('2026-07-03T20:00:10.501Z'),
+      timezone: 'Europe/Berlin',
+      ontologyEntityKinds: [{ key: 'technology', name: 'Technology', definition: 'Software tool' }],
+    })
+
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(3)
+    expect(result.metadata.memoryType).toBe('decision')
+    const strictPrompt = llmChatCompletionMock.mock.calls[2]?.[0]?.messages?.[1]?.content as string
+    expect(strictPrompt).not.toContain('FORBIDDEN memoryType values')
+    expect(strictPrompt).not.toContain('category and memoryType are DIFFERENT fields')
+    expect(strictPrompt).toMatch(/choose ONLY from/i)
+    expect(strictPrompt).toContain('episode')
+    expect(strictPrompt).toContain('decision')
+  })
 })
 
 describe('enrichThoughtBundleInternals.buildEnrichThoughtBundlePrompt', () => {
@@ -221,5 +276,21 @@ describe('enrichThoughtBundleInternals.buildEnrichThoughtBundlePrompt', () => {
     })
     const matches = prompt.match(/supplementary background only/g) ?? []
     expect(matches.length).toBe(1)
+  })
+
+  it('strict memoryType pass omits category/memoryType disambiguation priming', () => {
+    const prompt = enrichThoughtBundleInternals.buildEnrichThoughtBundlePrompt({
+      context: makeContext(),
+      capturedAt: new Date('2026-07-03T20:00:10.501Z'),
+      timezone: 'Europe/Berlin',
+      ontologyEntityKinds: [{ key: 'technology', name: 'Technology', definition: 'Software tool' }],
+      pass: 'retry_strict_memory_type',
+      rejectedMemoryType: 'task',
+    })
+    expect(prompt).not.toContain('FORBIDDEN memoryType values')
+    expect(prompt).not.toContain('category and memoryType are DIFFERENT fields')
+    expect(prompt).toMatch(/choose ONLY from/i)
+    expect(prompt).toContain('episode')
+    expect(prompt).toContain('decision')
   })
 })

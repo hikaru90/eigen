@@ -28,6 +28,8 @@ export function isFatalIngestError(e: unknown): e is FatalIngestError {
 function isNonRetryable(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   if (error.name === 'InsufficientCreditsError') return true
+  // Deterministic LLM ontology contract violation — inner correction already exhausted.
+  if (error.name === 'InvalidMemoryTypeError') return true
   // Gateway-level insufficient balance — classified by type + status, never by message text.
   if (error instanceof LlmHttpError && error.status === 402) return true
   return false

@@ -70,3 +70,14 @@ export function categoryConfusionRetryRule(rejectedMemoryType: string): string {
     'Do not repeat category keys in memoryType.',
   ].join(' ')
 }
+
+/**
+ * Strict retry: forced choice over canonical memoryTypes only.
+ * Intentionally does NOT name rejected category keys (no priming).
+ */
+export const STRICT_MEMORY_TYPE_FORCED_CHOICE = [
+  'Your previous memoryType was rejected.',
+  'memoryType — choose ONLY from: episode (a specific event), fact (a standing truth), decision (a committed choice/resolution), concern (a worry/risk), preference (a personal tendency), pattern (a recurring tendency about oneself or a situation).',
+  'Pick exactly one. No other strings.',
+].join(' ')
+

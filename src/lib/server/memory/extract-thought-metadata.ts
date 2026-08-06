@@ -14,6 +14,7 @@ import {
   isThoughtCategoryKeyConfusion,
   MEMORY_TYPE_KEY_UNION,
   normalizeMemoryType,
+  STRICT_MEMORY_TYPE_FORCED_CHOICE,
 } from '$lib/server/memory/memory-type-catalog'
 
 export { normalizeMemoryType } from '$lib/server/memory/memory-type-catalog'
@@ -94,38 +95,37 @@ async function extractThoughtMetadataOnce(
 ): Promise<ThoughtMetadataExtraction> {
   const captureBlock = capturePrimaryPromptBlock({ normalizedText: input.normalizedText })
   const groundingBlock = groundingSupplementaryPromptBlock(input.groundingProfile ?? null)
-  const strictRule =
-    pass === 'retry_strict'
-      ? [
-          rejectedMemoryType
-            ? `Your previous memoryType "${rejectedMemoryType}" was rejected.`
-            : 'Your previous memoryType was rejected.',
-          `memoryType must be copied exactly from this list with no other strings: ${MEMORY_TYPE_KEY_UNION}.`,
-          'Do not use thought category keys or free-form labels.',
-        ].join(' ')
-      : pass === 'retry_category_confusion' && rejectedMemoryType
-        ? categoryConfusionRetryRule(rejectedMemoryType)
-        : ''
+  const isStrict = pass === 'retry_strict'
+  const strictRule = isStrict
+    ? STRICT_MEMORY_TYPE_FORCED_CHOICE
+    : pass === 'retry_category_confusion' && rejectedMemoryType
+      ? categoryConfusionRetryRule(rejectedMemoryType)
+      : ''
 
   const prompt = [
     captureBlock,
     '',
-    CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
-    '',
+    ...(isStrict
+      ? []
+      : [CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION, '']),
     'Return ONLY JSON with this shape:',
     '{',
     `  "memoryType": "${MEMORY_TYPE_KEY_UNION}",`,
     '  "cues": ["2-8 word search phrase", "..."]',
     '}',
     '',
-    'memoryType — exactly one of:',
-    '  episode    — a specific event or experience that happened',
-    '  fact       — a standing truth, reference, or factual note',
-    '  decision   — a committed choice or resolution',
-    '  concern    — a worry, risk, or anxiety',
-    '  preference — a personal tendency, habit, or like/dislike',
-    '  pattern    — a recurring observation about oneself or a situation',
-    '',
+    ...(isStrict
+      ? []
+      : [
+          'memoryType — exactly one of:',
+          '  episode    — a specific event or experience that happened',
+          '  fact       — a standing truth, reference, or factual note',
+          '  decision   — a committed choice or resolution',
+          '  concern    — a worry, risk, or anxiety',
+          '  preference — a personal tendency, habit, or like/dislike',
+          '  pattern    — a recurring observation about oneself or a situation',
+          '',
+        ]),
     CUES_FROM_CAPTURE_RULE,
     strictRule,
     '',
