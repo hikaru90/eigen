@@ -1,36 +1,17 @@
 /**
  * Memory type classification.
  *
- * Classifies a captured thought into one of seven structured memory types:
+ * Classifies a captured thought into one of the structured memory types
+ * (see MEMORY_TYPE_KEYS / memoryTypeEnum). Used by consolidation, retrieval
+ * weighting, and community summary prompts.
  *
- *   episode    — a specific event or experience ("Met with Anna, she pushed back")
- *   fact       — a standing truth or reference ("Anna is head of product at X")
- *   decision   — a committed choice ("We decided to go with option B")
- *   concern    — a worry or risk ("I'm worried the contract is at risk")
- *   preference — a personal tendency ("I work better in the morning")
- *   pattern    — a recurring observation ("Whenever stressed I defer decisions")
- *
- * The type is used by:
- *   - consolidation jobs (facts can merge; episodes shouldn't)
- *   - retrieval weighting (tasks boost salience until resolved via thought category)
- *   - community summary prompts
+ * Prefer extractThoughtMetadata / enrich-thought-bundle in the capture path;
+ * this standalone classifier remains for callers that only need the type key.
  */
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import type { MemoryType } from '$lib/server/db/brain.schema'
-
-const VALID_MEMORY_TYPES: MemoryType[] = [
-  'episode',
-  'fact',
-  'decision',
-  'concern',
-  'preference',
-  'pattern',
-]
-
-function isMemoryType(value: unknown): value is MemoryType {
-  return typeof value === 'string' && (VALID_MEMORY_TYPES as string[]).includes(value)
-}
+import { MEMORY_TYPE_KEYS, normalizeMemoryType } from '$lib/server/memory/memory-type-catalog'
 
 /**
  * Returns the memory type for a thought.
@@ -48,6 +29,7 @@ export async function classifyMemoryType(input: {
     '  concern    — a worry, risk, or anxiety',
     '  preference — a personal tendency, habit, or like/dislike',
     '  pattern    — a recurring observation about oneself or a situation',
+    '  task       — actionable open work, a to-do, or work in progress',
     '',
     'Return ONLY the single type key, no other text.',
     '',
@@ -75,9 +57,13 @@ export async function classifyMemoryType(input: {
     throw new Error('classifyMemoryType: content is not a string')
   }
 
-  const raw = content.trim().toLowerCase()
-  if (!isMemoryType(raw)) {
-    throw new Error(`classifyMemoryType: unexpected type "${raw}"`)
+  const memoryType = normalizeMemoryType(content)
+  if (!memoryType) {
+    throw new Error(`classifyMemoryType: unexpected type "${content.trim().toLowerCase()}"`)
   }
-  return raw
+  // Exhaustiveness guard — normalizeMemoryType already constrains to MEMORY_TYPE_KEYS.
+  if (!(MEMORY_TYPE_KEYS as readonly string[]).includes(memoryType)) {
+    throw new Error(`classifyMemoryType: unexpected type "${memoryType}"`)
+  }
+  return memoryType
 }

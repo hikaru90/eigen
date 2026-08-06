@@ -114,6 +114,20 @@ describe('isTaskListItem', () => {
     ).toBe(true)
   })
 
+  it('recognizes canonical task memory type rows', () => {
+    expect(
+      isTaskListItem(
+        item({
+          id: 'event-uuid',
+          itemType: 'event',
+          thoughtCategory: 'observation',
+          memoryType: 'task',
+          kind: 'reminder',
+        }),
+      ),
+    ).toBe(true)
+  })
+
   it('does not treat non-task temporal events as tasks', () => {
     expect(
       isTaskListItem(

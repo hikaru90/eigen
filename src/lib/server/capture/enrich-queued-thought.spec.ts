@@ -5,6 +5,7 @@ const {
   createThoughtEmbeddingMock,
   applyCaptureContentSplitIfNeededMock,
   extractEnrichThoughtBundleMock,
+  extractThoughtMetadataMock,
   enrichThoughtMock,
   loadEnrichmentContextMock,
   decryptTenantValueMock,
@@ -24,6 +25,7 @@ const {
   createThoughtEmbeddingMock: vi.fn(),
   applyCaptureContentSplitIfNeededMock: vi.fn(),
   extractEnrichThoughtBundleMock: vi.fn(),
+  extractThoughtMetadataMock: vi.fn(),
   enrichThoughtMock: vi.fn(),
   loadEnrichmentContextMock: vi.fn(),
   decryptTenantValueMock: vi.fn(),
@@ -47,6 +49,9 @@ vi.mock('$lib/server/capture/apply-capture-content-split', () => ({
 }))
 vi.mock('$lib/server/capture/enrich-thought-bundle', () => ({
   extractEnrichThoughtBundle: extractEnrichThoughtBundleMock,
+}))
+vi.mock('$lib/server/memory/extract-thought-metadata', () => ({
+  extractThoughtMetadata: extractThoughtMetadataMock,
 }))
 vi.mock('$lib/server/capture/enrich', () => ({ enrichThought: enrichThoughtMock }))
 vi.mock('$lib/server/capture/enrichment-context', () => ({
@@ -149,10 +154,11 @@ const baseContext = {
 
 const baseBundle = {
   category: { key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] },
-  metadata: { memoryType: 'episode', cues: ['cue'] },
   temporalMentions: [],
   entityGraph: { mentions: [], triples: [] },
 }
+
+const baseMetadata = { memoryType: 'episode' as const, cues: ['cue'] }
 
 describe('enrichQueuedThought', () => {
   beforeEach(() => {
@@ -164,6 +170,7 @@ describe('enrichQueuedThought', () => {
     loadEnrichmentContextMock.mockResolvedValue(baseContext)
     createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2])
     extractEnrichThoughtBundleMock.mockResolvedValue(baseBundle)
+    extractThoughtMetadataMock.mockResolvedValue(baseMetadata)
     shouldRetryEntityMentionExtractionMock.mockReturnValue(false)
     getUserPreferredTimezoneMock.mockResolvedValue('UTC')
     encryptTenantValueMock.mockImplementation(
@@ -204,7 +211,14 @@ describe('enrichQueuedThought', () => {
       'u1',
       't1',
       'raw input',
-      expect.objectContaining({ thoughtEmbedding: [0.1, 0.2], deferRelations: true }),
+      expect.objectContaining({
+        thoughtEmbedding: [0.1, 0.2],
+        deferRelations: true,
+        precomputedMetadata: baseMetadata,
+      }),
+    )
+    expect(extractThoughtMetadataMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', normalizedText: 'raw input' }),
     )
     expect(markEnrichQueueCompleteMock).toHaveBeenCalledWith('t1')
     expect(notifyThoughtEnrichedMock).toHaveBeenCalledWith(

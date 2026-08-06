@@ -20,13 +20,16 @@ describe('eval memoryType validation', () => {
       'concern',
       'preference',
       'pattern',
+      'task',
     ] as const) {
       expect(isPersistedMemoryTypeValid(key)).toBe(true)
     }
   })
 
-  it('treats decision as valid memoryType even though it is also a category key', () => {
+  it('treats decision and task as valid memoryType even though they are also category keys', () => {
     expect(isThoughtCategoryKeyConfusion('decision')).toBe(false)
     expect(isPersistedMemoryTypeValid('decision')).toBe(true)
+    expect(isThoughtCategoryKeyConfusion('task')).toBe(false)
+    expect(isPersistedMemoryTypeValid('task')).toBe(true)
   })
 })

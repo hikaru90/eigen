@@ -1,6 +1,8 @@
 /**
- * Single LLM call for tier-2 enrich prefetch: category, metadata, temporal, and entity graph.
- * Grounding profile and shared context are injected once per capture.
+ * Single LLM call for tier-2 enrich prefetch: category, temporal, and entity graph.
+ * memoryType + cues are classified separately via extractThoughtMetadata so the model
+ * never fills memoryType in the same JSON as the thought_category catalog (root cause
+ * of category-key leakage into memoryType).
  */
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db'
@@ -8,7 +10,6 @@ import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
 import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
 import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
 import {
-  CUES_FROM_CAPTURE_RULE,
   capturePrimaryPromptBlock,
   groundingSupplementaryPromptBlock,
 } from '$lib/server/capture/enrichment-prompt-sections'
@@ -37,11 +38,6 @@ import {
   formatKnownGraphEntitiesPromptBlock,
   type EntityGraphEnrichmentContext,
 } from '$lib/server/memory/entity-graph-enrichment-context'
-import {
-  InvalidMemoryTypeError,
-  parseThoughtMetadataFields,
-  type ThoughtMetadataExtraction,
-} from '$lib/server/memory/extract-thought-metadata'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import {
   applyCaptureAnchoredMentions,
@@ -51,21 +47,11 @@ import {
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 
-import {
-  CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION,
-  categoryConfusionRetryRule,
-  MEMORY_TYPE_KEY_UNION,
-  STRICT_MEMORY_TYPE_FORCED_CHOICE,
-} from '$lib/server/memory/memory-type-catalog'
-
 export type EnrichThoughtBundleResult = {
   category: ResolvedThoughtOntologyKind
-  metadata: ThoughtMetadataExtraction
   temporalMentions: ExtractedTemporalMention[]
   entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
 }
-
-type BundlePass = 'default' | 'retry_category_confusion' | 'retry_strict_memory_type'
 
 function buildSessionContextBlock(recentThoughts: EnrichmentContext['recentThoughts']): string {
   if (recentThoughts.length === 0) return ''
@@ -86,8 +72,6 @@ function buildEnrichThoughtBundlePrompt(input: {
   timezone: string
   entityEnrichmentContext?: EntityGraphEnrichmentContext
   ontologyEntityKinds: OntologyEntityKindForExtraction[]
-  pass: BundlePass
-  rejectedMemoryType?: string
 }): string {
   const { context, capturedAt, timezone, entityEnrichmentContext, ontologyEntityKinds } = input
   const activeCategoryKinds = context.ontology.entityKinds.filter(
@@ -115,24 +99,14 @@ function buildEnrichThoughtBundlePrompt(input: {
   )
   const knownEntitiesBlock = formatKnownEntitiesBlock(context.knownEntities)
 
-  const isStrictMemoryType = input.pass === 'retry_strict_memory_type'
-  const strictMemoryRule = isStrictMemoryType
-    ? STRICT_MEMORY_TYPE_FORCED_CHOICE
-    : input.pass === 'retry_category_confusion' && input.rejectedMemoryType
-      ? categoryConfusionRetryRule(input.rejectedMemoryType)
-      : ''
-
   const capturedIso = capturedAt.toISOString()
 
   return [
     captureBlock,
     '',
-    ...(isStrictMemoryType ? [] : [CATEGORY_VS_MEMORY_TYPE_DISAMBIGUATION, '']),
     'Return ONLY JSON with this shape:',
     '{',
     '  "category": { "key": "<thought_category_key>", "confidence": 0.0-1.0, "alternatives": [{"key":"...","confidence":0.0}] },',
-    `  "memoryType": "${MEMORY_TYPE_KEY_UNION}",`,
-    '  "cues": ["2-8 word search phrase", "..."],',
     '  "temporalMentions": [],',
     '  "mentions": [{"surface":"<text as written>","entityType":"<key>","confidence":0.0-1.0}],',
     '  "triples": [{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]',
@@ -140,12 +114,6 @@ function buildEnrichThoughtBundlePrompt(input: {
     '',
     `category.key must be exactly one of: ${categoryKeys.join(', ')}.`,
     'alternatives: max 3 other plausible category keys with confidence.',
-    '',
-    isStrictMemoryType
-      ? null
-      : `memoryType must be exactly one of: ${MEMORY_TYPE_KEY_UNION} — never copy category.key into memoryType.`,
-    CUES_FROM_CAPTURE_RULE,
-    strictMemoryRule,
     '',
     `temporalMentions: array of temporal objects for dates/deadlines in the capture; use [] when none.`,
     `Capture anchor: ${capturedIso}, timezone ${timezone}. Set timezone to "${timezone}" unless text names another.`,
@@ -259,7 +227,6 @@ function parseEnrichThoughtBundleContent(input: {
 
   return {
     category: parseCategoryFromBundle(input.context.ontology, obj.category),
-    metadata: parseThoughtMetadataFields(obj),
     temporalMentions: parseTemporalFromBundle(obj.temporalMentions, input.capturedAt),
     entityGraph: parseEntityGraphFromBundle(
       obj,
@@ -269,21 +236,19 @@ function parseEnrichThoughtBundleContent(input: {
   }
 }
 
-async function extractEnrichThoughtBundleOnce(input: {
+export async function extractEnrichThoughtBundle(input: {
   context: EnrichmentContext
   capturedAt: Date
   timezone: string
   entityEnrichmentContext?: EntityGraphEnrichmentContext
   ontologyEntityKinds: OntologyEntityKindForExtraction[]
-  pass: BundlePass
-  rejectedMemoryType?: string
 }): Promise<EnrichThoughtBundleResult> {
-  const userPrompt = buildEnrichThoughtBundlePrompt({ ...input, pass: input.pass })
+  const userPrompt = buildEnrichThoughtBundlePrompt(input)
   const messages: ChatMessage[] = [
     {
       role: 'system',
       content:
-        'You enrich one personal memory capture: assign category, memory type, search cues, temporal mentions, and entity graph structure. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
+        'You enrich one personal memory capture: assign category, temporal mentions, and entity graph structure. Do not classify memoryType or search cues — those are handled separately. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
     },
     { role: 'user', content: userPrompt },
   ]
@@ -292,7 +257,6 @@ async function extractEnrichThoughtBundleOnce(input: {
     console.info('[enrich-thought-bundle] LLM request', {
       userId: input.context.userId.slice(0, 8),
       promptChars: userPrompt.length,
-      pass: input.pass,
     })
   }
 
@@ -311,53 +275,6 @@ async function extractEnrichThoughtBundleOnce(input: {
     ontologyEntityKinds: input.ontologyEntityKinds,
     entityEnrichmentContext: input.entityEnrichmentContext,
   })
-}
-
-export async function extractEnrichThoughtBundle(input: {
-  context: EnrichmentContext
-  capturedAt: Date
-  timezone: string
-  entityEnrichmentContext?: EntityGraphEnrichmentContext
-  ontologyEntityKinds: OntologyEntityKindForExtraction[]
-}): Promise<EnrichThoughtBundleResult> {
-  try {
-    return await extractEnrichThoughtBundleOnce({ ...input, pass: 'default' })
-  } catch (err) {
-    if (!(err instanceof InvalidMemoryTypeError)) throw err
-    if (err.categoryKeyConfusion) {
-      console.warn('[enrich-thought-bundle] category key in memoryType slot; retrying', {
-        userId: input.context.userId,
-        rejected: err.raw,
-      })
-      try {
-        return await extractEnrichThoughtBundleOnce({
-          ...input,
-          pass: 'retry_category_confusion',
-          rejectedMemoryType: err.raw,
-        })
-      } catch (retryErr) {
-        if (!(retryErr instanceof InvalidMemoryTypeError)) throw retryErr
-        console.warn('[enrich-thought-bundle] category confusion retry failed; strict pass', {
-          userId: input.context.userId,
-          rejected: retryErr.raw,
-        })
-        return extractEnrichThoughtBundleOnce({
-          ...input,
-          pass: 'retry_strict_memory_type',
-          rejectedMemoryType: retryErr.raw,
-        })
-      }
-    }
-    console.warn('[enrich-thought-bundle] invalid memoryType; retrying strict', {
-      userId: input.context.userId,
-      rejected: err.raw,
-    })
-    return extractEnrichThoughtBundleOnce({
-      ...input,
-      pass: 'retry_strict_memory_type',
-      rejectedMemoryType: err.raw,
-    })
-  }
 }
 
 /** @internal — tests */

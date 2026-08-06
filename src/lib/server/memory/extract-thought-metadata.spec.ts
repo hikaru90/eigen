@@ -57,9 +57,29 @@ describe('extractThoughtMetadata', () => {
     expect(result.cues).toEqual(['follow up marcus'])
   })
 
-  it('returns null for drift labels without synonym remapping', () => {
+  it('returns null for category-only drift labels without synonym remapping', () => {
     expect(normalizeMemoryType('idea')).toBeNull()
-    expect(normalizeMemoryType('task')).toBeNull()
+    expect(normalizeMemoryType('observation')).toBeNull()
+  })
+
+  it('accepts task as a canonical memoryType on first pass', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      makeResponse(
+        JSON.stringify({
+          memoryType: 'task',
+          cues: ['hydra npt thread', 'resin print tolerance'],
+        }),
+      ),
+    )
+
+    const result = await extractThoughtMetadata({
+      userId: 'u1',
+      normalizedText:
+        'Todo: Hydra - make NPT 3/4 thread tapered on the outer side as well. And add tolerance for resin print.',
+    })
+
+    expect(result.memoryType).toBe('task')
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
   })
 
   it('accepts memory_type as a JSON key alias', async () => {
@@ -93,35 +113,35 @@ describe('extractThoughtMetadata', () => {
     expect(llmChatCompletionMock.mock.calls[0]?.[0]?.responseFormat).toBe('json_object')
   })
 
-  it('retries with category-confusion prompt when first pass returns drift label', async () => {
+  it('strict pass omits category-only keys and accepts a valid memoryType', async () => {
     llmChatCompletionMock
-      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
+      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'idea', cues: [] })))
       .mockResolvedValueOnce(
-        makeResponse(JSON.stringify({ memoryType: 'episode', cues: ['follow up'] })),
+        makeResponse(JSON.stringify({ memoryType: 'fact', cues: ['standing idea'] })),
       )
 
     const result = await extractThoughtMetadata({
       userId: 'u1',
-      normalizedText: 'Need to follow up.',
+      normalizedText: 'Maybe we should try a different approach next quarter.',
     })
 
-    expect(result.memoryType).toBe('episode')
+    expect(result.memoryType).toBe('fact')
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
-    expect(llmChatCompletionMock.mock.calls[1]?.[0]?.messages?.[1]?.content).toContain('task')
+    const confusionPrompt = llmChatCompletionMock.mock.calls[1]?.[0]?.messages?.[1]?.content as string
+    expect(confusionPrompt).toContain('idea')
   })
 
-  it('strict pass omits forbidden category keys and accepts a valid memoryType', async () => {
+  it('strict pass after exhausted category confusion omits forbidden priming', async () => {
     llmChatCompletionMock
-      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
-      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'task', cues: [] })))
+      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'idea', cues: [] })))
+      .mockResolvedValueOnce(makeResponse(JSON.stringify({ memoryType: 'idea', cues: [] })))
       .mockResolvedValueOnce(
-        makeResponse(JSON.stringify({ memoryType: 'decision', cues: ['elster account'] })),
+        makeResponse(JSON.stringify({ memoryType: 'decision', cues: ['commit approach'] })),
       )
 
     const result = await extractThoughtMetadata({
       userId: 'u1',
-      normalizedText:
-        'Todo: I must create an Elster account for each of my companies for tax purposes.',
+      normalizedText: 'Maybe we should try a different approach next quarter.',
     })
 
     expect(result.memoryType).toBe('decision')

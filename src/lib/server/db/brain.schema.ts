@@ -164,6 +164,7 @@ export const memoryTypeEnum = [
   'concern',
   'preference',
   'pattern',
+  'task',
 ] as const
 export type MemoryType = (typeof memoryTypeEnum)[number]
 

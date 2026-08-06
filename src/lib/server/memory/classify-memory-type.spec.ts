@@ -22,6 +22,7 @@ describe('classifyMemoryType', () => {
     ['concern', "I'm worried the contract renewal is at risk"],
     ['preference', 'I work better in the morning before meetings start'],
     ['pattern', 'Whenever I am stressed I tend to defer important decisions'],
+    ['task', 'Todo: create an Elster account for each company'],
   ] as const)('returns %s for appropriate input', async (expectedType, text) => {
     llmChatCompletionMock.mockResolvedValue(makeResponse(expectedType))
 

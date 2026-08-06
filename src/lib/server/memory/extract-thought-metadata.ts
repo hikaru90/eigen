@@ -124,6 +124,7 @@ async function extractThoughtMetadataOnce(
           '  concern    — a worry, risk, or anxiety',
           '  preference — a personal tendency, habit, or like/dislike',
           '  pattern    — a recurring observation about oneself or a situation',
+          '  task       — actionable open work, a to-do, or work in progress',
           '',
         ]),
     CUES_FROM_CAPTURE_RULE,
