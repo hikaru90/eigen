@@ -31,9 +31,11 @@
   let billingMode = $state<'platform_credits' | 'byok'>(form?.billingMode ?? data.billingMode)
   let selectedProvider = $state<'eurouter' | 'openrouter'>(data.activeProvider ?? 'eurouter')
   let walletAvailableCredits = $state(data.wallet.availableCredits)
+  let legacyByokMigration = $state(data.legacyByokMigration)
 
   afterNavigate(() => {
     activeTab = data.byokUiEnabled ? initialTab : 'credits'
+    legacyByokMigration = data.legacyByokMigration
   })
 
   const providers = [
@@ -43,6 +45,42 @@
 </script>
 
 <div class="mx-auto max-w-2xl space-y-8 px-4 pb-8 pt-16">
+  {#if legacyByokMigration}
+    <section class="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3">
+      <div>
+        <h2 class="text-sm font-semibold">Bring your own key (legacy)</h2>
+        <p class="text-muted-foreground mt-1 text-xs">
+          Your account still has a saved EUrouter or OpenRouter API key
+          {#if data.billingMode === 'byok'}
+            and LLM calls are billed to that key
+          {/if}
+          . This deployment now uses Eigen platform credits for all LLM usage. Remove your stored
+          key to switch to credits and stop requests from hitting your personal gateway rate limit.
+        </p>
+      </div>
+      <form
+        method="post"
+        action="?/switchToPlatformCredits"
+        use:enhance={() => {
+          return async ({ result, update }) => {
+            await update()
+            if (result.type === 'success') {
+              billingMode = 'platform_credits'
+              legacyByokMigration = false
+            }
+          }
+        }}
+      >
+        <Button type="submit" variant="outline" size="sm" class="rounded-[4px]">
+          Remove my API key and use Eigen credits
+        </Button>
+        {#if form?.legacyByokMessage}
+          <p class="text-muted-foreground mt-2 text-xs">{form.legacyByokMessage}</p>
+        {/if}
+      </form>
+    </section>
+  {/if}
+
   {#if data.byokUiEnabled}
     <section class="space-y-3">
       <div>

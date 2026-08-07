@@ -10,7 +10,8 @@ import {
 } from '$lib/server/db/schema'
 import { getOrCreateWallet } from '$lib/server/billing/wallet'
 import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
-import { assertByokConfigured } from '$lib/server/billing/preferences'
+import { clearLegacyByokForUser, legacyByokMigrationNeeded } from '$lib/server/billing/legacy-byok'
+import { assertByokConfigured, hasSavedByokLlmCredentials } from '$lib/server/billing/preferences'
 import {
   getPayPalClientId,
   getPayPalWebSdkUrl,
@@ -111,6 +112,11 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
   )
 
   const byokUiEnabled = isByokUiEnabled()
+  const legacyByokMigration = legacyByokMigrationNeeded({
+    byokUiEnabled,
+    billingMode,
+    hasStoredCredentials: byokConfigured,
+  })
   const tab = event.url.searchParams.get('tab')
   let initialTab = (
     tab === 'byok' || tab === 'credits' ? tab : billingMode === 'byok' ? 'byok' : 'credits'
@@ -124,6 +130,7 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
     billingMode,
     byokUiEnabled,
     byokConfigured,
+    legacyByokMigration,
     wallet,
     paypalConfigured,
     paypalClientId,
@@ -343,6 +350,51 @@ export const llmSettingsActions: Actions = {
     } catch (error) {
       return fail(400, {
         billingMessage: getSafeErrorMessage(error, 'Unable to update billing method.'),
+      })
+    }
+  },
+
+  switchToPlatformCredits: async (event) => {
+    if (!event.locals.user) {
+      return fail(401, { legacyByokMessage: 'You must be signed in.' })
+    }
+
+    const userId = event.locals.user.id
+    const byokUiEnabled = isByokUiEnabled()
+    const [pref] = await getDb()
+      .select({ billingMode: userPreference.billingMode })
+      .from(userPreference)
+      .where(eq(userPreference.userId, userId))
+      .limit(1)
+    const billingMode = (pref?.billingMode ?? 'platform_credits') as BillingMode
+    const hasStoredCredentials = await hasSavedByokLlmCredentials(userId)
+
+    if (
+      !legacyByokMigrationNeeded({
+        byokUiEnabled,
+        billingMode,
+        hasStoredCredentials,
+      })
+    ) {
+      return fail(400, {
+        legacyByokMessage: 'Your account is already using Eigen platform credits.',
+      })
+    }
+
+    try {
+      await clearLegacyByokForUser(userId)
+      return {
+        legacyByokMessage:
+          'Your API keys were removed. LLM calls will now use Eigen platform credits.',
+        billingMode: 'platform_credits' as const,
+        legacyByokMigration: false,
+      }
+    } catch (error) {
+      return fail(400, {
+        legacyByokMessage: getSafeErrorMessage(
+          error,
+          'Unable to switch to Eigen platform credits.',
+        ),
       })
     }
   },
