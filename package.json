@@ -93,7 +93,7 @@
     "postgres": "^3.4.9",
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^4.1.1",
-    "shadcn-svelte": "^1.2.7",
+    "shadcn-svelte": "^1.5.0",
     "sharp": "^0.35.3",
     "svelte": "^5.55.2",
     "svelte-check": "^4.4.6",
