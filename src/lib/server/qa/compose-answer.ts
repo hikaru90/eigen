@@ -40,13 +40,13 @@ import {
 } from '$lib/server/retrieval/rrf-scoring'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
 import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
+import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 import { loadTemporalContextByThoughtIds } from '$lib/server/memory/temporal-context'
 import {
   formatTemporalAnnotation,
   type TemporalEventValidity,
   type ThoughtTemporalStatus,
 } from '$lib/server/memory/temporal-validity'
-import type { MemoryType } from '$lib/server/db/brain.schema'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import {
   CITATION_TOKEN_RE,
@@ -447,7 +447,11 @@ function extractCitations(answer: string, allowedIds: Set<string>): string[] {
   return [...seen]
 }
 
-function searchHitToContextItem(hit: SearchHit, now: Date): RetrievalContextItem {
+function searchHitToContextItem(
+  hit: SearchHit,
+  now: Date,
+  neverStaleCategories: ReadonlySet<string>,
+): RetrievalContextItem {
   return {
     id: hit.id,
     normalizedText: hit.normalizedText,
@@ -462,7 +466,8 @@ function searchHitToContextItem(hit: SearchHit, now: Date): RetrievalContextItem
       createdAt: hit.createdAt,
       now,
       thresholdMs: STALENESS_THRESHOLD_MS,
-      memoryType: hit.memoryType as MemoryType | null,
+      category: hit.category,
+      neverStaleCategories,
       metadata: hit.metadata,
     }),
     graphProvenance:
@@ -574,7 +579,9 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     results: retrieved.map((r) => ({ vectorScore: r.vectorScore, graphScore: r.graphScore })),
   })
 
-  let contextItems = retrieved.map((r) => searchHitToContextItem(r, now))
+  const loaded = await loadOntologyForUser(getDb(), input.userId)
+  const neverStaleCategories = neverStaleCategoryKeys(loaded)
+  let contextItems = retrieved.map((r) => searchHitToContextItem(r, now, neverStaleCategories))
   contextItems = prioritizePersonNamedThoughts(trimmedQuestion, contextItems, effectiveTopK)
   contextItems = narrowComposeContextToQuestionFocus(trimmedQuestion, contextItems)
   contextItems = await hydrateTemporalContextForThoughts({

@@ -1,15 +1,25 @@
 /**
- * Single LLM call for tier-2 enrich prefetch: category, temporal, and entity graph.
- * memoryType + cues are classified separately via extractThoughtMetadata so the model
- * never fills memoryType in the same JSON as the thought_category catalog (root cause
- * of category-key leakage into memoryType).
+ * Single LLM call for tier-2 enrich prefetch: category, search cues, temporal, and entity graph.
+ *
+ * Single type axis: `category` (an active thought_category ontology kind) is the only type label
+ * a thought has — there is no memoryType classification anymore. The allowed category set is
+ * loaded from the DB before this call (via the enrichment context) and validation is
+ * repair-before-fail via resolveCategoryFromLlmOutput, with exactly one strict forced-choice
+ * retry when neither the primary key nor any alternative is valid.
  */
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db'
+import { activeThoughtCategoryKinds } from '$lib/server/ontology-db/load-ontology'
+import {
+  buildStrictCategoryRetryPrompt,
+  isInvalidThoughtCategoryError,
+  resolveCategoryFromLlmOutput,
+  type ResolvedThoughtCategory,
+} from '$lib/server/ontology/validate-thought-category'
+import { parseSearchCues } from '$lib/server/memory/search-cues'
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
 import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
-import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
 import {
+  CUES_FROM_CAPTURE_RULE,
   capturePrimaryPromptBlock,
   groundingSupplementaryPromptBlock,
 } from '$lib/server/capture/enrichment-prompt-sections'
@@ -48,7 +58,8 @@ import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 
 export type EnrichThoughtBundleResult = {
-  category: ResolvedThoughtOntologyKind
+  category: ResolvedThoughtCategory
+  cues: string[]
   temporalMentions: ExtractedTemporalMention[]
   entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
 }
@@ -74,9 +85,7 @@ function buildEnrichThoughtBundlePrompt(input: {
   ontologyEntityKinds: OntologyEntityKindForExtraction[]
 }): string {
   const { context, capturedAt, timezone, entityEnrichmentContext, ontologyEntityKinds } = input
-  const activeCategoryKinds = context.ontology.entityKinds.filter(
-    (k) => k.active && k.kindType === 'thought_category',
-  )
+  const activeCategoryKinds = activeThoughtCategoryKinds(context.ontology)
   const categoryKeys = [...new Set(activeCategoryKinds.map((k) => k.key))].sort()
   const entityKindKeys = new Set(ontologyEntityKinds.map((k) => k.key))
   const entityKeyUnion = [...entityKindKeys].sort().join('|')
@@ -107,6 +116,7 @@ function buildEnrichThoughtBundlePrompt(input: {
     'Return ONLY JSON with this shape:',
     '{',
     '  "category": { "key": "<thought_category_key>", "confidence": 0.0-1.0, "alternatives": [{"key":"...","confidence":0.0}] },',
+    '  "cues": ["2-8 word search phrase", "..."],',
     '  "temporalMentions": [],',
     '  "mentions": [{"surface":"<text as written>","entityType":"<key>","confidence":0.0-1.0}],',
     '  "triples": [{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]',
@@ -114,6 +124,8 @@ function buildEnrichThoughtBundlePrompt(input: {
     '',
     `category.key must be exactly one of: ${categoryKeys.join(', ')}.`,
     'alternatives: max 3 other plausible category keys with confidence.',
+    '',
+    CUES_FROM_CAPTURE_RULE,
     '',
     `temporalMentions: array of temporal objects for dates/deadlines in the capture; use [] when none.`,
     `Capture anchor: ${capturedIso}, timezone ${timezone}. Set timezone to "${timezone}" unless text names another.`,
@@ -139,53 +151,6 @@ function buildEnrichThoughtBundlePrompt(input: {
   ]
     .filter(Boolean)
     .join('\n')
-}
-
-function parseCategoryFromBundle(
-  loaded: EnrichmentContext['ontology'],
-  raw: unknown,
-): ResolvedThoughtOntologyKind {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error('enrichThoughtBundle: category must be an object')
-  }
-  const obj = raw as { key?: unknown; confidence?: unknown; alternatives?: unknown }
-  const cat = obj.key
-  if (typeof cat !== 'string') {
-    throw new Error('enrichThoughtBundle: category.key is required')
-  }
-  const trimmed = cat.trim()
-  if (!validateEntityKindKeyForNewIngest(loaded, trimmed)) {
-    throw new Error(`enrichThoughtBundle: invalid category key "${trimmed}"`)
-  }
-  const row = loaded.entityKindsByKey.get(trimmed)
-  if (!row) {
-    throw new Error(`enrichThoughtBundle: missing ontology row for "${trimmed}"`)
-  }
-  const rawConf = obj.confidence
-  const confidence =
-    typeof rawConf === 'number' && Number.isFinite(rawConf)
-      ? Math.min(1, Math.max(0, rawConf))
-      : 0.5
-  const alternatives: Array<{ key: string; confidence: number }> = []
-  const rawAlts = obj.alternatives
-  if (Array.isArray(rawAlts)) {
-    for (const alt of rawAlts) {
-      if (!alt || typeof alt !== 'object') continue
-      const altKey = (alt as { key?: unknown }).key
-      const altConf = (alt as { confidence?: unknown }).confidence
-      if (typeof altKey !== 'string' || !validateEntityKindKeyForNewIngest(loaded, altKey.trim())) {
-        continue
-      }
-      alternatives.push({
-        key: altKey.trim(),
-        confidence:
-          typeof altConf === 'number' && Number.isFinite(altConf)
-            ? Math.min(1, Math.max(0, altConf))
-            : 0,
-      })
-    }
-  }
-  return { key: row.key, ontologyEntityKindId: row.id, confidence, alternatives }
 }
 
 function parseEntityGraphFromBundle(
@@ -217,6 +182,8 @@ function parseEnrichThoughtBundleContent(input: {
   capturedAt: Date
   ontologyEntityKinds: OntologyEntityKindForExtraction[]
   entityEnrichmentContext?: EntityGraphEnrichmentContext
+  /** Category already resolved by the strict forced-choice retry — skips re-validation. */
+  forcedCategory?: ResolvedThoughtCategory
 }): EnrichThoughtBundleResult {
   const parsed = JSON.parse(stripMarkdownJsonFences(input.content)) as unknown
   if (!parsed || typeof parsed !== 'object') {
@@ -226,7 +193,9 @@ function parseEnrichThoughtBundleContent(input: {
   const allowedEntityKeys = new Set(input.ontologyEntityKinds.map((k) => k.key))
 
   return {
-    category: parseCategoryFromBundle(input.context.ontology, obj.category),
+    category:
+      input.forcedCategory ?? resolveCategoryFromLlmOutput(input.context.ontology, obj.category),
+    cues: parseSearchCues(obj.cues),
     temporalMentions: parseTemporalFromBundle(obj.temporalMentions, input.capturedAt),
     entityGraph: parseEntityGraphFromBundle(
       obj,
@@ -234,6 +203,42 @@ function parseEnrichThoughtBundleContent(input: {
       input.entityEnrichmentContext?.graphEntities ?? [],
     ),
   }
+}
+
+/**
+ * Strict forced-choice retry for an out-of-set category: only the active keys, no catalog
+ * descriptions (no priming). Runs at most once per bundle extraction.
+ */
+async function runStrictCategoryRetry(input: {
+  context: EnrichmentContext
+  allowedKeys: readonly string[]
+}): Promise<ResolvedThoughtCategory> {
+  const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content:
+        'You assign exactly one ontology thought category key per capture for a personal memory system. Output JSON only.',
+    },
+    {
+      role: 'user',
+      content: buildStrictCategoryRetryPrompt({
+        normalizedText: input.context.normalizedText,
+        allowedKeys: input.allowedKeys,
+      }),
+    },
+  ]
+  const response = await llmChatCompletion({
+    userId: input.context.userId,
+    messages,
+    temperature: 0,
+    logContext: 'enrich_thought_bundle_category_retry',
+    responseFormat: 'json_object',
+  })
+  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('enrichThoughtBundle category retry: output must be a JSON object')
+  }
+  return resolveCategoryFromLlmOutput(input.context.ontology, parsed)
 }
 
 export async function extractEnrichThoughtBundle(input: {
@@ -248,7 +253,7 @@ export async function extractEnrichThoughtBundle(input: {
     {
       role: 'system',
       content:
-        'You enrich one personal memory capture: assign category, temporal mentions, and entity graph structure. Do not classify memoryType or search cues — those are handled separately. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
+        'You enrich one personal memory capture: assign a thought category, search cues, temporal mentions, and entity graph structure. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
     },
     { role: 'user', content: userPrompt },
   ]
@@ -268,13 +273,36 @@ export async function extractEnrichThoughtBundle(input: {
     responseFormat: 'json_object',
   })
 
-  return parseEnrichThoughtBundleContent({
-    content: extractChatContent(response),
-    context: input.context,
-    capturedAt: input.capturedAt,
-    ontologyEntityKinds: input.ontologyEntityKinds,
-    entityEnrichmentContext: input.entityEnrichmentContext,
-  })
+  const content = extractChatContent(response)
+  try {
+    return parseEnrichThoughtBundleContent({
+      content,
+      context: input.context,
+      capturedAt: input.capturedAt,
+      ontologyEntityKinds: input.ontologyEntityKinds,
+      entityEnrichmentContext: input.entityEnrichmentContext,
+    })
+  } catch (err) {
+    if (!isInvalidThoughtCategoryError(err)) throw err
+    const rejected = err instanceof Error && 'raw' in err ? String(err.raw) : '(unknown)'
+    console.warn('[enrich-thought-bundle] invalid category; strict forced-choice retry', {
+      userId: input.context.userId.slice(0, 8),
+      rejected,
+    })
+    const allowedKeys = activeThoughtCategoryKinds(input.context.ontology).map((k) => k.key)
+    const forcedCategory = await runStrictCategoryRetry({
+      context: input.context,
+      allowedKeys,
+    })
+    return parseEnrichThoughtBundleContent({
+      content,
+      context: input.context,
+      capturedAt: input.capturedAt,
+      ontologyEntityKinds: input.ontologyEntityKinds,
+      entityEnrichmentContext: input.entityEnrichmentContext,
+      forcedCategory,
+    })
+  }
 }
 
 /** @internal — tests */

@@ -666,7 +666,6 @@ export async function listThoughts(
     authorFilter?: MemoryAuthor
     authorLayerKey?: string | null
     categoryFilter?: string
-    memoryTypeFilter?: string
     dateFrom?: Date
     dateTo?: Date
   },
@@ -677,7 +676,6 @@ export async function listThoughts(
   const authorFilter = options?.authorFilter
   const authorLayerKey = options?.authorLayerKey
   const categoryFilter = options?.categoryFilter
-  const memoryTypeFilter = options?.memoryTypeFilter
   const dateFrom = options?.dateFrom
   const dateTo = options?.dateTo
 
@@ -695,7 +693,6 @@ export async function listThoughts(
     activeThoughtLifecycleCondition(),
     authorSql,
     categoryFilter ? eq(thought.category, categoryFilter) : undefined,
-    memoryTypeFilter ? eq(thought.memoryType, memoryTypeFilter) : undefined,
     dateFrom ? gte(thought.createdAt, dateFrom) : undefined,
     dateTo ? lte(thought.createdAt, dateTo) : undefined,
     cursor
@@ -713,7 +710,6 @@ export async function listThoughts(
         normalizedText: thought.normalizedText,
         normalizedTextEncrypted: thought.normalizedTextEncrypted,
         category: thought.category,
-        memoryType: thought.memoryType,
         author: thought.author,
         authorLabel: thought.authorLabel,
         authorKeyId: thought.authorKeyId,
@@ -737,7 +733,6 @@ export async function listThoughts(
       category: thought.category,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
-      memoryType: thought.memoryType,
       author: thought.author,
       authorLabel: thought.authorLabel,
       authorKeyId: thought.authorKeyId,

@@ -7,6 +7,8 @@ const sendTransactionalEmailMock = vi.fn()
 const recordVerificationLinkMock = vi.fn()
 const grantStartingFreeCreditsMock = vi.fn()
 const resolveAccountKindMock = vi.fn(() => 'production')
+const createOwleryContactMock = vi.fn()
+const isOwleryConfiguredMock = vi.fn(() => false)
 
 const env: Record<string, string | undefined> = {
   ORIGIN: 'http://localhost:5173',
@@ -57,6 +59,11 @@ vi.mock('$lib/server/billing/wallet', () => ({
   grantStartingFreeCredits: (...args: unknown[]) => grantStartingFreeCreditsMock(...args),
 }))
 
+vi.mock('$lib/server/owlery/contacts', () => ({
+  isOwleryConfigured: (...args: unknown[]) => isOwleryConfiguredMock(...args),
+  createOwleryContact: (...args: unknown[]) => createOwleryContactMock(...args),
+}))
+
 function clearMailEnv() {
   delete env.USESEND_API_KEY
   delete env.USESEND_BASE_URL
@@ -76,9 +83,13 @@ async function loadAuth() {
   recordVerificationLinkMock.mockReset()
   grantStartingFreeCreditsMock.mockReset()
   resolveAccountKindMock.mockReset()
+  createOwleryContactMock.mockReset()
+  isOwleryConfiguredMock.mockReset()
+  isOwleryConfiguredMock.mockReturnValue(false)
   resolveAccountKindMock.mockReturnValue('production')
   sendTransactionalEmailMock.mockResolvedValue(undefined)
   grantStartingFreeCreditsMock.mockResolvedValue(undefined)
+  createOwleryContactMock.mockResolvedValue({ contactId: 'ct_1' })
   return import('./auth')
 }
 
@@ -99,14 +110,26 @@ type AuthConfig = {
         url: string
       }) => Promise<void>
     }
+    additionalFields: Record<
+      string,
+      { type: string; required?: boolean; input?: boolean; returned?: boolean }
+    >
   }
-  socialProviders?: Record<string, unknown>
+  socialProviders?: Record<
+    string,
+    { clientId: string; clientSecret: string; mapProfileToUser?: unknown }
+  >
   account?: { accountLinking: { enabled: boolean; trustedProviders: string[] } }
   databaseHooks: {
     user: {
       create: {
         before: (user: { email?: string }) => Promise<{ data: Record<string, unknown> }>
-        after: (user: { id: string }) => Promise<void>
+        after: (user: {
+          id: string
+          email?: string
+          firstName?: string | null
+          lastName?: string | null
+        }) => Promise<void>
       }
     }
   }
@@ -258,11 +281,30 @@ describe('auth config', () => {
     await loadAuth()
     const config = lastConfig()
     expect(config.socialProviders).toEqual({
-      github: { clientId: 'gh-id', clientSecret: 'gh-secret' },
+      github: {
+        clientId: 'gh-id',
+        clientSecret: 'gh-secret',
+        mapProfileToUser: expect.any(Function),
+      },
     })
     expect(config.account?.accountLinking).toEqual({
       enabled: true,
       trustedProviders: ['github'],
+    })
+  })
+
+  it('declares firstName and lastName as optional user additional fields', async () => {
+    await loadAuth()
+    const config = lastConfig()
+    expect(config.user.additionalFields.firstName).toMatchObject({
+      type: 'string',
+      required: false,
+      input: true,
+    })
+    expect(config.user.additionalFields.lastName).toMatchObject({
+      type: 'string',
+      required: false,
+      input: true,
     })
   })
 
@@ -291,6 +333,52 @@ describe('auth config', () => {
     expect(errSpy).toHaveBeenCalledWith(
       '[auth] failed to grant starting free credits',
       expect.objectContaining({ userId: 'user-2', error: 'wallet down' }),
+    )
+    errSpy.mockRestore()
+  })
+
+  it('databaseHooks after creates an owlery contact with email and names when configured', async () => {
+    await loadAuth()
+    isOwleryConfiguredMock.mockReturnValue(true)
+    const config = lastConfig()
+    await config.databaseHooks.user.create.after({
+      id: 'user-3',
+      email: 'ada@example.com',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+    })
+    expect(createOwleryContactMock).toHaveBeenCalledWith(env, {
+      email: 'ada@example.com',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+    })
+  })
+
+  it('databaseHooks after skips the owlery sync when not configured', async () => {
+    await loadAuth()
+    const config = lastConfig()
+    await config.databaseHooks.user.create.after({
+      id: 'user-4',
+      email: 'ada@example.com',
+      firstName: 'Ada',
+    })
+    expect(createOwleryContactMock).not.toHaveBeenCalled()
+  })
+
+  it('databaseHooks after logs owlery failures without throwing', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await loadAuth()
+    isOwleryConfiguredMock.mockReturnValue(true)
+    createOwleryContactMock.mockRejectedValue(new Error('owlery down'))
+    const config = lastConfig()
+    await config.databaseHooks.user.create.after({
+      id: 'user-5',
+      email: 'ada@example.com',
+      firstName: 'Ada',
+    })
+    expect(errSpy).toHaveBeenCalledWith(
+      '[auth] owlery contact sync failed',
+      expect.objectContaining({ userId: 'user-5', error: 'owlery down' }),
     )
     errSpy.mockRestore()
   })

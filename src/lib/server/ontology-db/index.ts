@@ -14,6 +14,8 @@ export {
   activeEntityKindKeys,
   activeEntityTypeKindKeys,
   activeRelationKindKeys,
+  activeThoughtCategoryKinds,
+  neverStaleCategoryKeys,
   validateEntityKindKeyForNewIngest,
   validateEntityTypeKeyForExtraction,
   validateRelationKindForNewIngest,

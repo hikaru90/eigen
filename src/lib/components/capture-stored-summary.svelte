@@ -59,12 +59,7 @@
             <span class="ml-1">({confidence})</span>
           {/if}
         </span>
-        {#if thought.memoryType}
-          <span>
-            Memory type:
-            <span class="font-medium text-foreground">{thought.memoryType}</span>
-          </span>
-        {/if}
+
         {#if nearDuplicate}
           <span>
             Near-duplicate:

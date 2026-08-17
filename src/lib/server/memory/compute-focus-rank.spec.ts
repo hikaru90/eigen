@@ -34,7 +34,6 @@ function makeItem(overrides: Partial<TemporalEventListItem> = {}): TemporalEvent
     thoughtText: 'Test',
     thoughtCategory: 'event',
     thoughtStatus: 'open',
-    memoryType: null,
     projectLabel: null,
     projectEntityId: null,
     completedAt: null,

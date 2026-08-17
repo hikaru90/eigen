@@ -35,12 +35,10 @@ describe('POST /api/capture/confirm', () => {
       rawText: 'hello',
       normalizedText: 'Hello.',
       category: 'observation',
-      memoryType: 'fact',
       queueStatus: 'pending',
       preview: {
         interpretedText: 'Hello.',
         category: { key: 'observation', confidence: 0.9, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: true,
       },
@@ -62,12 +60,10 @@ describe('POST /api/capture/confirm', () => {
       rawText: 'hello',
       normalizedText: 'hello',
       category: 'observation',
-      memoryType: null,
       queueStatus: 'pending',
       preview: {
         interpretedText: 'Hello.',
         category: { key: 'observation', confidence: 0.9, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: true,
       },
@@ -80,6 +76,5 @@ describe('POST /api/capture/confirm', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.normalizedText).toBe('hello')
-    expect(body.memoryType).toBeNull()
   })
 })

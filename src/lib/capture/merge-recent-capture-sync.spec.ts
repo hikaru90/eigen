@@ -8,7 +8,6 @@ function thought(id: string, overrides: Partial<CaptureSubmitResult> = {}): Capt
     normalizedText: `text-${id}`,
     category: 'observation',
     metadata: {},
-    memoryType: null,
     cues: [],
     enrichedAt: null,
     entities: [],
@@ -28,7 +27,6 @@ describe('mergeRecentCaptureFromServer', () => {
         id: 'old',
         normalizedText: 'old',
         category: 'observation',
-        memoryType: null,
         createdAt: '2026-06-06T10:00:00.000Z',
       },
     ]
@@ -41,14 +39,12 @@ describe('mergeRecentCaptureFromServer', () => {
             id: 'a',
             normalizedText: 'a',
             category: 'observation',
-            memoryType: null,
             createdAt: '2026-06-06T13:00:00.000Z',
           },
           {
             id: 'b',
             normalizedText: 'b',
             category: 'observation',
-            memoryType: null,
             createdAt: '2026-06-06T12:00:00.000Z',
           },
         ],
@@ -70,7 +66,6 @@ describe('mergeRecentCaptureFromServer', () => {
         id: 'fresh',
         normalizedText: 'Lisbon offsite',
         category: 'observation',
-        memoryType: null,
         createdAt: '2026-06-06T18:00:00.000Z',
       },
     ]
@@ -94,7 +89,6 @@ describe('mergeRecentCaptureFromServer', () => {
         id: 'fresh',
         normalizedText: 'Lisbon offsite',
         category: 'observation',
-        memoryType: null,
         createdAt: '2026-06-06T18:00:00.000Z',
       },
     ]
@@ -115,14 +109,12 @@ describe('mergeRecentCaptureFromServer', () => {
         id: 'gone',
         normalizedText: 'gone',
         category: 'observation',
-        memoryType: 'fact',
         createdAt: '2026-06-06T10:00:00.000Z',
       },
       {
         id: 'stay',
         normalizedText: 'stay',
         category: 'observation',
-        memoryType: 'fact',
         createdAt: '2026-06-06T09:00:00.000Z',
       },
     ]
@@ -138,13 +130,11 @@ describe('mergeRecentCaptureFromServer', () => {
             id: 'stay',
             normalizedText: 'stay',
             category: 'observation',
-            memoryType: 'fact',
             createdAt: '2026-06-06T09:00:00.000Z',
           },
         ],
         recentThoughtDetails: [
           thought('stay', {
-            memoryType: 'fact',
             enrichmentComplete: true,
             queueStatus: 'complete',
           }),
@@ -165,7 +155,6 @@ describe('mergeRecentCaptureFromServer', () => {
         id: 't1',
         normalizedText: 'Recipe',
         category: 'observation',
-        memoryType: null,
         createdAt: '2026-06-06T10:00:00.000Z',
       },
     ]
@@ -178,13 +167,11 @@ describe('mergeRecentCaptureFromServer', () => {
             id: 't1',
             normalizedText: 'Recipe',
             category: 'observation',
-            memoryType: 'fact',
             createdAt: '2026-06-06T10:00:00.000Z',
           },
         ],
         recentThoughtDetails: [
           thought('t1', {
-            memoryType: 'fact',
             enrichmentComplete: true,
             queueStatus: 'complete',
           }),
@@ -195,7 +182,6 @@ describe('mergeRecentCaptureFromServer', () => {
 
     expect(merged.newThoughtIds).toEqual([])
     expect(merged.removedThoughtIds).toEqual([])
-    expect(merged.snippets[0]?.memoryType).toBe('fact')
     expect(merged.details.t1.enrichmentComplete).toBe(true)
   })
 })

@@ -11,7 +11,6 @@ export function thoughtToRecentSnippet(
     id: thought.id,
     normalizedText: thought.normalizedText,
     category: thought.category,
-    memoryType: thought.memoryType,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     author: thought.author ?? existing?.author ?? 'user',
     authorLabel: thought.authorLabel ?? existing?.authorLabel ?? null,

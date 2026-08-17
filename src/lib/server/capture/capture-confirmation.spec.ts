@@ -69,7 +69,6 @@ import {
 const PREVIEW: CapturePreviewBundle = {
   interpretedText: 'Plan a team offsite in Lisbon next quarter.',
   category: { key: 'task', confidence: 0.91, alternatives: [] },
-  memoryType: 'episode',
   entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
   deviatesFromVerbatim: true,
 }
@@ -78,7 +77,6 @@ const NO_DEVIATION_PREVIEW: CapturePreviewBundle = {
   ...PREVIEW,
   interpretedText: 'Buy oat milk',
   category: { key: 'task', confidence: 0.88, alternatives: [] },
-  memoryType: 'fact',
   entities: [],
   deviatesFromVerbatim: false,
 }
@@ -300,7 +298,6 @@ describe('confirmCapturePreview', () => {
 
     expect(result.normalizedText).toBe(raw)
     expect(result.rawText).toBe(raw)
-    expect(result.memoryType).toBeNull()
     expect(result.category).toBe('observation')
     expect(result.queueStatus).toBe('pending')
     expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
@@ -310,7 +307,6 @@ describe('confirmCapturePreview', () => {
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         normalizedText: raw,
-        memoryType: null,
         category: 'observation',
         enrichQueueStatus: 'pending',
       }),

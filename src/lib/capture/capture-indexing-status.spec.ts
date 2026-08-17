@@ -16,7 +16,6 @@ function thought(
     normalizedText: 'hello',
     category: 'task',
     metadata: {},
-    memoryType: null,
     cues: [],
     enrichedAt: overrides.enrichmentComplete ? '2026-06-06T12:00:00.000Z' : null,
     entities: [],

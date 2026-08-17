@@ -13,7 +13,7 @@
 import { and, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
-import { NEVER_STALE_MEMORY_TYPES } from '$lib/server/memory/thought-staleness'
+import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 import { clipThoughtSample, type HeartbeatJobSample } from '$lib/consolidation/heartbeat-job-report'
 
 /** Daily decay multiplier per inactive day beyond the grace window. */
@@ -25,7 +25,6 @@ export const INACTIVE_GRACE_DAYS = 7
 /** Unresolved task thoughts rise by this much per day since capture. */
 export const TASK_RISE_PER_DAY = 0.15
 
-const EXEMPT_MEMORY_TYPES = [...NEVER_STALE_MEMORY_TYPES]
 const SAMPLE_LIMIT = 12
 
 export type SalienceComputeResult = {
@@ -43,15 +42,20 @@ function taskDaysSql() {
   return sql`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${thought.createdAt})) / 86400.0)`
 }
 
-function salienceExemptFilter() {
+function salienceExemptFilter(neverStaleKeys: ReadonlySet<string>) {
+  const exemptCategories = [...neverStaleKeys]
   return and(
-    or(isNull(thought.memoryType), notInArray(thought.memoryType, EXEMPT_MEMORY_TYPES)),
+    exemptCategories.length > 0
+      ? or(isNull(thought.category), notInArray(thought.category, exemptCategories))
+      : undefined,
     sql`(${thought.metadata}->>'neverStale') IS DISTINCT FROM 'true'`,
   )
 }
 
 export async function runSalienceCompute(userId: string): Promise<SalienceComputeResult> {
   const db = getDb()
+  const loaded = await loadOntologyForUser(db, userId)
+  const neverStaleKeys = neverStaleCategoryKeys(loaded)
   const graceCutoff = new Date()
   graceCutoff.setDate(graceCutoff.getDate() - INACTIVE_GRACE_DAYS)
 
@@ -66,7 +70,7 @@ export async function runSalienceCompute(userId: string): Promise<SalienceComput
       .where(
         and(
           eq(thought.userId, userId),
-          salienceExemptFilter(),
+          salienceExemptFilter(neverStaleKeys),
           or(isNull(thought.lastAccessedAt), lt(thought.lastAccessedAt, graceCutoff)),
           sql`${inactiveDaysSql()} > 0`,
         ),

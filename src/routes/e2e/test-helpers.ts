@@ -26,17 +26,21 @@ export async function registerUser(
   await page.goto('/signup')
   await page.getByRole('button', { name: 'Create account' }).waitFor({ state: 'visible' })
 
-  const displayName = `Test User ${id}`
-  const nameInput = page.locator('#name')
+  const firstName = 'Test'
+  const lastName = `User ${id}`
+  const firstNameInput = page.locator('#firstName')
+  const lastNameInput = page.locator('#lastName')
   const emailInput = page.locator('#email')
   const passwordInput = page.locator('#password')
 
-  // Fill email/password first, then name last — early fills can be cleared by Svelte hydration.
+  // Fill email/password first, then names last — early fills can be cleared by Svelte hydration.
   await emailInput.fill(email)
   await passwordInput.fill(TEST_PASSWORD)
-  await nameInput.fill(displayName)
+  await firstNameInput.fill(firstName)
+  await lastNameInput.fill(lastName)
 
-  await expect(nameInput).toHaveValue(displayName)
+  await expect(firstNameInput).toHaveValue(firstName)
+  await expect(lastNameInput).toHaveValue(lastName)
   await expect(emailInput).toHaveValue(email)
   await expect(passwordInput).toHaveValue(TEST_PASSWORD)
 

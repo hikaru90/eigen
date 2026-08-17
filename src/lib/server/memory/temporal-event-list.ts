@@ -68,7 +68,6 @@ export type TemporalEventListItem = {
   thoughtText: string
   thoughtCategory: string
   thoughtStatus: LifecycleStatus
-  memoryType: string | null
   projectLabel: string | null
   projectEntityId: string | null
   completedAt: string | null
@@ -108,7 +107,6 @@ export type TemporalEventListQuery = {
 
 export function isTaskListItem(item: TemporalEventListItem): boolean {
   if (item.thoughtCategory === 'task') return true
-  if (item.memoryType === 'open_loop' || item.memoryType === 'task') return true
   const itemType = item.itemType as string
   return (
     itemType === 'task' ||
@@ -279,7 +277,6 @@ async function listTaskThoughtsForUser(
       normalizedText: thought.normalizedText,
       normalizedTextEncrypted: thought.normalizedTextEncrypted,
       category: thought.category,
-      memoryType: thought.memoryType,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
       lifecycleStatus: thought.lifecycleStatus,
@@ -364,7 +361,6 @@ async function listTaskThoughtsForUser(
       thoughtText,
       thoughtCategory: r.category,
       thoughtStatus,
-      memoryType: r.memoryType,
       projectLabel: null,
       projectEntityId: null,
       completedAt,
@@ -404,7 +400,6 @@ function mapEventRow(r: {
   thoughtText: string
   thoughtCategory: string
   thoughtStatus: LifecycleStatus
-  memoryType: string | null
   completedAt: string | null
   lifecycleUpdatedAt: Date | null
   createdAt: Date
@@ -439,7 +434,6 @@ function mapEventRow(r: {
     thoughtText: r.thoughtText,
     thoughtCategory: r.thoughtCategory,
     thoughtStatus: r.thoughtStatus,
-    memoryType: r.memoryType,
     projectLabel: null,
     completedAt: r.completedAt,
     lifecycleUpdatedAt: r.lifecycleUpdatedAt?.toISOString() ?? null,
@@ -539,7 +533,6 @@ export async function listTemporalEventsForUser(
       thoughtMetadataEncrypted: thought.metadataEncrypted,
       thoughtLifecycleStatus: thought.lifecycleStatus,
       thoughtLifecycleCompletedAt: thought.lifecycleCompletedAt,
-      thoughtMemoryType: thought.memoryType,
       thoughtAuthor: thought.author,
       thoughtAuthorLabel: thought.authorLabel,
       createdAt: temporalEvent.createdAt,
@@ -588,7 +581,6 @@ export async function listTemporalEventsForUser(
           lifecycleStatus: r.thoughtLifecycleStatus,
           metadata,
         }),
-        memoryType: r.thoughtMemoryType,
         completedAt: completedAtFromThought({
           lifecycleCompletedAt: r.thoughtLifecycleCompletedAt,
           metadata,
@@ -682,7 +674,6 @@ export async function getTemporalEventListItemById(
       thoughtMetadataEncrypted: thought.metadataEncrypted,
       thoughtLifecycleStatus: thought.lifecycleStatus,
       thoughtLifecycleCompletedAt: thought.lifecycleCompletedAt,
-      thoughtMemoryType: thought.memoryType,
       thoughtAuthor: thought.author,
       thoughtAuthorLabel: thought.authorLabel,
       createdAt: temporalEvent.createdAt,
@@ -721,7 +712,6 @@ export async function getTemporalEventListItemById(
       lifecycleStatus: r.thoughtLifecycleStatus,
       metadata,
     }),
-    memoryType: r.thoughtMemoryType,
     completedAt: completedAtFromThought({
       lifecycleCompletedAt: r.thoughtLifecycleCompletedAt,
       metadata,

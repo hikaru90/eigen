@@ -20,7 +20,7 @@
 
 ### [`src/lib/server/auth.ts`](../../src/lib/server/auth.ts)
 
-- **Purpose:** `betterAuth` instance: email/password, optional OAuth (`google`, `github` via [`src/lib/server/auth-social.ts`](../../src/lib/server/auth-social.ts) when env credentials are set), Drizzle adapter on `authDb`, `normalizeAuthOrigin(env.ORIGIN)`, cookies plugin.
+- **Purpose:** `betterAuth` instance: email/password, optional OAuth (`google`, `github` via [`src/lib/server/auth-social.ts`](../../src/lib/server/auth-social.ts) when env credentials are set), Drizzle adapter on `authDb`, `normalizeAuthOrigin(env.ORIGIN)`, cookies plugin. User records carry optional `firstName`/`lastName` additional fields (signup form inputs or OAuth `mapProfileToUser`); `databaseHooks.user.create.after` grants starting credits and, when `OWLERY_*` env is set, syncs the new user to the Owlery contact book ([`src/lib/server/owlery/contacts.ts`](../../src/lib/server/owlery/contacts.ts)).
 - **Owns:** Auth configuration surface; throws if `ORIGIN` invalid or missing when needed. OAuth callbacks: `{ORIGIN}/api/auth/callback/{provider}` (handled by `svelteKitHandler`).
 - **PublicSymbols:** `auth`, `normalizeAuthOrigin`.
 

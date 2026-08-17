@@ -43,7 +43,6 @@ export async function assignThoughtToAgent(input: {
       id: thought.id,
       normalizedText: thought.normalizedText,
       category: thought.category,
-      memoryType: thought.memoryType,
       lifecycleStatus: thought.lifecycleStatus,
     })
     .from(thought)
@@ -104,7 +103,6 @@ export async function assignThoughtToAgent(input: {
       thoughtId: thoughtRow.id,
       normalizedText: thoughtRow.normalizedText,
       category: thoughtRow.category,
-      memoryType: thoughtRow.memoryType,
       projectEntityId: projectCtx.projectEntityIds[0] ?? null,
       projectLabel: projectCtx.projectLabels[0] ?? null,
     },

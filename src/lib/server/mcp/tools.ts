@@ -106,7 +106,6 @@ async function listRecentThoughtsForMcp(
       category: row.category,
       createdAt: row.createdAt,
       normalizedText: row.normalizedText,
-      memoryType: row.memoryType,
       author: row.author,
       authorLabel: row.authorLabel,
     })),
@@ -125,7 +124,6 @@ type McpThoughtSnippetRow = {
   category: string
   createdAt: Date
   normalizedText: string
-  memoryType?: string | null
   author?: 'user' | 'agent'
   authorLabel?: string | null
   scoreNormalized?: number
@@ -146,7 +144,6 @@ async function buildMcpThoughtSnippetRows(
     snippet: string
     temporalStatus: 'none' | 'active' | 'expired'
     temporalSummary?: string
-    memoryType?: string
     scoreNormalized?: number
   }>
 > {
@@ -168,7 +165,6 @@ async function buildMcpThoughtSnippetRows(
       ...(row.authorLabel ? { authorLabel: row.authorLabel } : {}),
       temporalStatus,
       ...(temporalSummary ? { temporalSummary } : {}),
-      ...(row.memoryType ? { memoryType: row.memoryType } : {}),
       ...(typeof row.score === 'number'
         ? { scoreNormalized: normalizeRetrievalScore(row.score) }
         : {}),
@@ -501,7 +497,6 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
       thoughtId: updated.thought.id,
       normalizedText: updated.thought.normalizedText,
       category: updated.thought.category,
-      memoryType: updated.thought.memoryType,
       projectEntityIds: projectCtx.projectEntityIds,
       projectLabels: projectCtx.projectLabels,
     })

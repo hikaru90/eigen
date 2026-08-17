@@ -41,7 +41,6 @@ describe('POST /api/capture/interpret', () => {
       preview: {
         interpretedText: 'Hello.',
         category: { key: 'observation', confidence: 0.9, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: true,
       },
@@ -67,11 +66,9 @@ describe('POST /api/capture/interpret', () => {
       rawText: 'buy oat milk',
       normalizedText: 'Buy oat milk',
       category: 'task',
-      memoryType: 'fact',
       preview: {
         interpretedText: 'Buy oat milk',
         category: { key: 'task', confidence: 0.9, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: false,
       },
@@ -96,7 +93,6 @@ describe('POST /api/capture/interpret', () => {
       preview: {
         interpretedText: 'Hello.',
         category: { key: 'observation', confidence: 0.9, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: true,
       },

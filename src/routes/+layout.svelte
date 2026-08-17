@@ -16,6 +16,8 @@
   import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
   import { startThoughtSync } from '$lib/stores/thought-sync'
   import { initCurrentUserViewStore } from '$lib/stores/current-user-view.svelte'
+  import { initDeferredInstallStore } from '$lib/pwa/deferred-install-store.svelte'
+  import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
   import { m } from '$lib/paraglide/messages.js'
@@ -55,8 +57,13 @@
       (page.route.id != null && authPaths.has(page.route.id)),
   )
 
+  const layoutUserId = $derived(
+    (page.data as { user?: { id: string } | null }).user?.id ?? null,
+  )
+
   let themePreference = 'system'
   let lastIdentifiedUserId: string | null | undefined = undefined
+  let stopInstallStore: (() => void) | null = null
 
   function syncPostHogIdentity() {
     if (!browser) return
@@ -99,6 +106,10 @@
     if (layoutUser) {
       const layers = (page.data as { authorLayers?: AuthorLayerMeta[] }).authorLayers ?? []
       initCurrentUserViewStore(layers)
+      // Capture the beforeinstallprompt event app-wide so the install banner
+      // and the onboarding overlay share one deferred event (Chrome/Edge only
+      // fires it once per session).
+      stopInstallStore = initDeferredInstallStore()
     }
 
     const posthogReady = isPostHogEnabled()
@@ -175,6 +186,8 @@
     window.addEventListener('theme-preference-change', handlePreferenceChange)
     return () => {
       stopPushNavigation()
+      stopInstallStore?.()
+      stopInstallStore = null
       media.removeEventListener('change', handleChange)
       window.removeEventListener('theme-preference-change', handlePreferenceChange)
     }
@@ -192,6 +205,10 @@
   {/if}
   {@render children()}
 </div>
+
+{#if !hideAppChrome && layoutUserId}
+  <InstallPromptToast userId={layoutUserId} />
+{/if}
 
 {#if !hideAppChrome}
   <nav

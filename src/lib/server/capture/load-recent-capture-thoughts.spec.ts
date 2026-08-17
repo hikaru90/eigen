@@ -25,7 +25,6 @@ describe('loadRecentCaptureThoughts', () => {
         id: 't1',
         normalizedText: 'hello',
         category: 'observation',
-        memoryType: 'fact',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         author: 'user',
         authorLabel: null,
@@ -44,7 +43,6 @@ describe('loadRecentCaptureThoughts', () => {
       authorFilter: 'user',
       authorLayerKey: undefined,
       categoryFilter: 'observation',
-      memoryTypeFilter: undefined,
       dateFrom: undefined,
       dateTo: undefined,
     })
@@ -53,7 +51,6 @@ describe('loadRecentCaptureThoughts', () => {
         id: 't1',
         normalizedText: 'hello',
         category: 'observation',
-        memoryType: 'fact',
         createdAt: '2026-01-01T00:00:00.000Z',
         author: 'user',
         authorLabel: null,

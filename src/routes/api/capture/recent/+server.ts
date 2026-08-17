@@ -33,9 +33,6 @@ export const GET: RequestHandler = async (event) => {
     filter.category = categoryParam
   }
 
-  const memoryTypeParam = url.searchParams.get('memoryType')
-  if (memoryTypeParam) {
-    filter.memoryType = memoryTypeParam
   }
 
   const dateFromParam = url.searchParams.get('dateFrom')

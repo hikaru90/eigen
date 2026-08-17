@@ -17,7 +17,6 @@ describe('searchThoughts', () => {
         id: 't1',
         normalizedText: 'hello',
         category: 'thought',
-        memoryType: null,
         score: 0.9,
         vectorScore: 0.8,
         graphScore: 0.1,

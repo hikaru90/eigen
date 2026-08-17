@@ -22,7 +22,6 @@ describe('generateRelevanceQuestion', () => {
         id: '11111111-1111-4111-8111-111111111111',
         normalizedText: 'Old sketch about weekend markets',
         category: 'idea',
-        memoryType: 'episodic',
         salienceScore: 0.4,
         inactiveDays: 40,
       },

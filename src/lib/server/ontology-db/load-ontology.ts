@@ -11,6 +11,8 @@ export type OntologyEntityKindRow = {
   active: boolean
   /** 'thought_category' | 'entity_type' */
   kindType: string
+  /** Durable knowledge: age alone never makes thoughts of this category stale. */
+  neverStale: boolean
 }
 
 export type OntologyRelationKindRow = {
@@ -47,6 +49,7 @@ export async function loadOntologyForUser(
       definition: ontologyEntityKind.definition,
       active: ontologyEntityKind.active,
       kindType: ontologyEntityKind.kindType,
+      neverStale: ontologyEntityKind.neverStale,
     })
     .from(ontologyEntityKind)
     .where(eq(ontologyEntityKind.userId, userId))
@@ -71,6 +74,7 @@ export async function loadOntologyForUser(
     definition: r.definition,
     active: r.active,
     kindType: r.kindType ?? 'thought_category',
+    neverStale: r.neverStale ?? false,
   }))
   const relationKinds: OntologyRelationKindRow[] = relationRows.map((r) => ({
     id: r.id,
@@ -97,11 +101,28 @@ export async function loadOntologyForUser(
   }
 }
 
+/**
+ * The single shared filter for the classification catalog: active thought_category kinds.
+ * Every classifier (interpret, enrich bundle, edit re-classify) must use this — never a
+ * copy-pasted local filter — so the allowed set is defined before classification, once.
+ */
+export function activeThoughtCategoryKinds(loaded: LoadedUserOntology): OntologyEntityKindRow[] {
+  return loaded.entityKinds.filter((k) => k.active && k.kindType === 'thought_category')
+}
+
 /** Allowed keys for **new** ingest (active thought_category entries only). */
 export function activeEntityKindKeys(loaded: LoadedUserOntology): Set<string> {
+  return new Set(activeThoughtCategoryKinds(loaded).map((k) => k.key))
+}
+
+/**
+ * Category keys whose kind is durable knowledge (`never_stale`). Deliberately ignores `active`:
+ * deactivation gates new ingest only — stored thoughts keep their category's durability semantics.
+ */
+export function neverStaleCategoryKeys(loaded: LoadedUserOntology): Set<string> {
   return new Set(
     loaded.entityKinds
-      .filter((k) => k.active && k.kindType === 'thought_category')
+      .filter((k) => k.kindType === 'thought_category' && k.neverStale)
       .map((k) => k.key),
   )
 }

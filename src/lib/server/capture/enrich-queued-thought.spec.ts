@@ -158,7 +158,6 @@ const baseBundle = {
   entityGraph: { mentions: [], triples: [] },
 }
 
-const baseMetadata = { memoryType: 'episode' as const, cues: ['cue'] }
 
 describe('enrichQueuedThought', () => {
   beforeEach(() => {
@@ -195,7 +194,6 @@ describe('enrichQueuedThought', () => {
         {
           normalizedText: 'raw input',
           category: 'task',
-          memoryType: 'episode',
           enrichedAt: new Date('2026-06-01T00:05:00.000Z'),
         },
       ], // enrichedThought for notify
@@ -244,7 +242,6 @@ describe('enrichQueuedThought', () => {
         {
           normalizedText: 'secret normalized',
           category: 'task',
-          memoryType: 'episode',
           enrichedAt: null,
         },
       ],
@@ -279,7 +276,6 @@ describe('enrichQueuedThought', () => {
       [{ metadata: {}, metadataEncrypted: null }],
       [{ n: 1 }],
       [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      [{ normalizedText: 'raw input', category: 'task', memoryType: 'episode', enrichedAt: null }],
     ])
     getDbMock.mockReturnValue(db)
 
@@ -294,7 +290,6 @@ describe('enrichQueuedThought', () => {
       [{ metadata: {}, metadataEncrypted: null }],
       [{ n: 1 }],
       [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      [{ normalizedText: 'raw input', category: 'task', memoryType: 'episode', enrichedAt: null }],
     ])
     getDbMock.mockReturnValue(db)
     loadEnrichmentContextMock.mockResolvedValue({
@@ -367,7 +362,6 @@ describe('enrichQueuedThought', () => {
       [{ metadata: {}, metadataEncrypted: null }],
       [{ n: 1 }],
       [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      [{ normalizedText: 'raw input', category: 'task', memoryType: 'episode', enrichedAt: null }],
     ])
     getDbMock.mockReturnValue(db)
 
@@ -383,7 +377,6 @@ describe('enrichQueuedThought', () => {
       [{ metadata: {}, metadataEncrypted: null }],
       [{ n: 1 }],
       [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      [{ normalizedText: 'raw input', category: 'task', memoryType: 'episode', enrichedAt: null }],
     ])
     getDbMock.mockReturnValue(db)
 
@@ -426,7 +419,6 @@ describe('enrichQueuedThought', () => {
       [{ metadata: null, metadataEncrypted: 'enc:{"foo":"bar"}' }],
       [{ n: 1 }],
       [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      [{ normalizedText: 'raw input', category: 'task', memoryType: 'episode', enrichedAt: null }],
     ])
     getDbMock.mockReturnValue(db)
 
@@ -448,7 +440,6 @@ describe('enrichQueuedThought', () => {
       [{ metadata: {}, metadataEncrypted: null }],
       [{ n: 1 }],
       [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      [{ normalizedText: 'raw input', category: 'task', memoryType: 'episode', enrichedAt: null }],
     ])
     getDbMock.mockReturnValue(db)
     loadEnrichmentContextMock.mockResolvedValue({

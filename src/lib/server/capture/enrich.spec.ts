@@ -127,7 +127,6 @@ describe('enrichThought', () => {
     syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] })
     syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined)
     extractThoughtMetadataMock.mockResolvedValue({
-      memoryType: 'episode',
       cues: ['cue one', 'cue two'],
     })
     maybeRefreshUserOntologyMock.mockResolvedValue(undefined)
@@ -252,7 +251,6 @@ describe('enrichThought', () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
     extractThoughtMetadataMock.mockResolvedValue({
-      memoryType: 'decision',
       cues: ['option B decision', 'choice made'],
     })
 
@@ -516,7 +514,6 @@ describe('enrichThought', () => {
   it('omits cues from metadata update when extraction returns none', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] })
 
     await enrichThought('u1', 't1', 'hello')
 
@@ -525,9 +522,7 @@ describe('enrichThought', () => {
       (args: unknown[]) =>
         args[0] &&
         typeof args[0] === 'object' &&
-        'memoryType' in (args[0] as Record<string, unknown>),
     )
-    expect(metadataUpdate?.[0]).toEqual({ memoryType: 'fact' })
   })
 
   it('passes preloadedKnownEntities to entity graph sync', async () => {
@@ -714,7 +709,6 @@ describe('scheduleEnrichThought', () => {
     extractRelationsMock.mockResolvedValue([])
     syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] })
     syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined)
-    extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] })
     materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined)
     getDbMock.mockReturnValue(makeDb())
   })
@@ -752,7 +746,6 @@ describe('reenrichThought', () => {
     extractRelationsMock.mockResolvedValue([])
     syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] })
     syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined)
-    extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] })
     maybeRefreshUserOntologyMock.mockResolvedValue(undefined)
     materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined)
     withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn())
@@ -804,7 +797,6 @@ describe('scheduleReenrichThought', () => {
     extractRelationsMock.mockResolvedValue([])
     syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 1, projectLikeEntities: [] })
     syncTemporalEventsFromThoughtMock.mockResolvedValue(undefined)
-    extractThoughtMetadataMock.mockResolvedValue({ memoryType: 'fact', cues: [] })
     materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined)
     getDbMock.mockReturnValue(makeDb())
   })

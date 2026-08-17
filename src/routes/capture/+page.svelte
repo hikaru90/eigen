@@ -198,7 +198,6 @@
   let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
     Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought])),
   )
-  let recentFilter = $state<{ category?: string; memoryType?: string }>({})
   let dataView = $state<CurrentUserView>(getCurrentUserView())
   let hasAgentCaptures = $derived(
     Object.values(thoughtDetails).some((d) => d.author === 'agent') ||
@@ -219,7 +218,6 @@
       params.set('limit', String(RECENT_THOUGHTS_LIMIT))
       appendViewToSearchParams(params, dataView)
       if (recentFilter.category) params.set('category', recentFilter.category)
-      if (recentFilter.memoryType) params.set('memoryType', recentFilter.memoryType)
       const res = await fetch(`/api/capture/recent?${params.toString()}`)
       if (!res.ok) return
       const payload = (await res.json()) as {
@@ -235,7 +233,6 @@
     }
   }
 
-  async function handleRecentFilterChange(filter: { category?: string; memoryType?: string }) {
     recentFilter = filter
     await reloadRecentThoughts()
   }

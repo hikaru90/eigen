@@ -351,7 +351,6 @@
 
   "llm_entity_extraction_system": "You extract structured entity mentions. entityType must always be an exact key from the entity type list in the user message, never a free-form category.",
   "llm_entity_triple_system": "You extract typed edges between known entity surfaces.",
-  "llm_memory_type_system": "You classify personal memory notes and generate search cues. memoryType must always be an exact key from the list in the user message. Return only valid JSON.",
   "llm_gtd_assignment_system": "You assign personal notes to GTD projects. projectEntityId must be copied exactly from the catalog or null. Return only valid JSON.",
   "llm_gtd_judge_system": "You judge whether a knowledge-graph hub is a personal GTD project (multi-step initiative). Return only valid JSON.",
   "llm_project_detection_system": "You extract project names from personal notes. Return only valid JSON.",

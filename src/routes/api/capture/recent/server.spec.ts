@@ -37,7 +37,6 @@ describe('GET /api/capture/recent', () => {
           id: 't1',
           normalizedText: 'hello',
           category: 'observation',
-          memoryType: null,
           createdAt: '2026-06-06T18:00:00.000Z',
         },
       ],

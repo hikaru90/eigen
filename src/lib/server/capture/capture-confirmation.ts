@@ -44,7 +44,6 @@ export type CaptureInterpretResult =
       queueStatus: 'pending'
       normalizedText: string
       category: string
-      memoryType: string | null
     }
 
 /** @deprecated Prefer CaptureInterpretResult — kept for older callers expecting queueStatus. */
@@ -58,7 +57,6 @@ export type ConfirmCaptureResult = {
   rawText: string
   normalizedText: string
   category: string
-  memoryType: string | null
   queueStatus: 'pending'
   preview: CapturePreviewBundle
 }
@@ -211,7 +209,6 @@ export async function interpretAndQueueCapture(
       queueStatus: 'pending',
       normalizedText: confirmed.normalizedText,
       category: confirmed.category,
-      memoryType: confirmed.memoryType,
     }
   }
 
@@ -241,7 +238,6 @@ export async function confirmCapturePreview(
   const lexicalText = computeLexicalText(normalizedText)
   const categoryKey = verbatim ? QUEUE_PLACEHOLDER_CATEGORY : preview.category.key
   const ontologyEntityKindId = await resolveCategoryKindId(userId, categoryKey)
-  const memoryType = verbatim ? null : preview.memoryType
 
   const nextMetadata = {
     ...draft.metadata,
@@ -280,7 +276,6 @@ export async function confirmCapturePreview(
       lexicalText,
       category: categoryKey,
       ontologyEntityKindId,
-      memoryType,
       metadata: { encrypted: true, confirmationGate: true },
       metadataEncrypted,
       enrichQueueStatus: 'pending' satisfies EnrichQueueStatus,
@@ -305,7 +300,6 @@ export async function confirmCapturePreview(
     rawText: draft.rawText,
     normalizedText,
     category: categoryKey,
-    memoryType,
     queueStatus: 'pending',
     preview,
   }

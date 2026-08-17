@@ -118,7 +118,6 @@ async function prefetchEnrichExtractions(input: {
   if (isGraphScaleQuiet()) {
     console.info('[graph-scale] enrich prefetch: enrich_thought_bundle + memory_type')
   }
-  // memoryType runs in a dedicated call so category ontology keys cannot leak into it.
   const [bundle, metadata] = await Promise.all([
     extractEnrichThoughtBundle({
       context,
@@ -289,7 +288,6 @@ export async function enrichQueuedThought(
       .select({
         normalizedText: thought.normalizedText,
         category: thought.category,
-        memoryType: thought.memoryType,
         enrichedAt: thought.enrichedAt,
       })
       .from(thought)
@@ -305,7 +303,6 @@ export async function enrichQueuedThought(
         thoughtId,
         normalizedText: enrichedThought.normalizedText,
         category: enrichedThought.category,
-        memoryType: enrichedThought.memoryType,
         enrichedAt: enrichedThought.enrichedAt,
         projectEntityIds: projectCtx.projectEntityIds,
         projectLabels: projectCtx.projectLabels,

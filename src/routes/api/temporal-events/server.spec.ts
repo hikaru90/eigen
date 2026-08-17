@@ -49,7 +49,6 @@ describe('GET /api/temporal-events', () => {
           contextTags: [],
           focusRank: null,
           parentEventId: null,
-          memoryType: null,
           thoughtId: 't-1',
           thoughtText: 'ich will nächsten mittwoch inline-skaten gehen',
           thoughtCategory: 'task',

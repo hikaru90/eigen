@@ -31,7 +31,6 @@ export type CaptureRecentThoughtSnippet = {
   id: string
   normalizedText: string
   category: string
-  memoryType: string | null
   createdAt: string
   author?: CaptureMemoryAuthor
   authorLabel?: string | null
@@ -42,7 +41,6 @@ export type CaptureSubmitResult = {
   normalizedText: string
   category: string
   metadata: Record<string, unknown>
-  memoryType: string | null
   cues: string[]
   enrichedAt: string | null
   entities: CaptureLinkedEntity[]

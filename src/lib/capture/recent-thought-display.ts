@@ -11,7 +11,6 @@ export const CAPTURE_QUEUE_PLACEHOLDER_CATEGORY = 'observation'
 
 type RecentRow = {
   category: string
-  memoryType: string | null
   enrichmentComplete?: boolean
   queueStatus?: CaptureSubmitResult['queueStatus']
 }
@@ -22,7 +21,6 @@ function rowState(
 ): RecentRow {
   return {
     category: detail?.category ?? snippet?.category ?? '',
-    memoryType: detail?.memoryType ?? snippet?.memoryType ?? null,
     enrichmentComplete: detail?.enrichmentComplete,
     queueStatus: detail?.queueStatus,
   }
@@ -34,7 +32,6 @@ export function recentThoughtPrimaryLabel(
   snippet: CaptureRecentThoughtSnippet | undefined,
 ): string {
   const row = rowState(detail, snippet)
-  if (row.memoryType) return row.memoryType
   if (row.enrichmentComplete && row.category === CAPTURE_QUEUE_PLACEHOLDER_CATEGORY) {
     return 'indexed'
   }
@@ -53,9 +50,7 @@ export function recentThoughtSecondaryLabel(
   snippet: CaptureRecentThoughtSnippet | undefined,
 ): string | null {
   const row = rowState(detail, snippet)
-  if (!row.memoryType) return null
   if (row.category === CAPTURE_QUEUE_PLACEHOLDER_CATEGORY) return null
-  if (row.category === row.memoryType) return null
   return row.category
 }
 

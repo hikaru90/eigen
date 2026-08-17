@@ -516,7 +516,6 @@ export async function retrieveEvidence(params: {
       normalizedTextEncrypted: thought.normalizedTextEncrypted,
       rerankSnippet: thought.rerankSnippet,
       category: thought.category,
-      memoryType: thought.memoryType,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
       createdAt: thought.createdAt,
@@ -616,7 +615,6 @@ export async function retrieveEvidence(params: {
         id: row.id,
         normalizedText,
         category: row.category,
-        memoryType: row.memoryType,
         author: row.author,
         authorLabel: row.authorLabel,
         score,
@@ -636,7 +634,6 @@ export async function retrieveEvidence(params: {
     RerankCandidate & {
       createdAt: Date
       category: string
-      memoryType: string | null
       metadata: Record<string, unknown>
       vectorScore: number
       graphScore: number
@@ -647,7 +644,6 @@ export async function retrieveEvidence(params: {
     score: d.score,
     createdAt: d.createdAt,
     category: d.category,
-    memoryType: d.memoryType,
     metadata: d.metadata,
     vectorScore: d.vectorScore,
     graphScore: d.graphScore,
@@ -663,7 +659,6 @@ export async function retrieveEvidence(params: {
       id: r.id,
       normalizedText: d?.normalizedText ?? r.normalizedText,
       category: r.category as string,
-      memoryType: r.memoryType as string | null,
       author: d?.author ?? 'user',
       authorLabel: d?.authorLabel ?? null,
       score: r.score,

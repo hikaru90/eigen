@@ -31,7 +31,6 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
     contextTags: [],
     focusRank: null,
     parentEventId: null,
-    memoryType: null,
     projectLabel: null,
     completedAt: null,
     lifecycleUpdatedAt: null,

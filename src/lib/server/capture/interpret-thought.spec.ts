@@ -85,7 +85,6 @@ describe('interpretThoughtPreview', () => {
       JSON.stringify({
         interpretedText: 'Plan a team offsite in Lisbon next quarter.',
         category: { key: 'task', confidence: 0.91, alternatives: [{ key: 'observation', confidence: 0.2 }] },
-        memoryType: 'episode',
         entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
         deviatesFromVerbatim: true,
       }),
@@ -105,7 +104,6 @@ describe('interpretThoughtPreview', () => {
     expect(out.interpretedText).toBe('Plan a team offsite in Lisbon next quarter.')
     expect(out.category.key).toBe('task')
     expect(out.category.confidence).toBeCloseTo(0.91)
-    expect(out.memoryType).toBe('episode')
     expect(out.deviatesFromVerbatim).toBe(true)
     expect(out.entities).toEqual([
       { surface: 'Lisbon', entityType: 'person', confidence: 0.4 },
@@ -117,7 +115,6 @@ describe('interpretThoughtPreview', () => {
       JSON.stringify({
         interpretedText: 'Buy oat milk',
         category: { key: 'task', confidence: 0.88, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: false,
       }),
@@ -135,7 +132,6 @@ describe('interpretThoughtPreview', () => {
       JSON.stringify({
         interpretedText: 'Hello',
         category: { key: 'observation', confidence: 0.8, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
       }),
     )
@@ -150,7 +146,6 @@ describe('interpretThoughtPreview', () => {
       JSON.stringify({
         interpretedText: 'Plan a team offsite in Porto next quarter.',
         category: { key: 'task', confidence: 0.9, alternatives: [] },
-        memoryType: 'episode',
         entities: [{ surface: 'Porto', entityType: 'person', confidence: 0.5 }],
         deviatesFromVerbatim: true,
       }),
@@ -162,7 +157,6 @@ describe('interpretThoughtPreview', () => {
       priorPreview: {
         interpretedText: 'Plan a team offsite in Lisbon next quarter.',
         category: { key: 'task', confidence: 0.91, alternatives: [] },
-        memoryType: 'episode',
         entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
         deviatesFromVerbatim: true,
       },
@@ -190,7 +184,6 @@ describe('interpretThoughtPreview', () => {
       JSON.stringify({
         interpretedText: 'Hello',
         category: { key: 'idea_note', confidence: 0.8, alternatives: [] },
-        memoryType: 'fact',
         entities: [],
         deviatesFromVerbatim: false,
       }),
@@ -207,7 +200,6 @@ describe('interpretThoughtPreview', () => {
         JSON.stringify({
           interpretedText: 'Buy oat milk',
           category: { key: 'task', confidence: 0.88, alternatives: [] },
-          memoryType: 'fact',
           entities: [],
           deviatesFromVerbatim: false,
         }) +

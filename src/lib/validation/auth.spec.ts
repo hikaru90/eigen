@@ -3,7 +3,8 @@ import { signInSchema, signUpSchema } from './auth'
 
 describe('signUpSchema', () => {
   const valid = {
-    name: 'Alex',
+    firstName: 'Alex',
+    lastName: 'Doe',
     email: 'alex@example.com',
     password: 'pass1234',
     acceptTerms: 'on' as const,
@@ -17,9 +18,19 @@ describe('signUpSchema', () => {
     }
   })
 
+  it('accepts a signup without a last name', () => {
+    const result = signUpSchema.safeParse({
+      firstName: 'Alex',
+      email: 'alex@example.com',
+      password: 'pass1234',
+      acceptTerms: 'on' as const,
+    })
+    expect(result.success).toBe(true)
+  })
+
   it('rejects when terms are not accepted', () => {
     const result = signUpSchema.safeParse({
-      name: 'Alex',
+      firstName: 'Alex',
       email: 'alex@example.com',
       password: 'pass1234',
     })
@@ -35,8 +46,8 @@ describe('signUpSchema', () => {
     expect(signUpSchema.safeParse({ ...valid, acceptTerms: 'off' }).success).toBe(false)
   })
 
-  it('still requires name, email, and password', () => {
-    expect(signUpSchema.safeParse({ ...valid, name: '' }).success).toBe(false)
+  it('still requires firstName, email, and password', () => {
+    expect(signUpSchema.safeParse({ ...valid, firstName: '' }).success).toBe(false)
     expect(signUpSchema.safeParse({ ...valid, email: 'nope' }).success).toBe(false)
     expect(signUpSchema.safeParse({ ...valid, password: 'short' }).success).toBe(false)
   })

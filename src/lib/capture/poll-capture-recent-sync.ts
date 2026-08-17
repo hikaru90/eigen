@@ -12,7 +12,6 @@ export type RecentCaptureSyncFilter = {
   author?: 'user' | 'agent'
   authorLayerKey?: string
   category?: string
-  memoryType?: string
 }
 
 export async function fetchRecentCaptureSyncPayload(
@@ -25,7 +24,6 @@ export async function fetchRecentCaptureSyncPayload(
     params.set('author', filter.author)
   }
   if (filter?.category) params.set('category', filter.category)
-  if (filter?.memoryType) params.set('memoryType', filter.memoryType)
   const url = params.toString() ? `/api/capture/recent?${params.toString()}` : '/api/capture/recent'
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
@@ -88,10 +86,8 @@ export function pollCaptureRecentSync(input: {
           prior.enrichmentComplete !== thought.enrichmentComplete ||
           prior.queueError !== thought.queueError ||
           prior.category !== thought.category ||
-          prior.memoryType !== thought.memoryType ||
           prior.normalizedText !== thought.normalizedText ||
           priorSnippet?.category !== incomingSnippet?.category ||
-          priorSnippet?.memoryType !== incomingSnippet?.memoryType
         )
       })
       const listChanged =

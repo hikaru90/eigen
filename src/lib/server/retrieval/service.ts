@@ -13,7 +13,6 @@ export type RetrievalResult = {
   id: string
   normalizedText: string
   category: string
-  memoryType: string | null
   author: MemoryAuthor
   authorLabel: string | null
   score: number

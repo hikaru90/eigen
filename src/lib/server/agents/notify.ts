@@ -31,7 +31,6 @@ export function notifyThoughtEnriched(input: {
   thoughtId: string
   normalizedText: string
   category: string
-  memoryType: string | null
   enrichedAt: Date
   entityCount?: number
   projectEntityIds?: string[]
@@ -46,7 +45,6 @@ export function notifyThoughtEnriched(input: {
       thoughtId: input.thoughtId,
       normalizedText: input.normalizedText,
       category: input.category,
-      memoryType: input.memoryType,
       enrichedAt: input.enrichedAt.toISOString(),
       entityCount: input.entityCount ?? 0,
       ...(input.projectEntityIds && input.projectEntityIds.length > 0
@@ -61,7 +59,6 @@ export function notifyThoughtUpdated(input: {
   thoughtId: string
   normalizedText: string
   category: string
-  memoryType?: string | null
   projectEntityIds?: string[]
   projectLabels?: string[]
 }): void {
@@ -74,7 +71,6 @@ export function notifyThoughtUpdated(input: {
       thoughtId: input.thoughtId,
       normalizedText: input.normalizedText,
       category: input.category,
-      memoryType: input.memoryType ?? null,
       updatedAt: new Date().toISOString(),
       ...(input.projectEntityIds && input.projectEntityIds.length > 0
         ? { projectEntityIds: input.projectEntityIds, projectLabels: input.projectLabels ?? [] }

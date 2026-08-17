@@ -146,7 +146,6 @@ const sampleRetrieval = [
     graphScore: 0.5,
     metadata: {},
     createdAt: FIXED_DATE,
-    memoryType: null,
   },
   {
     id: 't_002',
@@ -157,7 +156,6 @@ const sampleRetrieval = [
     graphScore: 0.6,
     metadata: {},
     createdAt: FIXED_DATE,
-    memoryType: null,
   },
 ]
 
@@ -576,7 +574,6 @@ describe('composeAnswer', () => {
         graphScore: 0,
         metadata: {},
         createdAt: FIXED_DATE,
-        memoryType: null,
       },
     ])
     llmChatCompletionMock.mockResolvedValueOnce(
@@ -891,7 +888,6 @@ describe('composeAnswer', () => {
         graphScore: 0,
         metadata: {},
         createdAt: FIXED_DATE,
-        memoryType: null,
       },
     ])
     llmChatCompletionMock.mockResolvedValueOnce(
@@ -950,7 +946,6 @@ describe('composeAnswer', () => {
         graphScore: 0.1,
         metadata: { graphProvenance: 'entity:Marcus' },
         createdAt: FIXED_DATE,
-        memoryType: null,
       },
     ])
     llmChatCompletionMock.mockResolvedValueOnce(
@@ -985,7 +980,6 @@ describe('composeAnswer', () => {
         graphScore: 0,
         metadata: {},
         createdAt: new Date('2026-05-28T00:00:00.000Z'),
-        memoryType: null,
       },
     ])
     llmChatCompletionMock.mockResolvedValueOnce(

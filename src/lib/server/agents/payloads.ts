@@ -5,7 +5,6 @@ export type ThoughtWebhookPayload = {
   normalizedText?: string
   rawText?: string
   category?: string
-  memoryType?: string | null
   source?: string | null
   createdAt?: string
   enrichedAt?: string | null
@@ -20,7 +19,6 @@ export type TaskAssignedPayload = {
   thoughtId: string
   normalizedText: string
   category: string
-  memoryType: string | null
   projectEntityId?: string | null
   projectLabel?: string | null
 }

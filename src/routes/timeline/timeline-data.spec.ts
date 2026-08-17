@@ -42,7 +42,6 @@ function makeItem(
     thoughtText: 'Task',
     thoughtCategory: 'task',
     thoughtStatus: 'open',
-    memoryType: null,
     projectLabel: null,
     projectEntityId: null,
     completedAt: null,

@@ -6,6 +6,8 @@ import {
   activeEntityKindKeys,
   activeEntityTypeKindKeys,
   activeRelationKindKeys,
+  activeThoughtCategoryKinds,
+  neverStaleCategoryKeys,
   validateEntityKindKeyForNewIngest,
   validateEntityTypeKeyForExtraction,
   validateRelationKindForNewIngest,
@@ -20,6 +22,7 @@ function rowEntity(
     definition: '',
     active: true,
     kindType: 'thought_category',
+    neverStale: false,
     ...p,
   }
 }
@@ -33,6 +36,7 @@ function rowEntityType(
     definition: '',
     active: true,
     kindType: 'entity_type',
+    neverStale: false,
     ...p,
   }
 }
@@ -179,5 +183,30 @@ describe('loadOntology validators', () => {
       ],
     )
     expect(activeRelationKindKeys(loaded)).toEqual(new Set(['on']))
+  })
+
+  it('activeThoughtCategoryKinds returns only active thought_category rows', () => {
+    const loaded = buildLoaded(
+      [
+        rowEntity({ id: 'a', key: 'task', active: true }),
+        rowEntity({ id: 'b', key: 'idea', active: false }),
+        rowEntityType({ id: 'c', key: 'person', active: true }),
+      ],
+      [],
+    )
+    expect(activeThoughtCategoryKinds(loaded).map((k) => k.key)).toEqual(['task'])
+  })
+
+  it('neverStaleCategoryKeys includes durable kinds regardless of active status', () => {
+    const loaded = buildLoaded(
+      [
+        rowEntity({ id: 'a', key: 'decision', active: true, neverStale: true }),
+        rowEntity({ id: 'b', key: 'reference', active: false, neverStale: true }),
+        rowEntity({ id: 'c', key: 'task', active: true, neverStale: false }),
+        rowEntityType({ id: 'd', key: 'project', active: true, neverStale: true }),
+      ],
+      [],
+    )
+    expect(neverStaleCategoryKeys(loaded)).toEqual(new Set(['decision', 'reference']))
   })
 })

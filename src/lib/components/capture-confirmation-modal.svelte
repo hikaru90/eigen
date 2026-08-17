@@ -82,12 +82,7 @@
           <span class="font-medium text-foreground">{preview.category.key}</span>
           <span class="ml-1">({categoryPercent}%)</span>
         </span>
-        {#if preview.memoryType}
-          <span>
-            Memory type:
-            <span class="font-medium text-foreground">{preview.memoryType}</span>
-          </span>
-        {/if}
+
       </div>
 
       {#if preview.entities.length > 0}

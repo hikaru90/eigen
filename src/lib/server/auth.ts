@@ -137,6 +137,20 @@ export const auth = betterAuth({
         : {}),
     },
     additionalFields: {
+      /** Given name — captured from the signup form or the OAuth profile (mapProfileToUser). */
+      firstName: {
+        type: 'string',
+        required: false,
+        input: true,
+        returned: true,
+      },
+      /** Family name — optional on the signup form; mapped from the OAuth profile when present. */
+      lastName: {
+        type: 'string',
+        required: false,
+        input: true,
+        returned: true,
+      },
       onboardingCompleted: {
         type: 'boolean',
         required: false,
@@ -178,6 +192,29 @@ export const auth = betterAuth({
               userId: user.id,
               error: err instanceof Error ? err.message : String(err),
             })
+          }
+          const { createOwleryContact, isOwleryConfigured } = await import(
+            '$lib/server/owlery/contacts'
+          )
+          if (isOwleryConfigured(env)) {
+            const newUser = user as {
+              id: string
+              email?: string
+              firstName?: string | null
+              lastName?: string | null
+            }
+            try {
+              await createOwleryContact(env, {
+                email: String(newUser.email ?? ''),
+                ...(newUser.firstName ? { firstName: newUser.firstName } : {}),
+                ...(newUser.lastName ? { lastName: newUser.lastName } : {}),
+              })
+            } catch (err) {
+              console.error('[auth] owlery contact sync failed', {
+                userId: user.id,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            }
           }
         },
       },

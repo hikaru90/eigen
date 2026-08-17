@@ -5,6 +5,7 @@
  *
  * Fatal errors (e.g. 402 billing) are NOT retried — they propagate immediately.
  */
+import { isInvalidThoughtCategoryError } from '$lib/server/ontology/validate-thought-category'
 import { LlmHttpError } from '$lib/server/llm/errors'
 
 export const INGEST_MAX_RETRIES = 3 as const
@@ -29,7 +30,7 @@ function isNonRetryable(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   if (error.name === 'InsufficientCreditsError') return true
   // Deterministic LLM ontology contract violation — inner correction already exhausted.
-  if (error.name === 'InvalidMemoryTypeError') return true
+  if (isInvalidThoughtCategoryError(error)) return true
   // Gateway-level insufficient balance — classified by type + status, never by message text.
   if (error instanceof LlmHttpError && error.status === 402) return true
   return false

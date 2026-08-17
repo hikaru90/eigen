@@ -22,7 +22,6 @@ describe('GET /api/capture/result/[thoughtId]', () => {
       normalizedText: 'hello',
       category: 'thought',
       metadata: {},
-      memoryType: null,
       cues: [],
       enrichedAt: null,
       entities: [],

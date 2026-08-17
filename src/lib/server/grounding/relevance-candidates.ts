@@ -10,7 +10,6 @@ export type RelevanceCheckInCandidate = {
   id: string
   normalizedText: string
   category: string
-  memoryType: string | null
   salienceScore: number
   inactiveDays: number
 }
@@ -31,7 +30,6 @@ export async function loadRelevanceCheckInCandidates(
       id: thought.id,
       normalizedText: thought.normalizedText,
       category: thought.category,
-      memoryType: thought.memoryType,
       salienceScore: thought.salienceScore,
       lastAccessedAt: thought.lastAccessedAt,
       createdAt: thought.createdAt,
@@ -52,7 +50,6 @@ export async function loadRelevanceCheckInCandidates(
   for (const row of rows) {
     if (
       isThoughtNeverStale({
-        memoryType: row.memoryType,
         metadata: row.metadata,
       })
     ) {
@@ -70,7 +67,6 @@ export async function loadRelevanceCheckInCandidates(
       id: row.id,
       normalizedText: text,
       category: row.category,
-      memoryType: row.memoryType,
       salienceScore: row.salienceScore,
       inactiveDays: Math.floor(inactiveMs / MS_PER_DAY),
     })

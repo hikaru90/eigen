@@ -51,7 +51,6 @@ describe('capture-result-display', () => {
       normalizedText: 'x',
       category: 'task',
       metadata: {},
-      memoryType: null,
       cues: [],
       enrichedAt: null,
       entities: [],

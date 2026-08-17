@@ -31,25 +31,27 @@ describe('signup page server', () => {
     expect(() => load({ url, locals: { user: null } } as never)).toThrow()
   })
 
-  it('returns validation error for empty name', async () => {
+  it('returns validation error for empty first name', async () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: '',
+        firstName: '',
+        lastName: 'User',
         email: 'test@example.com',
         password: 'pass1234',
         acceptTerms: 'on',
       }),
     })
     const result = await actions.signUpEmail({ request } as never)
-    expect(result).toMatchObject({ status: 400, data: { message: 'Name is required' } })
+    expect(result).toMatchObject({ status: 400, data: { message: 'First name is required' } })
   })
 
   it('returns validation error for empty email', async () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: '',
         password: 'pass1234',
         acceptTerms: 'on',
@@ -63,7 +65,8 @@ describe('signup page server', () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: 'invalid-email',
         password: 'pass1234',
         acceptTerms: 'on',
@@ -77,7 +80,8 @@ describe('signup page server', () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: 'test@example.com',
         password: 'short',
         acceptTerms: 'on',
@@ -94,7 +98,8 @@ describe('signup page server', () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: 'test@example.com',
         password: 'pass1234',
       }),
@@ -110,7 +115,8 @@ describe('signup page server', () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: 'test@example.com',
         password: 'pass1234',
         acceptTerms: 'on',
@@ -127,7 +133,8 @@ describe('signup page server', () => {
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: 'test@example.com',
         password: 'pass1234',
         acceptTerms: 'on',
@@ -139,13 +146,61 @@ describe('signup page server', () => {
     expect(result.data.message).toContain('Database error')
   })
 
+  it('passes composed name plus firstName/lastName to better-auth', async () => {
+    signUpEmailMock.mockResolvedValue({ user: { id: 'u1' }, token: null })
+    const request = new Request('http://localhost/signup', {
+      method: 'POST',
+      body: new URLSearchParams({
+        firstName: '  Test  ',
+        lastName: ' User ',
+        email: 'test@example.com',
+        password: 'pass1234',
+        acceptTerms: 'on',
+      }),
+    })
+    await expect(actions.signUpEmail({ request } as never)).rejects.toMatchObject({
+      status: 302,
+    })
+    expect(signUpEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          name: 'Test User',
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'test@example.com',
+          callbackURL: '/capture',
+        }),
+      }),
+    )
+  })
+
+  it('omits lastName when only a first name is given', async () => {
+    signUpEmailMock.mockResolvedValue({ user: { id: 'u1' }, token: null })
+    const request = new Request('http://localhost/signup', {
+      method: 'POST',
+      body: new URLSearchParams({
+        firstName: 'Test',
+        email: 'test@example.com',
+        password: 'pass1234',
+        acceptTerms: 'on',
+      }),
+    })
+    await expect(actions.signUpEmail({ request } as never)).rejects.toMatchObject({
+      status: 302,
+    })
+    const body = signUpEmailMock.mock.calls.at(-1)?.[0].body as Record<string, unknown>
+    expect(body).toMatchObject({ name: 'Test', firstName: 'Test' })
+    expect('lastName' in body).toBe(false)
+  })
+
   it('asks user to verify email when useSend is configured', async () => {
     isUseSendMailConfiguredMock.mockReturnValue(true)
     signUpEmailMock.mockResolvedValue({ user: { id: 'u1' }, token: null })
     const request = new Request('http://localhost/signup', {
       method: 'POST',
       body: new URLSearchParams({
-        name: 'Test User',
+        firstName: 'Test',
+        lastName: 'User',
         email: 'test@example.com',
         password: 'pass1234',
         acceptTerms: 'on',

@@ -49,7 +49,6 @@ const defaultCaptureResult = {
   normalizedText: 'raw input',
   category: 'task',
   metadata: { pipeline: 'ontology_llm_v1', categoryConfidence: 0.9, categoryAlternatives: [] },
-  memoryType: null,
   cues: [],
   enrichedAt: null,
   entities: [],
@@ -915,7 +914,6 @@ describe('listThoughts', () => {
         category: 'task',
         metadata: null,
         metadataEncrypted: 'enc:{"status":"open"}',
-        memoryType: 'fact',
         createdAt,
         updatedAt: createdAt,
       },
@@ -941,7 +939,6 @@ describe('listThoughts', () => {
         id: 't1',
         normalizedText: 'plain snippet',
         category: 'task',
-        memoryType: 'fact',
         createdAt,
       },
     ])
@@ -964,7 +961,6 @@ describe('listThoughts', () => {
         normalizedText: 'plain',
         normalizedTextEncrypted: 'enc:snippet text',
         category: 'task',
-        memoryType: 'fact',
         createdAt,
       },
     ])

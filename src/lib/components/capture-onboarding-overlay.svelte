@@ -1,21 +1,20 @@
 <script lang="ts">
+  import type { SubmitFunction } from '@sveltejs/kit'
+  import { onMount } from 'svelte'
   import { enhance } from '$app/forms'
   import { invalidateAll } from '$app/navigation'
-  import { onMount } from 'svelte'
-  import type { SubmitFunction } from '@sveltejs/kit'
-  import * as Card from '$lib/components/ui/card'
-  import { Button } from '$lib/components/ui/button'
   import { capture } from '$lib/analytics/posthog-client'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { ONBOARDING_GROUNDING_PUSH_DELAY_MS } from '$lib/grounding/onboarding-welcome-constants'
+  import { getPushSupportState, postSubscribe, subscribeToPush } from '$lib/push/client'
+  import { deferredInstallState, clearDeferredInstall } from '$lib/pwa/deferred-install-store.svelte'
   import {
     isIosDevice,
     isPwaStandalone,
     listenForAppInstalled,
-    listenForInstallPrompt,
     promptPwaInstall,
-    type BeforeInstallPromptEvent,
   } from '$lib/pwa/install'
-  import { getPushSupportState, postSubscribe, subscribeToPush } from '$lib/push/client'
-  import { ONBOARDING_GROUNDING_PUSH_DELAY_MS } from '$lib/grounding/onboarding-welcome-constants'
 
   let {
     open,
@@ -35,7 +34,8 @@
   let step = $state(0)
   const lastStep = 3
 
-  let deferredInstall = $state<BeforeInstallPromptEvent | null>(null)
+  /** Deferred install event comes from the shared app-wide store (see layout). */
+  const deferredInstall = $derived(deferredInstallState.deferred)
   let installDone = $state(false)
   let installBusy = $state(false)
   let installError = $state<string | null>(null)
@@ -85,9 +85,9 @@
 
     resetOnOpen()
 
-    const stopPrompt = listenForInstallPrompt((event) => {
-      deferredInstall = event
-    })
+    // beforeinstallprompt is captured app-wide by the shared store (layout);
+    // this overlay reads `deferredInstall` from it. We still listen for
+    // appinstalled here to fire onboarding-specific analytics + push scheduling.
     const stopInstalled = listenForAppInstalled(() => {
       installDone = true
       installConfirmedAt = Date.now()
@@ -105,7 +105,6 @@
     }, 1000)
 
     return () => {
-      stopPrompt()
       stopInstalled()
       window.clearInterval(standalonePoll)
     }
@@ -162,7 +161,7 @@
     try {
       if (deferredInstall) {
         const outcome = await promptPwaInstall(deferredInstall)
-        deferredInstall = null
+        clearDeferredInstall()
         if (outcome === 'accepted') {
           installDone = true
           installConfirmedAt = Date.now()

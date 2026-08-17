@@ -79,7 +79,7 @@
     onEditRequestChange: (value: string) => void
     onSubmitEdit: () => void
     onCancelEdit: () => void
-    onFilterChange?: (filter: { category?: string; memoryType?: string }) => void
+    onFilterChange?: (filter: { category?: string }) => void
     hasAgentCaptures?: boolean
   } = $props()
 
@@ -145,18 +145,12 @@
     'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground'
 
   let categoryFilter = $state<string>('all')
-  let memoryTypeFilter = $state<string>('all')
 
   const categories = $derived([...new Set(thoughts.map((t) => t.category).filter(Boolean))].sort())
 
-  const memoryTypes = $derived(
-    [...new Set(thoughts.map((t) => t.memoryType).filter((v): v is string => v !== null))].sort(),
-  )
-
   function handleFilterChange() {
-    const filter: { category?: string; memoryType?: string } = {}
+    const filter: { category?: string } = {}
     if (categoryFilter !== 'all') filter.category = categoryFilter
-    if (memoryTypeFilter !== 'all') filter.memoryType = memoryTypeFilter
     onFilterChange?.(filter)
   }
 
@@ -191,23 +185,6 @@
                 <Select.Item value="all">All categories</Select.Item>
                 {#each categories as cat}
                   <Select.Item value={cat}>{cat}</Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
-          {/if}
-          {#if memoryTypes.length > 1}
-            <Select.Root
-              type="single"
-              bind:value={memoryTypeFilter}
-              onValueChange={() => handleFilterChange()}
-            >
-              <Select.Trigger class="h-auto w-auto gap-1 rounded-none px-2 py-1 text-xs">
-                Type
-              </Select.Trigger>
-              <Select.Content>
-                <Select.Item value="all">All types</Select.Item>
-                {#each memoryTypes as mt}
-                  <Select.Item value={mt}>{mt}</Select.Item>
                 {/each}
               </Select.Content>
             </Select.Root>

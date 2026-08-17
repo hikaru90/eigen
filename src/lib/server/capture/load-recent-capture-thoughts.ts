@@ -17,7 +17,6 @@ export type RecentCaptureFilter = {
   author?: MemoryAuthor
   authorLayerKey?: string | null
   category?: string
-  memoryType?: string
   dateFrom?: Date
   dateTo?: Date
 }
@@ -34,7 +33,6 @@ export async function loadRecentCaptureThoughts(
     authorFilter: filter?.author,
     authorLayerKey: filter?.authorLayerKey,
     categoryFilter: filter?.category,
-    memoryTypeFilter: filter?.memoryType,
     dateFrom: filter?.dateFrom,
     dateTo: filter?.dateTo,
   })
@@ -46,7 +44,6 @@ export async function loadRecentCaptureThoughts(
       id: row.id,
       normalizedText: row.normalizedText,
       category: row.category,
-      memoryType: row.memoryType,
       createdAt: row.createdAt.toISOString(),
       author: row.author ?? 'user',
       authorLabel: row.authorLabel ?? null,

@@ -10,12 +10,13 @@ export type CapturePreviewCategory = {
   key: string
   confidence: number
   alternatives: Array<{ key: string; confidence: number }>
+  /** Set when the primary key was invalid and a valid alternative was promoted. */
+  repairedFrom?: string
 }
 
 export type CapturePreviewBundle = {
   interpretedText: string
   category: CapturePreviewCategory
-  memoryType: string | null
   entities: CapturePreviewEntity[]
   /** LLM judge: true when interpretation changes meaning/entities beyond trivial cleanup. */
   deviatesFromVerbatim: boolean

@@ -350,7 +350,6 @@
 
   "llm_entity_extraction_system": "Du extrahierst strukturierte Erwähnungen von Entitäten. entityType muss immer ein exakter Schlüssel aus der Entitätstyp-Liste in der Benutzernachricht sein, niemals eine freie Kategorie.",
   "llm_entity_triple_system": "Du extrahierst typisierte Kanten zwischen bekannten Entitäts-Oberflächen.",
-  "llm_memory_type_system": "Du klassifizierst persönliche Notizen und generierst Such-Hinweise. memoryType muss immer ein exakter Schlüssel aus der Liste in der Benutzernachricht sein. Gib nur gültiges JSON zurück.",
   "llm_gtd_assignment_system": "Du ordnete persönliche Notizen GTD-Projekten zu. projectEntityId muss exakt aus dem Katalog kopiert werden oder null. Gib nur gültiges JSON zurück.",
   "llm_gtd_judge_system": "Du beurteilst ob ein Wissensgraph-Hub ein persönliches GTD-Projekt (mehrstufige Initiative) ist. Gib nur gültiges JSON zurück.",
   "llm_project_detection_system": "Du extrahierst Projektnamen aus persönlichen Notizen. Gib nur gültiges JSON zurück.",

@@ -124,7 +124,6 @@ export async function applyGtdAssignment(input: {
   userId: string
   thoughtId: string
   normalizedText: string
-  memoryType: string | null
   category: string
   graphHubHints?: Array<{ entityId: string; label: string }>
 }): Promise<GtdAssignmentResult | null> {

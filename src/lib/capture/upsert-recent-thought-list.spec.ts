@@ -8,7 +8,6 @@ function thought(id: string, category = 'observation'): CaptureSubmitResult {
     normalizedText: `text-${id}`,
     category,
     metadata: {},
-    memoryType: null,
     cues: [],
     enrichedAt: null,
     entities: [],
@@ -26,14 +25,12 @@ describe('upsertRecentThoughtList', () => {
       id: 'a',
       normalizedText: 'A',
       category: 'observation',
-      memoryType: null,
       createdAt: '2026-01-01T00:00:00.000Z',
     },
     {
       id: 'b',
       normalizedText: 'B',
       category: 'observation',
-      memoryType: null,
       createdAt: '2026-01-02T00:00:00.000Z',
     },
   ]

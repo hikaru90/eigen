@@ -30,16 +30,23 @@ export const load: PageServerLoad = (event) => {
 export const actions: Actions = {
   signUpEmail: async (event) => {
     const formData = await event.request.formData()
-    const name = formData.get('name')?.toString()?.trim() ?? ''
+    const firstName = formData.get('firstName')?.toString()?.trim() ?? ''
+    const lastName = formData.get('lastName')?.toString()?.trim() ?? ''
     const email = formData.get('email')?.toString() ?? ''
     const password = formData.get('password')?.toString() ?? ''
     const acceptTerms = formData.get('acceptTerms')
 
-    const validation = signUpSchema.safeParse({ name, email, password, acceptTerms })
+    const validation = signUpSchema.safeParse({
+      firstName,
+      lastName: lastName || undefined,
+      email,
+      password,
+      acceptTerms,
+    })
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors
       const message =
-        fieldErrors.name?.[0] ||
+        fieldErrors.firstName?.[0] ||
         fieldErrors.email?.[0] ||
         fieldErrors.password?.[0] ||
         fieldErrors.acceptTerms?.[0] ||
@@ -48,13 +55,21 @@ export const actions: Actions = {
     }
 
     const emailVerificationRequired = isUseSendMailConfigured(env)
+    const data = validation.data
+
+    // Declared as user.additionalFields (input: true) in auth.ts, so Better Auth persists them
+    // from the signup body; its signUpEmail body type only models the core fields, hence a record.
+    const additionalUserFields: Record<string, string> = { firstName: data.firstName }
+    if (data.lastName) additionalUserFields.lastName = data.lastName
 
     try {
       await auth.api.signUpEmail({
         body: {
-          name: validation.data.name,
-          email: validation.data.email,
-          password: validation.data.password,
+          // Better Auth requires a single display name; first/last are stored as additional fields.
+          name: data.lastName ? `${data.firstName} ${data.lastName}` : data.firstName,
+          email: data.email,
+          password: data.password,
+          ...additionalUserFields,
           callbackURL: '/capture',
         },
       })

@@ -38,7 +38,6 @@ function item(
     thoughtText: overrides.semanticSummary ?? overrides.id,
     thoughtCategory: 'task',
     thoughtStatus: 'open',
-    memoryType: null,
     projectLabel: 'Launch',
     projectEntityId: 'p1',
     completedAt: null,

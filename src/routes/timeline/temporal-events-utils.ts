@@ -18,7 +18,6 @@ export const LEGACY_OPEN_LOOP_ITEM_PREFIX = 'open-loop:'
 
 export function isTaskListItem(item: TemporalEventListItem): boolean {
   if (item.thoughtCategory === 'task') return true
-  if (item.memoryType === 'open_loop' || item.memoryType === 'task') return true
   const itemType = item.itemType as string
   return (
     itemType === 'task' ||

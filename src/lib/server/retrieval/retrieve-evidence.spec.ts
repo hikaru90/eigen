@@ -92,7 +92,6 @@ const thoughtRow = {
   normalizedTextEncrypted: null,
   rerankSnippet: 'snippet',
   category: 'thought',
-  memoryType: 'fact',
   metadata: { k: 'v' },
   metadataEncrypted: null,
   createdAt: new Date('2026-06-01T10:00:00.000Z'),

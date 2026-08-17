@@ -21,12 +21,14 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
 
-  let name = $state('')
+  let firstName = $state('')
+  let lastName = $state('')
   let email = $state('')
   let password = $state('')
   let acceptTerms = $state(false)
   let fieldErrors = $state<{
-    name?: string
+    firstName?: string
+    lastName?: string
     email?: string
     password?: string
     acceptTerms?: string
@@ -34,7 +36,8 @@
 
   function validate() {
     const result = signUpSchema.safeParse({
-      name,
+      firstName: firstName.trim(),
+      lastName: lastName.trim() || undefined,
       email,
       password,
       acceptTerms: acceptTerms ? 'on' : undefined,
@@ -45,7 +48,8 @@
     }
     const flat = result.error.flatten().fieldErrors
     fieldErrors = {
-      name: flat.name?.[0],
+      firstName: flat.firstName?.[0],
+      lastName: flat.lastName?.[0],
       email: flat.email?.[0],
       password: flat.password?.[0],
       acceptTerms: flat.acceptTerms?.[0],
@@ -161,18 +165,33 @@
           {/if}
 
           <div class="space-y-1">
-            <Label for="name">Name</Label>
+            <Label for="firstName">First name</Label>
             <input
-              id="name"
+              id="firstName"
               type="text"
-              name="name"
-              autocomplete="name"
-              bind:value={name}
+              name="firstName"
+              autocomplete="given-name"
+              bind:value={firstName}
               class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              aria-describedby={fieldErrors.name ? 'name-error' : undefined}
+              aria-describedby={fieldErrors.firstName ? 'first-name-error' : undefined}
             />
-            {#if fieldErrors.name}
-              <p id="name-error" class="text-destructive text-xs">{fieldErrors.name}</p>
+            {#if fieldErrors.firstName}
+              <p id="first-name-error" class="text-destructive text-xs">{fieldErrors.firstName}</p>
+            {/if}
+          </div>
+          <div class="space-y-1">
+            <Label for="lastName">Last name <span class="text-muted-foreground">(optional)</span></Label>
+            <input
+              id="lastName"
+              type="text"
+              name="lastName"
+              autocomplete="family-name"
+              bind:value={lastName}
+              class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-describedby={fieldErrors.lastName ? 'last-name-error' : undefined}
+            />
+            {#if fieldErrors.lastName}
+              <p id="last-name-error" class="text-destructive text-xs">{fieldErrors.lastName}</p>
             {/if}
           </div>
           <div class="space-y-1">

@@ -1,16 +1,18 @@
 /**
  * LLM interpret pass for the capture confirmation gate.
- * Produces interpreted text + category + memoryType + entity preview before enrich.
+ * Produces interpreted text + category + entity preview before enrich.
  */
 import { getDb } from '$lib/server/db'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
-import { MEMORY_TYPE_KEY_UNION, normalizeMemoryType } from '$lib/server/memory/memory-type-catalog'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { emptyOntologyProfile, ontologyKindsPromptBlock } from '$lib/server/ontology/types'
-import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
+import { ensureUserOntologySeeded, loadOntologyForUser, activeThoughtCategoryKinds, type LoadedUserOntology } from '$lib/server/ontology-db'
 import { loadUserOntologyProfileRow } from '$lib/server/ontology/classify-thought-category'
-import type { MemoryType } from '$lib/server/db/brain.schema'
+import {
+  resolveCategoryFromLlmOutput,
+  type ResolvedThoughtCategory,
+} from '$lib/server/ontology/validate-thought-category'
 
 export type CapturePreviewEntity = {
   surface: string
@@ -26,8 +28,7 @@ export type CapturePreviewCategory = {
 
 export type CapturePreviewBundle = {
   interpretedText: string
-  category: CapturePreviewCategory
-  memoryType: MemoryType | null
+  category: ResolvedThoughtCategory
   entities: CapturePreviewEntity[]
   /** LLM judge: true when interpretation changes meaning/entities beyond trivial cleanup. */
   deviatesFromVerbatim: boolean
@@ -41,7 +42,7 @@ function clampConfidence(value: unknown): number {
 
 function parsePreviewBundle(
   payload: unknown,
-  allowedCategoryKeys: Set<string>,
+  ontology: LoadedUserOntology,
   allowedEntityKeys: Set<string>,
 ): CapturePreviewBundle {
   if (!payload || typeof payload !== 'object') {
@@ -54,27 +55,7 @@ function parsePreviewBundle(
     throw new Error('Interpret LLM response missing non-empty interpretedText')
   }
 
-  const categoryRaw = obj.category
-  if (!categoryRaw || typeof categoryRaw !== 'object') {
-    throw new Error('Interpret LLM response missing category')
-  }
-  const cat = categoryRaw as Record<string, unknown>
-  const categoryKey = typeof cat.key === 'string' ? cat.key.trim() : ''
-  if (!categoryKey || !allowedCategoryKeys.has(categoryKey)) {
-    throw new Error(
-      `Interpret LLM returned invalid category key "${categoryKey || '(empty)'}"; expected one of: ${[...allowedCategoryKeys].sort().join(', ')}`,
-    )
-  }
-
-  const alternativesRaw = Array.isArray(cat.alternatives) ? cat.alternatives : []
-  const alternatives: Array<{ key: string; confidence: number }> = []
-  for (const alt of alternativesRaw) {
-    if (!alt || typeof alt !== 'object') continue
-    const a = alt as Record<string, unknown>
-    const key = typeof a.key === 'string' ? a.key.trim() : ''
-    if (!key || !allowedCategoryKeys.has(key)) continue
-    alternatives.push({ key, confidence: clampConfidence(a.confidence) })
-  }
+  const category = resolveCategoryFromLlmOutput(ontology, obj.category)
 
   const entitiesRaw = Array.isArray(obj.entities) ? obj.entities : []
   const entities: CapturePreviewEntity[] = []
@@ -96,17 +77,7 @@ function parsePreviewBundle(
   }
   const deviatesFromVerbatim = obj.deviatesFromVerbatim
 
-  return {
-    interpretedText,
-    category: {
-      key: categoryKey,
-      confidence: clampConfidence(cat.confidence),
-      alternatives,
-    },
-    memoryType: normalizeMemoryType(obj.memoryType),
-    entities,
-    deviatesFromVerbatim,
-  }
+  return { interpretedText, category, entities, deviatesFromVerbatim }
 }
 
 /**
@@ -126,9 +97,7 @@ export async function interpretThoughtPreview(input: {
   await ensureUserOntologySeeded(getDb(), input.userId)
   const ontology = await loadOntologyForUser(getDb(), input.userId)
   const profile = (await loadUserOntologyProfileRow(input.userId)) ?? emptyOntologyProfile()
-  const categoryKinds = ontology.entityKinds.filter(
-    (k) => k.active && k.kindType === 'thought_category',
-  )
+  const categoryKinds = activeThoughtCategoryKinds(ontology)
   const entityKinds = ontology.entityKinds.filter((k) => k.active && k.kindType === 'entity_type')
   const allowedCategoryKeys = new Set(categoryKinds.map((k) => k.key))
   const allowedEntityKeys = new Set(entityKinds.map((k) => k.key))
@@ -144,11 +113,10 @@ export async function interpretThoughtPreview(input: {
       content: [
         'You interpret a raw personal capture into a clear stored form for the user to confirm when needed.',
         'Return JSON only:',
-        `{ "interpretedText": "<clear full thought body>", "category": { "key": "${categoryKeyUnion}", "confidence": 0-1, "alternatives": [{ "key": "...", "confidence": 0-1 }] }, "memoryType": ${MEMORY_TYPE_KEY_UNION} | null, "entities": [{ "surface": "...", "entityType": "${entityKeyUnion}", "confidence": 0-1 }], "deviatesFromVerbatim": true|false }`,
+        `{ "interpretedText": "<clear full thought body>", "category": { "key": "${categoryKeyUnion}", "confidence": 0-1, "alternatives": [{ "key": "...", "confidence": 0-1 }] }, "entities": [{ "surface": "...", "entityType": "${entityKeyUnion}", "confidence": 0-1 }], "deviatesFromVerbatim": true|false }`,
         'Rules:',
         '- interpretedText is the clarified/normalized form the user will store. Preserve meaning; fix obvious STT/typos; do not invent facts.',
         '- category.key must be an exact ontology thought_category key from the catalog (no synonyms).',
-        '- memoryType must be a canonical storage shape key or null — never a thought_category key.',
         '- entities are provisional mentions for preview only; entityType must be an exact ontology entity_type key.',
         '- deviatesFromVerbatim must be a boolean. Set true when interpretedText changes meaning or reinterprets/links entities beyond what is literally in the raw capture (more than trivial whitespace/STT/typo cleanup). Set false when you only clarify formatting or fix obvious typos without altering meaning.',
         '- When a correction is provided, apply it to the priorPreview and return a full updated JSON object.',
@@ -181,7 +149,7 @@ export async function interpretThoughtPreview(input: {
   const content = extractChatContent(response)
   try {
     const parsed = parseLlmJsonPayload(content)
-    return parsePreviewBundle(parsed, allowedCategoryKeys, allowedEntityKeys)
+    return parsePreviewBundle(parsed, ontology, allowedEntityKeys)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     throw new Error(`Failed to parse interpret LLM response: ${message}`)

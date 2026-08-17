@@ -64,7 +64,6 @@ describe('loadThoughtCaptureResult', () => {
       category: 'task',
       metadata: {},
       metadataEncrypted: 'enc:{"categoryConfidence":0.82}',
-      memoryType: 'episode',
       cues: ['header fix'],
       enrichedAt,
       enrichQueueStatus: 'complete',
@@ -119,7 +118,6 @@ describe('loadThoughtCaptureResult', () => {
       normalizedText: 'decrypted normalized',
       category: 'task',
       metadata: { categoryConfidence: 0.82 },
-      memoryType: 'episode',
       cues: ['header fix'],
       enrichedAt: enrichedAt.toISOString(),
       entities: [
@@ -172,7 +170,6 @@ describe('loadThoughtCaptureResult', () => {
       category: 'idea',
       metadata: {},
       metadataEncrypted: null,
-      memoryType: null,
       cues: [],
       enrichedAt: null,
     }

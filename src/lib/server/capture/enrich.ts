@@ -30,10 +30,7 @@ import { extractRelations } from '$lib/server/memory/relation-extraction'
 import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction'
 import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
 import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync'
-import {
-  extractThoughtMetadata,
-  type ThoughtMetadataExtraction,
-} from '$lib/server/memory/extract-thought-metadata'
+import { extractSearchCues } from '$lib/server/memory/search-cues'
 import type {
   ExtractedEntityMention,
   ExtractedEntityTriple,
@@ -70,7 +67,8 @@ export type EnrichThoughtOptions = {
   precomputedEntityEnrichmentContext?: EntityGraphEnrichmentContext
   /** Pre-fetched batch LLM results — skip redundant extraction calls. */
   precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
-  precomputedMetadata?: ThoughtMetadataExtraction
+  /** Pre-computed cues from the prefetch — skip redundant LLM call. */
+  precomputedCues?: string[]
   precomputedTemporalMentions?: ExtractedTemporalMention[]
   ingestTimer?: IngestPhaseTimer
   /** When true, relation extraction runs fire-and-forget after core enrich (background capture). */
@@ -139,7 +137,7 @@ export async function enrichThought(
     preloadedKnownEntities,
     precomputedEntityGraph,
     precomputedEntityEnrichmentContext,
-    precomputedMetadata,
+    precomputedCues,
     precomputedTemporalMentions,
     ingestTimer,
     deferRelations = false,
@@ -194,16 +192,14 @@ export async function enrichThought(
       }
     }),
 
-    time('enrich_metadata', async () => {
-      const { memoryType, cues } =
-        precomputedMetadata ?? (await extractThoughtMetadata({ userId, normalizedText }))
-      await db
-        .update(thought)
-        .set({
-          memoryType,
-          ...(cues.length > 0 ? { cues } : {}),
-        })
-        .where(eq(thought.id, thoughtId))
+    time('enrich_cues', async () => {
+      const cues = precomputedCues ?? (await extractSearchCues({ userId, normalizedText }))
+      if (cues.length > 0) {
+        await db
+          .update(thought)
+          .set({ cues })
+          .where(eq(thought.id, thoughtId))
+      }
     }),
 
     (async () => {
@@ -259,7 +255,7 @@ export async function enrichThought(
   }
 
   // Log failures individually so one bad step doesn't hide others.
-  const stepNames = ['entities', 'temporal', 'metadata'] as const
+  const stepNames = ['entities', 'temporal', 'cues'] as const
   const temporalStepResult: PromiseSettledResult<void> =
     precomputedTemporalMentions !== undefined
       ? temporalResult
@@ -337,8 +333,7 @@ export async function enrichThought(
     try {
       const [thoughtRow] = await db
         .select({
-          memoryType: thought.memoryType,
-          category: thought.category,
+      category: thought.category,
         })
         .from(thought)
         .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -350,7 +345,6 @@ export async function enrichThought(
             userId,
             thoughtId,
             normalizedText,
-            memoryType: thoughtRow.memoryType,
             category: thoughtRow.category,
             graphHubHints,
           }),

@@ -470,6 +470,20 @@
       "when": 1784584880000,
       "tag": "0066_project_timelines",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1786634400000,
+      "tag": "0067_single_type_axis",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1786546205517,
+      "tag": "0068_user_first_last_name",
+      "breakpoints": true
     }
   ]
 }
