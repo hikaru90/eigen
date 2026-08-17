@@ -33,8 +33,6 @@ export const GET: RequestHandler = async (event) => {
     filter.category = categoryParam
   }
 
-  }
-
   const dateFromParam = url.searchParams.get('dateFrom')
   if (dateFromParam) {
     const d = new Date(dateFromParam)

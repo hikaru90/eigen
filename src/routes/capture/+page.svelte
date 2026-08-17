@@ -199,6 +199,7 @@
     Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought])),
   )
   let dataView = $state<CurrentUserView>(getCurrentUserView())
+  let recentFilter = $state<{ category?: string }>({})
   let hasAgentCaptures = $derived(
     Object.values(thoughtDetails).some((d) => d.author === 'agent') ||
       data.recentThoughtDetails.some((d) => d.author === 'agent'),
@@ -233,6 +234,7 @@
     }
   }
 
+  async function handleRecentFilterChange(filter: { category?: string }) {
     recentFilter = filter
     await reloadRecentThoughts()
   }

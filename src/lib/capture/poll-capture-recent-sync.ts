@@ -87,7 +87,7 @@ export function pollCaptureRecentSync(input: {
           prior.queueError !== thought.queueError ||
           prior.category !== thought.category ||
           prior.normalizedText !== thought.normalizedText ||
-          priorSnippet?.category !== incomingSnippet?.category ||
+          priorSnippet?.category !== incomingSnippet?.category
         )
       })
       const listChanged =

@@ -5,7 +5,6 @@ const {
   createThoughtEmbeddingMock,
   applyCaptureContentSplitIfNeededMock,
   extractEnrichThoughtBundleMock,
-  extractThoughtMetadataMock,
   enrichThoughtMock,
   loadEnrichmentContextMock,
   decryptTenantValueMock,
@@ -25,7 +24,6 @@ const {
   createThoughtEmbeddingMock: vi.fn(),
   applyCaptureContentSplitIfNeededMock: vi.fn(),
   extractEnrichThoughtBundleMock: vi.fn(),
-  extractThoughtMetadataMock: vi.fn(),
   enrichThoughtMock: vi.fn(),
   loadEnrichmentContextMock: vi.fn(),
   decryptTenantValueMock: vi.fn(),
@@ -49,9 +47,6 @@ vi.mock('$lib/server/capture/apply-capture-content-split', () => ({
 }))
 vi.mock('$lib/server/capture/enrich-thought-bundle', () => ({
   extractEnrichThoughtBundle: extractEnrichThoughtBundleMock,
-}))
-vi.mock('$lib/server/memory/extract-thought-metadata', () => ({
-  extractThoughtMetadata: extractThoughtMetadataMock,
 }))
 vi.mock('$lib/server/capture/enrich', () => ({ enrichThought: enrichThoughtMock }))
 vi.mock('$lib/server/capture/enrichment-context', () => ({
@@ -154,6 +149,7 @@ const baseContext = {
 
 const baseBundle = {
   category: { key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] },
+  cues: ['cue one', 'cue two'],
   temporalMentions: [],
   entityGraph: { mentions: [], triples: [] },
 }
@@ -169,7 +165,6 @@ describe('enrichQueuedThought', () => {
     loadEnrichmentContextMock.mockResolvedValue(baseContext)
     createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2])
     extractEnrichThoughtBundleMock.mockResolvedValue(baseBundle)
-    extractThoughtMetadataMock.mockResolvedValue(baseMetadata)
     shouldRetryEntityMentionExtractionMock.mockReturnValue(false)
     getUserPreferredTimezoneMock.mockResolvedValue('UTC')
     encryptTenantValueMock.mockImplementation(
@@ -212,11 +207,11 @@ describe('enrichQueuedThought', () => {
       expect.objectContaining({
         thoughtEmbedding: [0.1, 0.2],
         deferRelations: true,
-        precomputedMetadata: baseMetadata,
+        precomputedCues: ['cue one', 'cue two'],
       }),
     )
-    expect(extractThoughtMetadataMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u1', normalizedText: 'raw input' }),
+    expect(extractEnrichThoughtBundleMock).toHaveBeenCalledWith(
+      expect.objectContaining({ context: baseContext }),
     )
     expect(markEnrichQueueCompleteMock).toHaveBeenCalledWith('t1')
     expect(notifyThoughtEnrichedMock).toHaveBeenCalledWith(

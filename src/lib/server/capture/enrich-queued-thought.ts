@@ -31,8 +31,6 @@ import {
 import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
 import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
 import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
-import type { ThoughtMetadataExtraction } from '$lib/server/memory/extract-thought-metadata'
-import { extractThoughtMetadata } from '$lib/server/memory/extract-thought-metadata'
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { markEnrichQueueComplete, markEnrichQueueFailed } from '$lib/server/capture/queue-capture'
@@ -83,7 +81,7 @@ async function prefetchEnrichExtractions(input: {
   embedding: number[]
   entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
   entityEnrichmentContext?: EntityGraphEnrichmentContext
-  metadata: ThoughtMetadataExtraction
+  cues: string[]
   temporalMentions: ExtractedTemporalMention[]
 }> {
   const { context, capturedAt } = input
@@ -116,22 +114,15 @@ async function prefetchEnrichExtractions(input: {
   }
 
   if (isGraphScaleQuiet()) {
-    console.info('[graph-scale] enrich prefetch: enrich_thought_bundle + memory_type')
+    console.info('[graph-scale] enrich prefetch: enrich_thought_bundle')
   }
-  const [bundle, metadata] = await Promise.all([
-    extractEnrichThoughtBundle({
-      context,
-      capturedAt,
-      timezone: anchorTimezone,
-      entityEnrichmentContext,
-      ontologyEntityKinds,
-    }),
-    extractThoughtMetadata({
-      userId,
-      normalizedText,
-      groundingProfile: context.groundingProfile ?? undefined,
-    }),
-  ])
+  const bundle = await extractEnrichThoughtBundle({
+    context,
+    capturedAt,
+    timezone: anchorTimezone,
+    entityEnrichmentContext,
+    ontologyEntityKinds,
+  })
 
   let entityGraph = bundle.entityGraph
   if (
@@ -157,7 +148,7 @@ async function prefetchEnrichExtractions(input: {
     embedding,
     entityGraph,
     entityEnrichmentContext,
-    metadata,
+    cues: bundle.cues,
     temporalMentions: bundle.temporalMentions,
   }
 }
@@ -264,7 +255,7 @@ export async function enrichQueuedThought(
         preloadedKnownEntities: context.knownEntities,
         precomputedEntityGraph: prefetched.entityGraph,
         precomputedEntityEnrichmentContext: prefetched.entityEnrichmentContext,
-        precomputedMetadata: prefetched.metadata,
+        precomputedCues: prefetched.cues,
         precomputedTemporalMentions: prefetched.temporalMentions,
         ingestTimer,
         deferRelations: true,
