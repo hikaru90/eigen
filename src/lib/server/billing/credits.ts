@@ -8,7 +8,7 @@ export const MICRO_USD_PER_CREDIT = 1000
 export const STARTING_FREE_CREDITS = 100
 
 /** Minimum balance before capture classify + embed (platform credits). */
-export const MIN_CAPTURE_PIPELINE_CREDITS = 50
+export const MIN_CAPTURE_PIPELINE_CREDITS = 5
 
 /** Minimum top-up / PayPal purchase (1000 credits = $1 USD). */
 export const MIN_TOP_UP_CREDITS = 1000

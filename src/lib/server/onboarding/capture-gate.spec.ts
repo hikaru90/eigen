@@ -33,7 +33,7 @@ describe('checkCaptureAllowed', () => {
   })
 
   it('blocks platform users with low credits', async () => {
-    getOrCreateWalletMock.mockResolvedValue({ availableCredits: 10 })
+    getOrCreateWalletMock.mockResolvedValue({ availableCredits: 4 })
     const gate = await checkCaptureAllowed('u1')
     expect(gate).toEqual({ allowed: false, reason: 'insufficient_credits' })
   })

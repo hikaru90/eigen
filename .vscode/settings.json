@@ -2,6 +2,5 @@
   "files.associations": {
     "*.css": "tailwindcss"
   },
-  "js/ts.experimental.useTsgo": false,
-  "npm.autoDetect": "off"
+  "js/ts.experimental.useTsgo": false
 }

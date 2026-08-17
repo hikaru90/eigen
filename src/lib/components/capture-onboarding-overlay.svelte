@@ -19,7 +19,7 @@
   let {
     open,
     walletAvailableCredits = 0,
-    minCaptureCredits = 50,
+    minCaptureCredits = 5,
     creditsGatePassed = false,
     startingFreeCredits = 100,
   }: {

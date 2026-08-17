@@ -41,7 +41,7 @@ describe('usage-gate billing', () => {
   })
 
   it('MIN_CAPTURE_PIPELINE_CREDITS is a positive integer', () => {
-    expect(MIN_CAPTURE_PIPELINE_CREDITS).toBe(50)
+    expect(MIN_CAPTURE_PIPELINE_CREDITS).toBe(5)
     expect(Number.isInteger(MIN_CAPTURE_PIPELINE_CREDITS)).toBe(true)
   })
   it('accumulates sub-cent settled costs instead of rounding up to 1 cent', () => {
