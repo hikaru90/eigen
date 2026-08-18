@@ -18,6 +18,7 @@ import {
   ensureProject,
   thoughtStatusFromMetadata,
 } from '$lib/server/memory/project-eligibility'
+import { upsertGraphHubEntity } from '$lib/server/memory/project-entity'
 import type { ProjectMilestoneListItem } from '$lib/server/memory/project-timeline'
 
 export type ProjectNextAction = {
@@ -276,6 +277,29 @@ export async function dismissProject(userId: string, entityId: string): Promise<
     .where(and(eq(canonicalEntity.userId, userId), eq(canonicalEntity.id, entityId)))
 }
 
+/** Create a new GTD project with manual source. */
+export async function createProject(
+  userId: string,
+  label: string,
+  options?: { status?: ProjectStatus },
+): Promise<{ entityId: string; label: string; status: ProjectStatus; source: ProjectSource }> {
+  const trimmedLabel = label.trim()
+  if (!trimmedLabel) {
+    throw new Error('Project label is required')
+  }
+
+  const status = options?.status ?? 'active'
+  const source: ProjectSource = 'manual'
+
+  // Create or update the graph entity
+  const entityId = await upsertGraphHubEntity(userId, trimmedLabel, 'project')
+
+  // Promote to GTD project
+  await ensureProject(userId, entityId, status, source)
+
+  return { entityId, label: trimmedLabel, status, source }
+}
+
 /** Update a project's label (name). */
 export async function updateProjectLabel(
   userId: string,
@@ -293,6 +317,25 @@ export async function updateProjectLabel(
   }
 
   return { entityId: updated.id, label: updated.label }
+}
+
+/** Update a project's status (active, someday, completed). */
+export async function updateProjectStatus(
+  userId: string,
+  entityId: string,
+  status: ProjectStatus,
+): Promise<{ entityId: string; status: ProjectStatus }> {
+  const [updated] = await getDb()
+    .update(canonicalEntity)
+    .set({ projectStatus: status, updatedAt: new Date() })
+    .where(and(eq(canonicalEntity.id, entityId), eq(canonicalEntity.userId, userId)))
+    .returning({ id: canonicalEntity.id, projectStatus: canonicalEntity.projectStatus })
+
+  if (!updated) {
+    throw new Error('Project not found or not owned by user')
+  }
+
+  return { entityId: updated.id, status: updated.projectStatus as ProjectStatus }
 }
 
 export {

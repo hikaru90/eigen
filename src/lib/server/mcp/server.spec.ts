@@ -40,6 +40,9 @@ vi.mock('./tools', () => ({
   runSetProjectMilestoneTool: vi.fn(),
   runSetProjectDeadlineTool: vi.fn(),
   runGenerateProjectPlanTool: vi.fn(),
+  runCreateProjectTool: vi.fn(),
+  runEditProjectTool: vi.fn(),
+  runDeleteProjectTool: vi.fn(),
 }))
 
 describe('createMcpServer', () => {
@@ -61,6 +64,9 @@ describe('createMcpServer', () => {
       'set_project_milestone',
       'set_project_deadline',
       'generate_project_plan',
+      'create_project',
+      'edit_project',
+      'delete_project',
     ])
     expect(result.tools.map((t) => t.name)).not.toContain('list_thoughts')
     expect(result.tools.map((t) => t.name)).not.toContain('capture_grounding')

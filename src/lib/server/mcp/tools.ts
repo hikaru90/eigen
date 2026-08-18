@@ -34,7 +34,13 @@ import {
   resolveMcpCaptureAuthorship,
   type AuthenticatedApiKey,
 } from '$lib/server/memory/authorship'
-import { listProjectsForUser } from '$lib/server/memory/project-list'
+import {
+  listProjectsForUser,
+  createProject,
+  updateProjectLabel,
+  updateProjectStatus,
+  dismissProject,
+} from '$lib/server/memory/project-list'
 import { orderTaskInProject } from '$lib/server/memory/project-task-sequence'
 import { generateProjectPlan } from '$lib/server/memory/generate-project-plan'
 import {
@@ -833,4 +839,112 @@ export async function runGenerateProjectPlanTool(context: McpToolContext, args: 
     ...(goal ? { goal } : {}),
   })
   return sanitizeMcpToolResult(result)
+}
+
+export async function runCreateProjectTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const label = typeof body.label === 'string' ? body.label.trim() : ''
+  if (!label) {
+    throw new Error('label is required')
+  }
+  const statusRaw = typeof body.status === 'string' ? body.status : 'active'
+  const validStatuses = ['active', 'someday'] as const
+  const status = validStatuses.includes(statusRaw as 'active' | 'someday')
+    ? (statusRaw as 'active' | 'someday')
+    : 'active'
+
+  console.info('[mcp.tool:create_project] start', { label, status })
+
+  const result = await createProject(context.userId, label, { status })
+
+  console.info('[mcp.tool:create_project] done', {
+    entityId: result.entityId,
+    label: result.label,
+    status: result.status,
+  })
+
+  return sanitizeMcpToolResult(result)
+}
+
+export async function runEditProjectTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityId = validateNonEmptyEntityId(
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : '',
+    'project_entity_id',
+  )
+  const label = typeof body.label === 'string' ? body.label.trim() : undefined
+  const statusRaw = typeof body.status === 'string' ? body.status : undefined
+
+  if (!label && !statusRaw) {
+    throw new Error('At least one of label or status is required')
+  }
+
+  console.info('[mcp.tool:edit_project] start', {
+    projectEntityId,
+    label: label ?? null,
+    status: statusRaw ?? null,
+  })
+
+  const updates: { entityId: string; label?: string; status?: string } = {
+    entityId: projectEntityId,
+  }
+
+  if (label) {
+    const labelResult = await updateProjectLabel(context.userId, projectEntityId, label)
+    updates.label = labelResult.label
+  }
+
+  if (statusRaw) {
+    const validStatuses = ['active', 'someday', 'completed'] as const
+    const status = validStatuses.includes(statusRaw as 'active' | 'someday' | 'completed')
+      ? (statusRaw as 'active' | 'someday' | 'completed')
+      : undefined
+    if (!status) {
+      throw new Error(`Invalid status: ${statusRaw}. Must be active, someday, or completed.`)
+    }
+    const statusResult = await updateProjectStatus(context.userId, projectEntityId, status)
+    updates.status = statusResult.status
+  }
+
+  console.info('[mcp.tool:edit_project] done', updates)
+
+  return sanitizeMcpToolResult(updates)
+}
+
+export async function runDeleteProjectTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const projectEntityId = validateNonEmptyEntityId(
+    typeof body.project_entity_id === 'string'
+      ? body.project_entity_id
+      : typeof body.projectEntityId === 'string'
+        ? body.projectEntityId
+        : '',
+    'project_entity_id',
+  )
+
+  console.info('[mcp.tool:delete_project] start', { projectEntityId })
+
+  // Verify project exists before dismissing
+  const projects = await listProjectsForUser(context.userId, { authorScope: 'all' })
+  const project = projects.find((p) => p.entityId === projectEntityId)
+  if (!project) {
+    throw new Error('Project not found')
+  }
+
+  await dismissProject(context.userId, projectEntityId)
+
+  console.info('[mcp.tool:delete_project] done', {
+    entityId: projectEntityId,
+    label: project.label,
+  })
+
+  return sanitizeMcpToolResult({
+    deleted: true,
+    entityId: projectEntityId,
+    label: project.label,
+  })
 }

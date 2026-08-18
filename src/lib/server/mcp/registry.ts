@@ -2,9 +2,12 @@ import {
   runAnswerQuestionTool,
   runAppendTextFileTool,
   runCaptureThoughtTool,
+  runCreateProjectTool,
   runCreateTextFileTool,
+  runDeleteProjectTool,
   runDeleteTextFileTool,
   runDeleteThoughtTool,
+  runEditProjectTool,
   runEditThoughtTool,
   runGetProjectTimelineTool,
   runGetTextFileTool,
@@ -47,6 +50,9 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'set_project_milestone',
   'set_project_deadline',
   'generate_project_plan',
+  'create_project',
+  'edit_project',
+  'delete_project',
 ])
 
 /**
@@ -331,6 +337,71 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"project_entity_id": "string (required)", "goal": "string (optional planning goal)"}',
     handler: runGenerateProjectPlanTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('generate_project_plan'),
+  },
+  {
+    name: 'create_project',
+    description:
+      'Create a new GTD project. Returns the new project entity ID and details. Projects start as active with manual source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        label: {
+          type: 'string',
+          description: 'Project name/label (required).',
+        },
+        status: {
+          type: 'string',
+          enum: ['active', 'someday'],
+          description: 'Initial project status. Default: active.',
+        },
+      },
+      required: ['label'],
+    },
+    agentArgumentSchema:
+      '{"label": "string (required) — project name", "status": "active|someday (optional, default active)"}',
+    handler: runCreateProjectTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('create_project'),
+  },
+  {
+    name: 'edit_project',
+    description:
+      'Edit a project\'s label (name) and/or status (active, someday, completed). At least one of label or status must be provided.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+        label: {
+          type: 'string',
+          description: 'New project name/label.',
+        },
+        status: {
+          type: 'string',
+          enum: ['active', 'someday', 'completed'],
+          description: 'New project status.',
+        },
+      },
+      required: ['project_entity_id'],
+    },
+    agentArgumentSchema:
+      '{"project_entity_id": "string (required)", "label": "string (optional) — new name", "status": "active|someday|completed (optional)"}',
+    handler: runEditProjectTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('edit_project'),
+  },
+  {
+    name: 'delete_project',
+    description:
+      'Delete (dismiss) a project. Removes the project from active listings and unlinks all associated thoughts. The thoughts themselves are preserved.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_entity_id: { type: 'string' },
+      },
+      required: ['project_entity_id'],
+    },
+    agentArgumentSchema:
+      '{"project_entity_id": "string (required)"}',
+    handler: runDeleteProjectTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_project'),
   },
   {
     name: 'create_text_file',

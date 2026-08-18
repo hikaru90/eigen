@@ -22,6 +22,10 @@ const {
   listProjectsForUserMock,
   orderTaskInProjectMock,
   generateProjectPlanMock,
+  createProjectMock,
+  updateProjectLabelMock,
+  updateProjectStatusMock,
+  dismissProjectMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -36,10 +40,18 @@ const {
   listProjectsForUserMock: vi.fn(),
   orderTaskInProjectMock: vi.fn(),
   generateProjectPlanMock: vi.fn(),
+  createProjectMock: vi.fn(),
+  updateProjectLabelMock: vi.fn(),
+  updateProjectStatusMock: vi.fn(),
+  dismissProjectMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/project-list', () => ({
   listProjectsForUser: listProjectsForUserMock,
+  createProject: createProjectMock,
+  updateProjectLabel: updateProjectLabelMock,
+  updateProjectStatus: updateProjectStatusMock,
+  dismissProject: dismissProjectMock,
 }))
 
 vi.mock('$lib/server/memory/generate-project-plan', () => ({
@@ -682,5 +694,103 @@ describe('MCP tools', () => {
     })
     expect(out).toMatchObject({ projectEntityId: 'p1', tasks: [{ thoughtId: 't1' }] })
     expect(JSON.stringify(out)).not.toContain('embedding')
+  })
+
+  it('runCreateProjectTool creates a new project with label', async () => {
+    createProjectMock.mockResolvedValue({
+      entityId: 'p-new',
+      label: 'New Project',
+      status: 'active',
+      source: 'manual',
+    })
+    const { runCreateProjectTool } = await import('./tools')
+    const out = await runCreateProjectTool({ userId: 'u1' }, { label: 'New Project' })
+    expect(createProjectMock).toHaveBeenCalledWith('u1', 'New Project', { status: 'active' })
+    expect(out).toMatchObject({
+      entityId: 'p-new',
+      label: 'New Project',
+      status: 'active',
+      source: 'manual',
+    })
+  })
+
+  it('runCreateProjectTool rejects empty label', async () => {
+    const { runCreateProjectTool } = await import('./tools')
+    await expect(runCreateProjectTool({ userId: 'u1' }, { label: '  ' })).rejects.toThrow(
+      /label is required/,
+    )
+    expect(createProjectMock).not.toHaveBeenCalled()
+  })
+
+  it('runCreateProjectTool accepts someday status', async () => {
+    createProjectMock.mockResolvedValue({
+      entityId: 'p-someday',
+      label: 'Someday Project',
+      status: 'someday',
+      source: 'manual',
+    })
+    const { runCreateProjectTool } = await import('./tools')
+    const out = await runCreateProjectTool(
+      { userId: 'u1' },
+      { label: 'Someday Project', status: 'someday' },
+    )
+    expect(createProjectMock).toHaveBeenCalledWith('u1', 'Someday Project', { status: 'someday' })
+    expect(out).toMatchObject({ status: 'someday' })
+  })
+
+  it('runEditProjectTool updates label', async () => {
+    updateProjectLabelMock.mockResolvedValue({ entityId: 'p1', label: 'Updated Name' })
+    const { runEditProjectTool } = await import('./tools')
+    const out = await runEditProjectTool(
+      { userId: 'u1' },
+      { project_entity_id: 'p1', label: 'Updated Name' },
+    )
+    expect(updateProjectLabelMock).toHaveBeenCalledWith('u1', 'p1', 'Updated Name')
+    expect(out).toMatchObject({ entityId: 'p1', label: 'Updated Name' })
+  })
+
+  it('runEditProjectTool updates status', async () => {
+    updateProjectStatusMock.mockResolvedValue({ entityId: 'p1', status: 'completed' })
+    const { runEditProjectTool } = await import('./tools')
+    const out = await runEditProjectTool(
+      { userId: 'u1' },
+      { project_entity_id: 'p1', status: 'completed' },
+    )
+    expect(updateProjectStatusMock).toHaveBeenCalledWith('u1', 'p1', 'completed')
+    expect(out).toMatchObject({ entityId: 'p1', status: 'completed' })
+  })
+
+  it('runEditProjectTool rejects when neither label nor status provided', async () => {
+    const { runEditProjectTool } = await import('./tools')
+    await expect(
+      runEditProjectTool({ userId: 'u1' }, { project_entity_id: 'p1' }),
+    ).rejects.toThrow(/At least one of label or status is required/)
+  })
+
+  it('runEditProjectTool rejects invalid status', async () => {
+    const { runEditProjectTool } = await import('./tools')
+    await expect(
+      runEditProjectTool({ userId: 'u1' }, { project_entity_id: 'p1', status: 'invalid' }),
+    ).rejects.toThrow(/Invalid status/)
+  })
+
+  it('runDeleteProjectTool dismisses project', async () => {
+    listProjectsForUserMock.mockResolvedValue([
+      { entityId: 'p1', label: 'To Delete', status: 'active' },
+    ])
+    dismissProjectMock.mockResolvedValue(undefined)
+    const { runDeleteProjectTool } = await import('./tools')
+    const out = await runDeleteProjectTool({ userId: 'u1' }, { project_entity_id: 'p1' })
+    expect(dismissProjectMock).toHaveBeenCalledWith('u1', 'p1')
+    expect(out).toMatchObject({ deleted: true, entityId: 'p1', label: 'To Delete' })
+  })
+
+  it('runDeleteProjectTool rejects non-existent project', async () => {
+    listProjectsForUserMock.mockResolvedValue([])
+    const { runDeleteProjectTool } = await import('./tools')
+    await expect(
+      runDeleteProjectTool({ userId: 'u1' }, { project_entity_id: 'p-nonexistent' }),
+    ).rejects.toThrow(/Project not found/)
+    expect(dismissProjectMock).not.toHaveBeenCalled()
   })
 })
