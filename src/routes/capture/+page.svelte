@@ -9,8 +9,10 @@
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
+  import { INTERPRET_PENDING_STATUS_LABEL } from '$lib/capture/interpret-pending'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import { enhance } from '$app/forms'
+  import CaptureInterpretPending from '$lib/components/capture-interpret-pending.svelte'
   import CaptureQueueList from '$lib/components/capture-queue-list.svelte'
   import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte'
   import CaptureAttachFileDialog from '$lib/components/capture-attach-file-dialog.svelte'
@@ -25,6 +27,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import * as Card from '$lib/components/ui/card'
   import { Button } from '$lib/components/ui/button'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { hapticConfirm } from '$lib/haptics'
   import { Textarea } from '$lib/components/ui/textarea'
   import { Label } from '$lib/components/ui/label'
@@ -252,6 +255,7 @@
     deadlineMs: number
   }
   let pendingConfirmation = $state<PendingConfirmation | null>(null)
+  let interpretPendingText = $state<string | null>(null)
   let confirmationLoading = $state(false)
   let confirmationError = $state<string | null>(null)
   let confirmationCountdown = $state(5)
@@ -710,6 +714,7 @@
     voiceStopFn?.()
     const text = raw
     syncCaptureDraft('')
+    interpretPendingText = text
     confirmationLoading = true
     captureEvent('capture_submitted', { text_length: text.length })
     try {
@@ -757,6 +762,7 @@
       syncCaptureDraft(text)
       err = e instanceof Error ? e.message : String(e)
     } finally {
+      interpretPendingText = null
       confirmationLoading = false
     }
   }
@@ -946,6 +952,7 @@
 
     <Card.Root
       class="shrink-0 bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible"
+      aria-busy={interpretPendingText !== null}
     >
       <Card.Content class="p-0 w-full">
         <Label for="thought" class="sr-only">Thought</Label>
@@ -963,7 +970,14 @@
       <Card.Footer
         class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full"
       >
-        <span class="text-[#737373] text-xs leading-4">⌘ / Ctrl + Enter to capture</span>
+        {#if interpretPendingText}
+          <span class="flex items-center gap-1.5 text-[#737373] text-xs leading-4">
+            <LoaderCircleIcon class="size-3 animate-spin" aria-hidden="true" />
+            {INTERPRET_PENDING_STATUS_LABEL}…
+          </span>
+        {:else}
+          <span class="text-[#737373] text-xs leading-4">⌘ / Ctrl + Enter to capture</span>
+        {/if}
         <div class="flex items-center gap-2">
           <VoiceInputButton
             language={data.preferredLanguage}
@@ -991,11 +1005,18 @@
               void capture()
             }}
           >
+            {#if interpretPendingText}
+              <LoaderCircleIcon class="mr-2 size-4 animate-spin" aria-hidden="true" />
+            {/if}
             Capture
           </Button>
         </div>
       </Card.Footer>
     </Card.Root>
+
+    {#if interpretPendingText}
+      <CaptureInterpretPending raw={interpretPendingText} />
+    {/if}
 
     {#if pendingConfirmation}
       <CaptureConfirmationModal

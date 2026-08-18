@@ -834,6 +834,9 @@ async function submitInterpretViaUi(
       { timeout: RELEASE_INDEXING_WAIT_MS },
     )
     await input.captureBtn.click()
+    await expect(page.getByTestId('capture-interpret-pending')).toBeVisible({
+      timeout: RELEASE_WAIT_MS,
+    })
     const interpretRes = await interpretResponsePromise
     const interpretBody = await interpretRes.text()
     if (interpretRes.ok()) {

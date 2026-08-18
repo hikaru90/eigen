@@ -21,6 +21,35 @@ async function captureAndConfirm(page: import('@playwright/test').Page, raw: str
 }
 
 test.describe('Capture flow (AC-001, AC-004)', () => {
+  test('shows interpreting indicator immediately after Capture, before ingest', async ({
+    page,
+    context,
+  }) => {
+    await registerUser(context, page)
+    await page.goto('/capture')
+
+    let releaseInterpret: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      releaseInterpret = resolve
+    })
+    await page.route('**/api/capture/interpret', async (route) => {
+      await held
+      await route.continue()
+    })
+
+    await page.fill('#thought', 'Immediate feedback thought about the Hamburg workshop')
+    await page.click('button:has-text("Capture")')
+
+    const pending = page.getByTestId('capture-interpret-pending')
+    try {
+      await expect(pending).toBeVisible()
+      await expect(pending).toContainText('Interpreting')
+      await expect(pending).toContainText('Hamburg workshop')
+    } finally {
+      releaseInterpret()
+    }
+  })
+
   test('user submits a text thought, confirms preview, and sees stored-result summary', async ({
     page,
     context,
