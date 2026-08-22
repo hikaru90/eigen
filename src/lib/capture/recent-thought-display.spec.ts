@@ -16,7 +16,8 @@ const snippet = {
 }
 
 describe('recentThoughtPrimaryLabel', () => {
-    expect(recentThoughtPrimaryLabel(undefined, snippet)).toBe('fact')
+  it('uses snippet category when capture detail is missing', () => {
+    expect(recentThoughtPrimaryLabel(undefined, snippet)).toBe('observation')
   })
 
   it('shows indexed when enriched with placeholder category only', () => {
@@ -51,9 +52,11 @@ describe('recentThoughtPrimaryLabel', () => {
 })
 
 describe('recentThoughtSecondaryLabel', () => {
+  it('returns null for placeholder category rows', () => {
     expect(recentThoughtSecondaryLabel(undefined, snippet)).toBeNull()
   })
 
+  it('returns the resolved category when it is not the placeholder', () => {
     expect(
       recentThoughtSecondaryLabel(
         {

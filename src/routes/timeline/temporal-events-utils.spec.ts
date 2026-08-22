@@ -103,7 +103,7 @@ describe('isTaskListItem', () => {
     expect(
       isTaskListItem(
         item({
-          id: 'event-uuid',
+          id: 'open-loop:abc',
           itemType: 'event',
           thoughtCategory: 'fact',
           kind: 'reminder',
@@ -118,7 +118,7 @@ describe('isTaskListItem', () => {
         item({
           id: 'event-uuid',
           itemType: 'event',
-          thoughtCategory: 'observation',
+          thoughtCategory: 'task',
           kind: 'reminder',
         }),
       ),

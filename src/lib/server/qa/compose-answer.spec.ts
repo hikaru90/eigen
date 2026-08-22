@@ -33,6 +33,7 @@ const {
   lexicalSearchMock,
   graphOnlySearchByQueryMock,
   dbWhereMock,
+  loadTemporalContextMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   searchTextFilesMock: vi.fn(),
@@ -47,6 +48,7 @@ const {
   lexicalSearchMock: vi.fn(),
   graphOnlySearchByQueryMock: vi.fn(),
   dbWhereMock: vi.fn(),
+  loadTemporalContextMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/retrieval/service', () => ({
@@ -123,6 +125,10 @@ vi.mock('$lib/server/db', () => ({
       }),
     }),
   }),
+}))
+
+vi.mock('$lib/server/memory/temporal-context', () => ({
+  loadTemporalContextByThoughtIds: loadTemporalContextMock,
 }))
 
 function chatResponse(content: string) {
@@ -389,6 +395,7 @@ describe('composeAnswer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     dbWhereMock.mockResolvedValue([])
+    loadTemporalContextMock.mockResolvedValue(new Map())
     classifyQueryIntentMock.mockResolvedValue(localIntent)
     loadGroundingProfileForEnrichmentMock.mockResolvedValue(null)
     fetchTemporalEventSeedsMock.mockResolvedValue({ seeds: [], candidatesByHint: [] })
@@ -962,14 +969,6 @@ describe('composeAnswer', () => {
   })
 
   it('includes expired temporal annotations in the compose prompt', async () => {
-    dbWhereMock.mockResolvedValueOnce([
-      {
-        thoughtId: 't_skate',
-        kind: 'reminder',
-        semanticSummary: 'go inline skating today',
-        activePeriod: '[2026-05-28T00:00:00.000Z,2026-05-29T00:00:00.000Z)',
-      },
-    ])
     searchThoughtsMock.mockResolvedValue([
       {
         id: 't_skate',
@@ -982,6 +981,24 @@ describe('composeAnswer', () => {
         createdAt: new Date('2026-05-28T00:00:00.000Z'),
       },
     ])
+    loadTemporalContextMock.mockResolvedValue(
+      new Map([
+        [
+          't_skate',
+          {
+            temporalStatus: 'expired',
+            temporalEvents: [
+              {
+                kind: 'reminder',
+                semanticSummary: 'go inline skating today',
+                activePeriod: '[2026-05-28T00:00:00.000Z,2026-05-29T00:00:00.000Z)',
+                expired: true,
+              },
+            ],
+          },
+        ],
+      ]),
+    )
     llmChatCompletionMock.mockResolvedValueOnce(
       chatResponse(
         'Answer: Not in memory for today.\nEvidence:\n- As of 2026-05-28 you wanted to go inline skating [t_skate]\n\nUnknown:\n- current skating plans',

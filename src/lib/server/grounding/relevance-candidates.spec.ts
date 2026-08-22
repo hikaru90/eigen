@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadRelevanceCheckInCandidates } from '$lib/server/grounding/relevance-candidates'
 
-const { whereMock } = vi.hoisted(() => ({
+const { whereMock, loadOntologyMock } = vi.hoisted(() => ({
   whereMock: vi.fn(),
+  loadOntologyMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -15,9 +16,44 @@ vi.mock('$lib/server/db', () => ({
   }),
 }))
 
+vi.mock('$lib/server/ontology-db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/ontology-db')>()
+  return {
+    ...actual,
+    loadOntologyForUser: loadOntologyMock,
+  }
+})
+
 describe('loadRelevanceCheckInCandidates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    loadOntologyMock.mockResolvedValue({
+      entityKinds: [
+        {
+          id: 'ek-fact',
+          key: 'fact',
+          name: 'Fact',
+          definition: 'Durable fact',
+          kindType: 'thought_category',
+          active: true,
+          neverStale: true,
+        },
+      ],
+      entityKindsByKey: new Map([
+        [
+          'fact',
+          {
+            id: 'ek-fact',
+            key: 'fact',
+            name: 'Fact',
+            definition: 'Durable fact',
+            kindType: 'thought_category',
+            active: true,
+            neverStale: true,
+          },
+        ],
+      ]),
+    })
     const old = new Date(Date.now() - 40 * 86_400_000)
     whereMock.mockReturnValue({
       orderBy: vi.fn().mockReturnValue({

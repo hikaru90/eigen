@@ -85,9 +85,10 @@ describe('runIngestWithRetries', () => {
     expect(n).toBe(1)
   })
 
-  it('treats InvalidMemoryTypeError as fatal without outer retries', async () => {
+  it('treats InvalidThoughtCategoryError as fatal without outer retries', async () => {
     let n = 0
-    invalid.name = 'InvalidMemoryTypeError'
+    const invalid = new Error('invalid category')
+    invalid.name = 'InvalidThoughtCategoryError'
     await expect(
       runIngestWithRetries(async () => {
         n++

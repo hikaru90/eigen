@@ -256,9 +256,22 @@ async function runJob(
   }
 }
 
-async function shouldStop(options?: ConsolidateForUserOptions): Promise<boolean> {
+async function shouldStop(
+  userId: string,
+  options?: ConsolidateForUserOptions,
+  inDbScope = false,
+): Promise<boolean> {
   if (!options?.shouldCancel) return false
-  return options.shouldCancel()
+  if (inDbScope) return options.shouldCancel()
+  return withDbUser(userId, () => options.shouldCancel!())
+}
+
+async function runConsolidationJobScoped(
+  userId: string,
+  jobId: HeartbeatJobId,
+  options?: ConsolidateForUserOptions,
+): Promise<ConsolidationJobResult> {
+  return withDbUser(userId, () => executeConsolidationJob(userId, jobId, options))
 }
 
 /**
@@ -311,7 +324,7 @@ async function executeConsolidationJob(
         'repair_entity_relations',
         () =>
           repairEntityRelationsForUser(userId, {
-            shouldCancel: () => shouldStop(options),
+            shouldCancel: () => shouldStop(userId, options, true),
           }),
         options,
       )
@@ -339,48 +352,49 @@ async function executeConsolidationJob(
 }
 
 /**
- * Run all consolidation jobs for a single user (RLS-scoped via {@link withDbUser}).
+ * Run all consolidation jobs for a single user (RLS-scoped via {@link withDbUser} per job).
+ * Connections are released between jobs so long LLM steps do not hold the app pool.
  */
 export async function consolidateForUser(
   userId: string,
   options?: ConsolidateForUserOptions,
 ): Promise<ConsolidationRunResult> {
-  return withDbUser(userId, async () => {
-    const start = Date.now()
-    const jobs: ConsolidationJobResult[] = []
+  const start = Date.now()
+  const jobs: ConsolidationJobResult[] = []
 
-    // ---- Phase 1: DeepSleep ------------------------------------------------
-    if (await shouldStop(options)) {
-      return { userId, jobs, totalDurationMs: Date.now() - start }
-    }
-    jobs.push(await executeConsolidationJob(userId, 'salience_compute', options))
+  // ---- Phase 1: DeepSleep ------------------------------------------------
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'salience_compute', options))
 
-    if (await shouldStop(options)) {
-      return { userId, jobs, totalDurationMs: Date.now() - start }
-    }
-    jobs.push(await executeConsolidationJob(userId, 'ontology_prune', options))
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'ontology_prune', options))
 
-    if (await shouldStop(options)) {
-      return { userId, jobs, totalDurationMs: Date.now() - start }
-    }
-    jobs.push(await executeConsolidationJob(userId, 'repair_canonical_entity_types', options))
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'repair_canonical_entity_types', options))
 
-    if (await shouldStop(options)) {
-      return { userId, jobs, totalDurationMs: Date.now() - start }
-    }
-    jobs.push(await executeConsolidationJob(userId, 'dedup_canonical_entities', options))
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'dedup_canonical_entities', options))
 
-    if (await shouldStop(options)) {
-      return { userId, jobs, totalDurationMs: Date.now() - start }
-    }
-    jobs.push(await executeConsolidationJob(userId, 'repair_entity_relations', options))
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'repair_entity_relations', options))
 
-    // ---- Phase 2: REM --------------------------------------------------------
-    if (await shouldStop(options)) {
-      return { userId, jobs, totalDurationMs: Date.now() - start }
-    }
-    let communitiesChanged = true
-    const detectionResult = await runJob(
+  // ---- Phase 2: REM --------------------------------------------------------
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  let communitiesChanged = true
+  const detectionResult = await withDbUser(userId, async () =>
+    runJob(
       'rem',
       'community_detection',
       async () => {
@@ -389,42 +403,45 @@ export async function consolidateForUser(
         return result
       },
       options,
-    )
-    jobs.push(detectionResult)
+    ),
+  )
+  jobs.push(detectionResult)
 
-    if (detectionResult.ok) {
-      if (await shouldStop(options)) {
-        return { userId, jobs, totalDurationMs: Date.now() - start }
-      }
-      if (communitiesChanged) {
-        jobs.push(await runCommunitySummariesJob(userId, options))
-      } else {
-        const stats = await getCommunitySummaryStats(userId)
-        if (stats.pending > 0) {
-          jobs.push(await runCommunitySummariesJob(userId, options))
-        } else {
-          jobs.push(await skipCommunitySummariesJob(userId, stats, options))
-        }
-      }
-
-      if (await shouldStop(options)) {
-        return { userId, jobs, totalDurationMs: Date.now() - start }
-      }
-      jobs.push(await executeConsolidationJob(userId, 'community_bundles', options))
-    }
-
-    if (await shouldStop(options)) {
+  if (detectionResult.ok) {
+    if (await shouldStop(userId, options)) {
       return { userId, jobs, totalDurationMs: Date.now() - start }
     }
-    jobs.push(await executeConsolidationJob(userId, 'retrieval_links_backfill', options))
+    if (communitiesChanged) {
+      jobs.push(await withDbUser(userId, () => runCommunitySummariesJob(userId, options)))
+    } else {
+      jobs.push(
+        await withDbUser(userId, async () => {
+          const stats = await getCommunitySummaryStats(userId)
+          if (stats.pending > 0) {
+            return runCommunitySummariesJob(userId, options)
+          }
+          return skipCommunitySummariesJob(userId, stats, options)
+        }),
+      )
+    }
 
-    if (await shouldStop(options)) {
+    if (await shouldStop(userId, options)) {
       return { userId, jobs, totalDurationMs: Date.now() - start }
     }
-    jobs.push(await executeConsolidationJob(userId, 'thought_retrieval_features', options))
+    jobs.push(await runConsolidationJobScoped(userId, 'community_bundles', options))
+  }
 
+  if (await shouldStop(userId, options)) {
     return { userId, jobs, totalDurationMs: Date.now() - start }
-  })
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'retrieval_links_backfill', options))
+
+  if (await shouldStop(userId, options)) {
+    return { userId, jobs, totalDurationMs: Date.now() - start }
+  }
+  jobs.push(await runConsolidationJobScoped(userId, 'thought_retrieval_features', options))
+
+  return { userId, jobs, totalDurationMs: Date.now() - start }
 }
 
 async function skipCommunitySummariesJob(
@@ -485,7 +502,7 @@ async function runCommunitySummariesJob(
   try {
     console.info('[consolidation] job executing', { phase: 'rem', job: 'community_summaries' })
     const summaryResult = await runCommunitySummaryGeneration(userId, {
-      shouldCancel: () => shouldStop(options),
+      shouldCancel: () => shouldStop(userId, options, true),
     })
     const detail = formatCommunitySummaryDetail(summaryResult)
     // Budget exhaustion is resumable work, not a failed heartbeat.

@@ -38,6 +38,27 @@ describe('tickNotificationDispatch', () => {
     infoSpy.mockRestore()
   })
 
+  it('clears ticking after a tick timeout so the next interval can run', async () => {
+    remindersMock.mockImplementation(
+      () =>
+        new Promise(() => {
+          /* never resolves */
+        }),
+    )
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { tickNotificationDispatch } = await import('./notification-dispatch-tick')
+
+    await expect(tickNotificationDispatch(50)).rejects.toThrow(/notification-dispatch tick timeout/)
+
+    remindersMock.mockResolvedValue({ sent: 0, failed: 0 })
+    await expect(tickNotificationDispatch(50)).resolves.not.toBeNull()
+
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      '[notification-dispatch] tick skipped — previous tick still running',
+    )
+    warnSpy.mockRestore()
+  })
+
   it('skips overlapping ticks', async () => {
     let resolveReminders!: (v: { sent: number; failed: number }) => void
     remindersMock.mockImplementation(

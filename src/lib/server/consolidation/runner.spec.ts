@@ -173,6 +173,7 @@ describe('consolidateForUser', () => {
   it('runs DeepSleep jobs before REM jobs', async () => {
     const result = await consolidateForUser('u1')
 
+    expect(withDbUserMock.mock.calls.length).toBeGreaterThanOrEqual(10)
     expect(withDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function))
     expect(salienceComputeMock).toHaveBeenCalledWith('u1')
     expect(pruneMock).toHaveBeenCalled()

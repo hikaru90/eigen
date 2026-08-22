@@ -23,10 +23,14 @@ vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
 }))
 
-vi.mock('$lib/server/ontology-db', () => ({
-  ensureUserOntologySeeded: ensureOntologyMock,
-  loadOntologyForUser: loadOntologyMock,
-}))
+vi.mock('$lib/server/ontology-db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/ontology-db')>()
+  return {
+    ...actual,
+    ensureUserOntologySeeded: ensureOntologyMock,
+    loadOntologyForUser: loadOntologyMock,
+  }
+})
 
 vi.mock('$lib/server/ontology/classify-thought-category', () => ({
   loadUserOntologyProfileRow: loadProfileMock,

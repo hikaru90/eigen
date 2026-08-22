@@ -3,6 +3,7 @@ import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { isThoughtNeverStale } from '$lib/server/memory/thought-staleness'
 import { RELEVANCE_CHECKIN_MIN_INACTIVE_DAYS } from '$lib/server/grounding/constants'
+import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 
 const MS_PER_DAY = 86_400_000
 
@@ -24,6 +25,9 @@ export async function loadRelevanceCheckInCandidates(
 ): Promise<RelevanceCheckInCandidate[]> {
   const now = Date.now()
   const minInactiveMs = RELEVANCE_CHECKIN_MIN_INACTIVE_DAYS * MS_PER_DAY
+  const neverStaleCategories = neverStaleCategoryKeys(
+    await loadOntologyForUser(getDb(), userId),
+  )
 
   const rows = await getDb()
     .select({
@@ -50,6 +54,8 @@ export async function loadRelevanceCheckInCandidates(
   for (const row of rows) {
     if (
       isThoughtNeverStale({
+        category: row.category,
+        neverStaleCategories,
         metadata: row.metadata,
       })
     ) {

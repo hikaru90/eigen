@@ -18,23 +18,19 @@ export async function processOvernightConsolidationJob(job: UserJobQueue): Promi
 
   try {
     const result = await consolidateForUser(userId, {
-      shouldCancel: () => withDbUser(userId, () => readHeartbeatRunCancelRequested(userId, runId)),
+      shouldCancel: () => readHeartbeatRunCancelRequested(userId, runId),
       onJobStart: async (jobName) => {
-        await withDbUser(userId, () =>
-          patchHeartbeatRunProgress(userId, runId, {
-            currentJob: jobName,
-            jobs: completedJobs,
-          }),
-        )
+        await patchHeartbeatRunProgress(userId, runId, {
+          currentJob: jobName,
+          jobs: completedJobs,
+        })
       },
       onJobComplete: async (jobResult) => {
         completedJobs.push(jobResult)
-        await withDbUser(userId, () =>
-          patchHeartbeatRunProgress(userId, runId, {
-            currentJob: null,
-            jobs: completedJobs,
-          }),
-        )
+        await patchHeartbeatRunProgress(userId, runId, {
+          currentJob: null,
+          jobs: completedJobs,
+        })
       },
     })
 

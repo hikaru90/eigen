@@ -13,6 +13,7 @@ const {
   syncEntityGraphFromThoughtMock,
   syncTemporalEventsFromThoughtMock,
   extractThoughtMetadataMock,
+  extractSearchCuesMock,
   maybeRefreshUserOntologyMock,
   upsertThoughtRelationMock,
   deleteThoughtOutgoingGraphEdgesMock,
@@ -28,6 +29,7 @@ const {
   syncEntityGraphFromThoughtMock: vi.fn(),
   syncTemporalEventsFromThoughtMock: vi.fn(),
   extractThoughtMetadataMock: vi.fn(),
+  extractSearchCuesMock: vi.fn(),
   maybeRefreshUserOntologyMock: vi.fn(),
   upsertThoughtRelationMock: vi.fn(),
   deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
@@ -53,6 +55,9 @@ vi.mock('$lib/server/memory/temporal-graph-sync', () => ({
 }))
 vi.mock('$lib/server/memory/extract-thought-metadata', () => ({
   extractThoughtMetadata: extractThoughtMetadataMock,
+}))
+vi.mock('$lib/server/memory/search-cues', () => ({
+  extractSearchCues: extractSearchCuesMock,
 }))
 vi.mock('$lib/server/ontology', () => ({ maybeRefreshUserOntology: maybeRefreshUserOntologyMock }))
 vi.mock('$lib/server/graph/age', () => ({
@@ -129,6 +134,7 @@ describe('enrichThought', () => {
     extractThoughtMetadataMock.mockResolvedValue({
       cues: ['cue one', 'cue two'],
     })
+    extractSearchCuesMock.mockResolvedValue(['cue one', 'cue two'])
     maybeRefreshUserOntologyMock.mockResolvedValue(undefined)
     materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined)
     syncThoughtNeighborLinksMock.mockResolvedValue(0)
@@ -247,19 +253,26 @@ describe('enrichThought', () => {
     )
   })
 
-  it('extracts and persists bundled metadata (memory type + cues)', async () => {
+  it('extracts and persists search cues when extraction returns values', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractThoughtMetadataMock.mockResolvedValue({
-      cues: ['option B decision', 'choice made'],
-    })
+    extractSearchCuesMock.mockResolvedValue(['option B decision', 'choice made'])
 
     await enrichThought('u1', 't1', 'I decided to go with option B')
 
-    expect(extractThoughtMetadataMock).toHaveBeenCalledWith({
+    expect(extractSearchCuesMock).toHaveBeenCalledWith({
       userId: 'u1',
       normalizedText: 'I decided to go with option B',
     })
+    const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      setCalls.some(
+        (args: unknown[]) =>
+          args[0] &&
+          typeof args[0] === 'object' &&
+          (args[0] as { cues?: string[] }).cues?.length === 2,
+      ),
+    ).toBe(true)
   })
 
   it('triggers ontology refresh when thoughtCountAfterInsert is provided', async () => {
@@ -363,10 +376,10 @@ describe('enrichThought', () => {
   it('does not set enriched_at when a step fails', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractThoughtMetadataMock.mockRejectedValue(new Error('boom'))
+    extractSearchCuesMock.mockRejectedValue(new Error('boom'))
 
     await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(
-      /Enrichment step\(s\) failed:.*metadata: boom/,
+      /Enrichment step\(s\) failed:.*cues: boom/,
     )
 
     const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
@@ -402,9 +415,9 @@ describe('enrichThought', () => {
   it('continues enriching remaining steps when one step throws', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractThoughtMetadataMock.mockRejectedValue(new Error('metadata failed'))
+    extractSearchCuesMock.mockRejectedValue(new Error('cues failed'))
 
-    await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/metadata failed/)
+    await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/cues failed/)
 
     expect(syncEntityGraphFromThoughtMock).toHaveBeenCalled()
     expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalled()
@@ -514,15 +527,18 @@ describe('enrichThought', () => {
   it('omits cues from metadata update when extraction returns none', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
+    extractSearchCuesMock.mockResolvedValue([])
 
     await enrichThought('u1', 't1', 'hello')
 
     const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
-    const metadataUpdate = setCalls.find(
+    const cuesUpdate = setCalls.find(
       (args: unknown[]) =>
         args[0] &&
         typeof args[0] === 'object' &&
+        Object.prototype.hasOwnProperty.call(args[0], 'cues'),
     )
+    expect(cuesUpdate).toBeUndefined()
   })
 
   it('passes preloadedKnownEntities to entity graph sync', async () => {
@@ -596,17 +612,17 @@ describe('enrichThought', () => {
     errorSpy.mockRestore()
   })
 
-  it('logs metadata step failure and throws', async () => {
+  it('logs cues step failure and throws', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    extractThoughtMetadataMock.mockRejectedValue('metadata failed')
+    extractSearchCuesMock.mockRejectedValue('cues failed')
 
-    await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/metadata failed/)
+    await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/cues failed/)
 
     expect(errorSpy).toHaveBeenCalledWith(
-      '[enrich] metadata step failed',
-      expect.objectContaining({ message: 'metadata failed' }),
+      '[enrich] cues step failed',
+      expect.objectContaining({ message: 'cues failed' }),
     )
     errorSpy.mockRestore()
   })
