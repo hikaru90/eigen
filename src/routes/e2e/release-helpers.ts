@@ -1836,6 +1836,44 @@ export async function assertTimelineSharedFiltersAndDial(page: Page): Promise<vo
 }
 
 /**
+ * Tasks search: graph-style morph icon in the header; nonsense query hides rows and zeros To Do.
+ */
+export async function assertTimelineTasksSearch(page: Page): Promise<void> {
+  await page.goto('/memory/tasks', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('tablist')).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+  const todoTab = page.getByRole('tab', { name: /to\s*do|offen/i })
+  await todoTab.click()
+
+  const searchTrigger = page.getByRole('button', {
+    name: /search tasks|aufgaben durchsuchen/i,
+  })
+  await expect(searchTrigger).toBeVisible({ timeout: RELEASE_WAIT_MS })
+  await searchTrigger.click()
+
+  const search = page.locator('#timeline-tasks-search')
+  await expect(search).toBeVisible({ timeout: RELEASE_WAIT_MS })
+
+  await search.fill('__no_such_task_xyz_release__')
+  await expect
+    .poll(
+      async () => {
+        const text = (await todoTab.innerText()).replace(/\s+/g, ' ').trim()
+        const match = text.match(/^(\d+)/)
+        return match ? Number.parseInt(match[1]!, 10) : 0
+      },
+      { timeout: RELEASE_WAIT_MS },
+    )
+    .toBe(0)
+
+  const listbox = page.getByRole('listbox')
+  await expect(listbox.locator('[role="option"], li')).toHaveCount(0, { timeout: RELEASE_WAIT_MS })
+
+  await search.fill('')
+  await page.keyboard.press('Escape')
+}
+
+/**
  * Single-source-of-truth: tab badge counts match visible list lengths;
  * overdue badge equals overdue list; project board cards only for projects with tasks in range.
  */

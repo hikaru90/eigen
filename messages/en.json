@@ -160,6 +160,7 @@
   "graph_timeline_tasks": "Tasks",
   "graph_timeline_tasks_subtitle": "All tasks in one list",
   "graph_timeline_tasks_aria": "Tasks — all tasks",
+  "graph_timeline_tasks_search_placeholder": "Search tasks…",
   "graph_timeline_tasks_overdue_banner": "{count} overdue — see Overdue segment",
   "graph_timeline_low_energy": "Low energy",
   "graph_timeline_layout_list": "List",

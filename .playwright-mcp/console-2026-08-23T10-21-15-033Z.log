@@ -1,0 +1,77 @@
+[    1950ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://console.crusoecloud.com/api/v1/client-events/public:0
+[   15220ms] [LOG] 🤖 Final decision: shouldShow = true @ https://www.crusoe.ai/:1631
+[   15546ms] [ERROR] Access to font at 'https://go.crusoe.ai/rs/441-DPB-814/images/SuisseIntl-Regular-WebM.woff2?version=0' from origin 'https://www.crusoe.ai' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://www.crusoe.ai/:0
+[   15546ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://go.crusoe.ai/rs/441-DPB-814/images/SuisseIntl-Regular-WebM.woff2?version=0:0
+[   15938ms] [LOG] [gtpx] setupGlobalFunction called @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   15938ms] [LOG] [gtpx] window[GLOBAL_FUNCTION] before setup: function(){(a[b].q=a[b].q||[]).push(arguments)} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   15938ms] [LOG] [gtpx] window[GLOBAL_FUNCTION].q: [Arguments(2), Arguments(1)] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   15938ms] [LOG] [gtpx] Found init command in queue: {gtid: jcLDOL1x} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   15939ms] [LOG] [gtpx] Initialized with config, gtid set: jcLDOL1x @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   15939ms] [LOG] [gtpx] No uid found in stored state, initializing identity... @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] InitializeState save was successful @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] Processing queue after initialization: [Arguments(2), Arguments(1)] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] processQueue: Processing 2 items @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] processQueue: Processing item 0: [init, Object] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] processQueue: Item 0 command: init @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] Skipping init command in queue (already handled during bootstrap) @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] processQueue: Processing item 1: [pageview] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] processQueue: Item 1 command: pageview @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16098ms] [LOG] [gtpx] Sending event: pageview {data: Object, ts: 1787480491131, state: Object, page: Object} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   16099ms] [LOG] [gtpx] DOM event listeners suppressed (GTPX_SUPPRESS_DOM = true) @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   31449ms] Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'closeLightbox')
+    at closeLightbox (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:292625)
+    at closeLightbox (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:239648)
+    at onEndLoadingState (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:289075)
+    at emit (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:60812)
+    at <anonymous> (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:237051)
+    at handleMessage (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:236702)
+    at <anonymous> (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:235786)
+    at startEmitter (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:235770)
+    at <anonymous> (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:317228)
+[   41960ms] [LOG] [gtpx] debouncedClick: null @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   42574ms] [LOG] [gtpx] debouncedClick: null @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   45905ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   45905ms] [LOG] [gtpx] Sending event: scroll {data: Object, ts: 1787480520936, state: Object, page: Object} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   45906ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   47519ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   49022ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   52584ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   53061ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61604ms] [LOG] 🤖 Final decision: shouldShow = true @ https://www.crusoe.ai/cloud/pricing:1407
+[   61683ms] Uncaught (in promise) Error: Qualified: invalid visitor state
+    at get uuid (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:303248)
+    at init (https://js.qualified.com/qualified.js?token=M6tZYMV3qZpqHLfE:3:313475)
+[   61664ms] [LOG] [gtpx] setupGlobalFunction called @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] window[GLOBAL_FUNCTION] before setup: function(){(a[b].q=a[b].q||[]).push(arguments)} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] window[GLOBAL_FUNCTION].q: [Arguments(2), Arguments(1)] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] Found init command in queue: {gtid: jcLDOL1x} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] Initialized with config, gtid set: jcLDOL1x @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] State successfully retrieved from cookie as: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] Session check: {storedSid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, isSessionExpired: false, isSessionValid: true, sessionLastActiveDate: Sonntag, 23. August 2026 - 12:22:16, nowDate: Sonntag, 23. August 2026 - 12:22:16} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] InitializeState save was successful @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] Processing queue after initialization: [Arguments(2), Arguments(1)] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] processQueue: Processing 2 items @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] processQueue: Processing item 0: [init, Object] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] processQueue: Item 0 command: init @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] Skipping init command in queue (already handled during bootstrap) @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] processQueue: Processing item 1: [pageview] @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] processQueue: Item 1 command: pageview @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61664ms] [LOG] [gtpx] Sending event: pageview {data: Object, ts: 1787480536697, state: Object, page: Object} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61665ms] [LOG] [gtpx] DOM event listeners suppressed (GTPX_SUPPRESS_DOM = true) @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   61738ms] [ERROR] Access to font at 'https://go.crusoe.ai/rs/441-DPB-814/images/SuisseIntl-Regular-WebM.woff2?version=0' from origin 'https://www.crusoe.ai' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ https://www.crusoe.ai/cloud/pricing:0
+[   61738ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://go.crusoe.ai/rs/441-DPB-814/images/SuisseIntl-Regular-WebM.woff2?version=0:0
+[   63983ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   63984ms] [LOG] [gtpx] Sending event: scroll {data: Object, ts: 1787480539015, state: Object, page: Object} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   63985ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   66243ms] [LOG] [gtpx] debouncedScroll: 0.1 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   67904ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   67904ms] [LOG] [gtpx] Sending event: scroll {data: Object, ts: 1787480542936, state: Object, page: Object} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   67905ms] [LOG] [gtpx] debouncedScroll: 0.2 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   69351ms] [LOG] [gtpx] debouncedScroll: 0.2 @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   78596ms] [LOG] [gtpx] State successfully saved to cookie for: {uid: fb91b50ded3f53e72e2645bfbb1d36fb, sid: ea045f0a-5ebb-4907-9d27-6d5ffd5de1d4, cid: null, agid: null, request_id: null} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   78596ms] [LOG] [gtpx] Sending event: hangtime {data: Object, ts: 1787480553628, state: Object, page: Object} @ https://analytics.groundtruth-data.com/pixel.v2.js:7
+[   78597ms] [LOG] [gtpx] hangtime fired with: 16931 @ https://analytics.groundtruth-data.com/pixel.v2.js:7

@@ -52,11 +52,15 @@ describe('timeline single-source-of-truth wiring', () => {
 
   it('tab counts come from the same arrays each tab renders', () => {
     const shell = readTimeline('timeline-shell.svelte')
-    expect(shell).toContain('todo: data.todoItems.length')
-    expect(shell).toContain('done: data.doneItems.length')
-    expect(shell).toContain('overdue: data.overdueItems.length')
-    expect(shell).toContain('items={data.todoItems}')
-    expect(shell).toMatch(/TimelineTasksView[\s\S]*?items=\{data\.todoItems\}/)
+    expect(shell).toContain('todo: filteredTodoItems.length')
+    expect(shell).toContain('done: filteredDoneItems.length')
+    expect(shell).toContain('overdue: filteredOverdueItems.length')
+    expect(shell).toContain('items={filteredTodoItems}')
+    expect(shell).toMatch(/TimelineTasksView[\s\S]*?items=\{filteredTodoItems\}/)
+    expect(shell).toContain('filterTimelineItemsBySearch')
+    expect(shell).toContain('MorphSearchControl')
+    expect(shell).toContain('bind:search={searchQuery}')
+    expect(shell).not.toMatch(/shrink-0 px-3 pb-2 pt-1/)
     expect(shell).not.toMatch(/let data = \$state/)
   })
 

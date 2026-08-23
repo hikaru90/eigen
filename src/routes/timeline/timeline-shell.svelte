@@ -14,6 +14,7 @@
   } from './temporal-events-utils'
   import { m } from '$lib/paraglide/messages.js'
   import { Button } from '$lib/components/ui/button'
+  import MorphSearchControl from '$lib/components/morph-search-control.svelte'
   import TemporalEventDetail from './temporal-event-detail.svelte'
   import TimelineTasksView from './timeline-tasks-view.svelte'
   import TimelineProjectsView from './timeline-projects-view.svelte'
@@ -37,6 +38,7 @@
     createTimelineData,
     type TimelineUnifiedSourceState,
   } from './timeline-data.svelte'
+  import { filterTimelineItemsBySearch } from './timeline-data-derive'
 
   type Props = {
     mode: 'tasks' | 'projects'
@@ -81,6 +83,7 @@
   let internalSelectedItemId = $state<string | null>(null)
   let filtersPopoverOpen = $state(false)
   let suppressThoughtSyncReload = $state(false)
+  let searchQuery = $state('')
 
   const selectionControlled = $derived(onSelectItem !== undefined)
   const activeSelectedItemId = $derived(
@@ -93,16 +96,30 @@
     data.source ? filterSnoozedItems(data.source.items) : ([] as TemporalEventListItem[]),
   )
 
+  const filteredTodoItems = $derived(filterTimelineItemsBySearch(data.todoItems, searchQuery))
+  const filteredDoneItems = $derived(filterTimelineItemsBySearch(data.doneItems, searchQuery))
+  const filteredOverdueItems = $derived(
+    filterTimelineItemsBySearch(data.overdueItems, searchQuery),
+  )
+
   /** Counts are the lengths of the exact arrays each tab renders — never a parallel source. */
   const tabCounts = $derived({
-    todo: data.todoItems.length,
-    done: data.doneItems.length,
-    overdue: data.overdueItems.length,
+    todo: filteredTodoItems.length,
+    done: filteredDoneItems.length,
+    overdue: filteredOverdueItems.length,
   })
 
   const selectedItem = $derived.by(() => {
     if (!activeSelectedItemId) return null
-    const pools = [data.todoItems, data.doneItems, data.overdueItems, data.source?.items ?? []]
+    const pools = [
+      filteredTodoItems,
+      filteredDoneItems,
+      filteredOverdueItems,
+      data.todoItems,
+      data.doneItems,
+      data.overdueItems,
+      data.source?.items ?? [],
+    ]
     for (const pool of pools) {
       const hit = findTemporalListItemByRef(pool, activeSelectedItemId)
       if (hit) return hit
@@ -110,6 +127,7 @@
     return null
   })
 
+  /** Global empty uses unfiltered todo — search-empty stays in the list view. */
   const showGlobalEmpty = $derived(
     data.phase === 'ready' &&
       data.todoItems.length === 0 &&
@@ -360,6 +378,14 @@
           timeZone={userTimeZone}
           onChange={(next) => data.setDateRange(next)}
         />
+        {#if mode === 'tasks'}
+          <MorphSearchControl
+            bind:search={searchQuery}
+            placeholder={m.graph_timeline_tasks_search_placeholder()}
+            triggerLabel={m.graph_timeline_tasks_search_placeholder()}
+            inputId="timeline-tasks-search"
+          />
+        {/if}
         <TemporalTimelineOptionsPopover
           bind:open={filtersPopoverOpen}
           filtersActive={false}
@@ -448,9 +474,9 @@
         />
       {:else}
         <TimelineTasksView
-          items={data.todoItems}
-          doneItems={data.doneItems}
-          overdueItems={data.overdueItems}
+          items={filteredTodoItems}
+          doneItems={filteredDoneItems}
+          overdueItems={filteredOverdueItems}
           selectedItemId={activeSelectedItemId}
           {updatingEventId}
           timeZone={userTimeZone}

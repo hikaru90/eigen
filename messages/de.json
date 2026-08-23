@@ -160,6 +160,7 @@
   "graph_timeline_tasks": "Aufgaben",
   "graph_timeline_tasks_subtitle": "Alle Aufgaben auf einen Blick",
   "graph_timeline_tasks_aria": "Aufgaben — alle Aufgaben",
+  "graph_timeline_tasks_search_placeholder": "Aufgaben durchsuchen…",
   "graph_timeline_tasks_overdue_banner": "{count} überfällig — siehe Bereich „Überfällig“",
   "graph_timeline_low_energy": "Wenig Energie",
   "graph_timeline_layout_list": "Liste",

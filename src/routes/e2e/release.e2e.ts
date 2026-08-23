@@ -8,6 +8,7 @@ import {
   assertTimelineMountFetchBudget,
   assertTimelineSharedFiltersAndDial,
   assertTimelineSsotCountsAndLists,
+  assertTimelineTasksSearch,
   assertCheckInDeepLinkShowsPendingQuestion,
   captureThoughtViaUi,
   captureThoughtViaUiAutoAccept,
@@ -103,6 +104,10 @@ test.describe('Release smoke @release', () => {
 
     await test.step('timeline: shared filters, AI date dial, no kinds', async () => {
       await assertTimelineSharedFiltersAndDial(page)
+    })
+
+    await test.step('timeline: Tasks search filters the list', async () => {
+      await assertTimelineTasksSearch(page)
     })
 
     await test.step('timeline: SSOT counts match lists; projects board has no catalog-only fetch', async () => {

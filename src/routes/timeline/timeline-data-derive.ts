@@ -88,6 +88,23 @@ export function deriveTabCounts(input: {
   }
 }
 
+/**
+ * Client-side list filter for Tasks search (not semantic classification).
+ * Empty/whitespace query returns items unchanged.
+ */
+export function filterTimelineItemsBySearch(
+  items: readonly TemporalEventListItem[],
+  query: string,
+): TemporalEventListItem[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return [...items]
+  return items.filter((item) => {
+    const thought = (item.thoughtText ?? '').toLowerCase()
+    const summary = (item.semanticSummary ?? '').toLowerCase()
+    return thought.includes(needle) || summary.includes(needle)
+  })
+}
+
 /** Project cards only for projects that have ≥1 open item in the loaded set. */
 export function deriveProjectCards(
   openItems: readonly TemporalEventListItem[],

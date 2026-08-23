@@ -9,6 +9,7 @@ import {
   deriveTodoItems,
   deriveProjectCards,
   deriveTabCounts,
+  filterTimelineItemsBySearch,
   type TimelineDateRangeFilter,
 } from './timeline-data-derive'
 
@@ -178,6 +179,57 @@ describe('timeline-data-derive', () => {
     expect(cards.map((c) => c.entityId)).toEqual(['proj-a'])
     expect(cards[0]?.label).toBe('Alpha Catalog')
     expect(cards[0]?.group.items.map((i) => i.id)).toEqual(['t1'])
+  })
+
+  describe('filterTimelineItemsBySearch', () => {
+    const items = [
+      makeItem({
+        id: 'buy-milk',
+        thoughtText: 'Buy milk tomorrow',
+        semanticSummary: 'Grocery errand',
+      }),
+      makeItem({
+        id: 'call-sam',
+        thoughtText: 'Call Sam',
+        semanticSummary: 'Phone reminder',
+      }),
+      makeItem({
+        id: 'summary-only',
+        thoughtText: 'misc note',
+        semanticSummary: 'Schedule dentist appointment',
+      }),
+    ]
+
+    it('returns all items when query is empty or whitespace', () => {
+      expect(filterTimelineItemsBySearch(items, '')).toEqual(items)
+      expect(filterTimelineItemsBySearch(items, '   ')).toEqual(items)
+    })
+
+    it('matches thoughtText case-insensitively', () => {
+      const hit = filterTimelineItemsBySearch(items, 'BUY MILK')
+      expect(hit.map((i) => i.id)).toEqual(['buy-milk'])
+    })
+
+    it('matches semanticSummary when thoughtText does not', () => {
+      const hit = filterTimelineItemsBySearch(items, 'dentist')
+      expect(hit.map((i) => i.id)).toEqual(['summary-only'])
+    })
+
+    it('returns empty when nothing matches', () => {
+      expect(filterTimelineItemsBySearch(items, 'zeppelin')).toEqual([])
+    })
+
+    it('tab counts use filtered list lengths', () => {
+      const filtered = filterTimelineItemsBySearch(items, 'call')
+      const counts = deriveTabCounts({
+        todoItems: filtered,
+        doneItems: [],
+        overdueItems: [],
+      })
+      expect(counts.todo).toBe(1)
+      expect(counts.done).toBe(0)
+      expect(counts.overdue).toBe(0)
+    })
   })
 
   it('builds one /api/timeline URL from filters (single fetch target)', () => {
