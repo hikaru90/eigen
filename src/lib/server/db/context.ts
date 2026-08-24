@@ -1,7 +1,7 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
+import type * as schema from './schema'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import type postgres from 'postgres'
-import type * as schema from './schema'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 export type AppDatabase = PostgresJsDatabase<typeof schema>
 

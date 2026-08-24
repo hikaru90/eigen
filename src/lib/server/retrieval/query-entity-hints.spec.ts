@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mergeQuestionEntityHints, shouldUseDeterministicSolverAnswer } from './query-entity-hints'
 import { solveTemporalQuestion } from '$lib/server/qa/temporal-solver'
 import type { TemporalHintBinding } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
 import type { TemporalEventSeed } from '$lib/server/retrieval/temporal'
+import { mergeQuestionEntityHints, shouldUseDeterministicSolverAnswer } from './query-entity-hints'
 
 function seed(thoughtId: string, summary: string, startAt: string): TemporalEventSeed {
   const iso = `${startAt}T12:00:00.000Z`

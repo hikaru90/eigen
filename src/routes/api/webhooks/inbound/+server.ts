@@ -1,11 +1,11 @@
-import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { getDb } from '$lib/server/db'
-import { inboundWebhookSubscription, connectedAgent } from '$lib/server/db/schema'
+import { json, error } from '@sveltejs/kit'
 import { eq, and } from 'drizzle-orm'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { runAgentWithEvent } from '$lib/server/agents/run-agent'
 import { validateWebhookSignature, type SignatureMode } from '$lib/server/agents/sign'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { inboundWebhookSubscription, connectedAgent } from '$lib/server/db/schema'
 
 export type InboundWebhookResponse = {
   received: true
@@ -97,7 +97,7 @@ export const POST: RequestHandler = async (event) => {
     })
 
     // Get signature header based on mode
-    let receivedSignature: string | null = null
+    let receivedSignature: string | null
 
     if (signatureMode === 'github') {
       receivedSignature = event.request.headers.get('x-hub-signature-256')

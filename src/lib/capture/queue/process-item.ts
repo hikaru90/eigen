@@ -1,3 +1,5 @@
+import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
+import { logErrorToServer } from '$lib/client-log'
 import {
   deleteCaptureQueueItem,
   listCaptureQueueItems,
@@ -10,8 +12,6 @@ import {
   type CaptureQueueItem,
   type CaptureSubmitResult,
 } from './types'
-import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
-import { logErrorToServer } from '$lib/client-log'
 
 /** Permanent infra/config failures — retrying only burns LLM quota. */
 export function isNonRetryableCaptureError(err: unknown): boolean {

@@ -1,10 +1,21 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
   import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server'
-  import type { ProjectListItem } from '$lib/server/memory/project-list'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw'
+  import { onMount } from 'svelte'
+  import MorphSearchControl from '$lib/components/morph-search-control.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import type { CurrentUserView } from '$lib/memory/current-user-view'
+  import { m } from '$lib/paraglide/messages.js'
+  import type { ProjectListItem } from '$lib/server/memory/project-list'
+  import { subscribeCurrentUserView } from '$lib/stores/current-user-view.svelte'
+  import {
+    notifyThoughtChanged,
+    notifyThoughtRefreshAll,
+    subscribeThoughtSync,
+  } from '$lib/stores/thought-sync'
+  import TemporalEventDetail from './temporal-event-detail.svelte'
   import {
     filterSnoozedItems,
     findTemporalListItemByRef,
@@ -12,33 +23,22 @@
     isTemporalEventCompleted,
     type NowSegment,
   } from './temporal-events-utils'
-  import { m } from '$lib/paraglide/messages.js'
-  import { Button } from '$lib/components/ui/button'
-  import MorphSearchControl from '$lib/components/morph-search-control.svelte'
-  import TemporalEventDetail from './temporal-event-detail.svelte'
-  import TimelineTasksView from './timeline-tasks-view.svelte'
-  import TimelineProjectsView from './timeline-projects-view.svelte'
   import TemporalTimelineHeader from './temporal-timeline-header.svelte'
   import TemporalTimelineNudge from './temporal-timeline-nudge.svelte'
   import TemporalTimelineOptionsPopover from './temporal-timeline-options-popover.svelte'
-  import TimelineDateRangeDial from './timeline-date-range-dial.svelte'
-  import TimelineProjectAssignDialog from './timeline-project-assign-dialog.svelte'
-  import TimelineAgentAssignDialog from './timeline-agent-assign-dialog.svelte'
   import TemporalTodaySegmentTabs from './temporal-today-segment-tabs.svelte'
-  import {
-    notifyThoughtChanged,
-    notifyThoughtRefreshAll,
-    subscribeThoughtSync,
-  } from '$lib/stores/thought-sync'
-  import { subscribeCurrentUserView } from '$lib/stores/current-user-view.svelte'
-  import type { CurrentUserView } from '$lib/memory/current-user-view'
+  import TimelineAgentAssignDialog from './timeline-agent-assign-dialog.svelte'
   import { shouldRefetchForViewChange } from './timeline-client-loads'
-  import { postTimelineQuickAction, type TimelineQuickAction } from './timeline-item-actions'
+  import { filterTimelineItemsBySearch } from './timeline-data-derive'
   import {
     createTimelineData,
     type TimelineUnifiedSourceState,
   } from './timeline-data.svelte'
-  import { filterTimelineItemsBySearch } from './timeline-data-derive'
+  import TimelineDateRangeDial from './timeline-date-range-dial.svelte'
+  import { postTimelineQuickAction, type TimelineQuickAction } from './timeline-item-actions'
+  import TimelineProjectAssignDialog from './timeline-project-assign-dialog.svelte'
+  import TimelineProjectsView from './timeline-projects-view.svelte'
+  import TimelineTasksView from './timeline-tasks-view.svelte'
 
   type Props = {
     mode: 'tasks' | 'projects'

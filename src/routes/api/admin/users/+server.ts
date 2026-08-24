@@ -6,9 +6,8 @@
  * Auth: X-Admin-Key (ADMIN_CONSOLIDATION_KEY).
  */
 
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { requireAdminKey } from '$lib/server/auth/admin-key'
+import { json } from '@sveltejs/kit'
 import {
 	listAdminUsers,
 	parseAdminUsersDir,
@@ -16,6 +15,7 @@ import {
 	parseAdminUsersPage,
 	parseAdminUsersSort,
 } from '$lib/server/admin/users'
+import { requireAdminKey } from '$lib/server/auth/admin-key'
 
 export const GET: RequestHandler = async (event) => {
 	requireAdminKey(event)

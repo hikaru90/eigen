@@ -13,10 +13,10 @@
  *   scrypt(N=16384, r=16, p=1, dkLen=64), stored as "salt_hex:key_hex"
  */
 
-import postgres from 'postgres'
 import { scryptAsync } from '@noble/hashes/scrypt.js'
-import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils.js'
+import { bytesToHex, randomBytes } from '@noble/hashes/utils.js'
 import { nanoid } from 'nanoid'
+import postgres from 'postgres'
 
 // ---------------------------------------------------------------------------
 // Validate env

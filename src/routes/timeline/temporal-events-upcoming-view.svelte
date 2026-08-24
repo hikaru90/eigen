@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
-  import { filterItemsForUpcomingView, groupByProject } from './temporal-events-utils'
   import { m } from '$lib/paraglide/messages.js'
+  import { filterItemsForUpcomingView, groupByProject } from './temporal-events-utils'
   import TemporalTimelineTaskRow from './temporal-timeline-task-row.svelte'
 
   type Props = {

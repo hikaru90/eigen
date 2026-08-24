@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { readVapidConfigFromEnv } from '$lib/server/push/vapid'
 
 export const GET: RequestHandler = async (event) => {

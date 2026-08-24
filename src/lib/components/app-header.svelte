@@ -1,27 +1,27 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { dev } from '$app/environment'
-  import { base, resolve } from '$app/paths'
-  import { afterNavigate, goto } from '$app/navigation'
-  import { page } from '$app/state'
-  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
-  import CurrentUserViewSelect from '$lib/components/current-user-view-select.svelte'
-  import * as Popover from '$lib/components/ui/popover'
-  import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
   import ActivityIcon from '@lucide/svelte/icons/activity'
-  import Menu from '@lucide/svelte/icons/menu'
-  import Settings from '@lucide/svelte/icons/settings'
-  import KeyRound from '@lucide/svelte/icons/key-round'
-  import LogOut from '@lucide/svelte/icons/log-out'
+  import BarChart3 from '@lucide/svelte/icons/bar-chart-3'
   import ClipboardCheck from '@lucide/svelte/icons/clipboard-check'
   import Cpu from '@lucide/svelte/icons/cpu'
   import HeartPulse from '@lucide/svelte/icons/heart-pulse'
-  import BarChart3 from '@lucide/svelte/icons/bar-chart-3'
+  import KeyRound from '@lucide/svelte/icons/key-round'
   import Layers from '@lucide/svelte/icons/layers'
-  import Send from '@lucide/svelte/icons/send'
+  import LogOut from '@lucide/svelte/icons/log-out'
+  import Menu from '@lucide/svelte/icons/menu'
   import MessageSquare from '@lucide/svelte/icons/message-square'
+  import Send from '@lucide/svelte/icons/send'
+  import Settings from '@lucide/svelte/icons/settings'
+  import { onMount } from 'svelte'
+  import { dev } from '$app/environment'
+  import { afterNavigate, goto } from '$app/navigation'
+  import { base, resolve } from '$app/paths'
+  import { page } from '$app/state'
   import { resetPostHog } from '$lib/analytics/posthog-client'
+  import CurrentUserViewSelect from '$lib/components/current-user-view-select.svelte'
+  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
+  import * as Popover from '$lib/components/ui/popover'
   import { GRAPH_FILTER_GLASS_POPOVER } from '$lib/graph/graph-filter-chrome'
+  import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
 
   let menuOpen = $state(false)
 
@@ -36,46 +36,6 @@
   )
   const showViewSelect = $derived(Boolean(user))
   const isAdmin = $derived((page.data as { isAdmin?: boolean }).isAdmin ?? false)
-  const userEmail = $derived(user?.email?.trim().toLowerCase() || 'anonymous')
-
-  function hashString(input: string): number {
-    let hash = 2166136261
-    for (let i = 0; i < input.length; i++) {
-      hash ^= input.charCodeAt(i)
-      hash = Math.imul(hash, 16777619)
-    }
-    return hash >>> 0
-  }
-
-  function createSeededRandom(seed: number): () => number {
-    return () => {
-      seed += 0x6d2b79f5
-      let t = seed
-      t = Math.imul(t ^ (t >>> 15), t | 1)
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-    }
-  }
-
-  function createTextureDataUri(email: string): string {
-    const seed = hashString(email)
-    const rand = createSeededRandom(seed)
-    const hue = Math.floor(rand() * 360)
-    const bg = '#242424'
-    const fg = '#E3EADE'
-    const dots: string[] = []
-    for (let i = 0; i < 72; i++) {
-      const x = (rand() * 64).toFixed(2)
-      const y = (rand() * 64).toFixed(2)
-      const r = (rand() * 1.2 + 0.55).toFixed(2)
-      const a = (rand() * 0.58 + 0.06).toFixed(3)
-      dots.push(`<circle cx="${x}" cy="${y}" r="${r}" fill="${fg}" opacity="${a}" />`)
-    }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="${bg}"/>${dots.join('')}</svg>`
-    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`
-  }
-
-  const avatarTexture = $derived(createTextureDataUri(userEmail))
 
   async function signOut() {
     menuOpen = false

@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { resolve } from '$app/paths'
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
   import type { CreateProjectResponse } from '../api/timeline/projects/+server'
   import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server'
-  import type { ProjectListItem } from '$lib/server/memory/project-list'
+  import type { TimelineProjectCard } from './timeline-data-derive'
   import PlusIcon from '@lucide/svelte/icons/plus'
+  import { resolve } from '$app/paths'
+  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
   import { Button } from '$lib/components/ui/button'
-  import TimelineCreateProjectDialog from './timeline-create-project-dialog.svelte'
-  import TimelineProjectAssignDialog from './timeline-project-assign-dialog.svelte'
   import { m } from '$lib/paraglide/messages.js'
+  import type { ProjectListItem } from '$lib/server/memory/project-list'
+  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
   import {
     findTemporalListItemByRef,
     isTemporalEventCompleted,
@@ -17,9 +18,8 @@
     formatWhen,
     formatCreatedDate,
   } from './temporal-events-utils'
-  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
-  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import type { TimelineProjectCard } from './timeline-data-derive'
+  import TimelineCreateProjectDialog from './timeline-create-project-dialog.svelte'
+  import TimelineProjectAssignDialog from './timeline-project-assign-dialog.svelte'
 
   type Props = {
     projectCards: TimelineProjectCard[]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { upsertRecentThoughtList } from './upsert-recent-thought-list'
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
+import { upsertRecentThoughtList } from './upsert-recent-thought-list'
 
 function thought(id: string, category = 'observation'): CaptureSubmitResult {
   return {

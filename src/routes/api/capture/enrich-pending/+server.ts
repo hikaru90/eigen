@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { syncAndScheduleCaptureEnrichQueue } from '$lib/server/capture/sync-capture-enrich-queue'
 
 export const GET: RequestHandler = async (event) => {

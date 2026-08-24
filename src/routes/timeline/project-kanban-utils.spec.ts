@@ -1,3 +1,4 @@
+import type { TemporalEventListItem } from '../api/temporal-events/+server'
 import { describe, expect, it } from 'vitest'
 import {
   groupProjectTasksByLifecycle,
@@ -6,7 +7,6 @@ import {
   KANBAN_EDGE_SCROLL_MAX_PX,
   KANBAN_EDGE_SCROLL_ZONE_PX,
 } from './project-kanban-utils'
-import type { TemporalEventListItem } from '../api/temporal-events/+server'
 
 function item(
   overrides: Partial<TemporalEventListItem> & Pick<TemporalEventListItem, 'id'>,

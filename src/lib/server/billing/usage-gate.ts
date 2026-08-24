@@ -2,6 +2,7 @@ import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
 import { resolveBillingUserId } from '$lib/server/billing/context'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { ensureHarnessWalletCredits } from '$lib/server/billing/ensure-harness-credits'
+import { baseUsdToTotalMicroUsd } from '$lib/server/billing/money'
 import { isByokBilling } from '$lib/server/billing/preferences'
 import {
   InsufficientCreditsError,
@@ -9,7 +10,6 @@ import {
   assertHasPlatformCredits,
   chargePlatformUsageMicroUsd,
 } from '$lib/server/billing/wallet'
-import { baseUsdToTotalMicroUsd } from '$lib/server/billing/money'
 
 export { InsufficientCreditsError }
 export { MIN_CAPTURE_PIPELINE_CREDITS }

@@ -1,11 +1,10 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
+import type { MemoryAuthor } from '$lib/server/db/brain.schema'
 import {
   listTemporalEventsForUser,
   type TemporalEventListItem,
 } from '$lib/server/memory/temporal-event-list'
-
-import type { MemoryAuthor } from '$lib/server/db/brain.schema'
 
 export type { TemporalEventListItem }
 

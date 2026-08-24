@@ -1,20 +1,20 @@
 import { and, eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { temporalEvent, thought, type LifecycleStatus } from '$lib/server/db/schema'
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { temporalEvent, thought, type LifecycleStatus } from '$lib/server/db/schema'
 import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
 import { graphAuthorProperty } from '$lib/server/memory/authorship'
-import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action'
-import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 import {
   cancelReminderSchedulesForEvent,
   syncReminderScheduleForEvent,
 } from '$lib/server/memory/event-reminder-schedule'
+import { clearNextActionIfCompleted } from '$lib/server/memory/project-next-action'
 import {
   getTemporalEventListItemById,
   thoughtIdFromTaskItemId,
 } from '$lib/server/memory/temporal-event-list'
+import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 

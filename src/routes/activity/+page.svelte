@@ -1,10 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import * as Card from '$lib/components/ui/card'
-  import { Button } from '$lib/components/ui/button'
-  import AiDateRangePicker from '$lib/components/ai-date-range-picker.svelte'
-  import { formatActivityCredits } from '$lib/billing/platform-pricing'
-  import ActivitySpendChart from './activity-spend-chart.svelte'
+  import { SvelteMap } from 'svelte/reactivity'
   import {
     callTimestampBounds,
     chooseActivitySpendBucketUnit,
@@ -14,13 +10,32 @@
     utcDateKey,
     type ActivitySpendBucket,
   } from '$lib/activity/spend-chart'
+  import { formatActivityCredits } from '$lib/billing/platform-pricing'
+  import AiDateRangePicker from '$lib/components/ai-date-range-picker.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import ActivitySpendChart from './activity-spend-chart.svelte'
+
+  type ActivityCallRow = {
+    id: string
+    provider: string
+    gatewayHost?: string | null
+    operation: string
+    context?: string | null
+    baseCostUsd: string
+    markupUsd: string
+    totalCostUsd: string
+    groupId?: string | null
+    durationMs?: number | null
+    createdAt: string | Date
+  }
 
   let { data } = $props()
 
   let fromDate = $state<string | null>(data.from)
   let toDate = $state<string | null>(data.to)
   const gatewayProviderSet = $derived(new Set(data.gatewayProviders))
-  let allCalls = $state<any[]>([])
+  let allCalls = $state<ActivityCallRow[]>([])
   let isLoading = $state(true)
   let loadError = $state('')
   let expandedGroups = $state<Record<string, boolean>>({})
@@ -32,7 +47,7 @@
     expandedGroups = { ...expandedGroups, [groupId]: !expandedGroups[groupId] }
   }
 
-  function sumTotalUsd(calls: any[]): string {
+  function sumTotalUsd(calls: ActivityCallRow[]): string {
     let total = 0
     for (const c of calls) total += Number(c.totalCostUsd)
     return total.toFixed(6)
@@ -48,7 +63,7 @@
     return parts[parts.length - 2] ?? parts[0]
   }
 
-  function groupProviderLabel(calls: any[]): { label: string; isPaid: boolean } {
+  function groupProviderLabel(calls: ActivityCallRow[]): { label: string; isPaid: boolean } {
     const first = calls[0]
     if (first.provider === 'agent') return { label: 'Agent', isPaid: false }
     const host = first.gatewayHost?.trim()
@@ -62,7 +77,7 @@
     return `${(ms / 1000).toFixed(2)}s`
   }
 
-  function totalDurationMs(calls: any[]): number | null {
+  function totalDurationMs(calls: ActivityCallRow[]): number | null {
     let total = 0
     let hasAny = false
     for (const c of calls) {
@@ -100,11 +115,11 @@
     const groups: Array<{
       key: string
       groupId: string | null
-      calls: any[]
+      calls: ActivityCallRow[]
       firstOp: string
       groupTotalUsd: string
     }> = []
-    const groupMap = new Map<string, any[]>()
+    const groupMap = new SvelteMap<string, ActivityCallRow[]>()
     const order: string[] = []
 
     for (const c of filteredCalls) {
@@ -198,7 +213,7 @@
     })
     const unit = chooseActivitySpendBucketUnit(span.spanDays)
 
-    const byPeriod = new Map<string, { totalCostUsd: number; callCount: number }>()
+    const byPeriod = new SvelteMap<string, { totalCostUsd: number; callCount: number }>()
     for (const c of gatewayCalls) {
       const d = new Date(c.createdAt)
       const periodDate = startOfUtcPeriod(d, unit)
@@ -240,7 +255,7 @@
         body: JSON.stringify({ from: null, to: null, returnAll: true }),
       })
       if (res.ok) {
-        const json = await res.json()
+        const json = (await res.json()) as { calls?: ActivityCallRow[] }
         allCalls = json.calls ?? []
       } else {
         loadError = await res.text()
@@ -308,10 +323,10 @@
             </tr>
           </thead>
           <tbody>
-            {#each pagedGroups as group}
+            {#each pagedGroups as group (group.key)}
               {@const prov = groupProviderLabel(group.calls)}
               {@const groupLabel = group.firstOp.replace(/\.(success|error)\(.*\)$/, '')}
-              {@const context = group.calls.find((c: any) => c.context)?.context}
+              {@const context = group.calls.find((c) => c.context)?.context}
               {@const dur = totalDurationMs(group.calls)}
               {@const isExpanded = !!expandedGroups[group.key]}
               {@const hasMultipleCalls = group.calls.length > 1}
@@ -362,7 +377,7 @@
               </tr>
 
               {#if isExpanded && hasMultipleCalls}
-                {#each group.calls as call}
+                {#each group.calls as call (call.id)}
                   {@const callProv = groupProviderLabel([call])}
                   <tr class="border-b border-border/30 bg-muted/20">
                     <td class="p-2 pl-8 whitespace-nowrap text-muted-foreground"

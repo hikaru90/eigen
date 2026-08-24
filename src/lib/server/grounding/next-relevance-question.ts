@@ -1,5 +1,3 @@
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { loadRelevanceCheckInCandidates } from '$lib/server/grounding/relevance-candidates'
 import {
   buildRelevanceQuestionFromTemplate,
@@ -7,6 +5,8 @@ import {
   RELEVANCE_QUESTION_TEMPLATE_ID_SET,
   type RelevanceQuestionTemplateId,
 } from '$lib/server/grounding/relevance-templates'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
 export type RelevanceCheckInQuestion = {
   kind: 'relevance'

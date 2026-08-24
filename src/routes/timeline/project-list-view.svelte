@@ -1,14 +1,14 @@
 <script lang="ts">
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
+  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
+  import { m } from '$lib/paraglide/messages.js'
+  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
   import {
     completedEventSummaryClass,
     formatCreatedDate,
     formatWhen,
     isTemporalEventCompleted,
   } from './temporal-events-utils'
-  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
-  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import { m } from '$lib/paraglide/messages.js'
 
   type Props = {
     items: TemporalEventListItem[]

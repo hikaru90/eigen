@@ -1,4 +1,5 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   connectedAgent,
@@ -8,10 +9,9 @@ import {
   canonicalEntity,
   type AgentSubscribableEventType,
 } from '$lib/server/db/schema'
-import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { AGENT_SUBSCRIBABLE_EVENTS } from './constants'
 import { generateSigningSecret, generateCallbackToken } from './secret-utils'
 import { validateAgentWebhookUrl } from './validate-url'
-import { AGENT_SUBSCRIBABLE_EVENTS } from './constants'
 
 function parseSubscribedEvents(value: unknown): AgentSubscribableEventType[] {
   if (!Array.isArray(value)) return []

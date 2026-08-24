@@ -2,8 +2,8 @@ import { and, eq, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity } from '$lib/server/db/schema'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { loadHubJudgmentContext } from '$lib/server/memory/judge-gtd-project'
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import {
   countOpenTasksForProjectEntity,
   demoteProject,

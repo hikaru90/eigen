@@ -6,7 +6,6 @@ import {
   thought,
   thoughtRelation,
 } from '$lib/server/db/schema'
-import { DEFAULT_ENTITY_TYPE_KIND_KEYS } from './seed-default-cognitive'
 
 /**
  * Entity type kind keys that must never be deactivated.

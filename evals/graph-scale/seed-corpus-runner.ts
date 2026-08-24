@@ -1,29 +1,25 @@
 import { inArray } from 'drizzle-orm'
+import { deleteEvalUserRow, insertEvalUserRow } from '$lib/eval/store'
+import {
+  enrichQueuedThought,
+  processCaptureEnrichQueue,
+} from '$lib/server/capture/enrich-queued-thought'
 import {
   queueCapture,
   claimNextPendingThought,
   countPendingEnrichRows,
   recoverStaleEnrichProcessingRows,
 } from '$lib/server/capture/queue-capture'
-import {
-  enrichQueuedThought,
-  processCaptureEnrichQueue,
-} from '$lib/server/capture/enrich-queued-thought'
-import { ensureHarnessCredentialAccount } from '$lib/server/e2e/harness-auth'
 import { thought } from '$lib/server/db/schema'
-import { deleteEvalUserRow, insertEvalUserRow } from '$lib/eval/store'
-import { withEvalDb } from '../harness/eval-context'
+import { ensureHarnessCredentialAccount } from '$lib/server/e2e/harness-auth'
 import { mapWithConcurrency } from '../harness/concurrency'
+import { withEvalDb } from '../harness/eval-context'
 import {
   waitForThoughtEnrichmentComplete,
   type ThoughtEnrichmentTarget,
 } from '../harness/wait-enrichment'
 import { collectGraphScaleMetrics } from './graph-metrics'
-import {
-  collectGraphScaleIngestResult,
-  formatGraphScaleIngestLogLine,
-  type GraphScaleIngestSnapshot,
-} from './ingest-result'
+import { collectGraphScaleIngestResult, type GraphScaleIngestSnapshot } from './ingest-result'
 import { buildCorpusTexts, graphScaleCorpusUserId } from './seed-corpus'
 
 export type GraphScaleIngestResultEvent = GraphScaleIngestSnapshot & {
@@ -68,7 +64,7 @@ export async function seedGraphScaleCorpus(input: {
   await resetGraphScaleCorpusUser(userId)
   await ensureHarnessCredentialAccount(userId)
 
-  await withEvalDb(userId, (db) => recoverStaleEnrichProcessingRows(userId, 60_000), billing)
+  await withEvalDb(userId, (_db) => recoverStaleEnrichProcessingRows(userId, 60_000), billing)
 
   const maybePublishMetrics = async (force: boolean, enriched: number, total: number) => {
     if (!input.onLiveMetrics) return

@@ -1,14 +1,14 @@
+import type { QaChecks } from './qa-types'
 import { and, eq, inArray } from 'drizzle-orm'
-import type { EvalEntry } from '$lib/server/db/brain.schema'
-import { evalThoughtMap } from '$lib/server/db/brain.schema'
-import { withDbUser } from '$lib/server/db'
 import { updateEvalEntry } from '$lib/eval/store'
 import type { CorpusFixtureRef } from '$lib/eval/store'
+import { withDbUser } from '$lib/server/db'
+import type { EvalEntry } from '$lib/server/db/brain.schema'
+import { evalThoughtMap } from '$lib/server/db/brain.schema'
 import { ingestBrokenFromCheckAssertions } from './auto-retrieval-prune'
 import { deleteCorpusThought } from './delete-corpus-fixture'
-import { logEval } from './eval-context'
 import { EVAL_INGEST_RETRY_MAX_DEFAULT } from './eval-config'
-import type { QaChecks } from './qa-types'
+import { logEval } from './eval-context'
 
 /** Fixtures whose entity checks require resolution rows (not haystack distractors with minCount 0). */
 export function fixtureIdsRequiringEntityResolution(checks: QaChecks): string[] {

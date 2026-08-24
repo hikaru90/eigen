@@ -1,8 +1,8 @@
 import { and, asc, eq, ne } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
-import { isThoughtNeverStale } from '$lib/server/memory/thought-staleness'
 import { RELEVANCE_CHECKIN_MIN_INACTIVE_DAYS } from '$lib/server/grounding/constants'
+import { isThoughtNeverStale } from '$lib/server/memory/thought-staleness'
 import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 
 const MS_PER_DAY = 86_400_000

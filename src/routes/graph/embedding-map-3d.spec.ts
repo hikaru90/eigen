@@ -1,10 +1,10 @@
+import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
 import { describe, expect, it } from 'vitest'
 import {
   embeddingMapLabelText,
   embeddingMapShouldSuppressSelectionClick,
   screenSpacePointScale,
 } from './embedding-map-3d'
-import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
 
 function item(overrides: Partial<EmbeddingSnapshotItem> = {}): EmbeddingSnapshotItem {
   return {

@@ -1,9 +1,9 @@
+import type { CaptureContentSplitResult } from './split-capture-content'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyCaptureContentSplitIfNeeded,
   applySplitResultLocally,
 } from './apply-capture-content-split'
-import type { CaptureContentSplitResult } from './split-capture-content'
 
 const {
   resolveCaptureContentSplitMock,

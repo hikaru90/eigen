@@ -2,7 +2,9 @@
  * Per-user heartbeat run history and live progress (RLS-scoped).
  */
 
+import type { CommunitySummaryStats } from './community-summaries'
 import { and, desc, eq } from 'drizzle-orm'
+import { heartbeatProgressPctFromRun } from '$lib/consolidation/heartbeat-progress'
 import { getDb, withDbUser } from '$lib/server/db'
 import { heartbeatRun, type HeartbeatRunStatus } from '$lib/server/db/schema'
 import {
@@ -10,8 +12,6 @@ import {
   type ConsolidationJobResult,
   type ConsolidationRunResult,
 } from './runner'
-import { heartbeatProgressPctFromRun } from '$lib/consolidation/heartbeat-progress'
-import type { CommunitySummaryStats } from './community-summaries'
 
 export type HeartbeatRunSnapshot = {
   runId: string

@@ -1,21 +1,21 @@
 <script lang="ts">
+  import type { TemporalEventListItem } from '../api/temporal-events/+server'
   import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban'
   import PencilLine from '@lucide/svelte/icons/pencil-line'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import * as Drawer from '$lib/components/ui/drawer'
+  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
   import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte'
   import { Button } from '$lib/components/ui/button'
+  import * as Drawer from '$lib/components/ui/drawer'
   import { m } from '$lib/paraglide/messages.js'
+  import type { ProjectListItem } from '$lib/server/memory/project-list'
+  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
   import {
     isTemporalEventCompleted,
     completedEventSummaryClass,
     formatWhen,
     formatCreatedDate,
   } from './temporal-events-utils'
-  import type { TemporalEventListItem } from '../api/temporal-events/+server'
-  import type { ProjectListItem } from '$lib/server/memory/project-list'
-  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
-  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
 
   type Props = {
     open: boolean

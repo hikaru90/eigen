@@ -1,9 +1,9 @@
+import type { CaptureQueueBroadcast, CaptureSubmitResult } from './types'
+import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 import { getNextPendingCaptureItem, setCaptureQueueStatus } from './db'
 import { processCaptureQueueItem } from './process-item'
 import { buildCaptureQueueSnapshot } from './snapshot'
 import { registerCaptureQueueBackgroundSync } from './sync-registration'
-import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
-import type { CaptureQueueBroadcast, CaptureSubmitResult } from './types'
 
 export type DrainCaptureQueueOptions = {
   signal?: AbortSignal

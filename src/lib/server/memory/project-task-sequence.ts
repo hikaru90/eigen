@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   projectTaskSequence,
@@ -6,7 +7,6 @@ import {
   thoughtEntity,
   type LifecycleStatus,
 } from '$lib/server/db/schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { thoughtStatusFromMetadata } from '$lib/server/memory/project-eligibility'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 

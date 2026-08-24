@@ -1,3 +1,13 @@
+import type { EnrichmentContext } from '$lib/server/capture/enrichment-context'
+import {
+  formatCommunityContextBlock,
+  formatKnownEntitiesBlock,
+} from '$lib/server/capture/enrichment-context'
+import {
+  CUES_FROM_CAPTURE_RULE,
+  capturePrimaryPromptBlock,
+  groundingSupplementaryPromptBlock,
+} from '$lib/server/capture/enrichment-prompt-sections'
 /**
  * Single LLM call for tier-2 enrich prefetch: category, search cues, temporal, and entity graph.
  *
@@ -8,26 +18,6 @@
  * retry when neither the primary key nor any alternative is valid.
  */
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { activeThoughtCategoryKinds } from '$lib/server/ontology-db/load-ontology'
-import {
-  buildStrictCategoryRetryPrompt,
-  isInvalidThoughtCategoryError,
-  resolveCategoryFromLlmOutput,
-  type ResolvedThoughtCategory,
-} from '$lib/server/ontology/validate-thought-category'
-import { parseSearchCues } from '$lib/server/memory/search-cues'
-import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
-import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
-import {
-  CUES_FROM_CAPTURE_RULE,
-  capturePrimaryPromptBlock,
-  groundingSupplementaryPromptBlock,
-} from '$lib/server/capture/enrichment-prompt-sections'
-import type { EnrichmentContext } from '$lib/server/capture/enrichment-context'
-import {
-  formatCommunityContextBlock,
-  formatKnownEntitiesBlock,
-} from '$lib/server/capture/enrichment-context'
 import {
   graphEntityLabelsFromContext,
   parseEntityMentions,
@@ -37,25 +27,35 @@ import {
   type OntologyEntityKindForExtraction,
 } from '$lib/server/memory/entity-extraction'
 import {
+  formatCommunityExcerptsForEntityPrompt,
+  formatKnownGraphEntitiesPromptBlock,
+  type EntityGraphEnrichmentContext,
+} from '$lib/server/memory/entity-graph-enrichment-context'
+import {
   ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
   ENTITY_EXTRACTION_OMIT_RULES,
   ENTITY_EXTRACTION_QUALITY_GUIDANCE,
   ENTITY_EXTRACTION_SURFACE_INTEGRITY_RULES,
   ENTITY_EXTRACTION_TYPE_GUIDANCE,
 } from '$lib/server/memory/entity-mention-filter'
-import {
-  formatCommunityExcerptsForEntityPrompt,
-  formatKnownGraphEntitiesPromptBlock,
-  type EntityGraphEnrichmentContext,
-} from '$lib/server/memory/entity-graph-enrichment-context'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
+import { parseSearchCues } from '$lib/server/memory/search-cues'
 import {
   applyCaptureAnchoredMentions,
   parseTemporalMentions,
   type ExtractedTemporalMention,
 } from '$lib/server/memory/temporal-normalize'
-import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import { activeThoughtCategoryKinds } from '$lib/server/ontology-db/load-ontology'
+import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
+import { extractChatContent } from '$lib/server/ontology/llm-json'
+import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
+import {
+  buildStrictCategoryRetryPrompt,
+  isInvalidThoughtCategoryError,
+  resolveCategoryFromLlmOutput,
+  type ResolvedThoughtCategory,
+} from '$lib/server/ontology/validate-thought-category'
 
 export type EnrichThoughtBundleResult = {
   category: ResolvedThoughtCategory

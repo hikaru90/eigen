@@ -1,8 +1,8 @@
 <script lang="ts">
   import CalendarDays from '@lucide/svelte/icons/calendar-days'
   import X from '@lucide/svelte/icons/x'
-  import * as Popover from '$lib/components/ui/popover'
   import { Button } from '$lib/components/ui/button'
+  import * as Popover from '$lib/components/ui/popover'
   import { parseNLDateRange, formatDateParam, formatDateRange } from '$lib/utils/date-utils'
 
   let {

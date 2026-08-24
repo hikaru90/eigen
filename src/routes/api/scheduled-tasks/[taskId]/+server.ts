@@ -1,10 +1,8 @@
+import type { RequestHandler } from './$types'
 import { randomUUID } from 'node:crypto'
 import { error, json } from '@sveltejs/kit'
-import type { RequestHandler } from './$types'
-import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants'
-import { setUserScheduledTaskPaused } from '$lib/server/scheduled-tasks/service'
-import { loadActiveHeartbeatRun } from '$lib/server/consolidation/heartbeat-run-ledger'
 import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan'
+import { loadActiveHeartbeatRun } from '$lib/server/consolidation/heartbeat-run-ledger'
 import {
   OVERNIGHT_CONSOLIDATION_JOB,
   drainUserJobQueue,
@@ -15,6 +13,8 @@ import {
   recoverOrphanedOvernightState,
   stopOvernightHeartbeat,
 } from '$lib/server/job-queue/recover-overnight'
+import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants'
+import { setUserScheduledTaskPaused } from '$lib/server/scheduled-tasks/service'
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
   if (!locals.user) {

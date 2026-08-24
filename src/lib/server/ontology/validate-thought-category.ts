@@ -1,3 +1,4 @@
+import type { ResolvedThoughtOntologyKind } from './classify-thought-category'
 /**
  * Shared validation for LLM-emitted thought category output.
  *
@@ -15,7 +16,6 @@
  */
 import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
 import { validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db/load-ontology'
-import type { ResolvedThoughtOntologyKind } from './classify-thought-category'
 
 export class InvalidThoughtCategoryError extends Error {
   readonly raw: string

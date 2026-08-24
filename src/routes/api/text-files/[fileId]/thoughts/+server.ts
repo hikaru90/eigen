@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { listThoughtsForTextFile } from '$lib/server/text-files/service'
 
 export const GET: RequestHandler = async (event) => {

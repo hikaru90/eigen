@@ -1,9 +1,9 @@
 import type { ChatStreamEvent } from './chat-stream-types'
+import { trackInsufficientCredits } from '$lib/analytics/billing-events'
 import {
   INSUFFICIENT_CREDITS_CODE,
   isInsufficientCreditsChatError,
 } from '$lib/billing/insufficient-credits'
-import { trackInsufficientCredits } from '$lib/analytics/billing-events'
 
 export type ChatNdjsonDone = Extract<ChatStreamEvent, { type: 'done' }>
 

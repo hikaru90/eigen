@@ -1,3 +1,4 @@
+import type { CaptureSubmitResult } from './capture-result-types'
 import { describe, expect, it } from 'vitest'
 import {
   categoryConfidencePercent,
@@ -7,7 +8,6 @@ import {
   hasCaptureGraphContext,
   parseCategoryAlternatives,
 } from './capture-result-display'
-import type { CaptureSubmitResult } from './capture-result-types'
 
 describe('capture-result-display', () => {
   it('parses category alternatives', () => {

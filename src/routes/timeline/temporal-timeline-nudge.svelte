@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import SparklesIcon from '@lucide/svelte/icons/sparkles'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import SparklesIcon from '@lucide/svelte/icons/sparkles'
+  import { onMount } from 'svelte'
   import { m } from '$lib/paraglide/messages.js'
 
   type Suggestion = {

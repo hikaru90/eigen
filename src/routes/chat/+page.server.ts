@@ -1,9 +1,9 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
-import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
+import { redirect } from '@sveltejs/kit'
+import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { isByokBilling } from '$lib/server/billing/preferences'
 import { getWalletSnapshot } from '$lib/server/billing/wallet'
-import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
+import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {

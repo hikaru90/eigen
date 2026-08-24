@@ -1,10 +1,10 @@
 import { env } from '$env/dynamic/private'
-import { compress, type Intensity } from './embedding-compress'
-import { llmCreateEmbeddings } from './llm-client'
 import {
   getCachedQueryEmbedding,
   setCachedQueryEmbedding,
 } from '$lib/server/retrieval/embedding-cache'
+import { compress, type Intensity } from './embedding-compress'
+import { llmCreateEmbeddings } from './llm-client'
 
 const EMBEDDING_DIMENSIONS = 1536
 

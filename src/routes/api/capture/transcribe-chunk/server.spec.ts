@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { POST } from './+server'
 import { STT_MAX_AUDIO_BYTES } from '$lib/server/llm/stt-audio'
+import { POST } from './+server'
 
 const { transcribeAudioMock } = vi.hoisted(() => ({
   transcribeAudioMock: vi.fn(),

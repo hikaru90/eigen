@@ -1,6 +1,6 @@
+import type { CaptureSubmitResult } from './capture-result-types'
 import { describe, expect, it } from 'vitest'
 import { mergeRecentCaptureFromServer } from './merge-recent-capture-sync'
-import type { CaptureSubmitResult } from './capture-result-types'
 
 function thought(id: string, overrides: Partial<CaptureSubmitResult> = {}): CaptureSubmitResult {
   return {

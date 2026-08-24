@@ -16,8 +16,8 @@ import {
   thought,
   thoughtEntity,
 } from '$lib/server/db/schema'
-import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding'
+import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { loadCommunityThoughtIds } from './community-bundles'
 import { COMMUNITY_MID_LEVEL } from './community-levels'
 

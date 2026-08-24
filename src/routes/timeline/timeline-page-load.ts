@@ -2,8 +2,8 @@ import { redirect } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { userPreference } from '$lib/server/db/schema'
-import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { loadUnifiedTimeline } from '$lib/server/memory/timeline-unified'
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 
 type TimelinePageLoadEvent = {
   locals: App.Locals

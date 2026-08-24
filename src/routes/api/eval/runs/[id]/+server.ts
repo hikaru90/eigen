@@ -1,8 +1,8 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
 import { dev } from '$app/environment'
-import { loadEvalRunDetail } from '$lib/eval/store'
 import { getActiveEvalRunId, recoverOrphanedEvalRun } from '$lib/eval/runner'
+import { loadEvalRunDetail } from '$lib/eval/store'
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   if (!dev) return json({ error: 'Eval API only available in dev mode' }, { status: 403 })

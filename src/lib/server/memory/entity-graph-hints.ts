@@ -2,10 +2,10 @@ import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, entityResolutionLog } from '$lib/server/db/schema'
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age'
+import type { KnownEntityHint } from '$lib/server/memory/entity-extraction'
 import { buildEntityAdjacency, neighborEntityIds } from '$lib/server/memory/entity-link-graph'
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import type { KnownEntityHint } from '$lib/server/memory/entity-extraction'
 
 const GRAPH_HINT_LIMIT = 12
 

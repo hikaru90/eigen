@@ -2,12 +2,12 @@ import { and, eq, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, thoughtEntity, type ThoughtEntitySource } from '$lib/server/db/schema'
 import { upsertMentionEdge } from '$lib/server/graph/age'
-import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 import {
   loadOpenTaskThoughtIdsForProject,
   loadOrderedThoughtIdsForProject,
   selectNextOpenThoughtAfterCompleted,
 } from '$lib/server/memory/project-task-sequence'
+import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
 export async function designateNextAction(
   userId: string,

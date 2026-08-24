@@ -1,8 +1,8 @@
+import type { CaptureRecentThoughtSnippet, CaptureSubmitResult } from './capture-result-types'
 import {
   mergeRecentCaptureFromServer,
   type RecentCaptureSyncPayload,
 } from './merge-recent-capture-sync'
-import type { CaptureRecentThoughtSnippet, CaptureSubmitResult } from './capture-result-types'
 
 export const CAPTURE_RECENT_SYNC_POLL_MS = 1500
 

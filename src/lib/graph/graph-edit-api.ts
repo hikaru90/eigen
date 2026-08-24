@@ -1,12 +1,12 @@
 import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson'
-import { consumeGraphRearrangeNdjsonStream } from '$lib/graph/consume-graph-rearrange-ndjson'
-import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases'
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
+import { consumeGraphRearrangeNdjsonStream } from '$lib/graph/consume-graph-rearrange-ndjson'
 import type {
   EntityCaptureRow,
   GraphEntityEditorStored,
   GraphThoughtEditorStored,
 } from '$lib/graph/graph-page-types'
+import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases'
 
 export async function fetchThoughtForGraphEdit(
   thoughtId: string,

@@ -1,14 +1,16 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { captureThought } from '$lib/server/capture/service'
-import { getDb } from '$lib/server/db'
-import { thought, type LifecycleStatus } from '$lib/server/db/schema'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import type { TemporalEventKind } from '$lib/server/db/brain.schema'
+import { thought, type LifecycleStatus } from '$lib/server/db/schema'
 import {
   extractProjectReview,
   type ProjectReviewExtraction,
   type ProjectReviewTaskInput,
 } from '$lib/server/memory/extract-project-review'
 import { setThoughtLifecycleStatus } from '$lib/server/memory/lifecycle'
+import { thoughtStatusFromMetadata } from '$lib/server/memory/project-eligibility'
 import { listProjectsByEntityIds } from '$lib/server/memory/project-list'
 import {
   clearNextActionIfCompleted,
@@ -26,11 +28,9 @@ import {
 } from '$lib/server/memory/project-timeline'
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync'
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
-import { thoughtStatusFromMetadata } from '$lib/server/memory/project-eligibility'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
-import type { TemporalEventKind } from '$lib/server/db/brain.schema'
 
 export type ProjectReviewTaskStatus = 'open' | 'done' | 'archived'
 

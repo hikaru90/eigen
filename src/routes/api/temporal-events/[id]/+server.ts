@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { archiveTemporalEventForUser } from '$lib/server/memory/temporal-event-service'
 
 export const DELETE: RequestHandler = async (event) => {

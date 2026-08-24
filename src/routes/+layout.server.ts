@@ -1,11 +1,11 @@
 import type { LayoutServerLoad } from './$types'
 import { eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { userPreference } from '$lib/server/db/schema'
-import { isUserAdmin } from '$lib/server/auth/user-role'
-import { listAuthorLayersForUser } from '$lib/server/memory/authorship'
 import { normalizeUiLocale } from '$lib/i18n/ui-locale'
 import { cookieMaxAge, cookieName } from '$lib/paraglide/runtime'
+import { isUserAdmin } from '$lib/server/auth/user-role'
+import { getDb } from '$lib/server/db'
+import { userPreference } from '$lib/server/db/schema'
+import { listAuthorLayersForUser } from '$lib/server/memory/authorship'
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   let preferredUiLocale: string | null = null

@@ -1,16 +1,16 @@
 import { eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { userPreference } from '$lib/server/db/schema'
 import {
   DEFAULT_TIMEZONE_OFFSET_MINUTES,
   ianaFromOffsetMinutes,
   nearestOptionOffset,
 } from '$lib/i18n/timezone-offset'
+import { getDb } from '$lib/server/db'
+import { userPreference } from '$lib/server/db/schema'
+import { resyncAllReminderSchedulesForUser } from '$lib/server/memory/resync-event-reminders'
 import {
   formatMinutesLocal,
   parseTimeLocalToMinutes,
 } from '$lib/server/memory/timeline-today-server'
-import { resyncAllReminderSchedulesForUser } from '$lib/server/memory/resync-event-reminders'
 
 export type NotificationSettingsInput = {
   timezoneOffsetMinutes: number

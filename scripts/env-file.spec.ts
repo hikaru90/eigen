@@ -1,8 +1,8 @@
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { isEnvValuePresent, setEnvVarInFile } from './env-file.mjs'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 
 describe('isEnvValuePresent', () => {
   it('treats empty and whitespace as missing', () => {

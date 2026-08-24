@@ -1,8 +1,8 @@
 import './load-env.mjs'
 import postgres from 'postgres'
-import { getDatabaseUrl } from './db-urls.mjs'
 import { quoteIdent } from './age-graph-grants.mjs'
 import { ensureAgeGraphLabelsAndIndexes } from './age-graph-labels.mjs'
+import { getDatabaseUrl } from './db-urls.mjs'
 
 const urlString = getDatabaseUrl()
 

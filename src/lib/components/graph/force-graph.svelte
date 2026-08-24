@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { filterGraphVizEdgesToNodes, resolveForceLinks } from '$lib/graph/sanitize-viz-snapshot'
+  import { SvelteMap } from 'svelte/reactivity'
   import {
     nodeFillForGraph,
     customEntityFillsFromLegendSections,
     type GraphLegendSection,
   } from '$lib/graph/graph-ontology-legend'
+  import { filterGraphVizEdgesToNodes, resolveForceLinks } from '$lib/graph/sanitize-viz-snapshot'
 
   /** Label counter-scale constants — labels stay legible at every zoom level */
   const MIN_LABEL_FONT_PX = 10
@@ -110,7 +111,7 @@
       const layout = await waitForLayout(rootEl)
       if (cancelled || !rootEl || !layout) return
 
-      const persistentNodes = new Map<string, SimNode>()
+      const persistentNodes = new SvelteMap<string, SimNode>()
 
       function simNodeFromSnapshot(n: GraphVizNode): SimNode {
         let s = persistentNodes.get(n.id)

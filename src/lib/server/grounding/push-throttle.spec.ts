@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { canSendGroundingPushToday } from '$lib/server/grounding/push-throttle'
 import { GROUNDING_PUSH_MIN_INTERVAL_MS } from '$lib/server/grounding/constants'
+import { canSendGroundingPushToday } from '$lib/server/grounding/push-throttle'
 
 describe('canSendGroundingPushToday', () => {
   const now = Date.parse('2026-07-22T12:00:00.000Z')

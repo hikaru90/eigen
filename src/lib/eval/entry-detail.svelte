@@ -121,7 +121,7 @@
           Memories used to answer ({retrievedThoughts.length})
         </p>
         <ul class="space-y-2">
-          {#each retrievedThoughts as thought, i}
+          {#each retrievedThoughts as thought, i (thought.id ?? i)}
             <li class="rounded-md border p-2 text-xs">
               <span class="text-muted-foreground">Memory {i + 1}</span>
               {#if thought.category}
@@ -154,7 +154,7 @@
         Memory health · {checkSummary}
       </p>
       <ul class="space-y-3">
-        {#each humanizedChecks as row, i}
+        {#each humanizedChecks as row, i (checkAssertions[i]?.id ?? i)}
           {@const assertion = checkAssertions[i]}
           <li
             class="rounded-md border p-3 text-sm {assertion?.passed
@@ -189,7 +189,7 @@
           What search returned (best first)
         </p>
         <ol class="list-decimal space-y-3 pl-5 text-sm">
-          {#each topRanked as fixtureId}
+          {#each topRanked as fixtureId (fixtureId)}
             <li>
               {#if memoryTextForFixture(fixtureId, allEntries)}
                 <p class="whitespace-pre-wrap">{memoryTextForFixture(fixtureId, allEntries)}</p>

@@ -1,4 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm'
+import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
+import {
+  formatEigenCredits,
+  MICRO_USD_PER_CREDIT,
+  microUsdToWholeCredits,
+  STARTING_FREE_CREDITS,
+} from '$lib/server/billing/credits'
 import { getDb, withDbUser, type AppDatabase } from '$lib/server/db'
 import { user } from '$lib/server/db/auth.schema'
 import {
@@ -7,13 +14,6 @@ import {
   walletLedgerEntry,
   type WalletLedgerKind,
 } from '$lib/server/db/schema'
-import {
-  formatEigenCredits,
-  MICRO_USD_PER_CREDIT,
-  microUsdToWholeCredits,
-  STARTING_FREE_CREDITS,
-} from '$lib/server/billing/credits'
-import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
 
 /** Ledger / PayPal audit currency (not shown in UI). */
 const WALLET_AUDIT_CURRENCY = 'USD'

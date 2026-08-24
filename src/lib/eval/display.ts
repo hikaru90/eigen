@@ -1,5 +1,5 @@
-import { filterGraphVizEdgesToNodes } from '$lib/graph/sanitize-viz-snapshot'
 import type { EvalEntrySummary, EvalRunListItem } from './types'
+import { filterGraphVizEdgesToNodes } from '$lib/graph/sanitize-viz-snapshot'
 
 const KIND_LABELS: Record<string, string> = {
   capture: 'Capture thought',
@@ -153,7 +153,7 @@ export function expandEntryPoints(
     ]
   }
 
-  let earned = 0
+  let earned: number
   if (entry.kind === 'capture') {
     earned = capturePointEarned(entry)
   } else if (entry.kind === 'retrieval') {

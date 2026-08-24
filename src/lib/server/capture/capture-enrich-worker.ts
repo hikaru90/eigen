@@ -2,9 +2,9 @@
  * Background worker: drain pending enrich queue per user.
  */
 import { shouldScheduleDevCaptureEnrichWorker } from '$lib/server/auth/harness-account'
-import { withDbUser } from '$lib/server/db'
 import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
 import { syncCaptureEnrichQueue } from '$lib/server/capture/sync-capture-enrich-queue'
+import { withDbUser } from '$lib/server/db'
 
 const activeWorkers = new Map<string, Promise<void>>()
 

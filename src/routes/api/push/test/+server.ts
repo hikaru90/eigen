@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { sendPushToUser } from '$lib/server/push/send'
 
 export const POST: RequestHandler = async (event) => {

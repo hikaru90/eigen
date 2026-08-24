@@ -1,6 +1,16 @@
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { m } from '$lib/paraglide/messages.js'
+import {
+  capturePrimaryPromptBlock,
+  groundingSupplementaryPromptBlock,
+} from '$lib/server/capture/enrichment-prompt-sections'
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import {
+  formatCommunityExcerptsForEntityPrompt,
+  formatKnownGraphEntitiesPromptBlock,
+  type EntityGraphEnrichmentContext,
+  type GraphEntityCandidate,
+} from '$lib/server/memory/entity-graph-enrichment-context'
 import {
   ENTITY_EXTRACTION_GRAPH_TRIPLE_GUIDANCE,
   ENTITY_EXTRACTION_OMIT_RULES,
@@ -9,18 +19,8 @@ import {
   ENTITY_EXTRACTION_TYPE_GUIDANCE,
   filterAcceptedEntityMentions,
 } from '$lib/server/memory/entity-mention-filter'
-import {
-  capturePrimaryPromptBlock,
-  groundingSupplementaryPromptBlock,
-} from '$lib/server/capture/enrichment-prompt-sections'
-import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import {
-  formatCommunityExcerptsForEntityPrompt,
-  formatKnownGraphEntitiesPromptBlock,
-  type EntityGraphEnrichmentContext,
-  type GraphEntityCandidate,
-} from '$lib/server/memory/entity-graph-enrichment-context'
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
 export type ExtractedEntityMention = {
   surface: string

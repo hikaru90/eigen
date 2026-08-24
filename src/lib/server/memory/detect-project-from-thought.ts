@@ -2,9 +2,9 @@
  * Detect projects from thought content during enrichment.
  */
 
+import { m } from '$lib/paraglide/messages.js'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { m } from '$lib/paraglide/messages.js'
 import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project'
 import { linkThoughtToProject } from '$lib/server/memory/project-next-action'
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity'

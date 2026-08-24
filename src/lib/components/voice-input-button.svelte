@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { browser } from '$app/environment'
-  import { onDestroy } from 'svelte'
-  import { Button } from '$lib/components/ui/button'
-  import Mic from '@lucide/svelte/icons/mic'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
-  import { transcribeRecordedAudio, transcribeAudioChunk } from '$lib/capture/transcribe-audio'
+  import Mic from '@lucide/svelte/icons/mic'
+  import { onDestroy } from 'svelte'
+  import { browser } from '$app/environment'
   import {
     createStreamingSttScheduler,
     type StreamingSttScheduler,
   } from '$lib/capture/streaming-stt-scheduler'
+  import { transcribeRecordedAudio, transcribeAudioChunk } from '$lib/capture/transcribe-audio'
+  import { Button } from '$lib/components/ui/button'
 
   let {
     disabled = false,
@@ -18,7 +18,9 @@
     onerror,
     onstop,
     onstart,
-    stopRef = $bindable(undefined),
+    // $bindable() sets up parent binding; ESLint cannot see the read before reassignment in handlers.
+    // eslint-disable-next-line no-useless-assignment -- Svelte bindable prop
+    stopRef = $bindable(),
     class: className = '',
   }: {
     disabled?: boolean

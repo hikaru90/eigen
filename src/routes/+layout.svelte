@@ -1,32 +1,32 @@
 <script lang="ts">
+  import Brain from '@lucide/svelte/icons/brain'
+  import MessageSquareText from '@lucide/svelte/icons/message-square-text'
+  import Plus from '@lucide/svelte/icons/plus'
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
   import { afterNavigate } from '$app/navigation'
-  import type { Pathname } from '$app/types'
   import { base, resolve } from '$app/paths'
   import { page } from '$app/state'
-  import MessageSquareText from '@lucide/svelte/icons/message-square-text'
-  import Brain from '@lucide/svelte/icons/brain'
-  import Plus from '@lucide/svelte/icons/plus'
+  import type { Pathname } from '$app/types'
   import './layout.css'
-  import favicon from '$lib/assets/favicon.png'
-  import { cn } from '$lib/utils'
-  import AppHeader from '$lib/components/app-header.svelte'
-  import { startCaptureQueueRunner } from '$lib/capture/queue'
-  import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
-  import { startThoughtSync } from '$lib/stores/thought-sync'
-  import { initCurrentUserViewStore } from '$lib/stores/current-user-view.svelte'
-  import { initDeferredInstallStore } from '$lib/pwa/deferred-install-store.svelte'
-  import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
-  import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
-  import { getLocale, setLocale } from '$lib/paraglide/runtime'
-  import { m } from '$lib/paraglide/messages.js'
   import {
     isPostHogEnabled,
     identify,
     resetPostHog,
     capturePageview,
   } from '$lib/analytics/posthog-client'
+  import favicon from '$lib/assets/favicon.png'
+  import { startCaptureQueueRunner } from '$lib/capture/queue'
+  import AppHeader from '$lib/components/app-header.svelte'
+  import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
+  import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
+  import { m } from '$lib/paraglide/messages.js'
+  import { getLocale, setLocale } from '$lib/paraglide/runtime'
+  import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
+  import { initDeferredInstallStore } from '$lib/pwa/deferred-install-store.svelte'
+  import { initCurrentUserViewStore } from '$lib/stores/current-user-view.svelte'
+  import { startThoughtSync } from '$lib/stores/thought-sync'
+  import { cn } from '$lib/utils'
 
   let { children } = $props()
 
@@ -232,7 +232,7 @@
       style="background: linear-gradient(to top, var(--background) 0%, color-mix(in oklab, var(--background) 72%, transparent) 22%, color-mix(in oklab, var(--background) 40%, transparent) 48%, color-mix(in oklab, var(--background) 14%, transparent) 74%, transparent 100%);"
     ></div>
     <div class="relative z-10 flex flex-row items-center justify-between gap-2 px-4 pb-safe">
-      {#each bottomNavItems as item}
+      {#each bottomNavItems as item (item.href)}
         {@const isActive = isNavItemActive(item.href)}
         <div class={cn('relative', item.variant === 'primary' ? 'min-h-10 flex-1' : 'shrink-0')}>
           <a

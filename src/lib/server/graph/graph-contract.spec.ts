@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { GRAPH_ADAPTER_OPERATIONS } from './graph-contract'
 import * as graphAdapter from './age'
+import { GRAPH_ADAPTER_OPERATIONS } from './graph-contract'
 
 describe('graph adapter contract', () => {
   it('exports every operation from the runtime adapter module', () => {

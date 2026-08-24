@@ -1,6 +1,6 @@
+import type { GraphScaleCli, GraphScaleTrack } from './types'
 import { resolve } from 'node:path'
 import { resolveSeedConcurrency } from '../harness/concurrency'
-import type { GraphScaleCli, GraphScaleTrack } from './types'
 
 const DEFAULT_SIZES = [1]
 const DEFAULT_TRACKS: GraphScaleTrack[] = ['capture']
@@ -42,7 +42,6 @@ function parseSizes(raw: string | undefined): number[] {
 }
 
 function parseTracks(raw: string | undefined): Set<GraphScaleTrack> {
-  const all: GraphScaleTrack[] = ['capture', 'qa', 'consolidation']
   if (!raw?.trim()) return new Set(DEFAULT_TRACKS)
   const requested = raw
     .split(',')

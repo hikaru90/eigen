@@ -1,6 +1,6 @@
-import type { IngestTimingReport } from '$lib/server/capture/phase-timing'
-import type { GraphScaleMetrics } from './graph-metrics'
 import type { ActivityCostAggregate } from './aggregate-cost'
+import type { GraphScaleMetrics } from './graph-metrics'
+import type { IngestTimingReport } from '$lib/server/capture/phase-timing'
 
 export type GraphScaleTrack = 'capture' | 'qa' | 'consolidation'
 

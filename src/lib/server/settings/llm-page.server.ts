@@ -1,6 +1,19 @@
-import { fail, redirect } from '@sveltejs/kit'
 import type { Actions, RequestEvent } from '@sveltejs/kit'
+import { fail, redirect } from '@sveltejs/kit'
 import { and, eq } from 'drizzle-orm'
+import { env } from '$env/dynamic/private'
+import { captureServerEvent } from '$lib/server/analytics/posthog-server'
+import { isUserAdmin } from '$lib/server/auth/user-role'
+import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
+import { clearLegacyByokForUser, legacyByokMigrationNeeded } from '$lib/server/billing/legacy-byok'
+import {
+  getPayPalClientId,
+  getPayPalWebSdkUrl,
+  getPayPalClientSecret,
+} from '$lib/server/billing/paypal'
+import { assertByokConfigured, hasSavedByokLlmCredentials } from '$lib/server/billing/preferences'
+import { getOrCreateWallet } from '$lib/server/billing/wallet'
+import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   userPreference,
@@ -8,19 +21,6 @@ import {
   llmActiveProvider,
   type BillingMode,
 } from '$lib/server/db/schema'
-import { getOrCreateWallet } from '$lib/server/billing/wallet'
-import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
-import { clearLegacyByokForUser, legacyByokMigrationNeeded } from '$lib/server/billing/legacy-byok'
-import { assertByokConfigured, hasSavedByokLlmCredentials } from '$lib/server/billing/preferences'
-import {
-  getPayPalClientId,
-  getPayPalWebSdkUrl,
-  getPayPalClientSecret,
-} from '$lib/server/billing/paypal'
-import { env } from '$env/dynamic/private'
-import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { captureServerEvent } from '$lib/server/analytics/posthog-server'
-import { isUserAdmin } from '$lib/server/auth/user-role'
 
 export type LlmProviderId = 'eurouter' | 'openrouter'
 
@@ -56,7 +56,7 @@ export async function loadLlmSettingsPage(event: RequestEvent) {
   const billingMode = (pref?.billingMode ?? 'platform_credits') as BillingMode
   const wallet = await getOrCreateWallet(userId)
 
-  let paypalConfigured = false
+  let paypalConfigured: boolean
   let paypalClientId: string | null = null
   let paypalSdkUrl: string | null = null
   try {

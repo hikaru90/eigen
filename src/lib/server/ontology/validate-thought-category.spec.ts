@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import type {
+  LoadedUserOntology,
+  OntologyEntityKindRow,
+} from '$lib/server/ontology-db/load-ontology'
 import {
   buildStrictCategoryRetryPrompt,
   InvalidThoughtCategoryError,
   resolveCategoryFromLlmOutput,
 } from './validate-thought-category'
-import type {
-  LoadedUserOntology,
-  OntologyEntityKindRow,
-} from '$lib/server/ontology-db/load-ontology'
 
 function kind(
   key: string,

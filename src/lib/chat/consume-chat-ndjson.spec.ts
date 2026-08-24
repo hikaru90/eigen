@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import { consumeChatNdjsonStream } from './consume-chat-ndjson'
 import type { ChatProgressEvent } from './consume-chat-ndjson'
+import { describe, expect, it } from 'vitest'
+import { consumeChatNdjsonStream } from './consume-chat-ndjson'
 
 function ndjsonResponse(lines: string[]) {
   const encoder = new TextEncoder()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TemporalHintBinding } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
+import type { TemporalEventSeed } from '$lib/server/retrieval/temporal'
 import {
   allowsComputedTimelineCitation,
   COMPUTED_TIMELINE_CITATION_ID,
@@ -12,7 +13,6 @@ import {
   solveTemporalQuestion,
   type TemporalSolverResult,
 } from './temporal-solver'
-import type { TemporalEventSeed } from '$lib/server/retrieval/temporal'
 
 function seed(
   thoughtId: string,

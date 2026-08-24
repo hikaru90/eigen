@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { drainCaptureEnrichQueue } from './enrich-queue-drain'
 import { resolveCaptureEnrichConcurrency } from '../orchestration-concurrency'
+import { drainCaptureEnrichQueue } from './enrich-queue-drain'
 
 describe('resolveCaptureEnrichConcurrency', () => {
   const prev = process.env.CAPTURE_ENRICH_CONCURRENCY

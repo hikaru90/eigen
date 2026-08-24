@@ -1,27 +1,35 @@
 <script lang="ts">
+  import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
   import type { PageData } from './$types'
-  import { afterNavigate, invalidateAll } from '$app/navigation'
-  import { browser } from '$app/environment'
-  import { page } from '$app/state'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import X from '@lucide/svelte/icons/x'
   import { onMount } from 'svelte'
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+  import { browser } from '$app/environment'
+  import { afterNavigate, invalidateAll } from '$app/navigation'
+  import { page } from '$app/state'
+  import { type CaptureIngestPhase } from '$lib/capture/ingest-phases'
+  import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
+  import { subscribeCaptureQueue } from '$lib/capture/queue'
+  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
+  import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte'
+  import ThoughtLinkedNotes from '$lib/components/thought-linked-notes.svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import * as Card from '$lib/components/ui/card'
-  import * as Tabs from '$lib/components/ui/tabs'
   import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import * as Drawer from '$lib/components/ui/drawer'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import * as Drawer from '$lib/components/ui/drawer'
-  import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte'
   import * as Select from '$lib/components/ui/select'
-  import {
-    nodeFillForGraph,
-    customEntityFillsFromLegendSections,
-    filterNodesByEntityTypes,
-  } from '$lib/graph/graph-ontology-legend'
-  import { filterNodesByAuthorLayers } from '$lib/graph/graph-author-layers'
-  import { filterGraphVizEdgesToNodes, resolveForceLinks } from '$lib/graph/sanitize-viz-snapshot'
+  import * as Tabs from '$lib/components/ui/tabs'
+  import { Textarea } from '$lib/components/ui/textarea'
   import { COMMUNITY_HULL_ACCENT, communityCircleFromPositions } from '$lib/graph/community-hull'
+  import { canonicalCommunityLevels, COMMUNITY_LEAF_LEVEL } from '$lib/graph/community-levels'
+  import {
+    ensureEmbeddingProjection,
+    invalidateEmbeddingProjection,
+  } from '$lib/graph/embedding-map-projection'
+  import { filterNodesByAuthorLayers } from '$lib/graph/graph-author-layers'
   import {
     createDrawScheduler,
     drawGraphCanvasScene,
@@ -33,6 +41,17 @@
     type GraphCanvasPopIn,
   } from '$lib/graph/graph-canvas-render'
   import {
+    deleteGraphEntity,
+    deleteGraphThought,
+    fetchEntityCaptures,
+    fetchEntityForGraphEdit,
+    fetchThoughtForGraphEdit,
+    submitGraphThoughtEdit,
+    submitGraphThoughtRelink,
+    syncGraphEntity,
+    updateGraphEntity,
+  } from '$lib/graph/graph-edit-api'
+  import {
     clearGraphForceLayoutCache,
     getGraphForceLayoutPosition,
     graphLayoutRestartAlpha,
@@ -41,7 +60,20 @@
     restoreGraphForceLayoutPositions,
     writeGraphForceLayoutPositions,
   } from '$lib/graph/graph-force-layout-cache'
-  import { canonicalCommunityLevels, COMMUNITY_LEAF_LEVEL } from '$lib/graph/community-levels'
+  import {
+    GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE,
+    graphEntitySyncStatusMessage,
+  } from '$lib/graph/graph-i18n'
+  import {
+    nodeFillForGraph,
+    customEntityFillsFromLegendSections,
+    filterNodesByEntityTypes,
+  } from '$lib/graph/graph-ontology-legend'
+  import type {
+    EntityCaptureRow,
+    GraphEntityEditorStored,
+    GraphThoughtEditorStored,
+  } from '$lib/graph/graph-page-types'
   import {
     clustersForZoomLod,
     graphClusterBadgeRadius,
@@ -54,46 +86,14 @@
     type GraphZoomCluster,
     type GraphZoomLodMode,
   } from '$lib/graph/graph-zoom-lod'
-  import {
-    deleteGraphEntity,
-    deleteGraphThought,
-    fetchEntityCaptures,
-    fetchEntityForGraphEdit,
-    fetchThoughtForGraphEdit,
-    submitGraphThoughtEdit,
-    submitGraphThoughtRelink,
-    syncGraphEntity,
-    updateGraphEntity,
-  } from '$lib/graph/graph-edit-api'
-  import type {
-    EntityCaptureRow,
-    GraphEntityEditorStored,
-    GraphThoughtEditorStored,
-  } from '$lib/graph/graph-page-types'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import X from '@lucide/svelte/icons/x'
-  import { CAPTURE_INGEST_PHASE_COPY, type CaptureIngestPhase } from '$lib/capture/ingest-phases'
-  import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
-  import { subscribeCaptureQueue } from '$lib/capture/queue'
   import { pollGraphEnrichRefresh } from '$lib/graph/poll-graph-enrich-refresh'
-  import {
-    ensureEmbeddingProjection,
-    invalidateEmbeddingProjection,
-  } from '$lib/graph/embedding-map-projection'
+  import { filterGraphVizEdgesToNodes, resolveForceLinks } from '$lib/graph/sanitize-viz-snapshot'
+  import { viewToVisibleAuthorLayers } from '$lib/memory/current-user-view'
+  import { m } from '$lib/paraglide/messages.js'
+  import { subscribeCurrentUserView } from '$lib/stores/current-user-view.svelte'
+  import { graphFilters } from '$lib/stores/graph-filters.svelte'
   import EmbeddingMap, { type EmbeddingMapApi } from '../graph/embedding-map.svelte'
   import GraphFiltersToolbar from '../graph/graph-filters-toolbar.svelte'
-  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import ThoughtLinkedNotes from '$lib/components/thought-linked-notes.svelte'
-  import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
-  import {
-    GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE,
-    graphEntitySyncStatusMessage,
-  } from '$lib/graph/graph-i18n'
-  import { m } from '$lib/paraglide/messages.js'
-  import { graphFilters } from '$lib/stores/graph-filters.svelte'
-  import { subscribeCurrentUserView } from '$lib/stores/current-user-view.svelte'
-  import { viewToVisibleAuthorLayers } from '$lib/memory/current-user-view'
-  import { SvelteSet } from 'svelte/reactivity'
 
   let { data }: { data: PageData } = $props()
 
@@ -145,7 +145,6 @@
 
   let rootEl: HTMLDivElement | undefined
   let status = $state<string>('')
-  let graphStats = $state<string>('')
   let scheduleGraphUpdate: (() => void) | null = null
   let scheduleGraphResize: (() => void) | null = null
   let scheduleGraphRelayout: (() => void) | null = null
@@ -205,7 +204,7 @@
   let thoughtEditorBusy = $state(false)
   let thoughtEditorRelinkBusy = $state(false)
   let thoughtEditorDeleteBusy = $state(false)
-  let thoughtEditorPhase = $state<CaptureIngestPhase | null>(null)
+  let _thoughtEditorPhase = $state<CaptureIngestPhase | null>(null)
   let thoughtEditorStored = $state<GraphThoughtEditorStored | null>(null)
 
   function thoughtLifecycleStatus(metadata: unknown): string | null {
@@ -247,15 +246,6 @@
   })
 
   const graphDeleteBusy = $derived(thoughtEditorDeleteBusy || entityEditorDeleteBusy)
-
-  const thoughtIngestStatus = $derived(
-    thoughtEditorPhase
-      ? CAPTURE_INGEST_PHASE_COPY[thoughtEditorPhase]
-      : {
-          title: m.graph_working_title(),
-          description: m.graph_working_description(),
-        },
-  )
 
   function clearEntityEditorState() {
     entityEditorDraft = ''
@@ -400,14 +390,14 @@
     const id = editingThoughtId ?? ''
     if (!id || !thoughtEditorDraft.trim()) return
     thoughtEditorErr = null
-    thoughtEditorPhase = null
+    _thoughtEditorPhase = null
     thoughtEditorBusy = true
     try {
       const thought = await submitGraphThoughtEdit({
         thoughtId: id,
         editRequest: thoughtEditorDraft,
         onPhase: (phase) => {
-          thoughtEditorPhase = phase
+          _thoughtEditorPhase = phase
         },
       })
       thoughtEditorStored = thought
@@ -425,7 +415,7 @@
       thoughtEditorErr = e instanceof Error ? e.message : String(e)
     } finally {
       thoughtEditorBusy = false
-      thoughtEditorPhase = null
+      _thoughtEditorPhase = null
     }
   }
 
@@ -463,13 +453,13 @@
     const id = editingThoughtId ?? ''
     if (!id) return
     thoughtEditorErr = null
-    thoughtEditorPhase = null
+    _thoughtEditorPhase = null
     thoughtEditorRelinkBusy = true
     try {
       const thought = await submitGraphThoughtRelink({
         thoughtId: id,
         onPhase: (phase) => {
-          thoughtEditorPhase = phase
+          _thoughtEditorPhase = phase
         },
       })
       thoughtEditorStored = thought
@@ -480,7 +470,7 @@
       thoughtEditorErr = e instanceof Error ? e.message : String(e)
     } finally {
       thoughtEditorRelinkBusy = false
-      thoughtEditorPhase = null
+      _thoughtEditorPhase = null
     }
   }
 
@@ -667,7 +657,7 @@
   )
   const selectedCommunityLevel = $derived.by(() => vizCtx.selectedCommunityLevel)
   const communityEvidenceById = $derived.by(() => {
-    const edgeMap = new Map<string, number>()
+    const edgeMap = new SvelteMap<string, number>()
     for (const edge of data.snapshot.edges) {
       const key = `${edge.sourceId}|${edge.targetId}`
       edgeMap.set(key, (edgeMap.get(key) ?? 0) + 1)
@@ -675,10 +665,10 @@
       edgeMap.set(reverse, (edgeMap.get(reverse) ?? 0) + 1)
     }
 
-    const evidence = new Map<string, string>()
+    const evidence = new SvelteMap<string, string>()
     for (const community of data.communities ?? []) {
-      const memberSet = new Set(community.memberEntityIds)
-      const kindCounts = new Map<string, number>()
+      const memberSet = new SvelteSet(community.memberEntityIds)
+      const kindCounts = new SvelteMap<string, number>()
       let supportEdges = 0
       for (const edge of data.snapshot.edges) {
         if (!memberSet.has(edge.sourceId) || !memberSet.has(edge.targetId)) continue
@@ -803,7 +793,7 @@
     const enrichPollCancel = pollGraphEnrichRefresh({
       onEnrichComplete: () => refreshGraphAfterEnrichment(),
     })
-    const fastEnrichPollCancelByThoughtId = new Map<string, () => void>()
+    const fastEnrichPollCancelByThoughtId = new SvelteMap<string, () => void>()
     const unsubCaptureQueue = subscribeCaptureQueue((message) => {
       if (message.type !== 'done') return
       if (message.thought.enrichmentComplete) {
@@ -845,7 +835,7 @@
       const d3 = await import('d3')
       if (cancelled || !rootEl) return
 
-      const persistentNodes = new Map<string, SimNode>()
+      const persistentNodes = new SvelteMap<string, SimNode>()
 
       function simNodeFromSnapshot(n: (typeof data.snapshot.nodes)[number]): SimNode {
         let s = persistentNodes.get(n.id)
@@ -931,7 +921,7 @@
       let currentGraphNodes: SimNode[] = []
       let currentGraphLinks: SimLink[] = []
       let canvasHulls: GraphCanvasHull[] = []
-      const popInAnims = new Map<string, number>()
+      const popInAnims = new SvelteMap<string, number>()
       let dragStartScreen: { x: number; y: number } | null = null
       let didPointerDrag = false
       let hoveredNodeId: string | null = null
@@ -1280,9 +1270,6 @@
       let communityChromeGroupSelection = gCommunityChrome.selectAll<SVGGElement, CommunityHull>(
         'g.community-hull-chrome',
       )
-      let clusterSelection = gClusterMarkers.selectAll<SVGGElement, GraphZoomCluster>(
-        'g.graph-cluster',
-      )
 
       function findSimNodeAtWorld(worldX: number, worldY: number): SimNode | null {
         const nearest = findNearestGraphNode(
@@ -1528,7 +1515,7 @@
       }
 
       function communityHullsForNodes(nodes: SimNode[]): CommunityHull[] {
-        const posById = new Map<string, { x: number; y: number }>()
+        const posById = new SvelteMap<string, { x: number; y: number }>()
         for (const n of nodes) {
           const x = n.x ?? 0
           const y = n.y ?? 0
@@ -1688,7 +1675,7 @@
           coarsePointerGraph,
         )
 
-        clusterSelection = gClusterMarkers
+        gClusterMarkers
           .selectAll<SVGGElement, GraphZoomCluster>('g.graph-cluster')
           .data(clusters, (d) => d.id)
           .join(
@@ -1901,8 +1888,8 @@
           norm(n.id).includes(q) ||
           norm(n.subtype).includes(q)
 
-        const rawNodeIds = new Set(typeFiltered.map((n) => n.id))
-        const visibleIds = new Set(typeFiltered.filter(nodeMatch).map((n) => n.id))
+        const rawNodeIds = new SvelteSet(typeFiltered.map((n) => n.id))
+        const visibleIds = new SvelteSet(typeFiltered.filter(nodeMatch).map((n) => n.id))
         if (q.length > 0) {
           let expanded = true
           while (expanded) {
@@ -2023,7 +2010,6 @@
         if (popInIds.size > 0) {
           pendingPopInNodeIds = new Set()
         }
-        graphStats = m.graph_stats_nodes_edges({ nodes: nodes.length, edges: links.length })
         const svgEl = svg.node()
         if (svgEl) {
           const t = d3.zoomTransform(svgEl)

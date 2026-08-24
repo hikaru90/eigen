@@ -1,13 +1,13 @@
+import type { MemoryAuthor } from '$lib/server/db/brain.schema'
+import {
+  listProjectsByEntityIds,
+  type ProjectListItem,
+} from '$lib/server/memory/project-list'
 import {
   listTemporalEventsForUser,
   MAX_LIST_LIMIT,
   type TemporalEventListItem,
 } from '$lib/server/memory/temporal-event-list'
-import {
-  listProjectsByEntityIds,
-  type ProjectListItem,
-} from '$lib/server/memory/project-list'
-import type { MemoryAuthor } from '$lib/server/db/brain.schema'
 
 export type TimelineUnifiedResponse = {
   items: TemporalEventListItem[]

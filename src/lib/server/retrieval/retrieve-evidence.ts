@@ -6,10 +6,10 @@
  */
 
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
-import type { MemoryAuthor } from '$lib/server/db/schema'
 import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels'
-import { createThoughtEmbedding } from '$lib/server/llm/embedding'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
+import type { MemoryAuthor } from '$lib/server/db/schema'
 import {
   communityBundle,
   communitySummary,
@@ -17,16 +17,18 @@ import {
   thought,
   thoughtNeighbor,
 } from '$lib/server/db/schema'
-import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter'
-import { lexicalSearch } from '$lib/server/retrieval/lexical'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution'
+import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter'
+import type { RelevantCommunitySummary } from '$lib/server/retrieval/global'
+import { lexicalSearch } from '$lib/server/retrieval/lexical'
+import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval/phase-timing'
 import {
   rerankCandidates,
   shouldSkipRerank,
   type RerankCandidate,
 } from '$lib/server/retrieval/reranker'
-import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval/phase-timing'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import type { RetrievalResult } from '$lib/server/retrieval/service'
 import {
   filterTemporalEvents,
   fetchTemporalEventSeeds,
@@ -37,8 +39,6 @@ import {
   type TemporalQueryIntent,
   type TemporalSearchHit,
 } from '$lib/server/retrieval/temporal'
-import type { RetrievalResult } from '$lib/server/retrieval/service'
-import type { RelevantCommunitySummary } from '$lib/server/retrieval/global'
 
 /** Optional bag filled by retrieveEvidence so callers can reuse ANN side-channels. */
 export type RetrieveEvidenceExtras = {

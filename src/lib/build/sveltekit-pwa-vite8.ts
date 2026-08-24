@@ -1,7 +1,7 @@
-import { join } from 'node:path';
-import { copyFile, mkdir, rename, lstat } from 'node:fs/promises';
-import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import type { Plugin, ResolvedConfig } from 'vite';
+import { copyFile, mkdir, rename, lstat } from 'node:fs/promises';
+import { join } from 'node:path';
+import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 
 type SvelteKitPwaOptions = NonNullable<Parameters<typeof SvelteKitPWA>[0]>;
 

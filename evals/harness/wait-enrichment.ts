@@ -1,13 +1,13 @@
+import type { WithEvalDbOptions } from './eval-context'
+import type { QaChecks } from './qa-types'
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { reenrichThought } from '$lib/server/capture/enrich'
-import { entityResolutionLog, thought } from '$lib/server/db/brain.schema'
 import type { AppDatabase } from '$lib/server/db'
-import type { WithEvalDbOptions } from './eval-context'
-import { logEval, withEvalDb } from './eval-context'
-import { mapWithConcurrency } from './concurrency'
+import { entityResolutionLog, thought } from '$lib/server/db/brain.schema'
 import { resolveEnrichmentKickConcurrency } from '$lib/server/orchestration-concurrency'
+import { mapWithConcurrency } from './concurrency'
 import { EVAL_ENRICHMENT_TIMEOUT_MS_DEFAULT } from './eval-config'
-import type { QaChecks } from './qa-types'
+import { logEval, withEvalDb } from './eval-context'
 
 export type ThoughtEnrichmentTarget = {
   id: string

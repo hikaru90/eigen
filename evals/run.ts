@@ -1,3 +1,4 @@
+import { startEvalRun } from '../src/lib/eval/runner'
 /**
  * Eval CLI — same modes as /eval UI (smoke | all).
  *
@@ -8,12 +9,11 @@
  *   npm run eval -- --fresh-corpus
  */
 import { insertEvalUserRow } from '../src/lib/eval/store'
-import { startEvalRun } from '../src/lib/eval/runner'
-import { withDbUser } from '../src/lib/server/db'
-import { runEval, logEval } from './harness/eval-context'
-import { EVAL_OPERATOR_USER_ID, EVAL_JUDGE_USER_ID } from './harness/eval-config'
-import { parseEvalCliArgs } from './harness/corpus-reuse'
 import { loadEvalRunDetail } from '../src/lib/eval/store'
+import { withDbUser } from '../src/lib/server/db'
+import { parseEvalCliArgs } from './harness/corpus-reuse'
+import { EVAL_OPERATOR_USER_ID, EVAL_JUDGE_USER_ID } from './harness/eval-config'
+import { runEval, logEval } from './harness/eval-context'
 
 async function ensureOperatorUser(): Promise<void> {
   await insertEvalUserRow(EVAL_OPERATOR_USER_ID, 'Eval Operator')

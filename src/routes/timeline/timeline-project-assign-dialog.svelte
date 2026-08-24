@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import type { TemporalEventListItem } from '../api/temporal-events/+server'
+  import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server'
   import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban'
   import GripVerticalIcon from '@lucide/svelte/icons/grip-vertical'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import { onMount } from 'svelte'
+  import { Button } from '$lib/components/ui/button'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
-  import { Button } from '$lib/components/ui/button'
   import { m } from '$lib/paraglide/messages.js'
-  import type { TemporalEventListItem } from '../api/temporal-events/+server'
-  import type { AssignProjectResponse } from '../api/timeline/projects/assign/+server'
   import type { ProjectListItem } from '$lib/server/memory/project-list'
 
   type Props = {

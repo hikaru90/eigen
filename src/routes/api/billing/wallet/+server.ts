@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
 import { getBillingPreferences } from '$lib/server/billing/preferences'
 import { getOrCreateWallet } from '$lib/server/billing/wallet'

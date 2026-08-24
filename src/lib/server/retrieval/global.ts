@@ -8,9 +8,9 @@
  */
 
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
+import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels'
 import { getDb } from '$lib/server/db'
 import { communitySummary } from '$lib/server/db/schema'
-import { COMMUNITY_MID_LEVEL } from '$lib/server/consolidation/community-levels'
 
 export type RelevantCommunitySummary = {
   communityId: string

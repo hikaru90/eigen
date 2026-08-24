@@ -1,14 +1,13 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
+import { runWithTrace } from '$lib/server/activity/trace-context'
 import {
   isInsufficientCreditsError,
   insufficientCreditsPayload,
 } from '$lib/server/billing/insufficient-credits'
-import { captureGateHttpStatus, captureGateJsonBody } from '$lib/server/onboarding/capture-gate'
 import { captureThought } from '$lib/server/capture/service'
 import type { CaptureProgressEvent } from '$lib/server/capture/service'
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
-import { runWithTrace } from '$lib/server/activity/trace-context'
 import {
   appSql,
   appDbAsyncLocal,
@@ -16,6 +15,7 @@ import {
   activateTenantDbSession,
   deactivateTenantDbSession,
 } from '$lib/server/db'
+import { captureGateHttpStatus, captureGateJsonBody } from '$lib/server/onboarding/capture-gate'
 
 function collectErrorMessages(input: unknown): string[] {
   const parts: string[] = []

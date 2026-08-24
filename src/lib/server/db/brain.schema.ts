@@ -1,3 +1,5 @@
+import { type InferSelectModel } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import {
   boolean,
   customType,
@@ -18,8 +20,6 @@ import {
   vector,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
-import { type InferSelectModel } from 'drizzle-orm'
-import { sql } from 'drizzle-orm'
 import { user } from './auth.schema'
 
 const tsvector = customType<{ data: string }>({
@@ -165,7 +165,7 @@ export const captureSession = pgTable(
  * @deprecated Use `thought.category` instead.
  */
 export const memoryTypeEnum = [] as const
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+ 
 export type MemoryType = Record<string, never>
 
 export const enrichQueueStatusEnum = [

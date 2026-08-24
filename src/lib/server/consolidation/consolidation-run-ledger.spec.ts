@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { consolidationRunNightForDate } from './consolidation-run-ledger'
 
 describe('consolidationRunNightForDate', () => {

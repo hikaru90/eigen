@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { thought } from '$lib/server/db/schema'
 import {
   USER_AUTHORSHIP,
   authorLayerKeyFromThought,
@@ -9,7 +10,6 @@ import {
   resolveMcpCaptureAuthorship,
   resolveMemoryAuthorship,
 } from './authorship'
-import { thought } from '$lib/server/db/schema'
 
 const { getDbMock, selectMock } = vi.hoisted(() => ({
   getDbMock: vi.fn(),

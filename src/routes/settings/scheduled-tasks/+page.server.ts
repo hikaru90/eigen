@@ -1,5 +1,5 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
+import { redirect } from '@sveltejs/kit'
 import { listScheduledTasks } from '$lib/server/scheduled-tasks/service'
 
 export const load: PageServerLoad = async ({ locals }) => {

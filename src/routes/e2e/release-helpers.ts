@@ -1,6 +1,11 @@
 import path from 'node:path'
-import dotenv from 'dotenv'
 import { expect, type Frame, type Locator, type Page, type Request } from '@playwright/test'
+import dotenv from 'dotenv'
+import {
+  TIMELINE_MOUNT_FETCH_BUDGET,
+  findMountFetchBudgetViolations,
+  isTimelineUnifiedFetch,
+} from '../timeline/timeline-client-loads'
 import {
   assertChatLoadingVisible,
   assertChatLogHasNoRawJson,
@@ -18,11 +23,6 @@ import {
   exerciseVoiceCaptureUi,
   installVoiceCaptureMocks,
 } from './voice-capture-helpers'
-import {
-  TIMELINE_MOUNT_FETCH_BUDGET,
-  findMountFetchBudgetViolations,
-  isTimelineUnifiedFetch,
-} from '../timeline/timeline-client-loads'
 
 // Playwright workers may not inherit .env from the parent shell; load explicitly for preflight.
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override: true })
@@ -45,7 +45,6 @@ const ADD_PROJECT_BTN = /Add project|Projekt anlegen/i
 const CREATE_PROJECT_SUBMIT = /Create project|Projekt anlegen/i
 const EDIT_PROJECT_BTN = /Edit project|Projekt bearbeiten/i
 const SAVE_PROJECT_BTN = /Save changes|Änderungen speichern/i
-const OPEN_PROJECT_BTN = /^Open$|^Öffnen$/i
 const DELETE_PROJECT_BTN = /^Delete$|^Löschen$/i
 const DELETE_PROJECT_CONFIRM_TITLE = /Delete project\?|Projekt löschen\?/i
 const PROJECTS_LISTBOX = /Projects and next actions|Projekte und nächste Schritte/i
@@ -89,34 +88,6 @@ async function fetchCaptureThoughtResult(
   if (!res.ok()) return null
   const body = (await res.json()) as { thought?: CaptureThoughtRow }
   return body.thought ?? null
-}
-
-function parseCaptureSubmitThoughtId(bodyText: string, contentType: string): string {
-  if (contentType.includes('application/x-ndjson')) {
-    let thoughtId = ''
-    for (const line of bodyText.split('\n')) {
-      const trimmedLine = line.trim()
-      if (!trimmedLine) continue
-      const obj = JSON.parse(trimmedLine) as {
-        type?: string
-        thought?: { id?: string }
-        error?: string
-      }
-      if (obj.type === 'error') {
-        throw new Error(obj.error ?? 'Capture failed')
-      }
-      if (obj.type === 'done' && obj.thought?.id) {
-        thoughtId = obj.thought.id
-      }
-    }
-    return thoughtId
-  }
-
-  const json = JSON.parse(bodyText) as { thought?: { id?: string }; error?: string }
-  if (json.error) {
-    throw new Error(json.error)
-  }
-  return json.thought?.id ?? ''
 }
 
 function captureIndexingInFlight(thought: CaptureThoughtRow | null): boolean {

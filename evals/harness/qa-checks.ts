@@ -1,4 +1,6 @@
+import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 import { and, eq } from 'drizzle-orm'
+import type { AppDatabase } from '$lib/server/db'
 import {
   entityResolutionLog,
   temporalEvent,
@@ -6,11 +8,9 @@ import {
   thoughtRelation,
   userOntology,
 } from '$lib/server/db/brain.schema'
-import type { AppDatabase } from '$lib/server/db'
 import { thoughtExistsInGraph } from '$lib/server/graph/age'
 import { loadOntologyForUser } from '$lib/server/ontology-db'
 import { parseOntologyProfileJson } from '$lib/server/ontology/types'
-import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 
 const DEFAULT_EMBEDDING_DIM = 1536
 

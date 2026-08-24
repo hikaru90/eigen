@@ -1,13 +1,13 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { and, eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { thought } from '$lib/server/db/schema'
-import { setThoughtLifecycleStatus, archiveThoughtForUser } from '$lib/server/memory/lifecycle'
-import type { LifecycleStatus } from '$lib/server/db/brain.schema'
-import { listTextFilesForThought } from '$lib/server/text-files/service'
 import { runWithTrace } from '$lib/server/activity/trace-context'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import type { LifecycleStatus } from '$lib/server/db/brain.schema'
+import { thought } from '$lib/server/db/schema'
+import { setThoughtLifecycleStatus, archiveThoughtForUser } from '$lib/server/memory/lifecycle'
+import { listTextFilesForThought } from '$lib/server/text-files/service'
 
 export const GET: RequestHandler = async (event) => {
   const user = event.locals.user

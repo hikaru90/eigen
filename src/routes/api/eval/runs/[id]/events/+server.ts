@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
 import { dev } from '$app/environment'
 import { listEvalEvents } from '$lib/eval/store'
 

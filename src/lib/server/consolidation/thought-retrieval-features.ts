@@ -2,10 +2,9 @@
  * Precompute per-thought retrieval ranking features at consolidation time.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import {
-  canonicalEntity,
   communityMember,
   graphCommunity,
   thought,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  interface Props {
+  type Props = {
     /** Total pipeline slots (sequential + parallel groups count as one each). */
     total: number
     /** Number of completed slots (0 … total). */

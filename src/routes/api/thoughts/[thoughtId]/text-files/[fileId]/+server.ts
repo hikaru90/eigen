@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { unlinkTextFileFromThought } from '$lib/server/text-files/service'
 
 export const DELETE: RequestHandler = async (event) => {

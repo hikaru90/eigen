@@ -1,3 +1,7 @@
+import {
+  CUES_FROM_CAPTURE_RULE,
+  capturePrimaryPromptBlock,
+} from '$lib/server/capture/enrichment-prompt-sections'
 /**
  * Search cue phrases for a thought (lexical recall diversification).
  *
@@ -6,10 +10,6 @@
  * re-enrich an edited thought without a fresh bundle (reenrichThought).
  */
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import {
-  CUES_FROM_CAPTURE_RULE,
-  capturePrimaryPromptBlock,
-} from '$lib/server/capture/enrichment-prompt-sections'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
 export const MIN_CUE_LENGTH = 3

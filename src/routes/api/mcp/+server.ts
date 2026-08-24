@@ -1,8 +1,8 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-import { createMcpServer } from '$lib/server/mcp/server'
+import { json } from '@sveltejs/kit'
 import { runWithTrace } from '$lib/server/activity/trace-context'
+import { createMcpServer } from '$lib/server/mcp/server'
 
 async function handleMcp(event: Parameters<RequestHandler>[0]): Promise<Response> {
   const user = event.locals.user

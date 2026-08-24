@@ -1,3 +1,4 @@
+import type { EvalEntrySummary, EvalRunListItem } from './types'
 import { describe, expect, it } from 'vitest'
 import {
   aggregateQaScores,
@@ -12,7 +13,6 @@ import {
   humanRunLabel,
   parseEvalGraphSnapshot,
 } from './display'
-import type { EvalEntrySummary, EvalRunListItem } from './types'
 
 describe('eval display', () => {
   it('humanizes graph check with capture text', () => {

@@ -1,7 +1,7 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import * as Drawer from '$lib/components/ui/drawer'
   import { cn } from '$lib/utils.js'
-  import type { Snippet } from 'svelte'
 
   type Props = {
     open?: boolean

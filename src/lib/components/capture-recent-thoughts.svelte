@@ -1,33 +1,34 @@
 <script lang="ts">
-  import { tick } from 'svelte'
-  import type {
-    CaptureRecentThoughtSnippet,
-    CaptureSubmitResult,
-  } from '$lib/capture/capture-result-types'
-  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
-  import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
-  import CaptureQueueStatus from '$lib/components/capture-queue-status.svelte'
-  import CaptureStoredSummary from '$lib/components/capture-stored-summary.svelte'
-  import { Button } from '$lib/components/ui/button'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import { Label } from '$lib/components/ui/label'
-  import * as Select from '$lib/components/ui/select'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import PencilLine from '@lucide/svelte/icons/pencil-line'
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import X from '@lucide/svelte/icons/x'
+  import { tick } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
+  import {
+    captureIndexingListStatus,
+    captureIndexingRetryEligible,
+  } from '$lib/capture/capture-indexing-status'
+  import type {
+    CaptureRecentThoughtSnippet,
+    CaptureSubmitResult,
+  } from '$lib/capture/capture-result-types'
+  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
+  import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
   import {
     captureThoughtAuthorship,
     recentThoughtPrimaryLabel,
     recentThoughtSecondaryLabel,
   } from '$lib/capture/recent-thought-display'
+  import CaptureQueueStatus from '$lib/components/capture-queue-status.svelte'
+  import CaptureStoredSummary from '$lib/components/capture-stored-summary.svelte'
   import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import {
-    captureIndexingListStatus,
-    captureIndexingRetryEligible,
-  } from '$lib/capture/capture-indexing-status'
+  import { Button } from '$lib/components/ui/button'
+  import { Label } from '$lib/components/ui/label'
+  import * as Select from '$lib/components/ui/select'
+  import { Textarea } from '$lib/components/ui/textarea'
 
   let {
     thoughts,
@@ -54,7 +55,7 @@
     onSubmitEdit,
     onCancelEdit,
     onFilterChange,
-    hasAgentCaptures,
+    hasAgentCaptures: _hasAgentCaptures,
   }: {
     thoughts: CaptureRecentThoughtSnippet[]
     thoughtDetails: Record<string, CaptureSubmitResult>
@@ -108,7 +109,7 @@
     })()
   }
 
-  const entryElements = new Map<string, HTMLElement>()
+  const entryElements = new SvelteMap<string, HTMLElement>()
 
   function entryAnchor(node: HTMLElement, thoughtId: string) {
     entryElements.set(thoughtId, node)
@@ -183,7 +184,7 @@
               </Select.Trigger>
               <Select.Content>
                 <Select.Item value="all">All categories</Select.Item>
-                {#each categories as cat}
+                {#each categories as cat (cat)}
                   <Select.Item value={cat}>{cat}</Select.Item>
                 {/each}
               </Select.Content>

@@ -4,8 +4,8 @@
  * Rearranges and cleans up the signed-in user's graph: prunes weak/orphan nodes and repairs relations.
  */
 
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { runGraphRearrangeForUser } from '$lib/server/graph/run-graph-rearrange'
 
 export const POST: RequestHandler = async (event) => {

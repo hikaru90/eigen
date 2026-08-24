@@ -1,7 +1,7 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { emitAgentEvent } from '$lib/server/agents/emit'
 import { randomUUID } from 'node:crypto'
+import { json } from '@sveltejs/kit'
+import { emitAgentEvent } from '$lib/server/agents/emit'
 
 export const POST: RequestHandler = async (event) => {
   const user = event.locals.user

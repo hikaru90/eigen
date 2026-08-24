@@ -1,7 +1,7 @@
+import { m } from '$lib/paraglide/messages.js'
 import { type ProjectStatus } from '$lib/server/db/schema'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { m } from '$lib/paraglide/messages.js'
 import { listEligibleProjectsForAssignment } from '$lib/server/memory/project-list'
 import {
   designateNextAction,

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { resolve } from '$app/paths'
   import { page } from '$app/state'
-  import { cn } from '$lib/utils'
+  import type { Pathname } from '$app/types'
   import { activeMemorySurfaceTab } from '$lib/memory/memory-surface-nav'
   import { m } from '$lib/paraglide/messages.js'
+  import { cn } from '$lib/utils'
 
   type MemoryTabPath = '/memory' | '/memory/tasks' | '/memory/projects' | '/memory/notes'
 
@@ -33,11 +34,6 @@
     { id: 'notes', label: () => m.memory_tab_notes(), pathname: '/memory/notes' },
   ]
 
-  function tabHref(pathname: MemoryTabPath, search?: string): string {
-    const base = resolve(pathname)
-    return search ? `${base}?${search}` : base
-  }
-
   const activeTab = $derived(
     activeMemorySurfaceTab(page.url.pathname, page.url.searchParams.get('view')),
   )
@@ -52,7 +48,9 @@
   >
     {#each tabs as tab (tab.id)}
       <a
-        href={tabHref(tab.pathname, tab.search)}
+        href={tab.search
+          ? resolve(`${tab.pathname}?${tab.search}` as Pathname)
+          : resolve(tab.pathname)}
         class={cn(
           'flex h-full items-center rounded-full px-2 text-xs whitespace-nowrap',
           activeTab === tab.id

@@ -1,16 +1,41 @@
 import { describe, expect, it, vi } from 'vitest'
-import { actions } from './+page.server'
+import { actions, load } from './+page.server'
 
-const { signInEmailMock } = vi.hoisted(() => ({ signInEmailMock: vi.fn() }))
-vi.mock('$lib/server/auth', () => ({ auth: { api: { signInEmail: signInEmailMock } } }))
+const { signInEmailMock, sendVerificationEmailMock, isUseSendMailConfiguredMock } = vi.hoisted(
+  () => ({
+    signInEmailMock: vi.fn(),
+    sendVerificationEmailMock: vi.fn(),
+    isUseSendMailConfiguredMock: vi.fn(() => false),
+  }),
+)
+vi.mock('$lib/server/auth', () => ({
+  auth: {
+    api: {
+      signInEmail: signInEmailMock,
+      sendVerificationEmail: sendVerificationEmailMock,
+    },
+  },
+}))
 vi.mock('$lib/server/auth-form-errors', () => ({
-  getSafeErrorMessage: (e: unknown, fallback = 'fallback') => {
+  getSafeErrorMessage: (e: unknown, _fallback = 'fallback') => {
     if (e instanceof Error && e.message === 'Email not verified') return e.message
     return `safe: ${e}`
   },
 }))
+vi.mock('$lib/server/email/usesend', () => ({
+  isUseSendMailConfigured: isUseSendMailConfiguredMock,
+}))
 
 describe('login page server', () => {
+  it('exposes mailConfigured for forgot-password / resend UI', () => {
+    isUseSendMailConfiguredMock.mockReturnValue(true)
+    const data = load({
+      locals: { user: null },
+      url: new URL('http://localhost/login'),
+    } as never)
+    expect(data).toMatchObject({ mailConfigured: true })
+  })
+
   it('returns validation error for empty email', async () => {
     const request = new Request('http://localhost/login', {
       method: 'POST',
@@ -62,5 +87,41 @@ describe('login page server', () => {
     const result = await actions.signInEmail({ request } as never)
     expect(result).toMatchObject({ status: 403 })
     expect(result.data.message).toContain('Email not verified')
+    expect(result.data.emailUnverified).toBe(true)
+    expect(result.data.email).toBe('test@example.com')
+  })
+
+  it('resends verification email when mail is configured', async () => {
+    isUseSendMailConfiguredMock.mockReturnValue(true)
+    sendVerificationEmailMock.mockResolvedValue({ status: true })
+    const request = new Request('http://localhost/login', {
+      method: 'POST',
+      body: new URLSearchParams({ email: 'test@example.com' }),
+    })
+    const result = await actions.resendVerification({ request } as never)
+    expect(result).toMatchObject({
+      verificationSent: true,
+      message: expect.stringMatching(/verification link/i),
+    })
+    expect(sendVerificationEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          email: 'test@example.com',
+          callbackURL: '/capture',
+        }),
+      }),
+    )
+  })
+
+  it('rejects resend when mail is not configured', async () => {
+    isUseSendMailConfiguredMock.mockReturnValue(false)
+    sendVerificationEmailMock.mockClear()
+    const request = new Request('http://localhost/login', {
+      method: 'POST',
+      body: new URLSearchParams({ email: 'test@example.com' }),
+    })
+    const result = await actions.resendVerification({ request } as never)
+    expect(result).toMatchObject({ status: 503 })
+    expect(sendVerificationEmailMock).not.toHaveBeenCalled()
   })
 })

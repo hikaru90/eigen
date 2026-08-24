@@ -1,10 +1,13 @@
 <script lang="ts">
   import type { PageData } from './$types'
-  import type { EvalEntrySummary, EvalRunSummary } from '$lib/eval/types'
-  import * as Card from '$lib/components/ui/card'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
+  import { onDestroy, onMount } from 'svelte'
+  import { goto, invalidateAll } from '$app/navigation'
+  import { resolve } from '$app/paths'
+  import type { Pathname } from '$app/types'
   import { Button } from '$lib/components/ui/button'
-  import EvalEntryDetail from '$lib/eval/entry-detail.svelte'
-  import QaEditor from '$lib/eval/qa-editor.svelte'
+  import * as Card from '$lib/components/ui/card'
+  import * as Tabs from '$lib/components/ui/tabs'
   import {
     aggregateRunScores,
     entryPointSummary,
@@ -18,12 +21,11 @@
     humanRunLabel,
     parseEvalGraphSnapshot,
   } from '$lib/eval/display'
+  import EvalEntryDetail from '$lib/eval/entry-detail.svelte'
+  import QaEditor from '$lib/eval/qa-editor.svelte'
   import ScoreBanner from '$lib/eval/score-banner.svelte'
+  import type { EvalEntrySummary, EvalRunSummary } from '$lib/eval/types'
   import VersionTestResults from '$lib/eval/version-test-results.svelte'
-  import * as Tabs from '$lib/components/ui/tabs'
-  import ChevronRight from '@lucide/svelte/icons/chevron-right'
-  import { goto, invalidateAll } from '$app/navigation'
-  import { onDestroy, onMount } from 'svelte'
 
   let activeTab = $state('runs')
 
@@ -128,14 +130,14 @@
     if (Array.isArray(result.entries)) {
       liveEntries = result.entries
     }
-    await goto(`/eval?run=${result.runId}`, { replaceState: true, keepFocus: true, noScroll: true })
+    await goto(resolve(`/eval?run=${result.runId}` as Pathname), { replaceState: true, keepFocus: true, noScroll: true })
     pollTimer = setInterval(pollRun, 1000)
     void pollRun()
   }
 
   async function selectSavedRun(runId: string) {
     if (running || runId === selectedRunId) return
-    await goto(`/eval?run=${runId}`, { replaceState: true, keepFocus: true, noScroll: true })
+    await goto(resolve(`/eval?run=${runId}` as Pathname), { replaceState: true, keepFocus: true, noScroll: true })
   }
 
   async function startRun() {
@@ -288,7 +290,7 @@
                 (reused when already in corpus)
               </p>
               <ol class="space-y-3">
-                {#each runPreview.questions as qa, i}
+                {#each runPreview.questions as qa, i (qa.id)}
                   <li class="rounded-md border bg-background p-3">
                     <p class="text-muted-foreground font-mono text-xs">#{i + 1} · {qa.id}</p>
                     <p class="mt-1 text-sm">{qa.question}</p>
@@ -368,7 +370,7 @@
               <div class="space-y-2 rounded-lg border p-3">
                 <p class="text-sm font-medium">Ingest queue</p>
                 <ol class="space-y-2">
-                  {#each captureEntries as cap}
+                  {#each captureEntries as cap (cap.id)}
                     <li>
                       <details
                         class="group m-0 rounded-md border {cap.status === 'running'
@@ -676,7 +678,7 @@
                   Findings ({synthesis.findings.length})
                 </summary>
                 <ul class="mt-1.5 list-disc space-y-1 pl-10">
-                  {#each synthesis.findings as f}
+                  {#each synthesis.findings as f, i (`${f.severity}:${f.title}:${i}`)}
                     <li>
                       <span class="font-medium capitalize">{f.severity}</span>: {f.title} — {f.evidence}
                     </li>
@@ -695,7 +697,7 @@
                   Optimization paths ({synthesis.optimizationPaths.length})
                 </summary>
                 <ol class="mt-1.5 list-decimal space-y-1 pl-10">
-                  {#each synthesis.optimizationPaths as p}
+                  {#each synthesis.optimizationPaths as p (p.priority)}
                     <li>
                       <span class="font-medium">{p.action}</span> — {p.rationale}
                       <span class="text-muted-foreground mt-0.5 block text-xs"

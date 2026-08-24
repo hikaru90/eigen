@@ -1,12 +1,12 @@
 import { and, eq, gte, lte } from 'drizzle-orm'
+import { completedTodayCount } from '$lib/graph/timeline-completed-today'
+import { priorDayOverdueCount, overdueDebtMinutes } from '$lib/graph/timeline-overdue'
 import { getDb } from '$lib/server/db'
+import type { MemoryAuthor } from '$lib/server/db/brain.schema'
 import { temporalEvent, thought } from '$lib/server/db/schema'
 import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
-import { priorDayOverdueCount, overdueDebtMinutes } from '$lib/graph/timeline-overdue'
-import { completedTodayCount } from '$lib/graph/timeline-completed-today'
-import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { filterOpenTodoTodayItems } from '$lib/server/memory/timeline-today-server'
-import type { MemoryAuthor } from '$lib/server/db/brain.schema'
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 
 export type TimelineStats = {
   completionsThisWeek: number

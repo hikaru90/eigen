@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { HTMLAttributes } from 'svelte/elements'
-  import { cn } from '$lib/utils.js'
-  import light from '$lib/assets/images/logo-whole.svg'
   import dark from '$lib/assets/images/logo-dark-whole.svg'
+  import light from '$lib/assets/images/logo-whole.svg'
+  import { cn } from '$lib/utils.js'
 
   type Props = HTMLAttributes<HTMLDivElement> & {
     heightClass?: string

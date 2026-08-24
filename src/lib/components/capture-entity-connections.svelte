@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { CaptureLinkedEntity, CaptureLinkedThought } from '$lib/capture/capture-result-types'
   import { formatEntityConnection, formatEntityDecision } from '$lib/capture/capture-result-display'
+  import type { CaptureLinkedEntity, CaptureLinkedThought } from '$lib/capture/capture-result-types'
 
   let {
     entities = [],

@@ -1,9 +1,10 @@
 <script lang="ts">
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
+  import { SvelteSet } from 'svelte/reactivity'
   import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte'
-  import { graphFilterGlassPanelClass } from '$lib/graph/graph-filter-chrome'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
+  import { graphFilterGlassPanelClass } from '$lib/graph/graph-filter-chrome'
   import {
     authorAgentLegendIconFrameClass,
     authorLegendItemClassForLayer,
@@ -27,7 +28,7 @@
   const legendPanelExpanded = $derived(legendExpanded && hasLayers)
 
   function toggleAuthorLayer(key: string) {
-    const next = new Set(visibleAuthorLayers)
+    const next = new SvelteSet(visibleAuthorLayers)
     if (next.has(key)) {
       next.delete(key)
     } else {
@@ -37,7 +38,7 @@
   }
 
   function clearAuthorLayerFilter() {
-    visibleAuthorLayers = new Set()
+    visibleAuthorLayers = new SvelteSet()
   }
 </script>
 

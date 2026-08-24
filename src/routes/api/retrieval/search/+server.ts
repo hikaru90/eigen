@@ -1,8 +1,8 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { searchThoughts } from '$lib/server/retrieval/service'
+import { error, json } from '@sveltejs/kit'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
+import { searchThoughts } from '$lib/server/retrieval/service'
 
 export const POST: RequestHandler = async (event) => {
   const user = event.locals.user

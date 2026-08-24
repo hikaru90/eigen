@@ -1,7 +1,7 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
-import { listEvalRuns, loadEvalRunDetail } from '$lib/eval/store'
+import { redirect } from '@sveltejs/kit'
 import { listEvalQa } from '$lib/eval/qa-store'
+import { listEvalRuns, loadEvalRunDetail } from '$lib/eval/store'
 import { loadVersionEvalOverview } from '$lib/eval/version-overview'
 
 export const load: PageServerLoad = async (event) => {

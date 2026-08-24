@@ -1,12 +1,6 @@
-import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json, error } from '@sveltejs/kit'
 import { getDb } from '$lib/server/db'
-import {
-  assertValidEmbeddingSnapshotRows,
-  computeEmbeddingSnapshotRevision,
-  embeddingSnapshotMetaFromRows,
-  loadEmbeddingSnapshotRows,
-} from '$lib/server/embeddings/embedding-snapshot'
 import {
   canRunUmap,
   centerAndScaleCoords3d,
@@ -14,6 +8,12 @@ import {
   fallbackProjection3d,
   l2NormalizeEmbeddings,
 } from '$lib/server/embeddings/embedding-projection'
+import {
+  assertValidEmbeddingSnapshotRows,
+  computeEmbeddingSnapshotRevision,
+  embeddingSnapshotMetaFromRows,
+  loadEmbeddingSnapshotRows,
+} from '$lib/server/embeddings/embedding-snapshot'
 
 export type ProjectedEmbeddingResponse = {
   revision: string

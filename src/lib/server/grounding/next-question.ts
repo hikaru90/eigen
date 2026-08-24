@@ -1,5 +1,3 @@
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { loadGroundingProfileRow } from '$lib/server/grounding/profile'
 import { loadRecentThoughtsForGroundingQuestion } from '$lib/server/grounding/question-due'
 import {
@@ -8,6 +6,8 @@ import {
   GROUNDING_QUESTION_TEMPLATE_ID_SET,
   type GroundingQuestionTemplateId,
 } from '$lib/server/grounding/question-templates'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
 export type GroundingQuestion = {
   facetKey: import('$lib/server/grounding/constants').GroundingFacetKey

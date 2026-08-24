@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { CaptureAttachedFile } from '$lib/capture/capture-result-types'
-  import { resolve } from '$app/paths'
   import FileText from '@lucide/svelte/icons/file-text'
+  import { resolve } from '$app/paths'
+  import type { CaptureAttachedFile } from '$lib/capture/capture-result-types'
   import { m } from '$lib/paraglide/messages.js'
 
   let {

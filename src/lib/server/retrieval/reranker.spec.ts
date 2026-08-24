@@ -1,3 +1,4 @@
+import type { RerankCandidate } from './reranker'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RerankError,
@@ -6,7 +7,6 @@ import {
   resolveRankedIds,
   shouldSkipRerank,
 } from './reranker'
-import type { RerankCandidate } from './reranker'
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),

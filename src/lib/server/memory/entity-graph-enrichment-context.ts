@@ -3,13 +3,13 @@
  * Caps each source so prompts stay bounded (~5 per category).
  */
 import { and, eq, inArray } from 'drizzle-orm'
+import type { EnrichmentCommunityExcerpt } from '$lib/server/capture/enrichment-context'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity } from '$lib/server/db/schema'
-import type { EnrichmentCommunityExcerpt } from '$lib/server/capture/enrichment-context'
-import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age'
-import { buildEntityAdjacency, neighborEntityIds } from '$lib/server/memory/entity-link-graph'
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 import { loadLexicalCanonicalEntityHints } from '$lib/server/memory/entity-graph-hints'
+import { buildEntityAdjacency, neighborEntityIds } from '$lib/server/memory/entity-link-graph'
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 

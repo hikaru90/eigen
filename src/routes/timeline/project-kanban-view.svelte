@@ -1,20 +1,20 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
+  import type { TimelineQuickAction } from './timeline-item-actions'
   import GripVerticalIcon from '@lucide/svelte/icons/grip-vertical'
-  import {
-    completedEventSummaryClass,
-    formatWhen,
-    isTemporalEventCompleted,
-  } from './temporal-events-utils'
+  import { onDestroy } from 'svelte'
+  import { m } from '$lib/paraglide/messages.js'
   import {
     groupProjectTasksByLifecycle,
     kanbanDropAction,
     kanbanEdgeScrollDelta,
     type ProjectKanbanColumnId,
   } from './project-kanban-utils'
-  import type { TimelineQuickAction } from './timeline-item-actions'
-  import { m } from '$lib/paraglide/messages.js'
+  import {
+    completedEventSummaryClass,
+    formatWhen,
+    isTemporalEventCompleted,
+  } from './temporal-events-utils'
 
   type Props = {
     items: TemporalEventListItem[]

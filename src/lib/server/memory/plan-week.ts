@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { userPreference } from '$lib/server/db/schema'
-import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
 import { sortByFocusRank } from '$lib/server/memory/compute-focus-rank'
+import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 
 export type WeekPlanSuggestion = {

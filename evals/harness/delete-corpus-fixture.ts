@@ -1,7 +1,7 @@
-import { deleteThoughtVertexFromGraph } from '$lib/server/graph/age'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/brain.schema'
-import { and, eq } from 'drizzle-orm'
+import { deleteThoughtVertexFromGraph } from '$lib/server/graph/age'
 import { withEvalDb } from './eval-context'
 
 /** Delete a corpus thought (AGE vertex + Postgres row). Safe when already absent. */

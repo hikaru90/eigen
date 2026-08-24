@@ -1,8 +1,8 @@
+import { m } from '$lib/paraglide/messages.js'
+import type { TemporalEventKind } from '$lib/server/db/brain.schema'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { m } from '$lib/paraglide/messages.js'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
-import type { TemporalEventKind } from '$lib/server/db/brain.schema'
 
 export type ProjectTimelineMilestone = {
   label: string

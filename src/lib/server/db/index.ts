@@ -1,9 +1,9 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import * as schema from './schema'
-import { getRuntimeDatabaseUrl } from './runtime-url'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
 import { appDbAsyncLocal, appReservedSqlAsyncLocal, type AppDatabase } from './context'
+import { getRuntimeDatabaseUrl } from './runtime-url'
+import * as schema from './schema'
 import { activateTenantDbSession, deactivateTenantDbSession } from './tenant-session'
 
 export { getDb, appDbAsyncLocal, appReservedSqlAsyncLocal } from './context'

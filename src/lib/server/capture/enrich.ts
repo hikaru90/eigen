@@ -22,39 +22,39 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm'
-import type { CaptureProgressEvent } from '$lib/server/capture/service'
+import { InsufficientCreditsError } from '$lib/server/billing/wallet'
 import type { IngestPhase, IngestPhaseTimer } from '$lib/server/capture/phase-timing'
-import { thought } from '$lib/server/db/schema'
+import type { CaptureProgressEvent } from '$lib/server/capture/service'
+import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation'
 import { getDb, withDbUser } from '$lib/server/db'
-import { extractRelations } from '$lib/server/memory/relation-extraction'
-import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction'
-import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
-import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync'
-import { extractSearchCues } from '$lib/server/memory/search-cues'
-import type {
-  ExtractedEntityMention,
-  ExtractedEntityTriple,
-} from '$lib/server/memory/entity-extraction'
-import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
-import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
-import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync'
-import { maybeRefreshUserOntology } from '$lib/server/ontology'
+import { thought } from '$lib/server/db/schema'
+import { thoughtRelation } from '$lib/server/db/schema'
 import {
   deleteThoughtOutgoingGraphEdges,
   deleteThoughtOutgoingRelatesToEdges,
   upsertThoughtRelation,
 } from '$lib/server/graph/age'
-import { thoughtRelation } from '$lib/server/db/schema'
+import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question'
+import { detectAndCreateProjectFromThought } from '$lib/server/memory/detect-project-from-thought'
+import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction'
+import type {
+  ExtractedEntityMention,
+  ExtractedEntityTriple,
+} from '$lib/server/memory/entity-extraction'
+import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
+import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync'
+import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment'
+import { scheduleProjectMaintenance } from '$lib/server/memory/project-maintenance'
+import { extractRelations } from '$lib/server/memory/relation-extraction'
+import { extractSearchCues } from '$lib/server/memory/search-cues'
+import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync'
+import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
+import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { maybeRefreshUserOntology } from '$lib/server/ontology'
 import {
   materializeRetrievalLinksForThought,
   syncThoughtNeighborLinks,
 } from '$lib/server/retrieval/materialize-links'
-import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation'
-import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment'
-import { scheduleProjectMaintenance } from '$lib/server/memory/project-maintenance'
-import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question'
-import { detectAndCreateProjectFromThought } from '$lib/server/memory/detect-project-from-thought'
-import { InsufficientCreditsError } from '$lib/server/billing/wallet'
 
 export type EnrichThoughtOptions = {
   onProgress?: (event: CaptureProgressEvent) => Promise<void>

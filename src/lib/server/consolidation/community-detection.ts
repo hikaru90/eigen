@@ -10,6 +10,7 @@
  */
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import type { HeartbeatJobSample } from '$lib/consolidation/heartbeat-job-report'
 import { getDb } from '$lib/server/db'
 import { graphCommunity, communityMember, canonicalEntity } from '$lib/server/db/schema'
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age'
@@ -19,9 +20,8 @@ import {
   COMMUNITY_LEVEL_SCHEMA,
   COMMUNITY_ROOT_LEVEL,
 } from './community-levels'
-import { detectCommunities, type CommunityHierarchy } from './leiden'
 import { loadLargestCommunitySamples } from './heartbeat-change-samples'
-import type { HeartbeatJobSample } from '$lib/consolidation/heartbeat-job-report'
+import { detectCommunities, type CommunityHierarchy } from './leiden'
 
 export type CommunityDetectionResult = {
   entityCount: number

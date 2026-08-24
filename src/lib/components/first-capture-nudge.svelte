@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Button } from '$lib/components/ui/button'
-  import * as Card from '$lib/components/ui/card'
   import { capture } from '$lib/analytics/posthog-client'
   import { firstCaptureNudgeDismissKey } from '$lib/capture/first-capture-nudge'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
 
   let {
     open,

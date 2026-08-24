@@ -1,6 +1,6 @@
+import type { GraphScaleReport } from './types'
 import { describe, expect, it } from 'vitest'
 import { graphScaleReportToCsv } from './report'
-import type { GraphScaleReport } from './types'
 
 describe('graphScaleReportToCsv', () => {
   it('writes one row per benchmark point', () => {

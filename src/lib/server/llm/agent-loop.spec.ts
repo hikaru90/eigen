@@ -88,8 +88,8 @@ vi.mock('$lib/server/mcp/registry', () => ({
     ].includes(name),
 }))
 
-import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact'
 import { agentChat, AgentParseError } from './agent-loop'
+import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact'
 
 function llmJson(payload: unknown) {
   return {

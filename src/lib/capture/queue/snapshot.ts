@@ -1,5 +1,5 @@
-import { listCaptureQueueItems } from './db'
 import type { CaptureQueueBroadcast, CaptureQueueItem } from './types'
+import { listCaptureQueueItems } from './db'
 
 export type CaptureQueueSnapshotMessage = Extract<CaptureQueueBroadcast, { type: 'snapshot' }>
 

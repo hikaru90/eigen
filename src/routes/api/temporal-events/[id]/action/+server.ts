@@ -1,12 +1,12 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
+import type { TemporalEventActionInput } from '$lib/server/memory/apply-temporal-event-action'
 import {
   applyNlTemporalEventAction,
   applyQuickTemporalEventAction,
   applyStructuredRescheduleAction,
   applyStructuredSnoozeAction,
 } from '$lib/server/memory/temporal-event-service'
-import type { TemporalEventActionInput } from '$lib/server/memory/apply-temporal-event-action'
 
 export const POST: RequestHandler = async (event) => {
   const user = event.locals.user

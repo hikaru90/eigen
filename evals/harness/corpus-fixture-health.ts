@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
+import type { CorpusFixtureRef } from '$lib/eval/store'
 import { reenrichThought } from '$lib/server/capture/enrich'
 import { repairThoughtEncryptionFromPlaintext } from '$lib/server/crypto/repair-thought-encryption'
 import type { AppDatabase } from '$lib/server/db'
 import { thought } from '$lib/server/db/brain.schema'
 import { deleteCorpusThought } from './delete-corpus-fixture'
-import type { CorpusFixtureRef } from '$lib/eval/store'
 import { withEvalDb, type WithEvalDbOptions } from './eval-context'
 
 export type CorpusReuseHealth = {

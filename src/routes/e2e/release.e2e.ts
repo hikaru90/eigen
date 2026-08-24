@@ -55,6 +55,14 @@ test.describe('Release smoke @release', () => {
       await expect(page.getByRole('checkbox', { name: /Terms of Service|AGB/i })).toBeVisible()
     })
 
+    await test.step('login offers password reset recovery', async () => {
+      await page.goto('/login')
+      await expect(page.getByRole('link', { name: /Forgot password/i })).toBeVisible()
+      await page.getByRole('link', { name: /Forgot password/i }).click()
+      await expect(page).toHaveURL(/\/forgot-password/)
+      await expect(page.getByRole('button', { name: /Send reset link/i })).toBeVisible()
+    })
+
     await test.step('create account', async () => {
       ;({ email } = await registerUser(context, page, { emailDomain: 'example.com' }))
       await expect(page).toHaveURL(/\/capture/)

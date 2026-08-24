@@ -1,9 +1,15 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestEvent } from '@sveltejs/kit'
+import { error, json } from '@sveltejs/kit'
+import { asc, eq, sql } from 'drizzle-orm'
 import { formatToolResultForDisplay, sanitizeFinalAnswerText } from '$lib/chat/chat-stream-types'
 import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages'
-import { agentChat } from '$lib/server/llm/agent-loop'
+import { runWithTrace } from '$lib/server/activity/trace-context'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
+import {
+  insufficientCreditsPayload,
+  isInsufficientCreditsError,
+} from '$lib/server/billing/insufficient-credits'
+import { sessionMessagesToAgentHistory } from '$lib/server/chat/session-history-for-agent'
 import {
   appDbAsyncLocal,
   appSql,
@@ -13,13 +19,7 @@ import {
   deactivateTenantDbSession,
 } from '$lib/server/db'
 import { chatSession, chatMessage, type ChatSessionMode } from '$lib/server/db/brain.schema'
-import { asc, eq, sql } from 'drizzle-orm'
-import { runWithTrace } from '$lib/server/activity/trace-context'
-import {
-  insufficientCreditsPayload,
-  isInsufficientCreditsError,
-} from '$lib/server/billing/insufficient-credits'
-import { sessionMessagesToAgentHistory } from '$lib/server/chat/session-history-for-agent'
+import { agentChat } from '$lib/server/llm/agent-loop'
 
 function collectErrorMessages(input: unknown): string[] {
   const parts: string[] = []

@@ -1,26 +1,26 @@
 <script lang="ts">
   import type { PageData } from './$types'
-  import * as Card from '$lib/components/ui/card'
-  import { Button } from '$lib/components/ui/button'
+  import Check from '@lucide/svelte/icons/check'
+  import ChevronRight from '@lucide/svelte/icons/chevron-right'
+  import Circle from '@lucide/svelte/icons/circle'
   import HeartPulse from '@lucide/svelte/icons/heart-pulse'
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
-  import Play from '@lucide/svelte/icons/play'
   import Pause from '@lucide/svelte/icons/pause'
+  import Play from '@lucide/svelte/icons/play'
   import RotateCw from '@lucide/svelte/icons/rotate-cw'
   import Square from '@lucide/svelte/icons/square'
-  import Check from '@lucide/svelte/icons/check'
-  import Circle from '@lucide/svelte/icons/circle'
   import X from '@lucide/svelte/icons/x'
   import { onDestroy, onMount } from 'svelte'
+  import { resolve } from '$app/paths'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan'
   import {
     heartbeatProgressPctFromRun,
     isHeartbeatRunFullyComplete,
     resolveHeartbeatJobReport,
     type HeartbeatJobResult,
   } from '$lib/consolidation/heartbeat-progress'
-  import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan'
-  import ChevronRight from '@lucide/svelte/icons/chevron-right'
-  import { resolve } from '$app/paths'
 
   let { data }: { data: PageData } = $props()
 

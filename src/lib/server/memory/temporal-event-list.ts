@@ -13,8 +13,12 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm'
+import {
+  RELEVANT_LOOKAHEAD_DAYS as SHARED_RELEVANT_LOOKAHEAD_DAYS,
+  type AbsoluteDateRange,
+} from '$lib/memory/timeline-date-range'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
-import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
 import type {
   LifecycleStatus,
   MemoryAuthor,
@@ -22,13 +26,9 @@ import type {
   TemporalEventKind,
   TemporalPriorityQuadrant,
 } from '$lib/server/db/brain.schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { computeFocusRank } from '$lib/server/memory/compute-focus-rank'
+import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
-import {
-  RELEVANT_LOOKAHEAD_DAYS as SHARED_RELEVANT_LOOKAHEAD_DAYS,
-  type AbsoluteDateRange,
-} from '$lib/memory/timeline-date-range'
+import { computeFocusRank } from '$lib/server/memory/compute-focus-rank'
 
 export const TASK_ITEM_PREFIX = 'task:'
 /** @deprecated Legacy timeline IDs — still accepted when parsing. */
@@ -246,7 +246,7 @@ export function usesAbsoluteDateFilter(query: TemporalEventListQuery): boolean {
 async function listTaskThoughtsForUser(
   userId: string,
   status: TemporalEventListQuery['status'],
-  orderBy: TemporalEventListQuery['orderBy'] = 'ingest',
+  _orderBy: TemporalEventListQuery['orderBy'] = 'ingest',
   sortDirection: TemporalEventListQuery['sortDirection'] = 'desc',
   authorFilter?: { author?: MemoryAuthor; authorLayerKey?: string | null },
 ): Promise<TemporalEventListItem[]> {

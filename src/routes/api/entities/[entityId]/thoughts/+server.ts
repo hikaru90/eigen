@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { listThoughtsMentioningCanonicalEntity } from '$lib/server/memory/canonical-entity-admin'
 import { listTextFilesForThoughtIds } from '$lib/server/text-files/service'
 

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { GROUNDING_CHECK_IN_TAG } from '$lib/server/grounding/constants'
 import {
   getOnboardingFirstGroundingQuestion,
   processOnboardingGroundingPushJob,
   scheduleOnboardingGroundingPush,
 } from '$lib/server/grounding/onboarding-welcome-push'
-import { GROUNDING_CHECK_IN_TAG } from '$lib/server/grounding/constants'
 
 const {
   listPushSubscriptionsForUserMock,

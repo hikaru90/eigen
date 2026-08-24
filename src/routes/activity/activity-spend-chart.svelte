@@ -1,11 +1,11 @@
 <script lang="ts">
-  import * as Card from '$lib/components/ui/card'
   import {
     formatActivitySpendBucketLabel,
     type ActivitySpendBucket,
     type ActivitySpendBucketUnit,
   } from '$lib/activity/spend-chart'
   import { totalCostUsdToCredits } from '$lib/billing/platform-pricing'
+  import * as Card from '$lib/components/ui/card'
 
   let {
     buckets,
@@ -107,7 +107,7 @@
   }
 
   function formatCredits(value: number): string {
-    // eslint-disable-line @typescript-eslint/no-unused-vars
+     
     if (value === 0) return '0'
     if (value < 0.01) return value.toFixed(4)
     if (value < 1) return value.toFixed(2)

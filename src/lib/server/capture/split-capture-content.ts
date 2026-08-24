@@ -1,7 +1,7 @@
 import { normalizeThoughtText } from '$lib/server/capture/service'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
+import { extractChatContent } from '$lib/server/ontology/llm-json'
 
 export type CaptureContentSplitMode = 'thought_only' | 'split'
 

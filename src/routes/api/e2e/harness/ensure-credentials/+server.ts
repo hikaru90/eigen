@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { dev } from '$app/environment'
 import { ensureHarnessCredentialAccount } from '$lib/server/e2e/harness-auth'
 

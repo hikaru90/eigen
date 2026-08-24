@@ -10,20 +10,20 @@
  */
 
 import { eq } from 'drizzle-orm'
-import { getDb, withDbUser } from '$lib/server/db'
-import { user } from '$lib/server/db/schema'
-import { pruneUnusedOntologyEntityKinds } from '$lib/server/ontology-db'
-import {
-  consolidateCanonicalEntityAliasesForUser,
-  repairCanonicalEntityTypesForUser,
-} from '$lib/server/memory/canonical-entity-admin'
+import { isHeartbeatJobId, type HeartbeatJobId } from '$lib/consolidation/heartbeat-job-plan'
 import {
   buildHeartbeatJobReport,
   type HeartbeatJobReport,
 } from '$lib/consolidation/heartbeat-job-report'
-import { isHeartbeatJobId, type HeartbeatJobId } from '$lib/consolidation/heartbeat-job-plan'
-import { runSalienceCompute } from './compute-salience'
-import { repairEntityRelationsForUser } from './repair-entity-relations'
+import { getDb, withDbUser } from '$lib/server/db'
+import { user } from '$lib/server/db/schema'
+import {
+  consolidateCanonicalEntityAliasesForUser,
+  repairCanonicalEntityTypesForUser,
+} from '$lib/server/memory/canonical-entity-admin'
+import { pruneUnusedOntologyEntityKinds } from '$lib/server/ontology-db'
+import { backfillRetrievalLinksForUser } from '$lib/server/retrieval/materialize-links'
+import { buildAllCommunityBundles } from './community-bundles'
 import { runCommunityDetection } from './community-detection'
 import {
   runCommunitySummaryGeneration,
@@ -32,9 +32,9 @@ import {
   type CommunitySummaryResult,
   type CommunitySummaryStats,
 } from './community-summaries'
-import { buildAllCommunityBundles } from './community-bundles'
+import { runSalienceCompute } from './compute-salience'
+import { repairEntityRelationsForUser } from './repair-entity-relations'
 import { computeThoughtRetrievalFeatures } from './thought-retrieval-features'
-import { backfillRetrievalLinksForUser } from '$lib/server/retrieval/materialize-links'
 
 export type ConsolidationPhase = 'deep_sleep' | 'rem'
 

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { mergeQuestionEntityHints } from '$lib/server/retrieval/query-entity-hints'
-import type { TemporalHintBinding } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
 import {
   formatSolverAnswer,
   solveTemporalQuestion,
   type TemporalSolverResult,
 } from '$lib/server/qa/temporal-solver'
+import { mergeQuestionEntityHints } from '$lib/server/retrieval/query-entity-hints'
+import type { TemporalHintBinding } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
 import type { TemporalEventSeed } from '$lib/server/retrieval/temporal'
 
 function seed(

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { Dialog as DialogPrimitive } from 'bits-ui'
+  import { cn } from '$lib/utils.js'
   import DialogOverlay from './dialog-overlay.svelte'
   import DialogPortal from './dialog-portal.svelte'
-  import { cn } from '$lib/utils.js'
 
   let {
     ref = $bindable(null),

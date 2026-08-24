@@ -1,11 +1,11 @@
 <script lang="ts">
+  import type { ActionData, PageData } from './$types'
+  import ChevronLeft from '@lucide/svelte/icons/chevron-left'
   import { enhance } from '$app/forms'
   import { afterNavigate, goto } from '$app/navigation'
   import { resolve } from '$app/paths'
-  import type { ActionData, PageData } from './$types'
   import { Button } from '$lib/components/ui/button'
   import { Label } from '$lib/components/ui/label'
-  import ChevronLeft from '@lucide/svelte/icons/chevron-left'
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
 

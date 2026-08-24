@@ -1,3 +1,4 @@
+import type { TemporalEventListItem } from '../api/temporal-events/+server'
 import { describe, expect, it, vi } from 'vitest'
 import {
   agendaSectionForItem,
@@ -37,7 +38,6 @@ import {
   splitTodayEngageSections,
   splitTodayFocusAndLater,
 } from './temporal-events-utils'
-import type { TemporalEventListItem } from '../api/temporal-events/+server'
 
 function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventListItem {
   return {

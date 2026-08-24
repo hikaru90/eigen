@@ -1,8 +1,8 @@
 <script lang="ts">
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import { onDestroy, onMount, tick } from 'svelte'
-  import { Button } from '$lib/components/ui/button'
-  import { Label } from '$lib/components/ui/label'
-  import { Input } from '$lib/components/ui/input'
+  import type { CreditsUiSurface } from '$lib/analytics/billing-events'
+  import { trackCreditsUiViewed } from '$lib/analytics/billing-events'
   import { fetchWalletBalance } from '$lib/billing/fetch-wallet'
   import { initPayPalCheckout } from '$lib/billing/paypal-checkout'
   import {
@@ -15,9 +15,9 @@
     purchaseMarkupDisclosureText,
   } from '$lib/billing/platform-pricing'
   import PayPalLogo from '$lib/components/paypal-logo.svelte'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
-  import type { CreditsUiSurface } from '$lib/analytics/billing-events'
-  import { trackCreditsUiViewed } from '$lib/analytics/billing-events'
+  import { Button } from '$lib/components/ui/button'
+  import { Input } from '$lib/components/ui/input'
+  import { Label } from '$lib/components/ui/label'
 
   let {
     availableCredits = 0,

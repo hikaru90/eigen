@@ -1,6 +1,6 @@
 import { claimNextPendingThought, countPendingEnrichRows } from '$lib/server/capture/queue-capture'
-import { resolveCaptureEnrichConcurrency } from '$lib/server/orchestration-concurrency'
 import { isFatalIngestError } from '$lib/server/ingest/retry'
+import { resolveCaptureEnrichConcurrency } from '$lib/server/orchestration-concurrency'
 
 export {
   resolveCaptureEnrichConcurrency,

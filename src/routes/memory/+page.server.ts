@@ -1,11 +1,11 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
-import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/age'
-import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays'
-import { getDb } from '$lib/server/db'
-import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
+import { redirect } from '@sveltejs/kit'
 import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend'
+import { getDb } from '$lib/server/db'
+import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/age'
 import { loadAuthorLayerGraphData } from '$lib/server/graph/author-layers'
+import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays'
+import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {

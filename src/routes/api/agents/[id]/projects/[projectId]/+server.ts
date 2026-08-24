@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
 import { unbindAgentFromProject } from '$lib/server/agents/service'
 
 export const DELETE: RequestHandler = async (event) => {

@@ -1,5 +1,5 @@
-import { error, isHttpError, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, isHttpError, json } from '@sveltejs/kit'
 import { deleteTextFile, getTextFile, updateTextFile } from '$lib/server/text-files/service'
 
 export const GET: RequestHandler = async (event) => {

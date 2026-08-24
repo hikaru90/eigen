@@ -1,5 +1,5 @@
-import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import { isTimelineItemCompleted } from '$lib/graph/timeline-overdue'
+import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 
 function localDayKey(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', {

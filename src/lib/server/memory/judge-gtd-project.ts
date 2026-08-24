@@ -1,10 +1,10 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { canonicalEntity, thought, thoughtEntity, type ProjectSource } from '$lib/server/db/schema'
+import { m } from '$lib/paraglide/messages.js'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { canonicalEntity, thought, thoughtEntity } from '$lib/server/db/schema'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { m } from '$lib/paraglide/messages.js'
 import {
   countLinkedThoughtsForProjectEntity,
   countOpenTasksForProjectEntity,

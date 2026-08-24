@@ -2,11 +2,11 @@
  * User-facing scheduled task registry backed by Postgres schedule + job queue.
  */
 
+import { isHeartbeatJobId } from '$lib/consolidation/heartbeat-job-plan'
 import {
-  formatConsolidationJobSummaries,
-  runConsolidationJobForUser,
-  type ConsolidationJobResult,
-} from '$lib/server/consolidation/runner'
+  getCommunitySummaryStats,
+  type CommunitySummaryStats,
+} from '$lib/server/consolidation/community-summaries'
 import {
   heartbeatProgressPct,
   isHeartbeatRunActive,
@@ -17,11 +17,10 @@ import {
   type HeartbeatRunSnapshot,
 } from '$lib/server/consolidation/heartbeat-run-ledger'
 import {
-  getCommunitySummaryStats,
-  type CommunitySummaryStats,
-} from '$lib/server/consolidation/community-summaries'
-import { isHeartbeatJobId } from '$lib/consolidation/heartbeat-job-plan'
-import { SLEEP_CONSOLIDATION_TASK_ID } from './constants'
+  formatConsolidationJobSummaries,
+  runConsolidationJobForUser,
+  type ConsolidationJobResult,
+} from '$lib/server/consolidation/runner'
 import {
   OVERNIGHT_CONSOLIDATION_JOB,
   formatScheduleLabel,
@@ -30,6 +29,7 @@ import {
 } from '$lib/server/job-queue'
 import { hasActiveJobForUser } from '$lib/server/job-queue/enqueue'
 import { recoverOrphanedOvernightState } from '$lib/server/job-queue/recover-overnight'
+import { SLEEP_CONSOLIDATION_TASK_ID } from './constants'
 
 export type ScheduledTaskStatus = {
   id: string

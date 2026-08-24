@@ -9,9 +9,9 @@
  *   node scripts/import-graph-export-to-age.mjs --dry-run --from-export tmp/graph-export-<userId>.json
  */
 import './load-env.mjs'
-import postgres from 'postgres'
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import postgres from 'postgres'
 
 function required(name) {
   const v = process.env[name]?.trim()

@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
+import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
 import {
   authorLayerKeyFromItem,
   isValidCurrentUserView,
@@ -12,7 +13,6 @@ import {
   CURRENT_USER_VIEW_STORAGE_KEY,
   LEGACY_TIMELINE_AUTHOR_FILTER_KEY,
 } from './current-user-view'
-import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
 
 const layers: AuthorLayerMeta[] = [
   { key: 'user', label: 'You', kind: 'user' },

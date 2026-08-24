@@ -1,13 +1,13 @@
 <script lang="ts">
+  import type { CreateProjectResponse } from '../api/timeline/projects/+server'
   import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import PlusIcon from '@lucide/svelte/icons/plus'
+  import { Button } from '$lib/components/ui/button'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
-  import { Button } from '$lib/components/ui/button'
   import { Label } from '$lib/components/ui/label'
   import { m } from '$lib/paraglide/messages.js'
-  import type { CreateProjectResponse } from '../api/timeline/projects/+server'
   import type { ProjectStatus } from '$lib/server/db/schema'
 
   type Props = {

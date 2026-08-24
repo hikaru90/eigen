@@ -5,8 +5,8 @@
  * See `.cursor/rules/no-string-heuristics.mdc`.
  */
 
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import type { TemporalEventKind } from '$lib/server/db/brain.schema'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import type { TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent'
 

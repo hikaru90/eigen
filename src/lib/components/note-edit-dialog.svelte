@@ -1,13 +1,13 @@
 <script lang="ts">
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { onMount } from 'svelte'
-  import { fetchTextFile, updateTextFile, type TextFileRecord } from '$lib/text-files/api'
   import { Button } from '$lib/components/ui/button'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
   import { Textarea } from '$lib/components/ui/textarea'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { m } from '$lib/paraglide/messages.js'
+  import { fetchTextFile, updateTextFile, type TextFileRecord } from '$lib/text-files/api'
 
   let {
     fileId,

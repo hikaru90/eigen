@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { evalCorpusUserId } from './eval-config'
 import { parseEvalCliArgs, shouldReuseCorpusCapture } from './corpus-reuse'
+import { evalCorpusUserId } from './eval-config'
 
 describe('evalCorpusUserId', () => {
   it('returns a stable corpus tenant per operator', () => {

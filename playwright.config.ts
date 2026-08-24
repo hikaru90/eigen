@@ -1,6 +1,6 @@
 import path from 'node:path'
-import dotenv from 'dotenv'
 import { defineConfig } from '@playwright/test'
+import dotenv from 'dotenv'
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true, override: true })
 

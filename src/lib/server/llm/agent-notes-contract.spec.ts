@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_SYSTEM_PROMPT } from './agent-loop'
 import { MCP_TOOL_DEFINITIONS } from '$lib/server/mcp/registry'
+import { AGENT_SYSTEM_PROMPT } from './agent-loop'
 
 describe('agent Notes contract', () => {
   it('requires search-then-append for additive note edits and forbids create for those requests', () => {

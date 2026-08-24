@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
+import { encryptTenantValue } from '../src/lib/server/crypto/tenant-encryption'
 import { getDb } from '../src/lib/server/db/context'
 import { thought, llmProviderConfig } from '../src/lib/server/db/schema'
-import { encryptTenantValue } from '../src/lib/server/crypto/tenant-encryption'
 
 async function backfillThoughtsForUser(userId) {
   const rows = await getDb()

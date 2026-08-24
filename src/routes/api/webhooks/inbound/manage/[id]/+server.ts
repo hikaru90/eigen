@@ -1,9 +1,9 @@
-import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { getDb } from '$lib/server/db'
-import { inboundWebhookSubscription } from '$lib/server/db/schema'
+import { json, error } from '@sveltejs/kit'
 import { eq, and } from 'drizzle-orm'
 import type { SignatureMode } from '$lib/server/agents/sign'
+import { getDb } from '$lib/server/db'
+import { inboundWebhookSubscription } from '$lib/server/db/schema'
 
 /**
  * PATCH /api/webhooks/inbound/manage/[id]

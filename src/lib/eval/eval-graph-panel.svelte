@@ -1,7 +1,7 @@
 <script lang="ts">
+  import type { EvalGraphSnapshotView } from './display'
   import { onMount } from 'svelte'
   import ForceGraph from '$lib/components/graph/force-graph.svelte'
-  import type { EvalGraphSnapshotView } from './display'
 
   let {
     snapshot,

@@ -1,9 +1,9 @@
+import type { GraphScaleQaResult } from './types'
 import { randomUUID } from 'node:crypto'
-import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { runWithTrace } from '$lib/server/activity/trace-context'
+import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { withEvalDb } from '../harness/eval-context'
 import { aggregateActivityCostByGroupId } from './aggregate-cost'
-import type { GraphScaleQaResult } from './types'
 
 /** Fixed queries aligned with the single-thought graph-scale corpus themes. */
 export const GRAPH_SCALE_QA_QUERIES = [

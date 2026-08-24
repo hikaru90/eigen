@@ -1,6 +1,6 @@
+import postgres from 'postgres'
 import { env } from '$env/dynamic/private'
 import { getRuntimeDatabaseUrl } from '$lib/server/db/runtime-url'
-import postgres from 'postgres'
 
 function normalizePostgresUrl(raw: string): string {
   try {

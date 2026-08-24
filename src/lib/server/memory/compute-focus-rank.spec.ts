@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { computeFocusRank, sortByFocusRank } from './compute-focus-rank'
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
+import { computeFocusRank, sortByFocusRank } from './compute-focus-rank'
 
 const TZ = 'UTC'
 const NOW = new Date('2026-06-15T12:00:00.000Z')

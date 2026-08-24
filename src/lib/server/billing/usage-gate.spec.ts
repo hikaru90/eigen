@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { billedMicroUsdFromBaseUsd, MIN_CAPTURE_PIPELINE_CREDITS } from './usage-gate'
 import { MICRO_USD_PER_CREDIT } from './credits'
 import { MICRO_USD_PER_CENT } from './money'
+import { billedMicroUsdFromBaseUsd, MIN_CAPTURE_PIPELINE_CREDITS } from './usage-gate'
 
 const { isByokBillingMock, chargePlatformUsageMicroUsdMock } = vi.hoisted(() => ({
   isByokBillingMock: vi.fn(async () => false),

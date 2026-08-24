@@ -10,8 +10,8 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
   decryptTenantValue: vi.fn(async () => '{}'),
 }))
 
-import { listTemporalEventsForUser, absoluteRangeCondition, usesAbsoluteDateFilter } from './temporal-event-list'
 import type { AbsoluteDateRange } from '$lib/memory/timeline-date-range'
+import { listTemporalEventsForUser, absoluteRangeCondition, usesAbsoluteDateFilter } from './temporal-event-list'
 
 function makeSelectChain(whereSpy: ReturnType<typeof vi.fn>, rows: unknown[] = []) {
   const limit = vi.fn(async () => rows)

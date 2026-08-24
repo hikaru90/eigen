@@ -23,7 +23,7 @@ test.describe('Project Assignment to Tasks', () => {
 
   test.beforeEach(async ({ page, context }) => {
     // Register a fresh test user
-    const { email } = await registerUser(context, page)
+    const { email: _email } = await registerUser(context, page)
 
     // Check if user has credits
     const walletRes = await page.request.get('/api/billing/wallet')
@@ -246,9 +246,6 @@ test.describe('Project Assignment to Tasks', () => {
     // Get initial task count (both assigned and unassigned)
     const initialAssignButtons = page.locator('button:has-text("Assign")')
     const initialUnassignedCount = await initialAssignButtons.count()
-
-    const initialProjectCards = page.locator('button:has(.truncate)')
-    const initialProjectCount = await initialProjectCards.count()
 
     const initialTotalTasks = initialUnassignedCount // Simplified - just count unassigned
 

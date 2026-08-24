@@ -1,16 +1,17 @@
 <script lang="ts">
-  import type { EvalQaRecord } from '$lib/eval/qa-store'
-  import { assignCaptureFixtureIds } from '$lib/eval/qa-id'
-  import { excerpt } from '$lib/eval/display'
-  import * as Card from '$lib/components/ui/card'
+  import { SvelteSet } from 'svelte/reactivity'
   import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
   import { Input } from '$lib/components/ui/input'
   import { Textarea } from '$lib/components/ui/textarea'
+  import { excerpt } from '$lib/eval/display'
+  import { assignCaptureFixtureIds } from '$lib/eval/qa-id'
+  import type { EvalQaRecord } from '$lib/eval/qa-store'
 
   type CaptureDraft = { fixtureId: string; rawText: string }
 
   function fixtureIdPool(): Set<string> {
-    const used = new Set<string>()
+    const used = new SvelteSet<string>()
     for (const item of items) {
       for (const cap of item.captures) {
         used.add(cap.fixtureId)
@@ -295,7 +296,7 @@
             Fixture IDs are generated from the thought text when you save (e.g.
             ec_marcus_walnut_allergy).
           </p>
-          {#each formCaptures as cap, i}
+          {#each formCaptures as cap, i (i)}
             <div class="space-y-2 rounded-md border p-3">
               {#if isEditing && cap.fixtureId.trim()}
                 <p class="text-muted-foreground text-xs">
@@ -367,7 +368,7 @@
               bind:value={formEditCaptureIndex}
             >
               <option value="">No edit step</option>
-              {#each formCaptures as cap, i}
+              {#each formCaptures as cap, i (i)}
                 {#if cap.rawText.trim()}
                   <option value={i}>
                     {#if cap.fixtureId.trim()}{cap.fixtureId} —
@@ -421,7 +422,7 @@
                 >
                   {isItemActive(item) ? 'Active' : 'Inactive'}
                 </span>
-                {#each item.tags as tag}
+                {#each item.tags as tag (tag)}
                   <span class="bg-muted rounded px-1.5 py-0.5 text-xs">{tag}</span>
                 {/each}
               </div>
@@ -497,7 +498,7 @@
             {#if item.captures.length > 0}
               <p class="mt-3 text-sm font-medium">Captures ({item.captures.length})</p>
               <ul class="text-muted-foreground mt-1 space-y-1 text-xs">
-                {#each item.captures as cap}
+                {#each item.captures as cap (cap.fixtureId)}
                   <li><span class="font-mono">{cap.fixtureId}</span> — {cap.rawText}</li>
                 {/each}
               </ul>

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { POST } from './+server'
-import { MIN_TOP_UP_CREDITS } from '$lib/server/billing/credits'
 import { computeTopUpCheckout } from '$lib/billing/top-up-checkout'
+import { MIN_TOP_UP_CREDITS } from '$lib/server/billing/credits'
+import { POST } from './+server'
 
 const { createPayPalOrderMock, getDbMock } = vi.hoisted(() => ({
   createPayPalOrderMock: vi.fn(),

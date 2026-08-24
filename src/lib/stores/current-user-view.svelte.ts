@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity'
 import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
 import {
   CURRENT_USER_VIEW_STORAGE_KEY,
@@ -13,7 +14,7 @@ export const currentUserViewState = $state({
 })
 
 type Listener = (view: CurrentUserView) => void
-const listeners = new Set<Listener>()
+const listeners = new SvelteSet<Listener>()
 let initialized = false
 
 export function getCurrentUserView(): CurrentUserView {

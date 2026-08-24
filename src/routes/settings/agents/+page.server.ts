@@ -1,10 +1,10 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
+import { redirect } from '@sveltejs/kit'
+import { eq } from 'drizzle-orm'
 import { listConnectedAgents } from '$lib/server/agents/service'
-import { listProjectsForUser } from '$lib/server/memory/project-list'
 import { getDb } from '$lib/server/db'
 import { agentProjectBinding, canonicalEntity } from '$lib/server/db/schema'
-import { eq } from 'drizzle-orm'
+import { listProjectsForUser } from '$lib/server/memory/project-list'
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {

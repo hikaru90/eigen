@@ -1,12 +1,12 @@
-import { error, fail, redirect } from '@sveltejs/kit'
 import type { Actions, PageServerLoad } from './$types'
+import { error, fail, redirect } from '@sveltejs/kit'
+import { env } from '$env/dynamic/private'
+import { parseSignupPlanParam } from '$lib/auth/signup-plan'
 import { auth } from '$lib/server/auth'
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors'
-import { signUpSchema } from '$lib/validation/auth'
-import { env } from '$env/dynamic/private'
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social'
-import { parseSignupPlanParam } from '$lib/auth/signup-plan'
 import { isUseSendMailConfigured } from '$lib/server/email/usesend'
+import { resendVerificationSchema, signUpSchema } from '$lib/validation/auth'
 
 export const load: PageServerLoad = (event) => {
   if (event.locals.user) {
@@ -81,10 +81,53 @@ export const actions: Actions = {
     if (emailVerificationRequired) {
       return {
         checkEmail: true,
+        email: data.email,
         message: 'Check your email for a verification link before signing in.',
       }
     }
 
     throw redirect(302, '/capture')
+  },
+
+  resendVerification: async (event) => {
+    const formData = await event.request.formData()
+    const email = formData.get('email')?.toString() ?? ''
+
+    const validation = resendVerificationSchema.safeParse({ email })
+    if (!validation.success) {
+      const message = validation.error.flatten().fieldErrors.email?.[0] || 'Invalid email address'
+      return fail(400, { message, checkEmail: true, email })
+    }
+
+    if (!isUseSendMailConfigured(env)) {
+      return fail(503, {
+        message: 'Verification email is not configured on this server.',
+        checkEmail: true,
+        email: validation.data.email,
+      })
+    }
+
+    try {
+      await auth.api.sendVerificationEmail({
+        body: {
+          email: validation.data.email,
+          callbackURL: '/capture',
+        },
+      })
+    } catch (error) {
+      const safeMessage = getSafeErrorMessage(error, 'Could not send verification email')
+      return fail(400, {
+        message: safeMessage,
+        checkEmail: true,
+        email: validation.data.email,
+      })
+    }
+
+    return {
+      checkEmail: true,
+      email: validation.data.email,
+      verificationSent: true,
+      message: 'If this email needs verification, a new verification link is on its way.',
+    }
   },
 }

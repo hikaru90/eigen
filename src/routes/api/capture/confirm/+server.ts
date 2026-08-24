@@ -1,11 +1,11 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import {
   isInsufficientCreditsError,
   insufficientCreditsPayload,
 } from '$lib/server/billing/insufficient-credits'
-import { captureGateHttpStatus, captureGateJsonBody } from '$lib/server/onboarding/capture-gate'
 import { confirmCapturePreview } from '$lib/server/capture/capture-confirmation'
+import { captureGateHttpStatus, captureGateJsonBody } from '$lib/server/onboarding/capture-gate'
 
 export const POST: RequestHandler = async (event) => {
   const user = event.locals.user

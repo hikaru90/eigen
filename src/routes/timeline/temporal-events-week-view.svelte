@@ -1,5 +1,11 @@
 <script lang="ts">
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left'
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
+  import { SvelteDate } from 'svelte/reactivity'
+  import { Button } from '$lib/components/ui/button'
+  import { graphWeekdayLabels } from '$lib/graph/graph-i18n'
+  import { m } from '$lib/paraglide/messages.js'
   import {
     buildWeekDays,
     kindColor,
@@ -8,12 +14,6 @@
     WEEK_GRID_START_HOUR,
     weekStartMonday,
   } from './temporal-events-utils'
-  import { graphWeekdayLabels } from '$lib/graph/graph-i18n'
-  import { m } from '$lib/paraglide/messages.js'
-  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left'
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
-  import { Button } from '$lib/components/ui/button'
-  import { SvelteDate } from 'svelte/reactivity'
 
   type Props = {
     items: TemporalEventListItem[]

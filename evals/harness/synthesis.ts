@@ -1,9 +1,9 @@
+import type { EvalSynthesis } from '$lib/eval/types'
 /**
  * Run-level AI synthesis: goal, strategy, findings, optimization paths.
  */
 import { billingUserAsyncLocal } from '$lib/server/billing/context'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import type { EvalSynthesis } from '$lib/eval/types'
 import { EVAL_JUDGE_USER_ID } from './eval-config'
 
 export type EntrySummary = {

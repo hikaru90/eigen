@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import type { PersistedChatMessage } from '$lib/chat/normalize-messages'
 import {
   buildAgentHistoryFromSessionMessages,
   sessionMessagesToAgentHistory,
   trimAgentHistory,
 } from './session-history-for-agent'
-import type { PersistedChatMessage } from '$lib/chat/normalize-messages'
 
 describe('buildAgentHistoryFromSessionMessages', () => {
   it('maps user + tool_step + final answer into agent loop message shape', () => {

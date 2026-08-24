@@ -1,8 +1,8 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
+import { eq, and } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { userApiKey } from '$lib/server/db/schema'
-import { eq, and } from 'drizzle-orm'
 import { jsonError } from '$lib/server/http/api-error'
 
 export const DELETE: RequestHandler = async (event) => {

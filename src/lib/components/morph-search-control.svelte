@@ -1,10 +1,12 @@
 <script lang="ts">
+  import SearchIcon from '@lucide/svelte/icons/search'
+  import XIcon from '@lucide/svelte/icons/x'
+  import { onDestroy } from 'svelte'
   /**
    * Graph-style morph search: icon trigger expands into a frosted search panel.
    * Same chrome / motion as graph-filters-toolbar search.
    */
   import { browser } from '$app/environment'
-  import { onDestroy } from 'svelte'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
   import {
@@ -14,8 +16,6 @@
   } from '$lib/graph/graph-filter-chrome'
   import { shouldSubmitSearchOnEnter } from '$lib/graph/graph-search-keyboard'
   import { m } from '$lib/paraglide/messages.js'
-  import SearchIcon from '@lucide/svelte/icons/search'
-  import XIcon from '@lucide/svelte/icons/x'
 
   const MORPH_MS = 280
   const BACKDROP_BLUR_PX = 20

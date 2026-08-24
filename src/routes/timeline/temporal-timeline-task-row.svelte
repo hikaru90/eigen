@@ -1,5 +1,10 @@
 <script lang="ts">
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
+  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
+  import { graphEnergyLevelLabel } from '$lib/graph/graph-i18n'
+  import { hapticConfirm } from '$lib/haptics'
+  import { m } from '$lib/paraglide/messages.js'
+  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
   import {
     completedEventSummaryClass,
     energyPillClasses,
@@ -8,11 +13,6 @@
     isTaskListItem,
     isTemporalEventCompleted,
   } from './temporal-events-utils'
-  import { graphEnergyLevelLabel } from '$lib/graph/graph-i18n'
-  import { hapticConfirm } from '$lib/haptics'
-  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import { m } from '$lib/paraglide/messages.js'
-  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
 
   type Props = {
     item: TemporalEventListItem
@@ -32,7 +32,7 @@
     updatingEventId = null,
     showWhen = true,
     timeZone,
-    showOverdueDuration = false,
+    showOverdueDuration: _showOverdueDuration = false,
     onSelect,
     onQuickAction,
     onLongPress,

@@ -5,12 +5,21 @@
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { communitySummary } from '$lib/server/db/schema'
-import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
+import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile'
+import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
+import type { KnownEntityHint } from '$lib/server/memory/entity-extraction'
+import {
+  loadEntityHintsForThought,
+  loadIngestKnownEntityHints,
+} from '$lib/server/memory/entity-graph-hints'
+import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold'
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import {
   loadOntologyForUser,
   ensureUserOntologySeeded,
   ensureCriticalEntityTypeKindsActive,
 } from '$lib/server/ontology-db'
+import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
 import {
   loadCategoryDistribution,
   loadRecentThoughtsContext,
@@ -18,15 +27,6 @@ import {
 } from '$lib/server/ontology/classify-thought-category'
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
 import type { OntologyProfileV2 } from '$lib/server/ontology/types'
-import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile'
-import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
-import {
-  loadEntityHintsForThought,
-  loadIngestKnownEntityHints,
-} from '$lib/server/memory/entity-graph-hints'
-import type { KnownEntityHint } from '$lib/server/memory/entity-extraction'
-import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold'
-import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 
 export type EnrichmentCommunityExcerpt = {
   communityId: string

@@ -18,8 +18,8 @@
  * tenant (RLS session) while platform credits debit the operator via billingUserId.
  */
 import { billingUserAsyncLocal } from '$lib/server/billing/context'
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { extractBatchChatContent, parseBatchJsonArray } from '$lib/server/llm/batch-json'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { EVAL_JUDGE_USER_ID } from './eval-config'
 
 export type FidelityVerdict = {
@@ -75,6 +75,7 @@ function parseJsonContent(content: string): unknown {
       `capture-fidelity judge: could not parse JSON output: ${
         err instanceof Error ? err.message : String(err)
       }; got: ${content.slice(0, 200)}`,
+      { cause: err },
     )
   }
 }

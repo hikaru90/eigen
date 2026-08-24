@@ -1,8 +1,27 @@
 <script lang="ts">
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import PencilLine from '@lucide/svelte/icons/pencil-line'
+  import Plus from '@lucide/svelte/icons/plus'
   import { onMount } from 'svelte'
-  import { m } from '$lib/paraglide/messages.js'
-  import { page } from '$app/state'
   import { resolve } from '$app/paths'
+  import { page } from '$app/state'
+  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
+  import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import * as Dialog from '$lib/components/ui/dialog'
+  import * as Drawer from '$lib/components/ui/drawer'
+  import { Input } from '$lib/components/ui/input'
+  import { Label } from '$lib/components/ui/label'
+  import { Textarea } from '$lib/components/ui/textarea'
+  import {
+    matchesCurrentUserView,
+    type CurrentUserView,
+  } from '$lib/memory/current-user-view'
+  import { m } from '$lib/paraglide/messages.js'
+  import {
+    getCurrentUserView,
+    subscribeCurrentUserView,
+  } from '$lib/stores/current-user-view.svelte'
   import {
     createTextFile,
     deleteTextFile,
@@ -15,26 +34,6 @@
     type TextFileRecord,
     type TextFileSearchHit,
   } from '$lib/text-files/api'
-  import { Button } from '$lib/components/ui/button'
-  import * as Dialog from '$lib/components/ui/dialog'
-  import * as Drawer from '$lib/components/ui/drawer'
-  import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte'
-  import { Input } from '$lib/components/ui/input'
-  import { Label } from '$lib/components/ui/label'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import Plus from '@lucide/svelte/icons/plus'
-  import PencilLine from '@lucide/svelte/icons/pencil-line'
-  import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import {
-    getCurrentUserView,
-    subscribeCurrentUserView,
-  } from '$lib/stores/current-user-view.svelte'
-  import {
-    appendViewToSearchParams,
-    matchesCurrentUserView,
-    type CurrentUserView,
-  } from '$lib/memory/current-user-view'
 
   type ListItem = {
     id: string

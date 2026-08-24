@@ -1,6 +1,6 @@
+import posthog from 'posthog-js'
 import { browser } from '$app/environment'
 import { PUBLIC_POSTHOG_HOST, PUBLIC_POSTHOG_KEY } from '$env/static/public'
-import posthog from 'posthog-js'
 
 const DEFAULT_EU_API_HOST = 'https://eu.i.posthog.com'
 const DEFAULT_EU_UI_HOST = 'https://eu.posthog.com'

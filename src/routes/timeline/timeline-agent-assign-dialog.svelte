@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import type { TemporalEventListItem } from '../api/temporal-events/+server'
   import Bot from '@lucide/svelte/icons/bot'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import XIcon from '@lucide/svelte/icons/x'
-  import * as Drawer from '$lib/components/ui/drawer'
+  import { onMount } from 'svelte'
   import MemorySurfaceDrawer from '$lib/components/memory-surface-drawer.svelte'
   import { Button } from '$lib/components/ui/button'
+  import * as Drawer from '$lib/components/ui/drawer'
   import { m } from '$lib/paraglide/messages.js'
-  import type { TemporalEventListItem } from '../api/temporal-events/+server'
 
   type ConnectedAgentListItem = {
     id: string

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { and, eq, isNotNull } from 'drizzle-orm'
 import type { getDb } from '$lib/server/db'
 import { thought, canonicalEntity } from '$lib/server/db/schema'
-import { authorLayerKeyFromThought } from '$lib/server/memory/authorship'
 import { buildEntityAuthorLayerIndex } from '$lib/server/graph/author-layers'
+import { authorLayerKeyFromThought } from '$lib/server/memory/authorship'
 
 /** Maximum items (thoughts + entities) returned per snapshot request. */
 export const EMBEDDING_SNAPSHOT_ITEM_CAP = 800

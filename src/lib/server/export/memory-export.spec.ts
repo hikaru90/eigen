@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { strFromU8, unzipSync } from 'fflate'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { buildMemoryExportZip, EXPORT_VERSION } from './memory-export'
 import { THOUGHTS_CSV_HEADERS } from './thoughts-csv'
 

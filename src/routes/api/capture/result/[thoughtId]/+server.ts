@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 
 export const GET: RequestHandler = async (event) => {

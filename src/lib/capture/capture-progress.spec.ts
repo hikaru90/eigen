@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from './ingest-phases'
 import {
   captureQueueStatusLine,
   captureQueueStatusText,
@@ -7,6 +6,7 @@ import {
   progressEventLabel,
   totalPipelineSteps,
 } from './capture-progress'
+import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from './ingest-phases'
 
 describe('capture-progress', () => {
   it('counts full pipeline steps', () => {

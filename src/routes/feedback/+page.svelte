@@ -1,10 +1,10 @@
 <script lang="ts">
-  import * as Card from '$lib/components/ui/card'
+  import Check from '@lucide/svelte/icons/check'
+  import MessageSquare from '@lucide/svelte/icons/message-square'
   import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
   import { Label } from '$lib/components/ui/label'
   import { Textarea } from '$lib/components/ui/textarea'
-  import MessageSquare from '@lucide/svelte/icons/message-square'
-  import Check from '@lucide/svelte/icons/check'
   import { FEEDBACK_MAX_LENGTH } from '$lib/feedback/feedback-max-length'
 
   let { data } = $props()

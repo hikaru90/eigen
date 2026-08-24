@@ -2,8 +2,8 @@ import { and, eq } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity } from '$lib/server/db/schema'
 import { upsertEntityNode } from '$lib/server/graph/age'
-import { loadProjectEntityRow } from '$lib/server/memory/project-eligibility'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { loadProjectEntityRow } from '$lib/server/memory/project-eligibility'
 
 const DEFAULT_HUB_ENTITY_TYPE = 'organization'
 

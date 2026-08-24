@@ -1,17 +1,17 @@
 <script lang="ts">
+  import CheckIcon from '@lucide/svelte/icons/check'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { onMount } from 'svelte'
+  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
   import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
   import { CAPTURE_INGEST_PHASE_COPY } from '$lib/capture/ingest-phases'
-  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import CheckIcon from '@lucide/svelte/icons/check'
 
-  interface TimestampedEvent {
+  type TimestampedEvent = {
     event: ProgressEvent
     arrivedAt: number
   }
 
-  interface Props {
+  type Props = {
     /** All progress events received so far, in arrival order, with timestamps. */
     events: TimestampedEvent[]
     /** The canonical pipeline shape: sequential phases or parallel groups. */

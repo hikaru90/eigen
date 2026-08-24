@@ -1,3 +1,4 @@
+import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 import { randomUuid } from '$lib/random-uuid'
 import {
   deleteCaptureQueueItem,
@@ -7,8 +8,8 @@ import {
   releaseCaptureQueueDrainLock,
   tryAcquireCaptureQueueDrainLock,
 } from './db'
-import { buildCaptureQueueSnapshot } from './snapshot'
 import { drainCaptureQueue } from './drain'
+import { buildCaptureQueueSnapshot } from './snapshot'
 import { registerCaptureQueueBackgroundSync } from './sync-registration'
 import {
   CAPTURE_QUEUE_CHANNEL,
@@ -16,7 +17,6 @@ import {
   type CaptureQueueItem,
   type CaptureSubmitResult,
 } from './types'
-import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 
 type RunnerListener = (message: CaptureQueueBroadcast) => void
 

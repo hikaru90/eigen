@@ -1,26 +1,26 @@
 import 'dotenv/config'
-import { randomUUID } from 'node:crypto'
-import { runEval, withEvalDb } from '../harness/eval-context'
-import { GraphScaleConsoleProgress } from './console-progress'
-import { parseGraphScaleCli } from './cli'
-import { collectGraphScaleMetrics } from './graph-metrics'
-import { measureGraphScaleCaptureProbe } from './measure-capture'
-import { measureGraphScaleConsolidation } from './measure-consolidation'
-import { measureGraphScaleQaSet } from './measure-qa'
-import { GRAPH_SCALE_QA_QUERIES } from './measure-qa'
-import { GraphScaleProgressWriter, resolveGraphScaleReportPaths } from './progress-report'
-import { GRAPH_SCALE_CORPUS_PATH } from './load-corpus'
-import { writeGraphScaleReport } from './report'
-import { seedGraphScaleCorpus } from './seed-corpus-runner'
-import { ensureGraphScaleOperatorReady, GRAPH_SCALE_OPERATOR_USER_ID } from './ensure-operator'
 import type { GraphScalePoint, GraphScaleReport } from './types'
+import { randomUUID } from 'node:crypto'
 import {
   initialGraphScaleLiveState,
   publishGraphScaleLiveState,
   type GraphScaleLiveState,
 } from '$lib/server/e2e/graph-scale-live-state'
-import { graphScaleCorpusUserId } from './seed-corpus'
+import { runEval, withEvalDb } from '../harness/eval-context'
+import { parseGraphScaleCli } from './cli'
+import { GraphScaleConsoleProgress } from './console-progress'
+import { ensureGraphScaleOperatorReady, GRAPH_SCALE_OPERATOR_USER_ID } from './ensure-operator'
+import { collectGraphScaleMetrics } from './graph-metrics'
 import { formatGraphScaleIngestLogLine } from './ingest-result'
+import { GRAPH_SCALE_CORPUS_PATH } from './load-corpus'
+import { measureGraphScaleCaptureProbe } from './measure-capture'
+import { measureGraphScaleConsolidation } from './measure-consolidation'
+import { measureGraphScaleQaSet } from './measure-qa'
+import { GRAPH_SCALE_QA_QUERIES } from './measure-qa'
+import { GraphScaleProgressWriter, resolveGraphScaleReportPaths } from './progress-report'
+import { writeGraphScaleReport } from './report'
+import { graphScaleCorpusUserId } from './seed-corpus'
+import { seedGraphScaleCorpus } from './seed-corpus-runner'
 
 function emitProgress(
   consoleProgress: GraphScaleConsoleProgress,

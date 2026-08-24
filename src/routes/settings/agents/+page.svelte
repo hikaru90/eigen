@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { base } from '$app/paths'
-  import { onMount } from 'svelte'
   import type { PageData } from './$types'
+  import Check from '@lucide/svelte/icons/check'
+  import CopyIcon from '@lucide/svelte/icons/copy'
+  import Send from '@lucide/svelte/icons/send'
+  import Trash2 from '@lucide/svelte/icons/trash-2'
+  import X from '@lucide/svelte/icons/x'
+  import { onMount } from 'svelte'
+  import { base } from '$app/paths'
+  import { AGENT_EVENT_LABELS, AGENT_SUBSCRIBABLE_EVENTS } from '$lib/agents/constants'
+  import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import * as Dialog from '$lib/components/ui/dialog'
-  import { Button } from '$lib/components/ui/button'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
-  import CopyIcon from '@lucide/svelte/icons/copy'
-  import Check from '@lucide/svelte/icons/check'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
-  import Send from '@lucide/svelte/icons/send'
-  import X from '@lucide/svelte/icons/x'
-  import { AGENT_EVENT_LABELS, AGENT_SUBSCRIBABLE_EVENTS } from '$lib/agents/constants'
 
   let { data }: { data: PageData } = $props()
 

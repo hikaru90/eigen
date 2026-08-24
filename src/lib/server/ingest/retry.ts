@@ -1,3 +1,4 @@
+import { LlmHttpError } from '$lib/server/llm/errors'
 /**
  * Deterministic ingest retry budget (AC-015, AC-016).
  * Caller supplies the async operation; this wrapper applies exactly `maxAttempts` tries
@@ -6,7 +7,6 @@
  * Fatal errors (e.g. 402 billing) are NOT retried — they propagate immediately.
  */
 import { isInvalidThoughtCategoryError } from '$lib/server/ontology/validate-thought-category'
-import { LlmHttpError } from '$lib/server/llm/errors'
 
 export const INGEST_MAX_RETRIES = 3 as const
 

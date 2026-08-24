@@ -18,7 +18,7 @@ describe('capture queue ui-state', () => {
 
   it('ignores stale snapshot that clears recent activation', () => {
     const t0 = 1_000
-    let state = applyCaptureQueueActive(initialCaptureQueueUiState(), 'cap-1', t0)
+    const state = applyCaptureQueueActive(initialCaptureQueueUiState(), 'cap-1', t0)
     const next = applyCaptureQueueSnapshot(
       state,
       { pending: 1, processingId: null },
@@ -30,7 +30,7 @@ describe('capture queue ui-state', () => {
 
   it('allows stale snapshot to clear activation after guard window', () => {
     const t0 = 1_000
-    let state = applyCaptureQueueActive(initialCaptureQueueUiState(), 'cap-1', t0)
+    const state = applyCaptureQueueActive(initialCaptureQueueUiState(), 'cap-1', t0)
     const next = applyCaptureQueueSnapshot(
       state,
       { pending: 1, processingId: null },

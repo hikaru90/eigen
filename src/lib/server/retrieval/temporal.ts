@@ -1,15 +1,15 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
+import type { TemporalEventKind } from '$lib/server/db/brain.schema'
 import { temporalEvent } from '$lib/server/db/schema'
-import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding'
 import { expandContextFromTemporalEventSeeds } from '$lib/server/graph/age'
+import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding'
+import type { QueryIntent, TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent'
 import {
   candidatesFromTemporalSeeds,
   type TemporalHintBindingCandidate,
   resolveTemporalHintBindings,
 } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
-import type { TemporalEventKind } from '$lib/server/db/brain.schema'
-import type { QueryIntent, TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent'
 
 export type TemporalFilterResult = {
   eventId: string

@@ -1,7 +1,7 @@
-import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
-import type { ProjectListItem } from '$lib/server/memory/project-list'
-import type { CurrentUserView } from '$lib/memory/current-user-view'
 import { filterPriorDayOverdueItems } from '$lib/graph/timeline-overdue'
+import type { CurrentUserView } from '$lib/memory/current-user-view'
+import type { ProjectListItem } from '$lib/server/memory/project-list'
+import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import {
   filterActiveItems,
   filterDefaultVisibleTimelineItems,

@@ -6,9 +6,9 @@ import './load-env.mjs'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import postgres from 'postgres'
 import { ensureDeploySecrets } from './ensure-deploy-secrets-lib.mjs'
 import { isEnvValuePresent } from './env-file.mjs'
-import postgres from 'postgres'
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url))
 const REQUIRED_JOBS = ['eigen-event-reminders', 'eigen-job-queue-tick', 'eigen-sleep-consolidation']

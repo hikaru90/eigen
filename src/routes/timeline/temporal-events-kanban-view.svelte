@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
+  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
   import {
     completedEventSummaryClass,
     formatWhen,
@@ -9,7 +10,6 @@
     kindLabel,
     KANBAN_KIND_ORDER,
   } from './temporal-events-utils'
-  import TemporalEventStatusButton from './temporal-event-status-button.svelte'
 
   type Props = {
     items: TemporalEventListItem[]

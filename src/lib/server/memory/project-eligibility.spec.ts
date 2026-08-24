@@ -6,12 +6,11 @@ import {
   restoreProjectListing,
 } from './project-eligibility'
 
-const { getDbMock, updateSetMock, updateWhereMock, selectLimitMock } = vi.hoisted(() => {
+const { getDbMock, updateSetMock, selectLimitMock } = vi.hoisted(() => {
   const updateWhereMock = vi.fn()
   return {
     getDbMock: vi.fn(),
     updateSetMock: vi.fn(() => ({ where: updateWhereMock })),
-    updateWhereMock,
     selectLimitMock: vi.fn(),
   }
 })

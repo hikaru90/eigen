@@ -1,6 +1,6 @@
 import { shouldScheduleDevCaptureEnrichWorker } from '$lib/server/auth/harness-account'
-import { listPendingEnrichThoughtIds } from '$lib/server/capture/enrich-pending'
 import { autoConfirmStaleAwaitingConfirmationDrafts } from '$lib/server/capture/capture-confirmation'
+import { listPendingEnrichThoughtIds } from '$lib/server/capture/enrich-pending'
 import {
   completeEnrichedQueueRows,
   recoverStaleEnrichProcessingRows,

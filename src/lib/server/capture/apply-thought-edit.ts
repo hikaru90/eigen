@@ -1,7 +1,7 @@
 import { truncateEditPreview } from '$lib/server/capture/edit-phase-timing'
+import { lifecycleStatusEnum, type LifecycleStatus } from '$lib/server/db/brain.schema'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
-import { lifecycleStatusEnum, type LifecycleStatus } from '$lib/server/db/brain.schema'
 
 /** @deprecated Use LifecycleStatus from brain.schema */
 export type ThoughtLifecycleStatus = LifecycleStatus
@@ -201,6 +201,6 @@ export async function applyThoughtEditRequest(input: {
       message,
       responsePreview: truncateEditPreview(content, 400),
     })
-    throw new Error(`Failed to parse thought edit LLM response: ${message}`)
+    throw new Error(`Failed to parse thought edit LLM response: ${message}`, { cause: err })
   }
 }

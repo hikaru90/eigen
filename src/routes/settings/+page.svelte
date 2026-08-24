@@ -1,18 +1,5 @@
 <script lang="ts">
-  import { browser } from '$app/environment'
-  import { enhance } from '$app/forms'
-  import { invalidateAll } from '$app/navigation'
-  import { onMount } from 'svelte'
   import type { ActionData, PageData } from './$types'
-  import { Button } from '$lib/components/ui/button'
-  import { Label } from '$lib/components/ui/label'
-  import { Input } from '$lib/components/ui/input'
-  import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import * as Card from '$lib/components/ui/card'
-  import * as Tabs from '$lib/components/ui/tabs'
-  import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation'
-  import { m } from '$lib/paraglide/messages.js'
-  import { getLocale } from '$lib/paraglide/runtime'
   import Bell from '@lucide/svelte/icons/bell'
   import Check from '@lucide/svelte/icons/check'
   import CopyIcon from '@lucide/svelte/icons/copy'
@@ -22,13 +9,28 @@
   import Palette from '@lucide/svelte/icons/palette'
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert'
   import UserRound from '@lucide/svelte/icons/user-round'
+  import { onMount } from 'svelte'
+  import { browser } from '$app/environment'
+  import { enhance } from '$app/forms'
+  import { invalidateAll } from '$app/navigation'
+  import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { Input } from '$lib/components/ui/input'
+  import { Label } from '$lib/components/ui/label'
+  import * as Tabs from '$lib/components/ui/tabs'
   import { rearrangeGraph } from '$lib/graph/graph-edit-api'
   import type { GraphRearrangeResult } from '$lib/graph/graph-edit-api'
   import type {
     GraphRearrangePhase,
     GraphRearrangeTaskProgress,
   } from '$lib/graph/graph-rearrange-phases'
-  import GraphRearrangeStatus from '../graph/graph-rearrange-status.svelte'
+  import {
+    getHapticEnvironment,
+    testHapticFeedback,
+    type HapticEnvironment,
+    type HapticTestResult,
+  } from '$lib/haptics'
   import {
     DEFAULT_TIMEZONE_OFFSET_MINUTES,
     inferBrowserOffsetLabel,
@@ -36,6 +38,9 @@
     nearestOptionOffset,
     TIMEZONE_OFFSET_OPTIONS,
   } from '$lib/i18n/timezone-offset'
+  import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation'
+  import { m } from '$lib/paraglide/messages.js'
+  import { getLocale } from '$lib/paraglide/runtime'
   import {
     getPushSupportState,
     getExistingPushSubscription,
@@ -45,13 +50,8 @@
     postUnsubscribe,
     postTestPush,
   } from '$lib/push/client'
-  import {
-    getHapticEnvironment,
-    testHapticFeedback,
-    type HapticEnvironment,
-    type HapticTestResult,
-  } from '$lib/haptics'
   import { saveNotificationSettings as persistNotificationSettings } from '$lib/settings/notification-settings-api'
+  import GraphRearrangeStatus from '../graph/graph-rearrange-status.svelte'
 
   function notificationSettingsFromServer(pageData: PageData) {
     const hasSavedTimezone = pageData.preferredTimezoneOffsetMinutes !== null

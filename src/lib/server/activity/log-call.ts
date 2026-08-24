@@ -1,7 +1,7 @@
 import { isUuidV4 } from '$lib/random-uuid'
-import { activityCallLog } from '$lib/server/db/schema'
-import type { AppDatabase } from '$lib/server/db/context'
 import { resolveTenantUserId } from '$lib/server/billing/context'
+import type { AppDatabase } from '$lib/server/db/context'
+import { activityCallLog } from '$lib/server/db/schema'
 import { priceCall } from '$lib/server/pricing'
 import { getCurrentTraceGroupId } from './trace-context'
 

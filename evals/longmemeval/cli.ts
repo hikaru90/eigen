@@ -1,6 +1,6 @@
+import type { LongMemEvalRunCli } from './types'
 import { resolve } from 'node:path'
 import { resolveLongMemEvalRoot } from './paths'
-import type { LongMemEvalRunCli } from './types'
 
 const DEFAULT_DATASET = resolve(resolveLongMemEvalRoot(), 'data/longmemeval_oracle.json')
 

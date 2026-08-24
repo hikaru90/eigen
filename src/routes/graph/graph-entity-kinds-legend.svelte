@@ -1,14 +1,15 @@
 <script lang="ts">
   import ListFilterIcon from '@lucide/svelte/icons/list-filter'
-  import {
-    entityKindKeyFromLegendItem,
-    type GraphLegendSection,
-  } from '$lib/graph/graph-ontology-legend'
-  import { GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE } from '$lib/graph/graph-i18n'
+  import { SvelteSet } from 'svelte/reactivity'
   import {
     graphFilterGlassPanelClass,
     graphFilterTriggerClass,
   } from '$lib/graph/graph-filter-chrome'
+  import { GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE } from '$lib/graph/graph-i18n'
+  import {
+    entityKindKeyFromLegendItem,
+    type GraphLegendSection,
+  } from '$lib/graph/graph-ontology-legend'
   import { m } from '$lib/paraglide/messages.js'
 
   let {
@@ -48,7 +49,7 @@
 
   function toggleEntityType(itemKey: string) {
     const kindKey = entityKindKeyFromLegendItem(itemKey)
-    const next = new Set(visibleEntityTypes)
+    const next = new SvelteSet(visibleEntityTypes)
     if (next.has(kindKey)) {
       next.delete(kindKey)
     } else {
@@ -59,7 +60,7 @@
   }
 
   function clearEntityTypeFilter() {
-    visibleEntityTypes = new Set()
+    visibleEntityTypes = new SvelteSet()
     onchange?.()
   }
 </script>

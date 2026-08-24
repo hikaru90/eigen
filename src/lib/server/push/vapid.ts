@@ -1,5 +1,5 @@
-import { env as kitEnv } from '$env/dynamic/private'
 import webpush from 'web-push'
+import { env as kitEnv } from '$env/dynamic/private'
 
 export type VapidConfig = {
   publicKey: string

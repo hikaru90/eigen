@@ -1,9 +1,9 @@
 <script lang="ts">
-  import * as Dialog from '$lib/components/ui/dialog'
-  import { Button } from '$lib/components/ui/button'
   import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
+  import { Button } from '$lib/components/ui/button'
+  import * as Dialog from '$lib/components/ui/dialog'
 
-  interface Props {
+  type Props = {
     open: boolean
     thoughtId: string
     rawText: string

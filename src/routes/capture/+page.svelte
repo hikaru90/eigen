@@ -1,41 +1,31 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { page } from '$app/state'
   import type { PageData } from './$types'
-  import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
-  import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
-  import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
-  import CaptureConfirmationModal from '$lib/components/capture-confirmation-modal.svelte'
-  import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
-  import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
-  import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
-  import { INTERPRET_PENDING_STATUS_LABEL } from '$lib/capture/interpret-pending'
-  import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
-  import { enhance } from '$app/forms'
-  import CaptureInterpretPending from '$lib/components/capture-interpret-pending.svelte'
-  import CaptureQueueList from '$lib/components/capture-queue-list.svelte'
-  import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte'
-  import CaptureAttachFileDialog from '$lib/components/capture-attach-file-dialog.svelte'
-  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
-  import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import { onMount } from 'svelte'
+  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
+  import { page } from '$app/state'
+  import { trackInsufficientCredits } from '$lib/analytics/billing-events'
+  import { capture as captureEvent } from '$lib/analytics/posthog-client'
   import {
     deleteCaptureThought,
     fetchCaptureResult,
     retryCaptureEnrich,
   } from '$lib/capture/capture-result-api'
-  import { upsertRecentThoughtList } from '$lib/capture/upsert-recent-thought-list'
-  import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import * as Card from '$lib/components/ui/card'
-  import { Button } from '$lib/components/ui/button'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import { hapticConfirm } from '$lib/haptics'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import { Label } from '$lib/components/ui/label'
-  import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from '$lib/capture/ingest-phases'
+  import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types'
+  import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
   import {
     consumeCaptureNdjsonStream,
     type ProgressEvent,
   } from '$lib/capture/consume-capture-ndjson'
+  import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
+  import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from '$lib/capture/ingest-phases'
+  import { INTERPRET_PENDING_STATUS_LABEL } from '$lib/capture/interpret-pending'
+  import {
+    pollCaptureRecentSync,
+    fetchRecentCaptureMerge,
+  } from '$lib/capture/poll-capture-recent-sync'
+  import type { RecentCaptureMergeResult } from '$lib/capture/poll-capture-recent-sync'
+  import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
   import {
     cancelCaptureQueueItem,
     getCaptureQueueSnapshot,
@@ -51,29 +41,39 @@
     shouldAcceptCaptureProgress,
     type CaptureQueueUiState,
   } from '$lib/capture/queue/ui-state'
-  import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
-  import {
-    pollCaptureRecentSync,
-    fetchRecentCaptureMerge,
-  } from '$lib/capture/poll-capture-recent-sync'
-  import type { RecentCaptureMergeResult } from '$lib/capture/poll-capture-recent-sync'
+  import { shouldRefetchRecentForViewChange } from '$lib/capture/recent-view-sync'
   import { shouldRejectDestructiveRecentSync } from '$lib/capture/reject-destructive-recent-sync'
+  import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
+  import { upsertRecentThoughtList } from '$lib/capture/upsert-recent-thought-list'
+  import { logErrorToServer } from '$lib/client-log'
+  import CaptureAttachFileDialog from '$lib/components/capture-attach-file-dialog.svelte'
+  import CaptureConfirmationModal from '$lib/components/capture-confirmation-modal.svelte'
+  import CaptureInterpretPending from '$lib/components/capture-interpret-pending.svelte'
+  import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
+  import CaptureQueueList from '$lib/components/capture-queue-list.svelte'
+  import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte'
+  import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
+  import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
+  import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
+  import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { Label } from '$lib/components/ui/label'
+  import { Textarea } from '$lib/components/ui/textarea'
+  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
   import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh'
-  import { unlinkTextFileFromThought } from '$lib/text-files/api'
-  import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
-  import {
-    getCurrentUserView,
-    subscribeCurrentUserView,
-  } from '$lib/stores/current-user-view.svelte'
+  import { hapticConfirm } from '$lib/haptics'
   import {
     appendViewToSearchParams,
     viewToListApiParams,
     type CurrentUserView,
   } from '$lib/memory/current-user-view'
-  import { shouldRefetchRecentForViewChange } from '$lib/capture/recent-view-sync'
-  import { trackInsufficientCredits } from '$lib/analytics/billing-events'
-  import { capture as captureEvent } from '$lib/analytics/posthog-client'
-  import { logErrorToServer } from '$lib/client-log'
+  import {
+    getCurrentUserView,
+    subscribeCurrentUserView,
+  } from '$lib/stores/current-user-view.svelte'
+  import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
+  import { unlinkTextFileFromThought } from '$lib/text-files/api'
 
   let { data }: { data: PageData } = $props()
 
@@ -218,7 +218,7 @@
 
   async function reloadRecentThoughts() {
     try {
-      const params = new URLSearchParams()
+      const params = new SvelteURLSearchParams()
       params.set('limit', String(RECENT_THOUGHTS_LIMIT))
       appendViewToSearchParams(params, dataView)
       if (recentFilter.category) params.set('category', recentFilter.category)
@@ -316,7 +316,7 @@
   let loadingDetailId = $state<string | null>(null)
   let attachDialogOpen = $state(false)
   let attachTargetThoughtId = $state<string | null>(null)
-  const enrichPollCancelByThoughtId = new Map<string, () => void>()
+  const enrichPollCancelByThoughtId = new SvelteMap<string, () => void>()
   let backgroundEnrichingIds = $state<string[]>([])
   const enrichingThoughtIds = $derived(new Set(backgroundEnrichingIds))
 
@@ -506,13 +506,6 @@
     } finally {
       if (retryingThoughtId === thoughtId) retryingThoughtId = null
     }
-  }
-
-  function appendTranscript(current: string, transcript: string): string {
-    const next = transcript.trim()
-    if (!next) return current
-    const base = current.trim()
-    return base ? `${base} ${next}` : next
   }
 
   function applyQueueSnapshot(

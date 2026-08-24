@@ -1,25 +1,23 @@
+import { and, eq } from 'drizzle-orm'
+import { getDb } from '$lib/server/db'
+import { canonicalEntity, thought } from '$lib/server/db/schema'
 import {
   upsertEntityNode,
   upsertEntityRelationEdge,
   upsertMentionEdge,
   upsertThoughtNode,
 } from '$lib/server/graph/age'
-import { and, eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { canonicalEntity, thought } from '$lib/server/db/schema'
+import { createThoughtEmbeddings } from '$lib/server/llm/embedding'
+import {
+  graphAuthorProperty,
+  type MemoryAuthorship,
+} from '$lib/server/memory/authorship'
 import {
   extractEntityGraphBundle,
   extractEntityTriples,
   type ExtractedEntityMention,
   type ExtractedEntityTriple,
 } from '$lib/server/memory/entity-extraction'
-import {
-  resolveOrCreateCanonicalEntity,
-  clearEntityResolutionLogsForThought,
-} from '$lib/server/memory/entity-resolution'
-import { createThoughtEmbeddings } from '$lib/server/llm/embedding'
-import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints'
-import { loadEligibleGtdProjects } from '$lib/server/memory/project-list'
 import {
   filterAcceptedEntityTriples,
   resolveTripleEndpointEntityId,
@@ -29,14 +27,16 @@ import {
   loadEntityGraphEnrichmentContext,
   type EntityGraphEnrichmentContext,
 } from '$lib/server/memory/entity-graph-enrichment-context'
-import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
+import { loadEntityHintsForThought } from '$lib/server/memory/entity-graph-hints'
+import {
+  resolveOrCreateCanonicalEntity,
+  clearEntityResolutionLogsForThought,
+} from '$lib/server/memory/entity-resolution'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { loadEligibleGtdProjects } from '$lib/server/memory/project-list'
 import { evaluateHubsForGtdPromotion } from '$lib/server/memory/promote-eligible-project-hubs'
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import {
-  graphAuthorProperty,
-  type MemoryAuthorship,
-} from '$lib/server/memory/authorship'
+import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 
 function logStep(thoughtId: string, name: string, start: number): void {
   console.info(`[entity-graph-sync] ${name} done`, { thoughtId, ms: Date.now() - start })

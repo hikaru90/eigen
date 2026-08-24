@@ -1,11 +1,11 @@
-import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { randomBytes } from 'node:crypto'
+import { json, error } from '@sveltejs/kit'
+import { eq, and, desc } from 'drizzle-orm'
+import type { SignatureMode } from '$lib/server/agents/sign'
+import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { inboundWebhookSubscription } from '$lib/server/db/schema'
-import { eq, and, desc } from 'drizzle-orm'
-import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { createHmac, randomBytes } from 'node:crypto'
-import type { SignatureMode } from '$lib/server/agents/sign'
 
 export type InboundWebhookSubscriptionResponse = {
   id: string

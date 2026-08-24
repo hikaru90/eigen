@@ -1,8 +1,8 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
+import { desc, eq, sql, and } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { chatSession, chatMessage } from '$lib/server/db/brain.schema'
-import { desc, eq, sql, and } from 'drizzle-orm'
 
 export const GET: RequestHandler = async (event) => {
   const user = event.locals.user

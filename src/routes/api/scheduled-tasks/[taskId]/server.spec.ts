@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { DELETE, PATCH, POST } from './+server'
 import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants'
+import { DELETE, PATCH, POST } from './+server'
 
 const {
   setUserScheduledTaskPausedMock,

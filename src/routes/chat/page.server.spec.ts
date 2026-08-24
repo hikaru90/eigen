@@ -20,8 +20,8 @@ vi.mock('$lib/server/billing/wallet', () => ({
   getWalletSnapshot: getWalletSnapshotMock,
 }))
 
-import { load } from './+page.server'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
+import { load } from './+page.server'
 
 describe('chat page server load', () => {
   beforeEach(() => {

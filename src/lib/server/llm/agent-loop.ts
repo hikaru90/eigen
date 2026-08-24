@@ -1,28 +1,28 @@
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { logActivityCall } from '$lib/server/activity/log-call'
+import type { ChatStreamEvent } from '$lib/chat/chat-stream-types'
+import { isUnpresentableFinalAnswer } from '$lib/chat/chat-stream-types'
 import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers'
+import { logActivityCall } from '$lib/server/activity/log-call'
 import { getDb } from '$lib/server/db'
+import type { ChatSessionMode } from '$lib/server/db/brain.schema'
+import {
+  formatToolResultForAgentMessage,
+  formatToolResultPreview,
+} from '$lib/server/llm/agent-tool-result-compact'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import {
   buildAgentToolDescriptionBlock,
   isAgentTool,
   MCP_AGENT_TOOL_NAMES,
   MCP_TOOL_MAP,
 } from '$lib/server/mcp/registry'
-import type { ChatSessionMode } from '$lib/server/db/brain.schema'
 import type { McpToolContext } from '$lib/server/mcp/tools'
-import type { ChatStreamEvent } from '$lib/chat/chat-stream-types'
-import { isUnpresentableFinalAnswer } from '$lib/chat/chat-stream-types'
 import { redactForLog } from '$lib/server/observability/redact-for-log'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
-import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
-import {
-  formatToolResultForAgentMessage,
-  formatToolResultPreview,
-} from '$lib/server/llm/agent-tool-result-compact'
 import {
   formatComposedAnswerForUser,
   type ComposedAnswer,
 } from '$lib/server/qa/compose-answer'
+import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 
 const MAX_ITERATIONS = 8
 const MAX_PARSE_RETRIES = 3
@@ -446,7 +446,6 @@ export async function agentChat(input: {
       continue
     }
 
-    parseFailureCount = 0
     messages.push({ role: 'assistant', content })
     return { response: parsed.content, messages }
   }

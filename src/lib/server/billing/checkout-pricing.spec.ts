@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { computeTopUpCheckout } from '$lib/billing/top-up-checkout'
 import {
   CHECKOUT_GROSS_TOLERANCE_CENTS,
   netCoversPlatformSubtotal,
   usdStringsMatchWithinTolerance,
 } from './checkout-pricing'
-import { computeTopUpCheckout } from '$lib/billing/top-up-checkout'
 
 describe('checkout-pricing (server helpers)', () => {
   it('matches USD strings within cent tolerance', () => {

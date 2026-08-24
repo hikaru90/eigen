@@ -7,10 +7,10 @@
  */
 
 import { and, eq, isNotNull } from 'drizzle-orm'
+import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, entityResolutionLog, thought } from '$lib/server/db/schema'
 import { fetchEntityEdgesForUser, upsertEntityRelationEdge } from '$lib/server/graph/age'
-import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges'
 import {
   extractEntityTriples,
   type ExtractedEntityMention,

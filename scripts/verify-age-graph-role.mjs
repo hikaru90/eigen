@@ -4,8 +4,8 @@
  */
 import './load-env.mjs'
 import postgres from 'postgres'
-import { getDatabaseUrl } from './db-urls.mjs'
 import { quoteIdent } from './age-graph-grants.mjs'
+import { getDatabaseUrl } from './db-urls.mjs'
 
 const AGE_SEARCH_PATH = 'ag_catalog, "$user", public'
 

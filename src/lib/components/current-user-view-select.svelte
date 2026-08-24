@@ -1,23 +1,23 @@
 <script lang="ts">
+  import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import { onMount } from 'svelte'
   import { page } from '$app/state'
-  import * as Popover from '$lib/components/ui/popover'
   import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte'
-  import ChevronDown from '@lucide/svelte/icons/chevron-down'
+  import * as Popover from '$lib/components/ui/popover'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
-  import { viewKind, viewLabel, type CurrentUserView } from '$lib/memory/current-user-view'
-  import {
-    getCurrentUserView,
-    setCurrentUserView,
-    subscribeCurrentUserView,
-  } from '$lib/stores/current-user-view.svelte'
   import { GRAPH_FILTER_GLASS_POPOVER } from '$lib/graph/graph-filter-chrome'
-  import { m } from '$lib/paraglide/messages.js'
   import {
     authorAgentLegendIconFrameClass,
     authorLegendItemClassForLayer,
     authorLegendItemStateClass,
   } from '$lib/memory/author-layer-chrome'
+  import { viewKind, viewLabel, type CurrentUserView } from '$lib/memory/current-user-view'
+  import { m } from '$lib/paraglide/messages.js'
+  import {
+    getCurrentUserView,
+    setCurrentUserView,
+    subscribeCurrentUserView,
+  } from '$lib/stores/current-user-view.svelte'
 
   let open = $state(false)
 

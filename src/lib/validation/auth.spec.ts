@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { signInSchema, signUpSchema } from './auth'
+import {
+  forgotPasswordSchema,
+  resendVerificationSchema,
+  resetPasswordSchema,
+  signInSchema,
+  signUpSchema,
+} from './auth'
 
 describe('signUpSchema', () => {
   const valid = {
@@ -56,5 +62,29 @@ describe('signUpSchema', () => {
 describe('signInSchema', () => {
   it('does not require terms acceptance', () => {
     expect(signInSchema.safeParse({ email: 'a@b.co', password: 'x' }).success).toBe(true)
+  })
+})
+
+describe('forgotPasswordSchema', () => {
+  it('requires a valid email', () => {
+    expect(forgotPasswordSchema.safeParse({ email: 'a@b.co' }).success).toBe(true)
+    expect(forgotPasswordSchema.safeParse({ email: 'nope' }).success).toBe(false)
+  })
+})
+
+describe('resetPasswordSchema', () => {
+  it('requires token and password of at least 8 characters', () => {
+    expect(
+      resetPasswordSchema.safeParse({ password: 'pass1234', token: 'tok' }).success,
+    ).toBe(true)
+    expect(resetPasswordSchema.safeParse({ password: 'short', token: 'tok' }).success).toBe(false)
+    expect(resetPasswordSchema.safeParse({ password: 'pass1234', token: '' }).success).toBe(false)
+  })
+})
+
+describe('resendVerificationSchema', () => {
+  it('requires a valid email', () => {
+    expect(resendVerificationSchema.safeParse({ email: 'a@b.co' }).success).toBe(true)
+    expect(resendVerificationSchema.safeParse({ email: '' }).success).toBe(false)
   })
 })

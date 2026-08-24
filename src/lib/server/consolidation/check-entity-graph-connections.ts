@@ -5,8 +5,8 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity } from '$lib/server/db/schema'
-import { loadOntologyForUser } from '$lib/server/ontology-db/load-ontology'
 import { deleteEntityRelationEdge, fetchEntityEdgesForUser } from '$lib/server/graph/age'
+import { loadOntologyForUser } from '$lib/server/ontology-db/load-ontology'
 
 export type CheckEntityGraphConnectionsResult = {
   scanned: number

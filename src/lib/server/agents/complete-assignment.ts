@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
+import { queueCapture } from '$lib/server/capture/queue-capture'
 import { getDb } from '$lib/server/db'
 import { agentTaskAssignment, connectedAgent } from '$lib/server/db/schema'
-import { queueCapture } from '$lib/server/capture/queue-capture'
 
 export type CompleteAgentAssignmentInput = {
   userId: string

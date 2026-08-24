@@ -1,6 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { userJobQueue } from '$lib/server/db/schema'
 import {
   loadActiveHeartbeatRun,
   recoverOrphanedHeartbeatRun,
@@ -10,9 +9,10 @@ import {
   cancelUserHeartbeat,
   getInProcessHeartbeatRunId,
 } from '$lib/server/consolidation/heartbeat-worker'
-import { OVERNIGHT_CONSOLIDATION_JOB } from './constants'
-import { createAdminSql } from './admin-db'
+import { userJobQueue } from '$lib/server/db/schema'
 import { isOvernightJobActiveInProcess } from './active-overnight-jobs'
+import { createAdminSql } from './admin-db'
+import { OVERNIGHT_CONSOLIDATION_JOB } from './constants'
 
 const ORPHAN_JOB_MESSAGE = 'Interrupted before completion (server reload or crash).'
 const STOPPED_JOB_MESSAGE = 'Stopped by user.'

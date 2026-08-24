@@ -4,6 +4,11 @@
  * community artifacts on the same row — see docs/planning/ingest-retrieval-timing.md.
  */
 import { and, asc, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm'
+import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate'
+import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker'
+import { normalizeThoughtText } from '$lib/server/capture/service'
+import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
 import {
   captureSession,
   thought,
@@ -11,19 +16,14 @@ import {
   type EnrichQueueStatus,
   type MemoryAuthor,
 } from '$lib/server/db/schema'
-import { getDb } from '$lib/server/db'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { upsertThoughtNode } from '$lib/server/graph/age'
-import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
-import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { assertCapturePipelineAffordable } from '$lib/server/billing/usage-gate'
-import { normalizeThoughtText } from '$lib/server/capture/service'
-import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker'
 import {
   resolveMemoryAuthorship,
   authorshipInsertValues,
   graphAuthorProperty,
 } from '$lib/server/memory/authorship'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 
 /** Placeholder category until background worker classifies. */
 export const QUEUE_PLACEHOLDER_CATEGORY = 'observation'

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from '$lib/paraglide/messages.js'
   import type { NowSegment } from './temporal-events-utils'
+  import { m } from '$lib/paraglide/messages.js'
 
   type TimelineSegmentTabCounts = {
     todo: number

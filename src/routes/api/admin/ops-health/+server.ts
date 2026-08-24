@@ -5,8 +5,8 @@
  * Authenticated with X-Admin-Key (same as consolidation / reminder dispatch).
  */
 
-import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json, error } from '@sveltejs/kit'
 import { env } from '$env/dynamic/private'
 import { loadOpsHealthSnapshot } from '$lib/server/ops/health-snapshot'
 

@@ -1,6 +1,6 @@
+import type { ProgressEvent } from './consume-capture-ndjson'
 import type { CaptureIngestPhase } from './ingest-phases'
 import { CAPTURE_INGEST_PHASE_COPY } from './ingest-phases'
-import type { ProgressEvent } from './consume-capture-ndjson'
 
 export function totalPipelineSteps(
   pipeline: Array<CaptureIngestPhase | CaptureIngestPhase[]>,

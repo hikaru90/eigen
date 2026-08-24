@@ -1,14 +1,14 @@
 <script lang="ts">
-  import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
-  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
-  import CaptureStepRing from '$lib/components/capture-step-ring.svelte'
   import {
     captureQueueStatusLine,
     captureQueueStatusText,
     totalPipelineSteps,
   } from '$lib/capture/capture-progress'
+  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
+  import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
+  import CaptureStepRing from '$lib/components/capture-step-ring.svelte'
 
-  interface Props {
+  type Props = {
     processing: boolean
     pendingCount: number
     events: ProgressEvent[]

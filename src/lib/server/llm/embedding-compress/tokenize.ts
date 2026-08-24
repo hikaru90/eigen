@@ -46,7 +46,7 @@ const RULES: RulePattern[] = [
   },
 ]
 
-interface Span {
+type Span = {
   start: number
   end: number
   kind: SegmentKind

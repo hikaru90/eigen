@@ -1,14 +1,14 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { GROUNDING_FACET_KEY_SET, type GroundingFacetKey } from '$lib/server/grounding/constants'
 import { generateCheckInQuestion } from '$lib/server/grounding/next-check-in'
 import { getOnboardingWelcomeQuestionIfAvailable } from '$lib/server/grounding/onboarding-welcome-push'
+import { loadGroundingProfileRow, saveGroundingQuestionAnswer } from '$lib/server/grounding/profile'
+import { clearPendingCheckIn } from '$lib/server/grounding/push-throttle'
 import {
   isCheckInQuestionDue,
   touchCheckInQuestionPrompt,
 } from '$lib/server/grounding/question-due'
-import { loadGroundingProfileRow, saveGroundingQuestionAnswer } from '$lib/server/grounding/profile'
-import { clearPendingCheckIn } from '$lib/server/grounding/push-throttle'
 import {
   applyRelevanceCheckInAnswer,
   type RelevanceCheckInAction,

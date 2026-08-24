@@ -5,9 +5,8 @@
  * are accepted for API compatibility but the unified precomputed path is always used.
  */
 
-import { retrieveEvidence } from '$lib/server/retrieval/retrieve-evidence'
-
 import type { MemoryAuthor } from '$lib/server/db/schema'
+import { retrieveEvidence } from '$lib/server/retrieval/retrieve-evidence'
 
 export type RetrievalResult = {
   id: string

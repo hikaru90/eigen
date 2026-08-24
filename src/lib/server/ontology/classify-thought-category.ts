@@ -1,18 +1,18 @@
 import { desc, eq } from 'drizzle-orm'
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { getDb } from '$lib/server/db'
-import { thought, userOntology } from '$lib/server/db/schema'
-import { loadOntologyForUser, validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db'
-import { ontologyKindsPromptBlock, parseOntologyProfileJson } from './types'
 import {
   capturePrimaryPromptBlock,
   groundingSupplementaryPromptBlock,
 } from '$lib/server/capture/enrichment-prompt-sections'
+import { getDb } from '$lib/server/db'
+import { thought, userOntology } from '$lib/server/db/schema'
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
-import { extractChatContent, userMessage } from './llm-json'
-import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import { loadOntologyForUser, validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db'
+import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants'
+import { extractChatContent, userMessage } from './llm-json'
+import { ontologyKindsPromptBlock, parseOntologyProfileJson } from './types'
 
 function logOntology(...args: Parameters<typeof console.info>): void {
   if (!isGraphScaleQuiet()) console.info(...args)

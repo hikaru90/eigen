@@ -1,11 +1,11 @@
+import type { CheckAssertionResult, QaRetrievalRelevant } from './qa-types'
 import { loadEvalQa, updateEvalQa } from '../../src/lib/eval/qa-store'
-import { resolveChecks } from './qa-checks'
 import {
   buildRetrievalRelevantPrunePlan,
   ingestBrokenFixtureIdsFromAssertions,
   type RetrievalRelevantPrunePlan,
 } from './prune-retrieval-relevant'
-import type { CheckAssertionResult, QaRetrievalRelevant } from './qa-types'
+import { resolveChecks } from './qa-checks'
 
 export function qaIdFromRetrievalFixtureRef(fixtureRef: string | null | undefined): string | null {
   if (!fixtureRef?.endsWith('_retrieval')) return null

@@ -1,8 +1,8 @@
+import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
 import * as THREE from 'three'
 import { MOUSE, TOUCH } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
-import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
 import { isEmbeddingItemVisibleByAuthorLayers } from '$lib/graph/graph-author-layers'
 
 export type EmbeddingMap3dPoint = {

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { setLocale } from '$lib/paraglide/runtime'
   import { m } from '$lib/paraglide/messages.js'
+  import { setLocale } from '$lib/paraglide/runtime'
 </script>
 
 <h1>{m.hello_world({ name: 'SvelteKit User' })}</h1>
@@ -15,7 +15,8 @@
 
   <a
     href="https://marketplace.visualstudio.com/items?itemName=inlang.vs-code-extension"
-    target="_blank">Sherlock i18n extension</a
+    target="_blank"
+    rel="noopener noreferrer">Sherlock i18n extension</a
   >
 
   for a better i18n experience.

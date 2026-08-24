@@ -24,19 +24,21 @@ type PayPalSdkInstance = {
   }) => PayPalPaymentSession
 }
 
-declare global {
-  interface Window {
-    paypal?: {
-      createInstance: (options: {
-        clientId: string
-        components?: string[]
-        pageType?: string
-        locale?: string
-        clientMetadataId?: string
-        merchantId?: string
-      }) => Promise<PayPalSdkInstance>
-    }
+type PayPalWindow = typeof globalThis & {
+  paypal?: {
+    createInstance: (options: {
+      clientId: string
+      components?: string[]
+      pageType?: string
+      locale?: string
+      clientMetadataId?: string
+      merchantId?: string
+    }) => Promise<PayPalSdkInstance>
   }
+}
+
+function paypalWindow(): PayPalWindow {
+  return globalThis as PayPalWindow
 }
 
 /** Ensures concurrent callers await the same load + API availability. */
@@ -84,7 +86,7 @@ function waitForCreateInstance(timeoutMs = 20_000, intervalMs = 50): Promise<voi
   const deadline = Date.now() + timeoutMs
   return new Promise((resolve, reject) => {
     function tick() {
-      const fn = typeof window !== 'undefined' ? window.paypal?.createInstance : undefined
+      const fn = typeof window !== 'undefined' ? paypalWindow().paypal?.createInstance : undefined
       if (typeof fn === 'function') {
         resolve()
         return
@@ -148,7 +150,7 @@ export async function initPayPalCheckout(input: {
 }): Promise<() => void> {
   await loadPayPalSdkScript(input.sdkUrl)
 
-  const paypal = window.paypal
+  const paypal = paypalWindow().paypal
   if (!paypal?.createInstance) {
     throw new Error('PayPal SDK is not initialized')
   }

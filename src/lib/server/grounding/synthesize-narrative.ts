@@ -1,9 +1,9 @@
-import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import type { ChatMessage } from '$lib/server/llm/llm-client'
 import {
   GROUNDING_FACET_KEYS,
   GROUNDING_NARRATIVE_MAX_CHARS,
 } from '$lib/server/grounding/constants'
+import { llmChatCompletion } from '$lib/server/llm/llm-client'
+import type { ChatMessage } from '$lib/server/llm/llm-client'
 
 function extractChatContent(response: unknown): string {
   const r = response as { choices?: Array<{ message?: { content?: string } }> }

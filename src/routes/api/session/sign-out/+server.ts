@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
 import { auth } from '$lib/server/auth'
 
 /** Outside `/api/auth` so `svelteKitHandler` does not intercept; uses Better Auth server API + request cookies. */

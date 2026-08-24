@@ -1,8 +1,8 @@
-import type { AgentSubscribableEventType, AgentWebhookEventType } from '$lib/server/db/schema'
 import {
   AGENT_SUBSCRIBABLE_EVENTS as SHARED_SUBSCRIBABLE,
   AGENT_EVENT_LABELS as SHARED_LABELS,
 } from '$lib/agents/constants'
+import type { AgentSubscribableEventType, AgentWebhookEventType } from '$lib/server/db/schema'
 
 export const WEBHOOK_DELIVERY_JOB = 'webhook_delivery' as const
 

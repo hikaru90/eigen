@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProjectListItem } from '$lib/server/memory/project-list'
 import { MAX_LIST_LIMIT } from '$lib/server/memory/temporal-event-list'
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
-import type { ProjectListItem } from '$lib/server/memory/project-list'
 
 const { listTemporalEventsForUserMock, listProjectsByEntityIdsMock } = vi.hoisted(() => ({
   listTemporalEventsForUserMock: vi.fn(),

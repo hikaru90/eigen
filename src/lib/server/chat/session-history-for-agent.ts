@@ -1,5 +1,5 @@
-import type { ChatMessage } from '$lib/server/llm/llm-client'
 import type { PersistedChatMessage } from '$lib/chat/normalize-messages'
+import type { ChatMessage } from '$lib/server/llm/llm-client'
 
 /** Soft cap so long sessions do not blow the agent context window. */
 export const DEFAULT_AGENT_HISTORY_CHAR_BUDGET = 24_000

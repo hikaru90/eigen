@@ -23,11 +23,11 @@
  * Usage: node scripts/migrate.mjs
  */
 import './load-env.mjs'
-import postgres from 'postgres'
 import { createHash } from 'crypto'
 import { readFileSync, readdirSync } from 'fs'
-import { fileURLToPath } from 'url'
 import path from 'path'
+import { fileURLToPath } from 'url'
+import postgres from 'postgres'
 import { getDatabaseUrl } from './db-urls.mjs'
 
 const urlString = getDatabaseUrl()

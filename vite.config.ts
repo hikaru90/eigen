@@ -1,8 +1,8 @@
 import { paraglideVitePlugin } from '@inlang/paraglide-js'
-import { svelteKitPwaForVite8 } from './src/lib/build/sveltekit-pwa-vite8'
+import { sveltekit } from '@sveltejs/kit/vite'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vitest/config'
-import { sveltekit } from '@sveltejs/kit/vite'
+import { svelteKitPwaForVite8 } from './src/lib/build/sveltekit-pwa-vite8'
 
 /** Watch / file-scoped re-runs only instrument a subset; thresholds would false-fail. */
 const enforceCoverageThresholds = process.env.CI === 'true' || process.argv.includes('run')

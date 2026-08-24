@@ -11,10 +11,10 @@
  */
 
 import { and, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm'
+import { clipThoughtSample, type HeartbeatJobSample } from '$lib/consolidation/heartbeat-job-report'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
-import { clipThoughtSample, type HeartbeatJobSample } from '$lib/consolidation/heartbeat-job-report'
 
 /** Daily decay multiplier per inactive day beyond the grace window. */
 export const DECAY_FACTOR_PER_DAY = 0.97

@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { thought } from '$lib/server/db/schema'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { rotateTenantDek } from '$lib/server/crypto/tenant-keys'
+import { getDb } from '$lib/server/db'
+import { thought } from '$lib/server/db/schema'
 
 export async function rotateTenantEncryptedThoughtData(
   userId: string,

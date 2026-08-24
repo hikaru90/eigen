@@ -1,5 +1,5 @@
-import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
+import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 
 export type { CaptureSubmitResult }
 

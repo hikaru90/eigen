@@ -1,14 +1,14 @@
 <script lang="ts">
+  import type { ActionData, PageData } from './$types'
+  import Check from '@lucide/svelte/icons/check'
   import { enhance } from '$app/forms'
   import { afterNavigate } from '$app/navigation'
-  import { page } from '$app/state'
   import { resolve } from '$app/paths'
-  import type { ActionData, PageData } from './$types'
+  import { page } from '$app/state'
+  import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import { Button } from '$lib/components/ui/button'
   import { Label } from '$lib/components/ui/label'
   import * as Tabs from '$lib/components/ui/tabs'
-  import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
-  import Check from '@lucide/svelte/icons/check'
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
 
@@ -178,7 +178,7 @@
         method="post"
         action="?/saveModelConfig"
         use:enhance={() => {
-          return async ({ result, update }) => {
+          return async ({ update }) => {
             await update()
           }
         }}

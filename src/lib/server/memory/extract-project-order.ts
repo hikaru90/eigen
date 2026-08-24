@@ -1,6 +1,6 @@
+import { m } from '$lib/paraglide/messages.js'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { m } from '$lib/paraglide/messages.js'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
 export type ProjectOrderOpenTask = {

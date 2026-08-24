@@ -1,14 +1,15 @@
+import type { EvalRetrievalQuery, QaChecks } from './qa-types'
+import type { CheckAssertionResult } from './qa-types'
 /**
  * DB-backed eval runner: one entry at a time through real capture / retrieval / answer paths.
  */
 import { and, eq, inArray } from 'drizzle-orm'
-import { user } from '$lib/server/db/auth.schema'
-import { captureThought, editStoredThought } from '$lib/server/capture/service'
-import { reenrichThought } from '$lib/server/capture/enrich'
-import { composeAnswer } from '$lib/server/qa/compose-answer'
-import { getDb } from '$lib/server/db'
-import { thought } from '$lib/server/db/brain.schema'
-import type { EvalEntry } from '$lib/server/db/brain.schema'
+import { aggregateRunScores, isRunScorePassing } from '$lib/eval/display'
+import {
+  EvalRunStoppedError,
+  assertEvalRunNotStopped,
+  isEvalRunStopRequested,
+} from '$lib/eval/run-cancel'
 import {
   appendEvalEvent,
   deleteEvalUserRow,
@@ -22,30 +23,31 @@ import {
   upsertThoughtMap,
   type CorpusFixtureRef,
 } from '$lib/eval/store'
-import { logEval, withEvalDb, type WithEvalDbOptions } from './eval-context'
-import { EVAL_JUDGE_USER_ID } from './eval-config'
-import { shouldReuseCorpusCapture } from './corpus-reuse'
-import { buildCaptureFidelityJudgeInput } from './capture-eval-fidelity-input'
-import { judgeCaptureFidelity } from './capture-fidelity'
-import { judgeAnswerAcceptance } from './judge-acceptance'
-import { runRetrievalSweepForQuery } from './retrieval-sweep'
-import type { EvalRetrievalQuery, QaChecks } from './qa-types'
-import { captureEvalGraphSnapshot } from './graph-snapshot'
+import type { EvalEntrySummary, EvalSynthesis } from '$lib/eval/types'
+import { runWithTrace } from '$lib/server/activity/trace-context'
+import { reenrichThought } from '$lib/server/capture/enrich'
+import { captureThought, editStoredThought } from '$lib/server/capture/service'
+import { getDb } from '$lib/server/db'
+import { user } from '$lib/server/db/auth.schema'
+import { thought } from '$lib/server/db/brain.schema'
+import type { EvalEntry } from '$lib/server/db/brain.schema'
+import { composeAnswer } from '$lib/server/qa/compose-answer'
 import {
   ingestBrokenFromCheckAssertions,
   qaIdFromRetrievalFixtureRef,
   runtimeRetrievalRelevant,
 } from './auto-retrieval-prune'
+import { buildCaptureFidelityJudgeInput } from './capture-eval-fidelity-input'
+import { judgeCaptureFidelity } from './capture-fidelity'
+import { mapWithConcurrency, resolveEvalEntryConcurrency } from './concurrency'
 import { assessCorpusThoughtReuseHealth, invalidateCorpusFixture } from './corpus-fixture-health'
-import { runStructuralChecks } from './qa-checks'
-import type { CheckAssertionResult } from './qa-types'
-import {
-  assertThoughtEntitiesResolved,
-  fixtureIdsRequiringEnrichment,
-  loadThoughtEnrichmentTargets,
-  waitForThoughtEnrichment,
-  waitForThoughtEnrichmentComplete,
-} from './wait-enrichment'
+import { shouldReuseCorpusCapture } from './corpus-reuse'
+import { storedTextReflectsEdit } from './edit-verification'
+import { resolveEntryTimeoutMs, withEvalEntryTimeout } from './entry-timeout'
+import { EVAL_JUDGE_USER_ID } from './eval-config'
+import { logEval, withEvalDb, type WithEvalDbOptions } from './eval-context'
+import { collectNextWave } from './eval-waves'
+import { captureEvalGraphSnapshot } from './graph-snapshot'
 import {
   allBrokenFixtureIds,
   fixtureIdsRequiringEntityResolution,
@@ -54,19 +56,17 @@ import {
   resetEvalEntriesForRetry,
   resolveIngestRetryMax,
 } from './ingest-retry'
-import { storedTextReflectsEdit } from './edit-verification'
-import { mapWithConcurrency, resolveEvalEntryConcurrency } from './concurrency'
-import { collectNextWave } from './eval-waves'
-import {
-  EvalRunStoppedError,
-  assertEvalRunNotStopped,
-  isEvalRunStopRequested,
-} from '$lib/eval/run-cancel'
-import { resolveEntryTimeoutMs, withEvalEntryTimeout } from './entry-timeout'
+import { judgeAnswerAcceptance } from './judge-acceptance'
+import { runStructuralChecks } from './qa-checks'
+import { runRetrievalSweepForQuery } from './retrieval-sweep'
 import { generateRunSynthesis, type EntrySummary } from './synthesis'
-import { aggregateRunScores, isRunScorePassing } from '$lib/eval/display'
-import type { EvalEntrySummary, EvalSynthesis } from '$lib/eval/types'
-import { runWithTrace } from '$lib/server/activity/trace-context'
+import {
+  assertThoughtEntitiesResolved,
+  fixtureIdsRequiringEnrichment,
+  loadThoughtEnrichmentTargets,
+  waitForThoughtEnrichment,
+  waitForThoughtEnrichmentComplete,
+} from './wait-enrichment'
 
 function evalBillingOpts(operatorUserId: string): WithEvalDbOptions {
   return { billingUserId: operatorUserId }
@@ -186,52 +186,6 @@ async function tryReuseCorpusCapture(input: {
       explanation: 'Reused existing corpus capture',
     },
   }
-}
-
-async function completeEvalEntry(input: {
-  operatorUserId: string
-  runId: string
-  entry: EvalEntry
-  startedAt: Date
-  outcome: { passed: boolean; result: Record<string, unknown> }
-}): Promise<void> {
-  const durationMs = Date.now() - input.startedAt.getTime()
-  await updateEvalEntry(input.operatorUserId, input.entry.id, {
-    status: 'completed',
-    passed: input.outcome.passed,
-    resultJson: input.outcome.result,
-    durationMs,
-    finishedAt: new Date(),
-  })
-  await appendEvalEvent({
-    operatorUserId: input.operatorUserId,
-    runId: input.runId,
-    entryId: input.entry.id,
-    message: `entry done: passed=${input.outcome.passed} (${durationMs}ms)`,
-  })
-}
-
-async function failEvalEntry(input: {
-  operatorUserId: string
-  runId: string
-  entry: EvalEntry
-  startedAt: Date
-  error: string
-}): Promise<void> {
-  await updateEvalEntry(input.operatorUserId, input.entry.id, {
-    status: 'failed',
-    passed: false,
-    error: input.error,
-    finishedAt: new Date(),
-    durationMs: Date.now() - input.startedAt.getTime(),
-  })
-  await appendEvalEvent({
-    operatorUserId: input.operatorUserId,
-    runId: input.runId,
-    entryId: input.entry.id,
-    level: 'error',
-    message: input.error,
-  })
 }
 
 // Batch capture removed: eval ingest now runs one-by-one to measure usability latency accurately.
@@ -415,7 +369,6 @@ async function runCheckEntry(input: {
     })
   }
 
-  const qaId = String(input.entry.inputJson.qaId ?? '').trim()
   const ingestBroken = ingestBrokenFromCheckAssertions(result.assertions)
   const corpusInvalidated = [...ingestBroken]
 
@@ -466,7 +419,7 @@ async function runRetrievalEntry(input: {
     ? await ingestBrokenForQaFromRun(input.operatorUserId, input.runId, qaId)
     : new Set<string>()
 
-  let needleFixtureIdFromExpected =
+  const needleFixtureIdFromExpected =
     typeof input.entry.expectedJson.needleFixtureId === 'string'
       ? input.entry.expectedJson.needleFixtureId
       : undefined
@@ -529,7 +482,7 @@ async function runRetrievalEntry(input: {
     typeof input.entry.expectedJson.minNdcgAt10 === 'number'
       ? input.entry.expectedJson.minNdcgAt10
       : 0.5
-  let needleFixtureId = needleFixtureIdFromExpected
+  const needleFixtureId = needleFixtureIdFromExpected
   const needleTopK =
     typeof input.entry.expectedJson.needleTopK === 'number'
       ? input.entry.expectedJson.needleTopK
@@ -767,8 +720,7 @@ async function runOneEntry(input: {
   const timeoutMs = resolveEntryTimeoutMs(input.entry.kind)
 
   try {
-    let outcome: { passed: boolean; result: Record<string, unknown> }
-    outcome = await withEvalEntryTimeout(timeoutMs, entryLabel, async () => {
+    const outcome = await withEvalEntryTimeout(timeoutMs, entryLabel, async () => {
       if (input.entry.kind === 'capture') {
         return runCaptureEntry(input)
       }

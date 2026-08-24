@@ -1,3 +1,4 @@
+import type { CaptureSubmitResult } from './capture-result-types'
 import { describe, expect, it } from 'vitest'
 import {
   isAgentAuthoredCapture,
@@ -6,7 +7,6 @@ import {
   recentThoughtPrimaryLabel,
   recentThoughtSecondaryLabel,
 } from './recent-thought-display'
-import type { CaptureSubmitResult } from './capture-result-types'
 
 const snippet = {
   id: 't1',

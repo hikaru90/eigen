@@ -1,6 +1,7 @@
+import type { EvalEntrySummary, EvalRunListItem, EvalRunSummary, EvalSynthesis } from './types'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { APP_VERSION } from '$lib/app-version'
-import { aggregateRunScores, resolveRunStatusFromScore } from './display'
+import { withDbUser } from '$lib/server/db'
 import {
   evalEntry,
   evalEvent,
@@ -11,9 +12,8 @@ import {
   type EvalRunStatus,
 } from '$lib/server/db/brain.schema'
 import { activityCallLog } from '$lib/server/db/brain.schema'
-import { getDb, withDbUser } from '$lib/server/db'
 import { evalCorpusUserId } from '../../../evals/harness/eval-config'
-import type { EvalEntrySummary, EvalRunListItem, EvalRunSummary, EvalSynthesis } from './types'
+import { aggregateRunScores, resolveRunStatusFromScore } from './display'
 
 export { evalCorpusUserId }
 

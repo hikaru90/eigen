@@ -1,15 +1,13 @@
 <script lang="ts">
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import BookmarkPlus from '@lucide/svelte/icons/bookmark-plus'
-  import List from '@lucide/svelte/icons/list'
-  import Search from '@lucide/svelte/icons/search'
-  import Sparkles from '@lucide/svelte/icons/sparkles'
-  import PencilLine from '@lucide/svelte/icons/pencil-line'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
   import Bot from '@lucide/svelte/icons/bot'
   import CheckIcon from '@lucide/svelte/icons/check'
-  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
-  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
+  import List from '@lucide/svelte/icons/list'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import PencilLine from '@lucide/svelte/icons/pencil-line'
+  import Search from '@lucide/svelte/icons/search'
+  import Sparkles from '@lucide/svelte/icons/sparkles'
+  import Trash2 from '@lucide/svelte/icons/trash-2'
   import {
     toolLabel,
     toolStatusBadgeClasses,
@@ -18,6 +16,8 @@
     type ChatToolIcon,
     type ToolResultView,
   } from '$lib/chat/chat-stream-types'
+  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
+  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
 
   type Props = {
     tool: string

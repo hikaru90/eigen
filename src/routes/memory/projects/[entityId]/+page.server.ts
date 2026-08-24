@@ -1,7 +1,7 @@
-import { error, redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
-import { loadProjectDetail } from '$lib/server/memory/project-detail'
+import { error, redirect } from '@sveltejs/kit'
 import { parseProjectViewMode } from '$lib/memory/project-view-mode'
+import { loadProjectDetail } from '$lib/server/memory/project-detail'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 
 export const load: PageServerLoad = async (event) => {

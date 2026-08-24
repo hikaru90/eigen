@@ -1,43 +1,43 @@
 <script lang="ts">
+  import type { PageData } from './$types'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import PanelLeftClose from '@lucide/svelte/icons/panel-left-close'
+  import PanelRightClose from '@lucide/svelte/icons/panel-right-close'
+  import Plus from '@lucide/svelte/icons/plus'
+  import Redo2 from '@lucide/svelte/icons/redo-2'
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw'
+  import SendHorizontal from '@lucide/svelte/icons/send-horizontal'
+  import Square from '@lucide/svelte/icons/square'
+  import Trash2 from '@lucide/svelte/icons/trash-2'
   import { onMount } from 'svelte'
   import { fade, fly } from 'svelte/transition'
   import { browser } from '$app/environment'
+  import { resolve } from '$app/paths'
   import { page } from '$app/state'
-  import type { PageData } from './$types'
-  import { Button } from '$lib/components/ui/button'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import { Input } from '$lib/components/ui/input'
-  import * as Card from '$lib/components/ui/card'
-  import { Separator } from '$lib/components/ui/separator'
-  import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
-  import { GRAPH_FILTER_GLASS_ROW, graphFilterTriggerClass } from '$lib/graph/graph-filter-chrome'
-  import PanelRightClose from '@lucide/svelte/icons/panel-right-close'
-  import PanelLeftClose from '@lucide/svelte/icons/panel-left-close'
-  import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
-  import SendHorizontal from '@lucide/svelte/icons/send-horizontal'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import Plus from '@lucide/svelte/icons/plus'
-  import Trash2 from '@lucide/svelte/icons/trash-2'
-  import Redo2 from '@lucide/svelte/icons/redo-2'
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw'
-  import Square from '@lucide/svelte/icons/square'
-  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import type { Pathname } from '$app/types'
+  import { insufficientCreditsTopUpHint } from '$lib/billing/insufficient-credits'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
-  import ChatTimelineStep from '$lib/components/chat-timeline-step.svelte'
-  import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
-  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
+  import { sanitizeFinalAnswerText, toolLabel } from '$lib/chat/chat-stream-types'
   import {
     consumeChatNdjsonStream,
     type ChatProgressEvent,
     isInsufficientCreditsChatError,
   } from '$lib/chat/consume-chat-ndjson'
-  import { insufficientCreditsTopUpHint } from '$lib/billing/insufficient-credits'
-  import { sanitizeFinalAnswerText, toolLabel } from '$lib/chat/chat-stream-types'
   import {
     normalizeChatDisplay,
     sessionMessagesToChatEntries,
     type ChatDisplayEntry,
   } from '$lib/chat/normalize-messages'
+  import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
+  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
+  import ChatTimelineStep from '$lib/components/chat-timeline-step.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { Textarea } from '$lib/components/ui/textarea'
+  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import { GRAPH_FILTER_GLASS_ROW, graphFilterTriggerClass } from '$lib/graph/graph-filter-chrome'
+  import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
+  import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
   import {
     bumpInputEpoch,
     createInputEpoch,
@@ -58,7 +58,7 @@
 
   type TimelineEntry = Extract<ChatDisplayEntry, { variant: 'timeline' }>
 
-  let { data }: { data: PageData } = $props()
+  let { data: _data }: { data: PageData } = $props()
 
   const isBriefingMode = $derived(page.url.searchParams.get('mode') === 'briefing')
   const briefingPeriod = $derived(page.url.searchParams.get('period') ?? 'morning')
@@ -179,13 +179,6 @@
     if (next === el.scrollTop) return
     el.scrollTop = next
     e.preventDefault()
-  }
-
-  function appendTranscript(current: string, transcript: string): string {
-    const next = transcript.trim()
-    if (!next) return current
-    const base = current.trim()
-    return base ? `${base} ${next}` : next
   }
 
   function scrollToBottom() {
@@ -666,7 +659,7 @@
       {#if sessions.length === 0}
         <p class="text-muted-foreground px-2 py-8 text-center text-xs leading-relaxed">
           No conversations yet. Capture a thought first, then ask Eigen Mesh about it.
-          <a href="/capture" class="mt-2 block underline">Go to Capture</a>
+          <a href={resolve('/capture' as Pathname)} class="mt-2 block underline">Go to Capture</a>
         </p>
       {/if}
       {#each sessions as s (s.id)}

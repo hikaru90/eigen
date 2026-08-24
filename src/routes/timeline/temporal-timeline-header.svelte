@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from '$lib/paraglide/messages.js'
   import type { Snippet } from 'svelte'
+  import { m } from '$lib/paraglide/messages.js'
 
   type Props = {
     mode: 'tasks' | 'projects'

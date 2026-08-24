@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button'
   import XIcon from '@lucide/svelte/icons/x'
+  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
+  import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
   import type { CaptureQueueItem } from '$lib/capture/queue'
   import { captureQueueItemPreview, captureQueueStatusLabel } from '$lib/capture/queue/snapshot'
-  import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
-  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
   import IngestPhaseIndicator from '$lib/components/ingest-phase-indicator.svelte'
+  import { Button } from '$lib/components/ui/button'
 
-  interface TimestampedEvent {
+  type TimestampedEvent = {
     event: ProgressEvent
     arrivedAt: number
   }
 
-  interface Props {
+  type Props = {
     items: CaptureQueueItem[]
     processingId: string | null
     events: TimestampedEvent[]

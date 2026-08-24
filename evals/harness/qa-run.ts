@@ -1,7 +1,7 @@
+import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
+import type { ExpandedEvalEntry, QaCapture } from './qa-types'
 import { loadCorpus } from './dataset'
 import { checksAfterEdit, checksBeforeEdit } from './qa-checks'
-import type { ExpandedEvalEntry, QaCapture } from './qa-types'
-import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 
 /** Expand a Q&A test into capture steps + check + optional retrieval/edit + answer. */
 export function expandQa(qa: EvalQaRecord): ExpandedEvalEntry[] {

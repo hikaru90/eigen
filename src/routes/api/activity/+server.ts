@@ -1,13 +1,13 @@
-import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json } from '@sveltejs/kit'
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import {
   ACTIVITY_PAGE_LLM_PROVIDERS,
   AGENT_TOOL_ACTIVITY_PROVIDER,
 } from '$lib/server/activity/gateway-providers'
 import { loadActivitySpendSeries } from '$lib/server/activity/spend-series'
-import { activityCallLog } from '$lib/server/db/schema'
 import { getDb } from '$lib/server/db'
+import { activityCallLog } from '$lib/server/db/schema'
 
 const PAGE_SIZE = 20
 

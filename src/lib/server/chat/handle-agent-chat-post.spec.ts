@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { chatErrorTerminalPayload } from './handle-agent-chat-post'
 import { InsufficientCreditsError } from '$lib/server/billing/wallet'
+import { chatErrorTerminalPayload } from './handle-agent-chat-post'
 
 describe('chatErrorTerminalPayload', () => {
   it('includes insufficient_credits code for InsufficientCreditsError', () => {

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
+import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
-import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
 
 export async function isHarnessUser(userId: string): Promise<boolean> {
   const [row] = await authDb

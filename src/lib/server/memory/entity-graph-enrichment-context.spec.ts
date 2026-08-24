@@ -20,12 +20,12 @@ vi.mock('$lib/server/memory/entity-resolution', () => ({
   matchCanonicalEntitiesByEmbedding: matchCanonicalEntitiesByEmbeddingMock,
 }))
 
-const { getDbMock, selectMock, fromMock, whereMock, limitMock } = vi.hoisted(() => {
+const { getDbMock, selectMock, limitMock } = vi.hoisted(() => {
   const limitMock = vi.fn()
   const whereMock = vi.fn(() => ({ limit: limitMock }))
   const fromMock = vi.fn(() => ({ where: whereMock }))
   const selectMock = vi.fn(() => ({ from: fromMock }))
-  return { getDbMock: vi.fn(), selectMock, fromMock, whereMock, limitMock }
+  return { getDbMock: vi.fn(), selectMock, limitMock }
 })
 
 vi.mock('$lib/server/db', () => ({

@@ -1,30 +1,30 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { env } from '$env/dynamic/private'
 import { and, eq } from 'drizzle-orm'
-import { getDb, withDbUser } from '$lib/server/db'
-import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema'
+import { env } from '$env/dynamic/private'
 import { activityProviderForLlmConfig } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { resolveBillingUserId } from '$lib/server/billing/context'
-import { isByokBilling } from '$lib/server/billing/preferences'
 import {
   loadPlatformLlmConfig,
   loadPlatformOpenRouterSttConfig,
 } from '$lib/server/billing/platform-llm'
+import { isByokBilling } from '$lib/server/billing/preferences'
 import { withPlatformBilling } from '$lib/server/billing/usage-gate'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb, withDbUser } from '$lib/server/db'
+import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema'
+import { LlmHttpError } from '$lib/server/llm/errors'
 import {
   gatewayReportedCostUsdForLog,
   requireGatewayReportedCostUsd,
   type TokenUsage,
 } from '$lib/server/llm/gateway-cost'
-import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings'
-import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { LlmHttpError } from '$lib/server/llm/errors'
 import {
   assertEurouterGatewayConfigured,
   routingRuleLookupErrorMessage,
 } from '$lib/server/llm/llm-config-guard'
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings'
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 export {

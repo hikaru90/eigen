@@ -1,4 +1,5 @@
 import { and, asc, eq, isNotNull } from 'drizzle-orm'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
@@ -7,7 +8,6 @@ import {
   thought,
   thoughtEntity,
 } from '$lib/server/db/schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import {
   extractProjectTimeline,
   type ProjectTimelineExtraction,

@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { billingUserAsyncLocal, tenantUserAsyncLocal } from '$lib/server/billing/context'
+import type { SpendProbeThoughtRow } from '$lib/e2e/graph-scale-spend-trend'
+import { insertEvalUserRow } from '$lib/eval/store'
 import { runWithTrace } from '$lib/server/activity/trace-context'
 import {
   aggregateActivityCostByGroupId,
   aggregateUserActivityCost,
   type ActivityCostAggregate,
 } from '$lib/server/activity/trace-cost'
+import { billingUserAsyncLocal, tenantUserAsyncLocal } from '$lib/server/billing/context'
 import { captureThought } from '$lib/server/capture/service'
-import { insertEvalUserRow } from '$lib/eval/store'
-import { ensureHarnessCredentialAccount } from '$lib/server/e2e/harness-auth'
-import type { SpendProbeThoughtRow } from '$lib/e2e/graph-scale-spend-trend'
 import {
   appDbAsyncLocal,
   appReservedSqlAsyncLocal,
@@ -19,6 +18,7 @@ import {
   deactivateTenantDbSession,
   type AppDatabase,
 } from '$lib/server/db'
+import { ensureHarnessCredentialAccount } from '$lib/server/e2e/harness-auth'
 
 export type { SpendProbeThoughtRow, SpendTrend } from '$lib/e2e/graph-scale-spend-trend'
 export { computeSpendTrend } from '$lib/e2e/graph-scale-spend-trend'

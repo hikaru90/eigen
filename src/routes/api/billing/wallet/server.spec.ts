@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { GET } from './+server'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
+import { GET } from './+server'
 
 const { getBillingPreferencesMock, getOrCreateWalletMock } = vi.hoisted(() => ({
   getBillingPreferencesMock: vi.fn(),

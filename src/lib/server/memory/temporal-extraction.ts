@@ -1,6 +1,6 @@
+import { m } from '$lib/paraglide/messages.js'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload, stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { m } from '$lib/paraglide/messages.js'
 import {
   applyCaptureAnchoredMentions,
   parseTemporalMentions,

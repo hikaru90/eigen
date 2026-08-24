@@ -1,7 +1,7 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
-import { getOrCreateWallet } from '$lib/server/billing/wallet'
+import { redirect } from '@sveltejs/kit'
 import { ACTIVITY_PAGE_LLM_PROVIDERS } from '$lib/server/activity/gateway-providers'
+import { getOrCreateWallet } from '$lib/server/billing/wallet'
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {

@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
+import { computeSpendTrend } from '$lib/e2e/graph-scale-spend-trend'
 import {
   buildSpendPicnicProbeTexts,
   GRAPH_SCALE_SPEND_PICNIC_PROBE_MAX,
 } from '../../../evals/graph-scale/seed-corpus'
-import { computeSpendTrend } from '$lib/e2e/graph-scale-spend-trend'
-import { loginUser } from './test-helpers'
 import {
   captureThoughtThroughUi,
   fetchSpendProbeSnapshot,
@@ -19,6 +18,7 @@ import {
   writeGraphScaleSpendReport,
   type GraphScaleSpendReport,
 } from './graph-scale-spend-helpers'
+import { loginUser } from './test-helpers'
 
 function parseCaptureCount(): number {
   const raw = process.env.GRAPH_SCALE_SPEND_CAPTURES?.trim()

@@ -1,4 +1,6 @@
 import { goto } from '$app/navigation'
+import { resolve } from '$app/paths'
+import type { Pathname } from '$app/types'
 
 const PUSH_NAVIGATE_TYPE = 'PUSH_NAVIGATE'
 
@@ -27,7 +29,7 @@ export function startPushNavigationFromServiceWorker(): () => void {
 
   const onMessage = (event: MessageEvent) => {
     if (!isPushNavigateMessage(event.data)) return
-    void goto(event.data.url)
+    void goto(resolve(event.data.url as Pathname))
   }
 
   navigator.serviceWorker.addEventListener('message', onMessage)

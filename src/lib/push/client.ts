@@ -41,6 +41,7 @@ export async function getPushServiceWorkerRegistration(): Promise<ServiceWorkerR
       if (e instanceof Error && e.message.includes('virtual:pwa-register')) {
         throw new Error(
           'Service worker is not available. Reload the page once, then try enabling push again.',
+          { cause: e },
         )
       }
       throw e

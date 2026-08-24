@@ -49,3 +49,5 @@ opencode.json
 # Vitest browser failure artifacts
 .vitest-attachments/
 **/__screenshots__/
+
+.playwright-mcp

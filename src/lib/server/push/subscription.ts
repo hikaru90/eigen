@@ -144,7 +144,7 @@ export async function upsertPushSubscription(
         userId,
         message: reassignErr instanceof Error ? reassignErr.message : String(reassignErr),
       })
-      throw new Error(PUSH_SUBSCRIBE_USER_ERROR)
+      throw new Error(PUSH_SUBSCRIBE_USER_ERROR, { cause: reassignErr })
     }
   }
 }

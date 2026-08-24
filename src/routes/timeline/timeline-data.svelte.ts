@@ -1,6 +1,6 @@
-import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
-import type { ProjectListItem } from '$lib/server/memory/project-list'
 import type { CurrentUserView } from '$lib/memory/current-user-view'
+import type { ProjectListItem } from '$lib/server/memory/project-list'
+import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import { getCurrentUserView } from '$lib/stores/current-user-view.svelte'
 import {
   buildTimelineApiUrl,

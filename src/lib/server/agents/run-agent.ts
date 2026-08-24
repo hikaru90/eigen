@@ -1,9 +1,8 @@
-import { v4 as uuidv4 } from 'uuid'
-import { getDb } from '$lib/server/db'
-import { connectedAgent, thought, thoughtEntity, canonicalEntity } from '$lib/server/db/schema'
 import { eq, and } from 'drizzle-orm'
-import { llmChatCompletion } from '$lib/server/llm/llm-client'
+import { v4 as uuidv4 } from 'uuid'
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { connectedAgent, thought } from '$lib/server/db/schema'
 
 export type RunAgentInput = {
   userId: string

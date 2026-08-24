@@ -3,6 +3,9 @@
  * Run: node scripts/verify-eigen-credits.mjs
  */
 import 'dotenv/config'
+import { eq } from 'drizzle-orm'
+import { EVAL_OPERATOR_USER_ID } from '../evals/harness/eval-config.ts'
+import { withEvalDb } from '../evals/harness/eval-context.ts'
 import {
   creditsToPayPalUsdAmount,
   CREDITS_PER_USD,
@@ -15,11 +18,8 @@ import {
   creditFromPayment,
   assertCanAfford,
 } from '../src/lib/server/billing/wallet.ts'
-import { withEvalDb } from '../evals/harness/eval-context.ts'
-import { EVAL_OPERATOR_USER_ID } from '../evals/harness/eval-config.ts'
 import { authDb } from '../src/lib/server/db/auth-db.ts'
 import { user } from '../src/lib/server/db/auth.schema.ts'
-import { eq } from 'drizzle-orm'
 import { paymentOrder } from '../src/lib/server/db/schema.ts'
 const MAIN_USER = 'e1tyNF0tTYmwUsMAcIAwX0h3LLrcKPgd'
 

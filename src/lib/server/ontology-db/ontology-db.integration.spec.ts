@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { user } from '$lib/server/db/auth.schema'
 import {
   ontologyEntityKind,

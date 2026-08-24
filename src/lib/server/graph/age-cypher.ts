@@ -1,8 +1,8 @@
-import { env } from '$env/dynamic/private'
-import { getDb } from '$lib/server/db'
-import { logActivityCall } from '$lib/server/activity/log-call'
-import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import { sql } from 'drizzle-orm'
+import { env } from '$env/dynamic/private'
+import { logActivityCall } from '$lib/server/activity/log-call'
+import { getDb } from '$lib/server/db'
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 
 function requiredEnv(name: 'AGE_GRAPH_NAME'): string {
   const value = env[name]?.trim()

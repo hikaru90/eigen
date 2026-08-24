@@ -1,23 +1,40 @@
 import { and, eq } from 'drizzle-orm'
 import { captureThought, editStoredThought, listThoughts } from '$lib/server/capture/service'
-import { archiveThoughtForUser } from '$lib/server/memory/lifecycle'
+import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
-import { searchThoughts } from '$lib/server/retrieval/service'
-import { composeAnswer } from '$lib/server/qa/compose-answer'
-import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
-import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
-import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
-import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
-import { readThoughtIdFromToolArgs, validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args'
-import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 import { thoughtSnippet } from '$lib/server/mcp/snippet'
+import {
+  resolveMcpCaptureAuthorship,
+  type AuthenticatedApiKey,
+} from '$lib/server/memory/authorship'
+import { generateProjectPlan } from '$lib/server/memory/generate-project-plan'
+import { archiveThoughtForUser } from '$lib/server/memory/lifecycle'
+import {
+  listProjectsForUser,
+  createProject,
+  updateProjectLabel,
+  updateProjectStatus,
+  dismissProject,
+} from '$lib/server/memory/project-list'
+import { orderTaskInProject } from '$lib/server/memory/project-task-sequence'
+import {
+  listMilestonesForProject,
+  setProjectDeadline,
+  setProjectMilestone,
+} from '$lib/server/memory/project-timeline'
 import {
   compactTemporalFieldsForMcp,
   enhanceSnippetWithTemporalContext,
   loadTemporalContextByThoughtIds,
 } from '$lib/server/memory/temporal-context'
+import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
+import { composeAnswer } from '$lib/server/qa/compose-answer'
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
+import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
+import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
+import { searchThoughts } from '$lib/server/retrieval/service'
 import {
   appendTextFile,
   createTextFile,
@@ -29,25 +46,7 @@ import {
   unlinkTextFileFromThought,
   updateTextFile,
 } from '$lib/server/text-files/service'
-
-import {
-  resolveMcpCaptureAuthorship,
-  type AuthenticatedApiKey,
-} from '$lib/server/memory/authorship'
-import {
-  listProjectsForUser,
-  createProject,
-  updateProjectLabel,
-  updateProjectStatus,
-  dismissProject,
-} from '$lib/server/memory/project-list'
-import { orderTaskInProject } from '$lib/server/memory/project-task-sequence'
-import { generateProjectPlan } from '$lib/server/memory/generate-project-plan'
-import {
-  listMilestonesForProject,
-  setProjectDeadline,
-  setProjectMilestone,
-} from '$lib/server/memory/project-timeline'
+import { readThoughtIdFromToolArgs, validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args'
 
 export type McpToolProgress = {
   tool: string

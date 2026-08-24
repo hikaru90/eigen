@@ -2,9 +2,9 @@
  * LLM judge: bind a delete request to one or more retrieve candidates (or none).
  */
 
+import { STRONG_RETRIEVE_MATCH_MIN } from '$lib/server/llm/agent-tool-result-compact'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
-import { STRONG_RETRIEVE_MATCH_MIN } from '$lib/server/llm/agent-tool-result-compact'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
 
 export type DeleteTargetCandidate = {

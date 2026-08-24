@@ -44,7 +44,6 @@ beforeEach(() => {
 
 describe('buildGraphExportJson', () => {
   it('returns import-script-compatible shape with counts', async () => {
-    const createdAt = new Date('2026-05-26T10:00:00.000Z')
     const startAt = new Date('2026-06-01T09:00:00.000Z')
     const endAt = new Date('2026-06-01T10:00:00.000Z')
 

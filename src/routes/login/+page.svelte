@@ -1,15 +1,15 @@
 <script lang="ts">
+  import type { ActionData } from './$types'
+  import type { PageData } from './$types'
   import { enhance } from '$app/forms'
   import { resolve } from '$app/paths'
   import type { Pathname } from '$app/types'
-  import type { ActionData } from './$types'
-  import * as Card from '$lib/components/ui/card'
-  import { Button } from '$lib/components/ui/button'
-  import { Label } from '$lib/components/ui/label'
-  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
-  import { signInSchema } from '$lib/validation/auth'
   import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
-  import type { PageData } from './$types'
+  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { Label } from '$lib/components/ui/label'
+  import { signInSchema } from '$lib/validation/auth'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
   const homeHref = websiteOrigin || resolve('/' as Pathname)
@@ -33,6 +33,11 @@
     }
     return false
   }
+
+  const showResend = $derived(
+    Boolean(data.mailConfigured && (form?.emailUnverified || form?.verificationSent)),
+  )
+  const resendEmail = $derived(form?.email ?? email)
 </script>
 
 <div class="mx-auto max-w-md px-5 pt-10">
@@ -86,7 +91,14 @@
           {/if}
         </div>
         <div class="space-y-1">
-          <Label for="password">Password</Label>
+          <div class="flex items-center justify-between gap-2">
+            <Label for="password">Password</Label>
+            <a
+              href={resolve('/forgot-password')}
+              class="text-muted-foreground text-[10px] underline-offset-2 hover:underline"
+              >Forgot password?</a
+            >
+          </div>
           <input
             id="password"
             type="password"
@@ -101,14 +113,25 @@
           {/if}
         </div>
         <Button type="submit" class="w-full rounded-[4px]">Sign in</Button>
-        {#if form?.message}
+        {#if form?.verificationSent}
+          <p class="text-foreground text-xs">{form.message}</p>
+        {:else if form?.message}
           <p class="text-destructive text-xs">{form.message}</p>
         {/if}
       </form>
 
+      {#if showResend && resendEmail}
+        <form method="post" action="?/resendVerification" use:enhance class="space-y-2">
+          <input type="hidden" name="email" value={resendEmail} />
+          <Button type="submit" variant="outline" class="w-full rounded-[4px]"
+            >Resend verification email</Button
+          >
+        </form>
+      {/if}
+
       <p class="text-muted-foreground text-center text-xs">
         Don't have an account?
-        <a href="/signup" class="text-foreground underline-offset-2 hover:underline">Sign up</a>
+        <a href={resolve('/signup')} class="text-foreground underline-offset-2 hover:underline">Sign up</a>
       </p>
     </Card.Content>
   </Card.Root>

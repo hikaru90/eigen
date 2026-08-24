@@ -1,4 +1,9 @@
 import { eq } from 'drizzle-orm'
+import {
+  communityLevelIntent,
+  communityLevelLabel,
+  isCommunityDbLevel,
+} from '$lib/server/consolidation/community-levels'
 import { getDb } from '$lib/server/db'
 import {
   communityMember,
@@ -6,11 +11,6 @@ import {
   canonicalEntity,
   graphCommunity,
 } from '$lib/server/db/schema'
-import {
-  communityLevelIntent,
-  communityLevelLabel,
-  isCommunityDbLevel,
-} from '$lib/server/consolidation/community-levels'
 
 export type GraphCommunityOverlay = {
   id: string

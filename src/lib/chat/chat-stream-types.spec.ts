@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MCP_AGENT_TOOL_NAMES } from '$lib/server/mcp/registry'
 import {
   CHAT_TOOL_COPY,
   coerceToolResultSource,
@@ -13,7 +14,6 @@ import {
   toolCategoryClasses,
   toolVisual,
 } from './chat-stream-types'
-import { MCP_AGENT_TOOL_NAMES } from '$lib/server/mcp/registry'
 
 describe('chat-stream-types', () => {
   it('assigns distinct categories per known tool', () => {

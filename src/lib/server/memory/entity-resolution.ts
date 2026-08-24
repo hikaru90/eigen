@@ -1,8 +1,10 @@
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
-import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, entityAlias, entityResolutionLog } from '$lib/server/db/schema'
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
+import type { MemoryAuthorship } from '$lib/server/memory/authorship'
+import { authorshipInsertValues, USER_AUTHORSHIP } from '$lib/server/memory/authorship'
 import {
   buildEntityAdjacency,
   hasLexicalMergeEvidence,
@@ -12,8 +14,6 @@ import {
   type GraphLinkCandidate,
 } from '$lib/server/memory/entity-link-graph'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import type { MemoryAuthorship } from '$lib/server/memory/authorship'
-import { authorshipInsertValues, USER_AUTHORSHIP } from '$lib/server/memory/authorship'
 
 const EMBEDDING_DIMENSIONS = 1536
 
@@ -409,7 +409,7 @@ export async function matchCanonicalEntitiesByEmbedding(input: {
   const limit = Math.max(1, Math.min(input.limit, 32))
   const vectorSql = toVectorSql(input.embedding)
   const distanceExpr = sql<number>`${canonicalEntity.embedding} <=> ${vectorSql}`
-  let rows: Array<{ id: string; label: string; entityType: string; distance: number | null }> = []
+  let rows: Array<{ id: string; label: string; entityType: string; distance: number | null }>
   try {
     rows = await getDb()
       .select({
@@ -443,6 +443,7 @@ export async function matchCanonicalEntitiesByEmbedding(input: {
     if (err.code === '42P01') {
       throw new Error(
         'Missing table `public.canonical_entity`. Run database migrations before using entity graph retrieval.',
+        { cause: error },
       )
     }
     throw error

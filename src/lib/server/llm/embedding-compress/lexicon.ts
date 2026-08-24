@@ -1,5 +1,5 @@
-import lex from './lexicon.json'
 import type { Intensity } from './types'
+import lex from './lexicon.json'
 
 type LexiconJSON = typeof lex
 

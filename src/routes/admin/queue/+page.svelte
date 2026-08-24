@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { afterNavigate, goto } from '$app/navigation'
-  import { page } from '$app/state'
-  import { onDestroy, onMount } from 'svelte'
   import type { PageData } from './$types'
-  import type { AdminQueueDashboard } from '$lib/server/job-queue/admin-dashboard'
+  import Layers from '@lucide/svelte/icons/layers'
+  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw'
+  import { onDestroy, onMount } from 'svelte'
+  import { afterNavigate, goto } from '$app/navigation'
+  import { resolve } from '$app/paths'
+  import { page } from '$app/state'
+  import type { Pathname } from '$app/types'
+  import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import * as Table from '$lib/components/ui/table'
-  import { Button } from '$lib/components/ui/button'
-  import Layers from '@lucide/svelte/icons/layers'
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw'
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle'
+  import type { AdminQueueDashboard } from '$lib/server/job-queue/admin-dashboard'
 
   let { data }: { data: PageData } = $props()
 
@@ -110,24 +112,18 @@
 
   function onStatusChange(value: StatusFilter) {
     statusFilter = value
-    void goto(
-      listUrl({
+    void goto(resolve(listUrl({
         status: value === 'all' ? null : value,
         harness: includeHarness ? '1' : null,
-      }),
-      { keepFocus: true, noScroll: true },
-    )
+      }) as Pathname), { keepFocus: true, noScroll: true })
   }
 
   function onHarnessToggle(checked: boolean) {
     includeHarness = checked
-    void goto(
-      listUrl({
+    void goto(resolve(listUrl({
         status: statusFilter === 'all' ? null : statusFilter,
         harness: checked ? '1' : null,
-      }),
-      { keepFocus: true, noScroll: true },
-    )
+      }) as Pathname), { keepFocus: true, noScroll: true })
   }
 
   onMount(() => {

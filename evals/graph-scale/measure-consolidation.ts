@@ -1,12 +1,12 @@
-import { consolidateForUser } from '$lib/server/consolidation/runner'
+import type { GraphScaleConsolidationResult } from './types'
+import { runWithTrace } from '$lib/server/activity/trace-context'
 import {
   getCommunitySummaryStats,
   type CommunitySummaryStats,
 } from '$lib/server/consolidation/community-summaries'
-import { runWithTrace } from '$lib/server/activity/trace-context'
+import { consolidateForUser } from '$lib/server/consolidation/runner'
 import { withEvalDb } from '../harness/eval-context'
 import { aggregateActivityCostByGroupId } from './aggregate-cost'
-import type { GraphScaleConsolidationResult } from './types'
 
 function parseSummaryGenerated(detail: string | undefined): number {
   if (!detail) return 0

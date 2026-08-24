@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
@@ -10,9 +11,7 @@ import {
   type ProjectSource,
   type ProjectStatus,
 } from '$lib/server/db/schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project'
-import { taskItemId } from '$lib/server/memory/temporal-event-list'
 import {
   countOpenTasksForProjectEntity,
   ensureProject,
@@ -20,6 +19,7 @@ import {
 } from '$lib/server/memory/project-eligibility'
 import { upsertGraphHubEntity } from '$lib/server/memory/project-entity'
 import type { ProjectMilestoneListItem } from '$lib/server/memory/project-timeline'
+import { taskItemId } from '$lib/server/memory/temporal-event-list'
 
 export type ProjectNextAction = {
   thoughtId: string

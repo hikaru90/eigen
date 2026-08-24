@@ -1,16 +1,16 @@
 <script lang="ts">
-  import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
+  import { captureIndexingDetailMessage } from '$lib/capture/capture-indexing-status'
   import {
     categoryConfidencePercent,
     formatNearDuplicate,
     parseCategoryAlternatives,
   } from '$lib/capture/capture-result-display'
-  import { captureIndexingDetailMessage } from '$lib/capture/capture-indexing-status'
-  import CaptureEntityConnections from '$lib/components/capture-entity-connections.svelte'
+  import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
   import CaptureAttachedFiles from '$lib/components/capture-attached-files.svelte'
+  import CaptureEntityConnections from '$lib/components/capture-entity-connections.svelte'
   import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
-  import * as Card from '$lib/components/ui/card'
   import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
 
   let {
     thought,

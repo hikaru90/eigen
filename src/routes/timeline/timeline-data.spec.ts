@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import type { ProjectListItem } from '$lib/server/memory/project-list'
+import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import {
   buildTimelineApiUrl,
   deriveDoneItems,

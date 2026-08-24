@@ -97,6 +97,7 @@ export async function ensureCronTimezone(sql, databaseUrl, timezone) {
       throw new Error(
         `cron.timezone is "${currentTimezone}" but ${timezone} was requested. ` +
           'Set postgres -c cron.timezone=... at server start (see docker-compose.yaml) and restart the database.',
+        { cause: err },
       )
     }
     throw err

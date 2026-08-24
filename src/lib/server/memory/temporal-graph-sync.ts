@@ -1,5 +1,4 @@
 import { eq, and } from 'drizzle-orm'
-import { refreshFocusRanksForUser } from '$lib/server/memory/temporal-event-list'
 import { getDb } from '$lib/server/db'
 import {
   graphSyncJob,
@@ -7,17 +6,18 @@ import {
   thought,
   type GraphSyncJobOperation,
 } from '$lib/server/db/schema'
+import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { authorshipInsertValues } from '$lib/server/memory/authorship'
+import { syncReminderScheduleForEvent } from '$lib/server/memory/event-reminder-schedule'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { refreshFocusRanksForUser } from '$lib/server/memory/temporal-event-list'
 import { extractTemporalMentions } from '$lib/server/memory/temporal-extraction'
 import {
   applyCaptureAnchoredMentions,
   resolveTemporalBounds,
   type ExtractedTemporalMention,
 } from '$lib/server/memory/temporal-normalize'
-import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker'
-import { syncReminderScheduleForEvent } from '$lib/server/memory/event-reminder-schedule'
 
 const DEFAULT_TIMEZONE = 'UTC'
 

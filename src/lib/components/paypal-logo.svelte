@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { cn } from '$lib/utils.js'
-  import paypalLogo from '$lib/assets/images/paypal-logo.svg'
   import type { HTMLImgAttributes } from 'svelte/elements'
+  import paypalLogo from '$lib/assets/images/paypal-logo.svg'
+  import { cn } from '$lib/utils.js'
 
   type Props = HTMLImgAttributes & {
     class?: string

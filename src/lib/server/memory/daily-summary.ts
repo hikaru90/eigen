@@ -1,6 +1,6 @@
-import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import { countCompletedOnLocalDay, previousLocalDayKey } from '$lib/graph/timeline-completed-today'
 import { overdueCount } from '$lib/graph/timeline-overdue'
+import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 import { filterOpenTodoTodayItems } from '$lib/server/memory/timeline-today-server'
 
 export type DailySummaryPush = {

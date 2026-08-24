@@ -1,15 +1,15 @@
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
+import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema'
-import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { buildLexicalTsQuery } from '$lib/server/retrieval/lexical'
 import type { MemoryAuthorship } from '$lib/server/memory/authorship'
 import {
   authorshipInsertValues,
   USER_AUTHORSHIP,
   resolveAuthorSqlCondition,
 } from '$lib/server/memory/authorship'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { buildLexicalTsQuery } from '$lib/server/retrieval/lexical'
 
 export const MAX_TEXT_FILE_BODY_BYTES = 512 * 1024
 export const TEXT_FILE_PREVIEW_LEN = 200

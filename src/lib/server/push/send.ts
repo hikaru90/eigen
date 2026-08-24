@@ -1,6 +1,6 @@
 import webpush from 'web-push'
-import { configureWebPush } from './vapid'
 import { deletePushSubscriptionById, listPushSubscriptionsForUser } from './subscription'
+import { configureWebPush } from './vapid'
 
 export type PushNotificationPayload = {
   title: string

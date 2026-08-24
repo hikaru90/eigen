@@ -1,5 +1,5 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
+import { redirect } from '@sveltejs/kit'
 import { eq, and } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { userApiKey } from '$lib/server/db/schema'

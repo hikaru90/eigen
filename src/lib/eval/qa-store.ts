@@ -1,15 +1,15 @@
-import { asc, eq, inArray } from 'drizzle-orm'
-import { evalQa } from '$lib/server/db/brain.schema'
-import { getDb } from '$lib/server/db'
 import type {
   QaCapture,
   QaChecks,
   QaEditStep,
   QaRetrievalRelevant,
 } from '../../../evals/harness/qa-types'
+import { asc, eq, inArray } from 'drizzle-orm'
+import { getDb } from '$lib/server/db'
+import { evalQa } from '$lib/server/db/brain.schema'
+import { loadCorpus } from '../../../evals/harness/dataset'
 import { normalizeChecks } from '../../../evals/harness/qa-checks'
 import { normalizeCaptures } from '../../../evals/harness/qa-run'
-import { loadCorpus } from '../../../evals/harness/dataset'
 import { assignCaptureFixtureIds, generateEvalQaId, validateEvalQaId } from './qa-id'
 
 export type EvalQaRecord = {
@@ -238,7 +238,7 @@ export async function createEvalQa(input: {
     return rowToRecord(row)
   } catch (err) {
     if (err && typeof err === 'object' && 'code' in err && err.code === '23505') {
-      throw new Error(`QA id already exists: ${validated.id}`)
+      throw new Error(`QA id already exists: ${validated.id}`, { cause: err })
     }
     throw err
   }

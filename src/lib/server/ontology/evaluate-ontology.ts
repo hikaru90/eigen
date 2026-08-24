@@ -1,16 +1,16 @@
 import { desc, eq, sql } from 'drizzle-orm'
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { getDb } from '$lib/server/db'
 import { thought, userOntology } from '$lib/server/db/schema'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { loadOntologyForUser } from '$lib/server/ontology-db'
+import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants'
+import { extractChatContent, userMessage } from './llm-json'
 import {
   emptyOntologyProfile,
   parseOntologyProfileJson,
   ONTOLOGY_PROFILE_VERSION,
   type OntologyProfileV2,
 } from './types'
-import { extractChatContent, userMessage } from './llm-json'
-import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants'
 
 function parseOntologyEvalOutput(content: string, allowedKeys: Set<string>): OntologyProfileV2 {
   const parsed = JSON.parse(content.trim()) as unknown

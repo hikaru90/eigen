@@ -1,3 +1,4 @@
+import type { LongMemEvalInstance } from '../longmemeval/types'
 import { describe, expect, it } from 'vitest'
 import {
   corpusUserIdForQuestion,
@@ -7,7 +8,6 @@ import {
   parseLongMemEvalSessionDate,
   sanitizeQuestionIdForUserId,
 } from '../longmemeval/format-session'
-import type { LongMemEvalInstance } from '../longmemeval/types'
 
 describe('parseLongMemEvalSessionDate', () => {
   it('parses slash dates with weekday and time', () => {

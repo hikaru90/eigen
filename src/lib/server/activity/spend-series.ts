@@ -1,6 +1,4 @@
 import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm'
-import type { AppDatabase } from '$lib/server/db'
-import { activityCallLog } from '$lib/server/db/schema'
 import {
   chooseActivitySpendBucketUnit,
   computeActivitySpendSpan,
@@ -9,6 +7,8 @@ import {
   type ActivitySpendBucket,
   type ActivitySpendBucketUnit,
 } from '$lib/activity/spend-chart'
+import type { AppDatabase } from '$lib/server/db'
+import { activityCallLog } from '$lib/server/db/schema'
 import { ACTIVITY_PAGE_LLM_PROVIDERS } from './gateway-providers'
 
 export type ActivitySpendSeries = {

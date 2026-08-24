@@ -13,15 +13,15 @@
  * Scheduled via pg_cron → pg_net HTTP POST (see scripts/ensure-sleep-cron.mjs).
  */
 
-import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { json, error } from '@sveltejs/kit'
 import { env } from '$env/dynamic/private'
-import { consolidateForUser, consolidateAllUsers } from '$lib/server/consolidation/runner'
 import {
   tryAcquireGlobalNightlyRun,
   completeGlobalNightlyRun,
   failGlobalNightlyRun,
 } from '$lib/server/consolidation/consolidation-run-ledger'
+import { consolidateForUser, consolidateAllUsers } from '$lib/server/consolidation/runner'
 
 function getAdminKey(): string | undefined {
   return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined

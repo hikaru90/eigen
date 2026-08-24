@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm'
+import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { chatSession } from '$lib/server/db/brain.schema'
 import { userGroundingProfile } from '$lib/server/db/schema'
-import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import {
   GROUNDING_FACET_KEY_SET,
   GROUNDING_FACET_MAX_CHARS,

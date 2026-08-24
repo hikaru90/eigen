@@ -2,6 +2,7 @@
  * In-process background worker for manual user heartbeat runs.
  */
 
+import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan'
 import { withDbUser } from '$lib/server/db'
 import {
   finishHeartbeatRun,
@@ -12,7 +13,6 @@ import {
   recoverOrphanedHeartbeatRun,
   requestHeartbeatRunCancel,
 } from './heartbeat-run-ledger'
-import { getHeartbeatJobPlan } from '$lib/consolidation/heartbeat-job-plan'
 import { consolidateForUser, type ConsolidationJobResult } from './runner'
 
 const activeUserRuns = new Map<string, string>()

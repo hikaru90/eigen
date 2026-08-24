@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
@@ -7,14 +8,13 @@ import {
   thoughtEntity,
   type ProjectSource,
 } from '$lib/server/db/schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age'
 import { upsertEntityNode } from '$lib/server/graph/age'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
-import { loadEligibleGtdProjects, type EligibleGtdProject } from '$lib/server/memory/project-list'
-import { promoteHubEntityType, upsertGraphHubEntity } from '$lib/server/memory/project-entity'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
+import { promoteHubEntityType, upsertGraphHubEntity } from '$lib/server/memory/project-entity'
+import { loadEligibleGtdProjects, type EligibleGtdProject } from '$lib/server/memory/project-list'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
 export type ProjectIdentityMode = 'assign' | 'seed' | 'reconcile' | 'promote'

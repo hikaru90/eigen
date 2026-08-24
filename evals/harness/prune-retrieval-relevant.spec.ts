@@ -1,3 +1,4 @@
+import type { CheckAssertionResult } from './qa-types'
 import { describe, expect, it } from 'vitest'
 import {
   adjustChecksAfterRetrievalPrune,
@@ -7,7 +8,6 @@ import {
   pruneRetrievalRelevantForIngestFailures,
   previewRetrievalPassAfterPrune,
 } from './prune-retrieval-relevant'
-import type { CheckAssertionResult } from './qa-types'
 
 describe('ingestBrokenEligibleForRetrievalPrune', () => {
   it('never includes the needle fixture', () => {

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import CheckIcon from '@lucide/svelte/icons/check'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import X from '@lucide/svelte/icons/x'
   import { onMount } from 'svelte'
   import type { GraphRearrangeResult } from '$lib/graph/graph-edit-api'
   import {
@@ -12,9 +15,6 @@
     type GraphRearrangePhase,
     type GraphRearrangeTaskProgress,
   } from '$lib/graph/graph-rearrange-phases'
-  import CheckIcon from '@lucide/svelte/icons/check'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import X from '@lucide/svelte/icons/x'
 
   let {
     busy,

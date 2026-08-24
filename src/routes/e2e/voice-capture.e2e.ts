@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { test } from '@playwright/test'
 import { completeOnboardingOverlay } from './release-helpers'
 import { registerUser } from './test-helpers'
 import {

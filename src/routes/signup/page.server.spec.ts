@@ -1,11 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { actions, load } from './+page.server'
 
-const { signUpEmailMock, isUseSendMailConfiguredMock } = vi.hoisted(() => ({
-  signUpEmailMock: vi.fn(),
-  isUseSendMailConfiguredMock: vi.fn(() => false),
+const { signUpEmailMock, sendVerificationEmailMock, isUseSendMailConfiguredMock } = vi.hoisted(
+  () => ({
+    signUpEmailMock: vi.fn(),
+    sendVerificationEmailMock: vi.fn(),
+    isUseSendMailConfiguredMock: vi.fn(() => false),
+  }),
+)
+vi.mock('$lib/server/auth', () => ({
+  auth: {
+    api: {
+      signUpEmail: signUpEmailMock,
+      sendVerificationEmail: sendVerificationEmailMock,
+    },
+  },
 }))
-vi.mock('$lib/server/auth', () => ({ auth: { api: { signUpEmail: signUpEmailMock } } }))
 vi.mock('$lib/server/auth-form-errors', () => ({
   getSafeErrorMessage: (e: unknown) => `safe: ${e}`,
 }))
@@ -209,11 +219,36 @@ describe('signup page server', () => {
     const result = await actions.signUpEmail({ request } as never)
     expect(result).toMatchObject({
       checkEmail: true,
+      email: 'test@example.com',
       message: 'Check your email for a verification link before signing in.',
     })
     expect(signUpEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({ callbackURL: '/capture' }),
+      }),
+    )
+  })
+
+  it('resends verification email from the check-email state', async () => {
+    isUseSendMailConfiguredMock.mockReturnValue(true)
+    sendVerificationEmailMock.mockResolvedValue({ status: true })
+    const request = new Request('http://localhost/signup', {
+      method: 'POST',
+      body: new URLSearchParams({ email: 'test@example.com' }),
+    })
+    const result = await actions.resendVerification({ request } as never)
+    expect(result).toMatchObject({
+      checkEmail: true,
+      email: 'test@example.com',
+      verificationSent: true,
+      message: expect.stringMatching(/verification link/i),
+    })
+    expect(sendVerificationEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          email: 'test@example.com',
+          callbackURL: '/capture',
+        }),
       }),
     )
   })

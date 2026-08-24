@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { repairEntityRelationsForUser } from '$lib/server/consolidation/repair-entity-relations'
 import { syncCanonicalEntityVertexToGraph } from '$lib/server/memory/canonical-entity-admin'
 

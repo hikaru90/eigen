@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
-  import { Button } from '$lib/components/ui/button'
   import ChevronLeft from '@lucide/svelte/icons/chevron-left'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
-  import { buildMonthGrid, dayKey, eventsOnDay, kindColor } from './temporal-events-utils'
+  import { Button } from '$lib/components/ui/button'
   import { graphIntlLocale, graphKindLabel, graphWeekdayLabels } from '$lib/graph/graph-i18n'
   import { m } from '$lib/paraglide/messages.js'
+  import { buildMonthGrid, dayKey, eventsOnDay, kindColor } from './temporal-events-utils'
 
   type Props = {
     items: TemporalEventListItem[]

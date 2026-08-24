@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { planWeekForUser } from '$lib/server/memory/plan-week'
 
 export const POST: RequestHandler = async (event) => {

@@ -1,31 +1,24 @@
 import { and, eq, inArray } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { thought, thoughtRelation } from '$lib/server/db/schema'
-import { createThoughtEmbedding } from '$lib/server/llm/embedding'
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { searchThoughts } from '$lib/server/retrieval/service'
-import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
-import { searchTextFiles, type TextFileSearchHit } from '$lib/server/text-files/service'
-import { type RelevantCommunitySummary } from '$lib/server/retrieval/global'
 import {
-  classifyQueryIntent,
-  type TemporalQuestionKind,
-} from '$lib/server/retrieval/classify-query-intent'
+  CITATION_TOKEN_RE,
+  canonicalCitationToken,
+  normalizeCitationTokens,
+  replaceCitationTokens,
+} from '$lib/chat/citation-tokens'
+import { getDb } from '$lib/server/db'
+import { thoughtRelation } from '$lib/server/db/schema'
 import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile'
 import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { loadTemporalContextByThoughtIds } from '$lib/server/memory/temporal-context'
 import {
-  mergeQuestionEntityHints,
-  shouldUseDeterministicSolverAnswer,
-} from '$lib/server/retrieval/query-entity-hints'
-import {
-  candidatesFromTemporalSeeds,
-  resolveTemporalHintBindings,
-} from '$lib/server/retrieval/resolve-temporal-hint-bindings'
-import {
-  fetchTemporalEventSeeds,
-  fetchTemporalEventSeedsForHints,
-  type TemporalSeedsFetchResult,
-} from '$lib/server/retrieval/temporal'
+  formatTemporalAnnotation,
+  type TemporalEventValidity,
+  type ThoughtTemporalStatus,
+} from '$lib/server/memory/temporal-validity'
+import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
+import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 import {
   allowsComputedTimelineCitation,
   COMPUTED_TIMELINE_CITATION_ID,
@@ -35,25 +28,31 @@ import {
 } from '$lib/server/qa/temporal-solver'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import {
+  classifyQueryIntent,
+  type TemporalQuestionKind,
+} from '$lib/server/retrieval/classify-query-intent'
+import { type RelevantCommunitySummary } from '$lib/server/retrieval/global'
+import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
+import {
+  mergeQuestionEntityHints,
+  shouldUseDeterministicSolverAnswer,
+} from '$lib/server/retrieval/query-entity-hints'
+import {
+  candidatesFromTemporalSeeds,
+  resolveTemporalHintBindings,
+} from '$lib/server/retrieval/resolve-temporal-hint-bindings'
+import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
+import {
   COMPOSE_ANSWER_RELEVANCE_MIN,
   normalizeRetrievalScore,
 } from '$lib/server/retrieval/rrf-scoring'
-import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
-import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
-import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
-import { loadTemporalContextByThoughtIds } from '$lib/server/memory/temporal-context'
+import { searchThoughts } from '$lib/server/retrieval/service'
 import {
-  formatTemporalAnnotation,
-  type TemporalEventValidity,
-  type ThoughtTemporalStatus,
-} from '$lib/server/memory/temporal-validity'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import {
-  CITATION_TOKEN_RE,
-  canonicalCitationToken,
-  normalizeCitationTokens,
-  replaceCitationTokens,
-} from '$lib/chat/citation-tokens'
+  fetchTemporalEventSeeds,
+  fetchTemporalEventSeedsForHints,
+  type TemporalSeedsFetchResult,
+} from '$lib/server/retrieval/temporal'
+import { searchTextFiles, type TextFileSearchHit } from '$lib/server/text-files/service'
 
 /** Reserved citation id for explicit user grounding profile facts in compose prompts. */
 export const GROUNDING_PROFILE_CITATION_ID = 'profile'
@@ -193,7 +192,6 @@ export async function detectStoredThoughtContradictions(input: {
     )
 
   const idSet = new Set(ids)
-  const byId = new Map(input.items.map((i) => [i.id, i]))
   const conflicts: ConflictPair[] = []
 
   for (const row of rows) {

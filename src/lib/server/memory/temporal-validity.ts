@@ -25,11 +25,11 @@ export type ActivePeriodBounds = {
 }
 
 /** ISO ingest form: `[2026-05-28T00:00:00.000Z,2026-05-29T00:00:00.000Z)` */
-const TSRANGE_ISO_RE = /^([\[\(])(\d{4}-\d{2}-\d{2}T[\d:.]+Z),(\d{4}-\d{2}-\d{2}T[\d:.]+Z)([\]\)])$/
+const TSRANGE_ISO_RE = /^([[(])(\d{4}-\d{2}-\d{2}T[\d:.]+Z),(\d{4}-\d{2}-\d{2}T[\d:.]+Z)([)\]])$/
 
 /** Postgres driver round-trip: `["2026-05-27 00:00:00","2026-05-27 23:59:59")` */
 const TSRANGE_POSTGRES_RE =
-  /^([\[\(])"?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"?,?"?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"?([\]\)])$/
+  /^([[(])"?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"?,?"?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"?([)\]])$/
 
 function parseTsrangeBound(raw: string): Date {
   const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z'

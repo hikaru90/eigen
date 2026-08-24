@@ -1,6 +1,7 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { userScheduledTask } from '$lib/server/db/schema'
+import { createAdminSql } from './admin-db'
 import {
   DEFAULT_OVERNIGHT_HOUR,
   DEFAULT_OVERNIGHT_MINUTE,
@@ -9,7 +10,6 @@ import {
 } from './constants'
 import { enqueueUserJob, listProductionUserIds } from './enqueue'
 import { calendarDateInTimezone, localScheduleToUtc } from './schedule-time'
-import { createAdminSql } from './admin-db'
 import { getOrCreateUserScheduledTask, markOvernightEnqueued } from './user-scheduled-task'
 
 type ScheduleRow = {

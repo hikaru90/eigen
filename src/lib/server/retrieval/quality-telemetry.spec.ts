@@ -4,7 +4,6 @@ import {
   computeRetrievalQualityDiagnostics,
   isGraphOnlyHit,
   semanticShare,
-  RETRIEVAL_TELEMETRY_VERSION,
   tryRecordRetrievalQualityEvent,
 } from './quality-telemetry'
 

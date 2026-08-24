@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { assignThoughtToProject } from '$lib/server/memory/assign-thought-project'
 
 export type AssignProjectRequest = {

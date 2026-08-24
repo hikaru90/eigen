@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { POST } from './+server'
 import { SLEEP_CONSOLIDATION_TASK_ID } from '$lib/server/scheduled-tasks/constants'
 import { HeartbeatJobRetryError } from '$lib/server/scheduled-tasks/service'
+import { POST } from './+server'
 
 const { retryFailedHeartbeatJobMock } = vi.hoisted(() => ({
   retryFailedHeartbeatJobMock: vi.fn(),

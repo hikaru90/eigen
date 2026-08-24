@@ -1,8 +1,12 @@
-import { sequence } from '@sveltejs/kit/hooks'
-import { building } from '$app/environment'
-import { auth } from '$lib/server/auth'
-import { svelteKitHandler } from 'better-auth/svelte-kit'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
+import { sequence } from '@sveltejs/kit/hooks'
+import { svelteKitHandler } from 'better-auth/svelte-kit'
+import { building } from '$app/environment'
+import { getTextDirection } from '$lib/paraglide/runtime'
+import { paraglideMiddleware } from '$lib/paraglide/server'
+import { captureServerException } from '$lib/server/analytics/posthog-server'
+import { hashApiKey } from '$lib/server/api-keys/api-key-utils'
+import { auth } from '$lib/server/auth'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
 import {
   appSql,
@@ -12,13 +16,9 @@ import {
   deactivateTenantDbSession,
 } from '$lib/server/db'
 import { authSql } from '$lib/server/db/auth-db'
-import { getTextDirection } from '$lib/paraglide/runtime'
-import { paraglideMiddleware } from '$lib/paraglide/server'
-import { hashApiKey } from '$lib/server/api-keys/api-key-utils'
 import { startJobQueueTicker } from '$lib/server/job-queue/ticker'
 import { startNotificationDispatchTicker } from '$lib/server/memory/notification-dispatch-ticker'
 import { logOpsStartupDiagnostics } from '$lib/server/ops/startup-diagnostics'
-import { captureServerException } from '$lib/server/analytics/posthog-server'
 
 if (!building) {
   logOpsStartupDiagnostics()

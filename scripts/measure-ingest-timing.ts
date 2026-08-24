@@ -12,10 +12,10 @@ import './load-project-env'
  *   MEASURE_INGEST_TEXT — raw thought text
  */
 import { insertEvalUserRow } from '$lib/eval/store'
-import { captureThought } from '$lib/server/capture/service'
-import { createIngestPhaseTimer } from '$lib/server/capture/phase-timing'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet'
+import { createIngestPhaseTimer } from '$lib/server/capture/phase-timing'
+import { captureThought } from '$lib/server/capture/service'
 import { paymentOrder } from '$lib/server/db/schema'
 import { EVAL_OPERATOR_USER_ID, evalCorpusUserId } from '../evals/harness/eval-config'
 import { runEval, withEvalDb } from '../evals/harness/eval-context'

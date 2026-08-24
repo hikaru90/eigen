@@ -1,9 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { authorLayerKeyFromThought } from '$lib/server/memory/authorship'
 import {
   buildEntityAuthorLayerIndex,
   serializeAuthorLayerIndex,
 } from '$lib/server/graph/author-layers'
+import { authorLayerKeyFromThought } from '$lib/server/memory/authorship'
 
 const { getDbMock } = vi.hoisted(() => ({
   getDbMock: vi.fn(),

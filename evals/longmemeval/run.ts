@@ -3,27 +3,27 @@
  * write LongMemEval hypothesis JSONL, optionally run evaluate_qa.py.
  */
 import 'dotenv/config'
+import type { LongMemEvalHypothesis, LongMemEvalInstance, LongMemEvalRunCli } from './types'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { queueCapture } from '$lib/server/capture/queue-capture'
-import { processCaptureEnrichQueue } from '$lib/server/capture/enrich-queued-thought'
-import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { insertEvalUserRow, deleteEvalUserRow } from '$lib/eval/store'
+import { processCaptureEnrichQueue } from '$lib/server/capture/enrich-queued-thought'
+import { queueCapture } from '$lib/server/capture/queue-capture'
+import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
 import {
   waitForThoughtEnrichmentComplete,
   type ThoughtEnrichmentTarget,
 } from '../harness/wait-enrichment'
 import { parseLongMemEvalCli } from './cli'
+import { ensureLongMemEvalOperatorReady, LONGMEMEVAL_OPERATOR_USER_ID } from './ensure-operator'
 import {
   corpusUserIdForQuestion,
   instanceToCaptureItems,
   parseLongMemEvalSessionDate,
 } from './format-session'
 import { loadLongMemEvalDataset } from './load-dataset'
-import { ensureLongMemEvalOperatorReady, LONGMEMEVAL_OPERATOR_USER_ID } from './ensure-operator'
 import { assertScoringReady, preflightLongMemEvalScoring, runLongMemEvalScoring } from './scoring'
-import type { LongMemEvalHypothesis, LongMemEvalInstance, LongMemEvalRunCli } from './types'
 
 function loadExistingHypothesisIds(outputPath: string): Set<string> {
   if (!existsSync(outputPath)) return new Set()

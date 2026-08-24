@@ -1,5 +1,5 @@
-import { COMMUNITY_LEVEL_SCHEMA } from './community-levels'
 import { communityCircleFromPositions } from './community-hull'
+import { COMMUNITY_LEVEL_SCHEMA } from './community-levels'
 
 export type GraphZoomLodMode = 'nodes' | 'clusters'
 

@@ -1,7 +1,7 @@
+import type { GraphScaleProgressSnapshot } from './console-progress'
+import type { GraphScaleProgressEvent } from './types'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import type { GraphScaleProgressEvent } from './types'
-import type { GraphScaleProgressSnapshot } from './console-progress'
 
 export function resolveGraphScaleReportPaths(outputPath: string): {
   progressPath: string

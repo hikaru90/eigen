@@ -1,9 +1,9 @@
-/// <reference lib="webworker" />
-import { drainCaptureQueue } from '$lib/capture/queue/drain'
 import {
   releaseCaptureQueueDrainLock,
   tryAcquireCaptureQueueDrainLock,
 } from '$lib/capture/queue/db'
+/// <reference lib="webworker" />
+import { drainCaptureQueue } from '$lib/capture/queue/drain'
 import { CAPTURE_QUEUE_SYNC_TAG, type CaptureQueueBroadcast } from '$lib/capture/queue/types'
 
 const SW_DRAIN_LOCK_HOLDER = 'service-worker'

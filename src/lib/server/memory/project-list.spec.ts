@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { parseProjectsPayload } from '$lib/server/grounding/seed-projects'
 import { parseGtdProjectJudgmentPayload } from '$lib/server/memory/judge-gtd-project'
-import { parseProjectIdentityPayload } from '$lib/server/memory/resolve-project-identity'
 import { parseReconcilePayload } from '$lib/server/memory/reconcile-user-projects'
+import { parseProjectIdentityPayload } from '$lib/server/memory/resolve-project-identity'
 
 describe('parseGtdProjectJudgmentPayload', () => {
   it('rejects non-project hubs by default parse shape', () => {

@@ -12,7 +12,7 @@ const RUNTIME_KEYS = [
 
 /** @param {string} value */
 function shellSingleQuote(value) {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`
+  return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
 /** Persist bootstrap secrets for the app process (entrypoint sources this file). */

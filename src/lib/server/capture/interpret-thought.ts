@@ -5,10 +5,10 @@
 import { getDb } from '$lib/server/db'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
-import { extractChatContent } from '$lib/server/ontology/llm-json'
-import { emptyOntologyProfile, ontologyKindsPromptBlock } from '$lib/server/ontology/types'
 import { ensureUserOntologySeeded, loadOntologyForUser, activeThoughtCategoryKinds, type LoadedUserOntology } from '$lib/server/ontology-db'
 import { loadUserOntologyProfileRow } from '$lib/server/ontology/classify-thought-category'
+import { extractChatContent } from '$lib/server/ontology/llm-json'
+import { emptyOntologyProfile, ontologyKindsPromptBlock } from '$lib/server/ontology/types'
 import {
   resolveCategoryFromLlmOutput,
   type ResolvedThoughtCategory,
@@ -152,6 +152,6 @@ export async function interpretThoughtPreview(input: {
     return parsePreviewBundle(parsed, ontology, allowedEntityKeys)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    throw new Error(`Failed to parse interpret LLM response: ${message}`)
+    throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: err })
   }
 }

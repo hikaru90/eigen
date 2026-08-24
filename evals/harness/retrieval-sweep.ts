@@ -1,10 +1,10 @@
+import type { EvalRetrievalQuery, GradedRelevance } from './qa-types'
+import { graphOnlySearchByQuery } from '$lib/server/graph/age'
 /**
  * Per-query retrieval weight sweep (11 points) for a single eval entry.
  */
 import { searchThoughts } from '$lib/server/retrieval/service'
-import { graphOnlySearchByQuery } from '$lib/server/graph/age'
 import { withEvalDb } from './eval-context'
-import type { EvalRetrievalQuery, GradedRelevance } from './qa-types'
 import { buildRelevanceMap, computeQueryMetrics, type QueryMetrics } from './metrics'
 
 export type WeightPoint = { vector: number; graph: number }

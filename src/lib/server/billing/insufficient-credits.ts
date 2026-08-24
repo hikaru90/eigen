@@ -1,5 +1,5 @@
-import type { InsufficientCreditsError } from '$lib/server/billing/wallet'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
+import type { InsufficientCreditsError } from '$lib/server/billing/wallet'
 
 export const INSUFFICIENT_CREDITS_CODE = 'insufficient_credits' as const
 

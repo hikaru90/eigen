@@ -28,6 +28,25 @@ test.describe('Registration and login flow', () => {
   })
 })
 
+test.describe('Password reset and verification recovery', () => {
+  test('login exposes forgot-password; request reset shows check-email', async ({ page }) => {
+    await page.goto('/login')
+    const forgot = page.getByRole('link', { name: /Forgot password/i })
+    await expect(forgot).toBeVisible()
+    await forgot.click()
+    await page.waitForURL(/\/forgot-password/)
+
+    await page.locator('#email').fill('recovery@example.com')
+    await page.getByRole('button', { name: /Send reset link/i }).click()
+    await expect(page.getByText(/check your email/i)).toBeVisible()
+  })
+
+  test('reset-password without token shows an invalid-link message', async ({ page }) => {
+    await page.goto('/reset-password')
+    await expect(page.getByText(/invalid or expired/i)).toBeVisible()
+  })
+})
+
 test.describe('Logout', () => {
   test('signed-out user is redirected to /login on protected pages', async ({ page, context }) => {
     await registerUser(context, page)

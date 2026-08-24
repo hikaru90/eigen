@@ -181,8 +181,6 @@ export async function holdHeadedBrowserForGraphReview(
   await page.context().waitForEvent('close')
 }
 
-const ACTIVITY_UI_TIMEOUT_MS = 120_000
-
 /** Open capture so headed runs show the app instead of about:blank. */
 export async function openGraphScaleSpendCapturePage(page: Page): Promise<void> {
   await page.goto('/capture')
@@ -208,34 +206,6 @@ export async function setGraphScaleSpendPageTitle(page: Page, label: string): Pr
   await page.evaluate((text) => {
     document.title = text
   }, label)
-}
-
-function parseCaptureSubmitThoughtId(bodyText: string, contentType: string): string {
-  if (contentType.includes('application/x-ndjson')) {
-    let thoughtId = ''
-    for (const line of bodyText.split('\n')) {
-      const trimmedLine = line.trim()
-      if (!trimmedLine) continue
-      const obj = JSON.parse(trimmedLine) as {
-        type?: string
-        thought?: { id?: string }
-        error?: string
-      }
-      if (obj.type === 'error') {
-        throw new Error(obj.error ?? 'Capture failed')
-      }
-      if (obj.type === 'done' && obj.thought?.id) {
-        thoughtId = obj.thought.id
-      }
-    }
-    return thoughtId
-  }
-
-  const json = JSON.parse(bodyText) as { thought?: { id?: string }; error?: string }
-  if (json.error) {
-    throw new Error(json.error)
-  }
-  return json.thought?.id ?? ''
 }
 
 /**

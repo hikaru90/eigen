@@ -1,7 +1,7 @@
 <script lang="ts">
+  import XIcon from '@lucide/svelte/icons/x'
   import { Button } from '$lib/components/ui/button'
   import { Textarea } from '$lib/components/ui/textarea'
-  import XIcon from '@lucide/svelte/icons/x'
 
   let {
     kind = 'grounding',

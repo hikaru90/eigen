@@ -1,5 +1,5 @@
-import { buildRelevanceMap, ndcgAtK } from './metrics'
 import type { CheckAssertionResult, QaChecks, QaRetrievalRelevant } from './qa-types'
+import { buildRelevanceMap, ndcgAtK } from './metrics'
 
 /** Assertion ids that reflect broken ingest / enrichment, not retrieval ranking. */
 const INGEST_ASSERTION_PREFIXES = [
@@ -148,7 +148,6 @@ export function buildRetrievalRelevantPrunePlan(input: {
     )
   }
 
-  const minNdcg = input.minNdcgAt10 ?? input.checks.retrieval?.minNdcgAt10 ?? 0.5
   let ndcgBefore: number | null = null
   let ndcgAfter: number | null = null
   if (input.topRankedFixtureIds && input.fixtureToUuid) {

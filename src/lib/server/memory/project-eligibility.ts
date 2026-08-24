@@ -1,4 +1,5 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
@@ -7,7 +8,6 @@ import {
   type ProjectSource,
   type ProjectStatus,
 } from '$lib/server/db/schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { upsertEntityNode } from '$lib/server/graph/age'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 

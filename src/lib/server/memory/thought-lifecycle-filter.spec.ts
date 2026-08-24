@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { thought } from '$lib/server/db/brain.schema'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { user } from '$lib/server/db/auth.schema'
+import { thought } from '$lib/server/db/brain.schema'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 
 const embeddingVec = () => Array.from({ length: 1536 }, () => 0.02)

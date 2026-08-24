@@ -1,5 +1,5 @@
-import { consumeCaptureNdjsonStream, type ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 import type { CaptureSubmitResult } from './types'
+import { consumeCaptureNdjsonStream, type ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 
 export type SubmitCaptureOptions = {
   signal?: AbortSignal

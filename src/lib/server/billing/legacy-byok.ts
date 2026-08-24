@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import { withDbUser } from '$lib/server/db'
 import {
   llmActiveProvider,
@@ -6,7 +7,6 @@ import {
   userPreference,
   type BillingMode,
 } from '$lib/server/db/schema'
-import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 
 export function legacyByokMigrationNeeded(opts: {
   byokUiEnabled: boolean

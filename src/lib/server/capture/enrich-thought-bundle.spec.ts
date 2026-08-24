@@ -1,8 +1,8 @@
+import type { EnrichmentContext } from './enrichment-context'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
 import { enrichThoughtBundleInternals, extractEnrichThoughtBundle } from './enrich-thought-bundle'
 import { CAPTURE_PRIMARY_HEADING } from './enrichment-prompt-sections'
-import type { EnrichmentContext } from './enrichment-context'
-import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),

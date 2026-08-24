@@ -1,9 +1,9 @@
-import { desc, eq, ne } from 'drizzle-orm'
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { desc, eq } from 'drizzle-orm'
+import { m } from '$lib/paraglide/messages.js'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { searchThoughts } from '$lib/server/retrieval/service'
-import { m } from '$lib/paraglide/messages.js'
 
 const ALLOWED_RELATION_TYPES = new Set([
   'mentions',

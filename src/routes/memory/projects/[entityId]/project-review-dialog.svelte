@@ -1,15 +1,15 @@
 <script lang="ts">
-  import SparklesIcon from '@lucide/svelte/icons/sparkles'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import * as Dialog from '$lib/components/ui/dialog'
+  import SparklesIcon from '@lucide/svelte/icons/sparkles'
   import { Button } from '$lib/components/ui/button'
   import { Checkbox } from '$lib/components/ui/checkbox'
-  import { m } from '$lib/paraglide/messages.js'
+  import * as Dialog from '$lib/components/ui/dialog'
   import type {
     ApplyProjectReviewResponse,
     ProjectReviewSuggestion,
     ReviewProjectResponse,
   } from '$lib/memory/project-review-types'
+  import { m } from '$lib/paraglide/messages.js'
 
   type Props = {
     open: boolean

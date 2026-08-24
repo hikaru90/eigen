@@ -1,5 +1,5 @@
-import { env } from '$env/dynamic/private'
 import { PostHog } from 'posthog-node'
+import { env } from '$env/dynamic/private'
 
 const DEFAULT_EU_HOST = 'https://eu.i.posthog.com'
 

@@ -1,13 +1,13 @@
-import { betterAuth } from 'better-auth/minimal'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { betterAuth } from 'better-auth/minimal'
 import { sveltekitCookies } from 'better-auth/svelte-kit'
-import { env } from '$env/dynamic/private'
 import { getRequestEvent } from '$app/server'
-import { authDb } from '$lib/server/db/auth-db'
-import { buildSocialProvidersConfig, listEnabledSocialProviderIds } from '$lib/server/auth-social'
+import { env } from '$env/dynamic/private'
 import { resolveAccountKindForNewUser } from '$lib/auth/account-kind'
-import { isUseSendMailConfigured, sendTransactionalEmail } from '$lib/server/email/usesend'
+import { buildSocialProvidersConfig, listEnabledSocialProviderIds } from '$lib/server/auth-social'
+import { authDb } from '$lib/server/db/auth-db'
 import { recordVerificationLink } from '$lib/server/e2e/verification-link-store'
+import { isUseSendMailConfigured, sendTransactionalEmail } from '$lib/server/email/usesend'
 
 const socialProviders = buildSocialProvidersConfig(env)
 const enabledSocialProviderIds = listEnabledSocialProviderIds(env)

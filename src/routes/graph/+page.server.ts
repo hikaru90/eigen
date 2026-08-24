@@ -1,5 +1,5 @@
-import { redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
+import { redirect } from '@sveltejs/kit'
 
 function memoryPath(url: URL): string {
   const params = url.searchParams

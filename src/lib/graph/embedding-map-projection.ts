@@ -29,7 +29,7 @@ let phase: EmbeddingProjectionPhase = { kind: 'idle' }
 const listeners = new Set<Listener>()
 
 /** Abstraction over the UMAP run so the main thread never blocks and runs can be interrupted. */
-interface EmbeddingProjector {
+type EmbeddingProjector = {
   start(
     items: EmbeddingSnapshotItem[],
     onProgress: (epoch: number, totalEpochs: number) => void,

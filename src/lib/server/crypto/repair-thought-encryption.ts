@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
+import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
-import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 
 export function isDecryptAuthFailure(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)

@@ -1,29 +1,30 @@
 <script lang="ts">
-  import { goto, invalidate } from '$app/navigation'
-  import { resolve } from '$app/paths'
-  import { page } from '$app/state'
-  import type { PageData } from './$types'
   import type { TemporalEventListItem } from '../../../api/temporal-events/+server'
-  import type { ProjectViewMode } from '$lib/memory/project-view-mode'
-  import { parseProjectViewMode } from '$lib/memory/project-view-mode'
-  import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban'
+  import type { PageData } from './$types'
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left'
+  import FolderKanbanIcon from '@lucide/svelte/icons/folder-kanban'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import PencilLine from '@lucide/svelte/icons/pencil-line'
   import SparklesIcon from '@lucide/svelte/icons/sparkles'
   import Trash2 from '@lucide/svelte/icons/trash-2'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import { Button } from '$lib/components/ui/button'
+  import { onMount } from 'svelte'
+  import { goto, invalidate } from '$app/navigation'
+  import { resolve } from '$app/paths'
+  import { page } from '$app/state'
+  import type { Pathname } from '$app/types'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
+  import { Button } from '$lib/components/ui/button'
+  import type { ReviewProjectResponse } from '$lib/memory/project-review-types'
+  import type { ProjectViewMode } from '$lib/memory/project-view-mode'
+  import { parseProjectViewMode } from '$lib/memory/project-view-mode'
   import { m } from '$lib/paraglide/messages.js'
-  import ProjectListView from '../../../timeline/project-list-view.svelte'
-  import ProjectKanbanView from '../../../timeline/project-kanban-view.svelte'
   import ProjectGanttView from '../../../timeline/project-gantt-view.svelte'
+  import ProjectKanbanView from '../../../timeline/project-kanban-view.svelte'
+  import ProjectListView from '../../../timeline/project-list-view.svelte'
   import TemporalEventDetail from '../../../timeline/temporal-event-detail.svelte'
   import TimelineEditProjectDialog from '../../../timeline/timeline-edit-project-dialog.svelte'
-  import ProjectReviewDialog from './project-review-dialog.svelte'
-  import type { ReviewProjectResponse } from '$lib/memory/project-review-types'
   import { postTimelineQuickAction } from '../../../timeline/timeline-item-actions'
-  import { onMount } from 'svelte'
+  import ProjectReviewDialog from './project-review-dialog.svelte'
 
   let { data }: { data: PageData } = $props()
 
@@ -90,7 +91,8 @@
     }
     const url = new URL(page.url)
     url.searchParams.set('view', next)
-    await goto(`${url.pathname}?${url.searchParams.toString()}`, {
+    const pathWithSearch = `${url.pathname}${url.search ? `?${url.searchParams.toString()}` : ''}`
+    await goto(resolve(pathWithSearch as Pathname), {
       replaceState: true,
       noScroll: true,
       keepFocus: true,

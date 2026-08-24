@@ -2,8 +2,8 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import type { MemoryAuthor } from '$lib/server/db/schema'
-import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter'
 import { tokenizeLexicalQuery } from '$lib/server/memory/lexical-fold'
+import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter'
 
 export type LexicalSearchResult = {
   id: string

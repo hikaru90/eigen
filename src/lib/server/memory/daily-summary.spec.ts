@@ -1,6 +1,6 @@
+import type { TemporalEventListItem } from './temporal-event-list'
 import { describe, expect, it } from 'vitest'
 import { buildDailySummaryPush } from './daily-summary'
-import type { TemporalEventListItem } from './temporal-event-list'
 import {
   formatMinutesLocal,
   isOpenTodoToday,

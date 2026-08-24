@@ -1,34 +1,34 @@
 import { and, desc, eq, gte, lte, lt, or, sql } from 'drizzle-orm'
 import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
-import { temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
-import { getDb } from '$lib/server/db'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
-import { pruneCanonicalEntitiesWithNoThoughtLinks } from '$lib/server/memory/canonical-entity-admin'
-import { createThoughtEmbedding } from '$lib/server/llm/embedding'
-import { resolveThoughtCategory } from '$lib/server/ontology'
-import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 import {
   applyThoughtEditRequest,
   parseLifecycleEditRequest,
 } from '$lib/server/capture/apply-thought-edit'
+import { getDb } from '$lib/server/db'
+import { temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
+import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
+import { pruneCanonicalEntitiesWithNoThoughtLinks } from '$lib/server/memory/canonical-entity-admin'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { setThoughtLifecycleStatus } from '$lib/server/memory/lifecycle'
 import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter'
+import { resolveThoughtCategory } from '$lib/server/ontology'
+import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 export { setThoughtLifecycleStatus }
+import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
+import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 import {
   createEditPhaseTimer,
   logEditComplete,
   logEditFailure,
   truncateEditPreview,
 } from '$lib/server/capture/edit-phase-timing'
-import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
-import { logIngestPhaseTiming, type IngestPhaseTimer } from '$lib/server/capture/phase-timing'
 import { reenrichThought } from '$lib/server/capture/enrich'
-import { queueCapture } from '$lib/server/capture/queue-capture'
 import { enrichQueuedThought } from '$lib/server/capture/enrich-queued-thought'
-import type { CaptureSource, MemoryAuthor } from '$lib/server/db/schema'
+import { logIngestPhaseTiming, type IngestPhaseTimer } from '$lib/server/capture/phase-timing'
+import { queueCapture } from '$lib/server/capture/queue-capture'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
+import type { CaptureSource, MemoryAuthor } from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */

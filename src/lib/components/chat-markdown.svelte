@@ -18,6 +18,7 @@
   <div
     class="chat-markdown chat-markdown--{tone} min-w-0 max-w-full wrap-break-word text-sm leading-relaxed {className}"
   >
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -- HTML from renderMarkdownToHtml (sanitized) -->
     {@html html}
   </div>
 {/if}

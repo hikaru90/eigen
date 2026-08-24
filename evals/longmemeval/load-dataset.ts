@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
 import type { LongMemEvalInstance } from './types'
+import { readFileSync } from 'node:fs'
 
 export function loadLongMemEvalDataset(datasetPath: string): LongMemEvalInstance[] {
   const raw = readFileSync(datasetPath, 'utf8')

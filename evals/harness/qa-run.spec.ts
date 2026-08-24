@@ -1,6 +1,6 @@
+import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 import { describe, expect, it } from 'vitest'
 import { expandQa, expandQaEntries } from './qa-run'
-import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 
 const sampleQa: EvalQaRecord = {
   id: 'qa_test',

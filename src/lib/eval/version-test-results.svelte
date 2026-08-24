@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { VersionEvalOverview } from './version-overview-types'
+  import { resolve } from '$app/paths'
+  import type { Pathname } from '$app/types'
   import * as Card from '$lib/components/ui/card'
   import { excerpt, formatPercent } from '$lib/eval/display'
 
@@ -56,7 +58,7 @@
           <div class="flex shrink-0 flex-col items-start gap-1 sm:items-end">
             {#if test.runId}
               <a
-                href="/eval?run={test.runId}"
+                href={resolve(`/eval?run=${test.runId}` as Pathname)}
                 class="text-primary text-sm font-medium underline-offset-4 hover:underline"
               >
                 {#if test.scoreLine && test.scorePercent != null}

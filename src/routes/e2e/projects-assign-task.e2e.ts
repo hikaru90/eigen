@@ -3,7 +3,6 @@ import {
   captureThoughtViaUi,
   completeOnboardingOverlay,
   registerUser,
-  signOut,
 } from './release-helpers'
 
 const TEST_PROJECT = 'QA Test Project'
@@ -11,8 +10,6 @@ const UNASSIGNED_THOUGHT = 'Remember to buy milk and eggs from the grocery store
 
 test.describe('Projects: unassigned task assignment @qa', () => {
   test.describe.configure({ mode: 'serial', timeout: 300_000 })
-
-  let email = ''
 
   test('assign task from No project section removes it and shows under project', async ({
     page,
@@ -24,7 +21,7 @@ test.describe('Projects: unassigned task assignment @qa', () => {
     })
 
     await test.step('register and onboard', async () => {
-      ;({ email } = await registerUser(context, page, { emailDomain: 'example.com' }))
+      await registerUser(context, page, { emailDomain: 'example.com' })
       await expect(page).toHaveURL(/\/capture/)
       await completeOnboardingOverlay(page, { creditAmount: 1000 })
     })
@@ -61,14 +58,6 @@ test.describe('Projects: unassigned task assignment @qa', () => {
         .locator('..')
         .locator('button:text("Assign")')
         .first()
-
-      const taskCountBefore = await page
-        .locator('text=No project')
-        .first()
-        .locator('..')
-        .locator('..')
-        .locator('button:text("Assign")')
-        .count()
 
       await taskBefore.click()
 

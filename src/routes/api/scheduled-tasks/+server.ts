@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { listScheduledTasks } from '$lib/server/scheduled-tasks/service'
 
 export const GET: RequestHandler = async ({ locals }) => {

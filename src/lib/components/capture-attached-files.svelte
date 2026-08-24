@@ -1,11 +1,11 @@
 <script lang="ts">
+  import { resolve } from '$app/paths'
   import type { CaptureAttachedFile } from '$lib/capture/capture-result-types'
-  import type { TextFileRecord } from '$lib/text-files/api'
-  import { fetchTextFile } from '$lib/text-files/api'
   import NoteEditDialog from '$lib/components/note-edit-dialog.svelte'
   import { Button } from '$lib/components/ui/button'
-  import { resolve } from '$app/paths'
   import { m } from '$lib/paraglide/messages.js'
+  import type { TextFileRecord } from '$lib/text-files/api'
+  import { fetchTextFile } from '$lib/text-files/api'
 
   let {
     files,

@@ -3,15 +3,15 @@ import {
   GROUNDING_CHECK_IN_TAG,
 } from '$lib/server/grounding/constants'
 import { generateCheckInQuestion } from '$lib/server/grounding/next-check-in'
-import { isCheckInQuestionDue } from '$lib/server/grounding/question-due'
 import { loadGroundingProfileRow } from '$lib/server/grounding/profile'
 import {
   canSendGroundingPushToday,
   recordGroundingPushSent,
 } from '$lib/server/grounding/push-throttle'
+import { isCheckInQuestionDue } from '$lib/server/grounding/question-due'
+import { queueNotificationEmail } from '$lib/server/notify/notification-email'
 import { sendPushToUser } from '$lib/server/push/send'
 import { listPushSubscriptionsForUser } from '$lib/server/push/subscription'
-import { queueNotificationEmail } from '$lib/server/notify/notification-email'
 
 const CHECK_IN_CAPTURE_URL = '/capture?checkin=1'
 const GROUNDING_NOTIFY_TITLE = 'Improve capture quality'

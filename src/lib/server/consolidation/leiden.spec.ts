@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { detectCommunities } from './leiden'
 import type { Edge } from './leiden'
+import { describe, expect, it } from 'vitest'
 import { COMMUNITY_HIERARCHY_DEPTH } from './community-levels'
+import { detectCommunities } from './leiden'
 
 describe('detectCommunities', () => {
   it('returns trivial single-member communities for a single node', () => {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question'
 import { GROUNDING_CHECK_IN_TAG } from '$lib/server/grounding/constants'
+import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question'
 
 const {
   isCheckInQuestionDueMock,

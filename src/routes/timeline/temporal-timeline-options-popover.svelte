@@ -1,11 +1,11 @@
 <script lang="ts">
-  import ListFilterIcon from '@lucide/svelte/icons/list-filter'
-  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up'
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down'
-  import * as Select from '$lib/components/ui/select'
-  import * as Popover from '$lib/components/ui/popover'
+  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up'
+  import ListFilterIcon from '@lucide/svelte/icons/list-filter'
   import { Button } from '$lib/components/ui/button'
   import { Label } from '$lib/components/ui/label'
+  import * as Popover from '$lib/components/ui/popover'
+  import * as Select from '$lib/components/ui/select'
   import {
     GRAPH_FILTER_GLASS_POPOVER,
     GRAPH_FILTER_GLASS_SELECT,

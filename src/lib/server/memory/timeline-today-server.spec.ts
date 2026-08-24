@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { filterOpenTodoTodayItems, isOpenTodoToday } from './timeline-today-server'
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
+import { filterOpenTodoTodayItems, isOpenTodoToday } from './timeline-today-server'
 
 function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventListItem {
   return {

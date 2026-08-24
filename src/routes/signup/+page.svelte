@@ -1,17 +1,17 @@
 <script lang="ts">
+  import type { ActionData } from './$types'
+  import type { PageData } from './$types'
   import { enhance } from '$app/forms'
   import { resolve } from '$app/paths'
   import type { Pathname } from '$app/types'
-  import type { ActionData } from './$types'
-  import * as Card from '$lib/components/ui/card'
-  import { Button } from '$lib/components/ui/button'
-  import { Label } from '$lib/components/ui/label'
-  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
-  import { signUpSchema } from '$lib/validation/auth'
-  import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
   import { signupPlanSubtitle } from '$lib/auth/signup-plan'
+  import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
+  import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
+  import { Button } from '$lib/components/ui/button'
+  import * as Card from '$lib/components/ui/card'
+  import { Label } from '$lib/components/ui/label'
   import { websiteLegalUrl } from '$lib/legal/website-legal-urls'
-  import type { PageData } from './$types'
+  import { signUpSchema } from '$lib/validation/auth'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
   const homeHref = websiteOrigin || resolve('/' as Pathname)
@@ -82,6 +82,14 @@
         <p class="text-foreground text-xs">
           {form.message ?? 'Check your email for a verification link before signing in.'}
         </p>
+        {#if form.email && data.emailVerificationRequired}
+          <form method="post" action="?/resendVerification" use:enhance class="space-y-2">
+            <input type="hidden" name="email" value={form.email} />
+            <Button type="submit" variant="outline" class="w-full rounded-[4px]"
+              >Resend verification email</Button
+            >
+          </form>
+        {/if}
         <p class="text-muted-foreground text-center text-xs">
           <a href={resolve('/login')} class="text-foreground underline-offset-2 hover:underline"
             >Sign in</a
@@ -114,7 +122,7 @@
                   href={termsHref}
                   class="text-foreground underline underline-offset-2"
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener noreferrer external"
                 >
                   Terms of Service (AGB)
                 </a>
@@ -123,7 +131,7 @@
                   href={privacyHref}
                   class="text-foreground underline underline-offset-2"
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener noreferrer external"
                 >
                   Privacy Policy
                 </a>
@@ -134,7 +142,7 @@
                     href={imprintHref}
                     class="underline underline-offset-2"
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noopener noreferrer external"
                   >
                     Imprint
                   </a>

@@ -5,9 +5,9 @@
  * from question text. See `.cursor/rules/no-string-heuristics.mdc`.
  */
 
-import type { TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent'
 import type { TemporalSolverResult } from '$lib/server/qa/temporal-solver'
 import { formatSolverAnswer } from '$lib/server/qa/temporal-solver'
+import type { TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent'
 
 /** Dedupe and trim LLM classifier entityHints — does not parse the question string. */
 export function mergeQuestionEntityHints(classifierHints: string[]): string[] {

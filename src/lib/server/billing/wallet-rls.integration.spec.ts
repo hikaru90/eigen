@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { getOrCreateWallet, creditFromPayment } from '$lib/server/billing/wallet'
 import { user } from '$lib/server/db/auth.schema'
 import { userWallet, walletLedgerEntry, paymentOrder } from '$lib/server/db/schema'
-import { getOrCreateWallet, creditFromPayment } from '$lib/server/billing/wallet'
 
 const hasDb = Boolean(process.env.DATABASE_URL)
 

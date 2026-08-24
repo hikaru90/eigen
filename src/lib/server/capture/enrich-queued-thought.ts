@@ -2,26 +2,27 @@
  * Tier 2: enrich a queued thought row in place using full user context.
  */
 import { and, eq, sql } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { thought } from '$lib/server/db/schema'
-import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split'
-import { extractEnrichThoughtBundle } from '$lib/server/capture/enrich-thought-bundle'
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich'
+import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
+import { extractEnrichThoughtBundle } from '$lib/server/capture/enrich-thought-bundle'
 import {
   loadEnrichmentContext,
   type EnrichmentContext,
 } from '$lib/server/capture/enrichment-context'
-import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { toPgVectorLiteral } from '$lib/server/capture/service'
-import { runIngestWithRetries } from '$lib/server/ingest/retry'
-import type { CaptureProgressEvent } from '$lib/server/capture/service'
 import {
   createIngestPhaseTimer,
   logIngestPhaseTiming,
   type IngestPhaseTimer,
 } from '$lib/server/capture/phase-timing'
-import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import { markEnrichQueueComplete, markEnrichQueueFailed } from '$lib/server/capture/queue-capture'
+import { toPgVectorLiteral } from '$lib/server/capture/service'
+import type { CaptureProgressEvent } from '$lib/server/capture/service'
+import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { thought } from '$lib/server/db/schema'
+import { runIngestWithRetries } from '$lib/server/ingest/retry'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import {
   extractEntityGraphBundle,
   shouldRetryEntityMentionExtraction,
@@ -30,11 +31,10 @@ import {
 } from '$lib/server/memory/entity-extraction'
 import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
 import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
-import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
-import { markEnrichQueueComplete, markEnrichQueueFailed } from '$lib/server/capture/queue-capture'
-import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
+import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
 
 export type EnrichQueuedThoughtOptions = {
   onProgress?: (event: CaptureProgressEvent) => Promise<void>

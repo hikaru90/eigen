@@ -1,22 +1,22 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
   import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import { onMount, tick } from 'svelte'
+  import {
+    ensureEmbeddingProjection,
+    subscribeEmbeddingProjection,
+    type EmbeddingProjectionPhase,
+  } from '$lib/graph/embedding-map-projection'
+  import { filterNodesByAuthorLayers } from '$lib/graph/graph-author-layers'
   import {
     customEntityFillsFromLegendSections,
     filterNodesByEntityTypes,
     nodeFillForGraph,
     type GraphLegendSection,
   } from '$lib/graph/graph-ontology-legend'
-  import GraphEntityKindsLegend from './graph-entity-kinds-legend.svelte'
-  import { filterNodesByAuthorLayers } from '$lib/graph/graph-author-layers'
   import { m } from '$lib/paraglide/messages.js'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
-  import {
-    ensureEmbeddingProjection,
-    subscribeEmbeddingProjection,
-    type EmbeddingProjectionPhase,
-  } from '$lib/graph/embedding-map-projection'
   import { createEmbeddingMap3d, type EmbeddingMap3dHandle } from './embedding-map-3d'
+  import GraphEntityKindsLegend from './graph-entity-kinds-legend.svelte'
 
   export type EmbeddingMapApi = {
     setSelectedId: (id: string | null) => void
@@ -46,7 +46,8 @@
     visible = true,
     onSelectItem,
     selectedItemId = null,
-    api = $bindable<EmbeddingMapApi | null>(null),
+    // eslint-disable-next-line no-useless-assignment -- Svelte bindable prop
+    api = $bindable<EmbeddingMapApi | null>(),
     onFiltersChanged,
   }: Props = $props()
 

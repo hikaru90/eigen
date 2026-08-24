@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { loadNotificationStatusForUser } from '$lib/server/settings/notification-status'
 
 export const GET: RequestHandler = async (event) => {

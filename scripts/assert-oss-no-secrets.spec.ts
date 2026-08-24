@@ -1,7 +1,7 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { OSS_OPERATOR_SECRET_KEYS, parseEnvExampleValue } from './oss-operator-secret-keys.mjs'
 

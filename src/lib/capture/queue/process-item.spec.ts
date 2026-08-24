@@ -1,8 +1,8 @@
+import type { CaptureQueueItem } from './types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as db from './db'
-import * as submit from './submit-capture'
 import { processCaptureQueueItem } from './process-item'
-import type { CaptureQueueItem } from './types'
+import * as submit from './submit-capture'
 
 const baseItem: CaptureQueueItem = {
   id: 'q1',

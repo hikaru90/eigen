@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
 import { hashPassword } from 'better-auth/crypto'
+import { and, eq } from 'drizzle-orm'
 import { HARNESS_E2E_PASSWORD } from '$lib/e2e/harness-credentials'
 import { authDb } from '$lib/server/db/auth-db'
 import { account, user } from '$lib/server/db/auth.schema'

@@ -1,6 +1,6 @@
+import type { Intensity } from './types'
 import { abbreviationsFor, articlesFor, fillersFor, hedgesFor, pleasantriesFor } from './lexicon'
 import { type Segment, tokenize } from './tokenize'
-import type { Intensity } from './types'
 
 export type CompressOptions = {
   intensity?: Intensity

@@ -1,5 +1,5 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
 import { requeueEnrichThought } from '$lib/server/capture/queue-capture'
 
 export const POST: RequestHandler = async (event) => {

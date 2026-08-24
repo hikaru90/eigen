@@ -1,10 +1,10 @@
+import type { CheckAssertionResult } from './qa-types'
 import { describe, expect, it } from 'vitest'
 import {
   ingestBrokenFromCheckAssertions,
   qaIdFromRetrievalFixtureRef,
   runtimeRetrievalRelevant,
 } from './auto-retrieval-prune'
-import type { CheckAssertionResult } from './qa-types'
 
 describe('qaIdFromRetrievalFixtureRef', () => {
   it('parses qa id from retrieval fixture ref', () => {

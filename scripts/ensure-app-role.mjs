@@ -1,7 +1,7 @@
 import './load-env.mjs'
 import postgres from 'postgres'
-import { getDatabaseUrl } from './db-urls.mjs'
 import { ensureAgeGraphGrants, transferGraphOwnership, quoteIdent } from './age-graph-grants.mjs'
+import { getDatabaseUrl } from './db-urls.mjs'
 
 const urlString = getDatabaseUrl()
 const appPassword = process.env.EIGEN_APP_DB_PASSWORD?.trim() || 'eigen_app'

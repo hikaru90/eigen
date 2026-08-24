@@ -3,8 +3,8 @@
   import CheckIcon from '@lucide/svelte/icons/check'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { hapticConfirm } from '$lib/haptics'
-  import { isTemporalEventCompleted } from './temporal-events-utils'
   import { m } from '$lib/paraglide/messages.js'
+  import { isTemporalEventCompleted } from './temporal-events-utils'
 
   type Props = {
     item: TemporalEventListItem

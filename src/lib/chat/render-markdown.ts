@@ -1,5 +1,5 @@
-import { marked } from 'marked'
 import DOMPurify from 'isomorphic-dompurify'
+import { marked } from 'marked'
 import { citationDisplayLabel, replaceCitationTokens } from './citation-tokens'
 
 function escapeHtml(value: string): string {

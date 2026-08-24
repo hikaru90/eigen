@@ -1,10 +1,7 @@
 <script lang="ts">
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import CheckIcon from '@lucide/svelte/icons/check'
   import CircleX from '@lucide/svelte/icons/circle-x'
-  import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
-  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
-  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
+  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import {
     evidenceHitsFromAnswerQuestionPayload,
     formatToolArgumentsSummary,
@@ -13,6 +10,9 @@
     type ToolResultMemoryHit,
   } from '$lib/chat/chat-stream-types'
   import type { ChatTimelineKind } from '$lib/chat/normalize-messages'
+  import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
+  import ChatMarkdown from '$lib/components/chat-markdown.svelte'
+  import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
 
   type Props = {
     kind: ChatTimelineKind

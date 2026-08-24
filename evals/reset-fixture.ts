@@ -1,3 +1,5 @@
+import { insertEvalUserRow } from '../src/lib/eval/store'
+import { appSql } from '../src/lib/server/db'
 /**
  * Delete a corpus fixture's stored thought so the next eval run re-captures it.
  *
@@ -5,8 +7,6 @@
  *   npm run eval:reset-fixture -- --fixture ec_jonas_silence --operator <your-user-id>
  */
 import { deleteThoughtVertexFromGraph } from '../src/lib/server/graph/age'
-import { appSql } from '../src/lib/server/db'
-import { insertEvalUserRow } from '../src/lib/eval/store'
 import { EVAL_OPERATOR_USER_ID, EVAL_JUDGE_USER_ID, evalCorpusUserId } from './harness/eval-config'
 import { runEval, logEval, withEvalDb } from './harness/eval-context'
 

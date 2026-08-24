@@ -1,4 +1,8 @@
 import { eq } from 'drizzle-orm'
+import {
+  DELETE_ALL_MEMORIES_CONFIRMATION,
+  isDeleteAllMemoriesConfirmation,
+} from '$lib/memory/delete-confirmation'
 import { getDb } from '$lib/server/db'
 import {
   captureSession,
@@ -11,10 +15,6 @@ import {
   userOntology,
 } from '$lib/server/db/schema'
 import { deleteAllUserGraphVertices } from '$lib/server/graph/age'
-import {
-  DELETE_ALL_MEMORIES_CONFIRMATION,
-  isDeleteAllMemoriesConfirmation,
-} from '$lib/memory/delete-confirmation'
 
 export type DeleteAllMemoriesResult = {
   thoughtsDeleted: number

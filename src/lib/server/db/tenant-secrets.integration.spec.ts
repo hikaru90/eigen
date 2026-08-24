@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { llmProviderConfig, userApiKey } from '$lib/server/db/brain.schema'
-import { user } from '$lib/server/db/auth.schema'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { generateApiKey } from '$lib/server/api-keys/api-key-utils'
+import { user } from '$lib/server/db/auth.schema'
+import { llmProviderConfig, userApiKey } from '$lib/server/db/brain.schema'
 
 const hasDb = Boolean(process.env.DATABASE_URL)
 

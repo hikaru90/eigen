@@ -1,6 +1,6 @@
+import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 import { describe, expect, it } from 'vitest'
 import { checksAfterEdit, checksBeforeEdit, resolveChecks } from './qa-checks'
-import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 
 const editQa: EvalQaRecord = {
   id: 'qa_edit_allergy_update',

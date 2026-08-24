@@ -1,16 +1,16 @@
+import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
-import type { RequestHandler } from './$types'
-import { getDb } from '$lib/server/db'
-import { paymentOrder } from '$lib/server/db/schema'
-import { capturePayPalOrder } from '$lib/server/billing/paypal'
+import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import {
   netCoversPlatformSubtotal,
   usdStringsMatchWithinTolerance,
 } from '$lib/server/billing/checkout-pricing'
-import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
-import { captureServerEvent } from '$lib/server/analytics/posthog-server'
+import { capturePayPalOrder } from '$lib/server/billing/paypal'
+import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet'
+import { getDb } from '$lib/server/db'
+import { paymentOrder } from '$lib/server/db/schema'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

@@ -1,6 +1,6 @@
-import { page } from 'vitest/browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
+import { page } from 'vitest/browser'
 import VoiceInputButtonTestHarness from './voice-input-button-test-harness.svelte'
 
 vi.mock('$lib/capture/transcribe-audio', () => ({

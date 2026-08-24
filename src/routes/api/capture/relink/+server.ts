@@ -1,8 +1,8 @@
-import { error, json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
+import { error, json } from '@sveltejs/kit'
+import { runWithTrace } from '$lib/server/activity/trace-context'
 import { relinkThoughtGraph } from '$lib/server/capture/service'
 import type { CaptureProgressEvent } from '$lib/server/capture/service'
-import { runWithTrace } from '$lib/server/activity/trace-context'
 import {
   appSql,
   appDbAsyncLocal,

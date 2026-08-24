@@ -1,4 +1,6 @@
 import { and, eq } from 'drizzle-orm'
+import { editStoredThought } from '$lib/server/capture/service'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   graphSyncJob,
@@ -7,14 +9,7 @@ import {
   type GraphSyncJobOperation,
   type LifecycleStatus,
 } from '$lib/server/db/schema'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { editStoredThought } from '$lib/server/capture/service'
-import {
-  archiveTemporalEventForUser,
-  setThoughtLifecycleStatus,
-  syncThoughtIfSingleEvent,
-} from '$lib/server/memory/lifecycle'
-import { buildActivePeriodLiteral } from '$lib/server/memory/temporal-normalize'
+import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker'
 import {
   applyTemporalEventActionRequest,
   normalizeTemporalEventQuickAction,
@@ -27,12 +22,17 @@ import {
   syncReminderScheduleForEvent,
 } from '$lib/server/memory/event-reminder-schedule'
 import {
+  archiveTemporalEventForUser,
+  setThoughtLifecycleStatus,
+  syncThoughtIfSingleEvent,
+} from '$lib/server/memory/lifecycle'
+import {
   getTemporalEventListItemById,
   thoughtIdFromTaskItemId,
   type TemporalEventListItem,
 } from '$lib/server/memory/temporal-event-list'
+import { buildActivePeriodLiteral } from '$lib/server/memory/temporal-normalize'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
-import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker'
 
 export type TemporalEventActionResult = {
   ok: true

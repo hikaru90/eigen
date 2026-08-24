@@ -1,10 +1,10 @@
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { extractChatContent } from '$lib/server/ontology/llm-json'
 import {
   lifecycleStatusEnum,
   temporalEventKindEnum,
   type LifecycleStatus,
 } from '$lib/server/db/brain.schema'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { extractChatContent } from '$lib/server/ontology/llm-json'
 
 export type TemporalEventQuickAction = 'mark_done' | 'reopen' | 'archive'
 
@@ -181,6 +181,7 @@ export async function applyTemporalEventActionRequest(input: {
   } catch (err) {
     throw new Error(
       `Failed to parse temporal event action LLM response: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     )
   }
 }

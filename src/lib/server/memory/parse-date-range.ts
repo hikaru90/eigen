@@ -1,6 +1,6 @@
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
+import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { parsedDateRangeSchema, type ParsedDateRangeBody } from '$lib/validation/api-bodies'
 
 export type ParsedDateRange = ParsedDateRangeBody
@@ -82,6 +82,7 @@ export async function parseDateRangePhrase(input: {
   } catch (err) {
     throw new Error(
       `Invalid date range LLM response: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     )
   }
 }

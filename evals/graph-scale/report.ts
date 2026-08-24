@@ -1,7 +1,7 @@
+import type { GraphScalePoint, GraphScaleReport } from './types'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { resolveGraphScaleReportPaths } from './progress-report'
-import type { GraphScalePoint, GraphScaleReport } from './types'
 
 export function graphScaleReportToCsv(report: GraphScaleReport): string {
   const header = [

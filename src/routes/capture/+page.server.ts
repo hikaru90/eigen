@@ -1,22 +1,22 @@
-import { fail, redirect } from '@sveltejs/kit'
 import type { Actions, PageServerLoad } from './$types'
-import { authDb } from '$lib/server/db/auth-db'
-import { user } from '$lib/server/db/auth.schema'
-import { getDb } from '$lib/server/db'
-import { userPreference } from '$lib/server/db/schema'
-import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
-import { loadRecentCaptureThoughts } from '$lib/server/capture/load-recent-capture-thoughts'
+import { fail, redirect } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
-import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
-import { getOrCreateWallet, grantStartingFreeCredits } from '$lib/server/billing/wallet'
+import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
 import { MIN_CAPTURE_PIPELINE_CREDITS, STARTING_FREE_CREDITS } from '$lib/server/billing/credits'
 import {
   getPayPalClientId,
   getPayPalWebSdkUrl,
   isPayPalConfigured,
 } from '$lib/server/billing/paypal'
-import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
+import { getOrCreateWallet, grantStartingFreeCredits } from '$lib/server/billing/wallet'
+import { loadRecentCaptureThoughts } from '$lib/server/capture/load-recent-capture-thoughts'
+import { getDb } from '$lib/server/db'
+import { authDb } from '$lib/server/db/auth-db'
+import { user } from '$lib/server/db/auth.schema'
+import { userPreference } from '$lib/server/db/schema'
 import { isGroundingQuestionDue } from '$lib/server/grounding/question-due'
+import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
+import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {

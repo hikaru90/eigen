@@ -1,10 +1,10 @@
+import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases'
 import { checkEntityGraphConnectionsForUser } from '$lib/server/consolidation/check-entity-graph-connections'
 import { pruneDuplicateThoughtRelationEdgesForUser } from '$lib/server/consolidation/prune-duplicate-thought-relation-edges'
 import { pruneOrphanEntityNodesForUser } from '$lib/server/consolidation/prune-orphan-entity-nodes'
 import { pruneOrphanThoughtNodesForUser } from '$lib/server/consolidation/prune-orphan-thought-nodes'
 import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges'
 import { repairEntityRelationsForUser } from '$lib/server/consolidation/repair-entity-relations'
-import type { GraphRearrangeProgressEvent } from '$lib/graph/graph-rearrange-phases'
 
 export type GraphRearrangeRunResult = {
   pruned: Awaited<ReturnType<typeof pruneSuspiciousEntityEdgesForUser>>

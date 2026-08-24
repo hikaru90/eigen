@@ -16,7 +16,7 @@ const { reconcileVersionEvalRuns } = await import('../src/lib/eval/store.ts')
 function parseOperator(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     if ((argv[i] === '--operator' || argv[i] === '--operator-user-id') && argv[i + 1]) {
-      return argv[++i].trim()
+      return argv[i + 1].trim()
     }
   }
   return null

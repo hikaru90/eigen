@@ -1,5 +1,5 @@
-import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { stripEmbeddingsFromValue } from '$lib/server/observability/strip-embeddings'
+import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import {
   normalizeRetrievalScore,
   type RetrievalFusionWeights,
@@ -60,7 +60,7 @@ function compactThoughtRow(row: Record<string, unknown>) {
 
 function compactRetrieveResults(
   results: unknown[],
-  weights: RetrievalFusionWeights,
+  _weights: RetrievalFusionWeights,
 ): { count: number; candidates: Array<Record<string, unknown>>; truncated: boolean } {
   const slice = results.slice(0, MAX_CANDIDATES)
   const candidates = slice.map((row) => {
@@ -83,7 +83,7 @@ function compactRetrieveResults(
  */
 export function findUniqueStrongRetrieveMatch(
   results: unknown[],
-  weights: RetrievalFusionWeights = CONTEXT_WEIGHTS.default,
+  _weights: RetrievalFusionWeights = CONTEXT_WEIGHTS.default,
 ): { id: string; snippet: string } | null {
   if (!Array.isArray(results) || results.length === 0) return null
 

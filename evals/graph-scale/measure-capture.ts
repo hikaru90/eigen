@@ -1,9 +1,9 @@
-import { captureThought } from '$lib/server/capture/service'
-import { createIngestPhaseTimer } from '$lib/server/capture/phase-timing'
+import type { GraphScaleCaptureProbe } from './types'
 import { runWithTrace } from '$lib/server/activity/trace-context'
+import { createIngestPhaseTimer } from '$lib/server/capture/phase-timing'
+import { captureThought } from '$lib/server/capture/service'
 import { withEvalDb } from '../harness/eval-context'
 import { aggregateActivityCostByGroupId } from './aggregate-cost'
-import type { GraphScaleCaptureProbe } from './types'
 
 export const GRAPH_SCALE_PROBE_TEXT = 'Send the revised invoice to accounting before Friday close.'
 

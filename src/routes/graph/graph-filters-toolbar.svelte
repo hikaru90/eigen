@@ -1,6 +1,11 @@
 <script lang="ts">
-  import { browser } from '$app/environment'
+  import Link2 from '@lucide/svelte/icons/link-2'
+  import ListFilterIcon from '@lucide/svelte/icons/list-filter'
+  import SearchIcon from '@lucide/svelte/icons/search'
+  import XIcon from '@lucide/svelte/icons/x'
   import { onDestroy } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
+  import { browser } from '$app/environment'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
   import * as Select from '$lib/components/ui/select'
@@ -11,17 +16,13 @@
     graphFilterTriggerClass,
   } from '$lib/graph/graph-filter-chrome'
   import { graphCommunityLevelLabel, graphEdgeKindLabel } from '$lib/graph/graph-i18n'
+  import { GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE } from '$lib/graph/graph-i18n'
   import {
     entityKindKeyFromLegendItem,
     type GraphLegendSection,
   } from '$lib/graph/graph-ontology-legend'
-  import { GRAPH_ONTOLOGY_ENTITY_KINDS_TITLE } from '$lib/graph/graph-i18n'
   import { shouldSubmitSearchOnEnter } from '$lib/graph/graph-search-keyboard'
   import { m } from '$lib/paraglide/messages.js'
-  import Link2 from '@lucide/svelte/icons/link-2'
-  import SearchIcon from '@lucide/svelte/icons/search'
-  import XIcon from '@lucide/svelte/icons/x'
-  import ListFilterIcon from '@lucide/svelte/icons/list-filter'
 
   type FilterPanel = 'search' | 'edge' | 'entity' | 'level'
 
@@ -94,7 +95,7 @@
 
   function toggleEntityType(itemKey: string) {
     const kindKey = entityKindKeyFromLegendItem(itemKey)
-    const next = new Set(visibleEntityTypes)
+    const next = new SvelteSet(visibleEntityTypes)
     if (next.has(kindKey)) {
       next.delete(kindKey)
     } else {
@@ -105,7 +106,7 @@
   }
 
   function clearEntityTypeFilter() {
-    visibleEntityTypes = new Set()
+    visibleEntityTypes = new SvelteSet()
     onchange?.()
   }
 

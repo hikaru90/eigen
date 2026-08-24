@@ -2,18 +2,18 @@
  * Capture confirmation gate: interpret → optional modal (deviation) → confirm/verbatim → enrich.
  */
 import { and, eq, lt } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema'
-import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { queueCapture, QUEUE_PLACEHOLDER_CATEGORY } from '$lib/server/capture/queue-capture'
+import { notifyThoughtCreated } from '$lib/server/agents/notify'
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker'
 import {
   interpretThoughtPreview,
   type CapturePreviewBundle,
 } from '$lib/server/capture/interpret-thought'
+import { queueCapture, QUEUE_PLACEHOLDER_CATEGORY } from '$lib/server/capture/queue-capture'
+import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
-import { notifyThoughtCreated } from '$lib/server/agents/notify'
 
 export type { CapturePreviewBundle }
 

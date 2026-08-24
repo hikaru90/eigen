@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { TextFileRecord } from '$lib/text-files/api'
-  import { createTextFile, fetchTextFiles, linkTextFileToThought } from '$lib/text-files/api'
+  import { onMount } from 'svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Dialog from '$lib/components/ui/dialog'
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
   import { Textarea } from '$lib/components/ui/textarea'
-  import { onMount } from 'svelte'
+  import type { TextFileRecord } from '$lib/text-files/api'
+  import { createTextFile, fetchTextFiles, linkTextFileToThought } from '$lib/text-files/api'
 
   let {
     thoughtId,
