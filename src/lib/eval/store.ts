@@ -191,7 +191,7 @@ export async function getCorpusFixtureMap(
 			WHERE er.eval_user_id = ${evalUserId}
 			ORDER BY etm.fixture_id, er.created_at DESC
 		`)
-    const rows = Array.isArray(result) ? result : (result.rows ?? [])
+    const rows = Array.isArray(result) ? result : [...(result as unknown as Iterable<Record<string, unknown>>)]
     const map = new Map<string, CorpusFixtureRef>()
     for (const row of rows) {
       const r = row as Record<string, unknown>

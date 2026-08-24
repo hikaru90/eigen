@@ -4,11 +4,13 @@ export const THOUGHT_SYNC_CHANNEL = 'eigen-thought-sync'
 
 export type ThoughtSyncScope = 'local' | 'global'
 
+export type ThoughtSyncChange = 'lifecycle' | 'edit' | 'delete'
+
 export type ThoughtSyncMessage =
   | {
       type: 'changed'
       thoughtId: string
-      change: 'lifecycle' | 'edit' | 'delete'
+      change: ThoughtSyncChange
       scope: ThoughtSyncScope
     }
   | { type: 'refresh-all'; source: 'manual' | 'visibility'; scope: ThoughtSyncScope }
@@ -63,7 +65,7 @@ export function subscribeThoughtSync(listener: ThoughtSyncListener): () => void 
  */
 export function notifyThoughtChanged(
   thoughtId: string,
-  change: ThoughtSyncMessage & { type: 'changed' }['change'],
+  change: ThoughtSyncChange,
   scope: ThoughtSyncScope = 'global',
 ): void {
   ensureChannel()

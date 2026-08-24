@@ -35,7 +35,7 @@ describe('loadVersionEvalOverview', () => {
   })
 
   it('only considers eval runs stamped with the current app version', async () => {
-    const execute = vi.fn().mockResolvedValue({ rows: [] })
+    const execute = vi.fn().mockResolvedValue([])
     withDbUserMock.mockImplementation(
       async (_userId: string, fn: (db: { execute: typeof execute }) => unknown) => fn({ execute }),
     )

@@ -262,8 +262,8 @@ async function shouldStop(
   inDbScope = false,
 ): Promise<boolean> {
   if (!options?.shouldCancel) return false
-  if (inDbScope) return options.shouldCancel()
-  return withDbUser(userId, () => options.shouldCancel!())
+  if (inDbScope) return Promise.resolve(options.shouldCancel())
+  return withDbUser(userId, () => Promise.resolve(options.shouldCancel!()))
 }
 
 async function runConsolidationJobScoped(

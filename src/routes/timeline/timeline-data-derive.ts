@@ -60,7 +60,7 @@ export function deriveOverdueItems(
   timeZone: string,
   now = new Date(),
 ): TemporalEventListItem[] {
-  return filterPriorDayOverdueItems(openItems, timeZone, now)
+  return filterPriorDayOverdueItems([...openItems], timeZone, now)
 }
 
 /**

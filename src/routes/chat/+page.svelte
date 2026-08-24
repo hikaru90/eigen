@@ -12,9 +12,8 @@
   import { onMount } from 'svelte'
   import { fade, fly } from 'svelte/transition'
   import { browser } from '$app/environment'
-  import { resolve } from '$app/paths'
+  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
   import { page } from '$app/state'
-  import type { Pathname } from '$app/types'
   import { insufficientCreditsTopUpHint } from '$lib/billing/insufficient-credits'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import { sanitizeFinalAnswerText, toolLabel } from '$lib/chat/chat-stream-types'
@@ -659,7 +658,7 @@
       {#if sessions.length === 0}
         <p class="text-muted-foreground px-2 py-8 text-center text-xs leading-relaxed">
           No conversations yet. Capture a thought first, then ask Eigen Mesh about it.
-          <a href={resolve('/capture' as Pathname)} class="mt-2 block underline">Go to Capture</a>
+          <a href={resolveAppPath('/capture')} class="mt-2 block underline">Go to Capture</a>
         </p>
       {/if}
       {#each sessions as s (s.id)}

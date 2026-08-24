@@ -1057,7 +1057,7 @@
         onDelete={openDeleteDialog}
         onAttach={openAttachDialog}
         onUnlinkFile={(thoughtId, fileId) => void unlinkAttachedFile(thoughtId, fileId)}
-        onNoteUpdated={(thoughtId) => refreshThoughtDetail(thoughtId)}
+        onNoteUpdated={(thoughtId) => void refreshThoughtDetail(thoughtId)}
         onRetry={(id) => void retryEnrichThought(id)}
         onEditRequestChange={(value) => {
           editRequest = value

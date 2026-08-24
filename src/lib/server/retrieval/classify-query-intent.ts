@@ -84,7 +84,7 @@ export function parseQueryIntentResponse(text: string): QueryIntent {
   if (typeof temporal !== 'boolean') {
     throw new Error('query intent classifier: temporal must be a boolean')
   }
-  const kind = obj.kind
+  const kindRaw = obj.kind
   const validKinds = [
     'ordering',
     'multi_ordering',
@@ -94,12 +94,13 @@ export function parseQueryIntentResponse(text: string): QueryIntent {
     'span',
     'absolute',
     'none',
-  ] as const
-  if (!validKinds.includes(kind as (typeof validKinds)[number])) {
+  ] as const satisfies readonly TemporalQuestionKind[]
+  if (!validKinds.includes(kindRaw as TemporalQuestionKind)) {
     throw new Error(
       'query intent classifier: kind must be ordering, multi_ordering, duration, count, lookback, span, absolute, or none',
     )
   }
+  const kind = kindRaw as TemporalQuestionKind
   const rawHints = obj.entityHints
   if (!Array.isArray(rawHints)) {
     throw new Error('query intent classifier: entityHints must be an array')

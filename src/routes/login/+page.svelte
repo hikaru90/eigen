@@ -3,16 +3,16 @@
   import type { PageData } from './$types'
   import { enhance } from '$app/forms'
   import { resolve } from '$app/paths'
-  import type { Pathname } from '$app/types'
   import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
   import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { Label } from '$lib/components/ui/label'
+  import { homeHref } from '$lib/navigation/home-href'
   import { signInSchema } from '$lib/validation/auth'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
-  const homeHref = websiteOrigin || resolve('/' as Pathname)
+  const homeLink = homeHref(websiteOrigin)
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
 
@@ -35,14 +35,17 @@
   }
 
   const showResend = $derived(
-    Boolean(data.mailConfigured && (form?.emailUnverified || form?.verificationSent)),
+    Boolean(
+      data.mailConfigured &&
+        ((form && 'emailUnverified' in form && form.emailUnverified) || form?.verificationSent),
+    ),
   )
   const resendEmail = $derived(form?.email ?? email)
 </script>
 
 <div class="mx-auto max-w-md px-5 pt-10">
   <header class="text-center">
-    <a href={homeHref} class="inline-block" aria-label="Eigen home">
+    <a href={homeLink} class="inline-block" aria-label="Eigen home">
       <EigenWordmark heightClass="h-8" />
     </a>
     <p class="text-muted-foreground mt-2 text-xs">Sign in</p>

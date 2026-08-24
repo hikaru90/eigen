@@ -202,7 +202,7 @@ export async function mergeGroundingFacets(input: {
           : {}),
         facets: mergedFacets,
         ...(input.recordSession === true
-          ? { lastSessionAt: now, sessionCount, updatedAt: now }
+          ? { lastSessionAt: now, sessionCount, updatedAt: now ?? new Date() }
           : { updatedAt: new Date() }),
       },
     })

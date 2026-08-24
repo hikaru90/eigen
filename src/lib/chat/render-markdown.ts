@@ -1,3 +1,4 @@
+import type { Config } from 'dompurify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
 import { citationDisplayLabel, replaceCitationTokens } from './citation-tokens'
@@ -32,7 +33,7 @@ renderer.link = ({ href, title, text }) => {
 }
 marked.use({ renderer })
 
-const PURIFY_OPTIONS: DOMPurify.Config = {
+const PURIFY_OPTIONS: Config = {
   ALLOWED_TAGS: [
     'p',
     'br',
@@ -71,5 +72,5 @@ export function renderMarkdownToHtml(source: string): string {
   if (!trimmed) return ''
   const raw = marked.parse(formatCitationTokens(trimmed), { async: false })
   if (typeof raw !== 'string') return ''
-  return DOMPurify.sanitize(raw, PURIFY_OPTIONS)
+  return String(DOMPurify.sanitize(raw, PURIFY_OPTIONS))
 }

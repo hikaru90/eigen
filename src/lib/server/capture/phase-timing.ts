@@ -22,6 +22,11 @@ export type IngestPhase =
   | 'relations_extract'
   | 'relations_persist'
   | 'load_result'
+  | 'enrich_cues'
+  | 'enrich_project_detection'
+  | 'load_enrichment_context'
+  | 'prefetch_enrich_llm'
+  | 'persist_classify_embed'
 
 export type IngestPhaseEntry = { phase: IngestPhase; ms: number }
 

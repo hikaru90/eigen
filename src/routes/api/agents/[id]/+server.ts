@@ -36,7 +36,7 @@ export const PATCH: RequestHandler = async (event) => {
 
     if (hasProjectBindings) {
       const projectEntityIds = body.projectEntityIds.filter(
-        (v: unknown): v is string => typeof v === 'string' && v.trim(),
+        (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0,
       )
       await replaceAgentProjectBindings({
         userId: user.id,

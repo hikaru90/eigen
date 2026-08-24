@@ -343,9 +343,9 @@ function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView 
   if (!Array.isArray(sources)) return null
 
   const uniqueHits = new Map<string, ToolResultMemoryHit>()
-  const hits: ToolResultMemoryHit[] = sources
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null
+  const hits = sources
+    .flatMap((row): ToolResultMemoryHit[] => {
+      if (!row || typeof row !== 'object') return []
       const r = row as Record<string, unknown>
       const text =
         typeof r.normalizedText === 'string'
@@ -355,16 +355,17 @@ function memoryHitsFromPayload(parsed: Record<string, unknown>): ToolResultView 
             : typeof r.text === 'string'
               ? r.text
               : ''
-      if (!text.trim()) return null
+      if (!text.trim()) return []
       const id =
         typeof r.id === 'string' ? r.id : typeof r.thoughtId === 'string' ? r.thoughtId : undefined
-      return {
-        id,
-        text: text.trim(),
-        category: typeof r.category === 'string' ? r.category : undefined,
-      }
+      return [
+        {
+          id,
+          text: text.trim(),
+          category: typeof r.category === 'string' ? r.category : undefined,
+        },
+      ]
     })
-    .filter((h): h is ToolResultMemoryHit => h !== null)
     .filter((hit) => {
       const key = `${hit.text.toLowerCase()}::${hit.category?.toLowerCase() ?? ''}`
       const existing = uniqueHits.get(key)

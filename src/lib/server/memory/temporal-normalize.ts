@@ -118,9 +118,8 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
     throw new Error('Temporal extraction output must be a JSON array')
   }
 
-  return parsed
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
+  return parsed.flatMap((entry): ExtractedTemporalMention[] => {
+      if (!entry || typeof entry !== 'object') return []
       const surface =
         typeof (entry as { surface?: unknown }).surface === 'string'
           ? (entry as { surface: string }).surface.trim()
@@ -185,29 +184,30 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
           ? parentSurfaceRaw.trim()
           : undefined
 
-      if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return null
-      if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return null
+      if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return []
+      if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return []
 
-      return {
-        surface,
-        kind: kindRaw as TemporalEventKind,
-        startAt,
-        endAt,
-        timePrecision: timePrecisionRaw as TemporalTimePrecision,
-        timezone,
-        isAllDay,
-        recurrenceRule,
-        confidence,
-        semanticSummary: semanticSummary || surface,
-        ...(relativeSpec ? { relativeSpec } : {}),
-        ...(durationMinutes != null ? { durationMinutes } : {}),
-        ...(energyLevel ? { energyLevel } : {}),
-        ...(priorityQuadrant ? { priorityQuadrant } : {}),
-        ...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
-        ...(parentSurface ? { parentSurface } : {}),
-      }
+      return [
+        {
+          surface,
+          kind: kindRaw as TemporalEventKind,
+          startAt,
+          ...(endAt ? { endAt } : {}),
+          timePrecision: timePrecisionRaw as TemporalTimePrecision,
+          timezone,
+          isAllDay,
+          ...(recurrenceRule ? { recurrenceRule } : {}),
+          confidence,
+          semanticSummary: semanticSummary || surface,
+          ...(relativeSpec ? { relativeSpec } : {}),
+          ...(durationMinutes != null ? { durationMinutes } : {}),
+          ...(energyLevel ? { energyLevel } : {}),
+          ...(priorityQuadrant ? { priorityQuadrant } : {}),
+          ...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
+          ...(parentSurface ? { parentSurface } : {}),
+        },
+      ]
     })
-    .filter((v): v is ExtractedTemporalMention => v !== null)
 }
 
 /** Apply capture-anchored relative date math to LLM-extracted mentions. */

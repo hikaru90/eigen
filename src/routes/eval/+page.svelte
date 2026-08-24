@@ -3,8 +3,7 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
   import { onDestroy, onMount } from 'svelte'
   import { goto, invalidateAll } from '$app/navigation'
-  import { resolve } from '$app/paths'
-  import type { Pathname } from '$app/types'
+  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import * as Tabs from '$lib/components/ui/tabs'
@@ -130,14 +129,14 @@
     if (Array.isArray(result.entries)) {
       liveEntries = result.entries
     }
-    await goto(resolve(`/eval?run=${result.runId}` as Pathname), { replaceState: true, keepFocus: true, noScroll: true })
+    await goto(resolveAppPath(`/eval?run=${result.runId}`), { replaceState: true, keepFocus: true, noScroll: true })
     pollTimer = setInterval(pollRun, 1000)
     void pollRun()
   }
 
   async function selectSavedRun(runId: string) {
     if (running || runId === selectedRunId) return
-    await goto(resolve(`/eval?run=${runId}` as Pathname), { replaceState: true, keepFocus: true, noScroll: true })
+    await goto(resolveAppPath(`/eval?run=${runId}`), { replaceState: true, keepFocus: true, noScroll: true })
   }
 
   async function startRun() {

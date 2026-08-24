@@ -41,7 +41,10 @@ flowchart LR
 npm run test:unit          # full suite once
 npm run test:unit:watch    # watch mode
 npm run test:coverage      # suite + v8 coverage (thresholds on CI / vitest run)
+npm run ci:local           # same gate as CI unit job (lint → naming → check → test:unit)
 ```
+
+Before `git push`, run `npm run ci:local` (or rely on the `.githooks/pre-push` hook installed by `npm install` / `prepare`). To install hooks manually: `node scripts/install-git-hooks.mjs`.
 
 Run a slice while fixing:
 

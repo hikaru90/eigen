@@ -11,10 +11,18 @@
     "sourceMap": true,
     "strict": true,
     "moduleResolution": "bundler"
-  }
-  // Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
-  // except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
-  //
-  // To make changes to top-level options such as include and exclude, we recommend extending
-  // the generated config; see https://svelte.dev/docs/kit/configuration#typescript
+  },
+  "exclude": [
+    "node_modules/**",
+    "src/service-worker.js",
+    "src/service-worker/**",
+    "src/service-worker.ts",
+    "src/service-worker.d.ts",
+    "**/*.spec.ts",
+    "**/*.svelte.spec.ts",
+    "**/*.e2e.ts",
+    "evals/**",
+    "src/routes/e2e/**",
+    "coverage-run/**"
+  ]
 }

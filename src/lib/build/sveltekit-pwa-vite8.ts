@@ -5,6 +5,15 @@ import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 
 type SvelteKitPwaOptions = NonNullable<Parameters<typeof SvelteKitPWA>[0]>;
 
+type PwaBuildApi = {
+	disabled?: boolean;
+	pwaAssetsGenerator?: () => Promise<{
+		injectManifestIcons: () => void;
+		generate: () => Promise<void>;
+	}>;
+	generateBundle?: (bundle: unknown, ctx: unknown) => void;
+};
+
 async function isFile(path: string): Promise<boolean> {
 	try {
 		const stats = await lstat(path);
@@ -21,7 +30,7 @@ async function isFile(path: string): Promise<boolean> {
  */
 function createSvelteKitBuildPlugin(
 	options: SvelteKitPwaOptions,
-	apiResolver: () => { disabled?: boolean } | undefined
+	apiResolver: () => PwaBuildApi | undefined
 ): Plugin {
 	let viteConfig: ResolvedConfig;
 
@@ -42,7 +51,6 @@ function createSvelteKitBuildPlugin(
 		},
 		writeBundle: {
 			sequential: true,
-			enforce: 'pre',
 			async handler() {
 				const api = apiResolver();
 				if (!api || viteConfig.build.ssr) return;
@@ -112,10 +120,8 @@ export function svelteKitPwaForVite8(userOptions: SvelteKitPwaOptions = {}) {
 	const pwaPlugin = plugins.find(
 		(p) => p && typeof p === 'object' && 'name' in p && p.name === 'vite-plugin-pwa'
 	);
-	const resolveApi = () =>
-		pwaPlugin && 'api' in pwaPlugin
-			? (pwaPlugin as { api?: { disabled?: boolean } }).api
-			: undefined;
+	const resolveApi = (): PwaBuildApi | undefined =>
+		pwaPlugin && 'api' in pwaPlugin ? (pwaPlugin.api as PwaBuildApi | undefined) : undefined;
 
 	return [
 		...plugins.filter(

@@ -31,6 +31,14 @@ describe('POST /api/webhooks/inbound/[slug]', () => {
     runAgentMock.mockResolvedValue({ agentRunId: 'run-1' })
   })
 
+  function inboundEvent(pathSuffix: string, init?: RequestInit) {
+    const url = new URL(`/api/webhooks/inbound/${pathSuffix}`, 'http://localhost')
+    return {
+      url,
+      request: new Request(url, { method: 'POST', ...init }),
+    }
+  }
+
   function mockSubscription(row: Record<string, unknown> | null) {
     const limit = vi.fn(async () => (row ? [row] : []))
     const where = vi.fn(() => ({ limit }))
@@ -40,10 +48,11 @@ describe('POST /api/webhooks/inbound/[slug]', () => {
   }
 
   it('rejects missing slug', async () => {
+    const url = new URL('http://localhost/api/webhooks/inbound/')
     await expect(
       POST({
-        params: { slug: ' ' },
-        request: new Request('http://localhost', { method: 'POST', body: '{}' }),
+        url,
+        request: new Request(url, { method: 'POST', body: '{}' }),
       } as never),
     ).rejects.toMatchObject({ status: 400 })
   })
@@ -52,8 +61,8 @@ describe('POST /api/webhooks/inbound/[slug]', () => {
     mockSubscription(null)
     await expect(
       POST({
-        params: { slug: 'missing' },
-        request: new Request('http://localhost', {
+        ...inboundEvent('missing'),
+        request: new Request('http://localhost/api/webhooks/inbound/missing', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ event: 'ping' }),
@@ -74,8 +83,8 @@ describe('POST /api/webhooks/inbound/[slug]', () => {
       agentId: null,
     })
     const res = await POST({
-      params: { slug: 'hook' },
-      request: new Request('http://localhost', {
+      ...inboundEvent('hook'),
+      request: new Request('http://localhost/api/webhooks/inbound/hook', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -99,8 +108,8 @@ describe('POST /api/webhooks/inbound/[slug]', () => {
       agentId: null,
     })
     const res = await POST({
-      params: { slug: 'hook' },
-      request: new Request('http://localhost', {
+      ...inboundEvent('hook'),
+      request: new Request('http://localhost/api/webhooks/inbound/hook', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -133,8 +142,8 @@ describe('POST /api/webhooks/inbound/[slug]', () => {
     validateMock.mockReturnValue(false)
     await expect(
       POST({
-        params: { slug: 'hook' },
-        request: new Request('http://localhost', {
+        ...inboundEvent('hook'),
+        request: new Request('http://localhost/api/webhooks/inbound/hook', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',

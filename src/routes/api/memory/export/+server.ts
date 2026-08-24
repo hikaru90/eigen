@@ -8,7 +8,12 @@ export const GET: RequestHandler = async (event) => {
 
   const { filename, bytes } = await buildMemoryExportZip(user.id)
 
-  return new Response(bytes, {
+  const body = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer
+
+  return new Response(new Blob([body]), {
     headers: {
       'content-type': 'application/zip',
       'content-disposition': `attachment; filename="${filename}"`,

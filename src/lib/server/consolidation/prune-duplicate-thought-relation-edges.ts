@@ -48,8 +48,8 @@ async function pairSupportStats(input: {
 			AND e2.canonical_entity_id = ${input.targetEntityId}::uuid
 	`)
   const rows = Array.isArray(result)
-    ? (result as PairSupportRow[])
-    : ((result as { rows?: PairSupportRow[] }).rows ?? [])
+    ? (result as unknown as PairSupportRow[])
+    : ([...(result as unknown as Iterable<PairSupportRow>)])
   const row = rows[0]
   return {
     thoughtCount: num(row?.thought_count),

@@ -471,7 +471,7 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
       updated = {
         ok: true as const,
         thought: await (
-          await import('$lib/server/capture/service')
+          await import('$lib/server/capture/capture-result')
         ).loadThoughtCaptureResult(context.userId, thoughtId),
         editSummary: 'Text replaced directly',
       }

@@ -3,7 +3,6 @@
   import type { PageData } from './$types'
   import { enhance } from '$app/forms'
   import { resolve } from '$app/paths'
-  import type { Pathname } from '$app/types'
   import { signupPlanSubtitle } from '$lib/auth/signup-plan'
   import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
   import EigenWordmark from '$lib/components/eigen-wordmark.svelte'
@@ -11,10 +10,11 @@
   import * as Card from '$lib/components/ui/card'
   import { Label } from '$lib/components/ui/label'
   import { websiteLegalUrl } from '$lib/legal/website-legal-urls'
+  import { homeHref } from '$lib/navigation/home-href'
   import { signUpSchema } from '$lib/validation/auth'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
-  const homeHref = websiteOrigin || resolve('/' as Pathname)
+  const homeLink = homeHref(websiteOrigin)
   const termsHref = websiteLegalUrl('terms', websiteOrigin)
   const privacyHref = websiteLegalUrl('privacy', websiteOrigin)
   const imprintHref = websiteLegalUrl('imprint', websiteOrigin)
@@ -60,12 +60,12 @@
 
 <div class="mx-auto max-w-md px-5 pt-10">
   <p class="mb-4">
-    <a href={homeHref} class="text-muted-foreground text-xs underline-offset-2 hover:underline">
+    <a href={homeLink} class="text-muted-foreground text-xs underline-offset-2 hover:underline">
       ← Back to home
     </a>
   </p>
   <header class="text-center">
-    <a href={homeHref} class="inline-block">
+    <a href={homeLink} class="inline-block">
       <EigenWordmark heightClass="h-8" />
     </a>
     <p class="text-muted-foreground mt-2 text-xs">Create an account</p>

@@ -58,11 +58,7 @@ export function pollCaptureRecentSync(input: {
     snippets: CaptureRecentThoughtSnippet[]
     details: Record<string, CaptureSubmitResult>
   }
-  onSync: (next: {
-    snippets: CaptureRecentThoughtSnippet[]
-    details: Record<string, CaptureSubmitResult>
-    newThoughtIds: string[]
-  }) => void
+  onSync: (next: RecentCaptureMergeResult) => void
   pollMs?: number
 }): () => void {
   const pollMs = input.pollMs ?? CAPTURE_RECENT_SYNC_POLL_MS

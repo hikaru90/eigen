@@ -5,7 +5,8 @@
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
   import { afterNavigate } from '$app/navigation'
-  import { base, resolve } from '$app/paths'
+  import { base } from '$app/paths'
+  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
   import { page } from '$app/state'
   import type { Pathname } from '$app/types'
   import './layout.css'
@@ -236,7 +237,7 @@
         {@const isActive = isNavItemActive(item.href)}
         <div class={cn('relative', item.variant === 'primary' ? 'min-h-10 flex-1' : 'shrink-0')}>
           <a
-            href={resolve(item.href as Pathname)}
+            href={resolveAppPath(item.href)}
             class={cn(
               'flex items-center justify-center',
               item.variant === 'primary'

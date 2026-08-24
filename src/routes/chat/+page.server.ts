@@ -20,7 +20,7 @@ export const load: PageServerLoad = async (event) => {
   return {
     captureGate: gate,
     billingMode: byok ? ('byok' as const) : ('platform_credits' as const),
-    walletAvailableCredits: wallet.availableCredits,
+    walletAvailableCredits: wallet?.availableCredits ?? 0,
     minCaptureCredits: MIN_CAPTURE_PIPELINE_CREDITS,
   }
 }

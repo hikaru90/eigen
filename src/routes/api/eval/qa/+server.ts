@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 import { dev } from '$app/environment'
-import { createEvalQa, listEvalQa } from '$lib/eval/qa-store'
+import { createEvalQa, listEvalQa, normalizeEdit } from '$lib/eval/qa-store'
 
 function devOnly(): Response | null {
   if (!dev) {
@@ -44,7 +44,7 @@ function parseQaBody(body: Record<string, unknown>) {
     retrievalQuery: typeof retrievalQuery === 'string' ? retrievalQuery : null,
     retrievalRelevant: Array.isArray(retrievalRelevant) ? retrievalRelevant : [],
     tags: Array.isArray(tags) ? tags : [],
-    edit: edit && typeof edit === 'object' ? edit : null,
+    edit: normalizeEdit(edit),
     checks: parseChecks(checks),
   }
 }

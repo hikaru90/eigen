@@ -6,6 +6,7 @@ import { withDbUser } from '$lib/server/db'
 import type { EvalEntry } from '$lib/server/db/brain.schema'
 import { evalThoughtMap } from '$lib/server/db/brain.schema'
 import { ingestBrokenFromCheckAssertions } from './auto-retrieval-prune'
+import type { CheckAssertionResult } from './qa-types'
 import { deleteCorpusThought } from './delete-corpus-fixture'
 import { EVAL_INGEST_RETRY_MAX_DEFAULT } from './eval-config'
 import { logEval } from './eval-context'
@@ -62,7 +63,9 @@ export function brokenFixturesFromEntries(entries: EvalEntry[]): Map<string, Set
       const raw = entry.resultJson as {
         assertions?: Array<{ passed?: boolean; fixtureId?: string; id?: string }>
       }
-      for (const fixtureId of ingestBrokenFromCheckAssertions(raw?.assertions ?? [])) {
+      for (const fixtureId of ingestBrokenFromCheckAssertions(
+        (raw?.assertions ?? []) as CheckAssertionResult[],
+      )) {
         add(qaId, fixtureId)
       }
     }

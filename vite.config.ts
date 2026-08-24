@@ -34,7 +34,7 @@ export default defineConfig({
       manifest: false,
       injectManifest: {
         // No Workbox precache in the SW — push + capture queue only. Avoids __WB_MANIFEST deploy bugs.
-        injectionPoint: null,
+        injectionPoint: undefined,
         globPatterns: [],
       },
       devOptions: {

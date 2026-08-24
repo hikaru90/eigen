@@ -48,8 +48,7 @@
 
 <script lang="ts">
   /* eslint-disable svelte/no-navigation-without-resolve -- generic anchor: internal paths use resolve(); external href requires rel="external" */
-  import { resolve } from '$app/paths'
-  import type { Pathname } from '$app/types'
+  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
 
   let {
     class: className,
@@ -70,7 +69,7 @@
     data-slot="button"
     class={cn(buttonVariants({ variant, size }), className)}
     href={typeof href === 'string' && href.startsWith('/') && !href.startsWith('//')
-      ? resolve(href as Pathname)
+      ? resolveAppPath(href)
       : href}
     aria-disabled={disabled}
     role={disabled ? 'link' : undefined}

@@ -38,7 +38,7 @@ async function findLatestRunForQa(
 			  (CASE WHEN er.label LIKE 'qa:%' OR er.label LIKE 'smoke:%' THEN 0 ELSE 1 END)
 			LIMIT 1
 		`)
-    const rows = Array.isArray(result) ? result : (result.rows ?? [])
+    const rows = Array.isArray(result) ? result : [...(result as unknown as Iterable<Record<string, unknown>>)]
     const row = rows[0] as Record<string, unknown> | undefined
     if (!row?.id) return null
     return {

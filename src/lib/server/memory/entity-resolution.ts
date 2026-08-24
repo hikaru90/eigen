@@ -44,7 +44,8 @@ async function readCanonicalEmbeddingDiagnostics(userId: string): Promise<{
     const rel = await db.execute(sql<{ relname: string | null }>`
 			select to_regclass('public.canonical_entity')::text as relname
 		`)
-    const relationExists = Boolean(rel.rows[0]?.relname)
+    const relRows = Array.isArray(rel) ? rel : [...rel]
+    const relationExists = Boolean(relRows[0]?.relname)
     if (!relationExists) {
       return {
         columnType: null,
@@ -84,7 +85,18 @@ async function readCanonicalEmbeddingDiagnostics(userId: string): Promise<{
 						and ce.embedding is not null
 				) as non_null_embeddings
 		`)
-    const row = diag.rows[0]
+    const diagRows = Array.isArray(diag)
+      ? (diag as unknown as Array<{
+          column_type: string | null
+          stored_dims: number | null
+          non_null_embeddings: number | null
+        }>)
+      : ([...diag] as unknown as Array<{
+          column_type: string | null
+          stored_dims: number | null
+          non_null_embeddings: number | null
+        }>)
+    const row = diagRows[0]
     return {
       columnType: row?.column_type ?? null,
       storedDims: row?.stored_dims ?? null,

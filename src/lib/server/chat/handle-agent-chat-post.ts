@@ -201,7 +201,16 @@ export async function handleAgentChatPost(
     .from(chatMessage)
     .where(eq(chatMessage.sessionId, sessionId))
     .orderBy(asc(chatMessage.createdAt))
-  const history = sessionMessagesToAgentHistory(priorRows)
+  const history = sessionMessagesToAgentHistory(
+    priorRows.map((row) => ({
+      role: row.role,
+      content: row.content,
+      metadata:
+        row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : null,
+    })),
+  )
 
   if (!bootstrap) {
     await db.insert(chatMessage).values({

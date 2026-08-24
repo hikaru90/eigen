@@ -355,5 +355,8 @@ export async function archiveTemporalEventForUser(userId: string, eventId: strin
   if (!result.ok) {
     throw new Error('Event not found')
   }
+  if (result.kind !== 'event') {
+    throw new Error('Unexpected lifecycle result for temporal event')
+  }
   return { ok: true as const, summary: result.summary }
 }

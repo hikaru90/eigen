@@ -364,7 +364,7 @@
           const visible = rawT > 0.001
           const outer = d3.select(this)
 
-          outer.style('display', visible ? null : 'none')
+          outer.style('display', visible ? '' : 'none')
 
           if (!visible) return
 

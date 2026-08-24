@@ -1,5 +1,4 @@
-import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson'
-import type { CaptureIngestPhase } from '$lib/capture/ingest-phases'
+import { consumeCaptureNdjsonStream, type ProgressEvent } from '$lib/capture/consume-capture-ndjson'
 import { consumeGraphRearrangeNdjsonStream } from '$lib/graph/consume-graph-rearrange-ndjson'
 import type {
   EntityCaptureRow,
@@ -41,7 +40,7 @@ export async function fetchEntityCaptures(entityId: string): Promise<EntityCaptu
 export async function submitGraphThoughtEdit(input: {
   thoughtId: string
   editRequest: string
-  onPhase?: (phase: CaptureIngestPhase) => void
+  onPhase?: (event: ProgressEvent) => void
 }): Promise<GraphThoughtEditorStored> {
   const res = await fetch('/api/capture/edit', {
     method: 'POST',
@@ -53,8 +52,8 @@ export async function submitGraphThoughtEdit(input: {
   })
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('application/x-ndjson')) {
-    return consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (phase) => {
-      input.onPhase?.(phase)
+    return consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (event) => {
+      input.onPhase?.(event)
     })
   }
   if (!res.ok) throw new Error(await res.text())
@@ -64,7 +63,7 @@ export async function submitGraphThoughtEdit(input: {
 
 export async function submitGraphThoughtRelink(input: {
   thoughtId: string
-  onPhase?: (phase: CaptureIngestPhase) => void
+  onPhase?: (event: ProgressEvent) => void
 }): Promise<GraphThoughtEditorStored> {
   const res = await fetch('/api/capture/relink', {
     method: 'POST',
@@ -79,8 +78,8 @@ export async function submitGraphThoughtRelink(input: {
   }
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('application/x-ndjson')) {
-    return consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (phase) => {
-      input.onPhase?.(phase)
+    return consumeCaptureNdjsonStream<GraphThoughtEditorStored>(res, (event) => {
+      input.onPhase?.(event)
     })
   }
   const j = (await res.json()) as { thought: GraphThoughtEditorStored }

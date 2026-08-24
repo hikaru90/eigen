@@ -54,7 +54,7 @@ function normalizeRetrievalRelevant(raw: unknown): QaRetrievalRelevant[] {
     .filter((r) => r.id.length > 0 && r.grade >= 0 && r.grade <= 3)
 }
 
-function normalizeEdit(raw: unknown): QaEditStep | null {
+export function normalizeEdit(raw: unknown): QaEditStep | null {
   if (!raw || typeof raw !== 'object') return null
   const o = raw as Record<string, unknown>
   const fixtureId = String(o.fixtureId ?? '').trim()

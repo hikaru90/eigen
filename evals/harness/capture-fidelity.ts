@@ -230,8 +230,7 @@ export async function judgeCaptureFidelityBatch(input: {
   )
   const out = new Map<string, FidelityVerdict>()
   for (const [id, row] of parsed) {
-    const { id: _id, ...verdict } = row
-    out.set(id, verdict)
+    out.set(id, row as unknown as FidelityVerdict)
   }
   return out
 }

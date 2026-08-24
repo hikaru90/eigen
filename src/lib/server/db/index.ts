@@ -81,7 +81,7 @@ function attachReservedBeginIfMissing(reserved: ReservedSql): void {
   }
   if (typeof extended.begin === 'function') return
 
-  extended.begin = async (
+  extended.begin = (async (
     optionsOrFn?: string | ((sql: ReservedSql) => unknown | Promise<unknown>),
     maybeFn?: (sql: ReservedSql) => unknown | Promise<unknown>,
   ): Promise<unknown> => {
@@ -144,7 +144,7 @@ function attachReservedBeginIfMissing(reserved: ReservedSql): void {
     } finally {
       delete extended.savepoint
     }
-  }
+  }) as unknown as NonNullable<ReservedSql['begin']>
 }
 
 /**

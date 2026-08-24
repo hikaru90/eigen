@@ -68,7 +68,7 @@
     retryingId?: string | null
     loadingDetailId?: string | null
     editProgressEvents?: ProgressEvent[]
-    pipeline: readonly CaptureIngestPhase[]
+    pipeline: Array<CaptureIngestPhase | CaptureIngestPhase[]>
     onExpand: (thoughtId: string) => void | Promise<void>
     onCollapse: (thoughtId: string) => void
     onEdit: (thoughtId: string) => void

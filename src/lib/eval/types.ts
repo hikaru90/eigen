@@ -44,6 +44,10 @@ export type EvalRunSummary = {
   entryCount: number
   passedCount: number
   failedCount: number
+  timing?: {
+    entryDurationByKind?: Record<string, { count: number; totalMs: number }>
+    llmDurationByOperation?: Record<string, { count: number; totalMs: number }>
+  }
 }
 
 export type EvalEntrySummary = {

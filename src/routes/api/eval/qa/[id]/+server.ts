@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types'
 import { json } from '@sveltejs/kit'
 import { dev } from '$app/environment'
-import { deleteEvalQa, loadEvalQa, updateEvalQa, updateEvalQaTags } from '$lib/eval/qa-store'
+import { deleteEvalQa, loadEvalQa, normalizeEdit, updateEvalQa, updateEvalQaTags } from '$lib/eval/qa-store'
 
 function devOnly(): Response | null {
   if (!dev) {
@@ -66,7 +66,9 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     : existing.retrievalRelevant
   const tags = Array.isArray(o.tags) ? o.tags : existing.tags
   const edit =
-    o.edit && typeof o.edit === 'object' ? o.edit : o.edit === null ? null : existing.edit
+    o.edit !== undefined
+      ? normalizeEdit(o.edit)
+      : existing.edit
 
   if (question.trim().length === 0 || acceptance.trim().length === 0) {
     return json({ error: 'question and acceptance are required' }, { status: 400 })

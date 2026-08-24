@@ -24,7 +24,9 @@ export const POST: RequestHandler = async (event) => {
   const webhookUrl = typeof body.webhookUrl === 'string' ? body.webhookUrl.trim() : ''
   const subscribedEvents = parseSubscribedEvents(body.subscribedEvents)
   const projectEntityIds = Array.isArray(body.projectEntityIds)
-    ? body.projectEntityIds.filter((v: unknown): v is string => typeof v === 'string' && v.trim())
+    ? body.projectEntityIds.filter(
+        (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0,
+      )
     : []
 
   if (!name) return json({ error: 'name is required' }, { status: 400 })

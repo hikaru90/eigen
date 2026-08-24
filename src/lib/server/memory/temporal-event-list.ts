@@ -434,6 +434,7 @@ function mapEventRow(r: {
     thoughtText: r.thoughtText,
     thoughtCategory: r.thoughtCategory,
     thoughtStatus: r.thoughtStatus,
+    projectEntityId: null,
     projectLabel: null,
     completedAt: r.completedAt,
     lifecycleUpdatedAt: r.lifecycleUpdatedAt?.toISOString() ?? null,

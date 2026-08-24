@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const index = body.index
-  if (!Number.isInteger(index) || index < 0) {
+  if (index === undefined || !Number.isInteger(index) || index < 0) {
     error(400, 'index must be a non-negative integer')
   }
 

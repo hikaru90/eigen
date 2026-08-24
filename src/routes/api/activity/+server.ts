@@ -154,12 +154,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     if (nullGroupEntries.length > 0) {
       for (const entry of nullGroupEntries) {
-        groupConditions.push(
-          and(
-            isNull(activityCallLog.groupId),
-            eq(activityCallLog.createdAt, coerceTimestamp(entry.minCreatedAt)),
-          ),
+        const nullGroupCondition = and(
+          isNull(activityCallLog.groupId),
+          eq(activityCallLog.createdAt, coerceTimestamp(entry.minCreatedAt)),
         )
+        if (nullGroupCondition) {
+          groupConditions.push(nullGroupCondition)
+        }
       }
     }
 

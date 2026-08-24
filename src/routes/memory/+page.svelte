@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
+  import type { ZoomTransform } from 'd3-zoom'
   import type { PageData } from './$types'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import X from '@lucide/svelte/icons/x'
@@ -8,7 +9,7 @@
   import { browser } from '$app/environment'
   import { afterNavigate, invalidateAll } from '$app/navigation'
   import { page } from '$app/state'
-  import { type CaptureIngestPhase } from '$lib/capture/ingest-phases'
+  import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
   import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
   import { subscribeCaptureQueue } from '$lib/capture/queue'
   import MemoryAuthorBadge from '$lib/components/memory-author-badge.svelte'
@@ -194,7 +195,13 @@
       clearNodeSelection()
       return
     }
-    applyNodeSelection({ id: item.id, kind: item.kind, label: item.label, subtype: item.subtype })
+    applyNodeSelection({
+      id: item.id,
+      kind: item.kind,
+      label: item.label,
+      subtype: item.subtype,
+      authorLayerKeys: [],
+    })
   }
 
   let thoughtEditorLoadSeq = 0
@@ -204,7 +211,7 @@
   let thoughtEditorBusy = $state(false)
   let thoughtEditorRelinkBusy = $state(false)
   let thoughtEditorDeleteBusy = $state(false)
-  let _thoughtEditorPhase = $state<CaptureIngestPhase | null>(null)
+  let _thoughtEditorPhase = $state<ProgressEvent | null>(null)
   let thoughtEditorStored = $state<GraphThoughtEditorStored | null>(null)
 
   function thoughtLifecycleStatus(metadata: unknown): string | null {
@@ -897,10 +904,8 @@
       function pointerInSvg(event: Event): [number, number] | null {
         const svgEl = svg.node()
         if (!svgEl) return null
-        const source =
-          (event as { sourceEvent?: Event | null }).sourceEvent instanceof Event
-            ? (event as { sourceEvent: Event }).sourceEvent
-            : event
+        const wrapped = event as { sourceEvent?: Event }
+        const source = wrapped.sourceEvent instanceof Event ? wrapped.sourceEvent : event
         if (!('clientX' in source) || !('clientY' in source)) return null
         const { clientX, clientY } = source as MouseEvent
         if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null
@@ -1084,15 +1089,17 @@
         }
       })
 
-      let preEntityZoomTransform: ReturnType<typeof d3.zoomIdentity> | null = null
+      let preEntityZoomTransform: ZoomTransform | null = null
       let focusSessionBaseK: number | null = null
       let pendingEnrichGraphUpdate = false
-      let preservedGraphZoomTransform: ReturnType<typeof d3.zoomIdentity> | null = null
+      let preservedGraphZoomTransform: ZoomTransform | null = null
 
       function preserveGraphZoom() {
         const svgEl = svg.node()
         if (!svgEl) return
-        preservedGraphZoomTransform = d3.zoomTransform(svgEl).copy()
+        preservedGraphZoomTransform = d3.zoomIdentity
+          .translate(d3.zoomTransform(svgEl).x, d3.zoomTransform(svgEl).y)
+          .scale(d3.zoomTransform(svgEl).k)
       }
 
       function restorePreservedGraphZoom() {
@@ -1339,8 +1346,8 @@
           dragStartScreen = null
           if (!d) return
           if (!event.active) simulation?.alphaTarget(0)
-          if (Number.isFinite(d.fx)) d.x = d.fx
-          if (Number.isFinite(d.fy)) d.y = d.fy
+          if (d.fx != null && Number.isFinite(d.fx)) d.x = d.fx
+          if (d.fy != null && Number.isFinite(d.fy)) d.y = d.fy
           d.fx = null
           d.fy = null
           if (simulation) writeGraphForceLayoutPositions(simulation.nodes())
@@ -1613,7 +1620,7 @@
             }
             labelWrap
               .style('cursor', 'pointer')
-              .on('click', (event, hull) => onCommunityClick(event, hull))
+              .on('click', (event, hull) => onCommunityClick(event, hull as CommunityHull))
           })
         scheduleZoomLabelChrome(currentZoomScale, true)
         requestGraphDraw()
@@ -1767,8 +1774,8 @@
 
       function setZoomLodPresentation(mode: GraphZoomLodMode) {
         const clustered = mode === 'clusters'
-        gCommunityChrome.style('display', clustered ? 'none' : null)
-        gClusterMarkers.style('display', clustered ? null : 'none')
+        gCommunityChrome.style('display', clustered ? 'none' : '')
+        gClusterMarkers.style('display', clustered ? '' : 'none')
         if (clustered) {
           simulation?.stop()
           simulation?.alphaTarget(0)
@@ -1845,7 +1852,7 @@
             const svgEl = svg.node()
             if (svgEl) {
               const cur = d3.zoomTransform(svgEl)
-              preEntityZoomTransform = cur.copy()
+              preEntityZoomTransform = d3.zoomIdentity.translate(cur.x, cur.y).scale(cur.k)
               focusSessionBaseK = cur.k
             }
           }

@@ -1,6 +1,6 @@
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function uuidV4FromRandomValues(getRandomValues: (array: Uint8Array) => Uint8Array): string {
+function uuidV4FromRandomValues(getRandomValues: (array: Uint8Array) => void): string {
   const bytes = new Uint8Array(16)
   getRandomValues(bytes)
   bytes[6] = (bytes[6] & 0x0f) | 0x40
@@ -14,7 +14,9 @@ export function randomUuid(): string {
   const c = globalThis.crypto
   if (c && typeof c.randomUUID === 'function') return c.randomUUID()
   if (c && typeof c.getRandomValues === 'function') {
-    return uuidV4FromRandomValues((array) => c.getRandomValues(array))
+    return uuidV4FromRandomValues((array) => {
+      c.getRandomValues(array as Uint8Array<ArrayBuffer>)
+    })
   }
   throw new Error('UUID generation is not available')
 }

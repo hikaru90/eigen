@@ -1,3 +1,8 @@
+import type {
+  CheckAssertionResult,
+  CheckEntryResult,
+  QaChecks,
+} from './qa-types'
 import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 import { and, eq } from 'drizzle-orm'
 import type { AppDatabase } from '$lib/server/db'
@@ -391,7 +396,7 @@ export async function runStructuralChecks(input: {
       .where(and(eq(thought.userId, userId), eq(thought.id, thoughtId)))
     const enriched = row?.enrichedAt != null
     const cueCount = row?.cues?.length ?? 0
-    const cuesOk = !checks.extraction.requireCues?.length || cueCount > 0
+    const cuesOk = !checks.extraction?.requireCues?.length || cueCount > 0
     const passed = enriched && cuesOk
     assertions.push(
       assertResult(
