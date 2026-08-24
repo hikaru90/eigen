@@ -5,10 +5,8 @@
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
   import { afterNavigate } from '$app/navigation'
-  import { base } from '$app/paths'
-  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
+  import { base, resolve } from '$app/paths'
   import { page } from '$app/state'
-  import type { Pathname } from '$app/types'
   import './layout.css'
   import {
     isPostHogEnabled,
@@ -83,19 +81,19 @@
   const bottomNavItems = $derived([
     {
       label: m.nav_memory(),
-      href: '/memory',
+      href: '/memory' as const,
       icon: Brain,
       variant: 'secondary' as const,
     },
     {
       label: m.nav_capture(),
-      href: '/capture',
+      href: '/capture' as const,
       icon: Plus,
       variant: 'primary' as const,
     },
     {
       label: m.nav_chat(),
-      href: '/chat',
+      href: '/chat' as const,
       icon: MessageSquareText,
       variant: 'secondary' as const,
     },
@@ -237,7 +235,7 @@
         {@const isActive = isNavItemActive(item.href)}
         <div class={cn('relative', item.variant === 'primary' ? 'min-h-10 flex-1' : 'shrink-0')}>
           <a
-            href={resolveAppPath(item.href)}
+            href={resolve(item.href)}
             class={cn(
               'flex items-center justify-center',
               item.variant === 'primary'

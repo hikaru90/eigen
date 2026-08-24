@@ -6,11 +6,9 @@
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { Label } from '$lib/components/ui/label'
-  import { homeHref } from '$lib/navigation/home-href'
   import { resetPasswordSchema } from '$lib/validation/auth'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
-  const homeLink = homeHref(websiteOrigin)
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
 
@@ -35,9 +33,15 @@
 
 <div class="mx-auto max-w-md px-5 pt-10">
   <header class="text-center">
-    <a href={homeLink} class="inline-block" aria-label="Eigen home">
-      <EigenWordmark heightClass="h-8" />
-    </a>
+    {#if websiteOrigin}
+      <a href={websiteOrigin} rel="external" class="inline-block" aria-label="Eigen home">
+        <EigenWordmark heightClass="h-8" />
+      </a>
+    {:else}
+      <a href={resolve('/')} class="inline-block" aria-label="Eigen home">
+        <EigenWordmark heightClass="h-8" />
+      </a>
+    {/if}
     <p class="text-muted-foreground mt-2 text-xs">Choose a new password</p>
   </header>
 

@@ -10,11 +10,9 @@
   import * as Card from '$lib/components/ui/card'
   import { Label } from '$lib/components/ui/label'
   import { websiteLegalUrl } from '$lib/legal/website-legal-urls'
-  import { homeHref } from '$lib/navigation/home-href'
   import { signUpSchema } from '$lib/validation/auth'
 
   const websiteOrigin = (import.meta.env.PUBLIC_WEBSITE_ORIGIN ?? '').replace(/\/$/, '')
-  const homeLink = homeHref(websiteOrigin)
   const termsHref = websiteLegalUrl('terms', websiteOrigin)
   const privacyHref = websiteLegalUrl('privacy', websiteOrigin)
   const imprintHref = websiteLegalUrl('imprint', websiteOrigin)
@@ -60,14 +58,26 @@
 
 <div class="mx-auto max-w-md px-5 pt-10">
   <p class="mb-4">
-    <a href={homeLink} class="text-muted-foreground text-xs underline-offset-2 hover:underline">
-      ← Back to home
-    </a>
+    {#if websiteOrigin}
+      <a href={websiteOrigin} rel="external" class="text-muted-foreground text-xs underline-offset-2 hover:underline">
+        ← Back to home
+      </a>
+    {:else}
+      <a href={resolve('/')} class="text-muted-foreground text-xs underline-offset-2 hover:underline">
+        ← Back to home
+      </a>
+    {/if}
   </p>
   <header class="text-center">
-    <a href={homeLink} class="inline-block">
-      <EigenWordmark heightClass="h-8" />
-    </a>
+    {#if websiteOrigin}
+      <a href={websiteOrigin} rel="external" class="inline-block">
+        <EigenWordmark heightClass="h-8" />
+      </a>
+    {:else}
+      <a href={resolve('/')} class="inline-block">
+        <EigenWordmark heightClass="h-8" />
+      </a>
+    {/if}
     <p class="text-muted-foreground mt-2 text-xs">Create an account</p>
     {#if data.plan}
       <p class="text-muted-foreground mt-1 text-xs">{signupPlanSubtitle(data.plan)}</p>

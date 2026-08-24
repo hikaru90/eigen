@@ -4,8 +4,8 @@
   import ChevronUp from '@lucide/svelte/icons/chevron-up'
   import Search from '@lucide/svelte/icons/search'
   import { goto } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import { page } from '$app/state'
-  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
   import { accountKindLabel } from '$lib/auth/account-kind'
   import { formatActivityCredits } from '$lib/billing/platform-pricing'
   import AiDateRangePicker from '$lib/components/ai-date-range-picker.svelte'
@@ -55,11 +55,11 @@
 
   function toggleSort(key: AdminSpendSortKey) {
     const nextAsc = data.sort === key ? !data.sortAsc : key === 'email'
-    void goto(resolveAppPath(listUrl({
+    void goto(resolve(listUrl({
         sort: key,
         dir: nextAsc ? 'asc' : 'desc',
         page: null,
-      })), { keepFocus: true, noScroll: true })
+      }) as '/admin/spend'), { keepFocus: true, noScroll: true })
   }
 
   function sortButtonClass(align: 'left' | 'right'): string {
@@ -71,10 +71,10 @@
     if (searchTimer) clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
       const trimmed = value.trim()
-      void goto(resolveAppPath(listUrl({
+      void goto(resolve(listUrl({
           q: trimmed || null,
           page: null,
-        })), { keepFocus: true, noScroll: true, replaceState: true })
+        }) as '/admin/spend'), { keepFocus: true, noScroll: true, replaceState: true })
     }, 300)
   }
 
@@ -108,17 +108,17 @@
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
-        <a href={resolveAppPath(listUrl({ all: '1', from: null, to: null, page: null }))}>
+        <a href={resolve(listUrl({ all: '1', from: null, to: null, page: null }) as '/admin/spend')}>
           <Button variant={data.rangeMode === 'all' ? 'default' : 'outline'} size="xs"
             >All time</Button
           >
         </a>
-        <a href={resolveAppPath(listUrl({ all: null, from: null, to: null, page: null }))}>
+        <a href={resolve(listUrl({ all: null, from: null, to: null, page: null }) as '/admin/spend')}>
           <Button variant={data.rangeMode === 'last30' ? 'default' : 'outline'} size="xs">
             Last 30 days
           </Button>
         </a>
-        <a href={resolveAppPath(listUrl({ harness: data.includeHarness ? null : '1', page: null }))}>
+        <a href={resolve(listUrl({ harness: data.includeHarness ? null : '1', page: null }) as '/admin/spend')}>
           <Button variant={data.includeHarness ? 'default' : 'outline'} size="xs">
             {data.includeHarness ? 'Including harness' : 'Production only'}
           </Button>
@@ -305,7 +305,7 @@
   {#if data.pagination.totalPages > 1}
     <div class="mt-4 flex items-center justify-center gap-3">
       {#if data.pagination.hasPrev}
-        <a href={resolveAppPath(pageUrl(data.pagination.page - 1))}>
+        <a href={resolve(pageUrl(data.pagination.page - 1) as '/admin/spend')}>
           <Button variant="outline" size="xs">Previous</Button>
         </a>
       {/if}
@@ -314,7 +314,7 @@
         ({data.pagination.totalCount} users)
       </span>
       {#if data.pagination.hasNext}
-        <a href={resolveAppPath(pageUrl(data.pagination.page + 1))}>
+        <a href={resolve(pageUrl(data.pagination.page + 1) as '/admin/spend')}>
           <Button variant="outline" size="xs">Next</Button>
         </a>
       {/if}

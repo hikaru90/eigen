@@ -5,8 +5,8 @@
   import RefreshCw from '@lucide/svelte/icons/refresh-cw'
   import { onDestroy, onMount } from 'svelte'
   import { afterNavigate, goto } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import { page } from '$app/state'
-  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import * as Table from '$lib/components/ui/table'
@@ -111,18 +111,18 @@
 
   function onStatusChange(value: StatusFilter) {
     statusFilter = value
-    void goto(resolveAppPath(listUrl({
+    void goto(resolve(listUrl({
         status: value === 'all' || !value ? null : value,
         harness: includeHarness ? '1' : null,
-      })), { keepFocus: true, noScroll: true })
+      }) as '/admin/queue'), { keepFocus: true, noScroll: true })
   }
 
   function onHarnessToggle(checked: boolean) {
     includeHarness = checked
-    void goto(resolveAppPath(listUrl({
+    void goto(resolve(listUrl({
         status: statusFilter === 'all' || !statusFilter ? null : statusFilter,
         harness: checked ? '1' : null,
-      })), { keepFocus: true, noScroll: true })
+      }) as '/admin/queue'), { keepFocus: true, noScroll: true })
   }
 
   onMount(() => {

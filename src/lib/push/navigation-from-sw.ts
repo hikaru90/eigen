@@ -1,5 +1,5 @@
 import { goto } from '$app/navigation'
-import { resolveAppPath } from '$lib/navigation/resolve-app-path'
+import { resolve } from '$app/paths'
 
 const PUSH_NAVIGATE_TYPE = 'PUSH_NAVIGATE'
 
@@ -28,7 +28,7 @@ export function startPushNavigationFromServiceWorker(): () => void {
 
   const onMessage = (event: MessageEvent) => {
     if (!isPushNavigateMessage(event.data)) return
-    void goto(resolveAppPath(event.data.url))
+    void goto(resolve(event.data.url as '/'))
   }
 
   navigator.serviceWorker.addEventListener('message', onMessage)

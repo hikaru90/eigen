@@ -9,7 +9,7 @@
   import Trash2 from '@lucide/svelte/icons/trash-2'
   import { onMount } from 'svelte'
   import { goto, invalidate } from '$app/navigation'
-  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
+  import { resolve } from '$app/paths'
   import { page } from '$app/state'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Button } from '$lib/components/ui/button'
@@ -90,8 +90,8 @@
     }
     const url = new URL(page.url)
     url.searchParams.set('view', next)
-    const pathWithSearch = `${url.pathname}${url.search ? `?${url.searchParams.toString()}` : ''}`
-    await goto(resolveAppPath(pathWithSearch), {
+    const search = url.search ? `?${url.searchParams.toString()}` : ''
+    await goto(resolve(`/memory/projects/${project.entityId}${search}`), {
       replaceState: true,
       noScroll: true,
       keepFocus: true,
@@ -174,7 +174,7 @@
       console.error('Failed to dismiss project', await res.text())
       return
     }
-    await goto(resolveAppPath('/memory/projects'))
+    await goto(resolve('/memory/projects'))
   }
 
   const ghostIconClass =
@@ -195,7 +195,7 @@
     <div class="flex items-start justify-between gap-2">
       <div class="min-w-0 flex-1">
         <a
-          href={resolveAppPath('/memory/projects')}
+          href={resolve('/memory/projects')}
           class="text-muted-foreground mb-2 inline-flex items-center gap-1 text-xs hover:text-foreground"
         >
           <ArrowLeftIcon class="size-3.5" aria-hidden="true" />

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { resolveAppPath } from '$lib/navigation/resolve-app-path'
   import { page } from '$app/state'
+  import { resolve } from '$app/paths'
   import { activeMemorySurfaceTab } from '$lib/memory/memory-surface-nav'
   import { m } from '$lib/paraglide/messages.js'
   import { cn } from '$lib/utils'
@@ -48,8 +48,8 @@
     {#each tabs as tab (tab.id)}
       <a
         href={tab.search
-          ? resolveAppPath(`${tab.pathname}?${tab.search}`)
-          : resolveAppPath(tab.pathname)}
+          ? resolve(`${tab.pathname}?${tab.search}` as MemoryTabPath)
+          : resolve(tab.pathname)}
         class={cn(
           'flex h-full items-center rounded-full px-2 text-xs whitespace-nowrap',
           activeTab === tab.id
