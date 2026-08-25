@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { COMMUNITY_HULL_GRADIENT, COMMUNITY_HULL_GRADIENT_DARK } from './community-hull'
 import {
   createDrawScheduler,
   drawGraphCanvasScene,
   findNearestGraphNode,
   popInNodeScale,
+  readGraphCanvasTheme,
   roundTripScreenWorld,
   screenToWorld,
   type FrameScheduler,
@@ -143,6 +145,7 @@ describe('drawGraphCanvasScene label paint order', () => {
         nodeStrokeColor: '#000',
         labelColor: '#000',
         selectedStroke: '#fbbf24',
+        hullGradient: COMMUNITY_HULL_GRADIENT,
       },
     }
 
@@ -157,5 +160,43 @@ describe('drawGraphCanvasScene label paint order', () => {
       'fillText:Alpha',
       'fillText:Beta',
     ])
+  })
+})
+
+describe('readGraphCanvasTheme', () => {
+  function stubContainer(dark: boolean): HTMLElement {
+    const classList = {
+      contains(token: string) {
+        return dark && token === 'dark'
+      },
+    }
+    const documentElement = { classList }
+    const ownerDocument = { documentElement }
+    return {
+      ownerDocument,
+      // getComputedStyle is called on the container; stub via a global override below.
+    } as unknown as HTMLElement
+  }
+
+  it('picks the dark green hull gradient when documentElement has .dark', () => {
+    const prev = globalThis.getComputedStyle
+    globalThis.getComputedStyle = (() => ({ color: '#eee' })) as typeof getComputedStyle
+    try {
+      expect(readGraphCanvasTheme(stubContainer(true)).hullGradient).toBe(
+        COMMUNITY_HULL_GRADIENT_DARK,
+      )
+    } finally {
+      globalThis.getComputedStyle = prev
+    }
+  })
+
+  it('picks the white hull gradient when documentElement is light', () => {
+    const prev = globalThis.getComputedStyle
+    globalThis.getComputedStyle = (() => ({ color: '#111' })) as typeof getComputedStyle
+    try {
+      expect(readGraphCanvasTheme(stubContainer(false)).hullGradient).toBe(COMMUNITY_HULL_GRADIENT)
+    } finally {
+      globalThis.getComputedStyle = prev
+    }
   })
 })

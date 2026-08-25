@@ -6,14 +6,25 @@ import {
   communityHullChromeStyleForLevel,
   communityHullFill,
   communityHullFillOpacityForZoom,
+  communityHullGradient,
   communityHullUsesRadialGradient,
   COMMUNITY_HULL_GRADIENT,
+  COMMUNITY_HULL_GRADIENT_DARK,
 } from './community-hull'
 
 describe('COMMUNITY_HULL_GRADIENT', () => {
-  it('keeps the white radial stops', () => {
+  it('keeps the white radial stops for light mode', () => {
     expect(COMMUNITY_HULL_GRADIENT.center).toContain('oklch(1 0 0')
     expect(COMMUNITY_HULL_GRADIENT.center).toContain('/ 0.20)')
+  })
+
+  it('uses dark green radial stops for dark mode', () => {
+    expect(COMMUNITY_HULL_GRADIENT_DARK.center).toContain('oklch(0.')
+    expect(COMMUNITY_HULL_GRADIENT_DARK.center).toContain('152')
+    expect(COMMUNITY_HULL_GRADIENT_DARK.mid).toContain('152')
+    expect(COMMUNITY_HULL_GRADIENT_DARK.edge).toContain('152')
+    expect(communityHullGradient(false)).toBe(COMMUNITY_HULL_GRADIENT)
+    expect(communityHullGradient(true)).toBe(COMMUNITY_HULL_GRADIENT_DARK)
   })
 })
 

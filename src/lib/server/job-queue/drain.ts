@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
+import { withDbUser } from '$lib/server/db'
 import { userJobQueue, type UserJobQueue, type UserJobType } from '$lib/server/db/schema'
 
 type RawUserJobQueueRow = {
@@ -218,7 +219,12 @@ export async function drainUserJobQueue(input?: {
 
   for (const job of jobs) {
     try {
-      await dispatchJob(job)
+      // Webhook decrypt + onboarding grounding use getDb(); overnight scopes
+      // itself too — nested withDbUser is fine. Without this ALS, background
+      // drain throws "getDb() was called outside an active request".
+      await withDbUser(job.userId, async () => {
+        await dispatchJob(job)
+      })
       await finishJob(job.id, 'completed')
       completed += 1
     } catch (err) {

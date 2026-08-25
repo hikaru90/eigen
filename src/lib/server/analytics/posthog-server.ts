@@ -1,5 +1,6 @@
 import { PostHog } from 'posthog-node'
 import { env } from '$env/dynamic/private'
+import { isNoiseException } from '$lib/analytics/exception-noise'
 
 const DEFAULT_EU_HOST = 'https://eu.i.posthog.com'
 
@@ -40,6 +41,7 @@ export function captureServerException(
   distinctId?: string,
   properties?: Record<string, unknown>,
 ): void {
+  if (isNoiseException(error)) return
   const c = getClient()
   if (!c) return
   c.captureException(error, distinctId, properties)

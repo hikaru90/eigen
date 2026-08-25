@@ -1,11 +1,12 @@
 import {
   COMMUNITY_HULL_ACCENT,
-  COMMUNITY_HULL_GRADIENT,
   COMMUNITY_LEAF_LEVEL,
   communityHullChromeStyleForLevel,
   communityHullFillOpacityForZoom,
+  communityHullGradient,
   communityHullUsesRadialGradient,
   type CommunityHullChromeStyle,
+  type CommunityHullGradientStops,
 } from './community-hull'
 
 export type ZoomTransform = { k: number; x: number; y: number }
@@ -41,6 +42,7 @@ export type GraphCanvasTheme = {
   nodeStrokeColor: string
   labelColor: string
   selectedStroke: string
+  hullGradient: CommunityHullGradientStops
 }
 
 export type GraphCanvasPopIn = {
@@ -220,16 +222,21 @@ function drawDashedCircle(
   ctx.restore()
 }
 
-function drawHullFill(ctx: CanvasRenderingContext2D, hull: GraphCanvasHull, zoomScale: number) {
+function drawHullFill(
+  ctx: CanvasRenderingContext2D,
+  hull: GraphCanvasHull,
+  zoomScale: number,
+  hullGradient: CommunityHullGradientStops,
+) {
   const opacity = communityHullFillOpacityForZoom(zoomScale, hull.level)
   ctx.save()
   ctx.globalAlpha = opacity
 
   if (communityHullUsesRadialGradient(hull.level)) {
     const grad = ctx.createRadialGradient(hull.cx, hull.cy, 0, hull.cx, hull.cy, hull.r)
-    grad.addColorStop(0, COMMUNITY_HULL_GRADIENT.center)
-    grad.addColorStop(0.65, COMMUNITY_HULL_GRADIENT.mid)
-    grad.addColorStop(1, COMMUNITY_HULL_GRADIENT.edge)
+    grad.addColorStop(0, hullGradient.center)
+    grad.addColorStop(0.65, hullGradient.mid)
+    grad.addColorStop(1, hullGradient.edge)
     ctx.fillStyle = grad
   } else if (hull.level === 1) {
     ctx.fillStyle = 'oklch(1 0 0 / 0.08)'
@@ -270,7 +277,7 @@ export function drawGraphCanvasScene(ctx: CanvasRenderingContext2D, scene: Graph
   applyZoomTransform(ctx, transform, dpr)
 
   for (const hull of hulls) {
-    drawHullFill(ctx, hull, zoomScale)
+    drawHullFill(ctx, hull, zoomScale, theme.hullGradient)
     const chrome = communityHullChromeStyleForLevel(hull.level)
     drawDashedCircle(ctx, hull.cx, hull.cy, hull.r, chrome)
   }
@@ -366,12 +373,14 @@ export function drawGraphCanvasScene(ctx: CanvasRenderingContext2D, scene: Graph
 export function readGraphCanvasTheme(container: HTMLElement): GraphCanvasTheme {
   const style = getComputedStyle(container)
   const foreground = style.color || '#e5e5e5'
+  const dark = container.ownerDocument.documentElement.classList.contains('dark')
   return {
     edgeColor: foreground,
     edgeOpacity: 0.35,
     nodeStrokeColor: foreground,
     labelColor: foreground,
     selectedStroke: '#fbbf24',
+    hullGradient: communityHullGradient(dark),
   }
 }
 

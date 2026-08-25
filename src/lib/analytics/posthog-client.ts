@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 import { browser } from '$app/environment'
 import { PUBLIC_POSTHOG_HOST, PUBLIC_POSTHOG_KEY } from '$env/static/public'
+import { isNoiseException } from '$lib/analytics/exception-noise'
 
 const DEFAULT_EU_API_HOST = 'https://eu.i.posthog.com'
 const DEFAULT_EU_UI_HOST = 'https://eu.posthog.com'
@@ -35,6 +36,21 @@ function ensureInit(): boolean {
     person_profiles: 'identified_only',
     capture_pageview: false,
     capture_exceptions: true,
+    before_send: (event) => {
+      if (event?.event !== '$exception') return event
+      const values = event.properties?.$exception_list
+      if (!Array.isArray(values) || values.length === 0) return event
+      const allNoise = values.every((item) => {
+        if (!item || typeof item !== 'object') return false
+        const row = item as { type?: unknown; value?: unknown }
+        const synthetic = new Error(typeof row.value === 'string' ? row.value : '')
+        if (typeof row.type === 'string' && row.type.trim()) {
+          synthetic.name = row.type
+        }
+        return isNoiseException(synthetic)
+      })
+      return allNoise ? null : event
+    },
   })
   initialized = true
   return true
@@ -69,6 +85,7 @@ export function capturePageview(path: string): void {
 }
 
 export function captureClientException(error: unknown, properties?: Record<string, unknown>): void {
+  if (isNoiseException(error)) return
   if (!ensureInit()) return
   posthog.captureException(error, properties)
 }

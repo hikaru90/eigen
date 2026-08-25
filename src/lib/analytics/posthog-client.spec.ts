@@ -57,6 +57,7 @@ describe('posthog-client', () => {
       person_profiles: 'identified_only',
       capture_pageview: false,
       capture_exceptions: true,
+      before_send: expect.any(Function),
     })
     capture('test_event', { foo: 'bar' })
     expect(captureMock).toHaveBeenCalledWith('test_event', { foo: 'bar' })
@@ -75,5 +76,39 @@ describe('posthog-client', () => {
     capture('ignored_event')
     expect(initMock).not.toHaveBeenCalled()
     expect(captureMock).not.toHaveBeenCalled()
+  })
+
+  it('captureClientException skips ResizeObserver / Vite noise', async () => {
+    publicEnv.PUBLIC_POSTHOG_KEY = 'phc_test_key'
+    const { captureClientException } = await import('./posthog-client')
+    captureClientException(new Error('ResizeObserver loop completed with undelivered notifications.'))
+    captureClientException(new Error('Vite module runner has been closed.'))
+    expect(captureExceptionMock).not.toHaveBeenCalled()
+  })
+
+  it('before_send drops autocaptured noise exceptions', async () => {
+    publicEnv.PUBLIC_POSTHOG_KEY = 'phc_test_key'
+    const { initPostHog } = await import('./posthog-client')
+    initPostHog()
+    const initOpts = initMock.mock.calls[0]?.[1] as {
+      before_send: (event: {
+        event: string
+        properties?: { $exception_list?: Array<{ type?: string; value?: string }> }
+      }) => unknown
+    }
+    const dropped = initOpts.before_send({
+      event: '$exception',
+      properties: {
+        $exception_list: [{ type: 'Error', value: 'Failed to fetch' }],
+      },
+    })
+    expect(dropped).toBeNull()
+    const kept = initOpts.before_send({
+      event: '$exception',
+      properties: {
+        $exception_list: [{ type: 'Error', value: 'Enrichment step(s) failed' }],
+      },
+    })
+    expect(kept).not.toBeNull()
   })
 })

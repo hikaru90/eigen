@@ -26,11 +26,28 @@ export { COMMUNITY_LEAF_LEVEL }
 /** Brand mesh accent — mesh.svg / DESIGN.md; community borders and label chips. */
 export const COMMUNITY_HULL_ACCENT = '#22E876'
 
-/** White radial hull fill — leaf (L2) only; pair with zoom-scaled opacity. */
+/** White radial hull fill — leaf (L2) only; light mode; pair with zoom-scaled opacity. */
 export const COMMUNITY_HULL_GRADIENT = {
   center: 'oklch(1 0 0 / 0.20)',
   mid: 'oklch(1 0 0 / 0.04)',
   edge: 'oklch(1 0 0 / 0)',
+}
+
+/** Dark green radial hull fill — leaf (L2) only; dark mode (hue ~152 / eigen green). */
+export const COMMUNITY_HULL_GRADIENT_DARK = {
+  center: 'oklch(0.32 0.08 152 / 0.40)',
+  mid: 'oklch(0.28 0.06 152 / 0.14)',
+  edge: 'oklch(0.22 0.04 152 / 0)',
+}
+
+export type CommunityHullGradientStops = {
+  center: string
+  mid: string
+  edge: string
+}
+
+export function communityHullGradient(dark: boolean): CommunityHullGradientStops {
+  return dark ? COMMUNITY_HULL_GRADIENT_DARK : COMMUNITY_HULL_GRADIENT
 }
 
 export type CommunityHullChromeStyle = {
@@ -77,7 +94,7 @@ export function communityHullChromeStyleForLevel(level: number): CommunityHullCh
   }
 }
 
-/** Fade leaf hull fills when zoomed in so large communities do not read as a solid white page. */
+/** Fade leaf hull fills when zoomed in so large communities do not dominate the viewport. */
 export function communityHullFillOpacityForZoom(scale: number, level?: number): number {
   if (level !== undefined && !communityHullUsesRadialGradient(level)) return 1
   if (!Number.isFinite(scale) || scale <= 1) return 1

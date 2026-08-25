@@ -60,4 +60,12 @@ describe('posthog-server', () => {
       properties: { amount_credits: 5000 },
     })
   })
+
+  it('captureServerException skips Vite module-runner noise', async () => {
+    const envModule = await import('$env/dynamic/private')
+    ;(envModule.env as unknown as { POSTHOG_API_KEY: string }).POSTHOG_API_KEY = 'phc_server_key'
+    const { captureServerException } = await import('./posthog-server')
+    captureServerException(new Error('transport was disconnected, cannot call "fetchModule"'), 'u1')
+    expect(captureExceptionMock).not.toHaveBeenCalled()
+  })
 })
