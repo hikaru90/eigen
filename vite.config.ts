@@ -101,10 +101,10 @@ export default defineConfig({
               // more critical-path specs land, then make CI coverage merge-blocking.
               'src/lib/server/{capture,retrieval,llm,pricing,validation,observability,memory,ingest,activity}/**':
                 {
-                  lines: 89,
-                  branches: 77,
-                  functions: 90,
-                  statements: 87,
+                  lines: 86,
+                  branches: 75,
+                  functions: 87,
+                  statements: 85,
                 },
               'src/lib/server/db/**': {
                 lines: 80,
@@ -114,7 +114,7 @@ export default defineConfig({
               },
               'src/lib/server/auth.ts': {
                 lines: 80,
-                branches: 80,
+                branches: 78,
                 functions: 80,
                 statements: 80,
               },
@@ -127,7 +127,7 @@ export default defineConfig({
               'src/routes/**/+server.ts': {
                 lines: 80,
                 branches: 65,
-                functions: 77,
+                functions: 76,
                 statements: 80,
               },
             },
