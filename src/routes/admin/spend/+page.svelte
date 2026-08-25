@@ -21,11 +21,55 @@
 
   let searchDraft = $state(data.search)
   let searchTimer: ReturnType<typeof setTimeout> | null = null
+  let grantAmountDraft = $state('100')
+  let grantReasonDraft = $state('')
+  let grantBusy = $state(false)
+  let grantMessage = $state('')
 
   const timeFmt = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+
+  async function grantCredits() {
+    if (!data.userFilter) return
+    const amountCredits = Number.parseInt(grantAmountDraft, 10)
+    const reason = grantReasonDraft.trim()
+    if (!Number.isInteger(amountCredits) || amountCredits < 1) {
+      grantMessage = 'Enter a positive whole number of credits.'
+      return
+    }
+    if (!reason) {
+      grantMessage = 'Reason is required.'
+      return
+    }
+    grantBusy = true
+    grantMessage = ''
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(data.userFilter.userId)}/credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ amountCredits, reason }),
+      })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string
+        availableCredits?: number
+        amountCredits?: number
+      }
+      if (!res.ok) {
+        grantMessage = body.error ?? `Grant failed (${res.status})`
+        return
+      }
+      grantMessage = `Granted ${amountCredits.toLocaleString('en-US')} credits. Wallet now ${Number(body.availableCredits ?? 0).toLocaleString('en-US')}.`
+      grantReasonDraft = ''
+      await goto(resolve(listUrl({}) as '/admin/spend'), { invalidateAll: true, noScroll: true })
+    } catch (e) {
+      grantMessage = e instanceof Error ? e.message : String(e)
+    } finally {
+      grantBusy = false
+    }
+  }
 
   function formatDate(value: Date | string | null): string {
     if (!value) return '\u2014'
@@ -185,20 +229,67 @@
 
   {#if data.view === 'calls' && data.userFilter}
     <div
-      class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-black/10 bg-muted/30 px-3 py-2 text-sm"
+      class="mt-3 space-y-3 rounded-md border border-black/10 bg-muted/30 px-3 py-3 text-sm"
     >
-      <span>
-        Filtered to <strong>{data.userFilter.email}</strong>
-        {#if data.userFilter.name}
-          <span class="text-muted-foreground">({data.userFilter.name})</span>
-        {/if}
-      </span>
-      <a href={resolve(listUrl({ user: null, page: null }) as '/admin/spend')}>
-        <Button variant="ghost" size="xs">
-          <X class="size-3.5" />
-          Clear user filter
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Filtered to <strong>{data.userFilter.email}</strong>
+          {#if data.userFilter.name}
+            <span class="text-muted-foreground">({data.userFilter.name})</span>
+          {/if}
+        </span>
+        <a href={resolve(listUrl({ user: null, page: null }) as '/admin/spend')}>
+          <Button variant="ghost" size="xs">
+            <X class="size-3.5" />
+            Clear user filter
+          </Button>
+        </a>
+      </div>
+      <form
+        class="flex flex-wrap items-end gap-2 border-t border-black/10 pt-3"
+        onsubmit={(e) => {
+          e.preventDefault()
+          void grantCredits()
+        }}
+      >
+        <div>
+          <label for="admin-grant-amount" class="text-muted-foreground mb-1 block text-[11px]">
+            Give credits
+          </label>
+          <Input
+            id="admin-grant-amount"
+            type="number"
+            min="1"
+            step="1"
+            class="w-28 font-mono"
+            bind:value={grantAmountDraft}
+            disabled={grantBusy}
+          />
+        </div>
+        <div class="min-w-[14rem] flex-1">
+          <label for="admin-grant-reason" class="text-muted-foreground mb-1 block text-[11px]">
+            Reason (required)
+          </label>
+          <Input
+            id="admin-grant-reason"
+            placeholder="e.g. Refund overnight repair overcharge"
+            bind:value={grantReasonDraft}
+            disabled={grantBusy}
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={grantBusy}>
+          {grantBusy ? 'Granting…' : 'Grant'}
         </Button>
-      </a>
+        {#if grantMessage}
+          <p
+            class="w-full text-xs {grantMessage.startsWith('Granted')
+              ? 'text-muted-foreground'
+              : 'text-destructive'}"
+          >
+            {grantMessage}
+          </p>
+        {/if}
+      </form>
     </div>
   {:else if data.view === 'calls' && data.userQuery && !data.userFilter}
     <p class="text-destructive mt-3 text-sm">No user found for "{data.userQuery}".</p>

@@ -204,6 +204,80 @@ export async function grantStartingFreeCredits(
   })
 }
 
+/** Max credits an admin can grant in one adjustment (accident guard). */
+export const MAX_ADMIN_GRANT_CREDITS = 1_000_000
+
+/**
+ * Admin refund / goodwill credit. Writes an `adjustment` ledger row under the
+ * target user's RLS session. Caller must already be authenticated as admin.
+ */
+export async function adminGrantCredits(input: {
+  userId: string
+  amountCredits: number
+  reason: string
+  adminUserId: string
+}): Promise<{ availableCredits: number }> {
+  const reason = input.reason.trim()
+  if (!reason) {
+    throw new Error('reason is required')
+  }
+  if (!Number.isInteger(input.amountCredits) || input.amountCredits < 1) {
+    throw new Error('amountCredits must be a positive integer')
+  }
+  if (input.amountCredits > MAX_ADMIN_GRANT_CREDITS) {
+    throw new Error(`amountCredits cannot exceed ${MAX_ADMIN_GRANT_CREDITS}`)
+  }
+  const adminUserId = input.adminUserId.trim()
+  if (!adminUserId) {
+    throw new Error('adminUserId is required')
+  }
+  const userId = input.userId.trim()
+  if (!userId) {
+    throw new Error('userId is required')
+  }
+
+  return withDbUser(userId, async (db) => {
+    return db.transaction(async (tx) => {
+      await tx
+        .insert(userWallet)
+        .values({
+          userId,
+          availableCredits: 0,
+          reservedCredits: 0,
+          pendingBillingMicroUsd: 0,
+          currency: WALLET_AUDIT_CURRENCY,
+        })
+        .onConflictDoNothing()
+
+      const [wallet] = await tx
+        .select()
+        .from(userWallet)
+        .where(eq(userWallet.userId, userId))
+        .for('update')
+      if (!wallet) {
+        throw new Error(`Failed to load wallet for user ${userId}`)
+      }
+
+      const nextAvailable = wallet.availableCredits + input.amountCredits
+      await tx
+        .update(userWallet)
+        .set({ availableCredits: nextAvailable, updatedAt: new Date() })
+        .where(eq(userWallet.userId, userId))
+
+      await insertLedger(tx, {
+        userId,
+        kind: 'adjustment',
+        amountCredits: input.amountCredits,
+        referenceType: 'admin_grant',
+        referenceId: adminUserId,
+        metadata: { reason, adminUserId },
+      })
+
+      return { availableCredits: nextAvailable }
+    })
+  })
+}
+
 async function loadWalletRow(
   db: AppDatabase,
   userId: string,

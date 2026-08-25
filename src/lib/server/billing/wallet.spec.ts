@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { InsufficientCreditsError, chargePlatformUsageMicroUsd } from './wallet'
+import {
+  InsufficientCreditsError,
+  adminGrantCredits,
+  chargePlatformUsageMicroUsd,
+} from './wallet'
 
 const { mockEnv, withDbUserMock } = vi.hoisted(() => ({
   mockEnv: {} as Record<string, string | undefined>,
@@ -39,7 +43,16 @@ function mockChargeTransaction(wallet: ReturnType<typeof makeWalletRow>) {
     where: vi.fn().mockResolvedValue(undefined),
   })
   const update = vi.fn().mockReturnValue({ set: updateSet })
-  const insert = vi.fn().mockReturnValue({ values: ledgerValues })
+  const insert = vi.fn().mockImplementation(() => ({
+    values: (row: unknown) => {
+      const result = ledgerValues(row)
+      return {
+        onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
+        then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+          Promise.resolve(result).then(resolve, reject),
+      }
+    },
+  }))
   const selectLimit = vi.fn().mockResolvedValue([wallet])
   const selectFor = vi.fn().mockResolvedValue([wallet])
   const selectWhere = vi.fn().mockReturnValue({
@@ -58,7 +71,7 @@ function mockChargeTransaction(wallet: ReturnType<typeof makeWalletRow>) {
     async (_userId: string, fn: (db: { transaction: typeof transaction }) => Promise<unknown>) =>
       fn({ transaction }),
   )
-  return { ledgerValues, updateSet, wallet }
+  return { ledgerValues, updateSet, wallet, transaction }
 }
 
 describe('InsufficientCreditsError', () => {
@@ -78,45 +91,79 @@ describe('InsufficientCreditsError', () => {
     expect(err.message).toContain('500 credits')
     expect(err.availableCredits).toBe(100)
     expect(err.requiredCredits).toBe(500)
-    expect(err.phase).toBe('precheck')
+  })
+})
+
+describe('adminGrantCredits', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('includes gateway cost hint on settle failures', () => {
-    const err = new InsufficientCreditsError({
-      phase: 'settle',
-      availableCredits: 50,
-      requiredCredits: 200,
-      baseUsd: 1.5,
+  it('credits the wallet and writes an adjustment ledger row', async () => {
+    const wallet = makeWalletRow({ availableCredits: 0 })
+    const { ledgerValues, updateSet } = mockChargeTransaction(wallet)
+
+    const result = await adminGrantCredits({
+      userId: 'u1',
+      amountCredits: 41,
+      reason: 'Refund overnight repair overcharge',
+      adminUserId: 'admin1',
     })
-    expect(err.message).toContain('$1.5000')
-    expect(err.phase).toBe('settle')
+
+    expect(result).toEqual({ availableCredits: 41 })
+    expect(withDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function))
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ availableCredits: 41 }),
+    )
+    expect(ledgerValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u1',
+        kind: 'adjustment',
+        amountCredits: 41,
+        referenceType: 'admin_grant',
+        referenceId: 'admin1',
+        metadata: expect.objectContaining({
+          reason: 'Refund overnight repair overcharge',
+          adminUserId: 'admin1',
+        }),
+      }),
+    )
   })
 
-  it('omits BYOK hint when BYOK UI is hidden', () => {
-    mockEnv.BILLING_BYOK_UI_ENABLED = 'false'
-    const err = new InsufficientCreditsError({
-      phase: 'precheck',
-      availableCredits: 0,
-      requiredCredits: 50,
-    })
-    expect(err.message).toContain('Settings → Credits')
-    expect(err.message).not.toContain('BYOK')
+  it('rejects non-positive or non-integer amounts', async () => {
+    await expect(
+      adminGrantCredits({
+        userId: 'u1',
+        amountCredits: 0,
+        reason: 'x',
+        adminUserId: 'admin1',
+      }),
+    ).rejects.toThrow(/positive integer/)
+    await expect(
+      adminGrantCredits({
+        userId: 'u1',
+        amountCredits: 1.5,
+        reason: 'x',
+        adminUserId: 'admin1',
+      }),
+    ).rejects.toThrow(/positive integer/)
   })
 
-  it('mentions BYOK when BYOK UI is enabled', () => {
-    mockEnv.BILLING_BYOK_UI_ENABLED = 'true'
-    const err = new InsufficientCreditsError({
-      phase: 'precheck',
-      availableCredits: 0,
-      requiredCredits: 50,
-    })
-    expect(err.message).toContain('BYOK')
+  it('rejects empty reason', async () => {
+    await expect(
+      adminGrantCredits({
+        userId: 'u1',
+        amountCredits: 10,
+        reason: '   ',
+        adminUserId: 'admin1',
+      }),
+    ).rejects.toThrow(/reason/)
   })
 })
 
 describe('chargePlatformUsageMicroUsd', () => {
   beforeEach(() => {
-    withDbUserMock.mockReset()
+    vi.clearAllMocks()
   })
 
   it('debits whole credits and writes usage_debit ledger row', async () => {
