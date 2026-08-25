@@ -58,11 +58,60 @@ export type AdminSpendListResult = {
   pagination: AdminSpendPagination
 }
 
+export type AdminSpendView = 'users' | 'calls'
+
+export type AdminSpendActivityCallRow = {
+  id: string
+  userId: string
+  userEmail: string
+  userName: string | null
+  provider: string
+  gatewayHost: string | null
+  operation: string
+  context: string | null
+  baseCostUsd: string
+  markupUsd: string
+  totalCostUsd: string
+  groupId: string | null
+  durationMs: number | null
+  createdAt: string
+}
+
+export type AdminSpendActivityCallsTotals = {
+  callCount: number
+  totalCostUsd: string
+}
+
+export type AdminSpendActivityCallsResult = {
+  calls: AdminSpendActivityCallRow[]
+  totals: AdminSpendActivityCallsTotals
+  pagination: AdminSpendPagination
+}
+
+export type AdminSpendActivityCallsOptions = AdminSpendDateRange & {
+  includeHarness?: boolean
+  userId?: string
+  search?: string
+  page?: number
+  pageSize?: number
+}
+
+export type AdminSpendUserRef = {
+  userId: string
+  email: string
+  name: string | null
+}
+
 const DEFAULT_PAGE_SIZE = 25
+const DEFAULT_CALLS_PAGE_SIZE = 50
 
 export function parseAdminSpendPage(raw: string | null | undefined): number {
   const n = Number.parseInt(raw ?? '1', 10)
   return Number.isFinite(n) && n >= 1 ? n : 1
+}
+
+export function parseAdminSpendView(raw: string | null | undefined): AdminSpendView {
+  return raw === 'calls' ? 'calls' : 'users'
 }
 
 export function parseAdminSpendSort(raw: string | null | undefined): AdminSpendSortKey {
@@ -230,6 +279,165 @@ export async function listAdminSpendByUser(
         totalGatewayCostUsd: Number.isFinite(gatewayUsd) ? gatewayUsd.toFixed(6) : '0.000000',
         totalCreditsDebited: Number.isFinite(creditsDebited) ? Math.round(creditsDebited) : 0,
         userCount: totalCount,
+      },
+      pagination: {
+        page: safePage,
+        pageSize,
+        totalCount,
+        totalPages,
+        hasPrev: safePage > 1,
+        hasNext: safePage < totalPages,
+      },
+    }
+  } finally {
+    await sql.end()
+  }
+}
+
+function toActivityCallIso(value: Date | string | null | undefined): string {
+  if (value == null) return ''
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString()
+  }
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString()
+}
+
+type AdminActivityCallDbRow = {
+  id: string
+  user_id: string
+  user_email: string
+  user_name: string | null
+  provider: string
+  gateway_host: string | null
+  operation: string
+  context: string | null
+  base_cost_usd: string
+  markup_usd: string
+  total_cost_usd: string
+  group_id: string | null
+  duration_ms: number | null
+  created_at: Date | string
+}
+
+function mapAdminActivityCallDbRow(row: AdminActivityCallDbRow): AdminSpendActivityCallRow {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    userEmail: row.user_email,
+    userName: row.user_name,
+    provider: row.provider,
+    gatewayHost: row.gateway_host,
+    operation: row.operation,
+    context: row.context,
+    baseCostUsd: row.base_cost_usd,
+    markupUsd: row.markup_usd,
+    totalCostUsd: row.total_cost_usd,
+    groupId: row.group_id,
+    durationMs: row.duration_ms,
+    createdAt: toActivityCallIso(row.created_at),
+  }
+}
+
+/** Resolve a user by exact id or email (case-insensitive). */
+export async function resolveAdminUserByQuery(
+  query: string,
+): Promise<AdminSpendUserRef | null> {
+  const trimmed = query.trim()
+  if (!trimmed) return null
+
+  const sql = createAdminSql(1)
+  try {
+    const rows = await sql<Array<{ user_id: string; email: string; name: string | null }>>`
+      SELECT u.id AS user_id, u.email, u.name
+      FROM "user" u
+      WHERE u.id = ${trimmed}
+        OR lower(u.email) = lower(${trimmed})
+      LIMIT 1
+    `
+    const row = rows[0]
+    if (!row) return null
+    return { userId: row.user_id, email: row.email, name: row.name }
+  } finally {
+    await sql.end()
+  }
+}
+
+/** Paginated activity_call_log across users (admin spend drill-down). */
+export async function listAdminActivityCalls(
+  options: AdminSpendActivityCallsOptions,
+): Promise<AdminSpendActivityCallsResult> {
+  const sql = createAdminSql(1)
+  const includeHarness = options.includeHarness === true
+  const search = options.search?.trim() ?? ''
+  const pageSize = options.pageSize ?? DEFAULT_CALLS_PAGE_SIZE
+  const page = parseAdminSpendPage(String(options.page ?? 1))
+  const searchPattern = search ? `%${search}%` : null
+  const userId = options.userId?.trim() ?? ''
+
+  const baseFrom = sql`
+    FROM activity_call_log acl
+    INNER JOIN "user" u ON u.id = acl.user_id
+    WHERE 1 = 1
+      ${includeHarness ? sql`` : sql`AND u.account_kind = 'production'`}
+      ${options.from ? sql`AND acl.created_at >= ${options.from}` : sql``}
+      ${options.to ? sql`AND acl.created_at <= ${options.to}` : sql``}
+      ${userId ? sql`AND acl.user_id = ${userId}` : sql``}
+      ${
+        searchPattern
+          ? sql`AND (
+              u.email ILIKE ${searchPattern}
+              OR COALESCE(u.name, '') ILIKE ${searchPattern}
+              OR acl.operation ILIKE ${searchPattern}
+              OR COALESCE(acl.context, '') ILIKE ${searchPattern}
+            )`
+          : sql``
+      }
+  `
+
+  try {
+    const [countRow] = await sql<
+      Array<{ call_count: number; total_cost_usd: string | number | null }>
+    >`
+      SELECT
+        COUNT(*)::int AS call_count,
+        COALESCE(SUM(acl.total_cost_usd::numeric), 0) AS total_cost_usd
+      ${baseFrom}
+    `
+
+    const totalCount = countRow?.call_count ?? 0
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+    const safePage = Math.min(page, totalPages)
+    const offset = (safePage - 1) * pageSize
+    const totalCostUsd = Number(countRow?.total_cost_usd ?? 0)
+
+    const rows = await sql<AdminActivityCallDbRow[]>`
+      SELECT
+        acl.id,
+        u.id AS user_id,
+        u.email AS user_email,
+        u.name AS user_name,
+        acl.provider,
+        acl.gateway_host,
+        acl.operation,
+        acl.context,
+        acl.base_cost_usd,
+        acl.markup_usd,
+        acl.total_cost_usd,
+        acl.group_id,
+        acl.duration_ms,
+        acl.created_at
+      ${baseFrom}
+      ORDER BY acl.created_at DESC
+      LIMIT ${pageSize}
+      OFFSET ${offset}
+    `
+
+    return {
+      calls: rows.map(mapAdminActivityCallDbRow),
+      totals: {
+        callCount: totalCount,
+        totalCostUsd: Number.isFinite(totalCostUsd) ? totalCostUsd.toFixed(6) : '0.000000',
       },
       pagination: {
         page: safePage,

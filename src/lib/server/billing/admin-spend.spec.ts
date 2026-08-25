@@ -9,7 +9,25 @@ vi.mock('$lib/server/job-queue/admin-db', () => ({
   createAdminSql: createAdminSqlMock,
 }))
 
-import { computeAdminSpendTotals, listAdminSpendByUser, mapAdminSpendDbRow } from './admin-spend'
+import {
+  computeAdminSpendTotals,
+  listAdminSpendByUser,
+  mapAdminSpendDbRow,
+  parseAdminSpendView,
+} from './admin-spend'
+
+describe('parseAdminSpendView', () => {
+  it('defaults to users', () => {
+    expect(parseAdminSpendView(null)).toBe('users')
+    expect(parseAdminSpendView(undefined)).toBe('users')
+    expect(parseAdminSpendView('')).toBe('users')
+    expect(parseAdminSpendView('users')).toBe('users')
+  })
+
+  it('returns calls for view=calls', () => {
+    expect(parseAdminSpendView('calls')).toBe('calls')
+  })
+})
 
 describe('admin-spend', () => {
   beforeEach(() => {

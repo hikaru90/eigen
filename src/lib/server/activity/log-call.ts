@@ -22,16 +22,25 @@ export async function logActivityCall(
     /** Hostname derived from the gateway base URL (billable LLM calls only). */
     gatewayHost?: string | null
     context?: string
+    errorMessage?: string
     groupId?: string
     durationMs?: number
   },
 ): Promise<void> {
   const priced = priceCall(input.baseCostUsd)
-  // Truncate context to 100 chars max for storage
-  const context = input.context?.trim()
-    ? input.context.length > 100
-      ? input.context.slice(0, 97) + '...'
-      : input.context
+  const contextParts: string[] = []
+  if (input.context?.trim()) {
+    contextParts.push(`input=${input.context}`)
+  }
+  if (input.errorMessage?.trim()) {
+    contextParts.push(`error=${input.errorMessage}`)
+  }
+  const combinedContext = contextParts.join(' | ')
+  // Truncate context to 300 chars max for storage.
+  const context = combinedContext
+    ? combinedContext.length > 300
+      ? combinedContext.slice(0, 297) + '...'
+      : combinedContext
     : null
   const logUserId = resolveTenantUserId(userId)
   await db.insert(activityCallLog).values({

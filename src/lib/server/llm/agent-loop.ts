@@ -319,6 +319,7 @@ async function executeAgentToolCall(input: {
       error: err instanceof Error ? err.message : String(err),
     })
     result = { error: err instanceof Error ? err.message : String(err) }
+    const errorMessage = err instanceof Error ? err.message : String(err)
     const errorPreview = formatToolResultPreview(tool, result)
     exec.onEvent?.({ type: 'tool_result', tool, preview: errorPreview, failed: true })
     await logActivityCall(exec.db ?? getDb(), exec.userId, {
@@ -328,6 +329,7 @@ async function executeAgentToolCall(input: {
       context: Object.entries(args)
         .map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`)
         .join(', '),
+      errorMessage,
       durationMs: Date.now() - toolStart,
     })
   }

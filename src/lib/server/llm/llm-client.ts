@@ -707,6 +707,7 @@ async function llmChatCompletionInner(input: {
         operation: `llm.chat.${logCtx}.error(attempt=${attempt})`,
         baseCostUsd: 0,
         context: firstUserMessage,
+        errorMessage: msg,
         durationMs: Date.now() - attemptStart,
       })
       if (attempt === maxAttempts) break
@@ -812,6 +813,7 @@ async function llmCreateEmbeddingsInner(input: {
       return json
     } catch (err) {
       lastError = err
+      const message = err instanceof Error ? err.message : String(err)
       // Extract preview from embedding input
       const embeddingPreview = Array.isArray(input.input) ? input.input[0] : input.input
       await logActivityCall(db, input.userId, {
@@ -820,6 +822,7 @@ async function llmCreateEmbeddingsInner(input: {
         operation: `llm.embedding.error(attempt=${attempt})`,
         baseCostUsd: 0,
         context: embeddingPreview,
+        errorMessage: message,
         durationMs: Date.now() - attemptStart,
       })
       if (attempt === maxAttempts) break
@@ -961,12 +964,14 @@ async function llmCreateTranscriptionDedicated(
       return json
     } catch (err) {
       lastError = err
+      const message = err instanceof Error ? err.message : String(err)
       await logActivityCall(db, input.userId, {
         provider: activityProvider,
         gatewayHost,
         operation: `llm.stt.error(attempt=${attempt},model=${input.model})`,
         baseCostUsd: 0,
         context: `format=${input.audio.format}`,
+        errorMessage: message,
         durationMs: Date.now() - attemptStart,
       })
       if (attempt === maxAttempts) break

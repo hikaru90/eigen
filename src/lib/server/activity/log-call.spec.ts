@@ -76,11 +76,11 @@ describe('logActivityCall', () => {
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ groupId, durationMs: 342 }))
   })
 
-  it('truncates context longer than 100 chars', async () => {
+  it('truncates context longer than 300 chars', async () => {
     const values = vi.fn()
     const insert = vi.fn(() => ({ values }))
     const db = { insert } as unknown as Parameters<typeof logActivityCall>[0]
-    const longContext = 'x'.repeat(101)
+    const longContext = 'x'.repeat(301)
 
     await logActivityCall(db, 'u1', {
       provider: 'llm',
@@ -90,11 +90,11 @@ describe('logActivityCall', () => {
     })
 
     expect(values).toHaveBeenCalledWith(
-      expect.objectContaining({ context: `${'x'.repeat(97)}...` }),
+      expect.objectContaining({ context: `input=${'x'.repeat(291)}...` }),
     )
   })
 
-  it('stores short context as-is and null for whitespace-only', async () => {
+  it('stores context/error and null for whitespace-only', async () => {
     const values = vi.fn()
     const insert = vi.fn(() => ({ values }))
     const db = { insert } as unknown as Parameters<typeof logActivityCall>[0]
@@ -105,7 +105,19 @@ describe('logActivityCall', () => {
       baseCostUsd: 0,
       context: '  hello  ',
     })
-    expect(values).toHaveBeenCalledWith(expect.objectContaining({ context: '  hello  ' }))
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ context: 'input=  hello  ' }))
+
+    values.mockClear()
+    await logActivityCall(db, 'u1', {
+      provider: 'llm',
+      operation: 'chat',
+      baseCostUsd: 0,
+      context: 'hello',
+      errorMessage: 'timeout',
+    })
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ context: 'input=hello | error=timeout' }),
+    )
 
     values.mockClear()
     await logActivityCall(db, 'u1', {

@@ -1931,7 +1931,7 @@ export async function exerciseAuthenticatedUi(page: Page): Promise<void> {
 }
 
 async function exerciseBottomNav(page: Page): Promise<void> {
-  for (const label of ['Memory', 'Capture', 'Chat'] as const) {
+  for (const label of ['Workspace', 'Capture', 'Ask AI'] as const) {
     await page.getByRole('link', { name: label, exact: true }).click()
     await expect(page).not.toHaveURL(/\/login/)
   }
@@ -1973,12 +1973,12 @@ export async function exerciseFeedbackSubmit(page: Page): Promise<void> {
 async function exerciseMemoryUi(page: Page): Promise<void> {
   await page.goto('/memory')
 
-  for (const tab of ['Graph', 'Embeddings', 'Tasks', 'Projects', 'Notes'] as const) {
+  for (const tab of ['Map', 'Cluster', 'Tasks', 'Projects', 'Notes'] as const) {
     await page.getByRole('link', { name: tab, exact: true }).click()
     await expect(page).not.toHaveURL(/\/login/)
   }
 
-  await page.getByRole('link', { name: 'Graph', exact: true }).click()
+  await page.getByRole('link', { name: 'Map', exact: true }).click()
   await exerciseGraphFilters(page)
 
   // Timeline was split into Tasks and Projects routes (commit 26b7bd0); exercise both

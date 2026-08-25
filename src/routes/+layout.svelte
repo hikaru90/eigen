@@ -83,19 +83,16 @@
       label: m.nav_memory(),
       href: '/memory' as const,
       icon: Brain,
-      variant: 'secondary' as const,
     },
     {
       label: m.nav_capture(),
       href: '/capture' as const,
       icon: Plus,
-      variant: 'primary' as const,
     },
     {
       label: m.nav_chat(),
       href: '/chat' as const,
       icon: MessageSquareText,
-      variant: 'secondary' as const,
     },
   ])
 
@@ -233,22 +230,20 @@
     <div class="relative z-10 flex flex-row items-center justify-between gap-2 px-4 pb-safe">
       {#each bottomNavItems as item (item.href)}
         {@const isActive = isNavItemActive(item.href)}
-        <div class={cn('relative', item.variant === 'primary' ? 'min-h-10 flex-1' : 'shrink-0')}>
+        <div class="relative flex-1">
           <a
             href={resolve(item.href)}
             class={cn(
-              'flex items-center justify-center',
-              item.variant === 'primary'
-                ? 'w-full rounded-full bg-primary py-4 text-primary-foreground shadow-md dark:border dark:border-white/15 dark:bg-black/70 dark:text-white dark:shadow-none dark:backdrop-blur-md dark:hover:bg-black/80'
-                : 'size-10 rounded-full border border-transparent bg-black text-white hover:bg-black/90 dark:border-white/15 dark:bg-black/70 dark:text-white dark:backdrop-blur-md dark:hover:bg-black/80',
+              'flex w-full flex-col items-center justify-center gap-1 py-2 text-foreground dark:text-white -mb-3',
+              isActive && 'text-[var(--color-eigen-green)] dark:text-[var(--color-eigen-green)]',
             )}
             aria-label={item.label}
             aria-current={isActive ? 'page' : undefined}
           >
-            <item.icon
-              class={cn('size-4.5', isActive && 'text-[var(--color-eigen-green)]')}
-              strokeWidth={1.75}
-            />
+            <item.icon class="size-6" strokeWidth={1.75} />
+            <span class="text-xs leading-none font-bold tracking-wide whitespace-nowrap mt-1">
+              {item.label}
+            </span>
           </a>
         </div>
       {/each}

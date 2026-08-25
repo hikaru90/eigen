@@ -1,8 +1,11 @@
 import type { PageServerLoad } from './$types'
 import {
+  listAdminActivityCalls,
   listAdminSpendByUser,
   parseAdminSpendPage,
   parseAdminSpendSort,
+  parseAdminSpendView,
+  resolveAdminUserByQuery,
 } from '$lib/server/billing/admin-spend'
 
 function parseDateParam(raw: string | null): Date | null {
@@ -24,9 +27,11 @@ export const load: PageServerLoad = async (event) => {
   const fromParam = event.url.searchParams.get('from')
   const toParam = event.url.searchParams.get('to')
   const search = event.url.searchParams.get('q')?.trim() ?? ''
+  const userQuery = event.url.searchParams.get('user')?.trim() ?? ''
   const page = parseAdminSpendPage(event.url.searchParams.get('page'))
   const sort = parseAdminSpendSort(event.url.searchParams.get('sort'))
   const sortAsc = event.url.searchParams.get('dir') === 'asc'
+  const view = parseAdminSpendView(event.url.searchParams.get('view'))
 
   let from: Date | null = parseDateParam(fromParam)
   let to: Date | null = parseDateParam(toParam)
@@ -44,20 +49,47 @@ export const load: PageServerLoad = async (event) => {
     to = defaults.to
   }
 
-  const result = await listAdminSpendByUser({
+  const userFilter = userQuery ? await resolveAdminUserByQuery(userQuery) : null
+
+  const spendResult = await listAdminSpendByUser({
     from,
     to,
     includeHarness,
-    search: search || undefined,
-    page,
+    search: view === 'users' && search ? search : undefined,
+    page: view === 'users' ? page : 1,
     sort,
     sortAsc,
   })
 
+  const callsResult =
+    view === 'calls'
+      ? await listAdminActivityCalls({
+          from,
+          to,
+          includeHarness,
+          userId: userFilter?.userId,
+          search: search || undefined,
+          page,
+        })
+      : null
+
   return {
-    rows: result.rows,
-    totals: result.totals,
-    pagination: result.pagination,
+    view,
+    rows: spendResult.rows,
+    totals: spendResult.totals,
+    pagination: view === 'users' ? spendResult.pagination : (callsResult?.pagination ?? spendResult.pagination),
+    calls: callsResult?.calls ?? [],
+    callTotals: callsResult?.totals ?? { callCount: 0, totalCostUsd: '0.000000' },
+    callPagination: callsResult?.pagination ?? {
+      page: 1,
+      pageSize: 50,
+      totalCount: 0,
+      totalPages: 1,
+      hasPrev: false,
+      hasNext: false,
+    },
+    userFilter,
+    userQuery,
     search,
     sort,
     sortAsc,

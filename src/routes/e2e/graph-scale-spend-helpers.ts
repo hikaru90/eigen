@@ -163,7 +163,7 @@ export function writeGraphScaleSpendReport(report: GraphScaleSpendReport): strin
 export async function openGraphScaleSpendGraphPage(page: Page): Promise<void> {
   await page.goto('/memory', { waitUntil: 'domcontentloaded', timeout: GRAPH_UI_TIMEOUT_MS })
   await expect(page).toHaveURL(/\/memory/, { timeout: GRAPH_UI_TIMEOUT_MS })
-  await page.getByRole('link', { name: 'Graph', exact: true }).click()
+  await page.getByRole('link', { name: 'Map', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Search nodes', exact: true })).toBeVisible({
     timeout: GRAPH_UI_TIMEOUT_MS,
   })
