@@ -27,11 +27,53 @@ import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 const MAX_ITERATIONS = 8
 const MAX_PARSE_RETRIES = 3
 
+/** Mutation / write tools — a final answer after these does not require answer_question. */
+const AGENT_WRITE_TOOLS = new Set([
+  'capture_thought',
+  'edit_thought',
+  'delete_thought',
+  'create_text_file',
+  'update_text_file',
+  'append_text_file',
+  'delete_text_file',
+  'link_text_file_to_thought',
+  'unlink_text_file_from_thought',
+  'order_task_in_project',
+  'set_project_milestone',
+  'set_project_deadline',
+  'generate_project_plan',
+  'create_project',
+  'edit_project',
+  'delete_project',
+])
+
+const REMOVED_TOOL_HINTS: Record<string, string> = {
+  list_temporal_events:
+    'That tool was removed. For agendas/todos/deadlines use list_projects and get_project_timeline; for memory questions use answer_question.',
+  manage_temporal_event:
+    'That tool was removed. For project deadlines/milestones use set_project_deadline or set_project_milestone; for thought lifecycle use edit_thought.',
+}
+
 export class AgentParseError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'AgentParseError'
   }
+}
+
+function isRetrieveThoughtsSearch(tool: string, args: Record<string, unknown>): boolean {
+  if (tool !== 'retrieve_thoughts') return false
+  const query = args.query
+  return typeof query === 'string' && query.trim().length > 0
+}
+
+function formatUnknownToolError(tool: string): string {
+  const available = `Available tools: ${MCP_AGENT_TOOL_NAMES.join(', ')}`
+  const hint = REMOVED_TOOL_HINTS[tool]
+  if (hint) {
+    return `Error: tool "${tool}" is not available. ${hint} ${available}`
+  }
+  return `Error: tool "${tool}" is not available. ${available}`
 }
 
 const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock()
@@ -329,6 +371,9 @@ export async function agentChat(input: {
   ]
   let parseFailureCount = 0
   let toolRanInTurn = false
+  let answerQuestionRan = false
+  let writeToolRan = false
+  let retrieveSearchRan = false
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     console.error('[agent-loop] iteration', { iteration, messageCount: messages.length })
@@ -389,7 +434,7 @@ export async function agentChat(input: {
         messages.push({ role: 'assistant', content })
         messages.push({
           role: 'user',
-          content: `Error: tool "${parsed.tool}" is not available. Available tools: ${MCP_AGENT_TOOL_NAMES.join(', ')}`,
+          content: formatUnknownToolError(parsed.tool),
         })
         continue
       }
@@ -402,16 +447,24 @@ export async function agentChat(input: {
 
       toolRanInTurn = true
       parseFailureCount = 0
+      if (parsed.tool === 'answer_question') answerQuestionRan = true
+      if (AGENT_WRITE_TOOLS.has(parsed.tool)) writeToolRan = true
+      if (isRetrieveThoughtsSearch(parsed.tool, parsed.arguments)) retrieveSearchRan = true
+
       if (outcome.done) {
         messages.push({ role: 'assistant', content })
         messages.push({ role: 'assistant', content: outcome.response })
         return { response: outcome.response, messages }
       }
 
+      const followUpHint = isRetrieveThoughtsSearch(parsed.tool, parsed.arguments)
+        ? 'retrieve_thoughts search results are for finding ids or browsing — do not compose a memory answer from them. For any question, call answer_question next.'
+        : 'If more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.'
+
       messages.push({ role: 'assistant', content })
       messages.push({
         role: 'user',
-        content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\nIf more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.`,
+        content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\n${followUpHint}`,
       })
       continue
     }
@@ -426,6 +479,22 @@ export async function agentChat(input: {
         role: 'user',
         content:
           'Error: You must call a tool before answering. For any question, including about yourself, call answer_question. Never answer from your own knowledge. Respond with {"tool": ...} only.',
+      })
+      continue
+    }
+
+    if (retrieveSearchRan && !answerQuestionRan && !writeToolRan) {
+      parseFailureCount += 1
+      if (parseFailureCount >= MAX_PARSE_RETRIES) {
+        throw new AgentParseError(
+          'The assistant tried to answer from retrieve_thoughts search results without calling answer_question.',
+        )
+      }
+      messages.push({ role: 'assistant', content })
+      messages.push({
+        role: 'user',
+        content:
+          'Error: You used retrieve_thoughts with a search query, which is for browsing/finding ids — not for answering questions. Call answer_question with the user question now. Respond with {"tool": "answer_question", "arguments": {"question": "..."}} only.',
       })
       continue
     }

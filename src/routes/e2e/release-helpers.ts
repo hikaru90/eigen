@@ -2145,6 +2145,10 @@ async function exerciseChatUi(page: Page): Promise<void> {
   await expect(page.getByText(question)).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
   await assertChatLoadingVisible(page)
+  // Clear questions must go through answer_question (compose), not retrieve-only browse.
+  await expect(page.getByText('Answering your question')).toBeVisible({
+    timeout: RELEASE_INDEXING_WAIT_MS,
+  })
   await waitForChatAnswerMarker(page, /Lisbon/i, RELEASE_INDEXING_WAIT_MS)
   await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
     timeout: RELEASE_WAIT_MS,
@@ -2152,6 +2156,9 @@ async function exerciseChatUi(page: Page): Promise<void> {
 
   const logText = (await page.getByRole('log', { name: 'Chat messages' }).textContent()) ?? ''
   assertChatLogHasNoRawJson(logText)
+  expect(logText, 'clear question should use answer_question compose path').toMatch(
+    /Answering your question/i,
+  )
   await expect(page.locator('.animate-spin')).toHaveCount(0)
   await waitForChatIdle(page, RELEASE_WAIT_MS)
 

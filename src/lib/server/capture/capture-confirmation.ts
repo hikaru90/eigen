@@ -61,7 +61,7 @@ export type ConfirmCaptureResult = {
   preview: CapturePreviewBundle
 }
 
-async function loadAwaitingDraft(userId: string, thoughtId: string) {
+async function loadConfirmationDraft(userId: string, thoughtId: string) {
   const [row] = await getDb()
     .select({
       id: thought.id,
@@ -69,6 +69,7 @@ async function loadAwaitingDraft(userId: string, thoughtId: string) {
       rawText: thought.rawText,
       rawTextEncrypted: thought.rawTextEncrypted,
       normalizedText: thought.normalizedText,
+      category: thought.category,
       enrichQueueStatus: thought.enrichQueueStatus,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
@@ -81,9 +82,6 @@ async function loadAwaitingDraft(userId: string, thoughtId: string) {
 
   if (!row) {
     throw new Error('Thought not found')
-  }
-  if (row.enrichQueueStatus !== 'awaiting_confirmation') {
-    throw new Error('Thought is not awaiting confirmation')
   }
 
   const [rawText, metadataJson] = await Promise.all([
@@ -107,6 +105,31 @@ async function loadAwaitingDraft(userId: string, thoughtId: string) {
 
   const metadata = JSON.parse(metadataJson) as Record<string, unknown>
   return { ...row, rawText, metadata }
+}
+
+/**
+ * When confirm races with auto-accept / double-submit, the draft may already be
+ * promoted. Return the persisted confirmed shape instead of throwing.
+ */
+function alreadyConfirmedResult(
+  draft: Awaited<ReturnType<typeof loadConfirmationDraft>>,
+): ConfirmCaptureResult | null {
+  if (draft.enrichQueueStatus === 'awaiting_confirmation') return null
+  if (draft.metadata.confirmationGate !== true) return null
+  if (typeof draft.metadata.confirmedAt !== 'string') return null
+  try {
+    const preview = readPreview(draft.metadata)
+    return {
+      thoughtId: draft.id,
+      rawText: draft.rawText,
+      normalizedText: draft.normalizedText,
+      category: draft.category,
+      queueStatus: 'pending',
+      preview,
+    }
+  } catch {
+    return null
+  }
 }
 
 function readPreview(metadata: Record<string, unknown>): CapturePreviewBundle {
@@ -189,7 +212,10 @@ export async function interpretAndQueueCapture(
   })
 
   const ontologyEntityKindId = await resolveCategoryKindId(userId, preview.category.key)
-  const draft = await loadAwaitingDraft(userId, queued.thoughtId)
+  const draft = await loadConfirmationDraft(userId, queued.thoughtId)
+  if (draft.enrichQueueStatus !== 'awaiting_confirmation') {
+    throw new Error('Thought is not awaiting confirmation')
+  }
   await persistPreviewMetadata(
     userId,
     queued.thoughtId,
@@ -224,6 +250,7 @@ export async function interpretAndQueueCapture(
 /**
  * Promote draft to pending enrich.
  * verbatim:true → store raw text unchanged; otherwise accept LLM interpretation.
+ * Idempotent when the draft was already confirmed (client/server auto-accept race).
  */
 export async function confirmCapturePreview(
   userId: string,
@@ -231,7 +258,14 @@ export async function confirmCapturePreview(
   options?: { verbatim?: boolean },
 ): Promise<ConfirmCaptureResult> {
   const verbatim = options?.verbatim === true
-  const draft = await loadAwaitingDraft(userId, thoughtId)
+  const draft = await loadConfirmationDraft(userId, thoughtId)
+
+  if (draft.enrichQueueStatus !== 'awaiting_confirmation') {
+    const already = alreadyConfirmedResult(draft)
+    if (already) return already
+    throw new Error('Thought is not awaiting confirmation')
+  }
+
   const preview = readPreview(draft.metadata)
 
   const normalizedText = verbatim ? draft.rawText : preview.interpretedText
@@ -268,7 +302,7 @@ export async function confirmCapturePreview(
     }),
   ])
 
-  await getDb()
+  const promoted = await getDb()
     .update(thought)
     .set({
       normalizedText,
@@ -282,7 +316,21 @@ export async function confirmCapturePreview(
       enrichQueueError: null,
       updatedAt: new Date(),
     })
-    .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+    .where(
+      and(
+        eq(thought.id, thoughtId),
+        eq(thought.userId, userId),
+        eq(thought.enrichQueueStatus, 'awaiting_confirmation'),
+      ),
+    )
+    .returning({ id: thought.id })
+
+  if (promoted.length === 0) {
+    const again = await loadConfirmationDraft(userId, thoughtId)
+    const already = alreadyConfirmedResult(again)
+    if (already) return already
+    throw new Error('Thought is not awaiting confirmation')
+  }
 
   scheduleCaptureEnrichWorker(userId)
 

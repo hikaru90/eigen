@@ -88,11 +88,12 @@ function chainSelect(rows: unknown[]) {
   selectMock.mockReturnValue({ from })
 }
 
-function chainUpdate() {
-  const where = vi.fn(async () => undefined)
+function chainUpdate(options?: { returningRows?: unknown[] }) {
+  const returning = vi.fn(async () => options?.returningRows ?? [{ id: 'thought-1' }])
+  const where = vi.fn(() => ({ returning }))
   const set = vi.fn(() => ({ where }))
   updateMock.mockReturnValue({ set })
-  return { set, where }
+  return { set, where, returning }
 }
 
 describe('interpretAndQueueCapture', () => {
@@ -252,6 +253,7 @@ describe('confirmCapturePreview', () => {
         rawText: raw,
         rawTextEncrypted: null,
         normalizedText: raw,
+        category: 'observation',
         enrichQueueStatus: 'awaiting_confirmation',
         metadata: { preview: PREVIEW, pipeline: 'ontology_llm_v1' },
         metadataEncrypted: null,
@@ -288,6 +290,7 @@ describe('confirmCapturePreview', () => {
         rawText: raw,
         rawTextEncrypted: null,
         normalizedText: raw,
+        category: 'observation',
         enrichQueueStatus: 'awaiting_confirmation',
         metadata: { preview: PREVIEW, pipeline: 'ontology_llm_v1' },
         metadataEncrypted: null,
@@ -322,6 +325,7 @@ describe('confirmCapturePreview', () => {
         rawText: 'hello',
         rawTextEncrypted: null,
         normalizedText: 'hello',
+        category: 'observation',
         enrichQueueStatus: 'complete',
         metadata: {},
         metadataEncrypted: null,
@@ -331,6 +335,97 @@ describe('confirmCapturePreview', () => {
     await expect(confirmCapturePreview('u1', 'thought-1')).rejects.toThrow(
       /awaiting_confirmation|not awaiting/i,
     )
+    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+    expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
+  })
+
+  it('is idempotent when the draft was already confirmed (race with auto-accept / double submit)', async () => {
+    const raw = 'planning a team offsite in Lisbon next quarter'
+    chainUpdate()
+    chainSelect([
+      {
+        id: 'thought-1',
+        userId: 'u1',
+        rawText: raw,
+        rawTextEncrypted: null,
+        normalizedText: PREVIEW.interpretedText,
+        category: 'task',
+        enrichQueueStatus: 'pending',
+        metadata: {
+          preview: PREVIEW,
+          confirmationGate: true,
+          confirmedAt: '2026-08-25T10:00:00.000Z',
+          confirmedVerbatim: false,
+        },
+        metadataEncrypted: null,
+      },
+    ])
+
+    const result = await confirmCapturePreview('u1', 'thought-1')
+
+    expect(result).toEqual({
+      thoughtId: 'thought-1',
+      rawText: raw,
+      normalizedText: PREVIEW.interpretedText,
+      category: 'task',
+      queueStatus: 'pending',
+      preview: PREVIEW,
+    })
+    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+    expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+  })
+
+  it('treats a lost confirm race as success when the winner already promoted the draft', async () => {
+    const raw = 'planning a team offsite in Lisbon next quarter'
+    const { returning } = chainUpdate({ returningRows: [] })
+    let selectCall = 0
+    selectMock.mockImplementation(() => {
+      selectCall += 1
+      const rows =
+        selectCall === 1
+          ? [
+              {
+                id: 'thought-1',
+                userId: 'u1',
+                rawText: raw,
+                rawTextEncrypted: null,
+                normalizedText: raw,
+                category: 'observation',
+                enrichQueueStatus: 'awaiting_confirmation',
+                metadata: { preview: PREVIEW, confirmationGate: true },
+                metadataEncrypted: null,
+              },
+            ]
+          : [
+              {
+                id: 'thought-1',
+                userId: 'u1',
+                rawText: raw,
+                rawTextEncrypted: null,
+                normalizedText: PREVIEW.interpretedText,
+                category: 'task',
+                enrichQueueStatus: 'pending',
+                metadata: {
+                  preview: PREVIEW,
+                  confirmationGate: true,
+                  confirmedAt: '2026-08-25T10:00:01.000Z',
+                  confirmedVerbatim: false,
+                },
+                metadataEncrypted: null,
+              },
+            ]
+      const limit = vi.fn(async () => rows)
+      const where = vi.fn(() => ({ limit }))
+      const from = vi.fn(() => ({ where }))
+      return { from }
+    })
+
+    const result = await confirmCapturePreview('u1', 'thought-1')
+
+    expect(returning).toHaveBeenCalled()
+    expect(result.normalizedText).toBe(PREVIEW.interpretedText)
+    expect(result.queueStatus).toBe('pending')
     expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
     expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
   })
@@ -365,6 +460,7 @@ describe('autoConfirmStaleAwaitingConfirmationDrafts', () => {
                 rawText: 'planning a team offsite in Lisbon next quarter',
                 rawTextEncrypted: null,
                 normalizedText: 'planning a team offsite in Lisbon next quarter',
+                category: 'observation',
                 enrichQueueStatus: 'awaiting_confirmation',
                 metadata: { preview: PREVIEW },
                 metadataEncrypted: null,

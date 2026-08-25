@@ -58,11 +58,11 @@ export function chatErrorTerminalPayload(
 
 export const BRIEFING_BOOTSTRAP_MESSAGES: Record<string, string> = {
   morning:
-    "Give my morning briefing: today's agenda, top 3 priorities, and open loops. Use list_temporal_events and retrieve_thoughts. Be calm and concise.",
+    "Give my morning briefing: today's agenda, top 3 priorities, and open loops. Use list_projects and get_project_timeline for project agendas, answer_question for priorities/open loops, and retrieve_thoughts only to browse recent thoughts. Be calm and concise.",
   evening:
-    'Give my evening review: what was completed today, what rolls over, and gentle suggestions for tomorrow. Use list_temporal_events.',
+    'Give my evening review: what was completed today, what rolls over, and gentle suggestions for tomorrow. Use list_projects and get_project_timeline for project status, and answer_question for what completed or rolls over.',
   weekly:
-    'Give my weekly review: completions this week, overdue debt, patterns, and 2–3 focus suggestions for next week. Use list_temporal_events and retrieve_thoughts.',
+    'Give my weekly review: completions this week, overdue debt, patterns, and 2–3 focus suggestions for next week. Use list_projects, get_project_timeline, answer_question, and retrieve_thoughts only to browse recent thoughts.',
 }
 
 async function getOrCreateSession(
