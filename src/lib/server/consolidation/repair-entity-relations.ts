@@ -4,13 +4,19 @@
  * Ingest can miss triple extraction (e.g. "Space" and "Space Hamburg" in the same
  * thought with no graph edge). This job re-scans those thoughts and adds edges via
  * LLM re-extraction plus lexical containment heuristics for obvious name pairs.
+ *
+ * Budget: at most {@link ENTITY_RELATION_REPAIR_MAX_ATTEMPTS} overnight LLM attempts
+ * per thought. After that the thought is skipped (no more credit burn). Insufficient
+ * credits aborts the whole batch immediately.
  */
 
 import { and, eq, isNotNull } from 'drizzle-orm'
+import { InsufficientCreditsError } from '$lib/server/billing/wallet'
 import { pruneSuspiciousEntityEdgesForUser } from '$lib/server/consolidation/prune-suspicious-entity-edges'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, entityResolutionLog, thought } from '$lib/server/db/schema'
 import { fetchEntityEdgesForUser, upsertEntityRelationEdge } from '$lib/server/graph/age'
+import { INGEST_MAX_RETRIES } from '$lib/server/ingest/retry'
 import {
   extractEntityTriples,
   type ExtractedEntityMention,
@@ -20,12 +26,19 @@ import { upsertEntityRelationTriples } from '$lib/server/memory/entity-graph-syn
 const REPAIR_BATCH_SIZE = 20
 const MIN_LEXICAL_KEY_LENGTH = 3
 
+/** Same ceiling as ingest: initial + retries policy → max 3 overnight LLM attempts per thought. */
+export const ENTITY_RELATION_REPAIR_MAX_ATTEMPTS = INGEST_MAX_RETRIES
+
+const ATTEMPTS_META_KEY = 'entityRelationRepairAttempts' as const
+
 export type RepairEntityRelationsResult = {
   scanned: number
   gaps: number
   processed: number
   repaired: number
   edgesAdded: number
+  /** Gap thoughts skipped because overnight LLM attempts already hit the max. */
+  skippedExhausted: number
   suspiciousEdgesRemoved: number
 }
 
@@ -46,6 +59,8 @@ type CoMentionThought = {
   thoughtId: string
   normalizedText: string
   entities: CoMentionEntity[]
+  repairAttempts: number
+  metadata: Record<string, unknown>
 }
 
 function undirectedEdgeKey(a: string, b: string): string {
@@ -98,6 +113,11 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function readRepairAttempts(metadata: Record<string, unknown>): number {
+  const raw = metadata[ATTEMPTS_META_KEY]
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 ? raw : 0
+}
+
 function inferLexicalRelation(
   a: CoMentionEntity,
   b: CoMentionEntity,
@@ -131,6 +151,23 @@ function inferLexicalRelation(
   return null
 }
 
+async function persistRepairAttempts(
+  thoughtId: string,
+  metadata: Record<string, unknown>,
+  attempts: number,
+): Promise<void> {
+  const db = getDb()
+  await db
+    .update(thought)
+    .set({
+      metadata: {
+        ...metadata,
+        [ATTEMPTS_META_KEY]: attempts,
+      },
+    })
+    .where(eq(thought.id, thoughtId))
+}
+
 async function loadCoMentionThoughts(userId: string): Promise<CoMentionThought[]> {
   const db = getDb()
   const rows = await db
@@ -142,6 +179,7 @@ async function loadCoMentionThoughts(userId: string): Promise<CoMentionThought[]
       canonicalKey: canonicalEntity.canonicalKey,
       entityType: canonicalEntity.entityType,
       normalizedText: thought.normalizedText,
+      metadata: thought.metadata,
     })
     .from(entityResolutionLog)
     .innerJoin(
@@ -161,7 +199,11 @@ async function loadCoMentionThoughts(userId: string): Promise<CoMentionThought[]
 
   const byThought = new Map<
     string,
-    { normalizedText: string; entities: Map<string, CoMentionEntity> }
+    {
+      normalizedText: string
+      entities: Map<string, CoMentionEntity>
+      metadata: Record<string, unknown>
+    }
   >()
 
   for (const row of rows) {
@@ -169,7 +211,11 @@ async function loadCoMentionThoughts(userId: string): Promise<CoMentionThought[]
     if (!entityId) continue
     let bucket = byThought.get(row.thoughtId)
     if (!bucket) {
-      bucket = { normalizedText: row.normalizedText, entities: new Map() }
+      const metadata =
+        row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+          ? { ...(row.metadata as Record<string, unknown>) }
+          : {}
+      bucket = { normalizedText: row.normalizedText, entities: new Map(), metadata }
       byThought.set(row.thoughtId, bucket)
     }
     if (!bucket.entities.has(entityId)) {
@@ -188,6 +234,8 @@ async function loadCoMentionThoughts(userId: string): Promise<CoMentionThought[]
       thoughtId,
       normalizedText: bucket.normalizedText,
       entities: [...bucket.entities.values()],
+      metadata: bucket.metadata,
+      repairAttempts: readRepairAttempts(bucket.metadata),
     }))
 }
 
@@ -269,6 +317,7 @@ export async function repairEntityRelationsForUser(
       processed: 0,
       repaired: 0,
       edgesAdded: 0,
+      skippedExhausted: 0,
       suspiciousEdgesRemoved: pruned.removed,
     }
   }
@@ -282,7 +331,17 @@ export async function repairEntityRelationsForUser(
       edgeSet,
     ),
   )
-  const prioritized = gapThoughts
+
+  let skippedExhausted = 0
+  const eligibleGapThoughts = gapThoughts.filter((t) => {
+    if (t.repairAttempts >= ENTITY_RELATION_REPAIR_MAX_ATTEMPTS) {
+      skippedExhausted++
+      return false
+    }
+    return true
+  })
+
+  const prioritized = eligibleGapThoughts
     .map((t) => {
       const ids = t.entities.map((e) => e.entityId)
       const missingPairs = countMissingPairs(ids, edgeSet)
@@ -299,7 +358,10 @@ export async function repairEntityRelationsForUser(
         b.thought.entities.length - a.thought.entities.length,
     )
 
-  const processingBudget = Math.max(batchSize, Math.min(gapThoughts.length, batchSize * 3))
+  const processingBudget = Math.max(
+    batchSize,
+    Math.min(eligibleGapThoughts.length, batchSize * 3),
+  )
   let processed = 0
   let repaired = 0
   let edgesAdded = 0
@@ -310,14 +372,51 @@ export async function repairEntityRelationsForUser(
     if (options?.shouldCancel && (await options.shouldCancel())) break
     processed++
 
-    const added = await repairThoughtCoMentionEdges({
-      userId,
-      thought: row.thought,
-      edgeSet,
-    })
-    if (added > 0) {
-      repaired++
-      edgesAdded += added
+    const nextAttempts = row.thought.repairAttempts + 1
+    try {
+      const added = await repairThoughtCoMentionEdges({
+        userId,
+        thought: row.thought,
+        edgeSet,
+      })
+
+      const entityIds = row.thought.entities.map((e) => e.entityId)
+      const stillGapped = thoughtHasMissingCoMentionEdge(entityIds, edgeSet)
+
+      if (added > 0) {
+        repaired++
+        edgesAdded += added
+      }
+
+      // Count every overnight LLM pass. Clear counter only when the gap is fully closed.
+      if (stillGapped) {
+        await persistRepairAttempts(row.thought.thoughtId, row.thought.metadata, nextAttempts)
+        row.thought.repairAttempts = nextAttempts
+        row.thought.metadata = {
+          ...row.thought.metadata,
+          [ATTEMPTS_META_KEY]: nextAttempts,
+        }
+      } else if (row.thought.repairAttempts > 0) {
+        await persistRepairAttempts(row.thought.thoughtId, row.thought.metadata, 0)
+        row.thought.repairAttempts = 0
+      }
+    } catch (err) {
+      // Never keep burning the wallet across the rest of the batch.
+      if (err instanceof InsufficientCreditsError) {
+        throw err
+      }
+      await persistRepairAttempts(row.thought.thoughtId, row.thought.metadata, nextAttempts)
+      row.thought.repairAttempts = nextAttempts
+      row.thought.metadata = {
+        ...row.thought.metadata,
+        [ATTEMPTS_META_KEY]: nextAttempts,
+      }
+      console.error('[repair-entity-relations] thought repair failed', {
+        userId,
+        thoughtId: row.thought.thoughtId,
+        attempts: nextAttempts,
+        message: err instanceof Error ? err.message : String(err),
+      })
     }
 
     await options?.onProgress?.({ processed, total: processingBudget })
@@ -329,6 +428,7 @@ export async function repairEntityRelationsForUser(
     processed,
     repaired,
     edgesAdded,
+    skippedExhausted,
     suspiciousEdgesRemoved: pruned.removed,
   }
 }

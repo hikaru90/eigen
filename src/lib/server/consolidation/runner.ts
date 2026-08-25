@@ -81,12 +81,19 @@ function formatJobResultDetail(detail: unknown): string | undefined {
       edgesAdded: number
       scanned?: number
       processed?: number
+      skippedExhausted?: number
     }
     if (r.gaps === 0) return 'all co-mentioned entities connected'
     const processedDetail =
       typeof r.processed === 'number' ? `, ${r.processed} gap thoughts processed` : ''
-    if (r.repaired === 0) return `${r.gaps} gaps found, none repaired yet${processedDetail}`
-    return `${r.repaired} of ${r.gaps} gaps repaired (${r.edgesAdded} edges${processedDetail})`
+    const exhaustedDetail =
+      typeof r.skippedExhausted === 'number' && r.skippedExhausted > 0
+        ? `, ${r.skippedExhausted} skipped (max attempts)`
+        : ''
+    if (r.repaired === 0) {
+      return `${r.gaps} gaps found, none repaired yet${processedDetail}${exhaustedDetail}`
+    }
+    return `${r.repaired} of ${r.gaps} gaps repaired (${r.edgesAdded} edges${processedDetail}${exhaustedDetail})`
   }
   if ('merged' in detail && 'candidates' in detail) {
     const r = detail as { merged: number; candidates: number; scanned: number }

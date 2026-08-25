@@ -251,11 +251,14 @@ function buildFromStructured(
     const repaired = Number(raw.repaired ?? 0)
     const edgesAdded = Number(raw.edgesAdded ?? 0)
     const processed = Number(raw.processed ?? 0)
+    const skippedExhausted = Number(raw.skippedExhausted ?? 0)
+    const exhaustedNote =
+      skippedExhausted > 0 ? `, ${skippedExhausted} skipped after max attempts` : ''
     let summary: string
     if (gaps === 0) summary = 'all co-mentioned entities already linked'
     else if (repaired === 0)
-      summary = `${gaps} gaps found, none repaired yet${processed ? ` (${processed} processed)` : ''}`
-    else summary = `${repaired} of ${gaps} gaps repaired (${edgesAdded} links)`
+      summary = `${gaps} gaps found, none repaired yet${processed ? ` (${processed} processed)` : ''}${exhaustedNote}`
+    else summary = `${repaired} of ${gaps} gaps repaired (${edgesAdded} links)${exhaustedNote}`
     return {
       summary,
       explanation: catalog.explanation,
@@ -265,7 +268,9 @@ function buildFromStructured(
           ? 'Good — graph links look complete'
           : repaired > 0
             ? 'Good tidy — missing links added'
-            : 'Watch — gaps remain (may continue next run)',
+            : skippedExhausted > 0
+              ? 'Stopped — max repair attempts reached (no further credit burn)'
+              : 'Watch — gaps remain (may continue next run)',
       samples: asSamples(raw),
     }
   }
