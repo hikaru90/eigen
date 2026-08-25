@@ -13,8 +13,8 @@ describe('websiteLegalUrl', () => {
   })
 
   it('prefers an explicit PUBLIC_WEBSITE_ORIGIN (no trailing slash)', () => {
-    expect(websiteLegalUrl('terms', 'https://preview.eigenmesh.de/')).toBe(
-      'https://preview.eigenmesh.de/terms',
+    expect(websiteLegalUrl('terms', 'https://preview.eigenmesh.xyz/')).toBe(
+      'https://preview.eigenmesh.xyz/terms',
     )
   })
 

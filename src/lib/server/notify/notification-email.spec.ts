@@ -12,7 +12,7 @@ vi.mock('$env/dynamic/private', () => ({
   env: {
     USESEND_API_KEY: 'us_test',
     USESEND_BASE_URL: 'https://usesend.example',
-    USESEND_EMAIL_FROM: 'hello@eigenmesh.de',
+    USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
     ORIGIN: 'https://eigen.example',
   },
 }))

@@ -5,7 +5,7 @@ import {
 } from '$lib/server/email/usesend'
 
 /** Product inbox for user-submitted feedback (useSend transactional). */
-export const FEEDBACK_INBOX_EMAIL = 'feedback@eigenmesh.de'
+export const FEEDBACK_INBOX_EMAIL = 'feedback@eigenmesh.xyz'
 
 function escapeHtml(value: string): string {
   return value

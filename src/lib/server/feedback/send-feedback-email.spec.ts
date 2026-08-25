@@ -9,7 +9,7 @@ vi.mock('$env/dynamic/private', () => ({
   env: {
     USESEND_API_KEY: 'us_test',
     USESEND_BASE_URL: 'https://usesend.example',
-    USESEND_EMAIL_FROM: 'Eigen Mesh <hello@eigenmesh.de>',
+    USESEND_EMAIL_FROM: 'Eigen Mesh <hello@eigenmesh.xyz>',
   },
 }))
 
@@ -29,7 +29,7 @@ describe('sendFeedbackInboxEmail', () => {
   })
 
   it('exposes the product inbox address', () => {
-    expect(FEEDBACK_INBOX_EMAIL).toBe('feedback@eigenmesh.de')
+    expect(FEEDBACK_INBOX_EMAIL).toBe('feedback@eigenmesh.xyz')
   })
 
   it('assertFeedbackMailConfigured throws when useSend is off', () => {
@@ -37,7 +37,7 @@ describe('sendFeedbackInboxEmail', () => {
     expect(() => assertFeedbackMailConfigured()).toThrow(/not configured/i)
   })
 
-  it('sends to feedback@eigenmesh.de with replyTo and escaped body', async () => {
+  it('sends to feedback@eigenmesh.xyz with replyTo and escaped body', async () => {
     await sendFeedbackInboxEmail({
       feedbackId: 'fb-1',
       userId: 'u1',
@@ -47,7 +47,7 @@ describe('sendFeedbackInboxEmail', () => {
 
     expect(sendTransactionalEmailMock).toHaveBeenCalledTimes(1)
     const [, input] = sendTransactionalEmailMock.mock.calls[0]
-    expect(input.to).toBe('feedback@eigenmesh.de')
+    expect(input.to).toBe('feedback@eigenmesh.xyz')
     expect(input.replyTo).toBe('alex@example.com')
     expect(input.subject).toContain('Product feedback')
     expect(input.text).toContain('Hello <b>world</b> & thanks')

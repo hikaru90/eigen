@@ -22,12 +22,12 @@ describe('resolveUseSendMailConfig', () => {
       resolveUseSendMailConfig({
         USESEND_API_KEY: 'us_x',
         USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de/',
-        USESEND_EMAIL_FROM: 'hello@eigenmesh.de',
+        USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
       }),
     ).toEqual({
       apiKey: 'us_x',
       baseUrl: 'https://usesend.coolify.stackstack.de',
-      from: 'hello@eigenmesh.de',
+      from: 'hello@eigenmesh.xyz',
     })
   })
 })
@@ -48,7 +48,7 @@ describe('sendTransactionalEmail', () => {
       {
         USESEND_API_KEY: 'us_test',
         USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
-        USESEND_EMAIL_FROM: 'hello@eigenmesh.de',
+        USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
       },
       {
         to: 'user@example.com',
@@ -73,7 +73,7 @@ describe('sendTransactionalEmail', () => {
     const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
     expect(body).toEqual({
       to: 'user@example.com',
-      from: 'hello@eigenmesh.de',
+      from: 'hello@eigenmesh.xyz',
       subject: 'Reset your Eigen password',
       html: '<p>link</p>',
       text: 'link',
@@ -89,10 +89,10 @@ describe('sendTransactionalEmail', () => {
       {
         USESEND_API_KEY: 'us_test',
         USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
-        USESEND_EMAIL_FROM: 'hello@eigenmesh.de',
+        USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
       },
       {
-        to: 'feedback@eigenmesh.de',
+        to: 'feedback@eigenmesh.xyz',
         replyTo: 'user@example.com',
         subject: 'Product feedback',
         html: '<p>hi</p>',
@@ -115,7 +115,7 @@ describe('sendTransactionalEmail', () => {
         {
           USESEND_API_KEY: 'us_test',
           USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
-          USESEND_EMAIL_FROM: 'hello@eigenmesh.de',
+          USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
         },
         { to: 'a@b.co', subject: 's', html: 'h', text: 't' },
         fetchImpl as unknown as typeof fetch,
