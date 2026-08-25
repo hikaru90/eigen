@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { getDb } from '$lib/server/db'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'

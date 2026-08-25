@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import {
   isUseSendMailConfigured,
   sendTransactionalEmail,

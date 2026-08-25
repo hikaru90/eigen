@@ -881,7 +881,9 @@
   }
 </script>
 
-<div class="fixed inset-x-0 top-20 bottom-0 z-0 mx-auto flex max-w-xl flex-col overflow-hidden">
+<div
+  class="-mb-28 mx-auto flex h-dvh w-full max-w-xl flex-col overflow-hidden overscroll-none pt-20"
+>
   <div class="relative z-10 shrink-0 space-y-4 bg-background px-5">
     {#if groundingQuestion && !groundingQuestionDismissed}
       {#if groundingQuestion.kind === 'relevance'}
@@ -1036,7 +1038,7 @@
     {/if}
   </div>
 
-  <div class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-6 pb-20">
+  <div class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-6">
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <CaptureRecentThoughts
         thoughts={recentThoughts}
@@ -1069,24 +1071,25 @@
       />
     </div>
 
-    {#if queueActive}
-      <div class="shrink-0 space-y-2">
-        <CaptureQueueList
-          items={queueItems}
-          processingId={processingCaptureId}
-          events={progressEvents}
-          pipeline={CAPTURE_FAST_PIPELINE}
-          startMs={captureStartMs}
-          oncancel={(id) => void cancelQueuedItem(id)}
-        />
-        {#if offline && pendingCount > 0 && !loading}
-          <p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
+    {#if queueActive || err}
+      <div class="shrink-0 space-y-2 pb-28">
+        {#if queueActive}
+          <CaptureQueueList
+            items={queueItems}
+            processingId={processingCaptureId}
+            events={progressEvents}
+            pipeline={CAPTURE_FAST_PIPELINE}
+            startMs={captureStartMs}
+            oncancel={(id) => void cancelQueuedItem(id)}
+          />
+          {#if offline && pendingCount > 0 && !loading}
+            <p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
+          {/if}
+        {/if}
+        {#if err}
+          <p class="text-destructive text-sm">{err}</p>
         {/if}
       </div>
-    {/if}
-
-    {#if err}
-      <p class="shrink-0 text-destructive text-sm">{err}</p>
     {/if}
   </div>
 </div>

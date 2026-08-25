@@ -5,7 +5,7 @@ const { isUseSendMailConfiguredMock, sendTransactionalEmailMock } = vi.hoisted((
   sendTransactionalEmailMock: vi.fn(),
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: {
     USESEND_API_KEY: 'us_test',
     USESEND_BASE_URL: 'https://usesend.example',

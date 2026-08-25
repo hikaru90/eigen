@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import { computeTopUpCheckout } from '$lib/server/billing/checkout-pricing'
 
 const PAYPAL_SETTLEMENT_CURRENCY = 'USD'

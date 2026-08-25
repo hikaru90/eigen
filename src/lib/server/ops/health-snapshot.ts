@@ -1,4 +1,4 @@
-import { env as kitEnv } from '$env/dynamic/private'
+import { env as kitEnv } from '$lib/server/env/private-env'
 import { createAdminSql } from '$lib/server/job-queue/admin-db'
 import { loadJobQueueSnapshot } from '$lib/server/job-queue/snapshot'
 import { loadPushHealthSnapshot } from '$lib/server/push/health'

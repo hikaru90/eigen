@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { page } from '$app/state'
   import { resolve } from '$app/paths'
+  import { page } from '$app/state'
   import { activeMemorySurfaceTab } from '$lib/memory/memory-surface-nav'
   import { m } from '$lib/paraglide/messages.js'
   import { cn } from '$lib/utils'

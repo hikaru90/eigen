@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
 import {

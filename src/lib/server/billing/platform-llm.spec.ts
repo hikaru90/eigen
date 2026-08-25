@@ -6,7 +6,7 @@ const { mockEnv, limitMock } = vi.hoisted(() => ({
   limitMock: vi.fn(),
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: mockEnv,
 }))
 

@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 
 /** Normalized Postgres URL for app and auth pools (drops drizzle-kit-only query flags). */
 export function getRuntimeDatabaseUrl(): string {

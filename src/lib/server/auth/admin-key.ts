@@ -1,5 +1,5 @@
 import { error, type RequestEvent } from '@sveltejs/kit'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 
 export function isEigenAdminKeyConfigured(): boolean {
 	return !!env.ADMIN_CONSOLIDATION_KEY?.trim()

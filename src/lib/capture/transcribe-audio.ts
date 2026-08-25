@@ -34,14 +34,17 @@ export function appendVoiceTranscript(draft: string, transcript: string): string
 }
 
 export async function parseTranscribeErrorResponse(res: Response): Promise<string> {
+  // Response bodies are one-shot — read once, then parse. Calling .json() then
+  // .text() in a catch throws "Body has already been read" / similar.
+  const raw = await res.text()
   let serverMessage = ''
   try {
-    const payload = (await res.json()) as { error?: unknown }
+    const payload = JSON.parse(raw) as { error?: unknown }
     if (typeof payload.error === 'string' && payload.error.trim()) {
       serverMessage = payload.error
     }
   } catch {
-    serverMessage = await res.text()
+    serverMessage = raw.trim()
   }
   return serverMessage || `Transcription failed (${res.status})`
 }

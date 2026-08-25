@@ -1,6 +1,11 @@
-import type { User, Session } from 'better-auth/minimal'
+import type { Session, User } from 'better-auth/types'
 
-export type AppUser = User & { onboardingCompleted?: boolean; role?: 'user' | 'admin' }
+export type AppUser = User & {
+  onboardingCompleted?: boolean | null
+  role?: string | null
+  firstName?: string | null
+  lastName?: string | null
+}
 
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
@@ -43,24 +48,6 @@ declare global {
     SpeechRecognition?: SpeechRecognitionConstructor
     webkitSpeechRecognition?: SpeechRecognitionConstructor
   }
-}
-
-declare module 'virtual:pwa-info' {
-  export interface PwaInfo {
-    webManifest: { linkTag: string }
-  }
-  export const pwaInfo: PwaInfo | undefined
-}
-
-declare module 'virtual:pwa-register' {
-  export interface RegisterSWOptions {
-    immediate?: boolean
-    onNeedRefresh?: () => void
-    onOfflineReady?: () => void
-    onRegistered?: (registration: ServiceWorkerRegistration | undefined) => void
-    onRegisterError?: (error: unknown) => void
-  }
-  export function registerSW(options?: RegisterSWOptions): (reloadPage?: boolean) => Promise<void>
 }
 
 export {}

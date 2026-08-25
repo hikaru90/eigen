@@ -10,7 +10,7 @@ const { mockEnv, withDbUserMock } = vi.hoisted(() => ({
   withDbUserMock: vi.fn(),
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: mockEnv,
 }))
 

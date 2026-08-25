@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import { withBillingUserDbRead } from '$lib/server/db/billing-db-read'
 import { llmActiveProvider } from '$lib/server/db/schema'
 import { assertEurouterGatewayConfigured } from '$lib/server/llm/llm-config-guard'

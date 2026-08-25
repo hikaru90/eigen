@@ -5,7 +5,7 @@ const { mockEnv, mockIsPayPalConfigured } = vi.hoisted(() => ({
   mockIsPayPalConfigured: vi.fn(() => false),
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: mockEnv,
 }))
 

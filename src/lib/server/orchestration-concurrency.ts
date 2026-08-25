@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 
 /** Default parallel workers for enrich drain and eval entry waves. */
 export const DEFAULT_ORCHESTRATION_CONCURRENCY = 8

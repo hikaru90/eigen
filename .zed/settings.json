@@ -1,0 +1,32 @@
+{
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["typescript-language-server", "!vtsls", "..."]
+    }
+  },
+  "lsp": {
+    "svelte-language-server": {
+      "initialization_options": {
+        "configuration": {
+          "svelte": {
+            "plugin": {
+              "typescript": {
+                "enable": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "typescript-language-server": {
+      "settings": {
+        "typescript": {
+          "tsconfig": "tsconfig.json"
+        },
+        "javascript": {
+          "tsconfig": "tsconfig.json"
+        }
+      }
+    }
+  }
+}

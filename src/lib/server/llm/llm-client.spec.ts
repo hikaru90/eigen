@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { llmChatCompletion, llmCreateEmbeddings, llmCreateTranscription } from './llm-client'
+import type { ExtendedPrivateEnv } from '$lib/server/env/private-env'
+import { fetchMockInit, fetchMockUrl } from '$lib/test/vitest-mock-call'
+import {
+  DEFAULT_CHAT_MAX_TOKENS,
+  llmChatCompletion,
+  llmCreateEmbeddings,
+  llmCreateTranscription,
+} from './llm-client'
 
 const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock, captureServerEventMock } =
   vi.hoisted(() => {
@@ -22,12 +29,14 @@ const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock, capture
         LLM_MODEL_CHAT: 'gpt-test',
         LLM_MODEL_EMBEDDING: 'text-embedding-3-small',
         LLM_MIN_REQUEST_INTERVAL_MS: '0',
+        LLM_REQUEST_TIMEOUT_MS: '',
+        LLM_SERIAL_REQUESTS: '',
         LLM_API_KEY: 'key-1',
         SERVICE_API_KEY_EUROUTER: 'service-eurouter-key',
         OPENROUTER_BASE_URL: 'https://openrouter.example/api/v1',
         OPENROUTER_API_KEY: 'openrouter-key',
         SERVICE_API_KEY_OPENROUTER: 'service-openrouter-key',
-      },
+      } as ExtendedPrivateEnv,
       logActivityCallMock: vi.fn(),
       getDbMock: vi.fn(() => makeDbMock()),
       decryptTenantValueMock: vi.fn(async () => 'decrypted-key'),
@@ -35,7 +44,7 @@ const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock, capture
     }
   })
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: mockEnv,
 }))
 
@@ -214,7 +223,7 @@ describe('llm client retries', () => {
       temperature: 0.7,
     })
 
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       temperature?: number
       model?: string
     }
@@ -377,7 +386,7 @@ describe('llm client retries', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
       rule_id?: string
     }
@@ -397,7 +406,7 @@ describe('llm client retries', () => {
       .mockResolvedValueOnce(response(true, 200, { usage: { total_tokens: 5 }, data: [] }))
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-    const body = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 1).body as string) as {
       model: string
       provider?: Record<string, unknown>
     }
@@ -603,7 +612,7 @@ describe('llm client retries', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { llmChatCompletion: chat } = await import('./llm-client')
     await chat({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 1).body as string) as {
       model: string
       rule_id?: string
     }
@@ -632,7 +641,7 @@ describe('llm client retries', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
       rule_id?: string
     }
@@ -647,7 +656,7 @@ describe('llm client retries', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
       rule_id?: string
     }
@@ -728,10 +737,10 @@ describe('llmCreateTranscription', () => {
       model: 'qwen/qwen3-asr-flash-2026-02-10',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
       'https://db-openrouter.example/api/v1/audio/transcriptions',
     )
-    const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>
+    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
     expect(auth.Authorization).toBe('Bearer db-key')
   })
 
@@ -747,7 +756,7 @@ describe('llmCreateTranscription', () => {
       model: 'qwen/qwen3-asr-flash-2026-02-10',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
       'https://openrouter.example/api/v1/audio/transcriptions',
     )
   })
@@ -764,10 +773,10 @@ describe('llmCreateTranscription', () => {
       model: 'qwen/qwen3-asr-flash-2026-02-10',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
       'https://openrouter.example/api/v1/audio/transcriptions',
     )
-    const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>
+    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
     expect(auth.Authorization).toBe('Bearer service-openrouter-key')
   })
 
@@ -782,9 +791,9 @@ describe('llmCreateTranscription', () => {
       audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm', language: 'en' },
     })
     expect((out as { text: string }).text).toBe('hello')
-    const url = fetchMock.mock.calls[0]?.[0]
+    const url = fetchMockUrl(fetchMock, 0)
     expect(String(url)).toBe('https://openrouter.example/api/v1/audio/transcriptions')
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
       input_audio: { data: string; format: string }
       language: string
@@ -1110,7 +1119,7 @@ describe('llm client platform billing', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>
+    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
     expect(auth.Authorization).toBe('Bearer service-eurouter-key')
   })
 
@@ -1123,7 +1132,7 @@ describe('llm client platform billing', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>
+    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
     expect(auth.Authorization).toBe('Bearer service-openrouter-key')
   })
 
@@ -1173,9 +1182,9 @@ describe('llm client BYOK DB credentials', () => {
     expect(decryptTenantValueMock).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'u1', ciphertext: 'enc-blob' }),
     )
-    const auth = (fetchMock.mock.calls[0]?.[1] as RequestInit)?.headers as Record<string, string>
+    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
     expect(auth.Authorization).toBe('Bearer decrypted-key')
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
       'https://db-gateway.example/v1/chat/completions',
     )
   })
@@ -1205,7 +1214,7 @@ describe('llm client BYOK DB credentials', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
       'https://env-gateway.example/v1/chat/completions',
     )
   })
@@ -1268,7 +1277,7 @@ describe('llm client OpenRouter routing', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
       rule_id?: string
     }
@@ -1304,7 +1313,7 @@ describe('llm client OpenRouter routing', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
     }
     expect(body.model).toBe('openrouter/embed-model')
@@ -1385,10 +1394,26 @@ describe('llm client response parsing and options', () => {
       messages: [{ role: 'user', content: 'hello' }],
       maxTokens: 256,
     })
-    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       max_tokens?: number
     }
     expect(body.max_tokens).toBe(256)
+  })
+
+  it('chat sends a bounded default max_tokens when omitted (avoids full-context reservation)', async () => {
+    const fetchMock = vi.fn(async () =>
+      response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await llmChatCompletion({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'hello' }],
+    })
+    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
+      max_tokens?: number
+    }
+    expect(body.max_tokens).toBe(DEFAULT_CHAT_MAX_TOKENS)
+    expect(DEFAULT_CHAT_MAX_TOKENS).toBeLessThan(100_000)
   })
 
   it('chat logs empty response text for non-text message content', async () => {
@@ -1510,7 +1535,7 @@ describe('llm client response parsing and options', () => {
     await chat({ userId: 'u1', messages: [{ role: 'user', content: 'one' }] })
     await chat({ userId: 'u1', messages: [{ role: 'user', content: 'two' }] })
     expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/routing-rules/rule-chat')
+    expect(String(fetchMockUrl(fetchMock, 0))).toContain('/routing-rules/rule-chat')
   })
 
   it('chat logs error context as empty when no user message exists', async () => {
@@ -1563,7 +1588,7 @@ describe('llm client response parsing and options', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { llmChatCompletion: chat } = await import('./llm-client')
     await chat({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string) as {
+    const body = JSON.parse(fetchMockInit(fetchMock, 1).body as string) as {
       model: string
       provider?: Record<string, unknown>
     }

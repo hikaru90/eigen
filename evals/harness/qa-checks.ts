@@ -1,9 +1,9 @@
+import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 import type {
   CheckAssertionResult,
   CheckEntryResult,
   QaChecks,
 } from './qa-types'
-import type { EvalQaRecord } from '../../src/lib/eval/qa-store'
 import { and, eq } from 'drizzle-orm'
 import type { AppDatabase } from '$lib/server/db'
 import {

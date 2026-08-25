@@ -1,4 +1,4 @@
-import { env as kitEnv } from '$env/dynamic/private'
+import { env as kitEnv } from '$lib/server/env/private-env'
 
 export type PushHealthSnapshot = {
   vapidConfigured: boolean

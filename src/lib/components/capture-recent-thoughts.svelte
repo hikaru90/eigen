@@ -197,7 +197,7 @@
       <div
         class="absolute inset-0 z-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div class="flex flex-col gap-2">
+        <div class="flex flex-col gap-2 pb-28">
           {#each filteredThoughts as snippet (snippet.id)}
             {@const detail = thoughtDetails[snippet.id]}
             {@const authorship = captureThoughtAuthorship(detail, snippet)}

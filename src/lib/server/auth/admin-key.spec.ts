@@ -4,7 +4,7 @@ const { envMock } = vi.hoisted(() => ({
 	envMock: { ADMIN_CONSOLIDATION_KEY: undefined as string | undefined },
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
 	env: envMock,
 }))
 

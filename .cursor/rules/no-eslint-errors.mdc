@@ -1,0 +1,28 @@
+---
+description: Avoid and fix ESLint errors on every edit; never ship lint regressions
+alwaysApply: true
+---
+
+# No ESLint Errors
+
+CI runs `npm run lint` on every PR (`.github/workflows/test-coverage.yml`). **Do not introduce ESLint errors or warnings** in changed files, and fix lint issues you touch — do not leave them for CI.
+
+## Non-negotiable
+
+- Do **not** declare work done, commit, or open a PR while `npm run lint` would fail on your changes.
+- Do **not** add `eslint-disable` / `eslint-disable-next-line` to silence errors unless the user explicitly asked for a documented, scoped exception.
+- Do **not** “fix” lint by weakening rules in config — fix the code (or ask the user before changing ESLint config).
+
+## Required approach
+
+1. **While editing** — After substantive edits to a file, call `ReadLints` on that file (or its directory) and fix reported issues before moving on.
+2. **Before done** — Run `npm run lint` on the full repo (included in `npm run ci:local`). `ReadLints` is for mid-edit feedback only — **not** a substitute for the final lint run.
+3. **Auto-fix when safe** — `npm run lint:fix` is allowed for formatting/import-order fixes; re-read lints and fix anything remaining by hand.
+4. **Root cause** — Same policy as tests: fix the underlying issue, do not disable the rule to green the build (see [`fix-root-cause-not-workaround.mdc`](fix-root-cause-not-workaround.mdc)).
+5. **Before push** — Run `npm run ci:local` (see [`.cursor/skills/verify-before-done/SKILL.md`](../skills/verify-before-done/SKILL.md)).
+
+## Review checklist
+
+- Did I run lint (or `ReadLints` on every file I edited)?
+- Are there zero ESLint errors in my diff?
+- Did I avoid blanket `eslint-disable` comments?

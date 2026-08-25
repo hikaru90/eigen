@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
+import { fetchMockInit, fetchMockUrl } from '$lib/test/vitest-mock-call'
 import {
   TIMELINE_QUICK_ACTION_SURFACES,
   postTimelineQuickAction,
@@ -59,8 +60,8 @@ describe('timeline quick action contract', () => {
     )
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(fetchImpl.mock.calls[0]?.[0]).toBe('/api/temporal-events/task%3At1/action')
-    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
+    expect(fetchMockUrl(fetchImpl, 0)).toBe('/api/temporal-events/task%3At1/action')
+    expect(fetchMockInit(fetchImpl, 0)).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ action: 'mark_done' }),
     })
@@ -79,8 +80,8 @@ describe('timeline quick action contract', () => {
 
     await postTimelineQuickAction(eventId, 'mark_done', fetchImpl as unknown as typeof fetch)
 
-    expect(fetchImpl.mock.calls[0]?.[0]).toBe(`/api/temporal-events/${eventId}/action`)
-    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({ action: 'mark_done' })
+    expect(fetchMockUrl(fetchImpl, 0)).toBe(`/api/temporal-events/${eventId}/action`)
+    expect(JSON.parse(String(fetchMockInit(fetchImpl, 0).body))).toEqual({ action: 'mark_done' })
   })
 
   it('surfaces throw when the server rejects the action', async () => {

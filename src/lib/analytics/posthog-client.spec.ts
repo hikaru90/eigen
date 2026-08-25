@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { mockCallArg } from '$lib/test/vitest-mock-call'
 
 const { initMock, captureMock, identifyMock, resetMock, captureExceptionMock, publicEnv } =
   vi.hoisted(() => ({
@@ -90,12 +91,12 @@ describe('posthog-client', () => {
     publicEnv.PUBLIC_POSTHOG_KEY = 'phc_test_key'
     const { initPostHog } = await import('./posthog-client')
     initPostHog()
-    const initOpts = initMock.mock.calls[0]?.[1] as {
+    const initOpts = mockCallArg<{
       before_send: (event: {
         event: string
         properties?: { $exception_list?: Array<{ type?: string; value?: string }> }
       }) => unknown
-    }
+    }>(initMock, 0, 1)
     const dropped = initOpts.before_send({
       event: '$exception',
       properties: {

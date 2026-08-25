@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import { env } from '$env/dynamic/private'
-import { captureServerEvent } from '$lib/server/analytics/posthog-server'
+import { env } from '$lib/server/env/private-env'
 import { activityProviderForLlmConfig } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
+import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import { resolveBillingUserId } from '$lib/server/billing/context'
 import {
   loadPlatformLlmConfig,
@@ -592,6 +592,14 @@ async function embeddingRoutingConfig(config: ResolvedLlmConfig): Promise<Routin
 }
 
 /**
+ * Default completion budget when callers omit maxTokens.
+ * Gateways that treat missing max_tokens as the full model context window
+ * (e.g. 262144) reject small prompts: prompt + context > context.
+ * Keep this well below typical context windows and large enough for JSON judges.
+ */
+export const DEFAULT_CHAT_MAX_TOKENS = 8192
+
+/**
  * Chat completions: `POST ${baseUrl}/chat/completions`.
  * Body uses `rule_id` from the user's LLM config (DB row) or LLM_RULE_CHAT env var.
  */
@@ -683,7 +691,7 @@ async function llmChatCompletionInner(input: {
             ...(routing.provider ? { provider: routing.provider } : {}),
             messages,
             ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-            ...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {}),
+            max_tokens: input.maxTokens ?? DEFAULT_CHAT_MAX_TOKENS,
             ...(input.responseFormat === 'json_object'
               ? { response_format: { type: 'json_object' } }
               : {}),

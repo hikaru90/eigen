@@ -8,7 +8,7 @@ const { authDbSelectMock, isUseSendMailConfiguredMock, sendTransactionalEmailMoc
   }),
 )
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: {
     USESEND_API_KEY: 'us_test',
     USESEND_BASE_URL: 'https://usesend.example',

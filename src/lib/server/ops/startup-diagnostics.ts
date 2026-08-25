@@ -1,4 +1,4 @@
-import { env as kitEnv } from '$env/dynamic/private'
+import { env as kitEnv } from '$lib/server/env/private-env'
 import { loadPushHealthSnapshot } from '$lib/server/push/health'
 
 /** One-shot boot log for operator visibility in production container logs. */

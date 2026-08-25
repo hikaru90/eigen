@@ -27,7 +27,7 @@ vi.mock('better-auth/svelte-kit', () => ({
   sveltekitCookies: sveltekitCookiesMock,
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env,
 }))
 

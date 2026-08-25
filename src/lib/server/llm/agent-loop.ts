@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types'
 import { isUnpresentableFinalAnswer } from '$lib/chat/chat-stream-types'
-import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
+import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import { getDb } from '$lib/server/db'
 import type { ChatSessionMode } from '$lib/server/db/brain.schema'
 import {

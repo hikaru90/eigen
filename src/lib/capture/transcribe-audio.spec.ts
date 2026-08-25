@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchMockInit } from '$lib/test/vitest-mock-call'
 import {
   appendVoiceTranscript,
   audioUploadExtension,
@@ -68,7 +69,7 @@ describe('transcribe-audio client', () => {
         credentials: 'same-origin',
       }),
     )
-    const body = fetchMock.mock.calls[0]?.[1]?.body
+    const body = fetchMockInit(fetchMock, 0).body
     expect(body).toBeInstanceOf(FormData)
     expect((body as FormData).get('audio')).toBeInstanceOf(File)
     expect(((body as FormData).get('audio') as File).name).toBe('recording.webm')
@@ -77,38 +78,40 @@ describe('transcribe-audio client', () => {
   it('uploads wav recordings with a .wav filename', async () => {
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' })
     await transcribeRecordedAudio(blob)
-    const body = vi.mocked(fetch).mock.calls[0]?.[1]?.body as FormData
+    const body = fetchMockInit(vi.mocked(fetch), 0).body as FormData
     expect((body.get('audio') as File).name).toBe('recording.wav')
   })
 
   it('parseTranscribeErrorResponse reads json error', async () => {
-    const res = {
+    const res = new Response(JSON.stringify({ error: 'gateway down' }), {
       status: 500,
-      json: async () => ({ error: 'gateway down' }),
-      text: async () => '',
-    } as Response
+      headers: { 'content-type': 'application/json' },
+    })
     await expect(parseTranscribeErrorResponse(res)).resolves.toBe('gateway down')
   })
 
-  it('parseTranscribeErrorResponse falls back to response text', async () => {
-    const res = {
-      status: 502,
-      json: async () => {
-        throw new Error('not json')
-      },
-      text: async () => 'bad gateway',
-    } as Response
+  it('parseTranscribeErrorResponse falls back to response text when body is not JSON', async () => {
+    const res = new Response('bad gateway', { status: 502 })
     await expect(parseTranscribeErrorResponse(res)).resolves.toBe('bad gateway')
+  })
+
+  it('parseTranscribeErrorResponse does not throw when the body stream is one-shot', async () => {
+    // Real Response bodies can be read only once. Calling .json() then .text()
+    // surfaces as "body stream already read" / "Stream Response has already been read".
+    const res = new Response('upstream html error page', { status: 502 })
+    await expect(parseTranscribeErrorResponse(res)).resolves.toBe('upstream html error page')
+    expect(res.bodyUsed).toBe(true)
+  })
+
+  it('parseTranscribeErrorResponse returns status fallback when body is empty', async () => {
+    const res = new Response('', { status: 503 })
+    await expect(parseTranscribeErrorResponse(res)).resolves.toBe('Transcription failed (503)')
   })
 
   it('throws when transcription response is not ok', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({
-        ok: false,
-        status: 503,
-        json: async () => ({ error: 'stt unavailable' }),
-      })),
+      vi.fn(async () => new Response(JSON.stringify({ error: 'stt unavailable' }), { status: 503 })),
     )
 
     await expect(transcribeRecordedAudio(new Blob(['x'], { type: 'audio/webm' }))).rejects.toThrow(

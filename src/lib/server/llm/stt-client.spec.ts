@@ -9,7 +9,7 @@ vi.mock('./llm-client', () => ({
   llmCreateTranscription: llmCreateTranscriptionMock,
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: {},
 }))
 

@@ -53,7 +53,7 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
 vi.mock('$lib/server/analytics/posthog-server', () => ({
   captureServerEvent: vi.fn(),
 }))
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: {
     LLM_MODEL_CHAT: '',
     LLM_MODEL_EMBEDDING: '',

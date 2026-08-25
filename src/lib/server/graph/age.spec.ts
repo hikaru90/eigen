@@ -27,7 +27,7 @@ const { env } = vi.hoisted(() => ({
   env: { AGE_GRAPH_NAME: 'eigen_graph' },
 }))
 
-vi.mock('$env/dynamic/private', () => ({ env }))
+vi.mock('$lib/server/env/private-env', () => ({ env }))
 
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,

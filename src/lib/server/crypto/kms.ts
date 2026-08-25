@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import { decryptEnvelope, encryptEnvelope } from '$lib/server/crypto/envelope'
 
 export type TenantKekProvider = 'local'

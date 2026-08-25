@@ -49,8 +49,8 @@ import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import { activeThoughtCategoryKinds } from '$lib/server/ontology-db/load-ontology'
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
-import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
 import { runStrictCategoryRetry } from '$lib/server/ontology/strict-category-retry'
+import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
 import {
   isInvalidThoughtCategoryError,
   resolveCategoryFromLlmOutput,

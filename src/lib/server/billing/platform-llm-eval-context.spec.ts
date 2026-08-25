@@ -6,7 +6,7 @@ const { withDbUserMock, limitMock } = vi.hoisted(() => ({
   limitMock: vi.fn(),
 }))
 
-vi.mock('$env/dynamic/private', () => ({
+vi.mock('$lib/server/env/private-env', () => ({
   env: {
     LLM_BASE_URL: 'https://eurouter.example/v1',
     SERVICE_API_KEY_EUROUTER: 'key',

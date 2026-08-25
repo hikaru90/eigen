@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { EmbeddingSnapshotItem } from '../api/embeddings/snapshot/+server'
-  import type { ZoomTransform } from 'd3-zoom'
   import type { PageData } from './$types'
+  import type { ZoomTransform } from 'd3-zoom'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import X from '@lucide/svelte/icons/x'
   import { onMount } from 'svelte'

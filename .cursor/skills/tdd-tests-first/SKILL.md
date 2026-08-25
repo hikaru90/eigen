@@ -66,6 +66,6 @@ Agent: run unit tests yourself. Point the operator at the headed release task/sc
 
 ## Related
 
-- Post-implementation unit gate: [run-tests-after-feature](../run-tests-after-feature/SKILL.md)
+- Post-implementation CI gate: [verify-before-done](../verify-before-done/SKILL.md)
 - Testing map: [`docs/testing/README.md`](../../../docs/testing/README.md)
 - Guardrails: [`AGENTS.md`](../../../AGENTS.md)

@@ -1,7 +1,7 @@
 import type { Actions, RequestEvent } from '@sveltejs/kit'
 import { fail, redirect } from '@sveltejs/kit'
 import { and, eq } from 'drizzle-orm'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import { isUserAdmin } from '$lib/server/auth/user-role'
 import { isByokUiEnabled } from '$lib/server/billing/byok-ui'

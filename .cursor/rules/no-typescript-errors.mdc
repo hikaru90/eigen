@@ -1,0 +1,27 @@
+---
+description: Avoid and fix TypeScript/svelte-check errors; never ship type regressions
+alwaysApply: true
+---
+
+# No TypeScript Errors
+
+CI runs `npm run check` (`svelte-check`) on every PR (`.github/workflows/test-coverage.yml`). **Do not introduce TypeScript errors** in changed files, and fix type issues you touch — do not leave them for CI.
+
+## Non-negotiable
+
+- Do **not** declare work done, commit, or push while `npm run check` would fail.
+- Do **not** silence errors with `@ts-ignore`, `@ts-expect-error`, or `as any` unless the user explicitly asked for a documented, scoped exception.
+- Do **not** weaken `tsconfig.json` or skip strict checks to green the build — fix the types (or ask the user before changing TS config).
+
+## Required approach
+
+1. **While editing** — `ReadLints` on changed files often surfaces TS issues; fix them before moving on.
+2. **Before done** — Run `npm run check` on the full repo (included in `npm run ci:local`). IDE diagnostics are mid-edit feedback only — **not** a substitute for `svelte-check`.
+3. **Root cause** — Fix the underlying type error; do not cast around broken contracts (see [`fix-root-cause-not-workaround.mdc`](fix-root-cause-not-workaround.mdc)).
+4. **Before push** — Run `npm run ci:local` (see [`.cursor/skills/verify-before-done/SKILL.md`](../skills/verify-before-done/SKILL.md)).
+
+## Review checklist
+
+- Did I run `npm run check` (or full `ci:local`)?
+- Are there zero TypeScript errors in my diff?
+- Did I avoid `@ts-ignore` / unchecked `as` casts?

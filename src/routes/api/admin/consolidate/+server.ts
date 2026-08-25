@@ -15,7 +15,7 @@
 
 import type { RequestHandler } from './$types'
 import { json, error } from '@sveltejs/kit'
-import { env } from '$env/dynamic/private'
+import { env } from '$lib/server/env/private-env'
 import {
   tryAcquireGlobalNightlyRun,
   completeGlobalNightlyRun,

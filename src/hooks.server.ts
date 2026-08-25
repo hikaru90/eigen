@@ -1,3 +1,4 @@
+import type { AppUser } from './app.d.ts'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
 import { sequence } from '@sveltejs/kit/hooks'
 import { svelteKitHandler } from 'better-auth/svelte-kit'
@@ -111,7 +112,7 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
           createdAt: new Date(),
           updatedAt: new Date(),
           image: null,
-        } as typeof event.locals.user
+        } satisfies AppUser
       }
     }
   }

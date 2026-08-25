@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mockCallArg } from '$lib/test/vitest-mock-call'
 import { createStreamingSttScheduler } from './streaming-stt-scheduler'
 
 function makeChunk(byte: number, type = 'audio/webm') {
@@ -14,7 +15,7 @@ describe('createStreamingSttScheduler', () => {
     scheduler.appendChunk(makeChunk(1), 'audio/webm;codecs=opus')
     await vi.waitFor(() => expect(onTranscribe).toHaveBeenCalledTimes(1))
 
-    const blob = onTranscribe.mock.calls[0]?.[0] as Blob
+    const blob = mockCallArg<Blob>(onTranscribe, 0, 0)
     expect(blob.type).toBe('audio/webm;codecs=opus')
     expect(blob.size).toBe(1)
     expect(onPartial).toHaveBeenCalledWith('hello')
@@ -44,7 +45,7 @@ describe('createStreamingSttScheduler', () => {
     resolveFirst?.('partial one')
     await vi.waitFor(() => expect(onTranscribe).toHaveBeenCalledTimes(2))
 
-    const secondBlob = onTranscribe.mock.calls[1]?.[0] as Blob
+    const secondBlob = mockCallArg<Blob>(onTranscribe, 1, 0)
     expect(secondBlob.size).toBe(2)
     expect(onPartial).toHaveBeenLastCalledWith('full transcript')
   })
@@ -124,7 +125,7 @@ describe('createStreamingSttScheduler', () => {
     scheduler.appendChunk(makeChunk(9), 'audio/webm')
     await vi.waitFor(() => expect(onTranscribe).toHaveBeenCalledTimes(1))
 
-    const blob = onTranscribe.mock.calls[0]?.[0] as Blob
+    const blob = mockCallArg<Blob>(onTranscribe, 0, 0)
     expect(blob.size).toBe(1)
     expect(blob.type).toBe('audio/webm')
   })
