@@ -3,7 +3,8 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package*.json ./
-RUN npm ci
+# prepare needs svelte.config / project.inlang / scripts — not present yet; skip lifecycle scripts.
+RUN npm ci --ignore-scripts
 
 # Non-sensitive defaults only. Docker BuildKit warns on ARG/ENV names like *_SECRET, *_PASSWORD, *_API_KEY (SecretsUsedInArgOrEnv). Those values are supplied only for the build command below and are not baked as ENV on the image. At runtime, set them via compose / your platform (see `compose.yaml`).
 FROM deps AS build
@@ -39,6 +40,8 @@ ENV POSTHOG_SOURCEMAPS_REQUIRED=${POSTHOG_SOURCEMAPS_REQUIRED}
 ENV PUBLIC_POSTHOG_HOST=${PUBLIC_POSTHOG_HOST}
 ENV PUBLIC_POSTHOG_KEY=${PUBLIC_POSTHOG_KEY}
 COPY . .
+# Lifecycle scripts were skipped during deps npm ci; run prepare now that source exists (.git is dockerignored → hooks skip).
+RUN node scripts/npm-prepare.mjs
 RUN BETTER_AUTH_SECRET="local-dev-build-secret-change-me" \
   AGE_GRAPH_NAME="eigen_graph" \
   LLM_API_KEY="docker-build-placeholder" \
@@ -64,7 +67,8 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 
 COPY package*.json ./
-RUN npm ci
+# Same as deps: package*.json only — do not run prepare (git hooks / paraglide).
+RUN npm ci --ignore-scripts
 COPY --from=build /app/build ./build
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/scripts ./scripts
