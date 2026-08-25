@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -23,7 +23,7 @@ function loadYaml<T>(path: string): T {
     throw new Error(`[eval] dataset file missing: ${path}`)
   }
   const raw = readFileSync(path, 'utf-8')
-  const parsed = yaml.load(raw)
+  const parsed = load(raw)
   if (parsed === undefined || parsed === null) {
     throw new Error(`[eval] dataset file is empty: ${path}`)
   }
