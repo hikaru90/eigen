@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { llmChatCompletion, llmCreateEmbeddings, llmCreateTranscription } from './llm-client'
 
-const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock } = vi.hoisted(() => {
+const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock, captureServerEventMock } =
+  vi.hoisted(() => {
   function makeDbMock() {
     // Returns a chainable Drizzle-style builder that resolves to [] (no DB rows).
     const chain: Record<string, unknown> = {}
@@ -13,25 +14,26 @@ const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock } = vi.h
     return chain
   }
 
-  return {
-    mockEnv: {
-      LLM_BASE_URL: 'https://example.test',
-      LLM_RULE_CHAT: 'rule-chat',
-      LLM_RULE_EMBEDDING: 'rule-embed',
-      LLM_MODEL_CHAT: 'gpt-test',
-      LLM_MODEL_EMBEDDING: 'text-embedding-3-small',
-      LLM_MIN_REQUEST_INTERVAL_MS: '0',
-      LLM_API_KEY: 'key-1',
-      SERVICE_API_KEY_EUROUTER: 'service-eurouter-key',
-      OPENROUTER_BASE_URL: 'https://openrouter.example/api/v1',
-      OPENROUTER_API_KEY: 'openrouter-key',
-      SERVICE_API_KEY_OPENROUTER: 'service-openrouter-key',
-    },
-    logActivityCallMock: vi.fn(),
-    getDbMock: vi.fn(() => makeDbMock()),
-    decryptTenantValueMock: vi.fn(async () => 'decrypted-key'),
-  }
-})
+    return {
+      mockEnv: {
+        LLM_BASE_URL: 'https://example.test',
+        LLM_RULE_CHAT: 'rule-chat',
+        LLM_RULE_EMBEDDING: 'rule-embed',
+        LLM_MODEL_CHAT: 'gpt-test',
+        LLM_MODEL_EMBEDDING: 'text-embedding-3-small',
+        LLM_MIN_REQUEST_INTERVAL_MS: '0',
+        LLM_API_KEY: 'key-1',
+        SERVICE_API_KEY_EUROUTER: 'service-eurouter-key',
+        OPENROUTER_BASE_URL: 'https://openrouter.example/api/v1',
+        OPENROUTER_API_KEY: 'openrouter-key',
+        SERVICE_API_KEY_OPENROUTER: 'service-openrouter-key',
+      },
+      logActivityCallMock: vi.fn(),
+      getDbMock: vi.fn(() => makeDbMock()),
+      decryptTenantValueMock: vi.fn(async () => 'decrypted-key'),
+      captureServerEventMock: vi.fn(),
+    }
+  })
 
 vi.mock('$env/dynamic/private', () => ({
   env: mockEnv,
@@ -45,6 +47,10 @@ vi.mock('$lib/server/db', () => ({
 
 vi.mock('$lib/server/activity/log-call', () => ({
   logActivityCall: logActivityCallMock,
+}))
+
+vi.mock('$lib/server/analytics/posthog-server', () => ({
+  captureServerEvent: captureServerEventMock,
 }))
 
 vi.mock('$lib/server/billing/preferences', () => ({
@@ -157,6 +163,42 @@ describe('llm client retries', () => {
     )
   })
 
+  it('captures ai generation on successful chat completion', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response(true, 200, {
+          usage: { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 },
+          choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+        }),
+      ),
+    )
+
+    await llmChatCompletion({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'hello observability' }],
+      aiSessionId: 'session-1',
+      aiTraceId: 'trace-1',
+    })
+
+    expect(captureServerEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'u1',
+        event: '$ai_generation',
+        properties: expect.objectContaining({
+          $ai_session_id: 'session-1',
+          $ai_trace_id: 'trace-1',
+          $ai_model: 'gpt-test',
+          $ai_provider: 'eurouter',
+          $ai_input_tokens: 12,
+          $ai_output_tokens: 34,
+          $ai_stop_reason: 'stop',
+          $ai_latency: expect.any(Number),
+        }),
+      }),
+    )
+  })
+
   it('chat includes temperature when provided', async () => {
     const fetchMock = vi.fn(async () =>
       response(true, 200, {
@@ -192,6 +234,38 @@ describe('llm client retries', () => {
       }),
     ).rejects.toThrow(/LLM HTTP 500/)
     expect(fetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('captures ai generation error when all chat retries fail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response(false, 500, { error: 'down' })),
+    )
+
+    await expect(
+      llmChatCompletion({
+        userId: 'u1',
+        messages: [{ role: 'user', content: 'hello' }],
+        aiSessionId: 'session-error',
+        aiTraceId: 'trace-error',
+      }),
+    ).rejects.toThrow(/LLM HTTP 500/)
+
+    expect(captureServerEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: 'u1',
+        event: '$ai_generation',
+        properties: expect.objectContaining({
+          $ai_session_id: 'session-error',
+          $ai_trace_id: 'trace-error',
+          $ai_model: 'gpt-test',
+          $ai_provider: 'eurouter',
+          $ai_http_status: 500,
+          $ai_is_error: true,
+          $ai_error: expect.any(String),
+        }),
+      }),
+    )
   })
 
   it('fails when chat api key is missing', async () => {

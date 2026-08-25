@@ -339,6 +339,7 @@ export async function handleAgentChatPost(
                 userId: user.id,
                 messages: [...history, { role: 'user', content: agentUserMessage }],
                 mode: sessionMode,
+                aiSessionId: sessionId,
                 onEvent: (evt) => {
                   if (!streamClosed) {
                     writeLine(evt)
@@ -424,6 +425,7 @@ export async function handleAgentChatPost(
         userId: user.id,
         messages: [...history, { role: 'user', content: agentUserMessage }],
         mode: sessionMode,
+        aiSessionId: sessionId,
       }),
     )
 

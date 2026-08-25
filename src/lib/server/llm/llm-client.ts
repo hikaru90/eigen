@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { env } from '$env/dynamic/private'
+import { captureServerEvent } from '$lib/server/analytics/posthog-server'
 import { activityProviderForLlmConfig } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { resolveBillingUserId } from '$lib/server/billing/context'
@@ -34,11 +36,56 @@ export {
 } from '$lib/server/llm/gateway-cost'
 
 type RoutingConfig = { ruleId?: string; model: string; provider?: Record<string, unknown> }
+type AiMessageRole = 'system' | 'user' | 'assistant'
+type AiOutputChoice = { role: AiMessageRole; content: string }
 
 export type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types'
 import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types'
 
 const EMBEDDING_DIMENSIONS = 1536
+const AI_ID_ALLOWED = /^[A-Za-z0-9\-_.~@()!':|]+$/
+
+function normalizeAiIdentifier(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return fallback
+  if (AI_ID_ALLOWED.test(trimmed)) return trimmed
+  const normalized = trimmed.replace(/[^A-Za-z0-9\-_.~@()!':|]/g, '-').replace(/-+/g, '-')
+  return normalized || fallback
+}
+
+function messageContentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part
+      if (part && typeof part === 'object' && 'text' in part) {
+        const text = (part as { text?: unknown }).text
+        return typeof text === 'string' ? text : ''
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .join('')
+}
+
+function extractAiOutputChoices(body: unknown): AiOutputChoice[] {
+  if (!body || typeof body !== 'object') return []
+  const choices = (body as { choices?: unknown }).choices
+  if (!Array.isArray(choices)) return []
+  return choices
+    .map((choice): AiOutputChoice | null => {
+      if (!choice || typeof choice !== 'object') return null
+      const message = (choice as { message?: { role?: unknown; content?: unknown } }).message
+      if (!message || typeof message !== 'object') return null
+      const role = message.role === 'system' || message.role === 'user' ? message.role : 'assistant'
+      return {
+        role,
+        content: messageContentText(message.content),
+      }
+    })
+    .filter((choice): choice is AiOutputChoice => choice !== null)
+}
 
 /** Hostname from gateway base URL for activity logs (handles missing `https://`). */
 function gatewayHostFromBaseUrl(baseUrl: string): string {
@@ -559,6 +606,10 @@ export async function llmChatCompletion(input: {
   routingRuleId?: string
   /** OpenAI-compatible JSON object mode — gateway must support response_format. */
   responseFormat?: 'json_object'
+  /** Optional conversation-level identifier for PostHog AI observability session grouping. */
+  aiSessionId?: string
+  /** Optional turn-level identifier for PostHog AI observability trace grouping. */
+  aiTraceId?: string
 }): Promise<unknown> {
   return withPlatformBilling(
     input.userId,
@@ -578,6 +629,8 @@ async function llmChatCompletionInner(input: {
   logContext?: string
   routingRuleId?: string
   responseFormat?: 'json_object'
+  aiSessionId?: string
+  aiTraceId?: string
 }): Promise<unknown> {
   const config = await loadLlmConfig(input.userId)
   const activityProvider = activityProviderForLlmConfig(config.provider)
@@ -586,6 +639,8 @@ async function llmChatCompletionInner(input: {
   const routing = await chatRoutingConfig(config, input.routingRuleId)
   const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_')
   const messages = sanitizeChatMessages(input.messages)
+  const aiSessionId = normalizeAiIdentifier(input.aiSessionId, `user-${input.userId}`)
+  const aiTraceId = normalizeAiIdentifier(input.aiTraceId, randomUUID())
 
   const maxAttempts = 3
   let lastError: unknown
@@ -690,6 +745,30 @@ async function llmChatCompletionInner(input: {
         context: firstUserMessage,
         durationMs: attemptMs,
       })
+      captureServerEvent({
+        distinctId: input.userId,
+        event: '$ai_generation',
+        properties: {
+          $ai_trace_id: aiTraceId,
+          $ai_session_id: aiSessionId,
+          $ai_model: routing.model,
+          $ai_provider: config.provider,
+          $ai_input: messages,
+          $ai_input_tokens: usage?.prompt_tokens,
+          $ai_output_choices: extractAiOutputChoices(json),
+          $ai_output_tokens: usage?.completion_tokens,
+          $ai_latency: attemptMs / 1000,
+          $ai_http_status: res.status,
+          $ai_base_url: config.baseUrl,
+          $ai_request_url: url,
+          $ai_stop_reason:
+            typeof (json as { choices?: Array<{ finish_reason?: unknown }> })?.choices?.[0]
+              ?.finish_reason === 'string'
+              ? ((json as { choices: Array<{ finish_reason: string }> }).choices[0].finish_reason ??
+                undefined)
+              : undefined,
+        },
+      })
 
       return json
     } catch (err) {
@@ -710,6 +789,25 @@ async function llmChatCompletionInner(input: {
         errorMessage: msg,
         durationMs: Date.now() - attemptStart,
       })
+      if (attempt === maxAttempts) {
+        captureServerEvent({
+          distinctId: input.userId,
+          event: '$ai_generation',
+          properties: {
+            $ai_trace_id: aiTraceId,
+            $ai_session_id: aiSessionId,
+            $ai_model: routing.model,
+            $ai_provider: config.provider,
+            $ai_input: messages,
+            $ai_is_error: true,
+            $ai_error: msg,
+            $ai_http_status: err instanceof LlmHttpError ? err.status : undefined,
+            $ai_latency: (Date.now() - attemptStart) / 1000,
+            $ai_base_url: config.baseUrl,
+            $ai_request_url: url,
+          },
+        })
+      }
       if (attempt === maxAttempts) break
     }
   }
