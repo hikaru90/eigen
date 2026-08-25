@@ -83,6 +83,24 @@ test.describe('Capture flow (AC-001, AC-004)', () => {
     await expect(page.getByRole('button', { name: 'Expand thought' }).first()).toBeVisible()
   })
 
+  test('action-item captures succeed through interpret (category repair/retry)', async ({
+    page,
+    context,
+  }) => {
+    // Models often invent out-of-set keys like "action"; interpret must repair/retry, not 500.
+    await registerUser(context, page)
+    await page.goto('/capture')
+
+    await captureAndConfirm(
+      page,
+      'Action item: follow up with the Lisbon design team about the Q3 budget report',
+    )
+
+    await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(/Lisbon design team|Q3 budget report/i).first()).toBeVisible()
+    await expect(page.locator('text=Category:')).toBeVisible()
+  })
+
   test('user can edit a stored thought with natural-language request', async ({
     page,
     context,

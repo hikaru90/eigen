@@ -1,6 +1,9 @@
 /**
  * LLM interpret pass for the capture confirmation gate.
  * Produces interpreted text + category + entity preview before enrich.
+ *
+ * Category validation matches enrich: repair-before-fail via resolveCategoryFromLlmOutput,
+ * then exactly one strict forced-choice retry when no candidate is valid.
  */
 import { getDb } from '$lib/server/db'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
@@ -8,8 +11,10 @@ import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { ensureUserOntologySeeded, loadOntologyForUser, activeThoughtCategoryKinds, type LoadedUserOntology } from '$lib/server/ontology-db'
 import { loadUserOntologyProfileRow } from '$lib/server/ontology/classify-thought-category'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
+import { runStrictCategoryRetry } from '$lib/server/ontology/strict-category-retry'
 import { emptyOntologyProfile, ontologyKindsPromptBlock } from '$lib/server/ontology/types'
 import {
+  isInvalidThoughtCategoryError,
   resolveCategoryFromLlmOutput,
   type ResolvedThoughtCategory,
 } from '$lib/server/ontology/validate-thought-category'
@@ -44,6 +49,7 @@ function parsePreviewBundle(
   payload: unknown,
   ontology: LoadedUserOntology,
   allowedEntityKeys: Set<string>,
+  forcedCategory?: ResolvedThoughtCategory,
 ): CapturePreviewBundle {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Interpret LLM response must be a JSON object')
@@ -55,7 +61,8 @@ function parsePreviewBundle(
     throw new Error('Interpret LLM response missing non-empty interpretedText')
   }
 
-  const category = resolveCategoryFromLlmOutput(ontology, obj.category)
+  const category =
+    forcedCategory ?? resolveCategoryFromLlmOutput(ontology, obj.category)
 
   const entitiesRaw = Array.isArray(obj.entities) ? obj.entities : []
   const entities: CapturePreviewEntity[] = []
@@ -147,11 +154,41 @@ export async function interpretThoughtPreview(input: {
   })
 
   const content = extractChatContent(response)
+  let parsed: unknown
   try {
-    const parsed = parseLlmJsonPayload(content)
-    return parsePreviewBundle(parsed, ontology, allowedEntityKeys)
+    parsed = parseLlmJsonPayload(content)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: err })
+  }
+
+  try {
+    return parsePreviewBundle(parsed, ontology, allowedEntityKeys)
+  } catch (err) {
+    if (!isInvalidThoughtCategoryError(err)) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: err })
+    }
+    const rejected = err.raw
+    console.warn('[interpret-thought] invalid category; strict forced-choice retry', {
+      userId: input.userId.slice(0, 8),
+      rejected,
+    })
+    const forcedCategory = await runStrictCategoryRetry({
+      userId: input.userId,
+      normalizedText:
+        typeof (parsed as { interpretedText?: unknown }).interpretedText === 'string'
+          ? String((parsed as { interpretedText: string }).interpretedText).trim() || rawText
+          : rawText,
+      allowedKeys: [...allowedCategoryKeys],
+      ontology,
+      logContext: 'interpret_thought_preview_category_retry',
+    })
+    try {
+      return parsePreviewBundle(parsed, ontology, allowedEntityKeys, forcedCategory)
+    } catch (retryErr) {
+      const message = retryErr instanceof Error ? retryErr.message : String(retryErr)
+      throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: retryErr })
+    }
   }
 }

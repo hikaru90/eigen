@@ -106,6 +106,16 @@ test.describe('Release smoke @release', () => {
       ).toBeVisible()
     })
 
+    await test.step('capture action-item wording through interpret (no invalid-category fail)', async () => {
+      await captureThoughtViaUi(
+        page,
+        'Release smoke action item: email the Lisbon host about venue deposit',
+      )
+      await expect(
+        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
+      ).toContainText(/Lisbon|venue|deposit/i)
+    })
+
     await test.step('timeline cold-mount fetch budget (no duplicate list/stats)', async () => {
       await assertTimelineMountFetchBudget(page)
     })

@@ -78,6 +78,7 @@ function makeOntology() {
 describe('interpretThoughtPreview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    llmChatCompletionMock.mockReset()
     getDbMock.mockReturnValue({})
     ensureOntologyMock.mockResolvedValue(undefined)
     loadOntologyMock.mockResolvedValue(makeOntology())
@@ -183,15 +184,118 @@ describe('interpretThoughtPreview', () => {
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
-  it('rejects invalid category keys from the LLM (no synonym remapping)', async () => {
+  it('repairs an invalid primary category by promoting a valid alternative (AC-1)', async () => {
     mockLlmContent(
       JSON.stringify({
-        interpretedText: 'Hello',
-        category: { key: 'idea_note', confidence: 0.8, alternatives: [] },
+        interpretedText: 'Buy oat milk',
+        category: {
+          key: 'action',
+          confidence: 0.9,
+          alternatives: [{ key: 'task', confidence: 0.85 }],
+        },
         entities: [],
         deviatesFromVerbatim: false,
       }),
     )
+
+    const out = await interpretThoughtPreview({
+      userId: 'u1',
+      rawText: 'buy oat milk',
+    })
+    expect(out.category.key).toBe('task')
+    expect(out.category.repairedFrom).toBe('action')
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs a strict forced-choice retry when all category candidates are invalid (AC-2)', async () => {
+    llmChatCompletionMock
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                interpretedText: 'Buy oat milk',
+                category: { key: 'action', confidence: 0.9, alternatives: [] },
+                entities: [],
+                deviatesFromVerbatim: false,
+              }),
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: JSON.stringify({ key: 'task', confidence: 0.99 }) } }],
+      })
+
+    const out = await interpretThoughtPreview({
+      userId: 'u1',
+      rawText: 'buy oat milk',
+    })
+    expect(out.interpretedText).toBe('Buy oat milk')
+    expect(out.category.key).toBe('task')
+    expect(out.deviatesFromVerbatim).toBe(false)
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+    expect(llmChatCompletionMock.mock.calls[1]?.[0]?.logContext).toBe(
+      'interpret_thought_preview_category_retry',
+    )
+    const retryUser = (
+      llmChatCompletionMock.mock.calls[1][0].messages as Array<{ role: string; content: string }>
+    ).find((m) => m.role === 'user')?.content
+    expect(retryUser).toContain('Buy oat milk')
+    expect(retryUser).toMatch(/observation.*task|task.*observation/)
+    expect(retryUser).not.toContain('"action"')
+  })
+
+  it('fails explicitly when the strict category retry also returns an invalid key', async () => {
+    llmChatCompletionMock
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                interpretedText: 'Hello',
+                category: { key: 'action', confidence: 0.8, alternatives: [] },
+                entities: [],
+                deviatesFromVerbatim: false,
+              }),
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          { message: { content: JSON.stringify({ key: 'idea_note', confidence: 0.5 }) } },
+        ],
+      })
+
+    await expect(interpretThoughtPreview({ userId: 'u1', rawText: 'hello' })).rejects.toThrow(
+      /category/i,
+    )
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not synonym-remap invalid keys without a retry or valid alternative', async () => {
+    // Synonym maps (action→task) are forbidden; only repair via alternatives or strict LLM retry.
+    llmChatCompletionMock
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                interpretedText: 'Hello',
+                category: { key: 'idea_note', confidence: 0.8, alternatives: [] },
+                entities: [],
+                deviatesFromVerbatim: false,
+              }),
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          { message: { content: JSON.stringify({ key: 'still_invalid', confidence: 0.5 }) } },
+        ],
+      })
 
     await expect(interpretThoughtPreview({ userId: 'u1', rawText: 'hello' })).rejects.toThrow(
       /category/i,

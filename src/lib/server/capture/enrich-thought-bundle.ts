@@ -50,8 +50,8 @@ import { activeThoughtCategoryKinds } from '$lib/server/ontology-db/load-ontolog
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from '$lib/server/ontology/constants'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { ontologyKindsPromptBlock } from '$lib/server/ontology/types'
+import { runStrictCategoryRetry } from '$lib/server/ontology/strict-category-retry'
 import {
-  buildStrictCategoryRetryPrompt,
   isInvalidThoughtCategoryError,
   resolveCategoryFromLlmOutput,
   type ResolvedThoughtCategory,
@@ -205,42 +205,6 @@ function parseEnrichThoughtBundleContent(input: {
   }
 }
 
-/**
- * Strict forced-choice retry for an out-of-set category: only the active keys, no catalog
- * descriptions (no priming). Runs at most once per bundle extraction.
- */
-async function runStrictCategoryRetry(input: {
-  context: EnrichmentContext
-  allowedKeys: readonly string[]
-}): Promise<ResolvedThoughtCategory> {
-  const messages: ChatMessage[] = [
-    {
-      role: 'system',
-      content:
-        'You assign exactly one ontology thought category key per capture for a personal memory system. Output JSON only.',
-    },
-    {
-      role: 'user',
-      content: buildStrictCategoryRetryPrompt({
-        normalizedText: input.context.normalizedText,
-        allowedKeys: input.allowedKeys,
-      }),
-    },
-  ]
-  const response = await llmChatCompletion({
-    userId: input.context.userId,
-    messages,
-    temperature: 0,
-    logContext: 'enrich_thought_bundle_category_retry',
-    responseFormat: 'json_object',
-  })
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('enrichThoughtBundle category retry: output must be a JSON object')
-  }
-  return resolveCategoryFromLlmOutput(input.context.ontology, parsed)
-}
-
 export async function extractEnrichThoughtBundle(input: {
   context: EnrichmentContext
   capturedAt: Date
@@ -291,8 +255,11 @@ export async function extractEnrichThoughtBundle(input: {
     })
     const allowedKeys = activeThoughtCategoryKinds(input.context.ontology).map((k) => k.key)
     const forcedCategory = await runStrictCategoryRetry({
-      context: input.context,
+      userId: input.context.userId,
+      normalizedText: input.context.normalizedText,
       allowedKeys,
+      ontology: input.context.ontology,
+      logContext: 'enrich_thought_bundle_category_retry',
     })
     return parseEnrichThoughtBundleContent({
       content,
