@@ -4,8 +4,9 @@ export type TranscribeAudioOptions = {
 }
 
 /**
- * File extension for multipart upload from a Blob MIME type.
- * Must match the bytes (e.g. WAV fixture must not be labeled `.webm`).
+ * File extension derived from a Blob MIME type (used by e2e fixtures to name
+ * audio files). Must match the bytes (e.g. WAV fixture must not be labeled
+ * `.webm`).
  */
 export function audioUploadExtension(mimeType: string): 'webm' | 'ogg' | 'wav' | 'mp4' {
   const type = mimeType.toLowerCase()
@@ -14,6 +15,27 @@ export function audioUploadExtension(mimeType: string): 'webm' | 'ogg' | 'wav' |
   if (type.includes('wav') || type.includes('wave')) return 'wav'
   if (type.includes('mp4') || type.includes('m4a') || type.includes('aac')) return 'mp4'
   return 'webm'
+}
+
+/**
+ * Structured metadata for a binary audio upload. Sent in the `x-audio-meta`
+ * JSON header instead of multipart form fields: raw audio content types
+ * (`audio/*`, `application/octet-stream`) are exempt from SvelteKit's CSRF
+ * origin check, which rejects cross-origin `multipart/form-data` POSTs with
+ * "Cross-site POST form submissions are forbidden" whenever the deployed
+ * `ORIGIN` does not exactly match the browser origin behind a proxy.
+ */
+export type AudioUploadMeta = { language?: string }
+
+export function audioUploadHeaders(mimeType: string, meta?: AudioUploadMeta): HeadersInit {
+  const headers: Record<string, string> = {
+    'content-type': mimeType.trim() || 'application/octet-stream',
+  }
+  const language = meta?.language?.trim().toLowerCase()
+  if (language) {
+    headers['x-audio-meta'] = JSON.stringify({ language })
+  }
+  return headers
 }
 
 /**
@@ -56,16 +78,10 @@ export async function transcribeRecordedAudio(
   blob: Blob,
   options?: TranscribeAudioOptions,
 ): Promise<string> {
-  const formData = new FormData()
-  const ext = audioUploadExtension(blob.type)
-  formData.append('audio', blob, `recording.${ext}`)
-  if (options?.language?.trim()) {
-    formData.append('language', options.language.trim().toLowerCase())
-  }
-
   const res = await fetch('/api/capture/transcribe', {
     method: 'POST',
-    body: formData,
+    headers: audioUploadHeaders(blob.type, { language: options?.language }),
+    body: blob,
     credentials: 'same-origin',
     signal: options?.signal,
   })
@@ -89,16 +105,10 @@ export async function transcribeAudioChunk(
   chunk: Blob,
   options?: TranscribeAudioOptions,
 ): Promise<string> {
-  const formData = new FormData()
-  const ext = audioUploadExtension(chunk.type)
-  formData.append('audio', chunk, `chunk.${ext}`)
-  if (options?.language?.trim()) {
-    formData.append('language', options.language.trim().toLowerCase())
-  }
-
   const res = await fetch('/api/capture/transcribe-chunk', {
     method: 'POST',
-    body: formData,
+    headers: audioUploadHeaders(chunk.type, { language: options?.language }),
+    body: chunk,
     credentials: 'same-origin',
     signal: options?.signal,
   })

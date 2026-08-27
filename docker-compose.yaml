@@ -60,6 +60,12 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       HOST: 0.0.0.0
       PORT: 3000
+      # Trust the TLS reverse proxy (Caddy / Coolify Traefik) for scheme + host so
+      # SvelteKit derives the correct app origin. Required for adapter-node behind
+      # a proxy; without it the CSRF origin check compares against localhost.
+      PROTOCOL_HEADER: x-forwarded-proto
+      HOST_HEADER: x-forwarded-host
+      XFF_DEPTH: "1"
     env_file:
       - .env
     ports:

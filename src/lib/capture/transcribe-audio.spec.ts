@@ -57,7 +57,7 @@ describe('transcribe-audio client', () => {
     )
   })
 
-  it('posts multipart audio to transcribe endpoint', async () => {
+  it('posts binary audio to transcribe endpoint (origin-header-safe content-type)', async () => {
     const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/webm' })
     const text = await transcribeRecordedAudio(blob, { language: 'en' })
     expect(text).toBe('hello there')
@@ -69,17 +69,18 @@ describe('transcribe-audio client', () => {
         credentials: 'same-origin',
       }),
     )
-    const body = fetchMockInit(fetchMock, 0).body
-    expect(body).toBeInstanceOf(FormData)
-    expect((body as FormData).get('audio')).toBeInstanceOf(File)
-    expect(((body as FormData).get('audio') as File).name).toBe('recording.webm')
+    const init = fetchMockInit(fetchMock, 0)
+    // Raw audio body — never multipart/form-data, which SvelteKit's CSRF guard
+    // rejects when the deployed ORIGIN does not match the browser origin.
+    expect(init.body).toBeInstanceOf(Blob)
+    expect(new Headers(init.headers as HeadersInit).get('content-type')).toBe('audio/webm')
   })
 
-  it('uploads wav recordings with a .wav filename', async () => {
+  it('keeps the audio MIME type exact (wav fixtures are not re-labeled)', async () => {
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' })
     await transcribeRecordedAudio(blob)
-    const body = fetchMockInit(vi.mocked(fetch), 0).body as FormData
-    expect((body.get('audio') as File).name).toBe('recording.wav')
+    const init = fetchMockInit(vi.mocked(fetch), 0)
+    expect(new Headers(init.headers as HeadersInit).get('content-type')).toBe('audio/wav')
   })
 
   it('parseTranscribeErrorResponse reads json error', async () => {

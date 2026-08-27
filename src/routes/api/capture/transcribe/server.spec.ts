@@ -31,19 +31,83 @@ describe('POST /api/capture/transcribe', () => {
     transcribeAudioMock.mockReset()
   })
 
+  describe('binary octet-stream upload (origin-header-safe)', () => {
+    function binaryRequest(body: Blob, meta?: { language?: string }) {
+      const headers = new Headers({ 'content-type': body.type || 'application/octet-stream' })
+      if (meta?.language?.trim()) {
+        headers.set('x-audio-meta', JSON.stringify({ language: meta.language.trim().toLowerCase() }))
+      }
+      return {
+        headers,
+        arrayBuffer: vi.fn(async () => body.arrayBuffer()),
+      }
+    }
+
+    it('accepts a raw audio Blob without FormData', async () => {
+      transcribeAudioMock.mockResolvedValue('hello world')
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: binaryRequest(new Blob([new Uint8Array(12)], { type: 'audio/webm' }), {
+          language: 'en',
+        }),
+      } as never)
+      expect(res.status).toBe(200)
+      const payload = (await res.json()) as { transcript: string }
+      expect(payload.transcript).toBe('hello world')
+      expect(transcribeAudioMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        audio: expect.objectContaining({ format: 'webm', language: 'en' }),
+      })
+    })
+
+    it('falls back to application/octet-stream when the blob has no type', async () => {
+      await expect(
+        POST({
+          locals: { user: { id: 'u1' } },
+          request: binaryRequest(new Blob([new Uint8Array(12)])),
+        } as never),
+      ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('ignores a malformed x-audio-meta header', async () => {
+      transcribeAudioMock.mockResolvedValue('hello world')
+      const blob = new Blob([new Uint8Array(12)], { type: 'audio/wav' })
+      const req = binaryRequest(blob)
+      ;(req.headers as Headers).set('x-audio-meta', 'not-json')
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: req,
+      } as never)
+      expect(res.status).toBe(200)
+      expect(transcribeAudioMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        audio: expect.objectContaining({ format: 'wav', language: undefined }),
+      })
+    })
+  })
+
   it('requires auth', async () => {
     await expect(
       POST({ locals: { user: null }, request: multipartRequest({}) } as never),
     ).rejects.toMatchObject({ status: 401 })
   })
 
-  it('requires multipart form data', async () => {
+  it('rejects JSON and form-urlencoded bodies (only audio uploads allowed)', async () => {
     await expect(
       POST({
         locals: { user: { id: 'u1' } },
         request: {
           headers: { get: () => 'application/json' },
-          formData: vi.fn(),
+          arrayBuffer: vi.fn(async () => new ArrayBuffer(4)),
+        },
+      } as never),
+    ).rejects.toMatchObject({ status: 400 })
+    await expect(
+      POST({
+        locals: { user: { id: 'u1' } },
+        request: {
+          headers: { get: () => 'application/x-www-form-urlencoded' },
+          arrayBuffer: vi.fn(async () => new ArrayBuffer(4)),
         },
       } as never),
     ).rejects.toMatchObject({ status: 400 })

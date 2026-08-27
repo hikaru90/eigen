@@ -32,6 +32,45 @@ describe('POST /api/capture/transcribe-chunk', () => {
     transcribeAudioMock.mockReset()
   })
 
+  describe('binary octet-stream upload (origin-header-safe)', () => {
+    function binaryRequest(body: Blob, meta?: { language?: string }) {
+      const headers = new Headers({ 'content-type': body.type || 'application/octet-stream' })
+      if (meta?.language?.trim()) {
+        headers.set('x-audio-meta', JSON.stringify({ language: meta.language.trim().toLowerCase() }))
+      }
+      return {
+        headers,
+        arrayBuffer: vi.fn(async () => body.arrayBuffer()),
+      }
+    }
+
+    it('accepts a raw audio Blob without FormData', async () => {
+      transcribeAudioMock.mockResolvedValue('hello there')
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: binaryRequest(new Blob([new Uint8Array(12)], { type: 'audio/webm' }), {
+          language: 'de',
+        }),
+      } as never)
+      expect(res.status).toBe(200)
+      const payload = (await res.json()) as { transcript: string }
+      expect(payload.transcript).toBe('hello there')
+      expect(transcribeAudioMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        audio: expect.objectContaining({ format: 'webm', language: 'de' }),
+      })
+    })
+
+    it('rejects an unsupported MIME type carried by the binary body', async () => {
+      await expect(
+        POST({
+          locals: { user: { id: 'u1' } },
+          request: binaryRequest(new Blob([new Uint8Array(12)], { type: 'audio/x-unknown' })),
+        } as never),
+      ).rejects.toMatchObject({ status: 400 })
+    })
+  })
+
   it('requires auth', async () => {
     await expect(
       POST({ locals: { user: null }, request: multipartRequest({}) } as never),

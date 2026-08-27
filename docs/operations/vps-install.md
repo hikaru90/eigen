@@ -152,6 +152,7 @@ sudo ufw enable
 
 | Symptom                              | Likely cause                                       | Fix                                                                                                      |
 | ------------------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| "Cross-site POST form submissions are forbidden" on voice capture / any POST | Deployed `ORIGIN` ≠ browser URL (e.g. left at the dev value `http://localhost:5173`), or proxy headers not forwarded | Set `ORIGIN` to the exact public URL incl. `https://`; keep `PROTOCOL_HEADER`/`HOST_HEADER` wired in `docker-compose.yaml` |
 | Docker build fails on PostHog        | `POSTHOG_SOURCEMAPS_REQUIRED=1` without `phx_` key | Keep `POSTHOG_SOURCEMAPS_REQUIRED=0` (install.sh default) or set `POSTHOG_CLI_API_KEY` at **build** time |
 | App cannot reach DB                  | Wrong host in `.env`                               | Use `@db:5432` in `DATABASE_URL` for Compose; compose also constructs URLs from `POSTGRES_*`             |
 | EUrouter placeholder errors at start | Docker build placeholders in runtime env           | Set real `LLM_BASE_URL` and rule UUIDs (not `00000000-…`)                                                |

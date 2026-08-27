@@ -53,6 +53,8 @@ The app is available at your `ORIGIN` (or `http://<your-host>:3000` if you skip 
 | `TENANT_MASTER_KEY`  | Tenant envelope encryption    | `install.sh` or strong random secret      |
 | `AGE_GRAPH_NAME`     | Apache AGE graph name         | `eigen_graph` (default)                   |
 | `ORIGIN`             | Public URL for auth and OAuth | `./install.sh --origin …`                 |
+| `PROTOCOL_HEADER`    | Proxy scheme header (compose sets `x-forwarded-proto`) | Set automatically in `docker-compose.yaml` |
+| `HOST_HEADER`        | Proxy host header (compose sets `x-forwarded-host`) | Set automatically in `docker-compose.yaml` |
 
 ### LLM — at least one billing path
 
