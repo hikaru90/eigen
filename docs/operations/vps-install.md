@@ -116,7 +116,21 @@ docker compose up -d app
 | ----------------------- | -------------------------------------------------------------------------------------- |
 | Caddy TLS               | `80`, `443`                                                                            |
 | Direct (no proxy)       | `3000`                                                                                 |
+| Drizzle Gateway         | Prefer HTTPS via Traefik (`studio.eigenmesh.xyz` → `4983`); always set `DRIZZLE_GATEWAY_MASTERPASS` |
 | **Never in production** | `5432` (remove `ports: ['5432:5432']` from `docker-compose.yaml` for the `db` service) |
+
+### Drizzle Gateway (self-hosted Studio)
+
+Compose always starts the `studio` service (not `drizzle-kit studio`). Set a master password and deploy:
+
+```sh
+# in .env
+DRIZZLE_GATEWAY_MASTERPASS="$(openssl rand -hex 32)"
+
+docker compose up -d
+```
+
+Open `https://studio.eigenmesh.xyz`, unlock with `DRIZZLE_GATEWAY_MASTERPASS`. Connection `eigen` is seeded automatically on first boot. See [README](../../README.md#drizzle-gateway-studio-url).
 
 Ubuntu UFW example (Caddy):
 

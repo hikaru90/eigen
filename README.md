@@ -92,8 +92,19 @@ By default `docker-compose.yaml` maps:
 
 - `3000:3000` — app
 - `5432:5432` — Postgres
+- `4983:4983` — Drizzle Gateway (Studio UI)
 
 Change port mappings in `docker-compose.yaml` if they conflict with existing services on your host.
+
+### Drizzle Gateway (Studio URL)
+
+`drizzle-kit studio` is local-only. Compose runs **[Drizzle Gateway](https://gateway.drizzle.team/docs/docker)** as the `studio` service:
+
+1. Set `DRIZZLE_GATEWAY_MASTERPASS` (`openssl rand -hex 32`) in Coolify / `.env`.
+2. Deploy. Traefik labels in compose bind **`https://studio.eigenmesh.xyz`** → port `4983`.
+3. Open that URL, unlock with the master password. Connection **`eigen`** is auto-seeded on first boot (`DATABASE_URL_eigen` → `db:5432`).
+
+Keep Postgres off the public internet; Gateway reaches `db` on the Docker network only. If Coolify ignores custom Traefik labels, set the service domain in Coolify to `https://studio.eigenmesh.xyz:4983` once (compose already publishes `4983`).
 
 ## Troubleshooting (migrations)
 
