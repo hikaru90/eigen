@@ -34,6 +34,8 @@ export type CaptureRecentThoughtSnippet = {
   createdAt: string
   author?: CaptureMemoryAuthor
   authorLabel?: string | null
+  /** Lifecycle state — capture page uses it for the done/reopen toggle. */
+  lifecycleStatus?: 'open' | 'completed' | 'archived'
 }
 
 export type CaptureSubmitResult = {
@@ -56,4 +58,6 @@ export type CaptureSubmitResult = {
   queueError?: string | null
   author?: CaptureMemoryAuthor
   authorLabel?: string | null
+  /** Lifecycle state — the capture page reads it for the done/reopen toggle. */
+  lifecycleStatus?: 'open' | 'completed' | 'archived'
 }

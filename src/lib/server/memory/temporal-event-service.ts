@@ -64,6 +64,40 @@ function extractThoughtIdFromTaskEvent(eventId: string): string | null {
   return thoughtIdFromTaskItemId(eventId)
 }
 
+/** Bare thought uuid (capture-page rows, no `task:` prefix, no temporal_event row). */
+function isThoughtUuid(eventId: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    eventId.trim(),
+  )
+}
+
+/** Shared mark done / reopen / archive path for thought-backed items. */
+async function applyThoughtQuickAction(
+  userId: string,
+  thoughtId: string,
+  quickAction: 'mark_done' | 'reopen' | 'archive',
+  listItemId: string,
+  notFoundMessage = 'Task not found',
+  notFoundAfterUpdateMessage = 'Task not found after update',
+): Promise<TemporalEventActionResult> {
+  const status: LifecycleStatus =
+    quickAction === 'mark_done' ? 'completed' : quickAction === 'archive' ? 'archived' : 'open'
+  const result = await setThoughtLifecycleStatus(userId, thoughtId, status)
+  if (!result.ok) throw new Error(notFoundMessage)
+
+  const item = await loadListItem(userId, listItemId)
+  if (!item) throw new Error(notFoundAfterUpdateMessage)
+
+  const summary =
+    quickAction === 'mark_done'
+      ? `Marked "${item.semanticSummary}" as done.`
+      : quickAction === 'archive'
+        ? `Archived "${item.semanticSummary}".`
+        : `Reopened "${item.semanticSummary}".`
+
+  return { ok: true, item, summary }
+}
+
 function resolveBoundsFromPatch(
   current: { startAt: Date | null; endAt: Date | null },
   patch: AppliedTemporalEventAction,
@@ -227,25 +261,25 @@ export async function applyQuickTemporalEventAction(
   const quickAction = normalizeTemporalEventQuickAction(action)
 
   if (isTaskEventId(eventId)) {
-    const thoughtId = extractThoughtIdFromTaskEvent(eventId)
-    if (!thoughtId) throw new Error('Invalid task event ID')
+    const taskThoughtId = extractThoughtIdFromTaskEvent(eventId)
+    if (!taskThoughtId) throw new Error('Invalid task event ID')
+    return applyThoughtQuickAction(userId, taskThoughtId, quickAction, eventId)
+  }
 
-    const status: LifecycleStatus =
-      quickAction === 'mark_done' ? 'completed' : quickAction === 'archive' ? 'archived' : 'open'
-    const result = await setThoughtLifecycleStatus(userId, thoughtId, status)
-    if (!result.ok) throw new Error('Task not found')
-
-    const item = await loadListItem(userId, eventId)
-    if (!item) throw new Error('Task not found after update')
-
-    const summary =
-      quickAction === 'mark_done'
-        ? `Marked "${item.semanticSummary}" as done.`
-        : quickAction === 'archive'
-          ? `Archived "${item.semanticSummary}".`
-          : `Reopened "${item.semanticSummary}".`
-
-    return { ok: true, item, summary }
+  // Bare thought uuid (capture-page row) — only when no temporal event exists
+  // with this id, so real events always keep the event path.
+  if (!isTaskEventId(eventId) && isThoughtUuid(eventId)) {
+    const eventRow = await loadEventRow(userId, eventId)
+    if (!eventRow) {
+      return applyThoughtQuickAction(
+        userId,
+        eventId.trim(),
+        quickAction,
+        eventId,
+        'Task not found',
+        'Event not found',
+      )
+    }
   }
 
   const row = await loadEventRow(userId, eventId)

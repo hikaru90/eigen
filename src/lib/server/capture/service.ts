@@ -713,6 +713,7 @@ export async function listThoughts(
         author: thought.author,
         authorLabel: thought.authorLabel,
         authorKeyId: thought.authorKeyId,
+        lifecycleStatus: thought.lifecycleStatus,
         createdAt: thought.createdAt,
       })
       .from(thought)
@@ -736,6 +737,7 @@ export async function listThoughts(
       author: thought.author,
       authorLabel: thought.authorLabel,
       authorKeyId: thought.authorKeyId,
+      lifecycleStatus: thought.lifecycleStatus,
       createdAt: thought.createdAt,
       updatedAt: thought.updatedAt,
     })

@@ -74,6 +74,7 @@
   } from '$lib/stores/current-user-view.svelte'
   import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
   import { unlinkTextFileFromThought } from '$lib/text-files/api'
+  import { postTimelineQuickAction } from '../timeline/timeline-item-actions'
 
   let { data }: { data: PageData } = $props()
 
@@ -475,6 +476,40 @@
     const thought = await fetchCaptureResult(thoughtId)
     thoughtDetails = { ...thoughtDetails, [thoughtId]: thought }
     return thought
+  }
+
+  let togglingDoneId = $state<string | null>(null)
+
+  /**
+   * Unified mark done / reopen for capture-page rows.
+   * Goes through the shared timeline quick-action endpoint (house rule:
+   * every surface shares one lifecycle client). Completed thoughts leave
+   * Recent (active views only) but stay stored and searchable.
+   */
+  async function toggleThoughtDone(thoughtId: string) {
+    err = null
+    togglingDoneId = thoughtId
+    try {
+      const current = thoughtDetails[thoughtId]?.lifecycleStatus ?? 'open'
+      const action = current === 'completed' ? 'reopen' : 'mark_done'
+      const result = await postTimelineQuickAction(thoughtId, action)
+      captureEvent(action === 'mark_done' ? 'thought_marked_done' : 'thought_reopened', {
+        thought_id: thoughtId,
+      })
+      if (action === 'mark_done') {
+        removeRecentThought(thoughtId)
+      } else {
+        await refreshThoughtDetail(thoughtId)
+        recentThoughts = recentThoughts.map((row) =>
+          row.id === thoughtId ? { ...row, lifecycleStatus: 'open' as const } : row,
+        )
+      }
+      void result.summary
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e)
+    } finally {
+      if (togglingDoneId === thoughtId) togglingDoneId = null
+    }
   }
 
   function openAttachDialog(thoughtId: string) {
@@ -1067,6 +1102,7 @@
         onSubmitEdit={submitEditRequest}
         onCancelEdit={() => editAbortController?.abort()}
         onFilterChange={handleRecentFilterChange}
+        onToggleDone={(id) => void toggleThoughtDone(id)}
         {hasAgentCaptures}
       />
     </div>

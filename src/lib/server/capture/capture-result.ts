@@ -61,6 +61,7 @@ export async function loadThoughtCaptureResult(
       enrichedAt: thought.enrichedAt,
       enrichQueueStatus: thought.enrichQueueStatus,
       enrichQueueError: thought.enrichQueueError,
+      lifecycleStatus: thought.lifecycleStatus,
       author: thought.author,
       authorLabel: thought.authorLabel,
     })
@@ -201,5 +202,6 @@ export async function loadThoughtCaptureResult(
     queueError: row.enrichQueueError ?? null,
     author: row.author ?? 'user',
     authorLabel: row.authorLabel ?? null,
+    lifecycleStatus: row.lifecycleStatus,
   }
 }

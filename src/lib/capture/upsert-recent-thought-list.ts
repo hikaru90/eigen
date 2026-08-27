@@ -14,6 +14,7 @@ export function thoughtToRecentSnippet(
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     author: thought.author ?? existing?.author ?? 'user',
     authorLabel: thought.authorLabel ?? existing?.authorLabel ?? null,
+    lifecycleStatus: thought.lifecycleStatus ?? existing?.lifecycleStatus ?? 'open',
   }
 }
 

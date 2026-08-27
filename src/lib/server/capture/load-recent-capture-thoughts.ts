@@ -47,6 +47,7 @@ export async function loadRecentCaptureThoughts(
       createdAt: row.createdAt.toISOString(),
       author: row.author ?? 'user',
       authorLabel: row.authorLabel ?? null,
+      lifecycleStatus: row.lifecycleStatus,
     })),
     recentThoughtDetails,
   }

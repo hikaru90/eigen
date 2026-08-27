@@ -17,11 +17,12 @@ function readTimeline(relative: string): string {
 }
 
 describe('timeline quick action contract', () => {
-  it('documents the three UI surfaces that must share one client', () => {
+  it('documents the UI surfaces that must share one client', () => {
     expect(TIMELINE_QUICK_ACTION_SURFACES).toEqual([
       'tasks_today',
       'projects_unassigned',
       'projects_detail',
+      'capture_recent',
     ])
   })
 

@@ -21,6 +21,7 @@ export const TIMELINE_QUICK_ACTION_SURFACES = [
   'tasks_today',
   'projects_unassigned',
   'projects_detail',
+  'capture_recent',
 ] as const
 
 export type TimelineQuickActionSurface = (typeof TIMELINE_QUICK_ACTION_SURFACES)[number]

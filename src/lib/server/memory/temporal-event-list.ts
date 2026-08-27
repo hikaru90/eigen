@@ -31,6 +31,10 @@ import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
 import { computeFocusRank } from '$lib/server/memory/compute-focus-rank'
 
 export const TASK_ITEM_PREFIX = 'task:'
+
+/** Bare-thought-UUID lookup (capture page): rows without a temporal_event. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 /** @deprecated Legacy timeline IDs — still accepted when parsing. */
 export const LEGACY_OPEN_LOOP_ITEM_PREFIX = 'open-loop:'
 
@@ -118,6 +122,105 @@ export function isTaskListItem(item: TemporalEventListItem): boolean {
 
 export function taskItemId(thoughtId: string): string {
   return `${TASK_ITEM_PREFIX}${thoughtId}`
+}
+
+/**
+ * Resolve a single thought (any category) into a task-shaped list item.
+ * Capture-page rows are bare thought uuids without a temporal_event row;
+ * this lets lifecycle quick actions target them through the shared
+ * `POST /api/temporal-events/:id/action` path.
+ */
+export async function getThoughtListItemById(
+  userId: string,
+  thoughtId: string,
+): Promise<TemporalEventListItem | null> {
+  const [row] = await getDb()
+    .select({
+      id: thought.id,
+      normalizedText: thought.normalizedText,
+      normalizedTextEncrypted: thought.normalizedTextEncrypted,
+      category: thought.category,
+      metadata: thought.metadata,
+      metadataEncrypted: thought.metadataEncrypted,
+      lifecycleStatus: thought.lifecycleStatus,
+      lifecycleUpdatedAt: thought.lifecycleUpdatedAt,
+      lifecycleCompletedAt: thought.lifecycleCompletedAt,
+      createdAt: thought.createdAt,
+      updatedAt: thought.updatedAt,
+      author: thought.author,
+      authorLabel: thought.authorLabel,
+    })
+    .from(thought)
+    .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+    .limit(1)
+  if (!row) return null
+
+  const [thoughtText, metadataJson] = await Promise.all([
+    row.normalizedTextEncrypted
+      ? decryptTenantValue({
+          userId,
+          table: 'thought',
+          column: 'normalized_text',
+          ciphertext: row.normalizedTextEncrypted,
+        })
+      : Promise.resolve(row.normalizedText),
+    row.metadataEncrypted
+      ? decryptTenantValue({
+          userId,
+          table: 'thought',
+          column: 'metadata',
+          ciphertext: row.metadataEncrypted,
+        })
+      : Promise.resolve(JSON.stringify(row.metadata ?? {})),
+  ])
+  const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+  const thoughtStatus = thoughtLifecycleFromRow({
+    lifecycleStatus: row.lifecycleStatus,
+    metadata,
+  })
+  const completedAt = completedAtFromThought({
+    lifecycleCompletedAt: row.lifecycleCompletedAt,
+    metadata,
+  })
+  const summary =
+    thoughtText.length > 120 ? `${thoughtText.slice(0, 117).trim()}…` : thoughtText.trim()
+
+  return {
+    id: taskItemId(row.id),
+    itemType: 'task',
+    kind: 'reminder',
+    semanticSummary: summary,
+    sourceTextSpan: null,
+    timePrecision: 'fuzzy',
+    timezone: 'UTC',
+    isAllDay: false,
+    confidence: 1,
+    startAt: null,
+    endAt: null,
+    activePeriod: '',
+    graphSyncStatus: 'n/a',
+    graphSyncError: null,
+    lifecycleStatus: thoughtStatus,
+    snoozedUntil: null,
+    recurrenceRule: null,
+    durationMinutes: null,
+    energyLevel: null,
+    priorityQuadrant: null,
+    contextTags: [],
+    focusRank: null,
+    parentEventId: null,
+    thoughtId: row.id,
+    thoughtText,
+    thoughtCategory: row.category,
+    thoughtStatus,
+    projectLabel: null,
+    projectEntityId: null,
+    completedAt,
+    lifecycleUpdatedAt: (row.lifecycleUpdatedAt ?? row.updatedAt).toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    author: row.author,
+    authorLabel: row.authorLabel,
+  }
 }
 
 export function thoughtIdFromTaskItemId(itemId: string): string | null {
@@ -640,6 +743,13 @@ export async function getTemporalEventListItemById(
   if (thoughtId) {
     const tasks = await listTaskThoughtsForUser(userId, 'all')
     return tasks.find((i) => i.thoughtId === thoughtId) ?? null
+  }
+
+  // Bare thought uuid (no `task:` prefix) — capture-page rows are plain thoughts
+  // without a temporal_event row. Resolve directly so lifecycle quick actions
+  // (mark done / reopen / archive) work on any surface.
+  if (UUID_RE.test(eventId)) {
+    return getThoughtListItemById(userId, eventId)
   }
 
   const rows = await getDb()

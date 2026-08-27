@@ -1,6 +1,7 @@
 <script lang="ts">
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
+  import Check from '@lucide/svelte/icons/check'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import PencilLine from '@lucide/svelte/icons/pencil-line'
   import Trash2 from '@lucide/svelte/icons/trash-2'
@@ -55,6 +56,7 @@
     onSubmitEdit,
     onCancelEdit,
     onFilterChange,
+    onToggleDone,
     hasAgentCaptures: _hasAgentCaptures,
   }: {
     thoughts: CaptureRecentThoughtSnippet[]
@@ -81,6 +83,7 @@
     onSubmitEdit: () => void
     onCancelEdit: () => void
     onFilterChange?: (filter: { category?: string }) => void
+    onToggleDone?: (thoughtId: string) => void
     hasAgentCaptures?: boolean
   } = $props()
 
@@ -281,6 +284,23 @@
                       }}
                     >
                       {retryingId === snippet.id ? 'Retrying…' : 'Retry'}
+                    </Button>
+                  {/if}
+                  {#if onToggleDone}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      class="h-auto rounded-full p-1.5 text-muted-foreground hover:text-foreground"
+                      aria-label={(detail ?? snippet).lifecycleStatus === 'completed'
+                        ? 'Reopen'
+                        : 'Mark done'}
+                      disabled={deletingId === snippet.id}
+                      onclick={(e) => {
+                        e.stopPropagation()
+                        onToggleDone(snippet.id)
+                      }}
+                    >
+                      <Check class="size-4" strokeWidth={2} aria-hidden="true" />
                     </Button>
                   {/if}
                   <Button
