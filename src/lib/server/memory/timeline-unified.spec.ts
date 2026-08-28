@@ -3,9 +3,9 @@ import type { ProjectListItem } from '$lib/server/memory/project-list'
 import { MAX_LIST_LIMIT } from '$lib/server/memory/temporal-event-list'
 import type { TemporalEventListItem } from '$lib/server/memory/temporal-event-list'
 
-const { listTemporalEventsForUserMock, listProjectsByEntityIdsMock } = vi.hoisted(() => ({
+const { listTemporalEventsForUserMock, listProjectsMock } = vi.hoisted(() => ({
   listTemporalEventsForUserMock: vi.fn(),
-  listProjectsByEntityIdsMock: vi.fn(),
+  listProjectsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/temporal-event-list', async (importOriginal) => {
@@ -20,7 +20,7 @@ vi.mock('$lib/server/memory/project-list', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./project-list')>()
   return {
     ...actual,
-    listProjectsByEntityIds: listProjectsByEntityIdsMock,
+    listProjects: listProjectsMock,
   }
 })
 
@@ -71,7 +71,7 @@ describe('loadUnifiedTimeline', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listTemporalEventsForUserMock.mockResolvedValue({ items: [], nextCursor: null })
-    listProjectsByEntityIdsMock.mockResolvedValue([])
+    listProjectsMock.mockResolvedValue([])
   })
 
   it('returns the full item set with no nextCursor in the response', async () => {
@@ -79,7 +79,10 @@ describe('loadUnifiedTimeline', () => {
       makeItem({ id: 'a', startAt: '2026-07-15T00:00:00.000Z' }),
       makeItem({ id: 'b', startAt: null }),
     ]
-    listTemporalEventsForUserMock.mockResolvedValueOnce({ items, nextCursor: { startAt: 'x', id: 'a' } })
+    listTemporalEventsForUserMock.mockResolvedValueOnce({
+      items,
+      nextCursor: { startAt: 'x', id: 'a' },
+    })
 
     const result = await loadUnifiedTimeline({
       userId: 'u1',
@@ -133,19 +136,14 @@ describe('loadUnifiedTimeline', () => {
     )
   })
 
-  it('loads project catalog only for projectEntityIds present on items', async () => {
+  it('returns the scoped catalog, not just projects present on items', async () => {
     const items = [
       makeItem({
         id: 't1',
         projectEntityId: 'proj-a',
         projectLabel: 'Alpha',
       }),
-      makeItem({
-        id: 't2',
-        projectEntityId: 'proj-a',
-        projectLabel: 'Alpha',
-      }),
-      makeItem({ id: 't3', projectEntityId: null }),
+      makeItem({ id: 't2', projectEntityId: null }),
     ]
     const catalog: ProjectListItem[] = [
       {
@@ -154,31 +152,41 @@ describe('loadUnifiedTimeline', () => {
         status: 'active',
         source: 'manual',
         nextAction: null,
-        openTaskCount: 2,
+        openTaskCount: 1,
         targetDate: '2026-08-01T00:00:00.000Z',
+        tasks: [],
+        milestones: [],
+      },
+      {
+        entityId: 'proj-empty',
+        label: 'Empty project',
+        status: 'active',
+        source: 'manual',
+        nextAction: null,
+        openTaskCount: 0,
+        targetDate: null,
         tasks: [],
         milestones: [],
       },
     ]
     listTemporalEventsForUserMock.mockResolvedValueOnce({ items, nextCursor: null })
-    listProjectsByEntityIdsMock.mockResolvedValueOnce(catalog)
+    listProjectsMock.mockResolvedValueOnce(catalog)
 
-    const result = await loadUnifiedTimeline({ userId: 'u1', from: null, to: null })
+    const result = await loadUnifiedTimeline({ userId: 'u1', from: null, to: null, author: 'user' })
 
-    expect(listProjectsByEntityIdsMock).toHaveBeenCalledWith('u1', ['proj-a'])
     expect(result.projects).toEqual(catalog)
+    expect(result.projects.map((p) => p.entityId)).toContain('proj-empty')
   })
 
-  it('omits projects that have no tasks in the loaded item set', async () => {
+  it('omits item join entirely — projects come from the scoped catalog loader', async () => {
     listTemporalEventsForUserMock.mockResolvedValueOnce({
       items: [makeItem({ id: 'solo', projectEntityId: null })],
       nextCursor: null,
     })
-    listProjectsByEntityIdsMock.mockResolvedValueOnce([])
 
     const result = await loadUnifiedTimeline({ userId: 'u1' })
 
-    expect(listProjectsByEntityIdsMock).toHaveBeenCalledWith('u1', [])
+    expect(listProjectsMock).toHaveBeenCalledWith('u1', { kind: 'user' })
     expect(result.projects).toEqual([])
   })
 
@@ -197,5 +205,37 @@ describe('loadUnifiedTimeline', () => {
         includeUndated: true,
       }),
     )
+  })
+
+  it('defaults the catalog scope to user view', async () => {
+    await loadUnifiedTimeline({ userId: 'u1' })
+
+    expect(listProjectsMock).toHaveBeenCalledWith('u1', { kind: 'user' })
+  })
+
+  it('maps author=all to the all catalog scope', async () => {
+    await loadUnifiedTimeline({ userId: 'u1', author: 'all' })
+
+    expect(listProjectsMock).toHaveBeenCalledWith('u1', { kind: 'all' })
+  })
+
+  it('maps authorLayerKey to the agent authorLayer scope', async () => {
+    await loadUnifiedTimeline({ userId: 'u1', authorLayerKey: 'apikey:abc-123' })
+
+    expect(listProjectsMock).toHaveBeenCalledWith('u1', {
+      kind: 'authorLayer',
+      author: 'agent',
+      authorLayerKey: 'apikey:abc-123',
+    })
+  })
+
+  it('maps coarse author=agent to the agent authorLayer scope', async () => {
+    await loadUnifiedTimeline({ userId: 'u1', author: 'agent' })
+
+    expect(listProjectsMock).toHaveBeenCalledWith('u1', {
+      kind: 'authorLayer',
+      author: 'agent',
+      authorLayerKey: null,
+    })
   })
 })

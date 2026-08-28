@@ -8,8 +8,9 @@ import {
 
 export type { TimelineUnifiedResponse }
 
-function parseAuthor(raw: string | null): MemoryAuthor | undefined {
-  if (raw === null || raw === 'all') return undefined
+function parseAuthor(raw: string | null): MemoryAuthor | 'all' | undefined {
+  if (raw === null) return undefined
+  if (raw === 'all') return 'all'
   if (raw === 'agent') return 'agent'
   if (raw === 'user') return 'user'
   return undefined
@@ -33,7 +34,8 @@ export const GET: RequestHandler = async (event) => {
   const includeUndatedParam = url.searchParams.get('includeUndated')
   const includeUndated = includeUndatedParam === null ? undefined : includeUndatedParam !== 'false'
   const authorLayerKey = url.searchParams.get('authorLayerKey')
-  const author = authorLayerKey ? undefined : parseAuthor(url.searchParams.get('author'))
+  const authorParam = parseAuthor(url.searchParams.get('author'))
+  const author = authorLayerKey ? undefined : authorParam
   const orderBy = url.searchParams.get('orderBy') as 'ingest' | 'todo' | null
   const sortDirection = url.searchParams.get('sortDirection') as 'asc' | 'desc' | null
 

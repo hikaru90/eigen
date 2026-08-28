@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
@@ -18,6 +18,11 @@ import {
   thoughtStatusFromMetadata,
 } from '$lib/server/memory/project-eligibility'
 import { upsertGraphHubEntity } from '$lib/server/memory/project-entity'
+import {
+  resolveAuthorSqlCondition,
+  type AuthorLayerSqlColumns,
+} from '$lib/server/memory/authorship'
+import type { SQL } from 'drizzle-orm'
 import type { ProjectMilestoneListItem } from '$lib/server/memory/project-timeline'
 import { taskItemId } from '$lib/server/memory/temporal-event-list'
 
@@ -45,6 +50,11 @@ export type ProjectListItem = {
   tasks: ProjectTaskSequenceItem[]
   milestones: ProjectMilestoneListItem[]
 }
+
+export type ProjectCatalogScope =
+  | { kind: 'user' }
+  | { kind: 'all' }
+  | { kind: 'authorLayer'; author: MemoryAuthor; authorLayerKey?: string | null }
 
 async function summarizeThought(userId: string, thoughtId: string): Promise<string | null> {
   const [row] = await getDb()
@@ -154,8 +164,101 @@ function projectSortRank(item: ProjectListItem): number {
   return 3
 }
 
-export type ListProjectsOptions = {
-  authorScope?: MemoryAuthor | 'all'
+const CANONICAL_ENTITY_AUTHOR_COLUMNS: AuthorLayerSqlColumns = {
+  author: canonicalEntity.author,
+  authorKeyId: canonicalEntity.authorKeyId,
+  authorLabel: canonicalEntity.authorLabel,
+}
+
+const PROJECT_ROW_COLUMNS = {
+  entityId: canonicalEntity.id,
+  label: canonicalEntity.label,
+  status: canonicalEntity.projectStatus,
+  source: canonicalEntity.projectSource,
+  nextActionThoughtId: canonicalEntity.nextActionThoughtId,
+  targetDate: canonicalEntity.targetDate,
+}
+
+function baseProjectConditions(userId: string) {
+  return [
+    eq(canonicalEntity.userId, userId),
+    isNotNull(canonicalEntity.projectStatus),
+    inArray(canonicalEntity.projectStatus, ['active', 'someday']),
+  ]
+}
+
+async function loadProjectRows(
+  userId: string,
+  extraCondition: SQL | undefined,
+  entityIds?: string[],
+) {
+  return getDb()
+    .select(PROJECT_ROW_COLUMNS)
+    .from(canonicalEntity)
+    .where(
+      and(
+        ...baseProjectConditions(userId),
+        ...(entityIds ? [inArray(canonicalEntity.id, entityIds)] : []),
+        ...(extraCondition ? [extraCondition] : []),
+      ),
+    )
+}
+
+/**
+ * Single project-catalog loader. `scope` picks the visible set:
+ * - 'user'  → human-owned (manual/grounding) OR linked to ≥1 human thought
+ * - 'all'   → every listed GTD project
+ * - 'authorLayer' → authored by that author layer, OR linked to ≥1 thought by
+ *   that author (projects the layer contributes to via items).
+ * `entityIds` (when non-null) prefilters to those project entities.
+ */
+export async function listProjects(
+  userId: string,
+  scope: ProjectCatalogScope,
+  entityIds?: string[],
+): Promise<ProjectListItem[]> {
+  if (entityIds && entityIds.length === 0) return []
+
+  if (scope.kind === 'authorLayer') {
+    // Union in SQL: projects the layer authored OR projects linked to ≥1 of
+    // the layer's thoughts (author-condition alone would drop user-created
+    // projects the agent works on).
+    const layerLinkedIds = await loadAuthorLayerLinkedProjectIds(userId, scope)
+    const linkedCondition = layerLinkedIds.size
+      ? inArray(canonicalEntity.id, [...layerLinkedIds])
+      : undefined
+    const rows = await loadProjectRows(
+      userId,
+      or(
+        resolveAuthorSqlCondition(CANONICAL_ENTITY_AUTHOR_COLUMNS, {
+          author: scope.author,
+          authorLayerKey: scope.authorLayerKey ?? null,
+        }),
+        linkedCondition,
+      ),
+      entityIds,
+    )
+    return hydrateProjectListItems(userId, rows)
+  }
+
+  const projectRows = await loadProjectRows(userId, undefined, entityIds)
+
+  if (scope.kind === 'all') {
+    return hydrateProjectListItems(userId, projectRows)
+  }
+
+  const humanLinkedProjectIds = await loadHumanLinkedProjectEntityIds(
+    userId,
+    projectRows.map((row) => row.entityId),
+  )
+
+  const visibleProjectRows = projectRows.filter((row) => {
+    const source = (row.source ?? 'capture') as ProjectSource
+    if (isHumanOwnedProjectSource(source)) return true
+    return humanLinkedProjectIds.has(row.entityId)
+  })
+
+  return hydrateProjectListItems(userId, visibleProjectRows)
 }
 
 function isHumanOwnedProjectSource(source: ProjectSource): boolean {
@@ -183,48 +286,51 @@ async function loadHumanLinkedProjectEntityIds(
   return new Set(rows.map((row) => row.entityId))
 }
 
-export async function listProjectsForUser(
+/**
+ * Listed-project entity IDs linked to at least one thought authored by the
+ * given agent layer (API key or legacy label).
+ */
+async function loadAuthorLayerLinkedProjectIds(
   userId: string,
-  options?: ListProjectsOptions,
-): Promise<ProjectListItem[]> {
-  const authorScope = options?.authorScope ?? 'user'
+  scope: Extract<ProjectCatalogScope, { kind: 'authorLayer' }>,
+): Promise<Set<string>> {
+  const authorCondition = resolveAuthorSqlCondition(
+    { author: thought.author, authorKeyId: thought.authorKeyId, authorLabel: thought.authorLabel },
+    { author: scope.author, authorLayerKey: scope.authorLayerKey ?? null },
+  )
 
-  const projectRows = await getDb()
-    .select({
-      entityId: canonicalEntity.id,
-      label: canonicalEntity.label,
-      status: canonicalEntity.projectStatus,
-      source: canonicalEntity.projectSource,
-      nextActionThoughtId: canonicalEntity.nextActionThoughtId,
-      targetDate: canonicalEntity.targetDate,
-    })
-    .from(canonicalEntity)
+  const rows = await getDb()
+    .selectDistinct({ entityId: thoughtEntity.entityId })
+    .from(thoughtEntity)
+    .innerJoin(thought, eq(thoughtEntity.thoughtId, thought.id))
+    .innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
     .where(
       and(
+        eq(thoughtEntity.userId, userId),
         eq(canonicalEntity.userId, userId),
         isNotNull(canonicalEntity.projectStatus),
         inArray(canonicalEntity.projectStatus, ['active', 'someday']),
+        authorCondition,
       ),
     )
 
-  const humanLinkedProjectIds =
-    authorScope === 'user'
-      ? await loadHumanLinkedProjectEntityIds(
-          userId,
-          projectRows.map((row) => row.entityId),
-        )
-      : null
+  return new Set(rows.map((row) => row.entityId))
+}
 
-  const visibleProjectRows =
-    authorScope === 'all'
-      ? projectRows
-      : projectRows.filter((row) => {
-          const source = (row.source ?? 'capture') as ProjectSource
-          return isHumanOwnedProjectSource(source) || humanLinkedProjectIds!.has(row.entityId)
-        })
-
+/** Load a project's open-task count, task waterfall, milestones, and next action. */
+async function hydrateProjectListItems(
+  userId: string,
+  rows: {
+    entityId: string
+    label: string
+    status: string | null
+    source: string | null
+    nextActionThoughtId: string | null
+    targetDate: Date | null
+  }[],
+): Promise<ProjectListItem[]> {
   const items: ProjectListItem[] = []
-  for (const row of visibleProjectRows) {
+  for (const row of rows) {
     const status = row.status as ProjectStatus
     const source = (row.source ?? 'capture') as ProjectSource
     let nextAction: ProjectNextAction | null = null
@@ -259,6 +365,19 @@ export async function listProjectsForUser(
     if (rankDiff !== 0) return rankDiff
     return a.label.localeCompare(b.label)
   })
+}
+
+export async function listProjectsForUser(
+  userId: string,
+  options?: ListProjectsOptions,
+): Promise<ProjectListItem[]> {
+  const scope: ProjectCatalogScope =
+    options?.authorScope === 'all' ? { kind: 'all' } : { kind: 'user' }
+  return listProjects(userId, scope)
+}
+
+export type ListProjectsOptions = {
+  authorScope?: MemoryAuthor | 'all'
 }
 
 /** Dismiss a project so it no longer appears in the active projects list.
@@ -402,70 +521,14 @@ export async function loadGtdProjectOptionsFromProfiles(userId: string) {
 }
 
 /**
- * Load catalog rows for specific project entity IDs (unified timeline join).
+ * Load catalog rows for specific project entity IDs (unscoped detail join).
  * Returns only IDs that are still listed GTD projects (active/someday).
  */
 export async function listProjectsByEntityIds(
   userId: string,
   entityIds: string[],
 ): Promise<ProjectListItem[]> {
-  if (entityIds.length === 0) return []
-
-  const projectRows = await getDb()
-    .select({
-      entityId: canonicalEntity.id,
-      label: canonicalEntity.label,
-      status: canonicalEntity.projectStatus,
-      source: canonicalEntity.projectSource,
-      nextActionThoughtId: canonicalEntity.nextActionThoughtId,
-      targetDate: canonicalEntity.targetDate,
-    })
-    .from(canonicalEntity)
-    .where(
-      and(
-        eq(canonicalEntity.userId, userId),
-        inArray(canonicalEntity.id, entityIds),
-        isNotNull(canonicalEntity.projectStatus),
-        inArray(canonicalEntity.projectStatus, ['active', 'someday']),
-      ),
-    )
-
-  const items: ProjectListItem[] = []
-  for (const row of projectRows) {
-    const status = row.status as ProjectStatus
-    const source = (row.source ?? 'capture') as ProjectSource
-    let nextAction: ProjectNextAction | null = null
-    if (row.nextActionThoughtId) {
-      const summary = await summarizeThought(userId, row.nextActionThoughtId)
-      if (summary) {
-        nextAction = {
-          thoughtId: row.nextActionThoughtId,
-          summary,
-          itemId: taskItemId(row.nextActionThoughtId),
-        }
-      }
-    }
-    const openTaskCount = await countOpenTasksForProjectEntity(userId, row.entityId)
-    const tasks = await loadTaskSequenceForProject(userId, row.entityId)
-    const milestones = await loadMilestonesForProject(userId, row.entityId)
-    items.push({
-      entityId: row.entityId,
-      label: row.label,
-      status,
-      source,
-      nextAction,
-      openTaskCount,
-      targetDate: row.targetDate ? row.targetDate.toISOString() : null,
-      tasks,
-      milestones,
-    })
-  }
-
-  return items.sort((a, b) => {
-    const rankDiff = projectSortRank(a) - projectSortRank(b)
-    if (rankDiff !== 0) return rankDiff
-    return a.label.localeCompare(b.label)
-  })
+  return listProjects(userId, { kind: 'all' }, entityIds)
 }
 
 export { auditGtdProjectProfiles }

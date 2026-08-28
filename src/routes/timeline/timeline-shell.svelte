@@ -8,7 +8,6 @@
   import { Button } from '$lib/components/ui/button'
   import type { CurrentUserView } from '$lib/memory/current-user-view'
   import { m } from '$lib/paraglide/messages.js'
-  import type { ProjectListItem } from '$lib/server/memory/project-list'
   import { subscribeCurrentUserView } from '$lib/stores/current-user-view.svelte'
   import {
     notifyThoughtChanged,
@@ -371,9 +370,6 @@
     closeAgentAssign()
   }
 
-  const catalogProjects = $derived(
-    (data.source?.projects ?? []) as ProjectListItem[],
-  )
 </script>
 
 <div
@@ -476,7 +472,6 @@
           projectCards={data.projectCards}
           unassignedItems={data.unassignedItems}
           items={data.openItems}
-          catalogProjects={catalogProjects}
           onGoToTask={goToTaskFromProjects}
           {onQuickAction}
           onRefresh={() => {

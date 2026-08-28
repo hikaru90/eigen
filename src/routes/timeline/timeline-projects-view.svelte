@@ -26,7 +26,6 @@
     unassignedItems: TemporalEventListItem[]
     /** Open items — used for next-action / detail task lists. */
     items: TemporalEventListItem[]
-    catalogProjects: ProjectListItem[]
     onGoToTask: (itemId: string) => void
     onQuickAction: (eventId: string, action: 'mark_done' | 'reopen') => void | Promise<void>
     onRefresh?: () => void
@@ -37,7 +36,6 @@
     projectCards,
     unassignedItems,
     items,
-    catalogProjects: _catalogProjects,
     onGoToTask,
     onQuickAction,
     onRefresh,
@@ -54,26 +52,15 @@
     ),
   )
 
-  function toProjectListItem(row: TimelineProjectCard): ProjectListItem {
-    if (row.catalog) return row.catalog
-    return {
-      entityId: row.entityId,
-      label: row.label,
-      status: row.status,
-      source: 'manual',
-      nextAction: null,
-      openTaskCount: row.group.items.length,
-      targetDate: null,
-      tasks: [],
-      milestones: [],
-    }
-  }
-
   function formatShortDate(iso: string): string {
     return new Date(iso).toLocaleDateString()
   }
 
-  function getNextAction(project: ProjectListItem): { summary: string; itemId: string } | null {
+  function getNextAction(project: ProjectListItem | null): {
+    summary: string
+    itemId: string
+  } | null {
+    if (!project) return null
     if (project.nextAction) {
       const nextItem = findTemporalListItemByRef(items, project.nextAction.itemId)
       if (!nextItem || !isTemporalEventCompleted(nextItem)) return project.nextAction
@@ -143,7 +130,7 @@
       {:else}
         <div class="flex flex-col gap-2">
           {#each projectCards as project (project.entityId)}
-            {@const catalogProject = toProjectListItem(project)}
+            {@const catalogProject = project.catalog}
             {@const projectNextAction = getNextAction(catalogProject)}
             {@const openLoopCount = project.group.items.length}
             <a
@@ -172,16 +159,16 @@
                   </span>
                 </div>
               {/if}
-              {#if catalogProject.targetDate}
+              {#if catalogProject?.targetDate}
                 <p class="text-[10px] leading-[1.2] text-muted-foreground">
                   {m.graph_timeline_project_deadline({
                     date: formatShortDate(catalogProject.targetDate),
                   })}
                 </p>
               {/if}
-              {#if catalogProject.tasks.length > 0}
-                {@const visibleTasks = catalogProject.tasks.slice(0, 4)}
-                {@const hiddenTaskCount = catalogProject.tasks.length - visibleTasks.length}
+              {#if (catalogProject?.tasks.length ?? 0) > 0}
+                {@const visibleTasks = catalogProject?.tasks.slice(0, 4) ?? []}
+                {@const hiddenTaskCount = (catalogProject?.tasks.length ?? 0) - visibleTasks.length}
                 <div class="flex flex-col gap-0.5" data-testid="project-waterfall">
                   <span class="text-[10px] leading-[1.2] text-muted-foreground"
                     >{m.graph_timeline_project_waterfall()}</span
@@ -200,13 +187,13 @@
                   {/if}
                 </div>
               {/if}
-              {#if catalogProject.milestones.length > 0}
+              {#if (catalogProject?.milestones.length ?? 0) > 0}
                 <div class="flex flex-col gap-0.5" data-testid="project-milestones">
                   <span class="text-[10px] leading-[1.2] text-muted-foreground"
                     >{m.graph_timeline_project_milestones()}</span
                   >
                   <div class="flex flex-wrap gap-1">
-                    {#each catalogProject.milestones as milestone (milestone.id)}
+                    {#each catalogProject?.milestones ?? [] as milestone (milestone.id)}
                       <span
                         class="rounded border border-border px-1.5 py-0.5 text-[10px] leading-[1.2] text-muted-foreground"
                       >

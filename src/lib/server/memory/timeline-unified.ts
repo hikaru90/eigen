@@ -1,8 +1,5 @@
 import type { MemoryAuthor } from '$lib/server/db/brain.schema'
-import {
-  listProjectsByEntityIds,
-  type ProjectListItem,
-} from '$lib/server/memory/project-list'
+import { listProjects, type ProjectCatalogScope, type ProjectListItem } from '$lib/server/memory/project-list'
 import {
   listTemporalEventsForUser,
   MAX_LIST_LIMIT,
@@ -20,20 +17,36 @@ export type TimelineUnifiedQuery = {
   to?: string | null
   /** Ignored — undated open tasks are always included. */
   includeUndated?: boolean
-  author?: MemoryAuthor
+  /** 'all' means every author; otherwise a coarse author filter for items. */
+  author?: MemoryAuthor | 'all'
   authorLayerKey?: string | null
   orderBy?: 'ingest' | 'todo'
   sortDirection?: 'asc' | 'desc'
 }
 
+/** How the items query was scoped — drives the matching project-catalog scope. */
+export type TimelineCatalogScope = ProjectCatalogScope
+
+function catalogScopeForQuery(
+  author: MemoryAuthor | 'all' | undefined,
+  authorLayerKey: string | null | undefined,
+): ProjectCatalogScope {
+  if (authorLayerKey) return { kind: 'authorLayer', author: 'agent', authorLayerKey }
+  if (author === 'all') return { kind: 'all' }
+  if (author === 'agent') return { kind: 'authorLayer', author: 'agent', authorLayerKey: null }
+  return { kind: 'user' }
+}
+
 /**
  * Single source of truth for Tasks + Projects surfaces.
  * Returns the full item set for the filters (no cursor) plus the project catalog
- * for projectEntityIds present on those items.
+ * for the SAME author scope as the items — not just projects present on items.
  */
 export async function loadUnifiedTimeline(
   query: TimelineUnifiedQuery,
 ): Promise<TimelineUnifiedResponse> {
+  const { author, authorLayerKey } = query
+  const itemsAuthor: MemoryAuthor | undefined = author === 'all' ? undefined : author
   const { items } = await listTemporalEventsForUser({
     userId: query.userId,
     status: 'all',
@@ -44,21 +57,16 @@ export async function loadUnifiedTimeline(
     alwaysIncludeOpen: true,
     from: query.from ?? null,
     to: query.to ?? null,
-    author: query.author,
+    author: itemsAuthor,
     authorLayerKey: query.authorLayerKey,
     orderBy: query.orderBy ?? 'ingest',
     sortDirection: query.sortDirection ?? 'desc',
     limit: MAX_LIST_LIMIT,
   })
 
-  const projectEntityIds = [
-    ...new Set(
-      items
-        .map((item) => item.projectEntityId)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0),
-    ),
-  ]
-
-  const projects = await listProjectsByEntityIds(query.userId, projectEntityIds)
+  const projects = await listProjects(
+    query.userId,
+    catalogScopeForQuery(author, authorLayerKey),
+  )
   return { items, projects }
 }

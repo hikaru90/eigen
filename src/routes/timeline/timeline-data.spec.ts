@@ -58,6 +58,23 @@ describe('timeline-data-derive', () => {
   const now = new Date('2026-07-23T12:00:00.000Z')
   const timeZone = 'UTC'
 
+  function projectCard(
+    entityId: string,
+    label: string,
+  ): ProjectListItem {
+    return {
+      entityId,
+      label,
+      status: 'active',
+      source: 'manual',
+      nextAction: null,
+      openTaskCount: 0,
+      targetDate: null,
+      tasks: [],
+      milestones: [],
+    }
+  }
+
   it('derives open, done, overdue, and todo (non-overdue) so counts always match list lengths', () => {
     const items = [
       makeItem({
@@ -132,7 +149,7 @@ describe('timeline-data-derive', () => {
     expect(todoItems.map((i) => i.id).sort()).toEqual(['undated-1', 'undated-2'])
   })
 
-  it('builds project cards only for projects present on open items, joined with catalog', () => {
+  it('emits cards for catalog projects without open items after item-backed cards', () => {
     const items = [
       makeItem({
         id: 't1',
@@ -176,9 +193,48 @@ describe('timeline-data-derive', () => {
     const openItems = deriveOpenItems(items, now)
     const cards = deriveProjectCards(openItems, catalog)
 
-    expect(cards.map((c) => c.entityId)).toEqual(['proj-a'])
+    expect(cards.map((c) => c.entityId)).toEqual(['proj-a', 'proj-orphan'])
     expect(cards[0]?.label).toBe('Alpha Catalog')
     expect(cards[0]?.group.items.map((i) => i.id)).toEqual(['t1'])
+    // Catalog project without open items still gets a card, zero open loops.
+    expect(cards[1]?.label).toBe('Never shown')
+    expect(cards[1]?.catalog?.entityId).toBe('proj-orphan')
+    expect(cards[1]?.group.items).toEqual([])
+  })
+
+  it('keeps catalog-only cards in catalog order after item-backed cards', () => {
+    const catalog: ProjectListItem[] = [
+      projectCard('zeta-empty', 'Zeta empty'),
+      projectCard('alpha-empty', 'Alpha empty'),
+    ]
+
+    const cards = deriveProjectCards([makeItem({
+      id: 't1',
+      projectEntityId: 'item-backed',
+      projectLabel: 'Item backed',
+      lifecycleStatus: 'open',
+      thoughtStatus: 'open',
+    })], catalog)
+
+    expect(cards.map((c) => c.entityId)).toEqual(['item-backed', 'zeta-empty', 'alpha-empty'])
+    expect(cards.every((c) => c.group.items.length >= 0)).toBe(true)
+  })
+
+  it('deduplicates when a catalog project also has open items', () => {
+    const catalog: ProjectListItem[] = [
+      projectCard('proj-a', 'Alpha Catalog'),
+      projectCard('proj-b', 'Beta empty'),
+    ]
+
+    const cards = deriveProjectCards([makeItem({
+      id: 't1',
+      projectEntityId: 'proj-a',
+      projectLabel: 'Alpha',
+      lifecycleStatus: 'open',
+      thoughtStatus: 'open',
+    })], catalog)
+
+    expect(cards.map((c) => c.entityId)).toEqual(['proj-a', 'proj-b'])
   })
 
   describe('filterTimelineItemsBySearch', () => {

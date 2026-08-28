@@ -105,7 +105,11 @@ export function filterTimelineItemsBySearch(
   })
 }
 
-/** Project cards only for projects that have ≥1 open item in the loaded set. */
+/**
+ * Project cards for the selected scope: every catalog project gets a card;
+ * cards from open-item groups come first (newest item first); projects with
+ * no open items keep the catalog's own order after them (zero open loops).
+ */
 export function deriveProjectCards(
   openItems: readonly TemporalEventListItem[],
   catalog: readonly ProjectListItem[],
@@ -124,7 +128,7 @@ export function deriveProjectCards(
     }
   })
 
-  return rows.sort((a, b) => {
+  rows.sort((a, b) => {
     const aLatest =
       a.group.items.length > 0
         ? Math.max(...a.group.items.map((t) => new Date(t.createdAt).getTime()))
@@ -135,6 +139,20 @@ export function deriveProjectCards(
         : 0
     return bLatest - aLatest
   })
+
+  const withItems = new Set(rows.map((row) => row.entityId))
+  for (const project of catalog) {
+    if (withItems.has(project.entityId)) continue
+    rows.push({
+      entityId: project.entityId,
+      label: project.label,
+      status: project.status,
+      catalog: project,
+      group: { projectEntityId: project.entityId, projectLabel: project.label, items: [] },
+    })
+  }
+
+  return rows
 }
 
 export function buildTimelineApiUrl(filters: TimelineFetchFilters): string {
