@@ -1,17 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { projectMilestone, projectTaskSequence, thought } from '$lib/server/db/schema'
 import { listProjects } from './project-list'
 
 vi.mock('$lib/server/memory/judge-gtd-project', () => ({
   auditGtdProjectProfiles: vi.fn(async () => ({ demoted: 0 })),
 }))
 
-const selectMock = vi.fn()
-const selectDistinctMock = vi.fn()
+const {
+  selectMock,
+  selectDistinctMock,
+  insertMock,
+  updateMock,
+  deleteMock,
+  loadOpenTasksMock,
+  countOpenTasksMock,
+} = vi.hoisted(() => ({
+  selectMock: vi.fn(),
+  selectDistinctMock: vi.fn(),
+  // Write handles: reads must never persist task-sequence rows.
+  insertMock: vi.fn(),
+  updateMock: vi.fn(),
+  deleteMock: vi.fn(),
+  loadOpenTasksMock: vi.fn(async () => [] as Array<{ thoughtId: string; createdAt: Date }>),
+  countOpenTasksMock: vi.fn(async () => 0),
+}))
 
 vi.mock('$lib/server/db', () => ({
   getDb: () => ({
     select: selectMock,
     selectDistinct: selectDistinctMock,
+    insert: insertMock,
+    update: updateMock,
+    delete: deleteMock,
   }),
 }))
 
@@ -19,7 +39,8 @@ vi.mock('$lib/server/memory/project-eligibility', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./project-eligibility')>()
   return {
     ...actual,
-    countOpenTasksForProjectEntity: vi.fn(async () => 0),
+    countOpenTasksForProjectEntity: countOpenTasksMock,
+    loadOpenTaskThoughtsForProjectEntity: loadOpenTasksMock,
   }
 })
 
@@ -57,6 +78,38 @@ function emptyChain(rows: unknown[] = []) {
         })),
       })),
     })),
+  }
+}
+
+/** Routes selects to fixtures by table so task-waterfall reads can be asserted. */
+function tableAwareChain(options: {
+  projectRows: unknown[]
+  sequencedRows?: Array<{ thoughtId: string; rank: number }>
+}) {
+  return {
+    from: (table: unknown) => {
+      if (table === projectTaskSequence) {
+        return { where: () => ({ orderBy: async () => options.sequencedRows ?? [] }) }
+      }
+      if (table === projectMilestone) {
+        return { where: () => ({ orderBy: async () => [] }) }
+      }
+      if (table === thought) {
+        return {
+          where: () => ({
+            limit: async () => [
+              {
+                normalizedText: 'Task',
+                normalizedTextEncrypted: null,
+                metadata: {},
+                metadataEncrypted: null,
+              },
+            ],
+          }),
+        }
+      }
+      return { where: async () => options.projectRows }
+    },
   }
 }
 
@@ -165,5 +218,42 @@ describe('listProjects scoping', () => {
     })
 
     expect(projects.map((p) => p.entityId)).toEqual(['agent-created-1'])
+  })
+
+  it('lists unsequenced open tasks alongside sequenced ones without persisting ranks', async () => {
+    const projectRows = [
+      {
+        entityId: 'p1',
+        label: 'Ship beta',
+        status: 'active',
+        source: 'manual',
+        nextActionThoughtId: null,
+        targetDate: null,
+      },
+    ]
+    selectMock.mockImplementation(() =>
+      tableAwareChain({
+        projectRows,
+        sequencedRows: [{ thoughtId: 't-sequenced', rank: 1 }],
+      }),
+    )
+    loadOpenTasksMock.mockResolvedValue([
+      { thoughtId: 't-sequenced', createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      { thoughtId: 't-unsequenced', createdAt: new Date('2026-02-01T00:00:00.000Z') },
+    ])
+    countOpenTasksMock.mockResolvedValue(2)
+
+    const projects = await listProjects('u1', { kind: 'all' })
+
+    expect(projects[0]?.tasks.map((task) => [task.thoughtId, task.rank])).toEqual([
+      ['t-sequenced', 1],
+      ['t-unsequenced', 2],
+    ])
+    // Unique itemIds keep the keyed {#each} in the projects waterfall collision-free.
+    expect(new Set(projects[0]?.tasks.map((task) => task.itemId)).size).toBe(2)
+    expect(projects[0]?.openTaskCount).toBe(2)
+    expect(insertMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+    expect(deleteMock).not.toHaveBeenCalled()
   })
 })

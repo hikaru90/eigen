@@ -1,10 +1,11 @@
-import { and, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
   thought,
   thoughtEntity,
+  type LifecycleStatus,
   type ProjectSource,
   type ProjectStatus,
 } from '$lib/server/db/schema'
@@ -44,15 +45,33 @@ export async function countLinkedThoughtsForProjectEntity(
   return row?.count ?? 0
 }
 
-export async function countOpenTasksForProjectEntity(
+export type OpenProjectTaskThought = {
+  thoughtId: string
+  createdAt: Date
+}
+
+/**
+ * Single source of truth for "open task linked to this project": task-category
+ * thoughts linked to the project entity whose lifecycle is still open and whose
+ * metadata status is not `completed`. `thought_entity` is keyed by
+ * (thought_id, entity_id), so each thought appears at most once.
+ *
+ * Ordered oldest-first (createdAt ASC, thought id as a stable tiebreaker) so
+ * callers can append never-sequenced tasks in capture order — the oldest open
+ * task is the closest thing to a next action when the user has not ordered
+ * anything explicitly.
+ */
+export async function loadOpenTaskThoughtsForProjectEntity(
   userId: string,
   projectEntityId: string,
-): Promise<number> {
+): Promise<OpenProjectTaskThought[]> {
   const rows = await getDb()
     .select({
       thoughtId: thoughtEntity.thoughtId,
+      createdAt: thought.createdAt,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
+      lifecycleStatus: thought.lifecycleStatus,
     })
     .from(thoughtEntity)
     .innerJoin(thought, eq(thoughtEntity.thoughtId, thought.id))
@@ -63,9 +82,12 @@ export async function countOpenTasksForProjectEntity(
         eq(thought.category, 'task'),
       ),
     )
+    .orderBy(asc(thought.createdAt), asc(thought.id))
 
-  let count = 0
+  const open: OpenProjectTaskThought[] = []
   for (const row of rows) {
+    const lifecycle = row.lifecycleStatus as LifecycleStatus
+    if (lifecycle === 'completed' || lifecycle === 'archived') continue
     const metadataJson = row.metadataEncrypted
       ? await decryptTenantValue({
           userId,
@@ -75,9 +97,18 @@ export async function countOpenTasksForProjectEntity(
         })
       : JSON.stringify(row.metadata ?? {})
     const metadata = JSON.parse(metadataJson) as Record<string, unknown>
-    if (thoughtStatusFromMetadata(metadata) === 'open') count += 1
+    if (thoughtStatusFromMetadata(metadata) === 'open') {
+      open.push({ thoughtId: row.thoughtId, createdAt: row.createdAt })
+    }
   }
-  return count
+  return open
+}
+
+export async function countOpenTasksForProjectEntity(
+  userId: string,
+  projectEntityId: string,
+): Promise<number> {
+  return (await loadOpenTaskThoughtsForProjectEntity(userId, projectEntityId)).length
 }
 
 export async function countGtdProjectsForUser(userId: string): Promise<number> {

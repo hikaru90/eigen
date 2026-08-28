@@ -1,13 +1,8 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
-import {
-  projectTaskSequence,
-  thought,
-  thoughtEntity,
-  type LifecycleStatus,
-} from '$lib/server/db/schema'
-import { thoughtStatusFromMetadata } from '$lib/server/memory/project-eligibility'
+import { projectTaskSequence, thought } from '$lib/server/db/schema'
+import { loadOpenTaskThoughtsForProjectEntity } from '$lib/server/memory/project-eligibility'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
 export function computeReorderedThoughtIds(input: {
@@ -88,41 +83,8 @@ export async function loadOpenTaskThoughtIdsForProject(
   projectEntityId: string,
 ): Promise<Set<string>> {
   const entityId = validateNonEmptyEntityId(projectEntityId, 'projectEntityId')
-  const rows = await getDb()
-    .select({
-      thoughtId: thoughtEntity.thoughtId,
-      metadata: thought.metadata,
-      metadataEncrypted: thought.metadataEncrypted,
-      lifecycleStatus: thought.lifecycleStatus,
-    })
-    .from(thoughtEntity)
-    .innerJoin(thought, eq(thoughtEntity.thoughtId, thought.id))
-    .where(
-      and(
-        eq(thoughtEntity.userId, userId),
-        eq(thoughtEntity.entityId, entityId),
-        eq(thought.category, 'task'),
-      ),
-    )
-
-  const open = new Set<string>()
-  for (const row of rows) {
-    const lifecycle = row.lifecycleStatus as LifecycleStatus
-    if (lifecycle === 'completed' || lifecycle === 'archived') continue
-    const metadataJson = row.metadataEncrypted
-      ? await decryptTenantValue({
-          userId,
-          table: 'thought',
-          column: 'metadata',
-          ciphertext: row.metadataEncrypted,
-        })
-      : JSON.stringify(row.metadata ?? {})
-    const metadata = JSON.parse(metadataJson) as Record<string, unknown>
-    if (thoughtStatusFromMetadata(metadata) === 'open') {
-      open.add(row.thoughtId)
-    }
-  }
-  return open
+  const openTasks = await loadOpenTaskThoughtsForProjectEntity(userId, entityId)
+  return new Set(openTasks.map((task) => task.thoughtId))
 }
 
 export async function replaceProjectTaskSequence(input: {
@@ -131,9 +93,7 @@ export async function replaceProjectTaskSequence(input: {
   orderedThoughtIds: string[]
 }): Promise<void> {
   const entityId = validateNonEmptyEntityId(input.projectEntityId, 'projectEntityId')
-  const ordered = input.orderedThoughtIds.map((id) =>
-    validateNonEmptyEntityId(id, 'thoughtId'),
-  )
+  const ordered = input.orderedThoughtIds.map((id) => validateNonEmptyEntityId(id, 'thoughtId'))
   const now = new Date()
   await getDb().transaction(async (tx) => {
     await tx
