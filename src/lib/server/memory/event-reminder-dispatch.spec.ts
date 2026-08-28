@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dispatchDueEventReminders } from './event-reminder-dispatch'
 
-const { listDueMock, withDbUserMock, getDbMock, prefsMock, sendPushMock, queueEmailMock } = vi.hoisted(() => ({
-  listDueMock: vi.fn(),
-  withDbUserMock: vi.fn(),
-  getDbMock: vi.fn(),
-  prefsMock: vi.fn(),
-  sendPushMock: vi.fn(),
-  queueEmailMock: vi.fn(),
-}))
+const { listDueMock, withDbUserMock, getDbMock, prefsMock, sendPushMock, queueEmailMock } =
+  vi.hoisted(() => ({
+    listDueMock: vi.fn(),
+    withDbUserMock: vi.fn(),
+    getDbMock: vi.fn(),
+    prefsMock: vi.fn(),
+    sendPushMock: vi.fn(),
+    queueEmailMock: vi.fn(),
+  }))
 
 vi.mock('$lib/server/memory/notification-dispatch-admin', () => ({
   listDueEventReminders: listDueMock,
@@ -94,17 +95,41 @@ describe('dispatchDueEventReminders', () => {
     expect(result.skipped).toBe(1)
   })
 
-  it('skips when notifications disabled or no push devices', async () => {
+  it('skips non-reminder kinds when notifications disabled', async () => {
     prefsMock.mockResolvedValue({ eventNotificationsEnabled: false })
     listDueMock.mockResolvedValue([dueRow()])
-    let result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
     expect(result.skipped).toBe(1)
+    expect(sendPushMock).not.toHaveBeenCalled()
+    expect(queueEmailMock).not.toHaveBeenCalled()
+  })
 
+  it('delivers explicit reminders even when notifications are disabled', async () => {
+    prefsMock.mockResolvedValue({ eventNotificationsEnabled: false })
+    listDueMock.mockResolvedValue([dueRow({ kind: 'reminder' })])
+    const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    expect(result.sent).toBe(1)
+    expect(sendPushMock).toHaveBeenCalled()
+    expect(queueEmailMock).toHaveBeenCalled()
+  })
+
+  it('delivers explicit reminders with zero push subscriptions via email', async () => {
     prefsMock.mockResolvedValue({ eventNotificationsEnabled: true })
     selectLimit.mockResolvedValue([])
-    listDueMock.mockResolvedValue([dueRow({ scheduleId: 's2' })])
-    result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
-    expect(result.skipped).toBe(1)
+    listDueMock.mockResolvedValue([dueRow({ kind: 'reminder' })])
+    const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    expect(result.sent).toBe(1)
+    expect(sendPushMock).not.toHaveBeenCalled()
+    expect(queueEmailMock).toHaveBeenCalledWith('u1', expect.objectContaining({ title: 'Reminder' }))
+  })
+
+  it('delivers non-reminder kinds with zero push subscriptions via email', async () => {
+    selectLimit.mockResolvedValue([])
+    listDueMock.mockResolvedValue([dueRow()])
+    const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    expect(result.sent).toBe(1)
+    expect(sendPushMock).not.toHaveBeenCalled()
+    expect(queueEmailMock).toHaveBeenCalled()
   })
 
   it('sends push and marks schedule sent', async () => {
@@ -127,13 +152,36 @@ describe('dispatchDueEventReminders', () => {
     )
   })
 
-  it('marks failed when push throws', async () => {
+  it('still queues the email when push throws', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     sendPushMock.mockRejectedValue(new Error('push down'))
     listDueMock.mockResolvedValue([dueRow()])
     const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    expect(queueEmailMock).toHaveBeenCalled()
+    expect(result.sent).toBe(1)
+    expect(result.failed).toBe(0)
+    errSpy.mockRestore()
+  })
+
+  it('does not mark the whole dispatch failed when only email fails', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    queueEmailMock.mockRejectedValue(new Error('smtp down'))
+    listDueMock.mockResolvedValue([dueRow()])
+    const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    expect(sendPushMock).toHaveBeenCalled()
+    expect(result.sent).toBe(1)
+    expect(result.failed).toBe(0)
+    errSpy.mockRestore()
+  })
+
+  it('marks failed when both channels fail', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    sendPushMock.mockRejectedValue(new Error('push down'))
+    queueEmailMock.mockRejectedValue(new Error('smtp down'))
+    listDueMock.mockResolvedValue([dueRow()])
+    const result = await dispatchDueEventReminders(new Date('2026-01-01T10:05:00.000Z'))
+    expect(result.sent).toBe(0)
     expect(result.failed).toBe(1)
-    expect(queueEmailMock).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
 })
