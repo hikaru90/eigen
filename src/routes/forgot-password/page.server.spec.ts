@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { actions, load } from './+page.server'
 
-const { requestPasswordResetMock, isUseSendMailConfiguredMock } = vi.hoisted(() => ({
+const { requestPasswordResetMock, isOwleryMailConfiguredMock } = vi.hoisted(() => ({
   requestPasswordResetMock: vi.fn(),
-  isUseSendMailConfiguredMock: vi.fn(() => true),
+  isOwleryMailConfiguredMock: vi.fn(() => true),
 }))
 vi.mock('$lib/server/auth', () => ({
   auth: { api: { requestPasswordReset: requestPasswordResetMock } },
@@ -12,8 +12,8 @@ vi.mock('$lib/server/auth-form-errors', () => ({
   getSafeErrorMessage: (e: unknown, fallback = 'fallback') =>
     e instanceof Error ? e.message || fallback : fallback,
 }))
-vi.mock('$lib/server/email/usesend', () => ({
-  isUseSendMailConfigured: isUseSendMailConfiguredMock,
+vi.mock('$lib/server/owlery/mail', () => ({
+  isOwleryMailConfigured: isOwleryMailConfiguredMock,
 }))
 
 describe('forgot-password page server', () => {
@@ -22,7 +22,7 @@ describe('forgot-password page server', () => {
   })
 
   it('exposes whether mail is configured', () => {
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     expect(load({ locals: { user: null } } as never)).toMatchObject({ mailConfigured: true })
   })
 
@@ -37,7 +37,7 @@ describe('forgot-password page server', () => {
   })
 
   it('fails when mail is not configured', async () => {
-    isUseSendMailConfiguredMock.mockReturnValue(false)
+    isOwleryMailConfiguredMock.mockReturnValue(false)
     const request = new Request('http://localhost/forgot-password', {
       method: 'POST',
       body: new URLSearchParams({ email: 'test@example.com' }),
@@ -49,7 +49,7 @@ describe('forgot-password page server', () => {
   })
 
   it('requests a reset with redirect to /reset-password', async () => {
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     requestPasswordResetMock.mockResolvedValue({ status: true })
     const request = new Request('http://localhost/forgot-password', {
       method: 'POST',
@@ -71,7 +71,7 @@ describe('forgot-password page server', () => {
   })
 
   it('returns safe error when Better Auth rejects the request', async () => {
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     requestPasswordResetMock.mockRejectedValue(new Error('Reset password isn\'t enabled'))
     const request = new Request('http://localhost/forgot-password', {
       method: 'POST',

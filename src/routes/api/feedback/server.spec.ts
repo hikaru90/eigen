@@ -147,7 +147,7 @@ describe('POST /api/feedback', () => {
 
   it('rejects with 502 when inbox email send fails after persist', async () => {
     mockInsert({ id: 'fb-err' })
-    sendFeedbackInboxEmailMock.mockRejectedValue(new Error('useSend down'))
+    sendFeedbackInboxEmailMock.mockRejectedValue(new Error('Owlery down'))
     const res = await POST(event({ body: { message: 'still save me' } }))
     expect(res.status).toBe(502)
     const body = await res.json()

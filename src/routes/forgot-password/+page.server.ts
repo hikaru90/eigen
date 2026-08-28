@@ -3,7 +3,7 @@ import { fail, redirect } from '@sveltejs/kit'
 import { env } from '$lib/server/env/private-env'
 import { auth } from '$lib/server/auth'
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors'
-import { isUseSendMailConfigured } from '$lib/server/email/usesend'
+import { isOwleryMailConfigured } from '$lib/server/owlery/mail'
 import { forgotPasswordSchema } from '$lib/validation/auth'
 
 export const load: PageServerLoad = (event) => {
@@ -11,7 +11,7 @@ export const load: PageServerLoad = (event) => {
     throw redirect(302, '/capture')
   }
   return {
-    mailConfigured: isUseSendMailConfigured(env),
+    mailConfigured: isOwleryMailConfigured(env),
   }
 }
 
@@ -26,7 +26,7 @@ export const actions: Actions = {
       return fail(400, { message })
     }
 
-    if (!isUseSendMailConfigured(env)) {
+    if (!isOwleryMailConfigured(env)) {
       return fail(503, {
         message: 'Password reset email is not configured on this server.',
       })

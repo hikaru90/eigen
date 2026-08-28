@@ -1,4 +1,6 @@
 /** OAuth providers supported in Better Auth `socialProviders` config. */
+import { splitDisplayName } from './auth-user-name'
+
 export const SOCIAL_PROVIDER_IDS = ['google', 'github'] as const
 
 export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number]
@@ -35,14 +37,20 @@ function readProfileString(profile: OAuthNameProfile, key: keyof OAuthNameProfil
   return trimmed || undefined
 }
 
-/** Google ID-token claims carry structured given/family names — map them directly. */
+/** Google ID-token claims carry structured given/family names; fall back to splitting `name`. */
 function mapGoogleProfile(profile: OAuthNameProfile): {
   firstName?: string
   lastName?: string
 } {
   const firstName = readProfileString(profile, 'given_name')
   const lastName = readProfileString(profile, 'family_name')
-  return { ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) }
+  if (firstName || lastName) {
+    return { ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) }
+  }
+
+  const displayName = readProfileString(profile, 'name')
+  if (!displayName) return {}
+  return splitDisplayName(displayName)
 }
 
 /**
@@ -57,9 +65,7 @@ function mapGithubProfile(profile: OAuthNameProfile): {
 } {
   const displayName = readProfileString(profile, 'name') ?? readProfileString(profile, 'login')
   if (!displayName) return {}
-  const [firstName, ...rest] = displayName.split(/\s+/)
-  const lastName = rest.join(' ')
-  return { ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) }
+  return splitDisplayName(displayName)
 }
 
 const PROVIDER_PROFILE_MAPPERS: Record<

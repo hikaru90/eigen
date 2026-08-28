@@ -1,10 +1,7 @@
 import { env } from '$lib/server/env/private-env'
-import {
-  isUseSendMailConfigured,
-  sendTransactionalEmail,
-} from '$lib/server/email/usesend'
+import { isOwleryMailConfigured, sendTransactionalEmail } from '$lib/server/owlery/mail'
 
-/** Product inbox for user-submitted feedback (useSend transactional). */
+/** Product inbox for user-submitted feedback (Owlery transactional). */
 export const FEEDBACK_INBOX_EMAIL = 'feedback@eigenmesh.xyz'
 
 function escapeHtml(value: string): string {
@@ -15,11 +12,11 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
-/** Throws when useSend is not configured — feedback delivery requires email. */
+/** Throws when Owlery mail is not configured — feedback delivery requires email. */
 export function assertFeedbackMailConfigured(): void {
-  if (!isUseSendMailConfigured(env)) {
+  if (!isOwleryMailConfigured(env)) {
     throw new Error(
-      'Feedback email is not configured (set USESEND_API_KEY, USESEND_BASE_URL, and USESEND_EMAIL_FROM)',
+      'Feedback email is not configured (set OWLERY_API_KEY, OWLERY_BASE_URL, and OWLERY_EMAIL_FROM)',
     )
   }
 }
@@ -32,7 +29,7 @@ export type SendFeedbackInboxEmailInput = {
 }
 
 /**
- * Delivers product feedback to the Eigen inbox via useSend.
+ * Delivers product feedback to the Eigen inbox via Owlery.
  * Propagates send failures — no silent swallow (see AGENTS.md failure policy).
  */
 export async function sendFeedbackInboxEmail(

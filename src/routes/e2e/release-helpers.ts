@@ -1960,7 +1960,7 @@ async function exerciseAccountMenu(page: Page): Promise<void> {
   await exerciseFeedbackSubmit(page)
 }
 
-/** Submit product feedback via the UI; server emails feedback@eigenmesh.xyz via useSend. */
+/** Submit product feedback via the UI; server emails feedback@eigenmesh.xyz via Owlery. */
 export async function exerciseFeedbackSubmit(page: Page): Promise<void> {
   await page.goto('/feedback')
   await expect(page.getByRole('heading', { name: 'Help shape Eigen Mesh' })).toBeVisible()

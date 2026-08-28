@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { authDbSelectMock, isUseSendMailConfiguredMock, sendTransactionalEmailMock } = vi.hoisted(
+const { authDbSelectMock, isOwleryMailConfiguredMock, sendTransactionalEmailMock } = vi.hoisted(
   () => ({
     authDbSelectMock: vi.fn(),
-    isUseSendMailConfiguredMock: vi.fn(),
+    isOwleryMailConfiguredMock: vi.fn(),
     sendTransactionalEmailMock: vi.fn(),
   }),
 )
 
 vi.mock('$lib/server/env/private-env', () => ({
   env: {
-    USESEND_API_KEY: 'us_test',
-    USESEND_BASE_URL: 'https://usesend.example',
-    USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
+    OWLERY_API_KEY: 'us_test',
+    OWLERY_BASE_URL: 'https://owlery.example',
+    OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
     ORIGIN: 'https://eigen.example',
   },
 }))
@@ -25,8 +25,8 @@ vi.mock('$lib/server/db/auth.schema', () => ({
   user: { id: 'id', email: 'email' },
 }))
 
-vi.mock('$lib/server/email/usesend', () => ({
-  isUseSendMailConfigured: isUseSendMailConfiguredMock,
+vi.mock('$lib/server/owlery/mail', () => ({
+  isOwleryMailConfigured: isOwleryMailConfiguredMock,
   sendTransactionalEmail: sendTransactionalEmailMock,
 }))
 
@@ -50,7 +50,7 @@ const PAYLOAD = {
 describe('queueNotificationEmail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     sendTransactionalEmailMock.mockResolvedValue({ emailId: 'em_1' })
   })
 
@@ -58,8 +58,8 @@ describe('queueNotificationEmail', () => {
     vi.restoreAllMocks()
   })
 
-  it('no-ops when useSend is not configured', async () => {
-    isUseSendMailConfiguredMock.mockReturnValue(false)
+  it('no-ops when Owlery mail is not configured', async () => {
+    isOwleryMailConfiguredMock.mockReturnValue(false)
     selectReturning([])
 
     await queueNotificationEmail('u1', PAYLOAD)

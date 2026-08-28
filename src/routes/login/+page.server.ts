@@ -4,7 +4,7 @@ import { env } from '$lib/server/env/private-env'
 import { auth } from '$lib/server/auth'
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors'
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social'
-import { isUseSendMailConfigured } from '$lib/server/email/usesend'
+import { isOwleryMailConfigured } from '$lib/server/owlery/mail'
 import { resendVerificationSchema, signInSchema } from '$lib/validation/auth'
 
 function isEmailNotVerifiedError(error: unknown): boolean {
@@ -19,7 +19,7 @@ export const load: PageServerLoad = (event) => {
   return {
     socialProviders: listEnabledSocialProviderIds(env),
     oauthError: oauthError?.trim() || null,
-    mailConfigured: isUseSendMailConfigured(env),
+    mailConfigured: isOwleryMailConfigured(env),
   }
 }
 
@@ -71,7 +71,7 @@ export const actions: Actions = {
       return fail(400, { message })
     }
 
-    if (!isUseSendMailConfigured(env)) {
+    if (!isOwleryMailConfigured(env)) {
       return fail(503, {
         message: 'Verification email is not configured on this server.',
       })

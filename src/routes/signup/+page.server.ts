@@ -5,7 +5,7 @@ import { parseSignupPlanParam } from '$lib/auth/signup-plan'
 import { auth } from '$lib/server/auth'
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors'
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social'
-import { isUseSendMailConfigured } from '$lib/server/email/usesend'
+import { isOwleryMailConfigured } from '$lib/server/owlery/mail'
 import { resendVerificationSchema, signUpSchema } from '$lib/validation/auth'
 
 export const load: PageServerLoad = (event) => {
@@ -23,7 +23,7 @@ export const load: PageServerLoad = (event) => {
   return {
     socialProviders: listEnabledSocialProviderIds(env),
     plan,
-    emailVerificationRequired: isUseSendMailConfigured(env),
+    emailVerificationRequired: isOwleryMailConfigured(env),
   }
 }
 
@@ -54,7 +54,7 @@ export const actions: Actions = {
       return fail(400, { message })
     }
 
-    const emailVerificationRequired = isUseSendMailConfigured(env)
+    const emailVerificationRequired = isOwleryMailConfigured(env)
     const data = validation.data
 
     // Declared as user.additionalFields (input: true) in auth.ts, so Better Auth persists them
@@ -99,7 +99,7 @@ export const actions: Actions = {
       return fail(400, { message, checkEmail: true, email })
     }
 
-    if (!isUseSendMailConfigured(env)) {
+    if (!isOwleryMailConfigured(env)) {
       return fail(503, {
         message: 'Verification email is not configured on this server.',
         checkEmail: true,

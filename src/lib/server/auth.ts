@@ -4,14 +4,16 @@ import { sveltekitCookies } from 'better-auth/svelte-kit'
 import { getRequestEvent } from '$app/server'
 import { env } from '$lib/server/env/private-env'
 import { resolveAccountKindForNewUser } from '$lib/auth/account-kind'
+import { syncOwleryContactForVerifiedUser } from '$lib/server/auth-owlery-sync'
 import { buildSocialProvidersConfig, listEnabledSocialProviderIds } from '$lib/server/auth-social'
+import { normalizeUserNameFields } from '$lib/server/auth-user-name'
 import { authDb } from '$lib/server/db/auth-db'
 import { recordVerificationLink } from '$lib/server/e2e/verification-link-store'
-import { isUseSendMailConfigured, sendTransactionalEmail } from '$lib/server/email/usesend'
+import { isOwleryMailConfigured, sendTransactionalEmail } from '$lib/server/owlery/mail'
 
 const socialProviders = buildSocialProvidersConfig(env)
 const enabledSocialProviderIds = listEnabledSocialProviderIds(env)
-const mailConfigured = isUseSendMailConfigured(env)
+const mailConfigured = isOwleryMailConfigured(env)
 
 /**
  * Better Auth requires an absolute URL with a scheme. Some hosts set `ORIGIN` to a bare hostname
@@ -93,6 +95,9 @@ export const auth = betterAuth({
               html: linkEmailHtml('Click the link to verify your email:', url),
             })
           },
+          afterEmailVerification: async (user) => {
+            await syncOwleryContactForVerifiedUser(user)
+          },
         },
       }
     : {}),
@@ -110,7 +115,7 @@ export const auth = betterAuth({
   user: {
     changeEmail: {
       enabled: true,
-      /** Without a mailer, allow immediate updates; with useSend, confirm via email. */
+      /** Without a mailer, allow immediate updates; with Owlery, confirm via email. */
       updateEmailWithoutVerification: !mailConfigured,
       ...(mailConfigured
         ? {
@@ -180,6 +185,7 @@ export const auth = betterAuth({
         before: async (user) => ({
           data: {
             ...user,
+            ...normalizeUserNameFields(user),
             accountKind: resolveAccountKindForNewUser(String(user.email ?? '')),
           },
         }),
@@ -193,29 +199,7 @@ export const auth = betterAuth({
               error: err instanceof Error ? err.message : String(err),
             })
           }
-          const { createOwleryContact, isOwleryConfigured } = await import(
-            '$lib/server/owlery/contacts'
-          )
-          if (isOwleryConfigured(env)) {
-            const newUser = user as {
-              id: string
-              email?: string
-              firstName?: string | null
-              lastName?: string | null
-            }
-            try {
-              await createOwleryContact(env, {
-                email: String(newUser.email ?? ''),
-                ...(newUser.firstName ? { firstName: newUser.firstName } : {}),
-                ...(newUser.lastName ? { lastName: newUser.lastName } : {}),
-              })
-            } catch (err) {
-              console.error('[auth] owlery contact sync failed', {
-                userId: user.id,
-                error: err instanceof Error ? err.message : String(err),
-              })
-            }
-          }
+          await syncOwleryContactForVerifiedUser(user)
         },
       },
     },

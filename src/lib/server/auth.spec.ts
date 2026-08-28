@@ -39,10 +39,10 @@ vi.mock('$lib/server/db/auth-db', () => ({
   authDb: {},
 }))
 
-vi.mock('$lib/server/email/usesend', () => ({
-  isUseSendMailConfigured: (e: Record<string, string | undefined>) =>
+vi.mock('$lib/server/owlery/mail', () => ({
+  isOwleryMailConfigured: (e: Record<string, string | undefined>) =>
     Boolean(
-      e.USESEND_API_KEY?.trim() && e.USESEND_BASE_URL?.trim() && e.USESEND_EMAIL_FROM?.trim(),
+      e.OWLERY_API_KEY?.trim() && e.OWLERY_BASE_URL?.trim() && e.OWLERY_EMAIL_FROM?.trim(),
     ),
   sendTransactionalEmail: (...args: unknown[]) => sendTransactionalEmailMock(...args),
 }))
@@ -65,9 +65,10 @@ vi.mock('$lib/server/owlery/contacts', () => ({
 }))
 
 function clearMailEnv() {
-  delete env.USESEND_API_KEY
-  delete env.USESEND_BASE_URL
-  delete env.USESEND_EMAIL_FROM
+  delete env.OWLERY_API_KEY
+  delete env.OWLERY_BASE_URL
+  delete env.OWLERY_EMAIL_FROM
+  delete env.OWLERY_CONTACT_BOOK_ID
   delete env.GITHUB_CLIENT_ID
   delete env.GITHUB_CLIENT_SECRET
   delete env.GOOGLE_CLIENT_ID
@@ -96,6 +97,13 @@ async function loadAuth() {
 type AuthConfig = {
   emailVerification?: {
     sendVerificationEmail: (input: { user: { email: string }; url: string }) => Promise<void>
+    afterEmailVerification?: (user: {
+      id: string
+      email?: string
+      emailVerified?: boolean
+      firstName?: string | null
+      lastName?: string | null
+    }) => Promise<void>
   }
   emailAndPassword: {
     requireEmailVerification: boolean
@@ -147,7 +155,7 @@ describe('auth config', () => {
     env.BETTER_AUTH_SECRET = 'secret'
   })
 
-  it('constructs better-auth without verification mailer when useSend unset', async () => {
+  it('constructs better-auth without verification mailer when Owlery mail unset', async () => {
     const mod = await loadAuth()
     expect(mod.auth).toBeDefined()
     expect(betterAuthMock).toHaveBeenCalledWith(
@@ -172,10 +180,10 @@ describe('auth config', () => {
     expect(config.user.changeEmail.sendChangeEmailConfirmation).toBeUndefined()
   })
 
-  it('enables verification mailers when useSend is configured', async () => {
-    env.USESEND_API_KEY = 'key'
-    env.USESEND_BASE_URL = 'https://mail.example'
-    env.USESEND_EMAIL_FROM = 'noreply@example.com'
+  it('enables verification mailers when Owlery mail is configured', async () => {
+    env.OWLERY_API_KEY = 'key'
+    env.OWLERY_BASE_URL = 'https://mail.example'
+    env.OWLERY_EMAIL_FROM = 'noreply@example.com'
 
     await loadAuth()
     const config = lastConfig()
@@ -187,9 +195,9 @@ describe('auth config', () => {
   })
 
   it('queues reset-password email via sendResetPassword', async () => {
-    env.USESEND_API_KEY = 'key'
-    env.USESEND_BASE_URL = 'https://mail.example'
-    env.USESEND_EMAIL_FROM = 'noreply@example.com'
+    env.OWLERY_API_KEY = 'key'
+    env.OWLERY_BASE_URL = 'https://mail.example'
+    env.OWLERY_EMAIL_FROM = 'noreply@example.com'
 
     await loadAuth()
     const config = lastConfig()
@@ -209,9 +217,9 @@ describe('auth config', () => {
   })
 
   it('records verification link and queues verify email', async () => {
-    env.USESEND_API_KEY = 'key'
-    env.USESEND_BASE_URL = 'https://mail.example'
-    env.USESEND_EMAIL_FROM = 'noreply@example.com'
+    env.OWLERY_API_KEY = 'key'
+    env.OWLERY_BASE_URL = 'https://mail.example'
+    env.OWLERY_EMAIL_FROM = 'noreply@example.com'
 
     await loadAuth()
     const config = lastConfig()
@@ -231,9 +239,9 @@ describe('auth config', () => {
   })
 
   it('queues change-email confirmation', async () => {
-    env.USESEND_API_KEY = 'key'
-    env.USESEND_BASE_URL = 'https://mail.example'
-    env.USESEND_EMAIL_FROM = 'noreply@example.com'
+    env.OWLERY_API_KEY = 'key'
+    env.OWLERY_BASE_URL = 'https://mail.example'
+    env.OWLERY_EMAIL_FROM = 'noreply@example.com'
 
     await loadAuth()
     const config = lastConfig()
@@ -254,9 +262,9 @@ describe('auth config', () => {
   })
 
   it('logs when transactional email fails without throwing', async () => {
-    env.USESEND_API_KEY = 'key'
-    env.USESEND_BASE_URL = 'https://mail.example'
-    env.USESEND_EMAIL_FROM = 'noreply@example.com'
+    env.OWLERY_API_KEY = 'key'
+    env.OWLERY_BASE_URL = 'https://mail.example'
+    env.OWLERY_EMAIL_FROM = 'noreply@example.com'
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await loadAuth()
@@ -337,13 +345,29 @@ describe('auth config', () => {
     errSpy.mockRestore()
   })
 
-  it('databaseHooks after creates an owlery contact with email and names when configured', async () => {
+  it('databaseHooks before normalizes firstName from OAuth display name', async () => {
+    await loadAuth()
+    const config = lastConfig()
+    const result = await config.databaseHooks.user.create.before({
+      email: 'ada@example.com',
+      name: 'Ada Lovelace',
+    })
+    expect(result.data).toMatchObject({
+      email: 'ada@example.com',
+      name: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+    })
+  })
+
+  it('databaseHooks after creates an owlery contact when email is verified', async () => {
     await loadAuth()
     isOwleryConfiguredMock.mockReturnValue(true)
     const config = lastConfig()
     await config.databaseHooks.user.create.after({
       id: 'user-3',
       email: 'ada@example.com',
+      emailVerified: true,
       firstName: 'Ada',
       lastName: 'Lovelace',
     })
@@ -352,6 +376,19 @@ describe('auth config', () => {
       firstName: 'Ada',
       lastName: 'Lovelace',
     })
+  })
+
+  it('databaseHooks after skips owlery when email is not verified', async () => {
+    await loadAuth()
+    isOwleryConfiguredMock.mockReturnValue(true)
+    const config = lastConfig()
+    await config.databaseHooks.user.create.after({
+      id: 'user-3b',
+      email: 'ada@example.com',
+      emailVerified: false,
+      firstName: 'Ada',
+    })
+    expect(createOwleryContactMock).not.toHaveBeenCalled()
   })
 
   it('databaseHooks after skips the owlery sync when not configured', async () => {
@@ -374,6 +411,7 @@ describe('auth config', () => {
     await config.databaseHooks.user.create.after({
       id: 'user-5',
       email: 'ada@example.com',
+      emailVerified: true,
       firstName: 'Ada',
     })
     expect(errSpy).toHaveBeenCalledWith(
@@ -381,6 +419,28 @@ describe('auth config', () => {
       expect.objectContaining({ userId: 'user-5', error: 'owlery down' }),
     )
     errSpy.mockRestore()
+  })
+
+  it('afterEmailVerification syncs owlery when mail is configured', async () => {
+    env.OWLERY_API_KEY = 'key'
+    env.OWLERY_BASE_URL = 'https://mail.example'
+    env.OWLERY_EMAIL_FROM = 'noreply@example.com'
+
+    await loadAuth()
+    isOwleryConfiguredMock.mockReturnValue(true)
+    const config = lastConfig()
+    await config.emailVerification!.afterEmailVerification!({
+      id: 'user-6',
+      email: 'ada@example.com',
+      emailVerified: true,
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+    })
+    expect(createOwleryContactMock).toHaveBeenCalledWith(env, {
+      email: 'ada@example.com',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+    })
   })
 })
 

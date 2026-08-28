@@ -1,32 +1,32 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  isUseSendMailConfigured,
-  resolveUseSendMailConfig,
+  isOwleryMailConfigured,
+  resolveOwleryMailConfig,
   sendTransactionalEmail,
-} from './usesend'
+} from './mail'
 
-describe('resolveUseSendMailConfig', () => {
+describe('resolveOwleryMailConfig', () => {
   it('returns null when any required env is missing', () => {
-    expect(resolveUseSendMailConfig({})).toBeNull()
+    expect(resolveOwleryMailConfig({})).toBeNull()
     expect(
-      resolveUseSendMailConfig({
-        USESEND_API_KEY: 'us_x',
-        USESEND_BASE_URL: 'https://usesend.example',
+      resolveOwleryMailConfig({
+        OWLERY_API_KEY: 'us_x',
+        OWLERY_BASE_URL: 'https://owlery.example',
       }),
     ).toBeNull()
-    expect(isUseSendMailConfigured({})).toBe(false)
+    expect(isOwleryMailConfigured({})).toBe(false)
   })
 
   it('strips trailing slash from base URL', () => {
     expect(
-      resolveUseSendMailConfig({
-        USESEND_API_KEY: 'us_x',
-        USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de/',
-        USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
+      resolveOwleryMailConfig({
+        OWLERY_API_KEY: 'us_x',
+        OWLERY_BASE_URL: 'https://owlery.example/',
+        OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
       }),
     ).toEqual({
       apiKey: 'us_x',
-      baseUrl: 'https://usesend.coolify.stackstack.de',
+      baseUrl: 'https://owlery.example',
       from: 'hello@eigenmesh.xyz',
     })
   })
@@ -39,16 +39,16 @@ describe('sendTransactionalEmail', () => {
     ).rejects.toThrow(/not configured/)
   })
 
-  it('POSTs to useSend /api/v1/emails with Bearer auth', async () => {
+  it('POSTs to Owlery /api/v1/emails with Bearer auth', async () => {
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ emailId: 'em_1' }), { status: 200 }),
     )
 
     const result = await sendTransactionalEmail(
       {
-        USESEND_API_KEY: 'us_test',
-        USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
-        USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
+        OWLERY_API_KEY: 'us_test',
+        OWLERY_BASE_URL: 'https://owlery.example',
+        OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
       },
       {
         to: 'user@example.com',
@@ -61,7 +61,7 @@ describe('sendTransactionalEmail', () => {
 
     expect(result).toEqual({ emailId: 'em_1' })
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://usesend.coolify.stackstack.de/api/v1/emails',
+      'https://owlery.example/api/v1/emails',
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -87,9 +87,9 @@ describe('sendTransactionalEmail', () => {
 
     await sendTransactionalEmail(
       {
-        USESEND_API_KEY: 'us_test',
-        USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
-        USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
+        OWLERY_API_KEY: 'us_test',
+        OWLERY_BASE_URL: 'https://owlery.example',
+        OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
       },
       {
         to: 'feedback@eigenmesh.xyz',
@@ -113,9 +113,9 @@ describe('sendTransactionalEmail', () => {
     await expect(
       sendTransactionalEmail(
         {
-          USESEND_API_KEY: 'us_test',
-          USESEND_BASE_URL: 'https://usesend.coolify.stackstack.de',
-          USESEND_EMAIL_FROM: 'hello@eigenmesh.xyz',
+          OWLERY_API_KEY: 'us_test',
+          OWLERY_BASE_URL: 'https://owlery.example',
+          OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
         },
         { to: 'a@b.co', subject: 's', html: 'h', text: 't' },
         fetchImpl as unknown as typeof fetch,

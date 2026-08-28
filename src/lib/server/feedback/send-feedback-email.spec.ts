@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { isUseSendMailConfiguredMock, sendTransactionalEmailMock } = vi.hoisted(() => ({
-  isUseSendMailConfiguredMock: vi.fn(),
+const { isOwleryMailConfiguredMock, sendTransactionalEmailMock } = vi.hoisted(() => ({
+  isOwleryMailConfiguredMock: vi.fn(),
   sendTransactionalEmailMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/env/private-env', () => ({
   env: {
-    USESEND_API_KEY: 'us_test',
-    USESEND_BASE_URL: 'https://usesend.example',
-    USESEND_EMAIL_FROM: 'Eigen Mesh <hello@eigenmesh.xyz>',
+    OWLERY_API_KEY: 'us_test',
+    OWLERY_BASE_URL: 'https://owlery.example',
+    OWLERY_EMAIL_FROM: 'Eigen Mesh <hello@eigenmesh.xyz>',
   },
 }))
 
-vi.mock('$lib/server/email/usesend', () => ({
-  isUseSendMailConfigured: isUseSendMailConfiguredMock,
+vi.mock('$lib/server/owlery/mail', () => ({
+  isOwleryMailConfigured: isOwleryMailConfiguredMock,
   sendTransactionalEmail: sendTransactionalEmailMock,
 }))
 
@@ -24,7 +24,7 @@ const { FEEDBACK_INBOX_EMAIL, assertFeedbackMailConfigured, sendFeedbackInboxEma
 describe('sendFeedbackInboxEmail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     sendTransactionalEmailMock.mockResolvedValue({ emailId: 'em_fb' })
   })
 
@@ -32,8 +32,8 @@ describe('sendFeedbackInboxEmail', () => {
     expect(FEEDBACK_INBOX_EMAIL).toBe('feedback@eigenmesh.xyz')
   })
 
-  it('assertFeedbackMailConfigured throws when useSend is off', () => {
-    isUseSendMailConfiguredMock.mockReturnValue(false)
+  it('assertFeedbackMailConfigured throws when Owlery mail is off', () => {
+    isOwleryMailConfiguredMock.mockReturnValue(false)
     expect(() => assertFeedbackMailConfigured()).toThrow(/not configured/i)
   })
 
@@ -59,7 +59,7 @@ describe('sendFeedbackInboxEmail', () => {
   })
 
   it('propagates send failures (no silent swallow)', async () => {
-    sendTransactionalEmailMock.mockRejectedValue(new Error('useSend down'))
+    sendTransactionalEmailMock.mockRejectedValue(new Error('Owlery down'))
     await expect(
       sendFeedbackInboxEmail({
         feedbackId: 'fb-1',
@@ -67,6 +67,6 @@ describe('sendFeedbackInboxEmail', () => {
         userEmail: 'alex@example.com',
         message: 'hi',
       }),
-    ).rejects.toThrow(/useSend down/)
+    ).rejects.toThrow(/Owlery down/)
   })
 })

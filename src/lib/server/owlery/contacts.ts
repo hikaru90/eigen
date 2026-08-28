@@ -1,16 +1,14 @@
 /**
- * Mailing-list contact sync via Owlery (REST).
- * New auth users (email/password and OAuth) are created as contacts on signup.
+ * Onboarding contact book sync via Owlery (REST).
+ * Contacts are added only after Eigen email confirmation — see auth hooks.
  * @see POST /api/v1/contactBooks/{contactBookId}/contacts
  */
 
-export type OwleryEnv = {
-  OWLERY_API_KEY?: string
-  OWLERY_BASE_URL?: string
-  OWLERY_CONTACT_BOOK_ID?: string
-  /** SvelteKit's `$env/dynamic/private` carries arbitrary keys alongside the declared ones. */
-  [key: string]: string | undefined
-}
+import {
+  type OwleryEnv,
+  isOwleryContactBookConfigured,
+  resolveOwleryContactBookConfig,
+} from './config'
 
 export type CreateOwleryContactInput = {
   email: string
@@ -18,44 +16,19 @@ export type CreateOwleryContactInput = {
   lastName?: string
 }
 
-export type OwleryConfig = {
-  apiKey: string
-  baseUrl: string
-  contactBookId: string
-}
-
-function readRequired(env: OwleryEnv, key: keyof OwleryEnv): string | undefined {
-  const value = env[key]?.trim()
-  return value || undefined
-}
-
-/** Returns Owlery config when all three env vars are set; otherwise `null` (contact sync stays off). */
-export function resolveOwleryConfig(env: OwleryEnv): OwleryConfig | null {
-  const apiKey = readRequired(env, 'OWLERY_API_KEY')
-  const baseUrl = readRequired(env, 'OWLERY_BASE_URL')
-  const contactBookId = readRequired(env, 'OWLERY_CONTACT_BOOK_ID')
-  if (!apiKey || !baseUrl || !contactBookId) return null
-  return { apiKey, baseUrl: baseUrl.replace(/\/$/, ''), contactBookId }
-}
-
-export function isOwleryConfigured(env: OwleryEnv): boolean {
-  return resolveOwleryConfig(env) !== null
-}
-
 /**
- * Creates one contact in the configured contact book. Throws if Owlery is not configured
- * or the API rejects the request. No silent degradation — callers must only invoke this
- * when Owlery is configured. The API key never appears in thrown errors.
+ * Creates one contact in the onboarding book. Throws if the contact book is not configured
+ * or the API rejects the request.
  */
 export async function createOwleryContact(
   env: OwleryEnv,
   input: CreateOwleryContactInput,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ contactId: string | null }> {
-  const config = resolveOwleryConfig(env)
+  const config = resolveOwleryContactBookConfig(env)
   if (!config) {
     throw new Error(
-      'Owlery is not configured (set OWLERY_API_KEY, OWLERY_BASE_URL, and OWLERY_CONTACT_BOOK_ID)',
+      'Owlery onboarding list is not configured (set OWLERY_API_KEY, OWLERY_BASE_URL, OWLERY_EMAIL_FROM, and OWLERY_CONTACT_BOOK_ID)',
     )
   }
 
@@ -68,6 +41,7 @@ export async function createOwleryContact(
     },
     body: JSON.stringify({
       email: input.email,
+      subscribed: true,
       ...(input.firstName ? { firstName: input.firstName } : {}),
       ...(input.lastName ? { lastName: input.lastName } : {}),
     }),
@@ -90,3 +64,8 @@ export async function createOwleryContact(
 
   return { contactId: typeof parsed?.contactId === 'string' ? parsed.contactId : null }
 }
+
+export {
+  isOwleryContactBookConfigured as isOwleryConfigured,
+  resolveOwleryContactBookConfig as resolveOwleryConfig,
+} from './config'

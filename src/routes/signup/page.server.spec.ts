@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { actions, load } from './+page.server'
 
-const { signUpEmailMock, sendVerificationEmailMock, isUseSendMailConfiguredMock } = vi.hoisted(
+const { signUpEmailMock, sendVerificationEmailMock, isOwleryMailConfiguredMock } = vi.hoisted(
   () => ({
     signUpEmailMock: vi.fn(),
     sendVerificationEmailMock: vi.fn(),
-    isUseSendMailConfiguredMock: vi.fn(() => false),
+    isOwleryMailConfiguredMock: vi.fn(() => false),
   }),
 )
 vi.mock('$lib/server/auth', () => ({
@@ -19,8 +19,8 @@ vi.mock('$lib/server/auth', () => ({
 vi.mock('$lib/server/auth-form-errors', () => ({
   getSafeErrorMessage: (e: unknown) => `safe: ${e}`,
 }))
-vi.mock('$lib/server/email/usesend', () => ({
-  isUseSendMailConfigured: isUseSendMailConfiguredMock,
+vi.mock('$lib/server/owlery/mail', () => ({
+  isOwleryMailConfigured: isOwleryMailConfiguredMock,
 }))
 
 describe('signup page server', () => {
@@ -203,8 +203,8 @@ describe('signup page server', () => {
     expect('lastName' in body).toBe(false)
   })
 
-  it('asks user to verify email when useSend is configured', async () => {
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+  it('asks user to verify email when Owlery mail is configured', async () => {
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     signUpEmailMock.mockResolvedValue({ user: { id: 'u1' }, token: null })
     const request = new Request('http://localhost/signup', {
       method: 'POST',
@@ -230,7 +230,7 @@ describe('signup page server', () => {
   })
 
   it('resends verification email from the check-email state', async () => {
-    isUseSendMailConfiguredMock.mockReturnValue(true)
+    isOwleryMailConfiguredMock.mockReturnValue(true)
     sendVerificationEmailMock.mockResolvedValue({ status: true })
     const request = new Request('http://localhost/signup', {
       method: 'POST',

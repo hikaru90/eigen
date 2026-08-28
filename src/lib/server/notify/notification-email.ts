@@ -2,10 +2,7 @@ import { eq } from 'drizzle-orm'
 import { env } from '$lib/server/env/private-env'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
-import {
-  isUseSendMailConfigured,
-  sendTransactionalEmail,
-} from '$lib/server/email/usesend'
+import { isOwleryMailConfigured, sendTransactionalEmail } from '$lib/server/owlery/mail'
 import type { PushNotificationPayload } from '$lib/server/push/send'
 
 const EIGEN_SUBJECT_PREFIX = '[Eigen]'
@@ -21,7 +18,7 @@ function escapeHtml(value: string): string {
 /**
  * Best-effort transactional email mirror of a push notification.
  *
- * Email is a secondary channel: when useSend is not configured or the user has
+ * Email is a secondary channel: when Owlery mail is not configured or the user has
  * no email address, this is a no-op. Send failures are logged, never thrown —
  * matching the fire-and-forget pattern in `src/lib/server/auth.ts`.
  */
@@ -29,7 +26,7 @@ export async function queueNotificationEmail(
   userId: string,
   payload: PushNotificationPayload,
 ): Promise<void> {
-  if (!isUseSendMailConfigured(env)) return
+  if (!isOwleryMailConfigured(env)) return
 
   const [row] = await authDb
     .select({ email: user.email })

@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { createOwleryContact, isOwleryConfigured, resolveOwleryConfig } from './contacts'
 
 const configuredEnv = {
-  OWLERY_API_KEY: 'ow_live_test_key',
+  OWLERY_API_KEY: 'us_test',
   OWLERY_BASE_URL: 'https://owlery.example.com',
+  OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
   OWLERY_CONTACT_BOOK_ID: 'cb_123',
 }
 
@@ -15,17 +16,13 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe('resolveOwleryConfig', () => {
-  it('returns null unless all three env vars are set', () => {
+  it('returns null unless mail env and contact book id are set', () => {
     expect(resolveOwleryConfig({})).toBeNull()
-    expect(resolveOwleryConfig({ OWLERY_API_KEY: 'k' })).toBeNull()
-    expect(
-      resolveOwleryConfig({ OWLERY_API_KEY: 'k', OWLERY_BASE_URL: 'https://x.example' }),
-    ).toBeNull()
     expect(
       resolveOwleryConfig({
         OWLERY_API_KEY: 'k',
         OWLERY_BASE_URL: 'https://x.example',
-        OWLERY_CONTACT_BOOK_ID: '   ',
+        OWLERY_EMAIL_FROM: 'from@example.com',
       }),
     ).toBeNull()
   })
@@ -34,11 +31,13 @@ describe('resolveOwleryConfig', () => {
     const config = resolveOwleryConfig({
       OWLERY_API_KEY: '  k ',
       OWLERY_BASE_URL: 'https://owlery.example.com/',
+      OWLERY_EMAIL_FROM: ' from@example.com ',
       OWLERY_CONTACT_BOOK_ID: ' cb_1 ',
     })
     expect(config).toEqual({
       apiKey: 'k',
       baseUrl: 'https://owlery.example.com',
+      from: 'from@example.com',
       contactBookId: 'cb_1',
     })
   })
@@ -65,10 +64,11 @@ describe('createOwleryContact', () => {
     expect(init.method).toBe('POST')
     expect(init.headers).toMatchObject({
       'Content-Type': 'application/json',
-      Authorization: 'Bearer ow_live_test_key',
+      Authorization: 'Bearer us_test',
     })
     expect(JSON.parse(String(init.body))).toEqual({
       email: 'jane@example.com',
+      subscribed: true,
       firstName: 'Jane',
       lastName: 'Doe',
     })
@@ -83,7 +83,7 @@ describe('createOwleryContact', () => {
     )
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
-    expect(body).toEqual({ email: 'jane@example.com', firstName: 'Jane' })
+    expect(body).toEqual({ email: 'jane@example.com', subscribed: true, firstName: 'Jane' })
     expect('lastName' in body).toBe(false)
   })
 
@@ -107,7 +107,7 @@ describe('createOwleryContact', () => {
 
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toBe('Owlery contact create failed (422): invalid email')
-    expect((error as Error).message).not.toContain('ow_live_test_key')
+    expect((error as Error).message).not.toContain('us_test')
   })
 
   it('throws with a body excerpt when the error response is not JSON', async () => {
@@ -121,13 +121,13 @@ describe('createOwleryContact', () => {
     ).rejects.toThrow('Owlery contact create failed (502): gateway boom')
   })
 
-  it('throws when Owlery is not configured', async () => {
+  it('throws when Owlery onboarding list is not configured', async () => {
     await expect(
       createOwleryContact(
         {},
         { email: 'a@b.c', firstName: 'A' },
         vi.fn() as unknown as typeof fetch,
       ),
-    ).rejects.toThrow(/Owlery is not configured/)
+    ).rejects.toThrow(/Owlery onboarding list is not configured/)
   })
 })

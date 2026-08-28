@@ -20,7 +20,7 @@ export const OSS_OPERATOR_SECRET_KEYS = [
   'GITHUB_CLIENT_SECRET',
   'PAYPAL_SANDBOX_BUYER_EMAIL',
   'PAYPAL_SANDBOX_BUYER_PASSWORD',
-  'USESEND_API_KEY',
+  'OWLERY_API_KEY',
 ]
 
 /** Patterns that must not appear in tracked OSS files (real key material). */

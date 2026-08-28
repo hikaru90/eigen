@@ -58,7 +58,7 @@ describe('mapProfileToUser', () => {
     expect(mapped).toEqual({ firstName: 'Ada', lastName: 'Lovelace' })
   })
 
-  it('omits google name parts that are missing or blank', () => {
+  it('falls back to splitting name when google given_name is blank', () => {
     const profile = {
       sub: 'g2',
       name: 'Madonna',
@@ -66,7 +66,7 @@ describe('mapProfileToUser', () => {
       email: 'm@example.com',
     }
     const mapped = googleConfig.google?.mapProfileToUser(profile)
-    expect(mapped).toEqual({})
+    expect(mapped).toEqual({ firstName: 'Madonna' })
   })
 
   it('splits a github display name into first and last name', () => {
