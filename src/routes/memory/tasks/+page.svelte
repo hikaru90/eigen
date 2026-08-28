@@ -13,6 +13,7 @@
     mode="tasks"
     {initialEventId}
     prefetchedSource={data.prefetchedTimeline}
+    prefetchedAuthorScope={data.prefetchedAuthorScope}
     userTimeZone={data.preferredTimezone}
     userName={data.user.name}
     eventNotificationsEnabled={data.eventNotificationsEnabled}

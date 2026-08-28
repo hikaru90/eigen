@@ -50,6 +50,7 @@ describe('loadTimelinePageData', () => {
     } as never)
 
     expect(result.prefetchedTimeline).toEqual({ items: [], projects: [] })
+    expect(result.prefetchedAuthorScope).toBe('user')
     expect(result.preferredTimezone).toBe('UTC')
     expect(result.eventNotificationsEnabled).toBe(false)
     expect(result.eventReminderLeadMinutes).toBe(10)

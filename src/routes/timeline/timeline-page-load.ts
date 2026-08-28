@@ -48,5 +48,11 @@ export async function loadTimelinePageData(event: TimelinePageLoadEvent) {
     eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
     eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
     prefetchedTimeline: timelineResult,
+    /**
+     * Author scope the prefetch used (the global view lives in client
+     * localStorage, so SSR always fetches 'user'). The shell compares this
+     * to the client's current view and refetches on mismatch.
+     */
+    prefetchedAuthorScope: 'user' as const,
   }
 }

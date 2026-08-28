@@ -22,6 +22,20 @@ export function shouldRefetchForViewChange(
   return previous !== next
 }
 
+/**
+ * SSR prefetches timeline data with a hard-coded author scope (the selected
+ * global view lives in localStorage, invisible to the server). When the
+ * client's current view does not match that scope, the shell must refetch
+ * instead of painting stale data (Projects tab cards derive from this scope).
+ */
+export function shouldRefetchPrefetchForView(
+  prefetchAuthorScope: string | null,
+  currentView: CurrentUserView,
+): boolean {
+  if (prefetchAuthorScope === null) return currentView !== 'user'
+  return prefetchAuthorScope !== currentView
+}
+
 /** Classify unified timeline list URLs for fetch-budget assertions. */
 export function isTimelineUnifiedFetch(url: string): boolean {
   try {

@@ -28,7 +28,10 @@
   import TemporalTimelineOptionsPopover from './temporal-timeline-options-popover.svelte'
   import TemporalTodaySegmentTabs from './temporal-today-segment-tabs.svelte'
   import TimelineAgentAssignDialog from './timeline-agent-assign-dialog.svelte'
-  import { shouldRefetchForViewChange } from './timeline-client-loads'
+  import {
+    shouldRefetchForViewChange,
+    shouldRefetchPrefetchForView,
+  } from './timeline-client-loads'
   import { filterTimelineItemsBySearch } from './timeline-data-derive'
   import {
     createTimelineData,
@@ -47,6 +50,8 @@
     initialEventId?: string | null
     /** Prefetched unified timeline from page server load. */
     prefetchedSource?: TimelineUnifiedSourceState | null
+    /** Author scope the prefetch was fetched with (SSR always 'user'). */
+    prefetchedAuthorScope?: string | null
     userTimeZone?: string
     userName?: string | null
     eventNotificationsEnabled?: boolean
@@ -60,6 +65,7 @@
     selectedItemId = null,
     initialEventId = null,
     prefetchedSource = null,
+    prefetchedAuthorScope = null,
     userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
     eventNotificationsEnabled = false,
     eventReminderLeadMinutes = 10,
@@ -149,9 +155,15 @@
     // Prefetch seeds first paint; only fetch when no seed (or after filter/sync).
     if (!prefetchedSource) {
       void data.load()
-    } else if (initialEventId) {
-      const hit = findTemporalListItemByRef(prefetchedSource.items, initialEventId)
-      if (hit) setSelection(hit)
+    } else {
+      if (shouldRefetchPrefetchForView(prefetchedAuthorScope, data.dataView)) {
+        // Prefetch scope (SSR can't see localStorage) misses the selected view.
+        void data.load()
+      }
+      if (initialEventId) {
+        const hit = findTemporalListItemByRef(prefetchedSource.items, initialEventId)
+        if (hit) setSelection(hit)
+      }
     }
     if (initialSegment === 'overdue') {
       nowSegment = 'overdue'

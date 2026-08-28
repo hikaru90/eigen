@@ -7,6 +7,7 @@ import {
   findMountFetchBudgetViolations,
   isTimelineUnifiedFetch,
   shouldRefetchForViewChange,
+  shouldRefetchPrefetchForView,
 } from './timeline-client-loads'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -21,6 +22,22 @@ describe('timeline client load policy', () => {
     expect(shouldRefetchForViewChange('user', 'user')).toBe(false)
     expect(shouldRefetchForViewChange('user', 'all')).toBe(true)
     expect(shouldRefetchForViewChange('all', 'user')).toBe(true)
+  })
+
+  it('refetches prefetched data only when its author scope misses the current view', () => {
+    // SSR prefetch is always author='user'; views beyond 'user' need a client fetch.
+    expect(shouldRefetchPrefetchForView('user', 'user')).toBe(false)
+    expect(shouldRefetchPrefetchForView('user', 'all')).toBe(true)
+    expect(shouldRefetchPrefetchForView('user', 'apikey:mesh-1')).toBe(true)
+    expect(shouldRefetchPrefetchForView('user', 'label:Runner')).toBe(true)
+    // Unknown/absent scope must fail safe: refetch rather than show wrong scope.
+    expect(shouldRefetchPrefetchForView(null, 'all')).toBe(true)
+    expect(shouldRefetchPrefetchForView(null, 'user')).toBe(false)
+    // A hypothetical non-user prefetch scope only matches the exact same view.
+    expect(shouldRefetchPrefetchForView('all', 'all')).toBe(false)
+    expect(shouldRefetchPrefetchForView('all', 'user')).toBe(true)
+    expect(shouldRefetchPrefetchForView('apikey:mesh-1', 'apikey:mesh-1')).toBe(false)
+    expect(shouldRefetchPrefetchForView('apikey:mesh-1', 'all')).toBe(true)
   })
 
   it('classifies the unified /api/timeline URL only', () => {
@@ -84,5 +101,21 @@ describe('timeline client load wiring contract', () => {
     const derive = readTimeline('timeline-data-derive.ts')
     expect(dataStore).not.toContain("params.set('kinds'")
     expect(derive).not.toContain("kinds=")
+  })
+
+  it('refetches prefetched surfaces whose author scope misses the current view', () => {
+    // Page load must report the author scope it prefetched with (SSR always 'user').
+    const pageLoad = readTimeline('timeline-page-load.ts')
+    expect(pageLoad).toContain('prefetchedAuthorScope')
+
+    // Pages must forward the scope to the shell.
+    const projectsPage = readTimeline('../memory/projects/+page.svelte')
+    const tasksPage = readTimeline('../memory/tasks/+page.svelte')
+    expect(projectsPage).toContain('prefetchedAuthorScope')
+    expect(tasksPage).toContain('prefetchedAuthorScope')
+
+    // Shell must consult the scope-vs-view mismatch helper in onMount.
+    const shell = readTimeline('timeline-shell.svelte')
+    expect(shell).toContain('shouldRefetchPrefetchForView')
   })
 })
