@@ -1,8 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   computeReorderedThoughtIds,
+  loadOpenTaskThoughtIdsForProject,
   selectNextOpenThoughtAfterCompleted,
 } from './project-task-sequence'
+
+const { loadOpenTasksMock } = vi.hoisted(() => ({
+  loadOpenTasksMock: vi.fn(async () => [] as Array<{ thoughtId: string; createdAt: Date }>),
+}))
+
+vi.mock('$lib/server/memory/project-eligibility', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./project-eligibility')>()
+  return {
+    ...actual,
+    loadOpenTaskThoughtsForProjectEntity: loadOpenTasksMock,
+  }
+})
 
 describe('computeReorderedThoughtIds', () => {
   it('moves thought after another when afterThoughtId is set', () => {
@@ -75,5 +88,19 @@ describe('selectNextOpenThoughtAfterCompleted', () => {
         openThoughtIds: new Set(['t1', 't2']),
       }),
     ).toBe('t1')
+  })
+})
+
+describe('loadOpenTaskThoughtIdsForProject', () => {
+  it('reuses the shared open-task loader (one definition of "open")', async () => {
+    loadOpenTasksMock.mockResolvedValue([
+      { thoughtId: 't1', createdAt: new Date('2026-01-01T00:00:00.000Z') },
+      { thoughtId: 't2', createdAt: new Date('2026-01-02T00:00:00.000Z') },
+    ])
+
+    const open = await loadOpenTaskThoughtIdsForProject('u1', 'p1')
+
+    expect(loadOpenTasksMock).toHaveBeenCalledWith('u1', 'p1')
+    expect([...open]).toEqual(['t1', 't2'])
   })
 })

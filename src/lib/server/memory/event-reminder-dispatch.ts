@@ -69,7 +69,10 @@ async function dispatchOneEventReminder(
   }
 
   const prefs = await getUserEventNotificationPrefs(row.userId)
-  if (!prefs.eventNotificationsEnabled) {
+  // An explicit "remind me" (kind === 'reminder') IS the user's consent — it
+  // bypasses the eventNotificationsEnabled pref. The flag still governs all
+  // other kinds.
+  if (!prefs.eventNotificationsEnabled && row.kind !== 'reminder') {
     await markSchedule(row.scheduleId, 'skipped')
     result.skipped += 1
     return
@@ -81,30 +84,47 @@ async function dispatchOneEventReminder(
     .where(eq(pushSubscription.userId, row.userId))
     .limit(1)
 
-  if (subs.length === 0) {
-    await markSchedule(row.scheduleId, 'skipped')
-    result.skipped += 1
-    return
-  }
-
   const title = KIND_LABELS[row.kind] ?? 'Event'
   const body = `In ${row.leadMinutes} min · ${row.semanticSummary}`
   const url = `/memory/tasks?event=${row.temporalEventId}`
   const tag = `event-${row.temporalEventId}-${row.leadMinutes}`
 
+  // Push and email are independent channels: each channel failure is logged
+  // without preventing the other. A dispatch counts as sent if at least one
+  // channel succeeded, and failed only when both did.
+  let pushFailed = false
+  let emailFailed = false
+
+  if (subs.length > 0) {
+    try {
+      await sendPushToUser(row.userId, { title, body, url, tag })
+    } catch (err) {
+      pushFailed = true
+      console.error('[event-reminder-dispatch] push failed', {
+        scheduleId: row.scheduleId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
   try {
-    await sendPushToUser(row.userId, { title, body, url, tag })
     await queueNotificationEmail(row.userId, { title, body, url, tag })
-    await markSchedule(row.scheduleId, 'sent')
-    result.sent += 1
   } catch (err) {
-    console.error('[event-reminder-dispatch] push failed', {
+    emailFailed = true
+    console.error('[event-reminder-dispatch] email failed', {
       scheduleId: row.scheduleId,
       message: err instanceof Error ? err.message : String(err),
     })
+  }
+
+  if (pushFailed && emailFailed) {
     await markSchedule(row.scheduleId, 'skipped')
     result.failed += 1
+    return
   }
+
+  await markSchedule(row.scheduleId, 'sent')
+  result.sent += 1
 }
 
 async function markSchedule(scheduleId: string, status: 'sent' | 'skipped'): Promise<void> {

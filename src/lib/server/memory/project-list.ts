@@ -15,6 +15,7 @@ import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project'
 import {
   countOpenTasksForProjectEntity,
   ensureProject,
+  loadOpenTaskThoughtsForProjectEntity,
   thoughtStatusFromMetadata,
 } from '$lib/server/memory/project-eligibility'
 import { upsertGraphHubEntity } from '$lib/server/memory/project-entity'
@@ -111,6 +112,15 @@ async function loadTaskSequenceForProject(
     )
     .orderBy(asc(projectTaskSequence.rank))
 
+  // Explicitly sequenced tasks come first, in rank order. Task thoughts that are
+  // linked to the project but were never sequenced are appended behind them,
+  // oldest first (createdAt ASC): with no user ordering to respect, capture
+  // order is the least surprising tail and keeps the waterfall from reporting
+  // fewer tasks than openTaskCount.
+  const openTasks = await loadOpenTaskThoughtsForProjectEntity(userId, projectEntityId)
+  const sequencedThoughtIds = new Set(rows.map((row) => row.thoughtId))
+  const unsequencedTasks = openTasks.filter((task) => !sequencedThoughtIds.has(task.thoughtId))
+
   const out: ProjectTaskSequenceItem[] = []
   for (const row of rows) {
     const summary = await summarizeThought(userId, row.thoughtId)
@@ -121,6 +131,21 @@ async function loadTaskSequenceForProject(
       itemId: taskItemId(row.thoughtId),
       rank: row.rank,
     })
+  }
+
+  // Ranks for unsequenced tasks are computed in memory (maxSequencedRank + n).
+  // Reads never write project_task_sequence — only an explicit reorder does.
+  let nextRank = rows.reduce((max, row) => Math.max(max, row.rank), 0) + 1
+  for (const task of unsequencedTasks) {
+    const summary = await summarizeThought(userId, task.thoughtId)
+    if (!summary) continue
+    out.push({
+      thoughtId: task.thoughtId,
+      summary,
+      itemId: taskItemId(task.thoughtId),
+      rank: nextRank,
+    })
+    nextRank += 1
   }
   return out
 }
