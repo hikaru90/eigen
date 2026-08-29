@@ -53,22 +53,21 @@
 </script>
 
 <header class="fixed top-0 right-0 left-0 z-40 w-full bg-transparent px-5 pt-safe">
-  <!-- Gradient blur stack: blur amount is the strength dial; mask gradient is the falloff dial.
-       Height h-32 so the frosted band visibly contains the menu wordmark + trigger row. -->
+  <!-- Gradient blur stack: blur amount is the strength dial; mask gradient is the falloff dial -->
   <div
     aria-hidden="true"
-    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-32 backdrop-blur-md"
-    style="-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 22%, rgba(0,0,0,0.88) 45%, rgba(0,0,0,0.66) 62%, rgba(0,0,0,0.4) 76%, rgba(0,0,0,0.16) 88%, transparent 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 22%, rgba(0,0,0,0.88) 45%, rgba(0,0,0,0.66) 62%, rgba(0,0,0,0.4) 76%, rgba(0,0,0,0.16) 88%, transparent 100%);"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 backdrop-blur-sm"
+    style="-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
   ></div>
   <div
     aria-hidden="true"
-    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-32 backdrop-blur-[3px]"
-    style="-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 28%, rgba(0,0,0,0.72) 50%, rgba(0,0,0,0.44) 66%, rgba(0,0,0,0.2) 80%, rgba(0,0,0,0.05) 92%, transparent 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 28%, rgba(0,0,0,0.72) 50%, rgba(0,0,0,0.44) 66%, rgba(0,0,0,0.2) 80%, rgba(0,0,0,0.05) 92%, transparent 100%);"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-20 backdrop-blur-[2px]"
+    style="-webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
   ></div>
   <div
     aria-hidden="true"
-    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-32"
-    style="background: linear-gradient(to bottom, var(--background) 0%, var(--background) 26%, color-mix(in oklab, var(--background) 82%, transparent) 50%, color-mix(in oklab, var(--background) 50%, transparent) 72%, color-mix(in oklab, var(--background) 18%, transparent) 90%, transparent 100%);"
+    class="pointer-events-none absolute inset-x-0 top-0 z-0 h-20"
+    style="background: linear-gradient(to bottom, var(--background) 0%, color-mix(in oklab, var(--background) 72%, transparent) 22%, color-mix(in oklab, var(--background) 40%, transparent) 48%, color-mix(in oklab, var(--background) 14%, transparent) 74%, transparent 100%);"
   ></div>
   <div class="relative z-10 mx-auto flex w-full items-center justify-between pb-3">
     {#if showViewSelect}
@@ -99,119 +98,89 @@
       >
         <a
           href={resolve('/activity')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <ActivityIcon
-            class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-            strokeWidth={1.75}
-          />
+          <ActivityIcon class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
         </a>
         <a
           href={resolve('/api-keys')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <KeyRound
-            class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-            strokeWidth={1.75}
-          />
+          <KeyRound class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
         </a>
         <a
           href={resolve('/settings/agents')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <Send
-            class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-            strokeWidth={1.75}
-          />
+          <Send class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Webhooks
         </a>
         <a
           href={resolve('/settings/llm')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <Cpu
-            class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-            strokeWidth={1.75}
-          />
+          <Cpu class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Credits
         </a>
         {#if isAdmin}
           <a
             href={resolve('/admin/queue')}
-            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
-            <Layers
-              class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-              strokeWidth={1.75}
-            />
+            <Layers class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin queue
           </a>
           <a
             href={resolve('/admin/spend')}
-            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
-            <BarChart3
-              class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-              strokeWidth={1.75}
-            />
+            <BarChart3 class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin spend
           </a>
         {/if}
         {#if dev}
           <a
             href={resolve('/eval')}
-            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
-            <ClipboardCheck
-              class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-              strokeWidth={1.75}
-            />
+            <ClipboardCheck class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Evals
           </a>
         {/if}
         <a
           href={resolve('/settings/scheduled-tasks')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <HeartPulse
-            class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-            strokeWidth={1.75}
-          />
+          <HeartPulse class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Heartbeat
         </a>
         <a
           href={resolve('/settings')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
-          <Settings
-            class="size-6 shrink-0 rounded-md bg-black/[0.06] p-1 text-foreground dark:bg-white/10"
-            strokeWidth={1.75}
-          />
+          <Settings class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Settings
         </a>
         {#if user?.email}
           <div
-            class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-sm font-semibold text-muted-foreground dark:border-white/20"
+            class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-base font-bold text-muted-foreground dark:border-white/20"
           >
             {user.email}
           </div>
         {/if}
         <button
           type="button"
-          class="flex w-full items-center gap-2.5 rounded-full px-2 py-1.5 text-left text-sm font-semibold text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
+          class="flex w-full items-center gap-2.5 rounded-full px-2 py-1.5 text-left text-base font-bold text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
           onclick={() => void signOut()}
         >
-          <LogOut
-            class="size-6 shrink-0 rounded-md bg-red-500/10 p-1 dark:bg-red-400/10"
-            strokeWidth={1.75}
-          />
+          <LogOut class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Log out
         </button>
         <a
           href={resolve('/feedback')}
-          class="mt-1.5 flex items-center justify-center gap-2 rounded-[10px] shadow-xl shadow-green-400/40 mb-0.5 bg-[var(--color-eigen-green)] px-3 py-2.5 text-sm font-semibold text-black hover:brightness-95 dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:brightness-95"
+          class="mt-1.5 flex items-center justify-center gap-2 rounded-[10px] shadow-xl shadow-green-400/40 mb-0.5 bg-[var(--color-eigen-green)] px-3 py-2.5 text-base font-bold text-black hover:brightness-95 dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:brightness-95"
         >
           <MessageSquare class="size-3.5 shrink-0" strokeWidth={1.75} />
           Give us Feedback
