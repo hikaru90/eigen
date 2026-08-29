@@ -4,11 +4,7 @@
  * @see POST /api/v1/contactBooks/{contactBookId}/contacts
  */
 
-import {
-  type OwleryEnv,
-  isOwleryContactBookConfigured,
-  resolveOwleryContactBookConfig,
-} from './config'
+import { type OwleryEnv, resolveOwleryContactBookConfig } from './config'
 
 export type CreateOwleryContactInput = {
   email: string
