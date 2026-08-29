@@ -26,8 +26,13 @@ export function composeDisplayName(firstName: string, lastName?: string | null):
 /**
  * Ensures OAuth and email signups persist coherent `name`, `firstName`, and `lastName`.
  * Derives missing first name from display name; composes display name from parts when needed.
+ * Returns only string fields (never null) so Better Auth create hooks stay type-compatible.
  */
-export function normalizeUserNameFields(input: UserNameFields): Partial<UserNameFields> {
+export function normalizeUserNameFields(input: UserNameFields): {
+  name?: string
+  firstName?: string
+  lastName?: string
+} {
   const name = input.name?.trim() || undefined
   let firstName = input.firstName?.trim() || undefined
   let lastName = input.lastName?.trim() || undefined
