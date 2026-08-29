@@ -56,9 +56,7 @@
       (page.route.id != null && authPaths.has(page.route.id)),
   )
 
-  const layoutUserId = $derived(
-    (page.data as { user?: { id: string } | null }).user?.id ?? null,
-  )
+  const layoutUserId = $derived((page.data as { user?: { id: string } | null }).user?.id ?? null)
 
   let themePreference = 'system'
   let lastIdentifiedUserId: string | null | undefined = undefined
@@ -214,18 +212,18 @@
     <!-- Gradient blur stack (mirrors header, inverted): full at bottom, fades upward -->
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-20 backdrop-blur-sm"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-32 backdrop-blur-md"
       style="-webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
     ></div>
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-20 backdrop-blur-[2px]"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-32 backdrop-blur-[3px]"
       style="-webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
     ></div>
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-20"
-      style="background: linear-gradient(to top, var(--background) 0%, color-mix(in oklab, var(--background) 72%, transparent) 22%, color-mix(in oklab, var(--background) 40%, transparent) 48%, color-mix(in oklab, var(--background) 14%, transparent) 74%, transparent 100%);"
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-32"
+      style="background: linear-gradient(to top, var(--background) 0%, var(--background) 26%, color-mix(in oklab, var(--background) 82%, transparent) 50%, color-mix(in oklab, var(--background) 50%, transparent) 72%, color-mix(in oklab, var(--background) 18%, transparent) 90%, transparent 100%);"
     ></div>
     <div class="relative z-10 flex flex-row items-center justify-between gap-2 px-4 pb-safe">
       {#each bottomNavItems as item (item.href)}
@@ -240,8 +238,8 @@
             aria-label={item.label}
             aria-current={isActive ? 'page' : undefined}
           >
-            <item.icon class="size-6" strokeWidth={1.75} />
-            <span class="text-xs leading-none font-bold tracking-wide whitespace-nowrap mt-1">
+            <item.icon class="size-9 rounded-full bg-black/[0.06] p-2 dark:bg-white/10" strokeWidth={1.75} />
+            <span class="text-[11px] leading-none font-bold tracking-wide whitespace-nowrap mt-1">
               {item.label}
             </span>
           </a>
