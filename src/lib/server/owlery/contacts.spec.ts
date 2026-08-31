@@ -69,6 +69,7 @@ describe('createOwleryContact', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       email: 'jane@example.com',
       subscribed: true,
+      emailConfirmed: true,
       firstName: 'Jane',
       lastName: 'Doe',
     })
@@ -83,7 +84,12 @@ describe('createOwleryContact', () => {
     )
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
-    expect(body).toEqual({ email: 'jane@example.com', subscribed: true, firstName: 'Jane' })
+    expect(body).toEqual({
+      email: 'jane@example.com',
+      subscribed: true,
+      emailConfirmed: true,
+      firstName: 'Jane',
+    })
     expect('lastName' in body).toBe(false)
   })
 

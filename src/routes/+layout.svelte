@@ -231,15 +231,23 @@
         <div class="relative flex-1">
           <a
             href={resolve(item.href)}
-            class={cn(
-              'flex w-full flex-col items-center justify-center gap-1 py-2 text-foreground dark:text-white -mb-3',
-              isActive && 'text-[var(--color-eigen-green)] dark:text-[var(--color-eigen-green)]',
-            )}
+            class="flex w-full flex-col items-center justify-center gap-1 py-2"
             aria-label={item.label}
             aria-current={isActive ? 'page' : undefined}
           >
-            <item.icon class="size-9 rounded-full bg-black/[0.06] p-2 dark:bg-white/10" strokeWidth={1.75} />
-            <span class="text-[11px] leading-none font-bold tracking-wide whitespace-nowrap mt-1">
+            <span
+              class="flex size-9 shrink-0 items-center justify-center rounded-full bg-black"
+              aria-hidden="true"
+            >
+              <item.icon
+                class={cn(
+                  'size-5 text-white',
+                  isActive && 'text-[var(--color-eigen-green)]',
+                )}
+                strokeWidth={1.75}
+              />
+            </span>
+            <span class="mt-1 text-[10px] leading-none font-bold tracking-wide whitespace-nowrap text-black dark:text-white">
               {item.label}
             </span>
           </a>

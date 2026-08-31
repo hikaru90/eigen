@@ -834,7 +834,7 @@
   </div>
 
   <!-- input area (pinned, outside scroll flow — see .cursor/rules/chat-scroll-layout.mdc) -->
-  <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+  <div class="pointer-events-none absolute inset-x-0 bottom-3 z-10">
     <div class="pointer-events-auto mx-auto min-w-0 w-full max-w-2xl bg-background px-4 pb-2 pt-2">
       <Card.Root
         class="bg-white dark:bg-card min-w-0 w-full overflow-visible border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-x-clip"

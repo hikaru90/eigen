@@ -98,28 +98,28 @@
       >
         <a
           href={resolve('/activity')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <ActivityIcon class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Activity
         </a>
         <a
           href={resolve('/api-keys')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <KeyRound class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           API Keys
         </a>
         <a
           href={resolve('/settings/agents')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Send class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Webhooks
         </a>
         <a
           href={resolve('/settings/llm')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Cpu class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Credits
@@ -127,14 +127,14 @@
         {#if isAdmin}
           <a
             href={resolve('/admin/queue')}
-            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <Layers class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin queue
           </a>
           <a
             href={resolve('/admin/spend')}
-            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <BarChart3 class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Admin spend
@@ -143,7 +143,7 @@
         {#if dev}
           <a
             href={resolve('/eval')}
-            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+            class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
           >
             <ClipboardCheck class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
             Evals
@@ -151,28 +151,28 @@
         {/if}
         <a
           href={resolve('/settings/scheduled-tasks')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <HeartPulse class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Heartbeat
         </a>
         <a
           href={resolve('/settings')}
-          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-bold text-foreground hover:bg-white/25 dark:hover:bg-white/10"
+          class="flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-base font-normal text-foreground hover:bg-white/25 dark:hover:bg-white/10"
         >
           <Settings class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
           Settings
         </a>
         {#if user?.email}
           <div
-            class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-base font-bold text-muted-foreground dark:border-white/20"
+            class="mt-1 truncate border-t border-white/40 px-2 pt-3 text-base font-normal text-muted-foreground dark:border-white/20"
           >
             {user.email}
           </div>
         {/if}
         <button
           type="button"
-          class="flex w-full items-center gap-2.5 rounded-full px-2 py-1.5 text-left text-base font-bold text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
+          class="flex w-full items-center gap-2.5 rounded-full px-2 py-1.5 text-left text-base font-normal text-red-600 hover:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-950/30"
           onclick={() => void signOut()}
         >
           <LogOut class="size-4 shrink-0 opacity-80" strokeWidth={1.75} />
@@ -180,7 +180,7 @@
         </button>
         <a
           href={resolve('/feedback')}
-          class="mt-1.5 flex items-center justify-center gap-2 rounded-[10px] shadow-xl shadow-green-400/40 mb-0.5 bg-[var(--color-eigen-green)] px-3 py-2.5 text-base font-bold text-black hover:brightness-95 dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:brightness-95"
+          class="mt-1.5 flex items-center justify-center gap-2 rounded-[10px] shadow-xl shadow-green-400/40 mb-0.5 bg-[var(--color-eigen-green)] px-3 py-2.5 text-base font-normal text-black hover:brightness-95 dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:brightness-95"
         >
           <MessageSquare class="size-3.5 shrink-0" strokeWidth={1.75} />
           Give us Feedback

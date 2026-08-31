@@ -38,6 +38,9 @@ export async function createOwleryContact(
     body: JSON.stringify({
       email: input.email,
       subscribed: true,
+      // Eigen verified this address itself (its verification email) — mark pre-confirmed
+      // so Owlery does not send its own double opt-in email.
+      emailConfirmed: true,
       ...(input.firstName ? { firstName: input.firstName } : {}),
       ...(input.lastName ? { lastName: input.lastName } : {}),
     }),

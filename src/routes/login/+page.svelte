@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ActionData } from './$types'
   import type { PageData } from './$types'
+  import EyeIcon from '@lucide/svelte/icons/eye'
+  import EyeOffIcon from '@lucide/svelte/icons/eye-off'
   import { enhance } from '$app/forms'
   import { resolve } from '$app/paths'
   import AuthSocialButtons from '$lib/components/auth-social-buttons.svelte'
@@ -16,6 +18,7 @@
 
   let email = $state('')
   let password = $state('')
+  let showPassword = $state(false)
   let fieldErrors = $state<{ email?: string; password?: string }>({})
 
   function validate() {
@@ -106,15 +109,30 @@
               >Forgot password?</a
             >
           </div>
-          <input
-            id="password"
-            type="password"
-            name="password"
-            autocomplete="current-password"
-            bind:value={password}
-            class="border-input bg-card text-foreground h-9 w-full border px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-          />
+          <div class="relative">
+            <input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              autocomplete="current-password"
+              bind:value={password}
+              class="border-input bg-card text-foreground h-9 w-full border px-2.5 pr-9 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+            />
+            <button
+              type="button"
+              onclick={() => (showPassword = !showPassword)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+              class="text-muted-foreground hover:text-foreground absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {#if showPassword}
+                <EyeOffIcon class="size-3.5" />
+              {:else}
+                <EyeIcon class="size-3.5" />
+              {/if}
+            </button>
+          </div>
           {#if fieldErrors.password}
             <p id="password-error" class="text-destructive text-xs">{fieldErrors.password}</p>
           {/if}
