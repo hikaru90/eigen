@@ -123,7 +123,7 @@
     "fflate": "^0.8.3",
     "isomorphic-dompurify": "^3.14.0",
     "marked": "^18.0.9",
-    "posthog-js": "^1.393.0",
+    "posthog-js": "^1.422.2",
     "posthog-node": "^5.38.3",
     "three": "^0.184.0",
     "umap-js": "^1.4.0",
