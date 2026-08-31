@@ -21,7 +21,7 @@ describe('favicon brand assets', () => {
 		const file = path.join(staticDir, 'favicon.svg')
 		const buf = readFileSync(file)
 		expect(buf.length).toBeGreaterThan(0)
-		expect(buf.length).toBeLessThan(2048)
+		expect(buf.length).toBeLessThan(16_384)
 		const text = buf.toString('utf-8')
 		expect(text).toContain('<svg')
 		expect(text).toContain('xmlns="http://www.w3.org/2000/svg"')

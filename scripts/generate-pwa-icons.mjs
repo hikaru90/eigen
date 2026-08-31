@@ -1,202 +1,160 @@
 /**
- * Composites Eigen Mesh mark PNGs onto app background colors for PWA / home-screen /
- * notification icons.
+ * Derives favicon PNG/ICO, apple-touch, PWA, and notification icons from
+ * static/favicon.svg (source of truth).
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PNG } from 'pngjs'
+import sharp from 'sharp'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const outDir = join(__dirname, '..', 'static')
-const assetsDir = join(__dirname, '..', 'src/lib/assets/images')
 const faviconDir = join(__dirname, '..', 'src/lib/assets')
 
 /** DESIGN.md / layout.css light `--background` */
-const BG_LIGHT = { r: 0xe8, g: 0xed, b: 0xe5 }
+const BG_LIGHT = '#e8ede5'
 /** layout.css `.dark` `--background` */
-const BG_DARK = { r: 0x14, g: 0x1c, b: 0x16 }
+const BG_DARK = '#141c16'
+const MARK_LIGHT = '#111111'
+const MARK_DARK = '#f5f7f4'
 
-/** @param {PNG} source @param {number} sx @param {number} sy */
-function sampleBilinear(source, sx, sy) {
-  const x0 = Math.max(0, Math.min(source.width - 1, Math.floor(sx)))
-  const y0 = Math.max(0, Math.min(source.height - 1, Math.floor(sy)))
-  const x1 = Math.min(source.width - 1, x0 + 1)
-  const y1 = Math.min(source.height - 1, y0 + 1)
-  const tx = sx - x0
-  const ty = sy - y0
+/**
+ * @param {string} svg
+ * @param {{ bg: string; mark: string }} colors
+ */
+function recolorSvg(svg, colors) {
+  return svg
+    .replace(/#e8ede5/gi, colors.bg)
+    .replace(/style="fill-rule:nonzero;"/g, `style="fill:${colors.mark};fill-rule:nonzero;"`)
+}
 
-  const px = (x, y) => {
-    const i = (source.width * y + x) << 2
-    return [source.data[i], source.data[i + 1], source.data[i + 2], source.data[i + 3]]
+/**
+ * Mark-only SVG (no tile background) for transparent / badge uses.
+ * @param {string} svg
+ * @param {string} markFill
+ */
+function markOnlySvg(svg, markFill) {
+  return svg
+    .replace(
+      /<path d="M160,36l0,88c0,19\.869[^"]*" style="fill:[^"]*;"\/>/,
+      '',
+    )
+    .replace(/style="fill-rule:nonzero;"/g, `style="fill:${markFill};fill-rule:nonzero;"`)
+    .replace(/style="fill:[^"]*;fill-rule:nonzero;"/g, `style="fill:${markFill};fill-rule:nonzero;"`)
+}
+
+/**
+ * @param {string} svg
+ * @param {number} size
+ * @param {{ flatten?: string } | undefined} opts
+ */
+async function rasterize(svg, size, opts = {}) {
+  let pipeline = sharp(Buffer.from(svg)).resize(size, size, {
+    fit: 'contain',
+    background: { r: 0, g: 0, b: 0, alpha: 0 },
+  })
+  if (opts.flatten) {
+    pipeline = pipeline.flatten({ background: opts.flatten })
   }
+  return pipeline.png().toBuffer()
+}
 
-  const c00 = px(x0, y0)
-  const c10 = px(x1, y0)
-  const c01 = px(x0, y1)
-  const c11 = px(x1, y1)
-  const out = [0, 0, 0, 0]
-  for (let c = 0; c < 4; c++) {
-    const top = c00[c] * (1 - tx) + c10[c] * tx
-    const bot = c01[c] * (1 - tx) + c11[c] * tx
-    out[c] = top * (1 - ty) + bot * ty
-  }
+/**
+ * Multi-size ICO with embedded PNG images (Vista+ format).
+ * @param {Array<{ size: number; png: Buffer }>} entries
+ */
+function encodeIco(entries) {
+  const count = entries.length
+  const headerSize = 6
+  const dirEntrySize = 16
+  const dirSize = headerSize + dirEntrySize * count
+  let offset = dirSize
+  const withOffsets = entries.map((entry) => {
+    const record = { ...entry, offset }
+    offset += entry.png.length
+    return record
+  })
+
+  const out = Buffer.alloc(offset)
+  out.writeUInt16LE(0, 0) // reserved
+  out.writeUInt16LE(1, 2) // type = icon
+  out.writeUInt16LE(count, 4)
+
+  withOffsets.forEach((entry, i) => {
+    const base = headerSize + i * dirEntrySize
+    out.writeUInt8(entry.size >= 256 ? 0 : entry.size, base) // width
+    out.writeUInt8(entry.size >= 256 ? 0 : entry.size, base + 1) // height
+    out.writeUInt8(0, base + 2) // color palette
+    out.writeUInt8(0, base + 3) // reserved
+    out.writeUInt16LE(1, base + 4) // color planes
+    out.writeUInt16LE(32, base + 6) // bits per pixel
+    out.writeUInt32LE(entry.png.length, base + 8)
+    out.writeUInt32LE(entry.offset, base + 12)
+    entry.png.copy(out, entry.offset)
+  })
   return out
-}
-
-/**
- * @param {number} size
- * @param {PNG} source
- * @param {number} iconScale fraction of canvas used for icon bounding box
- */
-function placeMark(size, source, iconScale) {
-  const iconSize = Math.round(size * iconScale)
-  const aspect = source.width / source.height
-  let w = iconSize
-  let h = Math.round(iconSize / aspect)
-  if (h > iconSize) {
-    h = iconSize
-    w = Math.round(iconSize * aspect)
-  }
-  return {
-    w,
-    h,
-    offsetX: Math.round((size - w) / 2),
-    offsetY: Math.round((size - h) / 2),
-  }
-}
-
-/**
- * @param {number} size
- * @param {PNG} source
- * @param {{ r: number; g: number; b: number }} bg
- * @param {number} iconScale fraction of canvas used for icon bounding box
- */
-function compositeIcon(size, source, bg, iconScale) {
-  const out = new PNG({ width: size, height: size, fill: true })
-  out.data.fill(0)
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const idx = (size * y + x) << 2
-      out.data[idx] = bg.r
-      out.data[idx + 1] = bg.g
-      out.data[idx + 2] = bg.b
-      out.data[idx + 3] = 255
-    }
-  }
-
-  const { w, h, offsetX, offsetY } = placeMark(size, source, iconScale)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const sx = ((x + 0.5) / w) * source.width - 0.5
-      const sy = ((y + 0.5) / h) * source.height - 0.5
-      const [sr, sg, sb, sa] = sampleBilinear(source, sx, sy)
-      const ox = offsetX + x
-      const oy = offsetY + y
-      if (ox < 0 || oy < 0 || ox >= size || oy >= size) continue
-      const idx = (size * oy + ox) << 2
-      const a = sa / 255
-      out.data[idx] = Math.round(sr * a + out.data[idx] * (1 - a))
-      out.data[idx + 1] = Math.round(sg * a + out.data[idx + 1] * (1 - a))
-      out.data[idx + 2] = Math.round(sb * a + out.data[idx + 2] * (1 - a))
-      out.data[idx + 3] = 255
-    }
-  }
-  return PNG.sync.write(out)
-}
-
-/**
- * White silhouette on transparent — Android notification badges are alpha masks.
- * Opaque launcher tiles read as a solid white square.
- * @param {number} size
- * @param {PNG} source alpha source (any RGB; alpha defines the mark)
- * @param {number} iconScale
- */
-function silhouetteBadge(size, source, iconScale) {
-  const out = new PNG({ width: size, height: size, fill: true })
-  out.data.fill(0)
-  const { w, h, offsetX, offsetY } = placeMark(size, source, iconScale)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const sx = ((x + 0.5) / w) * source.width - 0.5
-      const sy = ((y + 0.5) / h) * source.height - 0.5
-      const [, , , sa] = sampleBilinear(source, sx, sy)
-      if (sa < 8) continue
-      const ox = offsetX + x
-      const oy = offsetY + y
-      if (ox < 0 || oy < 0 || ox >= size || oy >= size) continue
-      const idx = (size * oy + ox) << 2
-      out.data[idx] = 255
-      out.data[idx + 1] = 255
-      out.data[idx + 2] = 255
-      out.data[idx + 3] = Math.round(sa)
-    }
-  }
-  return PNG.sync.write(out)
-}
-
-/**
- * Favicon: dark mark on transparent so it reads on light browser chrome.
- * @param {number} size
- * @param {PNG} source
- * @param {number} iconScale
- */
-function transparentMark(size, source, iconScale) {
-  const out = new PNG({ width: size, height: size, fill: true })
-  out.data.fill(0)
-  const { w, h, offsetX, offsetY } = placeMark(size, source, iconScale)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const sx = ((x + 0.5) / w) * source.width - 0.5
-      const sy = ((y + 0.5) / h) * source.height - 0.5
-      const [sr, sg, sb, sa] = sampleBilinear(source, sx, sy)
-      if (sa < 8) continue
-      const ox = offsetX + x
-      const oy = offsetY + y
-      if (ox < 0 || oy < 0 || ox >= size || oy >= size) continue
-      const idx = (size * oy + ox) << 2
-      out.data[idx] = Math.round(sr)
-      out.data[idx + 1] = Math.round(sg)
-      out.data[idx + 2] = Math.round(sb)
-      out.data[idx + 3] = Math.round(sa)
-    }
-  }
-  return PNG.sync.write(out)
 }
 
 mkdirSync(outDir, { recursive: true })
 mkdirSync(faviconDir, { recursive: true })
 
-const iconLight = PNG.sync.read(readFileSync(join(assetsDir, 'icon.png')))
-const iconDark = PNG.sync.read(readFileSync(join(assetsDir, 'icon-dark.png')))
+const svgLight = readFileSync(join(outDir, 'favicon.svg'), 'utf8')
+if (!svgLight.includes('<svg') || !svgLight.includes('#e8ede5')) {
+  throw new Error('static/favicon.svg must include an <svg> root and light tile fill #e8ede5')
+}
 
-/** Standard launcher icon — mark ~52% of canvas */
-const standardScale = 0.52
-/** Maskable safe zone — mark ~40% of canvas */
-const maskableScale = 0.4
+const svgDark = recolorSvg(svgLight, { bg: BG_DARK, mark: MARK_DARK })
+const svgMarkBlack = markOnlySvg(svgLight, MARK_LIGHT)
+const svgMarkWhite = markOnlySvg(svgLight, '#ffffff')
 
+const [
+  favicon16,
+  favicon32,
+  favicon48,
+  faviconPng,
+  faviconTransparent,
+  appleLight,
+  appleDark,
+  pwa192,
+  pwa512,
+  pwaMaskable,
+  notificationIcon,
+  notificationBadge,
+] = await Promise.all([
+  rasterize(svgLight, 16),
+  rasterize(svgLight, 32),
+  rasterize(svgLight, 48),
+  rasterize(svgLight, 32),
+  rasterize(svgMarkBlack, 32),
+  rasterize(svgLight, 180, { flatten: BG_LIGHT }),
+  rasterize(svgDark, 180, { flatten: BG_DARK }),
+  rasterize(svgLight, 192, { flatten: BG_LIGHT }),
+  rasterize(svgLight, 512, { flatten: BG_LIGHT }),
+  // Maskable: full-bleed opaque tile (safe zone already in SVG mark padding)
+  rasterize(svgLight, 512, { flatten: BG_LIGHT }),
+  rasterize(svgDark, 192, { flatten: BG_DARK }),
+  rasterize(svgMarkWhite, 96),
+])
+
+writeFileSync(join(outDir, 'favicon.png'), faviconPng)
+writeFileSync(join(faviconDir, 'favicon.png'), faviconPng)
+writeFileSync(join(outDir, 'favicon-transparent.png'), faviconTransparent)
 writeFileSync(
-  join(outDir, 'apple-touch-icon.png'),
-  compositeIcon(180, iconLight, BG_LIGHT, standardScale),
+  join(outDir, 'favicon.ico'),
+  encodeIco([
+    { size: 16, png: favicon16 },
+    { size: 32, png: favicon32 },
+    { size: 48, png: favicon48 },
+  ]),
 )
-writeFileSync(
-  join(outDir, 'apple-touch-icon-dark.png'),
-  compositeIcon(180, iconDark, BG_DARK, standardScale),
+writeFileSync(join(outDir, 'apple-touch-icon.png'), appleLight)
+writeFileSync(join(outDir, 'apple-touch-icon-dark.png'), appleDark)
+writeFileSync(join(outDir, 'pwa-192.png'), pwa192)
+writeFileSync(join(outDir, 'pwa-512.png'), pwa512)
+writeFileSync(join(outDir, 'pwa-512-maskable.png'), pwaMaskable)
+writeFileSync(join(outDir, 'notification-icon.png'), notificationIcon)
+writeFileSync(join(outDir, 'notification-badge.png'), notificationBadge)
+
+console.log(
+  'Wrote favicon / PWA / notification assets from static/favicon.svg → static/ (+ src/lib/assets/favicon.png)',
 )
-writeFileSync(join(outDir, 'pwa-192.png'), compositeIcon(192, iconLight, BG_LIGHT, standardScale))
-writeFileSync(join(outDir, 'pwa-512.png'), compositeIcon(512, iconLight, BG_LIGHT, standardScale))
-writeFileSync(
-  join(outDir, 'pwa-512-maskable.png'),
-  compositeIcon(512, iconLight, BG_LIGHT, maskableScale),
-)
-/** Notification large icon — dark tile + white mark (readable in shade UI). */
-writeFileSync(
-  join(outDir, 'notification-icon.png'),
-  compositeIcon(192, iconDark, BG_DARK, standardScale),
-)
-/** Android status-bar badge — white silhouette, transparent elsewhere. */
-writeFileSync(join(outDir, 'notification-badge.png'), silhouetteBadge(96, iconLight, 0.9))
-const faviconBytes = transparentMark(32, iconLight, 0.92)
-writeFileSync(join(outDir, 'favicon.png'), faviconBytes)
-writeFileSync(join(faviconDir, 'favicon.png'), faviconBytes)
-console.log('Wrote PWA / notification / favicon assets to static/ (and src/lib/assets/favicon.png)')
