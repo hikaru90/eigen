@@ -7,6 +7,7 @@ import {
   usdStringsMatchWithinTolerance,
 } from '$lib/server/billing/checkout-pricing'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
+import { maybeEnqueueErpNextInvoicePush } from '$lib/server/billing/erpnext-invoice-push'
 import { capturePayPalOrder } from '$lib/server/billing/paypal'
 import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet'
 import { getDb } from '$lib/server/db'
@@ -140,6 +141,21 @@ export const POST: RequestHandler = async (event) => {
       },
     })
 
+    let erpNextPush: Awaited<ReturnType<typeof maybeEnqueueErpNextInvoicePush>> = {
+      enqueued: false,
+      reason: 'disabled',
+    }
+    let erpNextEnqueueError: string | null = null
+    try {
+      erpNextPush = await maybeEnqueueErpNextInvoicePush({
+        userId: user.id,
+        paymentOrderId: existing.id,
+        payerEmail: capture.payerEmail,
+      })
+    } catch (error) {
+      erpNextEnqueueError = errorMessage(error)
+    }
+
     captureServerEvent({
       distinctId: user.id,
       event: 'billing_order_captured',
@@ -153,6 +169,8 @@ export const POST: RequestHandler = async (event) => {
         paypal_fee_usd: capture.paypalFeeUsd,
         net_received_usd: capture.netUsd,
         platform_subtotal_usd: existing.platformSubtotalUsd,
+        erpnext_invoice_push: erpNextPush.enqueued ? 'enqueued' : erpNextPush.reason,
+        ...(erpNextEnqueueError ? { erpnext_enqueue_error: erpNextEnqueueError } : {}),
       },
     })
 

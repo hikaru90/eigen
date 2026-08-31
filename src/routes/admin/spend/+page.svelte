@@ -25,11 +25,42 @@
   let grantReasonDraft = $state('')
   let grantBusy = $state(false)
   let grantMessage = $state('')
+  let backfillBusy = $state(false)
+  let backfillMessage = $state('')
 
   const timeFmt = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+
+  async function runErpNextBackfill() {
+    backfillBusy = true
+    backfillMessage = ''
+    try {
+      const res = await fetch('/api/admin/erpnext/backfill', { method: 'POST' })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string
+        matched?: number
+        enqueued?: number
+        duplicates?: number
+        disabled?: boolean
+      }
+      if (!res.ok) {
+        backfillMessage = body.error ?? `Backfill failed (${res.status})`
+        return
+      }
+      if (body.disabled) {
+        backfillMessage = 'ERPNext invoicing is not configured (ERPNEXT_* env vars).'
+        return
+      }
+      backfillMessage = `Matched ${body.matched ?? 0} payments — enqueued ${body.enqueued ?? 0}, already pending ${body.duplicates ?? 0}.`
+      await goto(resolve('/admin/spend'), { invalidateAll: true, noScroll: true })
+    } catch (e) {
+      backfillMessage = e instanceof Error ? e.message : String(e)
+    } finally {
+      backfillBusy = false
+    }
+  }
 
   async function grantCredits() {
     if (!data.userFilter) return
@@ -554,4 +585,55 @@
       {/if}
     </div>
   {/if}
+
+  <Card.Root
+    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-6 border border-black/10 bg-card"
+  >
+    <Card.Header class="gap-1">
+      <Card.Title class="text-sm">ERPNext invoice sync</Card.Title>
+      <Card.Description class="text-muted-foreground text-xs">
+        Captured PayPal top-ups are pushed to ERPNext as draft Sales Invoices (customer = PayPal
+        payer email). Failures are listed in the job queue.
+      </Card.Description>
+    </Card.Header>
+    <Card.Content class="flex flex-wrap items-center justify-between gap-3 px-4 pb-4">
+      {#if data.erpNext.configured}
+        <div class="flex flex-wrap items-center gap-4 text-xs">
+          <span>
+            <span class="text-muted-foreground">Awaiting invoice:</span>
+            <span class="ml-1 font-mono font-semibold tabular-nums">
+              {data.erpNext.uninvoicedCount.toLocaleString('en-US')}
+            </span>
+          </span>
+          <span>
+            <span class="text-muted-foreground">Invoiced:</span>
+            <span class="ml-1 font-mono font-semibold tabular-nums">
+              {data.erpNext.invoicedCount.toLocaleString('en-US')}
+            </span>
+          </span>
+          <span class={data.erpNext.failedJobCount > 0 ? 'text-destructive' : 'text-muted-foreground'}>
+            Failed pushes: {data.erpNext.failedJobCount.toLocaleString('en-US')}
+          </span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <a href={resolve('/admin/queue')}>
+            <Button variant="outline" size="xs">Job queue</Button>
+          </a>
+          <Button size="xs" onclick={() => void runErpNextBackfill()} disabled={backfillBusy}>
+            {backfillBusy ? 'Enqueueing…' : 'Backfill invoices'}
+          </Button>
+        </div>
+      {:else}
+        <p class="text-muted-foreground text-xs">
+          ERPNext invoicing is not configured — set ERPNEXT_BASE_URL, ERPNEXT_API_KEY,
+          ERPNEXT_API_SECRET, ERPNEXT_COMPANY, and ERPNEXT_ITEM_CODE to enable it.
+        </p>
+      {/if}
+      {#if backfillMessage}
+        <p class="w-full text-xs {backfillMessage.startsWith('Matched') ? 'text-muted-foreground' : 'text-destructive'}">
+          {backfillMessage}
+        </p>
+      {/if}
+    </Card.Content>
+  </Card.Root>
 </div>

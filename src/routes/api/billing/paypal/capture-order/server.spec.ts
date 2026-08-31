@@ -3,13 +3,19 @@ import { computeTopUpCheckout } from '$lib/billing/top-up-checkout'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
 import { POST } from './+server'
 
-const { capturePayPalOrderMock, creditFromPaymentMock, getOrCreateWalletMock, getDbMock } =
-  vi.hoisted(() => ({
-    capturePayPalOrderMock: vi.fn(),
-    creditFromPaymentMock: vi.fn(),
-    getOrCreateWalletMock: vi.fn(),
-    getDbMock: vi.fn(),
-  }))
+const {
+  capturePayPalOrderMock,
+  creditFromPaymentMock,
+  getOrCreateWalletMock,
+  getDbMock,
+  maybeEnqueueErpNextInvoicePushMock,
+} = vi.hoisted(() => ({
+  capturePayPalOrderMock: vi.fn(),
+  creditFromPaymentMock: vi.fn(),
+  getOrCreateWalletMock: vi.fn(),
+  getDbMock: vi.fn(),
+  maybeEnqueueErpNextInvoicePushMock: vi.fn(),
+}))
 
 vi.mock('$lib/server/billing/paypal', () => ({
   capturePayPalOrder: capturePayPalOrderMock,
@@ -18,9 +24,14 @@ vi.mock('$lib/server/billing/wallet', () => ({
   creditFromPayment: creditFromPaymentMock,
   getOrCreateWallet: getOrCreateWalletMock,
 }))
+vi.mock('$lib/server/billing/erpnext-invoice-push', () => ({
+  maybeEnqueueErpNextInvoicePush: maybeEnqueueErpNextInvoicePushMock,
+}))
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
 }))
+
+maybeEnqueueErpNextInvoicePushMock.mockResolvedValue({ enqueued: true })
 
 function postRequest(body: unknown) {
   return new Request('http://localhost/api/billing/paypal/capture-order', {
@@ -235,6 +246,11 @@ describe('POST /api/billing/paypal/capture-order', () => {
         platformSubtotalUsd: QUOTE.platformSubtotalUsd,
       },
     })
+    expect(maybeEnqueueErpNextInvoicePushMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      paymentOrderId: 'internal-1',
+      payerEmail: 'payer@example.com',
+    })
     expect(await res.json()).toEqual({
       status: 'captured',
       credited: true,
@@ -246,6 +262,73 @@ describe('POST /api/billing/paypal/capture-order', () => {
         paypalFeeUsd: '0.54',
         netUsd: '1.21',
       },
+    })
+  })
+
+  it('still returns success when the ERPNext enqueue throws (backfill reconciles)', async () => {
+    buildDb({
+      id: 'internal-1',
+      userId: 'u1',
+      paypalOrderId: 'pp-1',
+      status: 'created',
+      requestedCredits: 1000,
+      chargedGrossUsd: QUOTE.totalDueUsd,
+      platformSubtotalUsd: QUOTE.platformSubtotalUsd,
+    })
+    capturePayPalOrderMock.mockResolvedValue({
+      grossUsd: QUOTE.totalDueUsd,
+      netUsd: '1.21',
+      paypalFeeUsd: '0.54',
+      payerEmail: 'payer@example.com',
+      raw: { id: 'pp-1' },
+    })
+    creditFromPaymentMock.mockResolvedValue({
+      credited: true,
+      availableCredits: 11000,
+    })
+    maybeEnqueueErpNextInvoicePushMock.mockRejectedValue(new Error('db down'))
+
+    const res = await POST({
+      locals: { user: { id: 'u1' } },
+      request: postRequest({ orderId: 'pp-1' }),
+    } as never)
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).status).toBe('captured')
+  })
+
+  it('does not enqueue when the payer email is missing', async () => {
+    buildDb({
+      id: 'internal-1',
+      userId: 'u1',
+      paypalOrderId: 'pp-1',
+      status: 'created',
+      requestedCredits: 1000,
+      chargedGrossUsd: QUOTE.totalDueUsd,
+      platformSubtotalUsd: QUOTE.platformSubtotalUsd,
+    })
+    capturePayPalOrderMock.mockResolvedValue({
+      grossUsd: QUOTE.totalDueUsd,
+      netUsd: '1.21',
+      paypalFeeUsd: '0.54',
+      payerEmail: null,
+      raw: { id: 'pp-1' },
+    })
+    creditFromPaymentMock.mockResolvedValue({
+      credited: true,
+      availableCredits: 11000,
+    })
+
+    const res = await POST({
+      locals: { user: { id: 'u1' } },
+      request: postRequest({ orderId: 'pp-1' }),
+    } as never)
+
+    expect(res.status).toBe(200)
+    expect(maybeEnqueueErpNextInvoicePushMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      paymentOrderId: 'internal-1',
+      payerEmail: null,
     })
   })
 })

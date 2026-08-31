@@ -484,6 +484,13 @@
       "when": 1786546205517,
       "tag": "0068_user_first_last_name",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1786634400000,
+      "tag": "0069_erpnext_invoice_sync",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import {
   parseAdminSpendView,
   resolveAdminUserByQuery,
 } from '$lib/server/billing/admin-spend'
+import { loadErpNextSyncStatus } from '$lib/server/billing/erpnext-invoice-push'
 
 function parseDateParam(raw: string | null): Date | null {
   if (!raw) return null
@@ -51,6 +52,8 @@ export const load: PageServerLoad = async (event) => {
 
   const userFilter = userQuery ? await resolveAdminUserByQuery(userQuery) : null
 
+  const erpNext = await loadErpNextSyncStatus()
+
   const spendResult = await listAdminSpendByUser({
     from,
     to,
@@ -75,6 +78,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     view,
+    erpNext,
     rows: spendResult.rows,
     totals: spendResult.totals,
     pagination: view === 'users' ? spendResult.pagination : (callsResult?.pagination ?? spendResult.pagination),

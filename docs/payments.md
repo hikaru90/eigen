@@ -149,6 +149,43 @@ Each eval run uses an isolated **eval tenant** (`evalUserId`) for thoughts and R
 4. Verify `npm run db:rls` and `APP_DB_ROLE` on the deployment.
 5. If error `phase` is `settle`, the gateway cost for the last call exceeded remaining balance; top up or shorten input.
 
+## ERPNext invoice sync
+
+Captured PayPal top-ups are pushed to the operator's ERPNext instance as **draft Sales Invoices** (review and submit there). The pipeline is tax-agnostic: invoice numbering, tax templates, and submission stay entirely in ERPNext — Eigen never numbers invoices or decides tax treatment.
+
+### Flow
+
+1. `POST /api/billing/paypal/capture-order` verifies the capture and credits the wallet, then enqueues an `erpnext_invoice_push` job (dedupe key `erpnext_invoice:<paymentOrderId>`, max 3 attempts). Enqueue skips silently for: ERPNext not configured, no PayPal payer email, harness/eval accounts.
+2. The job queue drains the job: it loads the captured `payment_order`, ensures an ERPNext **Customer** named by the payer email (creates `customer_type: Individual` when missing), and creates a **draft Sales Invoice** (USD, `posting_date` = capture date, one line: item × qty 1 × charged gross, description = „Vorauszahlung Eigen-Credits (N Credits, digitale Dienstleistung), vereinnahmt am DATE, PayPal-Order ID").
+3. On success the ERPNext invoice `name` + sync timestamp are stored on `payment_order` (`erpnext_invoice_name`, `erpnext_synced_at`). The job is idempotent: already-synced orders are skipped without HTTP calls.
+4. Failures retry up to exactly 3 times, then the job fails with an explicit error visible in `/admin/queue`. A failed enqueue right after capture does not fail the capture response; the backfill reconciles it.
+
+### Operator surface
+
+- **Backfill:** `/admin/spend` → **ERPNext invoice sync** card → **Backfill invoices** (or `POST /api/admin/erpnext/backfill?limit=N`, admin session required). Sweeps captured production payments with a payer email and no ERPNext invoice.
+- **Status:** the same card shows awaiting/invoiced/failed counts; failed pushes appear in `/admin/queue`.
+
+### Operator env vars (ERPNext)
+
+All-or-nothing: set all five required vars or none — partial configuration hard-fails with an explicit error (no implicit defaults).
+
+| Variable                | Purpose                                                                 |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `ERPNEXT_BASE_URL`      | REST base, e.g. `https://accounting.example.com` (http(s) required)     |
+| `ERPNEXT_API_KEY`       | API key from ERPNext → user → Settings → API Access                     |
+| `ERPNEXT_API_SECRET`    | API secret (same page) — needs Customer + Sales Invoice create perms    |
+| `ERPNEXT_COMPANY`       | Exact ERPNext company name for the invoices                             |
+| `ERPNEXT_ITEM_CODE`     | Service item code for the invoice line (must exist in ERPNext)          |
+| `ERPNEXT_TAXES_TEMPLATE`| Optional Taxes and Charges Template name applied to the line            |
+
+### German tax notes (invoice content per § 14 UStG)
+
+- **Kleinunternehmer (§ 19 UStG):** configure a 0% template in ERPNext whose printout carries the statutory note „Steuerfreier Kleinunternehmerumsatz gem. § 19 Abs. 1 UStG"; show the **Steuernummer** in the company header, never the USt-ID. Limits (25.000 € Vorjahr / 100.000 € laufend) cover the operator's **total** turnover — monitor manually.
+- The invoice carries the **Vereinnahmungsdatum** (capture date) because credit top-ups are Vorauszahlungen (§ 14 Abs. 4 Nr. 6, Abs. 5 UStG).
+- Currency: invoices are issued in USD (PayPal settlement); ERPNext converts for the EUR tax calculation (§ 16 Abs. 6 UStG — keep the exchange-rate table aligned with BMF monthly averages).
+- E-invoices (XRechnung/ZUGFeRD) are **out of scope**: buyers are consumers (PDF is fine), and § 27 Abs. 38 UStG permits paper/other formats for sub-800k-€ issuers through 2027. Revisit only if domestic B2B sales from 2028 become possible.
+- Invoices must be retained for 8 years (§ 14b Abs. 1 S. 1 UStG) — keep ERPNext backed up accordingly.
+
 ## Operator admin spend view
 
 Deployment operators with `user.role = 'admin'` can open **`/admin/spend`** to see per-user billing aggregates for **this deployment only** (not cross-deployment).

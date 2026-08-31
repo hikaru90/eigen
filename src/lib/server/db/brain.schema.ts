@@ -466,6 +466,10 @@ export const paymentOrder = pgTable(
     currency: text('currency').notNull(),
     payerEmail: text('payer_email'),
     rawCapture: jsonb('raw_capture').$type<Record<string, unknown>>(),
+    /** ERPNext Sales Invoice name once the invoice draft was created for this payment. */
+    erpNextInvoiceName: text('erpnext_invoice_name'),
+    /** When the ERPNext invoice push succeeded. */
+    erpNextSyncedAt: timestamp('erpnext_synced_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -1481,6 +1485,7 @@ export const userJobTypeEnum = [
   'overnight_consolidation',
   'webhook_delivery',
   'onboarding_grounding_push',
+  'erpnext_invoice_push',
 ] as const
 export type UserJobType = (typeof userJobTypeEnum)[number]
 

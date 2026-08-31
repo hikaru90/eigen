@@ -47,6 +47,7 @@ import {
   disableConnectedAgent,
   loadWebhookDeliveryAgentId,
 } from '$lib/server/agents/deliver'
+import { processErpNextInvoicePushJob } from '$lib/server/billing/erpnext-invoice-push'
 import { processOnboardingGroundingPushJob } from '$lib/server/grounding/onboarding-welcome-push'
 import { markOvernightJobActive, markOvernightJobInactive } from './active-overnight-jobs'
 import { createAdminSql } from './admin-db'
@@ -54,6 +55,7 @@ import {
   JOB_QUEUE_BATCH_LIMIT,
   ONBOARDING_GROUNDING_PUSH_JOB,
   OVERNIGHT_CONSOLIDATION_JOB,
+  ERPNEXT_INVOICE_PUSH_JOB,
   WEBHOOK_DELIVERY_JOB,
 } from './constants'
 import { processOvernightConsolidationJob } from './process-overnight'
@@ -184,6 +186,9 @@ async function dispatchJob(job: ClaimedJob): Promise<void> {
       return
     case ONBOARDING_GROUNDING_PUSH_JOB:
       await processOnboardingGroundingPushJob(job.userId)
+      return
+    case ERPNEXT_INVOICE_PUSH_JOB:
+      await processErpNextInvoicePushJob(job)
       return
     default:
       throw new Error(`Unknown job type: ${job.jobType}`)

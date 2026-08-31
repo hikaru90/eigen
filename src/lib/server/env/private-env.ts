@@ -9,6 +9,12 @@ export type ExtendedPrivateEnv = typeof kitEnv & {
   CAPTURE_ENRICH_CONCURRENCY?: string
   CONSOLIDATION_CRON_TZ?: string
   DB_POOL_MAX?: string
+  ERPNEXT_API_KEY?: string
+  ERPNEXT_API_SECRET?: string
+  ERPNEXT_BASE_URL?: string
+  ERPNEXT_COMPANY?: string
+  ERPNEXT_ITEM_CODE?: string
+  ERPNEXT_TAXES_TEMPLATE?: string
   EVAL_ENRICHMENT_KICK_CONCURRENCY?: string
   GITHUB_CLIENT_ID?: string
   GITHUB_CLIENT_SECRET?: string
