@@ -51,3 +51,6 @@ opencode.json
 **/__screenshots__/
 
 .playwright-mcp
+
+# Claude skills & local credentials (never commit)
+.claude/

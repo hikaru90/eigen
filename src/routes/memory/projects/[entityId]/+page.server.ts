@@ -1,5 +1,6 @@
 import type { PageServerLoad } from './$types'
 import { error, redirect } from '@sveltejs/kit'
+import { parseProjectTaskStatusFilter } from '$lib/memory/project-task-status-filter'
 import { parseProjectViewMode } from '$lib/memory/project-view-mode'
 import { loadProjectDetail } from '$lib/server/memory/project-detail'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
@@ -18,12 +19,14 @@ export const load: PageServerLoad = async (event) => {
   if (!detail) error(404, 'Project not found')
 
   const view = parseProjectViewMode(event.url.searchParams.get('view'))
+  const statusFilter = parseProjectTaskStatusFilter(event.url.searchParams.get('status'))
   const preferredTimezone = await getUserPreferredTimezone(event.locals.user.id)
 
   return {
     user: event.locals.user,
     preferredTimezone,
     view,
+    statusFilter,
     project: detail.project,
     items: detail.items,
   }

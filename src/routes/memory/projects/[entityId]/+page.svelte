@@ -14,6 +14,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Button } from '$lib/components/ui/button'
   import type { ReviewProjectResponse } from '$lib/memory/project-review-types'
+  import type { ProjectTaskStatusFilter } from '$lib/memory/project-task-status-filter'
   import type { ProjectViewMode } from '$lib/memory/project-view-mode'
   import { parseProjectViewMode } from '$lib/memory/project-view-mode'
   import { m } from '$lib/paraglide/messages.js'
@@ -21,6 +22,7 @@
   import ProjectKanbanView from '../../../timeline/project-kanban-view.svelte'
   import ProjectListView from '../../../timeline/project-list-view.svelte'
   import TemporalEventDetail from '../../../timeline/temporal-event-detail.svelte'
+  import { filterItemsByStatus } from '../../../timeline/temporal-events-utils'
   import TimelineEditProjectDialog from '../../../timeline/timeline-edit-project-dialog.svelte'
   import { postTimelineQuickAction } from '../../../timeline/timeline-item-actions'
   import ProjectReviewDialog from './project-review-dialog.svelte'
@@ -31,6 +33,12 @@
 
   const project = $derived(data.project)
   const viewMode = $derived(data.view)
+  const statusFilter = $derived(data.statusFilter)
+
+  const statusFilterOptions: Array<{ value: ProjectTaskStatusFilter; label: string }> = [
+    { value: 'open', label: m.graph_timeline_project_filter_open() },
+    { value: 'all', label: m.graph_timeline_project_filter_all() },
+  ]
 
   let optimisticItems = $state<TemporalEventListItem[] | null>(null)
   const items = $derived(optimisticItems ?? data.items)
@@ -58,6 +66,8 @@
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     })
   })
+
+  const visibleItems = $derived(filterItemsByStatus(orderedItems, statusFilter))
 
   function statusLabel(status: typeof project.status): string {
     if (status === 'someday') return m.graph_timeline_project_status_someday()
@@ -88,8 +98,17 @@
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(VIEW_STORAGE_KEY, next)
     }
+    await gotoWithParam('view', next)
+  }
+
+  async function setStatusFilter(next: ProjectTaskStatusFilter) {
+    selectedItem = null
+    await gotoWithParam('status', next)
+  }
+
+  async function gotoWithParam(key: 'view' | 'status', value: string) {
     const url = new URL(page.url)
-    url.searchParams.set('view', next)
+    url.searchParams.set(key, value)
     const search = url.search ? `?${url.searchParams.toString()}` : ''
     await goto(resolve(`/memory/projects/${project.entityId}${search}`), {
       replaceState: true,
@@ -275,6 +294,27 @@
           {m.graph_timeline_project_view_kanban()}
         </button>
       </div>
+
+      <div
+        class="border-border flex items-center gap-0.5 rounded-full border bg-muted/20 p-0.5"
+        role="tablist"
+        aria-label={m.graph_timeline_project_status_filter_aria()}
+        data-testid="project-status-filter"
+      >
+        {#each statusFilterOptions as option (option.value)}
+          <button
+            type="button"
+            role="tab"
+            class={viewPillClass(statusFilter === option.value)}
+            aria-selected={statusFilter === option.value}
+            aria-label={option.label}
+            onclick={() => void setStatusFilter(option.value)}
+            data-testid="project-status-filter-{option.value}"
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <div
@@ -309,7 +349,7 @@
   <div class="relative mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
     {#if viewMode === 'list'}
       <ProjectListView
-        items={orderedItems}
+        items={visibleItems}
         selectedItemId={selectedItem?.id ?? null}
         {updatingEventId}
         onSelect={(item) => (selectedItem = item)}
@@ -318,13 +358,13 @@
     {:else if viewMode === 'timeline'}
       <ProjectGanttView
         project={{ ...project, label: displayLabel }}
-        items={orderedItems}
+        items={visibleItems}
         selectedItemId={selectedItem?.id ?? null}
         onSelect={(item) => (selectedItem = item)}
       />
     {:else}
       <ProjectKanbanView
-        items={orderedItems}
+        items={visibleItems}
         selectedItemId={selectedItem?.id ?? null}
         {updatingEventId}
         onSelect={(item) => (selectedItem = item)}
