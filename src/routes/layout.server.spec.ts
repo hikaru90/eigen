@@ -25,7 +25,13 @@ describe('layout server load', () => {
           where: vi.fn().mockReturnValue({
             limit: vi
               .fn()
-              .mockResolvedValue([{ preferredUiLocale: 'en', preferredLanguage: 'de' }]),
+              .mockResolvedValue([
+                {
+                  preferredUiLocale: 'en',
+                  preferredLanguage: 'de',
+                  betaAgreementAcceptedAt: null,
+                },
+              ]),
             then(
               onFulfilled?: (value: unknown) => unknown,
               onRejected?: (error: unknown) => unknown,
@@ -48,6 +54,7 @@ describe('layout server load', () => {
       isAdmin: false,
       preferredUiLocale: 'en',
       preferredLanguage: 'de',
+      betaAgreementAccepted: false,
       authorLayers: [{ key: 'user', label: 'You', kind: 'user' }],
     })
 
@@ -56,7 +63,44 @@ describe('layout server load', () => {
       isAdmin: false,
       preferredUiLocale: null,
       preferredLanguage: 'en',
+      betaAgreementAccepted: true,
       authorLayers: [],
+    })
+  })
+
+  it('reports betaAgreementAccepted: true when the user has accepted', async () => {
+    getDbMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi
+              .fn()
+              .mockResolvedValue([
+                {
+                  preferredUiLocale: 'en',
+                  preferredLanguage: 'en',
+                  betaAgreementAcceptedAt: new Date('2026-09-01T00:00:00Z'),
+                },
+              ]),
+            then(
+              onFulfilled?: (value: unknown) => unknown,
+              onRejected?: (error: unknown) => unknown,
+            ) {
+              return Promise.resolve([]).then(onFulfilled, onRejected)
+            },
+          }),
+        }),
+      }),
+      selectDistinct: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    })
+
+    const cookies = makeCookies()
+    await expect(load({ locals: { user: { id: 'u1' } }, cookies } as never)).resolves.toMatchObject({
+      betaAgreementAccepted: true,
     })
   })
 })

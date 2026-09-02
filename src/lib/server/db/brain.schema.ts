@@ -165,7 +165,7 @@ export const captureSession = pgTable(
  * @deprecated Use `thought.category` instead.
  */
 export const memoryTypeEnum = [] as const
- 
+
 export type MemoryType = Record<string, never>
 
 export const enrichQueueStatusEnum = [
@@ -575,6 +575,8 @@ export const userPreference = pgTable(
     lastDailySummaryLocalDate: text('last_daily_summary_local_date'),
     /** Set when the most recent dispatch attempt failed; cleared on successful delivery. */
     lastDailySummaryDispatchError: text('last_daily_summary_dispatch_error'),
+    /** Early-access agreement acceptance time. NULL = not yet accepted (blocks app entry for new users). */
+    betaAgreementAcceptedAt: timestamp('beta_agreement_accepted_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at')
       .defaultNow()
       .$onUpdate(() => new Date())

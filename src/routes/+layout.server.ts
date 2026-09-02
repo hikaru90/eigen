@@ -11,6 +11,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   let preferredUiLocale: string | null = null
   let preferredLanguage = 'en'
   let isAdmin = false
+  let betaAgreementAccepted = true
   let authorLayers: Awaited<ReturnType<typeof listAuthorLayersForUser>> = []
 
   if (locals.user) {
@@ -20,6 +21,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
       .select({
         preferredUiLocale: userPreference.preferredUiLocale,
         preferredLanguage: userPreference.preferredLanguage,
+        betaAgreementAcceptedAt: userPreference.betaAgreementAcceptedAt,
       })
       .from(userPreference)
       .where(eq(userPreference.userId, locals.user.id))
@@ -27,6 +29,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
     preferredUiLocale = normalizeUiLocale(pref?.preferredUiLocale ?? 'en')
     preferredLanguage = pref?.preferredLanguage ?? 'en'
+    betaAgreementAccepted = pref?.betaAgreementAcceptedAt != null
     const currentCookie = cookies.get(cookieName)
     if (currentCookie !== preferredUiLocale) {
       cookies.set(cookieName, preferredUiLocale, {
@@ -41,6 +44,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   return {
     user: locals.user ?? null,
     isAdmin,
+    betaAgreementAccepted,
     preferredUiLocale,
     preferredLanguage,
     authorLayers,

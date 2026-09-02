@@ -352,7 +352,6 @@
   "notes_unlink": "Unlink",
   "notes_view_on_graph": "View on graph",
   "notes_open_in_library": "Open in Notes",
-
   "llm_entity_extraction_system": "You extract structured entity mentions. entityType must always be an exact key from the entity type list in the user message, never a free-form category.",
   "llm_entity_triple_system": "You extract typed edges between known entity surfaces.",
   "llm_gtd_assignment_system": "You assign personal notes to GTD projects. projectEntityId must be copied exactly from the catalog or null. Return only valid JSON.",
@@ -363,5 +362,15 @@
   "llm_project_review_system": "You review an existing GTD project and propose confirmable tidy-up changes. thoughtId and order entries must use only catalog uuids. Suggest new tasks only for real gaps. Return only valid JSON.",
   "llm_temporal_extraction_system": "You extract dates, deadlines, and temporal mentions from personal notes.",
   "llm_relation_extraction_system": "You extract relations between thoughts.",
-  "llm_cue_generation_system": "You generate search cues for personal memory notes."
+  "llm_cue_generation_system": "You generate search cues for personal memory notes.",
+  "beta_agreement_eyebrow": "Early Access",
+  "beta_agreement_title": "A new way to remember",
+  "beta_agreement_subtitle": "Please review and accept the Early Access Agreement.",
+  "beta_agreement_review_link": "Click to review the Early Access Agreement.",
+  "beta_agreement_key_details": "Key Details",
+  "beta_agreement_detail_early_stage": "Eigen Mesh is an early-stage product. It may contain significant bugs and isn't production-ready. Export and back up important thoughts regularly.",
+  "beta_agreement_detail_data_storage": "Eigen Mesh stores your captured thoughts, entities, and graph data on our servers (or yours if you self-host). Encrypted at rest, isolated per account.",
+  "beta_agreement_detail_no_training": "We don't train on your data. Eigen Mesh and its hosted AI providers don't use your thoughts to train or improve products. AI services you connect follow your agreements with those providers.",
+  "beta_agreement_checkbox_label": "I have read and agree to the Early Access Agreement.",
+  "beta_agreement_accept_button": "Accept and start using Eigen Mesh"
 }

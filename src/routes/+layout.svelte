@@ -17,6 +17,7 @@
   import favicon from '$lib/assets/favicon.png'
   import { startCaptureQueueRunner } from '$lib/capture/queue'
   import AppHeader from '$lib/components/app-header.svelte'
+  import BetaAgreementModal from '$lib/components/beta-agreement-modal.svelte'
   import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
   import { m } from '$lib/paraglide/messages.js'
@@ -199,6 +200,8 @@
   {/if}
   {@render children()}
 </div>
+
+<BetaAgreementModal />
 
 {#if !hideAppChrome && layoutUserId}
   <InstallPromptToast userId={layoutUserId} />

@@ -351,7 +351,6 @@
   "notes_unlink": "Verknüpfung lösen",
   "notes_view_on_graph": "Im Graph anzeigen",
   "notes_open_in_library": "In Notizen öffnen",
-
   "llm_entity_extraction_system": "Du extrahierst strukturierte Erwähnungen von Entitäten. entityType muss immer ein exakter Schlüssel aus der Entitätstyp-Liste in der Benutzernachricht sein, niemals eine freie Kategorie.",
   "llm_entity_triple_system": "Du extrahierst typisierte Kanten zwischen bekannten Entitäts-Oberflächen.",
   "llm_gtd_assignment_system": "Du ordnete persönliche Notizen GTD-Projekten zu. projectEntityId muss exakt aus dem Katalog kopiert werden oder null. Gib nur gültiges JSON zurück.",
@@ -362,5 +361,15 @@
   "llm_project_review_system": "Du prüfst ein bestehendes GTD-Projekt und schlägst bestätigbare Aufräum-Änderungen vor. thoughtId und order dürfen nur Katalog-UUIDs verwenden. Neue Aufgaben nur bei echten Lücken vorschlagen. Gib nur gültiges JSON zurück.",
   "llm_temporal_extraction_system": "Du extrahierst Daten, Deadlines und zeitliche Erwähnungen aus persönlichen Notizen.",
   "llm_relation_extraction_system": "Du extrahierst Beziehungen zwischen Gedanken.",
-  "llm_cue_generation_system": "Du generierst Such-Hinweise für persönliche Notizen."
+  "llm_cue_generation_system": "Du generierst Such-Hinweise für persönliche Notizen.",
+  "beta_agreement_eyebrow": "Frühzugang",
+  "beta_agreement_title": "Eine neue Art, dich zu erinnern",
+  "beta_agreement_subtitle": "Bitte lies die Nutzungsbedingungen für den Frühzugang und akzeptiere sie.",
+  "beta_agreement_review_link": "Klicke hier, um die Vereinbarung zu lesen.",
+  "beta_agreement_key_details": "Wichtige Hinweise",
+  "beta_agreement_detail_early_stage": "Eigen Mesh befindet sich in einem frühen Stadium. Es kann erhebliche Fehler enthalten und ist nicht produktionsreif. Exportiere und sichere wichtige Gedanken regelmäßig.",
+  "beta_agreement_detail_data_storage": "Eigen Mesh speichert deine erfassten Gedanken, Entitäten und Graphdaten auf unseren Servern (oder deinen eigenen beim Self-Hosting). Verschlüsselt im Ruhezustand, isoliert pro Konto.",
+  "beta_agreement_detail_no_training": "Wir trainieren nicht mit deinen Daten. Eigen Mesh und die gehosteten KI-Anbieter nutzen deine Gedanken nicht zum Trainieren oder Verbessern von Produkten. Von dir verbundene KI-Dienste folgen deren jeweiligen Vereinbarungen.",
+  "beta_agreement_checkbox_label": "Ich habe die Vereinbarung gelesen und akzeptiere sie.",
+  "beta_agreement_accept_button": "Akzeptieren und Eigen Mesh nutzen"
 }
