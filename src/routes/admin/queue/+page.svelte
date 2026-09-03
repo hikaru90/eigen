@@ -111,18 +111,28 @@
 
   function onStatusChange(value: StatusFilter) {
     statusFilter = value
-    void goto(resolve(listUrl({
-        status: value === 'all' || !value ? null : value,
-        harness: includeHarness ? '1' : null,
-      }) as '/admin/queue'), { keepFocus: true, noScroll: true })
+    void goto(
+      resolve(
+        listUrl({
+          status: value === 'all' || !value ? null : value,
+          harness: includeHarness ? '1' : null,
+        }) as '/admin/queue',
+      ),
+      { keepFocus: true, noScroll: true },
+    )
   }
 
   function onHarnessToggle(checked: boolean) {
     includeHarness = checked
-    void goto(resolve(listUrl({
-        status: statusFilter === 'all' || !statusFilter ? null : statusFilter,
-        harness: checked ? '1' : null,
-      }) as '/admin/queue'), { keepFocus: true, noScroll: true })
+    void goto(
+      resolve(
+        listUrl({
+          status: statusFilter === 'all' || !statusFilter ? null : statusFilter,
+          harness: checked ? '1' : null,
+        }) as '/admin/queue',
+      ),
+      { keepFocus: true, noScroll: true },
+    )
   }
 
   onMount(() => {

@@ -19,15 +19,10 @@ vi.mock('$lib/server/feedback/send-feedback-email', () => ({
   sendFeedbackInboxEmail: sendFeedbackInboxEmailMock,
 }))
 
-function event(
-  overrides: { user?: { id: string; email?: string } | null; body?: unknown } = {},
-) {
+function event(overrides: { user?: { id: string; email?: string } | null; body?: unknown } = {}) {
   return {
     locals: {
-      user:
-        overrides.user === undefined
-          ? { id: 'u1', email: 'u1@example.com' }
-          : overrides.user,
+      user: overrides.user === undefined ? { id: 'u1', email: 'u1@example.com' } : overrides.user,
     },
     request: new Request('http://localhost/api/feedback', {
       method: 'POST',

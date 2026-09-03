@@ -559,7 +559,10 @@ export async function fetchGraphVisualizationSnapshot(input: {
       }
     }
 
-    return filterGraphVizEdgesToNodes(nodes, edges) as { nodes: GraphVizNode[]; edges: GraphVizEdge[] }
+    return filterGraphVizEdgesToNodes(nodes, edges) as {
+      nodes: GraphVizNode[]
+      edges: GraphVizEdge[]
+    }
   })
 }
 

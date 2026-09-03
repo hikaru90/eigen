@@ -37,10 +37,7 @@ import {
   repairEntityRelationsForUser,
 } from './repair-entity-relations'
 
-function twoEntityRows(
-  thoughtId: string,
-  overrides?: { metadata?: Record<string, unknown> },
-) {
+function twoEntityRows(thoughtId: string, overrides?: { metadata?: Record<string, unknown> }) {
   return [
     {
       thoughtId,
@@ -185,7 +182,9 @@ describe('repairEntityRelationsForUser', () => {
         from: vi.fn(() => ({
           innerJoin: vi.fn(() => ({
             innerJoin: vi.fn(() => ({
-              where: vi.fn(async () => twoEntityRows('t1', { metadata: { entityRelationRepairAttempts: 1 } })),
+              where: vi.fn(async () =>
+                twoEntityRows('t1', { metadata: { entityRelationRepairAttempts: 1 } }),
+              ),
             })),
           })),
         })),
@@ -212,7 +211,9 @@ describe('repairEntityRelationsForUser', () => {
       )
       .mockResolvedValue([])
 
-    await expect(repairEntityRelationsForUser('u1')).rejects.toBeInstanceOf(InsufficientCreditsError)
+    await expect(repairEntityRelationsForUser('u1')).rejects.toBeInstanceOf(
+      InsufficientCreditsError,
+    )
 
     expect(extractEntityTriplesMock).toHaveBeenCalledTimes(1)
   })

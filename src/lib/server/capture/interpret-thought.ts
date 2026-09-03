@@ -8,7 +8,12 @@
 import { getDb } from '$lib/server/db'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
-import { ensureUserOntologySeeded, loadOntologyForUser, activeThoughtCategoryKinds, type LoadedUserOntology } from '$lib/server/ontology-db'
+import {
+  ensureUserOntologySeeded,
+  loadOntologyForUser,
+  activeThoughtCategoryKinds,
+  type LoadedUserOntology,
+} from '$lib/server/ontology-db'
 import { loadUserOntologyProfileRow } from '$lib/server/ontology/classify-thought-category'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 import { runStrictCategoryRetry } from '$lib/server/ontology/strict-category-retry'
@@ -55,14 +60,12 @@ function parsePreviewBundle(
     throw new Error('Interpret LLM response must be a JSON object')
   }
   const obj = payload as Record<string, unknown>
-  const interpretedText =
-    typeof obj.interpretedText === 'string' ? obj.interpretedText.trim() : ''
+  const interpretedText = typeof obj.interpretedText === 'string' ? obj.interpretedText.trim() : ''
   if (!interpretedText) {
     throw new Error('Interpret LLM response missing non-empty interpretedText')
   }
 
-  const category =
-    forcedCategory ?? resolveCategoryFromLlmOutput(ontology, obj.category)
+  const category = forcedCategory ?? resolveCategoryFromLlmOutput(ontology, obj.category)
 
   const entitiesRaw = Array.isArray(obj.entities) ? obj.entities : []
   const entities: CapturePreviewEntity[] = []

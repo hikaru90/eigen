@@ -19,13 +19,7 @@
     onApplied: (result: ApplyProjectReviewResponse) => void
   }
 
-  let {
-    open = $bindable(false),
-    projectEntityId,
-    review,
-    onClose,
-    onApplied,
-  }: Props = $props()
+  let { open = $bindable(false), projectEntityId, review, onClose, onApplied }: Props = $props()
 
   let busy = $state(false)
   let error = $state<string | null>(null)

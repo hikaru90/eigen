@@ -27,7 +27,10 @@ export class InvalidThoughtCategoryError extends Error {
 }
 
 export function isInvalidThoughtCategoryError(e: unknown): e is InvalidThoughtCategoryError {
-  return e instanceof InvalidThoughtCategoryError || (e instanceof Error && e.name === 'InvalidThoughtCategoryError')
+  return (
+    e instanceof InvalidThoughtCategoryError ||
+    (e instanceof Error && e.name === 'InvalidThoughtCategoryError')
+  )
 }
 
 export type ResolvedThoughtCategory = ResolvedThoughtOntologyKind & {
@@ -55,8 +58,7 @@ export function resolveCategoryFromLlmOutput(
   loaded: LoadedUserOntology,
   raw: unknown,
 ): ResolvedThoughtCategory {
-  const obj: RawCategoryOutput =
-    raw && typeof raw === 'object' ? (raw as RawCategoryOutput) : {}
+  const obj: RawCategoryOutput = raw && typeof raw === 'object' ? (raw as RawCategoryOutput) : {}
   const primary = typeof obj.key === 'string' ? obj.key.trim() : ''
 
   const alternatives: Array<{ key: string; confidence: number }> = []

@@ -9,11 +9,7 @@ vi.mock('$lib/server/memory/project-review', () => ({
   reviewProject: reviewProjectMock,
 }))
 
-function makeEvent(input: {
-  userId?: string | null
-  entityId?: string
-  body?: unknown
-}) {
+function makeEvent(input: { userId?: string | null; entityId?: string; body?: unknown }) {
   return {
     locals: { user: input.userId ? { id: input.userId } : null },
     params: { entityId: input.entityId ?? 'p1' },

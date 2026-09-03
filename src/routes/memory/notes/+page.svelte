@@ -13,10 +13,7 @@
   import { Input } from '$lib/components/ui/input'
   import { Label } from '$lib/components/ui/label'
   import { Textarea } from '$lib/components/ui/textarea'
-  import {
-    matchesCurrentUserView,
-    type CurrentUserView,
-  } from '$lib/memory/current-user-view'
+  import { matchesCurrentUserView, type CurrentUserView } from '$lib/memory/current-user-view'
   import { m } from '$lib/paraglide/messages.js'
   import {
     getCurrentUserView,

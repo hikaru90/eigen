@@ -54,9 +54,7 @@ export type CreateTimelineDataOptions = {
 export function createTimelineData(options: CreateTimelineDataOptions = {}) {
   const userTimeZone =
     options.userTimeZone ??
-    (typeof Intl !== 'undefined'
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : 'UTC')
+    (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC')
 
   let dateRange = $state<TimelineDateRangeFilter>({ ...INITIAL_RANGE })
   let orderBy = $state<'ingest' | 'todo'>(

@@ -13,25 +13,25 @@ Apply these rules in order. The first match wins. Frameworks wrap providers, and
 
 ### 1. A framework wins over the provider under it
 
-| Package in the manifest | Variant |
-|---|---|
-| `openai-agents` | `openai-agents` |
-| `claude-agent-sdk` | `claude-agent-sdk` |
-| `langchain`, `@langchain/core` | `langchain-{python,node}` |
-| `langgraph`, `@langchain/langgraph` | `langgraph-{python,node}` |
-| `ai` (Vercel AI SDK) | `vercel-ai` |
-| `llama-index`, `llamaindex` | `llamaindex` |
-| `crewai` | `crewai` |
-| `pyautogen`, `autogen-agentchat` | `autogen` |
-| `dspy`, `dspy-ai` | `dspy` |
-| `pydantic-ai` | `pydantic-ai` |
-| `semantic-kernel` | `semantic-kernel` |
-| `smolagents` | `smolagents` |
-| `mirascope` | `mirascope` |
-| `instructor` | `instructor-{python,node}` |
-| `litellm` | `litellm` |
-| `mastra`, `@mastra/core` | `mastra` |
-| `convex` | `convex` |
+| Package in the manifest             | Variant                    |
+| ----------------------------------- | -------------------------- |
+| `openai-agents`                     | `openai-agents`            |
+| `claude-agent-sdk`                  | `claude-agent-sdk`         |
+| `langchain`, `@langchain/core`      | `langchain-{python,node}`  |
+| `langgraph`, `@langchain/langgraph` | `langgraph-{python,node}`  |
+| `ai` (Vercel AI SDK)                | `vercel-ai`                |
+| `llama-index`, `llamaindex`         | `llamaindex`               |
+| `crewai`                            | `crewai`                   |
+| `pyautogen`, `autogen-agentchat`    | `autogen`                  |
+| `dspy`, `dspy-ai`                   | `dspy`                     |
+| `pydantic-ai`                       | `pydantic-ai`              |
+| `semantic-kernel`                   | `semantic-kernel`          |
+| `smolagents`                        | `smolagents`               |
+| `mirascope`                         | `mirascope`                |
+| `instructor`                        | `instructor-{python,node}` |
+| `litellm`                           | `litellm`                  |
+| `mastra`, `@mastra/core`            | `mastra`                   |
+| `convex`                            | `convex`                   |
 
 Instrument the framework, not the provider below it. A provider instrumentor keeps the model calls and loses the agent, tool, and handoff structure.
 

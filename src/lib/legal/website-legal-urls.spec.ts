@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  DEFAULT_WEBSITE_ORIGIN,
-  websiteLegalUrl,
-  WEBSITE_LEGAL_PATHS,
-} from './website-legal-urls'
+import { DEFAULT_WEBSITE_ORIGIN, websiteLegalUrl, WEBSITE_LEGAL_PATHS } from './website-legal-urls'
 
 describe('websiteLegalUrl', () => {
   it('uses the default marketing origin when none is provided', () => {

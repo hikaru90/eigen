@@ -4,12 +4,7 @@
 
 import { and, eq, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
-import {
-  communityMember,
-  graphCommunity,
-  thought,
-  thoughtEntity,
-} from '$lib/server/db/schema'
+import { communityMember, graphCommunity, thought, thoughtEntity } from '$lib/server/db/schema'
 import { COMMUNITY_EVIDENCE_MIN_LEVEL } from './community-levels'
 
 const RECENCY_HALF_LIFE_DAYS = 90

@@ -3,9 +3,9 @@ import { raceWithTimeout } from './race-with-timeout'
 
 describe('raceWithTimeout', () => {
   it('rejects when body exceeds the timeout', async () => {
-    await expect(
-      raceWithTimeout('test', () => new Promise(() => {}), 50),
-    ).rejects.toThrow(/test timeout after 50ms/)
+    await expect(raceWithTimeout('test', () => new Promise(() => {}), 50)).rejects.toThrow(
+      /test timeout after 50ms/,
+    )
   })
 
   it('returns body result and clears the timer when body finishes first', async () => {

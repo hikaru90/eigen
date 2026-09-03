@@ -185,5 +185,7 @@ export async function exerciseVoiceCaptureUi(
     )
     .not.toBeNull()
 
-  expect(lastValue, 'voice capture left #thought empty').toMatch(/release|voice|smoke|capture|test/i)
+  expect(lastValue, 'voice capture left #thought empty').toMatch(
+    /release|voice|smoke|capture|test/i,
+  )
 }

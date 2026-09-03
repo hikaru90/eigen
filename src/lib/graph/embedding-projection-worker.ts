@@ -8,9 +8,7 @@ import {
   l2NormalizeEmbeddings,
 } from '../../routes/graph/embedding-projection'
 
-type ReqMessage =
-  | { type: 'project'; items: EmbeddingSnapshotItem[] }
-  | { type: 'cancel' }
+type ReqMessage = { type: 'project'; items: EmbeddingSnapshotItem[] } | { type: 'cancel' }
 
 type DoneMessage = { type: 'done'; coords: number[][] }
 type ProgressMessage = { type: 'progress'; epoch: number; totalEpochs: number }

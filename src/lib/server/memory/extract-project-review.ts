@@ -215,9 +215,7 @@ export async function extractProjectReview(input: {
         ` — ${t.summary}`,
     )
     .join('\n')
-  const linkedCatalog = input.linkedThoughts
-    .map((t) => `- ${t.thoughtId}: ${t.summary}`)
-    .join('\n')
+  const linkedCatalog = input.linkedThoughts.map((t) => `- ${t.thoughtId}: ${t.summary}`).join('\n')
 
   const prompt = [
     'Return ONLY JSON with this shape:',
@@ -244,7 +242,9 @@ export async function extractProjectReview(input: {
     'Set exactly one of nextActionThoughtId or nextActionIsNewTaskIndex when there is an actionable next step.',
     '',
     `Project: ${input.projectLabel}`,
-    input.projectDeadline ? `Current project deadline: ${input.projectDeadline}` : 'Current project deadline: (none)',
+    input.projectDeadline
+      ? `Current project deadline: ${input.projectDeadline}`
+      : 'Current project deadline: (none)',
     input.goal?.trim() ? `Goal: ${input.goal.trim()}` : '',
     '',
     'Existing tasks:',

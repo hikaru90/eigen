@@ -86,10 +86,10 @@ Scripts `eval`, `eval:smoke`, `eval:all`, etc. exist in `package.json` for opera
 
 ## CI workflows
 
-| Workflow                                                                                   | What it runs                                                                                                                                    |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workflow                                                                                   | What it runs                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`.github/workflows/test-coverage.yml`](../../.github/workflows/test-coverage.yml)         | **Required:** `lint` → `check` → `test:unit`; **Component browser tests** → `test:components`. **Reported:** `test:coverage` with `CI=true` (`continue-on-error` until tier thresholds are met). |
-| [`.github/workflows/oss-secrets-guard.yml`](../../.github/workflows/oss-secrets-guard.yml) | `assert:oss-secrets` + its unit spec                                                                                                            |
+| [`.github/workflows/oss-secrets-guard.yml`](../../.github/workflows/oss-secrets-guard.yml) | `assert:oss-secrets` + its unit spec                                                                                                                                                             |
 
 If `test` / `test:unit` / `test:coverage` scripts are missing from `package.json`, CI and local workflows are broken — restore them; do not treat the suite as optional.
 

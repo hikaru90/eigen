@@ -20,10 +20,7 @@ import {
 import type { McpToolContext } from '$lib/server/mcp/tools'
 import { redactForLog } from '$lib/server/observability/redact-for-log'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
-import {
-  formatComposedAnswerForUser,
-  type ComposedAnswer,
-} from '$lib/server/qa/compose-answer'
+import { formatComposedAnswerForUser, type ComposedAnswer } from '$lib/server/qa/compose-answer'
 import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 
 const MAX_ITERATIONS = 8
@@ -261,8 +258,7 @@ async function executeAgentToolCall(input: {
   arguments: Record<string, unknown>
   exec: ToolExecutionContext
 }): Promise<
-  | { done: true; response: string }
-  | { done: false; result: unknown; assistantContent: string }
+  { done: true; response: string } | { done: false; result: unknown; assistantContent: string }
 > {
   const { tool, exec } = input
   const args = normalizeAgentToolArgs(tool, input.arguments)

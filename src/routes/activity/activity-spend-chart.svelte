@@ -107,7 +107,6 @@
   }
 
   function formatCredits(value: number): string {
-     
     if (value === 0) return '0'
     if (value < 0.01) return value.toFixed(4)
     if (value < 1) return value.toFixed(2)

@@ -38,7 +38,7 @@
   const showResend = $derived(
     Boolean(
       data.mailConfigured &&
-        ((form && 'emailUnverified' in form && form.emailUnverified) || form?.verificationSent),
+      ((form && 'emailUnverified' in form && form.emailUnverified) || form?.verificationSent),
     ),
   )
   const resendEmail = $derived(form?.email ?? email)
@@ -156,7 +156,9 @@
 
       <p class="text-muted-foreground text-center text-xs">
         Don't have an account?
-        <a href={resolve('/signup')} class="text-foreground underline-offset-2 hover:underline">Sign up</a>
+        <a href={resolve('/signup')} class="text-foreground underline-offset-2 hover:underline"
+          >Sign up</a
+        >
       </p>
     </Card.Content>
   </Card.Root>

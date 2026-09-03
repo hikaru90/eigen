@@ -6,7 +6,10 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { getDb, withDbUser } from '$lib/server/db'
 import { canonicalEntity } from '$lib/server/db/schema'
-import { extractProjectOrder, shouldInvokeProjectOrderJudge } from '$lib/server/memory/extract-project-order'
+import {
+  extractProjectOrder,
+  shouldInvokeProjectOrderJudge,
+} from '$lib/server/memory/extract-project-order'
 import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project'
 import { countGtdProjectsForUser } from '$lib/server/memory/project-eligibility'
 import {

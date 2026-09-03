@@ -100,7 +100,7 @@ describe('timeline client load wiring contract', () => {
     const dataStore = readTimeline('timeline-data.svelte.ts')
     const derive = readTimeline('timeline-data-derive.ts')
     expect(dataStore).not.toContain("params.set('kinds'")
-    expect(derive).not.toContain("kinds=")
+    expect(derive).not.toContain('kinds=')
   })
 
   it('refetches prefetched surfaces whose author scope misses the current view', () => {

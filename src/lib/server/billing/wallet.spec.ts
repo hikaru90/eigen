@@ -1,9 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import {
-  InsufficientCreditsError,
-  adminGrantCredits,
-  chargePlatformUsageMicroUsd,
-} from './wallet'
+import { InsufficientCreditsError, adminGrantCredits, chargePlatformUsageMicroUsd } from './wallet'
 
 const { mockEnv, withDbUserMock } = vi.hoisted(() => ({
   mockEnv: {} as Record<string, string | undefined>,
@@ -112,9 +108,7 @@ describe('adminGrantCredits', () => {
 
     expect(result).toEqual({ availableCredits: 41 })
     expect(withDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function))
-    expect(updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ availableCredits: 41 }),
-    )
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ availableCredits: 41 }))
     expect(ledgerValues).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'u1',

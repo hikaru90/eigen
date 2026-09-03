@@ -82,7 +82,6 @@
           <span class="font-medium text-foreground">{preview.category.key}</span>
           <span class="ml-1">({categoryPercent}%)</span>
         </span>
-
       </div>
 
       {#if preview.entities.length > 0}

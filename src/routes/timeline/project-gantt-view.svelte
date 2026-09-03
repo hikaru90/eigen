@@ -2,11 +2,7 @@
   import type { TemporalEventListItem } from '../api/temporal-events/+server'
   import { m } from '$lib/paraglide/messages.js'
   import type { ProjectListItem } from '$lib/server/memory/project-list'
-  import {
-    buildProjectGanttRange,
-    placeGanttBar,
-    placeGanttMarker,
-  } from './project-gantt-utils'
+  import { buildProjectGanttRange, placeGanttBar, placeGanttMarker } from './project-gantt-utils'
   import { completedEventSummaryClass, isTemporalEventCompleted } from './temporal-events-utils'
 
   type Props = {

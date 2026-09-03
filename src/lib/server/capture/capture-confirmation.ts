@@ -199,8 +199,7 @@ export async function interpretAndQueueCapture(
     userId,
     rawText: rawInput,
   })
-  const forceConfirmation =
-    options?.forceConfirmation === true && allowCaptureForceConfirmation()
+  const forceConfirmation = options?.forceConfirmation === true && allowCaptureForceConfirmation()
   const preview: CapturePreviewBundle = forceConfirmation
     ? { ...llmPreview, deviatesFromVerbatim: true }
     : llmPreview
@@ -357,9 +356,7 @@ export async function confirmCapturePreview(
  * Auto-confirm awaiting_confirmation drafts older than CONFIRMATION_AUTO_ACCEPT_MS
  * using the stored LLM interpretation (same outcome as the 5s countdown timeout).
  */
-export async function autoConfirmStaleAwaitingConfirmationDrafts(
-  userId: string,
-): Promise<number> {
+export async function autoConfirmStaleAwaitingConfirmationDrafts(userId: string): Promise<number> {
   const cutoff = new Date(Date.now() - CONFIRMATION_AUTO_ACCEPT_MS)
   const stale = await getDb()
     .select({ id: thought.id })

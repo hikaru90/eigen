@@ -3,12 +3,7 @@
 export type ProjectReviewSuggestion = 'keep' | 'mark_done' | 'archive'
 
 export type ProjectReviewTemporalKind =
-  | 'deadline'
-  | 'appointment'
-  | 'milestone'
-  | 'period'
-  | 'reminder'
-  | 'inferred_event'
+  'deadline' | 'appointment' | 'milestone' | 'period' | 'reminder' | 'inferred_event'
 
 export type ProjectReviewTaskReview = {
   thoughtId: string

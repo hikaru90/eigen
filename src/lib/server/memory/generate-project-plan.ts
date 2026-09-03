@@ -8,10 +8,7 @@ import {
   type ProjectTimelineTask,
 } from '$lib/server/memory/extract-project-timeline'
 import { listProjectsByEntityIds } from '$lib/server/memory/project-list'
-import {
-  designateNextAction,
-  linkThoughtToProject,
-} from '$lib/server/memory/project-next-action'
+import { designateNextAction, linkThoughtToProject } from '$lib/server/memory/project-next-action'
 import { orderTaskInProject } from '$lib/server/memory/project-task-sequence'
 import {
   loadExistingDeadlinesForProject,

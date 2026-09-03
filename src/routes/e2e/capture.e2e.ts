@@ -111,7 +111,10 @@ test.describe('Capture flow (AC-001, AC-004)', () => {
     await captureAndConfirm(page, 'Meeting with design team tomorrow at 2pm')
     await expect(page.getByText('Category:')).toBeVisible({ timeout: 30_000 })
 
-    await page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first().click()
+    await page
+      .getByRole('button', { name: /Expand thought|Collapse thought/ })
+      .first()
+      .click()
     await page.getByRole('button', { name: 'Edit' }).first().click()
 
     const editArea = page.locator('textarea[id^="edit-"]').first()

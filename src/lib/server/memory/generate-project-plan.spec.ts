@@ -97,7 +97,9 @@ describe('generateProjectPlan', () => {
     ])
     extractProjectTimelineMock.mockResolvedValue({
       targetDate: '2026-12-01T00:00:00.000Z',
-      milestones: [{ label: 'Beta', targetDate: '2026-10-01T00:00:00.000Z', linkedThoughtId: null }],
+      milestones: [
+        { label: 'Beta', targetDate: '2026-10-01T00:00:00.000Z', linkedThoughtId: null },
+      ],
       tasks: [
         {
           summary: 'Draft outline',

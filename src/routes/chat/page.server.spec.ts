@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const {
-  checkCaptureAllowedMock,
-  isByokBillingMock,
-  getWalletSnapshotMock,
-} = vi.hoisted(() => ({
+const { checkCaptureAllowedMock, isByokBillingMock, getWalletSnapshotMock } = vi.hoisted(() => ({
   checkCaptureAllowedMock: vi.fn(),
   isByokBillingMock: vi.fn(),
   getWalletSnapshotMock: vi.fn(),

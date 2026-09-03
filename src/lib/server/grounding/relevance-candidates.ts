@@ -25,9 +25,7 @@ export async function loadRelevanceCheckInCandidates(
 ): Promise<RelevanceCheckInCandidate[]> {
   const now = Date.now()
   const minInactiveMs = RELEVANCE_CHECKIN_MIN_INACTIVE_DAYS * MS_PER_DAY
-  const neverStaleCategories = neverStaleCategoryKeys(
-    await loadOntologyForUser(getDb(), userId),
-  )
+  const neverStaleCategories = neverStaleCategoryKeys(await loadOntologyForUser(getDb(), userId))
 
   const rows = await getDb()
     .select({

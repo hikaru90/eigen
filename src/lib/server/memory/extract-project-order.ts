@@ -34,10 +34,7 @@ export function filterOrderedThoughtIds(
   return out
 }
 
-export function parseProjectOrderPayload(
-  raw: unknown,
-  allowedThoughtIds: Set<string>,
-): string[] {
+export function parseProjectOrderPayload(raw: unknown, allowedThoughtIds: Set<string>): string[] {
   if (!raw || typeof raw !== 'object') return []
   const obj = raw as Record<string, unknown>
   const list = Array.isArray(obj.orderedThoughtIds)
@@ -71,9 +68,7 @@ export async function extractProjectOrder(input: {
     return input.openTasks.map((t) => t.thoughtId)
   }
 
-  const taskCatalog = input.openTasks
-    .map((t) => `- ${t.thoughtId}: ${t.summary}`)
-    .join('\n')
+  const taskCatalog = input.openTasks.map((t) => `- ${t.thoughtId}: ${t.summary}`).join('\n')
 
   const prompt = [
     'Return ONLY JSON with this shape:',

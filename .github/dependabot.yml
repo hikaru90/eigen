@@ -6,4 +6,4 @@ updates:
       interval: weekly
     ignore:
       - dependency-name: typescript
-        versions: [">=7"]
+        versions: ['>=7']

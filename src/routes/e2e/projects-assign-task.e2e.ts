@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-  captureThoughtViaUi,
-  completeOnboardingOverlay,
-  registerUser,
-} from './release-helpers'
+import { captureThoughtViaUi, completeOnboardingOverlay, registerUser } from './release-helpers'
 
 const TEST_PROJECT = 'QA Test Project'
 const UNASSIGNED_THOUGHT = 'Remember to buy milk and eggs from the grocery store'

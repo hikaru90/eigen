@@ -10,7 +10,9 @@
 
   let { mode, titleActions, children }: Props = $props()
 
-  const title = $derived(mode === 'projects' ? m.graph_timeline_projects() : m.graph_timeline_tasks())
+  const title = $derived(
+    mode === 'projects' ? m.graph_timeline_projects() : m.graph_timeline_tasks(),
+  )
 </script>
 
 <header class="shrink-0 px-4 py-2">

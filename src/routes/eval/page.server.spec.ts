@@ -1,16 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const {
-  listEvalRunsMock,
-  loadEvalRunDetailMock,
-  listEvalQaMock,
-  loadVersionEvalOverviewMock,
-} = vi.hoisted(() => ({
-  listEvalRunsMock: vi.fn(),
-  loadEvalRunDetailMock: vi.fn(),
-  listEvalQaMock: vi.fn(),
-  loadVersionEvalOverviewMock: vi.fn(),
-}))
+const { listEvalRunsMock, loadEvalRunDetailMock, listEvalQaMock, loadVersionEvalOverviewMock } =
+  vi.hoisted(() => ({
+    listEvalRunsMock: vi.fn(),
+    loadEvalRunDetailMock: vi.fn(),
+    listEvalQaMock: vi.fn(),
+    loadVersionEvalOverviewMock: vi.fn(),
+  }))
 
 vi.mock('$lib/eval/store', () => ({
   listEvalRuns: listEvalRunsMock,

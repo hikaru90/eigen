@@ -24,8 +24,8 @@ Generations are represented using the event name `$ai_generation`. Each generati
 
 **Tokens** are the units LLMs use to process text. LLM providers charge based on token usage:
 
--   **Input tokens** are tokens used in the message you send to an LLM
--   **Output tokens** are tokens used in the message you receive from an LLM
+- **Input tokens** are tokens used in the message you send to an LLM
+- **Output tokens** are tokens used in the message you receive from an LLM
 
 PostHog automatically calculates costs by matching your model and provider against pricing data. We use OpenRouter's pricing as our primary source, with fallback to manually maintained pricing for additional models.
 
@@ -35,11 +35,11 @@ You can also [set custom pricing](/docs/ai-observability/calculating-costs.md) i
 
 When you send messages to an LLM, each message has a **role** that tells the model how to interpret it:
 
-| Role | Purpose | Example |
-| --- | --- | --- |
-| system | Instructions that define the assistant's behavior | "You are a helpful assistant that speaks like a pirate" |
-| user | Messages from the end user | "What's the weather today?" |
-| assistant | Previous model responses, used for conversation history | "Arrr, it be sunny with a chance of scurvy!" |
+| Role      | Purpose                                                 | Example                                                 |
+| --------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| system    | Instructions that define the assistant's behavior       | "You are a helpful assistant that speaks like a pirate" |
+| user      | Messages from the end user                              | "What's the weather today?"                             |
+| assistant | Previous model responses, used for conversation history | "Arrr, it be sunny with a chance of scurvy!"            |
 
 PostHog captures the full message array with roles intact, so you can see exactly what context the model had when it generated a response.
 
@@ -51,13 +51,13 @@ graph TD Session\["Session"\] Trace\["Trace"\] Generation1\["Generation"\] Span\
 
 Here's a breakdown of this hierarchy:
 
-| Term | Definition | Example |
-| --- | --- | --- |
-| [Session](/docs/ai-observability/sessions.md) | Groups multiple traces together | A user's conversation thread |
-| [Trace](/docs/ai-observability/traces.md) | Contains generations and spans for a single request | One chatbot message and response |
-| [Span](/docs/ai-observability/spans.md) | Tracks an operation within a trace | A retrieval step or function call |
-| [Generation](/docs/ai-observability/generations.md) | An LLM call, tracked as $ai_generation events | Sending a prompt to Claude |
-| [Embedding](/docs/ai-observability/embeddings.md) | Converts text into vectors | Vectorizing documents for RAG |
+| Term                                                | Definition                                          | Example                           |
+| --------------------------------------------------- | --------------------------------------------------- | --------------------------------- |
+| [Session](/docs/ai-observability/sessions.md)       | Groups multiple traces together                     | A user's conversation thread      |
+| [Trace](/docs/ai-observability/traces.md)           | Contains generations and spans for a single request | One chatbot message and response  |
+| [Span](/docs/ai-observability/spans.md)             | Tracks an operation within a trace                  | A retrieval step or function call |
+| [Generation](/docs/ai-observability/generations.md) | An LLM call, tracked as $ai_generation events       | Sending a prompt to Claude        |
+| [Embedding](/docs/ai-observability/embeddings.md)   | Converts text into vectors                          | Vectorizing documents for RAG     |
 
 **A session here usually means a conversation**
 

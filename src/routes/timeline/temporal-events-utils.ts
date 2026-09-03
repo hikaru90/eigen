@@ -970,7 +970,10 @@ export function filterRangeScopedDoneItems(
   items: readonly TemporalEventListItem[],
   now = new Date(),
 ): TemporalEventListItem[] {
-  return filterActiveItems([...items].filter((item) => isTemporalEventCompleted(item)), now)
+  return filterActiveItems(
+    [...items].filter((item) => isTemporalEventCompleted(item)),
+    now,
+  )
 }
 
 export function priorityDotColor(item: TemporalEventListItem): string {

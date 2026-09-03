@@ -16,9 +16,9 @@ function readRepo(relativeFromRoot: string): string {
 
 /** Default class strings only — ignore optional className / overlayClass passthrough. */
 function defaultClassLiteral(source: string): string {
-	const cnMatch = source.match(/class=\{cn\(\s*['"]([^'"]+)['"]/)
-	if (cnMatch?.[1]) return cnMatch[1]
-	throw new Error('Could not find cn(\'...\') / cn("...") default class literal')
+  const cnMatch = source.match(/class=\{cn\(\s*['"]([^'"]+)['"]/)
+  if (cnMatch?.[1]) return cnMatch[1]
+  throw new Error('Could not find cn(\'...\') / cn("...") default class literal')
 }
 
 describe('overlay stacking contract', () => {

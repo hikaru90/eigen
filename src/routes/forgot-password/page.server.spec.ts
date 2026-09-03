@@ -72,7 +72,7 @@ describe('forgot-password page server', () => {
 
   it('returns safe error when Better Auth rejects the request', async () => {
     isOwleryMailConfiguredMock.mockReturnValue(true)
-    requestPasswordResetMock.mockRejectedValue(new Error('Reset password isn\'t enabled'))
+    requestPasswordResetMock.mockRejectedValue(new Error("Reset password isn't enabled"))
     const request = new Request('http://localhost/forgot-password', {
       method: 'POST',
       body: new URLSearchParams({ email: 'test@example.com' }),

@@ -11,7 +11,7 @@ import { countProductUsers } from '$lib/server/admin/users'
 import { requireAdminKey } from '$lib/server/auth/admin-key'
 
 export const GET: RequestHandler = async (event) => {
-	requireAdminKey(event)
-	const productUsers = await countProductUsers()
-	return json({ productUsers })
+  requireAdminKey(event)
+  const productUsers = await countProductUsers()
+  return json({ productUsers })
 }

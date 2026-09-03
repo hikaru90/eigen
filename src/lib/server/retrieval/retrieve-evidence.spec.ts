@@ -431,7 +431,6 @@ describe('retrieveEvidence', () => {
     expect(result.find((r) => r.id === 't-temporal')?.score).toBeCloseTo(0.264, 3)
   })
 
-
   it('filters distant entity matches and tolerates sparse row scoring fields', async () => {
     matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([
       { id: 'e-far', distance: 0.9 },

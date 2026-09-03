@@ -119,7 +119,8 @@ describe('agentChat', () => {
 
   it('returns answer_question results directly without another LLM turn', async () => {
     answerQuestionMock.mockResolvedValue({
-      answer: 'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
+      answer:
+        'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
       citations: ['t1'],
       retrieved: [],
       conflicts: [],
@@ -133,10 +134,9 @@ describe('agentChat', () => {
       messages: [{ role: 'user', content: 'What bread do I like?' }],
     })
 
-    expect(answerQuestionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u1' }),
-      { question: 'What bread do I like?' },
-    )
+    expect(answerQuestionMock).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1' }), {
+      question: 'What bread do I like?',
+    })
     expect(result.response).toBe(
       'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
     )
@@ -251,7 +251,9 @@ describe('agentChat', () => {
       role: string
       content: string
     }>
-    const errorMsg = errorTurn?.find((m) => m.role === 'user' && m.content.includes('not available'))
+    const errorMsg = errorTurn?.find(
+      (m) => m.role === 'user' && m.content.includes('not available'),
+    )
     expect(errorMsg?.content).toMatch(/list_projects/)
     expect(errorMsg?.content).toMatch(/get_project_timeline/)
     expect(errorMsg?.content).toMatch(/answer_question/)
@@ -430,7 +432,10 @@ describe('agentChat', () => {
       )
       .mockResolvedValueOnce(llmJson({ answer: 'Pick one.' }))
       .mockResolvedValueOnce(
-        llmJson({ tool: 'answer_question', arguments: { question: 'search my notes about groceries' } }),
+        llmJson({
+          tool: 'answer_question',
+          arguments: { question: 'search my notes about groceries' },
+        }),
       )
 
     await agentChat({

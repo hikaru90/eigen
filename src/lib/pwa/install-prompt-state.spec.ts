@@ -105,11 +105,17 @@ describe('install-prompt-state', () => {
       recordInstallPromptShown('u1', 1000)
       // within the snooze window
       expect(
-        shouldShowInstallPrompt('u1', { isStandalone: false, now: 1000 + INSTALL_PROMPT_SNOOZE_MS - 1 }),
+        shouldShowInstallPrompt('u1', {
+          isStandalone: false,
+          now: 1000 + INSTALL_PROMPT_SNOOZE_MS - 1,
+        }),
       ).toBe(false)
       // exactly at the window boundary -> eligible again
       expect(
-        shouldShowInstallPrompt('u1', { isStandalone: false, now: 1000 + INSTALL_PROMPT_SNOOZE_MS }),
+        shouldShowInstallPrompt('u1', {
+          isStandalone: false,
+          now: 1000 + INSTALL_PROMPT_SNOOZE_MS,
+        }),
       ).toBe(true)
     })
 

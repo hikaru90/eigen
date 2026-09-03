@@ -11,9 +11,7 @@ export const CHAT_PREFER_BLANK_STORAGE_KEY = 'chat-prefer-blank-session'
 
 export type ChatSessionListItem = { id: string }
 
-export type ChatBootstrapSelection =
-  | { type: 'blank' }
-  | { type: 'session'; sessionId: string }
+export type ChatBootstrapSelection = { type: 'blank' } | { type: 'session'; sessionId: string }
 
 export type ChatPreferBlankStorage = {
   getItem: (key: string) => string | null

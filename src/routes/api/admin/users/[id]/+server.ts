@@ -11,12 +11,12 @@ import { getAdminUserDetail } from '$lib/server/admin/users'
 import { requireAdminKey } from '$lib/server/auth/admin-key'
 
 export const GET: RequestHandler = async (event) => {
-	requireAdminKey(event)
+  requireAdminKey(event)
 
-	const user = await getAdminUserDetail(event.params.id)
-	if (!user) {
-		error(404, 'User not found')
-	}
+  const user = await getAdminUserDetail(event.params.id)
+  if (!user) {
+    error(404, 'User not found')
+  }
 
-	return json({ user })
+  return json({ user })
 }

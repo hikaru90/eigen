@@ -3,9 +3,9 @@ import { isNoiseException } from './exception-noise'
 
 describe('isNoiseException', () => {
   it('drops ResizeObserver browser safety noise', () => {
-    expect(isNoiseException(new Error('ResizeObserver loop completed with undelivered notifications.'))).toBe(
-      true,
-    )
+    expect(
+      isNoiseException(new Error('ResizeObserver loop completed with undelivered notifications.')),
+    ).toBe(true)
     expect(isNoiseException(new Error('ResizeObserver loop limit exceeded'))).toBe(true)
   })
 
@@ -17,7 +17,9 @@ describe('isNoiseException', () => {
   })
 
   it('drops Android WebView postMessage teardown and generic network fetch failures', () => {
-    expect(isNoiseException(new Error('Error invoking postMessage: Java object is gone'))).toBe(true)
+    expect(isNoiseException(new Error('Error invoking postMessage: Java object is gone'))).toBe(
+      true,
+    )
     expect(isNoiseException(new Error('Failed to fetch'))).toBe(true)
   })
 
@@ -30,7 +32,9 @@ describe('isNoiseException', () => {
 
   it('keeps real application errors', () => {
     expect(
-      isNoiseException(new Error('getDb() was called outside an active request (missing app DB context)')),
+      isNoiseException(
+        new Error('getDb() was called outside an active request (missing app DB context)'),
+      ),
     ).toBe(false)
     expect(isNoiseException(new Error('Enrichment step(s) failed'))).toBe(false)
   })

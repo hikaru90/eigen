@@ -8,10 +8,7 @@ import {
   upsertThoughtNode,
 } from '$lib/server/graph/age'
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding'
-import {
-  graphAuthorProperty,
-  type MemoryAuthorship,
-} from '$lib/server/memory/authorship'
+import { graphAuthorProperty, type MemoryAuthorship } from '$lib/server/memory/authorship'
 import {
   extractEntityGraphBundle,
   extractEntityTriples,

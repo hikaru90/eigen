@@ -38,4 +38,3 @@ export function isThoughtStaleByAge(
   if (isThoughtNeverStale(input)) return false
   return input.now.getTime() - input.createdAt.getTime() > input.thresholdMs
 }
-

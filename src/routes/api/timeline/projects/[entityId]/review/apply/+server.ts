@@ -5,10 +5,7 @@ import type {
   ApplyProjectReviewResponse,
 } from '$lib/memory/project-review-types'
 import type { TemporalEventKind } from '$lib/server/db/brain.schema'
-import {
-  applyProjectReview,
-  type ApplyProjectReviewInput,
-} from '$lib/server/memory/project-review'
+import { applyProjectReview, type ApplyProjectReviewInput } from '$lib/server/memory/project-review'
 
 export type { ApplyProjectReviewRequest, ApplyProjectReviewResponse }
 
@@ -58,8 +55,7 @@ export const POST: RequestHandler = async (event) => {
         .map((t) => ({
           summary: typeof t.summary === 'string' ? t.summary : '',
           kind: (t.kind ?? null) as TemporalEventKind | null,
-          suggestedStartAt:
-            typeof t.suggestedStartAt === 'string' ? t.suggestedStartAt : null,
+          suggestedStartAt: typeof t.suggestedStartAt === 'string' ? t.suggestedStartAt : null,
           suggestedEndAt: typeof t.suggestedEndAt === 'string' ? t.suggestedEndAt : null,
         }))
         .filter((t) => t.summary.trim().length > 0)

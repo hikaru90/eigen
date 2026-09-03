@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const {
-  getDbMock,
-  listConnectedAgentsMock,
-  listProjectsForUserMock,
-} = vi.hoisted(() => ({
+const { getDbMock, listConnectedAgentsMock, listProjectsForUserMock } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   listConnectedAgentsMock: vi.fn(),
   listProjectsForUserMock: vi.fn(),

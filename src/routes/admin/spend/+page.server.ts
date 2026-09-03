@@ -81,7 +81,10 @@ export const load: PageServerLoad = async (event) => {
     erpNext,
     rows: spendResult.rows,
     totals: spendResult.totals,
-    pagination: view === 'users' ? spendResult.pagination : (callsResult?.pagination ?? spendResult.pagination),
+    pagination:
+      view === 'users'
+        ? spendResult.pagination
+        : (callsResult?.pagination ?? spendResult.pagination),
     calls: callsResult?.calls ?? [],
     callTotals: callsResult?.totals ?? { callCount: 0, totalCostUsd: '0.000000' },
     callPagination: callsResult?.pagination ?? {

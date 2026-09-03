@@ -365,7 +365,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'edit_project',
     description:
-      'Edit a project\'s label (name) and/or status (active, someday, completed). At least one of label or status must be provided.',
+      "Edit a project's label (name) and/or status (active, someday, completed). At least one of label or status must be provided.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -398,8 +398,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       },
       required: ['project_entity_id'],
     },
-    agentArgumentSchema:
-      '{"project_entity_id": "string (required)"}',
+    agentArgumentSchema: '{"project_entity_id": "string (required)"}',
     handler: runDeleteProjectTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_project'),
   },

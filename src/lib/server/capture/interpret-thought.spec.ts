@@ -1,19 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { interpretThoughtPreview } from './interpret-thought'
 
-const {
-  llmChatCompletionMock,
-  ensureOntologyMock,
-  loadOntologyMock,
-  loadProfileMock,
-  getDbMock,
-} = vi.hoisted(() => ({
-  llmChatCompletionMock: vi.fn(),
-  ensureOntologyMock: vi.fn(),
-  loadOntologyMock: vi.fn(),
-  loadProfileMock: vi.fn(),
-  getDbMock: vi.fn(),
-}))
+const { llmChatCompletionMock, ensureOntologyMock, loadOntologyMock, loadProfileMock, getDbMock } =
+  vi.hoisted(() => ({
+    llmChatCompletionMock: vi.fn(),
+    ensureOntologyMock: vi.fn(),
+    loadOntologyMock: vi.fn(),
+    loadProfileMock: vi.fn(),
+    getDbMock: vi.fn(),
+  }))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
@@ -89,7 +84,11 @@ describe('interpretThoughtPreview', () => {
     mockLlmContent(
       JSON.stringify({
         interpretedText: 'Plan a team offsite in Lisbon next quarter.',
-        category: { key: 'task', confidence: 0.91, alternatives: [{ key: 'observation', confidence: 0.2 }] },
+        category: {
+          key: 'task',
+          confidence: 0.91,
+          alternatives: [{ key: 'observation', confidence: 0.2 }],
+        },
         entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
         deviatesFromVerbatim: true,
       }),
@@ -110,9 +109,7 @@ describe('interpretThoughtPreview', () => {
     expect(out.category.key).toBe('task')
     expect(out.category.confidence).toBeCloseTo(0.91)
     expect(out.deviatesFromVerbatim).toBe(true)
-    expect(out.entities).toEqual([
-      { surface: 'Lisbon', entityType: 'person', confidence: 0.4 },
-    ])
+    expect(out.entities).toEqual([{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }])
   })
 
   it('parses false when the LLM judges no meaningful deviation', async () => {
@@ -263,9 +260,7 @@ describe('interpretThoughtPreview', () => {
         ],
       })
       .mockResolvedValueOnce({
-        choices: [
-          { message: { content: JSON.stringify({ key: 'idea_note', confidence: 0.5 }) } },
-        ],
+        choices: [{ message: { content: JSON.stringify({ key: 'idea_note', confidence: 0.5 }) } }],
       })
 
     await expect(interpretThoughtPreview({ userId: 'u1', rawText: 'hello' })).rejects.toThrow(

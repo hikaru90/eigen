@@ -10,10 +10,7 @@ vi.mock('$lib/server/analytics/posthog-server', () => ({
   captureServerEvent: captureServerEventMock,
 }))
 
-import {
-  clearLegacyByokForUser,
-  legacyByokMigrationNeeded,
-} from './legacy-byok'
+import { clearLegacyByokForUser, legacyByokMigrationNeeded } from './legacy-byok'
 
 describe('legacyByokMigrationNeeded', () => {
   it('returns false when BYOK UI is enabled', () => {

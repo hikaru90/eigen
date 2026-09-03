@@ -17,15 +17,16 @@ if (!existsSync(dir)) {
   throw new Error(`@vitest/browser orchestrator dir missing: ${dir}`)
 }
 
-const match = readdirSync(dir).find((name) => name.startsWith('orchestrator-') && name.endsWith('.js'))
+const match = readdirSync(dir).find(
+  (name) => name.startsWith('orchestrator-') && name.endsWith('.js'),
+)
 if (!match) {
   throw new Error(`No orchestrator-*.js in ${dir}`)
 }
 
 const orchestratorPath = path.join(dir, match)
 const source = readFileSync(orchestratorPath, 'utf8')
-const unencoded =
-  'const src = `/?sessionId=${getBrowserState().sessionId}&iframeId=${iframeId}`;'
+const unencoded = 'const src = `/?sessionId=${getBrowserState().sessionId}&iframeId=${iframeId}`;'
 const encoded =
   'const src = `/?sessionId=${getBrowserState().sessionId}&iframeId=${encodeURIComponent(iframeId)}`;'
 

@@ -26,7 +26,10 @@ export type InboundWebhookResponse = {
  * - Generic: X-Webhook-Signature, X-Event-Type, X-Request-ID
  */
 export const POST: RequestHandler = async (event) => {
-  const slug = event.url.pathname.replace(/^\/api\/webhooks\/inbound\/?/, '').split('/')[0]?.trim()
+  const slug = event.url.pathname
+    .replace(/^\/api\/webhooks\/inbound\/?/, '')
+    .split('/')[0]
+    ?.trim()
   if (!slug) error(400, 'Missing webhook slug')
 
   // Find subscription by slug

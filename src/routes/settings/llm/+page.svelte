@@ -54,8 +54,8 @@
           {#if data.billingMode === 'byok'}
             and LLM calls are billed to that key
           {/if}
-          . This deployment now uses Eigen platform credits for all LLM usage. Remove your stored
-          key to switch to credits and stop requests from hitting your personal gateway rate limit.
+          . This deployment now uses Eigen platform credits for all LLM usage. Remove your stored key
+          to switch to credits and stop requests from hitting your personal gateway rate limit.
         </p>
       </div>
       <form

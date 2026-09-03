@@ -832,10 +832,7 @@ async function submitInterpretViaUi(
  * Injects forceConfirmation on interpret (non-production) so the modal path is
  * deterministic regardless of the live LLM judge.
  */
-export async function captureThoughtViaUiDismissVerbatim(
-  page: Page,
-  raw: string,
-): Promise<string> {
+export async function captureThoughtViaUiDismissVerbatim(page: Page, raw: string): Promise<string> {
   await dismissBlockingLayers(page)
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
   await dismissBlockingLayers(page)
@@ -1199,9 +1196,7 @@ export async function assertMarkDoneFromProjectsView(page: Page): Promise<void> 
       }
       const item = body.items.find((i) => i.id === itemId)
       if (!item) return false
-      return (
-        item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed'
-      )
+      return item.lifecycleStatus === 'completed' || item.thoughtStatus === 'completed'
     },
     { timeoutMs: RELEASE_WAIT_MS, intervalMs: 500 },
   )
@@ -1276,7 +1271,9 @@ export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void
     data: { label: projectLabel, status: 'active' },
   })
   if (!createRes.ok()) {
-    throw new Error(`create waterfall project failed (${createRes.status()}): ${await createRes.text()}`)
+    throw new Error(
+      `create waterfall project failed (${createRes.status()}): ${await createRes.text()}`,
+    )
   }
   const created = (await createRes.json()) as { entityId: string }
 
@@ -1288,7 +1285,9 @@ export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void
       data: { thoughtId, projectEntityId: created.entityId },
     })
     if (!assignRes.ok()) {
-      throw new Error(`assign waterfall task failed (${assignRes.status()}): ${await assignRes.text()}`)
+      throw new Error(
+        `assign waterfall task failed (${assignRes.status()}): ${await assignRes.text()}`,
+      )
     }
   }
 
@@ -1302,12 +1301,17 @@ export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void
     data: { thoughtId: secondThoughtId, afterThoughtId: firstThoughtId },
   })
   if (!orderSecond.ok()) {
-    throw new Error(`order second task failed (${orderSecond.status()}): ${await orderSecond.text()}`)
+    throw new Error(
+      `order second task failed (${orderSecond.status()}): ${await orderSecond.text()}`,
+    )
   }
 
-  const deadlineRes = await page.request.post(`/api/timeline/projects/${created.entityId}/deadline`, {
-    data: { targetDate: '2026-12-01T00:00:00.000Z' },
-  })
+  const deadlineRes = await page.request.post(
+    `/api/timeline/projects/${created.entityId}/deadline`,
+    {
+      data: { targetDate: '2026-12-01T00:00:00.000Z' },
+    },
+  )
   if (!deadlineRes.ok()) {
     throw new Error(`set deadline failed (${deadlineRes.status()}): ${await deadlineRes.text()}`)
   }
@@ -1343,14 +1347,20 @@ export async function assertProjectWaterfallAndAdvance(page: Page): Promise<void
 
   // Complete the head task via temporal-events action (same path as UI mark-done).
   const headItemId = `task:${firstThoughtId}`
-  const completeRes = await page.request.post(`/api/temporal-events/${encodeURIComponent(headItemId)}/action`, {
-    data: { action: 'mark_done' },
-  })
+  const completeRes = await page.request.post(
+    `/api/temporal-events/${encodeURIComponent(headItemId)}/action`,
+    {
+      data: { action: 'mark_done' },
+    },
+  )
   if (!completeRes.ok()) {
     // Some environments use action without `action` key — try instruction form.
-    const alt = await page.request.post(`/api/temporal-events/${encodeURIComponent(headItemId)}/action`, {
-      data: { instruction: 'mark as done' },
-    })
+    const alt = await page.request.post(
+      `/api/temporal-events/${encodeURIComponent(headItemId)}/action`,
+      {
+        data: { instruction: 'mark as done' },
+      },
+    )
     if (!alt.ok()) {
       throw new Error(
         `mark head task done failed (${completeRes.status()}/${alt.status()}): ${await completeRes.text()} / ${await alt.text()}`,
@@ -1382,7 +1392,9 @@ export async function assertProjectDetailPageViews(page: Page): Promise<void> {
     data: { label: projectLabel, status: 'active' },
   })
   if (!createRes.ok()) {
-    throw new Error(`create detail views project failed (${createRes.status()}): ${await createRes.text()}`)
+    throw new Error(
+      `create detail views project failed (${createRes.status()}): ${await createRes.text()}`,
+    )
   }
   const created = (await createRes.json()) as { entityId: string }
 
@@ -1394,7 +1406,9 @@ export async function assertProjectDetailPageViews(page: Page): Promise<void> {
       data: { thoughtId, projectEntityId: created.entityId },
     })
     if (!assignRes.ok()) {
-      throw new Error(`assign detail views task failed (${assignRes.status()}): ${await assignRes.text()}`)
+      throw new Error(
+        `assign detail views task failed (${assignRes.status()}): ${await assignRes.text()}`,
+      )
     }
   }
 
@@ -1403,7 +1417,9 @@ export async function assertProjectDetailPageViews(page: Page): Promise<void> {
     { data: { action: 'mark_done' } },
   )
   if (!doneAction.ok()) {
-    throw new Error(`mark detail done task failed (${doneAction.status()}): ${await doneAction.text()}`)
+    throw new Error(
+      `mark detail done task failed (${doneAction.status()}): ${await doneAction.text()}`,
+    )
   }
 
   await openProjectDetail(page, projectLabel)
@@ -1444,7 +1460,9 @@ export async function assertProjectReviewTidyUp(page: Page): Promise<void> {
     data: { label: projectLabel, status: 'active' },
   })
   if (!createRes.ok()) {
-    throw new Error(`create tidy-up project failed (${createRes.status()}): ${await createRes.text()}`)
+    throw new Error(
+      `create tidy-up project failed (${createRes.status()}): ${await createRes.text()}`,
+    )
   }
   const created = (await createRes.json()) as { entityId: string }
 
@@ -1456,7 +1474,9 @@ export async function assertProjectReviewTidyUp(page: Page): Promise<void> {
       data: { thoughtId, projectEntityId: created.entityId },
     })
     if (!assignRes.ok()) {
-      throw new Error(`assign tidy-up task failed (${assignRes.status()}): ${await assignRes.text()}`)
+      throw new Error(
+        `assign tidy-up task failed (${assignRes.status()}): ${await assignRes.text()}`,
+      )
     }
   }
 
@@ -1578,7 +1598,9 @@ export async function assertProjectReviewTidyUp(page: Page): Promise<void> {
     await dialog.getByRole('button', { name: /Apply selected|Auswahl anwenden/i }).click()
     const applyRes = await applyResponse
     if (!applyRes.ok()) {
-      throw new Error(`project review apply failed (${applyRes.status()}): ${await applyRes.text()}`)
+      throw new Error(
+        `project review apply failed (${applyRes.status()}): ${await applyRes.text()}`,
+      )
     }
     await expect(dialog).toBeHidden({ timeout: QUICK_MS })
 

@@ -89,9 +89,7 @@ export function parseProjectTimelinePayload(
     }
     milestones.push({
       label,
-      targetDate: parseOptionalIso(
-        row.targetDate !== undefined ? row.targetDate : row.target_date,
-      ),
+      targetDate: parseOptionalIso(row.targetDate !== undefined ? row.targetDate : row.target_date),
       linkedThoughtId,
     })
   }

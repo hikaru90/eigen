@@ -82,7 +82,9 @@ describe('posthog-client', () => {
   it('captureClientException skips ResizeObserver / Vite noise', async () => {
     publicEnv.PUBLIC_POSTHOG_KEY = 'phc_test_key'
     const { captureClientException } = await import('./posthog-client')
-    captureClientException(new Error('ResizeObserver loop completed with undelivered notifications.'))
+    captureClientException(
+      new Error('ResizeObserver loop completed with undelivered notifications.'),
+    )
     captureClientException(new Error('Vite module runner has been closed.'))
     expect(captureExceptionMock).not.toHaveBeenCalled()
   })

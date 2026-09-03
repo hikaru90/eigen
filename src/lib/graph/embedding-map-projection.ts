@@ -56,9 +56,7 @@ function getProjector(): EmbeddingProjector {
 }
 
 /** Test-only: inject a fake projector. Pass null to restore the default. */
-export function __setEmbeddingProjectorForTests(
-  factory: (() => EmbeddingProjector) | null,
-): void {
+export function __setEmbeddingProjectorForTests(factory: (() => EmbeddingProjector) | null): void {
   projector?.dispose()
   projector = null
   projectorFactory = factory
@@ -72,10 +70,9 @@ class WorkerProjector implements EmbeddingProjector {
 
   private ensureWorker(): Worker {
     if (!this.worker) {
-      this.worker = new Worker(
-        new URL('./embedding-projection-worker.ts', import.meta.url),
-        { type: 'module' },
-      )
+      this.worker = new Worker(new URL('./embedding-projection-worker.ts', import.meta.url), {
+        type: 'module',
+      })
     }
     return this.worker
   }

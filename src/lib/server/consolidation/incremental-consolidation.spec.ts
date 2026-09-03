@@ -31,9 +31,7 @@ describe('scheduleIncrementalConsolidation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getDbMock.mockReturnValue(emptyThenableDb())
-    withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<unknown>) =>
-      fn(),
-    )
+    withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<unknown>) => fn())
   })
 
   it('self-wraps the refresh in its own tenant connection (withDbUser)', async () => {

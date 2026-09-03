@@ -195,10 +195,7 @@ export async function enrichThought(
     time('enrich_cues', async () => {
       const cues = precomputedCues ?? (await extractSearchCues({ userId, normalizedText }))
       if (cues.length > 0) {
-        await db
-          .update(thought)
-          .set({ cues })
-          .where(eq(thought.id, thoughtId))
+        await db.update(thought).set({ cues }).where(eq(thought.id, thoughtId))
       }
     }),
 
@@ -333,7 +330,7 @@ export async function enrichThought(
     try {
       const [thoughtRow] = await db
         .select({
-      category: thought.category,
+          category: thought.category,
         })
         .from(thought)
         .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -523,10 +520,7 @@ function formatEnrichStepFailures(
  * step hangs via the `[entity-graph-sync] … done` logs, not to recover from the hang here.
  */
 const ENTITY_SYNC_DIAGNOSTIC_TIMEOUT_MS = 90_000
-function withEntitySyncDiagnosticTimeout<T>(
-  thoughtId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+function withEntitySyncDiagnosticTimeout<T>(thoughtId: string, fn: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const handle = setTimeout(() => {
       console.error('[enrich] entity sync diagnostic timeout', {

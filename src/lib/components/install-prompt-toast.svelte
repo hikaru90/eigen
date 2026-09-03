@@ -48,10 +48,7 @@
   const standalone = $derived(isInstalled() || (mounted && isPwaStandalone()))
   const hasNativePrompt = $derived(deferredInstallState.deferred !== null)
   const visible = $derived(
-    mounted &&
-      browser &&
-      !standalone &&
-      shouldShowInstallPrompt(userId, { isStandalone: false }),
+    mounted && browser && !standalone && shouldShowInstallPrompt(userId, { isStandalone: false }),
   )
   // iOS has no beforeinstallprompt — it shows instructions instead. Everyone
   // else with a deferred event shows the native Install button.
@@ -104,7 +101,6 @@
     capture('pwa_banner_installed', { via: 'manual_confirm' })
     installError = null
   }
-
 </script>
 
 {#if visible}
@@ -141,10 +137,10 @@
         </button>
       </div>
 
-
-
       {#if ios}
-        <ol class="mt-2.5 list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-muted-foreground">
+        <ol
+          class="mt-2.5 list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-muted-foreground"
+        >
           <li>Tap the <span class="font-medium text-foreground">Share</span> button in Safari</li>
           <li>Choose <span class="font-medium text-foreground">Add to Home Screen</span></li>
           <li>Open Eigen Mesh from your Home Screen</li>

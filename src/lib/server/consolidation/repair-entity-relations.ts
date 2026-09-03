@@ -358,10 +358,7 @@ export async function repairEntityRelationsForUser(
         b.thought.entities.length - a.thought.entities.length,
     )
 
-  const processingBudget = Math.max(
-    batchSize,
-    Math.min(eligibleGapThoughts.length, batchSize * 3),
-  )
+  const processingBudget = Math.max(batchSize, Math.min(eligibleGapThoughts.length, batchSize * 3))
   let processed = 0
   let repaired = 0
   let edgesAdded = 0

@@ -114,9 +114,7 @@ describe('parseProjectReviewPayload', () => {
     const parsed = parseProjectReviewPayload(
       {
         projectDeadline: 'not-a-date',
-        taskReviews: [
-          { thoughtId: 't1', suggestion: 'keep', deadline: 'also-bad', reason: 'x' },
-        ],
+        taskReviews: [{ thoughtId: 't1', suggestion: 'keep', deadline: 'also-bad', reason: 'x' }],
         order: ['t1'],
         newTaskSuggestions: [],
       },

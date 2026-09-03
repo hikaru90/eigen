@@ -39,9 +39,7 @@ export async function listMilestonesForProject(
       linkedThoughtId: projectMilestone.linkedThoughtId,
     })
     .from(projectMilestone)
-    .where(
-      and(eq(projectMilestone.userId, userId), eq(projectMilestone.projectEntityId, entityId)),
-    )
+    .where(and(eq(projectMilestone.userId, userId), eq(projectMilestone.projectEntityId, entityId)))
     .orderBy(asc(projectMilestone.rank), asc(projectMilestone.createdAt))
 
   return rows.map((row) => ({
@@ -222,7 +220,10 @@ export async function replaceProjectMilestones(input: {
     await tx
       .delete(projectMilestone)
       .where(
-        and(eq(projectMilestone.userId, input.userId), eq(projectMilestone.projectEntityId, entityId)),
+        and(
+          eq(projectMilestone.userId, input.userId),
+          eq(projectMilestone.projectEntityId, entityId),
+        ),
       )
     if (input.milestones.length === 0) return
     await tx.insert(projectMilestone).values(

@@ -2,7 +2,7 @@
 
 Scope: ingest architecture, retrieval architecture, data layer (Postgres 16 + pgvector + Apache AGE + Drizzle + RLS), and the test suite. Method: direct code review plus four parallel specialist analyses (ingest, retrieval, data layer, test quality); every load-bearing claim re-verified against code. Full unit suite executed: **426 files, 2665 passed / 7 failed / 4 skipped** (16.4s).
 
-**Overall verdict: the architecture fundamentally makes sense.** Tiered ingest (hot persist → background enrich → nightly consolidation), materialized zero-traversal hybrid retrieval, and the no-fallbacks failure policy are coherent and mostly honored in code. The problems are in the seams: tenant-isolation *testing* is broken, several RLS defense-in-depth gaps, dead code from pivots, and doc drift.
+**Overall verdict: the architecture fundamentally makes sense.** Tiered ingest (hot persist → background enrich → nightly consolidation), materialized zero-traversal hybrid retrieval, and the no-fallbacks failure policy are coherent and mostly honored in code. The problems are in the seams: tenant-isolation _testing_ is broken, several RLS defense-in-depth gaps, dead code from pivots, and doc drift.
 
 Domain scores (1–5): ingest 4 arch / 3 tests · retrieval 4 arch / 3 tests · data layer 4 arch / 3 tests · test strategy 3.5 overall.
 
@@ -20,13 +20,13 @@ Domain scores (1–5): ingest 4 arch / 3 tests · retrieval 4 arch / 3 tests · 
 
 Verified directly against `enable_rls.sql` (42 tables covered) and `brain.schema.ts`:
 
-| Table | Tenant data | Policy |
-|---|---|---|
-| `thought_entity`, `thought_neighbor`, `entity_top_thoughts`, `community_bundle` | yes (retrieval materialization) | **none** |
-| `agent_project_binding`, `feedback` (`brain.schema.ts:1813`) | yes | **none** |
-| `eval_qa` | eval corpus | **none** (other eval tables have policies) |
-| `consolidation_run` | intentionally global ledger | none (by design) |
-| `user` | Better Auth identity | SELECT-only (by design; writes via superuser pool) |
+| Table                                                                           | Tenant data                     | Policy                                             |
+| ------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------- |
+| `thought_entity`, `thought_neighbor`, `entity_top_thoughts`, `community_bundle` | yes (retrieval materialization) | **none**                                           |
+| `agent_project_binding`, `feedback` (`brain.schema.ts:1813`)                    | yes                             | **none**                                           |
+| `eval_qa`                                                                       | eval corpus                     | **none** (other eval tables have policies)         |
+| `consolidation_run`                                                             | intentionally global ledger     | none (by design)                                   |
+| `user`                                                                          | Better Auth identity            | SELECT-only (by design; writes via superuser pool) |
 
 Today isolation on the materialization tables rests solely on app-level `user_id` filters — one missed filter = cross-tenant leak, no defense-in-depth. Separately, RLS lives **only** in `enable_rls.sql`, applied by `scripts/apply-rls.mjs`, not in Drizzle migrations — a deploy that skips `db:rls` has zero isolation and nothing detects that.
 
@@ -45,7 +45,7 @@ AGE has no parameter protocol; `renderCypherQuery` textually substitutes `$param
 ### S6 — Retrieval score-math inconsistencies
 
 - Flat `temporalBoost = 0.18` (`retrieve-evidence.ts:548`) sits outside `SCORE_WEIGHTS` (which sum to 1.0, `:60-68`), so raw merge scores reach 1.18 while `MAX_RETRIEVAL_MERGE_SCORE = 1` (`rrf-scoring.ts:7`) claims otherwise; `normalizeRetrievalScore` silently clamps.
-- `redundancyPenalty` (`:192-205`) is **iteration-order-dependent**, penalizes a candidate when *any* previously seen community has count > 2 (regardless of the candidate's own membership), and counts duplicate ids inside a row's `primaryCommunityIds` (spec fixtures exploit this: `retrieve-evidence.spec.ts:113,238`).
+- `redundancyPenalty` (`:192-205`) is **iteration-order-dependent**, penalizes a candidate when _any_ previously seen community has count > 2 (regardless of the candidate's own membership), and counts duplicate ids inside a row's `primaryCommunityIds` (spec fixtures exploit this: `retrieve-evidence.spec.ts:113,238`).
 - Magic calibration constants: `normalizeLexicalRank = min(1, raw*2.5)` (`:116-119`), 0.35/0.2 fallbacks (`:140`).
 
 ### S7 — Dead code and stubbed pipelines
@@ -98,5 +98,3 @@ AGE has no parameter protocol; `renderCypherQuery` textually substitutes `$param
 - Retrieval: one unified path for MCP/HTTP/compose (`retrieveEvidence`), true 6-way parallel candidate fan-out, `directRelevanceMultiplier` correctly deflates expansion-only candidates, tier-1 rows retrievable via FTS-only, embeddings-DB-only enforced by select shapes + `sanitizeMcpToolResult`.
 - Data layer: hash-based fail-fast migration runner with journal assert (66/66 consistent), disciplined RLS session pattern (SET ROLE + FORCE RLS), idempotent consolidation ledger, dual-scheduler redundancy.
 - Tests: critical-domain spec density >1.0; policy invariants really tested (GTD judge negatives `judge-gtd-project.spec.ts:92-96`, embedding boundary, secret redaction, `requireAssertions: true`); coverage floors ratcheted to measured values so regressions fail.
-
-

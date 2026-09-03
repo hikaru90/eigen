@@ -59,11 +59,18 @@
 <div class="mx-auto max-w-md px-5 pt-10">
   <p class="mb-4">
     {#if websiteOrigin}
-      <a href={websiteOrigin} rel="external" class="text-muted-foreground text-xs underline-offset-2 hover:underline">
+      <a
+        href={websiteOrigin}
+        rel="external"
+        class="text-muted-foreground text-xs underline-offset-2 hover:underline"
+      >
         ← Back to home
       </a>
     {:else}
-      <a href={resolve('/')} class="text-muted-foreground text-xs underline-offset-2 hover:underline">
+      <a
+        href={resolve('/')}
+        class="text-muted-foreground text-xs underline-offset-2 hover:underline"
+      >
         ← Back to home
       </a>
     {/if}
@@ -161,7 +168,9 @@
               </span>
             </label>
             {#if fieldErrors.acceptTerms}
-              <p id="accept-terms-error" class="text-destructive text-xs">{fieldErrors.acceptTerms}</p>
+              <p id="accept-terms-error" class="text-destructive text-xs">
+                {fieldErrors.acceptTerms}
+              </p>
             {/if}
           </div>
 
@@ -198,7 +207,9 @@
             {/if}
           </div>
           <div class="space-y-1">
-            <Label for="lastName">Last name <span class="text-muted-foreground">(optional)</span></Label>
+            <Label for="lastName"
+              >Last name <span class="text-muted-foreground">(optional)</span></Label
+            >
             <input
               id="lastName"
               type="text"

@@ -74,9 +74,7 @@ describe('forgotPasswordSchema', () => {
 
 describe('resetPasswordSchema', () => {
   it('requires token and password of at least 8 characters', () => {
-    expect(
-      resetPasswordSchema.safeParse({ password: 'pass1234', token: 'tok' }).success,
-    ).toBe(true)
+    expect(resetPasswordSchema.safeParse({ password: 'pass1234', token: 'tok' }).success).toBe(true)
     expect(resetPasswordSchema.safeParse({ password: 'short', token: 'tok' }).success).toBe(false)
     expect(resetPasswordSchema.safeParse({ password: 'pass1234', token: '' }).success).toBe(false)
   })

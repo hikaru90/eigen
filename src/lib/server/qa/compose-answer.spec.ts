@@ -1020,5 +1020,4 @@ describe('composeAnswer', () => {
     expect(messages[1].content).toContain('temporal:')
     expect(messages[1].content).toContain('EXPIRED')
   })
-
 })

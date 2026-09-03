@@ -77,12 +77,15 @@
     grantBusy = true
     grantMessage = ''
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(data.userFilter.userId)}/credits`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ amountCredits, reason }),
-      })
+      const res = await fetch(
+        `/api/admin/users/${encodeURIComponent(data.userFilter.userId)}/credits`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ amountCredits, reason }),
+        },
+      )
       const body = (await res.json().catch(() => ({}))) as {
         error?: string
         availableCredits?: number
@@ -137,11 +140,16 @@
 
   function toggleSort(key: AdminSpendSortKey) {
     const nextAsc = data.sort === key ? !data.sortAsc : key === 'email'
-    void goto(resolve(listUrl({
-        sort: key,
-        dir: nextAsc ? 'asc' : 'desc',
-        page: null,
-      }) as '/admin/spend'), { keepFocus: true, noScroll: true })
+    void goto(
+      resolve(
+        listUrl({
+          sort: key,
+          dir: nextAsc ? 'asc' : 'desc',
+          page: null,
+        }) as '/admin/spend',
+      ),
+      { keepFocus: true, noScroll: true },
+    )
   }
 
   function sortButtonClass(align: 'left' | 'right'): string {
@@ -153,10 +161,15 @@
     if (searchTimer) clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
       const trimmed = value.trim()
-      void goto(resolve(listUrl({
-          q: trimmed || null,
-          page: null,
-        }) as '/admin/spend'), { keepFocus: true, noScroll: true, replaceState: true })
+      void goto(
+        resolve(
+          listUrl({
+            q: trimmed || null,
+            page: null,
+          }) as '/admin/spend',
+        ),
+        { keepFocus: true, noScroll: true, replaceState: true },
+      )
     }, 300)
   }
 
@@ -169,7 +182,9 @@
     data.search.trim() ? `No users match "${data.search.trim()}".` : 'No users found.',
   )
   const emptyCallMessage = $derived(
-    data.search.trim() ? `No calls match "${data.search.trim()}".` : 'No activity calls in this range.',
+    data.search.trim()
+      ? `No calls match "${data.search.trim()}".`
+      : 'No activity calls in this range.',
   )
   const activePagination = $derived(data.view === 'calls' ? data.callPagination : data.pagination)
 </script>
@@ -194,21 +209,32 @@
         </div>
         {#if data.view === 'calls'}
           <div class="text-muted-foreground text-[11px]">
-            {data.callTotals.callCount.toLocaleString('en-US')} calls · {callCreditsTotal} credits in view
+            {data.callTotals.callCount.toLocaleString('en-US')} calls · {callCreditsTotal} credits in
+            view
           </div>
         {/if}
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-muted-foreground text-[11px]">{rangeLabel}</span>
-        <a href={resolve(listUrl({ all: '1', from: null, to: null, page: null }) as '/admin/spend')}>
-          <Button variant={data.rangeMode === 'all' ? 'default' : 'outline'} size="xs">All time</Button>
+        <a
+          href={resolve(listUrl({ all: '1', from: null, to: null, page: null }) as '/admin/spend')}
+        >
+          <Button variant={data.rangeMode === 'all' ? 'default' : 'outline'} size="xs"
+            >All time</Button
+          >
         </a>
-        <a href={resolve(listUrl({ all: null, from: null, to: null, page: null }) as '/admin/spend')}>
+        <a
+          href={resolve(listUrl({ all: null, from: null, to: null, page: null }) as '/admin/spend')}
+        >
           <Button variant={data.rangeMode === 'last30' ? 'default' : 'outline'} size="xs">
             Last 30 days
           </Button>
         </a>
-        <a href={resolve(listUrl({ harness: data.includeHarness ? null : '1', page: null }) as '/admin/spend')}>
+        <a
+          href={resolve(
+            listUrl({ harness: data.includeHarness ? null : '1', page: null }) as '/admin/spend',
+          )}
+        >
           <Button variant={data.includeHarness ? 'default' : 'outline'} size="xs">
             {data.includeHarness ? 'Including harness' : 'Production only'}
           </Button>
@@ -218,12 +244,10 @@
             from={data.from ?? undefined}
             to={data.to ?? undefined}
             onChange={(from, to) => {
-              void goto(
-                resolve(
-                  listUrl({ all: null, from, to, page: null }) as '/admin/spend',
-                ),
-                { keepFocus: true, noScroll: true },
-              )
+              void goto(resolve(listUrl({ all: null, from, to, page: null }) as '/admin/spend'), {
+                keepFocus: true,
+                noScroll: true,
+              })
             }}
           />
         {/if}
@@ -237,7 +261,9 @@
         <Button variant={data.view === 'users' ? 'default' : 'outline'} size="sm">Users</Button>
       </a>
       <a href={resolve(listUrl({ view: 'calls', page: null }) as '/admin/spend')}>
-        <Button variant={data.view === 'calls' ? 'default' : 'outline'} size="sm">Activity calls</Button>
+        <Button variant={data.view === 'calls' ? 'default' : 'outline'} size="sm"
+          >Activity calls</Button
+        >
       </a>
     </div>
     <div class="relative w-full max-w-xs sm:w-72">
@@ -253,15 +279,15 @@
           ? 'Search email, operation, context…'
           : 'Search email or name…'}
         class="pl-8"
-        aria-label={data.view === 'calls' ? 'Search activity calls' : 'Search users by email or name'}
+        aria-label={data.view === 'calls'
+          ? 'Search activity calls'
+          : 'Search users by email or name'}
       />
     </div>
   </div>
 
   {#if data.view === 'calls' && data.userFilter}
-    <div
-      class="mt-3 space-y-3 rounded-md border border-black/10 bg-muted/30 px-3 py-3 text-sm"
-    >
+    <div class="mt-3 space-y-3 rounded-md border border-black/10 bg-muted/30 px-3 py-3 text-sm">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <span>
           Filtered to <strong>{data.userFilter.email}</strong>
@@ -500,7 +526,8 @@
       <Card.Header class="gap-1">
         <Card.Title class="text-sm">Activity calls</Card.Title>
         <Card.Description class="text-muted-foreground text-xs">
-          Every logged LLM/gateway call. Click a user email to filter, or search by operation and context.
+          Every logged LLM/gateway call. Click a user email to filter, or search by operation and
+          context.
         </Card.Description>
       </Card.Header>
       <Card.Content class="overflow-x-auto px-0">
@@ -546,10 +573,14 @@
                 <Table.Cell class="text-right font-mono text-[11px] tabular-nums">
                   {formatActivityCredits(row.totalCostUsd)}
                 </Table.Cell>
-                <Table.Cell class="text-muted-foreground text-right font-mono text-[11px] tabular-nums">
+                <Table.Cell
+                  class="text-muted-foreground text-right font-mono text-[11px] tabular-nums"
+                >
                   {formatDuration(row.durationMs)}
                 </Table.Cell>
-                <Table.Cell class="text-muted-foreground max-w-[8rem] truncate font-mono text-[10px]">
+                <Table.Cell
+                  class="text-muted-foreground max-w-[8rem] truncate font-mono text-[10px]"
+                >
                   {row.groupId ?? '\u2014'}
                 </Table.Cell>
               </Table.Row>

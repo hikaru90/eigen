@@ -9,10 +9,7 @@ import {
   resolveCategoryFromLlmOutput,
 } from './validate-thought-category'
 
-function kind(
-  key: string,
-  overrides: Partial<OntologyEntityKindRow> = {},
-): OntologyEntityKindRow {
+function kind(key: string, overrides: Partial<OntologyEntityKindRow> = {}): OntologyEntityKindRow {
   return {
     id: `ek-${key}`,
     userId: 'u1',

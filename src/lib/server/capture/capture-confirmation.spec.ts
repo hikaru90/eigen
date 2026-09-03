@@ -99,7 +99,9 @@ function chainUpdate(options?: { returningRows?: unknown[] }) {
 describe('interpretAndQueueCapture', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    encryptMock.mockImplementation(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`)
+    encryptMock.mockImplementation(
+      async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`,
+    )
     decryptMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext,
     )
@@ -125,9 +127,13 @@ describe('interpretAndQueueCapture', () => {
   })
 
   it('when LLM deviates: queues draft awaiting_confirmation and does not schedule enrich or notify', async () => {
-    const result = await interpretAndQueueCapture('u1', 'planning a team offsite in Lisbon next quarter', {
-      source: 'ui',
-    })
+    const result = await interpretAndQueueCapture(
+      'u1',
+      'planning a team offsite in Lisbon next quarter',
+      {
+        source: 'ui',
+      },
+    )
 
     expect(interpretThoughtPreviewMock).toHaveBeenCalledWith({
       userId: 'u1',
@@ -236,7 +242,9 @@ describe('interpretAndQueueCapture', () => {
 describe('confirmCapturePreview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    encryptMock.mockImplementation(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`)
+    encryptMock.mockImplementation(
+      async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`,
+    )
     decryptMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext,
     )
@@ -267,7 +275,11 @@ describe('confirmCapturePreview', () => {
     expect(result.queueStatus).toBe('pending')
     expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledWith('u1')
     expect(notifyThoughtCreatedMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u1', thoughtId: 'thought-1', normalizedText: PREVIEW.interpretedText }),
+      expect.objectContaining({
+        userId: 'u1',
+        thoughtId: 'thought-1',
+        normalizedText: PREVIEW.interpretedText,
+      }),
     )
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -434,7 +446,9 @@ describe('confirmCapturePreview', () => {
 describe('autoConfirmStaleAwaitingConfirmationDrafts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    encryptMock.mockImplementation(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`)
+    encryptMock.mockImplementation(
+      async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`,
+    )
     decryptMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext,
     )

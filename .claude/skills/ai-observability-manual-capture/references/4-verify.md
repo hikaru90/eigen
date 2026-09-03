@@ -33,15 +33,15 @@ Before you hand over, run the import the code depends on, such as `python3 -c "f
 
 ## When it looks wrong
 
-| Symptom | Cause |
-|---|---|
-| One trace per generation | `posthog_trace_id` is missing, or a new id goes to each call |
-| A new session id on every trace | the session id comes from the wrong scope |
-| No session id | `posthog_properties` never reaches the call |
-| `$ai_provider` says `openai` on a gateway | the per-call override is missing |
-| Anonymous person | `posthog_distinct_id` is missing |
-| No tool spans | the `$ai_span` captures are missing or carry another trace id |
-| Nothing arrives | the code still calls the vendor client, the key or host is unset, or a short script exits before the flush |
+| Symptom                                   | Cause                                                                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| One trace per generation                  | `posthog_trace_id` is missing, or a new id goes to each call                                               |
+| A new session id on every trace           | the session id comes from the wrong scope                                                                  |
+| No session id                             | `posthog_properties` never reaches the call                                                                |
+| `$ai_provider` says `openai` on a gateway | the per-call override is missing                                                                           |
+| Anonymous person                          | `posthog_distinct_id` is missing                                                                           |
+| No tool spans                             | the `$ai_span` captures are missing or carry another trace id                                              |
+| Nothing arrives                           | the code still calls the vendor client, the key or host is unset, or a short script exits before the flush |
 
 ## Do not
 

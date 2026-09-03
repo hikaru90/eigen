@@ -46,7 +46,11 @@ import {
   unlinkTextFileFromThought,
   updateTextFile,
 } from '$lib/server/text-files/service'
-import { readThoughtIdFromToolArgs, validateNonEmptyEntityId, validateSearchParams } from '$lib/server/validation/mcp-args'
+import {
+  readThoughtIdFromToolArgs,
+  validateNonEmptyEntityId,
+  validateSearchParams,
+} from '$lib/server/validation/mcp-args'
 
 export type McpToolProgress = {
   tool: string
@@ -829,8 +833,7 @@ export async function runGenerateProjectPlanTool(context: McpToolContext, args: 
         : '',
     'project_entity_id',
   )
-  const goal =
-    typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
+  const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
 
   const result = await generateProjectPlan({
     userId: context.userId,

@@ -10,16 +10,16 @@ import {
 
 const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock, captureServerEventMock } =
   vi.hoisted(() => {
-  function makeDbMock() {
-    // Returns a chainable Drizzle-style builder that resolves to [] (no DB rows).
-    const chain: Record<string, unknown> = {}
-    chain.select = () => chain
-    chain.from = () => chain
-    chain.where = () => chain
-    chain.and = () => chain
-    chain.limit = () => Promise.resolve([])
-    return chain
-  }
+    function makeDbMock() {
+      // Returns a chainable Drizzle-style builder that resolves to [] (no DB rows).
+      const chain: Record<string, unknown> = {}
+      chain.select = () => chain
+      chain.from = () => chain
+      chain.where = () => chain
+      chain.and = () => chain
+      chain.limit = () => Promise.resolve([])
+      return chain
+    }
 
     return {
       mockEnv: {

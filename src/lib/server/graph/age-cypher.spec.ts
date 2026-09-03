@@ -100,9 +100,7 @@ describe('toCypherLiteral (hostile input)', () => {
 
   it('throws on non-finite numbers and objects instead of emitting invalid cypher', () => {
     expect(() => toCypherLiteral(Number.NaN)).toThrow(/Invalid cypher number literal/)
-    expect(() => toCypherLiteral(Number.POSITIVE_INFINITY)).toThrow(
-      /Invalid cypher number literal/,
-    )
+    expect(() => toCypherLiteral(Number.POSITIVE_INFINITY)).toThrow(/Invalid cypher number literal/)
     expect(() => toCypherLiteral({ id: 1 })).toThrow(/Unsupported cypher literal type/)
   })
 
@@ -148,4 +146,3 @@ describe('wrapAgeCypherDollarQuote (hostile escalation)', () => {
     expect(wrapped.endsWith(expected)).toBe(true)
   })
 })
-

@@ -154,7 +154,6 @@ const baseBundle = {
   entityGraph: { mentions: [], triples: [] },
 }
 
-
 describe('enrichQueuedThought', () => {
   beforeEach(() => {
     vi.clearAllMocks()

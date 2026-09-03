@@ -120,9 +120,7 @@ describe('admin/spend page server load', () => {
 
     const result = await load({
       locals: { user: { id: 'admin1' } },
-      url: new URL(
-        'http://localhost/admin/spend?view=calls&user=user@example.com&q=enrich&all=1',
-      ),
+      url: new URL('http://localhost/admin/spend?view=calls&user=user@example.com&q=enrich&all=1'),
     } as never)
 
     expect(result.view).toBe('calls')
@@ -136,8 +134,6 @@ describe('admin/spend page server load', () => {
         to: null,
       }),
     )
-    expect(listAdminSpendByUserMock).toHaveBeenCalledWith(
-      expect.objectContaining({ page: 1 }),
-    )
+    expect(listAdminSpendByUserMock).toHaveBeenCalledWith(expect.objectContaining({ page: 1 }))
   })
 })

@@ -119,95 +119,95 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
   }
 
   return parsed.flatMap((entry): ExtractedTemporalMention[] => {
-      if (!entry || typeof entry !== 'object') return []
-      const surface =
-        typeof (entry as { surface?: unknown }).surface === 'string'
-          ? (entry as { surface: string }).surface.trim()
-          : ''
-      const kindRaw =
-        typeof (entry as { kind?: unknown }).kind === 'string'
-          ? (entry as { kind: string }).kind.trim()
-          : ''
-      const startAt =
-        typeof (entry as { startAt?: unknown }).startAt === 'string'
-          ? (entry as { startAt: string }).startAt.trim()
-          : ''
-      const endAtRaw = (entry as { endAt?: unknown }).endAt
-      const endAt = typeof endAtRaw === 'string' && endAtRaw.trim() ? endAtRaw.trim() : undefined
-      const timePrecisionRaw =
-        typeof (entry as { timePrecision?: unknown }).timePrecision === 'string'
-          ? (entry as { timePrecision: string }).timePrecision.trim()
-          : 'fuzzy'
-      const timezone =
-        typeof (entry as { timezone?: unknown }).timezone === 'string'
-          ? (entry as { timezone: string }).timezone.trim()
-          : 'UTC'
-      const isAllDay = (entry as { isAllDay?: unknown }).isAllDay === true
-      const recurrenceRuleRaw = (entry as { recurrenceRule?: unknown }).recurrenceRule
-      const recurrenceRule =
-        typeof recurrenceRuleRaw === 'string' && recurrenceRuleRaw.trim()
-          ? recurrenceRuleRaw.trim()
-          : undefined
-      const confidenceRaw = (entry as { confidence?: unknown }).confidence
-      const confidence =
-        typeof confidenceRaw === 'number' && !Number.isNaN(confidenceRaw)
-          ? Math.min(1, Math.max(0, confidenceRaw))
-          : 0
-      const semanticSummary =
-        typeof (entry as { semanticSummary?: unknown }).semanticSummary === 'string'
-          ? (entry as { semanticSummary: string }).semanticSummary.trim()
-          : surface
-      const relativeSpec = parseRelativeSpec((entry as { relativeSpec?: unknown }).relativeSpec)
-      const durationRaw = (entry as { durationMinutes?: unknown }).durationMinutes
-      const durationMinutes =
-        typeof durationRaw === 'number' && durationRaw > 0 ? Math.round(durationRaw) : undefined
-      const energyRaw = (entry as { energyLevel?: unknown }).energyLevel
-      const energyLevel =
-        typeof energyRaw === 'string' && ALLOWED_ENERGY.has(energyRaw as TemporalEnergyLevel)
-          ? (energyRaw as TemporalEnergyLevel)
-          : undefined
-      const quadrantRaw = (entry as { priorityQuadrant?: unknown }).priorityQuadrant
-      const priorityQuadrant =
-        typeof quadrantRaw === 'string' &&
-        ALLOWED_QUADRANTS.has(quadrantRaw as TemporalPriorityQuadrant)
-          ? (quadrantRaw as TemporalPriorityQuadrant)
-          : undefined
-      const contextTagsRaw = (entry as { contextTags?: unknown }).contextTags
-      const contextTags = Array.isArray(contextTagsRaw)
-        ? contextTagsRaw
-            .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-            .map((t) => t.trim())
+    if (!entry || typeof entry !== 'object') return []
+    const surface =
+      typeof (entry as { surface?: unknown }).surface === 'string'
+        ? (entry as { surface: string }).surface.trim()
+        : ''
+    const kindRaw =
+      typeof (entry as { kind?: unknown }).kind === 'string'
+        ? (entry as { kind: string }).kind.trim()
+        : ''
+    const startAt =
+      typeof (entry as { startAt?: unknown }).startAt === 'string'
+        ? (entry as { startAt: string }).startAt.trim()
+        : ''
+    const endAtRaw = (entry as { endAt?: unknown }).endAt
+    const endAt = typeof endAtRaw === 'string' && endAtRaw.trim() ? endAtRaw.trim() : undefined
+    const timePrecisionRaw =
+      typeof (entry as { timePrecision?: unknown }).timePrecision === 'string'
+        ? (entry as { timePrecision: string }).timePrecision.trim()
+        : 'fuzzy'
+    const timezone =
+      typeof (entry as { timezone?: unknown }).timezone === 'string'
+        ? (entry as { timezone: string }).timezone.trim()
+        : 'UTC'
+    const isAllDay = (entry as { isAllDay?: unknown }).isAllDay === true
+    const recurrenceRuleRaw = (entry as { recurrenceRule?: unknown }).recurrenceRule
+    const recurrenceRule =
+      typeof recurrenceRuleRaw === 'string' && recurrenceRuleRaw.trim()
+        ? recurrenceRuleRaw.trim()
         : undefined
-      const parentSurfaceRaw = (entry as { parentSurface?: unknown }).parentSurface
-      const parentSurface =
-        typeof parentSurfaceRaw === 'string' && parentSurfaceRaw.trim()
-          ? parentSurfaceRaw.trim()
-          : undefined
+    const confidenceRaw = (entry as { confidence?: unknown }).confidence
+    const confidence =
+      typeof confidenceRaw === 'number' && !Number.isNaN(confidenceRaw)
+        ? Math.min(1, Math.max(0, confidenceRaw))
+        : 0
+    const semanticSummary =
+      typeof (entry as { semanticSummary?: unknown }).semanticSummary === 'string'
+        ? (entry as { semanticSummary: string }).semanticSummary.trim()
+        : surface
+    const relativeSpec = parseRelativeSpec((entry as { relativeSpec?: unknown }).relativeSpec)
+    const durationRaw = (entry as { durationMinutes?: unknown }).durationMinutes
+    const durationMinutes =
+      typeof durationRaw === 'number' && durationRaw > 0 ? Math.round(durationRaw) : undefined
+    const energyRaw = (entry as { energyLevel?: unknown }).energyLevel
+    const energyLevel =
+      typeof energyRaw === 'string' && ALLOWED_ENERGY.has(energyRaw as TemporalEnergyLevel)
+        ? (energyRaw as TemporalEnergyLevel)
+        : undefined
+    const quadrantRaw = (entry as { priorityQuadrant?: unknown }).priorityQuadrant
+    const priorityQuadrant =
+      typeof quadrantRaw === 'string' &&
+      ALLOWED_QUADRANTS.has(quadrantRaw as TemporalPriorityQuadrant)
+        ? (quadrantRaw as TemporalPriorityQuadrant)
+        : undefined
+    const contextTagsRaw = (entry as { contextTags?: unknown }).contextTags
+    const contextTags = Array.isArray(contextTagsRaw)
+      ? contextTagsRaw
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+          .map((t) => t.trim())
+      : undefined
+    const parentSurfaceRaw = (entry as { parentSurface?: unknown }).parentSurface
+    const parentSurface =
+      typeof parentSurfaceRaw === 'string' && parentSurfaceRaw.trim()
+        ? parentSurfaceRaw.trim()
+        : undefined
 
-      if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return []
-      if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return []
+    if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return []
+    if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return []
 
-      return [
-        {
-          surface,
-          kind: kindRaw as TemporalEventKind,
-          startAt,
-          ...(endAt ? { endAt } : {}),
-          timePrecision: timePrecisionRaw as TemporalTimePrecision,
-          timezone,
-          isAllDay,
-          ...(recurrenceRule ? { recurrenceRule } : {}),
-          confidence,
-          semanticSummary: semanticSummary || surface,
-          ...(relativeSpec ? { relativeSpec } : {}),
-          ...(durationMinutes != null ? { durationMinutes } : {}),
-          ...(energyLevel ? { energyLevel } : {}),
-          ...(priorityQuadrant ? { priorityQuadrant } : {}),
-          ...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
-          ...(parentSurface ? { parentSurface } : {}),
-        },
-      ]
-    })
+    return [
+      {
+        surface,
+        kind: kindRaw as TemporalEventKind,
+        startAt,
+        ...(endAt ? { endAt } : {}),
+        timePrecision: timePrecisionRaw as TemporalTimePrecision,
+        timezone,
+        isAllDay,
+        ...(recurrenceRule ? { recurrenceRule } : {}),
+        confidence,
+        semanticSummary: semanticSummary || surface,
+        ...(relativeSpec ? { relativeSpec } : {}),
+        ...(durationMinutes != null ? { durationMinutes } : {}),
+        ...(energyLevel ? { energyLevel } : {}),
+        ...(priorityQuadrant ? { priorityQuadrant } : {}),
+        ...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
+        ...(parentSurface ? { parentSurface } : {}),
+      },
+    ]
+  })
 }
 
 /** Apply capture-anchored relative date math to LLM-extracted mentions. */

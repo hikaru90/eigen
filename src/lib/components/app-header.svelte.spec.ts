@@ -45,9 +45,7 @@ describe('app-header.svelte', () => {
     const feedbackEl = feedbackLink.element()
     const logOutEl = logOut.element()
     expect(
-      Boolean(
-        logOutEl.compareDocumentPosition(feedbackEl) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ),
+      Boolean(logOutEl.compareDocumentPosition(feedbackEl) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true)
   })
 })

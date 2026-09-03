@@ -762,9 +762,9 @@ describe('MCP tools', () => {
 
   it('runEditProjectTool rejects when neither label nor status provided', async () => {
     const { runEditProjectTool } = await import('./tools')
-    await expect(
-      runEditProjectTool({ userId: 'u1' }, { project_entity_id: 'p1' }),
-    ).rejects.toThrow(/At least one of label or status is required/)
+    await expect(runEditProjectTool({ userId: 'u1' }, { project_entity_id: 'p1' })).rejects.toThrow(
+      /At least one of label or status is required/,
+    )
   })
 
   it('runEditProjectTool rejects invalid status', async () => {

@@ -11,10 +11,10 @@ Read the manifest first. If a package is already there, keep its version and say
 
 Every provider and every OpenAI-compatible gateway needs the PostHog SDK next to the vendor SDK.
 
-| Runtime | Packages |
-|---|---|
-| Python | `posthog` |
-| Node | `@posthog/ai`, `posthog-node` |
+| Runtime | Packages                      |
+| ------- | ----------------------------- |
+| Python  | `posthog`                     |
+| Node    | `@posthog/ai`, `posthog-node` |
 
 **Do not add OpenTelemetry packages.** The wrapper path needs none. If you reach for `opentelemetry-sdk`, `posthog[otel]`, or an `opentelemetry-instrumentation-*` package, you picked the wrong mechanism. Go back to `3-instrument.md`.
 
@@ -24,11 +24,11 @@ Portkey also needs `portkey-ai`.
 
 ## Other variants
 
-| Variant | Packages |
-|---|---|
-| Agent frameworks | The list the install doc names |
+| Variant                                    | Packages                                |
+| ------------------------------------------ | --------------------------------------- |
+| Agent frameworks                           | The list the install doc names          |
 | `opentelemetry-*`, LlamaIndex, AWS Bedrock | The OTel packages the install doc names |
-| `manual-capture` | `posthog` or `posthog-node` |
+| `manual-capture`                           | `posthog` or `posthog-node`             |
 
 AWS Bedrock has no wrapper client. It instruments the AWS SDK through OpenTelemetry, so its package list differs from every other provider.
 

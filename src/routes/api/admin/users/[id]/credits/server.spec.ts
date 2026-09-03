@@ -37,9 +37,7 @@ describe('POST /api/admin/users/[id]/credits', () => {
   })
 
   it('requires admin session', async () => {
-    requireAdminMock.mockRejectedValueOnce(
-      Object.assign(new Error('Forbidden'), { status: 403 }),
-    )
+    requireAdminMock.mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }))
     await expect(POST(postEvent({ amountCredits: 41, reason: 'refund' }))).rejects.toMatchObject({
       status: 403,
     })
@@ -47,9 +45,7 @@ describe('POST /api/admin/users/[id]/credits', () => {
   })
 
   it('grants credits for a valid body', async () => {
-    const res = await POST(
-      postEvent({ amountCredits: 41, reason: 'Refund overnight overcharge' }),
-    )
+    const res = await POST(postEvent({ amountCredits: 41, reason: 'Refund overnight overcharge' }))
     const body = await res.json()
 
     expect(adminGrantCreditsMock).toHaveBeenCalledWith({

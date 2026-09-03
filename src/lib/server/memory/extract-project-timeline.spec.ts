@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  parseProjectTimelinePayload,
-  extractProjectTimeline,
-} from './extract-project-timeline'
+import { parseProjectTimelinePayload, extractProjectTimeline } from './extract-project-timeline'
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
@@ -127,7 +124,9 @@ describe('extractProjectTimeline', () => {
       userId: 'u1',
       projectLabel: 'Eigen Mesh',
       linkedThoughts: [{ thoughtId: 't1', summary: 'Ship alpha' }],
-      existingDeadlines: [{ thoughtId: 't1', summary: 'Alpha due', startAt: '2026-08-15T00:00:00.000Z' }],
+      existingDeadlines: [
+        { thoughtId: 't1', summary: 'Alpha due', startAt: '2026-08-15T00:00:00.000Z' },
+      ],
     })
 
     expect(result.targetDate).toBe('2026-10-01T00:00:00.000Z')

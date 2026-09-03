@@ -47,18 +47,18 @@ timeline, and UI carried `memoryType` as plumbing only — all of it is removed.
 
 ## Seeded `never_stale` values (thought_category kinds)
 
-| Category      | never_stale | Rationale (old memoryType analogue)                |
-| ------------- | ----------- | -------------------------------------------------- |
-| `decision`    | true        | was never-stale (`decision`)                       |
-| `reference`   | true        | was never-stale (`fact`)                           |
-| `goal`        | true        | standing intention (approx `preference` durability)|
-| `reflection`  | true        | enduring self-knowledge (approx `preference`)      |
-| `idea`        | true        | durable generative thought                         |
-| `task`        | false       | open work — ages, needs review                     |
-| `observation` | false       | time-bound notice (approx `episode`)               |
-| `feeling`     | false       | ephemeral state                                    |
-| `question`    | false       | open until answered                                |
-| `memory`      | false       | episodic record (old `episode` was not exempt)     |
+| Category      | never_stale | Rationale (old memoryType analogue)                 |
+| ------------- | ----------- | --------------------------------------------------- |
+| `decision`    | true        | was never-stale (`decision`)                        |
+| `reference`   | true        | was never-stale (`fact`)                            |
+| `goal`        | true        | standing intention (approx `preference` durability) |
+| `reflection`  | true        | enduring self-knowledge (approx `preference`)       |
+| `idea`        | true        | durable generative thought                          |
+| `task`        | false       | open work — ages, needs review                      |
+| `observation` | false       | time-bound notice (approx `episode`)                |
+| `feeling`     | false       | ephemeral state                                     |
+| `question`    | false       | open until answered                                 |
+| `memory`      | false       | episodic record (old `episode` was not exempt)      |
 
 Custom (future, user-evolved) kinds default to `never_stale = false` — conservative: perishable
 until the ontology system declares durability.

@@ -1,14 +1,19 @@
 <script lang="ts">
   import type { SubmitFunction } from '@sveltejs/kit'
+  import XIcon from '@lucide/svelte/icons/x'
   import { onMount } from 'svelte'
   import { enhance } from '$app/forms'
   import { invalidateAll } from '$app/navigation'
   import { capture } from '$lib/analytics/posthog-client'
+  import { resolveSubmitOutcome } from '$lib/components/onboarding-submit-outcome'
   import { Button } from '$lib/components/ui/button'
   import * as Card from '$lib/components/ui/card'
   import { ONBOARDING_GROUNDING_PUSH_DELAY_MS } from '$lib/grounding/onboarding-welcome-constants'
   import { getPushSupportState, postSubscribe, subscribeToPush } from '$lib/push/client'
-  import { deferredInstallState, clearDeferredInstall } from '$lib/pwa/deferred-install-store.svelte'
+  import {
+    deferredInstallState,
+    clearDeferredInstall,
+  } from '$lib/pwa/deferred-install-store.svelte'
   import {
     isIosDevice,
     isPwaStandalone,
@@ -48,11 +53,20 @@
   let pushUnsupportedReason = $state<string | null>(null)
   let welcomePushScheduled = $state(false)
 
+  /** Submit-failure feedback + in-flight guard for the skip/complete forms. */
+  let submitError = $state<string | null>(null)
+  let submitBusy = $state(false)
+
+  const SUBMIT_ERROR_MESSAGE =
+    'Could not save — check your connection and try again, or use Skip.'
+
   function resetOnOpen() {
     step = 0
     installError = null
     pushError = null
     welcomePushScheduled = false
+    submitError = null
+    submitBusy = false
     ios = isIosDevice()
     installDone = isPwaStandalone()
     if (installDone && installConfirmedAt === null) {
@@ -216,30 +230,112 @@
     step = 3
   }
 
+  /**
+   * Skip semantics: persist `onboardingCompleted` without the credits gate,
+   * then refresh page data so the overlay unmounts. Used by the X button,
+   * Escape, and as the fallback when completeOnboarding hits the credits
+   * gate (400). Errors surface via `submitError` — never a silent dead-end.
+   */
+  async function submitSkipViaFetch(): Promise<boolean> {
+    const res = await fetch('?/skipOnboarding', { method: 'POST' })
+    if (!res.ok) return false
+    capture('onboarding_skipped', { step })
+    await invalidateAll()
+    return true
+  }
+
+  function startSkipSubmit(): void {
+    submitError = null
+    submitBusy = true
+    void (async () => {
+      try {
+        const ok = await submitSkipViaFetch()
+        if (!ok) submitError = SUBMIT_ERROR_MESSAGE
+      } catch {
+        submitError = SUBMIT_ERROR_MESSAGE
+      } finally {
+        submitBusy = false
+      }
+    })()
+  }
+
+  function dismissWithSkip(): void {
+    if (submitBusy) return
+    capture('onboarding_dismissed', { step })
+    startSkipSubmit()
+  }
+
+  function onOverlayKeydown(event: KeyboardEvent): void {
+    if (!open) return
+    if (event.key !== 'Escape') return
+    if (submitBusy) return
+    event.preventDefault()
+    dismissWithSkip()
+  }
+
   const completeOnboardingEnhance: SubmitFunction =
     () =>
     async ({ result, update }) => {
-      await update({ reset: false })
-      if (result.type === 'success') {
-        capture('onboarding_completed', {
-          credits_available: localWalletCredits,
-          pwa_installed: installDone,
-          push_enabled: pushDone,
-        })
-        await invalidateAll()
+      const outcome = resolveSubmitOutcome(result)
+      submitBusy = true
+      let fallbackStarted = false
+      try {
+        if (outcome.kind === 'success') {
+          await update({ reset: false })
+          submitError = null
+          capture('onboarding_completed', {
+            credits_available: localWalletCredits,
+            pwa_installed: installDone,
+            push_enabled: pushDone,
+          })
+          await invalidateAll()
+          return
+        }
+        await update({ reset: false })
+        if (outcome.kind === 'credits_gate') {
+          // Credits gate (400) blocked completion. Fall back to the ungated
+          // skip action so the user is never stranded by a dead modal.
+          capture('onboarding_completed_fallback_skip', {
+            credits_available: localWalletCredits,
+          })
+          fallbackStarted = true
+          startSkipSubmit()
+          return
+        }
+        submitError =
+          outcome.kind === 'auth'
+            ? 'Your session expired — reload the page and sign in again.'
+            : SUBMIT_ERROR_MESSAGE
+      } finally {
+        if (!fallbackStarted) submitBusy = false
       }
     }
 
   const skipOnboardingEnhance: SubmitFunction =
     () =>
     async ({ result, update }) => {
-      await update({ reset: false })
-      if (result.type === 'success') {
-        capture('onboarding_skipped', { step })
-        await invalidateAll()
+      const outcome = resolveSubmitOutcome(result)
+      submitBusy = true
+      try {
+        if (outcome.kind === 'success') {
+          await update({ reset: false })
+          submitError = null
+          capture('onboarding_skipped', { step })
+          await invalidateAll()
+          return
+        }
+        await update({ reset: false })
+        submitError =
+          outcome.kind === 'auth'
+            ? 'Your session expired — reload the page and sign in again.'
+            : SUBMIT_ERROR_MESSAGE
+      } finally {
+        submitBusy = false
       }
     }
 </script>
+
+<svelte:window onkeydown={onOverlayKeydown} />
 
 {#if open}
   <div
@@ -250,8 +346,20 @@
     aria-describedby="onboarding-desc"
   >
     <Card.Root
-      class="ring-foreground/10 max-h-[90dvh] w-full max-w-md overflow-y-auto border border-black/10 bg-card shadow-lg ring-1 dark:border-white/20"
+      class="ring-foreground/10 relative max-h-[90dvh] w-full max-w-md overflow-y-auto border border-black/10 bg-card shadow-lg ring-1 dark:border-white/20"
     >
+      <button
+        type="button"
+        class="text-muted-foreground hover:text-foreground absolute top-3 right-3 rounded p-1 transition-colors"
+        aria-label="Close onboarding"
+        disabled={submitBusy}
+        onclick={() => {
+          capture('onboarding_dismissed', { step })
+          dismissWithSkip()
+        }}
+      >
+        <XIcon class="size-4" />
+      </button>
       <Card.Header class="space-y-2">
         <Card.Title id="onboarding-title" class="text-base">{title}</Card.Title>
         <Card.Description id="onboarding-desc" class="text-muted-foreground text-xs">
@@ -259,7 +367,7 @@
         </Card.Description>
       </Card.Header>
 
-      <Card.Content class="space-y-3 text-sm text-card-foreground">
+      <Card.Content class="relative space-y-3 text-sm text-card-foreground">
         {#if step === 0}
           <p class="text-xs leading-relaxed">
             Your memory shouldn't live inside one chat vendor or hyperscaler. Eigen Mesh is yours —
@@ -378,43 +486,38 @@
               >
                 {pushBusy ? 'Enabling…' : 'Enable notifications'}
               </Button>
-              {#if creditsOk}
-                <form
-                  method="post"
-                  action="?/completeOnboarding"
-                  use:enhance={completeOnboardingEnhance}
-                  class="w-full"
+              <!-- Always skip semantics here: completeOnboarding is credits-gated and
+                   can 400 for users below MIN_CAPTURE_PIPELINE_CREDITS. -->
+              <form
+                id="onboarding-skip-form"
+                method="post"
+                action="?/skipOnboarding"
+                use:enhance={skipOnboardingEnhance}
+                class="w-full"
+              >
+                <Button
+                  type="submit"
+                  variant="ghost"
+                  class="h-8 w-full rounded-[4px] text-xs text-muted-foreground"
+                  disabled={submitBusy}
+                  onclick={() => capture('onboarding_push_skipped', {})}
                 >
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    class="h-8 w-full rounded-[4px] text-xs text-muted-foreground"
-                    onclick={() => capture('onboarding_push_skipped', {})}
-                  >
-                    Continue without notifications
-                  </Button>
-                </form>
-              {:else}
-                <form
-                  method="post"
-                  action="?/skipOnboarding"
-                  use:enhance={skipOnboardingEnhance}
-                  class="w-full"
-                >
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    class="h-8 w-full rounded-[4px] text-xs text-muted-foreground"
-                    onclick={() => capture('onboarding_push_skipped', {})}
-                  >
-                    Continue without notifications
-                  </Button>
-                </form>
-              {/if}
+                  Continue without notifications
+                </Button>
+              </form>
             </div>
           {/if}
         {/if}
       </Card.Content>
+
+      {#if submitError}
+        <div
+          class="text-destructive border-destructive/30 bg-destructive/10 mx-6 rounded border px-3 py-2 text-xs"
+          role="alert"
+        >
+          {submitError}
+        </div>
+      {/if}
 
       <Card.Footer
         class="flex flex-wrap items-center justify-between gap-2 border-t border-black/10 pt-4 dark:border-white/15"
@@ -435,6 +538,7 @@
               type="submit"
               variant="ghost"
               class="rounded-[4px] text-xs text-muted-foreground"
+              disabled={submitBusy}
             >
               Skip for now
             </Button>
@@ -458,11 +562,15 @@
               action="?/completeOnboarding"
               use:enhance={completeOnboardingEnhance}
             >
-              <Button type="submit" class="rounded-[4px] text-xs">Start capturing →</Button>
+              <Button type="submit" class="rounded-[4px] text-xs" disabled={submitBusy}
+                >Start capturing →</Button
+              >
             </form>
           {:else}
             <form method="post" action="?/skipOnboarding" use:enhance={skipOnboardingEnhance}>
-              <Button type="submit" class="rounded-[4px] text-xs">Start capturing →</Button>
+              <Button type="submit" class="rounded-[4px] text-xs" disabled={submitBusy}
+                >Start capturing →</Button
+              >
             </form>
           {/if}
         {/if}

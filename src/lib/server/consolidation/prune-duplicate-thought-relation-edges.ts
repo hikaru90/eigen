@@ -49,7 +49,7 @@ async function pairSupportStats(input: {
 	`)
   const rows = Array.isArray(result)
     ? (result as unknown as PairSupportRow[])
-    : ([...(result as unknown as Iterable<PairSupportRow>)])
+    : [...(result as unknown as Iterable<PairSupportRow>)]
   const row = rows[0]
   return {
     thoughtCount: num(row?.thought_count),

@@ -14,24 +14,24 @@ What constitutes a "session" is flexible and depends on your use case. The `$ai_
 
 Grouping traces with the same session ID enables you to:
 
--   Track related interactions across multiple traces
--   Analyze aggregate metrics like total cost, tokens, or latency per session
--   Understand patterns across grouped interactions
--   Filter and segment your analytics by session-level attributes
+- Track related interactions across multiple traces
+- Analyze aggregate metrics like total cost, tokens, or latency per session
+- Understand patterns across grouped interactions
+- Filter and segment your analytics by session-level attributes
 
 ## When to use sessions
 
 Sessions are useful when you want to:
 
--   **Group related traces**: Connect multiple traces that are part of the same logical unit (visit, workflow, thread, etc.)
--   **Calculate aggregate metrics**: Total cost, tokens, or latency across a group of related traces
--   **Analyze patterns**: Understand how multiple traces relate to each other within a session
--   **Filter and segment**: Query and analyze your data by session-level groupings
+- **Group related traces**: Connect multiple traces that are part of the same logical unit (visit, workflow, thread, etc.)
+- **Calculate aggregate metrics**: Total cost, tokens, or latency across a group of related traces
+- **Analyze patterns**: Understand how multiple traces relate to each other within a session
+- **Filter and segment**: Query and analyze your data by session-level groupings
 
 ## Traces vs Sessions
 
--   **Trace** (`$ai_trace_id`): Groups related AI events (generations, spans, embeddings) together. Required for all AI Observability events.
--   **Session** (`$ai_session_id`): Optional property that groups multiple traces together based on your chosen grouping strategy.
+- **Trace** (`$ai_trace_id`): Groups related AI events (generations, spans, embeddings) together. Required for all AI Observability events.
+- **Session** (`$ai_session_id`): Optional property that groups multiple traces together based on your chosen grouping strategy.
 
 ## How to set a session ID
 
@@ -51,11 +51,11 @@ View all traces and events for a specific session by filtering for the `$ai_sess
 
 Create insights that aggregate metrics by session:
 
--   Number of traces per session
--   Average cost per session
--   Total tokens used per session
--   Session duration
--   Patterns across sessions
+- Number of traces per session
+- Average cost per session
+- Total tokens used per session
+- Session duration
+- Patterns across sessions
 
 ### In the trace viewer
 
@@ -67,8 +67,8 @@ When viewing a [trace](/docs/ai-observability/traces.md), you can see which sess
 
 If you have your own custom session tracking and a way to pass your session ID from frontend to backend, you can use the same session ID for both. However, most applications will use different session identifiers:
 
--   **`$session_id`**: PostHog's auto-captured frontend session tracking (which you can overwrite if you want)
--   **`$ai_session_id`**: Your custom session identifier for grouping LLM interactions (typically managed by your backend)
+- **`$session_id`**: PostHog's auto-captured frontend session tracking (which you can overwrite if you want)
+- **`$ai_session_id`**: Your custom session identifier for grouping LLM interactions (typically managed by your backend)
 
 ### Still have questions?
 

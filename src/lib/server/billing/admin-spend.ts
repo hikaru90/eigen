@@ -340,9 +340,7 @@ function mapAdminActivityCallDbRow(row: AdminActivityCallDbRow): AdminSpendActiv
 }
 
 /** Resolve a user by exact id or email (case-insensitive). */
-export async function resolveAdminUserByQuery(
-  query: string,
-): Promise<AdminSpendUserRef | null> {
+export async function resolveAdminUserByQuery(query: string): Promise<AdminSpendUserRef | null> {
   const trimmed = query.trim()
   if (!trimmed) return null
 

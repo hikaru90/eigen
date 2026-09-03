@@ -20,10 +20,7 @@ vi.mock('$lib/server/memory/judge-gtd-project', () => ({
   auditGtdProjectProfiles: vi.fn(async () => ({ demoted: 0 })),
 }))
 
-import {
-  listEligibleProjectsForAssignment,
-  loadEligibleGtdProjects,
-} from './project-list'
+import { listEligibleProjectsForAssignment, loadEligibleGtdProjects } from './project-list'
 
 function whereChain(rows: unknown[]) {
   return {

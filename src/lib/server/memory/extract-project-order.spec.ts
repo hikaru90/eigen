@@ -29,9 +29,11 @@ describe('shouldInvokeProjectOrderJudge', () => {
 
 describe('filterOrderedThoughtIds', () => {
   it('keeps allowed ids in LLM order and drops extras/duplicates', () => {
-    expect(
-      filterOrderedThoughtIds(['b', 'a', 'b', 'zzz', 'c'], new Set(['a', 'b', 'c'])),
-    ).toEqual(['b', 'a', 'c'])
+    expect(filterOrderedThoughtIds(['b', 'a', 'b', 'zzz', 'c'], new Set(['a', 'b', 'c']))).toEqual([
+      'b',
+      'a',
+      'c',
+    ])
   })
 
   it('returns empty when nothing allowed', () => {
@@ -50,9 +52,9 @@ describe('parseProjectOrderPayload', () => {
   })
 
   it('accepts snake_case ordered_thought_ids', () => {
-    expect(
-      parseProjectOrderPayload({ ordered_thought_ids: ['t1'] }, new Set(['t1'])),
-    ).toEqual(['t1'])
+    expect(parseProjectOrderPayload({ ordered_thought_ids: ['t1'] }, new Set(['t1']))).toEqual([
+      't1',
+    ])
   })
 
   it('returns empty for non-object or missing array', () => {

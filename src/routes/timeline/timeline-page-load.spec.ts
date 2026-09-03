@@ -74,9 +74,7 @@ describe('loadTimelinePageData', () => {
     })
     getDbMock.mockReturnValue({
       select: vi.fn(() =>
-        makePrefChain([
-          { eventNotificationsEnabled: true, eventReminderLeadMinutes: 15 },
-        ]),
+        makePrefChain([{ eventNotificationsEnabled: true, eventReminderLeadMinutes: 15 }]),
       ),
     })
 

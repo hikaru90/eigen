@@ -23,11 +23,11 @@ Agent frameworks use their own tracing hook in place of a wrapper. Take it from 
 
 Three per-call parameters carry the tree. Node uses camelCase.
 
-| Parameter | Holds | Cardinality |
-|---|---|---|
+| Parameter                                  | Holds            | Cardinality                       |
+| ------------------------------------------ | ---------------- | --------------------------------- |
 | `posthog_properties` with `$ai_session_id` | the conversation | one id for the whole conversation |
-| `posthog_trace_id` | the turn | a new id per turn |
-| `posthog_distinct_id` | the user | the person |
+| `posthog_trace_id`                         | the turn         | a new id per turn                 |
+| `posthog_distinct_id`                      | the user         | the person                        |
 
 Every call inside one turn takes the same `posthog_trace_id`. If you omit it, the wrapper mints a fresh id per call, and each generation lands in its own trace.
 

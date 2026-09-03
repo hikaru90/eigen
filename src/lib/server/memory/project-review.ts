@@ -214,8 +214,7 @@ export async function loadProjectTaskReviewInput(
         })
       : row.normalizedText
     const trimmed = text.trim()
-    const summary =
-      trimmed.length > 120 ? `${trimmed.slice(0, 117).trim()}…` : trimmed || thoughtId
+    const summary = trimmed.length > 120 ? `${trimmed.slice(0, 117).trim()}…` : trimmed || thoughtId
 
     tasks.push({
       thoughtId,
@@ -355,12 +354,7 @@ export async function applyProjectReview(
         normalizedText: summary,
         precomputedMentions: [
           {
-            ...mentionFromDeadline(
-              summary,
-              planned.suggestedStartAt,
-              timezone,
-              planned.kind,
-            ),
+            ...mentionFromDeadline(summary, planned.suggestedStartAt, timezone, planned.kind),
             ...(planned.suggestedEndAt ? { endAt: planned.suggestedEndAt } : {}),
           },
         ],
@@ -370,9 +364,7 @@ export async function applyProjectReview(
 
   const markDoneSet = new Set(input.markDone)
   const archiveSet = new Set(input.archive)
-  const orderedExisting = input.order.filter(
-    (id) => !markDoneSet.has(id) && !archiveSet.has(id),
-  )
+  const orderedExisting = input.order.filter((id) => !markDoneSet.has(id) && !archiveSet.has(id))
   const finalOrder = [...orderedExisting, ...createdThoughtIds]
   await replaceProjectTaskSequence({
     userId: input.userId,
@@ -381,10 +373,7 @@ export async function applyProjectReview(
   })
 
   let nextActionThoughtId: string | null = null
-  if (
-    input.nextActionNewTaskIndex != null &&
-    createdThoughtIds[input.nextActionNewTaskIndex]
-  ) {
+  if (input.nextActionNewTaskIndex != null && createdThoughtIds[input.nextActionNewTaskIndex]) {
     nextActionThoughtId = createdThoughtIds[input.nextActionNewTaskIndex]!
   } else if (input.nextActionThoughtId) {
     nextActionThoughtId = input.nextActionThoughtId

@@ -129,14 +129,22 @@
     if (Array.isArray(result.entries)) {
       liveEntries = result.entries
     }
-    await goto(resolve(`/eval?run=${result.runId}` as '/eval'), { replaceState: true, keepFocus: true, noScroll: true })
+    await goto(resolve(`/eval?run=${result.runId}` as '/eval'), {
+      replaceState: true,
+      keepFocus: true,
+      noScroll: true,
+    })
     pollTimer = setInterval(pollRun, 1000)
     void pollRun()
   }
 
   async function selectSavedRun(runId: string) {
     if (running || runId === selectedRunId) return
-    await goto(resolve(`/eval?run=${runId}` as '/eval'), { replaceState: true, keepFocus: true, noScroll: true })
+    await goto(resolve(`/eval?run=${runId}` as '/eval'), {
+      replaceState: true,
+      keepFocus: true,
+      noScroll: true,
+    })
   }
 
   async function startRun() {

@@ -37,8 +37,7 @@ vi.mock('$lib/server/billing/legacy-byok', () => ({
     byokUiEnabled: boolean
     billingMode: string
     hasStoredCredentials: boolean
-  }) =>
-    !opts.byokUiEnabled && (opts.billingMode === 'byok' || opts.hasStoredCredentials),
+  }) => !opts.byokUiEnabled && (opts.billingMode === 'byok' || opts.hasStoredCredentials),
   clearLegacyByokForUser: clearLegacyByokForUserMock,
 }))
 vi.mock('$lib/server/billing/paypal', () => ({
@@ -68,7 +67,10 @@ function makeSelectChain(rows: unknown[]) {
     from: ReturnType<typeof vi.fn>
     where: ReturnType<typeof vi.fn>
     limit: ReturnType<typeof vi.fn>
-    then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) => Promise<unknown>
+    then: (
+      onFulfilled: (value: unknown) => unknown,
+      onRejected?: (reason: unknown) => unknown,
+    ) => Promise<unknown>
   } = {
     from: vi.fn(),
     where: vi.fn(),

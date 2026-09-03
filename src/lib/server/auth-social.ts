@@ -30,7 +30,10 @@ const PROVIDER_ENV: Record<SocialProviderId, { clientId: string; clientSecret: s
   github: { clientId: 'GITHUB_CLIENT_ID', clientSecret: 'GITHUB_CLIENT_SECRET' },
 }
 
-function readProfileString(profile: OAuthNameProfile, key: keyof OAuthNameProfile): string | undefined {
+function readProfileString(
+  profile: OAuthNameProfile,
+  key: keyof OAuthNameProfile,
+): string | undefined {
   const value = profile[key]
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
