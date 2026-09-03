@@ -72,7 +72,7 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/d3": "^7.4.3",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22",
+    "@types/node": "^26",
     "@types/three": "^0.184.1",
     "@types/web-push": "^3.6.4",
     "@vitest/browser-playwright": "^4.1.3",
