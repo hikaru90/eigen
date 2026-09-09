@@ -10,6 +10,8 @@ export type ErpNextConfig = {
   company: string
   itemCode: string
   taxesTemplate: string | null
+  /** Receivable account used for USD invoices (optional; required when the company default is not USD-capable). */
+  debitTo: string | null
 }
 
 function readEnv(key: keyof typeof env): string {
@@ -30,6 +32,7 @@ export function loadErpNextConfig(): ErpNextConfig | null {
   const company = readEnv('ERPNEXT_COMPANY')
   const itemCode = readEnv('ERPNEXT_ITEM_CODE')
   const taxesTemplate = readEnv('ERPNEXT_TAXES_TEMPLATE')
+  const debitTo = readEnv('ERPNEXT_DEBIT_TO')
 
   const required = { ERPNEXT_BASE_URL: baseUrl, ERPNEXT_API_KEY: apiKey, ERPNEXT_API_SECRET: apiSecret, ERPNEXT_COMPANY: company, ERPNEXT_ITEM_CODE: itemCode }
   const values = Object.values(required)
@@ -60,6 +63,7 @@ export function loadErpNextConfig(): ErpNextConfig | null {
     company,
     itemCode,
     taxesTemplate: taxesTemplate || null,
+    debitTo: debitTo || null,
   }
 }
 
@@ -81,6 +85,7 @@ export type SalesInvoicePayload = {
   items: SalesInvoiceItemRow[]
   remarks: string
   taxes_and_charges?: string
+  debit_to?: string
 }
 
 export type ErpNextPaymentOrder = {
@@ -148,6 +153,9 @@ export function buildSalesInvoicePayload(input: {
   if (config.taxesTemplate) {
     payload.taxes_and_charges = config.taxesTemplate
   }
+  if (config.debitTo) {
+    payload.debit_to = config.debitTo
+  }
   return payload
 }
 
@@ -207,6 +215,12 @@ export async function ensureErpNextCustomer(
       doctype: 'Customer',
       customer_name: email,
       customer_type: 'Individual',
+      // USD settlement — bind the party currency and (when configured) the USD receivable
+      // account so ERPNext books the invoice against a currency-matched account.
+      default_currency: ERPNEXT_CURRENCY,
+      ...(config.debitTo
+        ? { accounts: [{ company: config.company, account: config.debitTo }] }
+        : {}),
     }),
   })
   if (created.status < 200 || created.status >= 300) {

@@ -13,6 +13,7 @@ export type ExtendedPrivateEnv = typeof kitEnv & {
   ERPNEXT_API_SECRET?: string
   ERPNEXT_BASE_URL?: string
   ERPNEXT_COMPANY?: string
+  ERPNEXT_DEBIT_TO?: string
   ERPNEXT_ITEM_CODE?: string
   ERPNEXT_TAXES_TEMPLATE?: string
   EVAL_ENRICHMENT_KICK_CONCURRENCY?: string

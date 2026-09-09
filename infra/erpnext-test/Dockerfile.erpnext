@@ -1,0 +1,12 @@
+# ERPNext image with eu_einvoice app baked in (DIN EN 16931 / XRechnung / ZUGFeRD).
+# Used by infra/erpnext-test/compose.yaml — rebuild the test stack to pick it up.
+FROM frappe/erpnext:v15
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ghostscript \
+    && rm -rf /var/lib/apt/lists/*
+USER frappe
+
+WORKDIR /home/frappe/frappe-bench
+RUN bench get-app https://github.com/alyf-de/eu_einvoice --branch version-15

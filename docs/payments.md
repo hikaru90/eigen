@@ -177,6 +177,14 @@ All-or-nothing: set all five required vars or none — partial configuration har
 | `ERPNEXT_COMPANY`       | Exact ERPNext company name for the invoices                             |
 | `ERPNEXT_ITEM_CODE`     | Service item code for the invoice line (must exist in ERPNext)          |
 | `ERPNEXT_TAXES_TEMPLATE`| Optional Taxes and Charges Template name applied to the line            |
+| `ERPNEXT_DEBIT_TO`      | Optional receivable (Debitoren) account used as `debit_to` for USD invoices and bound to created customers (`default_currency: USD`). Required when the company default receivable account is not USD-capable (ERPNext pins account currencies). |
+
+### ERPNext prerequisites the sync assumes
+
+- Selling Settings defaults (`customer_group`, `territory`) must be **non-group (leaf)** values, e.g. `Einzelperson` / `Rest der Welt` — otherwise customer creation fails with "Cannot select a Group type …".
+- The invoice's debit account must be **currency-matched** (or the company default receivable must be USD-capable — ERPNext pins `Account.account_currency`; blank is not persisted). With `ERPNEXT_DEBIT_TO` set, Eigen binds customers to that USD account and passes `debit_to` explicitly.
+- `Currency Exchange` rows USD → company currency must exist (ERPNext uses them for `conversion_rate`).
+- German SKR chart quirk: company setup may leave `default_receivable_account` on the advances account (`Erhaltene Anz. auf Bestellungen`) — point it at a real Forderungen leaf account.
 
 ### German tax notes (invoice content per § 14 UStG)
 

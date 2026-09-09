@@ -40,6 +40,7 @@ const BASE_CONFIG: ErpNextConfig = {
   company: 'Buck',
   itemCode: 'EIGEN-CREDITS',
   taxesTemplate: null,
+  debitTo: null,
 }
 
 function orderFixture(overrides: Record<string, unknown> = {}) {
@@ -96,7 +97,19 @@ describe('loadErpNextConfig', () => {
       company: 'Buck',
       itemCode: 'EIGEN-CREDITS',
       taxesTemplate: null,
+      debitTo: null,
     })
+  })
+
+  it('passes through the optional debit-to account', () => {
+    mockEnv.ERPNEXT_BASE_URL = 'https://erp.example.com'
+    mockEnv.ERPNEXT_API_KEY = 'key-123'
+    mockEnv.ERPNEXT_API_SECRET = 'secret-456'
+    mockEnv.ERPNEXT_COMPANY = 'Buck'
+    mockEnv.ERPNEXT_ITEM_CODE = 'EIGEN-CREDITS'
+    mockEnv.ERPNEXT_DEBIT_TO = 'Debitoren Eigen-Verkäufe USD - K'
+
+    expect(loadErpNextConfig()?.debitTo).toBe('Debitoren Eigen-Verkäufe USD - K')
   })
 
   it('passes through the optional taxes template', () => {
@@ -163,6 +176,15 @@ describe('buildSalesInvoicePayload', () => {
       order: orderFixture(),
     })
     expect(payload.taxes_and_charges).toBe('Kleinunternehmer § 19 UStG')
+  })
+
+  it('includes debit_to when the debit-to account is configured', () => {
+    const payload = buildSalesInvoicePayload({
+      config: { ...BASE_CONFIG, debitTo: 'Debitoren Eigen-Verkäufe USD - K' },
+      customer: 'payer@example.com',
+      order: orderFixture(),
+    })
+    expect(payload.debit_to).toBe('Debitoren Eigen-Verkäufe USD - K')
   })
 
   it('omits taxes_and_charges when no template is configured', () => {
@@ -242,6 +264,24 @@ describe('ensureErpNextCustomer', () => {
       customer_name: 'payer@example.com',
       customer_type: 'Individual',
     })
+  })
+
+  it('binds the customer to USD and the debit-to account when configured', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(404, { exc_type: 'DoesNotExistError' }))
+      .mockResolvedValueOnce(jsonResponse(200, { data: { name: 'payer@example.com' } }))
+
+    await ensureErpNextCustomer(
+      { ...BASE_CONFIG, debitTo: 'Debitoren Eigen-Verkäufe USD - K' },
+      'payer@example.com',
+    )
+
+    const [, init] = fetchMock.mock.calls[1] as [string, RequestInit]
+    const body = JSON.parse(String(init.body))
+    expect(body.default_currency).toBe('USD')
+    expect(body.accounts).toEqual([
+      { company: 'Buck', account: 'Debitoren Eigen-Verkäufe USD - K' },
+    ])
   })
 
   it('sends token auth and never leaks the secret in thrown errors', async () => {

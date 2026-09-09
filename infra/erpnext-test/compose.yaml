@@ -1,0 +1,142 @@
+# ERPNext TEST instance — accounting-test.coolify.stackstack.de
+#
+# Isolated from production:
+#   - dedicated *-test volumes (never mounts production data)
+#   - site name accounting-test.coolify.stackstack.de
+#   - frontend publishes UNIQUE host port 8081 (prod owns 8080) — the Coolify
+#     proxy routes the domain to the published port, same as production
+#
+# eu_einvoice is baked into the image via Dockerfile.erpnext (build context) —
+# the only supported way to add custom apps to the frappe/erpnext production image.
+#
+# Coolify setup: Docker Compose resource from this repo file → "Deploy with build".
+# Domain: https://accounting-test.coolify.stackstack.de → Frontend service (port 8081).
+# DNS: A/CNAME accounting-test → same server IP as accounting (wildcard also fine).
+#
+# Behavior: the initializer re-provisions the site on EVERY deploy — same proven,
+# boring pattern as the production stack. Test data is disposable (see BACKUPS.md).
+
+services:
+  erpnext-db:
+    image: 'mariadb:10.6'
+    platform: linux/arm64
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--skip-character-set-client-handshake'
+      - '--skip-innodb-read-only-compressed'
+    environment:
+      - MYSQL_ROOT_PASSWORD=stack_root_secure_123
+      - MARIADB_ROOT_PASSWORD=stack_root_secure_123
+    volumes:
+      - 'erpnext-db-data-v15-test:/var/lib/mysql'
+  redis-cache:
+    image: 'redis:6.2-alpine'
+    platform: linux/arm64
+  redis-queue:
+    image: 'redis:6.2-alpine'
+    platform: linux/arm64
+    volumes:
+      - 'redis-queue-data-v15-test:/data'
+  erpnext-configurator:
+    build:
+      context: .
+      dockerfile: Dockerfile.erpnext
+    platform: linux/arm64
+    restart: 'no'
+    entrypoint:
+      - bash
+      - '-c'
+    command:
+      - >-
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host erpnext-db;
+        bench set-config -gp db_port 3306;
+        bench set-config -g redis_cache redis://redis-cache:6379;
+        bench set-config -g redis_queue redis://redis-queue:6379;
+        bench set-config -g redis_socketio redis://redis-queue:6379;
+    volumes:
+      - 'erpnext-sites-v15-test:/home/frappe/frappe-bench/sites'
+    depends_on:
+      - erpnext-db
+  erpnext-initializer:
+    build:
+      context: .
+      dockerfile: Dockerfile.erpnext
+    platform: linux/arm64
+    restart: 'no'
+    entrypoint:
+      - bash
+      - '-c'
+    command:
+      - >-
+        wait-for-it -t 120 erpnext-db:3306;
+        wait-for-it -t 120 redis-cache:6379;
+        wait-for-it -t 120 redis-queue:6379;
+        export start=`date +%s`;
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] &&
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] &&
+          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]]; do
+        echo "Waiting for sites/common_site_config.json to compile keys...";
+        sleep 5;
+        if (( `date +%s`-start > 120 )); then
+        echo "could not find sites/common_site_config.json with required schema keys";
+        exit 1;
+        fi;
+        done;
+        echo "Provisioning TEST site accounting-test.coolify.stackstack.de...";
+        rm -rf "sites/accounting-test.coolify.stackstack.de";
+        bench new-site accounting-test.coolify.stackstack.de --mariadb-user-host-login-scope=% --admin-password=admin --db-root-username=root --db-root-password=stack_root_secure_123 --install-app erpnext --set-default &&
+        bench --site accounting-test.coolify.stackstack.de install-app eu_einvoice
+    volumes:
+      - 'erpnext-sites-v15-test:/home/frappe/frappe-bench/sites'
+    depends_on:
+      - erpnext-configurator
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.erpnext
+    platform: linux/arm64
+    volumes:
+      - 'erpnext-sites-v15-test:/home/frappe/frappe-bench/sites'
+    depends_on:
+      erpnext-initializer:
+        condition: service_completed_successfully
+  websocket:
+    build:
+      context: .
+      dockerfile: Dockerfile.erpnext
+    platform: linux/arm64
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - 'erpnext-sites-v15-test:/home/frappe/frappe-bench/sites'
+    depends_on:
+      - backend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.erpnext
+    platform: linux/arm64
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: 'backend:8000'
+      SOCKETIO: 'websocket:9000'
+      FRAPPE_SITE_NAME_HEADER: accounting-test.coolify.stackstack.de
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: 'off'
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - '8081:8080'
+    volumes:
+      - 'erpnext-sites-v15-test:/home/frappe/frappe-bench/sites'
+    depends_on:
+      - websocket
+volumes:
+  erpnext-db-data-v15-test: null
+  redis-queue-data-v15-test: null
+  erpnext-sites-v15-test: null
