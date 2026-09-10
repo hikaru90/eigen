@@ -46,6 +46,7 @@
   let installError = $state<string | null>(null)
   let installConfirmedAt = $state<number | null>(null)
   let ios = $state(false)
+  let iosGuideOpen = $state(false)
 
   let pushDone = $state(false)
   let pushBusy = $state(false)
@@ -68,6 +69,7 @@
     submitError = null
     submitBusy = false
     ios = isIosDevice()
+    iosGuideOpen = false
     installDone = isPwaStandalone()
     if (installDone && installConfirmedAt === null) {
       installConfirmedAt = Date.now()
@@ -204,8 +206,15 @@
     installDone = true
     if (installConfirmedAt === null) installConfirmedAt = Date.now()
     installError = null
+    iosGuideOpen = false
     capture('onboarding_pwa_installed', { via: 'manual_confirm' })
     void maybeScheduleWelcomePush()
+  }
+
+  function openIosGuide(): void {
+    iosGuideOpen = true
+    installError = null
+    capture('onboarding_pwa_ios_guide_opened', {})
   }
 
   async function onEnableNotifications(): Promise<void> {
@@ -400,7 +409,87 @@
               Installed. You're ready for the next step.
             </p>
           {:else}
-            {#if ios}
+            {#if ios && iosGuideOpen}
+              <p class="text-xs leading-relaxed">
+                Add Eigen Mesh to your Home Screen — it takes three taps.
+              </p>
+              <ol class="space-y-3">
+                <li class="flex items-start gap-3">
+                  <span
+                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-muted dark:border-white/15"
+                  >
+                    <!-- iOS share icon (Safari toolbar) -->
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M8 8H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-2"
+                      />
+                      <path d="M12 14.5V3" />
+                      <path d="m8 6 4-4 4 4" />
+                    </svg>
+                  </span>
+                  <span class="text-xs leading-relaxed">
+                    <span class="font-medium">Tap the Share button</span> — in the bar at the bottom
+                    of Safari.
+                  </span>
+                </li>
+                <li class="flex items-start gap-3">
+                  <span
+                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-muted dark:border-white/15"
+                  >
+                    <!-- iOS "Add to Home Screen" menu icon -->
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-5"
+                      aria-hidden="true"
+                    >
+                      <rect x="4" y="4" width="16" height="16" rx="3" />
+                      <path d="M12 9v6" />
+                      <path d="M9 12h6" />
+                    </svg>
+                  </span>
+                  <span class="text-xs leading-relaxed">
+                    <span class="font-medium">Scroll down and tap</span>
+                    <span class="font-medium">Add to Home Screen</span> in the menu.
+                  </span>
+                </li>
+                <li class="flex items-start gap-3">
+                  <span
+                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-muted dark:border-white/15"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="size-5"
+                      aria-hidden="true"
+                    >
+                      <path d="m5 13 4 4L19 7" />
+                    </svg>
+                  </span>
+                  <span class="text-xs leading-relaxed">
+                    Name it if you like, <span class="font-medium">then tap Add</span> in the top
+                    corner.
+                  </span>
+                </li>
+              </ol>
+            {:else if ios}
               <ol class="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed">
                 <li>Tap the Share button in Safari</li>
                 <li>Choose <span class="font-medium">Add to Home Screen</span></li>
@@ -421,13 +510,39 @@
             {/if}
             <div class="flex flex-col gap-2 pt-1">
               {#if ios}
-                <Button
-                  type="button"
-                  class="h-11 w-full rounded-[4px] text-sm font-medium"
-                  onclick={markInstalledManually}
-                >
-                  I've installed it
-                </Button>
+                {#if iosGuideOpen}
+                  <Button
+                    type="button"
+                    class="h-11 w-full rounded-[4px] text-sm font-medium"
+                    onclick={markInstalledManually}
+                  >
+                    I've installed it
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    class="h-9 w-full rounded-[4px] text-xs"
+                    onclick={() => (iosGuideOpen = false)}
+                  >
+                    Back
+                  </Button>
+                {:else}
+                  <Button
+                    type="button"
+                    class="h-11 w-full rounded-[4px] text-sm font-medium"
+                    onclick={openIosGuide}
+                  >
+                    Add to Home Screen
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    class="h-9 w-full rounded-[4px] text-xs"
+                    onclick={markInstalledManually}
+                  >
+                    I've already installed it
+                  </Button>
+                {/if}
               {:else}
                 <Button
                   type="button"
