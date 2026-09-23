@@ -30,7 +30,7 @@
 
   let { children } = $props()
 
-  const authPaths = new Set(['/login', '/signup', '/register'])
+  const authPaths = new Set(['/login', '/signup', '/register', '/forgot-password', '/reset-password'])
 
   function normalizePathname(pathname: string): string {
     let p = pathname
