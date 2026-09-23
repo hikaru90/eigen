@@ -45,6 +45,13 @@ export default defineConfig({
       '$env/static/public': path.resolve(root, 'src/lib/vitest-stubs/env/static/public.ts'),
       // PWA plugin is not loaded in this lean browser config.
       'virtual:pwa-register': path.resolve(root, 'src/lib/vitest-stubs/virtual-pwa-register.ts'),
+      // SvelteKit virtual modules cannot be vi.mock'ed in browser mode; spec
+      // specs that render real components get them as plain stubs instead.
+      '$app/environment': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
+      '$app/paths': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
+      '$app/forms': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
+      '$app/navigation': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
+      '$env/static/public': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
     },
   },
   // Avoid holding browser module requests behind a full-app dep crawl.
@@ -57,8 +64,9 @@ export default defineConfig({
     name: 'components',
     expect: { requireAssertions: true },
     setupFiles: ['vitest-browser-svelte'],
-    // Component specs join this job as `$app/*` stubs and locator coverage
-    // land for them (`src/lib/vitest-stubs/app/*`).
+    // Phase 4 merge gate: smoke + component specs that run under the stub
+    // aliases above. Component specs join this job as `$app/*` stubs and
+    // locator coverage land for them (`src/lib/vitest-stubs/app/*`).
     include: [
       'src/lib/components/smoke.svelte.spec.ts',
       'src/lib/components/capture-onboarding-overlay.svelte.spec.ts',

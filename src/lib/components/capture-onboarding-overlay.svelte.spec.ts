@@ -1,6 +1,29 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import { page } from 'vitest/browser'
+
+// Browser-only deps are mocked so this spec stays runnable in the lean
+// browser config. `$app/*` and `$env/*` cannot be vi.mock'ed in browser mode
+// (mocking an aliased id breaks named-import resolution) — they are aliased
+// to src/lib/vitest-stubs/app-modules.js via vitest.temp-overlay.config.ts
+// instead; that stub's `enhance` is a working no-op submit handler.
+vi.mock('$lib/analytics/posthog-client', () => ({ capture: vi.fn() }))
+vi.mock('$lib/push/client', () => ({
+  getPushSupportState: () => ({ supported: true, permission: 'default' }),
+  postSubscribe: vi.fn(async () => {}),
+  subscribeToPush: vi.fn(async () => ({})),
+}))
+vi.mock('$lib/pwa/deferred-install-store.svelte', () => ({
+  deferredInstallState: { deferred: null },
+  clearDeferredInstall: vi.fn(),
+}))
+vi.mock('$lib/pwa/install', () => ({
+  isIosDevice: () => false,
+  isPwaStandalone: () => false,
+  listenForAppInstalled: () => () => {},
+  promptPwaInstall: vi.fn(async () => 'accepted' as const),
+}))
+
 import CaptureOnboardingOverlay from './capture-onboarding-overlay.svelte'
 
 const IOS_USER_AGENT =
@@ -140,5 +163,46 @@ describe('capture-onboarding-overlay.svelte', () => {
     } finally {
       restoreUa()
     }
+  })
+
+  it('renders an X close button with an accessible name', async () => {
+    render(CaptureOnboardingOverlay, {
+      open: true,
+      walletAvailableCredits: 100,
+      creditsGatePassed: true,
+    })
+    await expect
+      .element(page.getByRole('button', { name: 'Close onboarding' }))
+      .toBeInTheDocument()
+  })
+
+  it('step 3 offers Continue without notifications with skip semantics in both credits states', async () => {
+    const { unmount } = render(CaptureOnboardingOverlay, {
+      open: true,
+      walletAvailableCredits: 0,
+      creditsGatePassed: false,
+    })
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Continue without installing' }).click()
+    await expect
+      .element(page.getByRole('button', { name: 'Continue without notifications' }))
+      .toBeInTheDocument()
+    unmount()
+
+    render(CaptureOnboardingOverlay, {
+      open: true,
+      walletAvailableCredits: 100,
+      creditsGatePassed: true,
+    })
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Continue without installing' }).click()
+    await expect
+      .element(page.getByRole('button', { name: 'Continue without notifications' }))
+      .toBeInTheDocument()
+    // 'Start capturing →' in the credits-ok branch submits ?/completeOnboarding;
+    // its 400-credits fallback lives in completeOnboardingEnhance (fetch-based,
+    // classification unit-tested in onboarding-submit-outcome.spec.ts).
   })
 })
