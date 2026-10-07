@@ -1,5 +1,4 @@
 {
-  "extensions": [".pi/extensions/eigen-mcp.ts"],
   "mcpServers": {
     "playwright": {
       "command": "npx",
