@@ -538,6 +538,45 @@ export const retrievalQualityEvent = pgTable(
   ],
 )
 
+/**
+ * Decision-model shadow (OpenRouter Decisions API) for thought-category
+ * classification. Metadata-only diagnostics: category keys, probabilities,
+ * timings, errors — never thought text, thought ids, or bodies (same privacy
+ * posture as retrieval_quality_event, AC-024). The LLM category stays
+ * authoritative; `agree` is null when the shadow call itself errored.
+ */
+export const decisionShadowLog = pgTable(
+  'decision_shadow_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    /** Which capture path produced the decision: `capture_service` | `enrich_queued`. */
+    surface: text('surface').notNull(),
+    /** Which bounded decision this row compares: `category` | `content_role` | `entity_type`. */
+    decisionKind: text('decision_kind').notNull().default('category'),
+    /** Authoritative chat judge's choice for this decision kind. */
+    llmChoice: text('llm_choice').notNull(),
+    llmConfidence: doublePrecision('llm_confidence'),
+    decisionChoice: text('decision_choice'),
+    decisionProbability: doublePrecision('decision_probability'),
+    /** Shadow-model probability per non-chosen option. */
+    decisionAlternatives: jsonb('decision_alternatives').$type<Record<string, number>>(),
+    /** Null when the shadow call errored — the pair could not be compared. */
+    agree: boolean('agree'),
+    decisionError: text('decision_error'),
+    decisionDurationMs: integer('decision_duration_ms'),
+  },
+  (t) => [
+    index('decision_shadow_log_user_idx').on(t.userId),
+    index('decision_shadow_log_created_idx').on(t.createdAt),
+  ],
+)
+
+export type DecisionShadowLog = InferSelectModel<typeof decisionShadowLog>
+
 export const billingModeEnum = ['platform_credits', 'byok'] as const
 export type BillingMode = (typeof billingModeEnum)[number]
 

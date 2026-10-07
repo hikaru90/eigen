@@ -476,3 +476,11 @@ REVOKE ALL ON FUNCTION resolve_agent_callback_token(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION resolve_user_api_key(text) TO eigen_app;
 GRANT EXECUTE ON FUNCTION touch_user_api_key(uuid) TO eigen_app;
 GRANT EXECUTE ON FUNCTION resolve_agent_callback_token(text) TO eigen_app;
+
+ALTER TABLE decision_shadow_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE decision_shadow_log FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS decision_shadow_log_isolation ON decision_shadow_log;
+CREATE POLICY decision_shadow_log_isolation ON decision_shadow_log
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));

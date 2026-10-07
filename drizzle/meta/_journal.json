@@ -498,6 +498,27 @@
       "when": 1788348024677,
       "tag": "0070_beta_agreement_accepted_at",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1788434424000,
+      "tag": "0071_decision_shadow_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1788520824000,
+      "tag": "0072_decision_shadow_log_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791298416947,
+      "tag": "0073_decision_shadow_log_generic",
+      "breakpoints": true
     }
   ]
 }

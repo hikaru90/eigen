@@ -159,7 +159,18 @@ describe('enrichQueuedThought', () => {
     vi.clearAllMocks()
     runIngestWithRetriesMock.mockImplementation(async (op: () => Promise<unknown>) => op())
     applyCaptureContentSplitIfNeededMock.mockImplementation(
-      async ({ rawText }: { rawText: string }) => ({ rawText, normalizedText: rawText }),
+      async ({ rawText }: { rawText: string }) => ({
+        rawText,
+        normalizedText: rawText,
+        split: {
+          mode: 'thought_only' as const,
+          thoughtText: rawText,
+          attachmentTitle: '',
+          attachmentBody: '',
+          rationale: '',
+        },
+        attachedFileId: null,
+      }),
     )
     loadEnrichmentContextMock.mockResolvedValue(baseContext)
     createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2])
@@ -245,6 +256,14 @@ describe('enrichQueuedThought', () => {
       async ({ rawText }: { rawText: string }) => ({
         rawText,
         normalizedText: 'secret normalized',
+        split: {
+          mode: 'thought_only' as const,
+          thoughtText: 'secret normalized',
+          attachmentTitle: '',
+          attachmentBody: '',
+          rationale: '',
+        },
+        attachedFileId: null,
       }),
     )
 

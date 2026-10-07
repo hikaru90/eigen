@@ -53,6 +53,7 @@
   import CaptureQueueList from '$lib/components/capture-queue-list.svelte'
   import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
+  import DecisionShadowPanel from '$lib/components/decision-shadow-panel.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
@@ -1074,6 +1075,9 @@
   </div>
 
   <div class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-6">
+    <div class="mb-3 shrink-0">
+      <DecisionShadowPanel shadow={data.decisionShadow} />
+    </div>
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <CaptureRecentThoughts
         thoughts={recentThoughts}

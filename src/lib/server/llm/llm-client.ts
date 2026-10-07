@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import { env } from '$lib/server/env/private-env'
 import { activityProviderForLlmConfig } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { captureServerEvent } from '$lib/server/analytics/posthog-server'
@@ -15,6 +14,7 @@ import { withPlatformBilling } from '$lib/server/billing/usage-gate'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb, withDbUser } from '$lib/server/db'
 import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema'
+import { env } from '$lib/server/env/private-env'
 import { LlmHttpError } from '$lib/server/llm/errors'
 import {
   gatewayReportedCostUsdForLog,

@@ -6,6 +6,10 @@ import { env as kitEnv } from '$env/dynamic/private'
  */
 export type ExtendedPrivateEnv = typeof kitEnv & {
   BILLING_BYOK_UI_ENABLED?: string
+  /** Decision-model shadow (category classification) via OpenRouter Decisions API. */
+  DECISION_SHADOW_ENABLED?: string
+  DECISION_SHADOW_MODEL?: string
+  OPENROUTER_API_KEY?: string
   CAPTURE_ENRICH_CONCURRENCY?: string
   CONSOLIDATION_CRON_TZ?: string
   DB_POOL_MAX?: string

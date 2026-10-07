@@ -37,6 +37,7 @@
 
 - [`enrichment-context.ts`](../../src/lib/server/capture/enrichment-context.ts) — `loadEnrichmentContext(userId, thoughtId, normalizedText)` bundles ontology, profile, entity hints, recent thoughts, community summaries (tier 3 when available) before any enrich LLM call.
 - [`enrich-queued-thought.ts`](../../src/lib/server/capture/enrich-queued-thought.ts) — `enrichQueuedThought`, `processCaptureEnrichQueue`.
+- **Decision-model shadow (Jev):** enrich also kicks the OpenRouter decision model side by side with the authoritative chat judge ([decision-plane.ts](../../src/lib/server/llm/decision-plane.ts)) — one Decisions API call carrying the bounded questions (category, content role, entity type; spec: [09-jev-decision-plane.md](../planning/09-jev-decision-plane.md)). Metadata-only rows land in `decision_shadow_log` (one per decision kind, RLS-isolated); the stored thought is never affected. Shadow state is env-gated (`DECISION_SHADOW_ENABLED`).
 - [`capture-enrich-worker.ts`](../../src/lib/server/capture/capture-enrich-worker.ts) — `scheduleCaptureEnrichWorker` (per-user deduped worker).
 
 ### Tier 3 — consolidation (overnight + incremental)

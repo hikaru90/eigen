@@ -6,6 +6,7 @@ import {
 import { getDb } from '$lib/server/db'
 import { thought, userOntology } from '$lib/server/db/schema'
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
+import { startDecisionShadow } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
@@ -174,6 +175,15 @@ export async function resolveThoughtCategory(input: {
     promptChars: prompt.length,
     systemChars: messages[0]?.content.length ?? 0,
   })
+  // Decision shadow: kick BEFORE the LLM call so both models run side by side.
+  // Legacy capture_service surface classifies category only — no split or
+  // entity decisions happen on this path.
+  const decisionShadow = startDecisionShadow({
+    userId: input.userId,
+    surface: 'capture_service',
+    state: input.normalized,
+    categoryKinds: activeKinds.map((k) => ({ key: k.key, name: k.name, definition: k.definition })),
+  })
   const response = await llmChatCompletion({
     userId: input.userId,
     messages,
@@ -241,5 +251,7 @@ export async function resolveThoughtCategory(input: {
     alternativeCount: alternatives.length,
     totalMs: Date.now() - runStart,
   })
+  // Shadow comparison never alters the authoritative LLM decision.
+  await decisionShadow?.({ category: { choice: row.key, confidence } })
   return { key: row.key, ontologyEntityKindId: row.id, confidence, alternatives }
 }

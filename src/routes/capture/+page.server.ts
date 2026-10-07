@@ -15,6 +15,7 @@ import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
 import { userPreference } from '$lib/server/db/schema'
 import { isGroundingQuestionDue } from '$lib/server/grounding/question-due'
+import { loadDecisionShadowSummary } from '$lib/server/llm/decision-shadow-query'
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 
@@ -63,6 +64,7 @@ export const load: PageServerLoad = async (event) => {
     isHarness || billingMode === 'byok' || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS
 
   const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(userId)
+  const decisionShadow = await loadDecisionShadowSummary(getDb(), userId)
 
   return {
     user: event.locals.user,
@@ -81,6 +83,7 @@ export const load: PageServerLoad = async (event) => {
     captureAllowed: captureGate.allowed,
     captureGateReason: captureGate.allowed ? null : captureGate.reason,
     groundingQuestionEligible,
+    decisionShadow,
     recentThoughts,
     recentThoughtDetails,
   }

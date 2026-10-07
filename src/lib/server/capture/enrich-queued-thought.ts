@@ -16,12 +16,15 @@ import {
   type IngestPhaseTimer,
 } from '$lib/server/capture/phase-timing'
 import { markEnrichQueueComplete, markEnrichQueueFailed } from '$lib/server/capture/queue-capture'
-import { toPgVectorLiteral } from '$lib/server/capture/service'
-import type { CaptureProgressEvent } from '$lib/server/capture/service'
+import { toPgVectorLiteral, type CaptureProgressEvent } from '$lib/server/capture/service'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { runIngestWithRetries } from '$lib/server/ingest/retry'
+import {
+  dominantEntityType,
+  startDecisionShadow,
+} from '$lib/server/llm/decision-plane'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import {
   extractEntityGraphBundle,
@@ -214,6 +217,20 @@ export async function enrichQueuedThought(
       await onProgress?.({ parallel: false, phase: 'ontology' })
       await onProgress?.({ parallel: false, phase: 'embedding' })
 
+      // Decision shadow: kick BEFORE the bundle LLM call so both models run side by side.
+      const decisionShadow = startDecisionShadow({
+        userId,
+        surface: 'enrich_queued',
+        state: context.normalizedText,
+        categoryKinds: context.ontology.entityKinds
+          .filter((k) => k.active && k.kindType === 'thought_category')
+          .map((k) => ({ key: k.key, name: k.name, definition: k.definition })),
+        entityTypeKinds: context.ontology.entityKinds
+          .filter((k) => k.active && k.kindType === 'entity_type')
+          .map((k) => ({ key: k.key, name: k.name, definition: k.definition })),
+        contentRoleEnabled: true,
+      })
+
       const prefetched = await time('prefetch_enrich_llm', () =>
         prefetchEnrichExtractions({ context, capturedAt: row.createdAt }),
       )
@@ -224,6 +241,12 @@ export async function enrichQueuedThought(
         confidence: categoryConfidence,
         alternatives: categoryAlternatives,
       } = prefetched.category
+      // Shadow comparison never alters the authoritative LLM decision.
+      await decisionShadow?.({
+        category: { choice: category, confidence: categoryConfidence },
+        contentRole: { choice: splitApplied.split.mode },
+        entityType: dominantEntityType(prefetched.entityGraph.mentions) ?? undefined,
+      })
 
       await time('persist_classify_embed', async () => {
         await db

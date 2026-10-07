@@ -1,0 +1,267 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveDecisionShadowConfig, runDecisionModel } from './decision-client'
+
+describe('resolveDecisionShadowConfig', () => {
+  it('returns null when DECISION_SHADOW_ENABLED is not "true"', () => {
+    expect(
+      resolveDecisionShadowConfig({ DECISION_SHADOW_ENABLED: undefined } as Record<string, string | undefined>),
+    ).toBeNull()
+    expect(
+      resolveDecisionShadowConfig({ DECISION_SHADOW_ENABLED: 'false' } as Record<string, string | undefined>),
+    ).toBeNull()
+  })
+
+  it('returns the config when enabled and fully configured', () => {
+    const cfg = resolveDecisionShadowConfig({
+      DECISION_SHADOW_ENABLED: 'true',
+      OPENROUTER_API_KEY: 'sk-or-v1-test',
+      DECISION_SHADOW_MODEL: 'typesafe/jev-1.13',
+    })
+    expect(cfg).toEqual({ apiKey: 'sk-or-v1-test', model: 'typesafe/jev-1.13' })
+  })
+
+  it('throws listing every missing required var when enabled but incomplete', () => {
+    expect(() =>
+      resolveDecisionShadowConfig({ DECISION_SHADOW_ENABLED: 'true' } as Record<string, string | undefined>),
+    ).toThrow(/OPENROUTER_API_KEY.*DECISION_SHADOW_MODEL/s)
+  })
+
+  it('throws listing only the vars that are actually missing', () => {
+    expect(() =>
+      resolveDecisionShadowConfig({
+        DECISION_SHADOW_ENABLED: 'true',
+        OPENROUTER_API_KEY: 'sk-or-v1-test',
+      } as Record<string, string | undefined>),
+    ).toThrow(/DECISION_SHADOW_MODEL/s)
+    expect(() =>
+      resolveDecisionShadowConfig({
+        DECISION_SHADOW_ENABLED: 'true',
+        OPENROUTER_API_KEY: 'sk-or-v1-test',
+      } as Record<string, string | undefined>),
+    ).not.toThrow(/OPENROUTER_API_KEY/)
+  })
+})
+
+describe('runDecisionModel', () => {
+  const config = { apiKey: 'secret-or-key', model: 'typesafe/jev-1.13' }
+
+  const validResponse = {
+    model: 'typesafe/jev-1.13',
+    answers: {
+      category: {
+        type: 'choice',
+        choice: 'task',
+        probabilities: { task: 0.9, idea: 0.1 },
+        confidence: 0.9,
+      },
+    },
+    usage: { cost: 0.0000123, input_tokens: 10, output_tokens: 1 },
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(validResponse), { status: 200 })),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('POSTs to the OpenRouter Decisions endpoint with bearer auth and the typed question body', async () => {
+    await runDecisionModel(config, {
+      state: 'Buy milk tomorrow',
+      questions: {
+        category: { type: 'choice', instructions: 'Pick one', criteria: { task: 'Tasks', idea: 'Ideas' } },
+      },
+    })
+    const fetchMock = vi.mocked(globalThis.fetch)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://openrouter.ai/api/alpha/decisions')
+    expect(init?.method).toBe('POST')
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer secret-or-key')
+    const body = JSON.parse(init?.body as string)
+    expect(body).toEqual({
+      model: 'typesafe/jev-1.13',
+      state: 'Buy milk tomorrow',
+      questions: {
+        category: { type: 'choice', instructions: 'Pick one', criteria: { task: 'Tasks', idea: 'Ideas' } },
+      },
+    })
+  })
+
+  it('returns the parsed choice answer including provider-reported cost', async () => {
+    const res = await runDecisionModel(config, {
+      state: 'x',
+      questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+    })
+    expect(res.model).toBe('typesafe/jev-1.13')
+    expect(res.answers.category.type).toBe('choice')
+    expect(res.answers.category.choice).toBe('task')
+    expect(res.answers.category.probabilities).toEqual({ task: 0.9, idea: 0.1 })
+    expect(res.answers.category.confidence).toBe(0.9)
+    expect(res.usage).toEqual({ input_tokens: 10, output_tokens: 1 })
+    expect(res.reportedCostUsd).toBe(0.0000123)
+  })
+
+  it('returns reportedCostUsd null when usage.cost is absent (never inferred)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            model: 'typesafe/jev-1.13',
+            answers: validResponse.answers,
+            usage: { input_tokens: 10, output_tokens: 1 },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const res = await runDecisionModel(config, {
+      state: 'x',
+      questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+    })
+    expect(res.reportedCostUsd).toBeNull()
+  })
+
+  it('throws with the API error message on HTTP failure (OpenRouter error shape)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ error: { message: 'Invalid API key' } }), { status: 401 }),
+      ),
+    )
+    await expect(
+      runDecisionModel(config, {
+        state: 'x',
+        questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+      }),
+    ).rejects.toThrow(/Invalid API key/)
+  })
+
+  it('throws on HTTP failure without a parseable error payload', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('gateway down', { status: 502 })))
+    await expect(
+      runDecisionModel(config, {
+        state: 'x',
+        questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+      }),
+    ).rejects.toThrow(/502/)
+  })
+
+  it('throws when the answer for a question is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            model: 'typesafe/jev-1.13',
+            answers: {},
+            usage: { cost: 0, input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    await expect(
+      runDecisionModel(config, {
+        state: 'x',
+        questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+      }),
+    ).rejects.toThrow(/missing/i)
+  })
+
+  it('throws when a choice answer has a non-choice type', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            model: 'typesafe/jev-1.13',
+            answers: { category: { type: 'noul', noul: 0.5 } },
+            usage: { cost: 0, input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    await expect(
+      runDecisionModel(config, {
+        state: 'x',
+        questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+      }),
+    ).rejects.toThrow(/unexpected type/i)
+  })
+
+  it('throws when probabilities are missing, non-numeric, or out of range', async () => {
+    const badBodies = [
+      { choice: 'a', probabilities: {}, confidence: 0.5 },
+      { choice: 'a', probabilities: { a: 1.5 }, confidence: 0.5 },
+      { choice: 'a', probabilities: { a: 'high' }, confidence: 0.5 },
+      { choice: 'a', probabilities: { a: 1 }, confidence: 7 },
+    ]
+    for (const answer of badBodies) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          new Response(
+            JSON.stringify({
+              model: 'typesafe/jev-1.13',
+              answers: { category: answer },
+              usage: { cost: 0, input_tokens: 1, output_tokens: 1 },
+            }),
+            { status: 200 },
+          ),
+        ),
+      )
+      await expect(
+        runDecisionModel(config, {
+          state: 'x',
+          questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+        }),
+      ).rejects.toThrow()
+    }
+  })
+
+  it('aborts the request after timeoutMs', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_url, init?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () =>
+                reject(new Error('The operation was aborted')),
+              )
+            }),
+        ),
+      )
+      const pending = runDecisionModel(
+        config,
+        { state: 'x', questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } } },
+        { timeoutMs: 50 },
+      )
+      vi.advanceTimersByTime(60)
+      await expect(pending).rejects.toThrow(/abort|timeout/i)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never includes the API key in thrown error messages', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('boom secret-or-key boom', { status: 500 })),
+    )
+    const pending = runDecisionModel(config, {
+      state: 'x',
+      questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
+    })
+    await expect(pending).rejects.toBeInstanceOf(Error)
+    await expect(pending).rejects.not.toThrow(/secret-or-key/)
+  })
+})
