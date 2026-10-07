@@ -20,6 +20,7 @@ This project is **not in production** and is **not serving live users**. Agents 
 - **Unit suite:** `npm run test:unit` (or `npm run test:coverage` for a report + threshold check).
 - **CI:** `.github/workflows/test-coverage.yml` runs lint, check, and **`test:unit`** on every PR (merge gate). Coverage is reported in the same workflow but is not yet required until tier thresholds are met.
 - **E2E / evals:** operator-owned; see testing README and the eval section below. Do not skip the unit suite because evals exist.
+- **Agent benchmark (DoD gate):** every feature must be drivable end-to-end via MCP tools within its declared round-trip budget, including cleanup and one negative-probe. See [`docs/testing/agent-benchmark.md`](docs/testing/agent-benchmark.md).
 
 ## Database migrations (agent — non-negotiable)
 
