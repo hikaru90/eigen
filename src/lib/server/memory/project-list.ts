@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm'
 import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
@@ -11,6 +12,10 @@ import {
   type ProjectSource,
   type ProjectStatus,
 } from '$lib/server/db/schema'
+import {
+  resolveAuthorSqlCondition,
+  type AuthorLayerSqlColumns,
+} from '$lib/server/memory/authorship'
 import { auditGtdProjectProfiles } from '$lib/server/memory/judge-gtd-project'
 import {
   countOpenTasksForProjectEntity,
@@ -19,11 +24,6 @@ import {
   thoughtStatusFromMetadata,
 } from '$lib/server/memory/project-eligibility'
 import { upsertGraphHubEntity } from '$lib/server/memory/project-entity'
-import {
-  resolveAuthorSqlCondition,
-  type AuthorLayerSqlColumns,
-} from '$lib/server/memory/authorship'
-import type { SQL } from 'drizzle-orm'
 import type { ProjectMilestoneListItem } from '$lib/server/memory/project-timeline'
 import { taskItemId } from '$lib/server/memory/temporal-event-list'
 
@@ -40,6 +40,41 @@ export type ProjectTaskSequenceItem = {
   rank: number
 }
 
+export type ProjectStalledReason = 'deadline_overdue' | 'milestone_overdue' | 'no_next_action'
+
+export type ProjectStalledSignal = { reason: ProjectStalledReason } | null
+
+/**
+ * Deterministic stalled-project signal for agents and the projects UI.
+ * Active projects only; first match wins in severity order:
+ * overdue deadline → overdue open milestone → open tasks with no next action.
+ */
+export function computeStalledSignal(input: {
+  status: ProjectStatus
+  targetDate: Date | string | null
+  milestones: Array<{ targetDate: Date | string | null; completedAt: Date | string | null }>
+  nextAction: unknown
+  openTaskCount: number
+  now?: Date
+}): ProjectStalledSignal {
+  if (input.status !== 'active') return null
+  const now = input.now ?? new Date()
+  const asTime = (v: Date | string | null | undefined): number | null => {
+    if (v === null || v === undefined) return null
+    const t = v instanceof Date ? v.getTime() : new Date(v).getTime()
+    return Number.isFinite(t) ? t : null
+  }
+  const deadline = asTime(input.targetDate)
+  if (deadline !== null && deadline < now.getTime()) return { reason: 'deadline_overdue' }
+  for (const milestone of input.milestones) {
+    if (milestone.completedAt !== null) continue
+    const due = asTime(milestone.targetDate)
+    if (due !== null && due < now.getTime()) return { reason: 'milestone_overdue' }
+  }
+  if (input.openTaskCount > 0 && input.nextAction == null) return { reason: 'no_next_action' }
+  return null
+}
+
 export type ProjectListItem = {
   entityId: string
   label: string
@@ -48,6 +83,7 @@ export type ProjectListItem = {
   nextAction: ProjectNextAction | null
   openTaskCount: number
   targetDate: string | null
+  stalled: ProjectStalledSignal
   tasks: ProjectTaskSequenceItem[]
   milestones: ProjectMilestoneListItem[]
 }
@@ -380,6 +416,13 @@ async function hydrateProjectListItems(
       nextAction,
       openTaskCount,
       targetDate: row.targetDate ? row.targetDate.toISOString() : null,
+      stalled: computeStalledSignal({
+        status,
+        targetDate: row.targetDate,
+        milestones,
+        nextAction,
+        openTaskCount,
+      }),
       tasks,
       milestones,
     })

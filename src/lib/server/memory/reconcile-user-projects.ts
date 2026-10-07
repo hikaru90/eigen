@@ -33,6 +33,7 @@ export function buildReconcilePrompt(
   profiles: Array<{
     entityId: string
     label: string
+    source: 'manual' | 'capture'
     openTaskCount: number
     linkedThoughtSummaries: string[]
   }>,
@@ -45,7 +46,7 @@ export function buildReconcilePrompt(
           ? p.linkedThoughtSummaries.map((s) => `      - ${s}`).join('\n')
           : '      (none)'
       return [
-        `- ${p.entityId}: ${p.label} (${p.openTaskCount} open tasks)`,
+        `- ${p.entityId}: ${p.label} (${p.openTaskCount} open tasks)${p.source === 'manual' ? ' [manual]' : ''}`,
         '    linkedThoughts:',
         thoughts,
       ].join('\n')
@@ -77,6 +78,7 @@ export function buildReconcilePrompt(
     '',
     'Merge duplicate GTD project variants (same initiative, different labels) into one winner.',
     ...GTD_PROJECT_STAY_SEPARATE_POLICY,
+    'Projects marked [manual] were created explicitly by the user: they may be a merge winner (preferred), but must NEVER be listed as losers and NEVER demoted.',
     'Demote entity ids that are NOT real multi-step GTD projects (ingredients, people, books, parts, single chores).',
     'Use linked thought text — not counts alone — to decide meaning.',
     'Copy UUIDs exactly from the catalog.',
@@ -92,6 +94,7 @@ export function buildReconcilePrompt(
 export function parseReconcilePayload(
   raw: unknown,
   allowedEntityIds: Set<string>,
+  manualEntityIds: Set<string> = new Set(),
 ): {
   mergeGroups: Array<{ winnerEntityId: string; loserEntityIds: string[]; canonicalLabel: string }>
   demoteEntityIds: string[]
@@ -128,9 +131,12 @@ export function parseReconcilePayload(
       const loserEntityIds: string[] = []
       if (Array.isArray(losersRaw)) {
         for (const loser of losersRaw) {
-          if (typeof loser === 'string' && allowedEntityIds.has(loser) && loser !== winnerRaw) {
-            loserEntityIds.push(loser)
+          if (typeof loser !== 'string' || !allowedEntityIds.has(loser) || loser === winnerRaw) {
+            continue
           }
+          // Manual projects are user authority: never a merge loser.
+          if (manualEntityIds.has(loser)) continue
+          loserEntityIds.push(loser)
         }
       }
       if (loserEntityIds.length === 0) continue
@@ -146,9 +152,10 @@ export function parseReconcilePayload(
   const demoteRaw = obj.demoteEntityIds ?? obj.demote_entity_ids
   if (Array.isArray(demoteRaw)) {
     for (const id of demoteRaw) {
-      if (typeof id === 'string' && allowedEntityIds.has(id)) {
-        demoteEntityIds.push(id)
-      }
+      if (typeof id !== 'string' || !allowedEntityIds.has(id)) continue
+      // Manual projects are user authority: never auto-demoted.
+      if (manualEntityIds.has(id)) continue
+      demoteEntityIds.push(id)
     }
   }
 
@@ -156,23 +163,28 @@ export function parseReconcilePayload(
 }
 
 export async function reconcileUserProjects(userId: string): Promise<ReconcileUserProjectsResult> {
+  // Manual projects participate in reconciliation as merge winners (user authority),
+  // but are never losers and never auto-demoted — enforced in prompt + parse + merge.
   const profileRows = await getDb()
     .select({
       entityId: canonicalEntity.id,
       label: canonicalEntity.label,
+      source: canonicalEntity.projectSource,
     })
     .from(canonicalEntity)
     .where(
       and(
         eq(canonicalEntity.userId, userId),
         isNotNull(canonicalEntity.projectStatus),
-        eq(canonicalEntity.projectSource, 'capture'),
       ),
     )
 
   if (profileRows.length < 2) {
     return { merged: 0, demoted: 0 }
   }
+  const manualEntityIds = new Set(
+    profileRows.filter((r) => r.source === 'manual').map((r) => r.entityId),
+  )
 
   const profilesWithContext = await Promise.all(
     profileRows.map(async (row) => {
@@ -180,6 +192,7 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
       return {
         entityId: row.entityId,
         label: row.label,
+        source: row.source === 'manual' ? ('manual' as const) : ('capture' as const),
         openTaskCount:
           ctx?.openTaskCount ?? (await countOpenTasksForProjectEntity(userId, row.entityId)),
         linkedThoughtSummaries: ctx?.linkedThoughtSummaries ?? [],
@@ -204,13 +217,20 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
         content:
           'You reconcile duplicate GTD projects and demote false-positive hubs. Merge only same-initiative name variants; keep distinct initiatives separate. Return only valid JSON.',
       },
-      { role: 'user', content: buildReconcilePrompt(profilesWithContext, context) },
+      {
+        role: 'user',
+        content: buildReconcilePrompt(profilesWithContext, context),
+      },
     ],
     temperature: 0,
   })
 
   const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const { mergeGroups, demoteEntityIds } = parseReconcilePayload(parsed, allowedEntityIds)
+  const { mergeGroups, demoteEntityIds } = parseReconcilePayload(
+    parsed,
+    allowedEntityIds,
+    manualEntityIds,
+  )
 
   for (const group of mergeGroups) {
     await mergeProjectEntities(

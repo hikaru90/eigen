@@ -53,4 +53,53 @@ describe('reconcile-user-projects', () => {
     const parsed = parseReconcilePayload({ demoteEntityIds: ['nope'] }, new Set(['a']))
     expect(parsed.demoteEntityIds).toEqual([])
   })
+
+  it('parseReconcilePayload never merges a manual project as loser (drops it, keeps capture losers)', () => {
+    const parsed = parseReconcilePayload(
+      {
+        mergeGroups: [
+          {
+            winnerEntityId: 'manual-1',
+            loserEntityIds: ['manual-1', 'capture-1', 'capture-2'],
+            canonicalLabel: 'Eigenmesh',
+          },
+        ],
+      },
+      new Set(['manual-1', 'capture-1', 'capture-2']),
+      new Set(['manual-1']),
+    )
+    expect(parsed.mergeGroups).toHaveLength(1)
+    expect(parsed.mergeGroups[0].winnerEntityId).toBe('manual-1')
+    expect(parsed.mergeGroups[0].loserEntityIds).toEqual(['capture-1', 'capture-2'])
+  })
+
+  it('parseReconcilePayload never auto-demotes a manual project', () => {
+    const parsed = parseReconcilePayload(
+      { demoteEntityIds: ['manual-1', 'capture-1'] },
+      new Set(['manual-1', 'capture-1']),
+      new Set(['manual-1']),
+    )
+    expect(parsed.demoteEntityIds).toEqual(['capture-1'])
+  })
+
+  it('buildReconcilePrompt marks manual projects and states the winner-only rule', () => {
+    const prompt = buildReconcilePrompt([
+      {
+        entityId: 'm1',
+        label: 'Eigenmesh',
+        source: 'manual',
+        openTaskCount: 4,
+        linkedThoughtSummaries: ['Ship beta'],
+      },
+      {
+        entityId: 'c1',
+        label: 'Eigenmesh UG',
+        source: 'capture',
+        openTaskCount: 2,
+        linkedThoughtSummaries: ['File trademark'],
+      },
+    ])
+    expect(prompt).toContain('[manual]')
+    expect(prompt).toContain('must NEVER be listed as losers and NEVER demoted')
+  })
 })

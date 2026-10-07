@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray , ne} from 'drizzle-orm'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { projectTaskSequence, thought } from '$lib/server/db/schema'
@@ -134,6 +134,17 @@ export async function orderTaskInProject(input: {
     afterThoughtId: input.afterThoughtId,
     rank: input.rank,
   })
+  // One task, one waterfall: an explicit ordering is a move — drop memberships
+  // in every other project so agents never see the same task in two waterfalls.
+  await getDb()
+    .delete(projectTaskSequence)
+    .where(
+      and(
+        eq(projectTaskSequence.userId, input.userId),
+        eq(projectTaskSequence.thoughtId, thoughtId),
+        ne(projectTaskSequence.projectEntityId, entityId),
+      ),
+    )
   await replaceProjectTaskSequence({
     userId: input.userId,
     projectEntityId: entityId,
