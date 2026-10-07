@@ -165,6 +165,7 @@ describe('MCP tools', () => {
       id: 't1',
       normalizedText: 'hi',
       queueStatus: 'pending',
+      enrichedAt: null,
     })
     const out = await runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi' })
     expect(captureThoughtMock).toHaveBeenCalledWith('u1', 'hi', {
@@ -176,7 +177,9 @@ describe('MCP tools', () => {
     expect(out).toEqual({
       thoughtId: 't1',
       status: 'pending',
-      thought: { id: 't1', normalizedText: 'hi', queueStatus: 'pending' },
+      // Mocked stored row has no enrichedAt → capture-time category provisional.
+      categoryProvisional: true,
+      thought: { id: 't1', normalizedText: 'hi', queueStatus: 'pending', enrichedAt: null },
     })
   })
 

@@ -211,6 +211,8 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
   return sanitizeMcpToolResult({
     thoughtId: stored.id,
     status: stored.queueStatus ?? 'queued',
+    // Capture-time category may be revised by the queued enrichment pass.
+    categoryProvisional: stored.enrichedAt === null,
     thought: stored,
   })
 }

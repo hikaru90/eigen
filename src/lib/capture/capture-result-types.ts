@@ -50,6 +50,8 @@ export type CaptureSubmitResult = {
   linkedThoughts: CaptureLinkedThought[]
   attachedFiles: CaptureAttachedFile[]
   enrichmentComplete: boolean
+  /** True when the queued enrichment pass may still revise the category. */
+  categoryProvisional: boolean
   gtdProjectLabel: string | null
   gtdIsNextAction: boolean
   /** Tiered ingest queue state (null on legacy rows). */

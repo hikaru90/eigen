@@ -196,6 +196,7 @@ export async function loadThoughtCaptureResult(
     linkedThoughts,
     attachedFiles,
     enrichmentComplete: row.enrichedAt !== null,
+    categoryProvisional: row.enrichedAt === null,
     gtdProjectLabel: projectRows[0]?.label ?? null,
     gtdIsNextAction: nextActionRows.length > 0,
     queueStatus: row.enrichQueueStatus ?? null,

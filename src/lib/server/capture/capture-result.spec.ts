@@ -120,6 +120,7 @@ describe('loadThoughtCaptureResult', () => {
       metadata: { categoryConfidence: 0.82 },
       cues: ['header fix'],
       enrichedAt: enrichedAt.toISOString(),
+      categoryProvisional: false,
       entities: [
         {
           entityId: 'e1',
@@ -207,6 +208,8 @@ describe('loadThoughtCaptureResult', () => {
     expect(result.entities).toHaveLength(2)
     expect(result.entities.map((row) => row.mentionSurface)).toEqual(['Eigen', 'eigen'])
     expect(result.enrichmentComplete).toBe(false)
+    // Capture-time category may be revised by enrichment — surfaced explicitly.
+    expect(result.categoryProvisional).toBe(true)
   })
 
   it('throws when thought is missing', async () => {
