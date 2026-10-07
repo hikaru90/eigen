@@ -19,6 +19,7 @@ import {
 import { authSql } from '$lib/server/db/auth-db'
 import { startJobQueueTicker } from '$lib/server/job-queue/ticker'
 import { startNotificationDispatchTicker } from '$lib/server/memory/notification-dispatch-ticker'
+import { shouldCaptureServerError } from '$lib/server/observability/server-error-capture'
 import { logOpsStartupDiagnostics } from '$lib/server/ops/startup-diagnostics'
 
 if (!building) {
@@ -191,7 +192,7 @@ export const handle: Handle = sequence(
 )
 
 export const handleError: HandleServerError = ({ error, status, event }) => {
-  if (status !== 404) {
+  if (shouldCaptureServerError(status)) {
     captureServerException(error, event.locals.user?.id, {
       status,
       path: event.url.pathname,
