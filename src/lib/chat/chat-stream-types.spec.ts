@@ -272,6 +272,7 @@ describe('chat-stream-types', () => {
       'edit_thought',
       'delete_thought',
       'list_projects',
+      'open_threads',
       'get_project_timeline',
       'order_task_in_project',
       'set_project_milestone',

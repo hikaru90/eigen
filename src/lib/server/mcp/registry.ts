@@ -14,6 +14,7 @@ import {
   runLinkTextFileToThoughtTool,
   runListProjectsTool,
   runListTextFilesTool,
+  runOpenThreadsTool,
   runOrderTaskInProjectTool,
   runRetrieveThoughtsTool,
   runSearchTextFilesTool,
@@ -45,6 +46,7 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'edit_thought',
   'delete_thought',
   'list_projects',
+  'open_threads',
   'get_project_timeline',
   'order_task_in_project',
   'set_project_milestone',
@@ -239,6 +241,24 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"author": "user|all (optional, default user)", "include_agent": "boolean (optional)"}',
     handler: runListProjectsTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('list_projects'),
+  },
+  {
+    name: 'open_threads',
+    description:
+      'One reliability sweep over everything currently open: active projects with a stalled signal (overdue deadline, overdue milestone, or open tasks but no next action) plus orphan open task/goal thoughts that are linked to NO project waterfall, oldest first. Use for daily digests, weekly reviews, and "what has open threads?" questions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        author: {
+          type: 'string',
+          enum: ['user', 'all'],
+          description: 'Whose threads. Default all — includes agent-linked projects.',
+        },
+      },
+    },
+    agentArgumentSchema: '{"author": "user|all (optional, default all)"}',
+    handler: runOpenThreadsTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('open_threads'),
   },
   {
     name: 'get_project_timeline',

@@ -26,6 +26,7 @@ const {
   updateProjectLabelMock,
   updateProjectStatusMock,
   dismissProjectMock,
+  loadOpenThreadsMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -44,6 +45,7 @@ const {
   updateProjectLabelMock: vi.fn(),
   updateProjectStatusMock: vi.fn(),
   dismissProjectMock: vi.fn(),
+  loadOpenThreadsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/project-list', () => ({
@@ -52,6 +54,10 @@ vi.mock('$lib/server/memory/project-list', () => ({
   updateProjectLabel: updateProjectLabelMock,
   updateProjectStatus: updateProjectStatusMock,
   dismissProject: dismissProjectMock,
+}))
+
+vi.mock('$lib/server/memory/open-threads', () => ({
+  loadOpenThreads: loadOpenThreadsMock,
 }))
 
 vi.mock('$lib/server/memory/generate-project-plan', () => ({
@@ -63,6 +69,14 @@ vi.mock('$lib/server/memory/project-task-sequence', async (importOriginal) => {
   return {
     ...actual,
     orderTaskInProject: orderTaskInProjectMock,
+  }
+})
+
+vi.mock('$lib/server/memory/project-timeline', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/memory/project-timeline')>()
+  return {
+    ...actual,
+    listMilestonesForProject: vi.fn(async () => []),
   }
 })
 
@@ -666,6 +680,72 @@ describe('MCP tools', () => {
     })
     expect(out).toMatchObject({ projectEntityId: 'p1', orderedThoughtIds: ['t2', 't1'] })
     expect(JSON.stringify(out)).not.toContain('embedding')
+  })
+
+  it('runListProjectsTool exposes the stalled signal per project', async () => {
+    listProjectsForUserMock.mockResolvedValue([
+      {
+        entityId: 'p1',
+        label: 'Ship',
+        status: 'active',
+        source: 'manual',
+        nextAction: null,
+        openTaskCount: 2,
+        targetDate: '2026-08-01T00:00:00.000Z',
+        stalled: { reason: 'deadline_overdue' },
+        tasks: [],
+        milestones: [],
+      },
+    ])
+    const { runListProjectsTool } = await import('./tools')
+    const out = await runListProjectsTool({ userId: 'u1' }, {})
+    expect(out).toMatchObject({
+      projects: [{ entityId: 'p1', stalled: { reason: 'deadline_overdue' } }],
+    })
+  })
+
+  it('runGetProjectTimelineTool exposes the stalled signal', async () => {
+    listProjectsForUserMock.mockResolvedValue([
+      {
+        entityId: 'p1',
+        label: 'Ship',
+        status: 'active',
+        source: 'manual',
+        nextAction: null,
+        openTaskCount: 2,
+        targetDate: null,
+        stalled: { reason: 'no_next_action' },
+        tasks: [],
+        milestones: [],
+      },
+    ])
+    const { runGetProjectTimelineTool } = await import('./tools')
+    const out = await runGetProjectTimelineTool({ userId: 'u1' }, { project_entity_id: 'p1' })
+    expect(out).toMatchObject({
+      project: { entityId: 'p1', stalled: { reason: 'no_next_action' } },
+    })
+  })
+
+  it('runOpenThreadsTool defaults to the all-author scope and passes the sweep through', async () => {
+    loadOpenThreadsMock.mockResolvedValue({
+      stalledProjects: [{ entityId: 'p1', label: 'Ship', stalled: { reason: 'deadline_overdue' } }],
+      orphanThreads: [{ thoughtId: 't1', category: 'task', createdAt: '2026-09-01T10:00:00.000Z', snippet: 'Sewer' }],
+    })
+    const { runOpenThreadsTool } = await import('./tools')
+    const out = await runOpenThreadsTool({ userId: 'u1' }, {})
+    expect(loadOpenThreadsMock).toHaveBeenCalledWith('u1', { authorScope: 'all' })
+    expect(out).toMatchObject({
+      stalledProjects: [{ entityId: 'p1' }],
+      orphanThreads: [{ thoughtId: 't1' }],
+    })
+    expect(JSON.stringify(out)).not.toContain('embedding')
+  })
+
+  it('runOpenThreadsTool honors author=user', async () => {
+    loadOpenThreadsMock.mockResolvedValue({ stalledProjects: [], orphanThreads: [] })
+    const { runOpenThreadsTool } = await import('./tools')
+    await runOpenThreadsTool({ userId: 'u1' }, { author: 'user' })
+    expect(loadOpenThreadsMock).toHaveBeenCalledWith('u1', { authorScope: 'user' })
   })
 
   it('runGenerateProjectPlanTool delegates to generateProjectPlan', async () => {

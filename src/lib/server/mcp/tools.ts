@@ -11,6 +11,7 @@ import {
 } from '$lib/server/memory/authorship'
 import { generateProjectPlan } from '$lib/server/memory/generate-project-plan'
 import { archiveThoughtForUser } from '$lib/server/memory/lifecycle'
+import { loadOpenThreads } from '$lib/server/memory/open-threads'
 import {
   listProjectsForUser,
   createProject,
@@ -673,10 +674,21 @@ export async function runListProjectsTool(context: McpToolContext, args: unknown
       openTaskCount: project.openTaskCount,
       targetDate: project.targetDate,
       nextAction: project.nextAction,
+      stalled: project.stalled,
       tasks: project.tasks,
       milestones: project.milestones,
     })),
   })
+}
+
+/**
+ * One reliability sweep: stalled active projects + orphan open task/goal
+ * thoughts in no waterfall. The daily-digest/weekly-review entry point.
+ */
+export async function runOpenThreadsTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const authorScope = body.author === 'user' ? 'user' : 'all'
+  return sanitizeMcpToolResult(await loadOpenThreads(context.userId, { authorScope }))
 }
 
 export async function runGetProjectTimelineTool(context: McpToolContext, args: unknown) {
@@ -701,6 +713,7 @@ export async function runGetProjectTimelineTool(context: McpToolContext, args: u
       openTaskCount: project.openTaskCount,
       targetDate: project.targetDate,
       nextAction: project.nextAction,
+      stalled: project.stalled,
       tasks: project.tasks,
       milestones,
     },

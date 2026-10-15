@@ -55,6 +55,7 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
   edit_thought: { title: 'Updating thought', category: 'write', icon: 'pencil' },
   delete_thought: { title: 'Deleting thought', category: 'destructive', icon: 'trash' },
   list_projects: { title: 'Listing projects', category: 'memory', icon: 'list' },
+  open_threads: { title: 'Sweeping open threads', category: 'memory', icon: 'list' },
   get_project_timeline: { title: 'Opening project timeline', category: 'memory', icon: 'list' },
   order_task_in_project: { title: 'Ordering project tasks', category: 'write', icon: 'pencil' },
   set_project_milestone: { title: 'Setting project milestone', category: 'write', icon: 'pencil' },

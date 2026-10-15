@@ -20,6 +20,7 @@ vi.mock('$lib/server/mcp/tools', () => ({
   runEditThoughtTool: runEditThoughtToolMock,
   runDeleteThoughtTool: runDeleteThoughtToolMock,
   runListProjectsTool: vi.fn(),
+  runOpenThreadsTool: vi.fn(),
   runGetProjectTimelineTool: vi.fn(),
   runOrderTaskInProjectTool: vi.fn(),
   runSetProjectMilestoneTool: vi.fn(),
