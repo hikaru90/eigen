@@ -2,6 +2,7 @@ import type { DecisionShadowConfig } from './decision-client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   dominantEntityType,
+  startContentRoleDecision,
   startDecisionShadow,
   type DecisionShadowContext,
   type DecisionShadowPrimaries,
@@ -23,12 +24,14 @@ vi.mock('$lib/server/activity/log-call', () => ({
 }))
 
 const resolveConfigMock = vi.hoisted(() => vi.fn())
+const resolveEnforceMock = vi.hoisted(() => vi.fn())
 const runDecisionMock = vi.hoisted(() => vi.fn())
 vi.mock('./decision-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./decision-client')>()
   return {
     ...actual,
     resolveDecisionShadowConfig: resolveConfigMock,
+    resolveDecisionEnforceKinds: resolveEnforceMock,
     runDecisionModel: runDecisionMock,
   }
 })
@@ -109,6 +112,8 @@ beforeEach(() => {
   logActivityCallMock.mockReset()
   logActivityCallMock.mockResolvedValue(undefined)
   runDecisionMock.mockReset()
+  resolveEnforceMock.mockReset()
+  resolveEnforceMock.mockReturnValue(new Set())
 })
 
 afterEach(() => {
@@ -233,7 +238,7 @@ describe('startDecisionShadow', () => {
     resolveConfigMock.mockReturnValue(config)
     runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
     const settle = startDecisionShadow(makeEnrichContext())
-    await expect(settle?.(enrichPrimaries())).resolves.toBeUndefined()
+    await expect(settle?.(enrichPrimaries())).resolves.toEqual({})
 
     const rows = insertedRows()
     expect(rows).toHaveLength(3)
@@ -253,7 +258,7 @@ describe('startDecisionShadow', () => {
       throw new Error('DECISION_SHADOW_ENABLED=true but missing env: OPENROUTER_API_KEY')
     })
     const settle = startDecisionShadow(makeContext())
-    await expect(settle?.({ category: { choice: 'task', confidence: 0.7 } })).resolves.toBeUndefined()
+    await expect(settle?.({ category: { choice: 'task', confidence: 0.7 } })).resolves.toEqual({})
     const row = insertedRows()[0]
     expect(row.agree).toBeNull()
     expect(row.decisionError).toContain('OPENROUTER_API_KEY')
@@ -274,7 +279,7 @@ describe('startDecisionShadow', () => {
     dbMocks.insertValues.mockRejectedValue(new Error('db down'))
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const settle = startDecisionShadow(makeEnrichContext())
-    await expect(settle?.(enrichPrimaries())).resolves.toBeUndefined()
+    await expect(settle?.(enrichPrimaries())).resolves.toEqual({})
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[decision-shadow]'), expect.anything())
   })
 
@@ -327,5 +332,187 @@ describe('dominantEntityType', () => {
         { entityType: 'technology', confidence: 0.5 },
       ]),
     ).toEqual({ choice: 'person', confidence: 0.5 })
+  })
+})
+
+describe('enforcement — startContentRoleDecision (early, pre-split call)', () => {
+  const ENFORCED = new Set(['category', 'content_role'] as const)
+
+  it('returns null when content_role is not enforced (today\u2019s shadow-only flow)', () => {
+    resolveEnforceMock.mockReturnValue(new Set(['category'] as const))
+    expect(startContentRoleDecision({ userId: 'user-1', state: 'text' })).toBeNull()
+  })
+
+  it('throws when enforced but the decision-model config is disabled', () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(null)
+    expect(() => startContentRoleDecision({ userId: 'user-1', state: 'text' })).toThrow(
+      /content_role/,
+    )
+  })
+
+  it('asks ONLY the content_role question and kicks the call immediately', () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockReturnValue(new Promise(() => {}))
+    startContentRoleDecision({ userId: 'user-1', state: 'recipe text' })
+    expect(runDecisionMock).toHaveBeenCalledTimes(1)
+    const [, req] = runDecisionMock.mock.calls[0]
+    expect(req.state).toBe('recipe text')
+    expect(Object.keys(req.questions)).toEqual(['content_role'])
+  })
+
+  it('decide() resolves mode + probability + alternatives and logs exactly one activity row', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        content_role: { choice: 'split', probabilities: { split: 0.9, thought_only: 0.1 } },
+      }),
+    )
+    const handle = startContentRoleDecision({ userId: 'user-1', state: 'recipe text' })
+    const decided = await handle!.decide()
+    expect(decided.mode).toBe('split')
+    expect(decided.probability).toBe(0.9)
+    expect(decided.alternatives).toEqual({ thought_only: 0.1 })
+    expect(decided.durationMs).toBeTypeOf('number')
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    expect(logActivityCallMock.mock.calls[0][1]).toBe('user-1')
+    expect(logActivityCallMock.mock.calls[0][2].baseCostUsd).toBe(0.0000421)
+  })
+
+  it('decide() throws on an off-catalog choice (fail loud, no repair)', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        content_role: { choice: 'both_somehow', probabilities: { both_somehow: 1 } },
+      }),
+    )
+    const handle = startContentRoleDecision({ userId: 'user-1', state: 'text' })
+    await expect(handle!.decide()).rejects.toThrow(/off-catalog choice "both_somehow"/)
+  })
+
+  it('decide() throws when the call fails (into the ingest retry ladder)', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
+    const handle = startContentRoleDecision({ userId: 'user-1', state: 'text' })
+    await expect(handle!.decide()).rejects.toThrow(/enforced content_role decision failed.*502/s)
+  })
+})
+
+describe('enforcement — startDecisionShadow settle contract', () => {
+  const ENFORCED = new Set(['category', 'content_role'] as const)
+
+  function contentRoleContext(): DecisionShadowContext {
+    return makeEnrichContext({
+      enforcedContentRole: {
+        mode: 'thought_only',
+        probability: 0.8,
+        alternatives: { split: 0.2 },
+        durationMs: 321,
+      },
+    })
+  }
+
+  it('throws when enforcement is configured but the shadow config resolves null', () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(null)
+    expect(() => startDecisionShadow(makeEnrichContext())).toThrow(/DECISION_ENFORCE_KINDS/)
+  })
+
+  it('excludes the content_role question from the later call when enforced via the early call', () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockReturnValue(new Promise(() => {}))
+    startDecisionShadow(contentRoleContext())
+    const [, req] = runDecisionMock.mock.calls[0]
+    expect(Object.keys(req.questions).sort()).toEqual(['category', 'entity_type'])
+  })
+
+  it('returns the enforced category answer from settle and marks rows decision_model', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const settle = startDecisionShadow(contentRoleContext())
+    const enforced = await settle!(enrichPrimaries())
+    expect(enforced.category).toEqual({
+      choice: 'task',
+      probability: 0.51,
+      alternatives: { idea: 0.49 },
+    })
+
+    const byKind = Object.fromEntries(insertedRows().map((r) => [r.decisionKind, r]))
+    expect(byKind.category.authoritativeEngine).toBe('decision_model')
+    expect(byKind.content_role.authoritativeEngine).toBe('decision_model')
+    expect(byKind.entity_type.authoritativeEngine).toBe('chat_judge')
+  })
+
+  it('records the early content_role answer beside the chat primary when the split ran', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const settle = startDecisionShadow(contentRoleContext())
+    await settle!(enrichPrimaries())
+
+    const row = insertedRows().find((r) => r.decisionKind === 'content_role')
+    expect(row).toMatchObject({
+      llmChoice: 'thought_only',
+      decisionChoice: 'thought_only',
+      decisionProbability: 0.8,
+      decisionAlternatives: { split: 0.2 },
+      agree: true,
+      authoritativeEngine: 'decision_model',
+    })
+    // Early-call duration, not the later call's.
+    expect(row.decisionDurationMs).toBe(321)
+  })
+
+  it('writes a comparable-free row with null llmChoice when the split call was skipped', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const settle = startDecisionShadow(contentRoleContext())
+    await settle!(enrichPrimaries({ contentRole: undefined }))
+
+    const row = insertedRows().find((r) => r.decisionKind === 'content_role')
+    expect(row).toMatchObject({
+      llmChoice: null,
+      llmConfidence: null,
+      decisionChoice: 'thought_only',
+      decisionProbability: 0.8,
+      agree: null,
+      decisionError: null,
+      authoritativeEngine: 'decision_model',
+    })
+  })
+
+  it('rejects settle when an enforced kind\u2019s answer failed — after error rows are written', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
+    const settle = startDecisionShadow(contentRoleContext())
+    await expect(settle!(enrichPrimaries())).rejects.toThrow(/502 bad gateway/)
+
+    // Evidence is not lost: the asked kinds still got their error rows.
+    const kinds = insertedRows().map((r) => r.decisionKind).sort()
+    expect(kinds).toEqual(['category', 'content_role', 'entity_type'])
+    const categoryRow = insertedRows().find((r) => r.decisionKind === 'category')
+    expect(categoryRow.decisionError).toBe('502 bad gateway')
+    // The early-decided content_role is unaffected by the later call's failure.
+    const contentRoleRow = insertedRows().find((r) => r.decisionKind === 'content_role')
+    expect(contentRoleRow.decisionChoice).toBe('thought_only')
+    expect(contentRoleRow.decisionError).toBeNull()
+  })
+
+  it('marks rows chat_judge when nothing is enforced (default)', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const settle = startDecisionShadow(makeEnrichContext())
+    await settle!(enrichPrimaries())
+    for (const row of insertedRows()) {
+      expect(row.authoritativeEngine).toBe('chat_judge')
+    }
   })
 })

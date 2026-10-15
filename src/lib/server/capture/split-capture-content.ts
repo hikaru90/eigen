@@ -22,16 +22,25 @@ export type CaptureContentSplitResult = {
 
 type SplitPass = 'default' | 'retry_strict'
 
-function parseSplitFields(obj: Record<string, unknown>): CaptureContentSplitResult {
+/**
+ * Parses the split fields. When `decidedMode` is set (decision-model
+ * authoritative content_role), it ALWAYS wins over the LLM's own `mode` —
+ * the chat call is generation only; validation applies to the decided mode.
+ */
+function parseSplitFields(
+  obj: Record<string, unknown>,
+  decidedMode?: CaptureContentSplitMode,
+): CaptureContentSplitResult {
   const modeRaw = obj.mode
   const mode: CaptureContentSplitMode =
-    modeRaw === 'split'
+    decidedMode ??
+    (modeRaw === 'split'
       ? 'split'
       : modeRaw === 'thought_only'
         ? 'thought_only'
         : (() => {
             throw new Error(`resolveCaptureContentSplit: invalid mode "${String(modeRaw)}"`)
-          })()
+          })())
 
   const thoughtText =
     typeof obj.thoughtText === 'string'
@@ -81,16 +90,23 @@ function parseSplitFields(obj: Record<string, unknown>): CaptureContentSplitResu
 }
 
 async function resolveCaptureContentSplitOnce(
-  input: { userId: string; rawText: string },
+  input: { userId: string; rawText: string; decidedMode?: CaptureContentSplitMode },
   pass: SplitPass,
 ): Promise<CaptureContentSplitResult> {
   const strictRule =
     pass === 'retry_strict'
-      ? 'Your previous JSON was invalid. mode must be exactly "thought_only" or "split". When mode is split, attachmentBody must be non-empty and different from thoughtText.'
+      ? input.decidedMode
+        ? `Your previous JSON was invalid. The storage mode is already decided: "${input.decidedMode}". Return mode exactly as "${input.decidedMode}" and produce the fields for it. When mode is split, attachmentBody must be non-empty and different from thoughtText.`
+        : 'Your previous JSON was invalid. mode must be exactly "thought_only" or "split". When mode is split, attachmentBody must be non-empty and different from thoughtText.'
       : ''
+
+  const decidedRule = input.decidedMode
+    ? `The storage mode is ALREADY DECIDED: "${input.decidedMode}". Do not re-decide it — return mode exactly as "${input.decidedMode}" and produce the remaining fields for that mode.`
+    : ''
 
   const prompt = [
     'The user submitted one capture message. Decide how to store it.',
+    decidedRule,
     '',
     'Return ONLY JSON:',
     '{',
@@ -140,16 +156,19 @@ async function resolveCaptureContentSplitOnce(
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('resolveCaptureContentSplit: output must be a JSON object')
   }
-  return parseSplitFields(parsed as Record<string, unknown>)
+  return parseSplitFields(parsed as Record<string, unknown>, input.decidedMode)
 }
 
 /**
  * LLM judge: whole input → thought, or thought pointer + linked reference note.
  * For thought_only, thoughtText is forced to the verbatim capture (no LLM rewrite).
+ * When `decidedMode` is set (decision-model authoritative content_role), the
+ * chat call only generates the fields for that mode; it never re-decides.
  */
 export async function resolveCaptureContentSplit(input: {
   userId: string
   rawText: string
+  decidedMode?: CaptureContentSplitMode
 }): Promise<CaptureContentSplitResult> {
   const rawText = input.rawText.trim()
   if (!rawText) {

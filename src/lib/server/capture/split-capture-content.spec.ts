@@ -120,3 +120,79 @@ describe('resolveCaptureContentSplit', () => {
     expect(normalizedThoughtFromSplit('  hello   world  ')).toBe('hello world')
   })
 })
+
+describe('resolveCaptureContentSplit with decidedMode (decision-model authoritative)', () => {
+  beforeEach(() => {
+    llmChatCompletionMock.mockReset()
+  })
+
+  it('keeps split generation when the decided mode is split, even if the LLM labels it thought_only', async () => {
+    mockLlmJson({
+      mode: 'thought_only',
+      thoughtText: 'Pasta carbonara recipe from Nonna',
+      attachmentTitle: 'Carbonara recipe',
+      attachmentBody: 'Ingredients: spaghetti, guanciale, eggs…',
+      rationale: 'generated under decided split',
+    })
+
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: 'Pasta carbonara recipe from Nonna\n\nIngredients: spaghetti…',
+      decidedMode: 'split',
+    })
+
+    expect(result.mode).toBe('split')
+    expect(result.attachmentBody).toContain('Ingredients')
+  })
+
+  it('tells the LLM the mode is already decided (generation only)', async () => {
+    mockLlmJson({
+      mode: 'split',
+      thoughtText: 'pointer',
+      attachmentTitle: 'title',
+      attachmentBody: 'body text',
+      rationale: 'r',
+    })
+    await resolveCaptureContentSplit({ userId: 'u1', rawText: 'raw capture', decidedMode: 'split' })
+    const prompt = llmChatCompletionMock.mock.calls[0][0].messages[1].content as string
+    expect(prompt).toContain('ALREADY DECIDED')
+    expect(prompt).toContain('"split"')
+  })
+
+  it('fails after the strict retry when the decided split has no attachment body', async () => {
+    llmChatCompletionMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({ mode: 'thought_only', thoughtText: 'x', rationale: 'no body' }),
+          },
+        },
+      ],
+    })
+
+    await expect(
+      resolveCaptureContentSplit({ userId: 'u1', rawText: 'x', decidedMode: 'split' }),
+    ).rejects.toThrow(/attachmentBody is required/)
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('forces verbatim thoughtText and empty attachment when the decided mode is thought_only', async () => {
+    mockLlmJson({
+      mode: 'split',
+      thoughtText: 'rewritten by LLM',
+      attachmentTitle: 't',
+      attachmentBody: 'b',
+      rationale: 'r',
+    })
+
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: 'The original capture',
+      decidedMode: 'thought_only',
+    })
+
+    expect(result.mode).toBe('thought_only')
+    expect(result.thoughtText).toBe('The original capture')
+    expect(result.attachmentBody).toBe('')
+  })
+})

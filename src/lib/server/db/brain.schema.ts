@@ -557,13 +557,24 @@ export const decisionShadowLog = pgTable(
     surface: text('surface').notNull(),
     /** Which bounded decision this row compares: `category` | `content_role` | `entity_type`. */
     decisionKind: text('decision_kind').notNull().default('category'),
-    /** Authoritative chat judge's choice for this decision kind. */
-    llmChoice: text('llm_choice').notNull(),
+    /**
+     * Chat judge's choice for this decision kind. Null when the chat call was
+     * skipped because the kind is decision-model authoritative
+     * (authoritative_engine='decision_model') — e.g. content_role
+     * thought_only no longer runs the split LLM call.
+     */
+    llmChoice: text('llm_choice'),
     llmConfidence: doublePrecision('llm_confidence'),
     decisionChoice: text('decision_choice'),
     decisionProbability: doublePrecision('decision_probability'),
     /** Shadow-model probability per non-chosen option. */
     decisionAlternatives: jsonb('decision_alternatives').$type<Record<string, number>>(),
+    /**
+     * Which engine owns this kind's decision: `chat_judge` (decision model is
+     * a shadow) | `decision_model` (enforced via DECISION_ENFORCE_KINDS — the
+     * chat judge's answer, when present, is the comparison).
+     */
+    authoritativeEngine: text('authoritative_engine').notNull().default('chat_judge'),
     /** Null when the shadow call errored — the pair could not be compared. */
     agree: boolean('agree'),
     decisionError: text('decision_error'),

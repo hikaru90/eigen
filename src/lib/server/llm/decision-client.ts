@@ -24,6 +24,50 @@ export type DecisionShadowConfig = {
   model: string
 }
 
+/** Bounded decision kinds the decision plane compares (spec §3). */
+export type DecisionKind = 'category' | 'content_role' | 'entity_type'
+
+/**
+ * Kinds with an implemented promotion path (spec §6 P). entity_type is
+ * deliberately excluded: promoting it requires the per-mention question
+ * design (spec §8 O1) — the chat bundle must keep typing every mention for
+ * entity/graph sync. Config fail-louds rather than silently ignoring it.
+ */
+const ENFORCEABLE_KINDS = ['category', 'content_role'] as const
+
+export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]
+
+/**
+ * Resolves which decision kinds are decision-model authoritative
+ * (DECISION_ENFORCE_KINDS, e.g. "category,content_role").
+ * Absent/blank = none enforced (deterministic, documented state).
+ * Unknown kinds and entity_type throw — fail loud, never a silent no-op
+ * (spec P5: no silent cutover).
+ */
+export function resolveDecisionEnforceKinds(
+  source: Record<string, string | undefined> = env,
+): ReadonlySet<EnforceableDecisionKind> {
+  const raw = source.DECISION_ENFORCE_KINDS?.trim() ?? ''
+  if (!raw) return new Set()
+  const kinds = new Set<EnforceableDecisionKind>()
+  for (const token of raw.split(',')) {
+    const kind = token.trim().toLowerCase()
+    if (!kind) continue
+    if (kind === 'entity_type') {
+      throw new Error(
+        'DECISION_ENFORCE_KINDS: entity_type promotion is not implemented — per-mention typing stays on the chat judge (spec O1)',
+      )
+    }
+    if (!ENFORCEABLE_KINDS.includes(kind as EnforceableDecisionKind)) {
+      throw new Error(
+        `DECISION_ENFORCE_KINDS: unknown decision kind "${kind}" (known: ${ENFORCEABLE_KINDS.join(', ')})`,
+      )
+    }
+    kinds.add(kind as EnforceableDecisionKind)
+  }
+  return kinds
+}
+
 /**
  * Resolves the decision-shadow config from platform env.
  * Returns null when the shadow is disabled (a deterministic, documented state).

@@ -23,6 +23,7 @@ function view(overrides?: Partial<DecisionShadowView>): DecisionShadowView {
         disagreed: 1,
         errored: 0,
         agreementRate: 0.5,
+        authoritativeEngine: 'chat_judge',
       },
       {
         decisionKind: 'entity_type',
@@ -32,6 +33,7 @@ function view(overrides?: Partial<DecisionShadowView>): DecisionShadowView {
         disagreed: 0,
         errored: 1,
         agreementRate: 1,
+        authoritativeEngine: 'chat_judge',
       },
     ],
     confusionPairs: [
@@ -50,6 +52,7 @@ function view(overrides?: Partial<DecisionShadowView>): DecisionShadowView {
         agree: false,
         decisionError: null,
         decisionDurationMs: 55,
+        authoritativeEngine: 'chat_judge',
       },
       {
         id: 'r2',
@@ -63,6 +66,7 @@ function view(overrides?: Partial<DecisionShadowView>): DecisionShadowView {
         agree: null,
         decisionError: 'Decision request failed (401): Invalid API key',
         decisionDurationMs: 120,
+        authoritativeEngine: 'chat_judge',
       },
     ],
     ...overrides,
@@ -129,5 +133,51 @@ describe('decision-shadow-panel.svelte', () => {
     })
 
     await expect.element(page.getByText('no comparisons yet')).toBeInTheDocument()
+  })
+
+  it('marks decision-model authoritative kinds with a Jev-decides chip and renders chat-skipped rows', async () => {
+    render(
+      DecisionShadowPanel,
+      {
+        shadow: view({
+          kinds: [
+            {
+              decisionKind: 'content_role',
+              total: 1,
+              compared: 0,
+              agreed: 0,
+              disagreed: 0,
+              errored: 0,
+              agreementRate: null,
+              authoritativeEngine: 'decision_model',
+            },
+          ],
+          recent: [
+            {
+              id: 'r3',
+              createdAt: '2026-01-01T11:00:00.000Z',
+              surface: 'enrich_queued',
+              decisionKind: 'content_role',
+              llmChoice: null,
+              llmConfidence: null,
+              decisionChoice: 'thought_only',
+              decisionProbability: 0.8,
+              agree: null,
+              decisionError: null,
+              decisionDurationMs: 320,
+              authoritativeEngine: 'decision_model',
+            },
+          ],
+        }),
+      },
+    )
+
+    await page.getByTestId('decision-shadow-toggle').click()
+
+    await expect
+      .element(page.getByTestId('decision-shadow-authority-content_role'))
+      .toHaveTextContent('Jev decides')
+    await expect.element(page.getByText('thought_only (80%)')).toBeInTheDocument()
+    await expect.element(page.getByText('· chat skipped')).toBeInTheDocument()
   })
 })

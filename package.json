@@ -55,6 +55,7 @@
     "graph-scale:full": "vite-node --config evals/vite.config.ts evals/graph-scale/run.ts -- --sizes 50,100,250 --tracks capture,qa,consolidation",
     "test:e2e:graph-scale-spend": "playwright install chromium && GRAPH_SCALE_SPEND=1 PW_SLOW_MO=300 playwright test src/routes/e2e/graph-scale-spend.e2e.ts --headed",
     "measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts",
+    "measure:jev": "vite-node --config evals/vite.config.ts scripts/measure-jev-benchmark.ts",
     "posthog:upload-sourcemaps": "node --env-file-if-exists=.env scripts/upload-posthog-sourcemaps.mjs"
   },
   "devDependencies": {

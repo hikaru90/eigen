@@ -23,7 +23,9 @@ import { thought } from '$lib/server/db/schema'
 import { runIngestWithRetries } from '$lib/server/ingest/retry'
 import {
   dominantEntityType,
+  startContentRoleDecision,
   startDecisionShadow,
+  type EnforcedContentRole,
 } from '$lib/server/llm/decision-plane'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import {
@@ -37,7 +39,9 @@ import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-grap
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
+import { validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db/load-ontology'
 import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
+import { InvalidThoughtCategoryError } from '$lib/server/ontology/validate-thought-category'
 
 export type EnrichQueuedThoughtOptions = {
   onProgress?: (event: CaptureProgressEvent) => Promise<void>
@@ -157,6 +161,31 @@ async function prefetchEnrichExtractions(input: {
 }
 
 /**
+ * Validates the ENFORCED decision-model category against the active ontology
+ * and resolves its kind row. Off-catalog answers throw — no repair, no
+ * fallback (spec P5): the ingest retry ladder owns recovery.
+ */
+function resolveEnforcedCategory(
+  context: EnrichmentContext,
+  enforced: { choice: string; probability: number; alternatives: Record<string, number> },
+): ResolvedThoughtOntologyKind {
+  const key = enforced.choice.trim()
+  if (!validateEntityKindKeyForNewIngest(context.ontology, key)) {
+    throw new InvalidThoughtCategoryError(
+      `decision-model answer "${enforced.choice}" (authoritative per DECISION_ENFORCE_KINDS)`,
+    )
+  }
+  const row = context.ontology.entityKindsByKey.get(key)
+  if (!row) {
+    throw new InvalidThoughtCategoryError(key)
+  }
+  const alternatives = Object.entries(enforced.alternatives)
+    .map(([altKey, confidence]) => ({ key: altKey, confidence }))
+    .sort((a, b) => b.confidence - a.confidence)
+  return { key, ontologyEntityKindId: row.id, confidence: enforced.probability, alternatives }
+}
+
+/**
  * Full enrich pipeline for one queued row: context → classify/embed → graph enrich.
  */
 export async function enrichQueuedThought(
@@ -193,6 +222,14 @@ export async function enrichQueuedThought(
 
       const { rawText, normalizedText } = await decryptQueuedRow(userId, row)
 
+      // Decision plane, enforced content_role (spec §6 P): one bounded call
+      // BEFORE the split phase — its answer decides whether the split LLM
+      // call runs at all. Throws into the ingest retry ladder on failure.
+      const contentRoleDecision = startContentRoleDecision({ userId, state: normalizedText })
+      const enforcedContentRole: EnforcedContentRole | undefined = contentRoleDecision
+        ? await time('decision_content_role', () => contentRoleDecision.decide())
+        : undefined
+
       await onProgress?.({ parallel: false, phase: 'content_split' })
       const splitApplied = await time('content_split', () =>
         applyCaptureContentSplitIfNeeded({
@@ -200,6 +237,7 @@ export async function enrichQueuedThought(
           thoughtId,
           rawText,
           existingNormalizedText: normalizedText,
+          decidedMode: enforcedContentRole?.mode,
         }),
       )
 
@@ -229,36 +267,37 @@ export async function enrichQueuedThought(
           .filter((k) => k.active && k.kindType === 'entity_type')
           .map((k) => ({ key: k.key, name: k.name, definition: k.definition })),
         contentRoleEnabled: true,
+        enforcedContentRole,
       })
 
       const prefetched = await time('prefetch_enrich_llm', () =>
         prefetchEnrichExtractions({ context, capturedAt: row.createdAt }),
       )
 
-      const {
-        key: category,
-        ontologyEntityKindId,
-        confidence: categoryConfidence,
-        alternatives: categoryAlternatives,
-      } = prefetched.category
-      // Shadow comparison never alters the authoritative LLM decision.
-      await decisionShadow?.({
-        category: { choice: category, confidence: categoryConfidence },
-        contentRole: { choice: splitApplied.split.mode },
+      const bundleCategory = prefetched.category
+      // Settle the decision plane beside the bundle. An ENFORCED category
+      // answer overrides the bundle's before persist (roles reversed, spec
+      // P5); otherwise the bundle's decision stays authoritative.
+      const settled = await decisionShadow?.({
+        category: { choice: bundleCategory.key, confidence: bundleCategory.confidence },
+        contentRole: enforcedContentRole ? undefined : { choice: splitApplied.split.mode },
         entityType: dominantEntityType(prefetched.entityGraph.mentions) ?? undefined,
       })
+      const category = settled?.category
+        ? resolveEnforcedCategory(context, settled.category)
+        : bundleCategory
 
       await time('persist_classify_embed', async () => {
         await db
           .update(thought)
           .set({
-            category,
-            ontologyEntityKindId,
+            category: category.key,
+            ontologyEntityKindId: category.ontologyEntityKindId,
             embedding: sql`${toPgVectorLiteral(prefetched.embedding)}::vector`,
             metadataEncrypted: await encryptMetadataPatch(userId, thoughtId, {
-              categorySource: 'llm',
-              categoryConfidence,
-              categoryAlternatives,
+              categorySource: settled?.category ? 'decision_model' : 'llm',
+              categoryConfidence: category.confidence,
+              categoryAlternatives: category.alternatives,
               enrichmentContext: context.completeness,
             }),
           })

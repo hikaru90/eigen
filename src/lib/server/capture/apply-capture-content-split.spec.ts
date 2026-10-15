@@ -229,4 +229,51 @@ describe('applyCaptureContentSplitIfNeeded', () => {
     expect(updatePayload).not.toHaveProperty('rawTextEncrypted')
     expect(updatePayload.normalizedText).toBe('Pasta carbonara recipe from Nonna')
   })
+
+  it('passes a decision-model decidedMode through to the split resolver', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      mode: 'split',
+      thoughtText: 'pointer',
+      attachmentTitle: 'title',
+      attachmentBody: 'body',
+      rationale: 'r',
+    } satisfies CaptureContentSplitResult)
+
+    createTextFileMock.mockResolvedValue({ id: 'file-1' })
+    linkTextFileToThoughtMock.mockResolvedValue({ linked: true })
+    mockDbUpdateCapture()
+
+    await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: 'raw capture',
+      decidedMode: 'split',
+    })
+
+    expect(resolveCaptureContentSplitMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', rawText: 'raw capture', decidedMode: 'split' }),
+    )
+  })
+
+  it('decidedMode thought_only: skips the split resolver entirely — no LLM call, verbatim text', async () => {
+    const { setMock } = mockDbUpdateCapture()
+
+    const out = await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: '  spaced   words  ',
+      existingNormalizedText: 'spaced words',
+      decidedMode: 'thought_only',
+    })
+
+    expect(resolveCaptureContentSplitMock).not.toHaveBeenCalled()
+    expect(createTextFileMock).not.toHaveBeenCalled()
+    expect(out.split.mode).toBe('thought_only')
+    expect(out.normalizedText).toBe('spaced words')
+    expect(out.attachedFileId).toBeNull()
+    const updatePayload = setMock.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(updatePayload.normalizedText).toBe('spaced words')
+    // Metadata records WHY the split call was skipped.
+    expect(updatePayload.metadataEncrypted).toContain('decision_model')
+  })
 })

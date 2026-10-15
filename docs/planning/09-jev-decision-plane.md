@@ -183,6 +183,22 @@ Promotion criteria per decision kind (all must hold):
 4. **Explicit operator approval** + requirement update (this file gains a promotion record per kind).
 5. Rollout behind per-kind env (`DECISION_ENFORCE_KINDS=category,…`), fail-loud on missing config, **no silent cutover**, qwen stays as the shadow (roles reverse).
 
+### Promotion record (2026-10-15) — `category` and `content_role` PROMOTED
+
+**Operator decision:** the operator explicitly approved promotion ahead of the P1/P2 evidence gate ("make Jev the default"), waiving the ≥100-row and calibration requirements (P4 satisfied; P1/P2 consciously waived at n=12). P3 holds (no open defects). P5 implemented as specified.
+
+**Evidence at approval (12 captures, `measure:jev` benchmark):** category 12/12 agreement, content_role 12/12, entity_type 8/12; Jev latency ~380–400 ms per call vs ~1.9 s avg per chat-judge call; cost ~1.9% of the chat-judge spend per capture.
+
+**Implemented contract:**
+
+- `DECISION_ENFORCE_KINDS=category,content_role` (absent/blank = shadow only; unknown kinds fail loud; `entity_type` is **rejected** until O1 is resolved).
+- **category:** Jev's answer overrides the enrich bundle's category at persist (`categorySource='decision_model'`, confidence = Jev probability, alternatives = remaining probability map). Off-catalog keys throw → ingest retry ladder (exactly 3) → explicit queue failure. No fallback.
+- **content_role:** an early standalone Jev call (pre-split, no catalogs needed) decides the mode. `thought_only` ⇒ the split chat call is skipped entirely (~3 s/capture saved). `split` ⇒ the chat call runs **generation only** (`decidedMode` contract in `resolveCaptureContentSplit`) — Jev owns the mode, qwen owns the note text. There is no independent chat mode answer anymore, so enforced content_role rows carry `llm_choice = null` (not comparable, not errored).
+- **entity_type:** stays shadow on both sides (67% agreement + dominant-mention-only coverage; the graph sync needs every mention typed — O1 must be revisited first).
+- **Failure semantics:** enforced kinds are a hard dependency — an OpenRouter outage degrades ingest exactly like an LLM-gateway outage. Non-enforced kinds keep the never-throw shadow guarantee (AC-S1-4).
+- **Observability:** `decision_shadow_log.authoritative_engine` (`chat_judge` | `decision_model`) records which engine owns each row's kind; the capture panel shows a "Jev decides" chip and renders chat-skipped rows distinctly.
+- **Rollback:** remove kinds from `DECISION_ENFORCE_KINDS` (or clear it) — qwen becomes authoritative again with zero code change.
+
 ---
 
 ## 7. Risk assessment

@@ -19,6 +19,10 @@ const {
   drainCaptureEnrichQueueMock,
   notifyThoughtEnrichedMock,
   loadProjectContextForThoughtMock,
+  resolveShadowConfigMock,
+  resolveEnforceKindsMock,
+  runDecisionModelMock,
+  logActivityCallMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
@@ -38,6 +42,10 @@ const {
   drainCaptureEnrichQueueMock: vi.fn(),
   notifyThoughtEnrichedMock: vi.fn(),
   loadProjectContextForThoughtMock: vi.fn(),
+  resolveShadowConfigMock: vi.fn(),
+  resolveEnforceKindsMock: vi.fn(),
+  runDecisionModelMock: vi.fn(),
+  logActivityCallMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }))
@@ -87,6 +95,20 @@ vi.mock('$lib/server/agents/notify', () => ({
 vi.mock('$lib/server/agents/project-context', () => ({
   loadProjectContextForThought: loadProjectContextForThoughtMock,
 }))
+vi.mock('$lib/server/activity/log-call', () => ({
+  logActivityCall: logActivityCallMock,
+}))
+// decision-plane stays REAL — only its OpenRouter client is mocked, so these
+// tests exercise the actual enforcement/settle contract.
+vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-client')>()
+  return {
+    ...actual,
+    resolveDecisionShadowConfig: resolveShadowConfigMock,
+    resolveDecisionEnforceKinds: resolveEnforceKindsMock,
+    runDecisionModel: runDecisionModelMock,
+  }
+})
 
 import { enrichQueuedThought, processCaptureEnrichQueue } from './enrich-queued-thought'
 
@@ -131,7 +153,15 @@ const baseContext = {
   thoughtId: 't1',
   normalizedText: 'raw input',
   rawText: 'raw input',
-  ontology: { entityKinds: [] },
+  ontology: {
+    entityKinds: [],
+    entityKindsByKey: new Map(
+      [
+        { id: 'ek-1', key: 'task', active: true, kindType: 'thought_category' },
+        { id: 'ek-idea', key: 'idea', active: true, kindType: 'thought_category' },
+      ].map((k) => [k.key, k]),
+    ),
+  },
   profile: {},
   groundingProfile: null,
   knownEntities: [],
@@ -187,6 +217,162 @@ describe('enrichQueuedThought', () => {
     markEnrichQueueCompleteMock.mockResolvedValue(undefined)
     markEnrichQueueFailedMock.mockResolvedValue(undefined)
     loadProjectContextForThoughtMock.mockResolvedValue({ projectEntityIds: [], projectLabels: [] })
+    // Decision plane defaults: nothing enforced, shadow disabled (env unset).
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    resolveShadowConfigMock.mockReturnValue(null)
+    logActivityCallMock.mockResolvedValue(undefined)
+  })
+
+  function decisionResponse(answers: Record<string, { choice: string; probabilities: Record<string, number> }>) {
+    return {
+      model: 'typesafe/jev-1.13',
+      answers: Object.fromEntries(
+        Object.entries(answers).map(([id, a]) => [
+          id,
+          { type: 'choice', choice: a.choice, probabilities: a.probabilities, confidence: 0.5 },
+        ]),
+      ),
+      usage: { input_tokens: 5, output_tokens: 1 },
+      reportedCostUsd: 0.0000421,
+    }
+  }
+
+  function standardDbQueue() {
+    return makeDb([
+      [baseRow], // row lookup
+      [{ metadata: {}, metadataEncrypted: null }], // encryptMetadataPatch existing row
+      [{ n: 5 }], // countRow
+      [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }], // enrichedRow check
+      [
+        {
+          normalizedText: 'raw input',
+          category: 'idea',
+          enrichedAt: new Date('2026-06-01T00:05:00.000Z'),
+        },
+      ], // enrichedThought for notify
+    ])
+  }
+
+  function metadataPatchCalls(): Record<string, unknown>[] {
+    return encryptTenantValueMock.mock.calls
+      .map((c) => c[0] as { column?: string; plaintext?: string })
+      .filter((a) => typeof a.plaintext === 'string' && a.plaintext.includes('categorySource'))
+      .map((a) => JSON.parse(a.plaintext ?? '{}') as Record<string, unknown>)
+  }
+
+  it('enforced category: the decision-model answer overrides the bundle at persist', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['category']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockResolvedValue(
+      decisionResponse({
+        category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.3, observation: 0.1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
+      }),
+    )
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(db.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ category: 'idea', ontologyEntityKindId: 'ek-idea' }),
+    )
+    const patch = metadataPatchCalls()[0]
+    expect(patch).toMatchObject({
+      categorySource: 'decision_model',
+      categoryConfidence: 0.6,
+      categoryAlternatives: [
+        { key: 'task', confidence: 0.3 },
+        { key: 'observation', confidence: 0.1 },
+      ],
+    })
+    // The bundle's category is still recorded as the comparison primary.
+    expect(db.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataEncrypted: expect.stringContaining('decision_model'),
+      }),
+    )
+  })
+
+  it('enforced category: an off-catalog decision-model key fails the enrich loudly', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['category']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockResolvedValue(
+      decisionResponse({
+        category: { choice: 'made_up_key', probabilities: { made_up_key: 1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
+      }),
+    )
+    getDbMock.mockReturnValue(standardDbQueue())
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/made_up_key/)
+    expect(markEnrichQueueFailedMock).toHaveBeenCalledWith('t1', expect.stringContaining('made_up_key'))
+    // No partial persist: classify/embed never ran.
+    expect(enrichThoughtMock).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('enforced content_role: the early call decides the mode and the split call receives it', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['content_role']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock
+      .mockResolvedValueOnce(
+        decisionResponse({
+          content_role: { choice: 'split', probabilities: { split: 0.9, thought_only: 0.1 } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        decisionResponse({
+          category: { choice: 'task', probabilities: { task: 0.7 } },
+        }),
+      )
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    // Two Decisions calls: early content_role, then main shadow (category only —
+    // content_role is excluded because the early call already decided it).
+    expect(runDecisionModelMock).toHaveBeenCalledTimes(2)
+    expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions)).toEqual(['content_role'])
+    expect(Object.keys(runDecisionModelMock.mock.calls[1][1].questions)).toEqual(['category'])
+
+    expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
+      expect.objectContaining({ decidedMode: 'split' }),
+    )
+    expect(db.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ category: 'task', ontologyEntityKindId: 'ek-1' }),
+    )
+    expect(metadataPatchCalls()[0]).toMatchObject({ categorySource: 'llm' })
+  })
+
+  it('enforced category+content_role: both kinds drive persist from one early + one shadow call', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['category', 'content_role']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock
+      .mockResolvedValueOnce(
+        decisionResponse({
+          content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        decisionResponse({
+          category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
+        }),
+      )
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
+      expect.objectContaining({ decidedMode: 'thought_only' }),
+    )
+    expect(db.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ category: 'idea', ontologyEntityKindId: 'ek-idea' }),
+    )
+    expect(metadataPatchCalls()[0]).toMatchObject({ categorySource: 'decision_model' })
   })
 
   it('runs the full pipeline, persists classify/embed, and notifies on success', async () => {

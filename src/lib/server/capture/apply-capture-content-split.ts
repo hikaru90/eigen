@@ -3,6 +3,7 @@ import { normalizeThoughtText } from '$lib/server/capture/service'
 import {
   normalizedThoughtFromSplit,
   resolveCaptureContentSplit,
+  type CaptureContentSplitMode,
   type CaptureContentSplitResult,
 } from '$lib/server/capture/split-capture-content'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
@@ -67,13 +68,31 @@ export async function applyCaptureContentSplitIfNeeded(input: {
    * reuse it instead of running `normalizeThoughtText` again.
    */
   existingNormalizedText?: string
+  /**
+   * Decision-model authoritative content_role (DECISION_ENFORCE_KINDS): the
+   * mode is pre-decided by Jev; the chat call only generates split fields.
+   * When `thought_only`, the caller skips this function entirely.
+   */
+  decidedMode?: CaptureContentSplitMode
 }): Promise<AppliedCaptureContentSplit> {
-  const split = await resolveCaptureContentSplit({
-    userId: input.userId,
-    rawText: input.rawText,
-  })
-
   const rawText = input.rawText
+  // Decision-model authoritative content_role=thought_only: no chat call at
+  // all — the mode is already decided and thought_only keeps verbatim text.
+  const split: CaptureContentSplitResult =
+    input.decidedMode === 'thought_only'
+      ? {
+          mode: 'thought_only',
+          thoughtText: rawText,
+          attachmentTitle: '',
+          attachmentBody: '',
+          rationale: 'decision_model authoritative content_role=thought_only — split chat call skipped',
+        }
+      : await resolveCaptureContentSplit({
+          userId: input.userId,
+          rawText: input.rawText,
+          decidedMode: input.decidedMode,
+        })
+
   const normalizedText =
     split.mode === 'thought_only'
       ? (input.existingNormalizedText ?? normalizeThoughtText(rawText).normalized)

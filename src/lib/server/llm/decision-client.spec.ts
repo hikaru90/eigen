@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolveDecisionShadowConfig, runDecisionModel } from './decision-client'
+import {
+  resolveDecisionEnforceKinds,
+  resolveDecisionShadowConfig,
+  runDecisionModel,
+} from './decision-client'
 
 describe('resolveDecisionShadowConfig', () => {
   it('returns null when DECISION_SHADOW_ENABLED is not "true"', () => {
@@ -39,6 +43,44 @@ describe('resolveDecisionShadowConfig', () => {
         OPENROUTER_API_KEY: 'sk-or-v1-test',
       } as Record<string, string | undefined>),
     ).not.toThrow(/OPENROUTER_API_KEY/)
+  })
+})
+
+describe('resolveDecisionEnforceKinds', () => {
+  it('is off (empty set) when DECISION_ENFORCE_KINDS is absent or blank', () => {
+    expect(resolveDecisionEnforceKinds({} as Record<string, string | undefined>).size).toBe(0)
+    expect(
+      resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: '  ' } as Record<string, string | undefined>).size,
+    ).toBe(0)
+  })
+
+  it('parses a single kind', () => {
+    const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'category' })
+    expect([...kinds]).toEqual(['category'])
+  })
+
+  it('parses multiple kinds tolerating whitespace, case, and empty tokens', () => {
+    const kinds = resolveDecisionEnforceKinds({
+      DECISION_ENFORCE_KINDS: ' Category , content_role ,,',
+    })
+    expect([...kinds].sort()).toEqual(['category', 'content_role'])
+  })
+
+  it('de-duplicates repeated kinds', () => {
+    const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'category,category' })
+    expect([...kinds]).toEqual(['category'])
+  })
+
+  it('fails loud on unknown kinds (no silent no-op)', () => {
+    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'category,salience' })).toThrow(
+      /unknown decision kind "salience"/,
+    )
+  })
+
+  it('fails loud on entity_type — promotion is not implemented (spec O1)', () => {
+    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'entity_type' })).toThrow(
+      /entity_type/,
+    )
   })
 })
 

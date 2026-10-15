@@ -9,6 +9,8 @@ export type ExtendedPrivateEnv = typeof kitEnv & {
   /** Decision-model shadow (category classification) via OpenRouter Decisions API. */
   DECISION_SHADOW_ENABLED?: string
   DECISION_SHADOW_MODEL?: string
+  /** Comma-separated decision kinds where the decision model is authoritative (e.g. "category,content_role"). */
+  DECISION_ENFORCE_KINDS?: string
   OPENROUTER_API_KEY?: string
   CAPTURE_ENRICH_CONCURRENCY?: string
   CONSOLIDATION_CRON_TZ?: string

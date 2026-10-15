@@ -27,7 +27,8 @@ export const GET: RequestHandler = async (event) => {
       compared: sql<number>`count(${decisionShadowLog.agree})::int`,
       agreed: sql<number>`count(*) filter (where ${decisionShadowLog.agree} is true)::int`,
       disagreed: sql<number>`count(*) filter (where ${decisionShadowLog.agree} is false)::int`,
-      errored: sql<number>`count(*) filter (where ${decisionShadowLog.agree} is null)::int`,
+      errored: sql<number>`count(*) filter (where ${decisionShadowLog.decisionError} is not null)::int`,
+      authoritativeEngine: sql<string>`(array_agg(${decisionShadowLog.authoritativeEngine} order by ${decisionShadowLog.createdAt} desc))[1]`,
     })
     .from(decisionShadowLog)
     .groupBy(decisionShadowLog.decisionKind)
@@ -59,6 +60,7 @@ export const GET: RequestHandler = async (event) => {
       agree: decisionShadowLog.agree,
       decisionError: decisionShadowLog.decisionError,
       decisionDurationMs: decisionShadowLog.decisionDurationMs,
+      authoritativeEngine: decisionShadowLog.authoritativeEngine,
     })
     .from(decisionShadowLog)
     .orderBy(desc(decisionShadowLog.createdAt))

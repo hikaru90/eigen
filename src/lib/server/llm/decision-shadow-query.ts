@@ -24,6 +24,8 @@ export type DecisionShadowSummary = {
 
 export type DecisionKindSummary = DecisionShadowSummary & {
   decisionKind: string
+  /** Engine that owns this kind per its most recent row: `chat_judge` | `decision_model`. */
+  authoritativeEngine: string
 }
 
 export type DecisionShadowPair = {
@@ -39,13 +41,15 @@ export type DecisionShadowRecentRow = {
   createdAt: string
   surface: string
   decisionKind: string
-  llmChoice: string
+  llmChoice: string | null
   llmConfidence: number | null
   decisionChoice: string | null
   decisionProbability: number | null
   agree: boolean | null
   decisionError: string | null
   decisionDurationMs: number | null
+  /** `chat_judge` (shadow) | `decision_model` (enforced). */
+  authoritativeEngine: string
 }
 
 export type DecisionShadowView = {
@@ -62,13 +66,14 @@ export type DecisionShadowRowInput = {
   createdAt: string
   surface: string
   decisionKind: string
-  llmChoice: string
+  llmChoice: string | null
   llmConfidence: number | null
   decisionChoice: string | null
   decisionProbability: number | null
   agree: boolean | null
   decisionError: string | null
   decisionDurationMs: number | null
+  authoritativeEngine: string
 }
 
 const DEFAULT_RECENT_LIMIT = 20
@@ -77,7 +82,11 @@ function summarizeKind(kind: string, rows: DecisionShadowRowInput[]): DecisionKi
   const comparedRows = rows.filter((r) => r.agree !== null)
   const agreed = comparedRows.filter((r) => r.agree === true).length
   const disagreed = comparedRows.length - agreed
-  const errored = rows.length - comparedRows.length
+  // Errored = the decision-model call itself failed. A successful answer with
+  // no chat primary (authoritative Jev, chat skipped) is neither compared nor
+  // errored.
+  const errored = rows.filter((r) => r.decisionError !== null).length
+  const latest = [...rows].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))[0]
   return {
     decisionKind: kind,
     total: rows.length,
@@ -86,6 +95,7 @@ function summarizeKind(kind: string, rows: DecisionShadowRowInput[]): DecisionKi
     disagreed,
     errored,
     agreementRate: comparedRows.length > 0 ? agreed / comparedRows.length : null,
+    authoritativeEngine: latest?.authoritativeEngine ?? 'chat_judge',
   }
 }
 
@@ -107,7 +117,7 @@ export function summarizeShadowRows(
   const comparedRows = rows.filter((r) => r.agree !== null)
   const agreed = comparedRows.filter((r) => r.agree === true).length
   const disagreed = comparedRows.length - agreed
-  const errored = rows.length - comparedRows.length
+  const errored = rows.filter((r) => r.decisionError !== null).length
   const summary: DecisionShadowSummary = {
     total: rows.length,
     compared: comparedRows.length,
@@ -123,7 +133,8 @@ export function summarizeShadowRows(
 
   const pairCounts = new Map<string, DecisionShadowPair>()
   for (const r of rows) {
-    if (r.agree !== false) continue
+    // A disagreement implies both sides answered — llmChoice is present.
+    if (r.agree !== false || r.llmChoice === null) continue
     const key = `${r.decisionKind}\u0000${r.llmChoice}\u0000${r.decisionChoice ?? ''}`
     const existing = pairCounts.get(key)
     if (existing) existing.count += 1
@@ -155,7 +166,8 @@ export async function loadDecisionShadowSummary(db: AppDatabase, userId: string)
       total: sql<number>`count(*)::int`,
       agreed: sql<number>`count(*) filter (where ${decisionShadowLog.agree} is true)::int`,
       disagreed: sql<number>`count(*) filter (where ${decisionShadowLog.agree} is false)::int`,
-      errored: sql<number>`count(*) filter (where ${decisionShadowLog.agree} is null)::int`,
+      errored: sql<number>`count(*) filter (where ${decisionShadowLog.decisionError} is not null)::int`,
+      authoritativeEngine: sql<string>`(array_agg(${decisionShadowLog.authoritativeEngine} order by ${decisionShadowLog.createdAt} desc))[1]`,
     })
     .from(decisionShadowLog)
     .where(eq(decisionShadowLog.userId, userId))
@@ -164,7 +176,8 @@ export async function loadDecisionShadowSummary(db: AppDatabase, userId: string)
   const confusionPairs = await db
     .select({
       decisionKind: decisionShadowLog.decisionKind,
-      llmChoice: decisionShadowLog.llmChoice,
+      // agree=false implies both engines answered — llm_choice is non-null.
+      llmChoice: sql<string>`${decisionShadowLog.llmChoice}`,
       decisionChoice: decisionShadowLog.decisionChoice,
       count: sql<number>`count(*)::int`,
     })
@@ -187,6 +200,7 @@ export async function loadDecisionShadowSummary(db: AppDatabase, userId: string)
       agree: decisionShadowLog.agree,
       decisionError: decisionShadowLog.decisionError,
       decisionDurationMs: decisionShadowLog.decisionDurationMs,
+      authoritativeEngine: decisionShadowLog.authoritativeEngine,
     })
     .from(decisionShadowLog)
     .where(eq(decisionShadowLog.userId, userId))
@@ -202,6 +216,7 @@ export async function loadDecisionShadowSummary(db: AppDatabase, userId: string)
       disagreed: k.disagreed,
       errored: k.errored,
       agreementRate: k.agreed + k.disagreed > 0 ? k.agreed / (k.agreed + k.disagreed) : null,
+      authoritativeEngine: k.authoritativeEngine,
     }))
     .sort((a, b) => b.total - a.total || a.decisionKind.localeCompare(b.decisionKind))
 

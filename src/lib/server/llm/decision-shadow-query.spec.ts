@@ -15,6 +15,7 @@ function row(overrides: Partial<DecisionShadowRowInput> = {}): DecisionShadowRow
     agree: true,
     decisionError: null,
     decisionDurationMs: 40,
+    authoritativeEngine: 'chat_judge',
     ...overrides,
   }
 }
@@ -67,6 +68,7 @@ describe('summarizeShadowRows', () => {
         disagreed: 1,
         errored: 0,
         agreementRate: 0.5,
+        authoritativeEngine: 'chat_judge',
       },
       {
         decisionKind: 'entity_type',
@@ -76,8 +78,45 @@ describe('summarizeShadowRows', () => {
         disagreed: 0,
         errored: 1,
         agreementRate: 1,
+        authoritativeEngine: 'chat_judge',
       },
     ])
+  })
+
+  it('a successful authoritative answer with no chat primary is neither compared nor errored (chat skipped)', () => {
+    const result = summarizeShadowRows([
+      row({
+        id: 's1',
+        llmChoice: null,
+        llmConfidence: null,
+        decisionChoice: 'thought_only',
+        decisionProbability: 0.8,
+        agree: null,
+        decisionError: null,
+        authoritativeEngine: 'decision_model',
+      }),
+    ])
+    expect(result.summary).toEqual({
+      total: 1,
+      compared: 0,
+      agreed: 0,
+      disagreed: 0,
+      errored: 0,
+      agreementRate: null,
+    })
+    expect(result.kinds[0]).toMatchObject({
+      decisionKind: 'category',
+      errored: 0,
+      authoritativeEngine: 'decision_model',
+    })
+  })
+
+  it('reports the latest authoritative engine per kind', () => {
+    const result = summarizeShadowRows([
+      row({ id: 'old', createdAt: '2026-01-01T10:00:00.000Z', authoritativeEngine: 'chat_judge' }),
+      row({ id: 'new', createdAt: '2026-01-02T10:00:00.000Z', authoritativeEngine: 'decision_model' }),
+    ])
+    expect(result.kinds[0]?.authoritativeEngine).toBe('decision_model')
   })
 
   it('counts disagreement pairs per kind (kind + llm choice → shadow choice) ordered by frequency', () => {
@@ -105,8 +144,8 @@ describe('summarizeShadowRows', () => {
 describe('loadDecisionShadowSummary', () => {
   function makeDb() {
     const kindRows = [
-      { decisionKind: 'category', total: 4, compared: 3, agreed: 2, disagreed: 1, errored: 1 },
-      { decisionKind: 'entity_type', total: 2, compared: 2, agreed: 2, disagreed: 0, errored: 0 },
+      { decisionKind: 'category', total: 4, compared: 3, agreed: 2, disagreed: 1, errored: 1, authoritativeEngine: 'decision_model' },
+      { decisionKind: 'entity_type', total: 2, compared: 2, agreed: 2, disagreed: 0, errored: 0, authoritativeEngine: 'chat_judge' },
     ]
     const recentRows = [
       // drizzle revives timestamp columns to Date; the loader serializes to ISO.

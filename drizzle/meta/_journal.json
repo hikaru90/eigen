@@ -519,6 +519,13 @@
       "when": 1791298416947,
       "tag": "0073_decision_shadow_log_generic",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792079683592,
+      "tag": "0074_decision_shadow_authority",
+      "breakpoints": true
     }
   ]
 }
