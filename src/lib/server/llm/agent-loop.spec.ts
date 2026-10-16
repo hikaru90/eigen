@@ -11,6 +11,8 @@ const {
   answerQuestionMock,
   getDbMock,
   mcpToolMap,
+  resolveEnforceKindsMock,
+  runEnforcedBoundedDecisionsMock,
 } = vi.hoisted(() => {
   const retrieveThoughtsMock = vi.fn()
   const deleteThoughtMock = vi.fn()
@@ -37,6 +39,8 @@ const {
     answerQuestionMock,
     getDbMock: vi.fn(),
     mcpToolMap,
+    resolveEnforceKindsMock: vi.fn(),
+    runEnforcedBoundedDecisionsMock: vi.fn(),
   }
 })
 
@@ -49,6 +53,17 @@ vi.mock('$lib/server/activity/log-call', () => ({
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
 }))
+// Enforcement is controlled through resolveDecisionEnforceKinds (same pattern as
+// temporal-graph-sync.spec.ts): under vitest SvelteKit's $env/dynamic/private is
+// a transform-time snapshot, so process.env stubs never reach the real resolver.
+vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-client')>()
+  return { ...actual, resolveDecisionEnforceKinds: resolveEnforceKindsMock }
+})
+vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
+  return { ...actual, runEnforcedBoundedDecisions: runEnforcedBoundedDecisionsMock }
+})
 vi.mock('$lib/server/mcp/registry', () => ({
   MCP_EXPOSED_TOOL_MAP: mcpToolMap,
   MCP_TOOL_MAP: mcpToolMap,
@@ -88,7 +103,7 @@ vi.mock('$lib/server/mcp/registry', () => ({
     ].includes(name),
 }))
 
-import { agentChat, AgentParseError } from './agent-loop'
+import { agentChat, AGENT_SYSTEM_PROMPT, AgentParseError } from './agent-loop'
 import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact'
 
 function llmJson(payload: unknown) {
@@ -103,6 +118,8 @@ describe('agentChat', () => {
     llmChatCompletionMock.mockReset()
     getDbMock.mockReturnValue({})
     logActivityCallMock.mockResolvedValue(undefined)
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(new Map())
   })
 
   it('rejects a final answer when no tool has run', async () => {
@@ -676,5 +693,161 @@ describe('agentChat', () => {
     })
     expect(captureThoughtMock).not.toHaveBeenCalled()
     expect(result.response).toBe('Note created.')
+  })
+
+  it('classifies message intent once per turn and appends the hint to the loop context', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['message_intent']))
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(
+      new Map([
+        [
+          'intent',
+          {
+            type: 'choice',
+            choice: 'memory_question',
+            probabilities: { memory_question: 0.9, smalltalk: 0.1 },
+            confidence: 0.9,
+          },
+        ],
+      ]),
+    )
+    answerQuestionMock.mockResolvedValue({
+      answer:
+        'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
+      citations: ['t1'],
+      retrieved: [],
+      conflicts: [],
+    })
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'What bread do I like?' } }),
+    )
+
+    const result = await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'What bread do I like?' }],
+    })
+
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledTimes(1)
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      surface: 'chat_turn',
+      state: 'What bread do I like?',
+      specs: [
+        {
+          decisionKind: 'message_intent',
+          id: 'intent',
+          question: {
+            type: 'choice',
+            instructions: 'What does the user want in this chat turn?',
+            criteria: {
+              memory_question: 'Asks about stored memories or facts ("what do I know about…").',
+              capture_new: 'Wants to store/save new information.',
+              edit_stored: 'Wants to change or correct something already stored.',
+              note_operation:
+                'Note/list operations (complete, archive, reschedule a note or event).',
+              project_operation: 'GTD project operations (status, plan, tasks of a project).',
+              smalltalk: 'Greeting, thanks, or meta-chat about the assistant.',
+            },
+          },
+          llmChoice: null,
+        },
+      ],
+    })
+    expect(result.response).toMatch(/sourdough/)
+    const system = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]
+    expect(system?.role).toBe('system')
+    expect(system?.content).toContain('[detected intent: memory_question]')
+  })
+
+  it('proceeds without the hint when intent classification rejects', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['message_intent']))
+    runEnforcedBoundedDecisionsMock.mockRejectedValue(new Error('decisions api down'))
+    answerQuestionMock.mockResolvedValue({
+      answer:
+        'Answer: You prefer sourdough.\nEvidence:\n- likes sourdough [id=t1]\nUnknown:\n- none',
+      citations: ['t1'],
+      retrieved: [],
+      conflicts: [],
+    })
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'What bread do I like?' } }),
+    )
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'What bread do I like?' }],
+    })
+
+    expect(result.response).toMatch(/sourdough/)
+    const system = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]
+    expect(system?.content).not.toContain('[detected intent:')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[message-intent] classification failed',
+      expect.any(Error),
+    )
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('makes no intent call and keeps the loop byte-identical when message_intent is not enforced', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['category']))
+    retrieveThoughtsMock.mockResolvedValue({ results: [{ id: 't1', snippet: 'Buy milk' }] })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'You have one recent thought.' }))
+
+    const result = await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'list my recent thoughts' }],
+    })
+
+    expect(resolveEnforceKindsMock).toHaveBeenCalled()
+    expect(runEnforcedBoundedDecisionsMock).not.toHaveBeenCalled()
+    expect(result.response).toBe('You have one recent thought.')
+    const system = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]
+    expect(system?.content).toBe(AGENT_SYSTEM_PROMPT)
+  })
+
+  it('classifies follow-up user messages of the same conversation too', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['message_intent']))
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(
+      new Map([
+        [
+          'intent',
+          {
+            type: 'choice',
+            choice: 'smalltalk',
+            probabilities: { smalltalk: 0.8 },
+            confidence: 0.8,
+          },
+        ],
+      ]),
+    )
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'First reply.' }))
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Second reply.' }))
+
+    await agentChat({ userId: 'u1', messages: [{ role: 'user', content: 'list thoughts' }] })
+    await agentChat({
+      userId: 'u1',
+      messages: [
+        { role: 'user', content: 'list thoughts' },
+        { role: 'assistant', content: '{"answer": "First reply."}' },
+        { role: 'user', content: 'thanks, that is all' },
+      ],
+    })
+
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledTimes(2)
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ surface: 'chat_turn', state: 'thanks, that is all' }),
+    )
   })
 })
