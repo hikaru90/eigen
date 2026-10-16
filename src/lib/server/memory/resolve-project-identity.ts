@@ -10,6 +10,11 @@ import {
 } from '$lib/server/db/schema'
 import { fetchEntityEdgesForUser } from '$lib/server/graph/age'
 import { upsertEntityNode } from '$lib/server/graph/age'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import {
+  runEnforcedBoundedDecisions,
+  type BoundedDecisionSpec,
+} from '$lib/server/llm/decision-plane'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
@@ -330,18 +335,25 @@ export function buildIdentityPrompt(input: {
     .join('\n')
 }
 
-export async function resolveProjectIdentity(
-  input: ResolveProjectIdentityInput,
-): Promise<ProjectIdentityResolution> {
-  const surfaceLabel = input.surfaceLabel.trim()
-  if (!surfaceLabel) {
-    throw new Error('resolveProjectIdentity: surfaceLabel is required')
-  }
+/** The raw resolution decision before hub upsert/merge persistence. */
+type ResolutionDecision = ReturnType<typeof parseProjectIdentityPayload>
 
-  const context = await loadProjectIdentityContext(input.userId, surfaceLabel)
+type ResolutionEngineInput = {
+  userId: string
+  surfaceLabel: string
+  mode: ProjectIdentityMode
+  thoughtId?: string
+  context: ProjectIdentityContext
+}
+
+/**
+ * The qwen chat judge — base engine when resolution_choice is not enforced,
+ * escalation engine when the decision model's winning probability is low.
+ */
+async function resolveViaChatJudge(input: ResolutionEngineInput): Promise<ResolutionDecision> {
   const allowedEntityIds = new Set<string>([
-    ...context.gtdProjects.map((p) => p.entityId),
-    ...context.hubCandidates.map((h) => h.entityId),
+    ...input.context.gtdProjects.map((p) => p.entityId),
+    ...input.context.hubCandidates.map((h) => h.entityId),
   ])
 
   const allProjectRows = await getDb()
@@ -353,9 +365,9 @@ export async function resolveProjectIdentity(
   }
 
   const prompt = buildIdentityPrompt({
-    surfaceLabel,
+    surfaceLabel: input.surfaceLabel,
     mode: input.mode,
-    context,
+    context: input.context,
     thoughtId: input.thoughtId,
   })
 
@@ -373,7 +385,154 @@ export async function resolveProjectIdentity(
   })
 
   const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const resolution = parseProjectIdentityPayload(parsed, allowedEntityIds)
+  return parseProjectIdentityPayload(parsed, allowedEntityIds)
+}
+
+/** Below this winning probability the qwen chat judge arbitrates (qwen wins ties). */
+const RESOLUTION_CHOICE_ESCALATION_BELOW = 0.6
+const CANONICAL_CREATE_KEY = 'create'
+const MERGE_CHOICE_KEY = 'merge'
+
+/**
+ * ONE Decisions call: the `canonical` question picks an existing hub (UUID
+ * criteria keys) or `create`, plus one merge/keep question per candidate.
+ * The chat judge is skipped (llmChoice null) unless escalation kicks in —
+ * and that escalation runs only AFTER runEnforcedBoundedDecisions persisted
+ * its rows, so the rows honestly record llmChoice=null either way.
+ */
+function resolutionChoiceSpecs(
+  candidates: ProjectIdentityContext['hubCandidates'],
+): BoundedDecisionSpec[] {
+  const canonicalCriteria: Record<string, string> = {}
+  for (const hub of candidates) {
+    canonicalCriteria[hub.entityId] = `Existing hub "${hub.label}" with ${hub.mentionCount} linked thoughts (type ${hub.entityType})`
+  }
+  canonicalCriteria[CANONICAL_CREATE_KEY] =
+    'No existing hub matches — create a new hub for this name.'
+
+  const specs: BoundedDecisionSpec[] = [
+    {
+      decisionKind: 'resolution_choice',
+      id: 'canonical',
+      question: {
+        type: 'choice',
+        instructions:
+          'Which existing hub is the canonical home for this work name — or should a new hub be created?',
+        criteria: canonicalCriteria,
+      },
+      llmChoice: null,
+    },
+  ]
+  for (const [index] of candidates.entries()) {
+    specs.push({
+      decisionKind: 'resolution_choice',
+      id: `merge-${index}`,
+      question: {
+        type: 'choice',
+        instructions: 'Should this existing hub be merged into the canonical hub, or kept separate?',
+        criteria: {
+          merge: 'Merge this hub into the canonical hub — same work under duplicate naming.',
+          keep: 'Keep this hub separate — distinct work despite name similarity.',
+        },
+      },
+      llmChoice: null,
+    })
+  }
+  return specs
+}
+
+/**
+ * Jev (Decisions API) enforcement for project-hub resolution (spec §5.2/§6 P):
+ * the bounded decision model picks the canonical hub and the merge set in ONE
+ * call. GTD promotion is NOT decided here — isGtdProject stays false and the
+ * gtd_promotion judge runs separately. No try/catch: failures propagate (fail
+ * loud, no fallback).
+ */
+async function resolveViaDecisionModel(
+  input: ResolutionEngineInput,
+): Promise<ResolutionDecision> {
+  const candidates = input.context.hubCandidates
+  const answers = await runEnforcedBoundedDecisions({
+    userId: input.userId,
+    surface: 'resolution',
+    state: JSON.stringify({
+      workName: input.surfaceLabel,
+      candidateHubs: candidates.map((hub) => ({
+        id: hub.entityId,
+        label: hub.label,
+        thoughtCount: hub.mentionCount,
+        entityType: hub.entityType,
+      })),
+    }),
+    specs: resolutionChoiceSpecs(candidates),
+  })
+
+  const canonical = answers.get('canonical')
+  if (!canonical) {
+    throw new Error('resolveProjectIdentity: enforced resolution_choice returned no canonical answer')
+  }
+  const winningProbability = canonical.probabilities[canonical.choice] ?? 0
+  if (winningProbability < RESOLUTION_CHOICE_ESCALATION_BELOW) {
+    // Calibrated uncertainty: the qwen chat judge arbitrates and its
+    // COMPLETE result wins (qwen wins ties).
+    return resolveViaChatJudge(input)
+  }
+
+  if (canonical.choice === CANONICAL_CREATE_KEY) {
+    return {
+      canonicalEntityId: null,
+      canonicalLabel: input.surfaceLabel,
+      hubEntityType: 'project',
+      isGtdProject: false,
+      shouldCreateHub: true,
+      mergeEntityIds: [],
+    }
+  }
+
+  const canonicalHub = candidates.find((hub) => hub.entityId === canonical.choice)
+  if (!canonicalHub) {
+    throw new Error(
+      `resolveProjectIdentity: enforced resolution_choice answered unknown hub "${canonical.choice}"`,
+    )
+  }
+  const mergeEntityIds: string[] = []
+  for (const [index, hub] of candidates.entries()) {
+    if (hub.entityId === canonicalHub.entityId) continue
+    if (answers.get(`merge-${index}`)?.choice === MERGE_CHOICE_KEY) {
+      mergeEntityIds.push(hub.entityId)
+    }
+  }
+  return {
+    canonicalEntityId: canonicalHub.entityId,
+    canonicalLabel: input.surfaceLabel,
+    hubEntityType: canonicalHub.entityType,
+    isGtdProject: false,
+    shouldCreateHub: false,
+    mergeEntityIds,
+  }
+}
+
+export async function resolveProjectIdentity(
+  input: ResolveProjectIdentityInput,
+): Promise<ProjectIdentityResolution> {
+  const surfaceLabel = input.surfaceLabel.trim()
+  if (!surfaceLabel) {
+    throw new Error('resolveProjectIdentity: surfaceLabel is required')
+  }
+
+  const context = await loadProjectIdentityContext(input.userId, surfaceLabel)
+  const engineInput: ResolutionEngineInput = {
+    userId: input.userId,
+    surfaceLabel,
+    mode: input.mode,
+    thoughtId: input.thoughtId,
+    context,
+  }
+
+  const resolution = resolveDecisionEnforceKinds().has('resolution_choice')
+    ? await resolveViaDecisionModel(engineInput)
+    : await resolveViaChatJudge(engineInput)
+
   const canonicalLabel = resolution.canonicalLabel || surfaceLabel
 
   let entityId: string
