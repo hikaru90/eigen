@@ -24,7 +24,12 @@ export type DecisionShadowConfig = {
   model: string
 }
 
-/** Bounded decision kinds the decision plane compares (spec §3). */
+/**
+ * Bounded decision kinds the decision plane compares (spec §3). Widened with
+ * resolution_choice, delete_target, message_intent, open_loop, and
+ * salience_band (14 total) for the upcoming resolution / delete-gate /
+ * chat-turn surfaces.
+ */
 export type DecisionKind =
   | 'category'
   | 'content_role'
@@ -35,6 +40,11 @@ export type DecisionKind =
   | 'query_temporal_kind'
   | 'duration_unit'
   | 'gtd_promotion'
+  | 'resolution_choice'
+  | 'delete_target'
+  | 'message_intent'
+  | 'open_loop'
+  | 'salience_band'
 
 /**
  * Kinds with an implemented promotion path (spec §6 P). entity_type,
@@ -42,8 +52,11 @@ export type DecisionKind =
  * mention/pair, one Decisions call (spec §8 O1). retrieval_scope,
  * query_temporal_kind, duration_unit, and gtd_promotion are whole-question
  * kinds enforced on the chat/qa surfaces (spec §5.2) via
- * runEnforcedBoundedDecisions. Config fail-louds rather than silently
- * ignoring an unknown kind.
+ * runEnforcedBoundedDecisions. resolution_choice, delete_target,
+ * message_intent, open_loop, and salience_band widen the accepted registry
+ * ahead of their surfaces — they parse and enforce (fail loud) today and
+ * gain their question wiring with the resolution / delete-gate / chat-turn
+ * surfaces. Config fail-louds rather than silently ignoring an unknown kind.
  */
 const ENFORCEABLE_KINDS = [
   'category',
@@ -55,6 +68,11 @@ const ENFORCEABLE_KINDS = [
   'query_temporal_kind',
   'duration_unit',
   'gtd_promotion',
+  'resolution_choice',
+  'delete_target',
+  'message_intent',
+  'open_loop',
+  'salience_band',
 ] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]

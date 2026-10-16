@@ -949,3 +949,55 @@ describe('runEnforcedBoundedDecisions', () => {
     expect(logActivityCallMock).not.toHaveBeenCalled()
   })
 })
+
+describe('surface + kind widening (resolution, delete_gate, chat_turn)', () => {
+  it.each(['resolution', 'delete_gate', 'chat_turn'] as const)(
+    'records shadow rows verbatim on the new "%s" surface with unchanged behavior',
+    async (surface) => {
+      resolveConfigMock.mockReturnValue(config)
+      runDecisionMock.mockResolvedValue(allAnswersResponse())
+      const settle = startDecisionShadow(makeContext({ surface }))
+      await settle?.({ category: { choice: 'task', confidence: 0.9 } })
+
+      const row = insertedRows()[0]
+      expect(row.surface).toBe(surface)
+      expect(row.decisionKind).toBe('category')
+      expect(row.decisionChoice).toBe('task')
+      expect(row.agree).toBe(true)
+      expect(row.authoritativeEngine).toBe('chat_judge')
+    },
+  )
+
+  it('accepts a widened decision kind on a bounded spec together with a widened surface', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        salience: { choice: 'core', probabilities: { core: 0.9, periphery: 0.1 } },
+      }),
+    )
+    const answers = await runEnforcedBoundedDecisions({
+      userId: 'user-1',
+      surface: 'chat_turn',
+      state: 'x',
+      specs: [
+        {
+          decisionKind: 'salience_band',
+          id: 'salience',
+          question: {
+            type: 'choice',
+            instructions: 'Which salience band does this message belong to?',
+            criteria: { core: 'Core', periphery: 'Periphery' },
+          },
+          llmChoice: null,
+        },
+      ],
+    })
+    expect(answers.get('salience')?.choice).toBe('core')
+
+    const row = insertedRows()[0]
+    expect(row.decisionKind).toBe('salience_band')
+    expect(row.surface).toBe('chat_turn')
+    expect(row.decisionChoice).toBe('core')
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+})

@@ -45,7 +45,9 @@ export type { DecisionKind }
  * Where the decision call ran. capture_service and enrich_queued are the
  * ingest surfaces; qa_intent, interpret_preview, and gtd_judge are the
  * planned chat/qa surfaces (spec §5.2) served by
- * runEnforcedBoundedDecisions.
+ * runEnforcedBoundedDecisions. resolution, delete_gate, and chat_turn widen
+ * the surface registry ahead of their flows — rows record the surface
+ * verbatim and behavior is unchanged for every existing surface.
  */
 export type DecisionShadowSurface =
   | 'capture_service'
@@ -53,6 +55,9 @@ export type DecisionShadowSurface =
   | 'qa_intent'
   | 'interpret_preview'
   | 'gtd_judge'
+  | 'resolution'
+  | 'delete_gate'
+  | 'chat_turn'
 
 /** The mode answer for the content-split decision. */
 export type ContentRoleMode = 'thought_only' | 'split'
@@ -765,6 +770,13 @@ async function recordRows(
     query_temporal_kind: undefined,
     duration_unit: undefined,
     gtd_promotion: undefined,
+    // Widened kinds — no generic-shadow primary; their wiring lands with the
+    // resolution / delete-gate / chat-turn surfaces.
+    resolution_choice: undefined,
+    delete_target: undefined,
+    message_intent: undefined,
+    open_loop: undefined,
+    salience_band: undefined,
   }
 
   const rows: Array<typeof decisionShadowLog.$inferInsert> = []

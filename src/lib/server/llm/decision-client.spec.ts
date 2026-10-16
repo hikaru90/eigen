@@ -106,6 +106,56 @@ describe('resolveDecisionEnforceKinds', () => {
       /unknown decision kind "gtd_promotions"/,
     )
   })
+
+  it('accepts the widened kinds (resolution_choice, delete_target, message_intent, open_loop, salience_band)', () => {
+    const kinds = resolveDecisionEnforceKinds({
+      DECISION_ENFORCE_KINDS: 'resolution_choice,delete_target, message_intent ,OPEN_LOOP,Salience_Band',
+    })
+    expect([...kinds].sort()).toEqual([
+      'delete_target',
+      'message_intent',
+      'open_loop',
+      'resolution_choice',
+      'salience_band',
+    ])
+  })
+
+  it('accepts each widened kind on its own', () => {
+    for (const kind of ['resolution_choice', 'delete_target', 'message_intent', 'open_loop', 'salience_band']) {
+      expect([...resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: kind })]).toEqual([kind])
+    }
+  })
+
+  it('accepts all 14 registry kinds in one setting', () => {
+    const all = [
+      'category',
+      'content_role',
+      'entity_type',
+      'relation_type',
+      'temporal_kind',
+      'retrieval_scope',
+      'query_temporal_kind',
+      'duration_unit',
+      'gtd_promotion',
+      'resolution_choice',
+      'delete_target',
+      'message_intent',
+      'open_loop',
+      'salience_band',
+    ]
+    const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: all.join(',') })
+    expect(kinds.size).toBe(14)
+    expect([...kinds].sort()).toEqual([...all].sort())
+  })
+
+  it('still fails loud on near-misses of the widened kinds', () => {
+    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'resolution_choices' })).toThrow(
+      /unknown decision kind "resolution_choices"/,
+    )
+    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'delete_targets' })).toThrow(
+      /unknown decision kind "delete_targets"/,
+    )
+  })
 })
 
 describe('runDecisionModel', () => {
