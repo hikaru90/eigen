@@ -10,6 +10,8 @@ import {
   formatToolResultForAgentMessage,
   formatToolResultPreview,
 } from '$lib/server/llm/agent-tool-result-compact'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import {
   buildAgentToolDescriptionBlock,
@@ -362,6 +364,78 @@ async function executeAgentToolCall(input: {
   }
 }
 
+/** The closed intent catalog the decision model classifies each chat turn into. */
+const MESSAGE_INTENT_CRITERIA = {
+  memory_question: 'Asks about stored memories or facts ("what do I know about…").',
+  capture_new: 'Wants to store/save new information.',
+  edit_stored: 'Wants to change or correct something already stored.',
+  note_operation: 'Note/list operations (complete, archive, reschedule a note or event).',
+  project_operation: 'GTD project operations (status, plan, tasks of a project).',
+  smalltalk: 'Greeting, thanks, or meta-chat about the assistant.',
+} as const
+
+/**
+ * Advisory per-turn intent classification (DECISION_ENFORCE_KINDS=message_intent,
+ * surface chat_turn): ONE Decisions call for the user message entering the
+ * loop, consumed as a soft `[detected intent: <choice>]` hint line appended to
+ * the system context the loop model sees.
+ *
+ * This call site deliberately deviates from the enforced fail-loud contract:
+ * message_intent is a NEW advisory signal, not a replacement of an existing
+ * enforced decision — no downstream consumer holds a chat-judge primary for
+ * it, and the hint only nudges tool routing. Chat availability outranks
+ * intent quality, so a classification failure degrades to "no hint" instead
+ * of throwing into the user's turn. The enforcement gate itself stays outside
+ * the try/catch (same posture as every other consumer): an unknown
+ * DECISION_ENFORCE_KINDS entry still fails loud at config resolution.
+ */
+async function detectMessageIntentHint(userId: string, state: string): Promise<string | null> {
+  if (!resolveDecisionEnforceKinds().has('message_intent')) return null
+  try {
+    const answers = await runEnforcedBoundedDecisions({
+      userId,
+      surface: 'chat_turn',
+      state,
+      specs: [
+        {
+          decisionKind: 'message_intent',
+          id: 'intent',
+          question: {
+            type: 'choice',
+            instructions: 'What does the user want in this chat turn?',
+            criteria: MESSAGE_INTENT_CRITERIA,
+          },
+          llmChoice: null,
+        },
+      ],
+    })
+    const answer = answers.get('intent')
+    return answer ? `[detected intent: ${answer.choice}]` : null
+  } catch (err) {
+    console.error('[message-intent] classification failed', err)
+    return null
+  }
+}
+
+/**
+ * The current turn's user message: agentChat receives [...history, newMessage],
+ * so the LAST user entry is the message entering the loop this turn (history
+ * may contain synthetic "Tool result for …" user messages from prior tool
+ * steps — never the caller's message). Follow-up messages of the same
+ * conversation enter the loop as the last user entry of their own turn and
+ * are classified then. Returns null without a call when there is no
+ * non-blank user message (no turn text to classify).
+ */
+function currentUserMessageText(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      const text = messages[i].content.trim()
+      return text.length > 0 ? text : null
+    }
+  }
+  return null
+}
+
 export async function agentChat(input: {
   userId: string
   messages: ChatMessage[]
@@ -392,8 +466,19 @@ export async function agentChat(input: {
     aiTraceId,
   }
 
+  // Advisory intent hint (zero calls, byte-identical loop when message_intent
+  // is not enforced) — must resolve before the first model call so the hint is
+  // part of the context that call sees.
+  const turnUserMessage = currentUserMessageText(input.messages)
+  const intentHint = turnUserMessage
+    ? await detectMessageIntentHint(input.userId, turnUserMessage)
+    : null
+
   const messages: ChatMessage[] = [
-    { role: 'system', content: AGENT_SYSTEM_PROMPT },
+    {
+      role: 'system',
+      content: intentHint ? `${AGENT_SYSTEM_PROMPT}\n${intentHint}` : AGENT_SYSTEM_PROMPT,
+    },
     ...input.messages,
   ]
   let parseFailureCount = 0
