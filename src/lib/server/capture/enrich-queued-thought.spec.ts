@@ -539,6 +539,135 @@ describe('enrichQueuedThought', () => {
     errorSpy.mockRestore()
   })
 
+  it('enforced open_loop+salience_band: ONE bounded call decides both and the metadata patch persists them', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['open_loop', 'salience_band']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockImplementation(async (_config, request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.includes('open_loop')) {
+        return decisionResponse({
+          open_loop: {
+            choice: 'actionable',
+            probabilities: { actionable: 0.8, mentioned: 0.15, closed: 0.05 },
+          },
+          salience_band: {
+            choice: 'high',
+            probabilities: { high: 0.7, medium: 0.2, low: 0.1 },
+          },
+        })
+      }
+      return decisionResponse({
+        category: { choice: 'task', probabilities: { task: 0.7, idea: 0.3 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
+      })
+    })
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    // Exactly ONE bounded Decisions call carrying BOTH whole-question specs
+    // (the other runDecisionModel call is the generic category/content_role shadow).
+    const boundedCalls = runDecisionModelMock.mock.calls.filter((c) =>
+      Object.keys(c[1].questions).includes('open_loop'),
+    )
+    expect(boundedCalls).toHaveLength(1)
+    expect(Object.keys(boundedCalls[0][1].questions)).toEqual(['open_loop', 'salience_band'])
+    expect(boundedCalls[0][1].questions.open_loop.instructions).toBe(
+      'Is this capture a live commitment, a mere mention of one, or already closed?',
+    )
+    expect(boundedCalls[0][1].questions.open_loop.criteria).toEqual({
+      actionable: 'A live commitment — the user intends to do this.',
+      mentioned: 'Merely mentions a task or commitment without itself being one.',
+      closed: 'A commitment already completed or closed off.',
+    })
+    expect(boundedCalls[0][1].questions.salience_band.instructions).toBe(
+      'How salient is this capture likely to be for later recall?',
+    )
+    expect(boundedCalls[0][1].questions.salience_band.criteria).toEqual({
+      high: 'Central, frequently-relevant material for this user.',
+      medium: 'Ordinary everyday relevance.',
+      low: 'Peripheral, ephemeral, or small-talk.',
+    })
+
+    // The mocked Jev answers land in the EXISTING metadata patch — metadata
+    // only, no schema change.
+    expect(metadataPatchCalls()[0]).toMatchObject({
+      openLoop: 'actionable',
+      saliencePrior: 'high',
+    })
+
+    // Evidence rows: one per bounded kind, no comparison primary (llmChoice null).
+    const rows = db.insertValues.mock.calls.flatMap((c) => c[0] as Array<Record<string, unknown>>)
+    const boundedRows = rows.filter(
+      (r) => r.decisionKind === 'open_loop' || r.decisionKind === 'salience_band',
+    )
+    expect(boundedRows).toHaveLength(2)
+    for (const row of boundedRows) {
+      expect(row.llmChoice).toBeNull()
+      expect(row.authoritativeEngine).toBe('decision_model')
+    }
+  })
+
+  it('enforced salience_band only: one spec in the call and only saliencePrior in the patch', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['salience_band']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockImplementation(async (_config, request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.includes('salience_band')) {
+        return decisionResponse({
+          salience_band: { choice: 'low', probabilities: { low: 0.9, medium: 0.1 } },
+        })
+      }
+      return decisionResponse({
+        category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
+      })
+    })
+    getDbMock.mockReturnValue(standardDbQueue())
+
+    await enrichQueuedThought('u1', 't1')
+
+    const boundedCalls = runDecisionModelMock.mock.calls.filter((c) =>
+      Object.keys(c[1].questions).includes('salience_band'),
+    )
+    expect(boundedCalls).toHaveLength(1)
+    expect(Object.keys(boundedCalls[0][1].questions)).toEqual(['salience_band'])
+    const patch = metadataPatchCalls()[0]
+    expect(patch).toMatchObject({ saliencePrior: 'low' })
+    expect(patch).not.toHaveProperty('openLoop')
+  })
+
+  it('open_loop/salience_band enforcement off: no bounded call and no metadata keys', async () => {
+    // beforeEach defaults: nothing enforced, decision-model config absent.
+    getDbMock.mockReturnValue(standardDbQueue())
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(runDecisionModelMock).not.toHaveBeenCalled()
+    expect(metadataPatchCalls()[0]).not.toHaveProperty('openLoop')
+    expect(metadataPatchCalls()[0]).not.toHaveProperty('saliencePrior')
+  })
+
+  it('enforced open_loop+salience_band: a failed bounded call fails the enrich loudly (no fallback)', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['open_loop', 'salience_band']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockRejectedValue(new Error('decision engine down'))
+    getDbMock.mockReturnValue(standardDbQueue())
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(
+      /enforced bounded decision\(s\) failed.*decision engine down/,
+    )
+    expect(markEnrichQueueFailedMock).toHaveBeenCalledWith(
+      't1',
+      expect.stringContaining('decision engine down'),
+    )
+    // No fallback path: the pipeline never reached persist/enrich.
+    expect(enrichThoughtMock).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
   it('entity_type enforcement off: the bundle graph passes through and no decision call runs', async () => {
     // beforeEach defaults: nothing enforced, decision-model config absent.
     getDbMock.mockReturnValue(standardDbQueue())

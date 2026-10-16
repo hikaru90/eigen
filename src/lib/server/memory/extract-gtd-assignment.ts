@@ -1,5 +1,8 @@
+import { and, eq } from 'drizzle-orm'
 import { m } from '$lib/paraglide/messages.js'
-import { type ProjectStatus } from '$lib/server/db/schema'
+import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
+import { getDb } from '$lib/server/db'
+import { type ProjectStatus, thought } from '$lib/server/db/schema'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { listEligibleProjectsForAssignment } from '$lib/server/memory/project-list'
@@ -120,6 +123,31 @@ export async function extractGtdAssignment(input: {
   return parseGtdAssignmentPayload(parsed, allowed)
 }
 
+/**
+ * Reads the thought's decrypted metadata `openLoop` verdict (Jev open_loop,
+ * spec O2). Legacy rows without the key — and missing rows — come back as
+ * undefined, which stays eligible.
+ */
+async function loadThoughtOpenLoop(userId: string, thoughtId: string): Promise<string | undefined> {
+  const [row] = await getDb()
+    .select({ metadata: thought.metadata, metadataEncrypted: thought.metadataEncrypted })
+    .from(thought)
+    .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+    .limit(1)
+  if (!row) return undefined
+
+  const metadataJson = row.metadataEncrypted
+    ? await decryptTenantValue({
+        userId,
+        table: 'thought',
+        column: 'metadata',
+        ciphertext: row.metadataEncrypted,
+      })
+    : JSON.stringify(row.metadata ?? {})
+  const metadata = JSON.parse(metadataJson) as Record<string, unknown>
+  return typeof metadata.openLoop === 'string' ? metadata.openLoop : undefined
+}
+
 export async function applyGtdAssignment(input: {
   userId: string
   thoughtId: string
@@ -128,6 +156,15 @@ export async function applyGtdAssignment(input: {
   graphHubHints?: Array<{ entityId: string; label: string }>
 }): Promise<GtdAssignmentResult | null> {
   if (input.category !== 'task') {
+    return null
+  }
+
+  // open_loop eligibility gate (spec O2): a capture Jev classified as merely
+  // MENTIONING a commitment (or already closed) is not a live commitment and
+  // never joins a GTD project. 'actionable' and absent (legacy thoughts)
+  // remain eligible as before.
+  const openLoop = await loadThoughtOpenLoop(input.userId, input.thoughtId)
+  if (openLoop === 'mentioned' || openLoop === 'closed') {
     return null
   }
 

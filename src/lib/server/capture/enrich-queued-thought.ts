@@ -21,12 +21,17 @@ import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenan
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { runIngestWithRetries } from '$lib/server/ingest/retry'
-import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import {
+  resolveDecisionEnforceKinds,
+  type EnforceableDecisionKind,
+} from '$lib/server/llm/decision-client'
 import {
   dominantEntityType,
+  runEnforcedBoundedDecisions,
   runEnforcedPerItemDecisions,
   startContentRoleDecision,
   startDecisionShadow,
+  type BoundedDecisionSpec,
   type EnforcedContentRole,
 } from '$lib/server/llm/decision-plane'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
@@ -188,6 +193,50 @@ function resolveEnforcedCategory(
 }
 
 /**
+ * Whole-question specs for the enforced open_loop / salience_band kinds
+ * (spec O2): the bounded questions asked about the capture as a whole. No
+ * comparison primary exists on this surface — the bundle never answers these.
+ */
+function openLoopSalienceSpecs(
+  enforceKinds: ReadonlySet<EnforceableDecisionKind>,
+): BoundedDecisionSpec[] {
+  const specs: BoundedDecisionSpec[] = []
+  if (enforceKinds.has('open_loop')) {
+    specs.push({
+      decisionKind: 'open_loop',
+      id: 'open_loop',
+      question: {
+        type: 'choice',
+        instructions: 'Is this capture a live commitment, a mere mention of one, or already closed?',
+        criteria: {
+          actionable: 'A live commitment — the user intends to do this.',
+          mentioned: 'Merely mentions a task or commitment without itself being one.',
+          closed: 'A commitment already completed or closed off.',
+        },
+      },
+      llmChoice: null,
+    })
+  }
+  if (enforceKinds.has('salience_band')) {
+    specs.push({
+      decisionKind: 'salience_band',
+      id: 'salience_band',
+      question: {
+        type: 'choice',
+        instructions: 'How salient is this capture likely to be for later recall?',
+        criteria: {
+          high: 'Central, frequently-relevant material for this user.',
+          medium: 'Ordinary everyday relevance.',
+          low: 'Peripheral, ephemeral, or small-talk.',
+        },
+      },
+      llmChoice: null,
+    })
+  }
+  return specs
+}
+
+/**
  * Full enrich pipeline for one queued row: context → classify/embed → graph enrich.
  */
 export async function enrichQueuedThought(
@@ -324,6 +373,41 @@ export async function enrichQueuedThought(
         ? resolveEnforcedCategory(context, settled.category)
         : bundleCategory
 
+      // Enforced whole-question open_loop / salience_band (spec O2): ONE
+      // Decisions call asking only the kinds DECISION_ENFORCE_KINDS selects.
+      // Answers persist as metadata only (no schema change) in the
+      // classify/embed patch below. No try/catch — a failure or off-catalog
+      // answer throws into the ingest retry ladder (an enforced decision has
+      // no fallback, no silent skip).
+      const enforceKinds = resolveDecisionEnforceKinds()
+      const boundedSpecs = openLoopSalienceSpecs(enforceKinds)
+      let openLoop: string | undefined
+      let saliencePrior: string | undefined
+      if (boundedSpecs.length > 0) {
+        const answers = await time('decision_open_loop_salience', () =>
+          runEnforcedBoundedDecisions({
+            userId,
+            surface: 'enrich_queued',
+            state: context.normalizedText,
+            specs: boundedSpecs,
+          }),
+        )
+        if (enforceKinds.has('open_loop')) {
+          const answer = answers.get('open_loop')
+          if (!answer) {
+            throw new Error('[enrich-queued] enforced open_loop decision returned no answer')
+          }
+          openLoop = answer.choice
+        }
+        if (enforceKinds.has('salience_band')) {
+          const answer = answers.get('salience_band')
+          if (!answer) {
+            throw new Error('[enrich-queued] enforced salience_band decision returned no answer')
+          }
+          saliencePrior = answer.choice
+        }
+      }
+
       await time('persist_classify_embed', async () => {
         await db
           .update(thought)
@@ -336,6 +420,8 @@ export async function enrichQueuedThought(
               categoryConfidence: category.confidence,
               categoryAlternatives: category.alternatives,
               enrichmentContext: context.completeness,
+              ...(openLoop !== undefined ? { openLoop } : {}),
+              ...(saliencePrior !== undefined ? { saliencePrior } : {}),
             }),
           })
           .where(eq(thought.id, thoughtId))

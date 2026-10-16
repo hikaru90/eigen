@@ -11,6 +11,7 @@ export type IngestPhase =
   | 'graph_anchor'
   | 'decision_content_role'
   | 'decision_entity_type'
+  | 'decision_open_loop_salience'
   | 'content_split'
   | 'enrich_bump_version'
   | 'enrich_entities'
