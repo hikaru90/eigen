@@ -15,13 +15,13 @@
 
 import type { RequestHandler } from './$types'
 import { json, error } from '@sveltejs/kit'
-import { env } from '$lib/server/env/private-env'
 import {
   tryAcquireGlobalNightlyRun,
   completeGlobalNightlyRun,
   failGlobalNightlyRun,
 } from '$lib/server/consolidation/consolidation-run-ledger'
 import { consolidateForUser, consolidateAllUsers } from '$lib/server/consolidation/runner'
+import { env } from '$lib/server/env/private-env'
 
 function getAdminKey(): string | undefined {
   return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined

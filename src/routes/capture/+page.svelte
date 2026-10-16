@@ -109,7 +109,7 @@
   let groundingQuestionDismissed = $state(false)
   let groundingQuestionLoading = $state(false)
   /** True when this page load started with zero recent thoughts (first-capture nudge). */
-  let startedWithEmptyRecent = $state(data.recentThoughts.length === 0)
+  let startedWithEmptyRecent = $state((() => data.recentThoughts.length === 0)())
   let firstCaptureNudgeDismissed = $state(false)
   let firstCaptureNudgeHydrated = $state(false)
 
@@ -198,9 +198,9 @@
   let voiceStopFn = $state<(() => void) | undefined>(undefined)
   /** Draft text present when the current recording started; transcripts append to it. */
   let voiceBaseText = ''
-  let recentThoughts = $state<CaptureRecentThoughtSnippet[]>(data.recentThoughts)
+  let recentThoughts = $state<CaptureRecentThoughtSnippet[]>((() => data.recentThoughts)())
   let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
-    Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought])),
+    (() => Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought])))(),
   )
   let dataView = $state<CurrentUserView>(getCurrentUserView())
   let recentFilter = $state<{ category?: string }>({})

@@ -16,10 +16,10 @@
 import type { RequestHandler } from './$types'
 import { json, error } from '@sveltejs/kit'
 import { isNull, eq, and } from 'drizzle-orm'
-import { env } from '$lib/server/env/private-env'
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
+import { env } from '$lib/server/env/private-env'
 
 function getAdminKey(): string | undefined {
   return env.ADMIN_CONSOLIDATION_KEY?.trim() || undefined

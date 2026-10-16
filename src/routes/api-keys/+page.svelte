@@ -20,7 +20,7 @@
   let generatedKey = $state<string | null>(null)
   let copied = $state(false)
   let error = $state<string | null>(null)
-  let keys = $state<PageData['keys']>(data.keys)
+  let keys = $state<PageData['keys']>((() => data.keys)())
 
   // Delete confirmation state
   let confirmDeleteOpen = $state(false)

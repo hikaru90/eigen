@@ -1,8 +1,8 @@
 import type { Actions, PageServerLoad } from './$types'
 import { fail, redirect } from '@sveltejs/kit'
-import { env } from '$lib/server/env/private-env'
 import { auth } from '$lib/server/auth'
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors'
+import { env } from '$lib/server/env/private-env'
 import { isOwleryMailConfigured } from '$lib/server/owlery/mail'
 import { forgotPasswordSchema } from '$lib/validation/auth'
 

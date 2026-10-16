@@ -48,10 +48,10 @@ test.describe('Graph-scale ingest spend', () => {
 
     const { userId, email } = await test.step('create funded harness user', async () => {
       const user = await initGraphScaleSpendProbe(page.request)
-      console.log(`[graph-scale-spend] user ${user.userId} (${user.email})`)
-      console.log(`[graph-scale-spend] picnic probe (${CAPTURE_COUNT} linked captures):`)
+      console.info(`[graph-scale-spend] user ${user.userId} (${user.email})`)
+      console.info(`[graph-scale-spend] picnic probe (${CAPTURE_COUNT} linked captures):`)
       for (const [i, text] of texts.entries()) {
-        console.log(`  ${i + 1}. ${text}`)
+        console.info(`  ${i + 1}. ${text}`)
       }
       return user
     })
@@ -86,13 +86,13 @@ test.describe('Graph-scale ingest spend', () => {
           entityCount: capture.entityCount,
         })
         perThought.push(row)
-        console.log(formatGraphScaleSpendLine(row))
+        console.info(formatGraphScaleSpendLine(row))
 
         expect(row.thoughtId).toBeTruthy()
         expect(Number(row.usd)).toBeGreaterThan(0)
         expect(row.credits).toBeGreaterThan(0)
 
-        console.log(
+        console.info(
           `[graph-scale-spend] activity total credits now ${spendAfter.totalCredits} (${spendAfter.callCount} calls)`,
         )
       })

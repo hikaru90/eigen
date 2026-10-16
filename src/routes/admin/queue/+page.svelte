@@ -16,9 +16,9 @@
 
   type StatusFilter = PageData['status']
 
-  let dashboard = $state<AdminQueueDashboard>(data.dashboard)
-  let statusFilter = $state<StatusFilter>(data.status)
-  let includeHarness = $state(data.includeHarness)
+  let dashboard = $state<AdminQueueDashboard>((() => data.dashboard)())
+  let statusFilter = $state<StatusFilter>((() => data.status)())
+  let includeHarness = $state((() => data.includeHarness)())
   let refreshBusy = $state(false)
   let refreshError = $state<string | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | undefined

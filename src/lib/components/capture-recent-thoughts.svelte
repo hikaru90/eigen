@@ -1,7 +1,7 @@
 <script lang="ts">
+  import Check from '@lucide/svelte/icons/check'
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
   import ChevronRight from '@lucide/svelte/icons/chevron-right'
-  import Check from '@lucide/svelte/icons/check'
   import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import PencilLine from '@lucide/svelte/icons/pencil-line'
   import Trash2 from '@lucide/svelte/icons/trash-2'

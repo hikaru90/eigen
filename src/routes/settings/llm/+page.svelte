@@ -21,17 +21,22 @@
   )
 
   let activeTab = $state<'credits' | 'byok'>(
-    data.byokUiEnabled
-      ? page.url.searchParams.get('tab') === 'byok' ||
-        page.url.searchParams.get('tab') === 'credits'
-        ? (page.url.searchParams.get('tab') as 'byok' | 'credits')
-        : data.initialTab
-      : 'credits',
+    (() =>
+      data.byokUiEnabled
+        ? page.url.searchParams.get('tab') === 'byok' ||
+          page.url.searchParams.get('tab') === 'credits'
+          ? (page.url.searchParams.get('tab') as 'byok' | 'credits')
+          : data.initialTab
+        : 'credits')(),
   )
-  let billingMode = $state<'platform_credits' | 'byok'>(form?.billingMode ?? data.billingMode)
-  let selectedProvider = $state<'eurouter' | 'openrouter'>(data.activeProvider ?? 'eurouter')
-  let walletAvailableCredits = $state(data.wallet.availableCredits)
-  let legacyByokMigration = $state(data.legacyByokMigration)
+  let billingMode = $state<'platform_credits' | 'byok'>(
+    (() => form?.billingMode ?? data.billingMode)(),
+  )
+  let selectedProvider = $state<'eurouter' | 'openrouter'>(
+    (() => data.activeProvider ?? 'eurouter')(),
+  )
+  let walletAvailableCredits = $state((() => data.wallet.availableCredits)())
+  let legacyByokMigration = $state((() => data.legacyByokMigration)())
 
   afterNavigate(() => {
     activeTab = data.byokUiEnabled ? initialTab : 'credits'

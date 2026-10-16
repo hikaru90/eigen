@@ -23,14 +23,17 @@
 
   let contentRef = $state<HTMLElement | null>(null)
 
-  const stackClass = nested ? 'z-[60]' : ''
-
-  const contentClass = cn(
-    'border-border data-[vaul-drawer-direction=bottom]:mt-0! h-fit! max-h-[min(92svh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!',
-    stackClass,
-    narrow &&
-      'data-[vaul-drawer-direction=bottom]:!left-1/2 data-[vaul-drawer-direction=bottom]:!right-auto data-[vaul-drawer-direction=bottom]:w-[min(100%,24rem)] data-[vaul-drawer-direction=bottom]:max-w-md data-[vaul-drawer-direction=bottom]:-translate-x-1/2',
-  )
+  // Intentional one-time capture of the initial prop values for class computation.
+  const { stackClass, contentClass } = (() => {
+    const stackClass = nested ? 'z-[60]' : ''
+    const contentClass = cn(
+      'border-border data-[vaul-drawer-direction=bottom]:mt-0! h-fit! max-h-[min(92svh,920px)]! flex flex-col gap-0 overflow-hidden border-t bg-background p-0 select-text!',
+      stackClass,
+      narrow &&
+        'data-[vaul-drawer-direction=bottom]:!left-1/2 data-[vaul-drawer-direction=bottom]:!right-auto data-[vaul-drawer-direction=bottom]:w-[min(100%,24rem)] data-[vaul-drawer-direction=bottom]:max-w-md data-[vaul-drawer-direction=bottom]:-translate-x-1/2',
+    )
+    return { stackClass, contentClass }
+  })()
 
   function resetDrawerSizing() {
     if (!contentRef) return

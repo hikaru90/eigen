@@ -78,7 +78,7 @@
   }
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
-  const initialNotificationSettings = notificationSettingsFromServer(data)
+  const initialNotificationSettings = (() => notificationSettingsFromServer(data))()
   let activeTab = $state('appearance')
   let themePreference = $state('system')
   let timezoneOffsetMinutes = $state(initialNotificationSettings.timezoneOffsetMinutes)
@@ -121,7 +121,7 @@
   let pushMessage = $state<string | null>(null)
   let pushError = $state<string | null>(null)
   let pushSubscribed = $state(false)
-  let pushSubscriptionCount = $state(data.pushSubscriptionCount)
+  let pushSubscriptionCount = $state((() => data.pushSubscriptionCount)())
   let hapticEnvironment = $state<HapticEnvironment>({
     apiAvailable: false,
     secureContext: false,

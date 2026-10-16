@@ -16,11 +16,11 @@
 
   let { data }: { data: PageData } = $props()
 
-  let agents = $state<PageData['agents']>(data.agents)
-  let projects = $state<PageData['projects']>(data.projects)
+  let agents = $state<PageData['agents']>((() => data.agents)())
+  let projects = $state<PageData['projects']>((() => data.projects)())
   let agentProjectBindings = $state<
     Record<string, Array<{ projectEntityId: string; projectLabel: string }>>
-  >(data.agentProjectBindings)
+  >((() => data.agentProjectBindings)())
   let dialogOpen = $state(false)
   let agentName = $state('')
   let webhookUrl = $state('')

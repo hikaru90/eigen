@@ -27,15 +27,9 @@
   import TemporalTimelineOptionsPopover from './temporal-timeline-options-popover.svelte'
   import TemporalTodaySegmentTabs from './temporal-today-segment-tabs.svelte'
   import TimelineAgentAssignDialog from './timeline-agent-assign-dialog.svelte'
-  import {
-    shouldRefetchForViewChange,
-    shouldRefetchPrefetchForView,
-  } from './timeline-client-loads'
+  import { shouldRefetchForViewChange, shouldRefetchPrefetchForView } from './timeline-client-loads'
   import { filterTimelineItemsBySearch } from './timeline-data-derive'
-  import {
-    createTimelineData,
-    type TimelineUnifiedSourceState,
-  } from './timeline-data.svelte'
+  import { createTimelineData, type TimelineUnifiedSourceState } from './timeline-data.svelte'
   import TimelineDateRangeDial from './timeline-date-range-dial.svelte'
   import { postTimelineQuickAction, type TimelineQuickAction } from './timeline-item-actions'
   import TimelineProjectAssignDialog from './timeline-project-assign-dialog.svelte'
@@ -71,10 +65,12 @@
     initialSegment = null,
   }: Props = $props()
 
-  const data = createTimelineData({
-    userTimeZone,
-    initialSource: prefetchedSource,
-  })
+  const data = createTimelineData(
+    (() => ({
+      userTimeZone,
+      initialSource: prefetchedSource,
+    }))(),
+  )
   let nowSegment = $state<NowSegment>('todo')
   let updatingEventId = $state<string | null>(null)
   let actionBusy = $state(false)
@@ -103,9 +99,7 @@
 
   const filteredTodoItems = $derived(filterTimelineItemsBySearch(data.todoItems, searchQuery))
   const filteredDoneItems = $derived(filterTimelineItemsBySearch(data.doneItems, searchQuery))
-  const filteredOverdueItems = $derived(
-    filterTimelineItemsBySearch(data.overdueItems, searchQuery),
-  )
+  const filteredOverdueItems = $derived(filterTimelineItemsBySearch(data.overdueItems, searchQuery))
 
   /** Counts are the lengths of the exact arrays each tab renders — never a parallel source. */
   const tabCounts = $derived({
@@ -369,7 +363,6 @@
     lastActionSummary = m.graph_timeline_assign_agent_success({ agent: payload.agentName })
     closeAgentAssign()
   }
-
 </script>
 
 <div
@@ -418,11 +411,7 @@
       </div>
     {/snippet}
     {#if mode === 'tasks'}
-      <TemporalTodaySegmentTabs
-        segment={nowSegment}
-        tabCounts={tabCounts}
-        onSegmentChange={setNowSegment}
-      />
+      <TemporalTodaySegmentTabs segment={nowSegment} {tabCounts} onSegmentChange={setNowSegment} />
     {/if}
   </TemporalTimelineHeader>
 
@@ -477,7 +466,7 @@
           onRefresh={() => {
             void data.load({ silent: true })
           }}
-          updatingEventId={updatingEventId}
+          {updatingEventId}
         />
       {:else}
         <TimelineTasksView

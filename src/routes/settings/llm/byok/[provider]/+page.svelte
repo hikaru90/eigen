@@ -21,7 +21,7 @@
     modelEmbedding = 'modelEmbedding' in pd ? (pd.modelEmbedding ?? '') : ''
   }
 
-  const pd0 = data.providerData
+  const pd0 = (() => data.providerData)()
   let baseUrl = $state(pd0.baseUrl)
   let apiKey = $state(pd0.apiKey)
   let ruleChat = $state('ruleChat' in pd0 ? (pd0.ruleChat ?? '') : '')

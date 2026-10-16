@@ -19,7 +19,7 @@
 
   let { data }: { data: PageData } = $props()
 
-  let searchDraft = $state(data.search)
+  let searchDraft = $state((() => data.search)())
   let searchTimer: ReturnType<typeof setTimeout> | null = null
   let grantAmountDraft = $state('100')
   let grantReasonDraft = $state('')

@@ -1,6 +1,6 @@
 import { PostHog } from 'posthog-node'
-import { env } from '$lib/server/env/private-env'
 import { isNoiseException } from '$lib/analytics/exception-noise'
+import { env } from '$lib/server/env/private-env'
 
 const DEFAULT_EU_HOST = 'https://eu.i.posthog.com'
 

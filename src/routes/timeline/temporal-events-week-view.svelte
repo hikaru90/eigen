@@ -111,6 +111,7 @@
               class="border-border/50 hover:bg-muted/20 relative border-b border-r"
               style="height: {rowHeightPx}px"
               role="gridcell"
+              tabindex="-1"
               ondragover={(e) => e.preventDefault()}
               ondrop={() => dropOnCell(dayIndex, hour)}
             ></div>

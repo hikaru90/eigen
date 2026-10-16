@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { env } from '$lib/server/env/private-env'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { getDb } from '$lib/server/db'
+import { env } from '$lib/server/env/private-env'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 
 function requiredEnv(name: 'AGE_GRAPH_NAME'): string {

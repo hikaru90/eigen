@@ -137,7 +137,7 @@ export const POST: RequestHandler = async (event) => {
   }
 
   // Log the inbound webhook
-  console.log(`[webhook-inbound] Received ${eventType} on ${slug}`, {
+  console.info(`[webhook-inbound] Received ${eventType} on ${slug}`, {
     userId: subscription.userId,
     subscriptionId: subscription.id,
     deliveryId,

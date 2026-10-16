@@ -1,5 +1,5 @@
-import { env } from '$lib/server/env/private-env'
 import { isPayPalConfigured } from '$lib/server/billing/paypal'
+import { env } from '$lib/server/env/private-env'
 
 /**
  * Whether Settings → LLM shows BYOK tabs and billing-mode switch.

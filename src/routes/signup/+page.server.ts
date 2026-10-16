@@ -1,10 +1,10 @@
 import type { Actions, PageServerLoad } from './$types'
 import { error, fail, redirect } from '@sveltejs/kit'
-import { env } from '$lib/server/env/private-env'
 import { parseSignupPlanParam } from '$lib/auth/signup-plan'
 import { auth } from '$lib/server/auth'
 import { getSafeErrorMessage } from '$lib/server/auth-form-errors'
 import { listEnabledSocialProviderIds } from '$lib/server/auth-social'
+import { env } from '$lib/server/env/private-env'
 import { isOwleryMailConfigured } from '$lib/server/owlery/mail'
 import { resendVerificationSchema, signUpSchema } from '$lib/validation/auth'
 

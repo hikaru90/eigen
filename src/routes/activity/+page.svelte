@@ -32,8 +32,8 @@
 
   let { data } = $props()
 
-  let fromDate = $state<string | null>(data.from)
-  let toDate = $state<string | null>(data.to)
+  let fromDate = $state<string | null>((() => data.from)())
+  let toDate = $state<string | null>((() => data.to)())
   const gatewayProviderSet = $derived(new Set<string>(data.gatewayProviders))
   let allCalls = $state<ActivityCallRow[]>([])
   let isLoading = $state(true)

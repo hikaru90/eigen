@@ -140,7 +140,7 @@ const GRAPH_UI_TIMEOUT_MS = 120_000
 
 /** Persist spend report JSON under evals/graph-scale/runs/. */
 export function writeGraphScaleSpendReport(report: GraphScaleSpendReport): string {
-  console.table(
+  console.info(
     report.perThought.map((row) => ({
       '#': row.index + 1,
       usd: row.usd,
@@ -149,13 +149,13 @@ export function writeGraphScaleSpendReport(report: GraphScaleSpendReport): strin
       entities: row.entityCount,
     })),
   )
-  console.log(formatGraphScaleSpendSummary(report))
+  console.info(formatGraphScaleSpendSummary(report))
 
   const reportDir = join(process.cwd(), 'evals/graph-scale/runs')
   mkdirSync(reportDir, { recursive: true })
   const reportPath = join(reportDir, `spend-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
-  console.log(`[graph-scale-spend] report ${reportPath}`)
+  console.info(`[graph-scale-spend] report ${reportPath}`)
   return reportPath
 }
 
@@ -176,8 +176,8 @@ export async function holdHeadedBrowserForGraphReview(
   page: Page,
   reportPath: string,
 ): Promise<void> {
-  console.log(`[graph-scale-spend] report saved: ${reportPath}`)
-  console.log('[graph-scale-spend] graph open — close the browser window when finished reviewing.')
+  console.info(`[graph-scale-spend] report saved: ${reportPath}`)
+  console.info('[graph-scale-spend] graph open — close the browser window when finished reviewing.')
   await page.context().waitForEvent('close')
 }
 

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
-import { env } from '$lib/server/env/private-env'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
+import { env } from '$lib/server/env/private-env'
 import { isOwleryMailConfigured, sendTransactionalEmail } from '$lib/server/owlery/mail'
 import type { PushNotificationPayload } from '$lib/server/push/send'
 
