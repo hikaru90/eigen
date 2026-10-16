@@ -251,6 +251,16 @@ Promotion criteria per decision kind (all must hold):
 
 ---
 
+### Closing record (2026-10-16, batch 4) — delete flow consumer + O2 resolution
+
+**Operator decision:** "go on then" — the two named closers, same worktree process (two parallel agents, merged).
+
+- **`delete_thoughts_by_request` (MCP):** the delete plane gained its consumer. The tool validates the request at the boundary (non-empty, ≤500 chars), runs the full retrieval chain (multi-query retrieval → candidate build → ≥0.45 pre-filter → Jev per-candidate selection behind the 0.8 confidence gate), and applies the SAME soft-remove (`archiveThoughtForUser`) as `delete_thought` per selected id — no second deletion path. Ambiguous requests propagate the gate error to the caller; nothing deletes below confidence. Chat copy added for the agent-loop tool UI.
+- **O2 RESOLVED — salience prior is a one-time seed, not a recurring blend:** `salience_band` seeds the thought's INITIAL `salienceScore` once at enrich (`INITIAL_SALIENCE_BY_PRIOR`: high 1.5, low 0.6; medium/absent keep the 1.0 column default). Rationale: `runSalienceCompute` is set-based SQL whose idempotency contract (same wall-clock → same scores) forbids per-run multipliers; a one-time seed composes with deterministic decay. `compute-salience` is byte-untouched.
+- **Full gates:** 492 files / 3303 tests green, lint 0 errors, svelte-check 0 errors.
+
+---
+
 ## 7. Risk assessment
 
 | Risk | Mitigation |
