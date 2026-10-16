@@ -42,9 +42,9 @@ export function screenSpacePointScale(distance: number, referenceDistance: numbe
   return distance / referenceDistance
 }
 
-/** Match /graph force layout: text at x=12, y=4 beside the node circle. */
-const LABEL_MARGIN_LEFT_PX = 12
-const LABEL_MARGIN_TOP_PX = 4
+/** CSS2DObject anchor: bottom-center of the label sits just above the dot. */
+const LABEL_CENTER_X = 0.5
+const LABEL_CENTER_Y = 1.25
 const CLICK_DRAG_THRESHOLD_PX = 4
 
 /** Screen-space radial falloff for label opacity (fraction of half the smaller viewport dim). */
@@ -71,8 +71,6 @@ function createLabelElement(text: string, itemId: string): HTMLDivElement {
   el.className = 'embedding-map-label'
   el.dataset.itemId = itemId
   el.textContent = text
-  el.style.marginLeft = `${LABEL_MARGIN_LEFT_PX}px`
-  el.style.marginTop = `${LABEL_MARGIN_TOP_PX}px`
   return el
 }
 
@@ -262,7 +260,7 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
     const labelEl = labelByItemId.get(point.item.id)
     if (labelEl) {
       const label = new CSS2DObject(labelEl)
-      label.center.set(0, 0.5)
+      label.center.set(LABEL_CENTER_X, LABEL_CENTER_Y)
       label.position.set(point.x, point.y, point.z)
       scene.add(label)
     }
