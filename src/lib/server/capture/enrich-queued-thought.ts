@@ -167,6 +167,12 @@ async function prefetchEnrichExtractions(input: {
   }
 }
 
+/** O2 resolution: the Jev salience_band seeds the INITIAL salience once at enrich
+ *  (high 1.5 / low 0.6); medium and absent keep the column default. Decay then stays
+ *  purely deterministic (compute-salience) — idempotency preserved.
+ *  See docs/planning/09-jev-decision-plane.md (batch-3 record, O2). */
+export const INITIAL_SALIENCE_BY_PRIOR = { high: 1.5, low: 0.6 } as const
+
 /**
  * Validates the ENFORCED decision-model category against the active ontology
  * and resolves its kind row. Off-catalog answers throw — no repair, no
@@ -375,10 +381,11 @@ export async function enrichQueuedThought(
 
       // Enforced whole-question open_loop / salience_band (spec O2): ONE
       // Decisions call asking only the kinds DECISION_ENFORCE_KINDS selects.
-      // Answers persist as metadata only (no schema change) in the
-      // classify/embed patch below. No try/catch — a failure or off-catalog
-      // answer throws into the ingest retry ladder (an enforced decision has
-      // no fallback, no silent skip).
+      // Answers persist as metadata in the classify/embed patch below (no
+      // schema change); a high/low salience band additionally seeds the
+      // thought's initial salienceScore (O2 one-time prior). No try/catch —
+      // a failure or off-catalog answer throws into the ingest retry ladder
+      // (an enforced decision has no fallback, no silent skip).
       const enforceKinds = resolveDecisionEnforceKinds()
       const boundedSpecs = openLoopSalienceSpecs(enforceKinds)
       let openLoop: string | undefined
@@ -408,6 +415,15 @@ export async function enrichQueuedThought(
         }
       }
 
+      // O2 one-time salience prior: a high/low Jev band seeds the thought's
+      // INITIAL salienceScore here at enrich; medium and absent leave the
+      // column default (1.0) in place. No recurring influence — decay from
+      // then on is purely deterministic (compute-salience).
+      const initialSalience =
+        saliencePrior !== undefined && saliencePrior in INITIAL_SALIENCE_BY_PRIOR
+          ? INITIAL_SALIENCE_BY_PRIOR[saliencePrior as keyof typeof INITIAL_SALIENCE_BY_PRIOR]
+          : undefined
+
       await time('persist_classify_embed', async () => {
         await db
           .update(thought)
@@ -415,6 +431,7 @@ export async function enrichQueuedThought(
             category: category.key,
             ontologyEntityKindId: category.ontologyEntityKindId,
             embedding: sql`${toPgVectorLiteral(prefetched.embedding)}::vector`,
+            ...(initialSalience !== undefined ? { salienceScore: initialSalience } : {}),
             metadataEncrypted: await encryptMetadataPatch(userId, thoughtId, {
               categorySource: settled?.category ? 'decision_model' : 'llm',
               categoryConfidence: category.confidence,
