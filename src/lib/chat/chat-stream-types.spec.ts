@@ -271,6 +271,7 @@ describe('chat-stream-types', () => {
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',
+      'delete_thoughts_by_request',
       'list_projects',
       'open_threads',
       'get_project_timeline',
