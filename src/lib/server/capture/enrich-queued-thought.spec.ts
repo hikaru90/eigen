@@ -638,6 +638,90 @@ describe('enrichQueuedThought', () => {
     expect(patch).not.toHaveProperty('openLoop')
   })
 
+  it('salience seeding (O2): band high seeds initial salienceScore 1.5 at persist', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['salience_band']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockImplementation(async (_config, request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.includes('salience_band')) {
+        return decisionResponse({
+          salience_band: { choice: 'high', probabilities: { high: 0.9, medium: 0.1 } },
+        })
+      }
+      return decisionResponse({
+        category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
+      })
+    })
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(db.updateSet).toHaveBeenCalledWith(expect.objectContaining({ salienceScore: 1.5 }))
+  })
+
+  it('salience seeding (O2): band low seeds initial salienceScore 0.6 at persist', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['salience_band']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockImplementation(async (_config, request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.includes('salience_band')) {
+        return decisionResponse({
+          salience_band: { choice: 'low', probabilities: { low: 0.8, medium: 0.2 } },
+        })
+      }
+      return decisionResponse({
+        category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
+      })
+    })
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(db.updateSet).toHaveBeenCalledWith(expect.objectContaining({ salienceScore: 0.6 }))
+  })
+
+  it('salience seeding (O2): band medium does not set salienceScore (column default applies)', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['salience_band']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockImplementation(async (_config, request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.includes('salience_band')) {
+        return decisionResponse({
+          salience_band: { choice: 'medium', probabilities: { medium: 0.9, low: 0.1 } },
+        })
+      }
+      return decisionResponse({
+        category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
+      })
+    })
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(db.updateSet).toHaveBeenCalledTimes(1)
+    const setArg = db.updateSet.mock.calls[0][0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('salienceScore')
+  })
+
+  it('salience seeding (O2): enforcement off leaves the persist update without salienceScore', async () => {
+    // beforeEach defaults: nothing enforced, decision-model config absent.
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(runDecisionModelMock).not.toHaveBeenCalled()
+    expect(db.updateSet).toHaveBeenCalledTimes(1)
+    const setArg = db.updateSet.mock.calls[0][0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('salienceScore')
+  })
+
   it('open_loop/salience_band enforcement off: no bounded call and no metadata keys', async () => {
     // beforeEach defaults: nothing enforced, decision-model config absent.
     getDbMock.mockReturnValue(standardDbQueue())
