@@ -7,6 +7,7 @@ import {
   runDeleteProjectTool,
   runDeleteTextFileTool,
   runDeleteThoughtTool,
+  runDeleteThoughtsByRequestTool,
   runEditProjectTool,
   runEditThoughtTool,
   runGetProjectTimelineTool,
@@ -45,6 +46,7 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'retrieve_thoughts',
   'edit_thought',
   'delete_thought',
+  'delete_thoughts_by_request',
   'list_projects',
   'open_threads',
   'get_project_timeline',
@@ -218,6 +220,26 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"thought_id": "string (required) — UUID from retrieve_thoughts results, never a title or description"}',
     handler: runDeleteThoughtTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_thought'),
+  },
+  {
+    name: 'delete_thoughts_by_request',
+    description:
+      'Soft-remove stored thoughts matching a natural-language request. Candidates are selected by the Jev decision model behind a 0.8 confidence gate; ambiguous requests are rejected with an explicit error rather than deleting anything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        request: {
+          type: 'string',
+          description:
+            'Natural-language delete request, e.g. "delete the salmon recipe" or "delete all my recipe notes" (max 500 characters).',
+        },
+      },
+      required: ['request'],
+    },
+    agentArgumentSchema:
+      '{"request": "string (required, max 500 chars) — natural-language delete request, e.g. delete the salmon recipe"}',
+    handler: runDeleteThoughtsByRequestTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_thoughts_by_request'),
   },
   {
     name: 'list_projects',

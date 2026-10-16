@@ -3,6 +3,7 @@ import {
   runCaptureThoughtTool,
   runCreateTextFileTool,
   runDeleteThoughtTool,
+  runDeleteThoughtsByRequestTool,
   runEditThoughtTool,
   runRetrieveThoughtsTool,
   runSearchTextFilesTool,
@@ -27,6 +28,8 @@ const {
   updateProjectStatusMock,
   dismissProjectMock,
   loadOpenThreadsMock,
+  retrieveThoughtRowsForDeleteRequestMock,
+  resolveDeleteTargetsMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -46,6 +49,8 @@ const {
   updateProjectStatusMock: vi.fn(),
   dismissProjectMock: vi.fn(),
   loadOpenThreadsMock: vi.fn(),
+  retrieveThoughtRowsForDeleteRequestMock: vi.fn(),
+  resolveDeleteTargetsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/project-list', () => ({
@@ -102,6 +107,18 @@ vi.mock('$lib/server/memory/temporal-context', () => ({
 vi.mock('$lib/server/retrieval/service', () => ({
   searchThoughts: searchThoughtsMock,
 }))
+
+vi.mock('$lib/server/retrieval/retrieve-for-delete', () => ({
+  retrieveThoughtRowsForDeleteRequest: retrieveThoughtRowsForDeleteRequestMock,
+}))
+
+vi.mock('$lib/server/retrieval/resolve-delete-target', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/retrieval/resolve-delete-target')>()
+  return {
+    ...actual,
+    resolveDeleteTargets: resolveDeleteTargetsMock,
+  }
+})
 
 vi.mock('$lib/server/capture/service', () => ({
   captureThought: captureThoughtMock,
@@ -481,6 +498,122 @@ describe('MCP tools', () => {
       archived: true,
       thoughtId: '829b4cc7-ee30-403f-975b-f4663f52eb00',
       status: 'archived',
+    })
+  })
+
+  describe('runDeleteThoughtsByRequestTool', () => {
+    const deleteRequest = 'delete my recipes'
+    const retrieveResults = [
+      {
+        id: 't1',
+        normalizedText: 'Recipe: Japanese glazed salmon',
+        category: 'reference',
+        score: 0.9,
+      },
+      {
+        id: 't2',
+        normalizedText: 'Recipe: Lemon Herb Roast Chicken',
+        category: 'reference',
+        score: 0.8,
+      },
+    ]
+
+    function mockRetrieve(): void {
+      retrieveThoughtRowsForDeleteRequestMock.mockResolvedValue({
+        queries: ['recipes cooking dishes'],
+        results: retrieveResults,
+      })
+    }
+
+    it('resolves targets through the Jev gate and soft-archives each selected id', async () => {
+      mockRetrieve()
+      resolveDeleteTargetsMock.mockResolvedValue([
+        { thoughtId: 't1', snippet: 'Recipe: Japanese glazed salmon', scoreNormalized: 0.9 },
+        { thoughtId: 't2', snippet: 'Recipe: Lemon Herb Roast Chicken', scoreNormalized: 0.85 },
+      ])
+      archiveThoughtForUserMock.mockResolvedValue({ ok: true })
+
+      const out = await runDeleteThoughtsByRequestTool(
+        { userId: 'u1' },
+        { request: `  ${deleteRequest}  ` },
+      )
+
+      expect(retrieveThoughtRowsForDeleteRequestMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        deleteRequest,
+      })
+      expect(resolveDeleteTargetsMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        deleteRequest,
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ thoughtId: 't1' }),
+          expect.objectContaining({ thoughtId: 't2' }),
+        ]),
+      })
+      expect(archiveThoughtForUserMock).toHaveBeenCalledTimes(2)
+      expect(archiveThoughtForUserMock).toHaveBeenNthCalledWith(1, 'u1', 't1')
+      expect(archiveThoughtForUserMock).toHaveBeenNthCalledWith(2, 'u1', 't2')
+      expect(out).toEqual({ deleted: ['t1', 't2'], request: deleteRequest })
+    })
+
+    it('returns a no-match message and deletes nothing when the gate selects nothing', async () => {
+      mockRetrieve()
+      resolveDeleteTargetsMock.mockResolvedValue([])
+
+      const out = await runDeleteThoughtsByRequestTool(
+        { userId: 'u1' },
+        { request: 'delete my childhood photos' },
+      )
+
+      expect(out.deleted).toEqual([])
+      expect(String(out.message)).toMatch(/no matching thoughts/i)
+      expect(archiveThoughtForUserMock).not.toHaveBeenCalled()
+    })
+
+    it('propagates the delete-gate ambiguity error and deletes nothing', async () => {
+      mockRetrieve()
+      resolveDeleteTargetsMock.mockRejectedValue(
+        new Error(
+          '[delete-gate] ambiguous delete request — refine it (best match confidence 0.90)',
+        ),
+      )
+
+      await expect(
+        runDeleteThoughtsByRequestTool({ userId: 'u1' }, { request: deleteRequest }),
+      ).rejects.toThrow(/\[delete-gate\] ambiguous delete request/)
+      expect(archiveThoughtForUserMock).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a not-found error when a selected thought cannot be archived', async () => {
+      mockRetrieve()
+      resolveDeleteTargetsMock.mockResolvedValue([
+        { thoughtId: 't1', snippet: 'Recipe: Japanese glazed salmon', scoreNormalized: 0.9 },
+      ])
+      archiveThoughtForUserMock.mockResolvedValue({ ok: false, reason: 'not_found' })
+
+      await expect(
+        runDeleteThoughtsByRequestTool({ userId: 'u1' }, { request: deleteRequest }),
+      ).rejects.toThrow(/Thought not found/)
+    })
+
+    it('rejects a blank or missing request before any retrieval, gate, or deletion', async () => {
+      await expect(
+        runDeleteThoughtsByRequestTool({ userId: 'u1' }, { request: '   ' }),
+      ).rejects.toThrow(/request is required/)
+      await expect(runDeleteThoughtsByRequestTool({ userId: 'u1' }, {})).rejects.toThrow(
+        /request is required/,
+      )
+      expect(retrieveThoughtRowsForDeleteRequestMock).not.toHaveBeenCalled()
+      expect(resolveDeleteTargetsMock).not.toHaveBeenCalled()
+      expect(archiveThoughtForUserMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects an oversized request before any retrieval', async () => {
+      await expect(
+        runDeleteThoughtsByRequestTool({ userId: 'u1' }, { request: 'a'.repeat(501) }),
+      ).rejects.toThrow(/500/)
+      expect(retrieveThoughtRowsForDeleteRequestMock).not.toHaveBeenCalled()
+      expect(archiveThoughtForUserMock).not.toHaveBeenCalled()
     })
   })
 

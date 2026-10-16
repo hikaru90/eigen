@@ -27,6 +27,7 @@ describe('MCP tool registry exposure', () => {
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',
+      'delete_thoughts_by_request',
       'list_projects',
       'open_threads',
       'get_project_timeline',
@@ -48,6 +49,7 @@ describe('MCP tool registry exposure', () => {
       'retrieve_thoughts',
       'edit_thought',
       'delete_thought',
+      'delete_thoughts_by_request',
       'list_projects',
       'open_threads',
       'get_project_timeline',
@@ -114,6 +116,25 @@ describe('MCP tool registry exposure', () => {
     const del = MCP_EXPOSED_TOOL_DEFINITIONS.find((t) => t.name === 'delete_thought')
     expect(del?.description).toMatch(/soft-remove/i)
     expect(del?.description).toMatch(/any category/i)
+  })
+
+  it('exposes delete_thoughts_by_request as the Jev-gated natural-language delete', () => {
+    const def = MCP_EXPOSED_TOOL_DEFINITIONS.find((t) => t.name === 'delete_thoughts_by_request')
+    expect(def).toBeDefined()
+    expect(def?.exposeInMcp).toBe(true)
+    expect(isMcpExposedTool('delete_thoughts_by_request')).toBe(true)
+    expect(isAgentTool('delete_thoughts_by_request')).toBe(true)
+    expect(def?.description).toMatch(/soft-remove/i)
+    expect(def?.description).toMatch(/natural-language request/i)
+    expect(def?.description).toMatch(/Jev decision model/)
+    expect(def?.description).toMatch(/0\.8 confidence gate/)
+    expect(def?.description).toMatch(/ambiguous requests are rejected with an explicit error/)
+    expect(def?.description).toMatch(/rather than deleting anything/)
+    expect(def?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: { request: { type: 'string' } },
+      required: ['request'],
+    })
   })
 
   it('documents create_text_file as a Notes document, not a thought', () => {

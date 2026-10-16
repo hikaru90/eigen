@@ -34,6 +34,12 @@ import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embedding
 import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
+import {
+  buildDeleteTargetCandidates,
+  resolveDeleteTargets,
+  strongDeleteTargetCandidates,
+} from '$lib/server/retrieval/resolve-delete-target'
+import { retrieveThoughtRowsForDeleteRequest } from '$lib/server/retrieval/retrieve-for-delete'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
 import { searchThoughts } from '$lib/server/retrieval/service'
 import {
@@ -383,6 +389,73 @@ export async function runDeleteThoughtTool(context: McpToolContext, args: unknow
     throw new Error('Thought not found')
   }
   return sanitizeMcpToolResult({ archived: true, thoughtId, status: 'archived' })
+}
+
+/** Boundary cap for a natural-language delete request (registry contract). */
+const DELETE_REQUEST_MAX_LENGTH = 500
+
+/**
+ * Natural-language delete: candidates come from multi-query delete retrieval,
+ * selection is the Jev delete_target decision behind the 0.8-confidence gate
+ * (an ambiguous request throws instead of deleting), and each selected id is
+ * soft-removed through the same archiveThoughtForUser path as delete_thought.
+ */
+export async function runDeleteThoughtsByRequestTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const request = typeof body.request === 'string' ? body.request.trim() : ''
+  if (!request) {
+    throw new Error('request is required')
+  }
+  if (request.length > DELETE_REQUEST_MAX_LENGTH) {
+    throw new Error(`request must be ${DELETE_REQUEST_MAX_LENGTH} characters or fewer`)
+  }
+
+  console.info('[mcp.tool:delete_thoughts_by_request] start', {
+    userId: context.userId,
+    requestPreview: request.slice(0, 120),
+  })
+  context.onToolProgress?.({
+    tool: 'delete_thoughts_by_request',
+    phase: 'searching',
+    label: 'Searching for matching thoughts…',
+  })
+
+  const { results } = await retrieveThoughtRowsForDeleteRequest({
+    userId: context.userId,
+    deleteRequest: request,
+  })
+  const candidates = strongDeleteTargetCandidates(buildDeleteTargetCandidates(results))
+
+  const selected = await resolveDeleteTargets({
+    userId: context.userId,
+    deleteRequest: request,
+    candidates,
+  })
+
+  if (selected.length === 0) {
+    console.info('[mcp.tool:delete_thoughts_by_request] no match', { userId: context.userId })
+    return sanitizeMcpToolResult({
+      deleted: [],
+      request,
+      message: 'No matching thoughts found — nothing was deleted.',
+    })
+  }
+
+  const deleted: string[] = []
+  for (const target of selected) {
+    const result = await archiveThoughtForUser(context.userId, target.thoughtId)
+    if (!result.ok) {
+      throw new Error('Thought not found')
+    }
+    deleted.push(target.thoughtId)
+  }
+
+  console.info('[mcp.tool:delete_thoughts_by_request] done', {
+    userId: context.userId,
+    deletedCount: deleted.length,
+  })
+
+  return sanitizeMcpToolResult({ deleted, request })
 }
 
 export async function runEditThoughtTool(context: McpToolContext, args: unknown) {
