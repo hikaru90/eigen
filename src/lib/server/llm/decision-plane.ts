@@ -321,8 +321,8 @@ function resolveDecisionShadowConfigSafe(): DecisionShadowConfig | null {
   }
 }
 
-/** Kinds decided per item (mention/pair) rather than for the capture as a whole. */
-type PerItemKind = 'entity_type' | 'relation_type' | 'temporal_kind'
+/** Kinds decided per item (mention/pair, delete candidate) rather than for the capture as a whole. */
+type PerItemKind = 'entity_type' | 'relation_type' | 'temporal_kind' | 'delete_target'
 
 export type PerItemDecisionItem = {
   /** Deterministic surrogate stored in decision_shadow_log.subject_ref — never text. */
