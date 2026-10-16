@@ -14,7 +14,7 @@ const { initMock, captureMock, identifyMock, resetMock, captureExceptionMock, pu
     },
   }))
 
-vi.mock('$env/static/public', () => publicEnv)
+vi.mock('$env/dynamic/public', () => ({ env: publicEnv }))
 
 vi.mock('posthog-js', () => ({
   default: {

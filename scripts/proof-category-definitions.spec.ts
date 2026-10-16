@@ -24,7 +24,14 @@ import { describe, expect, it } from 'vitest'
 // Scratch harness: vitest does not load .env into process.env (SvelteKit only
 // injects it into $env/dynamic). Populate from the repo .env before anything
 // reads process.env — values never leave this process except to the gateways.
-for (const line of readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')) {
+// Missing .env (e.g. CI) → no keys → the guard below skips the test, as designed.
+let envFileLines: string[]
+try {
+  envFileLines = readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')
+} catch {
+  envFileLines = []
+}
+for (const line of envFileLines) {
   const trimmed = line.trim()
   if (!trimmed || trimmed.startsWith('#')) continue
   const eq = trimmed.indexOf('=')

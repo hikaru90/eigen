@@ -60,6 +60,13 @@ export default defineConfig({
     holdUntilCrawlEnd: false,
     exclude: ['vitest-browser-svelte', '@testing-library/svelte-core', 'svelte'],
   },
+  server: {
+    fs: {
+      // Allow serving a symlinked node_modules: git worktrees often symlink it
+      // to the main checkout, which sits outside this config's workspace root.
+      allow: [root, path.dirname(path.resolve(root))],
+    },
+  },
   test: {
     name: 'components',
     expect: { requireAssertions: true },

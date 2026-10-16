@@ -7,7 +7,11 @@ export type VapidConfig = {
   subject: string
 }
 
-export type VapidEnvSource = {
+/**
+ * Index-signature form so any env object (`$env/dynamic/private`, test fixtures,
+ * empty typings when no `.env` exists) is assignable without a weak-type clash.
+ */
+export type VapidEnvSource = Readonly<Record<string, string | undefined>> & {
   VAPID_PUBLIC_KEY?: string
   VAPID_PRIVATE_KEY?: string
   VAPID_SUBJECT?: string

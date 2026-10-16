@@ -60,7 +60,33 @@ function poolMax(): number {
   return parsed
 }
 
-export const appSql = postgres(getRuntimeDatabaseUrl(), { max: poolMax(), idle_timeout: 30 })
+let appSqlInstance: postgres.Sql | undefined
+
+function getAppSql(): postgres.Sql {
+  appSqlInstance ??= (() => {
+    const max = poolMax()
+    return postgres(getRuntimeDatabaseUrl(), { max, idle_timeout: 30 })
+  })()
+  return appSqlInstance
+}
+
+/**
+ * Lazy proxy over the real pool: importing this module must not read env or
+ * throw (CI runs env-less); the pool (and its `DATABASE_URL` requirement) is
+ * only materialized when a connection is actually requested. Every access in
+ * this codebase is a property read (`reserve()`, `end()`, `options`), which the
+ * proxy forwards to the lazily-created pool.
+ */
+export const appSql: postgres.Sql = new Proxy({} as postgres.Sql, {
+  get(_target, prop) {
+    const real = getAppSql() as postgres.Sql & Record<string | symbol, unknown>
+    const value = real[prop]
+    return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(real) : value
+  },
+  has(_target, prop) {
+    return prop in getAppSql()
+  },
+})
 
 export async function closeAppDbPool(): Promise<void> {
   await appSql.end({ timeout: 1 })

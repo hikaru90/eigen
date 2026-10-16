@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { browser } from '$app/environment'
-import { PUBLIC_POSTHOG_HOST, PUBLIC_POSTHOG_KEY } from '$env/static/public'
+import { env as publicEnv } from '$env/dynamic/public'
 import { isNoiseException } from '$lib/analytics/exception-noise'
 
 const DEFAULT_EU_API_HOST = 'https://eu.i.posthog.com'
@@ -9,12 +9,12 @@ const DEFAULT_EU_UI_HOST = 'https://eu.posthog.com'
 let initialized = false
 
 function posthogKey(): string | undefined {
-  const key = PUBLIC_POSTHOG_KEY?.trim()
+  const key = publicEnv.PUBLIC_POSTHOG_KEY?.trim()
   return key || undefined
 }
 
 function posthogApiHost(): string {
-  const host = PUBLIC_POSTHOG_HOST?.trim()
+  const host = publicEnv.PUBLIC_POSTHOG_HOST?.trim()
   return host || DEFAULT_EU_API_HOST
 }
 

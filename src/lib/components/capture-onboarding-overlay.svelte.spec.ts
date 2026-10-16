@@ -18,7 +18,8 @@ vi.mock('$lib/pwa/deferred-install-store.svelte', () => ({
   clearDeferredInstall: vi.fn(),
 }))
 vi.mock('$lib/pwa/install', () => ({
-  isIosDevice: () => false,
+  // Mirror the real detector: tests stub navigator.userAgent via stubIosUserAgent().
+  isIosDevice: () => /iPad|iPhone|iPod/.test(navigator.userAgent),
   isPwaStandalone: () => false,
   listenForAppInstalled: () => () => {},
   promptPwaInstall: vi.fn(async () => 'accepted' as const),

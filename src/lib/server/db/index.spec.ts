@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
+// These specs mock `postgres` entirely (no real connection is ever opened), but
+// runtime URL normalization still requires the env key — CI runs env-less, so
+// stub the env source.
+vi.mock('$lib/server/env/private-env', () => ({
+  env: { DATABASE_URL: 'postgres://test:test@localhost:5432/test' },
+}))
+
 const { endMock, drizzleMock, reserveMock } = vi.hoisted(() => ({
   endMock: vi.fn(async () => undefined),
   drizzleMock: vi.fn(() => ({ mocked: true })),
@@ -194,7 +201,9 @@ describe('db/index', () => {
     const prev = process.env.DB_POOL_MAX
     process.env.DB_POOL_MAX = 'not-a-number'
     vi.resetModules()
-    await expect(import('./index')).rejects.toThrow(/DB_POOL_MAX must be a positive integer/)
+    // Pool init is lazy: the invalid value throws on first pool access, not at import.
+    const { appSql } = await import('./index')
+    expect(() => appSql.options).toThrow(/DB_POOL_MAX must be a positive integer/)
     vi.resetModules()
     if (prev === undefined) delete process.env.DB_POOL_MAX
     else process.env.DB_POOL_MAX = prev
