@@ -1,8 +1,9 @@
 /**
  * Live A/B proof harness for the category-definition fix (optional, NOT part
- * of CI — skips unless gateway env vars are present; costs a few cents per run).
+ * of CI — skips unless PROOF_LIVE=1 AND gateway env vars are present; costs a
+ * few cents per run).
  *
- * Re-verify: `npx vitest run scripts/proof-category-definitions.spec.ts`
+ * Re-verify: `PROOF_LIVE=1 npx vitest run scripts/proof-category-definitions.spec.ts`
  * Results land in scripts/proof-category-definitions.results.json.
  *
  * Hypothesis under test: "I just enabled Jev." → task because the seeded
@@ -198,7 +199,11 @@ async function jevJudge(sentence: string, kinds: { key: string; name: string; de
 }
 
 const hasKeys = Boolean(
-  process.env.LLM_BASE_URL && process.env.SERVICE_API_KEY_EUROUTER && process.env.OPENROUTER_API_KEY && process.env.DECISION_SHADOW_MODEL,
+  process.env.PROOF_LIVE === '1' &&
+    process.env.LLM_BASE_URL &&
+    process.env.SERVICE_API_KEY_EUROUTER &&
+    process.env.OPENROUTER_API_KEY &&
+    process.env.DECISION_SHADOW_MODEL,
 )
 
 type Row = { sentence: string; arm: string; engine: string; choice: string; confidence: number | null }
