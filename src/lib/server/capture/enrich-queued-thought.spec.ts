@@ -136,7 +136,9 @@ function makeDb(selectQueue: unknown[][]) {
   const updateWhere = vi.fn(async () => undefined)
   const updateSet = vi.fn(() => ({ where: updateWhere }))
   const update = vi.fn(() => ({ set: updateSet }))
-  return { select, update, updateSet, updateWhere }
+  const insertValues = vi.fn(async () => undefined)
+  const insert = vi.fn(() => ({ values: insertValues }))
+  return { select, update, updateSet, updateWhere, insert, insertValues }
 }
 
 const baseRow = {
@@ -373,6 +375,212 @@ describe('enrichQueuedThought', () => {
       expect.objectContaining({ category: 'idea', ontologyEntityKindId: 'ek-idea' }),
     )
     expect(metadataPatchCalls()[0]).toMatchObject({ categorySource: 'decision_model' })
+  })
+
+  it('enforced entity_type: per-mention decision answers override the bundle graph before persist', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['entity_type']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockImplementation(async (_config, request) => {
+      const ids = Object.keys(request.questions)
+      if (ids.some((id) => id.startsWith('entity_type:'))) {
+        return decisionResponse({
+          'entity_type:m1': {
+            choice: 'person',
+            probabilities: { person: 0.9, organization: 0.05, concept: 0.05 },
+          },
+          'entity_type:m2': {
+            choice: 'organization',
+            probabilities: { organization: 0.8, person: 0.1, concept: 0.1 },
+          },
+        })
+      }
+      return decisionResponse({
+        category: { choice: 'task', probabilities: { task: 0.7, idea: 0.3 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
+      })
+    })
+    const db = standardDbQueue()
+    getDbMock.mockReturnValue(db)
+    loadEnrichmentContextMock.mockResolvedValue({
+      ...baseContext,
+      ontology: {
+        ...baseContext.ontology,
+        entityKinds: [
+          {
+            id: 'ek-p',
+            key: 'person',
+            name: 'Person',
+            definition: 'A human being',
+            active: true,
+            kindType: 'entity_type',
+            neverStale: false,
+          },
+          {
+            id: 'ek-o',
+            key: 'organization',
+            name: 'Organization',
+            definition: 'A company or group',
+            active: true,
+            kindType: 'entity_type',
+            neverStale: false,
+          },
+          {
+            id: 'ek-c',
+            key: 'concept',
+            name: 'Concept',
+            definition: 'An abstract idea',
+            active: true,
+            kindType: 'entity_type',
+            neverStale: false,
+          },
+        ],
+      },
+    })
+    loadEntityGraphEnrichmentContextMock.mockResolvedValue({ communityExcerpts: [], graphEntities: [] })
+    extractEnrichThoughtBundleMock.mockResolvedValue({
+      ...baseBundle,
+      entityGraph: {
+        mentions: [
+          { surface: 'Jonas', entityType: 'person', confidence: 0.8 },
+          { surface: 'EigenMesh', entityType: 'concept', confidence: 0.7 },
+        ],
+        triples: [],
+      },
+    })
+
+    await enrichQueuedThought('u1', 't1')
+
+    // The persisted entity graph carries the decision-model answers, not the bundle's.
+    expect(enrichThoughtMock).toHaveBeenCalledWith(
+      'u1',
+      't1',
+      'raw input',
+      expect.objectContaining({
+        precomputedEntityGraph: {
+          mentions: [
+            { surface: 'Jonas', entityType: 'person', confidence: 0.9 },
+            { surface: 'EigenMesh', entityType: 'organization', confidence: 0.8 },
+          ],
+          triples: [],
+        },
+      }),
+    )
+
+    // Two Decisions calls: the generic shadow (entity_type excluded when
+    // enforced) and one per-mention call keyed entity_type:<ref>.
+    expect(runDecisionModelMock).toHaveBeenCalledTimes(2)
+    const perItemCall = runDecisionModelMock.mock.calls.find((c) =>
+      Object.keys(c[1].questions).some((id) => id.startsWith('entity_type:')),
+    )
+    expect(Object.keys(perItemCall?.[1].questions ?? {})).toEqual(['entity_type:m1', 'entity_type:m2'])
+    expect(perItemCall?.[1].questions['entity_type:m1'].criteria).toEqual({
+      person: 'Person: A human being',
+      organization: 'Organization: A company or group',
+      concept: 'Concept: An abstract idea',
+    })
+
+    // One decision_shadow_log row per mention, with the bundle's typing as
+    // the comparison primary and the decision model as the authority.
+    const rows = db.insertValues.mock.calls.flatMap((c) => c[0] as Array<Record<string, unknown>>)
+    const entityRows = rows.filter((r) => r.decisionKind === 'entity_type')
+    expect(entityRows).toHaveLength(2)
+    expect(entityRows.map((r) => r.subjectRef)).toEqual(['m1', 'm2'])
+    for (const row of entityRows) {
+      expect(row.authoritativeEngine).toBe('decision_model')
+    }
+    expect(entityRows[0]).toMatchObject({ llmChoice: 'person', decisionChoice: 'person', agree: true })
+    expect(entityRows[1]).toMatchObject({
+      llmChoice: 'concept',
+      decisionChoice: 'organization',
+      agree: false,
+    })
+  })
+
+  it('enforced entity_type: a failed decision call fails the enrich loudly (no fallback)', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['entity_type']))
+    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+    runDecisionModelMock.mockRejectedValue(new Error('decision engine down'))
+    getDbMock.mockReturnValue(standardDbQueue())
+    loadEnrichmentContextMock.mockResolvedValue({
+      ...baseContext,
+      ontology: {
+        ...baseContext.ontology,
+        entityKinds: [
+          {
+            id: 'ek-p',
+            key: 'person',
+            name: 'Person',
+            definition: 'A human being',
+            active: true,
+            kindType: 'entity_type',
+            neverStale: false,
+          },
+        ],
+      },
+    })
+    extractEnrichThoughtBundleMock.mockResolvedValue({
+      ...baseBundle,
+      entityGraph: {
+        mentions: [{ surface: 'Jonas', entityType: 'person', confidence: 0.8 }],
+        triples: [],
+      },
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(
+      /enforced entity_type per-item decision failed.*decision engine down/,
+    )
+    expect(markEnrichQueueFailedMock).toHaveBeenCalledWith(
+      't1',
+      expect.stringContaining('decision engine down'),
+    )
+    // No fallback path: the pipeline never reached persist/enrich.
+    expect(enrichThoughtMock).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('entity_type enforcement off: the bundle graph passes through and no decision call runs', async () => {
+    // beforeEach defaults: nothing enforced, decision-model config absent.
+    getDbMock.mockReturnValue(standardDbQueue())
+    loadEnrichmentContextMock.mockResolvedValue({
+      ...baseContext,
+      ontology: {
+        ...baseContext.ontology,
+        entityKinds: [
+          {
+            id: 'ek-p',
+            key: 'person',
+            name: 'Person',
+            definition: 'A human being',
+            active: true,
+            kindType: 'entity_type',
+            neverStale: false,
+          },
+        ],
+      },
+    })
+    extractEnrichThoughtBundleMock.mockResolvedValue({
+      ...baseBundle,
+      entityGraph: {
+        mentions: [{ surface: 'Jonas', entityType: 'person', confidence: 0.8 }],
+        triples: [],
+      },
+    })
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(runDecisionModelMock).not.toHaveBeenCalled()
+    expect(enrichThoughtMock).toHaveBeenCalledWith(
+      'u1',
+      't1',
+      'raw input',
+      expect.objectContaining({
+        precomputedEntityGraph: {
+          mentions: [{ surface: 'Jonas', entityType: 'person', confidence: 0.8 }],
+          triples: [],
+        },
+      }),
+    )
   })
 
   it('runs the full pipeline, persists classify/embed, and notifies on success', async () => {

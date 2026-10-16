@@ -1,0 +1,282 @@
+[
+  {
+    "sentence": "I just enabled Jev.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I just enabled Jev.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "task",
+    "confidence": 0.35
+  },
+  {
+    "sentence": "I have just created a new account.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I have just created a new account.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "memory",
+    "confidence": 0.66
+  },
+  {
+    "sentence": "I deployed the new version last night.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I deployed the new version last night.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "memory",
+    "confidence": 0.9
+  },
+  {
+    "sentence": "I updated my password this morning.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I updated my password this morning.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "memory",
+    "confidence": 0.91
+  },
+  {
+    "sentence": "I need to enable Jev tomorrow.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I need to enable Jev tomorrow.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "task",
+    "confidence": 1
+  },
+  {
+    "sentence": "TODO: file the tax return before Friday.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "TODO: file the tax return before Friday.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "task",
+    "confidence": 1
+  },
+  {
+    "sentence": "The Eiffel Tower is 330 meters tall.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "observation",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "The Eiffel Tower is 330 meters tall.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "reference",
+    "confidence": 1
+  },
+  {
+    "sentence": "I keep avoiding deep work in the afternoons.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "observation",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I keep avoiding deep work in the afternoons.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "reflection",
+    "confidence": 0.96
+  },
+  {
+    "sentence": "I feel anxious about the product launch.",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "feeling",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I feel anxious about the product launch.",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "feeling",
+    "confidence": 1
+  },
+  {
+    "sentence": "What if we moved the launch to May?",
+    "arm": "legacy",
+    "engine": "chat_judge",
+    "choice": "question",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "What if we moved the launch to May?",
+    "arm": "legacy",
+    "engine": "decision_model",
+    "choice": "idea",
+    "confidence": 0.69
+  },
+  {
+    "sentence": "I just enabled Jev.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "action",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I just enabled Jev.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "action",
+    "confidence": 1
+  },
+  {
+    "sentence": "I have just created a new account.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "action",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I have just created a new account.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "action",
+    "confidence": 1
+  },
+  {
+    "sentence": "I deployed the new version last night.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "action",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I deployed the new version last night.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "action",
+    "confidence": 1
+  },
+  {
+    "sentence": "I updated my password this morning.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "action",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I updated my password this morning.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "action",
+    "confidence": 1
+  },
+  {
+    "sentence": "I need to enable Jev tomorrow.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I need to enable Jev tomorrow.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "task",
+    "confidence": 0.99
+  },
+  {
+    "sentence": "TODO: file the tax return before Friday.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "task",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "TODO: file the tax return before Friday.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "task",
+    "confidence": 1
+  },
+  {
+    "sentence": "The Eiffel Tower is 330 meters tall.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "observation",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "The Eiffel Tower is 330 meters tall.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "reference",
+    "confidence": 0.99
+  },
+  {
+    "sentence": "I keep avoiding deep work in the afternoons.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "observation",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I keep avoiding deep work in the afternoons.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "reflection",
+    "confidence": 0.92
+  },
+  {
+    "sentence": "I feel anxious about the product launch.",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "feeling",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "I feel anxious about the product launch.",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "feeling",
+    "confidence": 1
+  },
+  {
+    "sentence": "What if we moved the launch to May?",
+    "arm": "fixed",
+    "engine": "chat_judge",
+    "choice": "idea",
+    "confidence": 0.95
+  },
+  {
+    "sentence": "What if we moved the launch to May?",
+    "arm": "fixed",
+    "engine": "decision_model",
+    "choice": "idea",
+    "confidence": 0.54
+  }
+]

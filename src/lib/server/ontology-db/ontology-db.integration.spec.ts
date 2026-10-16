@@ -69,8 +69,8 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
     await withEvalDb(ua, async (db) => {
       await ensureUserOntologySeeded(db, ua)
       const a = await loadOntologyForUser(db, ua)
-      // 10 thought_category kinds + 8 entity_type kinds = 18
-      expect(a.entityKinds.length).toBe(18)
+      // 11 thought_category kinds + 8 entity_type kinds = 19
+      expect(a.entityKinds.length).toBe(19)
       expect(a.relationKinds.length).toBe(10)
       expect(validateEntityKindKeyForNewIngest(a, 'task')).toBe(true)
     })
@@ -253,16 +253,16 @@ describe.skipIf(!hasDb)('ontology-db integration (RLS)', () => {
         active: true,
       })
 
-      // 18 default kinds + 1 junk = 19
-      expect((await loadOntologyForUser(db, uidPrune)).entityKinds.length).toBe(19)
+      // 19 default kinds + 1 junk = 20
+      expect((await loadOntologyForUser(db, uidPrune)).entityKinds.length).toBe(20)
 
       const pruned = await pruneUnusedOntologyEntityKinds(db, uidPrune)
       expect(pruned.deletedEntityKindIds).toEqual([junk!.id])
       expect(pruned.deletedRelationKindIds.length).toBe(1)
 
       const after = await loadOntologyForUser(db, uidPrune)
-      // 18 default kinds remain
-      expect(after.entityKinds.length).toBe(18)
+      // 19 default kinds remain
+      expect(after.entityKinds.length).toBe(19)
       expect(after.entityKindsByKey.get('junk_kind')).toBeUndefined()
       expect(after.relationKindsByKey.get('junk_link')).toBeUndefined()
       expect(after.entityKindsByKey.get('task')).toBeDefined()

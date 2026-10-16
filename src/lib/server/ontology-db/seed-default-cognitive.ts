@@ -1,13 +1,18 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { AppDatabase } from '$lib/server/db/context'
 import { ontologyEntityKind, ontologyRelationKind } from '$lib/server/db/schema'
 
 /** Default practical thought category kinds. These classify *what kind of mental content* a thought is. */
-const DEFAULT_THOUGHT_CATEGORY_KINDS: { key: string; name: string; definition: string }[] = [
+export const DEFAULT_THOUGHT_CATEGORY_KINDS: { key: string; name: string; definition: string }[] = [
   {
     key: 'task',
     name: 'Task',
-    definition: 'Something to do, an action item, or work in progress',
+    definition: 'Something to do or an action item — work not yet done (never something already completed)',
+  },
+  {
+    key: 'action',
+    name: 'Action',
+    definition: 'A report that something was done or happened — a completed action, status update, or occurrence',
   },
   {
     key: 'idea',
@@ -57,7 +62,7 @@ const DEFAULT_THOUGHT_CATEGORY_KINDS: { key: string; name: string; definition: s
 ]
 
 /** Default real-world entity type kinds. These type *what kind of thing* a graph entity is. */
-const DEFAULT_ENTITY_TYPE_KINDS: { key: string; name: string; definition: string }[] = [
+export const DEFAULT_ENTITY_TYPE_KINDS: { key: string; name: string; definition: string }[] = [
   {
     key: 'person',
     name: 'Person',
@@ -336,6 +341,51 @@ export async function ensureCriticalEntityTypeKindsActive(
   }
 }
 
+/**
+ * Syncs code-owned baseline kinds into an existing user's ontology: inserts
+ * baseline kinds added after the user was first seeded and refreshes
+ * name/definition wording, while preserving per-user state (`active`,
+ * `neverStale`). Baseline rows are code-owned — customization lives in custom
+ * keys, not in edits to baseline rows. A no-op read when nothing drifted.
+ */
+async function syncBaselineOntologyKinds(db: AppDatabase, userId: string): Promise<void> {
+  const rows = await db
+    .select({
+      key: ontologyEntityKind.key,
+      kindType: ontologyEntityKind.kindType,
+      name: ontologyEntityKind.name,
+      definition: ontologyEntityKind.definition,
+    })
+    .from(ontologyEntityKind)
+    .where(eq(ontologyEntityKind.userId, userId))
+  const current = new Map(rows.map((r) => [`${r.kindType}:${r.key}`, r]))
+  const stale = [
+    ...DEFAULT_THOUGHT_CATEGORY_KINDS.map((k) => ({ ...k, kindType: 'thought_category' })),
+    ...DEFAULT_ENTITY_TYPE_KINDS.map((k) => ({ ...k, kindType: 'entity_type' })),
+  ].filter((k) => {
+    const row = current.get(`${k.kindType}:${k.key}`)
+    return !row || row.name !== k.name || row.definition !== k.definition
+  })
+  if (stale.length === 0) return
+  await db
+    .insert(ontologyEntityKind)
+    .values(
+      stale.map((k) => ({
+        userId,
+        key: k.key,
+        name: k.name,
+        definition: k.definition,
+        active: true,
+        kindType: k.kindType,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [ontologyEntityKind.userId, ontologyEntityKind.key],
+      // Never reset `active`/`neverStale`: deactivation is a user decision.
+      set: { name: sql`excluded.name`, definition: sql`excluded.definition` },
+    })
+}
+
 export async function ensureUserOntologySeeded(db: AppDatabase, userId: string): Promise<void> {
   const existing = await db
     .select({ id: ontologyEntityKind.id })
@@ -349,4 +399,6 @@ export async function ensureUserOntologySeeded(db: AppDatabase, userId: string):
   // Upgrade path: users seeded with the old cognitive ontology won't have entity_type kinds yet.
   // Insert them now if missing — this is idempotent.
   await ensureEntityTypeKindsSeeded(db, userId)
+  // Baseline wording is code-owned and drifts (e.g. definition fixes); sync it.
+  await syncBaselineOntologyKinds(db, userId)
 }

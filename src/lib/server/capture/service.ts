@@ -372,6 +372,7 @@ export async function editStoredThought(
       ontologyEntityKindId,
       confidence: categoryConfidence,
       alternatives: categoryAlternatives,
+      source: categorySource,
     } = await timer.time('classify_category', async () =>
       resolveThoughtCategory({
         userId,
@@ -382,7 +383,7 @@ export async function editStoredThought(
     const metadata = {
       ...metadataPatch,
       ...baseMeta,
-      categorySource: 'llm',
+      categorySource,
       categoryConfidence,
       categoryAlternatives,
     }

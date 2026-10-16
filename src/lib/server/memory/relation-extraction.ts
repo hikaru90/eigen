@@ -2,10 +2,12 @@ import { desc, eq } from 'drizzle-orm'
 import { m } from '$lib/paraglide/messages.js'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { searchThoughts } from '$lib/server/retrieval/service'
 
-const ALLOWED_RELATION_TYPES = new Set([
+const RELATION_TYPES = [
   'mentions',
   'depends_on',
   'refines',
@@ -14,7 +16,14 @@ const ALLOWED_RELATION_TYPES = new Set([
   'follows_from',
   'continuation_of',
   'caused_by',
-])
+] as const
+
+const ALLOWED_RELATION_TYPES = new Set<string>(RELATION_TYPES)
+
+/** Membership check against the closed type list — format validation, not semantic string analysis. */
+function isRelationType(value: string): value is ExtractedRelation['relationType'] {
+  return (RELATION_TYPES as readonly string[]).includes(value)
+}
 
 export type ExtractedRelation = {
   targetId: string
@@ -127,6 +136,39 @@ export async function extractRelations(input: {
   }
 
   if (candidates.length === 0) return []
+
+  // Decision-model authoritative relation typing (DECISION_ENFORCE_KINDS): one
+  // per-pair question, the decision model's answer replaces the chat judge.
+  // No fallback — a failure propagates into the ingest retry ladder.
+  if (resolveDecisionEnforceKinds().has('relation_type')) {
+    const answers = await runEnforcedPerItemDecisions({
+      userId: input.userId,
+      surface: 'enrich_queued',
+      kind: 'relation_type',
+      state: input.normalizedText,
+      criteria: {
+        mentions: 'Source explicitly names or references the specific person, place, technology, or idea that is the subject of the candidate.',
+        refines: 'Source adds precision, detail, or nuance to a more general statement in the candidate.',
+        contradicts: 'Source directly conflicts with, negates, or challenges a claim or framing in the candidate.',
+        depends_on: 'Source presupposes or requires the candidate to be true or completed first.',
+        follows_from: 'Source is a natural next step or logical consequence after the candidate (temporal or sequential).',
+        continuation_of: 'Source continues the exact same thread, topic, or action in progress in the candidate.',
+        caused_by: 'Source was directly caused or triggered by what is described in the candidate.',
+        related_to: 'Shares a general topic or domain, but none of the more specific types apply.',
+        none: 'No meaningful relationship exists between source and candidate — omit the pair.',
+      },
+      items: candidates.map((candidate, index) => ({
+        ref: `p${index + 1}`,
+        instructions: `Which relation type best describes the relationship from the source thought to this candidate thought: "${candidate.normalizedText}"?`,
+        llmChoice: null,
+      })),
+    })
+    return candidates.flatMap((candidate, index) => {
+      const answer = answers.get(`p${index + 1}`)
+      if (!answer || answer.choice === 'none' || !isRelationType(answer.choice)) return []
+      return [{ targetId: candidate.id, relationType: answer.choice }]
+    })
+  }
 
   const prompt = [
     'Return ONLY a JSON array. No explanation, no markdown.',

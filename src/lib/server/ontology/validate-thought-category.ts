@@ -84,6 +84,7 @@ export function resolveCategoryFromLlmOutput(
       ontologyEntityKindId: row.id,
       confidence: clampConfidence(obj.confidence, 0.5),
       alternatives,
+      source: 'llm',
     }
   }
 
@@ -97,6 +98,7 @@ export function resolveCategoryFromLlmOutput(
       confidence: promoted.confidence,
       alternatives,
       repairedFrom: primary || '(missing)',
+      source: 'llm',
     }
   }
 

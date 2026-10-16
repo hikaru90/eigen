@@ -2,10 +2,14 @@ import type { DecisionShadowConfig } from './decision-client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   dominantEntityType,
+  runEnforcedBoundedDecisions,
+  runEnforcedPerItemDecisions,
   startContentRoleDecision,
   startDecisionShadow,
+  type BoundedDecisionSpec,
   type DecisionShadowContext,
   type DecisionShadowPrimaries,
+  type PerItemDecisionItem,
 } from './decision-plane'
 
 const dbMocks = vi.hoisted(() => ({
@@ -514,5 +518,434 @@ describe('enforcement — startDecisionShadow settle contract', () => {
     for (const row of insertedRows()) {
       expect(row.authoritativeEngine).toBe('chat_judge')
     }
+  })
+
+  it('excludes the generic entity_type question and row when entity_type is enforced', async () => {
+    resolveEnforceMock.mockReturnValue(new Set(['entity_type'] as const))
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const settle = startDecisionShadow(makeEnrichContext())
+    await settle!(enrichPrimaries())
+
+    const [, req] = runDecisionMock.mock.calls[0]
+    expect(Object.keys(req.questions).sort()).toEqual(['category', 'content_role'])
+    expect(insertedRows().map((r) => r.decisionKind).sort()).toEqual(['category', 'content_role'])
+  })
+
+  it('keeps the entity_type question when enforcement is off (unchanged)', () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockReturnValue(new Promise(() => {}))
+    startDecisionShadow(makeEnrichContext())
+    const [, req] = runDecisionMock.mock.calls[0]
+    expect(Object.keys(req.questions).sort()).toEqual(['category', 'content_role', 'entity_type'])
+  })
+})
+
+describe('runEnforcedPerItemDecisions', () => {
+  const ENTITY_CRITERIA = { person: 'A human being', technology: 'A software tool or system' }
+
+  function makeItems(overrides?: PerItemDecisionItem[]): PerItemDecisionItem[] {
+    return (
+      overrides ?? [
+        { ref: 'm1', instructions: 'Type the mention "Alice"', llmChoice: 'person', llmConfidence: 0.7 },
+        { ref: 'm2', instructions: 'Type the mention "EigenMesh"', llmChoice: 'technology', llmConfidence: 0.6 },
+      ]
+    )
+  }
+
+  it('runs ONE call with per-item questions and returns both answers with evidence rows', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'entity_type:m1': { choice: 'person', probabilities: { person: 0.8, technology: 0.2 } },
+        'entity_type:m2': { choice: 'technology', probabilities: { technology: 0.9, person: 0.1 } },
+      }),
+    )
+    const answers = await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'enrich_queued',
+      kind: 'entity_type',
+      state: 'Alice uses EigenMesh',
+      criteria: ENTITY_CRITERIA,
+      items: makeItems(),
+    })
+
+    expect(runDecisionMock).toHaveBeenCalledTimes(1)
+    const [cfg, req] = runDecisionMock.mock.calls[0]
+    expect(cfg).toEqual(config)
+    expect(req.state).toBe('Alice uses EigenMesh')
+    expect(Object.keys(req.questions).sort()).toEqual(['entity_type:m1', 'entity_type:m2'])
+    expect(req.questions['entity_type:m1'].instructions).toBe('Type the mention "Alice"')
+    expect(req.questions['entity_type:m1'].criteria).toEqual(ENTITY_CRITERIA)
+
+    expect(answers.get('m1')).toEqual({
+      choice: 'person',
+      probability: 0.8,
+      alternatives: { technology: 0.2 },
+    })
+    expect(answers.get('m2')).toEqual({
+      choice: 'technology',
+      probability: 0.9,
+      alternatives: { person: 0.1 },
+    })
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(2)
+    const byRef = Object.fromEntries(rows.map((r) => [r.subjectRef, r]))
+    expect(byRef.m1).toMatchObject({
+      userId: 'user-1',
+      surface: 'enrich_queued',
+      decisionKind: 'entity_type',
+      subjectRef: 'm1',
+      llmChoice: 'person',
+      llmConfidence: 0.7,
+      decisionChoice: 'person',
+      decisionProbability: 0.8,
+      decisionAlternatives: { technology: 0.2 },
+      agree: true,
+      decisionError: null,
+      authoritativeEngine: 'decision_model',
+    })
+    expect(byRef.m1.decisionDurationMs).toBeTypeOf('number')
+    expect(byRef.m2).toMatchObject({
+      subjectRef: 'm2',
+      llmChoice: 'technology',
+      decisionChoice: 'technology',
+      agree: true,
+    })
+
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    const [, userId, call] = logActivityCallMock.mock.calls[0]
+    expect(userId).toBe('user-1')
+    expect(call.provider).toBe('openrouter')
+    expect(call.operation).toBe('decision_shadow')
+    expect(call.gatewayHost).toBe('openrouter.ai')
+    expect(call.context).toBe('decision_shadow kinds=entity_type items=2 surface=enrich_queued')
+    expect(call.baseCostUsd).toBe(0.0000421)
+    expect(call.durationMs).toBeTypeOf('number')
+  })
+
+  it('records agree null and llmChoice null passthrough when the chat call was skipped', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'entity_type:m1': { choice: 'person', probabilities: { person: 0.8, technology: 0.2 } },
+      }),
+    )
+    await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'enrich_queued',
+      kind: 'entity_type',
+      state: 'x',
+      criteria: ENTITY_CRITERIA,
+      items: [{ ref: 'm1', instructions: 'i', llmChoice: null }],
+    })
+    const row = insertedRows()[0]
+    expect(row.llmChoice).toBeNull()
+    expect(row.llmConfidence).toBeNull()
+    expect(row.agree).toBeNull()
+  })
+
+  it('writes every item row and throws when one item returns an off-catalog choice', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'entity_type:m1': { choice: 'person', probabilities: { person: 0.8, technology: 0.2 } },
+        'entity_type:m2': { choice: 'animal', probabilities: { animal: 1 } },
+      }),
+    )
+    await expect(
+      runEnforcedPerItemDecisions({
+        userId: 'user-1',
+        surface: 'enrich_queued',
+        kind: 'entity_type',
+        state: 'x',
+        criteria: ENTITY_CRITERIA,
+        items: makeItems(),
+      }),
+    ).rejects.toThrow(/enforced entity_type item m2 returned off-catalog choice "animal"/)
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(2)
+    const byRef = Object.fromEntries(rows.map((r) => [r.subjectRef, r]))
+    // The ok item still gets its answer row.
+    expect(byRef.m1).toMatchObject({
+      decisionChoice: 'person',
+      decisionError: null,
+      agree: true,
+      authoritativeEngine: 'decision_model',
+    })
+    // The off-catalog item gets an error row with no answer fields.
+    expect(byRef.m2.decisionChoice).toBeNull()
+    expect(byRef.m2.decisionProbability).toBeNull()
+    expect(byRef.m2.decisionError).toContain('off-catalog')
+    expect(byRef.m2.agree).toBeNull()
+    // The call happened — its activity row is still recorded.
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes error rows for all items and throws when the call fails; activity row still recorded', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
+    await expect(
+      runEnforcedPerItemDecisions({
+        userId: 'user-1',
+        surface: 'enrich_queued',
+        kind: 'entity_type',
+        state: 'x',
+        criteria: ENTITY_CRITERIA,
+        items: makeItems(),
+      }),
+    ).rejects.toThrow(/enforced entity_type per-item decision failed: 502 bad gateway/)
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(2)
+    for (const r of rows) {
+      expect(r.decisionChoice).toBeNull()
+      expect(r.decisionError).toBe('502 bad gateway')
+      expect(r.agree).toBeNull()
+      expect(r.authoritativeEngine).toBe('decision_model')
+      expect(r.llmChoice).not.toBeNull()
+    }
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns an empty Map with no call, no rows, and no activity when items is empty', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    const answers = await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'enrich_queued',
+      kind: 'entity_type',
+      state: 'x',
+      criteria: ENTITY_CRITERIA,
+      items: [],
+    })
+    expect(answers.size).toBe(0)
+    expect(runDecisionMock).not.toHaveBeenCalled()
+    expect(dbMocks.insertValues).not.toHaveBeenCalled()
+    expect(logActivityCallMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('runEnforcedBoundedDecisions', () => {
+  const SCOPE_CRITERIA = { memory: 'Personal memory recall', graph: 'Graph traversal over entities' }
+  const PROMOTE_CRITERIA = { promote: 'A multi-step initiative the user is running', reject: 'Anything else' }
+
+  function makeSpecs(): BoundedDecisionSpec[] {
+    return [
+      {
+        decisionKind: 'retrieval_scope',
+        id: 'scope',
+        question: {
+          type: 'choice',
+          instructions: 'Which retrieval scope should answer this question?',
+          criteria: SCOPE_CRITERIA,
+        },
+        llmChoice: 'memory',
+        llmConfidence: 0.66,
+      },
+      {
+        decisionKind: 'gtd_promotion',
+        id: 'gtd:hub-0',
+        question: {
+          type: 'choice',
+          instructions: 'Is this hub a GTD project?',
+          criteria: PROMOTE_CRITERIA,
+        },
+        llmChoice: null,
+      },
+    ]
+  }
+
+  it('runs ONE call with questions keyed by spec id and returns the whole-question answers', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        scope: { choice: 'graph', probabilities: { graph: 0.8, memory: 0.2 } },
+        'gtd:hub-0': { choice: 'promote', probabilities: { promote: 0.9, reject: 0.1 } },
+      }),
+    )
+    const answers = await runEnforcedBoundedDecisions({
+      userId: 'user-1',
+      surface: 'qa_intent',
+      state: 'What did I decide about the NBN deadline?',
+      specs: makeSpecs(),
+    })
+
+    expect(runDecisionMock).toHaveBeenCalledTimes(1)
+    const [cfg, req] = runDecisionMock.mock.calls[0]
+    expect(cfg).toEqual(config)
+    expect(req.state).toBe('What did I decide about the NBN deadline?')
+    expect(Object.keys(req.questions)).toEqual(['scope', 'gtd:hub-0'])
+    expect(req.questions.scope).toEqual(makeSpecs()[0].question)
+    expect(req.questions['gtd:hub-0']).toEqual(makeSpecs()[1].question)
+
+    expect(answers.get('scope')).toEqual({
+      type: 'choice',
+      choice: 'graph',
+      probabilities: { graph: 0.8, memory: 0.2 },
+      confidence: 0.8,
+    })
+    expect(answers.get('gtd:hub-0')).toEqual({
+      type: 'choice',
+      choice: 'promote',
+      probabilities: { promote: 0.9, reject: 0.1 },
+      confidence: 0.8,
+    })
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(2)
+    const byKind = Object.fromEntries(rows.map((r) => [r.decisionKind, r]))
+    expect(byKind.retrieval_scope).toMatchObject({
+      userId: 'user-1',
+      surface: 'qa_intent',
+      decisionKind: 'retrieval_scope',
+      subjectRef: null,
+      llmChoice: 'memory',
+      llmConfidence: 0.66,
+      decisionChoice: 'graph',
+      decisionProbability: 0.8,
+      decisionAlternatives: { memory: 0.2 },
+      agree: false,
+      decisionError: null,
+      authoritativeEngine: 'decision_model',
+    })
+    expect(byKind.retrieval_scope.decisionDurationMs).toBeTypeOf('number')
+    // llmChoice null (chat call skipped) → agree null, never false.
+    expect(byKind.gtd_promotion).toMatchObject({
+      decisionKind: 'gtd_promotion',
+      subjectRef: null,
+      llmChoice: null,
+      llmConfidence: null,
+      decisionChoice: 'promote',
+      decisionProbability: 0.9,
+      agree: null,
+      decisionError: null,
+      authoritativeEngine: 'decision_model',
+    })
+
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    const [, userId, call] = logActivityCallMock.mock.calls[0]
+    expect(userId).toBe('user-1')
+    expect(call.provider).toBe('openrouter')
+    expect(call.operation).toBe('decision_shadow')
+    expect(call.gatewayHost).toBe('openrouter.ai')
+    expect(call.context).toBe('decision_shadow kinds=retrieval_scope,gtd_promotion surface=qa_intent')
+    expect(call.baseCostUsd).toBe(0.0000421)
+    expect(call.durationMs).toBeTypeOf('number')
+  })
+
+  it('writes ok rows for on-catalog specs, an error row for the off-catalog one, then throws', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        scope: { choice: 'memory', probabilities: { memory: 0.7, graph: 0.3 } },
+        'gtd:hub-0': { choice: 'both_somehow', probabilities: { both_somehow: 1 } },
+      }),
+    )
+    await expect(
+      runEnforcedBoundedDecisions({
+        userId: 'user-1',
+        surface: 'gtd_judge',
+        state: 'hub context',
+        specs: makeSpecs(),
+      }),
+    ).rejects.toThrow('[decision-plane] enforced gtd_promotion returned off-catalog choice "both_somehow"')
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(2)
+    const byKind = Object.fromEntries(rows.map((r) => [r.decisionKind, r]))
+    // The on-catalog spec still gets its answer row.
+    expect(byKind.retrieval_scope).toMatchObject({
+      decisionChoice: 'memory',
+      decisionError: null,
+      agree: true,
+      authoritativeEngine: 'decision_model',
+    })
+    // The off-catalog spec gets an error row with no answer fields.
+    expect(byKind.gtd_promotion.decisionChoice).toBeNull()
+    expect(byKind.gtd_promotion.decisionProbability).toBeNull()
+    expect(byKind.gtd_promotion.decisionAlternatives).toBeNull()
+    expect(byKind.gtd_promotion.decisionError).toContain('off-catalog')
+    expect(byKind.gtd_promotion.agree).toBeNull()
+    // The call happened — its activity row is still recorded.
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes error rows for all specs and throws when the call fails; activity row still recorded', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
+    await expect(
+      runEnforcedBoundedDecisions({
+        userId: 'user-1',
+        surface: 'qa_intent',
+        state: 'x',
+        specs: makeSpecs(),
+      }),
+    ).rejects.toThrow(/enforced bounded decision\(s\) failed: 502 bad gateway/)
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(2)
+    for (const r of rows) {
+      expect(r.decisionChoice).toBeNull()
+      expect(r.decisionProbability).toBeNull()
+      expect(r.decisionError).toBe('502 bad gateway')
+      expect(r.agree).toBeNull()
+      expect(r.authoritativeEngine).toBe('decision_model')
+    }
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns an empty Map with no call, no rows, and no activity when specs is empty', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    const answers = await runEnforcedBoundedDecisions({
+      userId: 'user-1',
+      surface: 'qa_intent',
+      state: 'x',
+      specs: [],
+    })
+    expect(answers.size).toBe(0)
+    expect(runDecisionMock).not.toHaveBeenCalled()
+    expect(dbMocks.insertValues).not.toHaveBeenCalled()
+    expect(logActivityCallMock).not.toHaveBeenCalled()
+  })
+
+  it('throws before any call, row, or activity when the decision-model config is unavailable', async () => {
+    resolveConfigMock.mockReturnValue(null)
+    await expect(
+      runEnforcedBoundedDecisions({
+        userId: 'user-1',
+        surface: 'qa_intent',
+        state: 'x',
+        specs: makeSpecs(),
+      }),
+    ).rejects.toThrow(/DECISION_SHADOW_ENABLED/)
+    expect(runDecisionMock).not.toHaveBeenCalled()
+    expect(dbMocks.insertValues).not.toHaveBeenCalled()
+    expect(logActivityCallMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects ambiguous specs — blank or duplicate question ids — before any DB or LLM work', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    const specs = makeSpecs()
+    await expect(
+      runEnforcedBoundedDecisions({
+        userId: 'user-1',
+        surface: 'qa_intent',
+        state: 'x',
+        specs: [{ ...specs[0], id: '   ' }],
+      }),
+    ).rejects.toThrow(/bounded question id must not be blank/)
+    await expect(
+      runEnforcedBoundedDecisions({
+        userId: 'user-1',
+        surface: 'qa_intent',
+        state: 'x',
+        specs: [specs[0], { ...specs[1], id: 'scope' }],
+      }),
+    ).rejects.toThrow(/duplicate bounded question id "scope"/)
+    expect(runDecisionMock).not.toHaveBeenCalled()
+    expect(dbMocks.insertValues).not.toHaveBeenCalled()
+    expect(logActivityCallMock).not.toHaveBeenCalled()
   })
 })

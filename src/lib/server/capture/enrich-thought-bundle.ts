@@ -77,7 +77,8 @@ function buildCategoryDistributionBlock(categoryDistribution: Map<string, number
   return `\nRecent category distribution (last ${ONTOLOGY_RECENT_THOUGHT_WINDOW}): ${distLine}`
 }
 
-function buildEnrichThoughtBundlePrompt(input: {
+/** Exported for the category-definition A/B proof harness (scripts/). */
+export function buildEnrichThoughtBundlePrompt(input: {
   context: EnrichmentContext
   capturedAt: Date
   timezone: string

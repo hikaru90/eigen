@@ -5,8 +5,11 @@ import {
   temporalEvent,
   thought,
   type GraphSyncJobOperation,
+  type TemporalEventKind,
 } from '$lib/server/db/schema'
 import { processPendingGraphSyncJobs } from '$lib/server/graph/graph-sync-worker'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { authorshipInsertValues } from '$lib/server/memory/authorship'
 import { syncReminderScheduleForEvent } from '$lib/server/memory/event-reminder-schedule'
@@ -20,6 +23,24 @@ import {
 } from '$lib/server/memory/temporal-normalize'
 
 const DEFAULT_TIMEZONE = 'UTC'
+
+const TEMPORAL_KINDS: readonly TemporalEventKind[] = [
+  'deadline',
+  'appointment',
+  'milestone',
+  'period',
+  'reminder',
+  'inferred_event',
+]
+
+/**
+ * Narrows a decision answer to the persisted kind union. Formality only: the
+ * decision plane already throws on off-catalog choices, and the criteria keys
+ * below are exactly this union.
+ */
+function isTemporalKind(value: string): value is TemporalEventKind {
+  return (TEMPORAL_KINDS as readonly string[]).includes(value)
+}
 
 /** LLM often returns UTC; persist the user's anchor timezone for display and day boundaries. */
 function resolvePersistedTimezone(mentionTimezone: string, userTimezone: string): string {
@@ -61,7 +82,7 @@ export async function syncTemporalEventsFromThought(input: {
     authorKeyId: thoughtAuthorshipRow?.authorKeyId ?? null,
   })
 
-  const mentions = applyCaptureAnchoredMentions(
+  let mentions = applyCaptureAnchoredMentions(
     input.precomputedMentions ??
       (await extractTemporalMentions({
         userId: input.userId,
@@ -71,6 +92,37 @@ export async function syncTemporalEventsFromThought(input: {
       })),
     capturedAt,
   )
+
+  // Enforced temporal-kind typing (DECISION_ENFORCE_KINDS=temporal_kind): one
+  // per-mention decision-model question; the answer overrides ONLY `kind` —
+  // dates, timezone, and precision stay extraction/code-owned. No try/catch:
+  // an enforced failure propagates (callers own the retry semantics).
+  if (resolveDecisionEnforceKinds().has('temporal_kind') && mentions.length > 0) {
+    const answers = await runEnforcedPerItemDecisions({
+      userId: input.userId,
+      surface: 'enrich_queued',
+      kind: 'temporal_kind',
+      state: input.normalizedText,
+      criteria: {
+        deadline: 'A date by which something must be completed.',
+        appointment: 'A scheduled meeting or occurrence at a specific time.',
+        milestone: 'A significant checkpoint marking progress, without a hard deadline.',
+        period: 'A span of days, weeks, or months rather than a single point in time.',
+        reminder: 'A note to check or do something at a time, without a hard commitment.',
+        inferred_event: 'A date or time the text implies rather than states explicitly.',
+      },
+      items: mentions.map((mention, index) => ({
+        ref: `t${index + 1}`,
+        instructions: `Which temporal kind best matches the temporal mention "${mention.surface}" in this captured thought?`,
+        llmChoice: mention.kind,
+        llmConfidence: mention.confidence,
+      })),
+    })
+    mentions = mentions.map((mention, index) => {
+      const answer = answers.get(`t${index + 1}`)
+      return answer && isTemporalKind(answer.choice) ? { ...mention, kind: answer.choice } : mention
+    })
+  }
 
   // Replace prior temporal rows: enqueue AGE graph deletes, then remove Postgres ledger rows.
   const existing = await db

@@ -21,8 +21,10 @@ import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenan
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { runIngestWithRetries } from '$lib/server/ingest/retry'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
 import {
   dominantEntityType,
+  runEnforcedPerItemDecisions,
   startContentRoleDecision,
   startDecisionShadow,
   type EnforcedContentRole,
@@ -273,6 +275,41 @@ export async function enrichQueuedThought(
       const prefetched = await time('prefetch_enrich_llm', () =>
         prefetchEnrichExtractions({ context, capturedAt: row.createdAt }),
       )
+
+      // Enforced per-mention entity typing (spec §8 O1): one Decisions call
+      // asking the bounded entity_type question once per extracted mention.
+      // The decision model's answer replaces the bundle's mention typing
+      // before the graph is persisted. No try/catch — a failure or
+      // off-catalog answer throws into the ingest retry ladder (an enforced
+      // decision has no fallback, no silent skip).
+      if (resolveDecisionEnforceKinds().has('entity_type') && prefetched.entityGraph.mentions.length > 0) {
+        await time('decision_entity_type', async () => {
+          const entityTypeKinds = context.ontology.entityKinds
+            .filter((k) => k.active && k.kindType === 'entity_type')
+            .map((k) => ({ key: k.key, name: k.name, definition: k.definition }))
+          const answers = await runEnforcedPerItemDecisions({
+            userId,
+            surface: 'enrich_queued',
+            kind: 'entity_type',
+            state: context.normalizedText,
+            criteria: Object.fromEntries(
+              entityTypeKinds.map((k) => [k.key, `${k.name}: ${k.definition}`.trim()]),
+            ),
+            items: prefetched.entityGraph.mentions.map((mention, index) => ({
+              ref: `m${index + 1}`,
+              instructions: `Which ontology entity type best matches the mention "${mention.surface}" in this captured thought?`,
+              llmChoice: mention.entityType,
+              llmConfidence: mention.confidence,
+            })),
+          })
+          prefetched.entityGraph.mentions = prefetched.entityGraph.mentions.map((mention, index) => {
+            const answer = answers.get(`m${index + 1}`)
+            return answer
+              ? { ...mention, entityType: answer.choice, confidence: answer.probability }
+              : mention
+          })
+        })
+      }
 
       const bundleCategory = prefetched.category
       // Settle the decision plane beside the bundle. An ENFORCED category

@@ -77,9 +77,33 @@ describe('resolveDecisionEnforceKinds', () => {
     )
   })
 
-  it('fails loud on entity_type — promotion is not implemented (spec O1)', () => {
-    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'entity_type' })).toThrow(
-      /entity_type/,
+  it('accepts entity_type — enforced per item via runEnforcedPerItemDecisions (spec O1)', () => {
+    const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'entity_type' })
+    expect([...kinds]).toEqual(['entity_type'])
+  })
+
+  it('accepts relation_type and temporal_kind', () => {
+    const kinds = resolveDecisionEnforceKinds({
+      DECISION_ENFORCE_KINDS: 'entity_type, relation_type ,TEMPORAL_KIND',
+    })
+    expect([...kinds].sort()).toEqual(['entity_type', 'relation_type', 'temporal_kind'])
+  })
+
+  it('accepts the whole-question chat/qa kinds (retrieval_scope, query_temporal_kind, duration_unit, gtd_promotion)', () => {
+    const kinds = resolveDecisionEnforceKinds({
+      DECISION_ENFORCE_KINDS: 'retrieval_scope,query_temporal_kind, duration_unit ,GTD_PROMOTION',
+    })
+    expect([...kinds].sort()).toEqual([
+      'duration_unit',
+      'gtd_promotion',
+      'query_temporal_kind',
+      'retrieval_scope',
+    ])
+  })
+
+  it('still fails loud on unknown kinds after the registry widened', () => {
+    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'gtd_promotions' })).toThrow(
+      /unknown decision kind "gtd_promotions"/,
     )
   })
 })

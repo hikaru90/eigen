@@ -1,6 +1,6 @@
 # Jev decision plane — every bounded decision in ingest and chat (spec, pre-implementation)
 
-**Status:** Draft for operator approval (DoR stage — no implementation before sign-off).
+**Status:** Operator directive (2026-10-16): Jev is the authoritative engine for every bounded decision ("Jev everywhere"); the chat judge is the shadow/comparison. Ingest kinds are promoted (record below); chat-plane kinds (S3) are the remaining batch.
 **Risk classification:** `critical` (ingestion + retrieval routing are critical-path domains per [03-guardrails](./03-guardrails-quality-gates.md)).
 **Related:** [decision-client.ts](../../src/lib/server/llm/decision-client.ts) · [decision-plane.ts](../../src/lib/server/llm/decision-plane.ts) · [capture-ingest-llm-overhead.md](./capture-ingest-llm-overhead.md) · [ingest-retrieval-timing.md](./ingest-retrieval-timing.md) · [single-thought-type-axis.md](./single-thought-type-axis.md) · [classify-query-intent.ts](../../src/lib/server/retrieval/classify-query-intent.ts)
 
@@ -127,7 +127,7 @@ ALTER TABLE "decision_shadow_log" RENAME COLUMN "decision_category" TO "decision
 - `surface` stays (`capture_service` / `enrich_queued` / `chat_intent` / `qa_intent` / …).
 - Existing rows (2, non-live) migrate trivially under `decision_kind='category'`.
 - **RLS:** confirm `decision_shadow_log` has its `user_id` policy in `enable_rls.sql`; add if missing (assessment S2 lesson — never rely on app filters alone).
-- `/api/admin/decision-shadow` + the capture panel group by `decision_kind`, showing per-kind agreement/confusion pairs.
+- `/api/admin/decision-shadow` groups by `decision_kind`, showing per-kind agreement/confusion pairs (operator diagnostics; the capture-page panel was removed 2026-10-16).
 
 ### 5.3 Cost transparency
 
@@ -196,8 +196,43 @@ Promotion criteria per decision kind (all must hold):
 - **content_role:** an early standalone Jev call (pre-split, no catalogs needed) decides the mode. `thought_only` ⇒ the split chat call is skipped entirely (~3 s/capture saved). `split` ⇒ the chat call runs **generation only** (`decidedMode` contract in `resolveCaptureContentSplit`) — Jev owns the mode, qwen owns the note text. There is no independent chat mode answer anymore, so enforced content_role rows carry `llm_choice = null` (not comparable, not errored).
 - **entity_type:** stays shadow on both sides (67% agreement + dominant-mention-only coverage; the graph sync needs every mention typed — O1 must be revisited first).
 - **Failure semantics:** enforced kinds are a hard dependency — an OpenRouter outage degrades ingest exactly like an LLM-gateway outage. Non-enforced kinds keep the never-throw shadow guarantee (AC-S1-4).
-- **Observability:** `decision_shadow_log.authoritative_engine` (`chat_judge` | `decision_model`) records which engine owns each row's kind; the capture panel shows a "Jev decides" chip and renders chat-skipped rows distinctly.
+- **Observability:** `decision_shadow_log.authoritative_engine` (`chat_judge` | `decision_model`) records which engine owns each row's kind; shadow diagnostics are operator-only via `/api/admin/decision-shadow` (the capture-page panel was removed 2026-10-16).
 - **Rollback:** remove kinds from `DECISION_ENFORCE_KINDS` (or clear it) — qwen becomes authoritative again with zero code change.
+
+---
+
+### Promotion record (2026-10-16) — FULL INGEST PROMOTION: `entity_type` (per-mention), `relation_type`, `temporal_kind`
+
+**Operator decision:** explicit blanket directive, quoting intent: "Use Jev everywhere … Jev is the main driver and the other system should be the shadow … Jev is the main driver of this application." This waives the P1/P2 evidence gates for the ingest kinds below (same waiver shape as the 2026-10-15 record, now covering the full ingest plane). P4 satisfied (this record). P5 implemented as specified.
+
+**Evidence at approval:** shadow log, 21 enriches — category 22/22 agreement; entity_type 13/21 agreement with the chat judge at ≥0.9 confidence on every row it ever recorded (43 rows, minimum 0.9 — no calibration signal), including person@0.98 / place@0.95 mis-typings of account-creation mentions; relation_type and temporal_kind promoted with **no shadow evidence** under the explicit waiver. Jev calibration properties per vendor docs (Brier-trained, band-level thresholds, confidence = distribution concentration) motivated the swap on quality grounds independent of agreement counts.
+
+**Implemented contract:**
+
+- `DECISION_ENFORCE_KINDS=category,content_role,entity_type,relation_type,temporal_kind` (rollback: shrink or clear the var).
+- **entity_type (O1 resolved):** one Decisions call per enrich, one `choice` question per extracted mention (key `entity_type:m1…mN`, surface quoted in the question instructions, full capture text as `state`, criteria = active entity-type catalog). Jev's answer overrides each mention's type + confidence before graph sync; the bundle's typing is recorded per-mention as the comparison. Mention *surface extraction* stays on the chat judge (generation shape); only the type decision moved. Generic dominant-mention shadow question is suppressed while enforced.
+- **relation_type:** relation candidate *generation* stays deterministic (hybrid retrieval + temporal neighbors). The per-pair 8-way typing moves to Jev with a ninth `none` criterion (omit weak pairs). Under enforcement the chat relation call is skipped entirely (content_role precedent: `llm_choice = null` rows). Under shadow (enforcement off) the chat call stays authoritative.
+- **temporal_kind:** the `kind` enum per temporal mention is re-decided by Jev after extraction; surfaces, ISO dates, timePrecision, and anchoring math stay extraction/code-owned (vendor guidance: Jev does no date math).
+- **Per-item rows:** `decision_shadow_log.subject_ref` (migration 0075) carries the deterministic per-item surrogate (`m1…mN` mentions, `p1…pN` pairs, `t1…tN` temporal mentions) — never text, surfaces, or ids. `authoritative_engine='decision_model'`; `agree` compares against the chat answer when one exists.
+- **Edit-path enforcement fix (P5 violation closed):** `/api/capture/edit` re-classification now applies the enforced category answer (`categorySource='decision_model'`); previously it silently kept the chat judge's answer while the shadow row claimed decision-model authority.
+- **Failure semantics:** unchanged enforced contract — per-item call errors and off-catalog choices write their evidence rows and throw into the ingest retry ladder (exactly 3); no fallback.
+- **Stays on the chat judge (generation/shape, per §2):** interpreted text, cues, entity surfaces, relation candidate generation, temporal surfaces + ISO dates + anchoring, summaries, answers, ontology guidance text. **Rejected for Jev (unchanged):** listwise rerank/orderings, embeddings, date math. **Chat plane (S3, C1–C4 + message intent):** next batch, shadow-first per AC-S3-*.
+
+---
+
+### Promotion record (2026-10-16, batch 2) — CHAT/QA PLANE + GTD: `retrieval_scope`, `query_temporal_kind`, `duration_unit`, `gtd_promotion`
+
+**Operator decision:** continuation of the 2026-10-16 blanket directive ("Jev all the way"), plus two operator additions: the shadow panel is removed from the app UI ("make sure to not show the shadow in the app") and the GTD escalation design was accepted.
+
+**Implemented contract:**
+
+- `DECISION_ENFORCE_KINDS` extended with `retrieval_scope,query_temporal_kind,duration_unit,gtd_promotion` (rollback: shrink the var).
+- **Retrieval intent (C2/C3/C4):** `classifyQueryIntent` still runs qwen once (it also produces the extraction-shaped fields — entity hints, time window, temporal flag, comparativeOrdering); when any of the three kinds is enforced, ONE Jev call (surface `qa_intent`) overrides `scope`, temporal reasoning `kind`, and `durationUnit` (`none` → null). A Jev failure rejects the query — enforced semantics, no fallback to qwen's answers.
+- **Preview/store consistency (S3 defect):** `interpretThoughtPreview` asks Jev (surface `interpret_preview`) under category enforcement and shows ITS category + calibrated confidence/alternatives in the confirm modal, so the preview the user confirms is the decision that persists. Interpret text/entities/deviation flag stay qwen; strict-retry path remains for the non-enforced mode.
+- **GTD promotion:** Jev is the promotion judge (surface `gtd_judge`); `state` = JSON with hub label, entity type, linked-thought summaries, open-task summaries, counts — the guardrail-required judge input. Escalation band: `0.4 ≤ p(true) ≤ 0.6` routes the hub to the existing qwen judge, whose verdict + canonical label win (designed two-engine tiebreak, not a fallback; rows record Jev's answer with `llmChoice=null`). Outside the band Jev decides and `canonicalLabel` = the hub's existing label. Negative regression coverage per guardrail: ingredient, relative, single one-off task, co-mentioned concept fixtures assert non-promotion through the Jev path.
+- **Shadow UI removed from the app:** the capture-page decision-shadow panel (incl. the "Jev decides" chip) is deleted; `decision_shadow_log` recording and the operator-only `/api/admin/decision-shadow` endpoint remain.
+- **Test hermeticity rule (new):** operator `.env` enforcement must never leak network calls into unit tests — specs exercising decision-consulting code paths mock `resolveDecisionEnforceKinds` (module-mock idiom), never rely on env stubs.
+- **Remaining queue (not scheduled):** entity-resolution choice (merge/create among candidates — covers label-variant dedup like Jev/jev), delete-target selection (destructive-action gate design first), message intent C1 (new behavior, shadow-first), open-loop refinement and salience score (need a consumer/storage decision, O2).
 
 ---
 

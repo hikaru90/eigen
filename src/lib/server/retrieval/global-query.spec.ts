@@ -1,13 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { classifyRetrievalScope, parseRetrievalScopeResponse } from './global-query'
 
-const { llmChatCompletionMock } = vi.hoisted(() => ({
+const { llmChatCompletionMock, resolveEnforceKindsMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
+  resolveEnforceKindsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
 }))
+// Enforcement is controlled through resolveDecisionEnforceKinds (same pattern as
+// temporal-graph-sync.spec.ts): the operator's real .env enforces retrieval_scope
+// etc., and SvelteKit bakes .env into $env/dynamic/private even under vitest — so
+// the un-mocked resolver would switch on the enforced bounded decision path and
+// make real OpenRouter network calls inside these unit tests. Stubbing it to an
+// empty set keeps that branch off, so runEnforcedBoundedDecisions is never reached
+// and no decision-plane mock is needed. Operator .env must never leak network
+// calls into unit tests.
+vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-client')>()
+  return { ...actual, resolveDecisionEnforceKinds: resolveEnforceKindsMock }
+})
 
 describe('parseRetrievalScopeResponse', () => {
   it('parses scope from JSON', () => {
@@ -27,6 +40,7 @@ describe('parseRetrievalScopeResponse', () => {
 describe('classifyRetrievalScope', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resolveEnforceKindsMock.mockReturnValue(new Set())
   })
 
   it('returns global when the LLM classifies a thematic self-profile question', async () => {

@@ -1,11 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { extractRelations } from './relation-extraction'
 
-const { llmChatCompletionMock, searchThoughtsMock, getDbMock } = vi.hoisted(() => ({
-  llmChatCompletionMock: vi.fn(),
-  searchThoughtsMock: vi.fn(),
-  getDbMock: vi.fn(),
-}))
+const { llmChatCompletionMock, searchThoughtsMock, getDbMock, runEnforcedPerItemDecisionsMock, resolveEnforceKindsMock } =
+  vi.hoisted(() => ({
+    llmChatCompletionMock: vi.fn(),
+    searchThoughtsMock: vi.fn(),
+    getDbMock: vi.fn(),
+    runEnforcedPerItemDecisionsMock: vi.fn(),
+    resolveEnforceKindsMock: vi.fn(),
+  }))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
@@ -18,6 +21,22 @@ vi.mock('$lib/server/retrieval/service', () => ({
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
 }))
+
+vi.mock('$lib/server/llm/decision-plane', () => ({
+  runEnforcedPerItemDecisions: runEnforcedPerItemDecisionsMock,
+}))
+
+// $env/dynamic/private bakes values at transform time, so vi.stubEnv alone
+// cannot drive resolveDecisionEnforceKinds() at call time — the module mock
+// is the control surface; process.env is still stubbed per test (below) to
+// keep ambient env from leaking into the real resolver.
+vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-client')>()
+  return {
+    ...actual,
+    resolveDecisionEnforceKinds: resolveEnforceKindsMock,
+  }
+})
 
 /** Returns an empty temporal neighbor chain by default. */
 function makeEmptyDbMock() {
@@ -34,10 +53,34 @@ function makeEmptyDbMock() {
   }
 }
 
+/** A graph-connected semantic neighbor row (passes the graphScore > 0 filter). */
+function makeSemanticNeighbor(id: string, normalizedText: string) {
+  return {
+    id,
+    normalizedText,
+    category: 'task',
+    score: 1,
+    vectorScore: 1,
+    graphScore: 0.02,
+    metadata: {},
+  }
+}
+
+function makeDecisionAnswer(choice: string) {
+  return { choice, probability: 0.9, alternatives: {} }
+}
+
 describe('extractRelations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Enforcement OFF by default — the chat-judge (qwen) path stays authoritative.
+    resolveEnforceKindsMock.mockReturnValue(new Set())
     getDbMock.mockReturnValue(makeEmptyDbMock())
+    vi.stubEnv('DECISION_ENFORCE_KINDS', '')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it('returns parsed allowed relations', async () => {
@@ -601,5 +644,160 @@ describe('extractRelations', () => {
       normalizedText: 'planning notes for tomorrow',
     })
     expect(out).toEqual([{ targetId: 'missing-id', relationType: 'related_to' }])
+  })
+
+  it('enforcement ON: decides every pair via runEnforcedPerItemDecisions and never calls the chat model', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['relation_type']))
+    vi.stubEnv('DECISION_ENFORCE_KINDS', 'relation_type')
+    searchThoughtsMock.mockResolvedValue([
+      makeSemanticNeighbor('t2', 'thought two'),
+      makeSemanticNeighbor('t3', 'thought three'),
+      makeSemanticNeighbor('t4', 'thought four'),
+    ])
+    runEnforcedPerItemDecisionsMock.mockResolvedValue(
+      new Map([
+        ['p1', makeDecisionAnswer('none')],
+        ['p2', makeDecisionAnswer('mentions')],
+        ['p3', makeDecisionAnswer('follows_from')],
+      ]),
+    )
+
+    const out = await extractRelations({
+      userId: 'u1',
+      thoughtId: 't1',
+      normalizedText: 'source thought',
+    })
+
+    expect(llmChatCompletionMock).not.toHaveBeenCalled()
+    expect(runEnforcedPerItemDecisionsMock).toHaveBeenCalledTimes(1)
+    const call = runEnforcedPerItemDecisionsMock.mock.calls[0][0]
+    expect(call.userId).toBe('u1')
+    expect(call.surface).toBe('enrich_queued')
+    expect(call.kind).toBe('relation_type')
+    expect(call.state).toBe('source thought')
+    expect(Object.keys(call.criteria).sort()).toEqual(
+      [
+        'mentions',
+        'depends_on',
+        'refines',
+        'contradicts',
+        'related_to',
+        'follows_from',
+        'continuation_of',
+        'caused_by',
+        'none',
+      ].sort(),
+    )
+    expect(Object.values(call.criteria).every((v) => typeof v === 'string' && v.length > 0)).toBe(true)
+    expect(call.items).toEqual([
+      {
+        ref: 'p1',
+        instructions: expect.stringContaining('thought two'),
+        llmChoice: null,
+      },
+      {
+        ref: 'p2',
+        instructions: expect.stringContaining('thought three'),
+        llmChoice: null,
+      },
+      {
+        ref: 'p3',
+        instructions: expect.stringContaining('thought four'),
+        llmChoice: null,
+      },
+    ])
+
+    // 'none' is omitted; typed choices map back to the candidate ids in order.
+    expect(out).toEqual([
+      { targetId: 't3', relationType: 'mentions' },
+      { targetId: 't4', relationType: 'follows_from' },
+    ])
+  })
+
+  it('enforcement ON: omits candidates whose answer is missing or off-catalog', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['relation_type']))
+    vi.stubEnv('DECISION_ENFORCE_KINDS', 'relation_type')
+    searchThoughtsMock.mockResolvedValue([
+      makeSemanticNeighbor('t2', 'thought two'),
+      makeSemanticNeighbor('t3', 'thought three'),
+    ])
+    runEnforcedPerItemDecisionsMock.mockResolvedValue(
+      new Map([
+        // p1 has no answer; p3-style stray ref is ignored.
+        ['p2', makeDecisionAnswer('some_other_type')],
+      ]),
+    )
+
+    const out = await extractRelations({
+      userId: 'u1',
+      thoughtId: 't1',
+      normalizedText: 'source thought',
+    })
+
+    expect(out).toEqual([])
+  })
+
+  it('enforcement ON: rejects when the enforced decision fails — no fallback to the chat path', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['relation_type']))
+    vi.stubEnv('DECISION_ENFORCE_KINDS', 'relation_type')
+    searchThoughtsMock.mockResolvedValue([makeSemanticNeighbor('t2', 'thought two')])
+    runEnforcedPerItemDecisionsMock.mockRejectedValue(
+      new Error('[decision-plane] enforced relation_type per-item decision failed: HTTP 503'),
+    )
+
+    await expect(
+      extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'source thought' }),
+    ).rejects.toThrow(/enforced relation_type per-item decision failed/)
+
+    expect(llmChatCompletionMock).not.toHaveBeenCalled()
+  })
+
+  it('enforcement OFF: keeps the chat-judge path — one llm call, no per-item decisions', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    vi.stubEnv('DECISION_ENFORCE_KINDS', '')
+    searchThoughtsMock.mockResolvedValue([makeSemanticNeighbor('t2', 'connected thought')])
+    llmChatCompletionMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify([{ targetId: 't2', relationType: 'refines' }]),
+          },
+        },
+      ],
+    })
+
+    const out = await extractRelations({
+      userId: 'u1',
+      thoughtId: 't1',
+      normalizedText: 'source thought',
+    })
+
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+    expect(runEnforcedPerItemDecisionsMock).not.toHaveBeenCalled()
+    expect(out).toEqual([{ targetId: 't2', relationType: 'refines' }])
+  })
+
+  it('enforcement OFF: still filters invalid relation types from the chat output', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    vi.stubEnv('DECISION_ENFORCE_KINDS', '')
+    searchThoughtsMock.mockResolvedValue([makeSemanticNeighbor('t2', 'connected thought')])
+    llmChatCompletionMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify([{ targetId: 't2', relationType: 'unsupported' }]),
+          },
+        },
+      ],
+    })
+
+    const out = await extractRelations({
+      userId: 'u1',
+      thoughtId: 't1',
+      normalizedText: 'source thought',
+    })
+
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+    expect(out).toEqual([])
   })
 })

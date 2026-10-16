@@ -10,6 +10,7 @@ export type IngestPhase =
   | 'persist_insert'
   | 'graph_anchor'
   | 'decision_content_role'
+  | 'decision_entity_type'
   | 'content_split'
   | 'enrich_bump_version'
   | 'enrich_entities'

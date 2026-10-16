@@ -558,6 +558,12 @@ export const decisionShadowLog = pgTable(
     /** Which bounded decision this row compares: `category` | `content_role` | `entity_type`. */
     decisionKind: text('decision_kind').notNull().default('category'),
     /**
+     * Deterministic per-item surrogate for per-mention / per-pair decision rows
+     * (`m1`, `p2`, `t3`, 1-based order of the item in the decision call). Never
+     * contains thought text, surfaces, or ids (privacy contract of decision-plane.ts).
+     */
+    subjectRef: text('subject_ref'),
+    /**
      * Chat judge's choice for this decision kind. Null when the chat call was
      * skipped because the kind is decision-model authoritative
      * (authoritative_engine='decision_model') — e.g. content_role

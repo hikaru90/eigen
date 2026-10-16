@@ -3,6 +3,11 @@
  */
 
 import { parseOptionalIsoTimestampOrNull } from '$lib/server/datetime/parse-iso'
+import {
+  resolveDecisionEnforceKinds,
+  type DecisionChoiceAnswer,
+} from '$lib/server/llm/decision-client'
+import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import type { RetrievalScope } from '$lib/server/retrieval/global-query'
@@ -156,7 +161,107 @@ export async function classifyQueryIntent(params: {
     throw new Error('query intent classifier: empty LLM response')
   }
 
-  return parseQueryIntentResponse(content)
+  const parsed = parseQueryIntentResponse(content)
+
+  // Enforced bounded half: when any qa kind is decision-model authoritative,
+  // ONE additional Decisions call overrides scope/kind/durationUnit. No
+  // try/catch — an enforced failure propagates (retrieval is critical path;
+  // same posture as an LLM gateway outage). Off: zero calls, zero change.
+  const enforceKinds = resolveDecisionEnforceKinds()
+  if (
+    enforceKinds.has('retrieval_scope') ||
+    enforceKinds.has('query_temporal_kind') ||
+    enforceKinds.has('duration_unit')
+  ) {
+    const answers = await runEnforcedBoundedDecisions({
+      userId: params.userId,
+      surface: 'qa_intent',
+      state: query,
+      specs: [
+        {
+          decisionKind: 'retrieval_scope',
+          id: 'scope',
+          question: ENFORCED_SCOPE_QUESTION,
+          llmChoice: parsed.scope,
+          llmConfidence: null,
+        },
+        {
+          decisionKind: 'query_temporal_kind',
+          id: 'temporal_kind',
+          question: ENFORCED_TEMPORAL_KIND_QUESTION,
+          llmChoice: parsed.kind,
+          llmConfidence: null,
+        },
+        {
+          decisionKind: 'duration_unit',
+          id: 'duration_unit',
+          question: ENFORCED_DURATION_UNIT_QUESTION,
+          llmChoice: parsed.durationUnit ?? 'none',
+          llmConfidence: null,
+        },
+      ],
+    })
+
+    // The plane validates every choice against the criteria catalogs above
+    // (off-catalog throws), so these narrows are total.
+    const scope = enforcedChoiceOrThrow(answers, 'scope') as RetrievalScope
+    const kind = enforcedChoiceOrThrow(answers, 'temporal_kind') as TemporalQuestionKind
+    const unitChoice = enforcedChoiceOrThrow(answers, 'duration_unit')
+    const durationUnit = unitChoice === 'none' ? null : (unitChoice as DurationUnit)
+    return { ...parsed, scope, kind, durationUnit }
+  }
+
+  return parsed
+}
+
+// Enforced bounded half (DECISION_ENFORCE_KINDS): the decision model answers
+// the closed-catalog classifications; the chat classifier keeps the
+// open-ended extractions (temporal flag, entityHints, timeWindow,
+// comparativeOrdering). Criteria keys double as the validity catalog —
+// runEnforcedBoundedDecisions throws on off-catalog choices.
+const ENFORCED_SCOPE_QUESTION = {
+  type: 'choice',
+  instructions:
+    "Should this question be answered from the user's entire memory, or narrowly from the current conversational context?",
+  criteria: {
+    global: "The answer may draw on the user's whole stored memory.",
+    local: 'The answer should come only from the immediate conversation context.',
+  },
+} as const
+
+const ENFORCED_TEMPORAL_KIND_QUESTION = {
+  type: 'choice',
+  instructions: 'Which temporal reasoning does this question require?',
+  criteria: {
+    ordering: 'Asks which of several events happened first.',
+    multi_ordering: 'Asks to order many events.',
+    duration: 'Asks how long something lasted.',
+    count: 'Asks how often something happened.',
+    lookback: 'Asks what happened in some time window before now.',
+    span: 'Asks about a specific date range.',
+    absolute: 'Asks what happened at a specific point in time.',
+    none: 'No temporal reasoning required.',
+  },
+} as const
+
+const ENFORCED_DURATION_UNIT_QUESTION = {
+  type: 'choice',
+  instructions: 'If the question involves a duration, which unit?',
+  criteria: {
+    days: 'Durations expressed in days.',
+    weeks: 'Durations expressed in weeks.',
+    months: 'Durations expressed in months.',
+    none: 'No duration involved.',
+  },
+} as const
+
+/** A spec id is always answered or the plane throws; a missing key is a contract violation. */
+function enforcedChoiceOrThrow(answers: Map<string, DecisionChoiceAnswer>, id: string): string {
+  const answer = answers.get(id)
+  if (!answer) {
+    throw new Error(`query intent classifier: enforced decision "${id}" returned no answer`)
+  }
+  return answer.choice
 }
 
 /** Back-compat wrapper — prefer classifyQueryIntent for temporal-aware routing. */

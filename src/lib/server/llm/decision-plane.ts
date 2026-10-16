@@ -31,14 +31,28 @@ import {
   resolveDecisionEnforceKinds,
   resolveDecisionShadowConfig,
   runDecisionModel,
+  type DecisionChoiceAnswer,
   type DecisionChoiceQuestion,
+  type DecisionKind,
+  type DecisionResponse,
   type DecisionShadowConfig,
   type EnforceableDecisionKind,
 } from './decision-client'
 
-export type DecisionShadowSurface = 'capture_service' | 'enrich_queued'
+export type { DecisionKind }
 
-export type DecisionKind = 'category' | 'content_role' | 'entity_type'
+/**
+ * Where the decision call ran. capture_service and enrich_queued are the
+ * ingest surfaces; qa_intent, interpret_preview, and gtd_judge are the
+ * planned chat/qa surfaces (spec §5.2) served by
+ * runEnforcedBoundedDecisions.
+ */
+export type DecisionShadowSurface =
+  | 'capture_service'
+  | 'enrich_queued'
+  | 'qa_intent'
+  | 'interpret_preview'
+  | 'gtd_judge'
 
 /** The mode answer for the content-split decision. */
 export type ContentRoleMode = 'thought_only' | 'split'
@@ -160,6 +174,33 @@ function enabledKinds(ctx: DecisionShadowContext): DecisionKind[] {
   return kinds
 }
 
+/**
+ * entity_type is enforced per mention (runEnforcedPerItemDecisions): the
+ * generic dominant-mention question would double-ask and its row would
+ * contradict the per-mention rows. When enforced, it disappears from the
+ * generic shadow entirely — question and row — while category/content_role
+ * keep their behavior.
+ */
+function genericShadowKinds(
+  ctx: DecisionShadowContext,
+  enforceKinds: ReadonlySet<EnforceableDecisionKind>,
+): DecisionKind[] {
+  const kinds = enabledKinds(ctx)
+  if (!enforceKinds.has('entity_type')) return kinds
+  return kinds.filter((k) => k !== 'entity_type')
+}
+
+/** The generic call's questions — the enforced entity_type question removed. */
+function genericShadowQuestions(
+  ctx: DecisionShadowContext,
+  enforceKinds: ReadonlySet<EnforceableDecisionKind>,
+): Record<string, DecisionChoiceQuestion> {
+  const questions = decisionQuestionsFor(ctx)
+  if (!enforceKinds.has('entity_type')) return questions
+  const { entity_type: _perMention, ...generic } = questions
+  return generic
+}
+
 type KindOutcome =
   | {
       ok: true
@@ -275,6 +316,319 @@ function resolveDecisionShadowConfigSafe(): DecisionShadowConfig | null {
   }
 }
 
+/** Kinds decided per item (mention/pair) rather than for the capture as a whole. */
+type PerItemKind = 'entity_type' | 'relation_type' | 'temporal_kind'
+
+export type PerItemDecisionItem = {
+  /** Deterministic surrogate stored in decision_shadow_log.subject_ref — never text. */
+  ref: string
+  /** Full question instructions; may quote the item's surface text (goes to the model, not the log). */
+  instructions: string
+  /** The chat judge's answer for this item — comparison column. Null when the chat call was skipped. */
+  llmChoice: string | null
+  llmConfidence?: number | null
+}
+
+export type PerItemDecisionAnswer = {
+  choice: string
+  probability: number
+  /** Probabilities of the non-chosen options. */
+  alternatives: Record<string, number>
+}
+
+function perItemRow(
+  input: { userId: string; surface: DecisionShadowSurface; kind: PerItemKind },
+  item: PerItemDecisionItem,
+  answer: PerItemDecisionAnswer | null,
+  durationMs: number,
+  error: string | null,
+): typeof decisionShadowLog.$inferInsert {
+  return {
+    userId: input.userId,
+    surface: input.surface,
+    decisionKind: input.kind,
+    subjectRef: item.ref,
+    llmChoice: item.llmChoice,
+    llmConfidence: item.llmConfidence ?? null,
+    decisionChoice: answer?.choice ?? null,
+    decisionProbability: answer?.probability ?? null,
+    decisionAlternatives: answer?.alternatives ?? null,
+    agree: item.llmChoice !== null && answer ? item.llmChoice === answer.choice : null,
+    decisionError: error,
+    decisionDurationMs: durationMs,
+    authoritativeEngine: 'decision_model',
+  }
+}
+
+/**
+ * Writes the evidence rows and the call's ONE activity row. A logging failure
+ * must never mask the enforced throw below — log loudly and let the caller
+ * rethrow the original (same posture as recordRows).
+ */
+async function persistPerItemRows(
+  input: { userId: string; surface: DecisionShadowSurface; kind: PerItemKind },
+  items: PerItemDecisionItem[],
+  rows: Array<typeof decisionShadowLog.$inferInsert>,
+  reportedCostUsd: number | null,
+  durationMs: number,
+): Promise<void> {
+  try {
+    if (rows.length > 0) {
+      await getDb().insert(decisionShadowLog).values(rows)
+    }
+    // Cost transparency: exactly one activity row per Decisions call — even
+    // on failure, the call happened.
+    await logActivityCall(getDb(), input.userId, {
+      provider: 'openrouter',
+      operation: 'decision_shadow',
+      // Provider-reported USD (usage.cost); 0 when absent — never inferred.
+      baseCostUsd: reportedCostUsd ?? 0,
+      gatewayHost: 'openrouter.ai',
+      context: `decision_shadow kinds=${input.kind} items=${items.length} surface=${input.surface}`,
+      durationMs,
+    })
+  } catch (err) {
+    console.error('[decision-plane] failed to record per-item decision rows', err)
+  }
+}
+
+/**
+ * Per-item ENFORCED decisions (spec §8 O1): ONE Decisions call asking the
+ * same bounded question once per mention/pair, keyed `${kind}:${ref}`. The
+ * decision model's answer is authoritative and returned per item ref; the
+ * chat judge's answer (when one exists) is recorded as the comparison.
+ *
+ * FAILS LOUD on call errors and off-catalog choices — an enforced decision
+ * has no fallback; the enrich retry ladder owns recovery. Evidence is
+ * written first: every item gets a row even when the call or one item's
+ * answer failed. Rows are privacy-safe by construction: refs, choice keys,
+ * probabilities — never instructions text, surfaces, or thought text.
+ */
+export async function runEnforcedPerItemDecisions(input: {
+  userId: string
+  surface: DecisionShadowSurface
+  kind: PerItemKind
+  /** The capture text sent as the Decisions API `state`. */
+  state: string
+  criteria: Record<string, string>
+  items: PerItemDecisionItem[]
+}): Promise<Map<string, PerItemDecisionAnswer>> {
+  // Nothing to decide — no call, no rows, no activity row.
+  if (input.items.length === 0) return new Map()
+
+  const resolved = resolveDecisionShadowConfigSafe()
+  if (!resolved) {
+    throw new Error(
+      `[decision-plane] enforced ${input.kind} per-item decisions require DECISION_SHADOW_ENABLED=true with a complete decision-model config`,
+    )
+  }
+
+  const startedAt = Date.now()
+  const questions: Record<string, DecisionChoiceQuestion> = {}
+  for (const item of input.items) {
+    questions[`${input.kind}:${item.ref}`] = {
+      type: 'choice',
+      instructions: item.instructions,
+      criteria: input.criteria,
+    }
+  }
+
+  let res: DecisionResponse
+  try {
+    res = await runDecisionModel(resolved, { state: input.state, questions })
+  } catch (err) {
+    const durationMs = Date.now() - startedAt
+    const rows = input.items.map((item) => perItemRow(input, item, null, durationMs, errorText(err)))
+    await persistPerItemRows(input, input.items, rows, null, durationMs)
+    throw new Error(`[decision-plane] enforced ${input.kind} per-item decision failed: ${errorText(err)}`, {
+      cause: err,
+    })
+  }
+
+  const durationMs = Date.now() - startedAt
+  const answers = new Map<string, PerItemDecisionAnswer>()
+  const rows: Array<typeof decisionShadowLog.$inferInsert> = []
+  let offCatalog: string | null = null
+  for (const item of input.items) {
+    const answer = res.answers[`${input.kind}:${item.ref}`]
+    if (!Object.hasOwn(input.criteria, answer.choice)) {
+      // All items get their rows before the throw — the evidence persists.
+      offCatalog = `[decision-plane] enforced ${input.kind} item ${item.ref} returned off-catalog choice "${answer.choice}"`
+      rows.push(perItemRow(input, item, null, durationMs, offCatalog))
+      continue
+    }
+    const alternatives: Record<string, number> = {}
+    for (const [key, prob] of Object.entries(answer.probabilities)) {
+      if (key !== answer.choice) alternatives[key] = prob
+    }
+    const perItem: PerItemDecisionAnswer = {
+      choice: answer.choice,
+      probability: answer.probabilities[answer.choice],
+      alternatives,
+    }
+    answers.set(item.ref, perItem)
+    rows.push(perItemRow(input, item, perItem, durationMs, null))
+  }
+
+  await persistPerItemRows(input, input.items, rows, res.reportedCostUsd, durationMs)
+
+  if (offCatalog) throw new Error(offCatalog)
+  return answers
+}
+
+/**
+ * A whole-question enforced decision: one bounded question for the call as a
+ * whole (not per mention/pair) — e.g. retrieval scope or GTD promotion on the
+ * chat/qa surfaces (spec §5.2). The id is this call's question key and may
+ * carry a surrogate ref ('gtd:hub-3') — never text.
+ */
+export type BoundedDecisionSpec = {
+  /** Row identity: decision_kind column value (e.g. 'retrieval_scope', 'gtd_promotion'). */
+  decisionKind: DecisionKind
+  /** Unique question id within this call (e.g. 'scope', 'gtd:hub-<index>'). */
+  id: string
+  question: DecisionChoiceQuestion
+  /** Chat judge's answer for the comparison column; null when the chat call was skipped. */
+  llmChoice: string | null
+  llmConfidence?: number | null
+}
+
+function boundedRow(
+  input: { userId: string; surface: DecisionShadowSurface },
+  spec: BoundedDecisionSpec,
+  answer: DecisionChoiceAnswer | null,
+  durationMs: number,
+  error: string | null,
+): typeof decisionShadowLog.$inferInsert {
+  const alternatives: Record<string, number> | null = answer
+    ? Object.fromEntries(Object.entries(answer.probabilities).filter(([key]) => key !== answer.choice))
+    : null
+  return {
+    userId: input.userId,
+    surface: input.surface,
+    decisionKind: spec.decisionKind,
+    // Whole-question decisions have no per-item subject.
+    subjectRef: null,
+    llmChoice: spec.llmChoice,
+    llmConfidence: spec.llmConfidence ?? null,
+    decisionChoice: answer?.choice ?? null,
+    decisionProbability: answer ? answer.probabilities[answer.choice] : null,
+    decisionAlternatives: alternatives,
+    agree: spec.llmChoice !== null && answer ? spec.llmChoice === answer.choice : null,
+    decisionError: error,
+    decisionDurationMs: durationMs,
+    authoritativeEngine: 'decision_model',
+  }
+}
+
+/**
+ * Writes the bounded evidence rows and the call's ONE activity row. A logging
+ * failure must never mask the enforced throw below — log loudly and let the
+ * caller rethrow the original (same posture as persistPerItemRows).
+ */
+async function persistBoundedRows(
+  input: { userId: string; surface: DecisionShadowSurface },
+  specs: BoundedDecisionSpec[],
+  rows: Array<typeof decisionShadowLog.$inferInsert>,
+  reportedCostUsd: number | null,
+  durationMs: number,
+): Promise<void> {
+  try {
+    if (rows.length > 0) {
+      await getDb().insert(decisionShadowLog).values(rows)
+    }
+    // Cost transparency: exactly one activity row per Decisions call — even
+    // on failure, the call happened.
+    await logActivityCall(getDb(), input.userId, {
+      provider: 'openrouter',
+      operation: 'decision_shadow',
+      // Provider-reported USD (usage.cost); 0 when absent — never inferred.
+      baseCostUsd: reportedCostUsd ?? 0,
+      gatewayHost: 'openrouter.ai',
+      context: `decision_shadow kinds=${specs.map((s) => s.decisionKind).join(',')} surface=${input.surface}`,
+      durationMs,
+    })
+  } catch (err) {
+    console.error('[decision-plane] failed to record bounded decision rows', err)
+  }
+}
+
+/**
+ * Whole-question ENFORCED decisions (spec §5.2 chat/qa surfaces): ONE
+ * Decisions call asking each bounded spec's question once, keyed by spec id.
+ * The decision model's answer is authoritative and returned per spec id; the
+ * chat judge's answer (when one exists) is recorded as the comparison.
+ *
+ * FAILS LOUD on call errors and off-catalog choices — an enforced decision
+ * has no fallback; the caller's retry ladder owns recovery. Evidence is
+ * written first: every spec gets a row even when the call or one answer
+ * failed. Rows are privacy-safe by construction: question ids, choice keys,
+ * probabilities — never instructions text or state text.
+ */
+export async function runEnforcedBoundedDecisions(input: {
+  userId: string
+  surface: DecisionShadowSurface
+  state: string
+  specs: BoundedDecisionSpec[]
+}): Promise<Map<string, DecisionChoiceAnswer>> {
+  // Nothing to decide — no call, no rows, no activity row.
+  if (input.specs.length === 0) return new Map()
+
+  // Reject ambiguous argument shapes at the boundary, before any DB or LLM work.
+  const seenIds = new Set<string>()
+  for (const spec of input.specs) {
+    if (!spec.id.trim()) throw new Error('[decision-plane] bounded question id must not be blank')
+    if (seenIds.has(spec.id)) throw new Error(`[decision-plane] duplicate bounded question id "${spec.id}"`)
+    seenIds.add(spec.id)
+  }
+
+  const resolved = resolveDecisionShadowConfigSafe()
+  if (!resolved) {
+    throw new Error(
+      '[decision-plane] enforced bounded decisions require DECISION_SHADOW_ENABLED=true with a complete decision-model config',
+    )
+  }
+
+  const startedAt = Date.now()
+  const questions: Record<string, DecisionChoiceQuestion> = {}
+  for (const spec of input.specs) {
+    questions[spec.id] = spec.question
+  }
+
+  let res: DecisionResponse
+  try {
+    res = await runDecisionModel(resolved, { state: input.state, questions })
+  } catch (err) {
+    const durationMs = Date.now() - startedAt
+    const rows = input.specs.map((spec) => boundedRow(input, spec, null, durationMs, errorText(err)))
+    await persistBoundedRows(input, input.specs, rows, null, durationMs)
+    throw new Error(`[decision-plane] enforced bounded decision(s) failed: ${errorText(err)}`, {
+      cause: err,
+    })
+  }
+
+  const durationMs = Date.now() - startedAt
+  const answers = new Map<string, DecisionChoiceAnswer>()
+  const rows: Array<typeof decisionShadowLog.$inferInsert> = []
+  let offCatalog: string | null = null
+  for (const spec of input.specs) {
+    const answer = res.answers[spec.id]
+    if (!Object.hasOwn(spec.question.criteria, answer.choice)) {
+      // All specs get their rows before the throw — the evidence persists.
+      offCatalog = `[decision-plane] enforced ${spec.decisionKind} returned off-catalog choice "${answer.choice}"`
+      rows.push(boundedRow(input, spec, null, durationMs, offCatalog))
+      continue
+    }
+    answers.set(spec.id, answer)
+    rows.push(boundedRow(input, spec, answer, durationMs, null))
+  }
+
+  await persistBoundedRows(input, input.specs, rows, res.reportedCostUsd, durationMs)
+
+  if (offCatalog) throw new Error(offCatalog)
+  return answers
+}
+
 /**
  * Kicks the Decisions API call IMMEDIATELY so it runs concurrently with the
  * primary chat judge call. Returns null when the shadow is disabled and
@@ -288,7 +642,7 @@ export function startDecisionShadow(
 ): ((primaries: DecisionShadowPrimaries) => Promise<EnforcedDecisions>) | null {
   const enforceKinds = resolveDecisionEnforceKinds()
   const startedAt = Date.now()
-  const kinds = enabledKinds(ctx)
+  const kinds = genericShadowKinds(ctx, enforceKinds)
 
   let config: DecisionShadowConfig | null
   try {
@@ -319,7 +673,7 @@ export function startDecisionShadow(
     return null
   }
 
-  const questions = decisionQuestionsFor(ctx)
+  const questions = genericShadowQuestions(ctx, enforceKinds)
   const askedKinds = kinds.filter((k) => questions[k] !== undefined)
 
   const inflight: Promise<InflightOutcome> = runDecisionModel(config, {
@@ -403,6 +757,14 @@ async function recordRows(
     category: primaries.category,
     content_role: primaries.contentRole,
     entity_type: primaries.entityType,
+    // Per-item kinds never run through the generic shadow — no chat primary.
+    relation_type: undefined,
+    temporal_kind: undefined,
+    // Whole-question kinds (runEnforcedBoundedDecisions) — no generic-shadow primary.
+    retrieval_scope: undefined,
+    query_temporal_kind: undefined,
+    duration_unit: undefined,
+    gtd_promotion: undefined,
   }
 
   const rows: Array<typeof decisionShadowLog.$inferInsert> = []

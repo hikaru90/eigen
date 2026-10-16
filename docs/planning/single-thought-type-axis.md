@@ -55,6 +55,7 @@ timeline, and UI carried `memoryType` as plumbing only — all of it is removed.
 | `reflection`  | true        | enduring self-knowledge (approx `preference`)       |
 | `idea`        | true        | durable generative thought                          |
 | `task`        | false       | open work — ages, needs review                      |
+| `action`      | false       | completed-action report / status update (time-bound) |
 | `observation` | false       | time-bound notice (approx `episode`)                |
 | `feeling`     | false       | ephemeral state                                     |
 | `question`    | false       | open until answered                                 |

@@ -27,6 +27,14 @@ export type ResolvedThoughtOntologyKind = {
   confidence: number
   /** Runner-up candidates, if any. */
   alternatives: Array<{ key: string; confidence: number }>
+  /**
+   * Which engine decided the category: the chat judge ('llm') or the decision
+   * model when the kind is enforced (DECISION_ENFORCE_KINDS, spec P5). Call
+   * sites persist it as thought.metadata.categorySource. Optional only for
+   * legacy constructions that predate enforcement; resolveThoughtCategory
+   * always sets it.
+   */
+  source?: 'llm' | 'decision_model'
 }
 
 export async function loadUserOntologyProfileRow(userId: string) {
@@ -251,7 +259,30 @@ export async function resolveThoughtCategory(input: {
     alternativeCount: alternatives.length,
     totalMs: Date.now() - runStart,
   })
-  // Shadow comparison never alters the authoritative LLM decision.
-  await decisionShadow?.({ category: { choice: row.key, confidence } })
-  return { key: row.key, ontologyEntityKindId: row.id, confidence, alternatives }
+  // Settle the decision plane beside the chat call. When category is ENFORCED
+  // (DECISION_ENFORCE_KINDS) the decision model's answer is authoritative and
+  // the chat judge's classification above becomes the recorded comparison only
+  // (roles reversed, spec P5) — an off-catalog enforced answer fails loud
+  // instead of falling back to the chat answer.
+  const settled = await decisionShadow?.({ category: { choice: row.key, confidence } })
+  if (settled?.category) {
+    const key = settled.category.choice.trim()
+    const enforcedRow = loaded.entityKindsByKey.get(key)
+    if (!enforcedRow) {
+      throw new Error(
+        `Category decision returned invalid ontology key: ${settled.category.choice}`,
+      )
+    }
+    const alternatives = Object.entries(settled.category.alternatives)
+      .map(([altKey, altConfidence]) => ({ key: altKey, confidence: altConfidence }))
+      .sort((a, b) => a.key.localeCompare(b.key))
+    return {
+      key: enforcedRow.key,
+      ontologyEntityKindId: enforcedRow.id,
+      confidence: settled.category.probability,
+      alternatives,
+      source: 'decision_model',
+    }
+  }
+  return { key: row.key, ontologyEntityKindId: row.id, confidence, alternatives, source: 'llm' }
 }

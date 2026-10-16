@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { interpretThoughtPreview } from './interpret-thought'
 
-const { llmChatCompletionMock, ensureOntologyMock, loadOntologyMock, loadProfileMock, getDbMock } =
-  vi.hoisted(() => ({
-    llmChatCompletionMock: vi.fn(),
-    ensureOntologyMock: vi.fn(),
-    loadOntologyMock: vi.fn(),
-    loadProfileMock: vi.fn(),
-    getDbMock: vi.fn(),
-  }))
+const {
+  llmChatCompletionMock,
+  ensureOntologyMock,
+  loadOntologyMock,
+  loadProfileMock,
+  getDbMock,
+  resolveEnforceKindsMock,
+  runEnforcedBoundedDecisionsMock,
+} = vi.hoisted(() => ({
+  llmChatCompletionMock: vi.fn(),
+  ensureOntologyMock: vi.fn(),
+  loadOntologyMock: vi.fn(),
+  loadProfileMock: vi.fn(),
+  getDbMock: vi.fn(),
+  resolveEnforceKindsMock: vi.fn(),
+  runEnforcedBoundedDecisionsMock: vi.fn(),
+}))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
@@ -17,6 +26,19 @@ vi.mock('$lib/server/llm/llm-client', () => ({
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
 }))
+
+// Enforcement is controlled through resolveDecisionEnforceKinds (same pattern as
+// temporal-graph-sync.spec.ts): under vitest SvelteKit's $env/dynamic/private is
+// a transform-time snapshot, so process.env stubs never reach the real resolver.
+vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-client')>()
+  return { ...actual, resolveDecisionEnforceKinds: resolveEnforceKindsMock }
+})
+
+vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
+  return { ...actual, runEnforcedBoundedDecisions: runEnforcedBoundedDecisionsMock }
+})
 
 vi.mock('$lib/server/ontology-db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/server/ontology-db')>()
@@ -78,6 +100,8 @@ describe('interpretThoughtPreview', () => {
     ensureOntologyMock.mockResolvedValue(undefined)
     loadOntologyMock.mockResolvedValue(makeOntology())
     loadProfileMock.mockResolvedValue({ version: 2 })
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(new Map())
   })
 
   it('returns schema-conformant preview including LLM-judged deviatesFromVerbatim', async () => {
@@ -316,5 +340,107 @@ describe('interpretThoughtPreview', () => {
     expect(out.interpretedText).toBe('Buy oat milk')
     expect(out.category.key).toBe('task')
     expect(out.deviatesFromVerbatim).toBe(false)
+  })
+
+  it('overrides the preview category with the enforced decision answer (AC: preview matches queued enrich)', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['category']))
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(
+      new Map([
+        [
+          'category',
+          {
+            type: 'choice',
+            choice: 'action',
+            probabilities: { action: 1.0, decision: 0, task: 0 },
+            confidence: 1.0,
+          },
+        ],
+      ]),
+    )
+    mockLlmContent(
+      JSON.stringify({
+        interpretedText: 'Plan a team offsite in Lisbon next quarter.',
+        category: {
+          key: 'task',
+          confidence: 0.91,
+          alternatives: [{ key: 'observation', confidence: 0.2 }],
+        },
+        entities: [{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }],
+        deviatesFromVerbatim: true,
+      }),
+    )
+
+    const out = await interpretThoughtPreview({
+      userId: 'u1',
+      rawText: 'planning a team offsite in Lisbon next quarter',
+    })
+
+    expect(out.category.key).toBe('action')
+    expect(out.category.confidence).toBeCloseTo(1.0)
+    expect(out.category.alternatives).toEqual([
+      { key: 'decision', confidence: 0 },
+      { key: 'task', confidence: 0 },
+    ])
+    expect(out.interpretedText).toBe('Plan a team offsite in Lisbon next quarter.')
+    expect(out.entities).toEqual([{ surface: 'Lisbon', entityType: 'person', confidence: 0.4 }])
+    expect(out.deviatesFromVerbatim).toBe(true)
+
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledTimes(1)
+    const call = runEnforcedBoundedDecisionsMock.mock.calls[0][0]
+    expect(call.userId).toBe('u1')
+    expect(call.surface).toBe('interpret_preview')
+    expect(call.state).toBe('planning a team offsite in Lisbon next quarter')
+    expect(call.specs).toHaveLength(1)
+    expect(call.specs[0].decisionKind).toBe('category')
+    expect(call.specs[0].id).toBe('category')
+    expect(call.specs[0].llmChoice).toBe('task')
+    expect(call.specs[0].llmConfidence).toBeCloseTo(0.91)
+    expect(call.specs[0].question.instructions).toBe(
+      'Which ontology thought category best matches this captured thought?',
+    )
+    expect(call.specs[0].question.criteria).toEqual({
+      observation: 'Observation: Something noticed',
+      task: 'Task: Something to do',
+    })
+
+    // One qwen interpret call, no strict retry — the chat judge answered on-catalog.
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects the interpret request when the enforced category decision fails', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['category']))
+    runEnforcedBoundedDecisionsMock.mockRejectedValue(
+      new Error('[decision-plane] enforced bounded decision(s) failed: decisions down'),
+    )
+    mockLlmContent(
+      JSON.stringify({
+        interpretedText: 'Buy oat milk',
+        category: { key: 'task', confidence: 0.88, alternatives: [] },
+        entities: [],
+        deviatesFromVerbatim: false,
+      }),
+    )
+
+    await expect(interpretThoughtPreview({ userId: 'u1', rawText: 'buy oat milk' })).rejects.toThrow(
+      /decisions down/,
+    )
+  })
+
+  it('makes no decision call when category is not enforced', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    mockLlmContent(
+      JSON.stringify({
+        interpretedText: 'Buy oat milk',
+        category: { key: 'task', confidence: 0.88, alternatives: [] },
+        entities: [],
+        deviatesFromVerbatim: false,
+      }),
+    )
+
+    const out = await interpretThoughtPreview({ userId: 'u1', rawText: 'buy oat milk' })
+
+    expect(out.category.key).toBe('task')
+    expect(runEnforcedBoundedDecisionsMock).not.toHaveBeenCalled()
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
   })
 })

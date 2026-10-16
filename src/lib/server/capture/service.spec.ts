@@ -267,6 +267,7 @@ describe('editStoredThought', () => {
       ontologyEntityKindId: 'ek-1',
       confidence: 0.9,
       alternatives: [],
+      source: 'llm',
     })
     reenrichThoughtMock.mockResolvedValue(undefined)
     loadThoughtCaptureResultMock.mockImplementation(async (_userId: string, thoughtId: string) => ({
@@ -537,6 +538,63 @@ describe('editStoredThought', () => {
       'make shorter',
       expect.objectContaining({ onProgress: expect.any(Function), thoughtEmbedding: [0.5, 0.5] }),
     )
+  })
+
+  it('persists the resolver-reported categorySource on the text-edit path', async () => {
+    resolveThoughtCategoryMock.mockResolvedValue({
+      key: 'observation',
+      ontologyEntityKindId: 'ek-observation',
+      confidence: 0.62,
+      alternatives: [{ key: 'task', confidence: 0.3 }],
+      source: 'decision_model',
+    })
+    const existing = {
+      id: 't1',
+      userId: 'u1',
+      rawText: 'hello',
+      metadata: {},
+      category: 'task',
+      normalizedText: 'hello',
+      lexicalText: 'hello',
+    }
+    const updated = {
+      ...existing,
+      rawText: 'make shorter',
+      normalizedText: 'make shorter',
+      lexicalText: 'make shorter',
+    }
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [existing]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => [updated]),
+          })),
+        })),
+      })),
+    }
+    getDbMock.mockReturnValue(db)
+
+    const result = await editStoredThought('u1', 't1', 'make shorter')
+    expect(result.ok).toBe(true)
+    const updateCall = db.update.mock.results[0]?.value
+    const setArg = updateCall?.set.mock.calls[0]?.[0] as {
+      category: string
+      metadata: Record<string, unknown>
+    }
+    // The edit path must honor the enforced decision source, not hardcode 'llm'.
+    expect(setArg.category).toBe('observation')
+    expect(setArg.metadata).toMatchObject({
+      categorySource: 'decision_model',
+      categoryConfidence: 0.62,
+      categoryAlternatives: [{ key: 'task', confidence: 0.3 }],
+    })
   })
 
   it('returns capture result from loadThoughtCaptureResult after text edit', async () => {

@@ -1,5 +1,30 @@
-import { describe, expect, it } from 'vitest'
-import { parseQueryIntentResponse } from './classify-query-intent'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { classifyQueryIntent, parseQueryIntentResponse } from './classify-query-intent'
+
+const {
+  llmChatCompletionMock,
+  resolveEnforceKindsMock,
+  runEnforcedBoundedDecisionsMock,
+} = vi.hoisted(() => ({
+  llmChatCompletionMock: vi.fn(),
+  resolveEnforceKindsMock: vi.fn(),
+  runEnforcedBoundedDecisionsMock: vi.fn(),
+}))
+
+vi.mock('$lib/server/llm/llm-client', () => ({
+  llmChatCompletion: llmChatCompletionMock,
+}))
+// Enforcement is controlled through resolveDecisionEnforceKinds (same pattern as
+// temporal-graph-sync.spec.ts): under vitest SvelteKit's $env/dynamic/private is
+// a transform-time snapshot, so process.env stubs never reach the real resolver.
+vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-client')>()
+  return { ...actual, resolveDecisionEnforceKinds: resolveEnforceKindsMock }
+})
+vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
+  return { ...actual, runEnforcedBoundedDecisions: runEnforcedBoundedDecisionsMock }
+})
 
 describe('parseQueryIntentResponse', () => {
   it('parses local temporal ordering intent', () => {
@@ -176,5 +201,152 @@ describe('parseQueryIntentResponse', () => {
     )
     expect(intent.kind).toBe('duration')
     expect(intent.entityHints).toEqual(['starting to work with Rachel', 'find a house I loved'])
+  })
+})
+
+const QUERY = 'How many months ago did I book the Airbnb in San Francisco?'
+
+const QWEN_CONTENT = JSON.stringify({
+  scope: 'global',
+  temporal: true,
+  kind: 'lookback',
+  entityHints: ['Airbnb in San Francisco'],
+  durationUnit: 'months',
+  comparativeOrdering: false,
+  timeWindowStart: '2026-01-05T00:00:00.000Z',
+  timeWindowEnd: '2026-03-05T00:00:00.000Z',
+})
+
+function decisionAnswer(choice: string, probabilities: Record<string, number>) {
+  return { type: 'choice' as const, choice, probabilities, confidence: 0.9 }
+}
+
+describe('classifyQueryIntent Jev enforcement', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    llmChatCompletionMock.mockResolvedValue({
+      choices: [{ message: { content: QWEN_CONTENT } }],
+    })
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(new Map())
+  })
+
+  it('overrides scope, kind, and durationUnit from ONE enforced bounded call; qwen fields stay', async () => {
+    resolveEnforceKindsMock.mockReturnValue(
+      new Set(['retrieval_scope', 'query_temporal_kind', 'duration_unit']),
+    )
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(
+      new Map([
+        ['scope', decisionAnswer('local', { local: 0.8, global: 0.2 })],
+        ['temporal_kind', decisionAnswer('count', { count: 0.7, lookback: 0.3 })],
+        ['duration_unit', decisionAnswer('none', { none: 0.9 })],
+      ]),
+    )
+
+    const intent = await classifyQueryIntent({ userId: 'u1', query: QUERY })
+
+    // Bounded fields overridden by Jev.
+    expect(intent.scope).toBe('local')
+    expect(intent.kind).toBe('count')
+    expect(intent.durationUnit).toBeNull()
+    // Everything else stays from the qwen parse.
+    expect(intent.temporal).toBe(true)
+    expect(intent.entityHints).toEqual(['Airbnb in San Francisco'])
+    expect(intent.timeWindow?.start.toISOString()).toBe('2026-01-05T00:00:00.000Z')
+    expect(intent.timeWindow?.end.toISOString()).toBe('2026-03-05T00:00:00.000Z')
+    expect(intent.comparativeOrdering).toBe(false)
+
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledTimes(1)
+    const call = runEnforcedBoundedDecisionsMock.mock.calls[0][0] as {
+      userId: string
+      surface: string
+      state: string
+      specs: Array<{
+        decisionKind: string
+        id: string
+        question: { type: string; instructions: string; criteria: Record<string, string> }
+        llmChoice: string | null
+        llmConfidence: number | null
+      }>
+    }
+    expect(call.userId).toBe('u1')
+    expect(call.surface).toBe('qa_intent')
+    expect(call.state).toBe(QUERY)
+    expect(call.specs).toHaveLength(3)
+
+    const [scopeSpec, kindSpec, unitSpec] = call.specs
+    expect(scopeSpec.decisionKind).toBe('retrieval_scope')
+    expect(scopeSpec.id).toBe('scope')
+    expect(scopeSpec.question.type).toBe('choice')
+    expect(scopeSpec.question.criteria.global).toContain('whole stored memory')
+    expect(scopeSpec.question.criteria.local).toContain('immediate conversation context')
+    expect(scopeSpec.llmChoice).toBe('global')
+    expect(scopeSpec.llmConfidence).toBeNull()
+
+    expect(kindSpec.decisionKind).toBe('query_temporal_kind')
+    expect(kindSpec.id).toBe('temporal_kind')
+    expect(kindSpec.question.criteria).toHaveProperty('multi_ordering')
+    expect(kindSpec.question.criteria.none).toContain('No temporal reasoning')
+    expect(kindSpec.llmChoice).toBe('lookback')
+    expect(kindSpec.llmConfidence).toBeNull()
+
+    expect(unitSpec.decisionKind).toBe('duration_unit')
+    expect(unitSpec.id).toBe('duration_unit')
+    expect(unitSpec.question.criteria).toHaveProperty('none')
+    expect(unitSpec.llmChoice).toBe('months')
+    expect(unitSpec.llmConfidence).toBeNull()
+  })
+
+  it('maps the duration_unit "none" answer back to null and keeps other units', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['duration_unit']))
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(
+      new Map([
+        ['scope', decisionAnswer('global', { global: 0.6, local: 0.4 })],
+        ['temporal_kind', decisionAnswer('lookback', { lookback: 0.8 })],
+        ['duration_unit', decisionAnswer('weeks', { weeks: 0.9, months: 0.1 })],
+      ]),
+    )
+
+    const intent = await classifyQueryIntent({ userId: 'u1', query: QUERY })
+
+    expect(intent.durationUnit).toBe('weeks')
+    expect(intent.scope).toBe('global')
+    expect(intent.kind).toBe('lookback')
+    const call = runEnforcedBoundedDecisionsMock.mock.calls[0][0] as {
+      specs: Array<{ id: string; llmChoice: string | null }>
+    }
+    // Passthrough is the raw qwen parse, before the override.
+    expect(call.specs.map((s) => s.llmChoice)).toEqual(['global', 'lookback', 'months'])
+  })
+
+  it('propagates an enforced decision failure (no fallback, no try/catch)', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['retrieval_scope']))
+    runEnforcedBoundedDecisionsMock.mockRejectedValue(
+      new Error('[decision-plane] enforced bounded decision(s) failed: gateway down'),
+    )
+
+    await expect(classifyQueryIntent({ userId: 'u1', query: QUERY })).rejects.toThrow(
+      'gateway down',
+    )
+  })
+
+  it('makes no decision-plane call and keeps the qwen parse when enforcement is off', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+
+    const intent = await classifyQueryIntent({ userId: 'u1', query: QUERY })
+
+    expect(runEnforcedBoundedDecisionsMock).not.toHaveBeenCalled()
+    expect(intent).toEqual({
+      scope: 'global',
+      temporal: true,
+      kind: 'lookback',
+      entityHints: ['Airbnb in San Francisco'],
+      timeWindow: {
+        start: new Date('2026-01-05T00:00:00.000Z'),
+        end: new Date('2026-03-05T00:00:00.000Z'),
+      },
+      durationUnit: 'months',
+      comparativeOrdering: false,
+    })
   })
 })

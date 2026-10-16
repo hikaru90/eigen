@@ -3,6 +3,11 @@ import { m } from '$lib/paraglide/messages.js'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity } from '$lib/server/db/schema'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import {
+  runEnforcedBoundedDecisions,
+  type BoundedDecisionSpec,
+} from '$lib/server/llm/decision-plane'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import {
@@ -173,6 +178,81 @@ function buildJudgePrompt(context: HubJudgmentContext): string {
   ].join('\n')
 }
 
+/**
+ * Jev (Decisions API) enforcement for GTD promotion (spec §5.2/§6 P): the
+ * bounded decision model is the judge; the qwen chat judge escalates only
+ * inside the calibrated uncertainty band 0.4 <= p('true') <= 0.6. The rich
+ * hub context — summaries included — rides in the call's `state` as the
+ * judge's input; promotion is never a structural-rule decision.
+ */
+const GTD_PROMOTION_CRITERIA: Record<string, string> = {
+  true: 'A multi-step initiative the user is actively running across multiple thoughts — a GTD body of work.',
+  false:
+    'Not a project: an ingredient, a person, a place, a product, a single one-off task, or merely a frequently co-mentioned concept.',
+}
+const GTD_PROMOTION_INSTRUCTIONS =
+  'Is this hub a GTD body of work — a multi-step initiative the user is running — or not?'
+const GTD_ESCALATION_LOW = 0.4
+const GTD_ESCALATION_HIGH = 0.6
+
+function gtdPromotionSpec(id: string): BoundedDecisionSpec {
+  return {
+    decisionKind: 'gtd_promotion',
+    id,
+    question: {
+      type: 'choice',
+      instructions: GTD_PROMOTION_INSTRUCTIONS,
+      criteria: GTD_PROMOTION_CRITERIA,
+    },
+    // The chat judge is skipped unless escalated (band below) — and that
+    // escalation only runs AFTER runEnforcedBoundedDecisions persisted its
+    // rows, so the row honestly records llmChoice=null either way. Inside the
+    // band the qwen verdict still drives promote/demote; it is never
+    // retro-fitted into the row.
+    llmChoice: null,
+  }
+}
+
+/** Same rich per-hub context the qwen prompt receives — the judge's input. */
+function buildGtdHubDecisionState(contexts: HubJudgmentContext[]): string {
+  return JSON.stringify({
+    hubs: contexts.map((context, index) => ({
+      id: `hub-${index}`,
+      label: context.label,
+      entityType: context.entityType,
+      linkedThoughtCount: context.linkedThoughtCount,
+      openTaskCount: context.openTaskCount,
+      linkedThoughtSummaries: context.linkedThoughtSummaries,
+      openTaskSummaries: context.openTaskSummaries,
+    })),
+  })
+}
+
+function inGtdEscalationBand(pTrue: number | undefined): boolean {
+  return pTrue !== undefined && pTrue >= GTD_ESCALATION_LOW && pTrue <= GTD_ESCALATION_HIGH
+}
+
+/** The qwen chat judge — base engine when unenforced, escalation engine inside the band. */
+async function runChatHubJudge(
+  userId: string,
+  context: HubJudgmentContext,
+): Promise<GtdProjectJudgment> {
+  const response = await llmChatCompletion({
+    userId,
+    messages: [
+      {
+        role: 'system',
+        content: m.llm_gtd_judge_system(),
+      },
+      { role: 'user', content: buildJudgePrompt(context) },
+    ],
+    temperature: 0,
+  })
+
+  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+  return parseGtdProjectJudgmentPayload(parsed, context.label)
+}
+
 export async function judgeGtdProjectHub(
   userId: string,
   entityId: string,
@@ -191,20 +271,29 @@ export async function judgeGtdProjectHub(
     return { isGtdProject: false, canonicalLabel: context.label }
   }
 
-  const response = await llmChatCompletion({
-    userId,
-    messages: [
-      {
-        role: 'system',
-        content: m.llm_gtd_judge_system(),
-      },
-      { role: 'user', content: buildJudgePrompt(context) },
-    ],
-    temperature: 0,
-  })
+  if (resolveDecisionEnforceKinds().has('gtd_promotion')) {
+    // Enforced: the decision model is the judge — no try/catch here, failures
+    // propagate (fail loud, no fallback).
+    const answers = await runEnforcedBoundedDecisions({
+      userId,
+      surface: 'gtd_judge',
+      state: buildGtdHubDecisionState([context]),
+      specs: [gtdPromotionSpec('hub-0')],
+    })
+    const answer = answers.get('hub-0')
+    if (!answer) {
+      throw new Error('judgeGtdProjectHub: enforced gtd_promotion returned no answer for hub-0')
+    }
+    // Uncertainty band: the qwen chat judge arbitrates and its verdict AND
+    // canonicalLabel win. Outside the band Jev decides and keeps the hub's
+    // existing label — variant dedup/merge stays with the existing flows.
+    if (inGtdEscalationBand(answer.probabilities['true'])) {
+      return runChatHubJudge(userId, context)
+    }
+    return { isGtdProject: answer.choice === 'true', canonicalLabel: context.label }
+  }
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  return parseGtdProjectJudgmentPayload(parsed, context.label)
+  return runChatHubJudge(userId, context)
 }
 
 export function parseGtdProjectAuditBatchPayload(
@@ -297,20 +386,57 @@ export async function auditGtdProjectProfiles(userId: string): Promise<{ demoted
   if (entries.length === 0) return { demoted: 0 }
 
   const allowedEntityIds = new Set(entries.map((e) => e.context.entityId))
-  const response = await llmChatCompletion({
-    userId,
-    messages: [
-      {
-        role: 'system',
-        content: 'You audit GTD project lists and remove false positives. Return only valid JSON.',
-      },
-      { role: 'user', content: buildBatchAuditPrompt(entries) },
-    ],
-    temperature: 0,
-  })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const results = parseGtdProjectAuditBatchPayload(parsed, allowedEntityIds)
+  let results: Array<{ entityId: string; isGtdProject: boolean; canonicalLabel: string }>
+  if (resolveDecisionEnforceKinds().has('gtd_promotion')) {
+    // Enforced: ONE batched Decisions call — one bounded question per hub
+    // (ids 'hub-0', 'hub-1', …), matching the qwen batch's shape. No
+    // try/catch: failures propagate (fail loud, no fallback).
+    const answers = await runEnforcedBoundedDecisions({
+      userId,
+      surface: 'gtd_judge',
+      state: buildGtdHubDecisionState(entries.map((entry) => entry.context)),
+      specs: entries.map((_entry, index) => gtdPromotionSpec(`hub-${index}`)),
+    })
+    results = []
+    for (const [index, entry] of entries.entries()) {
+      const answer = answers.get(`hub-${index}`)
+      if (!answer) {
+        throw new Error(
+          `auditGtdProjectProfiles: enforced gtd_promotion returned no answer for hub-${index}`,
+        )
+      }
+      if (inGtdEscalationBand(answer.probabilities['true'])) {
+        const chat = await runChatHubJudge(userId, entry.context)
+        results.push({
+          entityId: entry.context.entityId,
+          isGtdProject: chat.isGtdProject,
+          canonicalLabel: chat.canonicalLabel,
+        })
+      } else {
+        results.push({
+          entityId: entry.context.entityId,
+          isGtdProject: answer.choice === 'true',
+          canonicalLabel: entry.context.label,
+        })
+      }
+    }
+  } else {
+    const response = await llmChatCompletion({
+      userId,
+      messages: [
+        {
+          role: 'system',
+          content: 'You audit GTD project lists and remove false positives. Return only valid JSON.',
+        },
+        { role: 'user', content: buildBatchAuditPrompt(entries) },
+      ],
+      temperature: 0,
+    })
+
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    results = parseGtdProjectAuditBatchPayload(parsed, allowedEntityIds)
+  }
 
   let demoted = 0
   for (const result of results) {

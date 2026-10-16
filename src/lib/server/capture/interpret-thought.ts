@@ -6,6 +6,8 @@
  * then exactly one strict forced-choice retry when no candidate is valid.
  */
 import { getDb } from '$lib/server/db'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import {
@@ -29,6 +31,9 @@ export type CapturePreviewEntity = {
   entityType: string
   confidence: number
 }
+
+/** Same bounded category question the rest of the decision plane asks (spec §5.2). */
+const CATEGORY_INSTRUCTIONS = 'Which ontology thought category best matches this captured thought?'
 
 export type CapturePreviewCategory = {
   key: string
@@ -165,8 +170,9 @@ export async function interpretThoughtPreview(input: {
     throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: err })
   }
 
+  let preview: CapturePreviewBundle
   try {
-    return parsePreviewBundle(parsed, ontology, allowedEntityKeys)
+    preview = parsePreviewBundle(parsed, ontology, allowedEntityKeys)
   } catch (err) {
     if (!isInvalidThoughtCategoryError(err)) {
       const message = err instanceof Error ? err.message : String(err)
@@ -188,10 +194,51 @@ export async function interpretThoughtPreview(input: {
       logContext: 'interpret_thought_preview_category_retry',
     })
     try {
-      return parsePreviewBundle(parsed, ontology, allowedEntityKeys, forcedCategory)
+      preview = parsePreviewBundle(parsed, ontology, allowedEntityKeys, forcedCategory)
     } catch (retryErr) {
       const message = retryErr instanceof Error ? retryErr.message : String(retryErr)
       throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: retryErr })
     }
   }
+
+  // Enforced category (DECISION_ENFORCE_KINDS): the decision model's answer is
+  // authoritative for the preview too — queued enrichment would otherwise
+  // silently override the category the user just confirmed. ONE Decisions call
+  // with the same bounded question and catalog the rest of the plane uses; no
+  // try/catch — a failure rejects the interpret request (fail loud, spec P5).
+  if (resolveDecisionEnforceKinds().has('category')) {
+    const answers = await runEnforcedBoundedDecisions({
+      userId: input.userId,
+      surface: 'interpret_preview',
+      state: rawText,
+      specs: [
+        {
+          decisionKind: 'category',
+          id: 'category',
+          question: {
+            type: 'choice',
+            instructions: CATEGORY_INSTRUCTIONS,
+            criteria: Object.fromEntries(
+              categoryKinds.map((k) => [k.key, `${k.name}: ${k.definition}`.trim()]),
+            ),
+          },
+          llmChoice: preview.category.key,
+          llmConfidence: preview.category.confidence,
+        },
+      ],
+    })
+    const answer = answers.get('category')
+    if (!answer) {
+      throw new Error('[interpret-thought] enforced category decision returned no answer')
+    }
+    preview.category.key = answer.choice
+    preview.category.confidence = answer.probabilities[answer.choice]
+    preview.category.alternatives = Object.entries(answer.probabilities)
+      .filter(([altKey]) => altKey !== answer.choice)
+      .map(([altKey, confidence]) => ({ key: altKey, confidence }))
+      .sort((a, b) => b.confidence - a.confidence)
+    preview.category.source = 'decision_model'
+  }
+
+  return preview
 }

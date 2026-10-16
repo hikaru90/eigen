@@ -25,15 +25,37 @@ export type DecisionShadowConfig = {
 }
 
 /** Bounded decision kinds the decision plane compares (spec §3). */
-export type DecisionKind = 'category' | 'content_role' | 'entity_type'
+export type DecisionKind =
+  | 'category'
+  | 'content_role'
+  | 'entity_type'
+  | 'relation_type'
+  | 'temporal_kind'
+  | 'retrieval_scope'
+  | 'query_temporal_kind'
+  | 'duration_unit'
+  | 'gtd_promotion'
 
 /**
- * Kinds with an implemented promotion path (spec §6 P). entity_type is
- * deliberately excluded: promoting it requires the per-mention question
- * design (spec §8 O1) — the chat bundle must keep typing every mention for
- * entity/graph sync. Config fail-louds rather than silently ignoring it.
+ * Kinds with an implemented promotion path (spec §6 P). entity_type,
+ * relation_type, and temporal_kind are per-item enforced: one question per
+ * mention/pair, one Decisions call (spec §8 O1). retrieval_scope,
+ * query_temporal_kind, duration_unit, and gtd_promotion are whole-question
+ * kinds enforced on the chat/qa surfaces (spec §5.2) via
+ * runEnforcedBoundedDecisions. Config fail-louds rather than silently
+ * ignoring an unknown kind.
  */
-const ENFORCEABLE_KINDS = ['category', 'content_role'] as const
+const ENFORCEABLE_KINDS = [
+  'category',
+  'content_role',
+  'entity_type',
+  'relation_type',
+  'temporal_kind',
+  'retrieval_scope',
+  'query_temporal_kind',
+  'duration_unit',
+  'gtd_promotion',
+] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]
 
@@ -41,8 +63,8 @@ export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]
  * Resolves which decision kinds are decision-model authoritative
  * (DECISION_ENFORCE_KINDS, e.g. "category,content_role").
  * Absent/blank = none enforced (deterministic, documented state).
- * Unknown kinds and entity_type throw — fail loud, never a silent no-op
- * (spec P5: no silent cutover).
+ * Unknown kinds throw — fail loud, never a silent no-op (spec P5: no silent
+ * cutover).
  */
 export function resolveDecisionEnforceKinds(
   source: Record<string, string | undefined> = env,
@@ -53,11 +75,6 @@ export function resolveDecisionEnforceKinds(
   for (const token of raw.split(',')) {
     const kind = token.trim().toLowerCase()
     if (!kind) continue
-    if (kind === 'entity_type') {
-      throw new Error(
-        'DECISION_ENFORCE_KINDS: entity_type promotion is not implemented — per-mention typing stays on the chat judge (spec O1)',
-      )
-    }
     if (!ENFORCEABLE_KINDS.includes(kind as EnforceableDecisionKind)) {
       throw new Error(
         `DECISION_ENFORCE_KINDS: unknown decision kind "${kind}" (known: ${ENFORCEABLE_KINDS.join(', ')})`,
