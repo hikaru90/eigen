@@ -236,6 +236,21 @@ Promotion criteria per decision kind (all must hold):
 
 ---
 
+### Promotion record (2026-10-16, batch 3 — worktree round) — `resolution_choice`, `delete_target`, `message_intent`, `open_loop`, `salience_band`
+
+**Operator decision:** "all, with subagents and worktrees" — the full remaining queue, executed as one wave-0 registry commit plus four parallel git-worktree agents, merged to main. Registry now at 14 enforceable kinds; `DECISION_ENFORCE_KINDS` lists all of them.
+
+**Implemented contract:**
+
+- **resolution_choice:** project-hub resolution asks Jev (surface `resolution`): a `canonical` choice keyed by candidate-hub UUIDs plus `create`, and per-candidate `merge`/`keep` specs; `create` → new hub (isGtdProject=false — promotion belongs to the gtd_promotion judge; canonicalLabel = input label; hubEntityType='project'). Escalation: winning probability < 0.6 runs the existing qwen resolver and its full result wins. Enforcement off: qwen path unchanged.
+- **delete_target:** per-candidate `delete`/`keep` questions (surface `delete_gate`); deterministic gate in code — any selected candidate below 0.8 probability throws `[delete-gate] ambiguous delete request` and nothing deletes. NOTE: `resolveDeleteTargets` has no production caller yet — enforcement is wired and safe, awaiting a delete flow (MCP tool or UI) to reach it.
+- **message_intent:** each chat turn's message is classified (surface `chat_turn`; memory_question | capture_new | edit_stored | note_operation | project_operation | smalltalk) and injected as a one-line advisory hint into the agent-loop system prompt. Deliberate soft-fail (logged, loop proceeds): this is a NEW advisory signal with no incumbent decision to replace — chat availability outranks intent quality. The only surface where enforcement does not fail loud.
+- **open_loop + salience_band:** one Jev call per enrich (open_loop: actionable | mentioned | closed; salience_band: high | medium | low), stored in thought metadata (`openLoop`, `saliencePrior`). Consumer: GTD assignment eligibility gates on `openLoop` — `mentioned`/`closed` thoughts are never auto-assigned to projects; `actionable` and all legacy (absent) thoughts behave as before. salience_prior is a stored review signal (O2 decision); compute-salience math unchanged.
+- **Process:** wave-0 widened the registry (14 kinds) + surfaces (`resolution`, `delete_gate`, `chat_turn`) on main; four agents worked in isolated worktrees (`jev/resolution-choice`, `jev/delete-gate`, `jev/message-intent`, `jev/enrich-extended`), committed on their branches, merged cleanly; worktrees and merged branches removed after gates. Full suite 3292 tests green, lint 0 errors, svelte-check 0 errors.
+- **Every bounded decision in the spec inventory now has Jev as its authoritative engine.** The chat judge remains for generation/shape only (interpreted text, cues, surfaces, dates, summaries, answers, listwise rerank) and as tiebreaker/escalation judge (GTD band, resolution sub-0.6).
+
+---
+
 ## 7. Risk assessment
 
 | Risk | Mitigation |
