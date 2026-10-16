@@ -3,6 +3,8 @@
  */
 
 import { STRONG_RETRIEVE_MATCH_MIN } from '$lib/server/llm/agent-tool-result-compact'
+import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
+import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
@@ -34,6 +36,18 @@ export const RESOLVE_DELETE_TARGET_PROMPT = [
 
 const MAX_DELETE_CANDIDATES = 40
 const SNIPPET_MAX = 200
+
+/**
+ * Deterministic delete gate (delete_target enforced): a candidate the decision
+ * model selected for deletion must carry at least this probability(delete) —
+ * otherwise the whole request is rejected as ambiguous and NOTHING deletes.
+ */
+const DELETE_TARGET_MIN_CONFIDENCE = 0.8
+
+const DELETE_GATE_CRITERIA = {
+  delete: 'This thought matches the delete request — the user means this one.',
+  keep: 'This thought does not match the request.',
+}
 
 function snippet(text: string): string {
   const trimmed = text.trim()
@@ -127,6 +141,47 @@ export async function resolveDeleteTargets(params: {
     throw new Error('resolveDeleteTargets: deleteRequest must be non-empty')
   }
   if (params.candidates.length === 0) return []
+
+  // Decision-model authoritative delete targeting (DECISION_ENFORCE_KINDS): one
+  // per-candidate question, the decision model's answer replaces the chat
+  // judge. No fallback — a failure of the enforced call propagates to the
+  // requester as an explicit error.
+  if (resolveDecisionEnforceKinds().has('delete_target')) {
+    const answers = await runEnforcedPerItemDecisions({
+      userId: params.userId,
+      surface: 'delete_gate',
+      kind: 'delete_target',
+      state: request,
+      criteria: DELETE_GATE_CRITERIA,
+      items: params.candidates.map((c, i) => ({
+        ref: `d${i + 1}`,
+        instructions: `Should this stored thought be deleted for this request: "${snippet(c.snippet)}"?`,
+        llmChoice: null,
+      })),
+    })
+
+    const selected: DeleteTargetCandidate[] = []
+    let bestConfidence = 0
+    for (let i = 0; i < params.candidates.length; i++) {
+      const answer = answers.get(`d${i + 1}`)
+      if (!answer || answer.choice !== 'delete') continue
+      selected.push(params.candidates[i])
+      if (answer.probability > bestConfidence) bestConfidence = answer.probability
+    }
+
+    // Deterministic gate, checked on the answers BEFORE anything is returned:
+    // an ambiguous request deletes nothing.
+    for (let i = 0; i < params.candidates.length; i++) {
+      const answer = answers.get(`d${i + 1}`)
+      if (answer && answer.choice === 'delete' && answer.probability < DELETE_TARGET_MIN_CONFIDENCE) {
+        throw new Error(
+          `[delete-gate] ambiguous delete request — refine it (best match confidence ${bestConfidence.toFixed(2)})`,
+        )
+      }
+    }
+
+    return selected
+  }
 
   const candidateBlock = params.candidates
     .map(
