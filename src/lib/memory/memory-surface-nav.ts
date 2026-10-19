@@ -1,10 +1,11 @@
-export type MemorySurfaceTab = 'graph' | 'embeddings' | 'tasks' | 'projects' | 'notes'
+export type MemorySurfaceTab = 'desk' | 'graph' | 'embeddings' | 'tasks' | 'projects' | 'notes'
 
 /** Which Memory hub secondary tab is active from pathname and optional ?view= param. */
 export function activeMemorySurfaceTab(
   pathname: string,
   viewParam: string | null,
 ): MemorySurfaceTab {
+  if (pathname === '/desk' || pathname.startsWith('/desk/')) return 'desk'
   if (pathname.includes('/memory/tasks')) return 'tasks'
   if (pathname.includes('/memory/projects')) return 'projects'
   if (pathname.includes('/memory/notes')) return 'notes'

@@ -5,14 +5,15 @@
   import { m } from '$lib/paraglide/messages.js'
   import { cn } from '$lib/utils'
 
-  type MemoryTabPath = '/memory' | '/memory/tasks' | '/memory/projects' | '/memory/notes'
+  type MemoryTabPath = '/desk' | '/memory' | '/memory/tasks' | '/memory/projects' | '/memory/notes'
 
   const tabs: Array<{
-    id: 'graph' | 'embeddings' | 'tasks' | 'projects' | 'notes'
+    id: 'desk' | 'graph' | 'embeddings' | 'tasks' | 'projects' | 'notes'
     label: () => string
     pathname: MemoryTabPath
     search?: string
   }> = [
+    { id: 'desk', label: () => m.desk_tab_desk(), pathname: '/desk' },
     { id: 'graph', label: () => m.graph_tab_graph(), pathname: '/memory' },
     {
       id: 'embeddings',
