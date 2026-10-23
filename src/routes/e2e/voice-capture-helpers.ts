@@ -11,7 +11,9 @@ export function readReleaseVoiceFixture(): Buffer {
 
 /**
  * Replaces getUserMedia / MediaRecorder so the mic button records the release fixture
- * instead of a real microphone (stable in CI and headed runs).
+ * instead of a real microphone (stable in CI and headed runs). Every recorder instance
+ * yields the whole fixture on stop, so each segment the button cuts is a standalone WAV
+ * file; the mocked analyser reports silence, so the button cuts a segment ~3.35 s in.
  */
 export async function installVoiceCaptureMocks(page: Page): Promise<void> {
   const audioBase64 = readReleaseVoiceFixture().toString('base64')
@@ -85,7 +87,7 @@ export async function installVoiceCaptureMocks(page: Page): Promise<void> {
   )
 }
 
-/** Authenticated POST to `/api/capture/transcribe` using the release voice fixture. */
+/** Authenticated single-segment POST to `/api/capture/transcribe-chunk` with the release fixture. */
 export async function assertVoiceTranscribeApi(
   page: Page,
   options?: { timeoutMs?: number },
@@ -97,7 +99,7 @@ export async function assertVoiceTranscribeApi(
   await expect
     .poll(
       async () => {
-        const res = await page.request.post('/api/capture/transcribe', {
+        const res = await page.request.post('/api/capture/transcribe-chunk', {
           multipart: {
             audio: {
               name: 'release-voice.wav',
@@ -137,7 +139,8 @@ export async function assertVoiceTranscribeApi(
 }
 
 /**
- * Mic button → fixture "recording" → transcript appended to `#thought`.
+ * Mic button → segmented recording → live partial in the field → stop → final
+ * transcript (ordered join of segment transcripts) in the field.
  * Call `installVoiceCaptureMocks` before navigating to `/capture`.
  */
 export async function exerciseVoiceCaptureUi(
@@ -145,13 +148,28 @@ export async function exerciseVoiceCaptureUi(
   options?: { timeoutMs?: number },
 ): Promise<void> {
   const timeoutMs = options?.timeoutMs ?? 120_000
+  const segmentBodies: Buffer[] = []
+  const fullUploads: string[] = []
+  // Read segment bodies through route interception: `request` events don't expose
+  // Blob upload bodies.
+  await page.route('**/api/capture/transcribe-chunk', async (route) => {
+    const body = route.request().postDataBuffer()
+    if (body) segmentBodies.push(body)
+    await route.continue()
+  })
+  await page.route('**/api/capture/transcribe', async (route) => {
+    fullUploads.push(route.request().url())
+    await route.continue()
+  })
+
   await page.goto('/capture')
   await expect(
     page.getByRole('dialog', { name: /Your memory, not theirs\.|Just drop it in\./ }),
   ).toBeHidden({
     timeout: 15_000,
   })
-  await expect(page.locator('#thought')).toBeVisible()
+  const input = page.locator('[data-testid="capture-input"]')
+  await expect(input).toBeVisible()
 
   const mic = page.getByLabel('Start voice input', { exact: true })
   await expect(mic).toBeEnabled({ timeout: 15_000 })
@@ -160,33 +178,46 @@ export async function exerciseVoiceCaptureUi(
   const errorBanner = page.locator('.page-error').first()
   const stopMic = page.getByLabel('Stop recording and transcribe', { exact: true })
 
-  await mic.click()
-  await expect(stopMic).toBeVisible()
-  // Let the mock recorder settle (startRecording is async through getUserMedia).
-  await expect(stopMic).toHaveAttribute('aria-pressed', 'true')
-  await stopMic.click()
+  async function failOnVoiceError(): Promise<boolean> {
+    if (!(await errorBanner.isVisible().catch(() => false))) return false
+    const message = (await errorBanner.textContent())?.trim() ?? ''
+    if (/(?:\b429\b|502|503|rate limit)/i.test(message)) return true
+    throw new Error(message ? `Voice capture failed: ${message}` : 'Voice capture failed')
+  }
 
-  let lastValue: string | null = null
+  await mic.click()
+  await expect(stopMic).toHaveAttribute('aria-pressed', 'true')
+
+  // Still recording: the first pause-cut segment is transcribed and shown as a partial.
+  let partial = ''
   await expect
     .poll(
       async () => {
-        if (await errorBanner.isVisible().catch(() => false)) {
-          const message = (await errorBanner.textContent())?.trim() ?? ''
-          if (/(?:\b429\b|502|503|rate limit)/i.test(message)) {
-            return null
-          }
-          throw new Error(message ? `Voice capture failed: ${message}` : 'Voice capture failed')
-        }
-        const value = await page.locator('#thought').inputValue()
-        const trimmed = value.trim()
-        lastValue = trimmed.length > 0 ? value : null
-        return lastValue
+        if (await failOnVoiceError()) return null
+        partial = (await input.inputValue()).trim()
+        return partial || null
       },
       { timeout: timeoutMs, intervals: [500, 1000, 2000] },
     )
     .not.toBeNull()
+  await expect(stopMic).toHaveAttribute('aria-pressed', 'true')
+  expect(partial, 'partial transcript').toMatch(/release|voice|smoke|capture|test/i)
 
-  expect(lastValue, 'voice capture left #thought empty').toMatch(
-    /release|voice|smoke|capture|test/i,
+  await stopMic.click()
+  // the shared writer's right-hand slot: once the field holds the transcript it is the
+  // send button, not the mic (glass-writer.svelte)
+  await expect(page.getByTestId('capture-submit')).toBeVisible({ timeout: timeoutMs })
+  if (await failOnVoiceError()) return
+
+  const finalText = (await input.inputValue()).trim()
+  // earlier text is never rewritten: the final transcript extends the partial
+  expect(finalText.startsWith(partial), `final "${finalText}" extends partial "${partial}"`).toBe(
+    true,
   )
+  expect(finalText.length).toBeGreaterThan(partial.length)
+  expect(segmentBodies.length, 'one request per segment').toBeGreaterThanOrEqual(2)
+  for (const body of segmentBodies) {
+    expect(body.subarray(0, 4).toString('latin1'), 'segment is a standalone WAV').toBe('RIFF')
+  }
+  expect(fullUploads, 'no full-recording upload').toEqual([])
 }

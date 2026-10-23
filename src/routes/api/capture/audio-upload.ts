@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit'
+import { STT_SEGMENT_MAX_SECONDS } from '$lib/server/llm/stt-audio'
 
 const LANGUAGE_PATTERN = /^[a-z]{2}$/
 
@@ -6,6 +7,12 @@ export type AudioUpload = {
   bytes: Uint8Array
   mimeType: string
   language?: string
+  /** Client segment index (non-negative integer) from `x-audio-meta`, echoed back for assembly. */
+  segment?: number
+}
+
+function tooLargeMessage(maxBytes: number): string {
+  return `audio segment exceeds ${maxBytes} bytes (max ${STT_SEGMENT_MAX_SECONDS} s per segment)`
 }
 
 /**
@@ -40,7 +47,7 @@ export async function readAudioUpload(
     const audioEntry = formData.get('audio')
     if (!(audioEntry instanceof File)) error(400, 'audio file is required')
     if (audioEntry.size <= 0) error(400, 'audio file is empty')
-    if (audioEntry.size > maxBytes) error(400, `audio file exceeds ${maxBytes} bytes`)
+    if (audioEntry.size > maxBytes) error(400, tooLargeMessage(maxBytes))
 
     const mimeType = audioEntry.type
     if (!mimeTypeForFormat(mimeType)) error(400, `unsupported audio type: ${mimeType || 'unknown'}`)
@@ -55,22 +62,27 @@ export async function readAudioUpload(
   // Binary body path: content-type carries the audio MIME, x-audio-meta the language.
   const audioBytes = new Uint8Array(await request.arrayBuffer())
   if (audioBytes.length === 0) error(400, 'audio file is empty')
-  if (audioBytes.length > maxBytes) error(400, `audio file exceeds ${maxBytes} bytes`)
+  if (audioBytes.length > maxBytes) error(400, tooLargeMessage(maxBytes))
   if (!mimeTypeForFormat(baseType)) {
     error(400, `unsupported audio type: ${baseType || 'unknown'}`)
   }
 
   let language: string | undefined
+  let segment: number | undefined
   const metaRaw = request.headers.get('x-audio-meta')
   if (metaRaw) {
     try {
-      const parsed = JSON.parse(metaRaw) as { language?: unknown }
+      const parsed = JSON.parse(metaRaw) as { language?: unknown; segment?: unknown }
       const langRaw = typeof parsed.language === 'string' ? parsed.language.trim().toLowerCase() : ''
       language = langRaw && LANGUAGE_PATTERN.test(langRaw) ? langRaw : undefined
+      segment =
+        typeof parsed.segment === 'number' && Number.isInteger(parsed.segment) && parsed.segment >= 0
+          ? parsed.segment
+          : undefined
     } catch {
       // Malformed metadata is not fatal — transcribe without language hints.
     }
   }
 
-  return { bytes: audioBytes, mimeType: baseType, language }
+  return { bytes: audioBytes, mimeType: baseType, language, segment }
 }

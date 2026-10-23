@@ -1,73 +1,80 @@
 <script lang="ts">
-  import type { BoardIdea, BoardPerson } from './board-types'
+  import type { BoardArea, BoardIdea, BoardKind, VoteDirection } from './board-types'
   import { relativeDayLabel } from '$lib/chat/relative-day'
   import { getLocale } from '$lib/paraglide/runtime'
   import { betterCopy } from './better-copy'
   import { STAGE_DOTS, stageOf } from './board-tabs'
   import { areaLabel, kindLabel, statusLabel } from './labels'
+  import { nextArea, nextKind } from './share-composer'
+  import { canVote } from './votes'
 
   /**
-   * One request on the board (ei app.js:1558-1579 `ideaHTML`, styles.css .idea).
-   * Reddit-style vote control on the left — an up arrow above the score, no box,
-   * clay when yours — then the words in the asker's voice, the mesh's label (Idea /
-   * Bug / Polish), the area, who asked, when, four dots for how far it has come,
-   * a note from the makers, and on shipped rows the thanks line. Rows never open on
-   * tap; the vote control is the one target.
+   * One request on the shared board (ei app.js:1558-1579 `ideaHTML`). Reddit-style
+   * vote control on the left — up arrow, net score, down arrow, clay when yours —
+   * then the words in the asker's voice, the judge's label (Idea / Bug / Polish),
+   * the area, who asked ("Noor K."), when, four dots for how far it has come, and a
+   * note from the makers. On your own Requested row the kind and area are tap-to-
+   * correct and "Forget this idea" removes it.
    */
   type Props = {
     idea: BoardIdea
-    people: Readonly<Record<string, BoardPerson>>
     /** The top requested idea (DESIGN.md "The top idea is marked Most wanted"). */
     mostWanted?: boolean
     /** A clay wash that fades: the row you just shared or voted for from the chorus. */
     flash?: boolean
     /** Stagger index for the settle-in (capped like ei's `--i`). */
     index?: number
-    /** Tap to vote or take it back. The button is passed so the page can fly the dot. */
-    onvote?: (id: string, button: HTMLButtonElement) => void
+    /** A write for this row is in flight — controls wait. */
+    pending?: boolean
+    /** Tap up or down to vote; the same direction again takes it back. */
+    onvote?: (id: string, direction: VoteDirection, button: HTMLButtonElement) => void
+    /** Author correction of the judge's reading (Requested only). */
+    oncorrect?: (id: string, patch: { kind?: BoardKind; area?: BoardArea }) => void
+    /** Author delete (Requested only). */
+    onforget?: (id: string) => void
   }
 
-  let { idea, people, mostWanted = false, flash = false, index = 0, onvote }: Props = $props()
+  let {
+    idea,
+    mostWanted = false,
+    flash = false,
+    index = 0,
+    pending = false,
+    onvote,
+    oncorrect,
+    onforget,
+  }: Props = $props()
 
-  const DAY_MS = 86_400_000
   const shipped = $derived(idea.status === 'shipped')
+  const editable = $derived(idea.own && idea.status === 'requested')
   const stage = $derived(stageOf(idea))
-  const yours = $derived(!!idea.mine || !!idea.own)
-  const nameOf = (who: string): string =>
-    who === 'you' ? betterCopy.you : (people[who]?.name ?? who)
-  const askedAgo = $derived(
-    relativeDayLabel(
-      new Date(Date.now() - idea.daysAgo * DAY_MS).toISOString(),
-      new Date(),
-      getLocale(),
-    ),
-  )
+  const up = $derived(idea.myVote === 1)
+  const down = $derived(idea.myVote === -1)
+  const authorName = $derived(idea.author ? (idea.author.isYou ? betterCopy.you : idea.author.display) : null)
+  const askedAgo = $derived(relativeDayLabel(idea.createdAt, new Date(), getLocale()))
   const shippedAgo = $derived(
-    relativeDayLabel(
-      new Date(Date.now() - (idea.shippedDaysAgo ?? 0) * DAY_MS).toISOString(),
-      new Date(),
-      getLocale(),
-    ),
+    idea.shippedAt ? relativeDayLabel(idea.shippedAt, new Date(), getLocale()) : '',
   )
-  /** Everyone but the asker and you (ei app.js:1560). */
-  const others = $derived(Math.max(0, idea.voices - 1 - (idea.mine ? 1 : 0)))
-  /** A few faces behind a shipped row's thanks (ei app.js:1561): three other people. */
-  const backers = $derived(
-    Object.keys(people)
-      .filter((p) => p !== idea.by)
-      .slice(0, 3),
-  )
-  const voteLabel = $derived(
-    `${idea.voices} ${betterCopy.votes}${idea.mine ? `, ${betterCopy.includingYours}` : ''}. ${
-      idea.mine ? betterCopy.takeVoteBack : betterCopy.voteForThis
-    }`,
-  )
-
-  // Reddit-style avatar chips: tinted per person; yours is the clay outline
+  /** Everyone but the asker and you. */
+  const others = $derived(Math.max(0, idea.score - 1 - (up && !idea.own ? 1 : 0)))
+  /** One colour per kind: ideas the signal blue, bugs warn red, polish the mesh green. */
+  const kindDot: Record<BoardIdea['kind'], string> = {
+    idea: 'before:bg-signal',
+    bug: 'before:bg-warn',
+    polish: 'before:bg-yarn-mesh',
+  }
+  const upLabel = $derived(up ? betterCopy.takeVoteBack : betterCopy.voteUp)
+  const downLabel = $derived(down ? betterCopy.takeVoteBack : betterCopy.voteDown)
+  const voteBtn =
+    'grid place-items-center size-7 rounded-full [transition:color_0.3s_var(--ease),transform_0.5s_var(--ease)] enabled:active:scale-[0.9] disabled:cursor-default disabled:opacity-60 pointer-fine:enabled:hover:text-clay'
+  const arrow =
+    'size-[20px] stroke-current [stroke-width:1.3] [stroke-linejoin:round] [transition:fill_0.25s_var(--ease),stroke_0.25s_var(--ease)]'
   const av =
-    'inline-grid place-items-center shrink-0 size-[18px] rounded-full bg-[var(--tint,var(--clay))] text-white text-sm font-medium shadow-[0_0_0_2px_var(--paper)]'
+    'inline-grid place-items-center shrink-0 size-[18px] rounded-full bg-clay text-white text-sm font-medium shadow-[0_0_0_2px_var(--paper)]'
   const avYou =
     'inline-grid place-items-center shrink-0 size-[18px] rounded-full bg-transparent text-white text-sm font-medium shadow-[inset_0_0_0_1.3px_var(--clay),0_0_0_2px_var(--paper)]'
+  const correctBtn =
+    'p-0 border-0 border-b border-dashed border-ink-4 bg-transparent [font:inherit] text-inherit cursor-pointer [transition:border-color_0.3s_var(--ease),color_0.3s_var(--ease)] pointer-fine:hover:text-ink pointer-fine:hover:border-signal disabled:cursor-default'
 </script>
 
 <article
@@ -79,30 +86,40 @@
   style="--i:{Math.min(index, 10)}"
   data-testid="idea-{idea.id}"
 >
-  <button
-    class="flex flex-col items-center justify-start gap-0.5 w-[54px] max-[640px]:w-[46px] pt-0.5 [transition:color_0.3s_var(--ease),transform_0.5s_var(--ease)] enabled:active:scale-[0.92] disabled:cursor-default pointer-fine:enabled:hover:text-clay"
-    class:text-clay={yours}
-    type="button"
-    disabled={shipped || !!idea.own}
-    aria-pressed={!!idea.mine}
-    aria-label={voteLabel}
-    onclick={(e) => onvote?.(idea.id, e.currentTarget)}
+  <div
+    class="flex flex-col items-center justify-start w-[54px] max-[640px]:w-[46px] -mt-1"
+    role="group"
+    aria-label="{idea.score} {betterCopy.votes}"
   >
-    <svg
-      class="size-[22px] fill-none stroke-current [stroke-width:1.3] [stroke-linejoin:round] [transition:fill_0.25s_var(--ease),stroke_0.25s_var(--ease)]"
-      class:fill-clay={yours}
-      class:stroke-clay={yours}
-      viewBox="0 0 16 16"
-      aria-hidden="true"
+    <button
+      class={[voteBtn, up && 'text-clay']}
+      type="button"
+      disabled={pending || !canVote(idea, 1)}
+      aria-pressed={up}
+      aria-label={upLabel}
+      onclick={(e) => onvote?.(idea.id, 1, e.currentTarget)}
     >
-      <path d="M8 3.2 13 9.4H10.1V13H5.9V9.4H3Z" />
-    </svg>
+      <svg class={[arrow, up ? 'fill-clay stroke-clay' : 'fill-none']} viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M8 3.2 13 9.4H10.1V13H5.9V9.4H3Z" />
+      </svg>
+    </button>
     <span
-      class="block text-sm font-medium tracking-[-0.01em] [font-variant-numeric:tabular-nums] transition-colors duration-[250ms] ease-settle"
-      class:text-clay={yours}
-      >{idea.voices}</span
+      class={['v-n block text-sm font-medium tracking-[-0.01em] [font-variant-numeric:tabular-nums] transition-colors duration-[250ms] ease-settle', up && 'text-clay', down && 'text-ink-3']}
+      >{idea.score}</span
     >
-  </button>
+    <button
+      class={[voteBtn, down && 'text-ink']}
+      type="button"
+      disabled={pending || !canVote(idea, -1)}
+      aria-pressed={down}
+      aria-label={downLabel}
+      onclick={(e) => onvote?.(idea.id, -1, e.currentTarget)}
+    >
+      <svg class={[arrow, 'rotate-180', down ? 'fill-ink stroke-ink' : 'fill-none']} viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M8 3.2 13 9.4H10.1V13H5.9V9.4H3Z" />
+      </svg>
+    </button>
+  </div>
 
   <div>
     {#if mostWanted}
@@ -118,20 +135,41 @@
     </h3>
     <div class="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 mt-2 text-sm text-ink-3">
       <span
-        class="inline-flex items-center gap-1.5 text-ink-2 before:content-[''] before:size-[5px] before:rounded-full before:bg-signal"
-        >{kindLabel(idea.kind)}</span
+        class={['inline-flex items-center gap-1.5 text-ink-2 before:content-[""] before:size-[5px] before:rounded-full', kindDot[idea.kind]]}
       >
-      <span>{areaLabel(idea.area)}</span>
-      <span class="inline-flex items-center gap-[7px]">
-        {#if idea.by === 'you'}
-          <span class={avYou} aria-hidden="true"></span>
-        {:else}
-          <span class={av} style="--tint:{people[idea.by]?.tint}" aria-hidden="true"
-            >{nameOf(idea.by)[0]}</span
+        {#if editable}
+          <button
+            class={correctBtn}
+            type="button"
+            disabled={pending}
+            title={betterCopy.correctHint}
+            onclick={() => oncorrect?.(idea.id, { kind: nextKind(idea.kind) })}>{kindLabel(idea.kind)}</button
           >
+        {:else}
+          {kindLabel(idea.kind)}
         {/if}
-        {nameOf(idea.by)}
       </span>
+      {#if editable}
+        <button
+          class={correctBtn}
+          type="button"
+          disabled={pending}
+          title={betterCopy.correctHint}
+          onclick={() => oncorrect?.(idea.id, { area: nextArea(idea.area) })}>{areaLabel(idea.area)}</button
+        >
+      {:else}
+        <span>{areaLabel(idea.area)}</span>
+      {/if}
+      {#if idea.author && authorName}
+        <span class="inline-flex items-center gap-[7px]">
+          {#if idea.author.isYou}
+            <span class={avYou} aria-hidden="true"></span>
+          {:else}
+            <span class={av} aria-hidden="true">{Array.from(idea.author.display)[0]}</span>
+          {/if}
+          {authorName}
+        </span>
+      {/if}
       <span>{shipped ? `${statusLabel('shipped')} · ${shippedAgo}` : askedAgo}</span>
       <span class="inline-flex items-center gap-1">
         {#each { length: STAGE_DOTS } as _, k (k)}
@@ -149,39 +187,31 @@
 
     {#if shipped}
       <p class="flex items-center gap-2 mt-3 mb-0 text-sm text-ink-2">
-        <span class="inline-flex [&_.av]:-ml-[5px] [&_.av:first-child]:ml-0" aria-hidden="true">
-          {#if idea.by === 'you'}
-            <span class={avYou}></span>
-          {:else}
-            <span class={av} style="--tint:{people[idea.by]?.tint}">{nameOf(idea.by)[0]}</span>
-          {/if}
-          {#each backers as who (who)}
-            <span class={av} style="--tint:{people[who].tint}">{people[who].name[0]}</span>
-          {/each}
-        </span>
         <span>
           {betterCopy.thanksTo}
-          {nameOf(idea.by)}{#if idea.mine}, <b class="font-medium text-clay">{betterCopy.you}</b>,{/if}
+          {authorName ?? betterCopy.others}{#if up && !idea.own}, <b class="font-medium text-clay">{betterCopy.you}</b>,{/if}
           {betterCopy.and}
           {others}
           {betterCopy.others}
         </span>
       </p>
     {/if}
-    {#if shipped && idea.mine}
-      <p
-        class="flex items-center gap-2 mt-3 mb-0 text-sm text-clay before:shrink-0 before:content-[''] before:size-[5px] before:rounded-full before:bg-clay"
-      >
-        {betterCopy.youAsked}
-      </p>
-    {/if}
     {#if idea.own}
-      <p
-        class="flex items-center gap-2 mt-3 mb-0 text-sm text-clay before:shrink-0 before:content-[''] before:size-[5px] before:rounded-full before:bg-clay"
-      >
-        {betterCopy.sharedByYou}
-      </p>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm">
+        <p
+          class="flex items-center gap-2 m-0 text-clay before:shrink-0 before:content-[''] before:size-[5px] before:rounded-full before:bg-clay"
+        >
+          {betterCopy.sharedByYou}
+        </p>
+        {#if editable}
+          <button
+            class="p-0 border-0 bg-transparent [font:inherit] text-ink-3 cursor-pointer transition-colors duration-300 ease-settle pointer-fine:hover:text-ink disabled:cursor-default"
+            type="button"
+            disabled={pending}
+            onclick={() => onforget?.(idea.id)}>{betterCopy.forget}</button
+          >
+        {/if}
+      </div>
     {/if}
   </div>
 </article>
-

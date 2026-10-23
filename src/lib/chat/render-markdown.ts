@@ -1,23 +1,16 @@
 import type { Config } from 'dompurify'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
-import { citationDisplayLabel, replaceCitationTokens } from './citation-tokens'
+import { CITATION_TOKEN_RE } from './citation-tokens'
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
+/**
+ * Drop citation tokens from chat display: Ask never shows thought ids — the thoughts
+ * used to answer appear as memory cards instead. Leading spaces before a token go too.
+ */
+const CITATION_DISPLAY_RE = new RegExp(`[ \\t]*${CITATION_TOKEN_RE.source}`, 'g')
 
-/** Turn raw citation tokens into compact inline citation chips for chat display. */
-export function formatCitationTokens(source: string): string {
-  return replaceCitationTokens(source, (id) => {
-    const safeId = escapeHtml(id)
-    const label = escapeHtml(citationDisplayLabel(id))
-    return `<span class="chat-citation" title="Source ${safeId}">${label}</span>`
-  })
+export function stripCitationTokensForDisplay(source: string): string {
+  return source.replace(CITATION_DISPLAY_RE, '')
 }
 
 marked.setOptions({
@@ -70,7 +63,7 @@ const PURIFY_OPTIONS: Config = {
 export function renderMarkdownToHtml(source: string): string {
   const trimmed = source.trim()
   if (!trimmed) return ''
-  const raw = marked.parse(formatCitationTokens(trimmed), { async: false })
+  const raw = marked.parse(stripCitationTokensForDisplay(trimmed), { async: false })
   if (typeof raw !== 'string') return ''
   return String(DOMPurify.sanitize(raw, PURIFY_OPTIONS))
 }

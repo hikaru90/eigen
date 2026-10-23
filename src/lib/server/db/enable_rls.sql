@@ -484,3 +484,144 @@ CREATE POLICY decision_shadow_log_isolation ON decision_shadow_log
   FOR ALL
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+-- Multiplayer board (0076_board_ideas_votes): the first deliberate cross-tenant read.
+-- board_idea: readable by any signed-in session (hidden=false); written only by its author
+-- while Requested; protected columns via board_admin_update() (role checked server-side).
+-- board_vote: owner-only for every operation; scores come from the board_scores() aggregate.
+-- Protected columns (status, planned, note, hidden, shipped_at, title, author) change only
+-- inside the admin SECURITY DEFINER function, which runs as the table owner. The app role's
+-- UPDATE policy lets an author correct kind/area; this trigger rejects anything more.
+CREATE OR REPLACE FUNCTION board_idea_guard_protected_columns()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+	IF current_user::text = (SELECT pg_get_userbyid(relowner)::text FROM pg_class WHERE oid = 'public.board_idea'::regclass)
+		OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+		RETURN NEW;
+	END IF;
+	IF NEW.status IS DISTINCT FROM OLD.status
+		OR NEW.planned IS DISTINCT FROM OLD.planned
+		OR NEW.maker_note IS DISTINCT FROM OLD.maker_note
+		OR NEW.hidden IS DISTINCT FROM OLD.hidden
+		OR NEW.shipped_at IS DISTINCT FROM OLD.shipped_at
+		OR NEW.title IS DISTINCT FROM OLD.title
+		OR NEW.author_user_id IS DISTINCT FROM OLD.author_user_id
+		OR NEW.feedback_id IS DISTINCT FROM OLD.feedback_id
+		OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+		RAISE EXCEPTION 'board_idea protected columns change only through board_admin_update()'
+			USING ERRCODE = '42501';
+	END IF;
+	RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS board_idea_guard_protected_columns ON "board_idea";
+CREATE TRIGGER board_idea_guard_protected_columns
+	BEFORE UPDATE ON "board_idea"
+	FOR EACH ROW EXECUTE FUNCTION board_idea_guard_protected_columns();
+ALTER TABLE "board_idea" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "board_idea" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS board_idea_read_shared ON "board_idea";
+CREATE POLICY board_idea_read_shared ON "board_idea"
+	FOR SELECT
+	USING (coalesce(current_setting('app.current_user_id', true), '') <> '' AND hidden = false);
+DROP POLICY IF EXISTS board_idea_insert_own ON "board_idea";
+CREATE POLICY board_idea_insert_own ON "board_idea"
+	FOR INSERT
+	WITH CHECK (
+		author_user_id = current_setting('app.current_user_id', true)
+		AND status = 'requested' AND hidden = false AND planned = false
+		AND maker_note IS NULL AND shipped_at IS NULL
+	);
+DROP POLICY IF EXISTS board_idea_update_own_requested ON "board_idea";
+CREATE POLICY board_idea_update_own_requested ON "board_idea"
+	FOR UPDATE
+	USING (author_user_id = current_setting('app.current_user_id', true) AND status = 'requested')
+	WITH CHECK (author_user_id = current_setting('app.current_user_id', true) AND status = 'requested');
+DROP POLICY IF EXISTS board_idea_delete_own_requested ON "board_idea";
+CREATE POLICY board_idea_delete_own_requested ON "board_idea"
+	FOR DELETE
+	USING (author_user_id = current_setting('app.current_user_id', true) AND status = 'requested');
+ALTER TABLE "board_vote" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "board_vote" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS board_vote_own ON "board_vote";
+CREATE POLICY board_vote_own ON "board_vote"
+	FOR ALL
+	USING (user_id = current_setting('app.current_user_id', true))
+	WITH CHECK (
+		user_id = current_setting('app.current_user_id', true)
+		AND EXISTS (
+			SELECT 1 FROM board_idea i
+			WHERE i.id = board_vote.idea_id AND i.hidden = false AND i.status <> 'shipped'
+		)
+	);
+-- Net score per visible idea. Aggregate only: never returns voter ids or single votes.
+CREATE OR REPLACE FUNCTION board_scores()
+RETURNS TABLE(idea_id uuid, score integer)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+	SELECT v.idea_id, sum(v.direction)::integer AS score
+	FROM board_vote v
+	JOIN board_idea i ON i.id = v.idea_id
+	WHERE i.hidden = false
+		AND coalesce(current_setting('app.current_user_id', true), '') <> ''
+	GROUP BY v.idea_id;
+$$;
+-- Makers' controls. NULL arguments leave a column unchanged; p_clear_note clears the note.
+-- The role check happens here, server-side, against the session's app.current_user_id.
+CREATE OR REPLACE FUNCTION board_admin_update(
+	p_idea_id uuid,
+	p_status text,
+	p_planned boolean,
+	p_note text,
+	p_clear_note boolean,
+	p_hidden boolean
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+	v_found boolean;
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM "user" u
+		WHERE u.id = current_setting('app.current_user_id', true) AND u.role = 'admin'
+	) THEN
+		RAISE EXCEPTION 'board_admin_update requires an admin session' USING ERRCODE = '42501';
+	END IF;
+	IF p_status IS NOT NULL AND p_status NOT IN ('requested', 'in-progress', 'shipped') THEN
+		RAISE EXCEPTION 'Invalid status: %', p_status USING ERRCODE = '22023';
+	END IF;
+	UPDATE board_idea SET
+		status = coalesce(p_status, status),
+		shipped_at = CASE
+			WHEN p_status IS NULL THEN shipped_at
+			WHEN p_status = 'shipped' THEN coalesce(shipped_at, now())
+			ELSE NULL
+		END,
+		planned = coalesce(p_planned, planned),
+		maker_note = CASE WHEN p_clear_note THEN NULL ELSE coalesce(p_note, maker_note) END,
+		hidden = coalesce(p_hidden, hidden),
+		updated_at = now()
+	WHERE id = p_idea_id
+	RETURNING true INTO v_found;
+	RETURN coalesce(v_found, false);
+END;
+$$;
+REVOKE ALL ON FUNCTION board_scores() FROM PUBLIC;
+REVOKE ALL ON FUNCTION board_admin_update(uuid, text, boolean, text, boolean, boolean) FROM PUBLIC;
+DO $$ BEGIN
+	IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eigen_app') THEN
+		GRANT SELECT, INSERT, UPDATE, DELETE ON "board_idea" TO eigen_app;
+		GRANT SELECT, INSERT, UPDATE, DELETE ON "board_vote" TO eigen_app;
+		GRANT EXECUTE ON FUNCTION board_scores() TO eigen_app;
+		GRANT EXECUTE ON FUNCTION board_admin_update(uuid, text, boolean, text, boolean, boolean) TO eigen_app;
+	END IF;
+END $$;

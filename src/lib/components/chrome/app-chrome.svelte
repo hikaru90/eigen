@@ -47,11 +47,11 @@
   </div>
 
   <div class="flex items-center gap-5.5">
-    <!-- the whisper: the only status line; it blurs out and back, never pops -->
+    <!-- the whisper: the only status line; it fades out and back, never pops -->
     <span
       class={[
-        'max-[640px]:hidden text-sm text-ink-3 [transition:opacity_0.22s_var(--ease),filter_0.22s_var(--ease),transform_0.3s_var(--ease)]',
-        whisper.swapping && 'opacity-0 blur-[3px] -translate-y-[3px]',
+        'max-[640px]:hidden text-sm text-ink-3 [transition:opacity_0.22s_var(--ease),transform_0.3s_var(--ease)]',
+        whisper.swapping && 'opacity-0 -translate-y-[3px]',
       ]}
       aria-live="polite">{whisper.text}</span
     >

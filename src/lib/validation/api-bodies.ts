@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { FEEDBACK_MAX_LENGTH } from '$lib/feedback/feedback-max-length'
 
 function isIsoDateTime(value: string): boolean {
   const ms = Date.parse(value)
@@ -10,21 +9,6 @@ const isoDateTimeOrNull = z.union([
   z.null(),
   z.string().refine(isIsoDateTime, { message: 'must be ISO datetime or null' }),
 ])
-
-/** POST /api/feedback */
-export const feedbackPostBodySchema = z.object({
-  message: z
-    .string()
-    .transform((s) => s.trim())
-    .pipe(
-      z
-        .string()
-        .min(1, 'message must not be empty')
-        .max(FEEDBACK_MAX_LENGTH, `message must be at most ${FEEDBACK_MAX_LENGTH} characters`),
-    ),
-})
-
-export type FeedbackPostBody = z.infer<typeof feedbackPostBodySchema>
 
 /** POST /api/timeline/parse-date-range */
 export const parseDateRangeRequestSchema = z.object({

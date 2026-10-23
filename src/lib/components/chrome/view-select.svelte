@@ -10,6 +10,7 @@
    * outside-click, Escape and focus: the registry dropdown owns them. No `$effect`.
    */
   import { onMount } from 'svelte'
+  import { beforeNavigate } from '$app/navigation'
   import { page } from '$app/state'
   import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
@@ -23,6 +24,8 @@
   } from '$lib/stores/current-user-view.svelte'
 
   let open = $state(false)
+  // a menu never rides into the next page: the route transition would paint over it
+  beforeNavigate(() => (open = false))
   let view = $state<CurrentUserView>(getCurrentUserView())
 
   const authorLayers = $derived(

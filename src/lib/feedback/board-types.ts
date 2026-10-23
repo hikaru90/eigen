@@ -1,18 +1,23 @@
 /**
- * The Make-me-better board's shapes (DESIGN.md "Make me better"). These types are
- * the contract the board UI renders against; the fixture (`fixture-board.ts`)
- * satisfies them today and the real board API will tomorrow. Nothing here is
- * fixture-specific — keep it that way so production paths never import the fixture.
+ * The Contribute board's shapes (docs/planning/feature-multiplayer-board.md §6).
+ * These are the wire contract of `GET /api/board` and the share/vote endpoints;
+ * the server builds them (`src/lib/server/board/service.ts`) and the page renders
+ * them. Author identity is a display string only ("Noor K.") — never an email or id.
  */
+
+/** Up (1) or down (-1): the two vote controls. */
+export type VoteDirection = 1 | -1
+/** Your stored vote: up, down, or none (0). */
+export type MyVote = -1 | 0 | 1
 
 /** The mesh's label for a request: Idea, Bug or Polish. */
 export type BoardKind = 'idea' | 'bug' | 'polish'
-export const BOARD_KINDS: readonly BoardKind[] = ['idea', 'bug', 'polish']
+export const BOARD_KINDS = ['idea', 'bug', 'polish'] as const satisfies readonly BoardKind[]
 
 /** Where in the app a request lives — the surfaces, plus "everywhere". */
 export type BoardArea =
   'capture' | 'yarn' | 'threads' | 'patterns' | 'ask' | 'better' | 'everywhere'
-export const BOARD_AREAS: readonly BoardArea[] = [
+export const BOARD_AREAS = [
   'capture',
   'yarn',
   'threads',
@@ -20,38 +25,54 @@ export const BOARD_AREAS: readonly BoardArea[] = [
   'ask',
   'better',
   'everywhere',
-]
+] as const satisfies readonly BoardArea[]
 
 /** The three tabs in plain words: Requested, In progress, Shipped. */
 export type BoardStatus = 'requested' | 'in-progress' | 'shipped'
-export const BOARD_STATUSES: readonly BoardStatus[] = ['requested', 'in-progress', 'shipped']
+export const BOARD_STATUSES = [
+  'requested',
+  'in-progress',
+  'shipped',
+] as const satisfies readonly BoardStatus[]
 
-/** Someone around Eigenmesh. Avatars use soft, warm tints (DESIGN.md "Clay is people"). */
-export type BoardPerson = { name: string; tint: string }
+/** Who asked, as everyone else sees it. */
+export type BoardAuthor = { display: string; isYou: boolean }
 
 export type BoardIdea = {
   id: string
-  /** In the asker's voice (Geist Mono). */
+  /** Verbatim, in the asker's voice. */
   title: string
   kind: BoardKind
   area: BoardArea
-  /** A person id, or `'you'` for rows you shared. */
-  by: string
-  /** When it was asked, in whole days before now. */
-  daysAgo: number
-  /** How many people lent it their vote (including yours, when `mine`). */
-  voices: number
   status: BoardStatus
   /** Requested rows the makers have picked up next show two dots instead of one. */
-  planned?: boolean
-  /** You lent this request one of your ten votes. */
-  mine?: boolean
+  planned: boolean
+  /** "From the makers" — a short note. */
+  note: string | null
+  /** Net score: upvotes minus downvotes (computed server-side from all votes). */
+  score: number
+  myVote: MyVote
+  /** Null when the author deleted their account or carries no name. */
+  author: BoardAuthor | null
+  /** ISO timestamps. */
+  createdAt: string
+  shippedAt: string | null
   /** You shared this one yourself. */
-  own?: boolean
-  /** "From the makers" — a short note in the mesh's voice. */
-  note?: string
-  /** Shipped rows only: when, in whole days before now. */
-  shippedDaysAgo?: number
-  /** Shipped since you last looked. */
-  fresh?: boolean
+  own: boolean
 }
+
+/** `POST /api/board/ideas/check` — the LLM judge's reading of a draft. */
+export type BoardCheckResult = {
+  kind: BoardKind
+  area: BoardArea
+  duplicateOf: BoardIdea | null
+}
+
+/** `POST /api/board/ideas` — the idea is kept even when the inbox email fails (D4). */
+export type BoardShareResult = {
+  idea: BoardIdea
+  inbox: 'sent' | 'failed'
+  inboxError?: string
+}
+
+export type BoardVoteResult = { score: number; myVote: MyVote }

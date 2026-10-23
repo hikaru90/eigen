@@ -3,6 +3,8 @@ import { render } from 'vitest-browser-svelte'
 import { page, userEvent } from 'vitest/browser'
 import { goto } from '$app/navigation'
 import { page as stubAppPage } from '$lib/vitest-stubs/app/state'
+import { deferredInstallState } from '$lib/pwa/deferred-install-store.svelte'
+import type { BeforeInstallPromptEvent } from '$lib/pwa/install'
 import YouMenu from './you-menu.svelte'
 
 vi.mock('$app/navigation', { spy: true })
@@ -52,6 +54,18 @@ describe('you-menu.svelte', () => {
       await expect.element(menu.getByRole('menuitemradio', { name: label })).toBeInTheDocument()
     }
   })
+
+  it('enumerates the mesh (thoughts · threads) and the API keys like ei', async () => {
+    stubAppPage.data = {
+      user: { email: 'you@eigen.dev' },
+      youCounts: { thoughts: 142, threads: 3, apiKeys: 1 },
+    }
+    render(YouMenu)
+    await page.getByRole('button', { name: MENU_LABEL }).click()
+    const menu = page.getByRole('menu', { name: MENU_LABEL })
+    await expect.element(menu.getByText('142 thoughts · 3 threads')).toBeInTheDocument()
+    await expect.element(menu.getByText('1 key', { exact: true })).toBeInTheDocument()
+  })
 })
 
 describe('you-menu selection', () => {
@@ -95,5 +109,53 @@ describe('you-menu selection', () => {
     await expect
       .poll(() => vi.mocked(goto).mock.calls)
       .toContainEqual(['/login', { invalidateAll: true }])
+  })
+
+  describe('install app', () => {
+    afterEach(() => {
+      deferredInstallState.deferred = null
+      deferredInstallState.installed = false
+    })
+
+    function offerPrompt(outcome: 'accepted' | 'dismissed') {
+      const prompt = vi.fn(async () => undefined)
+      deferredInstallState.deferred = Object.assign(new Event('beforeinstallprompt'), {
+        prompt,
+        userChoice: Promise.resolve({ outcome }),
+      }) as BeforeInstallPromptEvent
+      return prompt
+    }
+
+    it('offers one-click install when the browser has an install prompt', async () => {
+      signIn()
+      const prompt = offerPrompt('accepted')
+      render(YouMenu)
+      await page.getByRole('button', { name: MENU_LABEL }).click()
+      await page.getByRole('menuitem', { name: 'Install app', exact: true }).click()
+      expect(prompt).toHaveBeenCalledTimes(1)
+      await expect.poll(() => deferredInstallState.installed).toBe(true)
+    })
+
+    it('hides the install item once the app is installed', async () => {
+      signIn()
+      offerPrompt('accepted')
+      deferredInstallState.installed = true
+      render(YouMenu)
+      await page.getByRole('button', { name: MENU_LABEL }).click()
+      await expect.element(page.getByRole('menu', { name: MENU_LABEL })).toBeInTheDocument()
+      await expect
+        .element(page.getByRole('menuitem', { name: 'Install app', exact: true }))
+        .not.toBeInTheDocument()
+    })
+
+    it('hides the install item when the browser offers no install prompt (and is not iOS)', async () => {
+      signIn()
+      render(YouMenu)
+      await page.getByRole('button', { name: MENU_LABEL }).click()
+      await expect.element(page.getByRole('menu', { name: MENU_LABEL })).toBeInTheDocument()
+      await expect
+        .element(page.getByRole('menuitem', { name: 'Install app', exact: true }))
+        .not.toBeInTheDocument()
+    })
   })
 })

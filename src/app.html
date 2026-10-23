@@ -50,6 +50,17 @@
         }
       })()
     </script>
+    <script>
+      // Chrome fires beforeinstallprompt before the app hydrates; keep it for the install
+      // store (src/lib/pwa/deferred-install-store.svelte.ts) so one-click install works.
+      window.addEventListener('beforeinstallprompt', function (event) {
+        event.preventDefault()
+        window.__eigenInstallPrompt = event
+      })
+      window.addEventListener('appinstalled', function () {
+        window.__eigenInstallPrompt = null
+      })
+    </script>
     %sveltekit.head%
   </head>
 

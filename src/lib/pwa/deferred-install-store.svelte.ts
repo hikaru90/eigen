@@ -16,8 +16,15 @@ import {
   isPwaStandalone,
   listenForAppInstalled,
   listenForInstallPrompt,
+  promptPwaInstall,
   type BeforeInstallPromptEvent,
 } from '$lib/pwa/install'
+
+/**
+ * Chrome fires `beforeinstallprompt` within ~200ms of load — before hydration mounts the
+ * layout. app.html therefore captures it inline into this global; init adopts it.
+ */
+type EarlyInstallWindow = Window & { __eigenInstallPrompt?: BeforeInstallPromptEvent | null }
 
 export const deferredInstallState = $state({
   /** The captured `beforeinstallprompt` event, or null if not yet fired / not supported. */
@@ -45,6 +52,19 @@ export function clearDeferredInstall(): void {
 }
 
 /**
+ * One-click install: opens the browser's native install dialog. A prompt event can be
+ * used once, so it is consumed whatever the user chooses.
+ */
+export async function installApp(): Promise<'accepted' | 'dismissed' | 'unavailable'> {
+  const event = deferredInstallState.deferred
+  if (!event) return 'unavailable'
+  deferredInstallState.deferred = null
+  const outcome = await promptPwaInstall(event)
+  if (outcome === 'accepted') deferredInstallState.installed = true
+  return outcome
+}
+
+/**
  * Wire the app-wide install listeners. Call once from the authenticated
  * layout `onMount`. Returns a cleanup function to remove the listeners.
  * Safe to call on the server (no-op) and idempotent on the client.
@@ -55,6 +75,7 @@ export function initDeferredInstallStore(): () => void {
   initialized = true
 
   deferredInstallState.installed = isPwaStandalone()
+  deferredInstallState.deferred = (window as EarlyInstallWindow).__eigenInstallPrompt ?? null
 
   const stopPrompt = listenForInstallPrompt((event) => {
     deferredInstallState.deferred = event

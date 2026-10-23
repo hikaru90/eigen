@@ -4,7 +4,7 @@
 
   type Props = HTMLAttributes<HTMLDivElement> & {
     heightClass?: string
-    /** Kept for API compatibility: the mono wordmark is one ink and follows the theme. */
+    /** Kept for API compatibility: the wordmark is one ink and follows the theme. */
     tone?: 'auto' | 'light' | 'dark'
     /** Light ink on a dark surface. */
     inverted?: boolean

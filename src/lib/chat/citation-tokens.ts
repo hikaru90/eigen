@@ -12,11 +12,6 @@ export function canonicalCitationToken(id: string): string {
   return `[${CANONICAL_CITATION_PREFIX}${id}]`
 }
 
-export function citationDisplayLabel(id: string): string {
-  if (id.length <= 8) return id
-  return `${id.slice(0, 8)}…`
-}
-
 export function extractCitationIds(text: string): string[] {
   const ids: string[] = []
   const re = new RegExp(CITATION_TOKEN_RE)

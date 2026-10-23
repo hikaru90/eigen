@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { goto } from '$app/navigation'
+  import { beforeNavigate, goto } from '$app/navigation'
   import { base, resolve } from '$app/paths'
   import { page } from '$app/state'
   import { resetPostHog } from '$lib/analytics/posthog-client'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
+  import { deferredInstallState, installApp } from '$lib/pwa/deferred-install-store.svelte'
+  import { isIosDevice } from '$lib/pwa/install'
   import { m } from '$lib/paraglide/messages.js'
 
   // — Look: the existing theme system (see settings/+page.svelte). Persistence is
@@ -14,6 +16,8 @@
 
   let look = $state<LookPreference>('system')
   let open = $state(false)
+  // a menu never rides into the next page: the route transition would paint over it
+  beforeNavigate(() => (open = false))
 
   function readLook(): LookPreference {
     const stored = localStorage.getItem(LOOK_STORAGE_KEY)
@@ -32,6 +36,25 @@
   const userEmail = $derived(
     (page.data as { user?: { email?: string | null } | null }).user?.email ?? null,
   )
+
+  // — Your mesh, enumerated (ei .me-head small "142 thoughts · 3 threads", .me-meta "2 keys"):
+  //   read-only counts from the root layout load.
+  type YouCounts = { thoughts: number; threads: number; apiKeys: number }
+  const counts = $derived((page.data as { youCounts?: YouCounts | null }).youCounts ?? null)
+  const meshSummary = $derived(
+    counts
+      ? `${(counts.thoughts === 1 ? m.you_thoughts_one : m.you_thoughts_other)({ count: counts.thoughts })} · ${(counts.threads === 1 ? m.you_threads_one : m.you_threads_other)({ count: counts.threads })}`
+      : null,
+  )
+  const keysSummary = $derived(
+    counts ? (counts.apiKeys === 1 ? m.you_keys_one : m.you_keys_other)({ count: counts.apiKeys }) : null,
+  )
+
+  // — Install: one click where the browser offers a prompt (Chrome, Edge, Android); iOS has
+  //   no install API, so it gets the Share-sheet path as a hint instead of an action.
+  const ios = isIosDevice()
+  const canPromptInstall = $derived(!deferredInstallState.installed && !!deferredInstallState.deferred)
+  const showIosInstallHint = $derived(ios && !deferredInstallState.installed)
 
   // — Sign out: the old app-header flow, unchanged.
   async function signOut() {
@@ -64,10 +87,14 @@
     { value: 'dark', label: m.you_dark },
     { value: 'system', label: m.you_auto },
   ]
+  // ei .me-seg button: 11.5px, 3×9 padding; the chosen look rides the raised pill.
   const lookSeg =
-    'rounded-full px-[9px] py-[3px] text-sm text-ink-3 cursor-pointer transition-[color,background,box-shadow] duration-[400ms] ease-settle focus:bg-transparent data-highlighted:text-ink-2 aria-checked:bg-raised aria-checked:text-ink aria-checked:shadow-(--pill-ring) [&>[data-slot=dropdown-menu-radio-item-indicator]]:hidden'
+    'rounded-full px-[9px] py-[3px] text-[11.5px] leading-[1.5] text-ink-3 cursor-pointer outline-none [transition:color_0.3s_var(--ease),background_0.4s_var(--ease),box-shadow_0.4s_var(--ease)] focus:bg-transparent data-highlighted:text-ink-2 aria-checked:bg-raised aria-checked:text-ink aria-checked:shadow-(--pill-ring) [&>[data-slot=dropdown-menu-radio-item-indicator]]:hidden'
+  // ei .me-item: quiet rows on the paper — no fill on hover, the words just darken.
   const meItem =
-    'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-ink-2 cursor-pointer transition-colors duration-[250ms] pointer-fine:hover:bg-paper-2 pointer-fine:hover:text-ink'
+    'flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left text-[12.5px] leading-[1.5] text-ink-2 cursor-pointer outline-none [transition:color_0.25s,background_0.25s] focus:bg-transparent data-highlighted:text-ink'
+  // ei .me-quiet: Sign out sits a strength lower
+  const meQuiet = meItem.replace('text-ink-2', 'text-ink-3')
 </script>
 
 <DropdownMenu.Root
@@ -77,7 +104,7 @@
   }}
 >
   <DropdownMenu.Trigger
-    class="group grid size-8 place-items-center border-0 bg-transparent p-0 text-ink cursor-pointer pointer-fine:hover:[&>svg]:opacity-70"
+    class="group relative -mr-2 -ml-3.5 grid size-8 place-items-center border-0 bg-transparent p-0 text-ink cursor-pointer before:absolute before:-inset-1.5 before:content-[''] pointer-fine:hover:[&>svg]:opacity-70"
     aria-label="{m.you_profile()} · {m.you_settings()}"
   >
     <svg
@@ -111,10 +138,11 @@
   <!-- The menu: a sheet of paper laid on the page, not a card. The content is portaled
        by the dropdown primitive; the classes travel with the element. -->
   <DropdownMenu.Content
-    class="w-[244px] px-1 pt-1.5 pb-2 overflow-visible"
+    class="w-[212px] px-1 pt-1.5 pb-2 overflow-visible max-[640px]:w-[224px]"
     aria-label="{m.you_profile()} · {m.you_settings()}"
     align="end"
     sideOffset={8}
+    alignOffset={-2}
   >
     <div class="flex items-center gap-[11px] px-2.5 pt-2 pb-3">
       <svg class="size-[30px] shrink-0 overflow-visible" viewBox="0 0 30 30" aria-hidden="true">
@@ -166,19 +194,43 @@
         <rect class="fill-ink" x="17.3" y="24.3" width="4.4" height="4.4" rx="0.55" />
       </svg>
       <span class="min-w-0">
-        <span class="block font-you text-[18px] leading-[1.1]">Eigenmesh</span>
-        {#if userEmail}
-          <small
-            class="mt-px block max-w-[184px] overflow-hidden text-ellipsis whitespace-nowrap text-sm text-ink-3"
-            >{userEmail}</small
+        <span class="block font-you text-[18px] leading-[1.1] font-normal">Eigenmesh</span>
+        {#if meshSummary}
+          <small class="mt-px block text-[11px] leading-[1.5] text-ink-3" data-testid="you-mesh-counts"
+            >{meshSummary}</small
           >
         {/if}
       </span>
     </div>
 
+    <DropdownMenu.Group class="py-0.5">
+      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/settings'))}>
+        {m.you_profile()}
+      </DropdownMenu.Item>
+      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/api-keys'))}>
+        {m.you_api_keys()}
+        {#if keysSummary}
+          <span class="ml-auto text-[11px] text-ink-3" aria-hidden="true">{keysSummary}</span>
+        {/if}
+      </DropdownMenu.Item>
+      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/activity'))}>
+        {m.you_usage()}
+      </DropdownMenu.Item>
+      {#if canPromptInstall}
+        <DropdownMenu.Item class={meItem} onclick={() => void installApp()}>
+          {m.you_install_app()}
+        </DropdownMenu.Item>
+      {:else if showIosInstallHint}
+        <div class="px-2.5 py-1.5 text-[12.5px] leading-[1.5] text-ink-2">
+          {m.you_install_app()}
+          <small class="block text-[11px] text-ink-3">{m.you_install_ios_hint()}</small>
+        </div>
+      {/if}
+    </DropdownMenu.Group>
+
     <!-- Look: the same tab group as the pages' tabs, in miniature (ei .me-look) -->
-    <div class="flex items-center justify-between gap-2.5 px-2.5 py-1.5">
-      <span class="text-sm text-ink-2" aria-hidden="true">{m.you_look()}</span>
+    <div class="mt-1.5 flex items-center justify-between gap-2.5 px-2.5 py-1.5">
+      <span class="text-[12.5px] leading-[1.5] text-ink-2" aria-hidden="true">{m.you_look()}</span>
       <DropdownMenu.RadioGroup
         value={look}
         onValueChange={(v) => pickLook(v as LookPreference)}
@@ -197,20 +249,15 @@
       </DropdownMenu.RadioGroup>
     </div>
 
-    <DropdownMenu.Group>
-      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/settings'))}>
-        {m.you_profile()}
-      </DropdownMenu.Item>
-      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/api-keys'))}>
-        {m.you_api_keys()}
-      </DropdownMenu.Item>
-      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/activity'))}>
-        {m.you_usage()}
-      </DropdownMenu.Item>
-    </DropdownMenu.Group>
-
-    <DropdownMenu.Group>
-      <DropdownMenu.Item class={`${meItem} text-ink-3`} onclick={() => void signOut()}>
+    <DropdownMenu.Group class="mt-1.5 py-0.5">
+      {#if userEmail}
+        <!-- who is signed in, right above the way out -->
+        <small
+          class="block px-2.5 pt-1 pb-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] leading-[1.5] text-ink-3"
+          >{userEmail}</small
+        >
+      {/if}
+      <DropdownMenu.Item class={meQuiet} onclick={() => void signOut()}>
         {m.you_sign_out()}
       </DropdownMenu.Item>
     </DropdownMenu.Group>

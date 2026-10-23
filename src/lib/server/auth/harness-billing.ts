@@ -34,3 +34,16 @@ export function resolveHarnessBillingUserId(tenantUserId: string): string | unde
   }
   return undefined
 }
+
+/** Playwright signups (`registerUser` in src/routes/e2e/test-helpers.ts): `e2e-…@test.eigen`. */
+const E2E_HARNESS_EMAIL = /^e2e-[^@]+@test\.eigen$/
+
+/**
+ * Playwright harness accounts are fresh per test and start with 0 credits; their LLM
+ * usage is debited from the eval operator service wallet instead (dev server only —
+ * the caller gates on `dev`). Email-format rule only — not semantic classification.
+ */
+export function resolveE2eHarnessBillingUserId(email: string | null | undefined): string | undefined {
+  const normalized = email?.trim().toLowerCase() ?? ''
+  return E2E_HARNESS_EMAIL.test(normalized) ? EVAL_OPERATOR_USER_ID : undefined
+}

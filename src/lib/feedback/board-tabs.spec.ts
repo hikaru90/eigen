@@ -23,12 +23,21 @@ function idea(over: Partial<BoardIdea> & { id: string }): BoardIdea {
     title: `row ${over.id}`,
     kind: 'idea',
     area: 'capture',
-    by: 'noor',
-    daysAgo: 1,
-    voices: 5,
     status: 'requested',
+    planned: false,
+    note: null,
+    score: 5,
+    myVote: 0,
+    author: { display: 'Noor K.', isYou: false },
+    createdAt: '2026-10-20T10:00:00.000Z',
+    shippedAt: null,
+    own: false,
     ...over,
   }
+}
+
+function shippedDaysAgo(days: number): string {
+  return new Date(Date.UTC(2026, 9, 23) - days * 86_400_000).toISOString()
 }
 
 describe('board tabs', () => {
@@ -41,7 +50,7 @@ describe('board tabs', () => {
       idea({ id: 'r', status: 'requested' }),
       idea({ id: 'p', status: 'requested', planned: true }),
       idea({ id: 'l', status: 'in-progress' }),
-      idea({ id: 's', status: 'shipped', shippedDaysAgo: 2 }),
+      idea({ id: 's', status: 'shipped', shippedAt: shippedDaysAgo(2) }),
     ]
     for (const row of rows) {
       const tabs = BOARD_TABS.filter((t) => inTab(row, t))
@@ -54,8 +63,8 @@ describe('board tabs', () => {
       idea({ id: 'a' }),
       idea({ id: 'b', planned: true }),
       idea({ id: 'c', status: 'in-progress' }),
-      idea({ id: 'd', status: 'shipped', shippedDaysAgo: 1 }),
-      idea({ id: 'e', status: 'shipped', shippedDaysAgo: 9 }),
+      idea({ id: 'd', status: 'shipped', shippedAt: shippedDaysAgo(1) }),
+      idea({ id: 'e', status: 'shipped', shippedAt: shippedDaysAgo(9) }),
     ]
     expect(tabCounts(rows)).toEqual({ requested: 2, 'in-progress': 1, shipped: 2 })
   })
@@ -65,18 +74,18 @@ describe('board tabs', () => {
     expect(stageOf(idea({ id: 'a' }))).toBe(1)
     expect(stageOf(idea({ id: 'b', planned: true }))).toBe(2)
     expect(stageOf(idea({ id: 'c', status: 'in-progress' }))).toBe(3)
-    expect(stageOf(idea({ id: 'd', status: 'shipped', shippedDaysAgo: 0 }))).toBe(4)
+    expect(stageOf(idea({ id: 'd', status: 'shipped', shippedAt: shippedDaysAgo(0) }))).toBe(4)
     // planned means nothing once work has started
     expect(stageOf(idea({ id: 'e', status: 'in-progress', planned: true }))).toBe(3)
   })
 
   it('orders open tabs by votes, with what you shared on top (ei app.js:1589)', () => {
     const rows = [
-      idea({ id: 'low', voices: 3 }),
-      idea({ id: 'high', voices: 90 }),
-      idea({ id: 'own', voices: 1, own: true, by: 'you' }),
-      idea({ id: 'mid', voices: 40 }),
-      idea({ id: 'loom', voices: 999, status: 'in-progress' }),
+      idea({ id: 'low', score: 3 }),
+      idea({ id: 'high', score: 90 }),
+      idea({ id: 'own', score: 1, own: true }),
+      idea({ id: 'mid', score: 40 }),
+      idea({ id: 'loom', score: 999, status: 'in-progress' }),
     ]
     expect(sortForTab(rows, 'requested').map((r) => r.id)).toEqual(['own', 'high', 'mid', 'low'])
     expect(sortForTab(rows, 'in-progress').map((r) => r.id)).toEqual(['loom'])
@@ -84,16 +93,16 @@ describe('board tabs', () => {
 
   it('orders Shipped by what shipped most recently (ei app.js:1588)', () => {
     const rows = [
-      idea({ id: 'older', status: 'shipped', shippedDaysAgo: 31 }),
-      idea({ id: 'newest', status: 'shipped', shippedDaysAgo: 3 }),
-      idea({ id: 'mid', status: 'shipped', shippedDaysAgo: 16 }),
+      idea({ id: 'older', status: 'shipped', shippedAt: shippedDaysAgo(31) }),
+      idea({ id: 'newest', status: 'shipped', shippedAt: shippedDaysAgo(3) }),
+      idea({ id: 'mid', status: 'shipped', shippedAt: shippedDaysAgo(16) }),
       idea({ id: 'open' }),
     ]
     expect(sortForTab(rows, 'shipped').map((r) => r.id)).toEqual(['newest', 'mid', 'older'])
   })
 
   it('does not mutate the rows it sorts', () => {
-    const rows = [idea({ id: 'b', voices: 1 }), idea({ id: 'a', voices: 9 })]
+    const rows = [idea({ id: 'b', score: 1 }), idea({ id: 'a', score: 9 })]
     const copy = [...rows]
     sortForTab(rows, 'requested')
     expect(rows).toEqual(copy)
@@ -102,9 +111,9 @@ describe('board tabs', () => {
   it('marks the most wanted only on Requested, skipping what you shared yourself', () => {
     const requested = sortForTab(
       [
-        idea({ id: 'own', own: true, by: 'you', voices: 1 }),
-        idea({ id: 'top', voices: 50 }),
-        idea({ id: 'x', voices: 2 }),
+        idea({ id: 'own', own: true, score: 1 }),
+        idea({ id: 'top', score: 50 }),
+        idea({ id: 'x', score: 2 }),
       ],
       'requested',
     )
@@ -112,7 +121,7 @@ describe('board tabs', () => {
     expect(mostWantedId(requested, 'in-progress')).toBeNull()
     expect(mostWantedId(requested, 'shipped')).toBeNull()
     expect(mostWantedId([], 'requested')).toBeNull()
-    expect(mostWantedId([idea({ id: 'only-own', own: true, by: 'you' })], 'requested')).toBeNull()
+    expect(mostWantedId([idea({ id: 'only-own', own: true })], 'requested')).toBeNull()
   })
 
   it('search filters rows by their visible words (title and makers note), never by meaning', () => {

@@ -1,13 +1,22 @@
 /**
  * The clay dot on the Make-me-better entry: the app has a note for you.
- * DESIGN.md: a small clay dot on the loop means it has something to say;
- * the dot clears once you've looked. The /feedback surface (wave 3) calls
- * `showFeedbackNote()` when a note exists and `clearFeedbackNote()` when the
- * note has been seen. In-memory only — it refills the next time the app has
- * something to say.
+ * ei index.html ships the entry with `has-news`; app.js enterCircle() removes it once you've
+ * looked. Here "looked" is remembered per browser, so the dot shows until the first visit to
+ * /feedback (the page calls `clearFeedbackNote()` on mount).
  */
+const SEEN_KEY = 'eigen-feedback-note-seen'
+
 class FeedbackNewsStore {
   hasNote = $state(false)
+
+  /** Called once from the entry's onMount: unread until the note has been seen. */
+  init() {
+    try {
+      this.hasNote = localStorage.getItem(SEEN_KEY) !== '1'
+    } catch {
+      this.hasNote = true
+    }
+  }
 
   showNote() {
     this.hasNote = true
@@ -15,6 +24,11 @@ class FeedbackNewsStore {
 
   clearNote() {
     this.hasNote = false
+    try {
+      localStorage.setItem(SEEN_KEY, '1')
+    } catch {
+      /* storage unavailable: the dot simply returns next load */
+    }
   }
 }
 

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { shouldScheduleMock, withDbUserMock, drainMock, syncMock } = vi.hoisted(() => ({
+const { shouldScheduleMock, e2eBillingMock, ensureCreditsMock, withDbUserMock, drainMock, syncMock } = vi.hoisted(() => ({
   shouldScheduleMock: vi.fn(),
+  e2eBillingMock: vi.fn(),
+  ensureCreditsMock: vi.fn(),
   withDbUserMock: vi.fn(),
   drainMock: vi.fn(),
   syncMock: vi.fn(),
@@ -9,6 +11,11 @@ const { shouldScheduleMock, withDbUserMock, drainMock, syncMock } = vi.hoisted((
 
 vi.mock('$lib/server/auth/harness-account', () => ({
   shouldScheduleDevCaptureEnrichWorker: shouldScheduleMock,
+  resolveE2eHarnessBillingFor: e2eBillingMock,
+}))
+
+vi.mock('$lib/server/billing/ensure-harness-credits', () => ({
+  ensureHarnessWalletCredits: ensureCreditsMock,
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -28,6 +35,8 @@ describe('capture-enrich-worker', () => {
     vi.resetModules()
     vi.clearAllMocks()
     shouldScheduleMock.mockResolvedValue(true)
+    e2eBillingMock.mockResolvedValue(undefined)
+    ensureCreditsMock.mockResolvedValue({ billingUserId: 'op', availableCredits: 1 })
     withDbUserMock.mockImplementation(async (_id: string, fn: () => Promise<void>) => {
       await fn()
     })
@@ -67,5 +76,32 @@ describe('capture-enrich-worker', () => {
       expect.objectContaining({ userId: 'u1', message: 'boom' }),
     )
     errSpy.mockRestore()
+  })
+
+  it('drains a Playwright harness queue under the service wallet billing context', async () => {
+    e2eBillingMock.mockResolvedValue('eval-runner-operator')
+    const { billingUserAsyncLocal } = await import('$lib/server/billing/context')
+    let billingDuringDrain: string | undefined
+    drainMock.mockImplementation(async () => {
+      billingDuringDrain = billingUserAsyncLocal.getStore()
+    })
+    const mod = await import('./capture-enrich-worker')
+    mod.scheduleCaptureEnrichWorker('e2e-user')
+    await mod.awaitCaptureEnrichWorkerIdle('e2e-user')
+    expect(ensureCreditsMock).toHaveBeenCalledWith('eval-runner-operator')
+    expect(billingDuringDrain).toBe('eval-runner-operator')
+  })
+
+  it('leaves every other account on its own billing', async () => {
+    const { billingUserAsyncLocal } = await import('$lib/server/billing/context')
+    let billingDuringDrain: string | undefined = 'unset'
+    drainMock.mockImplementation(async () => {
+      billingDuringDrain = billingUserAsyncLocal.getStore()
+    })
+    const mod = await import('./capture-enrich-worker')
+    mod.scheduleCaptureEnrichWorker('u2')
+    await mod.awaitCaptureEnrichWorkerIdle('u2')
+    expect(ensureCreditsMock).not.toHaveBeenCalled()
+    expect(billingDuringDrain).toBeUndefined()
   })
 })

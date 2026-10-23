@@ -4,8 +4,8 @@ import {
   appendVoiceTranscript,
   audioUploadExtension,
   parseTranscribeErrorResponse,
-  transcribeRecordedAudio,
   transcribeAudioChunk,
+  TranscribeRequestError,
 } from './transcribe-audio'
 
 describe('audioUploadExtension', () => {
@@ -46,43 +46,7 @@ describe('appendVoiceTranscript', () => {
   })
 })
 
-describe('transcribe-audio client', () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ transcript: 'hello there' }),
-      })),
-    )
-  })
-
-  it('posts binary audio to transcribe endpoint (origin-header-safe content-type)', async () => {
-    const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/webm' })
-    const text = await transcribeRecordedAudio(blob, { language: 'en' })
-    expect(text).toBe('hello there')
-    const fetchMock = vi.mocked(fetch)
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/capture/transcribe',
-      expect.objectContaining({
-        method: 'POST',
-        credentials: 'same-origin',
-      }),
-    )
-    const init = fetchMockInit(fetchMock, 0)
-    // Raw audio body — never multipart/form-data, which SvelteKit's CSRF guard
-    // rejects when the deployed ORIGIN does not match the browser origin.
-    expect(init.body).toBeInstanceOf(Blob)
-    expect(new Headers(init.headers as HeadersInit).get('content-type')).toBe('audio/webm')
-  })
-
-  it('keeps the audio MIME type exact (wav fixtures are not re-labeled)', async () => {
-    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' })
-    await transcribeRecordedAudio(blob)
-    const init = fetchMockInit(vi.mocked(fetch), 0)
-    expect(new Headers(init.headers as HeadersInit).get('content-type')).toBe('audio/wav')
-  })
-
+describe('parseTranscribeErrorResponse', () => {
   it('parseTranscribeErrorResponse reads json error', async () => {
     const res = new Response(JSON.stringify({ error: 'gateway down' }), {
       status: 500,
@@ -109,30 +73,6 @@ describe('transcribe-audio client', () => {
     await expect(parseTranscribeErrorResponse(res)).resolves.toBe('Transcription failed (503)')
   })
 
-  it('throws when transcription response is not ok', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ error: 'stt unavailable' }), { status: 503 })),
-    )
-
-    await expect(transcribeRecordedAudio(new Blob(['x'], { type: 'audio/webm' }))).rejects.toThrow(
-      'stt unavailable',
-    )
-  })
-
-  it('throws when transcript is missing from a successful response', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({ transcript: '   ' }),
-      })),
-    )
-
-    await expect(transcribeRecordedAudio(new Blob(['x'], { type: 'audio/webm' }))).rejects.toThrow(
-      /missing transcript/i,
-    )
-  })
 })
 
 describe('transcribeAudioChunk', () => {
@@ -160,21 +100,47 @@ describe('transcribeAudioChunk', () => {
     )
   })
 
-  it('returns empty string on failure instead of throwing', async () => {
+  it('throws TranscribeRequestError with status and server message on failure (no silent empty partial)', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({
-        ok: false,
-        status: 503,
-        json: async () => ({ error: 'stt unavailable' }),
-      })),
+      vi.fn(async () => new Response(JSON.stringify({ error: 'stt unavailable' }), { status: 503 })),
     )
-    const blob = new Blob(['x'], { type: 'audio/webm' })
-    const text = await transcribeAudioChunk(blob)
-    expect(text).toBe('')
+    const err = await transcribeAudioChunk(new Blob(['x'], { type: 'audio/webm' })).catch(
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(TranscribeRequestError)
+    expect((err as TranscribeRequestError).status).toBe(503)
+    expect((err as TranscribeRequestError).message).toBe('stt unavailable')
   })
 
-  it('returns empty string when transcript is blank', async () => {
+  it('keeps the 402 status so the caller can skip retries', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'Insufficient credits' }), { status: 402 })),
+    )
+    await expect(
+      transcribeAudioChunk(new Blob(['x'], { type: 'audio/webm' })),
+    ).rejects.toMatchObject({ status: 402, message: 'Insufficient credits' })
+  })
+
+  it('throws when the transcript field is missing from a successful response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+    )
+    await expect(
+      transcribeAudioChunk(new Blob(['x'], { type: 'audio/webm' })),
+    ).rejects.toThrow(/missing transcript/i)
+  })
+
+  it('keeps the audio MIME type exact (wav fixtures are not re-labeled)', async () => {
+    await transcribeAudioChunk(new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' }))
+    const init = fetchMockInit(vi.mocked(fetch), 0)
+    expect(init.body).toBeInstanceOf(Blob)
+    expect(new Headers(init.headers as HeadersInit).get('content-type')).toBe('audio/wav')
+  })
+
+  it('returns empty string when transcript is blank (silence is a valid result)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({

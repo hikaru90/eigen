@@ -347,7 +347,7 @@ body::after {
   }
 }
 
-/* three dots hopping in turn while the mesh interprets what you typed */
+/* three small squares hopping in turn while the mesh works (working-dots.svelte) */
 @keyframes dot-jump {
   0%,
   60%,
@@ -705,13 +705,24 @@ html.pwa-standalone::before {
 
 /* ——— route transitions (ei styles.css `.view`, `.view.is-leaving`, `.view.is-active`) ———
    The root snapshot (header, bottom nav, page background) never animates; only the page
-   container and the docked writer do: the old one lifts 10px and fades out in 0.42s, the new one
-   settles 14px up over 0.7–0.9s. Opacity / transform only — no filter on full-page snapshots. */
+   container and the docked writer do: the old one lifts 10px and blurs out in 0.42s, the new one
+   settles 14px up from an 8px blur over 0.7–0.9s. Transforms are 3D (translate3d +
+   backface-visibility + will-change) so each snapshot stays on its own GPU layer for the
+   whole transition instead of being re-rasterized at fractional offsets. */
+::view-transition-group(root),
 ::view-transition-old(root),
 ::view-transition-new(root),
 ::view-transition-group(page),
 ::view-transition-group(glass-writer) {
   animation: none;
+}
+::view-transition-old(page),
+::view-transition-old(glass-writer),
+::view-transition-new(page),
+::view-transition-new(glass-writer) {
+  will-change: transform, opacity, filter;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
 }
 ::view-transition-old(page),
 ::view-transition-old(glass-writer) {
@@ -726,17 +737,22 @@ html.pwa-standalone::before {
 @keyframes route-leave {
   to {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translate3d(0, -10px, 0);
+    filter: blur(8px);
   }
 }
 @keyframes route-enter-fade {
   from {
     opacity: 0;
+    filter: blur(8px);
   }
 }
 @keyframes route-enter-settle {
   from {
-    transform: translateY(14px);
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {

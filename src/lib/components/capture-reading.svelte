@@ -6,6 +6,7 @@
     type ReadingDraft,
     type ThreadChoice,
   } from '$lib/capture/reading-state'
+  import WorkingDots from '$lib/components/brand/working-dots.svelte'
   import * as Popover from '$lib/components/ui/popover'
   import { m } from '$lib/paraglide/messages.js'
 
@@ -91,17 +92,8 @@
 >
   <div class="min-h-0 overflow-hidden pb-[0.12em] font-mesh text-[clamp(28px,3.9vw,42px)] leading-[1.22] tracking-[-0.034em] text-ink-3">
     {#if waiting}
-      <!-- interpreting: three hopping dots, the word pulsing in opacity only -->
-      <span class="inline-flex items-baseline gap-[0.4em]" data-testid="capture-reading-interpreting">
-        <span class="inline-flex gap-[0.12em]" aria-hidden="true">
-          {#each [0, 1, 2] as i (i)}
-            <span
-              class="inline-block size-[0.16em] rounded-full bg-current animate-[dot-jump_1.1s_var(--ease-io)_infinite] motion-reduce:animate-none"
-              style:animation-delay="{i * 140}ms"
-            ></span>
-          {/each}
-        </span>
-        <span class="text-ink-2 animate-[breathe_2.2s_var(--ease-io)_infinite] motion-reduce:[animation:none]">{m.capture_reading_interpreting()}</span>
+      <span data-testid="capture-reading-interpreting">
+        <WorkingDots label={m.capture_reading_interpreting()} />
       </span>
     {:else if showWords && draft}
       <span class="animate-[fade_0.5s_var(--ease)_both] motion-reduce:[animation:none]">

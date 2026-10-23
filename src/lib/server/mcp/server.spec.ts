@@ -71,6 +71,10 @@ describe('createMcpServer', () => {
       'create_project',
       'edit_project',
       'delete_project',
+      'list_board',
+      'share_idea',
+      'vote_idea',
+      'forget_idea',
     ])
     expect(result.tools.map((t) => t.name)).not.toContain('list_thoughts')
     expect(result.tools.map((t) => t.name)).not.toContain('capture_grounding')

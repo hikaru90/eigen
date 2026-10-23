@@ -31,7 +31,7 @@ describe('capture-reading.svelte', () => {
     await expect.element(page.getByText('Sounds like')).not.toBeInTheDocument()
   })
 
-  it('shows three hopping dots and "Interpreting" while the mesh reads', async () => {
+  it('shows three hopping squares and "Interpreting" while the mesh reads', async () => {
     render(CaptureReading, { draft: null, waiting: true, error: null })
     const line = page.getByTestId('capture-reading-interpreting')
     await expect.element(line).toHaveTextContent('Interpreting')

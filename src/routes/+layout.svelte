@@ -78,7 +78,7 @@
    */
   const fadeVars = $derived(
     mainView === 'feedback'
-      ? '[--fade-top:calc(var(--head,68px)+56px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+90px)] [--tail-bottom:0]'
+      ? '[--fade-top:calc(var(--head,68px)+12px+var(--board-head-height,0px)-12px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+90px)] [--tail-bottom:0]'
       : mainView === 'ask' || mainView === 'capture'
         ? // pages with the docked writer: the fade reaches up past it, so nothing scrolls
           // legibly behind the field — not just to the bottom menu
@@ -105,7 +105,7 @@
    * Route transitions: ei's view switch (styles.css `.view` / `.is-leaving`) — the old page
    * lifts and blurs out, the new one settles up from blur. Driven by the View Transitions API
    * from SvelteKit's onNavigate, so only the page container (`view-transition-name: page`)
-   * and the Ask writer animate — opacity / transform on snapshots, compositor-only.
+   * and the Ask writer animate — opacity / transform / filter on snapshots, compositor-only.
    * The root (header, bottom nav) does not animate. Reduced motion and browsers without the
    * API navigate instantly.
    */

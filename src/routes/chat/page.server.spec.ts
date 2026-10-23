@@ -6,14 +6,14 @@ const {
   getWalletSnapshotMock,
   listChatSessionsMock,
   loadChatSessionMock,
-  loadRecentCaptureThoughtsMock,
+  loadAskSuggestionsMock,
 } = vi.hoisted(() => ({
   checkCaptureAllowedMock: vi.fn(),
   isByokBillingMock: vi.fn(),
   getWalletSnapshotMock: vi.fn(),
   listChatSessionsMock: vi.fn(),
   loadChatSessionMock: vi.fn(),
-  loadRecentCaptureThoughtsMock: vi.fn(),
+  loadAskSuggestionsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/onboarding/capture-gate', () => ({
@@ -29,8 +29,8 @@ vi.mock('$lib/server/chat/chat-sessions', () => ({
   listChatSessions: listChatSessionsMock,
   loadChatSession: loadChatSessionMock,
 }))
-vi.mock('$lib/server/capture/load-recent-capture-thoughts', () => ({
-  loadRecentCaptureThoughts: loadRecentCaptureThoughtsMock,
+vi.mock('$lib/server/chat/ask-suggestions', () => ({
+  loadAskSuggestions: loadAskSuggestionsMock,
 }))
 
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
@@ -48,9 +48,9 @@ describe('chat page server load', () => {
     })
     listChatSessionsMock.mockResolvedValue([{ id: 's1', title: 'Garden' }])
     loadChatSessionMock.mockResolvedValue(null)
-    loadRecentCaptureThoughtsMock.mockResolvedValue({
-      recentThoughts: [{ id: 't1', normalizedText: 'Plant tomatoes in May' }],
-    })
+    loadAskSuggestionsMock.mockResolvedValue([
+      { thoughtId: 't1', question: 'When did I want to plant tomatoes?' },
+    ])
   })
 
   const event = (search = '') =>
@@ -83,8 +83,18 @@ describe('chat page server load', () => {
     expect(result.sessions).toEqual([{ id: 's1', title: 'Garden' }])
     expect(result.activeSessionId).toBeNull()
     expect(result.messages).toEqual([])
-    expect(result.suggestions.map((s) => s.text)).toEqual(['Plant tomatoes in May'])
+    // stored enrichment questions, never raw thought text (SQ-4 / SQ-6)
+    expect(result.suggestions).toEqual([
+      { thoughtId: 't1', question: 'When did I want to plant tomatoes?' },
+    ])
+    expect(loadAskSuggestionsMock).toHaveBeenCalledWith('u1')
     expect(loadChatSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('returns no suggestions when no thought has a question (AC-6)', async () => {
+    loadAskSuggestionsMock.mockResolvedValue([])
+    const result = await load(event())
+    expect(result.suggestions).toEqual([])
   })
 
   it('renders the conversation named in ?session', async () => {

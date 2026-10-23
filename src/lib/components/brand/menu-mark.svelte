@@ -48,7 +48,7 @@
   {#each icon.links as [a, b], i (i)}
     <g>
       <path
-        class="fill-none stroke-current [stroke-width:0.6] transition-[stroke,stroke-width,opacity] duration-500 ease-settle"
+        class="fill-none stroke-current [stroke-width:1] transition-[stroke,stroke-width,opacity] duration-500 ease-settle"
         class:opacity-0={active}
         d={linkPath(icon.squares[a], icon.squares[b])}
       />
@@ -64,7 +64,7 @@
   {/each}
   {#if icon.arc}
     <path
-      class="arc base fill-none stroke-current [stroke-width:0.6] transition-[stroke,stroke-width,opacity] duration-500 ease-settle"
+      class="arc base fill-none stroke-current [stroke-width:1] transition-[stroke,stroke-width,opacity] duration-500 ease-settle"
       class:opacity-0={active}
       d={ARC_PATH}
       stroke-linecap="round"

@@ -195,8 +195,8 @@ describe('existing mechanisms preserved', () => {
   it('leaves safe-area paddings to inline utilities (the old .pt-safe/.pb-safe are gone)', () => {
     expect(css).not.toContain('pt-safe')
     expect(css).not.toContain('pb-safe')
-    // citation chips stay plain global classes because they style markdown-generated HTML
-    expect(css).toMatch(/\.chat-citation\s*\{/)
+    // Ask never renders thought-id citation chips, so their global classes are gone
+    expect(css).not.toMatch(/\.chat-citation\s*\{/)
   })
 
   it('keeps the PWA theme-color meta wired to paper', () => {

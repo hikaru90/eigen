@@ -66,7 +66,7 @@ There is no user-facing billing currency picker; PayPal settlement is always USD
 | Surface            | Billable calls                                                                                                                                                                |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Capture**        | Ontology classify (`llmChatCompletion`) + embedding (`llmCreateEmbeddings`); pipeline pre-check requires at least **50 credits** (`MIN_CAPTURE_PIPELINE_CREDITS`, ~$0.05 USD) |
-| **Dictation**      | `POST /api/capture/transcribe` → OpenRouter STT (`llmCreateTranscription`)                                                                                                    |
+| **Dictation**      | `POST /api/capture/transcribe-chunk` (one call per voice segment) → OpenRouter STT (`llmCreateTranscription`)                                                                                                |
 | **Chat / agent**   | `llmChatCompletion`                                                                                                                                                           |
 | **Retrieval / QA** | Embeddings and chat as used by retrieval and compose-answer                                                                                                                   |
 | **Enrichment**     | Background enrich paths that call the LLM                                                                                                                                     |

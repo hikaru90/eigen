@@ -34,15 +34,25 @@ describe('Ask uses the shared bottom-docked writer', () => {
     }
   })
 
-  it('puts Try asking, history and new chat in the quiet row above the field', () => {
+  it('at rest mirrors Capture: the heading in the same place and voice, suggestions beneath it', () => {
+    const hero = source.slice(source.indexOf('data-testid="ask-heading"') - 400, source.indexOf('{#snippet above()}'))
+    // same container offset and type as capture/+page.svelte's h1
+    expect(hero).toContain('pt-[calc(var(--head)+23vh)] px-7 max-[640px]:pt-[calc(var(--head)+12vh)]')
+    expect(hero).toContain('font-you font-normal text-[clamp(32px,4.4vw,46px)]')
+    expect(hero).toContain('m.ask_placeholder()')
+    expect(hero).toContain('m.ask_try()')
+    // one line each, ellipsis, full text in title
+    expect(hero).toContain('truncate')
+    expect(hero).toContain('title={s.question}')
+    // tapping a pill asks exactly the stored question (SQ-4)
+    expect(hero).toContain('onclick={() => resend(s.question)}')
+  })
+
+  it('keeps history and new chat in the quiet row above the field', () => {
     const above = source.slice(source.indexOf('{#snippet above()}'), source.indexOf('{/snippet}'))
-    expect(above).toContain('m.ask_try()')
-    expect(above).toContain('!conversationShown')
     expect(above).toContain('m.ask_past()')
     expect(above).toContain('m.ask_new_chat()')
-    // ei .ask-suggestions: one line each, ellipsis, full text in title
-    expect(above).toContain('truncate')
-    expect(above).toContain('title={s.text}')
+    expect(above).not.toContain('m.ask_try()')
   })
 
   it('the shared writer is the glass pill docked above the bottom nav, outside the mask', () => {

@@ -67,7 +67,7 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 
 ### [`src/lib/server/capture/enrich.ts`](../../src/lib/server/capture/enrich.ts)
 
-- **Purpose:** Async enrichment steps for persisted thoughts (relations, entities, memory type, cues, temporal, link materialization). Tier 2 worker calls `enrichQueuedThought`; edit/relink paths call `enrichThought` / `reenrichThought` directly.
+- **Purpose:** Async enrichment steps for persisted thoughts (relations, entities, memory type, cues, temporal, link materialization). Tier 2 worker calls `enrichQueuedThought`; edit/relink paths call `enrichThought` / `reenrichThought` directly. The cues step also persists `thought.ask_question` (+ `ask_question_encrypted`): from the single `enrich_thought_bundle` call on capture, or from the one `extractRecallCues` call on re-enrich after an edit (an edit clears the old question first).
 - **PublicSymbols:** `enrichThought`, `reenrichThought`, `scheduleEnrichThought`, `scheduleReenrichThought`.
 - **FailureMode:** `enrichThought` does not throw; per-step failures logged. `scheduleEnrichThought` / `scheduleReenrichThought` remain for legacy edit fire-and-forget; new captures use the enrich worker.
 

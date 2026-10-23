@@ -27,7 +27,7 @@
   } from '$lib/chat/normalize-messages'
   import { relativeDayLabel } from '$lib/chat/relative-day'
   import { canScrollInput, wheelDeltaPixels } from '$lib/chat/scroll-overlay'
-  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
+  import WorkingDots from '$lib/components/brand/working-dots.svelte'
   import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
   import ChatMarkdown from '$lib/components/chat-markdown.svelte'
   import ChatTimelineStep from '$lib/components/chat-timeline-step.svelte'
@@ -91,7 +91,7 @@
   const conversationShown = $derived(isBriefingMode || conversationStarted)
   const hasText = $derived(input.trim().length > 0)
 
-  /** "Try asking": three pills in your own words, from the existing recent-thoughts endpoint. */
+  /** "Try asking": up to three questions enrichment stored for your recent thoughts. */
   let suggestions = $state<AskSuggestion[]>(untrack(() => data.suggestions))
 
   function keyedEntries(sessionId: string | null, entries: ChatDisplayEntry[]): ChatEntry[] {
@@ -632,7 +632,7 @@
   {#if !conversationShown && !loadingSession}
     <!-- at rest Ask mirrors Capture: the question as a heading in the same place and
          voice (capture/+page.svelte h1), the suggestions right beneath it -->
-    <div class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 max-[640px]:px-1">
+    <div class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 max-[640px]:pt-[calc(var(--head)+12vh)] max-[640px]:px-1">
       <h1
         class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
         data-testid="ask-heading"
@@ -643,12 +643,13 @@
         <div class="mt-8 animate-[rise_0.9s_var(--ease)_0.15s_backwards] motion-reduce:[animation:none]" out:fade={{ duration: motionMs(300) }}>
           <div class="mb-2 font-mesh text-sm text-ink-3">{m.ask_try()}</div>
           <div class="flex flex-col items-start gap-2">
-            {#each suggestions as s (s.id)}
+            {#each suggestions as s (s.thoughtId)}
               <button
                 type="button"
                 class="block max-w-full h-9 px-4 rounded-full border-0 bg-transparent shadow-[inset_0_0_0_1px_var(--ink-4)] font-you text-[15px] leading-9 text-left text-ink-2 truncate transition-[color,box-shadow] duration-[350ms] ease-settle cursor-pointer hover:text-ink hover:shadow-[inset_0_0_0_1px_var(--ink-3)]"
-                title={s.text}
-                onclick={() => resend(s.text)}>{s.text}</button
+                data-testid="ask-suggestion"
+                title={s.question}
+                onclick={() => resend(s.question)}>{s.question}</button
               >
             {/each}
           </div>
@@ -671,7 +672,7 @@
 
     {#if loadingSession}
       <div class="grid place-items-center min-h-[140px] text-ink-3 animate-[fade_0.6s_var(--ease)_both]">
-        <MeshSpinner working size={24} />
+        <WorkingDots label={m.ask_loading_session()} />
       </div>
     {/if}
 
@@ -744,13 +745,8 @@
     {/each}
 
     {#if loading}
-      <div class="flex items-center gap-[11px] h-6 mt-[22px] font-mesh text-sm text-ink-3" out:fade={{ duration: motionMs(500) }}>
-        <MeshSpinner working size={24} />
-        <span
-          class={["inline-block animate-[wait_2.2s_var(--ease-io)_infinite] transition-opacity duration-200 ease-settle motion-reduce:[animation:none]", phaseSwapping && 'opacity-0 !animate-none']}
-          aria-live="polite"
-          >{phaseLabel(phase)}</span
-        >
+      <div class="flex items-center h-6 mt-[22px] font-mesh text-sm text-ink-3" out:fade={{ duration: motionMs(500) }}>
+        <WorkingDots label={phaseLabel(phase)} hidden={phaseSwapping} />
       </div>
     {/if}
   </div>
@@ -764,7 +760,7 @@
   bind:input={inputEl}
   bind:root={writerEl}
   bind:voiceStop={voiceStopFn}
-  placeholder={conversationShown ? m.ask_followup_placeholder() : m.ask_placeholder()}
+  placeholder={conversationShown ? m.ask_followup_placeholder() : m.ask_writer_placeholder()}
   label={m.nav_ask()}
   submitLabel={m.nav_ask()}
   inputTestId="ask-input"

@@ -25,6 +25,7 @@
   import ThoughtForget from '$lib/components/thought-forget.svelte'
   import ThoughtThreadMenu from '$lib/components/thought-thread-menu.svelte'
   import ThoughtTypeMenu from '$lib/components/thought-type-menu.svelte'
+  import { fetchEchoRows, type EchoRow } from '$lib/memory/echo-list'
   import { prefersReducedMotion } from '$lib/motion/settle'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
@@ -32,7 +33,6 @@
   import { showWhisper } from '$lib/stores/whisper.svelte'
   import { echoHref, inAppHref } from './app-href'
   import { askDraftFor, askHrefFor } from './ask-handoff'
-  import { fetchEchoRows, type EchoRow } from './echo-list'
   import { replaceTextEditRequest, textChange, typeEditRequest } from './edit-request'
   import { createForgetArm } from './forget-arm.svelte'
   import { leaveTarget } from './leave-target'
@@ -286,6 +286,7 @@
   /* ————— echoes: the close thoughts, fetched once on open (ei app.js:1334) ————— */
 
   let echoes = $state<EchoRow[]>([])
+  let echoError = $state<string | null>(null)
   const forgetArm = createForgetArm()
 
   onMount(() => {
@@ -294,8 +295,9 @@
       .then((rows) => {
         echoes = rows
       })
-      .catch(() => {
-        // an echo may surface — absence is honest, never a substitute
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return
+        echoError = err instanceof Error ? err.message : String(err)
       })
     return () => {
       controller.abort()
@@ -467,6 +469,9 @@
           </div>
         {/each}
       </section>
+    {/if}
+    {#if echoError}
+      <p class="mt-[38px] font-mesh text-sm text-warn" role="alert">{echoError}</p>
     {/if}
 
     {#if err}

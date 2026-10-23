@@ -172,7 +172,7 @@ async function chatJudge(sentence: string, kinds: { key: string; name: string; d
         {
           role: 'system',
           content:
-            'You enrich one personal memory capture: assign a thought category, search cues, temporal mentions, and entity graph structure. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
+            'You enrich one personal memory capture: assign a thought category, search cues, a suggested recall question, temporal mentions, and entity graph structure. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
         },
         { role: 'user', content: prompt },
       ],

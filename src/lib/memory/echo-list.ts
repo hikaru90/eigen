@@ -50,8 +50,8 @@ export function pickEchoRows(rows: unknown, excludeThoughtId: string, max = ECHO
 }
 
 /**
- * Ask the existing retrieval endpoint what rhymes with this thought. A failed call
- * surfaces no echoes (the design says an echo "may surface"); it never substitutes.
+ * Ask the existing retrieval endpoint what rhymes with this thought. An empty result
+ * is honest; a failed call throws with the server's reason so callers say so.
  */
 export async function fetchEchoRows(
   query: string,
@@ -67,7 +67,11 @@ export async function fetchEchoRows(
     credentials: 'same-origin',
     signal,
   })
-  if (!res.ok) return []
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null
+    const reason = typeof body?.error === 'string' ? body.error : `status ${res.status}`
+    throw new Error(`Linked thoughts search failed: ${reason}`)
+  }
   const body = (await res.json()) as { results?: unknown }
   return pickEchoRows(body?.results, excludeThoughtId)
 }

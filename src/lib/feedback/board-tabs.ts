@@ -44,9 +44,13 @@ export function tabCounts(ideas: readonly BoardIdea[]): Record<BoardTab, number>
 export function sortForTab(ideas: readonly BoardIdea[], tab: BoardTab): BoardIdea[] {
   const rows = ideas.filter((i) => inTab(i, tab))
   if (tab === 'shipped') {
-    return rows.sort((a, b) => (a.shippedDaysAgo ?? 0) - (b.shippedDaysAgo ?? 0))
+    return rows.sort((a, b) => shippedTime(b) - shippedTime(a))
   }
-  return rows.sort((a, b) => Number(!!b.own) - Number(!!a.own) || b.voices - a.voices)
+  return rows.sort((a, b) => Number(b.own) - Number(a.own) || b.score - a.score)
+}
+
+function shippedTime(idea: BoardIdea): number {
+  return idea.shippedAt ? Date.parse(idea.shippedAt) : 0
 }
 
 /**
@@ -58,11 +62,7 @@ export function mostWantedId(sortedRows: readonly BoardIdea[], tab: BoardTab): s
   return sortedRows.find((i) => !i.own)?.id ?? null
 }
 
-/**
- * Search filters what is on screen by its visible words (DESIGN.md "Search") —
- * the title and the makers' note. Plain substring via the shared list matcher;
- * this is filtering, not classification.
- */
+/** Board search: plain-text match on the words a row shows (title and makers note). */
 export function matchesBoardQuery(idea: BoardIdea, query: string): boolean {
   return rowMatchesQuery(`${idea.title}\n${idea.note ?? ''}`, query)
 }

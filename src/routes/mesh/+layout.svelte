@@ -8,7 +8,6 @@
     openMeshSearch,
     setMeshSearchQuery,
   } from '$lib/mesh/mesh-search.svelte'
-  import { prefersReducedMotion } from '$lib/motion/settle'
   import { m } from '$lib/paraglide/messages.js'
 
   let { children } = $props()
@@ -49,21 +48,6 @@
 
   function closeSearch(): void {
     closeMeshSearch()
-  }
-
-  /* content swaps with a blur, never a pop (ei styles.css .lens-view) */
-  function swapIn(_node: Element): { duration: number; css: (t: number, u: number) => string } {
-    return {
-      duration: prefersReducedMotion() ? 0 : 450,
-      css: (t, u) => `opacity:${t}; filter: blur(${u * 8}px); transform: translateY(${u * 14}px)`,
-    }
-  }
-
-  function swapOut(_node: Element): { duration: number; css: (t: number, u: number) => string } {
-    return {
-      duration: prefersReducedMotion() ? 0 : 160,
-      css: (t, u) => `opacity:${t}; filter: blur(${u * 5}px)`,
-    }
   }
 </script>
 
@@ -149,8 +133,8 @@
   </div>
 </div>
 
-{#key page.url.pathname}
-  <div class="lens-view min-h-[calc(100%-var(--head,68px)-44px)]" in:swapIn out:swapOut>
-    {@render children?.()}
-  </div>
-{/key}
+<!-- tab switches animate through the root layout's view transition (the `page` snapshot);
+     a keyed in/out swap here would stack old and new views in flow and jump on removal -->
+<div class="lens-view min-h-[calc(100%-var(--head,68px)-44px)]">
+  {@render children?.()}
+</div>

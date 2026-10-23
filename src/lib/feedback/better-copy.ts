@@ -15,7 +15,6 @@
  */
 export const betterCopy = {
   /** better.back — the own-row "← Back" */
-  back: 'Back',
   /** better.most_wanted */
   mostWanted: 'Most wanted',
   /** better.from_the_makers */
@@ -38,9 +37,10 @@ export const betterCopy = {
   alreadyVoted: 'You’ve voted for it',
   /** better.mines_different */
   minesDifferent: 'Mine’s different',
-  /** better.vote_for_this — vote control, not yet yours */
-  voteForThis: 'Vote for this',
-  /** better.take_vote_back — vote control, yours */
+  /** better.vote_up / better.vote_down — the two vote controls */
+  voteUp: 'Vote up',
+  voteDown: 'Vote down',
+  /** better.take_vote_back — tapping your current direction again */
   takeVoteBack: 'Take your vote back',
   /** better.votes_word — "{n} votes" in the vote control's label and the chorus card */
   votes: 'votes',
@@ -51,22 +51,27 @@ export const betterCopy = {
   and: 'and',
   others: 'others',
   you: 'you',
-  /** better.you_asked — shipped rows you voted for */
-  youAsked: 'You asked for this. Your vote came back to you.',
   /** better.shared_by_you — rows you shared */
   sharedByYou: 'Shared by you · the makers have it, and you’ll hear back here',
-  /** better.note_welcome — the clay dot's note, sticky until dismissed */
-  welcome:
-    'Hey — I’m still learning to be the right place for your thoughts. Tell me what’s missing or what’s broken, and help me get better.',
-  /** better.voted_with — {count} others */
-  votedWith: (others: number) => `You voted with ${others} others. Together you’re louder.`,
   /** better.vote_taken_back */
   voteTakenBack: 'Vote taken back.',
-  /** better.votes_exhausted */
-  votesExhausted: 'You’ve used all 10 votes this month. Take one back to vote for something else.',
   /** better.shared_thanks */
   sharedThanks:
     'Thank you. It’s on the board — the makers read everything, and you’ll hear back right here.',
   /** better.share_failed — followed by the server's reason */
-  shareFailed: 'That didn’t reach the makers.',
+  shareFailed: 'That didn’t reach the board.',
+  /** better.shared_inbox_failed — D4: the idea is on the board, the makers' email failed; followed by the reason */
+  sharedInboxFailed: 'It’s on the board, but the email to the makers didn’t go out:',
+  /** better.checking — while the mesh reads a draft (the board's LLM judge) */
+  checking: 'Reading your idea…',
+  /** better.forget — the author's delete control on their own Requested row */
+  forget: 'Forget this idea',
+  /** better.forgotten */
+  forgotten: 'Forgotten. It’s off the board.',
+  /** better.correct_hint — on your own Requested row, kind and area cycle on tap */
+  correctHint: 'Tap to correct',
+  /** better.loading_failed — followed by the server's reason */
+  loadFailed: 'The board didn’t load.',
+  /** better.vote_failed — followed by the server's reason */
+  voteFailed: 'That vote didn’t count.',
 } as const

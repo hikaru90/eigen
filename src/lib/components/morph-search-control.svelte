@@ -46,14 +46,11 @@
   let morphDx = $state(0)
   let placeholderW = $state(0)
   let placeholderH = $state(0)
-  let backdropBlurred = $state(false)
 
   let keydownHandler: ((e: KeyboardEvent) => void) | null = null
-  let blurRafId: number | null = null
 
-  const backdropStyle = $derived(
-    `-webkit-backdrop-filter: blur(${backdropBlurred ? BACKDROP_BLUR_PX : 0}px); backdrop-filter: blur(${backdropBlurred ? BACKDROP_BLUR_PX : 0}px); transition: backdrop-filter ${MORPH_MS}ms ease-out, -webkit-backdrop-filter ${MORPH_MS}ms ease-out; -webkit-mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%); mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%);`,
-  )
+  /* the backdrop blur is static: animating backdrop-filter re-renders the page under it every frame */
+  const backdropStyle = `-webkit-backdrop-filter: blur(${BACKDROP_BLUR_PX}px); backdrop-filter: blur(${BACKDROP_BLUR_PX}px); -webkit-mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%); mask-image: linear-gradient(to bottom, black 0%, black 25%, transparent 60%);`
 
   const searchFilterActive = $derived(search.trim().length > 0)
 
@@ -84,11 +81,6 @@
       if (e.key === 'Escape') closeFilter()
     }
     window.addEventListener('keydown', keydownHandler)
-    backdropBlurred = false
-    blurRafId = requestAnimationFrame(() => {
-      backdropBlurred = true
-      blurRafId = null
-    })
   }
 
   function detachFilterWindowListeners() {
@@ -96,11 +88,6 @@
       window.removeEventListener('keydown', keydownHandler)
       keydownHandler = null
     }
-    if (blurRafId !== null) {
-      cancelAnimationFrame(blurRafId)
-      blurRafId = null
-    }
-    backdropBlurred = false
   }
 
   function openFilter() {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import {
+  buildComposeSystemPrompt,
   composeAnswer,
   extractProfileDetailsBlock,
   extractQuestionSubjectName,
@@ -1019,5 +1020,13 @@ describe('composeAnswer', () => {
     expect(messages[0].content).toContain('EXPIRED')
     expect(messages[1].content).toContain('temporal:')
     expect(messages[1].content).toContain('EXPIRED')
+  })
+})
+
+describe('compose system prompt — abstain contract', () => {
+  it('forbids "Not in memory." while citing evidence that bears on the question', () => {
+    const prompt = buildComposeSystemPrompt(false)
+    expect(prompt).toContain('Never answer "Not in memory." while listing Evidence')
+    expect(prompt).toContain('the Answer MUST state that fact as the user put it')
   })
 })
