@@ -86,10 +86,10 @@
 </script>
 
 <div
-  class={["grid grid-rows-[0fr] mt-0 opacity-0 [transition:grid-template-rows_0.75s_var(--ease),margin_0.75s_var(--ease),opacity_0.5s_var(--ease)]", waiting || showWords || !!error ? 'grid-rows-[1fr] mt-[22px] opacity-100' : '']}
+  class={["grid grid-rows-[0fr] mt-0 opacity-0 [transition:grid-template-rows_0.75s_var(--ease),margin_0.75s_var(--ease),opacity_0.5s_var(--ease)]", waiting || showWords || !!error ? 'grid-rows-[1fr] opacity-100' : '']}
   data-testid="capture-reading"
 >
-  <div class="min-h-0 overflow-hidden pb-[0.12em] font-mesh text-[clamp(22px,3.4vw,34px)] leading-[1.24] tracking-[-0.02em] text-ink-3">
+  <div class="min-h-0 overflow-hidden pb-[0.12em] font-mesh text-[clamp(28px,3.9vw,42px)] leading-[1.22] tracking-[-0.034em] text-ink-3">
     {#if waiting}
       <span class="inline-flex items-center gap-[0.32em] [&_.spinner]:w-[0.82em] [&_.spinner]:h-[0.82em] [&_.spinner]:shrink-0">
         <MeshSpinner working size={24} />

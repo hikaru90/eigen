@@ -56,7 +56,7 @@
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
   import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import { Button } from '$lib/components/ui/button'
-  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh'
   import { hapticConfirm } from '$lib/haptics'
   import { flyThought, releaseGhostWords } from '$lib/motion/settle'
@@ -194,6 +194,7 @@
   let reading = $state<ReadingDraft | null>(null)
   let readingWaiting = $state(false)
   let readingError = $state<string | null>(null)
+  const readingShown = $derived(readingWaiting || !!reading || !!readingError)
   /** Monotonic token: only the newest read call may paint the reading. */
   let interpretToken = 0
   let interpretTimer: ReturnType<typeof setTimeout> | null = null
@@ -217,8 +218,6 @@
   /** The pencil's words, applied as a natural-language edit once the thought is stored. */
   let pendingSay = $state<string | null>(null)
 
-  const isReadingClass = $derived(readingStatusFor(raw) === 'waiting')
-  const hasText = $derived(raw.trim().length > 0)
   const showFirstCaptureNudge = $derived(
     firstCaptureNudgeHydrated &&
       startedWithNoThoughts &&
@@ -320,11 +319,6 @@
   }
 
   function onFieldKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault()
-      void submitCapture()
-      return
-    }
     if (e.key === 'Tab' && hashQuery !== null) {
       // tab picks the first matching thread in the inline picker (ei: tab accepts the suggestion)
       const match = threadProjects.find((p) =>
@@ -862,7 +856,18 @@
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
         if (raw.trim()) void submitCapture()
+        return
       }
+      // start typing anywhere and you're capturing: a printable key focuses the writer
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)
+      ) {
+        return
+      }
+      if (e.key.length === 1 && e.key !== ' ') fieldEl?.focus()
     }
     window.addEventListener('keydown', onKey)
 
@@ -878,7 +883,7 @@
 </script>
 
 <div
-  class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 pb-[calc(var(--bottom-nav,62px)+32px)] max-[640px]:pt-[calc(var(--head)+12vh)] max-[640px]:px-[22px] max-[640px]:pb-[calc(var(--bottom-nav,62px)+24px)]"
+  class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 pb-[calc(var(--bottom-nav)+var(--glass-writer-height,64px)+40px)] max-[640px]:px-[22px]"
 >
   {#if groundingQuestion && !groundingQuestionDismissed}
     {#if groundingQuestion.kind === 'relevance'}
@@ -930,58 +935,9 @@
     </div>
   {/if}
 
-  <!-- Capture: one question, one gesture. At rest only the field and the mic. -->
-  <div>
-    <div class="flex items-start gap-3.5">
-      <textarea
-        id="thought"
-        bind:this={fieldEl}
-        bind:value={raw}
-        class={[
-          'block flex-1 min-w-0 [field-sizing:content] max-h-[46vh] p-0 border-0 outline-none resize-none overflow-y-auto [scrollbar-width:none] bg-transparent caret-signal font-you placeholder:text-ink-3 placeholder:[transition:color_0.6s_var(--ease)] [transition:font-size_0.75s_var(--ease),line-height_0.75s_var(--ease),color_0.6s_var(--ease),letter-spacing_0.75s_var(--ease)]',
-          isReadingClass
-            ? 'text-[clamp(19px,2vw,22px)] leading-[1.42] tracking-[-0.004em] text-ink-2'
-            : 'text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink',
-        ]}
-        rows="1"
-        placeholder={m.capture_placeholder()}
-        spellcheck="false"
-        aria-label={m.capture_placeholder()}
-        data-testid="capture-input"
-        oninput={onFieldInput}
-        onkeydown={onFieldKeydown}
-        onfocus={() => voiceStopFn?.()}
-      ></textarea>
-      <span
-        class={[
-          'shrink-0 transition-[margin] duration-[750ms] ease-settle',
-          isReadingClass
-            ? 'mt-[calc(clamp(19px,2vw,22px)*1.42/2-16px)]'
-            : 'mt-[calc(clamp(32px,4.4vw,46px)*1.16/2-16px)]',
-        ]}
-      >
-        <VoiceInputButton
-          language={data.preferredLanguage}
-          disabled={submitting}
-          bind:stopRef={voiceStopFn}
-          onstart={() => {
-            voiceBaseText = raw
-          }}
-          ontranscript={(text) => {
-            raw = appendVoiceTranscript(voiceBaseText, text)
-            onFieldInput()
-          }}
-          onpartialtranscript={(text) => {
-            raw = appendVoiceTranscript(voiceBaseText, text)
-            onFieldInput()
-          }}
-          onerror={(message) => {
-            err = message
-          }}
-        />
-      </span>
-    </div>
-
+  <!-- Capture: one question, one gesture. Once a thought is in, the mesh answers in the
+       question's place — the reading replaces the heading, so the app talks back. -->
+  {#if readingShown}
     <CaptureReading
       waiting={readingWaiting && !reading}
       draft={reading}
@@ -1011,29 +967,16 @@
       }}
       onSay={onSay}
     />
+  {:else}
+    <h1
+      class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
+      data-testid="capture-heading"
+    >
+      {m.capture_placeholder()}
+    </h1>
+  {/if}
 
-    <!-- the ink pill appears once there is something to capture -->
-    <div class="flex justify-end min-h-[34px] mt-7">
-      <button
-        type="button"
-        class={[
-          'inline-flex items-center gap-2.5 h-[34px] pl-[17px] pr-2 border-0 rounded-full bg-ink font-mesh text-sm text-paper [transition:opacity_0.4s_var(--ease),transform_0.5s_var(--ease)]',
-          !hasText || captureBlocked || submitting
-            ? 'opacity-0 -translate-x-1.5 pointer-events-none cursor-default'
-            : '',
-        ]}
-        data-testid="capture-submit"
-        disabled={!hasText || captureBlocked || submitting}
-        onclick={() => void submitCapture()}
-      >
-        {m.capture_action()}
-        <kbd
-          class="inline-grid place-items-center h-[18px] min-w-[18px] px-[3px] rounded-[4px] text-sm text-inherit shadow-[inset_0_0_0_1px_currentColor] opacity-70 hover-none:hidden"
-          aria-hidden="true">↵</kbd
-        >
-      </button>
-    </div>
-
+  <div>
     {#if echo}
       <!-- an older thought this one rhymes with; it opens the thought page -->
       <a
@@ -1107,6 +1050,38 @@
     </div>
   {/if}
 </div>
+
+<GlassWriter
+  bind:value={raw}
+  bind:input={fieldEl}
+  bind:voiceStop={voiceStopFn}
+  placeholder={m.capture_writer_placeholder()}
+  label={m.capture_placeholder()}
+  submitLabel={m.capture_action()}
+  submitDisabled={captureBlocked || submitting}
+  spellcheck={false}
+  inputTestId="capture-input"
+  submitTestId="capture-submit"
+  onsubmit={() => void submitCapture()}
+  oninput={onFieldInput}
+  onkeydown={onFieldKeydown}
+  language={data.preferredLanguage}
+  onvoicestart={() => {
+    voiceBaseText = raw
+  }}
+  ontranscript={(text) => {
+    raw = appendVoiceTranscript(voiceBaseText, text)
+    onFieldInput()
+  }}
+  onpartialtranscript={(text) => {
+    raw = appendVoiceTranscript(voiceBaseText, text)
+    onFieldInput()
+  }}
+  onvoiceerror={(message) => {
+    err = message
+  }}
+>
+</GlassWriter>
 
 {#if showFirstCaptureNudge}
   <FirstCaptureNudge
