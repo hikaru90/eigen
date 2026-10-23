@@ -1,90 +1,57 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadPlatformLlmConfig, loadPlatformOpenRouterSttConfig } from './platform-llm'
+import {
+  PLATFORM_CHAT_MODEL,
+  PLATFORM_EMBEDDING_MODEL,
+  loadPlatformLlmConfig,
+  loadPlatformOpenRouterSttConfig,
+} from './platform-llm'
 
-const { mockEnv, limitMock } = vi.hoisted(() => ({
+const { mockEnv } = vi.hoisted(() => ({
   mockEnv: {} as Record<string, string | undefined>,
-  limitMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/env/private-env', () => ({
   env: mockEnv,
 }))
 
-vi.mock('$lib/server/db', () => ({
-  withDbUser: async (_userId: string, fn: (db: unknown) => Promise<unknown>) =>
-    fn({
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: limitMock,
-          }),
-        }),
-      }),
-    }),
-}))
-
 describe('loadPlatformLlmConfig', () => {
   beforeEach(() => {
-    limitMock.mockReset()
     for (const key of Object.keys(mockEnv)) {
       delete mockEnv[key]
     }
   })
 
-  it('loads EUrouter config from service key', async () => {
-    limitMock.mockResolvedValue([])
-    mockEnv.LLM_BASE_URL = 'https://eurouter.example/v1'
+  it('always routes platform inference through OpenRouter on the service key', async () => {
+    mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'openrouter-service-key'
+    // EUrouter env left over from before must not change the route
+    mockEnv.LLM_BASE_URL = 'https://api.eurouter.ai/api/v1'
     mockEnv.SERVICE_API_KEY_EUROUTER = 'eurouter-service-key'
     mockEnv.LLM_RULE_CHAT = 'rule-chat'
-    mockEnv.LLM_RULE_EMBEDDING = 'rule-embed'
 
-    const config = await loadPlatformLlmConfig('user-1')
-
-    expect(config).toEqual({
-      provider: 'eurouter',
-      baseUrl: 'https://eurouter.example/v1',
-      apiKey: 'eurouter-service-key',
-      ruleChat: 'rule-chat',
-      ruleEmbedding: 'rule-embed',
-      modelChat: null,
-      modelEmbedding: null,
+    expect(await loadPlatformLlmConfig('user-1')).toEqual({
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'openrouter-service-key',
+      ruleChat: null,
+      ruleEmbedding: null,
+      modelChat: PLATFORM_CHAT_MODEL,
+      modelEmbedding: PLATFORM_EMBEDDING_MODEL,
     })
   })
 
-  it('loads OpenRouter config when active provider is openrouter', async () => {
-    limitMock.mockResolvedValue([{ provider: 'openrouter' }])
-    mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+  it('pins DeepSeek V4.1 Flash for chat and Qwen3 Embedding 8B for vectors', () => {
+    expect(PLATFORM_CHAT_MODEL).toBe('deepseek/deepseek-v4.1-flash-1017')
+    expect(PLATFORM_EMBEDDING_MODEL).toBe('qwen/qwen3-embedding-8b')
+  })
+
+  it('throws when OPENROUTER_BASE_URL is missing', async () => {
     mockEnv.SERVICE_API_KEY_OPENROUTER = 'openrouter-service-key'
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-
-    const config = await loadPlatformLlmConfig('user-1')
-
-    expect(config.provider).toBe('openrouter')
-    expect(config.apiKey).toBe('openrouter-service-key')
-    expect(config.modelChat).toBe('gpt-test')
-  })
-
-  it('throws when LLM_BASE_URL is the Docker placeholder', async () => {
-    limitMock.mockResolvedValue([])
-    mockEnv.LLM_BASE_URL = 'https://example.com/v1'
-    mockEnv.SERVICE_API_KEY_EUROUTER = 'eurouter-service-key'
-    mockEnv.LLM_RULE_CHAT = 'real-rule-chat'
-    mockEnv.LLM_RULE_EMBEDDING = 'real-rule-embed'
-
-    await expect(loadPlatformLlmConfig('user-1')).rejects.toThrow(/Docker placeholder/)
-  })
-
-  it('throws when SERVICE_API_KEY_EUROUTER is missing', async () => {
-    limitMock.mockResolvedValue([])
-    mockEnv.LLM_BASE_URL = 'https://eurouter.example/v1'
-
-    await expect(loadPlatformLlmConfig('user-1')).rejects.toThrow(/SERVICE_API_KEY_EUROUTER/)
+    await expect(loadPlatformLlmConfig('user-1')).rejects.toThrow(/OPENROUTER_BASE_URL/)
   })
 
   it('throws when SERVICE_API_KEY_OPENROUTER is missing', async () => {
-    limitMock.mockResolvedValue([{ provider: 'openrouter' }])
     mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
-
     await expect(loadPlatformLlmConfig('user-1')).rejects.toThrow(/SERVICE_API_KEY_OPENROUTER/)
   })
 })

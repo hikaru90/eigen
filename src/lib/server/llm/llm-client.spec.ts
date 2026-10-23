@@ -1111,7 +1111,7 @@ describe('llm client platform billing', () => {
     mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.example/api/v1'
   })
 
-  it('uses platform EUrouter credentials when billing is not BYOK', async () => {
+  it('platform chat always goes to OpenRouter with the service key and pinned model', async () => {
     const { isByokBilling } = await import('$lib/server/billing/preferences')
     vi.mocked(isByokBilling).mockResolvedValue(false)
     const fetchMock = vi.fn(async () =>
@@ -1119,30 +1119,21 @@ describe('llm client platform billing', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
-    expect(auth.Authorization).toBe('Bearer service-eurouter-key')
+    const init = fetchMockInit(fetchMock, 0)
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer service-openrouter-key')
+    const body = JSON.parse(String(init?.body)) as { model: string; rule_id?: string; provider?: unknown }
+    expect(body.model).toBe('deepseek/deepseek-v4.1-flash-1017')
+    expect(body.rule_id).toBeUndefined()
+    expect(body.provider).toBeUndefined()
   })
 
-  it('platform OpenRouter chat uses SERVICE_API_KEY_OPENROUTER', async () => {
+  it('platform chat fails loud when SERVICE_API_KEY_OPENROUTER is missing', async () => {
     const { isByokBilling } = await import('$lib/server/billing/preferences')
     vi.mocked(isByokBilling).mockResolvedValue(false)
-    mockSequentialDbLimitResults([{ provider: 'openrouter' }])
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
-    expect(auth.Authorization).toBe('Bearer service-openrouter-key')
-  })
-
-  it('platform EUrouter fails when SERVICE_API_KEY_EUROUTER is missing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
-    mockEnv.SERVICE_API_KEY_EUROUTER = ''
+    mockEnv.SERVICE_API_KEY_OPENROUTER = ''
     await expect(
       llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toThrow(/SERVICE_API_KEY_EUROUTER/)
+    ).rejects.toThrow(/SERVICE_API_KEY_OPENROUTER/)
   })
 })
 
