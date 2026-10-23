@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { PageData } from './$types'
   import History from '@lucide/svelte/icons/history'
+  import Plus from '@lucide/svelte/icons/plus'
   import Redo2 from '@lucide/svelte/icons/redo-2'
-  import Square from '@lucide/svelte/icons/square'
   import XIcon from '@lucide/svelte/icons/x'
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
@@ -34,7 +34,7 @@
   import ChatMarkdown from '$lib/components/chat-markdown.svelte'
   import ChatTimelineStep from '$lib/components/chat-timeline-step.svelte'
   import { portal } from '$lib/components/chrome/portal'
-  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
   import { startLogoWork, stopLogoWork } from '$lib/stores/brand-pulse.svelte'
@@ -87,15 +87,14 @@
   let pendingSelectSessionId = $state<string | null>(null)
   /** Bumped on New chat / new stream turn / selectSession so stale fetches cannot apply. */
   let messagesLoadEpoch = 0
-  let inputEl: HTMLTextAreaElement | undefined
+  let inputEl = $state<HTMLTextAreaElement | null>(null)
+  let writerEl = $state<HTMLFormElement | null>(null)
   let messagesEl: HTMLDivElement | undefined
-  let writerHeight = $state(180)
   const STREAM_IDLE_MS = 120_000
   let streamIdleTimeoutId: ReturnType<typeof setTimeout> | null = null
 
-  // The writer starts below the header and docks above navigation after the first turn.
   const conversationStarted = $derived(messages.length > 0 || loading || loadingSession)
-  const writerDocked = $derived(isBriefingMode || conversationStarted)
+  const conversationShown = $derived(isBriefingMode || conversationStarted)
   const hasText = $derived(input.trim().length > 0)
 
   /** "Try asking": three pills in your own words, from the existing recent-thoughts endpoint. */
@@ -202,13 +201,9 @@
     messagesEl.scrollTop += delta
   }
 
-  // A measured runway keeps the final reply above even a multiline composer.
-  // Native listeners explicitly opt out of passive wheel/touch handling.
-  function observeWriter(node: HTMLElement) {
-    const observer = new ResizeObserver(([entry]) => {
-      writerHeight = entry.target.getBoundingClientRect().height
-    })
-    observer.observe(node)
+  // Wheel/touch over the docked writer scroll the conversation (unless the field itself
+  // can scroll). Native listeners explicitly opt out of passive wheel/touch handling.
+  function forwardWriterScroll(node: HTMLElement): () => void {
     const startTouch = (event: TouchEvent) => {
       touchY = event.touches[0]?.clientY ?? null
     }
@@ -220,15 +215,12 @@
     node.addEventListener('touchmove', handleAskTouchMove, { passive: false })
     node.addEventListener('touchend', endTouch)
     node.addEventListener('touchcancel', endTouch)
-    return {
-      destroy() {
-        observer.disconnect()
-        node.removeEventListener('wheel', handleAskWheel)
-        node.removeEventListener('touchstart', startTouch)
-        node.removeEventListener('touchmove', handleAskTouchMove)
-        node.removeEventListener('touchend', endTouch)
-        node.removeEventListener('touchcancel', endTouch)
-      },
+    return () => {
+      node.removeEventListener('wheel', handleAskWheel)
+      node.removeEventListener('touchstart', startTouch)
+      node.removeEventListener('touchmove', handleAskTouchMove)
+      node.removeEventListener('touchend', endTouch)
+      node.removeEventListener('touchcancel', endTouch)
     }
   }
 
@@ -252,7 +244,13 @@
         if (m0.kind === 'tool_result' && entry.kind !== 'tool_result') {
           break
         }
-        messages[i] = { ...m0, ...entry, _key: m0._key }
+        // Keep every progress label the tool reported: the row shows the latest one while
+        // running and the earlier ones as finished steps beneath it.
+        const steps =
+          m0.kind === 'tool_progress' && m0.label.trim() && m0.label !== entry.label
+            ? [...(m0.steps ?? []), m0.label]
+            : m0.steps
+        messages[i] = { ...m0, ...entry, steps, _key: m0._key }
         scrollToBottom()
         return
       }
@@ -355,8 +353,8 @@
     scrollToBottom()
   }
 
-  /** Clear, the ei way: the turns blur out (out:blurOut), then the writer glides back
-   *  to the middle. Confirm-less — nothing here needs a dialog. */
+  /** Clear, the ei way: the turns blur out (out:blurOut). Confirm-less — nothing here
+   *  needs a dialog. */
   async function clearConversation() {
     if (loading) stop()
     resetPhase()
@@ -629,19 +627,13 @@
     abortController.abort()
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault()
-      send()
-    }
-  }
-
   function handleInput() {
     pageInputDrafts.chat = input
   }
 
   onMount(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
+    const releaseWriterScroll = writerEl ? forwardWriterScroll(writerEl) : () => {}
 
     void (async () => {
       if (isBriefingMode) {
@@ -669,24 +661,21 @@
     })()
 
     return () => {
+      releaseWriterScroll()
       clearStreamIdleTimeout()
       if (phaseTimer) clearTimeout(phaseTimer)
     }
   })
 </script>
 
-<!-- The thread owns scrolling; the portaled writer stays above the page mask. -->
+<!-- The thread owns scrolling; the shared writer is docked (portaled) above the page mask. -->
 <div
   bind:this={messagesEl}
-  class="fixed inset-0 overflow-y-auto overscroll-contain px-[22px] max-[640px]:px-[18px] pb-[calc(var(--writer-height)+var(--bottom-nav)+52px)] [scroll-padding-bottom:calc(var(--writer-height)+var(--bottom-nav)+32px)]"
-  class:has-conversation={writerDocked}
-  style={`--writer-height: ${writerHeight}px`}
+  class="fixed inset-0 overflow-y-auto overscroll-contain px-[22px] max-[640px]:px-[18px] pb-[calc(var(--glass-writer-height,64px)+var(--bottom-nav)+40px)] [scroll-padding-bottom:calc(var(--glass-writer-height,64px)+var(--bottom-nav)+24px)]"
   role="log"
   aria-label="Chat messages"
 >
-  <div
-    class={["pt-[calc(var(--head,68px)+28px)] pb-4", !writerDocked && '!p-0']}
-  >
+  <div class="mx-auto max-w-[760px] pt-[calc(var(--head,68px)+28px)] pb-4">
     {#if isBriefingMode}
       <div class="pb-1.5" role="region" aria-label="Timeline briefing">
         <p class="m-0 font-you text-base tracking-[-0.01em] text-ink-2 animate-[rise_0.8s_var(--ease)_both]">
@@ -708,26 +697,27 @@
     {#each displayMessages as msg, i (`chat-msg-${i}`)}
       {#if msg.role === 'user'}
         <section
-          class="relative pt-[30px] pb-2 animate-[rise_0.8s_var(--ease)_both] [&:not(:first-child)]:mt-[26px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+          class="relative flex flex-col items-end pt-[30px] pb-2 text-right animate-[rise_0.8s_var(--ease)_both] [&:not(:first-child)]:mt-[26px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+          data-testid="ask-user-turn"
           out:blurOut
         >
           <h3
-            class="m-0 font-you font-normal text-[clamp(19px,4.6vw,30px)] leading-[1.24] tracking-[-0.01em] text-balance"
+            class="m-0 max-w-[85%] font-you font-normal text-[clamp(19px,4.6vw,30px)] leading-[1.24] tracking-[-0.01em] text-balance max-[640px]:max-w-full"
           >
             <ChatMarkdown content={msg.content} tone="user" />
           </h3>
           <button
             type="button"
-            class="inline-grid place-items-center size-9 mt-0.5 -ml-2.5 border-0 rounded-full bg-transparent text-ink-2 transition-colors duration-300 ease-settle cursor-pointer pointer-fine:hover:text-ink"
+            class="inline-flex items-center gap-1.5 h-9 mt-0.5 -mr-1 px-1 border-0 rounded-full bg-transparent font-mesh text-[12.5px] text-ink-2 transition-colors duration-300 ease-settle cursor-pointer pointer-fine:hover:text-ink"
             onclick={() => resend(msg.content)}
-            aria-label="Send again"
           >
             <Redo2 size={13} strokeWidth={1.5} aria-hidden="true" />
+            {m.ask_send_again()}
           </button>
         </section>
       {:else if msg.variant === 'thinking'}
         <details
-          class="pt-2.5 pb-0.5 font-mesh text-sm text-ink-3 [&_summary]:flex [&_summary]:items-center [&_summary]:gap-2 [&_summary]:list-none [&_summary]:cursor-pointer [&_summary::-webkit-details-marker]:hidden [&:not(:first-child)]:mt-[26px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+          class="mt-2.5 pb-0.5 font-mesh text-sm text-ink-3 [&_summary]:flex [&_summary]:items-center [&_summary]:gap-2 [&_summary]:list-none [&_summary]:cursor-pointer [&_summary::-webkit-details-marker]:hidden"
           out:blurOut
         >
           <summary>
@@ -742,7 +732,7 @@
         </details>
       {:else if msg.variant === 'timeline'}
         <div
-          class="py-1.5 animate-[fade_0.6s_var(--ease)_both] [&:not(:first-child)]:mt-[26px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+          class="mt-2.5 animate-[fade_0.6s_var(--ease)_both]"
           out:blurOut
         >
           <ChatTimelineStep
@@ -753,12 +743,13 @@
             content={msg.content}
             failed={msg.failed}
             hideProse={msg.hideProse}
+            steps={msg.steps}
             running={loading && i === displayMessages.length - 1 && msg.variant === 'timeline'}
           />
         </div>
       {:else if msg.variant === 'text'}
         <section
-          class="relative pt-[30px] pb-2 animate-[rise_0.8s_var(--ease)_both] [&_.chat-markdown]:mt-3.5 [&:not(:first-child)]:mt-[26px] [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+          class="relative mt-4 pb-2 animate-[rise_0.8s_var(--ease)_both]"
           out:blurOut
         >
           {#if msg.content.startsWith('Error:')}
@@ -767,11 +758,11 @@
             <ChatMarkdown content={msg.content} />
             <button
               type="button"
-              class="inline-grid place-items-center size-9 mt-0.5 -ml-2.5 border-0 rounded-full bg-transparent text-ink-2 transition-colors duration-300 ease-settle cursor-pointer pointer-fine:hover:text-ink"
+              class="inline-flex items-center gap-1.5 h-9 mt-0.5 -ml-1 px-1 border-0 rounded-full bg-transparent font-mesh text-[12.5px] text-ink-2 transition-colors duration-300 ease-settle cursor-pointer pointer-fine:hover:text-ink"
               onclick={() => regenerate(i)}
-              aria-label="Regenerate answer"
             >
               <Redo2 size={13} strokeWidth={1.5} aria-hidden="true" />
+              {m.ask_regenerate()}
             </button>
           {/if}
         </section>
@@ -790,114 +781,81 @@
     {/if}
   </div>
 
-  <form
-    use:portal
-    use:observeWriter
-    class={[
-      'fixed left-1/2 z-[34] flex flex-col gap-2.5 w-[min(700px,calc(100vw-64px))] -translate-x-1/2 max-[640px]:w-[calc(100vw-44px)]',
-      writerDocked ? 'bottom-[calc(var(--bottom-nav)+22px)]' : 'top-[calc(var(--head)+23vh)]',
-    ]}
-    autocomplete="off"
-    onsubmit={(e) => {
-      e.preventDefault()
-      void send()
-    }}
-  >
-    <textarea
-      bind:this={inputEl}
-      bind:value={input}
-      class="w-full [field-sizing:content] max-h-40 pt-[3px] pb-1 border-0 outline-none resize-none bg-transparent font-you text-[21px] leading-[1.3] text-ink caret-signal overflow-y-auto [scrollbar-width:none] placeholder:text-ink-3 disabled:opacity-55"
-      rows="1"
-      placeholder={m.ask_placeholder()}
-      aria-label={m.nav_ask()}
-      oninput={handleInput}
-      onkeydown={handleKeydown}
-      onfocus={() => voiceStopFn?.()}
-      disabled={loading || loadingSession}></textarea>
-    <div class="flex items-center gap-2">
-      {#if sessions.length > 0}
-        <button
-          type="button"
-          class="size-[34px]"
-          onclick={() => (chatSidebar.open = true)}
-          aria-label={m.ask_past()}
-          title={m.ask_past()}
-        >
-          <History size={16} strokeWidth={1.5} aria-hidden="true" />
-        </button>
-      {/if}
-      {#if conversationStarted || hasText}
-        <button
-          type="button"
-          class="size-[34px]"
-          onclick={clearConversation}
-          aria-label={m.ask_clear()}
-          title={m.ask_clear()}
-        >
-          <XIcon size={16} strokeWidth={1.5} aria-hidden="true" />
-        </button>
-      {/if}
-      <VoiceInputButton
-        language={(page.data as { preferredLanguage?: string }).preferredLanguage ?? 'en'}
-        disabled={loading || loadingSession}
-        class="size-[34px]"
-        bind:stopRef={voiceStopFn}
-        onstart={() => {
-          voiceBaseText = input
-          recordEpoch = bumpInputEpoch(inputEpoch)
-        }}
-        ontranscript={(text) => {
-          if (isFreshTranscript(inputEpoch, recordEpoch))
-            syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
-        }}
-        onpartialtranscript={(text) => {
-          if (isFreshTranscript(inputEpoch, recordEpoch))
-            syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
-        }}
-        onerror={(message) => {
-          console.error('voice input failed', message)
-        }}
-      />
-      {#if loading}
-        <button
-          type="button"
-          class="flex-none ml-auto inline-flex items-center gap-2.5 h-[34px] w-[34px] p-0 justify-center border-0 rounded-full bg-ink text-paper font-mesh text-sm leading-none [transition:opacity_0.4s_var(--ease),background_0.4s_var(--ease),transform_0.5s_var(--ease)] pointer-fine:hover:bg-[color-mix(in_srgb,var(--ink)_88%,var(--paper))]"
-          onclick={stop}
-          aria-label="Stop"
-        >
-          <Square size={11} strokeWidth={2} aria-hidden="true" />
-        </button>
-      {:else}
-        <button
-          type="submit"
-          class={["flex-none ml-auto inline-flex items-center gap-2.5 h-[34px] pl-[17px] pr-2.5 border-0 rounded-full bg-ink text-paper font-mesh text-sm leading-none [transition:opacity_0.4s_var(--ease),background_0.4s_var(--ease),transform_0.5s_var(--ease)] hover-none:[&_kbd]:hidden max-[640px]:pr-[17px]", hasText ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 -translate-x-1.5 pointer-events-none']}
-          disabled={!hasText}
-        >
-          {m.nav_ask()}
-          <kbd
-            class="inline-grid place-items-center min-w-5 h-[18px] px-[5px] rounded-[5px] shadow-[inset_0_0_0_1px_currentColor] font-mesh text-sm leading-none opacity-70"
-            aria-hidden="true">↵</kbd
-          >
-        </button>
-      {/if}
-    </div>
-    {#if suggestions.length > 0 && !writerDocked}
+
+</div>
+
+
+<GlassWriter
+  bind:value={input}
+  bind:input={inputEl}
+  bind:root={writerEl}
+  bind:voiceStop={voiceStopFn}
+  placeholder={conversationShown ? m.ask_followup_placeholder() : m.ask_placeholder()}
+  label={m.nav_ask()}
+  submitLabel={m.nav_ask()}
+  inputTestId="ask-input"
+  submitTestId="ask-submit"
+  disabled={loading || loadingSession}
+  busy={loading}
+  onstop={stop}
+  onsubmit={() => void send()}
+  oninput={handleInput}
+  language={(page.data as { preferredLanguage?: string }).preferredLanguage ?? 'en'}
+  onvoicestart={() => {
+    voiceBaseText = input
+    recordEpoch = bumpInputEpoch(inputEpoch)
+  }}
+  ontranscript={(text) => {
+    if (isFreshTranscript(inputEpoch, recordEpoch))
+      syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
+  }}
+  onpartialtranscript={(text) => {
+    if (isFreshTranscript(inputEpoch, recordEpoch))
+      syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
+  }}
+  onvoiceerror={(message) => {
+    console.error('voice input failed', message)
+  }}
+>
+  {#snippet above()}
+    {#if sessions.length > 0 || conversationStarted || hasText}
+      <!-- labelled actions: an icon alone never said what these do -->
+      <div class="flex items-center justify-between gap-2 mb-2 -mx-2.5">
+        {#if sessions.length > 0}
+          <button type="button" class="inline-flex items-center gap-1.5 h-8 px-2.5 border-0 rounded-full bg-transparent font-mesh text-sm text-ink-3 cursor-pointer transition-colors duration-300 hover:text-ink" onclick={() => (chatSidebar.open = true)}>
+            <History size={16} strokeWidth={1.5} aria-hidden="true" />
+            {m.ask_past()}
+          </button>
+        {:else}
+          <span></span>
+        {/if}
+        {#if conversationStarted || hasText}
+          <button type="button" class="inline-flex items-center gap-1.5 h-8 px-2.5 border-0 rounded-full bg-transparent font-mesh text-sm text-ink-3 cursor-pointer transition-colors duration-300 hover:text-ink" onclick={clearConversation}>
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+            {m.ask_new_chat()}
+          </button>
+        {/if}
+      </div>
+    {/if}
+    {#if suggestions.length > 0 && !conversationShown}
       <div class="animate-[rise_0.9s_var(--ease)_0.15s_backwards] motion-reduce:[animation:none]" out:fade={{ duration: motionMs(300) }}>
-        <div class="mt-[30px] mb-2.5 font-mesh text-sm text-ink-3">{m.ask_try()}</div>
+        <div class="mb-2 font-mesh text-sm text-ink-3">{m.ask_try()}</div>
+        <!-- ei .ask-suggestions: outline pills, one line each; a long one ends in an ellipsis
+             (the full question stays in the title) instead of wrapping into a lumpy block -->
         <div class="flex flex-col items-start gap-2">
           {#each suggestions as s (s.id)}
             <button
               type="button"
-              class="inline-flex items-center max-w-full min-h-9 px-4 py-1.5 rounded-[18px] border-0 bg-transparent shadow-[inset_0_0_0_1px_var(--ink-4)] font-you text-[15px] leading-[1.35] text-left text-ink-2 [overflow-wrap:anywhere] transition-[color,box-shadow] duration-[350ms] ease-settle cursor-pointer pointer-fine:hover:text-ink pointer-fine:hover:shadow-[inset_0_0_0_1px_var(--ink-3)]"
+              class="block max-w-full h-9 px-4 rounded-full border-0 bg-transparent shadow-[inset_0_0_0_1px_var(--ink-4)] font-you text-[15px] leading-9 text-left text-ink-2 truncate transition-[color,box-shadow] duration-[350ms] ease-settle cursor-pointer hover:text-ink hover:shadow-[inset_0_0_0_1px_var(--ink-3)]"
+              title={s.text}
               onclick={() => resend(s.text)}>{s.text}</button
             >
           {/each}
         </div>
       </div>
     {/if}
-  </form>
-
-</div>
+  {/snippet}
+</GlassWriter>
 
 <!-- earlier conversations: a quiet sheet of paper, reachable by text link -->
 {#if chatSidebar.open}
@@ -920,7 +878,7 @@
       <button
         type="button"
         class="border-0 bg-transparent px-0.5 py-1.5 font-mesh text-sm leading-none text-ink-3 transition-[color,opacity] duration-300 cursor-pointer pointer-fine:hover:text-ink"
-        onclick={clearConversation}>{m.ask_clear()}</button
+        onclick={clearConversation}>{m.ask_new_chat()}</button
       >
       <button
         type="button"

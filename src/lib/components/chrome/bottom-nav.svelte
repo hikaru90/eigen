@@ -36,25 +36,20 @@
     <a
       href={resolve(item.href)}
       class={[
-        'relative flex min-h-[50px] min-w-[88px] flex-col items-center justify-end pt-[26px] px-2.5 pb-2 text-sm text-ink-3 no-underline transition-colors duration-500 ease-settle max-[640px]:flex-1 max-[640px]:min-w-0 max-[640px]:px-1.5',
+        'relative flex flex-col items-center justify-end text-sm leading-4 text-ink-3 no-underline transition-colors duration-500 ease-settle max-[640px]:flex-1 max-[640px]:min-w-0 max-[640px]:px-1.5 max-[640px]:text-[11.5px] max-[640px]:leading-[15px] pb-2.5',
         isActive ? 'text-ink' : 'pointer-fine:hover:text-ink-2',
       ]}
       aria-current={isActive ? 'page' : undefined}
     >
-      <!-- The figure overflows the bar upward, like on a phone. The slot is a 0×0 point at
-           the button's center; the mark draws around it in CSS pixels, never changing size.
-           ei anchors the drawing's origin on this point: a 0×0 grid track sizes to the item,
-           so the svg is pinned to the point and centered via the independent `translate`
-           property, which composes with the mark's own hover `transform`. -->
-      <span
+      <div
         class={[
-          'pointer-events-none absolute left-1/2 top-[calc(50%-16px)] grid size-0 place-items-center text-ink transition-opacity duration-500 ease-settle [&>svg]:absolute [&>svg]:left-0 [&>svg]:top-0 [&>svg]:overflow-visible [&>svg]:[translate:-50%_-50%]',
+          'pointer-events-none flex items-center justify-center text-ink transition-opacity duration-500 ease-settle -mb-1',
           isActive ? 'opacity-100' : 'opacity-[0.62] pointer-fine:hover:opacity-[0.64]',
         ]}
         aria-hidden="true"
       >
         <MenuMark kind={item.id} active={isActive} />
-      </span>
+      </div>
       <span class={['relative z-1', isActive && activeLabelShadow]}>{item.label()}</span>
     </a>
   {/each}
