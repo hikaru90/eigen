@@ -431,6 +431,11 @@ CREATE POLICY feedback_isolation ON feedback
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
 -- Bearer API key auth runs before app.current_user_id is set; resolve via SECURITY DEFINER.
+-- These live in public (apply-rls.mjs pins search_path). Earlier boots without that pin
+-- recreated them in ag_catalog; drop those strays so only the public copies remain.
+DROP FUNCTION IF EXISTS ag_catalog.resolve_user_api_key(text);
+DROP FUNCTION IF EXISTS ag_catalog.touch_user_api_key(uuid);
+DROP FUNCTION IF EXISTS ag_catalog.resolve_agent_callback_token(text);
 DROP FUNCTION IF EXISTS resolve_user_api_key(text);
 
 CREATE OR REPLACE FUNCTION resolve_user_api_key(p_key_hash text)
@@ -625,3 +630,8 @@ DO $$ BEGIN
 		GRANT EXECUTE ON FUNCTION board_admin_update(uuid, text, boolean, text, boolean, boolean) TO eigen_app;
 	END IF;
 END $$;
+-- Earlier boots (search_path not pinned) created these in ag_catalog, where they shadow the
+-- public copies for unqualified calls. The trigger above now points at public; drop the strays.
+DROP FUNCTION IF EXISTS ag_catalog.board_scores();
+DROP FUNCTION IF EXISTS ag_catalog.board_admin_update(uuid, text, boolean, text, boolean, boolean);
+DROP FUNCTION IF EXISTS ag_catalog.board_idea_guard_protected_columns();

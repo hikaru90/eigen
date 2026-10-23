@@ -14,6 +14,10 @@ const body = fs.readFileSync(sqlPath, 'utf8')
 
 const sql = postgres(urlString, { max: 1 })
 try {
+  // Pin DDL to public, like migrate.mjs: the DB-level search_path starts with ag_catalog,
+  // so unqualified DROP/CREATE FUNCTION would drop the public copy and recreate it in
+  // ag_catalog — breaking public.resolve_user_api_key (Bearer API-key auth) on every boot.
+  await sql.unsafe('SET search_path TO public')
   await sql.unsafe(body)
   console.log('[eigen] RLS applied successfully.')
 } catch (err) {
