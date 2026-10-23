@@ -2,7 +2,7 @@
   /**
    * A thought's thread (ei app.js:1331, 1451-1465 `.chip` + the project picker): an
    * outline pill — the secondary action level (DESIGN.md "Actions") — showing the
-   * thread's name in your voice, or "loose for now". Tapping opens the same thread
+   * thread's name in your voice, or "no project". Tapping opens the same thread
    * picker Capture uses: the existing threads and a field for a new one. The caller
    * owns the pick (it goes to the existing project-assign endpoint) and loads the
    * options when the menu first opens. No `$effect`.

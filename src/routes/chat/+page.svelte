@@ -4,18 +4,16 @@
   import Plus from '@lucide/svelte/icons/plus'
   import Redo2 from '@lucide/svelte/icons/redo-2'
   import XIcon from '@lucide/svelte/icons/x'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { fade } from 'svelte/transition'
   import { browser } from '$app/environment'
+  import { afterNavigate, replaceState } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import { page } from '$app/state'
   import { insufficientCreditsTopUpHint } from '$lib/billing/insufficient-credits'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import { ASK_PHASE_INITIAL, askPhaseAfterEvent, type AskPhase } from '$lib/chat/ask-phase'
-  import {
-    ASK_SUGGESTION_COUNT,
-    suggestionsFromRecentThoughts,
-    type AskSuggestion,
-  } from '$lib/chat/ask-suggestions'
+  import type { AskSuggestion } from '$lib/chat/ask-suggestions'
   import { sanitizeFinalAnswerText, toolLabel } from '$lib/chat/chat-stream-types'
   import {
     consumeChatNdjsonStream,
@@ -47,20 +45,14 @@
     type InputEpoch,
   } from './chat-input-epoch'
   import {
-    CHAT_ACTIVE_SESSION_STORAGE_KEY,
-    clearChatPreferBlank,
-    readChatPreferBlank,
-    resolveChatBootstrapSelection,
-    setChatPreferBlank,
     shouldApplyLoadedSessionMessages,
-    shouldReplaceMessagesWithSessionLoad,
   } from './chat-session-lifecycle'
 
   type ChatEntry = ChatDisplayEntry & { _key?: string }
 
   type TimelineEntry = Extract<ChatDisplayEntry, { variant: 'timeline' }>
 
-  let { data: _data }: { data: PageData } = $props()
+  let { data }: { data: PageData } = $props()
 
   const isBriefingMode = $derived(page.url.searchParams.get('mode') === 'briefing')
   const briefingPeriod = $derived(page.url.searchParams.get('period') ?? 'morning')
@@ -75,9 +67,11 @@
     messageCount: number
   }
 
-  let sessions = $state<SessionListItem[]>([])
-  let activeSessionId = $state<string | null>(null)
-  let messages = $state<ChatEntry[]>([])
+  /* Server-rendered: the list, the open conversation (`?session=`) and the pills arrive in
+     the HTML. Later changes come from explicit handlers, never from re-reading props. */
+  let sessions = $state<SessionListItem[]>(untrack(() => data.sessions) as unknown as SessionListItem[])
+  let activeSessionId = $state<string | null>(untrack(() => data.activeSessionId))
+  let messages = $state<ChatEntry[]>(untrack(() => keyedEntries(data.activeSessionId, data.messages)))
   let displayMessages = $derived(normalizeChatDisplay(messages))
   let input = $state(pageInputDrafts.chat)
   let loading = $state(false)
@@ -98,7 +92,28 @@
   const hasText = $derived(input.trim().length > 0)
 
   /** "Try asking": three pills in your own words, from the existing recent-thoughts endpoint. */
-  let suggestions = $state<AskSuggestion[]>([])
+  let suggestions = $state<AskSuggestion[]>(untrack(() => data.suggestions))
+
+  function keyedEntries(sessionId: string | null, entries: ChatDisplayEntry[]): ChatEntry[] {
+    return entries.map((entry, idx) => ({ ...entry, _key: `loaded-${sessionId}-${idx}` }))
+  }
+
+  /** The open conversation is the URL: shallow, so the next full load renders it on the server. */
+  function setSessionUrl(sessionId: string | null) {
+    const path = sessionId ? `/chat?session=${encodeURIComponent(sessionId)}` : '/chat'
+    replaceState(resolve(path as '/chat'), page.state)
+  }
+
+  /* A real navigation to /chat (nav link, back/forward) reruns the server load; take its data. */
+  afterNavigate(({ type }) => {
+    if (type === 'enter') return
+    messagesLoadEpoch += 1
+    sessions = data.sessions as unknown as SessionListItem[]
+    activeSessionId = data.activeSessionId
+    messages = keyedEntries(data.activeSessionId, data.messages)
+    suggestions = data.suggestions
+    scrollToBottom()
+  })
   const locale = getLocale()
 
   /** Reduced motion snaps between states (ei DESIGN.md "Motion"): Svelte fades go to 0. */
@@ -269,21 +284,6 @@
     }
   }
 
-  async function loadRecentSuggestions() {
-    try {
-      const res = await fetch('/api/capture/recent?limit=8&author=user')
-      if (!res.ok) return
-      const json = (await res.json()) as {
-        recentThoughts?: Array<{ id: string; normalizedText: string }>
-      }
-      suggestions = suggestionsFromRecentThoughts(json.recentThoughts ?? [], {
-        count: ASK_SUGGESTION_COUNT,
-      })
-    } catch {
-      // at rest the field alone is enough; no pills then
-    }
-  }
-
   async function loadSessionMessages(sessionId: string, loadEpoch: number) {
     if (
       !shouldApplyLoadedSessionMessages({
@@ -321,7 +321,6 @@
   }
 
   async function selectSession(sessionId: string, opts?: { force?: boolean }) {
-    if (browser) clearChatPreferBlank(localStorage)
     if (sessionId === activeSessionId) {
       chatSidebar.open = false
       return
@@ -335,7 +334,7 @@
     }
     const loadEpoch = ++messagesLoadEpoch
     activeSessionId = sessionId
-    if (browser) localStorage.setItem(CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId)
+    setSessionUrl(sessionId)
     await loadSessionMessages(sessionId, loadEpoch)
     chatSidebar.open = false
   }
@@ -345,10 +344,7 @@
     activeSessionId = null
     messages = []
     loadingSession = false
-    if (browser) {
-      localStorage.removeItem(CHAT_ACTIVE_SESSION_STORAGE_KEY)
-      setChatPreferBlank(localStorage)
-    }
+    setSessionUrl(null)
     chatSidebar.open = false
     scrollToBottom()
   }
@@ -377,7 +373,7 @@
       if (sessionId === activeSessionId) {
         activeSessionId = null
         messages = []
-        if (browser) localStorage.removeItem(CHAT_ACTIVE_SESSION_STORAGE_KEY)
+        setSessionUrl(null)
       }
     } catch {
       // ignore
@@ -503,10 +499,9 @@
       if (!responseText) {
         throw new Error('The assistant returned an empty response.')
       }
-      if (done.sessionId) activeSessionId = done.sessionId
-      if (done.sessionId && browser) {
-        localStorage.setItem(CHAT_ACTIVE_SESSION_STORAGE_KEY, done.sessionId)
-        clearChatPreferBlank(localStorage)
+      if (done.sessionId) {
+        activeSessionId = done.sessionId
+        if (!isBriefingMode) setSessionUrl(done.sessionId)
       }
       if (responseText) {
         appendMessage({ role: 'assistant', variant: 'text', content: responseText })
@@ -550,7 +545,7 @@
       pendingSelectSessionId = null
       const loadEpoch = ++messagesLoadEpoch
       activeSessionId = pending
-      if (browser) localStorage.setItem(CHAT_ACTIVE_SESSION_STORAGE_KEY, pending)
+      setSessionUrl(pending)
       await loadSessionMessages(pending, loadEpoch)
       chatSidebar.open = false
     }
@@ -564,38 +559,11 @@
     sendStreaming(text)
   }
 
-  function messagesForDisplayPrefix(displayCount: number): ChatEntry[] {
-    for (let rawLen = 0; rawLen <= messages.length; rawLen++) {
-      if (normalizeChatDisplay(messages.slice(0, rawLen)).length === displayCount) {
-        return messages.slice(0, rawLen)
-      }
-    }
-    return messages
-  }
-
-  function regenerate(displayIndex: number) {
-    if (loading) return
-    voiceStopFn?.()
-    bumpInputEpoch(inputEpoch)
-    const prefix = normalizeChatDisplay(messages).slice(0, displayIndex)
-    let userIdx = prefix.length - 1
-    while (userIdx >= 0 && prefix[userIdx].role !== 'user') {
-      userIdx--
-    }
-    if (userIdx < 0) return
-    const prior = prefix[userIdx]
-    if (prior.role !== 'user') return
-    const text = prior.content
-    messages = messagesForDisplayPrefix(displayIndex)
-    scrollToBottom()
-    sendStreaming(text)
-  }
-
   let voiceStopFn = $state<(() => void) | undefined>(undefined)
 
   /**
    * Monotonic epoch used to drop stale voice transcripts after a submit. Bumped on
-   * every submit (send / resend / regenerate) and on every new recording start.
+   * every submit (send / resend) and on every new recording start.
    * `recordEpoch` captures the epoch at the start of the current recording; a late
    * partial/final transcript is applied only while it still matches `inputEpoch`.
    */
@@ -635,30 +603,16 @@
     window.scrollTo({ top: 0, behavior: 'instant' })
     const releaseWriterScroll = writerEl ? forwardWriterScroll(writerEl) : () => {}
 
-    void (async () => {
-      if (isBriefingMode) {
-        activeSessionId = null
-        messages = []
-        if (!briefingBootstrapped) {
-          briefingBootstrapped = true
-          await sendStreaming('', { bootstrap: true })
-        }
-        return
+    if (isBriefingMode) {
+      activeSessionId = null
+      messages = []
+      if (!briefingBootstrapped) {
+        briefingBootstrapped = true
+        void sendStreaming('', { bootstrap: true })
       }
-      await loadSessions()
-      void loadRecentSuggestions()
-      const preferBlank = browser ? readChatPreferBlank(localStorage) : false
-      const storedId = browser ? localStorage.getItem(CHAT_ACTIVE_SESSION_STORAGE_KEY) : null
-      const selection = resolveChatBootstrapSelection({ storedId, sessions, preferBlank })
-      if (storedId && !sessions.some((s) => s.id === storedId) && browser) {
-        localStorage.removeItem(CHAT_ACTIVE_SESSION_STORAGE_KEY)
-      }
-      if (selection.type === 'session') {
-        if (shouldReplaceMessagesWithSessionLoad({ streaming: loading })) {
-          await selectSession(selection.sessionId)
-        }
-      }
-    })()
+    } else if (messages.length > 0) {
+      scrollToBottom()
+    }
 
     return () => {
       releaseWriterScroll()
@@ -675,6 +629,33 @@
   role="log"
   aria-label="Chat messages"
 >
+  {#if !conversationShown && !loadingSession}
+    <!-- at rest Ask mirrors Capture: the question as a heading in the same place and
+         voice (capture/+page.svelte h1), the suggestions right beneath it -->
+    <div class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 max-[640px]:px-1">
+      <h1
+        class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
+        data-testid="ask-heading"
+      >
+        {m.ask_placeholder()}
+      </h1>
+      {#if suggestions.length > 0}
+        <div class="mt-8 animate-[rise_0.9s_var(--ease)_0.15s_backwards] motion-reduce:[animation:none]" out:fade={{ duration: motionMs(300) }}>
+          <div class="mb-2 font-mesh text-sm text-ink-3">{m.ask_try()}</div>
+          <div class="flex flex-col items-start gap-2">
+            {#each suggestions as s (s.id)}
+              <button
+                type="button"
+                class="block max-w-full h-9 px-4 rounded-full border-0 bg-transparent shadow-[inset_0_0_0_1px_var(--ink-4)] font-you text-[15px] leading-9 text-left text-ink-2 truncate transition-[color,box-shadow] duration-[350ms] ease-settle cursor-pointer hover:text-ink hover:shadow-[inset_0_0_0_1px_var(--ink-3)]"
+                title={s.text}
+                onclick={() => resend(s.text)}>{s.text}</button
+              >
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
   <div class="mx-auto max-w-[760px] pt-[calc(var(--head,68px)+28px)] pb-4">
     {#if isBriefingMode}
       <div class="pb-1.5" role="region" aria-label="Timeline briefing">
@@ -717,7 +698,7 @@
         </section>
       {:else if msg.variant === 'thinking'}
         <details
-          class="mt-2.5 pb-0.5 font-mesh text-sm text-ink-3 [&_summary]:flex [&_summary]:items-center [&_summary]:gap-2 [&_summary]:list-none [&_summary]:cursor-pointer [&_summary::-webkit-details-marker]:hidden"
+          class="mt-5 pb-0.5 font-mesh text-sm text-ink-3 [&_summary]:flex [&_summary]:items-center [&_summary]:gap-2 [&_summary]:list-none [&_summary]:cursor-pointer [&_summary::-webkit-details-marker]:hidden"
           out:blurOut
         >
           <summary>
@@ -732,7 +713,7 @@
         </details>
       {:else if msg.variant === 'timeline'}
         <div
-          class="mt-2.5 animate-[fade_0.6s_var(--ease)_both]"
+          class="mt-5 animate-[fade_0.6s_var(--ease)_both]"
           out:blurOut
         >
           <ChatTimelineStep
@@ -749,21 +730,14 @@
         </div>
       {:else if msg.variant === 'text'}
         <section
-          class="relative mt-4 pb-2 animate-[rise_0.8s_var(--ease)_both]"
+          class="relative mt-6 pb-2 animate-[rise_0.8s_var(--ease)_both]"
+          data-testid="ask-answer"
           out:blurOut
         >
           {#if msg.content.startsWith('Error:')}
             <ChatErrorMessage message={msg.content.replace(/^Error:\s*/, '')} />
           {:else}
             <ChatMarkdown content={msg.content} />
-            <button
-              type="button"
-              class="inline-flex items-center gap-1.5 h-9 mt-0.5 -ml-1 px-1 border-0 rounded-full bg-transparent font-mesh text-[12.5px] text-ink-2 transition-colors duration-300 ease-settle cursor-pointer pointer-fine:hover:text-ink"
-              onclick={() => regenerate(i)}
-            >
-              <Redo2 size={13} strokeWidth={1.5} aria-hidden="true" />
-              {m.ask_regenerate()}
-            </button>
           {/if}
         </section>
       {/if}
@@ -819,8 +793,8 @@
 >
   {#snippet above()}
     {#if sessions.length > 0 || conversationStarted || hasText}
-      <!-- labelled actions: an icon alone never said what these do -->
-      <div class="flex items-center justify-between gap-2 mb-2 -mx-2.5">
+      <!-- labelled actions, sitting right on the field: an icon alone never said what these do -->
+      <div class="flex items-center justify-between gap-2 -mb-1.5 -mx-2.5">
         {#if sessions.length > 0}
           <button type="button" class="inline-flex items-center gap-1.5 h-8 px-2.5 border-0 rounded-full bg-transparent font-mesh text-sm text-ink-3 cursor-pointer transition-colors duration-300 hover:text-ink" onclick={() => (chatSidebar.open = true)}>
             <History size={16} strokeWidth={1.5} aria-hidden="true" />
@@ -835,23 +809,6 @@
             {m.ask_new_chat()}
           </button>
         {/if}
-      </div>
-    {/if}
-    {#if suggestions.length > 0 && !conversationShown}
-      <div class="animate-[rise_0.9s_var(--ease)_0.15s_backwards] motion-reduce:[animation:none]" out:fade={{ duration: motionMs(300) }}>
-        <div class="mb-2 font-mesh text-sm text-ink-3">{m.ask_try()}</div>
-        <!-- ei .ask-suggestions: outline pills, one line each; a long one ends in an ellipsis
-             (the full question stays in the title) instead of wrapping into a lumpy block -->
-        <div class="flex flex-col items-start gap-2">
-          {#each suggestions as s (s.id)}
-            <button
-              type="button"
-              class="block max-w-full h-9 px-4 rounded-full border-0 bg-transparent shadow-[inset_0_0_0_1px_var(--ink-4)] font-you text-[15px] leading-9 text-left text-ink-2 truncate transition-[color,box-shadow] duration-[350ms] ease-settle cursor-pointer hover:text-ink hover:shadow-[inset_0_0_0_1px_var(--ink-3)]"
-              title={s.text}
-              onclick={() => resend(s.text)}>{s.text}</button
-            >
-          {/each}
-        </div>
       </div>
     {/if}
   {/snippet}

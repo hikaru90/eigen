@@ -1,5 +1,4 @@
 import { expect, type Page } from '@playwright/test'
-import { CHAT_ACTIVE_SESSION_STORAGE_KEY } from '../chat/chat-session-lifecycle'
 
 /** Real chrome/CSS with deterministic chat responses: no LLM or billing calls. */
 export async function assertNavigationAndAskLayout(page: Page, touch = false): Promise<void> {
@@ -40,22 +39,26 @@ export async function assertNavigationAndAskLayout(page: Page, touch = false): P
   })
   try {
     await page.goto('/chat')
-    const input = page.locator('.ask-input')
-    const writer = page.locator('.ask-writer')
+    const input = page.getByTestId('ask-input')
+    const writer = page.getByTestId('glass-writer')
     await expect(input).toBeVisible()
-    await expect.poll(async () => (await input.boundingBox())?.y ?? Infinity).toBeLessThan(180)
-    await expect(page.locator('main .ask-writer')).toHaveCount(0)
-    // Negative probe: an empty question cannot trigger a chat request.
-    await expect(writer.getByRole('button', { name: 'Ask', exact: true })).toBeDisabled()
+    // the shared writer is docked at the bottom from the start, outside the masked <main>
+    const viewport = page.viewportSize()
+    await expect
+      .poll(async () => (await writer.boundingBox())?.y ?? 0)
+      .toBeGreaterThan((viewport?.height ?? 0) / 2)
+    await expect(page.locator('main [data-testid="glass-writer"]')).toHaveCount(0)
+    // Negative probe: an empty question offers no send action and Enter sends nothing.
+    await expect(page.getByTestId('ask-submit')).toHaveCount(0)
+    await input.press('Enter')
     expect(requests).toBe(0)
     await input.fill('Show me the things I remember.')
     await input.press('Enter')
     await expect(input).toBeEnabled()
-    await expect(page.locator('.ask-thread')).toContainText('Paragraph 45:')
-    await expect(writer).toHaveClass(/is-docked/)
+    await expect(page.getByRole('log', { name: 'Chat messages' })).toContainText('Paragraph 45:')
     const dock = await writer.boundingBox()
     expect(dock).not.toBeNull()
-    const scroll = page.locator('.ask-scroll')
+    const scroll = page.getByRole('log', { name: 'Chat messages' })
     await expect.poll(() => scroll.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
     const beforeScroll = await scroll.evaluate((el) => el.scrollTop)
     // Wheel over the overlay must scroll the conversation, leaving the input docked.
@@ -74,6 +77,5 @@ export async function assertNavigationAndAskLayout(page: Page, touch = false): P
   } finally {
     await page.unroute('**/api/chat')
     await page.unroute('**/api/chat/sessions')
-    await page.evaluate((key) => localStorage.removeItem(key), CHAT_ACTIVE_SESSION_STORAGE_KEY)
   }
 }
