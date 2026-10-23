@@ -26,9 +26,10 @@ function getAuthDb(): PostgresJsDatabase<typeof authSchema> {
  *
  * The postgres client is itself called as a tagged template (authSql`SELECT …`), so the
  * proxy target must be a function and `apply` must forward to the real pool — a `{}`
- * target makes every direct call throw "authSql is not a function".
+ * target makes every direct call throw "authSql is not a function". The target is only
+ * there to make the proxy callable (it is never invoked), so reuse `getAuthSql`.
  */
-export const authSql: postgres.Sql = new Proxy(function lazyAuthSql() {} as unknown as postgres.Sql, {
+export const authSql: postgres.Sql = new Proxy(getAuthSql as unknown as postgres.Sql, {
   apply(_target, _thisArg, args) {
     return (getAuthSql() as unknown as (...a: unknown[]) => unknown)(...args)
   },
