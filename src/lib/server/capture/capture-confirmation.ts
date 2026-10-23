@@ -183,6 +183,141 @@ async function resolveCategoryKindId(userId: string, categoryKey: string): Promi
   return kind.id
 }
 
+/* ————— the up-front reading (ei redesign decision #3): read → keep ————— */
+
+function requireConfidence(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${field} must be a number between 0 and 1`)
+  }
+  return value
+}
+
+function requireNonEmptyString(value: unknown, field: string): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) throw new Error(`${field} must be a non-empty string`)
+  return text
+}
+
+/**
+ * A reading as the client accepted it: the CapturePreviewBundle minus the server-only
+ * `ontologyEntityKindId`, which keep resolves from the key itself (never trusted from
+ * the client).
+ */
+export type AcceptedReading = Omit<CapturePreviewBundle, 'category'> & {
+  category: {
+    key: string
+    confidence: number
+    alternatives: Array<{ key: string; confidence: number }>
+  }
+}
+
+/**
+ * Strict validation of a client-accepted reading against the CapturePreviewBundle
+ * contract. Any violation throws — the accepted reading is written to normalized_text
+ * and the category column, so nothing may be guessed or repaired here.
+ */
+export function parseAcceptedReading(input: unknown): AcceptedReading {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('reading must be an object')
+  }
+  const obj = input as Record<string, unknown>
+  const interpretedText = requireNonEmptyString(obj.interpretedText, 'reading.interpretedText')
+
+  const category = obj.category
+  if (!category || typeof category !== 'object' || Array.isArray(category)) {
+    throw new Error('reading.category must be an object')
+  }
+  const c = category as Record<string, unknown>
+  const key = requireNonEmptyString(c.key, 'reading.category.key')
+  const confidence = requireConfidence(c.confidence, 'reading.category.confidence')
+  if (!Array.isArray(c.alternatives)) {
+    throw new Error('reading.category.alternatives must be an array')
+  }
+  const alternatives = c.alternatives.map((alt, i) => {
+    if (!alt || typeof alt !== 'object') {
+      throw new Error(`reading.category.alternatives[${i}] must be an object`)
+    }
+    const a = alt as Record<string, unknown>
+    return {
+      key: requireNonEmptyString(a.key, `reading.category.alternatives[${i}].key`),
+      confidence: requireConfidence(a.confidence, `reading.category.alternatives[${i}].confidence`),
+    }
+  })
+
+  if (!Array.isArray(obj.entities)) {
+    throw new Error('reading.entities must be an array')
+  }
+  const entities = obj.entities.map((ent, i) => {
+    if (!ent || typeof ent !== 'object') {
+      throw new Error(`reading.entities[${i}] must be an object`)
+    }
+    const e = ent as Record<string, unknown>
+    return {
+      surface: requireNonEmptyString(e.surface, `reading.entities[${i}].surface`),
+      entityType: requireNonEmptyString(e.entityType, `reading.entities[${i}].entityType`),
+      confidence: requireConfidence(e.confidence, `reading.entities[${i}].confidence`),
+    }
+  })
+
+  if (typeof obj.deviatesFromVerbatim !== 'boolean') {
+    throw new Error('reading.deviatesFromVerbatim must be a boolean')
+  }
+
+  return {
+    interpretedText,
+    category: { key, confidence, alternatives },
+    entities,
+    deviatesFromVerbatim: obj.deviatesFromVerbatim,
+  }
+}
+
+/**
+ * Keep a thought together with the reading the user already saw and accepted
+ * (POST /api/capture/keep). The reading itself came from `interpretThoughtPreview`
+ * via /api/capture/read, which persists nothing; this is the single place a row is
+ * written for the up-front flow, composing the existing pieces exactly once:
+ * queueCapture (draft) → persistPreviewMetadata → confirmCapturePreview (promote + enrich).
+ *
+ * Verbatim invariant: raw_text = `raw` exactly as typed; normalized_text = the accepted
+ * `interpretedText`. The category is validated against the user's ontology *before* the
+ * draft is queued so a bad reading leaves no row behind.
+ */
+export async function keepCaptureWithReading(
+  userId: string,
+  raw: string,
+  acceptedInput: unknown,
+  options?: { source?: CaptureSource; capturedAt?: Date },
+): Promise<ConfirmCaptureResult> {
+  if (!raw.trim()) throw new Error('raw is required')
+  const accepted = parseAcceptedReading(acceptedInput)
+  const ontologyEntityKindId = await resolveCategoryKindId(userId, accepted.category.key)
+  const reading: CapturePreviewBundle = {
+    ...accepted,
+    category: { ...accepted.category, ontologyEntityKindId },
+  }
+
+  const queued = await queueCapture(userId, raw, {
+    source: options?.source ?? 'ui',
+    awaitConfirmation: true,
+    skipWorker: true,
+    ...(options?.capturedAt ? { capturedAt: options.capturedAt } : {}),
+  })
+
+  const draft = await loadConfirmationDraft(userId, queued.thoughtId)
+  if (draft.enrichQueueStatus !== 'awaiting_confirmation') {
+    throw new Error('Thought is not awaiting confirmation')
+  }
+  await persistPreviewMetadata(
+    userId,
+    queued.thoughtId,
+    draft.metadata,
+    reading,
+    reading.category.key,
+    ontologyEntityKindId,
+  )
+  return confirmCapturePreview(userId, queued.thoughtId, { verbatim: false })
+}
+
 /**
  * Run interpret LLM first, then either auto-ingest (no deviation) or persist a draft
  * awaiting confirmation (deviation). Does not schedule enrich for drafts.

@@ -1,11 +1,8 @@
 <script lang="ts">
-  import Brain from '@lucide/svelte/icons/brain'
-  import MessageSquareText from '@lucide/svelte/icons/message-square-text'
-  import Plus from '@lucide/svelte/icons/plus'
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
-  import { afterNavigate } from '$app/navigation'
-  import { base, resolve } from '$app/paths'
+  import { afterNavigate, onNavigate } from '$app/navigation'
+  import { base } from '$app/paths'
   import { page } from '$app/state'
   import './layout.css'
   import {
@@ -15,22 +12,34 @@
     capturePageview,
   } from '$lib/analytics/posthog-client'
   import favicon from '$lib/assets/favicon.png'
+  import averia400 from '$lib/assets/fonts/averia-libre-latin-400-normal.woff2?url'
+  import averia700 from '$lib/assets/fonts/averia-libre-latin-700-normal.woff2?url'
+  import geistMono400 from '$lib/assets/fonts/geist-mono-latin-400-normal.woff2?url'
+  import inter400 from '$lib/assets/fonts/inter-latin-400-normal.woff2?url'
+  import inter500 from '$lib/assets/fonts/inter-latin-500-normal.woff2?url'
   import { startCaptureQueueRunner } from '$lib/capture/queue'
-  import AppHeader from '$lib/components/app-header.svelte'
   import BetaAgreementModal from '$lib/components/beta-agreement-modal.svelte'
+  import AppChrome from '$lib/components/chrome/app-chrome.svelte'
+  import BottomNav from '$lib/components/chrome/bottom-nav.svelte'
+  import { activeNavId } from '$lib/components/chrome/nav-active'
   import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
-  import { m } from '$lib/paraglide/messages.js'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
   import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
   import { initDeferredInstallStore } from '$lib/pwa/deferred-install-store.svelte'
   import { initCurrentUserViewStore } from '$lib/stores/current-user-view.svelte'
   import { startThoughtSync } from '$lib/stores/thought-sync'
-  import { cn } from '$lib/utils'
 
   let { children } = $props()
 
-  const authPaths = new Set(['/login', '/signup', '/register', '/forgot-password', '/reset-password'])
+  // Keep the one-line inline array form: src/routes/auth-chrome.spec.ts asserts on it.
+  const authPaths = new Set([
+    '/login',
+    '/signup',
+    '/register',
+    '/forgot-password',
+    '/reset-password',
+  ])
 
   function normalizePathname(pathname: string): string {
     let p = pathname
@@ -43,21 +52,74 @@
     return p || '/'
   }
 
-  function isNavItemActive(href: string): boolean {
-    const current = normalizePathname(page.url.pathname)
-    const target = normalizePathname(href)
-    if (current === target) return true
-    if (target === '/memory') return current.startsWith('/memory')
-    if (target === '/chat') return current.startsWith('/chat')
-    return current.startsWith(`${target}/`)
-  }
-
   const hideAppChrome = $derived(
     authPaths.has(normalizePathname(page.url.pathname)) ||
       (page.route.id != null && authPaths.has(page.route.id)),
   )
 
   const layoutUserId = $derived((page.data as { user?: { id: string } | null }).user?.id ?? null)
+
+  /**
+   * Which chrome fade overrides apply to the container: mesh pages fade beneath
+   * their tabs, Ask and Make me better fade fully above their docked writers.
+   * (ei styles.css body[data-view] overrides, kept simpler.)
+   */
+  const mainView = $derived.by(() => {
+    const path = normalizePathname(page.url.pathname)
+    if (path.startsWith('/feedback')) return 'feedback' as const
+    return activeNavId(path)
+  })
+
+  /*
+   * The one shell: every product page lives in here, full screen, under one mask that
+   * fades content toward the edges — beneath the header (or the page's own tabs) and
+   * above the bottom menu. The fade vars are per-view; the mask ramp is the ei
+   * prototype's smootherstep (52px, faint 2–6% tails behind the chrome).
+   */
+  const fadeVars = $derived(
+    mainView === 'feedback'
+      ? '[--fade-top:calc(var(--head,68px)+12px+var(--board-head-height,0px)-12px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+90px)] [--tail-bottom:0]'
+      : mainView === 'ask' || mainView === 'capture'
+        ? // pages with the docked writer: the fade reaches up past it, so nothing scrolls
+          // legibly behind the field — not just to the bottom menu
+          '[--fade-top:var(--head,68px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+12px+var(--glass-writer-height,64px))] [--tail-bottom:0.06]'
+        : '[--fade-top:var(--head,68px)] [--fade-bottom:var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))] [--tail-bottom:0.06]',
+  )
+  const chromeMainClass = $derived.by(() => {
+    if (hideAppChrome) {
+      return 'static overflow-visible min-h-dvh mask-none animate-none'
+    }
+    return [
+      'fixed inset-0 z-0 [view-transition-name:page]',
+      mainView === 'ask' ? 'overflow-hidden' : 'overflow-y-auto overscroll-contain [scrollbar-width:none]',
+      fadeVars,
+      '[--mask:linear-gradient(to_bottom,rgb(0_0_0/0.02)_0,rgb(0_0_0/0.06)_calc(var(--fade-top)_-_16px),rgb(0_0_0/0.068)_calc(var(--fade-top)_-_16px_+_5.2px),rgb(0_0_0/0.114)_calc(var(--fade-top)_-_16px_+_10.4px),rgb(0_0_0/0.213)_calc(var(--fade-top)_-_16px_+_15.6px),rgb(0_0_0/0.358)_calc(var(--fade-top)_-_16px_+_20.8px),rgb(0_0_0/0.53)_calc(var(--fade-top)_-_16px_+_26px),rgb(0_0_0/0.702)_calc(var(--fade-top)_-_16px_+_31.2px),rgb(0_0_0/0.847)_calc(var(--fade-top)_-_16px_+_36.4px),rgb(0_0_0/0.946)_calc(var(--fade-top)_-_16px_+_41.6px),rgb(0_0_0/0.992)_calc(var(--fade-top)_-_16px_+_46.8px),rgb(0_0_0/1)_calc(var(--fade-top)_+_36px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*1))_calc(100%_-_var(--fade-bottom)_-_36px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.991))_calc(100%_-_var(--fade-bottom)_-_30.8px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.942))_calc(100%_-_var(--fade-bottom)_-_25.6px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.837))_calc(100%_-_var(--fade-bottom)_-_20.4px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.683))_calc(100%_-_var(--fade-bottom)_-_15.2px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.5))_calc(100%_-_var(--fade-bottom)_-_10px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.317))_calc(100%_-_var(--fade-bottom)_-_4.8px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.163))_calc(100%_-_var(--fade-bottom)_+_0.4px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.058))_calc(100%_-_var(--fade-bottom)_+_5.6px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.009))_calc(100%_-_var(--fade-bottom)_+_10.8px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0))_calc(100%_-_var(--fade-bottom)_+_16px),rgb(0_0_0/calc(var(--tail-bottom)/3))_100%)]',
+      '[-webkit-mask-image:var(--mask)] [mask-image:var(--mask)]',
+      'animate-[enter_1.2s_var(--ease)_0.1s_backwards]',
+    ].join(' ')
+  })
+
+  let mainEl = $state<HTMLElement | null>(null)
+
+  /*
+   * Route transitions: ei's view switch (styles.css `.view` / `.is-leaving`) — the old page
+   * lifts and blurs out, the new one settles up from blur. Driven by the View Transitions API
+   * from SvelteKit's onNavigate, so only the page container (`view-transition-name: page`)
+   * and the Ask writer animate — opacity / transform / filter on snapshots, compositor-only.
+   * The root (header, bottom nav) does not animate. Reduced motion and browsers without the
+   * API navigate instantly.
+   */
+  onNavigate((nav) => {
+    if (typeof document === 'undefined' || !document.startViewTransition) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (!nav.to || nav.from?.url.pathname === nav.to.url.pathname) return
+    return new Promise<void>((resolve) => {
+      document.startViewTransition(async () => {
+        resolve()
+        await nav.complete
+      })
+    })
+  })
 
   let themePreference = 'system'
   let lastIdentifiedUserId: string | null | undefined = undefined
@@ -76,24 +138,6 @@
       lastIdentifiedUserId = null
     }
   }
-
-  const bottomNavItems = $derived([
-    {
-      label: m.nav_memory(),
-      href: '/memory' as const,
-      icon: Brain,
-    },
-    {
-      label: m.nav_capture(),
-      href: '/capture' as const,
-      icon: Plus,
-    },
-    {
-      label: m.nav_chat(),
-      href: '/chat' as const,
-      icon: MessageSquareText,
-    },
-  ])
 
   onMount(() => {
     syncPostHogIdentity()
@@ -120,6 +164,9 @@
       if (!authPaths.has(path)) {
         capturePageview(path)
       }
+      // The product pages scroll inside the fixed container, so reset it on navigation
+      // the way SvelteKit resets the window scroll.
+      if (mainEl) mainEl.scrollTop = 0
     })
 
     const stopPushNavigation = startPushNavigationFromServiceWorker()
@@ -192,14 +239,36 @@
 <svelte:head>
   <title>Eigen Mesh</title>
   <link rel="icon" href={favicon} />
+  <!-- every face the first paint uses, fetched with the document so text never reflows on swap -->
+  {#each [inter400, inter500, geistMono400, averia400, averia700] as font (font)}
+    <link rel="preload" href={font} as="font" type="font/woff2" crossorigin="anonymous" />
+  {/each}
 </svelte:head>
 
-<div class="bg-background min-h-dvh" class:pb-28={!hideAppChrome} class:pb-6={hideAppChrome}>
-  {#if !hideAppChrome}
-    <AppHeader />
+{#if !hideAppChrome}
+  <AppChrome />
+{/if}
+
+<!--
+  One container: every product page lives in here, full screen, under one mask that
+  fades content toward the edges — beneath the header (or the page's own tabs) and
+  above the bottom menu. Header and nav float; only the mask does the fading.
+-->
+<main bind:this={mainEl} class={chromeMainClass}>
+  {#if hideAppChrome}
+    <div class="min-h-dvh pb-6">
+      {@render children()}
+    </div>
+  {:else}
+    <div class={mainView === 'ask' ? 'pb-0' : 'pb-28'}>
+      {@render children()}
+    </div>
   {/if}
-  {@render children()}
-</div>
+</main>
+
+{#if !hideAppChrome}
+  <BottomNav />
+{/if}
 
 <BetaAgreementModal />
 
@@ -207,55 +276,3 @@
   <InstallPromptToast userId={layoutUserId} />
 {/if}
 
-{#if !hideAppChrome}
-  <nav
-    class="fixed bottom-0 left-0 right-0 z-20 text-foreground dark:text-white"
-    aria-label="Main navigation"
-  >
-    <!-- Gradient blur stack (mirrors header, inverted): full at bottom, fades upward -->
-    <div
-      aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-32 backdrop-blur-md"
-      style="-webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 12%, rgba(0,0,0,0.78) 28%, rgba(0,0,0,0.58) 45%, rgba(0,0,0,0.35) 62%, rgba(0,0,0,0.15) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
-    ></div>
-    <div
-      aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-32 backdrop-blur-[3px]"
-      style="-webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%); mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.62) 38%, rgba(0,0,0,0.38) 58%, rgba(0,0,0,0.16) 78%, rgba(0,0,0,0.04) 90%, transparent 100%);"
-    ></div>
-    <div
-      aria-hidden="true"
-      class="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-32"
-      style="background: linear-gradient(to top, var(--background) 0%, var(--background) 26%, color-mix(in oklab, var(--background) 82%, transparent) 50%, color-mix(in oklab, var(--background) 50%, transparent) 72%, color-mix(in oklab, var(--background) 18%, transparent) 90%, transparent 100%);"
-    ></div>
-    <div class="relative z-10 flex flex-row items-center justify-between gap-2 px-4 pb-safe">
-      {#each bottomNavItems as item (item.href)}
-        {@const isActive = isNavItemActive(item.href)}
-        <div class="relative flex-1">
-          <a
-            href={resolve(item.href)}
-            class="flex w-full flex-col items-center justify-center gap-1 py-2"
-            aria-label={item.label}
-            aria-current={isActive ? 'page' : undefined}
-          >
-            <span
-              class="flex size-9 shrink-0 items-center justify-center rounded-full bg-black"
-              aria-hidden="true"
-            >
-              <item.icon
-                class={cn(
-                  'size-5 text-white',
-                  isActive && 'text-[var(--color-eigen-green)]',
-                )}
-                strokeWidth={1.75}
-              />
-            </span>
-            <span class="mt-1 text-[10px] leading-none font-bold tracking-wide whitespace-nowrap text-black dark:text-white">
-              {item.label}
-            </span>
-          </a>
-        </div>
-      {/each}
-    </div>
-  </nav>
-{/if}

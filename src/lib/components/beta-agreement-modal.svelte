@@ -54,31 +54,31 @@
 <Dialog.Root {open} onOpenChange={() => { /* blocking: close only via accept() */ }}>
   <Dialog.Content
     data-testid="beta-agreement-modal"
-    class="max-w-lg rounded-none border-2 border-black dark:border-border"
+    class="max-w-lg"
     onEscapeKeydown={(e) => e.preventDefault()}
     onInteractOutside={(e) => e.preventDefault()}
     onFocusOutside={(e) => e.preventDefault()}
   >
     <Dialog.Header>
-      <p class="text-xs font-medium tracking-widest text-muted-foreground uppercase">
+      <p class="text-sm text-ink-3">
         {m.beta_agreement_eyebrow()}
       </p>
       <Dialog.Title class="text-xl">{m.beta_agreement_title()}</Dialog.Title>
       <Dialog.Description>{m.beta_agreement_subtitle()}</Dialog.Description>
     </Dialog.Header>
 
-    <div class="space-y-4 text-sm">
+    <div class="space-y-4 text-sm text-ink-2">
       <a
         href="https://eigenmesh.xyz/terms"
         target="_blank"
         rel="noopener noreferrer"
-        class="underline underline-offset-2"
+        class="text-ink underline decoration-ink-4 underline-offset-2"
       >
         {m.beta_agreement_review_link()}
       </a>
 
       <div class="space-y-2">
-        <p class="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        <p class="text-sm text-ink-3">
           {m.beta_agreement_key_details()}
         </p>
         <ul class="list-disc space-y-2 pl-5">
@@ -100,7 +100,7 @@
         <Checkbox bind:checked={agreed} />
         <span>{m.beta_agreement_checkbox_label()}</span>
       </label>
-      <Button type="button" class="rounded-none" disabled={!agreed || accepting} onclick={accept}>
+      <Button type="button" disabled={!agreed || accepting} onclick={accept}>
         {m.beta_agreement_accept_button()}
       </Button>
     </Dialog.Footer>

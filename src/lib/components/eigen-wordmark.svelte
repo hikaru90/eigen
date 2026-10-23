@@ -1,15 +1,15 @@
 <script lang="ts">
   import type { HTMLAttributes } from 'svelte/elements'
-  import dark from '$lib/assets/images/logo-dark-whole.svg'
-  import light from '$lib/assets/images/logo-whole.svg'
   import { cn } from '$lib/utils.js'
 
   type Props = HTMLAttributes<HTMLDivElement> & {
     heightClass?: string
-    /** Force light or dark logo assets; `auto` follows `html.dark`. */
+    /** Kept for API compatibility: the wordmark is one ink and follows the theme. */
     tone?: 'auto' | 'light' | 'dark'
-    /** Light assets on a dark surface (inverts the whole logo). */
+    /** Light ink on a dark surface. */
     inverted?: boolean
+    /** Wordmark size; ei styles.css:175 sets the header wordmark at 20px. */
+    fontSize?: string
   }
 
   let {
@@ -17,45 +17,18 @@
     heightClass = 'h-9',
     tone = 'auto',
     inverted = false,
+    fontSize = '20px',
     ...rest
   }: Props = $props()
 </script>
 
 <div class={cn('w-full flex items-center justify-center', className)} {...rest}>
-  <div
-    class={cn('relative shrink-0', heightClass, inverted && '[&>img]:brightness-0 [&>img]:invert')}
-  >
-    {#if tone === 'light'}
-      <img
-        src={light}
-        alt="Eigen Mesh"
-        class="h-full w-auto object-contain"
-        loading="eager"
-        decoding="async"
-      />
-    {:else if tone === 'dark'}
-      <img
-        src={dark}
-        alt="Eigen Mesh"
-        class="h-full w-auto object-contain"
-        loading="eager"
-        decoding="async"
-      />
-    {:else}
-      <img
-        src={light}
-        alt="Eigen Mesh"
-        class="h-full w-auto object-contain dark:hidden"
-        loading="eager"
-        decoding="async"
-      />
-      <img
-        src={dark}
-        alt="Eigen Mesh"
-        class="hidden h-full w-auto object-contain dark:block"
-        loading="eager"
-        decoding="async"
-      />
-    {/if}
+  <div class={cn('relative shrink-0 flex items-center justify-center', heightClass)} data-tone={tone}>
+    <span
+      class="font-you leading-none tracking-[-0.01em] translate-y-px text-current whitespace-nowrap select-none"
+      class:text-white={inverted}
+      style:font-size={fontSize}>Eigenmesh</span
+    >
   </div>
 </div>
+

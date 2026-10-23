@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expect, type Frame, type Locator, type Page, type Request } from '@playwright/test'
 import dotenv from 'dotenv'
+import { categoryLabel } from '$lib/capture/reading-state'
 import {
   TIMELINE_MOUNT_FETCH_BUDGET,
   findMountFetchBudgetViolations,
@@ -90,10 +91,13 @@ async function fetchCaptureThoughtResult(
   return body.thought ?? null
 }
 
+/**
+ * Keep promotes the row synchronously (queueStatus 'pending' when it answers), so after
+ * read → keep only the enrich queue states can be in flight — no confirmation state exists.
+ */
 function captureIndexingInFlight(thought: CaptureThoughtRow | null): boolean {
   if (!thought || thought.enrichmentComplete) return false
   if (thought.queueStatus === 'failed') return false
-  if (thought.queueStatus === 'awaiting_confirmation') return false
   return (
     thought.queueStatus === 'pending' ||
     thought.queueStatus === 'processing' ||
@@ -104,21 +108,9 @@ function captureIndexingInFlight(thought: CaptureThoughtRow | null): boolean {
 
 /** Wait for background enrichment only while the capture queue is actually in flight. */
 async function waitForThoughtIndexed(page: Page, thoughtId: string, raw: string): Promise<void> {
-  await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({
-    timeout: RELEASE_WAIT_MS,
-  })
-  // After interpret→confirm, the list shows interpreted text (may differ from verbatim raw).
-  const tokenMatch = raw.match(/[A-Za-zÄÖÜäöüß]{5,}/)
-  const token = tokenMatch?.[0]
-  if (token) {
-    await expect(
-      page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-    ).toContainText(token, { timeout: RELEASE_WAIT_MS })
-  } else {
-    await expect(
-      page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-    ).toBeVisible({ timeout: RELEASE_WAIT_MS })
-  }
+  // Capture does not show the kept thought again: the writer empties, and the stored row is
+  // checked through the result API below (the thought page is checked by the callers).
+  await expect(page.getByTestId('capture-input')).toHaveValue('', { timeout: RELEASE_WAIT_MS })
 
   await expect
     .poll(
@@ -160,7 +152,7 @@ async function dismissBlockingLayers(page: Page): Promise<void> {
 
   if (!(await blocking())) return
 
-  const attempts: Array<() => Promise<void>> = [
+  const attempts: Array<() => Promise<unknown>> = [
     () => page.keyboard.press('Escape'),
     () => page.keyboard.press('Escape'),
     () => drawerOverlay.click({ position: { x: 6, y: 6 }, force: true }),
@@ -693,31 +685,58 @@ export async function completeOnboardingOverlay(
   }
 }
 
-function parseInterpretResponse(bodyText: string): {
+/* ————— Capture: read → keep (ei redesign decision #3; see src/routes/e2e/capture.e2e.ts) ————— */
+
+/** Body of POST /api/capture/keep: ConfirmCaptureResult (src/lib/server/capture/capture-confirmation.ts). */
+type KeepResultBody = {
+  thoughtId?: string
+  rawText?: string
+  normalizedText?: string
+  category?: string
+  queueStatus?: string
+  error?: string
+  message?: string
+}
+
+/** The keep request as the page sent it: raw as typed + the accepted reading. */
+type KeepRequestBody = {
+  raw: string
+  reading: { interpretedText?: string; category?: { key?: string } }
+}
+
+function parseKeepResponse(bodyText: string): {
   thoughtId: string
-  status: 'ingested' | 'awaiting_confirmation' | string
+  status: string
+  kept: KeepResultBody
 } {
-  const json = JSON.parse(bodyText) as {
-    thoughtId?: string
-    status?: string
-    queueStatus?: string
-    error?: string
+  const json = JSON.parse(bodyText) as KeepResultBody
+  if (json.error || json.message) {
+    throw new Error(json.error ?? json.message ?? 'Capture keep failed')
   }
-  if (json.error) throw new Error(json.error)
-  const thoughtId = json.thoughtId ?? ''
-  const status =
-    json.status ??
-    (json.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
-  return { thoughtId, status }
+  // keep promotes synchronously: enrich is already scheduled ('pending') when it answers
+  return { thoughtId: json.thoughtId ?? '', status: json.queueStatus ?? 'unknown', kept: json }
+}
+
+/** Count POST /api/capture/keep requests — one Capture press keeps exactly once. */
+function trackKeepCalls(page: Page): { count: () => number; stop: () => void } {
+  const urls: string[] = []
+  const onRequest = (req: Request) => {
+    if (req.method() === 'POST' && req.url().includes('/api/capture/keep')) urls.push(req.url())
+  }
+  page.on('request', onRequest)
+  return {
+    count: () => urls.length,
+    stop: () => page.off('request', onRequest),
+  }
 }
 
 /**
- * Fill Capture composer and wait until Svelte bind:value has accepted it (button enables).
+ * Fill the Capture writer and wait until Svelte bind:value has accepted it (button enables).
  * Early fills after domcontentloaded are often wiped by hydration; re-fill until stable.
  */
 async function fillCaptureComposer(page: Page, raw: string): Promise<Locator> {
-  const thought = page.locator('#thought')
-  const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
+  const thought = page.getByTestId('capture-input')
+  const captureBtn = page.getByTestId('capture-submit')
   await expect(thought).toBeVisible({ timeout: RELEASE_WAIT_MS })
 
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -737,11 +756,101 @@ async function fillCaptureComposer(page: Page, raw: string): Promise<Locator> {
 }
 
 /**
- * Capture through the UI confirmation gate:
- * Capture → interpret → (modal Confirm if LLM deviates) → full ingest.
- * When the LLM does not deviate, interpret returns ingested and no modal appears.
+ * Type into the Capture writer and wait for the up-front reading: typing fires the
+ * debounced POST /api/capture/read — a preview that persists nothing. The response
+ * listener is registered before typing (the read can answer before the fill loop
+ * returns), scoped to the read sent for exactly this text. Resolves once the reading
+ * names how the words will be kept ("Sounds like <type> · <thread>") and returns the
+ * enabled Capture button. Retries once on a transient provider rejection (LLM HTTP 400)
+ * by clearing and re-typing, which starts a fresh read pass.
  */
-export async function captureThoughtViaUi(page: Page, raw: string): Promise<string> {
+async function typeCaptureAndWaitForReading(page: Page, raw: string): Promise<Locator> {
+  const reading = page.getByTestId('capture-reading')
+  let lastError = 'Capture read failed'
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const readResponse = page.waitForResponse(
+      (res) => {
+        if (!res.url().includes('/api/capture/read') || res.request().method() !== 'POST') {
+          return false
+        }
+        const sent = res.request().postDataJSON() as { raw?: string } | null
+        return sent?.raw === raw
+      },
+      { timeout: RELEASE_INDEXING_WAIT_MS },
+    )
+    let captureBtn: Locator
+    try {
+      if (attempt > 0) {
+        // clearing resets the reading; re-typing the same words starts a new read pass
+        await page.getByTestId('capture-input').fill('')
+      }
+      captureBtn = await fillCaptureComposer(page, raw)
+    } catch (err) {
+      readResponse.catch(() => undefined)
+      throw err
+    }
+    const readRes = await readResponse
+    if (readRes.ok()) {
+      await expect(reading).toContainText(/Sounds like|Klingt wie/, { timeout: RELEASE_WAIT_MS })
+      await expect(page.getByTestId('capture-reading-type')).toBeVisible({
+        timeout: RELEASE_WAIT_MS,
+      })
+      return captureBtn
+    }
+    lastError = (await readRes.text()).trim() || `Capture read failed (${readRes.status()})`
+    const retryable = /LLM HTTP 400|provider rejected|invalid_request_error/i.test(lastError)
+    if (!retryable || attempt === 1) break
+  }
+  const readingError = reading.getByRole('status')
+  if (await visible(readingError, QUICK_MS)) {
+    const message = (await readingError.textContent())?.trim()
+    if (message) throw new Error(`Capture read failed: ${message}`)
+  }
+  throw new Error(lastError)
+}
+
+/**
+ * Press Capture and wait for the single persisting call. The press IS the confirmation:
+ * POST /api/capture/keep answers with the ConfirmCaptureResult and no modal exists.
+ * A POST /api/capture/submit here means the page had no fresh reading (stale/offline →
+ * client queue); the release suite treats that as a failure rather than accepting it.
+ */
+async function submitKeepViaUi(
+  page: Page,
+  input: { captureBtn: Locator; errorBanner?: Locator },
+): Promise<{ thoughtId: string; status: string; kept: KeepResultBody; sent: KeepRequestBody }> {
+  const persisted = page.waitForResponse(
+    (res) =>
+      res.request().method() === 'POST' &&
+      (res.url().includes('/api/capture/keep') || res.url().includes('/api/capture/submit')),
+    { timeout: RELEASE_INDEXING_WAIT_MS },
+  )
+  await input.captureBtn.click()
+  const res = await persisted
+  if (res.url().includes('/api/capture/submit')) {
+    throw new Error(
+      'Capture enqueued the raw text through /api/capture/submit instead of keeping the reading — the reading was stale or the page was offline',
+    )
+  }
+  const bodyText = await res.text()
+  if (!res.ok()) {
+    if (input.errorBanner && (await visible(input.errorBanner, QUICK_MS))) {
+      const message = (await input.errorBanner.textContent())?.trim()
+      if (message) throw new Error(`Capture failed: ${message}`)
+    }
+    throw new Error(bodyText.trim() || `Capture keep failed (${res.status()})`)
+  }
+  const parsed = parseKeepResponse(bodyText)
+  if (!parsed.thoughtId) {
+    throw new Error('Capture keep succeeded but returned no thought id')
+  }
+  // pressing Capture was the confirmation — no modal may appear
+  await expect(page.getByTestId('capture-confirmation-modal')).toHaveCount(0)
+  const sent = res.request().postDataJSON() as KeepRequestBody
+  return { thoughtId: parsed.thoughtId, status: parsed.status, kept: parsed.kept, sent }
+}
+
+async function openCaptureForRelease(page: Page): Promise<void> {
   await dismissBlockingLayers(page)
   await page.goto('/capture', { waitUntil: 'domcontentloaded' })
   await dismissBlockingLayers(page)
@@ -749,193 +858,87 @@ export async function captureThoughtViaUi(page: Page, raw: string): Promise<stri
   if (await visible(onboardingDialog(page))) {
     throw new Error('Onboarding overlay still open — complete onboarding before capture')
   }
-
-  const captureBtn = await fillCaptureComposer(page, raw)
-
-  const errorBanner = page.locator('p.text-destructive.text-sm').first()
-  const { thoughtId, status } = await submitInterpretViaUi(page, {
-    raw,
-    captureBtn,
-    errorBanner,
-  })
-
-  if (status === 'awaiting_confirmation') {
-    const confirmModal = page.getByTestId('capture-confirmation-modal')
-    await expect(confirmModal).toBeVisible({ timeout: RELEASE_WAIT_MS })
-    await expect(confirmModal.getByRole('button', { name: /^Confirm$/i })).toBeEnabled({
-      timeout: RELEASE_WAIT_MS,
-    })
-
-    const confirmResponsePromise = page.waitForResponse(
-      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-      { timeout: RELEASE_INDEXING_WAIT_MS },
-    )
-    await confirmModal.getByRole('button', { name: /^Confirm$/i }).click()
-    const confirmRes = await confirmResponsePromise
-    if (!confirmRes.ok()) {
-      throw new Error(
-        (await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`,
-      )
-    }
-  }
-
-  await waitForThoughtIndexed(page, thoughtId, raw)
-  return thoughtId
 }
 
 /**
- * Submit Capture and wait for interpret. Retries once on transient LLM HTTP 400
- * (provider rejection), which the gateway may return intermittently under load.
+ * Capture through the up-front reading: type → read (preview) → press Capture → the
+ * accepted reading is kept in ONE call (POST /api/capture/keep) → the thought settles
+ * inline → background enrich completes. No interpret-on-submit, no confirmation modal.
+ * Returns the kept thought id (from the keep JSON).
  */
-async function submitInterpretViaUi(
-  page: Page,
-  input: {
-    raw: string
-    captureBtn: Locator
-    errorBanner?: Locator
-  },
-): Promise<{ thoughtId: string; status: string }> {
-  let lastError = 'Capture interpret failed'
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) {
-      await fillCaptureComposer(page, input.raw)
-    }
-    const interpretResponsePromise = page.waitForResponse(
-      (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
-      { timeout: RELEASE_INDEXING_WAIT_MS },
-    )
-    await input.captureBtn.click()
-    await expect(page.getByTestId('capture-interpret-pending')).toBeVisible({
-      timeout: RELEASE_WAIT_MS,
-    })
-    const interpretRes = await interpretResponsePromise
-    const interpretBody = await interpretRes.text()
-    if (interpretRes.ok()) {
-      const parsed = parseInterpretResponse(interpretBody)
-      if (parsed.thoughtId) return parsed
-      lastError = 'Capture interpret succeeded but returned no thought id'
-      break
-    }
-    lastError = interpretBody.trim() || `Capture interpret failed (${interpretRes.status()})`
-    const retryable = /LLM HTTP 400|provider rejected|invalid_request_error/i.test(lastError)
-    if (!retryable || attempt === 1) break
-  }
-  if (input.errorBanner && (await visible(input.errorBanner, QUICK_MS))) {
-    const message = (await input.errorBanner.textContent())?.trim()
-    if (message) throw new Error(`Capture failed: ${message}`)
-  }
-  throw new Error(lastError)
-}
+export async function captureThoughtViaUi(page: Page, raw: string): Promise<string> {
+  await openCaptureForRelease(page)
 
-/**
- * Capture → interpret deviation modal → Dismiss → store verbatim.
- * Injects forceConfirmation on interpret (non-production) so the modal path is
- * deterministic regardless of the live LLM judge.
- */
-export async function captureThoughtViaUiDismissVerbatim(page: Page, raw: string): Promise<string> {
-  await dismissBlockingLayers(page)
-  await page.goto('/capture', { waitUntil: 'domcontentloaded' })
-  await dismissBlockingLayers(page)
-
-  await page.route('**/api/capture/interpret', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.continue()
-      return
-    }
-    const existing = route.request().postDataJSON() as Record<string, unknown>
-    await route.continue({
-      postData: JSON.stringify({ ...existing, forceConfirmation: true }),
-      headers: {
-        ...route.request().headers(),
-        'content-type': 'application/json',
-      },
-    })
-  })
-
+  const keepCalls = trackKeepCalls(page)
   try {
-    const captureBtn = await fillCaptureComposer(page, raw)
-    const { thoughtId, status } = await submitInterpretViaUi(page, { raw, captureBtn })
-    if (status !== 'awaiting_confirmation') {
-      throw new Error(
-        `Expected awaiting_confirmation for dismiss-verbatim test, got status=${status}`,
-      )
-    }
+    const captureBtn = await typeCaptureAndWaitForReading(page, raw)
 
-    const confirmModal = page.getByTestId('capture-confirmation-modal')
-    await expect(confirmModal).toBeVisible({ timeout: RELEASE_WAIT_MS })
-
-    const confirmResponsePromise = page.waitForResponse(
-      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-      { timeout: RELEASE_INDEXING_WAIT_MS },
-    )
-    await confirmModal.getByRole('button', { name: /^Dismiss$/i }).click()
-    const confirmRes = await confirmResponsePromise
-    if (!confirmRes.ok()) {
-      throw new Error((await confirmRes.text()).trim() || 'Capture dismiss (verbatim) failed')
-    }
-    const thought = await fetchCaptureThoughtResult(page, thoughtId)
-    if (thought?.normalizedText !== raw) {
-      throw new Error(
-        `Expected verbatim normalizedText=${JSON.stringify(raw)}, got ${JSON.stringify(thought?.normalizedText)}`,
-      )
-    }
+    const errorBanner = page.locator('.page-error').first()
+    const { thoughtId, sent } = await submitKeepViaUi(page, { captureBtn, errorBanner })
+    // verbatim invariant: raw_text is the typed words
+    expect(sent.raw).toBe(raw)
 
     await waitForThoughtIndexed(page, thoughtId, raw)
+    expect(keepCalls.count(), 'one Capture press → exactly one POST /api/capture/keep').toBe(1)
     return thoughtId
   } finally {
-    await page.unroute('**/api/capture/interpret')
+    keepCalls.stop()
   }
 }
 
 /**
- * Capture → interpret deviation modal → wait for 5s auto-accept.
- * Injects forceConfirmation on interpret (non-production) for a deterministic modal.
+ * The user overrides the mesh's interpretation up front (converted from the retired
+ * deviation-modal scenarios — `forceConfirmation`, Confirm/Dismiss/auto-accept no longer
+ * exist): tap the reading's type control, pick one of the LLM's own alternatives, then
+ * press Capture. The keep request must carry the chosen type and the keep JSON must
+ * store it; raw_text stays the typed words (verbatim invariant). When the read offered
+ * no alternative the primary type is kept and a warning is logged (pick not exercised).
  */
-export async function captureThoughtViaUiAutoAccept(page: Page, raw: string): Promise<string> {
-  await dismissBlockingLayers(page)
-  await page.goto('/capture', { waitUntil: 'domcontentloaded' })
-  await dismissBlockingLayers(page)
+export async function captureThoughtViaUiAdjustType(page: Page, raw: string): Promise<string> {
+  await openCaptureForRelease(page)
 
-  await page.route('**/api/capture/interpret', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.continue()
-      return
-    }
-    const existing = route.request().postDataJSON() as Record<string, unknown>
-    await route.continue({
-      postData: JSON.stringify({ ...existing, forceConfirmation: true }),
-      headers: {
-        ...route.request().headers(),
-        'content-type': 'application/json',
-      },
-    })
-  })
-
+  const keepCalls = trackKeepCalls(page)
   try {
-    const captureBtn = await fillCaptureComposer(page, raw)
-    const { thoughtId, status } = await submitInterpretViaUi(page, { raw, captureBtn })
-    if (status !== 'awaiting_confirmation') {
-      throw new Error(`Expected awaiting_confirmation for auto-accept test, got status=${status}`)
-    }
+    const captureBtn = await typeCaptureAndWaitForReading(page, raw)
 
-    const confirmModal = page.getByTestId('capture-confirmation-modal')
-    await expect(confirmModal).toBeVisible({ timeout: RELEASE_WAIT_MS })
-
-    const confirmResponsePromise = page.waitForResponse(
-      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-      { timeout: RELEASE_INDEXING_WAIT_MS },
-    )
-    // Do not click — wait for client 5s countdown to auto-confirm.
-    const confirmRes = await confirmResponsePromise
-    if (!confirmRes.ok()) {
-      throw new Error((await confirmRes.text()).trim() || 'Capture auto-accept failed')
+    const typeControl = page.getByTestId('capture-reading-type')
+    const primaryLabel = (await typeControl.textContent())?.trim() ?? ''
+    await typeControl.click()
+    const typeMenu = page.getByRole('menu')
+    await expect(typeMenu).toBeVisible({ timeout: ACTION_MS })
+    // the menu offers the LLM's own options only; any unchecked row is an alternative
+    const alternative = typeMenu.locator('[role="menuitemradio"][aria-checked="false"]').first()
+    let pickedLabel: string | null = null
+    if (await visible(alternative, QUICK_MS)) {
+      pickedLabel = (await alternative.textContent())?.trim() || null
     }
-    await expect(confirmModal).toBeHidden({ timeout: RELEASE_WAIT_MS })
+    if (pickedLabel) {
+      await alternative.click()
+      await expect(typeControl).toContainText(pickedLabel, { timeout: ACTION_MS })
+      expect(pickedLabel).not.toBe(primaryLabel)
+    } else {
+      console.warn(
+        `[release-helpers] read offered no alternative type for "${raw.slice(0, 40)}…" — keeping "${primaryLabel}" (type pick not exercised)`,
+      )
+      await page.keyboard.press('Escape')
+    }
+    await expect(typeMenu).toBeHidden({ timeout: ACTION_MS })
+
+    const errorBanner = page.locator('.page-error').first()
+    const { thoughtId, kept, sent } = await submitKeepViaUi(page, { captureBtn, errorBanner })
+
+    // the chosen type rides into keep and is what got stored; the typed words stay raw
+    const sentKey = sent.reading.category?.key ?? ''
+    expect(sent.raw).toBe(raw)
+    if (pickedLabel) expect(categoryLabel(sentKey)).toBe(pickedLabel)
+    expect(kept.category).toBe(sentKey)
+    expect(kept.rawText).toBe(raw)
 
     await waitForThoughtIndexed(page, thoughtId, raw)
+    expect(keepCalls.count(), 'one Capture press → exactly one POST /api/capture/keep').toBe(1)
     return thoughtId
   } finally {
-    await page.unroute('**/api/capture/interpret')
+    keepCalls.stop()
   }
 }
 
@@ -1552,7 +1555,8 @@ export async function assertProjectReviewTidyUp(page: Page): Promise<void> {
     })
   })
 
-  let applyBody: Record<string, unknown> | null = null
+  // assigned inside the request listener below — keep the union so TS does not narrow to null
+  let applyBody = null as Record<string, unknown> | null
   page.on('request', (request) => {
     if (
       request.method() === 'POST' &&
@@ -1979,17 +1983,6 @@ async function exerciseAccountMenu(page: Page): Promise<void> {
   await openAccountMenu(page)
   await page.getByRole('link', { name: 'Give us Feedback', exact: true }).click()
   await expect(page).toHaveURL(/\/feedback/)
-  await exerciseFeedbackSubmit(page)
-}
-
-/** Submit product feedback via the UI; server emails feedback@eigenmesh.xyz via Owlery. */
-export async function exerciseFeedbackSubmit(page: Page): Promise<void> {
-  await page.goto('/feedback')
-  await expect(page.getByRole('heading', { name: 'Help shape Eigen Mesh' })).toBeVisible()
-  const note = `Release smoke feedback ${Date.now()}`
-  await page.getByLabel('Message').fill(note)
-  await page.getByRole('button', { name: 'Send feedback' }).click()
-  await expect(page.getByRole('status')).toContainText(/Got it/i, { timeout: 30_000 })
 }
 
 async function exerciseMemoryUi(page: Page): Promise<void> {
@@ -2050,14 +2043,7 @@ async function exerciseCaptureUi(page: Page): Promise<void> {
   await assertVoiceTranscribeApi(page, { timeoutMs: RELEASE_WAIT_MS })
   await installVoiceCaptureMocks(page)
   await exerciseVoiceCaptureUi(page, { timeoutMs: RELEASE_WAIT_MS })
-
-  await page.goto('/capture')
-
-  const expand = page.getByRole('button', { name: 'Expand thought' }).first()
-  if (await expand.isVisible().catch(() => false)) {
-    await expand.click()
-    await page.getByRole('button', { name: 'Collapse thought' }).first().click()
-  }
+  // Capture no longer lists recent thoughts (Yarn owns the journal) — nothing to expand here.
 }
 
 type TextFileApiRow = {
@@ -2125,7 +2111,7 @@ export async function exerciseNotesShoppingListAppend(page: Page): Promise<void>
 
   await assertChatLoadingVisible(page)
   await waitForChatIdle(page, RELEASE_INDEXING_WAIT_MS)
-  await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'New answer' })).toBeVisible({
     timeout: RELEASE_INDEXING_WAIT_MS,
   })
 
@@ -2172,7 +2158,7 @@ async function exerciseChatUi(page: Page): Promise<void> {
     timeout: RELEASE_INDEXING_WAIT_MS,
   })
   await waitForChatAnswerMarker(page, /Lisbon/i, RELEASE_INDEXING_WAIT_MS)
-  await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'New answer' })).toBeVisible({
     timeout: RELEASE_WAIT_MS,
   })
 
@@ -2215,7 +2201,7 @@ async function exerciseChatFailureUi(page: Page): Promise<void> {
       .poll(
         async () =>
           (await page
-            .getByText(/Planning next step|Connecting…|Working…/i)
+            .getByText(/recalling…|following the threads…|writing…|Planning next step|Connecting…|Working…/i)
             .first()
             .isVisible()
             .catch(() => false)) ||

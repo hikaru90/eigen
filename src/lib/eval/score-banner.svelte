@@ -27,7 +27,7 @@
     <p class="text-muted-foreground text-xs font-medium uppercase tracking-wide">{label}</p>
   {/if}
   <div class="flex flex-wrap items-baseline justify-between gap-2">
-    <p class="{textSize} font-semibold tabular-nums">
+    <p class="{textSize} font-medium tabular-nums">
       {formatPointsLine(earned, possible)}
       <span class="text-muted-foreground font-normal"> · {formatPercent(percent)} success</span>
     </p>

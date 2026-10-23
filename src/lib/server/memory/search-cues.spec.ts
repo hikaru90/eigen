@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { extractSearchCues, MAX_CUES, parseSearchCues } from './search-cues'
+import { ASK_QUESTION_RULE } from './ask-question'
+import { extractRecallCues, MAX_CUES, parseSearchCues } from './search-cues'
 
 const { llmChatCompletionMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
@@ -32,24 +33,31 @@ describe('parseSearchCues', () => {
   })
 })
 
-describe('extractSearchCues', () => {
+describe('extractRecallCues (re-enrich after edit: cues + askQuestion in one call)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('returns parsed cues from the LLM JSON object', async () => {
+  it('returns parsed cues and the question from the LLM JSON object', async () => {
     llmChatCompletionMock.mockResolvedValue(
-      makeResponse({ cues: ['mcp bearer key', 'agent authorship'] }),
+      makeResponse({
+        cues: ['mcp bearer key', 'agent authorship'],
+        askQuestion: ' How does the MCP key label authorship? ',
+      }),
     )
-    const cues = await extractSearchCues({
+    const recall = await extractRecallCues({
       userId: 'u1',
       normalizedText: 'MCP Bearer key auto-labels agent authorship',
     })
-    expect(cues).toEqual(['mcp bearer key', 'agent authorship'])
+    expect(recall).toEqual({
+      cues: ['mcp bearer key', 'agent authorship'],
+      askQuestion: 'How does the MCP key label authorship?',
+    })
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
     expect(llmChatCompletionMock.mock.calls[0]?.[0]?.responseFormat).toBe('json_object')
   })
 
   it('never asks for any type label (single type axis)', async () => {
-    llmChatCompletionMock.mockResolvedValue(makeResponse({ cues: [] }))
-    await extractSearchCues({ userId: 'u1', normalizedText: 'text' })
+    llmChatCompletionMock.mockResolvedValue(makeResponse({ cues: [], askQuestion: null }))
+    await extractRecallCues({ userId: 'u1', normalizedText: 'text' })
     const messages = llmChatCompletionMock.mock.calls[0]?.[0]?.messages as Array<{
       content: string
     }>
@@ -60,8 +68,25 @@ describe('extractSearchCues', () => {
 
   it('throws when the response has no choices', async () => {
     llmChatCompletionMock.mockResolvedValue({ choices: [] })
-    await expect(extractSearchCues({ userId: 'u1', normalizedText: 'text' })).rejects.toThrow(
+    await expect(extractRecallCues({ userId: 'u1', normalizedText: 'text' })).rejects.toThrow(
       /no choices/,
+    )
+  })
+
+  it('asks for askQuestion with the shared SQ-2 rules', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse({ cues: [], askQuestion: null }))
+    await extractRecallCues({ userId: 'u1', normalizedText: 'hi' })
+    const prompt = (llmChatCompletionMock.mock.calls[0]?.[0]?.messages as Array<{ content: string }>)
+      .map((m) => m.content)
+      .join('\n')
+    expect(prompt).toContain('"askQuestion"')
+    expect(prompt).toContain(ASK_QUESTION_RULE)
+  })
+
+  it('rejects a response without the askQuestion key (contract violation, no default)', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse({ cues: ['some cue here'] }))
+    await expect(extractRecallCues({ userId: 'u1', normalizedText: 'text' })).rejects.toThrow(
+      /askQuestion/,
     )
   })
 })

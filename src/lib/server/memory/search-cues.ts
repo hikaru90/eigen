@@ -3,13 +3,15 @@ import {
   capturePrimaryPromptBlock,
 } from '$lib/server/capture/enrichment-prompt-sections'
 /**
- * Search cue phrases for a thought (lexical recall diversification).
+ * Recall aids for a thought: search cue phrases (lexical recall diversification) and the
+ * suggested question shown on Ask.
  *
- * Cues normally arrive inside the single enrich bundle LLM call (`extractEnrichThoughtBundle`).
- * This module owns the shared parsing contract plus a cues-only LLM fallback for paths that
+ * Both normally arrive inside the single enrich bundle LLM call (`extractEnrichThoughtBundle`).
+ * This module owns the cue parsing contract plus the one recall LLM call for paths that
  * re-enrich an edited thought without a fresh bundle (reenrichThought).
  */
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
+import { ASK_QUESTION_RULE, parseAskQuestion } from '$lib/server/memory/ask-question'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
 export const MIN_CUE_LENGTH = 3
@@ -26,23 +28,28 @@ export function parseSearchCues(value: unknown): string[] {
     .slice(0, MAX_CUES)
 }
 
+export type RecallCues = { cues: string[]; askQuestion: string | null }
+
 /**
- * Cues-only LLM call for the re-enrich fallback path (edited thoughts). Never emits any
- * type label — the single type axis (category) is classified elsewhere.
+ * Recall LLM call for the re-enrich path (edited thoughts): cues + Ask question in one call.
+ * Never emits any type label — the single type axis (category) is classified elsewhere.
  */
-export async function extractSearchCues(input: {
+export async function extractRecallCues(input: {
   userId: string
   normalizedText: string
-}): Promise<string[]> {
+}): Promise<RecallCues> {
   const prompt = [
     capturePrimaryPromptBlock({ normalizedText: input.normalizedText }),
     '',
     'Return ONLY JSON with this shape:',
     '{',
-    '  "cues": ["2-8 word search phrase", "..."]',
+    '  "cues": ["2-8 word search phrase", "..."],',
+    '  "askQuestion": "<short question in the capture\'s language>" | null',
     '}',
     '',
     CUES_FROM_CAPTURE_RULE,
+    '',
+    ASK_QUESTION_RULE,
   ].join('\n')
 
   const response = await llmChatCompletion({
@@ -51,7 +58,7 @@ export async function extractSearchCues(input: {
       {
         role: 'system',
         content:
-          'You generate short search cue phrases for personal memory notes. Return only valid JSON.',
+          'You generate short search cue phrases and one recall question for personal memory notes. Return only valid JSON.',
       },
       { role: 'user', content: prompt },
     ],
@@ -62,15 +69,16 @@ export async function extractSearchCues(input: {
 
   const choices = (response as { choices?: unknown }).choices
   if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error('extractSearchCues: no choices in response')
+    throw new Error('extractRecallCues: no choices in response')
   }
   const content = (choices[0] as { message?: { content?: unknown } }).message?.content
   if (typeof content !== 'string') {
-    throw new Error('extractSearchCues: content is not a string')
+    throw new Error('extractRecallCues: content is not a string')
   }
   const parsed = JSON.parse(stripMarkdownJsonFences(content)) as unknown
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('extractSearchCues: output must be a JSON object')
+    throw new Error('extractRecallCues: output must be a JSON object')
   }
-  return parseSearchCues((parsed as Record<string, unknown>).cues)
+  const obj = parsed as Record<string, unknown>
+  return { cues: parseSearchCues(obj.cues), askQuestion: parseAskQuestion(obj) }
 }

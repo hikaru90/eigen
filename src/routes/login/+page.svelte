@@ -59,7 +59,7 @@
   </header>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-8 border border-black/10 bg-card"
+    class="mt-8 border border-line bg-card"
   >
     <Card.Content class="space-y-4 pt-6">
       {#if data.socialProviders.length > 0}
@@ -68,7 +68,7 @@
           <p class="text-destructive text-xs">{data.oauthError}</p>
         {/if}
         <div class="relative py-1">
-          <div class="border-t border-black/10" aria-hidden="true"></div>
+          <div class="border-t border-line" aria-hidden="true"></div>
           <p
             class="text-muted-foreground absolute inset-x-0 top-1/2 -translate-y-1/2 bg-card px-2 text-center text-[10px] mx-auto w-fit"
           >

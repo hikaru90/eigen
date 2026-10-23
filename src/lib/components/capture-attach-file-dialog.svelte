@@ -84,7 +84,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="max-w-lg rounded-none border-2 border-black dark:border-border">
+  <Dialog.Content class="max-w-lg">
     <Dialog.Header>
       <Dialog.Title>Attach note</Dialog.Title>
       <Dialog.Description>
@@ -96,7 +96,7 @@
       <Button
         type="button"
         variant={tab === 'existing' ? 'default' : 'outline'}
-        class="rounded-none"
+       
         onclick={() => {
           tab = 'existing'
         }}
@@ -106,7 +106,7 @@
       <Button
         type="button"
         variant={tab === 'new' ? 'default' : 'outline'}
-        class="rounded-none"
+       
         onclick={() => {
           tab = 'new'
         }}
@@ -132,7 +132,7 @@
               </div>
               <Button
                 type="button"
-                class="shrink-0 rounded-none"
+                class="shrink-0"
                 disabled={busy}
                 onclick={() => void linkExisting(file.id)}
               >
@@ -150,7 +150,7 @@
             id="attach-title"
             bind:value={newTitle}
             placeholder="Note title"
-            class="rounded-none"
+           
           />
         </div>
         <div class="space-y-1.5">
@@ -159,12 +159,12 @@
             id="attach-body"
             bind:value={newBody}
             placeholder="Note text…"
-            class="min-h-32 rounded-none"
+            class="min-h-32"
           />
         </div>
         <Button
           type="button"
-          class="rounded-none"
+         
           disabled={busy || !(newTitle.trim() || newBody.trim())}
           onclick={() => void createAndLink()}
         >

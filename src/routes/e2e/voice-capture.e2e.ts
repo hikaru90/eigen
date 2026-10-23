@@ -1,5 +1,4 @@
 import { test } from '@playwright/test'
-import { completeOnboardingOverlay } from './release-helpers'
 import { registerUser } from './test-helpers'
 import {
   assertVoiceTranscribeApi,
@@ -8,7 +7,7 @@ import {
 } from './voice-capture-helpers'
 
 test.describe('Voice capture @release', () => {
-  test('transcribe API and mic button fill the thought field', async ({
+  test('segment API and segmented mic recording fill the thought field', async ({
     page,
     context,
     baseURL,
@@ -27,15 +26,16 @@ test.describe('Voice capture @release', () => {
       origin: baseURL ?? 'http://localhost:5173',
     })
 
+    // Harness accounts (test.eigen) skip the onboarding overlay (capture-gate.ts);
+    // registerUser already accepted the Early Access Agreement.
     await registerUser(context, page)
-    await completeOnboardingOverlay(page)
     await installVoiceCaptureMocks(page)
 
-    await test.step('transcribe API returns speech text', async () => {
+    await test.step('transcribe-chunk API returns speech text for one segment', async () => {
       await assertVoiceTranscribeApi(page)
     })
 
-    await test.step('mic UI appends transcript to #thought', async () => {
+    await test.step('mic UI shows partials, then the joined segments on stop', async () => {
       await exerciseVoiceCaptureUi(page)
     })
   })

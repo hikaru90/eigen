@@ -61,7 +61,7 @@
       >
         <button
           type="button"
-          class="text-black hover:text-black/80 dark:text-foreground dark:hover:text-foreground focus-visible:ring-ring/50 flex h-7 min-w-0 flex-1 items-center gap-1 text-left transition-colors focus-visible:ring-1 focus-visible:outline-none"
+          class="text-ink hover:text-ink/80 dark:text-foreground dark:hover:text-foreground focus-visible:ring-ring/50 flex h-7 min-w-0 flex-1 items-center gap-1 text-left transition-colors focus-visible:ring-1 focus-visible:outline-none"
           aria-expanded={legendExpanded}
           aria-controls={panelId}
           onclick={() => (legendExpanded = !legendExpanded)}
@@ -71,10 +71,10 @@
           {:else}
             <ChevronDown class="size-3 shrink-0" strokeWidth={2} aria-hidden="true" />
           {/if}
-          <span class="truncate text-xs font-semibold tracking-tight">{m.graph_authors()}</span>
+          <span class="truncate text-xs font-medium tracking-tight">{m.graph_authors()}</span>
           {#if filterActive}
             <span
-              class="bg-black/10 text-foreground dark:bg-white/15 shrink-0 rounded-full px-1.5 font-mono text-[10px] tabular-nums"
+              class="bg-black/10 text-foreground shrink-0 rounded-full px-1.5 font-mono text-[10px] tabular-nums"
             >
               {visibleAuthorLayers.size}
             </span>

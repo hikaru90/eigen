@@ -124,6 +124,7 @@ async function listRecentThoughtsForMcp(
       normalizedText: row.normalizedText,
       author: row.author,
       authorLabel: row.authorLabel,
+      askQuestion: row.askQuestion ?? null,
     })),
     input.weights,
     now,
@@ -142,6 +143,8 @@ type McpThoughtSnippetRow = {
   normalizedText: string
   author?: 'user' | 'agent'
   authorLabel?: string | null
+  /** Suggested Ask question from enrichment (recent browse only); null when none. */
+  askQuestion?: string | null
   scoreNormalized?: number
 }
 
@@ -157,6 +160,7 @@ async function buildMcpThoughtSnippetRows(
     createdAt: string
     author?: 'user' | 'agent'
     authorLabel?: string | null
+    askQuestion?: string | null
     snippet: string
     temporalStatus: 'none' | 'active' | 'expired'
     temporalSummary?: string
@@ -179,6 +183,7 @@ async function buildMcpThoughtSnippetRows(
       createdAt: row.createdAt.toISOString(),
       ...(row.author ? { author: row.author } : {}),
       ...(row.authorLabel ? { authorLabel: row.authorLabel } : {}),
+      ...(row.askQuestion !== undefined ? { askQuestion: row.askQuestion } : {}),
       temporalStatus,
       ...(temporalSummary ? { temporalSummary } : {}),
       ...(typeof row.score === 'number'

@@ -182,6 +182,7 @@ const baseContext = {
 const baseBundle = {
   category: { key: 'task', ontologyEntityKindId: 'ek-1', confidence: 0.9, alternatives: [] },
   cues: ['cue one', 'cue two'],
+  askQuestion: 'What did I capture about the raw input?',
   temporalMentions: [],
   entityGraph: { mentions: [], triples: [] },
 }
@@ -824,9 +825,14 @@ describe('enrichQueuedThought', () => {
       expect.objectContaining({
         thoughtEmbedding: [0.1, 0.2],
         deferRelations: true,
-        precomputedCues: ['cue one', 'cue two'],
+        precomputedRecall: {
+          cues: ['cue one', 'cue two'],
+          askQuestion: 'What did I capture about the raw input?',
+        },
       }),
     )
+    // AC-7: the question rides the single bundle call — no extra LLM call for it.
+    expect(extractEnrichThoughtBundleMock).toHaveBeenCalledTimes(1)
     expect(extractEnrichThoughtBundleMock).toHaveBeenCalledWith(
       expect.objectContaining({ context: baseContext }),
     )

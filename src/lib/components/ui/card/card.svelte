@@ -16,7 +16,7 @@
   data-slot="card"
   data-size={size}
   class={cn(
-    'bg-card text-card-foreground gap-4 overflow-hidden rounded-none py-4 text-xs/relaxed has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-2 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-none *:[img:last-child]:rounded-none group/card flex flex-col',
+    'text-ink gap-4 border-t border-line py-6 first:border-t-0 text-sm/relaxed text-sm/relaxed has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-2 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 group/card flex flex-col',
     className,
   )}
   {...restProps}

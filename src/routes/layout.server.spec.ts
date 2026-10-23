@@ -8,6 +8,9 @@ const { getDbMock } = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }))
 vi.mock('$lib/server/auth/user-role', () => ({ isUserAdmin: vi.fn().mockResolvedValue(false) }))
 vi.mock('$lib/i18n/ui-locale', () => ({ normalizeUiLocale: (value: string) => value }))
+vi.mock('$lib/server/memory/you-counts', () => ({
+  loadYouCounts: vi.fn().mockResolvedValue({ thoughts: 4, threads: 2, apiKeys: 1 }),
+}))
 vi.mock('$lib/paraglide/runtime', () => ({ cookieName: 'locale', cookieMaxAge: 31_536_000 }))
 
 function makeCookies() {
@@ -56,6 +59,7 @@ describe('layout server load', () => {
       preferredLanguage: 'de',
       betaAgreementAccepted: false,
       authorLayers: [{ key: 'user', label: 'You', kind: 'user' }],
+      youCounts: { thoughts: 4, threads: 2, apiKeys: 1 },
     })
 
     await expect(load({ locals: { user: undefined }, cookies } as never)).resolves.toEqual({
@@ -65,6 +69,7 @@ describe('layout server load', () => {
       preferredLanguage: 'en',
       betaAgreementAccepted: true,
       authorLayers: [],
+      youCounts: null,
     })
   })
 

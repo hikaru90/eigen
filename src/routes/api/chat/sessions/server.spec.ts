@@ -14,18 +14,6 @@ function event(user: { id: string } | null) {
   return { locals: { user } } as Parameters<typeof GET>[0]
 }
 
-function cteSelectChain() {
-  return {
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        orderBy: vi.fn(() => ({
-          limit: vi.fn(() => ({})),
-        })),
-      })),
-    })),
-  }
-}
-
 function listSessionsDb(rows: unknown[]) {
   const limit = vi.fn(async () => rows)
   const orderBy = vi.fn(() => ({ limit }))
@@ -34,16 +22,10 @@ function listSessionsDb(rows: unknown[]) {
   const leftJoin = vi.fn(() => ({ where }))
   const from = vi.fn(() => ({ leftJoin }))
   const select = vi.fn(() => ({ from }))
-  const withFn = vi.fn(() => ({ select }))
-  const $with = vi.fn(() => ({ as: vi.fn((q: unknown) => q) }))
 
-  getDbMock.mockReturnValue({
-    $with,
-    with: withFn,
-    select: vi.fn(() => cteSelectChain()),
-  })
+  getDbMock.mockReturnValue({ select })
 
-  return { withFn, select, limit }
+  return { select, limit }
 }
 
 function insertSessionDb(session: { id: string; title: string | null }) {

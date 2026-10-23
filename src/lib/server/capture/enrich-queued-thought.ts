@@ -43,6 +43,7 @@ import {
 } from '$lib/server/memory/entity-extraction'
 import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
 import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
+import type { RecallCues } from '$lib/server/memory/search-cues'
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
@@ -95,7 +96,7 @@ async function prefetchEnrichExtractions(input: {
   embedding: number[]
   entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
   entityEnrichmentContext?: EntityGraphEnrichmentContext
-  cues: string[]
+  recall: RecallCues
   temporalMentions: ExtractedTemporalMention[]
 }> {
   const { context, capturedAt } = input
@@ -162,7 +163,7 @@ async function prefetchEnrichExtractions(input: {
     embedding,
     entityGraph,
     entityEnrichmentContext,
-    cues: bundle.cues,
+    recall: { cues: bundle.cues, askQuestion: bundle.askQuestion },
     temporalMentions: bundle.temporalMentions,
   }
 }
@@ -457,7 +458,7 @@ export async function enrichQueuedThought(
         preloadedKnownEntities: context.knownEntities,
         precomputedEntityGraph: prefetched.entityGraph,
         precomputedEntityEnrichmentContext: prefetched.entityEnrichmentContext,
-        precomputedCues: prefetched.cues,
+        precomputedRecall: prefetched.recall,
         precomputedTemporalMentions: prefetched.temporalMentions,
         ingestTimer,
         deferRelations: true,

@@ -74,7 +74,7 @@
     class="fixed inset-x-0 bottom-0 top-auto flex max-h-[min(85vh,32rem)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-t-xl border p-0 shadow-lg sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[min(90vh,36rem)] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:p-0"
   >
     <div class="border-border shrink-0 border-b px-4 py-3">
-      <Dialog.Title class="flex items-center gap-2 text-base font-semibold">
+      <Dialog.Title class="flex items-center gap-2 text-base font-medium">
         <FolderKanbanIcon class="text-muted-foreground size-4" aria-hidden="true" />
         {m.graph_timeline_edit_project()}
       </Dialog.Title>

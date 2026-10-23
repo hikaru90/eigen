@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
-import { computeSpendTrend } from '$lib/e2e/graph-scale-spend-trend'
+import { computeSpendTrend, type SpendProbeThoughtRow } from '$lib/e2e/graph-scale-spend-trend'
 import {
   buildSpendPicnicProbeTexts,
   GRAPH_SCALE_SPEND_PICNIC_PROBE_MAX,
@@ -66,7 +66,7 @@ test.describe('Graph-scale ingest spend', () => {
       await openGraphScaleSpendCapturePage(page)
     })
 
-    const perThought = []
+    const perThought: SpendProbeThoughtRow[] = []
     for (let index = 0; index < texts.length; index++) {
       await test.step(`capture thought ${index + 1}/${texts.length} in UI`, async () => {
         const label = `Graph-scale spend · capture ${index + 1}/${texts.length}`

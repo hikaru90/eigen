@@ -164,7 +164,7 @@
     class="fixed inset-x-0 bottom-0 top-auto flex max-h-[min(85vh,36rem)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-t-xl border p-0 shadow-lg sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[min(90vh,40rem)] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:p-0"
   >
     <div class="border-border shrink-0 border-b px-4 py-3">
-      <Dialog.Title class="flex items-center gap-2 text-base font-semibold">
+      <Dialog.Title class="flex items-center gap-2 text-base font-medium">
         <SparklesIcon class="text-muted-foreground size-4" aria-hidden="true" />
         {m.graph_timeline_project_review_title()}
       </Dialog.Title>
@@ -177,7 +177,7 @@
         {:else}
           {#if review.review.projectDeadline}
             <section class="space-y-2">
-              <h3 class="text-xs font-semibold">
+              <h3 class="text-xs font-medium">
                 {m.graph_timeline_project_review_section_deadline()}
               </h3>
               <label class="flex items-start gap-2 text-xs">
@@ -196,7 +196,7 @@
 
           {#if review.review.taskReviews.length > 0}
             <section class="space-y-2">
-              <h3 class="text-xs font-semibold">
+              <h3 class="text-xs font-medium">
                 {m.graph_timeline_project_review_section_tasks()}
               </h3>
               <ul class="space-y-3">
@@ -232,7 +232,7 @@
 
           {#if review.review.newTaskSuggestions.length > 0}
             <section class="space-y-2">
-              <h3 class="text-xs font-semibold">
+              <h3 class="text-xs font-medium">
                 {m.graph_timeline_project_review_section_new_tasks()}
               </h3>
               <ul class="space-y-3">
@@ -266,7 +266,7 @@
 
         {#if nextActionText}
           <section class="space-y-1">
-            <h3 class="text-xs font-semibold">
+            <h3 class="text-xs font-medium">
               {m.graph_timeline_project_review_section_next_action()}
             </h3>
             <p class="text-xs">{nextActionText}</p>

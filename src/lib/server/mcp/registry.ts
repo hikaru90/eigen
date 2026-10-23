@@ -1,4 +1,10 @@
 import {
+  runForgetIdeaTool,
+  runListBoardTool,
+  runShareIdeaTool,
+  runVoteIdeaTool,
+} from '$lib/server/mcp/board-tools'
+import {
   runAnswerQuestionTool,
   runAppendTextFileTool,
   runCaptureThoughtTool,
@@ -57,7 +63,14 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'create_project',
   'edit_project',
   'delete_project',
+  'list_board',
+  'share_idea',
+  'vote_idea',
+  'forget_idea',
 ])
+
+/** The shared Contribute board — HTTP MCP clients only; the ask/chat loop never posts to it. */
+const BOARD_TOOL_NAMES = new Set(['list_board', 'share_idea', 'vote_idea', 'forget_idea'])
 
 /**
  * Full tool surface for the in-app chat agent.
@@ -129,7 +142,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'retrieve_thoughts',
     description:
-      'Read stored thoughts. Defaults to user-authored open memories (excludes agent captures and completed/archived). For the latest open thoughts (newest first): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus lexical search over attached text notes. Pass author=all or include_agent=true to include agent/API-key captures.',
+      'Read stored thoughts. Defaults to user-authored open memories (excludes agent captures and completed/archived). For the latest open thoughts (newest first): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. Each recent-browse result carries askQuestion: the suggested question enrichment stored for that thought (null when none). With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus lexical search over attached text notes. Pass author=all or include_agent=true to include agent/API-key captures.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -445,9 +458,75 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_project'),
   },
   {
+    name: 'list_board',
+    description:
+      'List the shared Contribute board (ideas, bugs, polish requests every Eigenmesh user can see): title, kind, area, status, net score, your vote (-1|0|1), author display name, makers\' note. Optional status filter.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['requested', 'in-progress', 'shipped'] },
+      },
+      additionalProperties: false,
+    },
+    agentArgumentSchema: '{"status": "requested|in-progress|shipped (optional)"}',
+    handler: runListBoardTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('list_board'),
+  },
+  {
+    name: 'share_idea',
+    description:
+      'Share an idea on the shared Contribute board (visible to every user, also emailed to the makers). One billed LLM judge picks kind and area and checks for the same request already on the board: if it finds one, nothing is created and duplicateOf is returned — vote for it with vote_idea, or call again with mine_is_different: true. On success the idea is Requested with your +1. inbox reports whether the makers\' email went out.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'The request, verbatim (max 4000 characters).' },
+        mine_is_different: {
+          type: 'boolean',
+          description: 'Create a separate idea even when the judge names a duplicate.',
+        },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema: '{"title": "string (required)", "mine_is_different": "boolean (optional)"}',
+    handler: runShareIdeaTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('share_idea'),
+  },
+  {
+    name: 'vote_idea',
+    description:
+      'Vote on a board idea: direction 1 (up), -1 (down) or 0 (remove your vote). One vote per idea, unlimited ideas. Shipped ideas are closed (409); you cannot vote your own idea down. Returns the new net score.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        idea_id: { type: 'string', description: 'Idea UUID from list_board or share_idea.' },
+        direction: { type: 'number', enum: [-1, 0, 1] },
+      },
+      required: ['idea_id', 'direction'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema: '{"idea_id": "string UUID (required)", "direction": "-1|0|1 (required)"}',
+    handler: runVoteIdeaTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('vote_idea'),
+  },
+  {
+    name: 'forget_idea',
+    description:
+      'Delete ("forget") an idea you shared while it is still Requested; its votes go with it. Other people\'s ideas → 403, In progress/Shipped → 409.',
+    inputSchema: {
+      type: 'object',
+      properties: { idea_id: { type: 'string' } },
+      required: ['idea_id'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema: '{"idea_id": "string UUID (required)"}',
+    handler: runForgetIdeaTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('forget_idea'),
+  },
+  {
     name: 'create_text_file',
     description:
-      'Create a NEW user-scoped text note (not a thought). Inserts a new Notes-tab document — never use this to add items to an existing list or amend a named note. For additive edits (e.g. add milk to shopping list), search_text_files or list_text_files, then append_text_file. Provide title and/or body (at least one required). Title-only is valid for empty new lists/notebooks. Do not use capture_thought for Notes documents.',
+      'Create a NEW user-scoped text note (not a thought). Inserts a new Notes-tab document — never use this to add items to an existing list or amend a named note. For additive edits (e.g. add milk to shopping list), search_text_files or list_text_files, then append_text_file. Provide title and/or body (at least one required). Title-only is valid for empty new lists/notebooks. Notes documents are not memory thoughts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -623,8 +702,20 @@ export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
   MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler]),
 )
 
-/** All registered tools available to the in-app chat agent. */
+/** All registered tools (superset — HTTP MCP exposure + handler map). The ask/chat
+ *  loop filters this down to CHAT_AGENT_TOOL_NAMES. */
 export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
+
+/**
+ * Tools the in-app ask/chat loop may call. The ask surface is ask-only:
+ * capture_thought is deliberately excluded so a question typed into Ask can
+ * never be stored as a new thought (deterministic surface boundary — no string
+ * heuristics deciding "is this a question"). Capturing belongs to the Capture
+ * surface and to HTTP MCP clients, both of which keep the tool.
+ */
+export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
+  (t) => t.name !== 'capture_thought' && !BOARD_TOOL_NAMES.has(t.name),
+).map((t) => t.name)
 
 /** HTTP MCP client surface (minimal memory CRUD). */
 export const MCP_CLIENT_EXPOSED_TOOL_NAMES = MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)
@@ -637,8 +728,14 @@ export function isAgentTool(name: string): boolean {
   return MCP_TOOL_MAP.has(name)
 }
 
-export function buildAgentToolDescriptionBlock(): string {
-  return MCP_TOOL_DEFINITIONS.map(
-    (t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`,
-  ).join('\n\n')
+/** Gate for the ask/chat loop's toolset (capture_thought excluded). */
+export function isChatAgentTool(name: string): boolean {
+  return CHAT_AGENT_TOOL_NAMES.includes(name)
+}
+
+/** Tool catalog shown to the ask/chat model — same block, capture-free. */
+export function buildChatAgentToolDescriptionBlock(): string {
+  return MCP_TOOL_DEFINITIONS.filter((t) => isChatAgentTool(t.name))
+    .map((t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`)
+    .join('\n\n')
 }

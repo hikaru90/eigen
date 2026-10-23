@@ -533,6 +533,20 @@
       "when": 1792157582709,
       "tag": "0075_decision_shadow_subject_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792773597000,
+      "tag": "0076_board_ideas_votes",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0077_thought_ask_question",
+      "breakpoints": true
     }
   ]
 }

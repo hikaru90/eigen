@@ -157,7 +157,7 @@
   }
 </script>
 
-<div class="mx-auto max-w-6xl px-5 pb-8 pt-10">
+<div class="mx-auto max-w-6xl px-5 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   <header class="text-center">
     <p class="text-muted-foreground mt-2 text-xs">Admin — job queue & notification ops</p>
   </header>
@@ -214,54 +214,54 @@
 
   <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
     <Card.Root
-      class="border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+      class="border border-line bg-card"
     >
       <Card.Header class="pb-2">
         <Card.Title class="text-xs font-medium">Due now</Card.Title>
       </Card.Header>
       <Card.Content>
-        <p class="font-mono text-2xl font-semibold tabular-nums">{summary.pendingDue}</p>
+        <p class="font-mono text-2xl font-medium tabular-nums">{summary.pendingDue}</p>
         <p class="text-muted-foreground mt-1 text-[11px]">
           Oldest waiting {formatAgeSec(summary.oldestDuePendingAgeSec)}
         </p>
       </Card.Content>
     </Card.Root>
     <Card.Root
-      class="border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+      class="border border-line bg-card"
     >
       <Card.Header class="pb-2">
         <Card.Title class="text-xs font-medium">Scheduled</Card.Title>
       </Card.Header>
       <Card.Content>
-        <p class="font-mono text-2xl font-semibold tabular-nums">{summary.pendingFuture}</p>
+        <p class="font-mono text-2xl font-medium tabular-nums">{summary.pendingFuture}</p>
         <p class="text-muted-foreground mt-1 text-[11px]">Pending, not yet due</p>
       </Card.Content>
     </Card.Root>
     <Card.Root
-      class="border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+      class="border border-line bg-card"
     >
       <Card.Header class="pb-2">
         <Card.Title class="text-xs font-medium">Running</Card.Title>
       </Card.Header>
       <Card.Content>
-        <p class="font-mono text-2xl font-semibold tabular-nums">{summary.running}</p>
+        <p class="font-mono text-2xl font-medium tabular-nums">{summary.running}</p>
       </Card.Content>
     </Card.Root>
     <Card.Root
-      class="border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+      class="border border-line bg-card"
     >
       <Card.Header class="pb-2">
         <Card.Title class="text-xs font-medium">Failed</Card.Title>
       </Card.Header>
       <Card.Content>
-        <p class="font-mono text-2xl font-semibold tabular-nums">{summary.failed}</p>
+        <p class="font-mono text-2xl font-medium tabular-nums">{summary.failed}</p>
       </Card.Content>
     </Card.Root>
   </div>
 
   <div class="mt-4 grid gap-3 lg:grid-cols-2">
     <Card.Root
-      class="border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+      class="border border-line bg-card"
     >
       <Card.Header class="pb-2">
         <Card.Title class="text-sm">Push & reminders</Card.Title>
@@ -299,7 +299,7 @@
     </Card.Root>
 
     <Card.Root
-      class="border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+      class="border border-line bg-card"
     >
       <Card.Header class="pb-2">
         <Card.Title class="text-sm">pg_cron & pg_net</Card.Title>
@@ -377,7 +377,7 @@
   </div>
 
   <Card.Root
-    class="mt-4 border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+    class="mt-4 border border-line bg-card"
   >
     <Card.Header class="pb-3">
       <Card.Title class="text-sm">Daily summaries</Card.Title>
@@ -446,7 +446,7 @@
   </Card.Root>
 
   <Card.Root
-    class="mt-4 border border-black/10 bg-card ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)]"
+    class="mt-4 border border-line bg-card"
   >
     <Card.Header class="flex flex-row items-center gap-2 pb-3">
       <Layers class="size-4 opacity-70" />

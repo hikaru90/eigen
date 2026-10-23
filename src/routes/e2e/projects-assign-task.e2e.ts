@@ -81,7 +81,8 @@ test.describe('Projects: unassigned task assignment @qa', () => {
 
       // Check that the No project section count decreased or section is gone
       const noProjectSection = page.locator('text=/No project/').first()
-      const sectionText = await noProjectSection.textContent({ timeout: 5000 }).catch(() => '')
+      const sectionText =
+        (await noProjectSection.textContent({ timeout: 5000 }).catch(() => '')) ?? ''
 
       // The count in parentheses should be lower
       const match = sectionText.match(/\((\d+)\)/)

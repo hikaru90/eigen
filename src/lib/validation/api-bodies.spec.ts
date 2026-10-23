@@ -1,42 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { FEEDBACK_MAX_LENGTH } from '$lib/feedback/feedback-max-length'
 import {
-  feedbackPostBodySchema,
   parseDateRangeRequestSchema,
   parsedDateRangeSchema,
 } from './api-bodies'
-
-describe('feedbackPostBodySchema', () => {
-  it('accepts a trimmed non-empty message', () => {
-    const result = feedbackPostBodySchema.safeParse({ message: '  hello  ' })
-    expect(result.success).toBe(true)
-    if (result.success) expect(result.data.message).toBe('hello')
-  })
-
-  it('rejects missing message', () => {
-    expect(feedbackPostBodySchema.safeParse({}).success).toBe(false)
-  })
-
-  it('rejects non-string message', () => {
-    expect(feedbackPostBodySchema.safeParse({ message: 42 }).success).toBe(false)
-  })
-
-  it('rejects empty / whitespace-only message', () => {
-    expect(feedbackPostBodySchema.safeParse({ message: '   ' }).success).toBe(false)
-  })
-
-  it('rejects oversized message', () => {
-    expect(
-      feedbackPostBodySchema.safeParse({ message: 'x'.repeat(FEEDBACK_MAX_LENGTH + 1) }).success,
-    ).toBe(false)
-  })
-
-  it('accepts message of exactly max length', () => {
-    expect(
-      feedbackPostBodySchema.safeParse({ message: 'x'.repeat(FEEDBACK_MAX_LENGTH) }).success,
-    ).toBe(true)
-  })
-})
 
 describe('parseDateRangeRequestSchema', () => {
   it('requires a non-empty phrase', () => {

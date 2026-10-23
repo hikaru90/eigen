@@ -1,5 +1,12 @@
-/** Maximum uploaded audio size (bytes). */
-export const STT_MAX_AUDIO_BYTES = 10 * 1024 * 1024
+/** Longest segment the voice recorder sends (forced cut, see `$lib/capture/segmented-stt`). */
+export const STT_SEGMENT_MAX_SECONDS = 10
+
+/**
+ * Maximum bytes for one uploaded segment: 10 s of 48 kHz 16-bit stereo PCM
+ * (the largest format a recorder emits, WAV) rounded up to 2 MiB. Opus/WebM
+ * segments are far smaller.
+ */
+export const STT_SEGMENT_MAX_AUDIO_BYTES = 2 * 1024 * 1024
 
 const MIME_TO_FORMAT: Record<string, string> = {
   'audio/webm': 'webm',

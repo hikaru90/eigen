@@ -1,5 +1,6 @@
 import type { EnrichmentContext } from './enrichment-context'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ASK_QUESTION_RULE } from '$lib/server/memory/ask-question'
 import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
 import { enrichThoughtBundleInternals, extractEnrichThoughtBundle } from './enrich-thought-bundle'
 import { CAPTURE_PRIMARY_HEADING } from './enrichment-prompt-sections'
@@ -84,6 +85,7 @@ function makeBundleResponse(overrides: Record<string, unknown> = {}) {
             temporalMentions: [],
             mentions: [{ surface: 'MCP Bearer key', entityType: 'technology', confidence: 0.9 }],
             triples: [],
+            askQuestion: 'What did I note about the MCP Bearer key?',
             ...overrides,
           }),
         },
@@ -94,6 +96,67 @@ function makeBundleResponse(overrides: Record<string, unknown> = {}) {
 
 describe('extractEnrichThoughtBundle', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  const bundleInput = (context = makeContext()) => ({
+    context,
+    capturedAt: new Date('2026-07-03T20:00:10.501Z'),
+    timezone: 'Europe/Berlin',
+    ontologyEntityKinds: [{ key: 'technology', name: 'Technology', definition: 'Software tool' }],
+  })
+
+  describe('askQuestion (suggested question on Ask)', () => {
+    it('returns the trimmed question from the same single LLM call (AC-1, AC-7)', async () => {
+      llmChatCompletionMock.mockResolvedValue(
+        makeBundleResponse({ askQuestion: '  What did I need to call the plumber about? ' }),
+      )
+      const result = await extractEnrichThoughtBundle(
+        bundleInput(makeContext({ normalizedText: 'Call the plumber about the kitchen sink' })),
+      )
+      expect(result.askQuestion).toBe('What did I need to call the plumber about?')
+      expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+      expect(llmChatCompletionMock.mock.calls[0]?.[0]?.logContext).toBe('enrich_thought_bundle')
+    })
+
+    it('keeps a German question for a German capture (AC-2, mocked LLM contract)', async () => {
+      llmChatCompletionMock.mockResolvedValue(
+        makeBundleResponse({ askQuestion: 'Wen wollte ich wegen der Spüle anrufen?' }),
+      )
+      const result = await extractEnrichThoughtBundle(
+        bundleInput(makeContext({ normalizedText: 'Klempner wegen der Küchenspüle anrufen' })),
+      )
+      expect(result.askQuestion).toBe('Wen wollte ich wegen der Spüle anrufen?')
+    })
+
+    it('returns null for a greeting (AC-3)', async () => {
+      llmChatCompletionMock.mockResolvedValue(makeBundleResponse({ askQuestion: null, mentions: [] }))
+      const result = await extractEnrichThoughtBundle(
+        bundleInput(makeContext({ normalizedText: 'hi', rawText: 'hi' })),
+      )
+      expect(result.askQuestion).toBeNull()
+    })
+
+    it('rejects a missing askQuestion key instead of defaulting it', async () => {
+      const response = makeBundleResponse()
+      const body = JSON.parse(response.choices[0]!.message.content) as Record<string, unknown>
+      delete body.askQuestion
+      response.choices[0]!.message.content = JSON.stringify(body)
+      llmChatCompletionMock.mockResolvedValue(response)
+      await expect(extractEnrichThoughtBundle(bundleInput())).rejects.toThrow(/askQuestion/)
+    })
+
+    it('rejects a non-string askQuestion and one over the cap', async () => {
+      llmChatCompletionMock.mockResolvedValue(makeBundleResponse({ askQuestion: 7 }))
+      await expect(extractEnrichThoughtBundle(bundleInput())).rejects.toThrow(/askQuestion/)
+      llmChatCompletionMock.mockResolvedValue(makeBundleResponse({ askQuestion: `${'w'.repeat(95)}?` }))
+      await expect(extractEnrichThoughtBundle(bundleInput())).rejects.toThrow(/askQuestion/)
+    })
+
+    it('asks for askQuestion in the JSON shape with the SQ-2 rules', () => {
+      const prompt = enrichThoughtBundleInternals.buildEnrichThoughtBundlePrompt(bundleInput())
+      expect(prompt).toContain('"askQuestion"')
+      expect(prompt).toContain(ASK_QUESTION_RULE)
+    })
+  })
 
   it('returns parsed category, temporal, and entity graph from one LLM call', async () => {
     llmChatCompletionMock.mockResolvedValue(makeBundleResponse())

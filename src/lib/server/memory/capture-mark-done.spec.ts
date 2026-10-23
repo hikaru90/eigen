@@ -125,10 +125,12 @@ describe('capture page mark-done (bare thought uuid resolution)', () => {
     )
   })
 
-  it('capture page uses the shared quick-action client, not PATCH /api/thoughts', () => {
+  it('capture page performs no lifecycle writes itself (the done tick lives on Yarn rows), never PATCH /api/thoughts', () => {
+    // ei redesign: the recent-thoughts list (and its done/reopen toggle) moved off /capture to
+    // /mesh/yarn. The capture page must not grow its own lifecycle path back in.
     const page = readFileSync(path.join(here, '../../../routes/capture/+page.svelte'), 'utf-8')
-    expect(page).toContain('postTimelineQuickAction')
     expect(page).not.toMatch(/PATCH[^"']*\/api\/thoughts/)
+    expect(page).not.toMatch(/['"](mark_done|reopen)['"]/)
   })
 
   it('capture-recent-thoughts exposes a done toggle wired to the page handler', () => {

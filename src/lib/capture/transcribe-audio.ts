@@ -1,6 +1,18 @@
 export type TranscribeAudioOptions = {
   language?: string
   signal?: AbortSignal
+  /** Client segment index; sent in `x-audio-meta` and echoed by the server. */
+  segment?: number
+}
+
+/** A failed `/api/capture/transcribe-chunk` request, keeping the HTTP status (402 = billing). */
+export class TranscribeRequestError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'TranscribeRequestError'
+    this.status = status
+  }
 }
 
 /**
@@ -25,15 +37,18 @@ export function audioUploadExtension(mimeType: string): 'webm' | 'ogg' | 'wav' |
  * "Cross-site POST form submissions are forbidden" whenever the deployed
  * `ORIGIN` does not exactly match the browser origin behind a proxy.
  */
-export type AudioUploadMeta = { language?: string }
+export type AudioUploadMeta = { language?: string; segment?: number }
 
 export function audioUploadHeaders(mimeType: string, meta?: AudioUploadMeta): HeadersInit {
   const headers: Record<string, string> = {
     'content-type': mimeType.trim() || 'application/octet-stream',
   }
   const language = meta?.language?.trim().toLowerCase()
-  if (language) {
-    headers['x-audio-meta'] = JSON.stringify({ language })
+  const payload: AudioUploadMeta = {}
+  if (language) payload.language = language
+  if (meta?.segment !== undefined) payload.segment = meta.segment
+  if (Object.keys(payload).length > 0) {
+    headers['x-audio-meta'] = JSON.stringify(payload)
   }
   return headers
 }
@@ -43,8 +58,8 @@ export function audioUploadHeaders(mimeType: string, meta?: AudioUploadMeta): He
  * transcript to the draft — audio capture must not overwrite text the user
  * already typed. Both sides are trimmed and separated by a single space.
  * Returns the draft unchanged when the transcript is empty, and the transcript
- * alone when the draft is empty. Streaming partials are cumulative (the full
- * running transcript, not a delta), so this is recomputed from the original
+ * alone when the draft is empty. Voice partials are cumulative (the ordered
+ * join of segment transcripts so far, not a delta), so this is recomputed from the original
  * draft on every partial — no duplication.
  */
 export function appendVoiceTranscript(draft: string, transcript: string): string {
@@ -72,53 +87,33 @@ export async function parseTranscribeErrorResponse(res: Response): Promise<strin
 }
 
 /**
- * Uploads recorded audio to `/api/capture/transcribe` and returns transcript text.
- */
-export async function transcribeRecordedAudio(
-  blob: Blob,
-  options?: TranscribeAudioOptions,
-): Promise<string> {
-  const res = await fetch('/api/capture/transcribe', {
-    method: 'POST',
-    headers: audioUploadHeaders(blob.type, { language: options?.language }),
-    body: blob,
-    credentials: 'same-origin',
-    signal: options?.signal,
-  })
-
-  if (!res.ok) {
-    throw new Error(await parseTranscribeErrorResponse(res))
-  }
-
-  const payload = (await res.json()) as { transcript?: unknown }
-  if (typeof payload.transcript !== 'string' || !payload.transcript.trim()) {
-    throw new Error('Transcription response missing transcript')
-  }
-  return payload.transcript.trim()
-}
-
-/**
- * Sends a single audio chunk to `/api/capture/transcribe-chunk` for streaming STT.
- * Returns the partial transcript for that chunk (may be empty string for silence).
+ * Sends one recorded segment (a standalone audio file) to
+ * `/api/capture/transcribe-chunk` and returns its transcript. An empty string is
+ * a valid result (silence). Any failure throws {@link TranscribeRequestError} —
+ * never a silent empty partial.
  */
 export async function transcribeAudioChunk(
-  chunk: Blob,
+  segment: Blob,
   options?: TranscribeAudioOptions,
 ): Promise<string> {
   const res = await fetch('/api/capture/transcribe-chunk', {
     method: 'POST',
-    headers: audioUploadHeaders(chunk.type, { language: options?.language }),
-    body: chunk,
+    headers: audioUploadHeaders(segment.type, {
+      language: options?.language,
+      segment: options?.segment,
+    }),
+    body: segment,
     credentials: 'same-origin',
     signal: options?.signal,
   })
 
   if (!res.ok) {
-    // Non-fatal for streaming — log and return empty so remaining chunks continue.
-    console.error('transcribe-chunk failed', res.status)
-    return ''
+    throw new TranscribeRequestError(res.status, await parseTranscribeErrorResponse(res))
   }
 
   const payload = (await res.json()) as { transcript?: unknown }
-  return typeof payload.transcript === 'string' ? payload.transcript.trim() : ''
+  if (typeof payload.transcript !== 'string') {
+    throw new TranscribeRequestError(res.status, 'Transcription response missing transcript')
+  }
+  return payload.transcript.trim()
 }

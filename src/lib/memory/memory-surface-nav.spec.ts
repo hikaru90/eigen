@@ -21,4 +21,12 @@ describe('activeMemorySurfaceTab', () => {
   it('returns notes for /memory/notes', () => {
     expect(activeMemorySurfaceTab('/memory/notes', null)).toBe('notes')
   })
+
+  it('returns desk for /desk', () => {
+    expect(activeMemorySurfaceTab('/desk', null)).toBe('desk')
+  })
+
+  it('still returns memory tabs for nested /desk-like paths only when exact', () => {
+    expect(activeMemorySurfaceTab('/memory/deskish', null)).toBe('graph')
+  })
 })

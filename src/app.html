@@ -38,7 +38,7 @@
         }
         var themeMeta = document.getElementById('theme-color-meta')
         if (themeMeta) {
-          themeMeta.setAttribute('content', isDark ? '#141c16' : '#e8ede5')
+          themeMeta.setAttribute('content', isDark ? '#0e0e0d' : '#e8ede5')
         }
         var isStandalone =
           window.matchMedia('(display-mode: standalone)').matches ||
@@ -49,6 +49,17 @@
           document.documentElement.classList.add('pwa-standalone')
         }
       })()
+    </script>
+    <script>
+      // Chrome fires beforeinstallprompt before the app hydrates; keep it for the install
+      // store (src/lib/pwa/deferred-install-store.svelte.ts) so one-click install works.
+      window.addEventListener('beforeinstallprompt', function (event) {
+        event.preventDefault()
+        window.__eigenInstallPrompt = event
+      })
+      window.addEventListener('appinstalled', function () {
+        window.__eigenInstallPrompt = null
+      })
     </script>
     %sveltekit.head%
   </head>

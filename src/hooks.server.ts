@@ -2,13 +2,15 @@ import type { AppUser } from './app.d.ts'
 import type { Handle, HandleServerError } from '@sveltejs/kit'
 import { sequence } from '@sveltejs/kit/hooks'
 import { svelteKitHandler } from 'better-auth/svelte-kit'
-import { building } from '$app/environment'
+import { building, dev } from '$app/environment'
 import { getTextDirection } from '$lib/paraglide/runtime'
 import { paraglideMiddleware } from '$lib/paraglide/server'
 import { captureServerException } from '$lib/server/analytics/posthog-server'
 import { hashApiKey } from '$lib/server/api-keys/api-key-utils'
 import { auth } from '$lib/server/auth'
-import { tenantUserAsyncLocal } from '$lib/server/billing/context'
+import { resolveE2eHarnessBillingUserId } from '$lib/server/auth/harness-billing'
+import { billingUserAsyncLocal, tenantUserAsyncLocal } from '$lib/server/billing/context'
+import { ensureHarnessWalletCredits } from '$lib/server/billing/ensure-harness-credits'
 import {
   appSql,
   appDbAsyncLocal,
@@ -183,15 +185,29 @@ const handlePostHogProxy: Handle = async ({ event, resolve }) => {
   return resolve(event)
 }
 
+/**
+ * Dev only: Playwright harness accounts bill their LLM usage to the eval operator
+ * service wallet (topped up like eval runs), so e2e needs no PayPal top-up.
+ */
+const handleE2eHarnessBilling: Handle = async ({ event, resolve }) => {
+  if (!dev) return resolve(event)
+  const billingUserId = resolveE2eHarnessBillingUserId(event.locals.user?.email)
+  if (!billingUserId) return resolve(event)
+  await ensureHarnessWalletCredits(billingUserId)
+  return billingUserAsyncLocal.run(billingUserId, () => resolve(event))
+}
+
 export const handle: Handle = sequence(
   handlePostHogProxy,
   handleParaglide,
   handleWellKnown,
   handleBetterAuth,
+  handleE2eHarnessBilling,
   handleCrossOriginOpenerPolicy,
 )
 
 export const handleError: HandleServerError = ({ error, status, event }) => {
+  console.error(`[server error] ${status} ${event.url.pathname}`, error)
   if (shouldCaptureServerError(status)) {
     captureServerException(error, event.locals.user?.id, {
       status,

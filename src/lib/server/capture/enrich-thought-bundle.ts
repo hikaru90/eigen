@@ -18,6 +18,7 @@ import {
  * retry when neither the primary key nor any alternative is valid.
  */
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { ASK_QUESTION_RULE, parseAskQuestion } from '$lib/server/memory/ask-question'
 import {
   graphEntityLabelsFromContext,
   parseEntityMentions,
@@ -60,6 +61,8 @@ import {
 export type EnrichThoughtBundleResult = {
   category: ResolvedThoughtCategory
   cues: string[]
+  /** Suggested question for Ask; null when the LLM found no sensible question. */
+  askQuestion: string | null
   temporalMentions: ExtractedTemporalMention[]
   entityGraph: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
 }
@@ -118,6 +121,7 @@ export function buildEnrichThoughtBundlePrompt(input: {
     '{',
     '  "category": { "key": "<thought_category_key>", "confidence": 0.0-1.0, "alternatives": [{"key":"...","confidence":0.0}] },',
     '  "cues": ["2-8 word search phrase", "..."],',
+    '  "askQuestion": "<short question in the capture\'s language>" | null,',
     '  "temporalMentions": [],',
     '  "mentions": [{"surface":"<text as written>","entityType":"<key>","confidence":0.0-1.0}],',
     '  "triples": [{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]',
@@ -127,6 +131,8 @@ export function buildEnrichThoughtBundlePrompt(input: {
     'alternatives: max 3 other plausible category keys with confidence.',
     '',
     CUES_FROM_CAPTURE_RULE,
+    '',
+    ASK_QUESTION_RULE,
     '',
     `temporalMentions: array of temporal objects for dates/deadlines in the capture; use [] when none.`,
     `Capture anchor: ${capturedIso}, timezone ${timezone}. Set timezone to "${timezone}" unless text names another.`,
@@ -197,6 +203,7 @@ function parseEnrichThoughtBundleContent(input: {
     category:
       input.forcedCategory ?? resolveCategoryFromLlmOutput(input.context.ontology, obj.category),
     cues: parseSearchCues(obj.cues),
+    askQuestion: parseAskQuestion(obj),
     temporalMentions: parseTemporalFromBundle(obj.temporalMentions, input.capturedAt),
     entityGraph: parseEntityGraphFromBundle(
       obj,
@@ -218,7 +225,7 @@ export async function extractEnrichThoughtBundle(input: {
     {
       role: 'system',
       content:
-        'You enrich one personal memory capture: assign a thought category, search cues, temporal mentions, and entity graph structure. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
+        'You enrich one personal memory capture: assign a thought category, search cues, a suggested recall question, temporal mentions, and entity graph structure. Use grounding and graph context only to disambiguate the capture — every field must be justified by the capture text. Output JSON only.',
     },
     { role: 'user', content: userPrompt },
   ]

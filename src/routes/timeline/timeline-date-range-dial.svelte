@@ -155,7 +155,7 @@
         {#each presets as preset (preset.id)}
           <button
             type="button"
-            class="hover:bg-black/5 dark:hover:bg-white/10 rounded-[4px] px-2 py-1.5 text-left font-mono text-xs disabled:opacity-50"
+            class="hover:bg-paper-2 rounded-[4px] px-2 py-1.5 text-left font-mono text-xs disabled:opacity-50"
             disabled={submitting}
             onclick={() => onPresetClick(preset)}
           >

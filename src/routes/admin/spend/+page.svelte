@@ -189,19 +189,19 @@
   const activePagination = $derived(data.view === 'calls' ? data.callPagination : data.pagination)
 </script>
 
-<div class="mx-auto max-w-6xl px-5 pb-8 pt-10">
+<div class="mx-auto max-w-6xl px-5 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   <header class="text-center">
     <p class="text-muted-foreground mt-2 text-xs">Admin — spend & activity</p>
   </header>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
+    class="mt-4 border border-line bg-card"
   >
     <Card.Content class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div class="flex flex-wrap items-center gap-4">
         <div>
           <span class="text-xs font-medium">Deployment gateway spend (credits):</span>
-          <span class="ml-2 font-mono text-sm font-semibold tabular-nums">{deploymentCredits}</span>
+          <span class="ml-2 font-mono text-sm font-medium tabular-nums">{deploymentCredits}</span>
         </div>
         <div class="text-muted-foreground text-[11px]">
           {data.totals.userCount} users · {data.totals.totalCreditsDebited.toLocaleString('en-US')} credits
@@ -287,7 +287,7 @@
   </div>
 
   {#if data.view === 'calls' && data.userFilter}
-    <div class="mt-3 space-y-3 rounded-md border border-black/10 bg-muted/30 px-3 py-3 text-sm">
+    <div class="mt-3 space-y-3 rounded-md border border-line bg-muted/30 px-3 py-3 text-sm">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <span>
           Filtered to <strong>{data.userFilter.email}</strong>
@@ -303,7 +303,7 @@
         </a>
       </div>
       <form
-        class="flex flex-wrap items-end gap-2 border-t border-black/10 pt-3"
+        class="flex flex-wrap items-end gap-2 border-t border-line pt-3"
         onsubmit={(e) => {
           e.preventDefault()
           void grantCredits()
@@ -354,7 +354,7 @@
 
   {#if data.view === 'users'}
     <Card.Root
-      class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
+      class="mt-4 border border-line bg-card"
     >
       <Card.Header class="gap-1">
         <Card.Title class="text-sm">Per-user spend</Card.Title>
@@ -521,7 +521,7 @@
     </Card.Root>
   {:else}
     <Card.Root
-      class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
+      class="mt-4 border border-line bg-card"
     >
       <Card.Header class="gap-1">
         <Card.Title class="text-sm">Activity calls</Card.Title>
@@ -618,7 +618,7 @@
   {/if}
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-6 border border-black/10 bg-card"
+    class="mt-6 border border-line bg-card"
   >
     <Card.Header class="gap-1">
       <Card.Title class="text-sm">ERPNext invoice sync</Card.Title>
@@ -632,13 +632,13 @@
         <div class="flex flex-wrap items-center gap-4 text-xs">
           <span>
             <span class="text-muted-foreground">Awaiting invoice:</span>
-            <span class="ml-1 font-mono font-semibold tabular-nums">
+            <span class="ml-1 font-mono font-medium tabular-nums">
               {data.erpNext.uninvoicedCount.toLocaleString('en-US')}
             </span>
           </span>
           <span>
             <span class="text-muted-foreground">Invoiced:</span>
-            <span class="ml-1 font-mono font-semibold tabular-nums">
+            <span class="ml-1 font-mono font-medium tabular-nums">
               {data.erpNext.invoicedCount.toLocaleString('en-US')}
             </span>
           </span>

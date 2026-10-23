@@ -1,7 +1,6 @@
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check'
-  import CircleX from '@lucide/svelte/icons/circle-x'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import XIcon from '@lucide/svelte/icons/x'
   import {
     evidenceHitsFromAnswerQuestionPayload,
     formatToolArgumentsSummary,
@@ -10,10 +9,15 @@
     type ToolResultMemoryHit,
   } from '$lib/chat/chat-stream-types'
   import type { ChatTimelineKind } from '$lib/chat/normalize-messages'
+  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
   import ChatMarkdown from '$lib/components/chat-markdown.svelte'
   import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
 
+  /**
+   * One task of the agent loop: the task in plain words (your query in your voice), its
+   * tool calls as pills under it, and — when it brought thoughts back — the memory cards.
+   */
   type Props = {
     kind: ChatTimelineKind
     label: string
@@ -23,6 +27,7 @@
     failed?: boolean
     running?: boolean
     hideProse?: boolean
+    steps?: string[]
   }
 
   let {
@@ -34,6 +39,7 @@
     failed = false,
     running = false,
     hideProse = false,
+    steps = [],
   }: Props = $props()
 
   const argSummary = $derived(
@@ -85,54 +91,65 @@
   })
 </script>
 
-<div class="flex min-w-0 w-full flex-col gap-1.5 py-0.5">
-  <div
-    class="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-2.5 py-1 text-xs text-muted-foreground"
-  >
-    {#if running}
-      <LoaderCircleIcon class="size-3 shrink-0 animate-spin" />
-    {:else if failed}
-      <CircleX class="size-3 shrink-0 text-destructive" strokeWidth={1.75} aria-hidden="true" />
-    {:else}
-      <div class="size-3 shrink-0 flex items-center justify-center bg-muted">
-        <CheckIcon class="size-2 text-green-600 dark:text-green-500" aria-hidden="true" />
-      </div>
+<div class={["flex flex-col items-start gap-1.5 min-w-0 w-full animate-[fade_0.6s_var(--ease)_both]", failed && "[&_.glyph]:text-warn"]}>
+  <!-- The task in plain words (no pill, no check): what the mesh is doing for you. -->
+  <div class="flex items-center gap-2 max-w-full min-w-0 font-mesh text-sm leading-5 text-ink-2" data-testid="chat-task">
+    {#if failed}
+      <span class="glyph grid place-items-center size-4 shrink-0" aria-hidden="true"><XIcon size={12} strokeWidth={1.5} /></span>
     {/if}
-    <span class="min-w-0 wrap-break-word leading-snug">{label}</span>
+    <span class="shrink-0 whitespace-nowrap">{label}</span>
     {#if argSummary}
-      <p class="min-w-0 leading-relaxed text-muted-foreground wrap-break-word ellipsis">
-        {argSummary}
-      </p>
+      <span class="min-w-0 truncate font-you text-ink-3">{argSummary}</span>
     {/if}
   </div>
 
+  <!-- The tool calls under it: each a solid pill — check when done, spinner on the live one. -->
+  {#if steps.length > 0}
+    <ol class="m-0 p-0 list-none flex flex-wrap gap-1.5" aria-label="Steps">
+      {#each steps as step, i (`${i}:${step}`)}
+        {@const live = running && i === steps.length - 1}
+        <li
+          class="inline-flex items-center gap-1.5 max-w-full min-w-0 h-[22px] pl-1.5 pr-2.5 rounded-full bg-ink font-mesh text-xs leading-none text-paper animate-[fade_0.6s_var(--ease)_both]"
+          data-testid="chat-tool-pill"
+        >
+          <span class="grid place-items-center size-3 shrink-0" aria-hidden="true">
+            {#if live}
+              <MeshSpinner working size={12} />
+            {:else}
+              <CheckIcon size={10} strokeWidth={2} />
+            {/if}
+          </span>
+          <span class="min-w-0 truncate">{step}</span>
+        </li>
+      {/each}
+    </ol>
+  {/if}
+
   {#if kind === 'tool_result' && answerQuestionProse}
-    <div class="pl-1">
+    <div class="w-full mt-2">
       <ChatMarkdown content={answerQuestionProse} />
     </div>
   {/if}
 
   {#if kind === 'tool_result' && memoryHits.length > 0}
-    <ul class="flex flex-col gap-2 list-none m-0 p-0 pl-1">
+    <ul class="w-full mt-1.5 mb-0 p-0 list-none flex flex-col">
       {#each memoryHits as hit, i (`${i}:${hit.id ?? hit.text}`)}
-        <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} />
+        <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} index={i} />
       {/each}
     </ul>
   {:else if kind === 'tool_result' && tool === 'answer_question' && toolErrorMessage}
-    <ChatErrorMessage message={toolErrorMessage} class="ml-1" />
+    <ChatErrorMessage message={toolErrorMessage} class="aside" />
   {:else if kind === 'tool_result' && genericResultView}
-    <div class="pl-1 text-sm text-foreground">
-      {#if genericResultView.kind === 'memories'}
-        <p class="text-muted-foreground">No matching memories.</p>
-      {:else if genericResultView.kind === 'error'}
-        <ChatErrorMessage message={genericResultView.message} />
-      {/if}
-    </div>
+    {#if genericResultView.kind === 'memories'}
+      <p class="aside text-sm text-ink-3">No matching memories.</p>
+    {:else if genericResultView.kind === 'error'}
+      <ChatErrorMessage message={genericResultView.message} class="aside" />
+    {/if}
   {:else if showToolResultText && genericResultView?.kind === 'text'}
-    <div class="pl-1">
+    <div class="w-full">
       <ChatMarkdown content={genericResultView.text} tone="muted" />
     </div>
   {:else if kind === 'tool_result' && toolErrorMessage}
-    <ChatErrorMessage message={toolErrorMessage} class="ml-1" />
+    <ChatErrorMessage message={toolErrorMessage} class="aside" />
   {/if}
 </div>

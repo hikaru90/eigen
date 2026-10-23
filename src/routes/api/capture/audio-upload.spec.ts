@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { STT_MAX_AUDIO_BYTES, sttFormatFromMime } from '$lib/server/llm/stt-audio'
+import { STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime } from '$lib/server/llm/stt-audio'
 import { readAudioUpload } from './audio-upload'
 
 function binaryRequest(
@@ -37,10 +37,45 @@ function multipartFormDataRequest(parts: { audio?: File; language?: string }) {
 }
 
 describe('readAudioUpload', () => {
+  it('parses the client segment index from x-audio-meta', async () => {
+    const upload = await readAudioUpload(
+      binaryRequest(new Blob([new Uint8Array(4)], { type: 'audio/webm' }), {
+        meta: { language: 'en', segment: 3 },
+      }),
+      STT_SEGMENT_MAX_AUDIO_BYTES,
+      sttFormatFromMime,
+    )
+    expect(upload.segment).toBe(3)
+  })
+
+  it('ignores a malformed segment index', async () => {
+    for (const segment of [-1, 1.5, '2', null]) {
+      const upload = await readAudioUpload(
+        binaryRequest(new Blob([new Uint8Array(4)], { type: 'audio/webm' }), { meta: { segment } }),
+        STT_SEGMENT_MAX_AUDIO_BYTES,
+        sttFormatFromMime,
+      )
+      expect(upload.segment).toBeUndefined()
+    }
+  })
+
+  it('rejects an oversize segment with the limit in the message', async () => {
+    await expect(
+      readAudioUpload(
+        binaryRequest(new Blob([new Uint8Array(STT_SEGMENT_MAX_AUDIO_BYTES + 1)], { type: 'audio/webm' })),
+        STT_SEGMENT_MAX_AUDIO_BYTES,
+        sttFormatFromMime,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { message: `audio segment exceeds ${STT_SEGMENT_MAX_AUDIO_BYTES} bytes (max 10 s per segment)` },
+    })
+  })
+
   it('parses a binary audio body with language metadata', async () => {
     const upload = await readAudioUpload(
       binaryRequest(new Blob([new Uint8Array(12)], { type: 'audio/webm' }), { meta: { language: 'EN' } }),
-      STT_MAX_AUDIO_BYTES,
+      STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
     )
     expect(upload.bytes).toHaveLength(12)
@@ -51,7 +86,7 @@ describe('readAudioUpload', () => {
   it('defaults to application/octet-stream and no language when headers are absent', async () => {
     const req = binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/wav' }))
     ;(req.headers as Headers).delete('x-audio-meta')
-    const upload = await readAudioUpload(req, STT_MAX_AUDIO_BYTES, sttFormatFromMime)
+    const upload = await readAudioUpload(req, STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime)
     expect(upload.mimeType).toBe('audio/wav')
     expect(upload.language).toBeUndefined()
   })
@@ -60,7 +95,7 @@ describe('readAudioUpload', () => {
     await expect(
       readAudioUpload(
         binaryRequest(new Blob([new Uint8Array(0)], { type: 'audio/webm' })),
-        STT_MAX_AUDIO_BYTES,
+        STT_SEGMENT_MAX_AUDIO_BYTES,
         sttFormatFromMime,
       ),
     ).rejects.toMatchObject({ status: 400, body: { message: 'audio file is empty' } })
@@ -73,14 +108,14 @@ describe('readAudioUpload', () => {
         10,
         sttFormatFromMime,
       ),
-    ).rejects.toMatchObject({ status: 400, body: { message: 'audio file exceeds 10 bytes' } })
+    ).rejects.toMatchObject({ status: 400, body: { message: 'audio segment exceeds 10 bytes (max 10 s per segment)' } })
   })
 
   it('rejects unsupported MIME types on binary bodies', async () => {
     await expect(
       readAudioUpload(
         binaryRequest(new Blob([new Uint8Array(8)], { type: 'text/plain' })),
-        STT_MAX_AUDIO_BYTES,
+        STT_SEGMENT_MAX_AUDIO_BYTES,
         sttFormatFromMime,
       ),
     ).rejects.toMatchObject({ status: 400 })
@@ -89,7 +124,7 @@ describe('readAudioUpload', () => {
   it('survives a malformed x-audio-meta header', async () => {
     const upload = await readAudioUpload(
       binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/webm' }), { meta: 'not-json{[' }),
-      STT_MAX_AUDIO_BYTES,
+      STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
     )
     expect(upload.language).toBeUndefined()
@@ -100,7 +135,7 @@ describe('readAudioUpload', () => {
       binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/webm' }), {
         meta: { language: 42 },
       }),
-      STT_MAX_AUDIO_BYTES,
+      STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
     )
     expect(upload.language).toBeUndefined()
@@ -112,7 +147,7 @@ describe('readAudioUpload', () => {
         audio: new File([new Uint8Array(12)], 'recording.webm', { type: 'audio/webm' }),
         language: 'de',
       }),
-      STT_MAX_AUDIO_BYTES,
+      STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
     )
     expect(upload.bytes).toHaveLength(12)
@@ -122,7 +157,7 @@ describe('readAudioUpload', () => {
 
   it('rejects legacy multipart uploads without an audio file', async () => {
     await expect(
-      readAudioUpload(multipartFormDataRequest({}), STT_MAX_AUDIO_BYTES, sttFormatFromMime),
+      readAudioUpload(multipartFormDataRequest({}), STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime),
     ).rejects.toMatchObject({ status: 400 })
   })
 })

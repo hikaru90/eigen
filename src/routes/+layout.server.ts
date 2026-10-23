@@ -6,6 +6,7 @@ import { isUserAdmin } from '$lib/server/auth/user-role'
 import { getDb } from '$lib/server/db'
 import { userPreference } from '$lib/server/db/schema'
 import { listAuthorLayersForUser } from '$lib/server/memory/authorship'
+import { loadYouCounts, type YouCounts } from '$lib/server/memory/you-counts'
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   let preferredUiLocale: string | null = null
@@ -13,10 +14,12 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   let isAdmin = false
   let betaAgreementAccepted = true
   let authorLayers: Awaited<ReturnType<typeof listAuthorLayersForUser>> = []
+  let youCounts: YouCounts | null = null
 
   if (locals.user) {
     isAdmin = await isUserAdmin(locals.user.id)
     authorLayers = await listAuthorLayersForUser(locals.user.id)
+    youCounts = await loadYouCounts(locals.user.id)
     const [pref] = await getDb()
       .select({
         preferredUiLocale: userPreference.preferredUiLocale,
@@ -48,5 +51,6 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     preferredUiLocale,
     preferredLanguage,
     authorLayers,
+    youCounts,
   }
 }

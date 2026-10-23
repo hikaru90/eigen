@@ -49,11 +49,11 @@
   ]
 </script>
 
-<div class="mx-auto max-w-2xl space-y-8 px-4 pb-8 pt-16">
+<div class="mx-auto max-w-2xl space-y-8 px-4 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   {#if legacyByokMigration}
-    <section class="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3">
+    <section class="space-y-3 rounded-xl border border-(--clay)/40 bg-(--clay-2) px-3.5 py-3">
       <div>
-        <h2 class="text-sm font-semibold">Bring your own key (legacy)</h2>
+        <h2 class="text-sm font-medium">Bring your own key (legacy)</h2>
         <p class="text-muted-foreground mt-1 text-xs">
           Your account still has a saved EUrouter or OpenRouter API key
           {#if data.billingMode === 'byok'}
@@ -89,7 +89,7 @@
   {#if data.byokUiEnabled}
     <section class="space-y-3">
       <div>
-        <h2 class="text-sm font-semibold">Billing method</h2>
+        <h2 class="text-sm font-medium">Billing method</h2>
         <p class="text-muted-foreground mt-1 text-xs">
           Choose whether LLM calls use your Eigen wallet or your own gateway API keys. This applies
           to capture, chat, voice dictation, and embeddings.
@@ -155,7 +155,7 @@
   {:else}
     <section class="space-y-3">
       <div>
-        <h2 class="text-sm font-semibold">Billing</h2>
+        <h2 class="text-sm font-medium">Billing</h2>
         <p class="text-muted-foreground mt-1 text-xs">
           Capture, chat, and embeddings use the operator LLM gateway (EUrouter or OpenRouter). Voice
           dictation always uses OpenRouter. All usage debits your Eigen wallet in credits.
@@ -167,7 +167,7 @@
   {#if data.isAdmin}
     <section class="space-y-3">
       <div>
-        <h2 class="text-sm font-semibold">Model Configuration</h2>
+        <h2 class="text-sm font-medium">Model Configuration</h2>
         <p class="text-muted-foreground mt-1 text-xs">
           Override the default chat and embedding models. These settings apply to entity extraction,
           capture enrichment, and other LLM tasks.
@@ -264,7 +264,7 @@
 
   <section class="space-y-4 mt-8">
     <div>
-      <h2 class="text-sm font-semibold">Billing settings</h2>
+      <h2 class="text-sm font-medium">Billing settings</h2>
       <p class="text-muted-foreground mt-1 text-xs">
         {#if data.byokUiEnabled}
           Top up Eigen credits on Credits, or manage OpenRouter and EUrouter keys on BYOK. PayPal
@@ -299,13 +299,13 @@
                 <li>
                   <a
                     href={resolve(`/settings/llm/byok/${item.id}`)}
-                    class="flex items-center justify-between gap-3 py-3 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                    class="flex items-center justify-between gap-3 py-3 text-xs hover:bg-accent"
                   >
                     <span class="font-medium text-foreground">{item.label}</span>
                     <span class="flex items-center gap-1.5 text-muted-foreground">
                       {#if configured}
                         <Check
-                          class="size-4 text-green-600 dark:text-green-400"
+                          class="size-4 text-foreground"
                           strokeWidth={2}
                           aria-hidden="true"
                         />

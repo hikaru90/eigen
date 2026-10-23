@@ -14,9 +14,9 @@ import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
 import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import {
-  buildAgentToolDescriptionBlock,
-  isAgentTool,
-  MCP_AGENT_TOOL_NAMES,
+  buildChatAgentToolDescriptionBlock,
+  CHAT_AGENT_TOOL_NAMES,
+  isChatAgentTool,
   MCP_TOOL_MAP,
 } from '$lib/server/mcp/registry'
 import type { McpToolContext } from '$lib/server/mcp/tools'
@@ -28,9 +28,9 @@ import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 const MAX_ITERATIONS = 8
 const MAX_PARSE_RETRIES = 3
 
-/** Mutation / write tools — a final answer after these does not require answer_question. */
+/** Mutation / write tools — a final answer after these does not require answer_question.
+ *  capture_thought is deliberately absent: the ask surface never stores new thoughts. */
 const AGENT_WRITE_TOOLS = new Set([
-  'capture_thought',
   'edit_thought',
   'delete_thought',
   'create_text_file',
@@ -49,6 +49,8 @@ const AGENT_WRITE_TOOLS = new Set([
 ])
 
 const REMOVED_TOOL_HINTS: Record<string, string> = {
+  capture_thought:
+    'capture_thought is not available here — Ask is ask-only and never stores new thoughts (capturing happens on the Capture page). For any question call answer_question; for notes use the text-file tools.',
   list_temporal_events:
     'That tool was removed. For agendas/todos/deadlines use list_projects and get_project_timeline; for memory questions use answer_question.',
   manage_temporal_event:
@@ -69,7 +71,7 @@ function isRetrieveThoughtsSearch(tool: string, args: Record<string, unknown>): 
 }
 
 function formatUnknownToolError(tool: string): string {
-  const available = `Available tools: ${MCP_AGENT_TOOL_NAMES.join(', ')}`
+  const available = `Available tools: ${CHAT_AGENT_TOOL_NAMES.join(', ')}`
   const hint = REMOVED_TOOL_HINTS[tool]
   if (hint) {
     return `Error: tool "${tool}" is not available. ${hint} ${available}`
@@ -77,11 +79,13 @@ function formatUnknownToolError(tool: string): string {
   return `Error: tool "${tool}" is not available. ${available}`
 }
 
-const TOOL_DESCRIPTION_BLOCK = buildAgentToolDescriptionBlock()
+const TOOL_DESCRIPTION_BLOCK = buildChatAgentToolDescriptionBlock()
 
 /**
- * Thin chat agent: HTTP MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
- * No router or classifiers.
+ * Thin chat agent: ask-only MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
+ * No router or classifiers. The ask surface never captures: capture_thought is not in the
+ * loop's toolset (CHAT_AGENT_TOOL_NAMES), so nothing typed into Ask is stored as a new
+ * thought — a stray capture call is rejected with a steering hint and the turn answers instead.
  */
 export const AGENT_SYSTEM_PROMPT = [
   "You are a text interface over the user's personal memory tools.",
@@ -99,13 +103,12 @@ export const AGENT_SYSTEM_PROMPT = [
   '- You must call at least one tool before giving a final answer. A final answer with no prior tool call in this turn is rejected.',
   '- Any question (how/what/when/who/why, any language): call answer_question — never answer a question from your own knowledge.',
   '- retrieve_thoughts is for browsing/listing recent thoughts, not for answering questions.',
-  '- When unsure between capture and answer, prefer answer_question.',
-  '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — never capture_thought for these (that stores a memory thought, not a Notes document).',
+  "- This surface is ask-only: the user asks questions here and capture is not available. Never store the user's message or anything from this turn as a new thought. If the user wants something remembered, tell them capturing happens on the Capture page; still call answer_question for any question.",
+  '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — create and edit them with the text-file tools. They are not memory thoughts.',
   '- Create a NEW note/list only: create_text_file with title and/or body (title-only is fine for an empty new list). Use create only when the user wants a fresh document, not when amending one that already exists.',
   '- Add / append / change content on a referenced note (e.g. "add milk to my shopping list"): search_text_files or list_text_files to find text_file_id, then append_text_file (or get_text_file + update_text_file for a full rewrite). Never create_text_file for additive requests on an existing named note/list.',
   '- Edit / rewrite a note title or full body: list_text_files or search_text_files to find text_file_id, then update_text_file.',
   '- Delete a note: list_text_files or search_text_files to find text_file_id, then delete_text_file.',
-  '- Capture / remember something as a memory thought ("remember that…", open loops, facts to recall later — not a Notes document): capture_thought with the text to store.',
   '- Mark done / complete / finished / reopen / archive / irrelevant / outdated on a thought: retrieve_thoughts to find the thought id, then edit_thought (e.g. edit_request "mark as done", "archive", "not relevant") or delete_thought. Done/complete → completed; delete/irrelevant/outdated → archived. Both soft-remove from active memory.',
   '- Category never matters for thought lifecycle: task, idea, observation, fact, etc. are interchangeable. Never refuse "mark as done" because something is "a thought not a todo".',
   '- Delete / remove a memory thought: retrieve_thoughts to find the id, then delete_thought with that thought_id (soft archive — same family as mark done).',
@@ -266,12 +269,12 @@ async function executeAgentToolCall(input: {
   const args = normalizeAgentToolArgs(tool, input.arguments)
 
   const handler = MCP_TOOL_MAP.get(tool)
-  const allowed = isAgentTool(tool)
+  const allowed = isChatAgentTool(tool)
   if (!handler || !allowed) {
     return {
       done: false,
       result: {
-        error: `Tool "${tool}" is not available. Available: ${MCP_AGENT_TOOL_NAMES.join(', ')}`,
+        error: `Tool "${tool}" is not available. Available: ${CHAT_AGENT_TOOL_NAMES.join(', ')}`,
       },
       assistantContent: JSON.stringify({ tool, arguments: args }),
     }
@@ -543,7 +546,7 @@ export async function agentChat(input: {
 
     if (parsed.type === 'tool_call') {
       const handler = MCP_TOOL_MAP.get(parsed.tool)
-      if (!handler || !isAgentTool(parsed.tool)) {
+      if (!handler || !isChatAgentTool(parsed.tool)) {
         console.error('[agent-loop] unknown tool requested', { tool: parsed.tool })
         messages.push({ role: 'assistant', content })
         messages.push({

@@ -12,6 +12,7 @@ import {
   pgTable,
   primaryKey,
   real,
+  smallint,
   text,
   timestamp,
   unique,
@@ -222,6 +223,12 @@ export const thought = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     cuesEncrypted: text('cues_encrypted'),
+    /**
+     * One natural question the user might later ask to get this thought back, written by
+     * the enrich bundle LLM call (null when no sensible question exists). Shown on Ask.
+     */
+    askQuestion: text('ask_question'),
+    askQuestionEncrypted: text('ask_question_encrypted'),
     /**
      * Importance signal: starts at 1.0, boosted on retrieval access; consolidation
      * recomputes decay/task salience floors from elapsed time (see compute-salience.ts).
@@ -1963,3 +1970,59 @@ export const feedback = pgTable(
 )
 
 export type Feedback = typeof feedback.$inferSelect
+
+/**
+ * Multiplayer board (Contribute, docs/planning/feature-multiplayer-board.md).
+ * The first deliberately shared table: any signed-in session reads non-hidden rows;
+ * only the author writes (Requested only); status/note/hidden go through the
+ * `board_admin_update()` SECURITY DEFINER function. `titleEmbedding` is DB-only —
+ * never select it for API/MCP responses.
+ */
+export const boardIdea = pgTable(
+  'board_idea',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    authorUserId: text('author_user_id').references(() => user.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    kind: text('kind', { enum: ['idea', 'bug', 'polish'] }).notNull(),
+    area: text('area', {
+      enum: ['capture', 'yarn', 'threads', 'patterns', 'ask', 'better', 'everywhere'],
+    }).notNull(),
+    status: text('status', { enum: ['requested', 'in-progress', 'shipped'] })
+      .default('requested')
+      .notNull(),
+    planned: boolean('planned').default(false).notNull(),
+    makerNote: text('maker_note'),
+    hidden: boolean('hidden').default(false).notNull(),
+    titleEmbedding: vector('title_embedding', { dimensions: 1536 }),
+    feedbackId: uuid('feedback_id').references(() => feedback.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    shippedAt: timestamp('shipped_at'),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('board_idea_status_idx').on(t.status),
+    index('board_idea_author_idx').on(t.authorUserId),
+  ],
+)
+
+export type BoardIdeaRow = typeof boardIdea.$inferSelect
+
+/** One vote per user per idea (+1 / -1). Owner-only under RLS; scores via `board_scores()`. */
+export const boardVote = pgTable(
+  'board_vote',
+  {
+    ideaId: uuid('idea_id')
+      .notNull()
+      .references(() => boardIdea.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    direction: smallint('direction').notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'board_vote_pk', columns: [t.ideaId, t.userId] }),
+    index('board_vote_idea_idx').on(t.ideaId),
+  ],
+)

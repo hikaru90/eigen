@@ -69,7 +69,7 @@
       <Drawer.Header class="shrink-0 space-y-1 border-b border-border px-4 pb-3 pt-4 text-left">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
-            <Drawer.Title class="flex items-center gap-2 text-base font-semibold">
+            <Drawer.Title class="flex items-center gap-2 text-base font-medium">
               <FolderKanbanIcon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
               <span class="truncate">{project.label}</span>
             </Drawer.Title>

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildChatAgentToolDescriptionBlock,
+  CHAT_AGENT_TOOL_NAMES,
   isAgentTool,
+  isChatAgentTool,
   isMcpExposedTool,
   MCP_AGENT_TOOL_NAMES,
   MCP_CLIENT_EXPOSED_TOOL_NAMES,
@@ -20,7 +23,17 @@ const TEXT_NOTE_TOOLS = [
   'unlink_text_file_from_thought',
 ] as const
 
+/** Multiplayer board (feature-multiplayer-board.md MB-7): HTTP MCP only, never the ask loop. */
+const BOARD_TOOLS = ['list_board', 'share_idea', 'vote_idea', 'forget_idea'] as const
+
 describe('MCP tool registry exposure', () => {
+  it('keeps the shared board out of the ask/chat loop — asking never posts to the board', () => {
+    for (const name of BOARD_TOOLS) {
+      expect(isMcpExposedTool(name)).toBe(true)
+      expect(isChatAgentTool(name)).toBe(false)
+    }
+  })
+
   it('exposes memory CRUD plus project timeline tools over HTTP MCP', () => {
     expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toEqual([
       'capture_thought',
@@ -38,6 +51,7 @@ describe('MCP tool registry exposure', () => {
       'create_project',
       'edit_project',
       'delete_project',
+      ...BOARD_TOOLS,
     ])
     expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES)
   })
@@ -60,9 +74,26 @@ describe('MCP tool registry exposure', () => {
       'create_project',
       'edit_project',
       'delete_project',
+      ...BOARD_TOOLS,
       ...TEXT_NOTE_TOOLS,
     ])
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)
+  })
+
+  it('excludes capture_thought from the ask/chat loop — asking never captures', () => {
+    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('capture_thought')
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('answer_question')
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('retrieve_thoughts')
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('edit_thought')
+    expect(isChatAgentTool('capture_thought')).toBe(false)
+    expect(isChatAgentTool('answer_question')).toBe(true)
+    // capture stays registered and exposed for HTTP MCP clients / the Capture surface
+    expect(isAgentTool('capture_thought')).toBe(true)
+    expect(isMcpExposedTool('capture_thought')).toBe(true)
+    // the catalog the ask model sees never offers capture
+    const block = buildChatAgentToolDescriptionBlock()
+    expect(block).not.toContain('capture_thought')
+    expect(block).toContain('answer_question')
   })
 
   it('does not register removed chat-only tools', () => {
@@ -140,7 +171,8 @@ describe('MCP tool registry exposure', () => {
   it('documents create_text_file as a Notes document, not a thought', () => {
     const create = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'create_text_file')
     expect(create?.description).toMatch(/not a thought/i)
-    expect(create?.description).toMatch(/capture_thought/i)
+    // the ask catalog is capture-free: descriptions must not reference the removed tool
+    expect(create?.description).not.toMatch(/capture_thought/i)
     expect(create?.description).toMatch(/NEW/i)
     expect(create?.description).toMatch(/append_text_file/i)
     expect(create?.description).toMatch(/never use this to add items/i)
@@ -160,5 +192,10 @@ describe('MCP tool registry exposure', () => {
     })
     expect(isMcpExposedTool('append_text_file')).toBe(false)
     expect(isAgentTool('append_text_file')).toBe(true)
+  })
+
+  it('documents askQuestion on recent browse of retrieve_thoughts (agent benchmark: one call)', () => {
+    const retrieve = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'retrieve_thoughts')
+    expect(retrieve?.description).toMatch(/askQuestion/)
   })
 })

@@ -474,7 +474,7 @@
 </svelte:head>
 
 <main class="mx-auto max-w-lg px-5 pb-16 pt-24">
-  <h1 class="text-lg font-semibold tracking-tight">Heartbeat</h1>
+  <h1 class="text-lg font-medium tracking-tight">Heartbeat</h1>
   <p class="text-muted-foreground mt-1 text-sm leading-relaxed">
     A background rhythm that organizes and maintains your memories. Use Stop to cancel a run in
     progress (work already finished is kept). Pause schedule only affects the overnight timer — not
@@ -563,7 +563,7 @@
                             {#if state === 'running'}
                               <LoaderCircle class="text-primary size-3.5 animate-spin" />
                             {:else if state === 'done'}
-                              <Check class="size-3.5 text-green-600 dark:text-green-400" />
+                              <Check class="size-3.5 text-foreground" />
                             {:else if state === 'failed'}
                               <X class="text-destructive size-3.5" />
                             {:else}
@@ -602,10 +602,8 @@
                             </p>
                             <p
                               class="text-[11px] font-medium {report.verdict === 'attention'
-                                ? 'text-amber-700 dark:text-amber-400'
-                                : report.verdict === 'healthy'
-                                  ? 'text-green-700 dark:text-green-400'
-                                  : 'text-foreground'}"
+                                ? 'text-[var(--clay)]'
+                                : 'text-foreground'}"
                             >
                               {report.verdictLabel}
                             </p>
@@ -684,7 +682,7 @@
                   Not set up on this server yet (requires database scheduler).
                 </p>
               {:else if !task.active && !run}
-                <p class="text-amber-700 dark:text-amber-400 mt-2 text-[11px]">Paused</p>
+                <p class="text-[var(--clay)] mt-2 text-[11px]">Paused</p>
               {/if}
             </div>
           </div>

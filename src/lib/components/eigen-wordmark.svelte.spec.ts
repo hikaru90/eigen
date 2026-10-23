@@ -4,18 +4,27 @@ import { page } from 'vitest/browser'
 import EigenWordmark from './eigen-wordmark.svelte'
 
 describe('eigen-wordmark.svelte', () => {
-  it('renders both whole-logo variants without a separate mesh label', async () => {
-    render(EigenWordmark, { heightClass: 'h-12', class: 'custom-class', id: 'wordmark' })
-    await expect.element(page.getByAltText('Eigen Mesh').first()).toBeInTheDocument()
-    await expect.element(page.getByAltText('Eigen Mesh').nth(1)).toBeInTheDocument()
-    await expect.element(page.getByText('MESH')).not.toBeInTheDocument()
-    await expect.element(page.locator('#wordmark')).toBeInTheDocument()
+  it('sets the wordmark in the display face and passes class and id through', async () => {
+    const { container } = render(EigenWordmark, {
+      heightClass: 'h-12',
+      class: 'custom-class',
+      id: 'wordmark',
+    })
+    const word = page.getByText('Eigenmesh')
+    await expect.element(word).toBeInTheDocument()
+    await expect.element(word).toHaveClass('font-you')
+    const root = container.querySelector('#wordmark')
+    expect(root).not.toBeNull()
+    expect(root?.classList.contains('custom-class')).toBe(true)
   })
 
-  it('renders light tone with a single whole logo', async () => {
-    render(EigenWordmark, { tone: 'light', heightClass: 'h-12', id: 'light-wordmark' })
-    await expect.element(page.getByAltText('Eigen Mesh')).toBeInTheDocument()
-    await expect.element(page.getByText('MESH')).not.toBeInTheDocument()
-    await expect.element(page.locator('#light-wordmark')).toBeInTheDocument()
+  it('keeps the height box for layout consumers', async () => {
+    const { container } = render(EigenWordmark, {
+      tone: 'light',
+      heightClass: 'h-12',
+      id: 'light-wordmark',
+    })
+    await expect.element(page.getByText('Eigenmesh')).toBeInTheDocument()
+    expect(container.querySelector('#light-wordmark .h-12')).not.toBeNull()
   })
 })

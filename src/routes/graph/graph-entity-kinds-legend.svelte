@@ -119,7 +119,7 @@
                     !isSelected
                       ? 'opacity-40'
                       : ''} {isSelected
-                      ? 'border-black text-black dark:border-white dark:text-white'
+                      ? 'border-ink text-ink'
                       : ''}"
                     title={item.hint}
                     aria-pressed={filterActive ? isSelected : false}

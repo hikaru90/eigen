@@ -53,7 +53,21 @@ export async function registerUser(
   await completeEmailVerificationIfRequired(page, email)
 
   await page.waitForURL(/\/capture/)
+  await acceptEarlyAccessAgreement(page)
   return { email }
+}
+
+/**
+ * Every new account sees the Early Access Agreement before anything else
+ * (`betaAgreementAccepted` in +layout.server.ts), so registration accepts it here —
+ * one place, deterministically, instead of each spec racing it against onboarding.
+ */
+export async function acceptEarlyAccessAgreement(page: Page): Promise<void> {
+  const modal = page.getByTestId('beta-agreement-modal')
+  await expect(modal).toBeVisible({ timeout: 20_000 })
+  await modal.getByRole('checkbox').check()
+  await modal.getByRole('button', { name: /Accept|Akzeptieren/i }).click()
+  await expect(modal).toBeHidden({ timeout: 10_000 })
 }
 
 /**
@@ -170,7 +184,7 @@ export function assertChatLogHasNoRawJson(logText: string): void {
 
 export async function startNewChatSession(page: Page): Promise<void> {
   await page.goto('/chat')
-  await expect(page.getByPlaceholder('Ask a question about your memories...')).toBeVisible({
+  await expect(page.getByTestId('ask-input')).toBeVisible({
     timeout: 30_000,
   })
 
@@ -195,7 +209,7 @@ export async function startNewChatSession(page: Page): Promise<void> {
 }
 
 export async function askChatQuestion(page: Page, question: string): Promise<void> {
-  const input = page.getByPlaceholder('Ask a question about your memories...')
+  const input = page.getByTestId('ask-input')
   await expect(input).toBeVisible()
   await input.click()
   await input.fill(question)
@@ -207,13 +221,13 @@ export async function askChatQuestion(page: Page, question: string): Promise<voi
 }
 
 export async function waitForChatIdle(page: Page, timeoutMs = 120_000): Promise<void> {
-  const input = page.getByPlaceholder('Ask a question about your memories...')
+  const input = page.getByTestId('ask-input')
   await expect(input).toBeEnabled({ timeout: timeoutMs })
 }
 
 export async function assertChatLoadingVisible(page: Page): Promise<void> {
   const progress = page.getByText(
-    /Connecting…|Working…|Planning next step|Searching your memories|Searching text notes|Appending to text note|Creating text note|Updating text note|Preparing your reply|Answering your question|Checking your schedule/i,
+    /recalling…|following the threads…|writing…|Connecting…|Working…|Planning next step|Searching your memories|Searching text notes|Appending to text note|Creating text note|Updating text note|Preparing your reply|Answering your question|Checking your schedule/i,
   )
   const spinner = page.locator('.animate-spin').first()
   await expect
@@ -249,14 +263,12 @@ export function normalizeChatLogText(text: string): string {
 }
 
 /**
- * Final assistant answer bubble (the message with "Regenerate answer").
- * Ephemeral stream progress labels are excluded by design.
+ * Final assistant answer section. Ephemeral stream progress labels are excluded by design.
  */
 export async function readChatFinalAnswerText(page: Page): Promise<string> {
-  const regenerate = page.getByRole('button', { name: 'Regenerate answer' }).last()
-  await expect(regenerate).toBeVisible()
-  const bubble = regenerate.locator('xpath=ancestor::div[contains(@class,"group")][1]')
-  return normalizeChatLogText((await bubble.innerText()) ?? '')
+  const answer = page.getByTestId('ask-answer').last()
+  await expect(answer).toBeVisible()
+  return normalizeChatLogText((await answer.innerText()) ?? '')
 }
 
 /**
@@ -274,7 +286,7 @@ export async function assertChatStreamMatchesReload(
       : (options?.answerMarker ?? /./)
 
   await waitForChatIdle(page, timeoutMs)
-  await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'New answer' })).toBeVisible({
     timeout: timeoutMs,
   })
 
@@ -284,7 +296,7 @@ export async function assertChatStreamMatchesReload(
   assertChatLogHasNoRawJson(streamAnswer)
 
   await page.reload()
-  await expect(page.getByPlaceholder('Ask a question about your memories...')).toBeVisible({
+  await expect(page.getByTestId('ask-input')).toBeVisible({
     timeout: timeoutMs,
   })
   await waitForChatIdle(page, timeoutMs)
@@ -295,7 +307,7 @@ export async function assertChatStreamMatchesReload(
       timeout: timeoutMs,
     })
     .toMatch(marker)
-  await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'New answer' })).toBeVisible({
     timeout: timeoutMs,
   })
 
@@ -304,4 +316,38 @@ export async function assertChatStreamMatchesReload(
   expect(reloadedAnswer, 'persisted chat answer on reload should match stream response').toBe(
     streamAnswer,
   )
+}
+
+/**
+ * Capture never shows the kept thought again (editing lives in Mesh): after a capture the
+ * writer is empty, and the thought is verified on its own page.
+ */
+export async function expectKeptThought(
+  page: Page,
+  thoughtId: string,
+  text: string | RegExp,
+  timeout = 30_000,
+): Promise<void> {
+  await page.goto(`/thought/${encodeURIComponent(thoughtId)}`)
+  await expect(page.getByTestId('thought-text')).toContainText(text, { timeout })
+}
+
+/** The newest thought the user wrote that is not in `known` — for the queue path, where no keep response names the id. */
+export async function waitForNewUserThoughtId(page: Page, known: string[] = [], timeout = 30_000): Promise<string> {
+  let id = ''
+  await expect
+    .poll(
+      async () => {
+        id = await page.evaluate(async () => {
+          const res = await fetch('/api/capture/recent?limit=1&author=user')
+          if (!res.ok) return ''
+          const json = (await res.json()) as { recentThoughts?: Array<{ id: string }> }
+          return json.recentThoughts?.[0]?.id ?? ''
+        })
+        return id !== '' && !known.includes(id)
+      },
+      { timeout, intervals: [500, 1000, 2000] },
+    )
+    .toBe(true)
+  return id
 }

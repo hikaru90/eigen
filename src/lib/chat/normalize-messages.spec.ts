@@ -190,7 +190,7 @@ describe('collapseToolTimelineSteps', () => {
     expect(out[0]).toMatchObject({
       kind: 'tool_progress',
       tool: 'retrieve_thoughts',
-      label: 'Searching your memories…',
+      steps: ['Searching your memories…'],
     })
   })
 })
@@ -393,6 +393,7 @@ describe('compactChatIntermediateSteps', () => {
         variant: 'tool_step',
         tool: 'retrieve_thoughts',
         arguments: { query: 'x' },
+        steps: ['Searching your memories…'],
         displaySummary: 'No results',
         failed: false,
       },
@@ -411,5 +412,139 @@ describe('compactChatIntermediateSteps', () => {
       },
     ])
     expect(shouldSkipDuplicateFinalAnswer(steps)).toBe(true)
+  })
+})
+
+describe('tool progress steps persist as a finished list', () => {
+  const run = [
+    {
+      content: '{}',
+      metadata: {
+        variant: 'tool_call',
+        tool: 'answer_question',
+        arguments: { question: 'wo bin ich?' },
+      },
+    },
+    {
+      content: 'answer_question',
+      metadata: { variant: 'tool_executing', tool: 'answer_question' },
+    },
+    {
+      content: 'Searching your thoughts',
+      metadata: {
+        variant: 'tool_progress',
+        tool: 'answer_question',
+        label: 'Searching your thoughts',
+      },
+    },
+    {
+      content: 'Searching your thoughts',
+      metadata: {
+        variant: 'tool_progress',
+        tool: 'answer_question',
+        label: 'Searching your thoughts',
+      },
+    },
+    {
+      content: 'Composing the answer',
+      metadata: {
+        variant: 'tool_progress',
+        tool: 'answer_question',
+        label: 'Composing the answer',
+      },
+    },
+    {
+      content: '{"answer":"Answer: x"}',
+      metadata: { variant: 'tool_result', tool: 'answer_question' },
+    },
+  ]
+
+  it('stores progress labels on the compacted tool_step, without repeats', () => {
+    const [step] = compactChatIntermediateSteps(run)
+    expect(step.metadata.variant).toBe('tool_step')
+    expect(step.metadata.steps).toEqual(['Searching your thoughts', 'Composing the answer'])
+  })
+
+  it('shows the stored steps on the tool card after reload', () => {
+    const [step] = compactChatIntermediateSteps(run)
+    const entries = normalizeChatDisplay(
+      sessionMessagesToChatEntries([
+        { role: 'assistant', content: step.content, metadata: step.metadata },
+      ]),
+    )
+    const card = entries.find((e) => e.role === 'assistant' && e.variant === 'timeline')
+    expect(card).toMatchObject({
+      kind: 'tool_result',
+      steps: ['Searching your thoughts', 'Composing the answer'],
+    })
+  })
+
+  it('keeps the task as the label while running, with every step so far listed', () => {
+    const live = normalizeChatDisplay([
+      {
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_progress',
+        tool: 'answer_question',
+        label: 'Composing the answer',
+        steps: ['Searching your thoughts'],
+      },
+    ])
+    expect(live[0]).toMatchObject({
+      label: 'Answering your question',
+      steps: ['Searching your thoughts', 'Composing the answer'],
+    })
+  })
+})
+
+describe('answer shown once per turn', () => {
+  it('hides the answer_question prose when a reworded final answer follows', () => {
+    const out = normalizeChatDisplay([
+      { role: 'user', content: 'wo bin ich?' },
+      {
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_result',
+        tool: 'answer_question',
+        label: 'Answering your question',
+        content: '{"answer":"Answer: You are in the Space."}',
+      },
+      { role: 'assistant', variant: 'text', content: 'Du hast gesagt, du bist im Space.' },
+    ])
+    expect(out[1]).toMatchObject({ kind: 'tool_result', hideProse: true })
+    expect(out[2]).toMatchObject({ variant: 'text' })
+  })
+
+  it('keeps the prose when no final answer follows in that turn', () => {
+    const out = normalizeChatDisplay([
+      { role: 'user', content: 'a' },
+      {
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_result',
+        tool: 'answer_question',
+        label: 'Answering your question',
+        content: '{"answer":"Answer: x"}',
+      },
+      { role: 'user', content: 'b' },
+      { role: 'assistant', variant: 'text', content: 'y' },
+    ])
+    expect(out[1]).not.toMatchObject({ hideProse: true })
+  })
+})
+
+describe('linked thoughts search fails loudly', () => {
+  it('throws with the server reason instead of returning nothing', async () => {
+    const { fetchEchoRows } = await import('$lib/memory/echo-list')
+    const original = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: 'Embedding provider unavailable' }), { status: 500 })) as typeof fetch
+    try {
+      await expect(fetchEchoRows('space', 't1')).rejects.toThrow(
+        'Linked thoughts search failed: Embedding provider unavailable',
+      )
+    } finally {
+      globalThis.fetch = original
+    }
   })
 })

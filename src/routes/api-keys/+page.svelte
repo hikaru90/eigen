@@ -141,13 +141,13 @@
   }
 </script>
 
-<div class="mx-auto max-w-xl space-y-6 px-5 pb-8 pt-10">
+<div class="mx-auto max-w-xl space-y-6 px-5 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   <header class="text-center">
     <p class="text-muted-foreground mt-2 text-xs">API Keys · {data.user.email}</p>
   </header>
 
   <!-- Usage instructions -->
-  <div class="rounded-sm border border-black/10 px-4 py-3 dark:border-white/10 space-y-3">
+  <div class="rounded-sm border border-border px-4 py-3 space-y-3">
     <div>
       <p class="text-xs font-medium text-foreground">Connect to MCP tools</p>
       <p class="text-muted-foreground mt-1 text-[11px] leading-relaxed">
@@ -160,7 +160,7 @@
     <div class="space-y-1.5">
       <p class="text-[11px] font-medium text-foreground">Endpoint</p>
       <code
-        class="block text-xs font-mono break-all rounded-sm bg-black/5 dark:bg-white/5 px-2 py-1.5 text-foreground"
+        class="block text-xs font-mono break-all rounded-sm bg-muted px-2 py-1.5 text-foreground"
         >{$page.url.origin}{base}/api/mcp</code
       >
     </div>
@@ -168,7 +168,7 @@
     <div class="space-y-1.5">
       <p class="text-[11px] font-medium text-foreground">Header</p>
       <code
-        class="block text-xs font-mono rounded-sm bg-black/5 dark:bg-white/5 px-2 py-1.5 text-foreground"
+        class="block text-xs font-mono rounded-sm bg-muted px-2 py-1.5 text-foreground"
         >Authorization: Bearer &lt;your-api-key&gt;</code
       >
     </div>
@@ -176,7 +176,7 @@
     <div class="space-y-1.5">
       <p class="text-[11px] font-medium text-foreground">Example (Claude Desktop)</p>
       <pre
-        class="text-[10px] font-mono leading-relaxed rounded-sm bg-black/5 dark:bg-white/5 px-2 py-1.5 text-foreground overflow-x-auto">{`{
+        class="text-[10px] font-mono leading-relaxed rounded-sm bg-muted px-2 py-1.5 text-foreground overflow-x-auto">{`{
   "mcpServers": {
     "eigen": {
       "url": "${$page.url.origin}${base}/api/mcp",
@@ -190,7 +190,7 @@
   </div>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card"
+    
   >
     <Card.Header>
       <Card.Title class="text-sm">Generate API key</Card.Title>
@@ -206,7 +206,7 @@
   </Card.Root>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card"
+    
   >
     <Card.Header>
       <Card.Title class="text-sm">Your API keys</Card.Title>
@@ -218,7 +218,7 @@
         <div class="space-y-2">
           {#each allKeys as key (key.id)}
             <div
-              class="flex items-center justify-between rounded-sm border border-black/10 px-3 py-2 dark:border-white/10"
+              class="flex items-center justify-between rounded-sm border border-border px-3 py-2"
             >
               <div class="min-w-0 flex-1">
                 <p class="truncate text-xs font-medium text-foreground">{key.name}</p>
@@ -246,7 +246,7 @@
               </div>
               <button
                 type="button"
-                class="ml-2 shrink-0 rounded-sm p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
+                class="ml-2 shrink-0 rounded-sm p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onclick={() => confirmDelete(key.id, key.name)}
                 aria-label="Delete key"
               >
@@ -321,23 +321,23 @@
       <div class="space-y-2">
         <div class="relative">
           <code
-            class="block break-all rounded-sm border border-black/10 bg-black/5 px-3 py-2.5 pr-9 text-xs leading-relaxed text-foreground dark:border-white/10 dark:bg-white/5"
+            class="border-input bg-muted block break-all rounded-sm border px-3 py-2.5 pr-9 text-xs leading-relaxed text-foreground"
             >{generatedKey}</code
           >
           <button
             type="button"
-            class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10"
+            class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-accent"
             onclick={() => void copyKey()}
             aria-label="Copy key"
           >
             {#if copied}
-              <Check class="size-4 text-green-500" strokeWidth={2} />
+              <Check class="size-4 text-foreground" strokeWidth={2} />
             {:else}
               <CopyIcon class="size-4" strokeWidth={1.75} />
             {/if}
           </button>
         </div>
-        <p class="text-xs text-amber-600 dark:text-amber-400">
+        <p class="text-xs text-[var(--clay)]">
           This key will not be shown again after you close this dialog.
         </p>
       </div>

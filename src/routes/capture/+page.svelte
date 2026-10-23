@@ -1,38 +1,26 @@
 <script lang="ts">
   import type { PageData } from './$types'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
   import { onMount } from 'svelte'
-  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
   import { page } from '$app/state'
   import { trackInsufficientCredits } from '$lib/analytics/billing-events'
   import { capture as captureEvent } from '$lib/analytics/posthog-client'
-  import {
-    deleteCaptureThought,
-    fetchCaptureResult,
-    retryCaptureEnrich,
-  } from '$lib/capture/capture-result-api'
-  import type { CaptureRecentThoughtSnippet } from '$lib/capture/capture-result-types'
-  import type { CapturePreviewBundle } from '$lib/capture/confirmation-types'
+  import { fetchEchoThought, ECHO_DELAY_MS, type EchoPick } from '$lib/capture/capture-echo'
+  import { fetchCaptureResult } from '$lib/capture/capture-result-api'
+  import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
   import {
     consumeCaptureNdjsonStream,
     type ProgressEvent,
   } from '$lib/capture/consume-capture-ndjson'
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
-  import { CAPTURE_FAST_PIPELINE, CAPTURE_PIPELINE } from '$lib/capture/ingest-phases'
-  import { INTERPRET_PENDING_STATUS_LABEL } from '$lib/capture/interpret-pending'
-  import {
-    pollCaptureRecentSync,
-    fetchRecentCaptureMerge,
-  } from '$lib/capture/poll-capture-recent-sync'
-  import type { RecentCaptureMergeResult } from '$lib/capture/poll-capture-recent-sync'
-  import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
+  import { keepOutcomeFromResponse } from '$lib/capture/keep-outcome'
   import {
     cancelCaptureQueueItem,
+    enqueueCapture,
     getCaptureQueueSnapshot,
     subscribeCaptureQueue,
     type CaptureQueueItem,
-    type CaptureSubmitResult,
   } from '$lib/capture/queue'
+  import { captureQueueItemPreview } from '$lib/capture/queue/snapshot'
   import {
     applyCaptureQueueActive,
     applyCaptureQueueSnapshot,
@@ -41,40 +29,35 @@
     shouldAcceptCaptureProgress,
     type CaptureQueueUiState,
   } from '$lib/capture/queue/ui-state'
-  import { shouldRefetchRecentForViewChange } from '$lib/capture/recent-view-sync'
-  import { shouldRejectDestructiveRecentSync } from '$lib/capture/reject-destructive-recent-sync'
+  import {
+    categoryLabel,
+    hashQueryAt,
+    readingFromPreview,
+    readingStatusFor,
+    stripHashAt,
+    stripTrailingHash,
+    withAcceptedType,
+    type ReadingDraft,
+    type ThreadChoice,
+  } from '$lib/capture/reading-state'
+  import { planCaptureSubmit } from '$lib/capture/submit-plan'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
-  import { upsertRecentThoughtList } from '$lib/capture/upsert-recent-thought-list'
+  import { thoughtHref } from '$lib/chat/thought-href'
   import { logErrorToServer } from '$lib/client-log'
-  import CaptureAttachFileDialog from '$lib/components/capture-attach-file-dialog.svelte'
-  import CaptureConfirmationModal from '$lib/components/capture-confirmation-modal.svelte'
-  import CaptureInterpretPending from '$lib/components/capture-interpret-pending.svelte'
+  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
-  import CaptureQueueList from '$lib/components/capture-queue-list.svelte'
-  import CaptureRecentThoughts from '$lib/components/capture-recent-thoughts.svelte'
+  import CaptureReading from '$lib/components/capture-reading.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
-  import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import { Button } from '$lib/components/ui/button'
-  import * as Card from '$lib/components/ui/card'
-  import { Label } from '$lib/components/ui/label'
-  import { Textarea } from '$lib/components/ui/textarea'
-  import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh'
   import { hapticConfirm } from '$lib/haptics'
-  import {
-    appendViewToSearchParams,
-    viewToListApiParams,
-    type CurrentUserView,
-  } from '$lib/memory/current-user-view'
-  import {
-    getCurrentUserView,
-    subscribeCurrentUserView,
-  } from '$lib/stores/current-user-view.svelte'
+  import { flyThought, releaseGhostWords } from '$lib/motion/settle'
+  import { m } from '$lib/paraglide/messages.js'
+  import { pulseBrand } from '$lib/stores/brand-pulse.svelte'
   import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
-  import { unlinkTextFileFromThought } from '$lib/text-files/api'
-  import { postTimelineQuickAction } from '../timeline/timeline-item-actions'
+  import { showWhisper } from '$lib/stores/whisper.svelte'
 
   let { data }: { data: PageData } = $props()
 
@@ -108,8 +91,8 @@
   let groundingQuestion = $state<CheckInQuestionPayload>(null)
   let groundingQuestionDismissed = $state(false)
   let groundingQuestionLoading = $state(false)
-  /** True when this page load started with zero recent thoughts (first-capture nudge). */
-  let startedWithEmptyRecent = $state((() => data.recentThoughts.length === 0)())
+  /** True when this page load started with zero stored thoughts (first-capture nudge). */
+  let startedWithNoThoughts = $state((() => data.recentThoughts.length === 0)())
   let firstCaptureNudgeDismissed = $state(false)
   let firstCaptureNudgeHydrated = $state(false)
 
@@ -191,357 +174,203 @@
 
   let localWalletCredits = $derived(data.walletAvailableCredits)
 
-  const RECENT_THOUGHTS_LIMIT = 8
+  /* ————— the writer ————— */
 
   let raw = $state(pageInputDrafts.capture)
-  let editRequest = $state('')
+  let fieldEl = $state<HTMLTextAreaElement | null>(null)
   let voiceStopFn = $state<(() => void) | undefined>(undefined)
   /** Draft text present when the current recording started; transcripts append to it. */
   let voiceBaseText = ''
-  let recentThoughts = $state<CaptureRecentThoughtSnippet[]>((() => data.recentThoughts)())
-  let thoughtDetails = $state<Record<string, CaptureSubmitResult>>(
-    (() => Object.fromEntries(data.recentThoughtDetails.map((thought) => [thought.id, thought])))(),
-  )
-  let dataView = $state<CurrentUserView>(getCurrentUserView())
-  let recentFilter = $state<{ category?: string }>({})
-  let hasAgentCaptures = $derived(
-    Object.values(thoughtDetails).some((d) => d.author === 'agent') ||
-      data.recentThoughtDetails.some((d) => d.author === 'agent'),
-  )
+
+  /* ————— the reading (read as you type, decision #3 — nothing is stored until Capture) ————— */
+
+  let reading = $state<ReadingDraft | null>(null)
+  let readingWaiting = $state(false)
+  let readingError = $state<string | null>(null)
+  const readingShown = $derived(readingWaiting || !!reading || !!readingError)
+  /** Monotonic token: only the newest read call may paint the reading. */
+  let interpretToken = 0
+  let interpretTimer: ReturnType<typeof setTimeout> | null = null
+
+  let typeMenuOpen = $state(false)
+  let threadChoice = $state<ThreadChoice>({ kind: 'loose' })
+  let threadMenuOpen = $state(false)
+  let newThreadLabel = $state('')
+  let threadProjects = $state<Array<{ entityId: string; label: string }>>([])
+  let threadProjectsLoaded = $state(false)
+  let hashQuery = $state<string | null>(null)
+
+  /* ————— after Capture ————— */
+
+  /* Capture never shows the kept thought again — editing it lives in Mesh. */
+  let capturedThisVisit = $state(false)
+  let submitting = $state(false)
+  let err = $state<string | null>(null)
+  let echo = $state<EchoPick | null>(null)
+  let echoTimer: ReturnType<typeof setTimeout> | null = null
+  /** The pencil's words, applied as a natural-language edit once the thought is stored. */
+  let pendingSay = $state<string | null>(null)
 
   const showFirstCaptureNudge = $derived(
     firstCaptureNudgeHydrated &&
-      startedWithEmptyRecent &&
-      recentThoughts.length > 0 &&
+      startedWithNoThoughts &&
+      capturedThisVisit &&
       !firstCaptureNudgeDismissed &&
       !showOnboarding,
   )
 
-  async function reloadRecentThoughts() {
+  /* ————— the mesh's thread options (existing projects endpoint) ————— */
+
+  async function loadThreadProjects() {
+    if (threadProjectsLoaded) return
+    threadProjectsLoaded = true
     try {
-      const params = new SvelteURLSearchParams()
-      params.set('limit', String(RECENT_THOUGHTS_LIMIT))
-      appendViewToSearchParams(params, dataView)
-      if (recentFilter.category) params.set('category', recentFilter.category)
-      const res = await fetch(`/api/capture/recent?${params.toString()}`)
+      const res = await fetch('/api/timeline/projects', { credentials: 'same-origin' })
       if (!res.ok) return
-      const payload = (await res.json()) as {
-        recentThoughts: CaptureRecentThoughtSnippet[]
-        recentThoughtDetails: CaptureSubmitResult[]
+      const body = (await res.json()) as { projects?: unknown }
+      if (!body || typeof body !== 'object' || !Array.isArray(body.projects)) return
+      const options: Array<{ entityId: string; label: string }> = []
+      for (const p of body.projects) {
+        if (!p || typeof p !== 'object') continue
+        const entityId = (p as { entityId?: unknown }).entityId
+        const label = (p as { label?: unknown }).label
+        if (typeof entityId === 'string' && entityId && typeof label === 'string' && label.trim()) {
+          options.push({ entityId, label })
+        }
       }
-      recentThoughts = payload.recentThoughts
-      thoughtDetails = Object.fromEntries(
-        payload.recentThoughtDetails.map((thought) => [thought.id, thought]),
-      )
+      threadProjects = options
     } catch {
-      // Transient errors — poll will retry.
+      // the picker still works with Keep it loose / New thread — list is best-effort
     }
   }
 
-  async function handleRecentFilterChange(filter: { category?: string }) {
-    recentFilter = filter
-    await reloadRecentThoughts()
-  }
+  /* ————— the reading is a preview: /api/capture/read persists nothing ————— */
 
-  let expandedThoughtId = $state<string | null>(null)
-  let editingThoughtId = $state<string | null>(null)
-  let err = $state<string | null>(null)
-
-  const CAPTURE_CONFIRM_AUTO_ACCEPT_MS = 5_000
-
-  type PendingConfirmation = {
-    thoughtId: string
-    rawText: string
-    preview: CapturePreviewBundle
-    deadlineMs: number
-  }
-  let pendingConfirmation = $state<PendingConfirmation | null>(null)
-  let interpretPendingText = $state<string | null>(null)
-  let confirmationLoading = $state(false)
-  let confirmationError = $state<string | null>(null)
-  let confirmationCountdown = $state(5)
-  let confirmCountdownTimer: ReturnType<typeof setInterval> | null = null
-  let confirmAutoAcceptFired = false
-
-  function clearConfirmCountdown() {
-    if (confirmCountdownTimer !== null) {
-      clearInterval(confirmCountdownTimer)
-      confirmCountdownTimer = null
+  function clearReading() {
+    if (interpretTimer !== null) {
+      clearTimeout(interpretTimer)
+      interpretTimer = null
     }
+    interpretToken += 1
+    reading = null
+    readingWaiting = false
+    readingError = null
+    typeMenuOpen = false
+    hashQuery = null
   }
 
-  function startConfirmCountdown() {
-    clearConfirmCountdown()
-    confirmAutoAcceptFired = false
-    const deadlineMs = Date.now() + CAPTURE_CONFIRM_AUTO_ACCEPT_MS
-    if (pendingConfirmation) {
-      pendingConfirmation = { ...pendingConfirmation, deadlineMs }
-    }
-    confirmationCountdown = Math.ceil(CAPTURE_CONFIRM_AUTO_ACCEPT_MS / 1000)
-    confirmCountdownTimer = setInterval(() => {
-      const pending = pendingConfirmation
-      if (!pending) {
-        clearConfirmCountdown()
-        return
+  async function runRead(requestedRaw: string) {
+    const token = ++interpretToken
+    try {
+      const res = await fetch('/api/capture/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ raw: requestedRaw }),
+        credentials: 'same-origin',
+      })
+      // the writer moved on while this pass ran — nothing was stored, nothing to clean up
+      if (token !== interpretToken) return
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string
+          message?: string
+        }
+        throw new Error(failureText(payload.message ?? payload.error ?? null, res.status))
       }
-      const now = Date.now()
-      confirmationCountdown = Math.max(0, Math.ceil((pending.deadlineMs - now) / 1000))
-      if (now >= pending.deadlineMs && !confirmAutoAcceptFired) {
-        confirmAutoAcceptFired = true
-        clearConfirmCountdown()
-        void confirmPendingCapture()
-      }
-    }, 250)
+      const body = (await res.json()) as unknown
+      const draft = readingFromPreview(body, requestedRaw)
+      if (!draft) throw new Error(failureText(null))
+      reading = draft
+      readingWaiting = false
+      readingError = null
+    } catch (e) {
+      if (token !== interpretToken) return
+      readingWaiting = false
+      reading = null
+      readingError = e instanceof Error && e.message ? e.message : failureText(null)
+    }
   }
+
+  function onFieldInput() {
+    pageInputDrafts.capture = raw
+    // inline `#` thread gesture (ei checkHash): a trailing #token at the caret opens the picker
+    hashQuery = hashQueryAt(raw, fieldEl?.selectionStart ?? raw.length)
+
+    const status = readingStatusFor(raw)
+    if (status === 'idle') {
+      clearReading()
+      return
+    }
+    // the typing itself announces the reading; the words arrive after the pause
+    readingWaiting = true
+    readingError = null
+    if (interpretTimer !== null) clearTimeout(interpretTimer)
+    interpretTimer = setTimeout(() => {
+      interpretTimer = null
+      void runRead(raw)
+    }, 600)
+  }
+
+  function onFieldKeydown(e: KeyboardEvent) {
+    if (e.key === 'Tab' && hashQuery !== null) {
+      // tab picks the first matching thread in the inline picker (ei: tab accepts the suggestion)
+      const match = threadProjects.find((p) =>
+        p.label.toLowerCase().includes((hashQuery ?? '').trim().toLowerCase()),
+      )
+      if (match) {
+        e.preventDefault()
+        pickThread({ kind: 'thread', entityId: match.entityId, label: match.label })
+      }
+    }
+  }
+
+  function pickType(key: string) {
+    // the type menu edits the client copy of the accepted reading (LLM's own options only)
+    if (reading) reading = withAcceptedType(reading, key)
+    typeMenuOpen = false
+    fieldEl?.focus()
+  }
+
+  function pickThread(choice: ThreadChoice) {
+    if (hashQuery !== null && fieldEl) {
+      const stripped = stripHashAt(raw, fieldEl.selectionStart ?? raw.length)
+      raw = stripped.value
+      pageInputDrafts.capture = raw
+      const set = () => {
+        fieldEl?.setSelectionRange(stripped.caret, stripped.caret)
+        fieldEl?.focus()
+      }
+      queueMicrotask(set)
+    }
+    hashQuery = null
+    threadMenuOpen = false
+    threadChoice = choice
+    newThreadLabel = ''
+    fieldEl?.focus()
+  }
+
+  function onSay(text: string) {
+    // The pencil's words are the user's own natural-language instruction; they are
+    // applied through the existing edit endpoint once this thought is stored.
+    pendingSay = text
+    fieldEl?.focus()
+  }
+
+  /* ————— the queue (kept: cancel, offline, Background Sync) ————— */
 
   let queueUi = $state<CaptureQueueUiState>(initialCaptureQueueUiState())
-  /** Mirrors in-flight capture id for progress matching (updated synchronously in queue handlers). */
   let processingCaptureId = $state<string | null>(null)
   let pendingCount = $derived(queueUi.pendingCount)
-  let loading = $derived(processingCaptureId !== null || confirmationLoading)
-  const queueActive = $derived(pendingCount > 0 || processingCaptureId !== null)
-  const offline = $derived(typeof navigator !== 'undefined' && !navigator.onLine)
+  let queueActive = $derived(pendingCount > 0 || processingCaptureId !== null)
 
   let queueItems = $state<CaptureQueueItem[]>([])
   let progressEvents = $state<Array<{ event: ProgressEvent; arrivedAt: number }>>([])
-  let captureStartMs = $state(0)
-  /** Ignore stale snapshot processing ids briefly after done/failed (SW/tab race). */
-  let suppressProcessingResyncUntil = $state(0)
 
-  let editAbortController = $state<AbortController | null>(null)
-  let editLoading = $state(false)
-  let deletingThoughtId = $state<string | null>(null)
-  let deleteDialogOpen = $state(false)
-  let deleteTargetId = $state<string | null>(null)
-  let retryingThoughtId = $state<string | null>(null)
-  let loadingDetailId = $state<string | null>(null)
-  let attachDialogOpen = $state(false)
-  let attachTargetThoughtId = $state<string | null>(null)
-  const enrichPollCancelByThoughtId = new SvelteMap<string, () => void>()
-  let backgroundEnrichingIds = $state<string[]>([])
-  const enrichingThoughtIds = $derived(new Set(backgroundEnrichingIds))
-
-  function startBackgroundEnrichPoll(thoughtId: string) {
-    enrichPollCancelByThoughtId.get(thoughtId)?.()
-    backgroundEnrichingIds = [...new Set([...backgroundEnrichingIds, thoughtId])]
-    const cancel = pollUntilEnrichmentComplete({
-      thoughtId,
-      onUpdate: (thought) => {
-        upsertRecentThought(thought)
-        if (thought.enrichmentComplete) {
-          cancelEnrichPoll(thoughtId)
-          // Do not invalidateAll() here: it remounts Capture and clears the composer
-          // mid-typing / mid-e2e fill (pageInputDrafts is empty after the last submit).
-          // Recent rows are already updated via upsertRecentThought; timeline loads fresh on navigate.
-        }
-      },
-      onTimeout: () => {
-        cancelEnrichPoll(thoughtId)
-      },
-    })
-    enrichPollCancelByThoughtId.set(thoughtId, cancel)
-  }
-
-  function upsertRecentThought(thought: CaptureSubmitResult, options?: { pinToTop?: boolean }) {
-    thoughtDetails = { ...thoughtDetails, [thought.id]: thought }
-    recentThoughts = upsertRecentThoughtList(recentThoughts, thought, {
-      pinToTop: options?.pinToTop,
-      limit: RECENT_THOUGHTS_LIMIT,
-    })
-  }
-
-  function cancelEnrichPoll(thoughtId: string) {
-    enrichPollCancelByThoughtId.get(thoughtId)?.()
-    enrichPollCancelByThoughtId.delete(thoughtId)
-    backgroundEnrichingIds = backgroundEnrichingIds.filter((id) => id !== thoughtId)
-  }
-
-  function applyRecentCaptureSync(merged: RecentCaptureMergeResult) {
-    if (shouldRejectDestructiveRecentSync(recentThoughts, thoughtDetails, merged.snippets)) {
-      return
-    }
-    const expandedId = expandedThoughtId
-    recentThoughts = merged.snippets
-    thoughtDetails = merged.details
-    if (expandedId && !merged.snippets.some((row) => row.id === expandedId)) {
-      expandedThoughtId = null
-    }
-    for (const thoughtId of merged.newThoughtIds) {
-      const thought = merged.details[thoughtId]
-      if (thought && !thought.enrichmentComplete) {
-        startBackgroundEnrichPoll(thoughtId)
-      }
-    }
-  }
-
-  async function refreshRecentCaptureFromServer() {
-    try {
-      const merged = await fetchRecentCaptureMerge({
-        limit: RECENT_THOUGHTS_LIMIT,
-        filter: { ...recentFilter, ...viewToListApiParams(dataView) },
-        getState: () => ({ snippets: recentThoughts, details: thoughtDetails }),
-      })
-      applyRecentCaptureSync(merged)
-    } catch {
-      // Transient errors — poll will retry.
-    }
-  }
-
-  function removeRecentThought(thoughtId: string) {
-    cancelEnrichPoll(thoughtId)
-    recentThoughts = recentThoughts.filter((row) => row.id !== thoughtId)
-    const { [thoughtId]: _removed, ...rest } = thoughtDetails
-    thoughtDetails = rest
-    if (expandedThoughtId === thoughtId) expandedThoughtId = null
-    if (editingThoughtId === thoughtId) {
-      editingThoughtId = null
-      editRequest = ''
-    }
-  }
-
-  async function ensureThoughtDetail(thoughtId: string) {
-    if (thoughtDetails[thoughtId]) return thoughtDetails[thoughtId]
-    loadingDetailId = thoughtId
-    try {
-      const thought = await fetchCaptureResult(thoughtId)
-      thoughtDetails = { ...thoughtDetails, [thoughtId]: thought }
-      return thought
-    } finally {
-      if (loadingDetailId === thoughtId) loadingDetailId = null
-    }
-  }
-
-  async function expandThought(thoughtId: string) {
-    err = null
-    expandedThoughtId = thoughtId
-    try {
-      await ensureThoughtDetail(thoughtId)
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-      logErrorToServer(err, 'capture_expand', e)
-      if (expandedThoughtId === thoughtId) expandedThoughtId = null
-    }
-  }
-
-  function collapseThought(thoughtId: string) {
-    if (expandedThoughtId === thoughtId) expandedThoughtId = null
-    if (editingThoughtId === thoughtId) {
-      editingThoughtId = null
-      editRequest = ''
-    }
-  }
-
-  async function toggleThoughtEdit(thoughtId: string) {
-    err = null
-    if (editingThoughtId === thoughtId) {
-      editingThoughtId = null
-      editRequest = ''
-      return
-    }
-    try {
-      await ensureThoughtDetail(thoughtId)
-      expandedThoughtId = thoughtId
-      editingThoughtId = thoughtId
-      editRequest = ''
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-    }
-  }
-
-  function openDeleteDialog(thoughtId: string) {
-    err = null
-    deleteTargetId = thoughtId
-    deleteDialogOpen = true
-  }
-
-  async function confirmDeleteThought() {
-    if (!deleteTargetId) return
-    const thoughtId = deleteTargetId
-    err = null
-    deletingThoughtId = thoughtId
-    try {
-      await deleteCaptureThought(thoughtId)
-      captureEvent('thought_deleted', { thought_id: thoughtId })
-      removeRecentThought(thoughtId)
-      deleteDialogOpen = false
-      deleteTargetId = null
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-    } finally {
-      if (deletingThoughtId === thoughtId) deletingThoughtId = null
-    }
-  }
-
-  async function refreshThoughtDetail(thoughtId: string) {
-    const thought = await fetchCaptureResult(thoughtId)
-    thoughtDetails = { ...thoughtDetails, [thoughtId]: thought }
-    return thought
-  }
-
-  let togglingDoneId = $state<string | null>(null)
-
-  /**
-   * Unified mark done / reopen for capture-page rows.
-   * Goes through the shared timeline quick-action endpoint (house rule:
-   * every surface shares one lifecycle client). Completed thoughts leave
-   * Recent (active views only) but stay stored and searchable.
-   */
-  async function toggleThoughtDone(thoughtId: string) {
-    err = null
-    togglingDoneId = thoughtId
-    try {
-      const current = thoughtDetails[thoughtId]?.lifecycleStatus ?? 'open'
-      const action = current === 'completed' ? 'reopen' : 'mark_done'
-      const result = await postTimelineQuickAction(thoughtId, action)
-      captureEvent(action === 'mark_done' ? 'thought_marked_done' : 'thought_reopened', {
-        thought_id: thoughtId,
-      })
-      if (action === 'mark_done') {
-        removeRecentThought(thoughtId)
-      } else {
-        await refreshThoughtDetail(thoughtId)
-        recentThoughts = recentThoughts.map((row) =>
-          row.id === thoughtId ? { ...row, lifecycleStatus: 'open' as const } : row,
-        )
-      }
-      void result.summary
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-    } finally {
-      if (togglingDoneId === thoughtId) togglingDoneId = null
-    }
-  }
-
-  function openAttachDialog(thoughtId: string) {
-    err = null
-    attachTargetThoughtId = thoughtId
-    attachDialogOpen = true
-  }
-
-  async function unlinkAttachedFile(thoughtId: string, fileId: string) {
-    err = null
-    try {
-      await unlinkTextFileFromThought(thoughtId, fileId)
-      await refreshThoughtDetail(thoughtId)
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-    }
-  }
-
-  async function retryEnrichThought(thoughtId: string) {
-    err = null
-    retryingThoughtId = thoughtId
-    try {
-      await retryCaptureEnrich(thoughtId)
-      startBackgroundEnrichPoll(thoughtId)
-      const thought = await fetchCaptureResult(thoughtId)
-      upsertRecentThought(thought)
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-    } finally {
-      if (retryingThoughtId === thoughtId) retryingThoughtId = null
-    }
-  }
+  const visibleQueueItems = $derived(
+    queueItems.filter(
+      (i) => i.status === 'pending' || i.status === 'processing' || i.status === 'failed',
+    ),
+  )
 
   function applyQueueSnapshot(
     snapshot: {
@@ -556,12 +385,10 @@
       pending: snapshot.pending,
       processingId: snapshot.processingId,
     })
-    const mayResyncProcessing =
-      !opts?.respectProcessingSuppress || Date.now() >= suppressProcessingResyncUntil
-    if (mayResyncProcessing) {
+    const mayResync = !opts?.respectProcessingSuppress || Date.now() >= suppressProcessingResyncUntil
+    if (mayResync) {
       if (snapshot.processingId && snapshot.processingId !== processingCaptureId) {
         progressEvents = []
-        captureStartMs = Date.now()
       }
       processingCaptureId = snapshot.processingId
     }
@@ -591,32 +418,275 @@
     }
   }
 
-  function pushEvent(event: ProgressEvent) {
-    progressEvents = [...progressEvents, { event, arrivedAt: Date.now() }]
+  /** Ignore stale snapshot processing ids briefly after done/failed (SW/tab race). */
+  let suppressProcessingResyncUntil = $state(0)
+
+  /* ————— capture: the words condense into a dot and fly into Mesh ————— */
+
+  function meshSlotElement(): Element | null {
+    if (typeof document === 'undefined') return null
+    return document.querySelector('.nav a[href$="/mesh"] .mark-slot')
   }
 
+  function whisperKept(typeKey: string | null) {
+    const kept = m.whisper_kept()
+    const third =
+      typeKey !== null ? `${categoryLabel(typeKey)} · ${kept}` : kept
+    pulseBrand(1300)
+    showWhisper([
+      { text: m.whisper_settling(), durationMs: 800 },
+      { text: m.whisper_knitting(), durationMs: 1100 },
+      { text: third, durationMs: 2000 },
+    ])
+  }
+
+  function scheduleEcho(thought: CaptureSubmitResult) {
+    if (echoTimer !== null) clearTimeout(echoTimer)
+    echoTimer = setTimeout(() => {
+      echoTimer = null
+      void fetchEchoThought(thought.normalizedText, thought.id)
+        .then((pick) => {
+          if (pick && !raw.trim()) echo = pick
+        })
+        .catch(() => {
+          // an echo may surface — absence is honest, never a substitute
+        })
+    }, ECHO_DELAY_MS)
+  }
+
+  function playMeshArrival() {
+    // Mesh's mark leans in as the thought arrives (ei menu icons play); the chrome
+    // owns that animation, so a pulse on the slot is enough from here.
+    const slot = meshSlotElement()
+    if (!slot) return
+    slot.animate(
+      [
+        { transform: 'scale(1)' },
+        { transform: 'scale(1.18)' },
+        { transform: 'scale(1)' },
+      ],
+      { duration: 620, easing: 'cubic-bezier(.22,1,.36,1)' },
+    )
+  }
+
+  async function submitCapture() {
+    if (submitting) return
+    const text = stripTrailingHash(raw)
+    const offlineNow = typeof navigator !== 'undefined' && !navigator.onLine
+    // freshness is judged on the words that will be kept (an unpicked trailing #token is not words)
+    const plan = planCaptureSubmit({
+      raw: text,
+      draft: reading,
+      blocked: captureBlocked,
+      offline: offlineNow,
+    })
+    if (plan.kind === 'none') {
+      fieldEl?.focus()
+      return
+    }
+    err = null
+    voiceStopFn?.()
+    typeMenuOpen = false
+    threadMenuOpen = false
+    // the whisper names the accepted type (taken before the field empties)
+    const chosenType = plan.kind === 'keep' ? plan.reading.category.key : null
+    hapticConfirm()
+    captureEvent('capture_submitted', { text_length: text.length })
+
+    // 1 · the words condense into a single point and fly into Mesh, pulling yarn
+    const field = fieldEl
+    const center = field ? releaseGhostWords(field, text) : null
+    const slot = meshSlotElement()
+    const from =
+      center ??
+      (field
+        ? (() => {
+            const r = field.getBoundingClientRect()
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+          })()
+        : null)
+    if (from && slot) {
+      flyThought(from, slot, { onArrive: playMeshArrival })
+    }
+
+    // 2 · the field empties; the reading rests (it was only a preview — nothing to undo)
+    raw = ''
+    pageInputDrafts.capture = ''
+    echo = null
+    clearReading()
+    threadMenuOpen = false
+
+    // 3 · the mesh quietly takes it in
+    whisperKept(chosenType)
+
+    if (plan.kind === 'keep') {
+      // ONE call persists: raw as typed + the accepted reading → row, normalized_text, enrich
+      submitting = true
+      let res: Response
+      try {
+        res = await fetch('/api/capture/keep', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ raw: text, reading: plan.reading }),
+          credentials: 'same-origin',
+        })
+      } catch (e) {
+        // no answer at all — nothing is known to be kept; the words go back
+        submitting = false
+        err = e instanceof Error && e.message ? e.message : failureText(null)
+        restoreWords(text)
+        return
+      }
+      const outcome = keepOutcomeFromResponse(
+        res.ok,
+        res.status,
+        await res.json().catch(() => null),
+      )
+      if (outcome.kind === 'not-kept') {
+        submitting = false
+        err = failureText(outcome.message, outcome.status)
+        restoreWords(text)
+        return
+      }
+      // From here on the row IS kept (2xx): never restore the words — a second press
+      // would keep a second row. Follow-ups may fail loudly, but they stay follow-ups.
+      submitting = false
+      if (!outcome.thoughtId) {
+        err = failureText(null)
+        return
+      }
+      captureEvent('capture_confirmed', { thought_id: outcome.thoughtId })
+      try {
+        const thought = await fetchCaptureResult(outcome.thoughtId)
+        handleCapturedThought(thought)
+      } catch (e) {
+        err = e instanceof Error && e.message ? e.message : failureText(null)
+      }
+      return
+    }
+
+    // enqueue: the client capture queue (offline-safe, Background Sync, payload {raw})
+    submitting = true
+    try {
+      await enqueueCapture(text)
+    } catch (e) {
+      err = e instanceof Error && e.message ? e.message : failureText(null)
+      restoreWords(text)
+    } finally {
+      submitting = false
+    }
+  }
+
+  /** Put the words back into the field — only when nothing was kept. */
+  function restoreWords(text: string) {
+    raw = text
+    pageInputDrafts.capture = text
+    queueMicrotask(() => {
+      fieldEl?.focus()
+    })
+  }
+
+  /**
+   * Failure copy: the server's own message when it gave one; otherwise the existing
+   * generic failure key (a capture-specific key is reported under missingKeys).
+   */
+  function failureText(serverMessage: string | null, status?: number): string {
+    if (serverMessage) return serverMessage
+    return status ? `${m.desk_error_action()} (${status})` : m.desk_error_action()
+  }
+
+  function handleCapturedThought(thought: CaptureSubmitResult) {
+    capturedThisVisit = true
+    submitting = false
+    err = null
+    captureEvent('capture_completed', {
+      thought_id: thought.id,
+      enrichment_complete: thought.enrichmentComplete,
+    })
+    if (threadChoice.kind === 'thread') void assignThread(thought.id)
+    if (pendingSay) {
+      const said = pendingSay
+      pendingSay = null
+      void applyNaturalLanguageEdit(thought.id, said)
+    }
+    scheduleEcho(thought)
+    if (
+      shouldFetchCheckInQuestion() &&
+      !groundingQuestionDismissed &&
+      !groundingQuestion
+    ) {
+      void fetchGroundingQuestion()
+    }
+  }
+
+  /* ————— the chosen thread (existing project assign endpoint) ————— */
+
+  async function assignThread(thoughtId: string) {
+    const choice = threadChoice
+    if (choice.kind !== 'thread') return
+    try {
+      const res = await fetch('/api/timeline/projects/assign', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          choice.entityId
+            ? { thoughtId, projectEntityId: choice.entityId }
+            : { thoughtId, projectLabel: choice.label },
+        ),
+        credentials: 'same-origin',
+      })
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: unknown }
+        throw new Error(
+          failureText(typeof payload.error === 'string' ? payload.error : null, res.status),
+        )
+      }
+    } catch (e) {
+      err = e instanceof Error && e.message ? e.message : failureText(null)
+    }
+  }
+
+  /* ————— natural-language edits after storing (existing edit endpoint) ————— */
+
+  async function applyNaturalLanguageEdit(thoughtId: string, editRequest: string) {
+    err = null
+    progressEvents = []
+    try {
+      const res = await fetch('/api/capture/edit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/x-ndjson, application/json',
+        },
+        body: JSON.stringify({ thoughtId, editRequest }),
+        credentials: 'same-origin',
+      })
+      const contentType = res.headers.get('content-type') ?? ''
+      if (contentType.includes('application/x-ndjson')) {
+        await consumeCaptureNdjsonStream<CaptureSubmitResult>(
+          res,
+          (event) => {
+            progressEvents = [...progressEvents, { event, arrivedAt: Date.now() }]
+          },
+          undefined,
+        )
+        return
+      }
+      if (!res.ok) throw new Error(await res.text())
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e)
+      logErrorToServer(err, 'capture_edit', e)
+    } finally {
+      progressEvents = []
+    }
+  }
+
+  /* ————— mount: queue subscription + shortcuts (kept) ————— */
+
   onMount(() => {
-    // Apply the active current-user view filter to the prefetched recent list.
-    // Server load cannot read the client-side view selection (localStorage),
-    // so prefetched data is unfiltered; this reload makes the displayed list
-    // the single source of truth and prevents later invalidations from
-    // clobbering a client-filtered list with unfiltered server defaults.
-    void reloadRecentThoughts()
     void reconcileQueueState(false)
     void fetchEnrichPendingSnapshot().catch(() => {
       // Best-effort: kick tier-2 worker for pending/stale rows after reload.
-    })
-    for (const thought of Object.values(thoughtDetails)) {
-      if (!thought.enrichmentComplete) {
-        startBackgroundEnrichPoll(thought.id)
-      }
-    }
-
-    const cancelRecentSync = pollCaptureRecentSync({
-      limit: RECENT_THOUGHTS_LIMIT,
-      getFilter: () => ({ ...recentFilter, ...viewToListApiParams(dataView) }),
-      getState: () => ({ snippets: recentThoughts, details: thoughtDetails }),
-      onSync: applyRecentCaptureSync,
     })
 
     const unsub = subscribeCaptureQueue((message) => {
@@ -626,10 +696,6 @@
       }
       if (message.type === 'active') {
         suppressProcessingResyncUntil = 0
-        if (processingCaptureId !== message.id) {
-          progressEvents = []
-          captureStartMs = Date.now()
-        }
         processingCaptureId = message.id
         queueUi = applyCaptureQueueActive(queueUi, message.id)
         err = null
@@ -648,18 +714,10 @@
         if (processingCaptureId !== message.id) {
           processingCaptureId = message.id
         }
-        pushEvent(message.event)
+        progressEvents = [...progressEvents, { event: message.event, arrivedAt: Date.now() }]
         return
       }
       if (message.type === 'done') {
-        captureEvent('capture_completed', {
-          thought_id: message.thought.id,
-          enrichment_complete: message.thought.enrichmentComplete,
-        })
-        upsertRecentThought(message.thought, { pinToTop: true })
-        expandedThoughtId = message.thought.id
-        editingThoughtId = null
-        editRequest = ''
         progressEvents = []
         processingCaptureId = null
         suppressProcessingResyncUntil = Date.now() + CAPTURE_QUEUE_ACTIVATION_GUARD_MS
@@ -668,13 +726,7 @@
           activeCaptureId: null,
           recentlyActivatedId: null,
         }
-        if (!message.thought.enrichmentComplete) {
-          startBackgroundEnrichPoll(message.thought.id)
-        }
-        if (shouldFetchCheckInQuestion() && !groundingQuestionDismissed && !groundingQuestion) {
-          void fetchGroundingQuestion()
-        }
-        void refreshRecentCaptureFromServer()
+        handleCapturedThought(message.thought as CaptureSubmitResult)
         void reconcileQueueState(false, { respectProcessingSuppress: true })
         return
       }
@@ -694,7 +746,6 @@
         return
       }
       if (message.type === 'idle') {
-        void refreshRecentCaptureFromServer()
         void reconcileQueueState()
       }
     })
@@ -702,433 +753,230 @@
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
-        if (raw.trim()) void capture()
+        if (raw.trim()) void submitCapture()
+        return
       }
+      // start typing anywhere and you're capturing: a printable key focuses the writer
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)
+      ) {
+        return
+      }
+      if (e.key.length === 1 && e.key !== ' ') fieldEl?.focus()
     }
     window.addEventListener('keydown', onKey)
 
-    // Reload recent thoughts when the global current-user view changes.
-    // The initial subscribe echo is skipped because mount already reloaded
-    // with the active filter above.
-    let previousView: CurrentUserView | null = null
-    const unsubscribeView = subscribeCurrentUserView((view) => {
-      const refetch = shouldRefetchRecentForViewChange(previousView, view)
-      previousView = view
-      dataView = view
-      if (refetch) void reloadRecentThoughts()
-    })
-
     return () => {
-      cancelRecentSync()
       unsub()
-      unsubscribeView()
       window.removeEventListener('keydown', onKey)
-      clearConfirmCountdown()
-      for (const cancel of enrichPollCancelByThoughtId.values()) cancel()
-      enrichPollCancelByThoughtId.clear()
+      if (echoTimer !== null) clearTimeout(echoTimer)
+      clearReading()
     }
   })
-
-  function syncCaptureDraft(value: string) {
-    raw = value
-    pageInputDrafts.capture = value
-  }
-
-  async function capture() {
-    if (!raw.trim() || confirmationLoading) return
-    err = null
-    confirmationError = null
-    // Stop voice recording if active before submitting
-    voiceStopFn?.()
-    const text = raw
-    syncCaptureDraft('')
-    interpretPendingText = text
-    confirmationLoading = true
-    captureEvent('capture_submitted', { text_length: text.length })
-    try {
-      const res = await fetch('/api/capture/interpret', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ raw: text }),
-        credentials: 'same-origin',
-      })
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as {
-          error?: string
-          message?: string
-        }
-        throw new Error(payload.message ?? payload.error ?? `Interpret failed (${res.status})`)
-      }
-      const body = (await res.json()) as {
-        thoughtId: string
-        rawText: string
-        preview: CapturePreviewBundle
-        queueStatus: string
-        status: 'ingested' | 'awaiting_confirmation'
-      }
-      captureEvent('capture_interpret_ready', { thought_id: body.thoughtId })
-
-      const awaiting =
-        body.status === 'awaiting_confirmation' || body.queueStatus === 'awaiting_confirmation'
-      if (!awaiting) {
-        const thought = await fetchCaptureResult(body.thoughtId)
-        upsertRecentThought(thought, { pinToTop: true })
-        expandedThoughtId = thought.id
-        startBackgroundEnrichPoll(thought.id)
-        void refreshRecentCaptureFromServer()
-        return
-      }
-
-      pendingConfirmation = {
-        thoughtId: body.thoughtId,
-        rawText: body.rawText ?? text,
-        preview: body.preview,
-        deadlineMs: Date.now() + CAPTURE_CONFIRM_AUTO_ACCEPT_MS,
-      }
-      startConfirmCountdown()
-    } catch (e) {
-      syncCaptureDraft(text)
-      err = e instanceof Error ? e.message : String(e)
-    } finally {
-      interpretPendingText = null
-      confirmationLoading = false
-    }
-  }
-
-  async function confirmPendingCapture() {
-    if (!pendingConfirmation || confirmationLoading) return
-    clearConfirmCountdown()
-    const current = pendingConfirmation
-    confirmationLoading = true
-    confirmationError = null
-    err = null
-    try {
-      const res = await fetch('/api/capture/confirm', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ thoughtId: current.thoughtId }),
-        credentials: 'same-origin',
-      })
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as {
-          error?: string
-          message?: string
-        }
-        throw new Error(payload.message ?? payload.error ?? `Confirm failed (${res.status})`)
-      }
-      pendingConfirmation = null
-      captureEvent('capture_confirmed', { thought_id: current.thoughtId })
-      const thought = await fetchCaptureResult(current.thoughtId)
-      upsertRecentThought(thought, { pinToTop: true })
-      expandedThoughtId = thought.id
-      startBackgroundEnrichPoll(thought.id)
-      void refreshRecentCaptureFromServer()
-    } catch (e) {
-      confirmationError = e instanceof Error ? e.message : String(e)
-    } finally {
-      confirmationLoading = false
-    }
-  }
-
-  async function dismissPendingCaptureVerbatim() {
-    if (!pendingConfirmation || confirmationLoading) return
-    clearConfirmCountdown()
-    const current = pendingConfirmation
-    confirmationLoading = true
-    confirmationError = null
-    err = null
-    try {
-      const res = await fetch('/api/capture/confirm', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ thoughtId: current.thoughtId, verbatim: true }),
-        credentials: 'same-origin',
-      })
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as {
-          error?: string
-          message?: string
-        }
-        throw new Error(payload.message ?? payload.error ?? `Confirm failed (${res.status})`)
-      }
-      pendingConfirmation = null
-      captureEvent('capture_dismissed_verbatim', { thought_id: current.thoughtId })
-      const thought = await fetchCaptureResult(current.thoughtId)
-      upsertRecentThought(thought, { pinToTop: true })
-      expandedThoughtId = thought.id
-      startBackgroundEnrichPoll(thought.id)
-      void refreshRecentCaptureFromServer()
-    } catch (e) {
-      confirmationError = e instanceof Error ? e.message : String(e)
-    } finally {
-      confirmationLoading = false
-    }
-  }
-
-  async function submitEditRequest() {
-    if (!editingThoughtId) return
-    const thoughtId = editingThoughtId
-    captureEvent('thought_edit_submitted', {
-      thought_id: thoughtId,
-      request_length: editRequest.length,
-    })
-    err = null
-    progressEvents = []
-    editLoading = true
-    const ac = new AbortController()
-    editAbortController = ac
-    try {
-      const res = await fetch('/api/capture/edit', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/x-ndjson, application/json',
-        },
-        body: JSON.stringify({ thoughtId, editRequest }),
-        signal: ac.signal,
-      })
-      const contentType = res.headers.get('content-type') ?? ''
-      if (contentType.includes('application/x-ndjson')) {
-        const thought = await consumeCaptureNdjsonStream<CaptureSubmitResult>(
-          res,
-          pushEvent,
-          ac.signal,
-        )
-        upsertRecentThought(thought)
-        editingThoughtId = null
-        editRequest = ''
-        return
-      }
-      if (!res.ok) throw new Error(await res.text())
-      const j = (await res.json()) as { thought: CaptureSubmitResult }
-      upsertRecentThought(j.thought)
-      editingThoughtId = null
-      editRequest = ''
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return
-      err = e instanceof Error ? e.message : String(e)
-      logErrorToServer(err, 'capture_edit', e)
-    } finally {
-      editLoading = false
-      progressEvents = []
-      editAbortController = null
-    }
-  }
 </script>
 
 <div
-  class="-mb-28 mx-auto flex h-dvh w-full max-w-xl flex-col overflow-hidden overscroll-none pt-20"
+  class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 pb-[calc(var(--bottom-nav)+var(--glass-writer-height,64px)+40px)] max-[640px]:pt-[calc(var(--head)+12vh)] max-[640px]:px-[22px]"
 >
-  <div class="relative z-10 shrink-0 space-y-4 bg-background px-5">
-    {#if groundingQuestion && !groundingQuestionDismissed}
-      {#if groundingQuestion.kind === 'relevance'}
-        <GroundingQuestionCard
-          kind="relevance"
-          thoughtId={groundingQuestion.thoughtId}
-          snippet={groundingQuestion.snippet}
-          question={groundingQuestion.question}
-          onDismiss={() => {
-            groundingQuestionDismissed = true
-            groundingQuestion = null
-          }}
-          onSaved={() => {
-            groundingQuestionDismissed = true
-            groundingQuestion = null
-          }}
-        />
-      {:else}
-        <GroundingQuestionCard
-          kind="grounding"
-          facetKey={groundingQuestion.facetKey}
-          question={groundingQuestion.question}
-          onDismiss={() => {
-            groundingQuestionDismissed = true
-            groundingQuestion = null
-          }}
-          onSaved={() => {
-            groundingQuestionDismissed = true
-            groundingQuestion = null
-          }}
-        />
-      {/if}
-    {/if}
-    {#if captureBlocked}
-      <Card.Root class="shrink-0 border-2 border-black dark:border-border">
-        <Card.Header>
-          <Card.Title class="text-sm">Before your first capture</Card.Title>
-        </Card.Header>
-        <Card.Content class="space-y-3 text-xs">
-          {#if data.captureGateReason === 'insufficient_credits' && data.billingMode === 'platform_credits'}
-            <p class="text-muted-foreground leading-relaxed">
-              Your free credits are used up. Add Eigen credits to run capture and enrichment
-              (minimum
-              {data.minCaptureCredits.toLocaleString()} credits per capture).
-            </p>
-            <CreditsTopUpPanel
-              compact
-              surface="capture_gate"
-              availableCredits={localWalletCredits}
-              paypalConfigured={data.paypalConfigured}
-              paypalClientId={data.paypalClientId}
-              paypalSdkUrl={data.paypalSdkUrl}
-              onBalanceUpdated={(credits) => {
-                localWalletCredits = credits
-              }}
-            />
-          {/if}
-        </Card.Content>
-      </Card.Root>
-    {/if}
-
-    <Card.Root
-      class="shrink-0 bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-0 gap-0 items-start overflow-visible"
-      aria-busy={interpretPendingText !== null}
-    >
-      <Card.Content class="p-0 w-full">
-        <Label for="thought" class="sr-only">Thought</Label>
-        <Textarea
-          id="thought"
-          bind:value={raw}
-          oninput={() => {
-            pageInputDrafts.capture = raw
-          }}
-          placeholder="Enter your thought…"
-          class="min-h-[128px] max-h-[min(45dvh,360px)] overflow-y-auto p-6 text-base md:text-base placeholder:text-muted-foreground border-0 bg-transparent dark:bg-transparent shadow-none focus-visible:ring-0 resize-none text-foreground"
-          onfocus={() => voiceStopFn?.()}
-        />
-      </Card.Content>
-      <Card.Footer
-        class="bg-[#FAFAFA] dark:bg-muted border-t-2 border-black dark:border-border p-4 flex flex-row items-center justify-between w-full"
-      >
-        {#if interpretPendingText}
-          <span class="flex items-center gap-1.5 text-[#737373] text-xs leading-4">
-            <LoaderCircleIcon class="size-3 animate-spin" aria-hidden="true" />
-            {INTERPRET_PENDING_STATUS_LABEL}…
-          </span>
-        {:else}
-          <span class="text-[#737373] text-xs leading-4">⌘ / Ctrl + Enter to capture</span>
-        {/if}
-        <div class="flex items-center gap-2">
-          <VoiceInputButton
-            language={data.preferredLanguage}
-            disabled={loading}
-            bind:stopRef={voiceStopFn}
-            onstart={() => {
-              voiceBaseText = raw
-            }}
-            ontranscript={(text) => {
-              syncCaptureDraft(appendVoiceTranscript(voiceBaseText, text))
-            }}
-            onpartialtranscript={(text) => {
-              syncCaptureDraft(appendVoiceTranscript(voiceBaseText, text))
-            }}
-            onerror={(message) => {
-              err = message
-            }}
-          />
-          <Button
-            type="button"
-            class="bg-black text-white rounded-none px-[22px] py-[7.5px] text-base font-medium leading-6 h-auto border-0 hover:bg-black/90"
-            disabled={!raw.trim() || captureBlocked || loading}
-            onclick={() => {
-              hapticConfirm()
-              void capture()
-            }}
-          >
-            {#if interpretPendingText}
-              <LoaderCircleIcon class="mr-2 size-4 animate-spin" aria-hidden="true" />
-            {/if}
-            Capture
-          </Button>
-        </div>
-      </Card.Footer>
-    </Card.Root>
-
-    {#if interpretPendingText}
-      <CaptureInterpretPending raw={interpretPendingText} />
-    {/if}
-
-    {#if pendingConfirmation}
-      <CaptureConfirmationModal
-        open={true}
-        thoughtId={pendingConfirmation.thoughtId}
-        rawText={pendingConfirmation.rawText}
-        preview={pendingConfirmation.preview}
-        countdownSeconds={confirmationCountdown}
-        loading={confirmationLoading}
-        error={confirmationError}
-        onConfirm={() => void confirmPendingCapture()}
-        onDismiss={() => void dismissPendingCaptureVerbatim()}
-      />
-    {/if}
-
-    {#if showFirstCaptureNudge}
-      <FirstCaptureNudge
-        open={true}
-        userId={data.user.id}
+  {#if groundingQuestion && !groundingQuestionDismissed}
+    {#if groundingQuestion.kind === 'relevance'}
+      <GroundingQuestionCard
+        kind="relevance"
+        thoughtId={groundingQuestion.thoughtId}
+        snippet={groundingQuestion.snippet}
+        question={groundingQuestion.question}
         onDismiss={() => {
-          firstCaptureNudgeDismissed = true
+          groundingQuestionDismissed = true
+          groundingQuestion = null
+        }}
+        onSaved={() => {
+          groundingQuestionDismissed = true
+          groundingQuestion = null
+        }}
+      />
+    {:else}
+      <GroundingQuestionCard
+        kind="grounding"
+        facetKey={groundingQuestion.facetKey}
+        question={groundingQuestion.question}
+        onDismiss={() => {
+          groundingQuestionDismissed = true
+          groundingQuestion = null
+        }}
+        onSaved={() => {
+          groundingQuestionDismissed = true
+          groundingQuestion = null
         }}
       />
     {/if}
-  </div>
+  {/if}
 
-  <div class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden px-5 pt-6">
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <CaptureRecentThoughts
-        thoughts={recentThoughts}
-        {thoughtDetails}
-        {enrichingThoughtIds}
-        expandedId={expandedThoughtId}
-        editingId={editingThoughtId}
-        {editRequest}
-        {editLoading}
-        deletingId={deletingThoughtId}
-        retryingId={retryingThoughtId}
-        {loadingDetailId}
-        editProgressEvents={progressEvents.map((row) => row.event)}
-        pipeline={CAPTURE_PIPELINE}
-        onExpand={expandThought}
-        onCollapse={collapseThought}
-        onEdit={(id) => void toggleThoughtEdit(id)}
-        onDelete={openDeleteDialog}
-        onAttach={openAttachDialog}
-        onUnlinkFile={(thoughtId, fileId) => void unlinkAttachedFile(thoughtId, fileId)}
-        onNoteUpdated={(thoughtId) => void refreshThoughtDetail(thoughtId)}
-        onRetry={(id) => void retryEnrichThought(id)}
-        onEditRequestChange={(value) => {
-          editRequest = value
+  {#if captureBlocked}
+    <div class="m-0 mb-7 rounded-[10px] bg-paper-2 p-4">
+      <p class="m-0 mb-2 font-mesh text-sm text-ink">{m.capture_action()}</p>
+      <CreditsTopUpPanel
+        compact
+        surface="capture_gate"
+        availableCredits={localWalletCredits}
+        paypalConfigured={data.paypalConfigured}
+        paypalClientId={data.paypalClientId}
+        paypalSdkUrl={data.paypalSdkUrl}
+        onBalanceUpdated={(credits) => {
+          localWalletCredits = credits
         }}
-        onSubmitEdit={submitEditRequest}
-        onCancelEdit={() => editAbortController?.abort()}
-        onFilterChange={handleRecentFilterChange}
-        onToggleDone={(id) => void toggleThoughtDone(id)}
-        {hasAgentCaptures}
       />
     </div>
+  {/if}
 
-    {#if queueActive || err}
-      <div class="shrink-0 space-y-2 pb-28">
-        {#if queueActive}
-          <CaptureQueueList
-            items={queueItems}
-            processingId={processingCaptureId}
-            events={progressEvents}
-            pipeline={CAPTURE_FAST_PIPELINE}
-            startMs={captureStartMs}
-            oncancel={(id) => void cancelQueuedItem(id)}
-          />
-          {#if offline && pendingCount > 0 && !loading}
-            <p class="text-xs text-muted-foreground">Offline — queue will resume when connected</p>
-          {/if}
-        {/if}
-        {#if err}
-          <p class="text-destructive text-sm">{err}</p>
-        {/if}
-      </div>
+  <!-- Capture: one question, one gesture. Once a thought is in, the mesh answers in the
+       question's place — the reading replaces the heading, so the app talks back. -->
+  {#if readingShown}
+    <CaptureReading
+      waiting={readingWaiting && !reading}
+      draft={reading}
+      error={readingError}
+      threadChoice={threadChoice}
+      typeMenuOpen={typeMenuOpen}
+      threadMenuOpen={threadMenuOpen || hashQuery !== null}
+      newThreadLabel={newThreadLabel}
+      projects={threadProjects}
+      hashQuery={hashQuery}
+      onTypeMenuChange={(open) => {
+        typeMenuOpen = open
+        if (open) void loadThreadProjects()
+      }}
+      onThreadMenuChange={(open) => {
+        threadMenuOpen = open
+        if (open) {
+          void loadThreadProjects()
+        } else if (hashQuery !== null) {
+          hashQuery = null
+        }
+      }}
+      onPickType={pickType}
+      onPickThread={pickThread}
+      onNewThreadLabel={(label) => {
+        newThreadLabel = label
+      }}
+      onSay={onSay}
+    />
+  {:else}
+    <h1
+      class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
+      data-testid="capture-heading"
+    >
+      {m.capture_placeholder()}
+    </h1>
+  {/if}
+
+  <div>
+    {#if echo}
+      <!-- an older thought this one rhymes with; it opens the thought page -->
+      <a
+        class="group block max-w-[540px] mt-[72px] text-left no-underline animate-[echo-settle_0.9s_var(--ease)_both] motion-reduce:[animation:none]"
+        data-testid="capture-echo"
+        href={thoughtHref(echo.thoughtId)}
+      >
+        <span
+          class="flex items-center gap-2 font-mesh text-sm text-ink-3 before:content-[''] before:size-[5px] before:rounded-full before:bg-signal"
+          >{m.capture_echo_label()}</span
+        >
+        <span
+          class="block mt-2 pl-3.5 font-you text-[18px] leading-[1.45] text-ink-3 transition-colors duration-[400ms] ease-settle pointer-fine:group-hover:text-ink"
+          >“{echo.text}”</span
+        >
+      </a>
     {/if}
   </div>
+
+
+  <!-- the queue, as plain words: settling… / knitting it in… -->
+  {#if queueActive || err}
+    <div class="mt-12 flex flex-col gap-2">
+      {#if pendingCount > 0 && !processingCaptureId}
+        <span class="inline-flex items-center gap-2 font-mesh text-sm text-ink-3">
+          <span class="inline-block animate-[breathe_2.2s_var(--ease-io)_infinite] motion-reduce:[animation:none]">{pendingCount} · {m.whisper_settling()}</span>
+        </span>
+      {/if}
+      {#if processingCaptureId}
+        <span class="inline-flex items-center gap-2 font-mesh text-sm text-ink-3 [&_.spinner]:size-4 [&_.spinner]:shrink-0">
+          <MeshSpinner working size={16} />
+          <span class="inline-block animate-[breathe_2.2s_var(--ease-io)_infinite] motion-reduce:[animation:none]">{m.whisper_knitting()}</span>
+        </span>
+      {/if}
+      {#each visibleQueueItems as item (item.id)}
+        <div class="flex items-center justify-between gap-3 py-1.5 border-b border-dashed border-ink-4">
+          <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-you text-sm text-ink-2">{captureQueueItemPreview(item.raw)}</span>
+          <button
+            type="button"
+            class="shrink-0 grid place-items-center size-7 border-0 rounded-full bg-transparent text-ink-3 pointer-fine:hover:text-ink pointer-fine:hover:bg-paper-2"
+            aria-label={m.thought_forget()}
+            onclick={() => void cancelQueuedItem(item.id)}
+          >
+            <svg
+              class="size-3 fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round]"
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+            >
+              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+            </svg>
+          </button>
+        </div>
+        {#if item.status === 'failed' && item.lastError}
+          <p class="m-0 font-mesh text-sm leading-[1.5] text-clay">{item.lastError}</p>
+        {/if}
+      {/each}
+      {#if err}
+        <p class="m-0 font-mesh text-sm leading-[1.5] text-clay" role="status">{err}</p>
+      {/if}
+    </div>
+  {/if}
 </div>
+
+<GlassWriter
+  bind:value={raw}
+  bind:input={fieldEl}
+  bind:voiceStop={voiceStopFn}
+  placeholder={m.capture_writer_placeholder()}
+  label={m.capture_placeholder()}
+  submitLabel={m.capture_action()}
+  submitDisabled={captureBlocked || submitting}
+  spellcheck={false}
+  inputTestId="capture-input"
+  submitTestId="capture-submit"
+  onsubmit={() => void submitCapture()}
+  oninput={onFieldInput}
+  onkeydown={onFieldKeydown}
+  language={data.preferredLanguage}
+  onvoicestart={() => {
+    voiceBaseText = raw
+  }}
+  ontranscript={(text) => {
+    raw = appendVoiceTranscript(voiceBaseText, text)
+    onFieldInput()
+  }}
+  onpartialtranscript={(text) => {
+    raw = appendVoiceTranscript(voiceBaseText, text)
+    onFieldInput()
+  }}
+  onvoiceerror={(message) => {
+    err = message
+  }}
+>
+</GlassWriter>
+
+{#if showFirstCaptureNudge}
+  <FirstCaptureNudge
+    open={true}
+    userId={data.user.id}
+    onDismiss={() => {
+      firstCaptureNudgeDismissed = true
+    }}
+  />
+{/if}
 
 {#if showOnboarding}
   <CaptureOnboardingOverlay
@@ -1140,45 +988,4 @@
   />
 {/if}
 
-<AlertDialog.Root
-  bind:open={deleteDialogOpen}
-  onOpenChange={(open) => {
-    if (!open && !deletingThoughtId) deleteTargetId = null
-  }}
->
-  <AlertDialog.Content class="max-w-sm rounded-none border-2 border-black dark:border-border">
-    <AlertDialog.Header>
-      <AlertDialog.Title>Delete this thought?</AlertDialog.Title>
-      <AlertDialog.Description>
-        It will be removed from search and the graph permanently. This cannot be undone.
-      </AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Cancel class="rounded-none" disabled={deletingThoughtId !== null}>
-        Cancel
-      </AlertDialog.Cancel>
-      <Button
-        type="button"
-        variant="destructive"
-        class="rounded-none"
-        disabled={deletingThoughtId !== null}
-        onclick={() => void confirmDeleteThought()}
-      >
-        {deletingThoughtId ? 'Deleting…' : 'Delete'}
-      </Button>
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>
 
-{#if attachDialogOpen && attachTargetThoughtId}
-  <CaptureAttachFileDialog
-    thoughtId={attachTargetThoughtId}
-    onClose={() => {
-      attachDialogOpen = false
-    }}
-    onLinked={async () => {
-      if (!attachTargetThoughtId) return
-      await refreshThoughtDetail(attachTargetThoughtId)
-    }}
-  />
-{/if}

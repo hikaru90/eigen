@@ -81,7 +81,7 @@
             {m.graph_temporal_kind()}
           </p>
           <Drawer.Title
-            class="text-foreground text-sm font-semibold {completedEventSummaryClass(completed)}"
+            class="text-foreground text-sm font-medium {completedEventSummaryClass(completed)}"
           >
             {item.semanticSummary}
           </Drawer.Title>

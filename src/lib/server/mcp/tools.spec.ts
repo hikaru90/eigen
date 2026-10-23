@@ -290,6 +290,33 @@ describe('MCP tools', () => {
     })
   })
 
+  it('runRetrieveThoughtsTool recent browse includes askQuestion (string or null) per thought', async () => {
+    listThoughtsMock.mockResolvedValue([
+      {
+        id: 't2',
+        normalizedText: 'Call the plumber about the kitchen sink',
+        askQuestion: 'What did I need to call the plumber about?',
+        category: 'task',
+        createdAt: new Date('2024-01-02'),
+      },
+      {
+        id: 't1',
+        normalizedText: 'hi',
+        askQuestion: null,
+        category: 'observation',
+        createdAt: new Date('2024-01-01'),
+      },
+    ])
+    const out = (await runRetrieveThoughtsTool({ userId: 'u1' }, { order: 'created_at' })) as {
+      results: Array<Record<string, unknown>>
+    }
+    expect(out.results[0]).toMatchObject({
+      id: 't2',
+      askQuestion: 'What did I need to call the plumber about?',
+    })
+    expect(out.results[1]).toMatchObject({ id: 't1', askQuestion: null })
+  })
+
   it('runRetrieveThoughtsTool treats whitespace-only query as recent browse', async () => {
     listThoughtsMock.mockResolvedValue([])
     await runRetrieveThoughtsTool({ userId: 'u1' }, { query: '   ', top_k: 3 })

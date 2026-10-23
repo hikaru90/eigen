@@ -1,6 +1,7 @@
 <script lang="ts">
-  import CircleX from '@lucide/svelte/icons/circle-x'
+  import XIcon from '@lucide/svelte/icons/x'
 
+  /** A plain line in the warn colour, no box: the mesh saying what went wrong. */
   type Props = {
     message: string
     class?: string
@@ -10,9 +11,15 @@
 </script>
 
 <div
-  class="flex min-w-0 items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-sm leading-snug text-destructive dark:bg-destructive/10 {className}"
+  class={[
+    'flex items-start gap-2 min-w-0 py-0.5 font-mesh text-sm leading-[1.5] text-warn animate-[fade_0.5s_var(--ease)_both]',
+    className,
+  ]}
   role="alert"
 >
-  <CircleX class="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-  <p class="min-w-0 break-all">{message}</p>
+  <span class="grid place-items-center w-4 h-5 shrink-0" aria-hidden="true"
+    ><XIcon size={12} strokeWidth={1.5} /></span
+  >
+  <p class="min-w-0 m-0 [overflow-wrap:anywhere]">{message}</p>
 </div>
+

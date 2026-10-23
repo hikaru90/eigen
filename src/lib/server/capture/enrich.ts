@@ -23,6 +23,7 @@
 
 import { and, eq, sql } from 'drizzle-orm'
 import { InsufficientCreditsError } from '$lib/server/billing/wallet'
+import { askQuestionColumns } from '$lib/server/capture/ask-question-store'
 import type { IngestPhase, IngestPhaseTimer } from '$lib/server/capture/phase-timing'
 import type { CaptureProgressEvent } from '$lib/server/capture/service'
 import { scheduleIncrementalConsolidation } from '$lib/server/consolidation/incremental-consolidation'
@@ -46,7 +47,7 @@ import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync
 import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment'
 import { scheduleProjectMaintenance } from '$lib/server/memory/project-maintenance'
 import { extractRelations } from '$lib/server/memory/relation-extraction'
-import { extractSearchCues } from '$lib/server/memory/search-cues'
+import { extractRecallCues, type RecallCues } from '$lib/server/memory/search-cues'
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync'
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
@@ -67,8 +68,8 @@ export type EnrichThoughtOptions = {
   precomputedEntityEnrichmentContext?: EntityGraphEnrichmentContext
   /** Pre-fetched batch LLM results — skip redundant extraction calls. */
   precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
-  /** Pre-computed cues from the prefetch — skip redundant LLM call. */
-  precomputedCues?: string[]
+  /** Cues + Ask question from the enrich bundle — skips the separate recall LLM call. */
+  precomputedRecall?: RecallCues
   precomputedTemporalMentions?: ExtractedTemporalMention[]
   ingestTimer?: IngestPhaseTimer
   /** When true, relation extraction runs fire-and-forget after core enrich (background capture). */
@@ -137,7 +138,7 @@ export async function enrichThought(
     preloadedKnownEntities,
     precomputedEntityGraph,
     precomputedEntityEnrichmentContext,
-    precomputedCues,
+    precomputedRecall,
     precomputedTemporalMentions,
     ingestTimer,
     deferRelations = false,
@@ -193,10 +194,16 @@ export async function enrichThought(
     }),
 
     time('enrich_cues', async () => {
-      const cues = precomputedCues ?? (await extractSearchCues({ userId, normalizedText }))
-      if (cues.length > 0) {
-        await db.update(thought).set({ cues }).where(eq(thought.id, thoughtId))
-      }
+      const { cues, askQuestion } =
+        precomputedRecall ?? (await extractRecallCues({ userId, normalizedText }))
+      // The question is always written (null clears a stale one after an edit).
+      await db
+        .update(thought)
+        .set({
+          ...(cues.length > 0 ? { cues } : {}),
+          ...(await askQuestionColumns(userId, askQuestion)),
+        })
+        .where(eq(thought.id, thoughtId))
     }),
 
     (async () => {

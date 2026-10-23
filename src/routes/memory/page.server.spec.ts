@@ -1,80 +1,58 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { load } from './+page.server'
 
-const { fetchSnapshotMock, fetchCommunitiesMock } = vi.hoisted(() => ({
-  fetchSnapshotMock: vi.fn(),
-  fetchCommunitiesMock: vi.fn(),
-}))
-
-const { loadAuthorLayerGraphDataMock } = vi.hoisted(() => ({
-  loadAuthorLayerGraphDataMock: vi.fn(),
-}))
-
-const { getDbMock } = vi.hoisted(() => ({
-  getDbMock: vi.fn(),
-}))
-
-vi.mock('$lib/server/db', () => ({
-  getDb: getDbMock,
-}))
-
-vi.mock('$lib/server/graph/age', () => ({
-  fetchGraphVisualizationSnapshot: fetchSnapshotMock,
-}))
-
-vi.mock('$lib/server/graph/community-overlays', () => ({
-  fetchGraphCommunityOverlays: fetchCommunitiesMock,
-}))
-
-vi.mock('$lib/server/graph/author-layers', () => ({
-  loadAuthorLayerGraphData: loadAuthorLayerGraphDataMock,
-}))
-
-vi.mock('$lib/server/ontology-db', () => ({
-  ensureUserOntologySeeded: vi.fn().mockResolvedValue(undefined),
-  loadOntologyForUser: vi.fn().mockResolvedValue({
-    entityKinds: [],
-    relationKinds: [],
-    entityKindsById: new Map(),
-    entityKindsByKey: new Map(),
-    relationKindsById: new Map(),
-    relationKindsByKey: new Map(),
-  }),
-}))
-
-describe('memory page server', () => {
-  it('redirects unauthenticated user', async () => {
+/**
+ * /memory left the chrome with the ei redesign (docs/planning/ei-redesign.md,
+ * decision 1): the hub is /mesh now. The old graph page is gone, so the load
+ * must redirect on the server — before any graph prefetch — instead of
+ * rendering and bouncing client-side.
+ */
+describe('memory legacy redirect', () => {
+  it('redirects unauthenticated user to login', async () => {
     await expect(
       load({ locals: { user: null }, url: new URL('http://localhost/memory') } as never),
-    ).rejects.toMatchObject({ status: 302 })
+    ).rejects.toMatchObject({ status: 302, location: '/login' })
   })
 
-  it('returns snapshot for signed-in user', async () => {
-    getDbMock.mockReturnValue({})
-    fetchSnapshotMock.mockResolvedValueOnce({
-      nodes: [{ id: 'e1', kind: 'Entity', label: 'Sam', subtype: 'person' }],
-      edges: [],
-    })
-    fetchCommunitiesMock.mockResolvedValueOnce([])
-    loadAuthorLayerGraphDataMock.mockResolvedValueOnce({
-      authorLayers: [{ key: 'user', label: 'You', kind: 'user' }],
-      entityAuthorLayerKeys: { e1: ['user'] },
-      coMentionEdgeLayerKeys: {},
-    })
-    const data = await load({
-      locals: {
-        user: { id: 'u1', email: 'a@b.c' },
-      },
-      url: new URL('http://localhost/memory'),
-    } as never)
-    expect(data).toBeTruthy()
-    if (!data) return
-    expect(data.snapshot.nodes[0]?.authorLayerKeys).toEqual(['user'])
-    expect(data.authorLayers).toEqual([{ key: 'user', label: 'You', kind: 'user' }])
-    expect(data.communities).toEqual([])
-    expect(Array.isArray(data.graphLegendSections)).toBe(true)
-    expect(fetchSnapshotMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u1', nodeLimit: 500, edgeLimit: 1200 }),
-    )
+  it('redirects signed-in user to the mesh hub', async () => {
+    await expect(
+      load({ locals: { user: { id: 'u1' } }, url: new URL('http://localhost/memory') } as never),
+    ).rejects.toMatchObject({ status: 302, location: '/mesh' })
+  })
+
+  it('hands a thought deep link to the thought page', async () => {
+    await expect(
+      load({
+        locals: { user: { id: 'u1' } },
+        url: new URL('http://localhost/memory?thought=t1'),
+      } as never),
+    ).rejects.toMatchObject({ status: 302, location: '/thought/t1' })
+  })
+
+  it('encodes the thought id on the way through', async () => {
+    await expect(
+      load({
+        locals: { user: { id: 'u1' } },
+        url: new URL('http://localhost/memory?thought=a%2Fb%20c'),
+      } as never),
+    ).rejects.toMatchObject({ status: 302, location: '/thought/a%2Fb%20c' })
+  })
+
+  it('drops retired view params (graph / embeddings have no nav home)', async () => {
+    await expect(
+      load({
+        locals: { user: { id: 'u1' } },
+        url: new URL('http://localhost/memory?view=embeddings'),
+      } as never),
+    ).rejects.toMatchObject({ status: 302, location: '/mesh' })
+  })
+
+  it('does not follow an empty thought param', async () => {
+    await expect(
+      load({
+        locals: { user: { id: 'u1' } },
+        url: new URL('http://localhost/memory?thought='),
+      } as never),
+    ).rejects.toMatchObject({ status: 302, location: '/mesh' })
   })
 })

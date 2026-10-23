@@ -338,6 +338,7 @@ const SYSTEM_PROMPT = [
   '- If the question names a person, nickname, or entity (e.g. "Clemi"), that name (or an alias written in the thoughts) MUST appear in a cited thought. Otherwise Answer MUST be "Not in memory."',
   '- Do NOT use speculative or hedging language ("appears", "likely", "seems", "suggests", "probably", "may", "might", "could", "I assume") unless that exact uncertainty is stated in a cited thought or profile.',
   '- If the retrieved thoughts do not answer the question at all, the Answer line MUST be exactly: "Not in memory." Evidence may be empty; list what was asked for in Unknown.',
+  '- Never answer "Not in memory." while listing Evidence that bears on the question. If a cited thought answers it even partly or loosely (e.g. the user\'s own words for where they are, or a vague time), the Answer MUST state that fact as the user put it; put the missing precision under Unknown.',
   '- For partial answers, put what IS known in Evidence and what is NOT known in Unknown. Do not fill gaps with guesses or synthesize patterns across unrelated clusters.',
   '- Every line under Evidence MUST end with at least one [id=<uuid>] or [id=profile] citation.',
   '- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts or memory themes.',
@@ -375,7 +376,7 @@ const COMPUTED_TIMELINE_PROMPT_SUFFIX = [
   `- Cite solver-derived ordering or day-count facts with [id=${COMPUTED_TIMELINE_CITATION_ID}] (not a thought uuid).`,
 ].join('\n')
 
-function buildComposeSystemPrompt(allowComputedCitation: boolean): string {
+export function buildComposeSystemPrompt(allowComputedCitation: boolean): string {
   if (!allowComputedCitation) return SYSTEM_PROMPT
   return `${SYSTEM_PROMPT}\n\n${COMPUTED_TIMELINE_PROMPT_SUFFIX}`
 }

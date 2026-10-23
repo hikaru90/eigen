@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  resolveE2eHarnessBillingUserId,
   EVAL_OPERATOR_USER_ID,
   GRAPH_SCALE_OPERATOR_USER_ID,
   LONGMEMEVAL_OPERATOR_USER_ID,
@@ -33,5 +34,26 @@ describe('resolveHarnessBillingUserId', () => {
 
   it('returns undefined for production tenants', () => {
     expect(resolveHarnessBillingUserId('real-user-uuid')).toBeUndefined()
+  })
+})
+
+describe('resolveE2eHarnessBillingUserId', () => {
+  it('bills Playwright harness signups to the eval operator service wallet', () => {
+    expect(resolveE2eHarnessBillingUserId('e2e-1792787-3@test.eigen')).toBe(EVAL_OPERATOR_USER_ID)
+    expect(resolveE2eHarnessBillingUserId(' E2E-1@Test.Eigen ')).toBe(EVAL_OPERATOR_USER_ID)
+  })
+
+  it('leaves every other account on its own wallet', () => {
+    for (const email of [
+      'design-review-1@test.eigen',
+      'e2e-1@example.com',
+      'e2e-1@test.eigen.evil.com',
+      'someone-e2e-1@test.eigen',
+      '',
+      null,
+      undefined,
+    ]) {
+      expect(resolveE2eHarnessBillingUserId(email)).toBeUndefined()
+    }
   })
 })

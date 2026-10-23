@@ -98,10 +98,13 @@
     { value: 'danger', label: 'Danger zone' },
   ] as const
 
-  const settingsTabListClass =
-    'flex h-9 w-fit shrink-0 items-stretch gap-1 border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100'
+  // The ei tab group (DESIGN.md "Choices among words are a tab group"): a recessed
+  // --paper-2 track, the chosen option on a --raised pill with a --line ring — the
+  // same idiom as the Mesh tabs and the you-menu's Look (src/routes/mesh/+layout.svelte
+  // .lens / .lens-pill). Tokens only; the shadcn Tabs flow is unchanged.
+  const settingsTabListClass = 'flex h-9 w-fit shrink-0 items-stretch gap-1 rounded-full bg-muted p-0.5'
   const settingsTabTriggerClass =
-    '!h-full shrink-0 !px-3 text-xs after:hidden text-black hover:text-black data-active:bg-black data-active:text-white data-active:hover:text-white dark:text-foreground dark:hover:text-foreground dark:data-active:bg-foreground dark:data-active:text-background dark:data-active:hover:text-background'
+    '!h-full shrink-0 !px-3 rounded-full text-xs after:hidden text-muted-foreground hover:text-foreground data-active:bg-card data-active:text-foreground data-active:hover:text-foreground data-active:shadow-[0_0_0_1px_var(--line),0_1px_3px_rgba(20,20,19,0.06)] dark:text-muted-foreground dark:hover:text-foreground dark:data-active:border-transparent dark:data-active:bg-card dark:data-active:text-foreground dark:data-active:hover:text-foreground'
 
   let exportBusy = $state(false)
   let exportError = $state<string | null>(null)
@@ -395,12 +398,24 @@
   onMount(() => {
     const savedPreference = localStorage.getItem('theme-preference') ?? 'system'
     themePreference = savedPreference
+    // The you-menu's Look control writes the same preference (chrome/you-menu.svelte);
+    // follow its event so this select never shows a stale value while both are open.
+    const syncThemePreference = (event: Event) => {
+      const preference = (event as CustomEvent<{ preference?: unknown }>).detail?.preference
+      if (preference === 'light' || preference === 'dark' || preference === 'system') {
+        themePreference = preference
+      }
+    }
+    window.addEventListener('theme-preference-change', syncThemePreference)
     if (data.preferredTimezoneOffsetMinutes === null) {
       applyInferredBrowserTimezone()
     }
     hapticEnvironment = getHapticEnvironment()
     void refreshPushState()
     void loadNotificationStatus()
+    return () => {
+      window.removeEventListener('theme-preference-change', syncThemePreference)
+    }
   })
 
   function runHapticTest() {
@@ -456,7 +471,7 @@
   }
 </script>
 
-<div class="mx-auto max-w-2xl space-y-6 px-5 pb-10 pt-16">
+<div class="mx-auto max-w-2xl space-y-6 px-5 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   <Tabs.Root bind:value={activeTab} class="space-y-4">
     <div
       class="-mx-5 overflow-x-auto px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -479,7 +494,7 @@
           <Palette class="size-4" strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div>
-          <h2 class="text-sm font-semibold">Appearance</h2>
+          <h2 class="text-sm font-medium">Appearance</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">Theme, language, and onboarding.</p>
         </div>
       </div>
@@ -567,7 +582,7 @@
           <Mic class="size-4" strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div>
-          <h2 class="text-sm font-semibold">Speech</h2>
+          <h2 class="text-sm font-medium">Speech</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">
             Transcription language for speech input.
           </p>
@@ -613,7 +628,7 @@
           <UserRound class="size-4" strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div>
-          <h2 class="text-sm font-semibold">Account</h2>
+          <h2 class="text-sm font-medium">Account</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">Email and password for this account.</p>
         </div>
       </div>
@@ -687,7 +702,7 @@
           <Bell class="size-4" strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div>
-          <h2 class="text-sm font-semibold">Notifications</h2>
+          <h2 class="text-sm font-medium">Notifications</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">Push alerts and event reminders.</p>
         </div>
       </div>
@@ -765,7 +780,7 @@
             <span class="text-muted-foreground">API available</span>
             <span
               class={hapticEnvironment.apiAvailable
-                ? 'text-emerald-700 dark:text-emerald-400'
+                ? 'text-foreground'
                 : 'text-destructive'}
             >
               {hapticEnvironment.apiAvailable ? 'Yes' : 'No'}
@@ -830,7 +845,7 @@
                 <span class="text-muted-foreground">Server push ready</span>
                 <span
                   class={notificationStatus.serverPushReady
-                    ? 'text-emerald-700 dark:text-emerald-400'
+                    ? 'text-foreground'
                     : 'text-destructive'}
                 >
                   {notificationStatus.serverPushReady ? 'Yes' : 'No'}
@@ -851,7 +866,7 @@
                 <span class="font-mono tabular-nums">
                   {notificationStatus.reminders.pending}
                   {#if notificationStatus.reminders.dueNow > 0}
-                    <span class="text-amber-700 dark:text-amber-400">
+                    <span class="text-[var(--clay)]">
                       ({notificationStatus.reminders.dueNow} due now)
                     </span>
                   {/if}
@@ -896,8 +911,8 @@
                     class={notificationStatus.dailySummary.dispatch.reason === 'send_failed'
                       ? 'text-destructive'
                       : notificationStatus.dailySummary.dispatch.wouldDispatch
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-amber-700 dark:text-amber-400'}
+                        ? 'text-foreground'
+                        : 'text-[var(--clay)]'}
                   >
                     {notificationStatus.dailySummary.statusLabel}
                   </span>
@@ -1012,7 +1027,7 @@
           <Database class="size-4" strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div>
-          <h2 class="text-sm font-semibold">Memory</h2>
+          <h2 class="text-sm font-medium">Memory</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">Graph maintenance and data export.</p>
         </div>
       </div>
@@ -1092,7 +1107,7 @@
           <TriangleAlert class="size-4" strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div>
-          <h2 class="text-destructive text-sm font-semibold">Danger zone</h2>
+          <h2 class="text-destructive text-sm font-medium">Danger zone</h2>
           <p class="text-muted-foreground mt-0.5 text-xs">
             Irreversible actions for your memory data.
           </p>
@@ -1144,12 +1159,12 @@
         >
         <button
           type="button"
-          class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-black/10 dark:hover:bg-white/10"
+          class="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground hover:bg-accent"
           onclick={() => void copyDeleteConfirmationPhrase()}
           aria-label="Copy confirmation phrase"
         >
           {#if deletePhraseCopied}
-            <Check class="size-4 text-green-500" strokeWidth={2} />
+            <Check class="size-4 text-foreground" strokeWidth={2} />
           {:else}
             <CopyIcon class="size-4" strokeWidth={1.75} />
           {/if}

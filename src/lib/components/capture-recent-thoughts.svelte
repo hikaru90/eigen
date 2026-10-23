@@ -144,9 +144,9 @@
   }
 
   const tabEntryClass =
-    'flex flex-col overflow-visible bg-white/20 p-0.5 backdrop-blur-sm brightness-105 dark:bg-card'
+    'flex flex-col overflow-visible bg-paper-2 p-0.5 '
   const tabTriggerClass =
-    'rounded-full px-3 py-2 text-black hover:text-black dark:text-foreground dark:hover:text-foreground'
+    'rounded-full px-3 py-2 text-ink hover:text-ink dark:text-foreground dark:hover:text-foreground'
 
   let categoryFilter = $state<string>('all')
 
@@ -182,7 +182,7 @@
               bind:value={categoryFilter}
               onValueChange={() => handleFilterChange()}
             >
-              <Select.Trigger class="h-auto w-auto gap-1 rounded-none px-2 py-1 text-xs">
+              <Select.Trigger class="h-auto w-auto gap-1 px-2 py-1 text-xs">
                 Category
               </Select.Trigger>
               <Select.Content>
@@ -219,12 +219,12 @@
                 >
                   {#if expanded}
                     <ChevronDown
-                      class="mt-0.5 size-4 shrink-0 text-black dark:text-foreground"
+                      class="mt-0.5 size-4 shrink-0 text-ink dark:text-foreground"
                       aria-hidden="true"
                     />
                   {:else}
                     <ChevronRight
-                      class="mt-0.5 size-4 shrink-0 text-black dark:text-foreground"
+                      class="mt-0.5 size-4 shrink-0 text-ink dark:text-foreground"
                       aria-hidden="true"
                     />
                   {/if}
@@ -306,7 +306,7 @@
                   <Button
                     type="button"
                     variant="ghost"
-                    class="h-auto rounded-full p-1.5 text-black hover:text-black/70 dark:text-foreground dark:hover:text-foreground/70"
+                    class="h-auto rounded-full p-1.5 text-ink hover:text-ink/70 dark:text-foreground dark:hover:text-foreground/70"
                     aria-label={editingId === snippet.id ? 'Cancel edit' : 'Edit'}
                     onclick={(e) => {
                       e.stopPropagation()
@@ -340,7 +340,7 @@
               </div>
 
               {#if expanded}
-                <div class="space-y-3 border-t border-white/80 px-3 pb-3 pt-2 dark:border-white/20">
+                <div class="space-y-3 border-t border-line px-3 pb-3 pt-2">
                   {#if loadingDetail || !detail}
                     <p class="text-sm text-muted-foreground">Loading thought details…</p>
                   {:else}
@@ -356,7 +356,7 @@
                       <Button
                         type="button"
                         variant="outline"
-                        class="h-auto rounded-none px-3 py-1.5 text-xs"
+                        class="h-auto px-3 py-1.5 text-xs"
                         onclick={() => onAttach(snippet.id)}
                       >
                         Attach note
@@ -367,7 +367,7 @@
                   {#if editingId === snippet.id}
                     {#if editLoading}
                       <div
-                        class="-mx-3 border-t border-white/80 bg-white/10 px-3 py-3 dark:border-white/20 dark:bg-white/5"
+                        class="-mx-3 border-t border-line bg-paper-2 px-3 py-3"
                       >
                         <CaptureQueueStatus
                           processing={true}
@@ -377,7 +377,7 @@
                         />
                       </div>
                     {/if}
-                    <div class="-mx-3 mt-3 border-t border-white/80 dark:border-white/20">
+                    <div class="-mx-3 mt-3 border-t border-line">
                       <div class="space-y-2 px-3 pt-4">
                         <Label for="edit-{snippet.id}" class="text-sm">
                           Describe your changes in plain language
@@ -387,11 +387,11 @@
                           value={editRequest}
                           oninput={(e) => onEditRequestChange(e.currentTarget.value)}
                           placeholder="Example: Make this shorter and categorize as task."
-                          class="min-h-24 border border-white/80 bg-white/20 p-3 text-sm text-foreground shadow-none backdrop-blur-sm dark:border-white/20 dark:bg-white/10 md:text-sm"
+                          class="min-h-24 border border-line bg-paper-2 p-3 text-sm text-foreground shadow-none backdrop-blur-sm md:text-sm"
                         />
                       </div>
                       <div
-                        class="flex flex-row items-center justify-end gap-2 border-t border-white/80 bg-white/10 p-3 dark:border-white/20 dark:bg-white/5"
+                        class="flex flex-row items-center justify-end gap-2 border-t border-line bg-paper-2 p-3"
                       >
                         {#if editLoading}
                           <Button
@@ -405,7 +405,7 @@
                         {/if}
                         <Button
                           type="button"
-                          class="h-auto rounded-full border-0 bg-black px-4 py-2 text-sm font-medium leading-5 text-white hover:bg-black/90 dark:bg-foreground dark:text-background dark:hover:bg-foreground/90"
+                          class="h-auto rounded-full border-0 bg-ink px-4 py-2 text-sm leading-5 text-paper pointer-fine:hover:bg-ink/85"
                           disabled={editLoading || !editRequest.trim()}
                           onclick={onSubmitEdit}
                         >

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { STT_MAX_AUDIO_BYTES } from '$lib/server/llm/stt-audio'
+import { STT_SEGMENT_MAX_AUDIO_BYTES } from '$lib/server/llm/stt-audio'
 import { POST } from './+server'
 
 const { transcribeAudioMock } = vi.hoisted(() => ({
@@ -95,13 +95,55 @@ describe('POST /api/capture/transcribe-chunk', () => {
     ).rejects.toMatchObject({ status: 400 })
   })
 
-  it('rejects oversized chunk', async () => {
+  it('rejects a segment above the 10 s ceiling with the limit in the message', async () => {
     await expect(
       POST({
         locals: { user: { id: 'u1' } },
-        request: multipartRequest({ audio: makeChunkFile(STT_MAX_AUDIO_BYTES + 1) }),
+        request: multipartRequest({ audio: makeChunkFile(STT_SEGMENT_MAX_AUDIO_BYTES + 1) }),
       } as never),
-    ).rejects.toMatchObject({ status: 400 })
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { message: expect.stringContaining(`${STT_SEGMENT_MAX_AUDIO_BYTES} bytes`) },
+    })
+    expect(transcribeAudioMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts a single segment at the ceiling and echoes the segment index', async () => {
+    transcribeAudioMock.mockResolvedValue('segment text')
+    const headers = new Headers({
+      'content-type': 'audio/webm',
+      'x-audio-meta': JSON.stringify({ language: 'en', segment: 7 }),
+    })
+    const body = new Blob([new Uint8Array(STT_SEGMENT_MAX_AUDIO_BYTES)], { type: 'audio/webm' })
+    const res = await POST({
+      locals: { user: { id: 'u1' } },
+      request: { headers, arrayBuffer: async () => body.arrayBuffer() },
+    } as never)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ transcript: 'segment text', segment: 7 })
+  })
+
+  it('AC-8: each segment request makes exactly one transcribeAudio (usage-logged) call', async () => {
+    transcribeAudioMock.mockResolvedValue('x')
+    for (let i = 0; i < 3; i++) {
+      await POST({
+        locals: { user: { id: 'u1' } },
+        request: multipartRequest({ audio: makeChunkFile(12) }),
+      } as never)
+    }
+    expect(transcribeAudioMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('returns 402 with the billing message when credits run out', async () => {
+    transcribeAudioMock.mockRejectedValue(
+      Object.assign(new Error('Insufficient credits'), { name: 'InsufficientCreditsError' }),
+    )
+    const res = await POST({
+      locals: { user: { id: 'u1' } },
+      request: multipartRequest({ audio: makeChunkFile(12) }),
+    } as never)
+    expect(res.status).toBe(402)
+    expect(((await res.json()) as { error: string }).error).toBe('Insufficient credits')
   })
 
   it('returns partial transcript on success', async () => {

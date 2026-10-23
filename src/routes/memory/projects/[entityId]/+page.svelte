@@ -197,12 +197,12 @@
   }
 
   const ghostIconClass =
-    'h-auto rounded-full p-1.5 text-black hover:text-black/70 dark:text-foreground dark:hover:text-foreground/70'
+    'h-auto rounded-full p-1.5 text-ink hover:text-ink/70 dark:text-foreground dark:hover:text-foreground/70'
   const filledPillClass =
-    'h-auto shrink-0 rounded-full border border-black bg-black px-3 py-1 text-xs font-medium text-white hover:bg-black/90 dark:border-foreground dark:bg-foreground dark:text-background dark:hover:bg-foreground/90'
+    'h-auto shrink-0 rounded-full bg-ink px-3 py-1 text-sm text-paper pointer-fine:hover:bg-ink/85 dark:bg-foreground dark:text-background dark:hover:bg-foreground/90'
   const viewPillClass = (active: boolean) =>
     active
-      ? 'rounded-full bg-[var(--color-eigen-green)] px-3 py-1 text-xs font-medium text-black'
+      ? 'rounded-full bg-[var(--color-eigen-green)] px-3 py-1 text-xs font-medium text-ink'
       : 'rounded-full px-3 py-1 text-xs text-muted-foreground hover:text-foreground'
 </script>
 
@@ -220,7 +220,7 @@
           <ArrowLeftIcon class="size-3.5" aria-hidden="true" />
           {m.graph_timeline_project_back()}
         </a>
-        <h1 class="flex items-center gap-2 text-base font-semibold">
+        <h1 class="flex items-center gap-2 text-base font-medium">
           <FolderKanbanIcon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />
           <span class="truncate">{displayLabel}</span>
         </h1>

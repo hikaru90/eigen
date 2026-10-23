@@ -16,6 +16,7 @@ import { resolveThoughtCategory } from '$lib/server/ontology'
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 export { setThoughtLifecycleStatus }
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
+import { readAskQuestion } from '$lib/server/capture/ask-question-store'
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 import {
   createEditPhaseTimer,
@@ -431,6 +432,9 @@ export async function editStoredThought(
           category,
           ontologyEntityKindId,
           enrichedAt: null,
+          // the old Ask question no longer matches the text; re-enrich writes the new one
+          askQuestion: null,
+          askQuestionEncrypted: null,
           metadata,
           metadataEncrypted,
           updatedAt: new Date(),
@@ -658,6 +662,14 @@ async function decryptThoughtSnippetRow<
   return { ...row, normalizedText }
 }
 
+/** Decrypted Ask question in place of the stored columns (ciphertext never leaves). */
+async function withAskQuestion<
+  T extends { askQuestion: string | null; askQuestionEncrypted: string | null },
+>(userId: string, row: T): Promise<Omit<T, 'askQuestionEncrypted'> & { askQuestion: string | null }> {
+  const { askQuestionEncrypted: _ciphertext, ...rest } = row
+  return { ...rest, askQuestion: await readAskQuestion(userId, row) }
+}
+
 export async function listThoughts(
   userId: string,
   options?: {
@@ -715,13 +727,17 @@ export async function listThoughts(
         authorLabel: thought.authorLabel,
         authorKeyId: thought.authorKeyId,
         lifecycleStatus: thought.lifecycleStatus,
+        askQuestion: thought.askQuestion,
+        askQuestionEncrypted: thought.askQuestionEncrypted,
         createdAt: thought.createdAt,
       })
       .from(thought)
       .where(and(...conditions))
       .orderBy(desc(thought.createdAt), desc(thought.id))
       .limit(limit)
-    return Promise.all(rows.map((row) => decryptThoughtSnippetRow(userId, row)))
+    return Promise.all(
+      rows.map(async (row) => withAskQuestion(userId, await decryptThoughtSnippetRow(userId, row))),
+    )
   }
 
   const rows = await getDb()
@@ -739,6 +755,8 @@ export async function listThoughts(
       authorLabel: thought.authorLabel,
       authorKeyId: thought.authorKeyId,
       lifecycleStatus: thought.lifecycleStatus,
+      askQuestion: thought.askQuestion,
+      askQuestionEncrypted: thought.askQuestionEncrypted,
       createdAt: thought.createdAt,
       updatedAt: thought.updatedAt,
     })
@@ -746,5 +764,7 @@ export async function listThoughts(
     .where(and(...conditions))
     .orderBy(desc(thought.createdAt), desc(thought.id))
     .limit(limit)
-  return Promise.all(rows.map((row) => decryptThoughtRow(userId, row)))
+  return Promise.all(
+    rows.map(async (row) => withAskQuestion(userId, await decryptThoughtRow(userId, row))),
+  )
 }

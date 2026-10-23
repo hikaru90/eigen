@@ -13,7 +13,7 @@ const {
   syncEntityGraphFromThoughtMock,
   syncTemporalEventsFromThoughtMock,
   extractThoughtMetadataMock,
-  extractSearchCuesMock,
+  extractRecallCuesMock,
   maybeRefreshUserOntologyMock,
   upsertThoughtRelationMock,
   deleteThoughtOutgoingGraphEdgesMock,
@@ -29,7 +29,7 @@ const {
   syncEntityGraphFromThoughtMock: vi.fn(),
   syncTemporalEventsFromThoughtMock: vi.fn(),
   extractThoughtMetadataMock: vi.fn(),
-  extractSearchCuesMock: vi.fn(),
+  extractRecallCuesMock: vi.fn(),
   maybeRefreshUserOntologyMock: vi.fn(),
   upsertThoughtRelationMock: vi.fn(),
   deleteThoughtOutgoingGraphEdgesMock: vi.fn(),
@@ -57,7 +57,13 @@ vi.mock('$lib/server/memory/extract-thought-metadata', () => ({
   extractThoughtMetadata: extractThoughtMetadataMock,
 }))
 vi.mock('$lib/server/memory/search-cues', () => ({
-  extractSearchCues: extractSearchCuesMock,
+  extractRecallCues: extractRecallCuesMock,
+}))
+vi.mock('$lib/server/capture/ask-question-store', () => ({
+  askQuestionColumns: vi.fn(async (_userId: string, question: string | null) => ({
+    askQuestion: question,
+    askQuestionEncrypted: question === null ? null : `enc(${question})`,
+  })),
 }))
 vi.mock('$lib/server/ontology', () => ({ maybeRefreshUserOntology: maybeRefreshUserOntologyMock }))
 vi.mock('$lib/server/graph/age', () => ({
@@ -134,7 +140,10 @@ describe('enrichThought', () => {
     extractThoughtMetadataMock.mockResolvedValue({
       cues: ['cue one', 'cue two'],
     })
-    extractSearchCuesMock.mockResolvedValue(['cue one', 'cue two'])
+    extractRecallCuesMock.mockResolvedValue({
+      cues: ['cue one', 'cue two'],
+      askQuestion: 'What did I say hello about?',
+    })
     maybeRefreshUserOntologyMock.mockResolvedValue(undefined)
     materializeRetrievalLinksForThoughtMock.mockResolvedValue(undefined)
     syncThoughtNeighborLinksMock.mockResolvedValue(0)
@@ -256,11 +265,14 @@ describe('enrichThought', () => {
   it('extracts and persists search cues when extraction returns values', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractSearchCuesMock.mockResolvedValue(['option B decision', 'choice made'])
+    extractRecallCuesMock.mockResolvedValue({
+      cues: ['option B decision', 'choice made'],
+      askQuestion: 'Which option did I decide on?',
+    })
 
     await enrichThought('u1', 't1', 'I decided to go with option B')
 
-    expect(extractSearchCuesMock).toHaveBeenCalledWith({
+    expect(extractRecallCuesMock).toHaveBeenCalledWith({
       userId: 'u1',
       normalizedText: 'I decided to go with option B',
     })
@@ -273,6 +285,61 @@ describe('enrichThought', () => {
           (args[0] as { cues?: string[] }).cues?.length === 2,
       ),
     ).toBe(true)
+  })
+
+  it('persists the bundle question encrypted without a second LLM call (AC-1, AC-7)', async () => {
+    const db = makeDb()
+    getDbMock.mockReturnValue(db)
+
+    await enrichThought('u1', 't1', 'Call the plumber about the kitchen sink', {
+      precomputedRecall: {
+        cues: ['plumber kitchen sink'],
+        askQuestion: 'What did I need to call the plumber about?',
+      },
+    })
+
+    expect(extractRecallCuesMock).not.toHaveBeenCalled()
+    const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
+    expect(setCalls.map((args: unknown[]) => args[0])).toContainEqual({
+      cues: ['plumber kitchen sink'],
+      askQuestion: 'What did I need to call the plumber about?',
+      askQuestionEncrypted: 'enc(What did I need to call the plumber about?)',
+    })
+  })
+
+  it('stores null (clears any old question) when the LLM finds no sensible question (AC-3)', async () => {
+    const db = makeDb()
+    getDbMock.mockReturnValue(db)
+
+    await enrichThought('u1', 't1', 'hi', { precomputedRecall: { cues: [], askQuestion: null } })
+
+    const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
+    expect(setCalls.map((args: unknown[]) => args[0])).toContainEqual({
+      askQuestion: null,
+      askQuestionEncrypted: null,
+    })
+  })
+
+  it('re-enrich after an edit rewrites the question from the new text (AC-5)', async () => {
+    const db = makeDb()
+    getDbMock.mockReturnValue(db)
+    extractRecallCuesMock.mockResolvedValue({
+      cues: ['dentist appointment'],
+      askQuestion: 'When is my dentist appointment?',
+    })
+
+    await reenrichThought('u1', 't1', 'Dentist appointment on Friday at 9')
+
+    expect(extractRecallCuesMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      normalizedText: 'Dentist appointment on Friday at 9',
+    })
+    const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
+    expect(setCalls.map((args: unknown[]) => args[0])).toContainEqual({
+      cues: ['dentist appointment'],
+      askQuestion: 'When is my dentist appointment?',
+      askQuestionEncrypted: 'enc(When is my dentist appointment?)',
+    })
   })
 
   it('triggers ontology refresh when thoughtCountAfterInsert is provided', async () => {
@@ -376,7 +443,7 @@ describe('enrichThought', () => {
   it('does not set enriched_at when a step fails', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractSearchCuesMock.mockRejectedValue(new Error('boom'))
+    extractRecallCuesMock.mockRejectedValue(new Error('boom'))
 
     await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(
       /Enrichment step\(s\) failed:.*cues: boom/,
@@ -415,7 +482,7 @@ describe('enrichThought', () => {
   it('continues enriching remaining steps when one step throws', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractSearchCuesMock.mockRejectedValue(new Error('cues failed'))
+    extractRecallCuesMock.mockRejectedValue(new Error('cues failed'))
 
     await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/cues failed/)
 
@@ -527,7 +594,7 @@ describe('enrichThought', () => {
   it('omits cues from metadata update when extraction returns none', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
-    extractSearchCuesMock.mockResolvedValue([])
+    extractRecallCuesMock.mockResolvedValue({ cues: [], askQuestion: null })
 
     await enrichThought('u1', 't1', 'hello')
 
@@ -616,7 +683,7 @@ describe('enrichThought', () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    extractSearchCuesMock.mockRejectedValue('cues failed')
+    extractRecallCuesMock.mockRejectedValue('cues failed')
 
     await expect(enrichThought('u1', 't1', 'hello')).rejects.toThrow(/cues failed/)
 

@@ -253,7 +253,7 @@
   }
 </script>
 
-<div class="mx-auto max-w-xl space-y-6 px-5 pb-8 pt-10">
+<div class="mx-auto max-w-xl space-y-6 px-5 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   <header class="text-center">
     <p class="text-muted-foreground mt-2 flex items-center justify-center gap-1.5 text-xs">
       <Send class="size-3.5" strokeWidth={1.75} />
@@ -261,7 +261,7 @@
     </p>
   </header>
 
-  <div class="rounded-sm border border-black/10 px-4 py-3 dark:border-white/10 space-y-2">
+  <div class="rounded-sm border border-border px-4 py-3 space-y-2">
     <p class="text-xs font-medium text-foreground">Eigenmesh orchestration</p>
     <p class="text-muted-foreground text-[11px] leading-relaxed">
       Register agents that receive webhooks when thoughts change or when you assign them work.
@@ -273,7 +273,7 @@
   </div>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card"
+    class="border border-border bg-card"
   >
     <Card.Header>
       <Card.Title class="text-sm">Register webhook</Card.Title>
@@ -289,7 +289,7 @@
   </Card.Root>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] border border-black/10 bg-card"
+    class="border border-border bg-card"
   >
     <Card.Header>
       <Card.Title class="text-sm">Your webhooks</Card.Title>
@@ -300,7 +300,7 @@
       {:else}
         <div class="space-y-2">
           {#each agents as agent (agent.id)}
-            <div class="rounded-sm border border-black/10 px-3 py-2 dark:border-white/10">
+            <div class="rounded-sm border border-border px-3 py-2">
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-xs font-medium">{agent.name}</p>
@@ -315,12 +315,12 @@
                     <div class="mt-1 flex flex-wrap gap-1">
                       {#each agentProjectBindings[agent.id] as binding (binding.projectEntityId)}
                         <span
-                          class="inline-flex items-center gap-0.5 rounded-sm bg-blue-50 px-1.5 py-0.5 text-[9px] text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                          class="inline-flex items-center gap-0.5 rounded-sm bg-[var(--signal-2)] px-1.5 py-0.5 text-[9px] text-[var(--signal)]"
                         >
                           {binding.projectLabel}
                           <button
                             type="button"
-                            class="hover:text-blue-900 dark:hover:text-blue-100"
+                            class="hover:text-foreground"
                             onclick={() =>
                               void toggleAgentProject(agent.id, binding.projectEntityId, true)}
                           >
@@ -362,7 +362,7 @@
                   </Button>
                   <button
                     type="button"
-                    class="rounded-sm p-1.5 text-muted-foreground hover:text-red-500"
+                    class="rounded-sm p-1.5 text-muted-foreground hover:text-destructive"
                     onclick={() => void deleteAgent(agent.id)}
                     aria-label="Delete agent"
                   >
@@ -378,7 +378,7 @@
   </Card.Root>
 
   {#if deliveries.length > 0}
-    <Card.Root class="ring-0 border border-black/10 bg-card">
+    <Card.Root class="border border-border bg-card">
       <Card.Header>
         <Card.Title class="text-sm">Recent deliveries</Card.Title>
       </Card.Header>
@@ -386,7 +386,7 @@
         {#each deliveries.slice(0, 10) as d (d.id)}
           <div class="flex justify-between gap-2 text-[10px]">
             <span class="truncate font-mono">{d.eventType} → {agentLabel(d.agentId)}</span>
-            <span class={d.status === 'delivered' ? 'text-green-600' : 'text-muted-foreground'}>
+            <span class={d.status === 'delivered' ? 'text-foreground' : 'text-muted-foreground'}>
               {d.status}
             </span>
           </div>
@@ -396,7 +396,7 @@
   {/if}
 
   {#if assignments.length > 0}
-    <Card.Root class="ring-0 border border-black/10 bg-card">
+    <Card.Root class="border border-border bg-card">
       <Card.Header>
         <Card.Title class="text-sm">Task assignments</Card.Title>
       </Card.Header>
@@ -500,7 +500,7 @@
               class="absolute right-1 top-1 p-1"
               onclick={() => void copyText(generatedSecrets!.signingSecret, 'signing')}
             >
-              {#if copiedField === 'signing'}<Check class="size-4 text-green-500" />{:else}<CopyIcon
+              {#if copiedField === 'signing'}<Check class="size-4 text-foreground" />{:else}<CopyIcon
                   class="size-4"
                 />{/if}
             </button>
@@ -520,7 +520,7 @@
               onclick={() => void copyText(generatedSecrets!.callbackToken, 'callback')}
             >
               {#if copiedField === 'callback'}<Check
-                  class="size-4 text-green-500"
+                  class="size-4 text-foreground"
                 />{:else}<CopyIcon class="size-4" />{/if}
             </button>
           </div>
