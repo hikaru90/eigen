@@ -1,7 +1,7 @@
 /**
  * Monotonic epoch used to drop stale voice transcripts after a submit.
  *
- * The counter is bumped on every submit (send / resend / regenerate) and on every
+ * The counter is bumped on every submit (send / resend) and on every
  * new voice recording start. A transcript (partial or final) is applied to the
  * composer input only when the epoch captured at record-start still matches the
  * current epoch — i.e. no submit has happened since the recording that produced

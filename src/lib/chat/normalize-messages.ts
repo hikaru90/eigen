@@ -1,4 +1,4 @@
-import { looksLikeRawToolJson, parseFinalAnswerText, toolLabel } from './chat-stream-types'
+import { looksLikeRawToolJson, toolLabel } from './chat-stream-types'
 
 export type ChatToolCallEntry = {
   role: 'assistant'
@@ -36,6 +36,8 @@ export type ChatTimelineEntry = {
   failed?: boolean
   /** When a matching final text bubble follows, hide duplicate prose here. */
   hideProse?: boolean
+  /** Progress labels the tool reported while running, in order (finished steps). */
+  steps?: string[]
 }
 
 export type ChatDisplayEntry =
@@ -110,6 +112,16 @@ const TOOL_RUN_TIMELINE_KINDS = new Set<ChatTimelineKind>([
   'tool_result',
 ])
 
+/** Progress labels in order, without consecutive repeats. */
+function progressLabels(labels: Array<string | undefined>): string[] {
+  const out: string[] = []
+  for (const raw of labels) {
+    const label = raw?.trim()
+    if (label && out.at(-1) !== label) out.push(label)
+  }
+  return out
+}
+
 /** One visible row per tool run — avoids a flash of separate call/execute/progress/result lines. */
 export function collapseToolTimelineSteps(entries: ChatDisplayEntry[]): ChatDisplayEntry[] {
   const out: ChatDisplayEntry[] = []
@@ -146,9 +158,10 @@ export function collapseToolTimelineSteps(entries: ChatDisplayEntry[]): ChatDisp
     const slice = entries.slice(i, j + 1) as ChatTimelineEntry[]
     const result = slice.find((e) => e.kind === 'tool_result')
     const toolCall = slice.find((e) => e.kind === 'tool_call')
-    const latestProgress = [...slice]
-      .reverse()
-      .find((e) => e.kind === 'tool_progress' || e.kind === 'tool_executing')
+
+    const steps = progressLabels(
+      slice.flatMap((e) => [...(e.steps ?? []), ...(e.kind === 'tool_progress' ? [e.label] : [])]),
+    )
 
     if (result) {
       out.push({
@@ -160,6 +173,7 @@ export function collapseToolTimelineSteps(entries: ChatDisplayEntry[]): ChatDisp
         content: result.content,
         failed: result.failed,
         arguments: toolCall?.arguments,
+        steps,
       })
     } else {
       out.push({
@@ -167,8 +181,10 @@ export function collapseToolTimelineSteps(entries: ChatDisplayEntry[]): ChatDisp
         variant: 'timeline',
         kind: 'tool_progress',
         tool,
-        label: latestProgress?.label ?? toolLabel(tool),
+        label: toolLabel(tool),
         arguments: toolCall?.arguments,
+        // Every step so far; the last one is the one still running.
+        steps,
       })
     }
     i = j + 1
@@ -198,25 +214,26 @@ export function normalizeChatDisplay(entries: ChatDisplayEntry[]): ChatDisplayEn
 
     const collapsed = collapseToolTimelineSteps(filtered)
 
+    // The final answer text of a turn is the answer: an answer_question card earlier in
+    // the same turn keeps its evidence but does not repeat the prose (the agent often
+    // rewords it, so this is decided by turn structure, not by comparing text).
     const out: ChatDisplayEntry[] = []
-    for (const entry of collapsed) {
-      const prev = out.at(-1)
-      if (
+    let finalTextFollows = false
+    for (let k = collapsed.length - 1; k >= 0; k--) {
+      const entry = collapsed[k]!
+      if (entry.role === 'user') finalTextFollows = false
+      else if (entry.role === 'assistant' && entry.variant === 'text') finalTextFollows = true
+      else if (
+        finalTextFollows &&
         entry.role === 'assistant' &&
-        entry.variant === 'text' &&
-        prev?.role === 'assistant' &&
-        prev.variant === 'timeline' &&
-        prev.kind === 'tool_result' &&
-        prev.tool === 'answer_question' &&
-        prev.content &&
-        normalizeAnswerText(parseFinalAnswerText('', prev.content)) ===
-          normalizeAnswerText(entry.content)
+        entry.variant === 'timeline' &&
+        entry.kind === 'tool_result' &&
+        entry.tool === 'answer_question'
       ) {
-        out[out.length - 1] = { ...prev, hideProse: true }
-        out.push(entry)
+        out.unshift({ ...entry, hideProse: true })
         continue
       }
-      out.push(entry)
+      out.unshift(entry)
     }
     return out
   }
@@ -303,12 +320,19 @@ export function compactChatIntermediateSteps(steps: StoredChatStep[]): StoredCha
         result?.metadata.variant === 'tool_result' &&
         result.metadata.tool === tool
       ) {
+        const progress = progressLabels(
+          steps
+            .slice(i + 1, j)
+            .filter((s) => s.metadata.variant === 'tool_progress')
+            .map((s) => (typeof s.metadata.label === 'string' ? s.metadata.label : s.content)),
+        )
         out.push({
           content: result.content,
           metadata: {
             variant: 'tool_step',
             tool,
             arguments: cur.metadata.arguments ?? {},
+            steps: progress,
             displaySummary: result.metadata.displaySummary,
             failed: result.metadata.failed === true,
           },
@@ -401,6 +425,9 @@ export function sessionMessagesToChatEntries(messages: PersistedChatMessage[]): 
           arguments: (meta.arguments as Record<string, unknown>) ?? {},
           content: toolResultPayloadFromMetadata(m.content, meta),
           failed: meta.failed === true,
+          steps: Array.isArray(meta.steps)
+            ? meta.steps.filter((x): x is string => typeof x === 'string')
+            : [],
         }),
       )
       continue
@@ -479,6 +506,7 @@ export function toolStepToTimelineEntries(input: {
   arguments?: Record<string, unknown>
   content: string
   failed?: boolean
+  steps?: string[]
 }): ChatTimelineEntry[] {
   const tool = input.tool
   return [
@@ -497,6 +525,15 @@ export function toolStepToTimelineEntries(input: {
       tool,
       label: `Executing tool · ${tool}`,
     },
+    ...(input.steps ?? []).map(
+      (label): ChatTimelineEntry => ({
+        role: 'assistant',
+        variant: 'timeline',
+        kind: 'tool_progress',
+        tool,
+        label,
+      }),
+    ),
     {
       role: 'assistant',
       variant: 'timeline',
