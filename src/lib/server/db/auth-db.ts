@@ -23,8 +23,15 @@ function getAuthDb(): PostgresJsDatabase<typeof authSchema> {
  * Dedicated pool for Better Auth so it never shares connections with RLS-scoped app queries.
  * Lazy proxies (see `appSql` in `./index`): importing this module must not read env or throw;
  * pool and drizzle instance are created on first actual use.
+ *
+ * The postgres client is itself called as a tagged template (authSql`SELECT …`), so the
+ * proxy target must be a function and `apply` must forward to the real pool — a `{}`
+ * target makes every direct call throw "authSql is not a function".
  */
-export const authSql: postgres.Sql = new Proxy({} as postgres.Sql, {
+export const authSql: postgres.Sql = new Proxy(function lazyAuthSql() {} as unknown as postgres.Sql, {
+  apply(_target, _thisArg, args) {
+    return (getAuthSql() as unknown as (...a: unknown[]) => unknown)(...args)
+  },
   get(_target, prop) {
     const real = getAuthSql() as postgres.Sql & Record<string | symbol, unknown>
     const value = real[prop]
