@@ -447,7 +447,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'create_text_file',
     description:
-      'Create a NEW user-scoped text note (not a thought). Inserts a new Notes-tab document — never use this to add items to an existing list or amend a named note. For additive edits (e.g. add milk to shopping list), search_text_files or list_text_files, then append_text_file. Provide title and/or body (at least one required). Title-only is valid for empty new lists/notebooks. Do not use capture_thought for Notes documents.',
+      'Create a NEW user-scoped text note (not a thought). Inserts a new Notes-tab document — never use this to add items to an existing list or amend a named note. For additive edits (e.g. add milk to shopping list), search_text_files or list_text_files, then append_text_file. Provide title and/or body (at least one required). Title-only is valid for empty new lists/notebooks. Notes documents are not memory thoughts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -623,8 +623,20 @@ export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
   MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler]),
 )
 
-/** All registered tools available to the in-app chat agent. */
+/** All registered tools (superset — HTTP MCP exposure + handler map). The ask/chat
+ *  loop filters this down to CHAT_AGENT_TOOL_NAMES. */
 export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
+
+/**
+ * Tools the in-app ask/chat loop may call. The ask surface is ask-only:
+ * capture_thought is deliberately excluded so a question typed into Ask can
+ * never be stored as a new thought (deterministic surface boundary — no string
+ * heuristics deciding "is this a question"). Capturing belongs to the Capture
+ * surface and to HTTP MCP clients, both of which keep the tool.
+ */
+export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
+  (t) => t.name !== 'capture_thought',
+).map((t) => t.name)
 
 /** HTTP MCP client surface (minimal memory CRUD). */
 export const MCP_CLIENT_EXPOSED_TOOL_NAMES = MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)
@@ -637,8 +649,14 @@ export function isAgentTool(name: string): boolean {
   return MCP_TOOL_MAP.has(name)
 }
 
-export function buildAgentToolDescriptionBlock(): string {
-  return MCP_TOOL_DEFINITIONS.map(
-    (t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`,
-  ).join('\n\n')
+/** Gate for the ask/chat loop's toolset (capture_thought excluded). */
+export function isChatAgentTool(name: string): boolean {
+  return CHAT_AGENT_TOOL_NAMES.includes(name)
+}
+
+/** Tool catalog shown to the ask/chat model — same block, capture-free. */
+export function buildChatAgentToolDescriptionBlock(): string {
+  return MCP_TOOL_DEFINITIONS.filter((t) => isChatAgentTool(t.name))
+    .map((t) => `- ${t.name}: ${t.description}\n  Arguments: ${t.agentArgumentSchema}`)
+    .join('\n\n')
 }

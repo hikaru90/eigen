@@ -106,7 +106,7 @@
 
 <div
   id={cardId}
-  class="flex shrink-0 flex-col gap-3 overflow-visible bg-white p-4 brightness-105 dark:bg-card"
+  class="flex shrink-0 flex-col gap-3 overflow-visible bg-paper-2 p-4"
 >
   <div class="flex items-start justify-between gap-3">
     <div class="min-w-0 space-y-2">
@@ -119,7 +119,7 @@
       type="button"
       variant="ghost"
       size="icon"
-      class="size-8 shrink-0 text-black hover:text-black/70 dark:text-foreground dark:hover:text-foreground/70"
+      class="size-8 shrink-0 text-ink hover:text-ink/70 dark:text-foreground dark:hover:text-foreground/70"
       disabled={loading}
       onclick={dismiss}
       aria-label="Dismiss question"

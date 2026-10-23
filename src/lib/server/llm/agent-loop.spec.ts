@@ -64,10 +64,8 @@ vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
   return { ...actual, runEnforcedBoundedDecisions: runEnforcedBoundedDecisionsMock }
 })
-vi.mock('$lib/server/mcp/registry', () => ({
-  MCP_EXPOSED_TOOL_MAP: mcpToolMap,
-  MCP_TOOL_MAP: mcpToolMap,
-  MCP_AGENT_TOOL_NAMES: [
+vi.mock('$lib/server/mcp/registry', () => {
+  const ALL_AGENT_TOOLS = [
     'capture_thought',
     'retrieve_thoughts',
     'answer_question',
@@ -82,26 +80,18 @@ vi.mock('$lib/server/mcp/registry', () => ({
     'search_text_files',
     'link_text_file_to_thought',
     'unlink_text_file_from_thought',
-  ],
-  buildAgentToolDescriptionBlock: () => '',
-  isAgentTool: (name: string) =>
-    [
-      'capture_thought',
-      'retrieve_thoughts',
-      'answer_question',
-      'edit_thought',
-      'delete_thought',
-      'create_text_file',
-      'list_text_files',
-      'get_text_file',
-      'update_text_file',
-      'append_text_file',
-      'delete_text_file',
-      'search_text_files',
-      'link_text_file_to_thought',
-      'unlink_text_file_from_thought',
-    ].includes(name),
-}))
+  ]
+  const CHAT_TOOLS = ALL_AGENT_TOOLS.filter((name) => name !== 'capture_thought')
+  return {
+    MCP_EXPOSED_TOOL_MAP: mcpToolMap,
+    MCP_TOOL_MAP: mcpToolMap,
+    MCP_AGENT_TOOL_NAMES: ALL_AGENT_TOOLS,
+    CHAT_AGENT_TOOL_NAMES: CHAT_TOOLS,
+    buildChatAgentToolDescriptionBlock: () => '',
+    isAgentTool: (name: string) => ALL_AGENT_TOOLS.includes(name),
+    isChatAgentTool: (name: string) => CHAT_TOOLS.includes(name),
+  }
+})
 
 import { agentChat, AGENT_SYSTEM_PROMPT, AgentParseError } from './agent-loop'
 import { STRONG_RETRIEVE_MATCH_MIN } from './agent-tool-result-compact'
@@ -649,23 +639,43 @@ describe('agentChat', () => {
     )
   })
 
-  it('captures via capture_thought when the model chooses it', async () => {
+  it('never captures from ask: a capture_thought call is rejected and the question is answered instead', async () => {
     captureThoughtMock.mockResolvedValue({ thoughtId: 't-new', status: 'queued' })
+    answerQuestionMock.mockResolvedValue({
+      answer:
+        'Answer: You noted mirin for the glaze.\nEvidence:\n- mirin glaze [id=t1]\nUnknown:\n- none',
+      citations: ['t1'],
+      retrieved: [],
+      conflicts: [],
+    })
     llmChatCompletionMock
       .mockResolvedValueOnce(
-        llmJson({ tool: 'capture_thought', arguments: { raw: 'I love mirin' } }),
+        llmJson({ tool: 'capture_thought', arguments: { raw: 'what did I note about mirin?' } }),
       )
-      .mockResolvedValueOnce(llmJson({ answer: 'Saved.' }))
+      .mockResolvedValueOnce(
+        llmJson({
+          tool: 'answer_question',
+          arguments: { question: 'what did I note about mirin?' },
+        }),
+      )
 
     const result = await agentChat({
       userId: 'u1',
-      messages: [{ role: 'user', content: 'remember that I love mirin' }],
+      messages: [{ role: 'user', content: 'what did I note about mirin?' }],
     })
 
-    expect(captureThoughtMock).toHaveBeenCalledWith(expect.anything(), {
-      raw: 'I love mirin',
-    })
-    expect(result.response).toBe('Saved.')
+    // the ask loop must never store the user's question as a thought
+    expect(captureThoughtMock).not.toHaveBeenCalled()
+    expect(answerQuestionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ question: 'what did I note about mirin?' }),
+    )
+    expect(result.response).not.toBe('')
+  })
+
+  it('system prompt is capture-free: Ask never offers storing new thoughts', () => {
+    expect(AGENT_SYSTEM_PROMPT).not.toContain('capture_thought')
+    expect(AGENT_SYSTEM_PROMPT).toContain('ask-only')
   })
 
   it('creates a text note via create_text_file when the model chooses it', async () => {

@@ -1,60 +1,24 @@
 import type { PageServerLoad } from './$types'
 import { redirect } from '@sveltejs/kit'
-import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend'
-import { getDb } from '$lib/server/db'
-import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/age'
-import { loadAuthorLayerGraphData } from '$lib/server/graph/author-layers'
-import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays'
-import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
+
+/**
+ * /memory left the chrome with the ei redesign (docs/planning/ei-redesign.md,
+ * decision 1): Yarn / Threads / Patterns under /mesh replace the old Memory hub,
+ * and the raw graph / embeddings views that lived here have no nav home for now.
+ *
+ * A `?thought=` deep link (what the /graph legacy redirect forwards) still has
+ * a home — the thought page — so it is handed on rather than dropped. Every
+ * other query param described a retired view and is let go.
+ */
+function meshPath(url: URL): string {
+  const thought = url.searchParams.get('thought')
+  if (thought) return `/thought/${encodeURIComponent(thought)}`
+  return '/mesh'
+}
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {
     throw redirect(302, '/login')
   }
-
-  const userId = event.locals.user.id
-  await ensureUserOntologySeeded(getDb(), userId)
-  const loaded = await loadOntologyForUser(getDb(), userId)
-  const graphLegendSections = mergeGraphLegendWithUserOntology({
-    entityKinds: loaded.entityKinds.map((k) => ({
-      key: k.key,
-      name: k.name,
-      definition: k.definition,
-      active: k.active,
-    })),
-    relationKinds: loaded.relationKinds.map((r) => ({
-      key: r.key,
-      meaning: r.meaning,
-      active: r.active,
-      fromKindKey: loaded.entityKindsById.get(r.fromOntologyEntityKindId)?.key ?? '',
-      toKindKey: loaded.entityKindsById.get(r.toOntologyEntityKindId)?.key ?? '',
-    })),
-  })
-  const [snapshot, communities, authorLayerData] = await Promise.all([
-    fetchGraphVisualizationSnapshot({
-      userId,
-      nodeLimit: 500,
-      edgeLimit: 1200,
-    }),
-    fetchGraphCommunityOverlays(userId),
-    loadAuthorLayerGraphData(userId),
-  ])
-
-  const annotatedSnapshot = {
-    ...snapshot,
-    nodes: snapshot.nodes.map((node) => ({
-      ...node,
-      authorLayerKeys: authorLayerData.entityAuthorLayerKeys[node.id] ?? ['user'],
-    })),
-  }
-
-  return {
-    user: event.locals.user,
-    snapshot: annotatedSnapshot,
-    graphLegendSections,
-    communities,
-    authorLayers: authorLayerData.authorLayers,
-    entityAuthorLayerKeys: authorLayerData.entityAuthorLayerKeys,
-    coMentionEdgeLayerKeys: authorLayerData.coMentionEdgeLayerKeys,
-  }
+  throw redirect(302, meshPath(event.url))
 }

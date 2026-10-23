@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ErpNextSyncStatus } from '$lib/server/billing/erpnext-invoice-push'
 
-const { listAdminSpendByUserMock, listAdminActivityCallsMock, resolveAdminUserByQueryMock } =
-  vi.hoisted(() => ({
-    listAdminSpendByUserMock: vi.fn(),
-    listAdminActivityCallsMock: vi.fn(),
-    resolveAdminUserByQueryMock: vi.fn(),
-  }))
+const {
+  listAdminSpendByUserMock,
+  listAdminActivityCallsMock,
+  resolveAdminUserByQueryMock,
+  loadErpNextSyncStatusMock,
+} = vi.hoisted(() => ({
+  listAdminSpendByUserMock: vi.fn(),
+  listAdminActivityCallsMock: vi.fn(),
+  resolveAdminUserByQueryMock: vi.fn(),
+  loadErpNextSyncStatusMock: vi.fn(),
+}))
 
 vi.mock('$lib/server/billing/admin-spend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/server/billing/admin-spend')>()
@@ -17,7 +23,20 @@ vi.mock('$lib/server/billing/admin-spend', async (importOriginal) => {
   }
 })
 
+// The ERPNext sync counters query Postgres directly whenever ERPNEXT_* env is set;
+// this spec covers the page load's parsing + delegation and must stay hermetic.
+vi.mock('$lib/server/billing/erpnext-invoice-push', () => ({
+  loadErpNextSyncStatus: loadErpNextSyncStatusMock,
+}))
+
 import { load } from './+page.server'
+
+const erpNextNotConfigured: ErpNextSyncStatus = {
+  configured: false,
+  uninvoicedCount: 0,
+  invoicedCount: 0,
+  failedJobCount: 0,
+}
 
 const emptySpend = {
   rows: [],
@@ -55,6 +74,7 @@ describe('admin/spend page server load', () => {
     listAdminSpendByUserMock.mockResolvedValue(emptySpend)
     listAdminActivityCallsMock.mockResolvedValue(emptyCalls)
     resolveAdminUserByQueryMock.mockResolvedValue(null)
+    loadErpNextSyncStatusMock.mockResolvedValue(erpNextNotConfigured)
   })
 
   it('auth is enforced by admin layout requireAdmin, not this page load', async () => {
@@ -79,6 +99,8 @@ describe('admin/spend page server load', () => {
     expect(result.rows).toEqual([])
     expect(result.totals).toEqual(emptySpend.totals)
     expect(result.pagination).toEqual(emptySpend.pagination)
+    expect(result.erpNext).toEqual(erpNextNotConfigured)
+    expect(loadErpNextSyncStatusMock).toHaveBeenCalledTimes(1)
     expect(result.search).toBe('')
     expect(result.sort).toBe('totalGatewayCostUsd')
     expect(result.sortAsc).toBe(false)

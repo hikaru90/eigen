@@ -122,7 +122,7 @@
   {#if !compact}
     <div>
       <p class="text-muted-foreground text-xs">Current balance</p>
-      <p class="text-3xl font-semibold tracking-tight tabular-nums">
+      <p class="text-3xl font-medium tracking-tight tabular-nums">
         {formatWalletBalance(availableCredits)}
         <span class="text-muted-foreground text-base font-normal"> credits</span>
       </p>
@@ -184,7 +184,7 @@
             </div>
             <div class="border-border/60 flex items-baseline justify-between gap-3 border-t pt-1.5">
               <dt class="font-medium">Total due at PayPal</dt>
-              <dd class="text-lg font-semibold tabular-nums tracking-tight">
+              <dd class="text-lg font-medium tabular-nums tracking-tight">
                 {formatUsdAmount(checkoutQuote.totalDueUsd)}
                 <span class="text-muted-foreground text-sm font-normal"> USD</span>
               </dd>
@@ -192,7 +192,7 @@
           {:else}
             <div class="flex items-baseline justify-between gap-3">
               <dt class="text-muted-foreground">Total due at PayPal</dt>
-              <dd class="text-lg font-semibold tabular-nums tracking-tight">—</dd>
+              <dd class="text-lg font-medium tabular-nums tracking-tight">—</dd>
             </div>
           {/if}
         </dl>
@@ -218,7 +218,7 @@
           type="button"
           variant="default"
           size="sm"
-          class="h-auto min-h-10 gap-2 rounded-[4px] border-0 bg-[#ffc439] px-5 py-2.5 font-semibold text-[#003087] hover:bg-[#f2ba36] dark:bg-[#ffc439] dark:text-[#003087] dark:hover:bg-[#f2ba36]"
+          class="h-auto min-h-10 gap-2 rounded-[4px] border-0 bg-[#ffc439] px-5 py-2.5 font-medium text-[#003087] hover:bg-[#f2ba36] dark:bg-[#ffc439] dark:text-[#003087] dark:hover:bg-[#f2ba36]"
           bind:ref={paypalButtonEl}
           disabled={!paypalReady || !topUpValid}
           aria-label={paypalReady

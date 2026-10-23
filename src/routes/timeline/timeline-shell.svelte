@@ -400,7 +400,7 @@
           type="button"
           variant="ghost"
           size="icon"
-          class="size-7 shrink-0 text-black hover:bg-black/5 dark:text-foreground dark:hover:bg-white/10"
+          class="size-7 shrink-0 text-ink hover:bg-paper-2 dark:text-foreground"
           title={m.graph_temporal_refresh()}
           disabled={refreshBusy}
           onclick={refreshAll}

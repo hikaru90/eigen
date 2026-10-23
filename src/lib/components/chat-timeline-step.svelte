@@ -1,7 +1,6 @@
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check'
-  import CircleX from '@lucide/svelte/icons/circle-x'
-  import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle'
+  import XIcon from '@lucide/svelte/icons/x'
   import {
     evidenceHitsFromAnswerQuestionPayload,
     formatToolArgumentsSummary,
@@ -10,10 +9,17 @@
     type ToolResultMemoryHit,
   } from '$lib/chat/chat-stream-types'
   import type { ChatTimelineKind } from '$lib/chat/normalize-messages'
+  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import ChatErrorMessage from '$lib/components/chat-error-message.svelte'
   import ChatMarkdown from '$lib/components/chat-markdown.svelte'
   import ChatMemoryReferenceCard from '$lib/components/chat-memory-reference-card.svelte'
 
+  /**
+   * One step of the agent loop, whisper-grade (ei "No machinery"): a fine glyph or the
+   * mesh spinner, the step's label in a quiet line, your query in your voice, and — when
+   * the step brought thoughts back — the sources rows. Everything the loop does stays
+   * visible; it just stops shouting.
+   */
   type Props = {
     kind: ChatTimelineKind
     label: string
@@ -85,54 +91,49 @@
   })
 </script>
 
-<div class="flex min-w-0 w-full flex-col gap-1.5 py-0.5">
-  <div
-    class="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-2.5 py-1 text-xs text-muted-foreground"
-  >
-    {#if running}
-      <LoaderCircleIcon class="size-3 shrink-0 animate-spin" />
-    {:else if failed}
-      <CircleX class="size-3 shrink-0 text-destructive" strokeWidth={1.75} aria-hidden="true" />
-    {:else}
-      <div class="size-3 shrink-0 flex items-center justify-center bg-muted">
-        <CheckIcon class="size-2 text-green-600 dark:text-green-500" aria-hidden="true" />
-      </div>
-    {/if}
-    <span class="min-w-0 wrap-break-word leading-snug">{label}</span>
+<div class={["flex flex-col gap-1.5 min-w-0 w-full py-1 animate-[fade_0.6s_var(--ease)_both]", failed && "[&_.glyph]:text-warn"]}>
+  <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 min-w-0 font-mesh text-sm leading-[1.4] text-ink-3">
+    <span class="glyph grid place-items-center size-4 shrink-0 text-ink-3" aria-hidden="true">
+      {#if running}
+        <MeshSpinner working size={16} />
+      {:else if failed}
+        <XIcon size={12} strokeWidth={1.5} />
+      {:else}
+        <CheckIcon size={12} strokeWidth={1.5} />
+      {/if}
+    </span>
+    <span class="min-w-0 [overflow-wrap:anywhere]">{label}</span>
     {#if argSummary}
-      <p class="min-w-0 leading-relaxed text-muted-foreground wrap-break-word ellipsis">
-        {argSummary}
-      </p>
+      <span class="min-w-0 font-you text-sm text-ink-3 [overflow-wrap:anywhere]">{argSummary}</span>
     {/if}
   </div>
 
   {#if kind === 'tool_result' && answerQuestionProse}
-    <div class="pl-1">
+    <div class="pl-[26px] max-[640px]:pl-0">
       <ChatMarkdown content={answerQuestionProse} />
     </div>
   {/if}
 
   {#if kind === 'tool_result' && memoryHits.length > 0}
-    <ul class="flex flex-col gap-2 list-none m-0 p-0 pl-1">
+    <ul class="mt-1.5 mb-0 ml-[26px] p-0 list-none max-[640px]:ml-0">
       {#each memoryHits as hit, i (`${i}:${hit.id ?? hit.text}`)}
-        <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} />
+        <ChatMemoryReferenceCard id={hit.id} text={hit.text} category={hit.category} index={i} />
       {/each}
     </ul>
   {:else if kind === 'tool_result' && tool === 'answer_question' && toolErrorMessage}
-    <ChatErrorMessage message={toolErrorMessage} class="ml-1" />
+    <ChatErrorMessage message={toolErrorMessage} class="aside ml-[26px] max-[640px]:ml-0" />
   {:else if kind === 'tool_result' && genericResultView}
-    <div class="pl-1 text-sm text-foreground">
-      {#if genericResultView.kind === 'memories'}
-        <p class="text-muted-foreground">No matching memories.</p>
-      {:else if genericResultView.kind === 'error'}
-        <ChatErrorMessage message={genericResultView.message} />
-      {/if}
-    </div>
+    {#if genericResultView.kind === 'memories'}
+      <p class="aside ml-[26px] max-[640px]:ml-0 text-sm text-ink-3">No matching memories.</p>
+    {:else if genericResultView.kind === 'error'}
+      <ChatErrorMessage message={genericResultView.message} class="aside ml-[26px] max-[640px]:ml-0" />
+    {/if}
   {:else if showToolResultText && genericResultView?.kind === 'text'}
-    <div class="pl-1">
+    <div class="ml-[26px] max-[640px]:ml-0">
       <ChatMarkdown content={genericResultView.text} tone="muted" />
     </div>
   {:else if kind === 'tool_result' && toolErrorMessage}
-    <ChatErrorMessage message={toolErrorMessage} class="ml-1" />
+    <ChatErrorMessage message={toolErrorMessage} class="aside ml-[26px] max-[640px]:ml-0" />
   {/if}
 </div>
+

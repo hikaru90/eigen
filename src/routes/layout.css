@@ -14,33 +14,84 @@
   font-display: swap;
 }
 
-@custom-variant dark (&:is(.dark *:not(.marketing-light-theme *)));
+@custom-variant dark (&:is(.dark *));
 @custom-variant is-visible (&[data-visible="true"]);
 
 @layer base {
   :root {
+    /* ——— ei tokens (docs/planning/ei-redesign.md; ~/+Code/ei/styles.css :root) ———
+       Paper and ink. One signal colour, used only when the mesh is at work.
+       Geist Mono is your voice (--font-you); Inter is the mesh's (--font-mesh).
+       Contrast (WCAG AA): ink-2 ≥ 7:1, ink-3 ≥ 4.5:1 on paper, paper-2 and raised.
+       ink-4 and line are decorative only — never for text. */
+    --paper: #e8ede5;
+    --paper-2: #dee4db;
+    --raised: #f7f9f4;
+    --ink: #141413;
+    --ink-2: rgba(20, 20, 19, 0.74);
+    --ink-3: rgba(20, 20, 19, 0.62);
+    --ink-4: rgba(20, 20, 19, 0.2);
+    --line: rgba(20, 20, 19, 0.085);
+    --signal: #3a52e6;
+    --signal-2: rgba(58, 82, 230, 0.13);
+    --clay: #9e4c2a;
+    --clay-2: rgba(158, 76, 42, 0.12);
+    --warn: #b8432c;
+    /* active menu yarn: two of the logo's tile colours, plus signal */
+    --yarn-capture: #9a6a0c;
+    --yarn-mesh: #4f8a1a;
+    --yarn-ask: var(--signal);
+    --shadow:
+      0 0 0 1px rgba(20, 20, 19, 0.05), 0 2px 4px rgba(20, 20, 19, 0.03),
+      0 28px 56px -20px rgba(20, 20, 19, 0.22);
+    /* selected pill on a recessed track (tab groups, Look): the ring is what makes the
+       tapped state readable on paper */
+    --pill-ring: 0 0 0 1px var(--line), 0 1px 3px rgba(20, 20, 19, 0.06);
+    --grain: 0.035;
+    /* settle, don't pop: long ease-out */
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+    --font-you: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --font-mesh:
+      'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    /* Type scale rides Tailwind's steps — no ad-hoc half-pixel sizes. Small is every
+       label, meta line, nav label, menu item, chip and hint; body is prose. Anything
+       larger is set per voice where it is deliberately big (thoughts, questions, titles). */
+    --text-small: var(--text-sm);
+    --text-small--line-height: var(--text-sm--line-height);
+    --text-body: var(--text-base);
+    --text-body--line-height: var(--text-base--line-height);
+    /* floating chrome: header height, bottom nav dock */
+    --head: 68px;
+    --bottom-nav: calc(62px + env(safe-area-inset-bottom, 0px));
+    /* the yarn wave: one period of the menu icons' wavy yarn — the one shape of yarn,
+       every yarn line in the app masks with it */
+    --yarn-wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 4'%3E%3Cpath d='M0 2Q1.5 .5 3 2T6 2' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    /* a knit stitch: two loops leaning into a V (running-stitch separators) */
+    --stitch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 11'%3E%3Cellipse cx='2.9' cy='5.4' rx='1.45' ry='4.5' transform='rotate(-31 2.9 5.4)'/%3E%3Cellipse cx='7.1' cy='5.4' rx='1.45' ry='4.5' transform='rotate(31 7.1 5.4)'/%3E%3C/svg%3E");
+
+    /* ——— shadcn variables mapped onto the paper tokens (names kept for tailwind utilities) ——— */
     color-scheme: light;
-    /* Eigen — DESIGN.md (light) */
-    --background: #e8ede5;
-    /* Hex for meta theme-color — Android PWA title bar does not accept oklch(). */
+    --background: var(--paper);
+    /* Hex for meta theme-color — Android PWA title bar does not accept oklch() or var(). */
     --theme-color: #e8ede5;
-    --foreground: #111111;
-    --card: #ffffff;
-    --card-foreground: #111111;
-    --popover: #ffffff;
-    --popover-foreground: #111111;
-    --primary: #111111;
-    --primary-foreground: #ffffff;
-    --secondary: #f0f3f0;
-    --secondary-foreground: #111111;
-    --muted: #f0f3f0;
-    --muted-foreground: #999999;
-    --accent: #f0f3f0;
-    --accent-foreground: #111111;
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: rgb(17 17 17 / 10%);
-    --input: rgb(17 17 17 / 12%);
-    --ring: rgb(17 17 17 / 25%);
+    --foreground: var(--ink);
+    --card: var(--raised);
+    --card-foreground: var(--ink);
+    --popover: var(--raised);
+    --popover-foreground: var(--ink);
+    --primary: var(--ink);
+    --primary-foreground: var(--paper);
+    --secondary: var(--paper-2);
+    --secondary-foreground: var(--ink);
+    --muted: var(--paper-2);
+    --muted-foreground: var(--ink-3);
+    --accent: var(--paper-2);
+    --accent-foreground: var(--ink);
+    --destructive: var(--warn);
+    --border: var(--line);
+    --input: var(--ink-4);
+    --ring: var(--signal);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -50,16 +101,16 @@
     --gradient-eigen: linear-gradient(90deg, #22e876 0%, #8fe01f 60%, #22e876 99%);
     --color-eigen-green: #22e876;
     --color-eigen-lime: #8fe01f;
-    /* DESIGN: capture button ~4px; cards sharp */
+    /* DESIGN: paper, not bubbly — the mark's soft 4.4px square */
     --radius: 0.25rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.141 0.005 285.823);
-    --sidebar-primary: oklch(0.21 0.006 285.885);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.967 0.001 286.375);
-    --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-    --sidebar-border: oklch(0.92 0.004 286.32);
-    --sidebar-ring: oklch(0.705 0.015 286.067);
+    --sidebar: var(--paper-2);
+    --sidebar-foreground: var(--ink);
+    --sidebar-primary: var(--ink);
+    --sidebar-primary-foreground: var(--paper);
+    --sidebar-accent: var(--raised);
+    --sidebar-accent-foreground: var(--ink);
+    --sidebar-border: var(--line);
+    --sidebar-ring: var(--signal);
   }
 
   :root.dark {
@@ -87,10 +138,19 @@
     cursor: not-allowed;
   }
 
+  /* ei: fields inherit the voice they sit in and carry no surface of their own — the
+     writer is unboxed. Boxed form fields get their surface from the shadcn Input primitive. */
   input,
   textarea,
   select {
-    @apply border-input bg-card text-foreground placeholder:text-muted-foreground;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    background-color: transparent;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--ink-3);
   }
   * {
     @apply border-border outline-ring/50;
@@ -101,24 +161,167 @@
   }
 }
 
-/* PWA / notch: extend background edge-to-edge; pad interactive chrome in safe areas */
-.pt-safe {
-  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
-}
-.pb-safe {
-  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+/* ——— ei paper ——— */
+
+/* The one floating surface: menus, pickers and popovers are a sheet of translucent paper
+   with a hairline edge (ei .me-menu / .popover). Every registry overlay uses it. */
+@utility paper-sheet {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 84%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 18px 36px -24px rgb(20 20 19 / 0.28);
 }
 
-/* Shared memory citation chips in chat answers and evidence cards */
+/* paper tooth: a faint grain over everything, never interactive */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: var(--signal-2);
+}
+
+/* settle, don't pop: the base motion vocabulary — blur to sharp, long ease-out */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+}
+
+/* the contribute loop's once-every-30s glimpse: one full turn of yarn */
+@keyframes ring-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* the patterns judge at work: plain words, softly breathing */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* the ask status line, breathing while the mesh works */
+@keyframes wait {
+  50% {
+    opacity: 0.82;
+  }
+}
+
+/* the mesh at work: the working triangle sways, nothing pops */
+@keyframes spinner-sway {
+  from {
+    transform: rotate(-4deg);
+  }
+  to {
+    transform: rotate(4deg);
+  }
+}
+
+/* the mic's stop square pulses between ink and warn while recording */
+@keyframes recording-stop-flash {
+  0%,
+  100% {
+    background-color: var(--foreground);
+  }
+  50% {
+    background-color: var(--destructive);
+  }
+}
+
+/* the capture echo settles in under the field — never pops */
+@keyframes echo-settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(3px);
+  }
+}
+
+/* the thought sheet: page fades, card settles from a slight zoom, blur to sharp */
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    scale: 1.1;
+    filter: blur(6px);
+  }
+}
+
+/* the clay wash on a board row that just arrived or just got your vote */
+@keyframes flash {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* the share composer settles in at the board's end */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+  }
+}
+
+/* reduced motion snaps between states */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Shared memory citation chips in chat answers and evidence cards.
+   Colours ride the shadcn vars (border=--line, background=--muted/paper-2,
+   text=--muted-foreground/ink-3 ≥ 4.5:1); the soft square marks a thought. */
 .chat-citation {
   display: inline-flex;
   align-items: center;
   margin: 0 0.12em;
   padding: 0.05em 0.35em;
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--muted) 70%, transparent);
   color: var(--muted-foreground);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-you);
   font-size: 0.68em;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -134,6 +337,145 @@
   vertical-align: baseline;
 }
 
+
+/* Chat markdown: typography for markdown-generated HTML — no markup exists to
+   carry utilities (same exception as .chat-citation). The root element also
+   carries tone utilities from chat-markdown.svelte. */
+.chat-markdown {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.chat-markdown--default {
+  font-family: var(--font-mesh, 'Inter', ui-sans-serif, sans-serif);
+  font-size: 16px;
+  line-height: 1.66;
+  letter-spacing: -0.009em;
+  color: var(--ink);
+}
+@media (min-width: 640px) {
+  .chat-markdown--default {
+    font-size: 17px;
+    line-height: 1.68;
+  }
+}
+.chat-markdown--user {
+  font-family: var(--font-you, 'Geist Mono', ui-monospace, monospace);
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+.chat-markdown--muted {
+  font-family: var(--font-mesh, 'Inter', ui-sans-serif, sans-serif);
+  font-size: var(--text-small);
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+.chat-markdown p {
+  margin: 0.5em 0;
+}
+.chat-markdown p:first-child {
+  margin-top: 0;
+}
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.3em;
+}
+.chat-markdown li + li {
+  margin-top: 0.2em;
+}
+.chat-markdown blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.85em;
+  border-left: 1px solid var(--ink-4);
+  color: var(--ink-2);
+}
+.chat-markdown code {
+  font-family: var(--font-you, 'Geist Mono', ui-monospace, monospace);
+  font-size: 0.9em;
+  border-radius: 4px;
+  padding: 0.08em 0.3em;
+  background: var(--paper-2);
+}
+.chat-markdown pre {
+  margin: 0.6em 0;
+  overflow-x: auto;
+  border-radius: 6px;
+  padding: 0.7em 0.8em;
+  background: var(--paper-2);
+}
+.chat-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+.chat-markdown a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--ink-4);
+  text-underline-offset: 2px;
+}
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  margin: 0.9em 0 0.3em;
+  font-size: 1em;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.chat-markdown hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.chat-markdown table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.chat-markdown th,
+.chat-markdown td {
+  padding: 0.3em 0.6em 0.3em 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.chat-markdown .chat-citation {
+  display: inline-flex;
+  align-items: center;
+  height: 1.25em;
+  margin: 0 0.1em 0 0.15em;
+  padding: 0 0.5em;
+  border: 0;
+  border-radius: 999px;
+  background: var(--signal-2);
+  color: var(--signal);
+  font-family: var(--font-you, 'Geist Mono', ui-monospace, monospace);
+  font-size: 0.62em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  vertical-align: 0.2em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.3s var(--ease),
+    color 0.3s var(--ease);
+}
+.chat-markdown--muted .chat-citation {
+  font-size: 0.7em;
+}
+@media (hover: hover) {
+  .chat-markdown .chat-citation:hover {
+    background: var(--signal);
+    color: var(--raised);
+  }
+}
 /* Standalone PWA: fill the viewport with theme background — no letterbox border */
 @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
   html,
@@ -161,44 +503,93 @@ html.pwa-standalone::before {
 }
 
 .dark {
-  /* Soft dark with a hint of eigen green (hue ~152), not cool zinc gray */
-  --background: oklch(0.215 0.015 152);
-  --theme-color: #141c16;
-  --foreground: oklch(0.985 0.005 152);
-  --card: oklch(0.27 0.017 152);
-  --card-foreground: oklch(0.985 0.005 152);
-  --popover: oklch(0.27 0.017 152);
-  --popover-foreground: oklch(0.985 0.005 152);
-  --primary: oklch(0.92 0.01 152);
-  --primary-foreground: oklch(0.22 0.015 152);
-  --secondary: oklch(0.28 0.015 152);
-  --secondary-foreground: oklch(0.985 0.005 152);
-  --muted: oklch(0.28 0.015 152);
-  --muted-foreground: oklch(0.705 0.02 152);
-  --accent: oklch(0.28 0.015 152);
-  --accent-foreground: oklch(0.985 0.005 152);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.92 0.02 152 / 12%);
-  --input: oklch(0.92 0.02 152 / 16%);
-  --ring: oklch(0.552 0.04 152);
+  /* ——— ei dark palette (~/+Code/ei/styles.css dark), under the existing .dark class ———
+     --raised is lifted one step from the ei value (#1d1d1b): on --paper-2 tracks the
+     selected pill was unreadable in dark (operator report, 2026-10-21); --pill-ring
+     carries the state the rest of the way (WCAG 1.4.11 for the tapped control). */
+  --paper: #0e0e0d;
+  --paper-2: #1a1a18;
+  --raised: #232320;
+  --ink: #eceae3;
+  --ink-2: rgba(236, 234, 227, 0.74);
+  --ink-3: rgba(236, 234, 227, 0.55);
+  --ink-4: rgba(236, 234, 227, 0.17);
+  --line: rgba(236, 234, 227, 0.085);
+  --signal: #8e9dff;
+  --signal-2: rgba(142, 157, 255, 0.16);
+  --clay: #e89270;
+  --clay-2: rgba(232, 146, 112, 0.15);
+  --warn: #f08a72;
+  --yarn-capture: #eab54a;
+  --yarn-mesh: #92c255;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 28px 56px -20px rgba(0, 0, 0, 0.75);
+  --pill-ring: 0 0 0 1px rgba(236, 234, 227, 0.4), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --grain: 0.06;
+
+  /* shadcn names track the dark paper tokens (light values come from :root) */
+  --background: var(--paper);
+  --theme-color: #0e0e0d;
+  --foreground: var(--ink);
+  --card: var(--raised);
+  --card-foreground: var(--ink);
+  --popover: var(--raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--paper-2);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-3);
+  --accent: var(--paper-2);
+  --accent-foreground: var(--ink);
+  --destructive: var(--warn);
+  --border: var(--line);
+  --input: var(--ink-4);
+  --ring: var(--signal);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.22 0.015 152);
-  --sidebar-foreground: oklch(0.985 0.005 152);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.28 0.015 152);
-  --sidebar-accent-foreground: oklch(0.985 0.005 152);
-  --sidebar-border: oklch(0.92 0.02 152 / 12%);
-  --sidebar-ring: oklch(0.552 0.04 152);
+  --sidebar: var(--paper-2);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: var(--raised);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--signal);
 }
 
 @theme inline {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'UnifrakturMaguntia', ui-serif, Georgia, serif;
+  --font-you: var(--font-you);
+  --font-mesh: var(--font-mesh);
+  --ease-settle: var(--ease);
+  --ease-io: var(--ease-io);
+  /* floating chrome: header height, bottom nav dock — as spacing tokens so any
+     spacing utility composes with them (h-head, top-head, pb-bottom-nav, …) */
+  --spacing-head: var(--head);
+  --spacing-bottom-nav: var(--bottom-nav);
+  /* ——— ei tokens as utilities (values stay the :root vars; .dark overrides just work) ——— */
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-line: var(--line);
+  --color-signal: var(--signal);
+  --color-signal-2: var(--signal-2);
+  --color-clay: var(--clay);
+  --color-clay-2: var(--clay-2);
+  --color-warn: var(--warn);
+  --color-yarn-capture: var(--yarn-capture);
+  --color-yarn-mesh: var(--yarn-mesh);
+  --color-eigen-green: var(--color-eigen-green);
+  --shadow-raised: var(--shadow);
   --font-mono:
     'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
@@ -240,46 +631,4 @@ html.pwa-standalone::before {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-@layer utilities {
-  .marketing-container {
-    @apply mx-auto w-full;
-  }
-
-  /* Homepage: always light scroll column regardless of global dark mode */
-  .marketing-light-theme {
-    color-scheme: light;
-    --background: #ffffff;
-    --foreground: #111111;
-    --card: #ffffff;
-    --card-foreground: #111111;
-    --popover: #ffffff;
-    --popover-foreground: #111111;
-    --primary: #111111;
-    --primary-foreground: #ffffff;
-    --secondary: #f0f3f0;
-    --secondary-foreground: #111111;
-    --muted: #f0f3f0;
-    --muted-foreground: #999999;
-    --accent: #f0f3f0;
-    --accent-foreground: #111111;
-    --border: rgb(17 17 17 / 10%);
-    --input: rgb(17 17 17 / 12%);
-    --ring: rgb(17 17 17 / 25%);
-  }
-}
-
-@keyframes marketing-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-@utility animate-marketing-float {
-  animation: marketing-float 4s ease-in-out infinite;
 }

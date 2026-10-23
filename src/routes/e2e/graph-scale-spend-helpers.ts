@@ -209,8 +209,10 @@ export async function setGraphScaleSpendPageTitle(page: Page, label: string): Pr
 }
 
 /**
- * Capture through the real Capture UI: type, click Capture, watch stored summary,
- * wait until indexing finishes on screen.
+ * Capture through the real Capture UI (ei redesign decision #3, read → keep): type, wait
+ * for the up-front reading (POST /api/capture/read — a preview, persists nothing), press
+ * Capture — ONE POST /api/capture/keep persists the accepted reading — watch the thought
+ * settle inline, then wait until indexing finishes (API + the on-screen indexing words).
  */
 export async function captureThoughtThroughUi(
   page: Page,
@@ -226,61 +228,84 @@ export async function captureThoughtThroughUi(
   }
 
   const startedAt = Date.now()
+  const input = page.getByTestId('capture-input')
+  const captureBtn = page.getByTestId('capture-submit')
+  const errorBanner = page.locator('.page-error').first()
 
-  await page.locator('#thought').fill(trimmed)
-  const captureBtn = page.getByRole('button', { name: 'Capture', exact: true })
-  await expect(captureBtn).toBeEnabled({ timeout: 30_000 })
-
-  const interpretResponsePromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
+  // listener first: the debounced read can answer before the fill settles
+  const readResponsePromise = page.waitForResponse(
+    (res) => {
+      if (!res.url().includes('/api/capture/read') || res.request().method() !== 'POST') {
+        return false
+      }
+      const sent = res.request().postDataJSON() as { raw?: string } | null
+      return sent?.raw === trimmed
+    },
     { timeout: 300_000 },
   )
+  await input.fill(trimmed)
+  await expect(captureBtn).toBeEnabled({ timeout: 30_000 })
 
-  const errorBanner = page.locator('p.text-destructive.text-sm').first()
+  const readRes = await readResponsePromise
+  if (!readRes.ok()) {
+    throw new Error((await readRes.text()).trim() || `Capture read failed (${readRes.status()})`)
+  }
+  // the reading names how the words will be kept — nothing is stored yet
+  await expect(page.getByTestId('capture-reading')).toContainText(/Sounds like|Klingt wie/, {
+    timeout: 60_000,
+  })
+
+  const persistedPromise = page.waitForResponse(
+    (res) =>
+      res.request().method() === 'POST' &&
+      (res.url().includes('/api/capture/keep') || res.url().includes('/api/capture/submit')),
+    { timeout: 300_000 },
+  )
   await captureBtn.click()
-
-  const interpretRes = await interpretResponsePromise
-  const interpretBody = await interpretRes.text()
-  if (!interpretRes.ok()) {
-    throw new Error(interpretBody.trim() || `Capture interpret failed (${interpretRes.status()})`)
+  const keepRes = await persistedPromise
+  if (keepRes.url().includes('/api/capture/submit')) {
+    throw new Error(
+      'Capture enqueued the raw text through /api/capture/submit instead of keeping the reading',
+    )
+  }
+  const keepBody = await keepRes.text()
+  if (!keepRes.ok()) {
+    if (await errorBanner.isVisible().catch(() => false)) {
+      const message = (await errorBanner.textContent())?.trim()
+      if (message) throw new Error(`Capture failed: ${message}`)
+    }
+    throw new Error(keepBody.trim() || `Capture keep failed (${keepRes.status()})`)
   }
 
-  const interpretJson = JSON.parse(interpretBody) as {
+  // ConfirmCaptureResult (src/lib/server/capture/capture-confirmation.ts)
+  const keepJson = JSON.parse(keepBody) as {
     thoughtId?: string
-    status?: string
+    rawText?: string
+    normalizedText?: string
+    category?: string
     queueStatus?: string
     error?: string
   }
-  if (interpretJson.error) throw new Error(interpretJson.error)
-  const thoughtId = interpretJson.thoughtId ?? ''
+  if (keepJson.error) throw new Error(keepJson.error)
+  const thoughtId = keepJson.thoughtId ?? ''
   if (!thoughtId) {
     if (await errorBanner.isVisible().catch(() => false)) {
       const message = (await errorBanner.textContent())?.trim()
       throw new Error(message ? `Capture failed: ${message}` : 'Capture failed')
     }
-    throw new Error('Capture interpret succeeded but returned no thought id')
+    throw new Error('Capture keep succeeded but returned no thought id')
   }
+  expect(keepJson.rawText).toBe(trimmed)
 
-  const status =
-    interpretJson.status ??
-    (interpretJson.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
-  if (status === 'awaiting_confirmation') {
-    const confirmModal = page.getByTestId('capture-confirmation-modal')
-    await expect(confirmModal).toBeVisible({ timeout: 60_000 })
-    const confirmResponsePromise = page.waitForResponse(
-      (res) => res.url().includes('/api/capture/confirm') && res.request().method() === 'POST',
-      { timeout: 300_000 },
-    )
-    await confirmModal.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
-    const confirmRes = await confirmResponsePromise
-    if (!confirmRes.ok()) {
-      throw new Error(
-        (await confirmRes.text()).trim() || `Capture confirm failed (${confirmRes.status()})`,
-      )
-    }
-  }
-
-  await expect(page.getByText('Category:')).toBeVisible({ timeout: 60_000 })
+  // the kept thought settles inline — no modal, no card pile
+  await expect(page.getByTestId('capture-confirmation-modal')).toHaveCount(0)
+  const settled = page.getByTestId('capture-settled')
+  await expect(settled.getByTestId('capture-settled-open')).toHaveAttribute(
+    'href',
+    new RegExp(`/thought/${thoughtId}$`),
+    { timeout: 60_000 },
+  )
+  await expect(settled).not.toContainText('Indexing failed', { timeout: 5_000 })
 
   await expect
     .poll(
@@ -300,9 +325,8 @@ export async function captureThoughtThroughUi(
     )
     .not.toBeNull()
 
-  await expect(page.getByText('Indexing now').first()).toBeHidden({ timeout: 300_000 })
-  await expect(page.getByText('Waiting to index').first()).toBeHidden({ timeout: 300_000 })
-  await expect(page.getByText('Indexing failed').first()).toBeHidden({ timeout: 5_000 })
+  // the indexing words under the settled block rest once enrichment is complete
+  await expect(settled.getByTestId('capture-indexing-message')).toBeHidden({ timeout: 300_000 })
 
   const resultBody = await page.evaluate(async (id) => {
     const res = await fetch(`/api/capture/result/${encodeURIComponent(id)}`)

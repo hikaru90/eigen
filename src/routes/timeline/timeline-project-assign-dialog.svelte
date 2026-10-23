@@ -122,7 +122,7 @@
     class="fixed inset-x-0 bottom-0 top-auto flex max-h-[min(85vh,28rem)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-t-xl border p-0 shadow-lg sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[min(90vh,32rem)] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:p-0"
   >
     <div class="border-border shrink-0 border-b px-4 py-3">
-      <Dialog.Title class="text-base font-semibold"
+      <Dialog.Title class="text-base font-medium"
         >{m.graph_timeline_assign_project()}</Dialog.Title
       >
       {#if item}

@@ -111,7 +111,7 @@
     aria-label="Install Eigen Mesh"
   >
     <div
-      class="w-full max-w-md rounded-[4px] border border-black/10 bg-card p-3 shadow-lg dark:border-white/20"
+      class="w-full max-w-md rounded-[4px] border border-line bg-card p-3 shadow-lg"
     >
       <div class="flex items-start gap-2.5">
         <Smartphone class="mt-0.5 size-4 shrink-0 opacity-80" strokeWidth={1.75} />

@@ -158,7 +158,7 @@
   {@render summaryBody()}
 {:else}
   <Card.Root
-    class="bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none p-4 gap-3 items-start overflow-visible"
+    class="bg-paper-2 p-4 gap-3 items-start overflow-visible"
   >
     <Card.Header class="p-0 w-full flex flex-row items-start justify-between gap-2">
       <Card.Title class="text-sm">{title}</Card.Title>
@@ -168,7 +168,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground rounded-none"
+              class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
               onclick={onToggleEdit}
             >
               {showEdit ? 'Cancel edit' : 'Edit'}
@@ -178,7 +178,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive rounded-none"
+              class="h-auto px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive"
               disabled={deleteBusy}
               onclick={onDelete}
             >

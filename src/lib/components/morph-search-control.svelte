@@ -42,14 +42,13 @@
   let isFixed = $state(false)
   let anchorTop = $state(0)
   let anchorLeft = $state(0)
-  let translateX = $state(0)
-  let translateY = $state(0)
+  /** one-shot animation origin: px offset from CSS centering at open/close, never a layout input */
+  let morphDx = $state(0)
   let placeholderW = $state(0)
   let placeholderH = $state(0)
   let backdropBlurred = $state(false)
 
   let keydownHandler: ((e: KeyboardEvent) => void) | null = null
-  let resizeHandler: (() => void) | null = null
   let blurRafId: number | null = null
 
   const backdropStyle = $derived(
@@ -64,9 +63,12 @@
       : GRAPH_FILTER_GLASS_ROW,
   )
 
+  /* the open panel rests at CSS centering (left:50% + translateX(-50%)); morphDx only
+     supplies the transform's starting frame for the morph, so resizing while open is
+     handled by the browser — no script re-measures anything */
   const morphStyle = $derived(
     isFixed
-      ? `top:${anchorTop}px;left:${anchorLeft}px;transform:translate(${translateX}px,${translateY}px);transition:transform ${MORPH_MS}ms ease-out,width ${MORPH_MS}ms ease-out;`
+      ? `top:${anchorTop}px;left:50%;transform:translateX(calc(-50% + ${morphDx}px));transition:transform ${MORPH_MS}ms ease-out,width ${MORPH_MS}ms ease-out;`
       : '',
   )
 
@@ -75,37 +77,13 @@
     onchange?.()
   }
 
-  function computeOpenTransform(width: number) {
-    if (!browser) return { x: 0, y: 0 }
-    const targetX = (window.innerWidth - width) / 2
-    return {
-      x: targetX - anchorLeft,
-      y: 0,
-    }
-  }
-
-  function recenterModal() {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = toolbarEl
-        if (!el || !filterOpen) return
-        const rect = el.getBoundingClientRect()
-        const t = computeOpenTransform(rect.width)
-        translateX = t.x
-        translateY = t.y
-      })
-    })
-  }
-
   function attachFilterWindowListeners() {
     if (!browser) return
     detachFilterWindowListeners()
     keydownHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeFilter()
     }
-    resizeHandler = () => recenterModal()
     window.addEventListener('keydown', keydownHandler)
-    window.addEventListener('resize', resizeHandler)
     backdropBlurred = false
     blurRafId = requestAnimationFrame(() => {
       backdropBlurred = true
@@ -117,10 +95,6 @@
     if (keydownHandler) {
       window.removeEventListener('keydown', keydownHandler)
       keydownHandler = null
-    }
-    if (resizeHandler) {
-      window.removeEventListener('resize', resizeHandler)
-      resizeHandler = null
     }
     if (blurRafId !== null) {
       cancelAnimationFrame(blurRafId)
@@ -137,19 +111,25 @@
     placeholderH = rect.height
     anchorTop = rect.top
     anchorLeft = rect.left
-    translateX = 0
-    translateY = 0
+    // start the morph where the toolbar sits now; CSS centering takes over from there
+    morphDx = rect.left + rect.width / 2 - window.innerWidth / 2
+    translateReset()
     isFixed = true
     filterOpen = true
     attachFilterWindowListeners()
-    recenterModal()
     queueMicrotask(() => searchInputEl?.focus())
   }
 
+  function translateReset() {
+    requestAnimationFrame(() => {
+      morphDx = 0
+    })
+  }
+
   function closeFilter() {
+    // morph back toward the anchor once, then re-enter the flow
+    morphDx = anchorLeft + placeholderW / 2 - window.innerWidth / 2
     detachFilterWindowListeners()
-    translateX = 0
-    translateY = 0
     filterOpen = false
     setTimeout(() => {
       isFixed = false

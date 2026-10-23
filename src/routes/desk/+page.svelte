@@ -284,39 +284,3 @@
 </div>
 <MemorySurfaceNav />
 
-<style>
-  :global(.desk-label) {
-    max-width: 11rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding: 2px 6px;
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    background: var(--card);
-    color: var(--foreground);
-    font-family: var(--font-sans);
-    font-size: 11px;
-    line-height: 1.3;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
-    opacity: 0.95;
-  }
-
-  :global(.desk-label--project) {
-    background: var(--primary);
-    color: var(--primary-foreground);
-    font-weight: 600;
-  }
-
-  :global(.desk-label--note) {
-    color: var(--muted-foreground);
-    font-size: 10px;
-    opacity: 0.75;
-  }
-
-  :global(.desk-label--emphasized) {
-    opacity: 1;
-    border-color: var(--color-eigen-green);
-    box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--color-eigen-green) 45%, transparent);
-  }
-</style>

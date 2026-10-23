@@ -734,7 +734,7 @@ describe('llmCreateTranscription', () => {
     })
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(String(fetchMockUrl(fetchMock, 0))).toBe(
@@ -753,7 +753,7 @@ describe('llmCreateTranscription', () => {
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(String(fetchMockUrl(fetchMock, 0))).toBe(
@@ -770,7 +770,7 @@ describe('llmCreateTranscription', () => {
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(String(fetchMockUrl(fetchMock, 0))).toBe(
@@ -787,7 +787,7 @@ describe('llmCreateTranscription', () => {
     vi.stubGlobal('fetch', fetchMock)
     const out = await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm', language: 'en' },
     })
     expect((out as { text: string }).text).toBe('hello')
@@ -798,7 +798,7 @@ describe('llmCreateTranscription', () => {
       input_audio: { data: string; format: string }
       language: string
     }
-    expect(body.model).toBe('qwen/qwen3-asr-flash-2026-02-10')
+    expect(body.model).toBe('qwen/qwen3-asr-0.6b')
     expect(body.input_audio.format).toBe('webm')
     expect(body.language).toBe('en')
     expect(body.input_audio.data).toBe(Buffer.from([1, 2, 3]).toString('base64'))
@@ -811,7 +811,7 @@ describe('llmCreateTranscription', () => {
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm' },
     })
     expect(logActivityCallMock).toHaveBeenCalledWith(
@@ -834,7 +834,7 @@ describe('llmCreateTranscription', () => {
     vi.stubGlobal('fetch', fetchMock)
     const out = await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect((out as { text: string }).text).toBe('retry ok')
@@ -854,7 +854,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/LLM STT HTTP 502/)
@@ -876,7 +876,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/LLM STT HTTP 400/)
@@ -890,7 +890,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/failed after 3 attempts/)
@@ -906,7 +906,7 @@ describe('llmCreateTranscription', () => {
     vi.stubGlobal('fetch', fetchMock)
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(logActivityCallMock).toHaveBeenCalledWith(
@@ -928,7 +928,7 @@ describe('llmCreateTranscription', () => {
     )
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(logActivityCallMock).toHaveBeenCalledWith(
@@ -945,14 +945,14 @@ describe('llmCreateTranscription', () => {
     )
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(logActivityCallMock).toHaveBeenCalledWith(
       expect.anything(),
       'u1',
       expect.objectContaining({
-        context: 'stt:qwen/qwen3-asr-flash-2026-02-10 (usage cost missing from gateway)',
+        context: 'stt:qwen/qwen3-asr-0.6b (usage cost missing from gateway)',
       }),
     )
   })
@@ -964,7 +964,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/OPENROUTER_BASE_URL/)
@@ -977,7 +977,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/OPENROUTER_API_KEY/)
@@ -990,7 +990,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/SERVICE_API_KEY_OPENROUTER/)
@@ -1002,7 +1002,7 @@ describe('llmCreateTranscription', () => {
     await expect(
       llmCreateTranscription({
         userId: 'u1',
-        model: 'qwen/qwen3-asr-flash-2026-02-10',
+        model: 'qwen/qwen3-asr-0.6b',
         audio: { bytes: new Uint8Array([1]), format: 'webm' },
       }),
     ).rejects.toThrow(/LLM STT request timed out after 1ms/)
@@ -1073,7 +1073,7 @@ describe('llm client platform billing settlement', () => {
     )
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
   })
@@ -1650,7 +1650,7 @@ describe('llm client timeout and rate limit defaults', () => {
     )
     await llmCreateTranscription({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-flash-2026-02-10',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1]), format: 'webm' },
     })
     expect(logSpy).toHaveBeenCalledWith('[llm.stt] response attempt 1: (empty response)')

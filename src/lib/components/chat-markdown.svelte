@@ -1,6 +1,14 @@
 <script lang="ts">
+  import { goto } from '$app/navigation'
   import { renderMarkdownToHtml } from '$lib/chat/render-markdown'
+  import { thoughtHref } from '$lib/chat/thought-href'
+  import { cn } from '$lib/utils.js'
 
+  /**
+   * Two voices (ei DESIGN.md): `user` is you — Geist Mono, inheriting the size of the
+   * heading it sits in; `default` is the mesh — Inter, the answer's reading size;
+   * `muted` is a whisper-grade aside.
+   */
   type Tone = 'default' | 'user' | 'muted'
 
   type Props = {
@@ -12,91 +20,42 @@
   let { content, tone = 'default', class: className = '' }: Props = $props()
 
   const html = $derived(renderMarkdownToHtml(content))
+
+  /** render-markdown stamps each chip with `title="Source <id>"`; read our own prefix back. */
+  const CITATION_TITLE_PREFIX = 'Source '
+
+  /** A citation chip is a small, deliberate target: it opens the thought directly. */
+  function openCitation(e: MouseEvent) {
+    const target = e.target
+    if (!(target instanceof Element)) return
+    const chip = target.closest('.chat-citation')
+    if (!(chip instanceof HTMLElement)) return
+    const title = chip.getAttribute('title') ?? ''
+    if (!title.startsWith(CITATION_TITLE_PREFIX)) return
+    const id = title.slice(CITATION_TITLE_PREFIX.length).trim()
+    if (!id) return
+    e.preventDefault()
+    void goto(thoughtHref(id))
+  }
 </script>
 
 {#if html}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="chat-markdown chat-markdown--{tone} min-w-0 max-w-full wrap-break-word text-sm leading-relaxed {className}"
-  >
+  class={cn(
+    'chat-markdown min-w-0 max-w-full [overflow-wrap:anywhere]',
+    tone === 'default' &&
+      'font-mesh text-base leading-[1.66] tracking-[-0.009em] text-ink min-[640px]:text-[17px] min-[640px]:leading-[1.68]',
+    tone === 'user' &&
+      'font-you text-[inherit] leading-[inherit] tracking-[inherit] text-inherit',
+    tone === 'muted' && 'font-mesh text-sm leading-[1.55] text-ink-3',
+    className,
+  )}
+  onclick={openCitation}
+>
     <!-- eslint-disable-next-line svelte/no-at-html-tags -- HTML from renderMarkdownToHtml (sanitized) -->
     {@html html}
   </div>
 {/if}
 
-<style>
-  .chat-markdown :global(p) {
-    margin: 0.35em 0;
-  }
-  .chat-markdown :global(p:first-child) {
-    margin-top: 0;
-  }
-  .chat-markdown :global(p:last-child) {
-    margin-bottom: 0;
-  }
-  .chat-markdown :global(ul),
-  .chat-markdown :global(ol) {
-    margin: 0.35em 0;
-    padding-left: 1.25rem;
-  }
-  .chat-markdown :global(li + li) {
-    margin-top: 0.15em;
-  }
-  .chat-markdown :global(blockquote) {
-    margin: 0.35em 0;
-    padding-left: 0.75rem;
-    border-left: 2px solid var(--border);
-    color: var(--muted-foreground);
-  }
-  .chat-markdown :global(code) {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.9em;
-    border-radius: 0.2rem;
-    padding: 0.1em 0.3em;
-    background: color-mix(in srgb, var(--foreground) 8%, transparent);
-  }
-  .chat-markdown :global(pre) {
-    margin: 0.5em 0;
-    overflow-x: auto;
-    border-radius: 0.25rem;
-    padding: 0.65rem 0.75rem;
-    background: color-mix(in srgb, var(--foreground) 8%, transparent);
-  }
-  .chat-markdown :global(pre code) {
-    padding: 0;
-    background: transparent;
-  }
-  .chat-markdown :global(a) {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .chat-markdown :global(h1),
-  .chat-markdown :global(h2),
-  .chat-markdown :global(h3) {
-    margin: 0.5em 0 0.25em;
-    font-weight: 600;
-    line-height: 1.3;
-  }
-  .chat-markdown--user :global(a) {
-    color: inherit;
-  }
-  .chat-markdown--user :global(code),
-  .chat-markdown--user :global(pre) {
-    background: color-mix(in srgb, var(--background) 18%, transparent);
-  }
-  .chat-markdown--user :global(blockquote) {
-    border-left-color: color-mix(in srgb, var(--background) 40%, transparent);
-    color: color-mix(in srgb, var(--background) 75%, transparent);
-  }
-  .chat-markdown--muted {
-    font-size: 0.75rem;
-    line-height: 1.5;
-  }
-  .chat-markdown--user :global(.chat-citation) {
-    border-color: color-mix(in srgb, var(--background) 35%, transparent);
-    background: color-mix(in srgb, var(--background) 14%, transparent);
-    color: color-mix(in srgb, var(--background) 72%, transparent);
-  }
-  .chat-markdown--muted :global(.chat-citation) {
-    font-size: 0.62em;
-  }
-</style>

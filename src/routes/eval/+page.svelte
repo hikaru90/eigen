@@ -236,7 +236,7 @@
 
 <div class="container mx-auto max-w-4xl space-y-6 p-6">
   <div>
-    <h1 class="text-2xl font-bold tracking-tight">System evaluation</h1>
+    <h1 class="text-2xl font-medium tracking-tight">System evaluation</h1>
     <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
       User-like evals: capture thoughts, search memory, answer questions. Captures are kept across
       runs and reused when unchanged.
@@ -538,7 +538,7 @@
                       class="text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform group-open:rotate-90"
                     />
                     <div class="min-w-0 flex-1">
-                      <h3 class="text-sm font-semibold">{section.label}</h3>
+                      <h3 class="text-sm font-medium">{section.label}</h3>
                       {#if section.possible > 0}
                         <div class="mt-2">
                           <ScoreBanner
@@ -574,7 +574,7 @@
                             <p class="text-muted-foreground text-xs">
                               Step {entry.ordinal + 1} · {humanKindLabel(entry.kind)}
                             </p>
-                            <h4 class="text-sm font-semibold leading-snug">
+                            <h4 class="text-sm font-medium leading-snug">
                               {humanEntryTitle(entry, entries)}
                               {#if stepGraph}
                                 <span class="text-muted-foreground font-normal">
@@ -586,7 +586,7 @@
                         </div>
                         <div class="text-right text-xs">
                           {#if stepScore}
-                            <p class="font-semibold tabular-nums">
+                            <p class="font-medium tabular-nums">
                               {formatPointsLine(stepScore.earned, stepScore.possible)}
                             </p>
                             <p class="text-muted-foreground">{stepScore.percent}%</p>

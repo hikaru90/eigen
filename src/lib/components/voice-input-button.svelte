@@ -274,9 +274,9 @@
 
 <Button
   type="button"
-  variant="outline"
+  variant="ghost"
   size="icon"
-  class="relative overflow-hidden rounded-none border-black dark:border-border {className}"
+  class="relative size-8 overflow-hidden text-ink-3 pointer-fine:hover:bg-transparent pointer-fine:hover:text-ink {className}"
   disabled={disabled || !micSupported || transcribing}
   onclick={toggleMic}
   aria-label={recording
@@ -292,7 +292,7 @@
 >
   {#if recording}
     <div
-      class="pointer-events-none absolute bottom-0 left-0 right-0 z-0 bg-primary/30 transition-[height] duration-100 ease-out"
+      class="pointer-events-none absolute bottom-0 left-0 right-0 z-0 bg-signal-2 transition-[height] duration-100 ease-out"
       style="height: {pulseSize}%"
       aria-hidden="true"
     ></div>
@@ -302,7 +302,7 @@
       <LoaderCircle class="size-4 shrink-0 animate-spin" strokeWidth={1.75} />
     {:else if recording}
       <span
-        class="voice-recording-stop inline-block size-3 shrink-0 rounded-[2px]"
+        class="inline-block size-3 shrink-0 rounded-[2px] animate-[recording-stop-flash_2.2s_ease-in-out_infinite]"
         aria-hidden="true"
       ></span>
     {:else}
@@ -311,18 +311,3 @@
   </span>
 </Button>
 
-<style>
-  @keyframes recording-stop-flash {
-    0%,
-    100% {
-      background-color: var(--foreground);
-    }
-    50% {
-      background-color: var(--destructive);
-    }
-  }
-
-  .voice-recording-stop {
-    animation: recording-stop-flash 2.2s ease-in-out infinite;
-  }
-</style>

@@ -31,9 +31,9 @@
 {#if compact}
   <button
     type="button"
-    class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-none border border-black bg-white transition-colors shadow-[3px_3px_0px_0px_#000] disabled:opacity-50 dark:border-border dark:bg-card dark:shadow-none {completed
-      ? 'text-black dark:text-foreground'
-      : 'text-transparent hover:bg-black/5 dark:hover:bg-white/10'}"
+    class="mt-0.5 flex size-5 shrink-0 items-center justify-center bg-raised transition-colors disabled:opacity-50 dark:bg-card {completed
+      ? 'text-ink dark:text-foreground'
+      : 'text-transparent hover:bg-paper-2'}"
     title={actionLabel}
     aria-label={actionLabel}
     disabled={busy}
@@ -50,7 +50,7 @@
 {:else}
   <button
     type="button"
-    class="h-8 shrink-0 rounded-full border border-black px-3 text-xs font-medium transition-colors disabled:opacity-50 dark:border-foreground {completed
+    class="h-8 shrink-0 rounded-full px-3 text-xs font-medium transition-colors disabled:opacity-50 {completed
       ? 'bg-muted/30 text-foreground hover:bg-muted/50'
       : 'bg-black text-white hover:bg-black/90 dark:bg-foreground dark:text-background dark:hover:bg-foreground/90'}"
     disabled={busy}

@@ -21,7 +21,7 @@
       segment: 'todo' as const,
       count: tabCounts.todo,
       label: m.graph_timeline_pill_todo(),
-      countClass: 'text-black dark:text-foreground',
+      countClass: 'text-ink dark:text-foreground',
     },
     {
       segment: 'done' as const,
@@ -33,13 +33,13 @@
       segment: 'overdue' as const,
       count: tabCounts.overdue,
       label: m.graph_timeline_pill_overdue(),
-      countClass: tabCounts.overdue > 0 ? 'text-destructive' : 'text-black dark:text-foreground',
+      countClass: tabCounts.overdue > 0 ? 'text-destructive' : 'text-ink dark:text-foreground',
     },
   ] as const)
 </script>
 
 <div
-  class="grid w-full grid-cols-3 rounded-2xl border border-white/80 bg-white/5 p-0.5 dark:border-white/20 dark:bg-white/5"
+  class="grid w-full grid-cols-3 rounded-2xl border border-line bg-paper-2 p-0.5"
   role="tablist"
   aria-label={m.graph_timeline_tasks_segments_aria()}
 >
@@ -55,7 +55,7 @@
       onclick={() => onSegmentChange(tab.segment)}
     >
       <p
-        class="text-base font-semibold tabular-nums leading-none {segment === tab.segment
+        class="text-base font-medium tabular-nums leading-none {segment === tab.segment
           ? 'text-foreground'
           : tab.countClass}"
       >

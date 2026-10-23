@@ -1,8 +1,13 @@
 import { env } from '$lib/server/env/private-env'
 import { llmCreateTranscription } from './llm-client'
 
-/** OpenRouter model id for speech-to-text (`/audio/transcriptions`). */
-export const STT_MODEL_OPENROUTER_DEFAULT = 'qwen/qwen3-asr-flash-2026-02-10'
+/**
+ * OpenRouter model id for speech-to-text (`/audio/transcriptions`).
+ * Must have live endpoints that accept browser `webm`/opus uploads and pass the
+ * workspace ZDR guardrail; `qwen/qwen3-asr-flash-2026-02-10` lost all endpoints
+ * (gateway 404 "No endpoints found"). Operator choice (2026-10-21): qwen3-asr-0.6b.
+ */
+export const STT_MODEL_OPENROUTER_DEFAULT = 'qwen/qwen3-asr-0.6b'
 
 export type SttAudioInput = {
   bytes: Uint8Array

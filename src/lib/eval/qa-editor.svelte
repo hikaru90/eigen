@@ -414,7 +414,7 @@
           <article class="rounded-lg border p-4">
             <div class="mb-2 flex flex-wrap items-start justify-between gap-2">
               <div class="flex flex-wrap items-center gap-2">
-                <code class="text-xs font-semibold">{item.id}</code>
+                <code class="text-xs font-medium">{item.id}</code>
                 <span
                   class="rounded px-1.5 py-0.5 text-xs {isItemActive(item)
                     ? 'bg-emerald-600/10 text-emerald-700 dark:text-emerald-300'

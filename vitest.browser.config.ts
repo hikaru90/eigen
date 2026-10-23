@@ -40,17 +40,24 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      // Must precede the general `$lib` prefix alias so this module resolves to the
+      // stub instead of the real posthog-js client (see stub header).
+      '$lib/analytics/posthog-client': path.resolve(
+        root,
+        'src/lib/vitest-stubs/analytics/posthog-client.ts',
+      ),
       $lib: path.resolve(root, 'src/lib'),
       $app: path.resolve(root, 'src/lib/vitest-stubs/app'),
       '$env/static/public': path.resolve(root, 'src/lib/vitest-stubs/env/static/public.ts'),
       // PWA plugin is not loaded in this lean browser config.
       'virtual:pwa-register': path.resolve(root, 'src/lib/vitest-stubs/virtual-pwa-register.ts'),
-      // SvelteKit virtual modules cannot be vi.mock'ed in browser mode; spec
-      // specs that render real components get them as plain stubs instead.
-      '$app/environment': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
-      '$app/paths': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
-      '$app/forms': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
-      '$app/navigation': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
+      // SvelteKit modules cannot be vi.mock'ed reliably in browser mode; specs that
+      // render real components get the per-module stubs under vitest-stubs/app instead.
+      '$app/environment': path.resolve(root, 'src/lib/vitest-stubs/app/environment.ts'),
+      '$app/paths': path.resolve(root, 'src/lib/vitest-stubs/app/paths.ts'),
+      '$app/forms': path.resolve(root, 'src/lib/vitest-stubs/app/forms.ts'),
+      '$app/navigation': path.resolve(root, 'src/lib/vitest-stubs/app/navigation.ts'),
+      '$app/state': path.resolve(root, 'src/lib/vitest-stubs/app/state.ts'),
       '$env/static/public': path.resolve(root, 'src/lib/vitest-stubs/app-modules.js'),
     },
   },
@@ -77,6 +84,10 @@ export default defineConfig({
     include: [
       'src/lib/components/smoke.svelte.spec.ts',
       'src/lib/components/capture-onboarding-overlay.svelte.spec.ts',
+      'src/lib/components/capture-reading.svelte.spec.ts',
+      'src/lib/components/capture-settled.svelte.spec.ts',
+      'src/lib/components/chrome/view-select.svelte.spec.ts',
+      'src/lib/components/chrome/you-menu.svelte.spec.ts',
     ],
     exclude: ['src/routes/demo/playwright/**/*.ts', '**/*.e2e.ts'],
     fileParallelism: false,

@@ -27,6 +27,11 @@ const noEffectRestrictedSyntax = [
 
 export default defineConfig(
   includeIgnoreFile(gitignorePath),
+  {
+    // ZCode tool artifacts (session plans, dynamic-workflow drafts and their compiled
+    // run scripts) are machine-authored and not project source — never lint them.
+    ignores: ['.zcode/**'],
+  },
   js.configs.recommended,
   ts.configs.recommended,
   svelte.configs.recommended,

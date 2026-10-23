@@ -268,7 +268,7 @@
   })
 </script>
 
-<div class="mx-auto max-w-4xl px-5 pb-8 pt-10">
+<div class="mx-auto max-w-4xl px-5 pb-[calc(var(--bottom-nav)+48px)] pt-[calc(var(--head)+32px)]">
   <header class="text-center">
     <p class="text-muted-foreground mt-2 text-xs">Activity</p>
   </header>
@@ -276,7 +276,7 @@
   <div class="mt-4 flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span class="text-xs font-medium">Available credits:</span>
-      <span class="font-mono text-sm font-semibold tabular-nums">{availableCreditsLabel}</span>
+      <span class="font-mono text-sm font-medium tabular-nums">{availableCreditsLabel}</span>
     </div>
     <AiDateRangePicker
       from={fromDate ?? undefined}
@@ -292,7 +292,7 @@
   {#if isLoading}
     <p class="text-muted-foreground py-8 text-center text-xs">Loading activity…</p>
   {:else if loadError}
-    <p class="py-8 text-center text-xs text-red-500">{loadError}</p>
+    <p class="py-8 text-center text-xs text-destructive">{loadError}</p>
   {:else}
     {#if showOverall && spendSeries}
       <ActivitySpendChart
@@ -303,7 +303,7 @@
     {/if}
 
     <Card.Root
-      class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
+      class="mt-4"
     >
       <Card.Header>
         <Card.Title class="text-sm">Activity log</Card.Title>
@@ -350,7 +350,7 @@
                     {#if prov.isPaid}
                       <span class="text-destructive">●</span>
                     {:else}
-                      <span class="text-green-600">●</span>
+                      <span class="text-[var(--yarn-mesh)]">●</span>
                     {/if}
                     {prov.label}
                   </span>
@@ -388,7 +388,7 @@
                         {#if callProv.isPaid}
                           <span class="text-destructive">●</span>
                         {:else}
-                          <span class="text-green-600">●</span>
+                          <span class="text-[var(--yarn-mesh)]">●</span>
                         {/if}
                         {callProv.label}
                       </span>

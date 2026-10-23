@@ -4,18 +4,15 @@ import { page } from 'vitest/browser'
 import EigenWordmark from './eigen-wordmark.svelte'
 
 describe('eigen-wordmark.svelte', () => {
-  it('renders both whole-logo variants without a separate mesh label', async () => {
+  it('renders the Geist Mono wordmark with class and id passthrough', async () => {
     render(EigenWordmark, { heightClass: 'h-12', class: 'custom-class', id: 'wordmark' })
-    await expect.element(page.getByAltText('Eigen Mesh').first()).toBeInTheDocument()
-    await expect.element(page.getByAltText('Eigen Mesh').nth(1)).toBeInTheDocument()
-    await expect.element(page.getByText('MESH')).not.toBeInTheDocument()
+    await expect.element(page.getByText('Eigenmesh')).toBeInTheDocument()
     await expect.element(page.locator('#wordmark')).toBeInTheDocument()
   })
 
-  it('renders light tone with a single whole logo', async () => {
+  it('keeps the height box for layout consumers', async () => {
     render(EigenWordmark, { tone: 'light', heightClass: 'h-12', id: 'light-wordmark' })
-    await expect.element(page.getByAltText('Eigen Mesh')).toBeInTheDocument()
-    await expect.element(page.getByText('MESH')).not.toBeInTheDocument()
-    await expect.element(page.locator('#light-wordmark')).toBeInTheDocument()
+    await expect.element(page.getByText('Eigenmesh')).toBeInTheDocument()
+    await expect.element(page.locator('#light-wordmark .h-12')).toBeInTheDocument()
   })
 })

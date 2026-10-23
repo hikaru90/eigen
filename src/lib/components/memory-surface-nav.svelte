@@ -44,7 +44,7 @@
   aria-label={m.memory_aria_view_tabs()}
 >
   <nav
-    class="pointer-events-auto flex h-9 max-w-[calc(100vw-1rem)] shrink-0 items-stretch gap-0.5 overflow-x-auto rounded-full border border-white/80 bg-white/20 p-0.5 shadow-xl shadow-black/5 backdrop-blur-md brightness-105 dark:border-white/15 dark:bg-black/45 dark:backdrop-blur-xl dark:brightness-100"
+    class="pointer-events-auto flex max-w-[calc(100vw-2rem)] shrink-0 items-stretch overflow-x-auto rounded-full bg-paper-2 p-[3px]"
   >
     {#each tabs as tab (tab.id)}
       <a
@@ -52,10 +52,10 @@
           ? resolve(`${tab.pathname}?${tab.search}` as MemoryTabPath)
           : resolve(tab.pathname)}
         class={cn(
-          'flex h-full items-center rounded-full px-2 text-xs whitespace-nowrap',
+          'flex items-center rounded-full px-3.5 py-1 text-sm whitespace-nowrap no-underline transition-colors duration-[450ms] ease-settle',
           activeTab === tab.id
-            ? 'bg-[var(--color-eigen-green)] text-black hover:text-black dark:bg-[var(--color-eigen-green)] dark:text-black dark:hover:text-black'
-            : 'text-black hover:text-black dark:text-foreground dark:hover:text-foreground',
+            ? 'bg-raised text-ink shadow-(--pill-ring)'
+            : 'text-ink-3 pointer-fine:hover:text-ink-2',
         )}
         aria-current={activeTab === tab.id ? 'page' : undefined}
       >

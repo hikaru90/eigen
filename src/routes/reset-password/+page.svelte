@@ -46,7 +46,7 @@
   </header>
 
   <Card.Root
-    class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-8 border border-black/10 bg-card"
+    class="mt-8 border border-line bg-card"
   >
     <Card.Content class="space-y-4 pt-6">
       {#if form?.success}

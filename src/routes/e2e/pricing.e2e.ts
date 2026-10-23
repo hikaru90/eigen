@@ -1,23 +1,36 @@
 import { expect, test } from '@playwright/test'
 import { registerUser } from './test-helpers'
 
+/**
+ * Capture via the up-front reading (ei redesign decision #3): typing fires the debounced
+ * POST /api/capture/read (preview, persists nothing); pressing Capture keeps the accepted
+ * reading in ONE POST /api/capture/keep — no interpret-on-submit, no confirmation modal.
+ */
 async function captureViaUi(page: import('@playwright/test').Page, raw: string) {
-  await page.fill('#thought', raw)
-  const interpretPromise = page.waitForResponse(
-    (res) => res.url().includes('/api/capture/interpret') && res.request().method() === 'POST',
+  // listener first: the debounced read can answer before the fill settles
+  const readPromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/read') && res.request().method() === 'POST',
     { timeout: 30_000 },
   )
-  await page.click('button:has-text("Capture")')
-  const interpretRes = await interpretPromise
-  const body = (await interpretRes.json()) as { status?: string; queueStatus?: string }
-  const status =
-    body.status ??
-    (body.queueStatus === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'ingested')
-  if (status === 'awaiting_confirmation') {
-    const confirmModal = page.getByTestId('capture-confirmation-modal')
-    await expect(confirmModal).toBeVisible({ timeout: 30_000 })
-    await confirmModal.getByRole('button', { name: /Confirm|Bestätigen/i }).click()
+  await page.getByTestId('capture-input').fill(raw)
+  const readRes = await readPromise
+  if (!readRes.ok()) {
+    throw new Error((await readRes.text()).trim() || `Capture read failed (${readRes.status()})`)
   }
+  await expect(page.getByTestId('capture-reading')).toContainText(/Sounds like|Klingt wie/, {
+    timeout: 30_000,
+  })
+
+  const keepPromise = page.waitForResponse(
+    (res) => res.url().includes('/api/capture/keep') && res.request().method() === 'POST',
+    { timeout: 30_000 },
+  )
+  await page.getByTestId('capture-submit').click()
+  const keepRes = await keepPromise
+  if (!keepRes.ok()) {
+    throw new Error((await keepRes.text()).trim() || `Capture keep failed (${keepRes.status()})`)
+  }
+  await expect(page.getByTestId('capture-confirmation-modal')).toHaveCount(0)
 }
 
 test.describe('Pricing transparency (AC-014, AC-015)', () => {
@@ -29,7 +42,8 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
     await page.goto('/capture')
 
     await captureViaUi(page, 'Test thought for pricing verification')
-    await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
+    // the kept thought settles inline (Capture no longer lists recent thoughts)
+    await expect(page.getByTestId('capture-settled')).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
 
@@ -51,7 +65,7 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
     await page.goto('/capture')
 
     await captureViaUi(page, 'Another thought for totals check')
-    await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('capture-settled')).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
 

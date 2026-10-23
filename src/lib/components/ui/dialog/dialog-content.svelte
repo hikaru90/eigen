@@ -18,7 +18,7 @@
     bind:ref
     data-slot="dialog-content"
     class={cn(
-      'bg-background data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 fixed left-1/2 top-1/2 z-[60] grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border p-6 shadow-lg duration-200',
+      'bg-raised text-ink rounded-[14px] shadow-raised data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 fixed left-1/2 top-1/2 z-[60] grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 p-6 duration-200 max-[640px]:max-w-[calc(100vw-32px)]',
       className,
     )}
     {...restProps}

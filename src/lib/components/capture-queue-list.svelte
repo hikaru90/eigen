@@ -30,7 +30,7 @@
   )
 
   const cardClass =
-    'bg-white dark:bg-card border-2 border-black dark:border-border shadow-[8px_8px_0px_0px_#000] dark:shadow-none px-4 py-3'
+    'bg-paper-2 px-4 py-3'
 </script>
 
 {#if visibleItems.length > 0}
@@ -53,7 +53,7 @@
             type="button"
             variant="ghost"
             size="icon"
-            class="shrink-0 size-8 rounded-none text-destructive hover:text-destructive hover:bg-destructive/10"
+            class="shrink-0 size-8 text-destructive hover:text-destructive hover:bg-destructive/10"
             aria-label="Remove from queue"
             onclick={() => oncancel(item.id)}
           >
@@ -61,7 +61,7 @@
           </Button>
         </div>
         {#if item.id === processingId}
-          <div class="mt-3 pt-3 border-t-2 border-black/10 dark:border-border">
+          <div class="mt-3 pt-3 border-t border-line">
             <IngestPhaseIndicator {events} {pipeline} {startMs} />
           </div>
         {/if}

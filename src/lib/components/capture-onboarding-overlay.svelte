@@ -348,14 +348,14 @@
 
 {#if open}
   <div
-    class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-5 backdrop-blur-[2px]"
+    class="fixed inset-0 z-[100] flex items-center justify-center bg-paper/75 p-5 backdrop-blur-[6px]"
     role="dialog"
     aria-modal="true"
     aria-labelledby="onboarding-title"
     aria-describedby="onboarding-desc"
   >
     <Card.Root
-      class="ring-foreground/10 relative max-h-[90dvh] w-full max-w-md overflow-y-auto border border-black/10 bg-card shadow-lg ring-1 dark:border-white/20"
+      class="ring-foreground/10 relative max-h-[90dvh] w-full max-w-md overflow-y-auto border border-line bg-card shadow-lg ring-1"
     >
       <button
         type="button"
@@ -416,7 +416,7 @@
               <ol class="space-y-3">
                 <li class="flex items-start gap-3">
                   <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-muted dark:border-white/15"
+                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-line bg-muted"
                   >
                     <!-- iOS share icon (Safari toolbar) -->
                     <svg
@@ -443,7 +443,7 @@
                 </li>
                 <li class="flex items-start gap-3">
                   <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-muted dark:border-white/15"
+                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-line bg-muted"
                   >
                     <!-- iOS "Add to Home Screen" menu icon -->
                     <svg
@@ -468,7 +468,7 @@
                 </li>
                 <li class="flex items-start gap-3">
                   <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-muted dark:border-white/15"
+                    class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-line bg-muted"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -635,7 +635,7 @@
       {/if}
 
       <Card.Footer
-        class="flex flex-wrap items-center justify-between gap-2 border-t border-black/10 pt-4 dark:border-white/15"
+        class="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4"
       >
         <div class="flex min-w-0 flex-1 items-center gap-2">
           {#if step > 0}

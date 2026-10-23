@@ -54,7 +54,7 @@
             style="background-color: {col.color}"
             aria-hidden="true"
           ></span>
-          <h3 class="text-foreground text-xs font-semibold">{col.label}</h3>
+          <h3 class="text-foreground text-xs font-medium">{col.label}</h3>
           <span class="text-muted-foreground ml-auto font-mono text-[10px]">{col.items.length}</span
           >
         </header>

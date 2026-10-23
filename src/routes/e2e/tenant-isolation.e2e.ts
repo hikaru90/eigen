@@ -16,8 +16,8 @@ test.describe('Tenant isolation (AC-018)', () => {
       data: { query: 'Alpha launch date', topK: 5 },
     })
     expect(res.ok()).toBeTruthy()
-    const body = (await res.json()) as { results: Array<unknown> }
-    const ids = body.results.map((r: { id: string }) => r.id)
+    const body = (await res.json()) as { results: Array<{ id: string }> }
+    const ids = body.results.map((r) => r.id)
     expect(ids).not.toContain(thought.id)
 
     await contextA.close()

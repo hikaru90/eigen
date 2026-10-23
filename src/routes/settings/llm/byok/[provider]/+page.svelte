@@ -44,7 +44,7 @@
   </a>
 
   <div>
-    <h1 class="text-sm font-semibold">{label}</h1>
+    <h1 class="text-sm font-medium">{label}</h1>
     <p class="text-muted-foreground mt-0.5 text-xs">API credentials for {label}.</p>
   </div>
 

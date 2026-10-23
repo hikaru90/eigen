@@ -192,6 +192,7 @@ export const handle: Handle = sequence(
 )
 
 export const handleError: HandleServerError = ({ error, status, event }) => {
+  console.error(`[server error] ${status} ${event.url.pathname}`, error)
   if (shouldCaptureServerError(status)) {
     captureServerException(error, event.locals.user?.id, {
       status,

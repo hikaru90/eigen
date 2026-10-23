@@ -78,7 +78,7 @@
 </script>
 
 <Dialog.Root {open} {onOpenChange}>
-  <Dialog.Content class="max-w-lg rounded-none border-2 border-black dark:border-border">
+  <Dialog.Content class="max-w-lg">
     <Dialog.Header>
       <Dialog.Title>{m.notes_edit_title()}</Dialog.Title>
       <Dialog.Description>{m.notes_edit_description()}</Dialog.Description>
@@ -93,7 +93,7 @@
           <Input
             id="note-edit-title"
             bind:value={editTitle}
-            class="rounded-none"
+           
             placeholder={m.notes_untitled()}
           />
         </div>
@@ -102,7 +102,7 @@
           <Textarea
             id="note-edit-body"
             bind:value={editBody}
-            class="min-h-48 rounded-none font-mono text-sm"
+            class="min-h-48 font-mono text-sm"
           />
         </div>
         {#if error}
@@ -117,7 +117,7 @@
     <Dialog.Footer>
       <Button
         type="button"
-        class="rounded-none"
+       
         disabled={loading || saving || !editBody.trim()}
         onclick={() => void saveNote()}
       >

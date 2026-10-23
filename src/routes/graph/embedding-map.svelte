@@ -244,29 +244,3 @@
   {/if}
 </div>
 
-<style>
-  :global(.embedding-map-label) {
-    max-width: 11rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding: 1px 4px;
-    border-radius: 2px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 10px;
-    line-height: 1.2;
-    color: var(--foreground);
-    background: color-mix(in oklab, var(--background) 88%, transparent);
-    border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-    opacity: 0.92;
-    pointer-events: none;
-    user-select: none;
-  }
-
-  :global(.embedding-map-label--selected) {
-    font-weight: 600;
-    opacity: 1;
-    border-color: #fbbf24;
-    box-shadow: 0 0 0 1px color-mix(in oklab, #fbbf24 35%, transparent);
-  }
-</style>

@@ -9,6 +9,23 @@ import CardFooter from './card/card-footer.svelte'
 import CardHeader from './card/card-header.svelte'
 import CardTitle from './card/card-title.svelte'
 import Card from './card/card.svelte'
+import DropdownMenuCheckboxGroup from './dropdown-menu/dropdown-menu-checkbox-group.svelte'
+import DropdownMenuCheckboxItem from './dropdown-menu/dropdown-menu-checkbox-item.svelte'
+import DropdownMenuContent from './dropdown-menu/dropdown-menu-content.svelte'
+import DropdownMenuGroupHeading from './dropdown-menu/dropdown-menu-group-heading.svelte'
+import DropdownMenuGroup from './dropdown-menu/dropdown-menu-group.svelte'
+import DropdownMenuItem from './dropdown-menu/dropdown-menu-item.svelte'
+import DropdownMenuLabel from './dropdown-menu/dropdown-menu-label.svelte'
+import DropdownMenuPortal from './dropdown-menu/dropdown-menu-portal.svelte'
+import DropdownMenuRadioGroup from './dropdown-menu/dropdown-menu-radio-group.svelte'
+import DropdownMenuRadioItem from './dropdown-menu/dropdown-menu-radio-item.svelte'
+import DropdownMenuSeparator from './dropdown-menu/dropdown-menu-separator.svelte'
+import DropdownMenuShortcut from './dropdown-menu/dropdown-menu-shortcut.svelte'
+import DropdownMenuSubContent from './dropdown-menu/dropdown-menu-sub-content.svelte'
+import DropdownMenuSubTrigger from './dropdown-menu/dropdown-menu-sub-trigger.svelte'
+import DropdownMenuSub from './dropdown-menu/dropdown-menu-sub.svelte'
+import DropdownMenuTrigger from './dropdown-menu/dropdown-menu-trigger.svelte'
+import DropdownMenu from './dropdown-menu/dropdown-menu.svelte'
 import Input from './input/input.svelte'
 import Label from './label/label.svelte'
 import PopoverClose from './popover/popover-close.svelte'
@@ -74,6 +91,24 @@ describe('ui primitives', () => {
     render(SelectScrollUpButton, { class: 't-select-scroll-up' })
     render(SelectScrollDownButton, { class: 't-select-scroll-down' })
     render(SelectPortal)
+
+    render(DropdownMenu, { open: false })
+    render(DropdownMenuTrigger, { class: 't-dd-trigger' })
+    render(DropdownMenuContent, { class: 't-dd-content' })
+    render(DropdownMenuItem, { class: 't-dd-item' })
+    render(DropdownMenuGroup, { class: 't-dd-group' })
+    render(DropdownMenuGroupHeading, { class: 't-dd-group-heading' })
+    render(DropdownMenuLabel, { class: 't-dd-label' })
+    render(DropdownMenuCheckboxGroup)
+    render(DropdownMenuCheckboxItem, { class: 't-dd-checkbox-item' })
+    render(DropdownMenuRadioGroup)
+    render(DropdownMenuRadioItem, { value: 'a', class: 't-dd-radio-item' })
+    render(DropdownMenuSeparator, { class: 't-dd-separator' })
+    render(DropdownMenuShortcut, { class: 't-dd-shortcut' })
+    render(DropdownMenuSub)
+    render(DropdownMenuSubTrigger, { class: 't-dd-sub-trigger' })
+    render(DropdownMenuSubContent, { class: 't-dd-sub-content' })
+    render(DropdownMenuPortal)
 
     await expect.element(page.locator('body')).toBeInTheDocument()
   })

@@ -68,7 +68,10 @@ export function embeddingMapLabelText(item: EmbeddingSnapshotItem): string {
 
 function createLabelElement(text: string, itemId: string): HTMLDivElement {
   const el = document.createElement('div')
-  el.className = 'embedding-map-label'
+  // Label styling rides Tailwind utilities as a literal string (the DOM is created
+  // outside Svelte); the scanner picks it up from this file.
+  el.className =
+    'embedding-map-label max-w-44 overflow-hidden text-ellipsis whitespace-nowrap px-1 py-px rounded-[2px] font-mono text-[10px] leading-[1.2] text-foreground bg-[color-mix(in_oklab,var(--background)_88%,transparent)] border border-[color-mix(in_oklab,var(--border)_70%,transparent)] opacity-92 pointer-events-none select-none'
   el.dataset.itemId = itemId
   el.textContent = text
   return el
@@ -340,7 +343,12 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
       highlightGroup.visible = false
       /** Reset all label styles */
       for (const [, labelEl] of labelByItemId) {
-        labelEl.classList.remove('embedding-map-label--selected')
+        labelEl.classList.remove(
+          'font-semibold',
+          'opacity-100',
+          'border-amber-400',
+          'shadow-[0_0_0_1px_color-mix(in_oklab,#fbbf24_35%,transparent)]',
+        )
       }
     } else {
       /** Dim non-selected points */
@@ -350,7 +358,12 @@ export function createEmbeddingMap3d(options: CreateEmbeddingMap3dOptions): Embe
         /** Highlight the selected label */
         const labelEl = labelByItemId.get(id)
         if (labelEl) {
-          labelEl.classList.add('embedding-map-label--selected')
+          labelEl.classList.add(
+            'font-semibold',
+            'opacity-100',
+            'border-amber-400',
+            'shadow-[0_0_0_1px_color-mix(in_oklab,#fbbf24_35%,transparent)]',
+          )
         }
       }
     }

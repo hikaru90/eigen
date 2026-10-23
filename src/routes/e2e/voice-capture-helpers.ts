@@ -41,7 +41,7 @@ export async function installVoiceCaptureMocks(page: Page): Promise<void> {
         }
       }
 
-      window.AudioContext = MockAudioContext as typeof AudioContext
+      window.AudioContext = MockAudioContext as unknown as typeof AudioContext
 
       class FakeMediaRecorder extends EventTarget {
         static isTypeSupported(mimeType?: string) {
@@ -156,7 +156,8 @@ export async function exerciseVoiceCaptureUi(
   const mic = page.getByLabel('Start voice input', { exact: true })
   await expect(mic).toBeEnabled({ timeout: 15_000 })
 
-  const errorBanner = page.locator('p.text-destructive.text-sm').first()
+  // voice errors surface through the page's single error line (.page-error, role=status)
+  const errorBanner = page.locator('.page-error').first()
   const stopMic = page.getByLabel('Stop recording and transcribe', { exact: true })
 
   await mic.click()

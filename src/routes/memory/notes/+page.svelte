@@ -256,12 +256,12 @@
   })
 </script>
 
-<div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none px-4 pt-14 pb-4 md:px-6">
+<div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none px-4 pt-[calc(var(--head)+16px)] pb-4 md:px-6">
   <header class="mb-4 flex shrink-0 items-center justify-between gap-3">
-    <h1 class="text-lg font-semibold text-foreground">{m.notes_title()}</h1>
+    <h1 class="text-lg font-medium text-foreground">{m.notes_title()}</h1>
     <Button
       type="button"
-      class="h-auto rounded-none px-3 py-1.5 text-xs"
+      class="h-auto px-3 py-1.5 text-xs"
       onclick={() => {
         createOpen = true
       }}
@@ -277,7 +277,7 @@
       value={searchQuery}
       oninput={(e) => onSearchInput(e.currentTarget.value)}
       placeholder={m.notes_search_placeholder()}
-      class="rounded-none border-border bg-background"
+      class="border-border bg-background"
     />
   </div>
 
@@ -326,7 +326,7 @@
           <Button
             type="button"
             variant="outline"
-            class="rounded-none text-xs"
+            class="text-xs"
             disabled={loadingMore}
             onclick={() => void loadList(false)}
           >
@@ -345,7 +345,7 @@
   <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-4 pb-10" data-vaul-no-drag>
     <Drawer.Header class="space-y-1 px-0 pt-0 text-left">
       <div class="flex flex-wrap items-center gap-2">
-        <Drawer.Title class="text-base font-semibold">{m.notes_edit_title()}</Drawer.Title>
+        <Drawer.Title class="text-base font-medium">{m.notes_edit_title()}</Drawer.Title>
         <MemoryAuthorBadge author={editAuthor} authorLabel={editAuthorLabel} />
       </div>
       <Drawer.Description class="text-xs">{m.notes_edit_description()}</Drawer.Description>
@@ -361,7 +361,7 @@
           <Input
             id="note-title"
             bind:value={editTitle}
-            class="rounded-none"
+           
             placeholder={m.notes_untitled()}
           />
         </div>
@@ -370,7 +370,7 @@
           <Textarea
             id="note-body"
             bind:value={editBody}
-            class="min-h-48 rounded-none font-mono text-sm"
+            class="min-h-48 font-mono text-sm"
           />
         </div>
         {#if detailError}
@@ -382,7 +382,7 @@
         <div class="flex flex-wrap gap-2">
           <Button
             type="button"
-            class="rounded-none"
+           
             disabled={saving || deleting}
             onclick={() => void saveNote()}
           >
@@ -394,7 +394,7 @@
           <Button
             type="button"
             variant="destructive"
-            class="rounded-none"
+           
             disabled={saving || deleting}
             onclick={() => void removeNote()}
           >
@@ -431,7 +431,7 @@
 </MemorySurfaceDrawer>
 
 <Dialog.Root bind:open={createOpen}>
-  <Dialog.Content class="max-w-lg rounded-none border-2 border-black dark:border-border">
+  <Dialog.Content class="max-w-lg">
     <Dialog.Header>
       <Dialog.Title>{m.notes_create_title()}</Dialog.Title>
       <Dialog.Description>{m.notes_create_description()}</Dialog.Description>
@@ -439,11 +439,11 @@
     <div class="space-y-3">
       <div class="space-y-1">
         <Label for="create-title">{m.notes_title_label()}</Label>
-        <Input id="create-title" bind:value={createTitle} class="rounded-none" />
+        <Input id="create-title" bind:value={createTitle} />
       </div>
       <div class="space-y-1">
         <Label for="create-body">{m.notes_body_label()}</Label>
-        <Textarea id="create-body" bind:value={createBody} class="min-h-32 rounded-none" />
+        <Textarea id="create-body" bind:value={createBody} class="min-h-32" />
       </div>
       {#if createError}
         <p class="text-xs text-destructive">{createError}</p>
@@ -452,7 +452,7 @@
     <Dialog.Footer>
       <Button
         type="button"
-        class="rounded-none"
+       
         disabled={createBusy || !(createTitle.trim() || createBody.trim())}
         onclick={() => void submitCreate()}
       >

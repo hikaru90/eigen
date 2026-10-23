@@ -151,7 +151,7 @@
 </script>
 
 <Card.Root
-  class="ring-0 shadow-[4px_4px_0_0_rgb(17_17_17_/_0.08)] mt-4 border border-black/10 bg-card"
+  class="mt-4 border border-border bg-card"
 >
   <Card.Header class="pb-2">
     <div class="flex items-center justify-between">
@@ -173,14 +173,14 @@
       <div class="mb-4 grid grid-cols-2 gap-4 px-2 sm:grid-cols-5">
         <div class="rounded-md border border-border/50 bg-muted/30 p-3">
           <div class="text-muted-foreground text-[10px] uppercase tracking-wide">Total Spend</div>
-          <div class="mt-1 font-mono text-sm font-semibold tabular-nums">
+          <div class="mt-1 font-mono text-sm font-medium tabular-nums">
             {formatCredits(totalCredits)}
           </div>
           <div class="text-muted-foreground font-mono text-[10px]">{formatUsd(totalUsd)}</div>
         </div>
         <div class="rounded-md border border-border/50 bg-muted/30 p-3">
           <div class="text-muted-foreground text-[10px] uppercase tracking-wide">Avg / Day</div>
-          <div class="mt-1 font-mono text-sm font-semibold tabular-nums">
+          <div class="mt-1 font-mono text-sm font-medium tabular-nums">
             {formatCredits(averageCreditsPerDay)}
           </div>
           <div class="text-muted-foreground font-mono text-[10px]">
@@ -191,7 +191,7 @@
           <div class="text-muted-foreground text-[10px] uppercase tracking-wide">
             Avg Cost / Call
           </div>
-          <div class="mt-1 font-mono text-sm font-semibold tabular-nums">
+          <div class="mt-1 font-mono text-sm font-medium tabular-nums">
             {formatCredits(averageCreditsPerGroup)}
           </div>
           <div class="text-muted-foreground font-mono text-[10px]">
@@ -200,7 +200,7 @@
         </div>
         <div class="rounded-md border border-border/50 bg-muted/30 p-3">
           <div class="text-muted-foreground text-[10px] uppercase tracking-wide">Total Calls</div>
-          <div class="mt-1 font-mono text-sm font-semibold tabular-nums">
+          <div class="mt-1 font-mono text-sm font-medium tabular-nums">
             {totalCalls.toLocaleString()}
           </div>
         </div>
@@ -208,7 +208,7 @@
           <div class="text-muted-foreground text-[10px] uppercase tracking-wide">
             Avg Calls / Day
           </div>
-          <div class="mt-1 font-mono text-sm font-semibold tabular-nums">
+          <div class="mt-1 font-mono text-sm font-medium tabular-nums">
             {(() => {
               const uniqueDays = new Set(buckets.map((b) => b.periodStart)).size || 1
               return (totalCalls / uniqueDays).toFixed(1)
@@ -224,7 +224,7 @@
           <span class="text-muted-foreground">Total spend</span>
         </div>
         <div class="flex items-center gap-1.5">
-          <span class="inline-block h-0.5 w-3 rounded bg-blue-500"></span>
+          <span class="inline-block h-0.5 w-3 rounded bg-[var(--signal)]"></span>
           <span class="text-muted-foreground">Avg cost / call</span>
         </div>
       </div>
@@ -290,7 +290,7 @@
             <path
               d={linePath}
               fill="none"
-              class="stroke-blue-500"
+              class="stroke-[var(--signal)]"
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -302,7 +302,7 @@
               cx={point.x}
               cy={point.y}
               r="3"
-              class="fill-blue-500 stroke-white"
+              class="fill-[var(--signal)] stroke-[var(--background)]"
               stroke-width="1.5"
             />
           {/each}
@@ -315,7 +315,7 @@
               x={chartWidth - padRight + 4}
               y={y + 3}
               text-anchor="start"
-              class="fill-blue-500 text-[9px]"
+              class="fill-[var(--signal)] text-[9px]"
             >
               {formatTick(avgTick)}
             </text>
@@ -338,7 +338,7 @@
             <div class="text-muted-foreground">
               {bar.bucket.callCount} call{bar.bucket.callCount === 1 ? '' : 's'}
             </div>
-            <div class="mt-1 border-t border-border pt-1 text-blue-500">
+            <div class="mt-1 border-t border-border pt-1 text-[var(--signal)]">
               Avg/call: {formatCredits(linePoint.value)}
             </div>
           </div>

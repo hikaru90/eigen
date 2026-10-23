@@ -213,7 +213,7 @@ export async function waitForChatIdle(page: Page, timeoutMs = 120_000): Promise<
 
 export async function assertChatLoadingVisible(page: Page): Promise<void> {
   const progress = page.getByText(
-    /Connecting…|Working…|Planning next step|Searching your memories|Searching text notes|Appending to text note|Creating text note|Updating text note|Preparing your reply|Answering your question|Checking your schedule/i,
+    /recalling…|following the threads…|writing…|Connecting…|Working…|Planning next step|Searching your memories|Searching text notes|Appending to text note|Creating text note|Updating text note|Preparing your reply|Answering your question|Checking your schedule/i,
   )
   const spinner = page.locator('.animate-spin').first()
   await expect

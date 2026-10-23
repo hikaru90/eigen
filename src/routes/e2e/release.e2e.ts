@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { assertNavigationAndAskLayout } from './navigation-layout-helpers'
 import {
   assertReleasePreflight,
   assertMarkDoneFromProjectsView,
@@ -11,8 +12,7 @@ import {
   assertTimelineTasksSearch,
   assertCheckInDeepLinkShowsPendingQuestion,
   captureThoughtViaUi,
-  captureThoughtViaUiAutoAccept,
-  captureThoughtViaUiDismissVerbatim,
+  captureThoughtViaUiAdjustType,
   completeOnboardingOverlay,
   exerciseAuthenticatedUi,
   exerciseNotesShoppingListAppend,
@@ -75,45 +75,38 @@ test.describe('Release smoke @release', () => {
       await completeOnboardingOverlay(page, { creditAmount: 1000 })
     })
 
+    await test.step('navigation and Ask layout remain usable', async () => {
+      await assertNavigationAndAskLayout(page)
+    })
+
     await test.step('check-in deep link shows pending grounding question', async () => {
       await assertCheckInDeepLinkShowsPendingQuestion(page)
     })
 
-    await test.step('capture a thought through the UI (interpret → confirm if needed)', async () => {
+    await test.step('capture a thought through the UI (read → keep, no modal)', async () => {
       await captureThoughtViaUi(page, releaseThought)
-      await expect(page.getByRole('heading', { name: 'Recent' })).toBeVisible()
-      await expect(
-        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-      ).toContainText('Lisbon')
+      // the kept thought settles inline; Capture no longer lists recent thoughts (Yarn does)
+      await expect(page.getByTestId('capture-settled')).toBeVisible()
+      await expect(page.getByTestId('capture-settled')).toContainText('Lisbon')
     })
 
-    await test.step('capture deviation modal: dismiss stores verbatim', async () => {
-      const dismissRaw =
-        'Release smoke dismiss: keep this meeting in Lisbon next week exactly as written'
-      await captureThoughtViaUiDismissVerbatim(page, dismissRaw)
-      await expect(
-        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-      ).toContainText('Lisbon')
+    // Converted from "capture deviation modal: dismiss stores verbatim": the user still
+    // overrides the mesh's reading, now up front via the type control before Capture.
+    // (The "auto-accept after countdown" scenario is retired — pressing Capture with the
+    // shown reading is exactly the default captureThoughtViaUi path above.)
+    await test.step('capture: adjust the reading type before Capture (keep carries the pick)', async () => {
+      const adjustRaw =
+        'Release smoke adjust: keep this meeting in Lisbon next week exactly as written'
+      await captureThoughtViaUiAdjustType(page, adjustRaw)
+      await expect(page.getByTestId('capture-settled')).toContainText(/Lisbon|meeting/i)
     })
 
-    await test.step('capture deviation modal: auto-accept after countdown', async () => {
-      await captureThoughtViaUiAutoAccept(
-        page,
-        'Release smoke auto-accept: reinterpret this offsite plan for Porto next month',
-      )
-      await expect(
-        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-      ).toBeVisible()
-    })
-
-    await test.step('capture action-item wording through interpret (no invalid-category fail)', async () => {
+    await test.step('capture action-item wording through read → keep (no invalid-category fail)', async () => {
       await captureThoughtViaUi(
         page,
         'Release smoke action item: email the Lisbon host about venue deposit',
       )
-      await expect(
-        page.getByRole('button', { name: /Expand thought|Collapse thought/ }).first(),
-      ).toContainText(/Lisbon|venue|deposit/i)
+      await expect(page.getByTestId('capture-settled')).toContainText(/Lisbon|venue|deposit/i)
     })
 
     await test.step('timeline cold-mount fetch budget (no duplicate list/stats)', async () => {
@@ -168,9 +161,58 @@ test.describe('Release smoke @release', () => {
       await signOut(page)
       await loginUser(page, email)
       await expect(page).toHaveURL(/\/capture/)
-      await expect(page.getByText(/Lisbon/i)).toBeVisible()
-      await page.getByRole('button', { name: 'Account menu' }).click()
+      // the captured thoughts live in the Yarn journal now (Capture lists nothing)
+      await page.goto('/mesh/yarn')
+      await expect(
+        page
+          .locator('[data-testid^="thought-"]')
+          .filter({ hasText: /Lisbon/i })
+          .first(),
+      ).toBeVisible()
+      // The You menu (header hamburger): opens from its trigger, shows the account,
+      // and — the toggle contract — a second click on the same hamburger closes it.
+      // While open the registry dropdown is modal (pointer-events: none on the page),
+      // so the second physical click lands as an outside-click; locator.click refuses
+      // that hit-test, hence the raw mouse click at the trigger's coordinates.
+      const youTrigger = page.getByRole('button', { name: /Profile · Settings/ })
+      await youTrigger.click()
       await expect(page.getByText(email)).toBeVisible()
+      await expect(youTrigger).toHaveAttribute('aria-expanded', 'true')
+      const youBox = await youTrigger.boundingBox()
+      await page.mouse.click(youBox!.x + youBox!.width / 2, youBox!.y + youBox!.height / 2)
+      await expect(page.locator('[data-testid="you-menu"]')).toBeHidden()
+      await expect(youTrigger).toHaveAttribute('aria-expanded', 'false')
     })
+  })
+})
+
+async function registerLayoutUser(
+  page: import('@playwright/test').Page,
+  context: import('@playwright/test').BrowserContext,
+) {
+  await registerUser(context, page, { emailDomain: 'example.com' })
+  const beta = page.getByTestId('beta-agreement-modal')
+  const onboarding = page.getByRole('dialog', { name: /Your memory, not theirs\./ })
+  await expect(beta.or(onboarding).first()).toBeVisible({ timeout: 20_000 })
+  if (await beta.isVisible()) {
+    await beta.getByRole('checkbox').check()
+    await beta.getByRole('button', { name: /Accept|Akzeptieren/i }).click()
+    await expect(beta).toBeHidden()
+  }
+  await completeOnboardingOverlay(page)
+}
+
+test('navigation and Ask layout regression @layout', async ({ page, context }) => {
+  test.setTimeout(120_000)
+  await registerLayoutUser(page, context)
+  await assertNavigationAndAskLayout(page)
+})
+
+test.describe('touch layout regression', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } })
+  test('navigation and Ask layout on touch @layout', async ({ page, context }) => {
+    test.setTimeout(120_000)
+    await registerLayoutUser(page, context)
+    await assertNavigationAndAskLayout(page, true)
   })
 })
