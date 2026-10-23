@@ -31,6 +31,8 @@ async function captureViaUi(page: import('@playwright/test').Page, raw: string) 
     throw new Error((await keepRes.text()).trim() || `Capture keep failed (${keepRes.status()})`)
   }
   await expect(page.getByTestId('capture-confirmation-modal')).toHaveCount(0)
+  // Capture does not show the thought again; the empty writer is the kept signal
+  await expect(page.getByTestId('capture-input')).toHaveValue('')
 }
 
 test.describe('Pricing transparency (AC-014, AC-015)', () => {
@@ -42,8 +44,6 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
     await page.goto('/capture')
 
     await captureViaUi(page, 'Test thought for pricing verification')
-    // the kept thought settles inline (Capture no longer lists recent thoughts)
-    await expect(page.getByTestId('capture-settled')).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
 
@@ -65,7 +65,6 @@ test.describe('Pricing transparency (AC-014, AC-015)', () => {
     await page.goto('/capture')
 
     await captureViaUi(page, 'Another thought for totals check')
-    await expect(page.getByTestId('capture-settled')).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/activity')
 

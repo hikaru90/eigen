@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
-  import { afterNavigate } from '$app/navigation'
+  import { afterNavigate, onNavigate } from '$app/navigation'
   import { base } from '$app/paths'
   import { page } from '$app/state'
   import './layout.css'
@@ -12,6 +12,11 @@
     capturePageview,
   } from '$lib/analytics/posthog-client'
   import favicon from '$lib/assets/favicon.png'
+  import averia400 from '$lib/assets/fonts/averia-libre-latin-400-normal.woff2?url'
+  import averia700 from '$lib/assets/fonts/averia-libre-latin-700-normal.woff2?url'
+  import geistMono400 from '$lib/assets/fonts/geist-mono-latin-400-normal.woff2?url'
+  import inter400 from '$lib/assets/fonts/inter-latin-400-normal.woff2?url'
+  import inter500 from '$lib/assets/fonts/inter-latin-500-normal.woff2?url'
   import { startCaptureQueueRunner } from '$lib/capture/queue'
   import BetaAgreementModal from '$lib/components/beta-agreement-modal.svelte'
   import AppChrome from '$lib/components/chrome/app-chrome.svelte'
@@ -73,15 +78,19 @@
    */
   const fadeVars = $derived(
     mainView === 'feedback'
-      ? '[--fade-top:calc(var(--tabs-top,var(--head,68px))-8px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+100px)] [--tail-bottom:0]'
-      : '[--fade-top:var(--head,68px)] [--fade-bottom:var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))] [--tail-bottom:0.06]',
+      ? '[--fade-top:calc(var(--head,68px)+56px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+90px)] [--tail-bottom:0]'
+      : mainView === 'ask' || mainView === 'capture'
+        ? // pages with the docked writer: the fade reaches up past it, so nothing scrolls
+          // legibly behind the field — not just to the bottom menu
+          '[--fade-top:var(--head,68px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+12px+var(--glass-writer-height,64px))] [--tail-bottom:0.06]'
+        : '[--fade-top:var(--head,68px)] [--fade-bottom:var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))] [--tail-bottom:0.06]',
   )
   const chromeMainClass = $derived.by(() => {
     if (hideAppChrome) {
       return 'static overflow-visible min-h-dvh mask-none animate-none'
     }
     return [
-      'fixed inset-0 z-0',
+      'fixed inset-0 z-0 [view-transition-name:page]',
       mainView === 'ask' ? 'overflow-hidden' : 'overflow-y-auto overscroll-contain [scrollbar-width:none]',
       fadeVars,
       '[--mask:linear-gradient(to_bottom,rgb(0_0_0/0.02)_0,rgb(0_0_0/0.06)_calc(var(--fade-top)_-_16px),rgb(0_0_0/0.068)_calc(var(--fade-top)_-_16px_+_5.2px),rgb(0_0_0/0.114)_calc(var(--fade-top)_-_16px_+_10.4px),rgb(0_0_0/0.213)_calc(var(--fade-top)_-_16px_+_15.6px),rgb(0_0_0/0.358)_calc(var(--fade-top)_-_16px_+_20.8px),rgb(0_0_0/0.53)_calc(var(--fade-top)_-_16px_+_26px),rgb(0_0_0/0.702)_calc(var(--fade-top)_-_16px_+_31.2px),rgb(0_0_0/0.847)_calc(var(--fade-top)_-_16px_+_36.4px),rgb(0_0_0/0.946)_calc(var(--fade-top)_-_16px_+_41.6px),rgb(0_0_0/0.992)_calc(var(--fade-top)_-_16px_+_46.8px),rgb(0_0_0/1)_calc(var(--fade-top)_+_36px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*1))_calc(100%_-_var(--fade-bottom)_-_36px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.991))_calc(100%_-_var(--fade-bottom)_-_30.8px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.942))_calc(100%_-_var(--fade-bottom)_-_25.6px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.837))_calc(100%_-_var(--fade-bottom)_-_20.4px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.683))_calc(100%_-_var(--fade-bottom)_-_15.2px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.5))_calc(100%_-_var(--fade-bottom)_-_10px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.317))_calc(100%_-_var(--fade-bottom)_-_4.8px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.163))_calc(100%_-_var(--fade-bottom)_+_0.4px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.058))_calc(100%_-_var(--fade-bottom)_+_5.6px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0.009))_calc(100%_-_var(--fade-bottom)_+_10.8px),rgb(0_0_0/calc(var(--tail-bottom)_+_(1_-_var(--tail-bottom))*0))_calc(100%_-_var(--fade-bottom)_+_16px),rgb(0_0_0/calc(var(--tail-bottom)/3))_100%)]',
@@ -91,6 +100,26 @@
   })
 
   let mainEl = $state<HTMLElement | null>(null)
+
+  /*
+   * Route transitions: ei's view switch (styles.css `.view` / `.is-leaving`) — the old page
+   * lifts and blurs out, the new one settles up from blur. Driven by the View Transitions API
+   * from SvelteKit's onNavigate, so only the page container (`view-transition-name: page`)
+   * and the Ask writer animate — opacity / transform on snapshots, compositor-only.
+   * The root (header, bottom nav) does not animate. Reduced motion and browsers without the
+   * API navigate instantly.
+   */
+  onNavigate((nav) => {
+    if (typeof document === 'undefined' || !document.startViewTransition) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (!nav.to || nav.from?.url.pathname === nav.to.url.pathname) return
+    return new Promise<void>((resolve) => {
+      document.startViewTransition(async () => {
+        resolve()
+        await nav.complete
+      })
+    })
+  })
 
   let themePreference = 'system'
   let lastIdentifiedUserId: string | null | undefined = undefined
@@ -210,6 +239,10 @@
 <svelte:head>
   <title>Eigen Mesh</title>
   <link rel="icon" href={favicon} />
+  <!-- every face the first paint uses, fetched with the document so text never reflows on swap -->
+  {#each [inter400, inter500, geistMono400, averia400, averia700] as font (font)}
+    <link rel="preload" href={font} as="font" type="font/woff2" crossorigin="anonymous" />
+  {/each}
 </svelte:head>
 
 {#if !hideAppChrome}

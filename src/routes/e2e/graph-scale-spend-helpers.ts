@@ -297,15 +297,9 @@ export async function captureThoughtThroughUi(
   }
   expect(keepJson.rawText).toBe(trimmed)
 
-  // the kept thought settles inline — no modal, no card pile
+  // no modal, and Capture does not show the thought again — the writer empties
   await expect(page.getByTestId('capture-confirmation-modal')).toHaveCount(0)
-  const settled = page.getByTestId('capture-settled')
-  await expect(settled.getByTestId('capture-settled-open')).toHaveAttribute(
-    'href',
-    new RegExp(`/thought/${thoughtId}$`),
-    { timeout: 60_000 },
-  )
-  await expect(settled).not.toContainText('Indexing failed', { timeout: 5_000 })
+  await expect(page.getByTestId('capture-input')).toHaveValue('', { timeout: 60_000 })
 
   await expect
     .poll(

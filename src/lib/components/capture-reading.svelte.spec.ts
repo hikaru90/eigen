@@ -31,10 +31,19 @@ describe('capture-reading.svelte', () => {
     await expect.element(page.getByText('Sounds like')).not.toBeInTheDocument()
   })
 
-  it('shows the spinner and plain waiting words while the mesh reads', async () => {
+  it('shows three hopping dots and "Interpreting" while the mesh reads', async () => {
     render(CaptureReading, { draft: null, waiting: true, error: null })
-    const root = page.getByTestId('capture-reading')
-    await expect.element(root).toHaveTextContent('settling')
+    const line = page.getByTestId('capture-reading-interpreting')
+    await expect.element(line).toHaveTextContent('Interpreting')
+    expect(line.element().querySelectorAll('[aria-hidden="true"] > span')).toHaveLength(3)
+  })
+
+  it('marks the type and project as pickable with a chevron', async () => {
+    render(CaptureReading, { draft, waiting: false, error: null })
+    for (const id of ['capture-reading-type', 'capture-reading-thread']) {
+      await expect.element(page.getByTestId(id)).toBeInTheDocument()
+      expect(page.getByTestId(id).element().querySelector('svg')).not.toBeNull()
+    }
   })
 
   it('renders the reading: type, thread, and the pencil', async () => {
@@ -47,7 +56,7 @@ describe('capture-reading.svelte', () => {
     const root = page.getByTestId('capture-reading')
     await expect.element(root).toHaveTextContent('Sounds like')
     await expect.element(page.getByTestId('capture-reading-type')).toHaveTextContent('Task')
-    await expect.element(page.getByTestId('capture-reading-thread')).toHaveTextContent('loose')
+    await expect.element(page.getByTestId('capture-reading-thread')).toHaveTextContent('no project')
     await expect.element(page.getByTestId('capture-reading-pencil')).toBeInTheDocument()
   })
 

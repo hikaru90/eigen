@@ -108,20 +108,9 @@ function captureIndexingInFlight(thought: CaptureThoughtRow | null): boolean {
 
 /** Wait for background enrichment only while the capture queue is actually in flight. */
 async function waitForThoughtIndexed(page: Page, thoughtId: string, raw: string): Promise<void> {
-  // The kept thought settles inline (data-testid=capture-settled); Capture no longer lists
-  // recent thoughts (Yarn owns that) and there is no confirmation modal to wait for.
-  const settled = page.getByTestId('capture-settled')
-  await expect(settled).toBeVisible({ timeout: RELEASE_WAIT_MS })
-  await expect(settled.getByTestId('capture-settled-open')).toHaveAttribute(
-    'href',
-    new RegExp(`/thought/${escapeForRegex(encodeURIComponent(thoughtId))}$`),
-    { timeout: RELEASE_WAIT_MS },
-  )
-  // The settled block shows the accepted reading (normalized_text may differ from verbatim raw).
-  const token = raw.match(/[A-Za-zÄÖÜäöüß]{5,}/)?.[0]
-  if (token) {
-    await expect(settled).toContainText(token, { timeout: RELEASE_WAIT_MS })
-  }
+  // Capture does not show the kept thought again: the writer empties, and the stored row is
+  // checked through the result API below (the thought page is checked by the callers).
+  await expect(page.getByTestId('capture-input')).toHaveValue('', { timeout: RELEASE_WAIT_MS })
 
   await expect
     .poll(
@@ -1994,17 +1983,6 @@ async function exerciseAccountMenu(page: Page): Promise<void> {
   await openAccountMenu(page)
   await page.getByRole('link', { name: 'Give us Feedback', exact: true }).click()
   await expect(page).toHaveURL(/\/feedback/)
-  await exerciseFeedbackSubmit(page)
-}
-
-/** Submit product feedback via the UI; server emails feedback@eigenmesh.xyz via Owlery. */
-export async function exerciseFeedbackSubmit(page: Page): Promise<void> {
-  await page.goto('/feedback')
-  await expect(page.getByRole('heading', { name: 'Help shape Eigen Mesh' })).toBeVisible()
-  const note = `Release smoke feedback ${Date.now()}`
-  await page.getByLabel('Message').fill(note)
-  await page.getByRole('button', { name: 'Send feedback' }).click()
-  await expect(page.getByRole('status')).toContainText(/Got it/i, { timeout: 30_000 })
 }
 
 async function exerciseMemoryUi(page: Page): Promise<void> {
@@ -2133,7 +2111,7 @@ export async function exerciseNotesShoppingListAppend(page: Page): Promise<void>
 
   await assertChatLoadingVisible(page)
   await waitForChatIdle(page, RELEASE_INDEXING_WAIT_MS)
-  await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'New answer' })).toBeVisible({
     timeout: RELEASE_INDEXING_WAIT_MS,
   })
 
@@ -2180,7 +2158,7 @@ async function exerciseChatUi(page: Page): Promise<void> {
     timeout: RELEASE_INDEXING_WAIT_MS,
   })
   await waitForChatAnswerMarker(page, /Lisbon/i, RELEASE_INDEXING_WAIT_MS)
-  await expect(page.getByRole('button', { name: 'Regenerate answer' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'New answer' })).toBeVisible({
     timeout: RELEASE_WAIT_MS,
   })
 

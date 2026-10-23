@@ -1,11 +1,11 @@
 <script lang="ts">
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down'
   import {
     categoryLabel,
     readingTypeKeys,
     type ReadingDraft,
     type ThreadChoice,
   } from '$lib/capture/reading-state'
-  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import * as Popover from '$lib/components/ui/popover'
   import { m } from '$lib/paraglide/messages.js'
 
@@ -28,7 +28,7 @@
     onNewThreadLabel,
     onSay,
   }: {
-    /** The mesh is reading — spinner at the front of the line, plain waiting words. */
+    /** The mesh is interpreting — hopping dots and a pulsing word. */
     waiting?: boolean
     /** The accepted reading (client copy of the preview; nothing stored yet). */
     draft?: ReadingDraft | null
@@ -91,9 +91,17 @@
 >
   <div class="min-h-0 overflow-hidden pb-[0.12em] font-mesh text-[clamp(28px,3.9vw,42px)] leading-[1.22] tracking-[-0.034em] text-ink-3">
     {#if waiting}
-      <span class="inline-flex items-center gap-[0.32em] [&_.spinner]:w-[0.82em] [&_.spinner]:h-[0.82em] [&_.spinner]:shrink-0">
-        <MeshSpinner working size={24} />
-        <span class="inline-block text-ink-2 animate-[breathe_2.2s_var(--ease-io)_infinite] motion-reduce:[animation:none]">{m.whisper_settling()}</span>
+      <!-- interpreting: three hopping dots, the word pulsing in opacity only -->
+      <span class="inline-flex items-baseline gap-[0.4em]" data-testid="capture-reading-interpreting">
+        <span class="inline-flex gap-[0.12em]" aria-hidden="true">
+          {#each [0, 1, 2] as i (i)}
+            <span
+              class="inline-block size-[0.16em] rounded-full bg-current animate-[dot-jump_1.1s_var(--ease-io)_infinite] motion-reduce:animate-none"
+              style:animation-delay="{i * 140}ms"
+            ></span>
+          {/each}
+        </span>
+        <span class="text-ink-2 animate-[breathe_2.2s_var(--ease-io)_infinite] motion-reduce:[animation:none]">{m.capture_reading_interpreting()}</span>
       </span>
     {:else if showWords && draft}
       <span class="animate-[fade_0.5s_var(--ease)_both] motion-reduce:[animation:none]">
@@ -105,10 +113,10 @@
             aria-haspopup="menu"
             aria-expanded={typeMenuOpen}
           >
-            {categoryLabel(shownType ?? '')}
+            {categoryLabel(shownType ?? '')}<ChevronDownIcon class="inline-block size-[0.5em] ml-[0.12em] align-middle text-ink-3" strokeWidth={2} aria-hidden="true" />
           </Popover.Trigger>
           <Popover.Content
-            class="paper-menu"
+            class="paper-menu max-h-[min(60dvh,var(--bits-popover-content-available-height))] overflow-y-auto overscroll-contain"
             align="start"
             role="menu"
             aria-label={m.capture_reading_sounds_like()}
@@ -140,10 +148,10 @@
             aria-haspopup="menu"
             aria-expanded={threadMenuOpen || hashQuery !== null}
           >
-              {threadWord}
+              {threadWord}<ChevronDownIcon class="inline-block size-[0.5em] ml-[0.12em] align-middle text-ink-3" strokeWidth={2} aria-hidden="true" />
             </Popover.Trigger>
             <Popover.Content
-              class="gap-0 p-1.5 font-mesh"
+              class="gap-0 p-1.5 font-mesh max-h-[min(60dvh,var(--bits-popover-content-available-height))] overflow-y-auto overscroll-contain"
               align="start"
               role="menu"
               aria-label={m.capture_reading_loose()}

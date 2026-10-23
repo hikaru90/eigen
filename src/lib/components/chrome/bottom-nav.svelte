@@ -36,7 +36,7 @@
     <a
       href={resolve(item.href)}
       class={[
-        'relative flex flex-col items-center justify-end text-sm leading-4 text-ink-3 no-underline transition-colors duration-500 ease-settle max-[640px]:flex-1 max-[640px]:min-w-0 max-[640px]:px-1.5 max-[640px]:text-[11.5px] max-[640px]:leading-[15px] pb-2.5',
+        'relative flex min-w-[88px] flex-col items-center justify-end px-2.5 text-sm leading-4 text-ink-3 no-underline transition-colors duration-500 ease-settle max-[640px]:flex-1 max-[640px]:min-w-0 max-[640px]:px-1.5 max-[640px]:text-[11.5px] max-[640px]:leading-[15px] pb-2.5',
         isActive ? 'text-ink' : 'pointer-fine:hover:text-ink-2',
       ]}
       aria-current={isActive ? 'page' : undefined}

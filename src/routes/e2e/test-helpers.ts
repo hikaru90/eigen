@@ -317,3 +317,37 @@ export async function assertChatStreamMatchesReload(
     streamAnswer,
   )
 }
+
+/**
+ * Capture never shows the kept thought again (editing lives in Mesh): after a capture the
+ * writer is empty, and the thought is verified on its own page.
+ */
+export async function expectKeptThought(
+  page: Page,
+  thoughtId: string,
+  text: string | RegExp,
+  timeout = 30_000,
+): Promise<void> {
+  await page.goto(`/thought/${encodeURIComponent(thoughtId)}`)
+  await expect(page.getByTestId('thought-text')).toContainText(text, { timeout })
+}
+
+/** The newest thought the user wrote that is not in `known` — for the queue path, where no keep response names the id. */
+export async function waitForNewUserThoughtId(page: Page, known: string[] = [], timeout = 30_000): Promise<string> {
+  let id = ''
+  await expect
+    .poll(
+      async () => {
+        id = await page.evaluate(async () => {
+          const res = await fetch('/api/capture/recent?limit=1&author=user')
+          if (!res.ok) return ''
+          const json = (await res.json()) as { recentThoughts?: Array<{ id: string }> }
+          return json.recentThoughts?.[0]?.id ?? ''
+        })
+        return id !== '' && !known.includes(id)
+      },
+      { timeout, intervals: [500, 1000, 2000] },
+    )
+    .toBe(true)
+  return id
+}

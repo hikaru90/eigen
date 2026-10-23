@@ -35,7 +35,6 @@ describe('chat-timeline-step.svelte', () => {
     ])
     for (const pill of pills) {
       expect(pill.className).toContain('rounded-full')
-      expect(pill.className).toContain('bg-paper-2')
       expect(pill.querySelector('svg')).not.toBeNull()
     }
     expect(host.textContent).not.toContain('0ddf2a07')

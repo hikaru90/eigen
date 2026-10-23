@@ -1,27 +1,59 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
-@import '@fontsource/inter/latin-400.css';
-@import '@fontsource/inter/latin-500.css';
-@import '@fontsource/geist-mono/latin-400.css';
-@import '@fontsource/unifrakturmaguntia/400.css';
+/* Fonts are preloaded in +layout.svelte and use font-display: block, so the first paint is
+   already in the real face: no fallback-then-swap reflow (text realigning after load). */
+@font-face {
+  font-family: 'Inter';
+  src: url('../lib/assets/fonts/inter-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
 
 @font-face {
-  font-family: 'MontserratThin';
-  src: url('../lib/assets/fonts/Montserrat-Thin.woff2') format('woff2');
-  font-weight: 100;
+  font-family: 'Inter';
+  src: url('../lib/assets/fonts/inter-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../lib/assets/fonts/geist-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Averia Libre';
+  src: url('../lib/assets/fonts/averia-libre-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Averia Libre';
+  src: url('../lib/assets/fonts/averia-libre-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
 }
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant is-visible (&[data-visible="true"]);
+/* touch screens: no keyboard hints, roomier targets (ei styles.css "touch") */
+@custom-variant hover-none (@media (hover: none), (pointer: coarse));
 
 @layer base {
   :root {
     /* ——— ei tokens (docs/planning/ei-redesign.md; ~/+Code/ei/styles.css :root) ———
        Paper and ink. One signal colour, used only when the mesh is at work.
-       Geist Mono is your voice (--font-you); Inter is the mesh's (--font-mesh).
+       Geist Mono is your voice (--font-you); Inter is the mesh's (--font-mesh);
+       Averia Libre is the display voice (--font-display) — wordmark and titles.
        Contrast (WCAG AA): ink-2 ≥ 7:1, ink-3 ≥ 4.5:1 on paper, paper-2 and raised.
        ink-4 and line are decorative only — never for text. */
     --paper: #e8ede5;
@@ -64,6 +96,8 @@
     /* floating chrome: header height, bottom nav dock */
     --head: 68px;
     --bottom-nav: calc(62px + env(safe-area-inset-bottom, 0px));
+    /* where a page's own tab row ends (ei :root --tabs-top) */
+    --tabs-top: calc(var(--head) + 54px);
     /* the yarn wave: one period of the menu icons' wavy yarn — the one shape of yarn,
        every yarn line in the app masks with it */
     --yarn-wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 4'%3E%3Cpath d='M0 2Q1.5 .5 3 2T6 2' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
@@ -117,6 +151,14 @@
     color-scheme: dark;
   }
 
+  /* Titles speak in the display voice. */
+  h1,
+  h2,
+  h3,
+  [data-slot$='-title'] {
+    font-family: var(--font-display);
+  }
+
   body {
     @apply bg-background font-sans text-foreground antialiased;
     margin: 0;
@@ -165,6 +207,39 @@
 
 /* The one floating surface: menus, pickers and popovers are a sheet of translucent paper
    with a hairline edge (ei .me-menu / .popover). Every registry overlay uses it. */
+/* Glass field (operator spec): solid #e9ede8 fill, a 0.5px black/20% outer edge, a 1px
+   white inner edge fading top 100% → middle 0% → bottom 100%, and a soft 0/4/8 drop. */
+@utility glass-field {
+  position: relative;
+  isolation: isolate;
+  background: #e9ede8;
+  border: 0.5px solid rgb(0 0 0 / 0.2);
+  box-shadow: 0 4px 8px rgb(0 0 0 / 0.04);
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(to bottom, rgb(255 255 255 / 1), rgb(255 255 255 / 0) 50%, rgb(255 255 255 / 1));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+  /* dark: a faint, opaque lift off the paper and a quieter edge, so the glass reads as a
+     field, not a glare — and nothing scrolling behind it shows through */
+  &:is(.dark *) {
+    background: color-mix(in srgb, var(--paper) 96%, white);
+    border-color: rgb(255 255 255 / 0.14);
+    box-shadow: 0 4px 8px rgb(0 0 0 / 0.24);
+  }
+  &:is(.dark *)::before {
+    background: linear-gradient(to bottom, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0) 50%, rgb(255 255 255 / 0.08));
+  }
+}
+
 @utility paper-sheet {
   border-radius: 14px;
   background: color-mix(in srgb, var(--paper) 84%, transparent);
@@ -190,12 +265,13 @@ body::after {
   background: var(--signal-2);
 }
 
-/* settle, don't pop: the base motion vocabulary — blur to sharp, long ease-out */
+/* settle, don't pop: the base motion vocabulary — long ease-out on opacity / transform only.
+   No filter: blur() on page-sized or repeated surfaces: it re-rasterizes text every frame
+   (jitter) and leaves it soft until the animation ends. */
 @keyframes rise {
   from {
     opacity: 0;
     transform: translateY(10px);
-    filter: blur(4px);
   }
 }
 @keyframes fade {
@@ -206,7 +282,50 @@ body::after {
 @keyframes enter {
   from {
     opacity: 0;
-    filter: blur(10px);
+  }
+}
+
+/* ei @media (max-width: 640px): the header tightens on phones */
+@media (max-width: 640px) {
+  :root {
+    --head: calc(60px + env(safe-area-inset-top, 0px));
+  }
+}
+
+/* ——— the paper sheet's arrival (ei .me-menu / .popover) ———
+   Open: opacity settles in 0.35s while the sheet drops 4px into place over 0.7s.
+   Close: it lifts and fades away in 0.22s. Two animations, because ei times opacity and
+   transform separately; the overlay primitives wait for both before unmounting. */
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-drop-in {
+  from {
+    translate: 0 -4px;
+  }
+}
+@keyframes sheet-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes sheet-lift-out {
+  to {
+    translate: 0 -4px;
+  }
+}
+@utility sheet-motion {
+  &[data-state='open'] {
+    animation:
+      sheet-fade-in 0.35s var(--ease) both,
+      sheet-drop-in 0.7s var(--ease) both;
+  }
+  &[data-state='closed'] {
+    animation:
+      sheet-fade-out 0.22s var(--ease) both,
+      sheet-lift-out 0.22s var(--ease) both;
   }
 }
 
@@ -224,6 +343,20 @@ body::after {
     opacity: 0.55;
   }
   50% {
+    opacity: 1;
+  }
+}
+
+/* three dots hopping in turn while the mesh interprets what you typed */
+@keyframes dot-jump {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-0.18em);
     opacity: 1;
   }
 }
@@ -261,11 +394,10 @@ body::after {
   from {
     opacity: 0;
     transform: translateY(8px);
-    filter: blur(3px);
   }
 }
 
-/* the thought sheet: page fades, card settles from a slight zoom, blur to sharp */
+/* the thought sheet: page fades, card settles from a slight zoom */
 @keyframes sheet-in {
   from {
     opacity: 0;
@@ -275,7 +407,6 @@ body::after {
   from {
     opacity: 0;
     scale: 1.1;
-    filter: blur(6px);
   }
 }
 
@@ -294,7 +425,6 @@ body::after {
 @keyframes fade-in {
   from {
     opacity: 0;
-    filter: blur(6px);
   }
 }
 
@@ -309,37 +439,8 @@ body::after {
   }
 }
 
-/* Shared memory citation chips in chat answers and evidence cards.
-   Colours ride the shadcn vars (border=--line, background=--muted/paper-2,
-   text=--muted-foreground/ink-3 ≥ 4.5:1); the soft square marks a thought. */
-.chat-citation {
-  display: inline-flex;
-  align-items: center;
-  margin: 0 0.12em;
-  padding: 0.05em 0.35em;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--muted) 70%, transparent);
-  color: var(--muted-foreground);
-  font-family: var(--font-you);
-  font-size: 0.68em;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1.35;
-  vertical-align: 0.12em;
-  white-space: nowrap;
-  cursor: default;
-}
-.chat-citation--block {
-  display: inline-flex;
-  margin: 0;
-  font-size: 0.68rem;
-  vertical-align: baseline;
-}
-
-
 /* Chat markdown: typography for markdown-generated HTML — no markup exists to
-   carry utilities (same exception as .chat-citation). The root element also
+   carry utilities. The root element also
    carries tone utilities from chat-markdown.svelte. */
 .chat-markdown {
   min-width: 0;
@@ -360,7 +461,7 @@ body::after {
   }
 }
 .chat-markdown--user {
-  font-family: var(--font-you, 'Geist Mono', ui-monospace, monospace);
+  font-family: var(--font-you);
   font-size: inherit;
   line-height: inherit;
   letter-spacing: inherit;
@@ -396,7 +497,7 @@ body::after {
   color: var(--ink-2);
 }
 .chat-markdown code {
-  font-family: var(--font-you, 'Geist Mono', ui-monospace, monospace);
+  font-family: var(--font-you);
   font-size: 0.9em;
   border-radius: 4px;
   padding: 0.08em 0.3em;
@@ -444,37 +545,6 @@ body::after {
   padding: 0.3em 0.6em 0.3em 0;
   border-bottom: 1px solid var(--line);
   text-align: left;
-}
-.chat-markdown .chat-citation {
-  display: inline-flex;
-  align-items: center;
-  height: 1.25em;
-  margin: 0 0.1em 0 0.15em;
-  padding: 0 0.5em;
-  border: 0;
-  border-radius: 999px;
-  background: var(--signal-2);
-  color: var(--signal);
-  font-family: var(--font-you, 'Geist Mono', ui-monospace, monospace);
-  font-size: 0.62em;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  vertical-align: 0.2em;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background 0.3s var(--ease),
-    color 0.3s var(--ease);
-}
-.chat-markdown--muted .chat-citation {
-  font-size: 0.7em;
-}
-@media (hover: hover) {
-  .chat-markdown .chat-citation:hover {
-    background: var(--signal);
-    color: var(--raised);
-  }
 }
 /* Standalone PWA: fill the viewport with theme background — no letterbox border */
 @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
@@ -563,7 +633,7 @@ html.pwa-standalone::before {
 
 @theme inline {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'UnifrakturMaguntia', ui-serif, Georgia, serif;
+  --font-display: 'Averia Libre', 'Trebuchet MS', ui-serif, Georgia, serif;
   --font-you: var(--font-you);
   --font-mesh: var(--font-mesh);
   --ease-settle: var(--ease);
@@ -631,4 +701,48 @@ html.pwa-standalone::before {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ——— route transitions (ei styles.css `.view`, `.view.is-leaving`, `.view.is-active`) ———
+   The root snapshot (header, bottom nav, page background) never animates; only the page
+   container and the docked writer do: the old one lifts 10px and fades out in 0.42s, the new one
+   settles 14px up over 0.7–0.9s. Opacity / transform only — no filter on full-page snapshots. */
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-group(page),
+::view-transition-group(glass-writer) {
+  animation: none;
+}
+::view-transition-old(page),
+::view-transition-old(glass-writer) {
+  animation: route-leave 0.42s var(--ease) both;
+}
+::view-transition-new(page),
+::view-transition-new(glass-writer) {
+  animation:
+    route-enter-fade 0.7s var(--ease) 0.1s both,
+    route-enter-settle 0.9s var(--ease) 0.1s both;
+}
+@keyframes route-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+@keyframes route-enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes route-enter-settle {
+  from {
+    transform: translateY(14px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

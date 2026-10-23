@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { assertAskSuggestionFromCapture } from './ask-suggestions-helpers'
+import { exerciseMultiplayerBoard } from './board-helpers'
 import { assertNavigationAndAskLayout } from './navigation-layout-helpers'
 import {
   assertReleasePreflight,
@@ -21,7 +23,7 @@ import {
   loginUser,
   registerUser,
 } from './release-helpers'
-import { signOut } from './test-helpers'
+import { expectKeptThought, signOut } from './test-helpers'
 
 test.describe('Release smoke @release', () => {
   test.describe.configure({ mode: 'serial', timeout: 600_000 })
@@ -33,6 +35,7 @@ test.describe('Release smoke @release', () => {
   test('register → onboard → PayPal → capture → exercise UI → re-login', async ({
     page,
     context,
+    browser,
     baseURL,
   }) => {
     await context.grantPermissions(['microphone'], {
@@ -75,6 +78,10 @@ test.describe('Release smoke @release', () => {
       await completeOnboardingOverlay(page, { creditAmount: 1000 })
     })
 
+    await test.step('board: A shares, a second user votes, scores persist, forget cleans up', async () => {
+      await exerciseMultiplayerBoard(page, browser)
+    })
+
     await test.step('navigation and Ask layout remain usable', async () => {
       await assertNavigationAndAskLayout(page)
     })
@@ -84,10 +91,9 @@ test.describe('Release smoke @release', () => {
     })
 
     await test.step('capture a thought through the UI (read → keep, no modal)', async () => {
-      await captureThoughtViaUi(page, releaseThought)
-      // the kept thought settles inline; Capture no longer lists recent thoughts (Yarn does)
-      await expect(page.getByTestId('capture-settled')).toBeVisible()
-      await expect(page.getByTestId('capture-settled')).toContainText('Lisbon')
+      const id = await captureThoughtViaUi(page, releaseThought)
+      // Capture does not show the thought again; it lives on its own page
+      await expectKeptThought(page, id, 'Lisbon')
     })
 
     // Converted from "capture deviation modal: dismiss stores verbatim": the user still
@@ -97,16 +103,20 @@ test.describe('Release smoke @release', () => {
     await test.step('capture: adjust the reading type before Capture (keep carries the pick)', async () => {
       const adjustRaw =
         'Release smoke adjust: keep this meeting in Lisbon next week exactly as written'
-      await captureThoughtViaUiAdjustType(page, adjustRaw)
-      await expect(page.getByTestId('capture-settled')).toContainText(/Lisbon|meeting/i)
+      const id = await captureThoughtViaUiAdjustType(page, adjustRaw)
+      await expectKeptThought(page, id, /Lisbon|meeting/i)
     })
 
     await test.step('capture action-item wording through read → keep (no invalid-category fail)', async () => {
-      await captureThoughtViaUi(
+      const id = await captureThoughtViaUi(
         page,
         'Release smoke action item: email the Lisbon host about venue deposit',
       )
-      await expect(page.getByTestId('capture-settled')).toContainText(/Lisbon|venue|deposit/i)
+      await expectKeptThought(page, id, /Lisbon|venue|deposit/i)
+    })
+
+    await test.step('Ask suggests a question from an enriched capture; tapping asks it', async () => {
+      await assertAskSuggestionFromCapture(page)
     })
 
     await test.step('timeline cold-mount fetch budget (no duplicate list/stats)', async () => {
@@ -191,14 +201,6 @@ async function registerLayoutUser(
   context: import('@playwright/test').BrowserContext,
 ) {
   await registerUser(context, page, { emailDomain: 'example.com' })
-  const beta = page.getByTestId('beta-agreement-modal')
-  const onboarding = page.getByRole('dialog', { name: /Your memory, not theirs\./ })
-  await expect(beta.or(onboarding).first()).toBeVisible({ timeout: 20_000 })
-  if (await beta.isVisible()) {
-    await beta.getByRole('checkbox').check()
-    await beta.getByRole('button', { name: /Accept|Akzeptieren/i }).click()
-    await expect(beta).toBeHidden()
-  }
   await completeOnboardingOverlay(page)
 }
 

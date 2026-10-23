@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PageData } from './$types'
   import { onMount } from 'svelte'
-  import { SvelteMap } from 'svelte/reactivity'
   import { page } from '$app/state'
   import { trackInsufficientCredits } from '$lib/analytics/billing-events'
   import { capture as captureEvent } from '$lib/analytics/posthog-client'
@@ -14,7 +13,6 @@
   } from '$lib/capture/consume-capture-ndjson'
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
   import { keepOutcomeFromResponse } from '$lib/capture/keep-outcome'
-  import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
   import {
     cancelCaptureQueueItem,
     enqueueCapture,
@@ -47,15 +45,11 @@
   import { thoughtHref } from '$lib/chat/thought-href'
   import { logErrorToServer } from '$lib/client-log'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
-  import CaptureAttachFileDialog from '$lib/components/capture-attach-file-dialog.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
   import CaptureReading from '$lib/components/capture-reading.svelte'
-  import CaptureSettled from '$lib/components/capture-settled.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
-  import * as AlertDialog from '$lib/components/ui/alert-dialog'
-  import { Button } from '$lib/components/ui/button'
   import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh'
   import { hapticConfirm } from '$lib/haptics'
@@ -64,7 +58,6 @@
   import { pulseBrand } from '$lib/stores/brand-pulse.svelte'
   import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
   import { showWhisper } from '$lib/stores/whisper.svelte'
-  import { unlinkTextFileFromThought } from '$lib/text-files/api'
 
   let { data }: { data: PageData } = $props()
 
@@ -209,9 +202,9 @@
 
   /* ————— after Capture ————— */
 
-  let settled = $state<CaptureSubmitResult | null>(null)
+  /* Capture never shows the kept thought again — editing it lives in Mesh. */
+  let capturedThisVisit = $state(false)
   let submitting = $state(false)
-  let editLoading = $state(false)
   let err = $state<string | null>(null)
   let echo = $state<EchoPick | null>(null)
   let echoTimer: ReturnType<typeof setTimeout> | null = null
@@ -221,7 +214,7 @@
   const showFirstCaptureNudge = $derived(
     firstCaptureNudgeHydrated &&
       startedWithNoThoughts &&
-      settled !== null &&
+      capturedThisVisit &&
       !firstCaptureNudgeDismissed &&
       !showOnboarding,
   )
@@ -428,30 +421,6 @@
   /** Ignore stale snapshot processing ids briefly after done/failed (SW/tab race). */
   let suppressProcessingResyncUntil = $state(0)
 
-  /* ————— background enrich poll (kept) ————— */
-
-  const enrichPollCancelByThoughtId = new SvelteMap<string, () => void>()
-
-  function startBackgroundEnrichPoll(thoughtId: string) {
-    enrichPollCancelByThoughtId.get(thoughtId)?.()
-    const cancel = pollUntilEnrichmentComplete({
-      thoughtId,
-      onUpdate: (thought) => {
-        if (settled?.id === thought.id) settled = thought
-        if (thought.enrichmentComplete) cancelEnrichPoll(thoughtId)
-      },
-      onTimeout: () => {
-        cancelEnrichPoll(thoughtId)
-      },
-    })
-    enrichPollCancelByThoughtId.set(thoughtId, cancel)
-  }
-
-  function cancelEnrichPoll(thoughtId: string) {
-    enrichPollCancelByThoughtId.get(thoughtId)?.()
-    enrichPollCancelByThoughtId.delete(thoughtId)
-  }
-
   /* ————— capture: the words condense into a dot and fly into Mesh ————— */
 
   function meshSlotElement(): Element | null {
@@ -543,7 +512,6 @@
     // 2 · the field empties; the reading rests (it was only a preview — nothing to undo)
     raw = ''
     pageInputDrafts.capture = ''
-    settled = null
     echo = null
     clearReading()
     threadMenuOpen = false
@@ -628,14 +596,13 @@
   }
 
   function handleCapturedThought(thought: CaptureSubmitResult) {
-    settled = thought
+    capturedThisVisit = true
     submitting = false
     err = null
     captureEvent('capture_completed', {
       thought_id: thought.id,
       enrichment_complete: thought.enrichmentComplete,
     })
-    if (!thought.enrichmentComplete) startBackgroundEnrichPoll(thought.id)
     if (threadChoice.kind === 'thread') void assignThread(thought.id)
     if (pendingSay) {
       const said = pendingSay
@@ -674,9 +641,6 @@
           failureText(typeof payload.error === 'string' ? payload.error : null, res.status),
         )
       }
-      if (settled?.id === thoughtId) {
-        settled = await fetchCaptureResult(thoughtId)
-      }
     } catch (e) {
       err = e instanceof Error && e.message ? e.message : failureText(null)
     }
@@ -687,7 +651,6 @@
   async function applyNaturalLanguageEdit(thoughtId: string, editRequest: string) {
     err = null
     progressEvents = []
-    editLoading = true
     try {
       const res = await fetch('/api/capture/edit', {
         method: 'POST',
@@ -700,86 +663,21 @@
       })
       const contentType = res.headers.get('content-type') ?? ''
       if (contentType.includes('application/x-ndjson')) {
-        const thought = await consumeCaptureNdjsonStream<CaptureSubmitResult>(
+        await consumeCaptureNdjsonStream<CaptureSubmitResult>(
           res,
           (event) => {
             progressEvents = [...progressEvents, { event, arrivedAt: Date.now() }]
           },
           undefined,
         )
-        if (settled?.id === thought.id) settled = thought
         return
       }
       if (!res.ok) throw new Error(await res.text())
-      const j = (await res.json()) as { thought: CaptureSubmitResult }
-      if (settled?.id === j.thought.id) settled = j.thought
     } catch (e) {
       err = e instanceof Error ? e.message : String(e)
       logErrorToServer(err, 'capture_edit', e)
     } finally {
-      editLoading = false
       progressEvents = []
-    }
-  }
-
-  /* ————— Forget (archive) the settled thought ————— */
-
-  let deletingThoughtId = $state<string | null>(null)
-  let deleteDialogOpen = $state(false)
-
-  function openForgetDialog() {
-    err = null
-    deleteDialogOpen = true
-  }
-
-  async function confirmForgetThought() {
-    if (!settled) return
-    const thoughtId = settled.id
-    err = null
-    deletingThoughtId = thoughtId
-    try {
-      const res = await fetch(`/api/thoughts/${encodeURIComponent(thoughtId)}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      })
-      if (!res.ok) throw new Error(await res.text())
-      captureEvent('thought_deleted', { thought_id: thoughtId })
-      cancelEnrichPoll(thoughtId)
-      settled = null
-      echo = null
-      deleteDialogOpen = false
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
-    } finally {
-      deletingThoughtId = null
-    }
-  }
-
-  /* ————— attachments (existing dialog, quiet home) ————— */
-
-  let attachDialogOpen = $state(false)
-  let attachTargetThoughtId = $state<string | null>(null)
-
-  function openAttachDialog() {
-    if (!settled) return
-    err = null
-    attachTargetThoughtId = settled.id
-    attachDialogOpen = true
-  }
-
-  async function refreshSettledThought() {
-    if (!attachTargetThoughtId) return
-    const thought = await fetchCaptureResult(attachTargetThoughtId)
-    if (settled?.id === thought.id) settled = thought
-  }
-
-  async function unlinkAttachedFile(thoughtId: string, fileId: string) {
-    err = null
-    try {
-      await unlinkTextFileFromThought(thoughtId, fileId)
-      await refreshSettledThought()
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -874,8 +772,6 @@
     return () => {
       unsub()
       window.removeEventListener('keydown', onKey)
-      for (const cancel of enrichPollCancelByThoughtId.values()) cancel()
-      enrichPollCancelByThoughtId.clear()
       if (echoTimer !== null) clearTimeout(echoTimer)
       clearReading()
     }
@@ -996,17 +892,6 @@
     {/if}
   </div>
 
-  {#if settled}
-    <CaptureSettled
-      thought={settled}
-      editLoading={editLoading}
-      onEdit={(request) => void applyNaturalLanguageEdit(settled?.id ?? '', request)}
-      onAttach={openAttachDialog}
-      onForget={openForgetDialog}
-      onUnlinkFile={(fileId) => void unlinkAttachedFile(settled?.id ?? '', fileId)}
-      onNoteUpdated={() => void refreshSettledThought()}
-    />
-  {/if}
 
   <!-- the queue, as plain words: settling… / knitting it in… -->
   {#if queueActive || err}
@@ -1103,42 +988,4 @@
   />
 {/if}
 
-<AlertDialog.Root
-  bind:open={deleteDialogOpen}
-  onOpenChange={(open) => {
-    if (!open && !deletingThoughtId) deleteDialogOpen = false
-  }}
->
-  <AlertDialog.Content>
-    <AlertDialog.Header>
-      <AlertDialog.Title>{m.thought_forget()}</AlertDialog.Title>
-      <AlertDialog.Description>{m.thought_forget_confirm()}</AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={deletingThoughtId !== null}>
-        {m.graph_dialog_cancel()}
-      </AlertDialog.Cancel>
-      <Button
-        type="button"
-        variant="destructive"
-        disabled={deletingThoughtId !== null}
-        onclick={() => void confirmForgetThought()}
-      >
-        {m.thought_forget()}
-      </Button>
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>
-
-{#if attachDialogOpen && attachTargetThoughtId}
-  <CaptureAttachFileDialog
-    thoughtId={attachTargetThoughtId}
-    onClose={() => {
-      attachDialogOpen = false
-    }}
-    onLinked={async () => {
-      await refreshSettledThought()
-    }}
-  />
-{/if}
 
