@@ -63,13 +63,12 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'create_project',
   'edit_project',
   'delete_project',
-  'list_board',
-  'share_idea',
-  'vote_idea',
-  'forget_idea',
 ])
 
-/** The shared Contribute board — HTTP MCP clients only; the ask/chat loop never posts to it. */
+/**
+ * The shared Contribute board — HTTP MCP only, and only for maker/admin users
+ * (createMcpServer boardAccess). Never on the default surface, never in the ask/chat loop.
+ */
 const BOARD_TOOL_NAMES = new Set(['list_board', 'share_idea', 'vote_idea', 'forget_idea'])
 
 /**
@@ -470,7 +469,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
     agentArgumentSchema: '{"status": "requested|in-progress|shipped (optional)"}',
     handler: runListBoardTool,
-    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('list_board'),
+    exposeInMcp: false,
   },
   {
     name: 'share_idea',
@@ -490,7 +489,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
     agentArgumentSchema: '{"title": "string (required)", "mine_is_different": "boolean (optional)"}',
     handler: runShareIdeaTool,
-    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('share_idea'),
+    exposeInMcp: false,
   },
   {
     name: 'vote_idea',
@@ -507,7 +506,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
     agentArgumentSchema: '{"idea_id": "string UUID (required)", "direction": "-1|0|1 (required)"}',
     handler: runVoteIdeaTool,
-    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('vote_idea'),
+    exposeInMcp: false,
   },
   {
     name: 'forget_idea',
@@ -521,7 +520,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
     agentArgumentSchema: '{"idea_id": "string UUID (required)"}',
     handler: runForgetIdeaTool,
-    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('forget_idea'),
+    exposeInMcp: false,
   },
   {
     name: 'create_text_file',
@@ -692,6 +691,10 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 
 export const MCP_EXPOSED_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter(
   (t) => t.exposeInMcp !== false,
+)
+
+export const MCP_BOARD_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter((t) =>
+  BOARD_TOOL_NAMES.has(t.name),
 )
 
 export const MCP_TOOL_MAP = new Map<string, McpToolHandler>(

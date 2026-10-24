@@ -1,6 +1,8 @@
 # Feature: Multiplayer board (Contribute) — persisted ideas and votes
 
 Status: **implemented 2026-10-23** (migration `0076_board_ideas_votes`; MCP tool names follow the registry convention: `list_board` / `share_idea` / `vote_idea` / `forget_idea`, shown to clients as `eigen_*`). D2 reading: the author may remove/re-add their own +1 but not downvote their own idea (409).
+
+**MCP access (2026-10-24):** board tools are **not** on the default MCP surface. They are listed and callable only when the key owner has `user.role` `maker` or `admin` (`hasBoardMcpAccess`, migration `0078_user_role_maker`). Normal users' agents never see them. `maker` does not grant `/admin`.
 Owner surface: `/feedback` (Contribute), `src/lib/feedback/*`, `/api/board/*` (replaced `POST /api/feedback`)
 Risk: **critical** for the cross-tenant read path (first data in the product that
 one user can see from another), **high** for the rest.

@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { json } from '@sveltejs/kit'
+import { hasBoardMcpAccess } from '$lib/server/auth/user-role'
 import { runWithTrace } from '$lib/server/activity/trace-context'
 import { createMcpServer } from '$lib/server/mcp/server'
 
@@ -17,10 +18,10 @@ async function handleMcp(event: Parameters<RequestHandler>[0]): Promise<Response
     enableJsonResponse: true,
   })
 
-  const server = createMcpServer({
-    userId: user.id,
-    authenticatedApiKey: event.locals.apiKeyAuth,
-  })
+  const server = createMcpServer(
+    { userId: user.id, authenticatedApiKey: event.locals.apiKeyAuth },
+    { boardAccess: await hasBoardMcpAccess(user.id) },
+  )
   await server.connect(transport)
 
   // Don't close the server — the transport stream lifecycle manages cleanup.

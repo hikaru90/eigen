@@ -1,10 +1,23 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { MCP_EXPOSED_TOOL_DEFINITIONS, MCP_EXPOSED_TOOL_MAP } from '$lib/server/mcp/registry'
+import {
+  MCP_BOARD_TOOL_DEFINITIONS,
+  MCP_EXPOSED_TOOL_DEFINITIONS,
+} from '$lib/server/mcp/registry'
 import type { McpToolContext } from '$lib/server/mcp/tools'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 
-export function createMcpServer(context: McpToolContext): Server {
+export type McpServerAccess = {
+  /** maker/admin only — see hasBoardMcpAccess. */
+  boardAccess: boolean
+}
+
+export function createMcpServer(context: McpToolContext, access: McpServerAccess): Server {
+  const tools = access.boardAccess
+    ? [...MCP_EXPOSED_TOOL_DEFINITIONS, ...MCP_BOARD_TOOL_DEFINITIONS]
+    : MCP_EXPOSED_TOOL_DEFINITIONS
+  const handlers = new Map(tools.map((tool) => [tool.name, tool.handler]))
+
   const server = new Server(
     {
       name: 'eigen-memory',
@@ -18,7 +31,7 @@ export function createMcpServer(context: McpToolContext): Server {
   )
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: MCP_EXPOSED_TOOL_DEFINITIONS.map((tool) => ({
+    tools: tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
@@ -27,7 +40,7 @@ export function createMcpServer(context: McpToolContext): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const name = request.params.name
-    const handler = MCP_EXPOSED_TOOL_MAP.get(name)
+    const handler = handlers.get(name)
     if (!handler) {
       throw new Error(`Unknown tool: ${name}`)
     }

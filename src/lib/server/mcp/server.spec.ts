@@ -50,7 +50,7 @@ vi.mock('./tools', () => ({
 describe('createMcpServer', () => {
   it('registers list tools handler', async () => {
     const { createMcpServer } = await import('./server')
-    createMcpServer({ userId: 'u1' })
+    createMcpServer({ userId: 'u1' }, { boardAccess: false })
     const listHandler = handlerMap.get(Symbol.for('list-tools')) as () => Promise<{
       tools: Array<{ name: string }>
     }>
@@ -71,10 +71,6 @@ describe('createMcpServer', () => {
       'create_project',
       'edit_project',
       'delete_project',
-      'list_board',
-      'share_idea',
-      'vote_idea',
-      'forget_idea',
     ])
     expect(result.tools.map((t) => t.name)).not.toContain('list_thoughts')
     expect(result.tools.map((t) => t.name)).not.toContain('capture_grounding')
@@ -83,7 +79,7 @@ describe('createMcpServer', () => {
 
   it('rejects internal grounding tools on call', async () => {
     const { createMcpServer } = await import('./server')
-    createMcpServer({ userId: 'u1' })
+    createMcpServer({ userId: 'u1' }, { boardAccess: false })
     const callHandler = handlerMap.get(Symbol.for('call-tool')) as (request: {
       params: { name: string; arguments?: unknown }
     }) => Promise<unknown>
@@ -95,7 +91,7 @@ describe('createMcpServer', () => {
   it('dispatches call tool handler', async () => {
     runSearchThoughtsToolMock.mockResolvedValue({ results: [{ id: 't1' }] })
     const { createMcpServer } = await import('./server')
-    createMcpServer({ userId: 'u1' })
+    createMcpServer({ userId: 'u1' }, { boardAccess: false })
     const callHandler = handlerMap.get(Symbol.for('call-tool')) as (request: {
       params: { name: string; arguments?: unknown }
     }) => Promise<{ content: Array<{ text: string }> }>
@@ -108,10 +104,38 @@ describe('createMcpServer', () => {
 
   it('throws on unknown tool name', async () => {
     const { createMcpServer } = await import('./server')
-    createMcpServer({ userId: 'u1' })
+    createMcpServer({ userId: 'u1' }, { boardAccess: false })
     const callHandler = handlerMap.get(Symbol.for('call-tool')) as (request: {
       params: { name: string; arguments?: unknown }
     }) => Promise<unknown>
     await expect(callHandler({ params: { name: 'nope' } })).rejects.toThrow(/Unknown tool/)
+  })
+
+  it('hides the Contribute board from users without board access', async () => {
+    const { createMcpServer } = await import('./server')
+    createMcpServer({ userId: 'u1' }, { boardAccess: false })
+    const listHandler = handlerMap.get(Symbol.for('list-tools')) as () => Promise<{
+      tools: Array<{ name: string }>
+    }>
+    const names = (await listHandler()).tools.map((t) => t.name)
+    for (const board of ['list_board', 'share_idea', 'vote_idea', 'forget_idea']) {
+      expect(names).not.toContain(board)
+    }
+    const callHandler = handlerMap.get(Symbol.for('call-tool')) as (request: {
+      params: { name: string; arguments?: unknown }
+    }) => Promise<unknown>
+    await expect(callHandler({ params: { name: 'list_board', arguments: {} } })).rejects.toThrow(
+      /Unknown tool/,
+    )
+  })
+
+  it('lists the Contribute board for makers and admins', async () => {
+    const { createMcpServer } = await import('./server')
+    createMcpServer({ userId: 'u1' }, { boardAccess: true })
+    const listHandler = handlerMap.get(Symbol.for('list-tools')) as () => Promise<{
+      tools: Array<{ name: string }>
+    }>
+    const names = (await listHandler()).tools.map((t) => t.name)
+    expect(names.slice(-4)).toEqual(['list_board', 'share_idea', 'vote_idea', 'forget_idea'])
   })
 })

@@ -547,6 +547,13 @@
       "when": 1792800000000,
       "tag": "0077_thought_ask_question",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0078_user_role_maker",
+      "breakpoints": true
     }
   ]
 }

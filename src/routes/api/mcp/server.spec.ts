@@ -41,6 +41,19 @@ vi.mock('$lib/server/mcp/tools', () => ({
   runUnlinkTextFileFromThoughtTool: vi.fn(),
 }))
 
+const { hasBoardMcpAccessMock } = vi.hoisted(() => ({ hasBoardMcpAccessMock: vi.fn() }))
+
+vi.mock('$lib/server/auth/user-role', () => ({ hasBoardMcpAccess: hasBoardMcpAccessMock }))
+
+async function listedToolNames(): Promise<string[]> {
+  const res = await POST({
+    locals: { user: { id: 'u1' } },
+    request: makeRequest({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} }),
+  } as never)
+  const body = (await res.json()) as { result: { tools: Array<{ name: string }> } }
+  return body.result.tools.map((t) => t.name)
+}
+
 function makeRequest(body: unknown, method = 'POST'): Request {
   return new Request('http://localhost/api/mcp', {
     method,
@@ -106,5 +119,13 @@ describe('POST /api/mcp', () => {
     } as never)
     expect(runRetrieveThoughtsToolMock).toHaveBeenCalledWith({ userId: 'u1' }, { query: 'hello' })
     expect(res.status).toBe(200)
+  })
+
+  it('hides board tools from normal users and shows them to makers/admins', async () => {
+    hasBoardMcpAccessMock.mockResolvedValue(false)
+    expect(await listedToolNames()).not.toContain('list_board')
+    expect(hasBoardMcpAccessMock).toHaveBeenCalledWith('u1')
+    hasBoardMcpAccessMock.mockResolvedValue(true)
+    expect(await listedToolNames()).toContain('list_board')
   })
 })

@@ -13,7 +13,7 @@ export const user = pgTable('user', {
   firstName: text('first_name'),
   lastName: text('last_name'),
   onboardingCompleted: boolean('onboarding_completed').default(false).notNull(),
-  role: text('role', { enum: ['user', 'admin'] })
+  role: text('role', { enum: ['user', 'maker', 'admin'] })
     .default('user')
     .notNull(),
   accountKind: text('account_kind', { enum: userAccountKindEnum }).default('production').notNull(),

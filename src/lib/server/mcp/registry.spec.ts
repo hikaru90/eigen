@@ -6,6 +6,7 @@ import {
   isChatAgentTool,
   isMcpExposedTool,
   MCP_AGENT_TOOL_NAMES,
+  MCP_BOARD_TOOL_DEFINITIONS,
   MCP_CLIENT_EXPOSED_TOOL_NAMES,
   MCP_EXPOSED_TOOL_DEFINITIONS,
   MCP_TOOL_DEFINITIONS,
@@ -27,11 +28,12 @@ const TEXT_NOTE_TOOLS = [
 const BOARD_TOOLS = ['list_board', 'share_idea', 'vote_idea', 'forget_idea'] as const
 
 describe('MCP tool registry exposure', () => {
-  it('keeps the shared board out of the ask/chat loop — asking never posts to the board', () => {
+  it('keeps the shared board out of the ask/chat loop and the default MCP surface', () => {
     for (const name of BOARD_TOOLS) {
-      expect(isMcpExposedTool(name)).toBe(true)
+      expect(isMcpExposedTool(name)).toBe(false)
       expect(isChatAgentTool(name)).toBe(false)
     }
+    expect(MCP_BOARD_TOOL_DEFINITIONS.map((t) => t.name)).toEqual([...BOARD_TOOLS])
   })
 
   it('exposes memory CRUD plus project timeline tools over HTTP MCP', () => {
@@ -51,7 +53,6 @@ describe('MCP tool registry exposure', () => {
       'create_project',
       'edit_project',
       'delete_project',
-      ...BOARD_TOOLS,
     ])
     expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES)
   })
