@@ -498,14 +498,22 @@
     whisperKept(chosenType)
 
     if (plan.kind === 'keep') {
-      // ONE call persists: raw as typed + the accepted reading → row, normalized_text, enrich
+      // ONE call persists: raw as typed + the accepted reading → row, normalized_text, enrich.
+      // The picked thread rides along: the server writes the membership link now, not after
+      // the background pass — the mesh lists the thread with the thought, not later.
       submitting = true
       let res: Response
       try {
         res = await fetch('/api/capture/keep', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ raw: text, reading: plan.reading }),
+          body: JSON.stringify({
+            raw: text,
+            reading: plan.reading,
+            ...(threadChoice.kind === 'thread'
+              ? { thread: threadChoice.entityId ? { entityId: threadChoice.entityId } : { label: threadChoice.label } }
+              : {}),
+          }),
           credentials: 'same-origin',
         })
       } catch (e) {

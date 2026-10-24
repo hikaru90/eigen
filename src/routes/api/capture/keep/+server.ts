@@ -5,7 +5,7 @@ import {
   isInsufficientCreditsError,
   insufficientCreditsPayload,
 } from '$lib/server/billing/insufficient-credits'
-import { keepCaptureWithReading } from '$lib/server/capture/capture-confirmation'
+import { keepCaptureWithReading, InvalidThreadChoiceError } from '$lib/server/capture/capture-confirmation'
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { captureGateHttpStatus, captureGateJsonBody } from '$lib/server/onboarding/capture-gate'
 
@@ -62,15 +62,39 @@ export const POST: RequestHandler = async (event) => {
     error(400, err instanceof Error ? err.message : 'Invalid captured_at')
   }
 
+  // The thread the user picked on Capture: exactly { entityId } or { label }, nothing else.
+  let thread: { projectEntityId: string } | { projectLabel: string } | undefined
+  if (b.thread !== undefined && b.thread !== null) {
+    const t = b.thread
+    if (typeof t !== 'object' || t === null || Array.isArray(t)) {
+      error(400, 'thread must be an object with exactly one of entityId or label')
+    }
+    const keys = Object.keys(t).sort()
+    const entityId = (t as { entityId?: unknown }).entityId
+    const label = (t as { label?: unknown }).label
+    const validEntity =
+      keys.length === 1 && keys[0] === 'entityId' && typeof entityId === 'string' && !!entityId.trim()
+    const validLabel =
+      keys.length === 1 && keys[0] === 'label' && typeof label === 'string' && !!label.trim()
+    if (!validEntity && !validLabel) {
+      error(400, 'thread must be exactly { entityId: string } or { label: string }')
+    }
+    thread = validEntity
+      ? { projectEntityId: (entityId as string).trim() }
+      : { projectLabel: (label as string).trim() }
+  }
+
   try {
     const result = await runWithTrace(crypto.randomUUID(), () =>
       keepCaptureWithReading(user.id, raw, b.reading, {
         source: 'ui',
         ...(capturedAt ? { capturedAt } : {}),
+        ...(thread ? { thread } : {}),
       }),
     )
     return json(result)
   } catch (err) {
+    if (err instanceof InvalidThreadChoiceError) error(400, err.message)
     const details = collectErrorMessages(err)
     const message = details[0] ?? 'Failed to keep thought'
     console.error('capture keep failed', { userId: user.id, message, details })

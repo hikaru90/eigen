@@ -13,9 +13,22 @@ import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenan
 import { getDb } from '$lib/server/db'
 import { thought, type CaptureSource, type EnrichQueueStatus } from '$lib/server/db/schema'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { assignThoughtToProject } from '$lib/server/memory/assign-thought-project'
+import { findGtdProjectForUser } from '$lib/server/memory/project-membership'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 
 export type { CapturePreviewBundle }
+
+/** The thread the user picked on Capture: an existing project by id, or a new one by label. */
+export type KeepThreadChoice = { projectEntityId: string } | { projectLabel: string }
+
+/** A picked thread that is not (any longer) one of the user's GTD projects — a bad request, not a server fault. */
+export class InvalidThreadChoiceError extends Error {
+  constructor(projectEntityId: string) {
+    super(`Picked thread "${projectEntityId}" is not one of your projects`)
+    this.name = 'InvalidThreadChoiceError'
+  }
+}
 
 /** Client countdown + stranded-draft auto-accept window. */
 export const CONFIRMATION_AUTO_ACCEPT_MS = 5_000
@@ -286,7 +299,7 @@ export async function keepCaptureWithReading(
   userId: string,
   raw: string,
   acceptedInput: unknown,
-  options?: { source?: CaptureSource; capturedAt?: Date },
+  options?: { source?: CaptureSource; capturedAt?: Date; thread?: KeepThreadChoice },
 ): Promise<ConfirmCaptureResult> {
   if (!raw.trim()) throw new Error('raw is required')
   const accepted = parseAcceptedReading(acceptedInput)
@@ -296,12 +309,26 @@ export async function keepCaptureWithReading(
     category: { ...accepted.category, ontologyEntityKindId },
   }
 
+  // A stale picked thread must fail the keep before any row exists (same boundary as
+  // the category check above) — never silently keep the thought without its thread.
+  if (options?.thread && 'projectEntityId' in options.thread) {
+    const project = await findGtdProjectForUser(userId, options.thread.projectEntityId)
+    if (!project) throw new InvalidThreadChoiceError(options.thread.projectEntityId)
+  }
+
   const queued = await queueCapture(userId, raw, {
     source: options?.source ?? 'ui',
     awaitConfirmation: true,
     skipWorker: true,
     ...(options?.capturedAt ? { capturedAt: options.capturedAt } : {}),
   })
+
+  // The user's picked thread is membership, not a mention: written before confirm
+  // schedules enrich, so the mesh lists the thread immediately and the enrich GTD
+  // assignment sees the manual link and never re-decides.
+  if (options?.thread) {
+    await assignThoughtToProject(userId, queued.thoughtId, options.thread)
+  }
 
   const draft = await loadConfirmationDraft(userId, queued.thoughtId)
   if (draft.enrichQueueStatus !== 'awaiting_confirmation') {

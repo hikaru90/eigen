@@ -6,6 +6,7 @@ import { m } from '$lib/paraglide/messages.js'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project'
+import { thoughtHasProjectMembership } from '$lib/server/memory/project-membership'
 import { linkThoughtToProject } from '$lib/server/memory/project-next-action'
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity'
 
@@ -99,6 +100,17 @@ export async function detectProjectFromThought(
 export async function detectAndCreateProjectFromThought(
   input: ProjectDetectionInput,
 ): Promise<string | null> {
+  // A thought that already sits on a thread keeps exactly that thread: the user's pick
+  // (keep-time membership) or the GTD assignment's own decision. Detection must never
+  // add a second membership beside an existing one.
+  if (input.thoughtId && (await thoughtHasProjectMembership(input.userId, input.thoughtId))) {
+    console.log('[project-detection] Thought already belongs to a thread — detection skips', {
+      userId: input.userId,
+      thoughtId: input.thoughtId,
+    })
+    return null
+  }
+
   const detection = await detectProjectFromThought(input)
 
   if (!detection.projectLabel) {

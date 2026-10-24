@@ -10,6 +10,8 @@ const {
   selectMock,
   updateMock,
   notifyThoughtCreatedMock,
+  findGtdProjectForUserMock,
+  assignThoughtToProjectMock,
 } = vi.hoisted(() => ({
   queueCaptureMock: vi.fn(),
   scheduleCaptureEnrichWorkerMock: vi.fn(),
@@ -20,6 +22,8 @@ const {
   selectMock: vi.fn(),
   updateMock: vi.fn(),
   notifyThoughtCreatedMock: vi.fn(),
+  findGtdProjectForUserMock: vi.fn(),
+  assignThoughtToProjectMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/capture/queue-capture', () => ({
@@ -48,6 +52,14 @@ vi.mock('$lib/server/agents/notify', () => ({
   notifyThoughtCreated: notifyThoughtCreatedMock,
 }))
 
+vi.mock('$lib/server/memory/project-membership', () => ({
+  findGtdProjectForUser: findGtdProjectForUserMock,
+}))
+
+vi.mock('$lib/server/memory/assign-thought-project', () => ({
+  assignThoughtToProject: assignThoughtToProjectMock,
+}))
+
 vi.mock('$lib/server/ontology-db', () => ({
   ensureUserOntologySeeded: vi.fn(async () => undefined),
   loadOntologyForUser: vi.fn(async () => ({
@@ -62,7 +74,9 @@ import {
   autoConfirmStaleAwaitingConfirmationDrafts,
   CONFIRMATION_AUTO_ACCEPT_MS,
   confirmCapturePreview,
+  InvalidThreadChoiceError,
   interpretAndQueueCapture,
+  keepCaptureWithReading,
   type CapturePreviewBundle,
 } from './capture-confirmation'
 
@@ -440,6 +454,112 @@ describe('confirmCapturePreview', () => {
     expect(result.queueStatus).toBe('pending')
     expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
     expect(notifyThoughtCreatedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('keepCaptureWithReading', () => {
+  const RAW = 'call the studio about the frame order'
+
+  function draftRow() {
+    return {
+      id: 'thought-1',
+      userId: 'u1',
+      rawText: RAW,
+      rawTextEncrypted: null,
+      normalizedText: RAW,
+      enrichQueueStatus: 'awaiting_confirmation',
+      metadata: { preview: PREVIEW, pipeline: 'ontology_llm_v1' },
+      metadataEncrypted: null,
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    encryptMock.mockImplementation(
+      async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`,
+    )
+    decryptMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
+      ciphertext.startsWith('enc:') ? ciphertext.slice(4) : ciphertext,
+    )
+    getDbMock.mockReturnValue({ select: selectMock, update: updateMock })
+    queueCaptureMock.mockResolvedValue({
+      thoughtId: 'thought-1',
+      status: 'queued',
+      normalizedText: RAW,
+    })
+    chainUpdate()
+  })
+
+  it('links the picked thread as manual membership BEFORE enrich is scheduled — the mesh can show the thread immediately and enrich never re-decides', async () => {
+    findGtdProjectForUserMock.mockResolvedValue({ entityId: 'p1', label: 'EigenMesh' })
+    assignThoughtToProjectMock.mockResolvedValue({
+      projectEntityId: 'p1',
+      projectLabel: 'EigenMesh',
+      eligible: true,
+      created: false,
+      isGtdProject: true,
+    })
+    chainSelect([draftRow()])
+
+    const result = await keepCaptureWithReading('u1', RAW, PREVIEW, {
+      source: 'ui',
+      thread: { projectEntityId: 'p1' },
+    })
+
+    expect(result.queueStatus).toBe('pending')
+    expect(assignThoughtToProjectMock).toHaveBeenCalledTimes(1)
+    expect(assignThoughtToProjectMock).toHaveBeenCalledWith('u1', 'thought-1', {
+      projectEntityId: 'p1',
+    })
+    expect(findGtdProjectForUserMock).toHaveBeenCalledWith('u1', 'p1')
+    // membership is written before the enrich worker exists — no race, no re-decide
+    expect(assignThoughtToProjectMock.mock.invocationCallOrder[0]).toBeLessThan(
+      scheduleCaptureEnrichWorkerMock.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('without a picked thread, no assignment runs (loose is loose)', async () => {
+    chainSelect([draftRow()])
+
+    await keepCaptureWithReading('u1', RAW, PREVIEW, { source: 'ui' })
+
+    expect(findGtdProjectForUserMock).not.toHaveBeenCalled()
+    expect(assignThoughtToProjectMock).not.toHaveBeenCalled()
+  })
+
+  it('a picked thread that is not a project fails the keep loudly, before any row exists', async () => {
+    findGtdProjectForUserMock.mockResolvedValue(null)
+
+    await expect(
+      keepCaptureWithReading('u1', RAW, PREVIEW, {
+        source: 'ui',
+        thread: { projectEntityId: 'gone' },
+      }),
+    ).rejects.toBeInstanceOf(InvalidThreadChoiceError)
+    expect(queueCaptureMock).not.toHaveBeenCalled()
+    expect(assignThoughtToProjectMock).not.toHaveBeenCalled()
+    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+  })
+
+  it('a new thread by label skips the pre-check and is created by the assignment itself', async () => {
+    assignThoughtToProjectMock.mockResolvedValue({
+      projectEntityId: 'p-new',
+      projectLabel: 'Wohnung',
+      eligible: true,
+      created: true,
+      isGtdProject: true,
+    })
+    chainSelect([draftRow()])
+
+    await keepCaptureWithReading('u1', RAW, PREVIEW, {
+      source: 'ui',
+      thread: { projectLabel: 'Wohnung' },
+    })
+
+    expect(findGtdProjectForUserMock).not.toHaveBeenCalled()
+    expect(assignThoughtToProjectMock).toHaveBeenCalledWith('u1', 'thought-1', {
+      projectLabel: 'Wohnung',
+    })
   })
 })
 

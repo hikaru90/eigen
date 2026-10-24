@@ -4,11 +4,12 @@ import {
   detectProjectFromThought,
 } from './detect-project-from-thought'
 
-const { llmMock, promoteMock, resolveIdentityMock, linkMock } = vi.hoisted(() => ({
+const { llmMock, promoteMock, resolveIdentityMock, linkMock, membershipMock } = vi.hoisted(() => ({
   llmMock: vi.fn(),
   promoteMock: vi.fn(),
   resolveIdentityMock: vi.fn(),
   linkMock: vi.fn(),
+  membershipMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
@@ -25,6 +26,10 @@ vi.mock('$lib/server/memory/resolve-project-identity', () => ({
 
 vi.mock('$lib/server/memory/project-next-action', () => ({
   linkThoughtToProject: linkMock,
+}))
+
+vi.mock('$lib/server/memory/project-membership', () => ({
+  thoughtHasProjectMembership: membershipMock,
 }))
 
 vi.mock('$lib/paraglide/messages.js', () => ({
@@ -70,6 +75,7 @@ describe('detectProjectFromThought', () => {
 describe('detectAndCreateProjectFromThought', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    membershipMock.mockResolvedValue(false)
     promoteMock.mockResolvedValue(true)
     linkMock.mockResolvedValue(undefined)
     llmMock.mockResolvedValue({
@@ -142,6 +148,22 @@ describe('detectAndCreateProjectFromThought', () => {
       forceJudge: false,
     })
     expect(linkMock).toHaveBeenCalledWith('u1', 'e-new', 't1', 'project')
+  })
+
+  it('skips entirely when the thought already belongs to a thread — the explicit pick or earlier decision wins, never a second membership', async () => {
+    membershipMock.mockResolvedValue(true)
+    await expect(
+      detectAndCreateProjectFromThought({
+        userId: 'u1',
+        normalizedText: 'Working on EigenMesh',
+        thoughtId: 't1',
+      }),
+    ).resolves.toBeNull()
+    // no LLM detection cost, no identity binding, no link, no promotion
+    expect(llmMock).not.toHaveBeenCalled()
+    expect(resolveIdentityMock).not.toHaveBeenCalled()
+    expect(linkMock).not.toHaveBeenCalled()
+    expect(promoteMock).not.toHaveBeenCalled()
   })
 
   it('returns null when judge rejects promotion of a new hub', async () => {

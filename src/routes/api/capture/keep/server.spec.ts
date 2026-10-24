@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { POST } from './+server'
 
-const { keepCaptureWithReadingMock } = vi.hoisted(() => ({
+const { keepCaptureWithReadingMock, InvalidThreadChoiceError } = vi.hoisted(() => ({
   keepCaptureWithReadingMock: vi.fn(),
+  InvalidThreadChoiceError: class InvalidThreadChoiceError extends Error {
+    constructor(message: string) {
+      super(message)
+      this.name = 'InvalidThreadChoiceError'
+    }
+  },
 }))
 
 vi.mock('$lib/server/capture/capture-confirmation', () => ({
   keepCaptureWithReading: keepCaptureWithReadingMock,
+  InvalidThreadChoiceError,
 }))
 
 const READING = {
@@ -72,6 +79,89 @@ describe('POST /api/capture/keep (persist the accepted reading, once)', () => {
     expect(body.thoughtId).toBe('thought-1')
     expect(body.normalizedText).toBe('Call the studio about the frame order.')
     expect(body.rawText).toBe('call the studio about the frame order')
+  })
+
+  it('passes a picked thread (entityId) through as the keep-time membership choice', async () => {
+    keepCaptureWithReadingMock.mockResolvedValue(KEPT)
+    const res = await POST({
+      locals: { user: { id: 'u1' } },
+      request: {
+        json: vi.fn(async () => ({
+          raw: 'call the studio about the frame order',
+          reading: READING,
+          thread: { entityId: 'p1' },
+        })),
+      },
+    } as never)
+    expect(res.status).toBe(200)
+    expect(keepCaptureWithReadingMock).toHaveBeenCalledWith(
+      'u1',
+      'call the studio about the frame order',
+      READING,
+      { source: 'ui', thread: { projectEntityId: 'p1' } },
+    )
+  })
+
+  it('passes a new thread by label through', async () => {
+    keepCaptureWithReadingMock.mockResolvedValue(KEPT)
+    await POST({
+      locals: { user: { id: 'u1' } },
+      request: {
+        json: vi.fn(async () => ({
+          raw: 'call the studio about the frame order',
+          reading: READING,
+          thread: { label: 'Wohnung' },
+        })),
+      },
+    } as never)
+    expect(keepCaptureWithReadingMock).toHaveBeenCalledWith(
+      'u1',
+      'call the studio about the frame order',
+      READING,
+      { source: 'ui', thread: { projectLabel: 'Wohnung' } },
+    )
+  })
+
+  it('rejects ambiguous thread shapes at the boundary (400, nothing persisted)', async () => {
+    const badThreads: unknown[] = [
+      'p1',
+      {},
+      [],
+      { entityId: '' },
+      { entityId: '   ' },
+      { label: '' },
+      { entityId: 'p1', label: 'Wohnung' },
+      { entityId: 'p1', extra: true },
+      { entityId: 5 },
+    ]
+    for (const thread of badThreads) {
+      keepCaptureWithReadingMock.mockClear()
+      await expect(
+        POST({
+          locals: { user: { id: 'u1' } },
+          request: {
+            json: vi.fn(async () => ({ raw: 'hello there', reading: READING, thread })),
+          },
+        } as never),
+      ).rejects.toMatchObject({ status: 400 })
+      expect(keepCaptureWithReadingMock).not.toHaveBeenCalled()
+    }
+  })
+
+  it('maps a stale picked thread to 400 (a client pick, not a server fault)', async () => {
+    keepCaptureWithReadingMock.mockRejectedValue(new InvalidThreadChoiceError('gone'))
+    await expect(
+      POST({
+        locals: { user: { id: 'u1' } },
+        request: {
+          json: vi.fn(async () => ({
+            raw: 'hello there',
+            reading: READING,
+            thread: { entityId: 'gone' },
+          })),
+        },
+      } as never),
+    ).rejects.toMatchObject({ status: 400 })
   })
 
   it('passes a valid captured_at through and rejects an invalid one', async () => {
