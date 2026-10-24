@@ -37,7 +37,7 @@ describe('Ask uses the shared bottom-docked writer', () => {
   it('at rest mirrors Capture: the heading in the same place and voice, suggestions beneath it', () => {
     const hero = source.slice(source.indexOf('data-testid="ask-heading"') - 400, source.indexOf('{#snippet above()}'))
     // same container offset and type as capture/+page.svelte's h1
-    expect(hero).toContain('pt-[calc(var(--head)+23vh)] px-7 max-[640px]:pt-[calc(var(--head)+12vh)]')
+    expect(hero).toContain('pt-[calc(var(--head)+23svh)] px-7 max-[640px]:pt-[calc(var(--head)+12svh)]')
     expect(hero).toContain('font-you font-normal text-[clamp(32px,4.4vw,46px)]')
     expect(hero).toContain('m.ask_placeholder()')
     expect(hero).toContain('m.ask_try()')

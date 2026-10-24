@@ -80,7 +80,7 @@
   const fadeVars = $derived(pageFadeVars(mainView))
   const chromeMainClass = $derived.by(() => {
     if (hideAppChrome) {
-      return 'static overflow-visible min-h-dvh mask-none animate-none'
+      return 'static overflow-visible min-h-svh mask-none animate-none'
     }
     return [
       'fixed inset-0 z-0 [view-transition-name:page]',
@@ -250,7 +250,7 @@
 -->
 <main bind:this={mainEl} class={chromeMainClass}>
   {#if hideAppChrome}
-    <div class="min-h-dvh pb-6">
+    <div class="min-h-svh pb-6">
       {@render children()}
     </div>
   {:else}

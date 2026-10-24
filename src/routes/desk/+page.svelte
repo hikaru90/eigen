@@ -230,7 +230,7 @@
   <title>Desk</title>
 </svelte:head>
 
-<div class="-mb-28 h-dvh overscroll-none">
+<div class="-mb-28 h-svh overscroll-none">
   <div
     bind:this={container}
     data-testid="desk-scene"

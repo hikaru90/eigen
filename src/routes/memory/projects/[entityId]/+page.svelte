@@ -207,7 +207,7 @@
 </script>
 
 <div
-  class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none px-3 pt-24"
+  class="-mb-28 flex h-svh flex-col overflow-hidden overscroll-none px-3 pt-24"
   data-testid="project-detail-page"
 >
   <header class="border-border shrink-0 space-y-3 border-b pb-3">

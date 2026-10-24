@@ -108,7 +108,7 @@
             {categoryLabel(shownType ?? '')}<ChevronDownIcon class="inline-block size-[0.5em] ml-[0.12em] align-middle text-ink-3" strokeWidth={2} aria-hidden="true" />
           </Popover.Trigger>
           <Popover.Content
-            class="paper-menu max-h-[min(60dvh,var(--bits-popover-content-available-height))] overflow-y-auto overscroll-contain"
+            class="paper-menu max-h-[min(60svh,var(--bits-popover-content-available-height))] overflow-y-auto overscroll-contain"
             align="start"
             role="menu"
             aria-label={m.capture_reading_sounds_like()}
@@ -143,7 +143,7 @@
               {threadWord}<ChevronDownIcon class="inline-block size-[0.5em] ml-[0.12em] align-middle text-ink-3" strokeWidth={2} aria-hidden="true" />
             </Popover.Trigger>
             <Popover.Content
-              class="gap-0 p-1.5 font-mesh max-h-[min(60dvh,var(--bits-popover-content-available-height))] overflow-y-auto overscroll-contain"
+              class="gap-0 p-1.5 font-mesh max-h-[min(60svh,var(--bits-popover-content-available-height))] overflow-y-auto overscroll-contain"
               align="start"
               role="menu"
               aria-label={m.capture_reading_loose()}

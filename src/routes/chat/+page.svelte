@@ -637,7 +637,7 @@
   {#if !conversationShown && !loadingSession}
     <!-- at rest Ask mirrors Capture: the question as a heading in the same place and
          voice (capture/+page.svelte h1), the suggestions right beneath it -->
-    <div class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 max-[640px]:pt-[calc(var(--head)+12vh)] max-[640px]:px-1">
+    <div class="mx-auto max-w-[720px] pt-[calc(var(--head)+23svh)] px-7 max-[640px]:pt-[calc(var(--head)+12svh)] max-[640px]:px-1">
       <h1
         class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
         data-testid="ask-heading"

@@ -355,7 +355,7 @@
     aria-describedby="onboarding-desc"
   >
     <Card.Root
-      class="ring-foreground/10 relative max-h-[90dvh] w-full max-w-md overflow-y-auto border border-line bg-card shadow-lg ring-1"
+      class="ring-foreground/10 relative max-h-[90svh] w-full max-w-md overflow-y-auto border border-line bg-card shadow-lg ring-1"
     >
       <button
         type="button"

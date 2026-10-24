@@ -256,7 +256,7 @@
   })
 </script>
 
-<div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none px-4 pt-[calc(var(--head)+16px)] pb-4 md:px-6">
+<div class="-mb-28 flex h-svh flex-col overflow-hidden overscroll-none px-4 pt-[calc(var(--head)+16px)] pb-4 md:px-6">
   <header class="mb-4 flex shrink-0 items-center justify-between gap-3">
     <h1 class="text-lg font-medium text-foreground">{m.notes_title()}</h1>
     <Button

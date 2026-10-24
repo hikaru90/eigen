@@ -8,7 +8,7 @@
   const initialEventId = $derived(page.url.searchParams.get('event'))
 </script>
 
-<div class="-mb-28 flex h-dvh flex-col overflow-hidden overscroll-none">
+<div class="-mb-28 flex h-svh flex-col overflow-hidden overscroll-none">
   <TimelineShell
     mode="tasks"
     {initialEventId}

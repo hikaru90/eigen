@@ -149,7 +149,7 @@
     <textarea
       bind:this={input}
       bind:value
-      class="block flex-1 min-w-0 [field-sizing:content] max-h-[min(40dvh,240px)] py-1.5 border-0 outline-none resize-none overflow-y-auto [scrollbar-width:none] bg-transparent font-mesh text-[17px] leading-6 text-ink caret-signal placeholder:text-ink-2 disabled:opacity-55"
+      class="block flex-1 min-w-0 [field-sizing:content] max-h-[min(40svh,240px)] py-1.5 border-0 outline-none resize-none overflow-y-auto [scrollbar-width:none] bg-transparent font-mesh text-[17px] leading-6 text-ink caret-signal placeholder:text-ink-2 disabled:opacity-55"
       rows="1"
       {placeholder}
       aria-label={label ?? placeholder}
