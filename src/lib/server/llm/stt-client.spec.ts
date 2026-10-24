@@ -34,6 +34,11 @@ describe('parseSttTranscript', () => {
   it('throws when text missing', () => {
     expect(() => parseSttTranscript({})).toThrow(/missing transcript/)
   })
+
+  it('a silent segment is an empty transcript, not an error (Whisper returns text: "")', () => {
+    expect(parseSttTranscript({ text: '' })).toBe('')
+    expect(parseSttTranscript({ text: '  ' })).toBe('')
+  })
 })
 
 describe('transcribeAudio', () => {

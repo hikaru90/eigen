@@ -24,7 +24,7 @@ function sttModelId(): string {
 }
 
 /**
- * Parses transcript text from a dedicated STT body (`{ text }` only).
+ * Parses transcript text from a dedicated STT body (`{ text }` only; `""` = no speech).
  * Chat-completion shaped bodies are rejected — they often contain assistant replies, not verbatim speech.
  */
 export function parseSttTranscript(body: unknown): string {
@@ -32,7 +32,8 @@ export function parseSttTranscript(body: unknown): string {
     throw new Error('STT response missing body')
   }
   const dedicated = (body as { text?: unknown }).text
-  if (typeof dedicated === 'string' && dedicated.trim()) {
+  // an empty string is a real answer: the segment held no speech (pauses, the first beat)
+  if (typeof dedicated === 'string') {
     return dedicated.trim()
   }
   if ('choices' in body) {
