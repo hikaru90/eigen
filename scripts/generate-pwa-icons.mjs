@@ -25,7 +25,7 @@ const MARK_DARK = '#f5f7f4'
 function recolorSvg(svg, colors) {
   return svg
     .replace(/#e8ede5/gi, colors.bg)
-    .replace(/style="fill-rule:nonzero;"/g, `style="fill:${colors.mark};fill-rule:nonzero;"`)
+    .replace(/(<g id="mark" color=")[^"]*"/, `$1${colors.mark}"`)
 }
 
 /**
@@ -35,12 +35,8 @@ function recolorSvg(svg, colors) {
  */
 function markOnlySvg(svg, markFill) {
   return svg
-    .replace(
-      /<path d="M160,36l0,88c0,19\.869[^"]*" style="fill:[^"]*;"\/>/,
-      '',
-    )
-    .replace(/style="fill-rule:nonzero;"/g, `style="fill:${markFill};fill-rule:nonzero;"`)
-    .replace(/style="fill:[^"]*;fill-rule:nonzero;"/g, `style="fill:${markFill};fill-rule:nonzero;"`)
+    .replace(/<path id="tile"[^>]*\/>/, '')
+    .replace(/(<g id="mark" color=")[^"]*"/, `$1${markFill}"`)
 }
 
 /**
