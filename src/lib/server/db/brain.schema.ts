@@ -631,6 +631,8 @@ export const userPreference = pgTable(
       .default(['appointment', 'reminder', 'deadline']),
     /** Daily scheduling capacity for plan-week guardrails (default 8h). */
     dailyWorkMinutes: integer('daily_work_minutes').notNull().default(480),
+    /** Notification emails on/off (board a286e635): in-app notifications stay on regardless. */
+    notifyByEmail: boolean('notify_by_email').notNull().default(true),
     /** Morning timeline summary push at this local time (minutes from midnight). */
     dailySummaryEnabled: boolean('daily_summary_enabled').notNull().default(false),
     dailySummaryMinutesLocal: integer('daily_summary_minutes_local').notNull().default(480),

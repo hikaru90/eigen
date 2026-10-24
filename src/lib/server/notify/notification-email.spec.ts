@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { authDbSelectMock, isOwleryMailConfiguredMock, sendTransactionalEmailMock } = vi.hoisted(
+const { authDbSelectMock, isOwleryMailConfiguredMock, sendTransactionalEmailMock, getDbSelectMock } = vi.hoisted(
   () => ({
     authDbSelectMock: vi.fn(),
     isOwleryMailConfiguredMock: vi.fn(),
     sendTransactionalEmailMock: vi.fn(),
+    getDbSelectMock: vi.fn(),
   }),
 )
 
@@ -19,6 +20,14 @@ vi.mock('$lib/server/env/private-env', () => ({
 
 vi.mock('$lib/server/db/auth-db', () => ({
   authDb: { select: authDbSelectMock },
+}))
+
+vi.mock('$lib/server/db', () => ({
+  getDb: () => ({ select: getDbSelectMock }),
+}))
+
+vi.mock('$lib/server/db/schema', () => ({
+  userPreference: { userId: 'user_id', notifyByEmail: 'notify_by_email' },
 }))
 
 vi.mock('$lib/server/db/auth.schema', () => ({
@@ -40,6 +49,14 @@ function selectReturning(rows: { email?: string }[]) {
   return { limit, where, from }
 }
 
+function preferenceReturning(rows: unknown[]) {
+  const limit = vi.fn(async () => rows)
+  const where = vi.fn(() => ({ limit }))
+  const from = vi.fn(() => ({ where }))
+  getDbSelectMock.mockReturnValue({ from })
+  return { limit, where, from }
+}
+
 const PAYLOAD = {
   title: 'Appointment',
   body: 'In 30 min · Dentist',
@@ -52,6 +69,8 @@ describe('queueNotificationEmail', () => {
     vi.clearAllMocks()
     isOwleryMailConfiguredMock.mockReturnValue(true)
     sendTransactionalEmailMock.mockResolvedValue({ emailId: 'em_1' })
+    // default: the setting is on (also covers rows that predate the column)
+    preferenceReturning([{ notifyByEmail: true }])
   })
 
   afterEach(() => {
@@ -76,7 +95,35 @@ describe('queueNotificationEmail', () => {
     expect(sendTransactionalEmailMock).not.toHaveBeenCalled()
   })
 
+  it('no-ops when the user turned notification emails off — in-app is the channel then', async () => {
+    preferenceReturning([{ notifyByEmail: false }])
+    selectReturning([{ email: 'user@example.com' }])
+
+    await queueNotificationEmail('u1', PAYLOAD)
+
+    expect(sendTransactionalEmailMock).not.toHaveBeenCalled()
+  })
+
+  it('emails when the preference explicitly allows it', async () => {
+    preferenceReturning([{ notifyByEmail: true }])
+    selectReturning([{ email: 'user@example.com' }])
+
+    await queueNotificationEmail('u1', PAYLOAD)
+
+    expect(sendTransactionalEmailMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('emails when no preference row exists (the default is on)', async () => {
+    preferenceReturning([])
+    selectReturning([{ email: 'user@example.com' }])
+
+    await queueNotificationEmail('u1', PAYLOAD)
+
+    expect(sendTransactionalEmailMock).toHaveBeenCalledTimes(1)
+  })
+
   it('sends a transactional email with absolute URL and escaped body', async () => {
+    preferenceReturning([{ notifyByEmail: true }])
     selectReturning([{ email: 'user@example.com' }])
 
     await queueNotificationEmail('u1', {
@@ -97,6 +144,7 @@ describe('queueNotificationEmail', () => {
   })
 
   it('logs and swallows send failures (best-effort, never throws)', async () => {
+    preferenceReturning([{ notifyByEmail: true }])
     selectReturning([{ email: 'user@example.com' }])
     sendTransactionalEmailMock.mockRejectedValue(new Error('smtp down'))
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})

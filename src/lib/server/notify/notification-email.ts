@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
+import { getDb } from '$lib/server/db'
+import { userPreference } from '$lib/server/db/schema'
 import { env } from '$lib/server/env/private-env'
 import { isOwleryMailConfigured, sendTransactionalEmail } from '$lib/server/owlery/mail'
 import type { PushNotificationPayload } from '$lib/server/push/send'
@@ -27,6 +29,15 @@ export async function queueNotificationEmail(
   payload: PushNotificationPayload,
 ): Promise<void> {
   if (!isOwleryMailConfigured(env)) return
+
+  // the user's email setting (board a286e635): off means in-app and push only.
+  // A missing preference row predates the setting — the historical default (on) holds.
+  const [preference] = await getDb()
+    .select({ notifyByEmail: userPreference.notifyByEmail })
+    .from(userPreference)
+    .where(eq(userPreference.userId, userId))
+    .limit(1)
+  if (preference?.notifyByEmail === false) return
 
   const [row] = await authDb
     .select({ email: user.email })

@@ -61,6 +61,7 @@ export const load: PageServerLoad = async (event) => {
       preferredTimezoneOffsetMinutes: userPreference.preferredTimezoneOffsetMinutes,
       eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
       eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
+      notifyByEmail: userPreference.notifyByEmail,
       dailySummaryEnabled: userPreference.dailySummaryEnabled,
       dailySummaryMinutesLocal: userPreference.dailySummaryMinutesLocal,
     })
@@ -82,6 +83,7 @@ export const load: PageServerLoad = async (event) => {
       pref?.preferredTimezoneOffsetMinutes ?? null,
     ),
     eventNotificationsEnabled: pref?.eventNotificationsEnabled ?? false,
+    notifyByEmail: pref?.notifyByEmail ?? true,
     eventReminderLeadMinutes: pref?.eventReminderLeadMinutes ?? 10,
     languageOptions: LANGUAGE_OPTIONS,
     uiLocaleOptions: UI_LOCALE_OPTIONS,

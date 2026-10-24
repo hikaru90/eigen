@@ -65,6 +65,7 @@
       timezoneInferred: !hasSavedTimezone,
       detectedTimezoneLabel: !hasSavedTimezone && browser ? inferBrowserOffsetLabel() : null,
       eventNotificationsEnabled: pageData.eventNotificationsEnabled,
+      notifyByEmail: pageData.notifyByEmail,
       eventReminderLeadMinutes: pageData.eventReminderLeadMinutes,
       dailySummaryEnabled: pageData.dailySummaryEnabled,
       dailySummaryTimeLocal: pageData.dailySummaryTimeLocal,
@@ -85,6 +86,7 @@
   let timezoneInferred = $state(initialNotificationSettings.timezoneInferred)
   let detectedTimezoneLabel = $state(initialNotificationSettings.detectedTimezoneLabel)
   let eventNotificationsEnabled = $state(initialNotificationSettings.eventNotificationsEnabled)
+  let notifyByEmail = $state(initialNotificationSettings.notifyByEmail)
   let eventReminderLeadMinutes = $state(initialNotificationSettings.eventReminderLeadMinutes)
   let dailySummaryEnabled = $state(initialNotificationSettings.dailySummaryEnabled)
   let dailySummaryTimeLocal = $state(initialNotificationSettings.dailySummaryTimeLocal)
@@ -339,6 +341,7 @@
         eventReminderLeadMinutes: leadMinutes,
         dailySummaryEnabled,
         dailySummaryTimeLocal,
+        notifyByEmail,
       })
       timezoneOffsetMinutes = String(result.timezoneOffsetMinutes)
       timezoneInferred = false
@@ -989,6 +992,10 @@
             <label class="flex items-center gap-2 text-xs">
               <input type="checkbox" bind:checked={dailySummaryEnabled} class="size-3.5" />
               Daily task summary
+            </label>
+            <label class="flex items-center gap-2 text-xs">
+              <input type="checkbox" bind:checked={notifyByEmail} class="size-3.5" />
+              Also send these as emails (off = in-app and push only)
             </label>
             <div class="space-y-1">
               <Label for="dailySummaryTimeLocal">Daily summary time (local)</Label>

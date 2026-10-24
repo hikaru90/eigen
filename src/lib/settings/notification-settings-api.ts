@@ -4,6 +4,7 @@ export type NotificationSettingsPayload = {
   eventReminderLeadMinutes: number
   dailySummaryEnabled: boolean
   dailySummaryTimeLocal: string
+  notifyByEmail: boolean
 }
 
 export type NotificationSettingsResponse = NotificationSettingsPayload & {

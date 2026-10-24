@@ -18,6 +18,8 @@ export type NotificationSettingsInput = {
   eventReminderLeadMinutes: number
   dailySummaryEnabled: boolean
   dailySummaryTimeLocal: string
+  /** Notification emails on/off (board a286e635); in-app notifications are unaffected. */
+  notifyByEmail: boolean
 }
 
 export type NotificationSettingsSaved = NotificationSettingsInput & {
@@ -41,6 +43,9 @@ export function parseNotificationSettingsBody(body: unknown): NotificationSettin
 
   const dailySummaryEnabled = o.dailySummaryEnabled === true
 
+  // default on: an absent key keeps the historical behaviour
+  const notifyByEmail = o.notifyByEmail !== false
+
   const dailySummaryTimeLocal =
     typeof o.dailySummaryTimeLocal === 'string' ? o.dailySummaryTimeLocal.trim() : '08:00'
   const dailySummaryMinutesLocal = parseTimeLocalToMinutes(dailySummaryTimeLocal)
@@ -53,6 +58,7 @@ export function parseNotificationSettingsBody(body: unknown): NotificationSettin
     eventNotificationsEnabled,
     eventReminderLeadMinutes,
     dailySummaryEnabled,
+    notifyByEmail,
     dailySummaryTimeLocal: formatMinutesLocal(dailySummaryMinutesLocal),
   }
 }
@@ -73,6 +79,7 @@ export async function saveNotificationSettings(
       preferredTimezoneOffsetMinutes: userPreference.preferredTimezoneOffsetMinutes,
       eventNotificationsEnabled: userPreference.eventNotificationsEnabled,
       eventReminderLeadMinutes: userPreference.eventReminderLeadMinutes,
+      notifyByEmail: userPreference.notifyByEmail,
     })
     .from(userPreference)
     .where(eq(userPreference.userId, userId))
@@ -87,6 +94,7 @@ export async function saveNotificationSettings(
       eventNotificationsEnabled: input.eventNotificationsEnabled,
       eventReminderLeadMinutes: input.eventReminderLeadMinutes,
       dailySummaryEnabled: input.dailySummaryEnabled,
+      notifyByEmail: input.notifyByEmail,
       dailySummaryMinutesLocal,
     })
     .onConflictDoUpdate({
@@ -97,6 +105,7 @@ export async function saveNotificationSettings(
         eventNotificationsEnabled: input.eventNotificationsEnabled,
         eventReminderLeadMinutes: input.eventReminderLeadMinutes,
         dailySummaryEnabled: input.dailySummaryEnabled,
+        notifyByEmail: input.notifyByEmail,
         dailySummaryMinutesLocal,
         updatedAt: new Date(),
       },

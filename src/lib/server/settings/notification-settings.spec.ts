@@ -9,6 +9,7 @@ describe('parseNotificationSettingsBody', () => {
         eventNotificationsEnabled: true,
         eventReminderLeadMinutes: 15,
         dailySummaryEnabled: true,
+        notifyByEmail: false,
         dailySummaryTimeLocal: '08:30',
       }),
     ).toEqual({
@@ -16,8 +17,20 @@ describe('parseNotificationSettingsBody', () => {
       eventNotificationsEnabled: true,
       eventReminderLeadMinutes: 15,
       dailySummaryEnabled: true,
+      notifyByEmail: false,
       dailySummaryTimeLocal: '08:30',
     })
+  })
+
+  it('defaults notifyByEmail to on when the key is absent (the historical behaviour)', () => {
+    const parsed = parseNotificationSettingsBody({
+      timezoneOffsetMinutes: 60,
+      eventNotificationsEnabled: false,
+      eventReminderLeadMinutes: 10,
+      dailySummaryEnabled: false,
+      dailySummaryTimeLocal: '08:00',
+    })
+    expect(parsed.notifyByEmail).toBe(true)
   })
 
   it('rejects invalid lead minutes', () => {
