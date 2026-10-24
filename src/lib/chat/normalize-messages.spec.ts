@@ -548,3 +548,17 @@ describe('linked thoughts search fails loudly', () => {
     }
   })
 })
+
+describe('sessionMessagesToChatEntries: failed runs', () => {
+  it('shows a stored failed turn as the same error note the live stream shows', () => {
+    expect(
+      sessionMessagesToChatEntries([
+        { role: 'user', content: 'what did I plan?' },
+        { role: 'assistant', content: 'Model timed out', metadata: { variant: 'error' } },
+      ]),
+    ).toEqual([
+      { role: 'user', content: 'what did I plan?' },
+      { role: 'assistant', variant: 'text', content: 'Error: Model timed out' },
+    ])
+  })
+})

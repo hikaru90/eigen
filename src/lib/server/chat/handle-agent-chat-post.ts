@@ -56,6 +56,21 @@ export function chatErrorTerminalPayload(
   return { type: 'error', error: msg, details }
 }
 
+/**
+ * A failed run, as the assistant turn history keeps: the question was already stored,
+ * so without this the session shows it with no answer. The UI renders `variant: error`
+ * as an error note; the agent history skips it.
+ */
+export function failedAssistantTurn(payload: { error: string; code?: unknown }): {
+  content: string
+  metadata: Record<string, unknown>
+} {
+  return {
+    content: payload.error,
+    metadata: { variant: 'error', ...(typeof payload.code === 'string' ? { code: payload.code } : {}) },
+  }
+}
+
 export const BRIEFING_BOOTSTRAP_MESSAGES: Record<string, string> = {
   morning:
     "Give my morning briefing: today's agenda, top 3 priorities, and open loops. Use list_projects and get_project_timeline for project agendas, answer_question for priorities/open loops, and retrieve_thoughts only to browse recent thoughts. Be calm and concise.",
@@ -385,7 +400,20 @@ export async function handleAgentChatPost(
         const details = collectErrorMessages(err)
         const msg = details[0] ?? 'An unexpected error occurred.'
         console.error(`[${options.logTag ?? 'api/chat'}] agentChat threw`, { error: msg, details })
-        sendTerminal(chatErrorTerminalPayload(err, details))
+        const payload = chatErrorTerminalPayload(err, details)
+        if (reserved && !bootstrap) {
+          const turn = failedAssistantTurn(payload)
+          await persistAssistantMessage(
+            createScopedDrizzle(reserved),
+            sessionId,
+            user.id,
+            turn.content,
+            turn.metadata,
+          ).catch((persistErr) =>
+            console.error(`[${options.logTag ?? 'api/chat'}] failed turn not stored`, persistErr),
+          )
+        }
+        sendTerminal(payload)
       } finally {
         if (reserved) {
           await deactivateTenantDbSession(reserved).catch(() => {})

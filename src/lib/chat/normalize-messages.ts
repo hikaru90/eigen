@@ -412,6 +412,12 @@ export function sessionMessagesToChatEntries(messages: PersistedChatMessage[]): 
       continue
     }
 
+    // a failed run: the same error note the live stream renders (ChatErrorMessage)
+    if (variant === 'error') {
+      out.push({ role: 'assistant', variant: 'text', content: `Error: ${m.content}` })
+      continue
+    }
+
     const tool = typeof meta.tool === 'string' ? meta.tool : ''
     if (!tool && variant !== undefined && variant !== 'text') {
       // Unknown assistant step — skip empty tool rows rather than showing raw JSON as text.

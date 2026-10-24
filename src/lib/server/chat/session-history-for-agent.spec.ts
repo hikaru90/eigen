@@ -84,6 +84,14 @@ describe('buildAgentHistoryFromSessionMessages', () => {
     expect(history[3].content).toBe(JSON.stringify({ answer: 'Saved.' }))
   })
 
+  it('leaves failed turns out — the agent never reads an error as its own answer', () => {
+    const history = buildAgentHistoryFromSessionMessages([
+      { role: 'user', content: 'what did I plan?' },
+      { role: 'assistant', content: 'Model timed out', metadata: { variant: 'error' } },
+    ])
+    expect(history).toEqual([{ role: 'user', content: 'what did I plan?' }])
+  })
+
   it('does not include a current-turn user row that was never passed in', () => {
     const priorOnly: PersistedChatMessage[] = [
       { role: 'user', content: 'first' },

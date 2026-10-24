@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { InsufficientCreditsError } from '$lib/server/billing/wallet'
-import { BRIEFING_BOOTSTRAP_MESSAGES, chatErrorTerminalPayload } from './handle-agent-chat-post'
+import {
+  BRIEFING_BOOTSTRAP_MESSAGES,
+  chatErrorTerminalPayload,
+  failedAssistantTurn,
+} from './handle-agent-chat-post'
 
 describe('chatErrorTerminalPayload', () => {
   it('includes insufficient_credits code for InsufficientCreditsError', () => {
@@ -43,5 +47,20 @@ describe('BRIEFING_BOOTSTRAP_MESSAGES', () => {
       expect(message, period).toMatch(/list_projects/)
       expect(message, period).toMatch(/get_project_timeline|answer_question|retrieve_thoughts/)
     }
+  })
+})
+
+describe('failedAssistantTurn', () => {
+  it('records a failed run as an assistant error turn, so history never shows a bare question', () => {
+    expect(failedAssistantTurn({ type: 'error', error: 'Model timed out' })).toEqual({
+      content: 'Model timed out',
+      metadata: { variant: 'error' },
+    })
+  })
+
+  it('keeps the credits code for the UI', () => {
+    expect(
+      failedAssistantTurn({ type: 'error', error: 'Not enough credits', code: 'insufficient_credits' }),
+    ).toEqual({ content: 'Not enough credits', metadata: { variant: 'error', code: 'insufficient_credits' } })
   })
 })

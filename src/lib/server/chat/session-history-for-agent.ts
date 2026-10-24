@@ -42,7 +42,7 @@ function pushToolPair(
 /**
  * Map persisted session rows to the ChatMessage[] shape the agent loop already uses
  * (assistant tool JSON + user "Tool result for …" pairs, then {"answer":…}).
- * Skips thinking / executing / progress rows.
+ * Skips thinking / executing / progress rows and failed-run (`error`) turns.
  */
 export function buildAgentHistoryFromSessionMessages(
   messages: PersistedChatMessage[],
@@ -61,7 +61,13 @@ export function buildAgentHistoryFromSessionMessages(
     const meta = m.metadata ?? {}
     const variant = typeof meta.variant === 'string' ? meta.variant : undefined
 
-    if (variant === 'thinking' || variant === 'tool_executing' || variant === 'tool_progress') {
+    // failed runs are shown in history but are not the assistant's words
+    if (
+      variant === 'thinking' ||
+      variant === 'tool_executing' ||
+      variant === 'tool_progress' ||
+      variant === 'error'
+    ) {
       continue
     }
 
