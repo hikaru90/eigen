@@ -2261,8 +2261,8 @@ async function exerciseLegacyRedirects(page: Page): Promise<void> {
 }
 
 /**
- * Notification deep-link contract: `/capture?checkin=1` must surface the
- * pending grounding question card (same question text the push would carry).
+ * Notification deep-link contract: `/notifications` must surface the
+ * pending check-in question (same question text the push would carry).
  * Routes the question API so this assertion does not depend on a live push.
  */
 export async function assertCheckInDeepLinkShowsPendingQuestion(page: Page): Promise<void> {
@@ -2287,8 +2287,8 @@ export async function assertCheckInDeepLinkShowsPendingQuestion(page: Page): Pro
     })
   })
 
-  await page.goto('/capture?checkin=1')
-  const card = page.locator('#grounding-question')
+  await page.goto('/notifications')
+  const card = page.getByTestId('check-in-question')
   await expect(card).toBeVisible({ timeout: RELEASE_WAIT_MS })
   await expect(card.getByText(pendingQuestion)).toBeVisible()
 

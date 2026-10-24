@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PageData } from './$types'
   import { onMount } from 'svelte'
-  import { page } from '$app/state'
   import { trackInsufficientCredits } from '$lib/analytics/billing-events'
   import { capture as captureEvent } from '$lib/analytics/posthog-client'
   import { fetchEchoThought, ECHO_DELAY_MS, type EchoPick } from '$lib/capture/capture-echo'
@@ -56,7 +55,6 @@
   import CaptureReading from '$lib/components/capture-reading.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
-  import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
   import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh'
   import { flyThought, releaseGhostWords } from '$lib/motion/settle'
@@ -81,97 +79,15 @@
     }
   }
 
-  type CheckInQuestionPayload =
-    | { kind: 'grounding'; facetKey: string; question: string }
-    | {
-        kind: 'relevance'
-        thoughtId: string
-        snippet: string
-        question: string
-      }
-    | null
-  let groundingQuestion = $state<CheckInQuestionPayload>(null)
-  let groundingQuestionDismissed = $state(false)
-  let groundingQuestionLoading = $state(false)
   /** True when this page load started with zero stored thoughts (first-capture nudge). */
   let startedWithNoThoughts = $state((() => data.recentThoughts.length === 0)())
   let firstCaptureNudgeDismissed = $state(false)
   let firstCaptureNudgeHydrated = $state(false)
 
-  function shouldScrollToCheckIn(): boolean {
-    const params = page.url.searchParams
-    return (
-      params.get('checkin') === '1' ||
-      params.get('grounding') === '1' ||
-      params.get('welcome') === '1'
-    )
-  }
-
-  function shouldFetchCheckInQuestion(): boolean {
-    return data.groundingQuestionEligible || shouldScrollToCheckIn()
-  }
-
-  async function fetchGroundingQuestion() {
-    if (!shouldFetchCheckInQuestion() || groundingQuestionDismissed || groundingQuestionLoading) {
-      return
-    }
-    groundingQuestionLoading = true
-    try {
-      const res = await fetch('/api/grounding/question', { cache: 'no-store' })
-      if (!res.ok) return
-      const payload = (await res.json()) as {
-        question?: {
-          kind?: 'grounding' | 'relevance'
-          facetKey?: string
-          thoughtId?: string
-          snippet?: string
-          question?: string
-        } | null
-      }
-      const q = payload.question
-      if (!q?.question) {
-        groundingQuestion = null
-        return
-      }
-      if (q.kind === 'relevance' && q.thoughtId && q.snippet) {
-        groundingQuestion = {
-          kind: 'relevance',
-          thoughtId: q.thoughtId,
-          snippet: q.snippet,
-          question: q.question,
-        }
-      } else if (q.facetKey) {
-        groundingQuestion = {
-          kind: 'grounding',
-          facetKey: q.facetKey,
-          question: q.question,
-        }
-      } else {
-        groundingQuestion = null
-      }
-      if (groundingQuestion && shouldScrollToCheckIn()) {
-        queueMicrotask(() => {
-          document.getElementById('grounding-question')?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest',
-          })
-        })
-      }
-    } catch {
-      // optional card — ignore fetch errors
-    } finally {
-      groundingQuestionLoading = false
-    }
-  }
-
   onMount(() => {
     trackCaptureGateInsufficientCredits()
     firstCaptureNudgeDismissed = isFirstCaptureNudgeDismissed(data.user.id)
     firstCaptureNudgeHydrated = true
-    if (shouldFetchCheckInQuestion() && !groundingQuestionDismissed) {
-      groundingQuestion = null
-      void fetchGroundingQuestion()
-    }
   })
 
   let localWalletCredits = $derived(data.walletAvailableCredits)
@@ -671,13 +587,6 @@
       void applyNaturalLanguageEdit(thought.id, said)
     }
     scheduleEcho(thought)
-    if (
-      shouldFetchCheckInQuestion() &&
-      !groundingQuestionDismissed &&
-      !groundingQuestion
-    ) {
-      void fetchGroundingQuestion()
-    }
   }
 
   /* ————— the chosen thread (existing project assign endpoint) ————— */
@@ -847,39 +756,6 @@
 <div
   class="mx-auto max-w-[720px] pt-[calc(var(--head)+23svh)] px-7 pb-[calc(var(--bottom-nav)+var(--glass-writer-height,64px)+40px)] max-[640px]:pt-[calc(var(--head)+12svh)] max-[640px]:px-[22px]"
 >
-  {#if groundingQuestion && !groundingQuestionDismissed}
-    {#if groundingQuestion.kind === 'relevance'}
-      <GroundingQuestionCard
-        kind="relevance"
-        thoughtId={groundingQuestion.thoughtId}
-        snippet={groundingQuestion.snippet}
-        question={groundingQuestion.question}
-        onDismiss={() => {
-          groundingQuestionDismissed = true
-          groundingQuestion = null
-        }}
-        onSaved={() => {
-          groundingQuestionDismissed = true
-          groundingQuestion = null
-        }}
-      />
-    {:else}
-      <GroundingQuestionCard
-        kind="grounding"
-        facetKey={groundingQuestion.facetKey}
-        question={groundingQuestion.question}
-        onDismiss={() => {
-          groundingQuestionDismissed = true
-          groundingQuestion = null
-        }}
-        onSaved={() => {
-          groundingQuestionDismissed = true
-          groundingQuestion = null
-        }}
-      />
-    {/if}
-  {/if}
-
   {#if captureBlocked}
     <div class="m-0 mb-7 rounded-[10px] bg-paper-2 p-4">
       <p class="m-0 mb-2 font-mesh text-sm text-ink">{m.capture_action()}</p>

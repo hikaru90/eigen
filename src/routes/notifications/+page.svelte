@@ -3,6 +3,8 @@
   import { onMount } from 'svelte'
   import { invalidateAll } from '$app/navigation'
   import { base, resolve } from '$app/paths'
+  import CheckInQuestionView from '$lib/components/check-in-question.svelte'
+  import { parseCheckInQuestion, type CheckInQuestion } from '$lib/grounding/check-in'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
 
@@ -15,7 +17,26 @@
 
   const dateFmt = new Intl.DateTimeFormat(getLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
+  /** The pending check-in question (it used to pop up on Capture); loaded once on open. */
+  let checkIn = $state<CheckInQuestion | null>(null)
+
+  async function loadCheckIn(): Promise<void> {
+    const res = await fetch(`${base}/api/grounding/question`, { cache: 'no-store', credentials: 'include' })
+    if (!res.ok) {
+      console.error('[notifications] check-in load failed', res.status, await res.text())
+      return
+    }
+    checkIn = parseCheckInQuestion(((await res.json()) as { question?: unknown }).question)
+  }
+
+  async function checkInDone(): Promise<void> {
+    checkIn = null
+    // the menu's badge counts a pending question
+    await invalidateAll()
+  }
+
   onMount(() => {
+    void loadCheckIn()
     if (!data.notifications.some((n) => n.readAt === null)) return
     void (async () => {
       const res = await fetch(`${base}/api/notifications/read`, { method: 'POST', credentials: 'include' })
@@ -37,7 +58,14 @@
 >
   <h1 class="m-0 font-you text-[29px] font-normal leading-[1.16] text-ink">{m.nav_notifications()}</h1>
 
-  {#if data.notifications.length === 0}
+  {#if checkIn}
+    <section class="mt-6" aria-label={m.notifications_questions()}>
+      <h2 class="m-0 text-sm font-normal text-ink-3">{m.notifications_questions()}</h2>
+      <CheckInQuestionView question={checkIn} onDone={() => void checkInDone()} />
+    </section>
+  {/if}
+
+  {#if data.notifications.length === 0 && !checkIn}
     <p class="mt-6 text-base text-ink-3" data-testid="notifications-empty">{m.notifications_empty()}</p>
   {:else}
     <ul class="mt-6 list-none p-0 border-t border-line">

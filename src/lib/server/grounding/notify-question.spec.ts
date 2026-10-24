@@ -81,13 +81,13 @@ describe('maybeNotifyGroundingQuestionPush', () => {
     expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
       title: 'Improve capture quality',
       body: 'What kind of work do you do?',
-      url: '/capture?checkin=1',
+      url: '/notifications',
       tag: GROUNDING_CHECK_IN_TAG,
     })
     expect(queueEmailMock).toHaveBeenCalledWith('u1', {
       title: 'Improve capture quality',
       body: 'What kind of work do you do?',
-      url: '/capture?checkin=1',
+      url: '/notifications',
       tag: GROUNDING_CHECK_IN_TAG,
     })
   })
@@ -129,7 +129,7 @@ describe('maybeNotifyGroundingQuestionPush', () => {
     expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
       title: 'Quick memory check',
       body: 'Still relevant for you?',
-      url: '/capture?checkin=1',
+      url: '/notifications',
       tag: GROUNDING_CHECK_IN_TAG,
     })
     expect(recordGroundingPushSentMock).toHaveBeenCalledWith('u1', relevance)

@@ -79,7 +79,7 @@ describe('onboarding welcome push', () => {
     expect(sendPushToUserMock).toHaveBeenCalledWith('u1', {
       title: 'One quick question',
       body: 'Where do you work?',
-      url: '/capture?checkin=1&welcome=1',
+      url: '/notifications?welcome=1',
       tag: GROUNDING_CHECK_IN_TAG,
     })
   })

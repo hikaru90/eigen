@@ -143,7 +143,7 @@
     </div>
   {/if}
   <div
-    class="glass-field flex items-end gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
+    class="glass-field flex items-center gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
     data-testid="glass-writer-field"
   >
     <textarea
@@ -162,40 +162,42 @@
       onfocus={() => {
         voiceStop?.()
         onfocus?.()
-      }}
-    ></textarea>
-    {#if slot === 'stop'}
-      <button
-        type="button"
-        class={slotButton}
-        aria-label="Stop"
-        data-testid="glass-writer-stop"
-        onclick={() => onstop?.()}
-      >
-        <Square size={12} strokeWidth={2} aria-hidden="true" />
-      </button>
-    {:else if slot === 'mic'}
-      <VoiceInputButton
-        {language}
-        disabled={disabled || busy}
-        class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
-        bind:stopRef={voiceStop}
-        onstart={onvoicestart}
-        ontranscript={(text) => ontranscript?.(text)}
-        {onpartialtranscript}
-        onerror={onvoiceerror}
-      />
-    {:else}
-      <button
-        type="submit"
-        class={slotButton}
-        aria-label={submitLabel}
-        title={submitLabel}
-        disabled={!canSend}
-        data-testid={submitTestId}
-      >
-        <CornerDownLeft size={16} strokeWidth={1.75} aria-hidden="true" />
-      </button>
-    {/if}
+      }}></textarea>
+    <!-- the one action slot: centred with the text on one line, bottom right once it wraps -->
+    <div class="flex shrink-0 self-end" data-testid="glass-writer-slot">
+      {#if slot === 'stop'}
+        <button
+          type="button"
+          class={slotButton}
+          aria-label="Stop"
+          data-testid="glass-writer-stop"
+          onclick={() => onstop?.()}
+        >
+          <Square size={12} strokeWidth={2} aria-hidden="true" />
+        </button>
+      {:else if slot === 'mic'}
+        <VoiceInputButton
+          {language}
+          disabled={disabled || busy}
+          class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
+          bind:stopRef={voiceStop}
+          onstart={onvoicestart}
+          ontranscript={(text) => ontranscript?.(text)}
+          {onpartialtranscript}
+          onerror={onvoiceerror}
+        />
+      {:else}
+        <button
+          type="submit"
+          class={slotButton}
+          aria-label={submitLabel}
+          title={submitLabel}
+          disabled={!canSend}
+          data-testid={submitTestId}
+        >
+          <CornerDownLeft size={16} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      {/if}
+    </div>
   </div>
 </form>

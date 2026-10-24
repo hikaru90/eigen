@@ -1,7 +1,7 @@
 import {
   ONBOARDING_FIRST_TEMPLATE_ID,
   ONBOARDING_GROUNDING_PUSH_DELAY_MS,
-  ONBOARDING_WELCOME_CAPTURE_URL,
+  ONBOARDING_WELCOME_URL,
   ONBOARDING_WELCOME_PUSH_TITLE,
 } from '$lib/grounding/onboarding-welcome-constants'
 import { GROUNDING_CHECK_IN_TAG } from '$lib/server/grounding/constants'
@@ -21,7 +21,7 @@ import { listPushSubscriptionsForUser } from '$lib/server/push/subscription'
 export {
   ONBOARDING_FIRST_TEMPLATE_ID,
   ONBOARDING_GROUNDING_PUSH_DELAY_MS,
-  ONBOARDING_WELCOME_CAPTURE_URL,
+  ONBOARDING_WELCOME_URL,
   ONBOARDING_WELCOME_PUSH_TITLE,
 }
 
@@ -182,7 +182,7 @@ export async function processOnboardingGroundingPushJob(userId: string): Promise
   await sendPushToUser(userId, {
     title: ONBOARDING_WELCOME_PUSH_TITLE,
     body: truncateBody(question.question),
-    url: ONBOARDING_WELCOME_CAPTURE_URL,
+    url: ONBOARDING_WELCOME_URL,
     tag: GROUNDING_CHECK_IN_TAG,
   })
 

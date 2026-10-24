@@ -13,7 +13,6 @@ import { getDb } from '$lib/server/db'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
 import { userPreference } from '$lib/server/db/schema'
-import { isGroundingQuestionDue } from '$lib/server/grounding/question-due'
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 
@@ -37,7 +36,7 @@ export const load: PageServerLoad = async (event) => {
     await grantStartingFreeCredits(userId)
   }
 
-  const [pref, captureGate, wallet, groundingQuestionEligible] = await Promise.all([
+  const [pref, captureGate, wallet] = await Promise.all([
     getDb()
       .select({ preferredLanguage: userPreference.preferredLanguage })
       .from(userPreference)
@@ -46,7 +45,6 @@ export const load: PageServerLoad = async (event) => {
       .then((rows) => rows[0]),
     checkCaptureAllowed(userId),
     getOrCreateWallet(userId),
-    isGroundingQuestionDue(userId), // shared check-in cadence (grounding | relevance)
   ])
 
   const paypalConfigured = isPayPalConfigured()
@@ -71,7 +69,6 @@ export const load: PageServerLoad = async (event) => {
     creditsGatePassed,
     captureAllowed: captureGate.allowed,
     captureGateReason: captureGate.allowed ? null : captureGate.reason,
-    groundingQuestionEligible,
     recentThoughts,
     recentThoughtDetails,
   }
