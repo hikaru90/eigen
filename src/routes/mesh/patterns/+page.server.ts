@@ -8,7 +8,7 @@ export const load: PageServerLoad = (event) => {
   }
 
   return {
-    // Streamed on purpose: the page paints at once ("Patterns, forming on their own")
+    // Streamed on purpose: the page paints at once ("Reading your last three weeks…" + spinner)
     // and the judge's answer settles in when it lands — nothing waits on the LLM.
     patterns: getPatternsForUser(event.locals.user.id),
   }
