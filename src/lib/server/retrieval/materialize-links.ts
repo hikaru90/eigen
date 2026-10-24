@@ -3,7 +3,7 @@
  * Replaces live AGE graph reads at retrieval time.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import {
   canonicalEntity,
@@ -37,22 +37,26 @@ export function confidenceToSalience(confidence: string): number {
   return 0.4
 }
 
-/** Sync thought_entity rows from entity_resolution_log for one thought. */
+/**
+ * Sync thought_entity rows from entity_resolution_log for one thought. Only the
+ * `ingest` (mention) rows are rebuilt; thread membership rows (`manual`, `project`)
+ * are kept as they are and a mention of the same entity never replaces them.
+ */
 export async function syncThoughtEntityLinks(userId: string, thoughtId: string): Promise<number> {
   const db = getDb()
 
   return db.transaction(async (tx) => {
-    const manualRows = await tx
+    const membershipRows = await tx
       .select({ entityId: thoughtEntity.entityId })
       .from(thoughtEntity)
       .where(
         and(
           eq(thoughtEntity.userId, userId),
           eq(thoughtEntity.thoughtId, thoughtId),
-          eq(thoughtEntity.source, 'manual'),
+          ne(thoughtEntity.source, 'ingest'),
         ),
       )
-    const manualEntityIds = new Set(manualRows.map((r) => r.entityId))
+    const membershipEntityIds = new Set(membershipRows.map((r) => r.entityId))
 
     await tx
       .delete(thoughtEntity)
@@ -106,7 +110,7 @@ export async function syncThoughtEntityLinks(userId: string, thoughtId: string):
     const byEntity = new Map<string, number>()
     for (const row of logs) {
       if (!row.entityId || !validEntityIds.has(row.entityId)) continue
-      if (manualEntityIds.has(row.entityId)) continue
+      if (membershipEntityIds.has(row.entityId)) continue
       const salience = confidenceToSalience(row.confidence)
       const prev = byEntity.get(row.entityId) ?? 0
       byEntity.set(row.entityId, Math.max(prev, salience))

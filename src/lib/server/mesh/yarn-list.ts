@@ -4,6 +4,7 @@ import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity, type MemoryAuthor } from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
+import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 
 /**
  * The Yarn journal's thought list, shared by the page server load (SSR seed)
@@ -82,7 +83,7 @@ export async function loadYarnThoughts(
     .limit(YARN_THOUGHT_LIMIT)
 
   // Thread (project) links for exactly these rows — the timeline's query shape
-  // (loadProjectLinksByThoughtId, temporal-event-list.ts:255-286): only rows
+  // (loadProjectLinksByThoughtId, temporal-event-list.ts): only membership rows
   // whose entity is a GTD project (project_status set), highest salience wins.
   const thoughtIds = rows.map((row) => row.id)
   const linkRows =
@@ -101,6 +102,7 @@ export async function loadYarnThoughts(
               eq(thoughtEntity.userId, userId),
               inArray(thoughtEntity.thoughtId, thoughtIds),
               isNotNull(canonicalEntity.projectStatus),
+              projectMembershipLinkCondition(),
             ),
           )
           .orderBy(desc(thoughtEntity.salience))

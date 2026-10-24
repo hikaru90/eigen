@@ -191,7 +191,7 @@ export async function applyGtdAssignment(input: {
     return { projectEntityId: null, projectLabel: null, isNextAction: false }
   }
 
-  await linkThoughtToProject(input.userId, project.entityId, input.thoughtId, 'ingest')
+  await linkThoughtToProject(input.userId, project.entityId, input.thoughtId, 'project')
 
   if (assignment.isNextAction) {
     await designateNextAction(input.userId, project.entityId, input.thoughtId)

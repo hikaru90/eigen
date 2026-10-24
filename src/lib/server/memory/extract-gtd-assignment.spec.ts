@@ -152,7 +152,7 @@ describe('applyGtdAssignment open_loop eligibility gate', () => {
 
     expect(result).toEqual(assignmentResult)
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-    expect(linkThoughtToProjectMock).toHaveBeenCalledWith('u1', 'p1', 't1', 'ingest')
+    expect(linkThoughtToProjectMock).toHaveBeenCalledWith('u1', 'p1', 't1', 'project')
   })
 
   it('openLoop absent (legacy thought): assignment runs as today', async () => {
@@ -165,7 +165,7 @@ describe('applyGtdAssignment open_loop eligibility gate', () => {
     expect(result).toEqual(assignmentResult)
     expect(decryptTenantValueMock).not.toHaveBeenCalled()
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-    expect(linkThoughtToProjectMock).toHaveBeenCalledWith('u1', 'p1', 't1', 'ingest')
+    expect(linkThoughtToProjectMock).toHaveBeenCalledWith('u1', 'p1', 't1', 'project')
   })
 
   it('thought row missing: eligibility defaults to eligible (assignment runs as today)', async () => {

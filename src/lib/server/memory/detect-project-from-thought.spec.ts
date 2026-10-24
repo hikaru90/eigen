@@ -117,7 +117,7 @@ describe('detectAndCreateProjectFromThought', () => {
       thoughtId: 't1',
       mode: 'assign',
     })
-    expect(linkMock).toHaveBeenCalledWith('u1', 'e9', 't1', 'ingest')
+    expect(linkMock).toHaveBeenCalledWith('u1', 'e9', 't1', 'project')
     expect(promoteMock).not.toHaveBeenCalled()
   })
 
@@ -141,7 +141,7 @@ describe('detectAndCreateProjectFromThought', () => {
       source: 'capture',
       forceJudge: false,
     })
-    expect(linkMock).toHaveBeenCalledWith('u1', 'e-new', 't1', 'ingest')
+    expect(linkMock).toHaveBeenCalledWith('u1', 'e-new', 't1', 'project')
   })
 
   it('returns null when judge rejects promotion of a new hub', async () => {

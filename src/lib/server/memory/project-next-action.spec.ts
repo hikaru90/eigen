@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearNextActionIfCompleted, designateNextAction } from './project-next-action'
+import { PROJECT_MEMBERSHIP_SOURCES } from './project-membership'
+import {
+  clearNextActionIfCompleted,
+  designateNextAction,
+  linkThoughtToProject,
+} from './project-next-action'
 
 const {
   getDbMock,
@@ -104,5 +109,63 @@ describe('project-next-action', () => {
     expect(setMock).toHaveBeenCalledWith(
       expect.objectContaining({ nextActionThoughtId: 'thought-2' }),
     )
+  })
+})
+
+describe('linkThoughtToProject (thread membership provenance)', () => {
+  function dbWithUpsert() {
+    const onConflictDoUpdate = vi.fn(async () => undefined)
+    const values = vi.fn(() => ({ onConflictDoUpdate }))
+    getDbMock.mockReturnValue({ insert: vi.fn(() => ({ values })) })
+    return { values, onConflictDoUpdate }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('membership is the user or the LLM project decision — never a plain mention', () => {
+    expect([...PROJECT_MEMBERSHIP_SOURCES]).toEqual(['manual', 'project'])
+    expect(PROJECT_MEMBERSHIP_SOURCES).not.toContain('ingest')
+  })
+
+  it("'manual' upserts the user's assignment unconditionally", async () => {
+    const { values, onConflictDoUpdate } = dbWithUpsert()
+
+    await linkThoughtToProject('u1', 'project-1', 'thought-1', 'manual')
+
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ thoughtId: 'thought-1', entityId: 'project-1', source: 'manual' }),
+    )
+    const [args] = onConflictDoUpdate.mock.calls[0] as unknown as [
+      { set: Record<string, unknown>; setWhere?: unknown },
+    ]
+    expect(args.set).toEqual({ salience: 1, source: 'manual' })
+    expect(args.setWhere).toBeUndefined()
+    expect(upsertMentionEdgeMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      thoughtId: 'thought-1',
+      entityId: 'project-1',
+    })
+  })
+
+  it("'project' promotes a mention row to membership but never downgrades a manual link", async () => {
+    const { values, onConflictDoUpdate } = dbWithUpsert()
+
+    await linkThoughtToProject('u1', 'project-1', 'thought-1', 'project')
+
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ source: 'project', salience: 1 }))
+    const [args] = onConflictDoUpdate.mock.calls[0] as unknown as [
+      { set: Record<string, unknown>; setWhere?: unknown },
+    ]
+    expect(args.set).toEqual({ salience: 1, source: 'project' })
+    // the row the LLM is about to overwrite may be the user's own assignment
+    expect(args.setWhere).toBeDefined()
+  })
+
+  it('defaults to the manual source', async () => {
+    const { values } = dbWithUpsert()
+    await linkThoughtToProject('u1', 'project-1', 'thought-1')
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ source: 'manual' }))
   })
 })

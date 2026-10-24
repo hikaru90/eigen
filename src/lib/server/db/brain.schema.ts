@@ -768,8 +768,14 @@ export const entityAlias = pgTable(
   ],
 )
 
-/** Materialized thought→entity links (from enrich); replaces AGE MENTIONS at query time. */
-export const thoughtEntitySourceValues = ['ingest', 'manual'] as const
+/**
+ * Materialized thought→entity links (from enrich); replaces AGE MENTIONS at query time.
+ * `ingest` rows are entity mentions, rebuilt from entity_resolution_log on every
+ * materialization. `manual` (the user's assignment) and `project` (the enrich LLM's
+ * project decision) are thread membership and survive that rebuild — a mention of a
+ * project entity is not membership.
+ */
+export const thoughtEntitySourceValues = ['ingest', 'manual', 'project'] as const
 export type ThoughtEntitySource = (typeof thoughtEntitySourceValues)[number]
 
 export const thoughtEntity = pgTable(

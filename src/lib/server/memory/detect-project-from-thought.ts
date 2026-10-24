@@ -119,7 +119,7 @@ export async function detectAndCreateProjectFromThought(
   // Existing GTD project (identity LLM bound to catalog) — link only, no re-promote.
   if (resolution.isGtdProject && !resolution.shouldCreateHub) {
     if (input.thoughtId) {
-      await linkThoughtToProject(input.userId, resolution.entityId, input.thoughtId, 'ingest')
+      await linkThoughtToProject(input.userId, resolution.entityId, input.thoughtId, 'project')
     }
     return resolution.entityId
   }
@@ -141,7 +141,7 @@ export async function detectAndCreateProjectFromThought(
   }
 
   if (input.thoughtId) {
-    await linkThoughtToProject(input.userId, resolution.entityId, input.thoughtId, 'ingest')
+    await linkThoughtToProject(input.userId, resolution.entityId, input.thoughtId, 'project')
   }
 
   console.log('[project-detection] Promoted new project', {

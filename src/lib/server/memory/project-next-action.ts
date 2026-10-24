@@ -1,7 +1,8 @@
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq, isNotNull, ne } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
-import { canonicalEntity, thoughtEntity, type ThoughtEntitySource } from '$lib/server/db/schema'
+import { canonicalEntity, thoughtEntity } from '$lib/server/db/schema'
 import { upsertMentionEdge } from '$lib/server/graph/age'
+import type { ProjectMembershipSource } from '$lib/server/memory/project-membership'
 import {
   loadOpenTaskThoughtIdsForProject,
   loadOrderedThoughtIdsForProject,
@@ -83,40 +84,26 @@ export async function linkThoughtToProject(
   userId: string,
   projectEntityId: string,
   thoughtId: string,
-  source: ThoughtEntitySource = 'manual',
+  source: ProjectMembershipSource = 'manual',
 ): Promise<void> {
   const entityId = validateNonEmptyEntityId(projectEntityId, 'projectEntityId')
   const tid = validateNonEmptyEntityId(thoughtId, 'thoughtId')
 
-  if (source === 'manual') {
-    await getDb()
-      .insert(thoughtEntity)
-      .values({
-        userId,
-        thoughtId: tid,
-        entityId,
-        salience: 1,
-        source: 'manual',
-      })
-      .onConflictDoUpdate({
-        target: [thoughtEntity.thoughtId, thoughtEntity.entityId],
-        set: {
-          salience: 1,
-          source: 'manual',
-        },
-      })
-  } else {
-    await getDb()
-      .insert(thoughtEntity)
-      .values({
-        userId,
-        thoughtId: tid,
-        entityId,
-        salience: 1,
-        source: 'ingest',
-      })
-      .onConflictDoNothing()
-  }
+  await getDb()
+    .insert(thoughtEntity)
+    .values({
+      userId,
+      thoughtId: tid,
+      entityId,
+      salience: 1,
+      source,
+    })
+    .onConflictDoUpdate({
+      target: [thoughtEntity.thoughtId, thoughtEntity.entityId],
+      set: { salience: 1, source },
+      // the LLM may turn a mention into membership, but never overrule the user
+      ...(source === 'project' ? { setWhere: ne(thoughtEntity.source, 'manual') } : {}),
+    })
 
   await upsertMentionEdge({ userId, thoughtId: tid, entityId })
 }

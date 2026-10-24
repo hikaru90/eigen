@@ -126,6 +126,24 @@ describe('syncThoughtEntityLinks', () => {
     expect(state.insertCalls).toBe(0)
   })
 
+  it("preserves the LLM's project membership rows the same way (every non-ingest row is protected)", async () => {
+    // the protected-rows select returns membership rows of either source; a mention of the
+    // same project entity in the resolution log must not overwrite or duplicate them
+    setupSelectQueue(
+      [{ entityId: 'p1' }],
+      [
+        { entityId: 'p1', confidence: 'high' },
+        { entityId: 'e2', confidence: 'high' },
+      ],
+      [{ id: 'p1' }, { id: 'e2' }],
+    )
+    const count = await syncThoughtEntityLinks('u1', 't1')
+    expect(count).toBe(1)
+    expect(state.insertPayload).toEqual([
+      expect.objectContaining({ entityId: 'e2', source: 'ingest' }),
+    ])
+  })
+
   it('uses max salience for duplicate log rows', async () => {
     setupSelectQueue(
       [],

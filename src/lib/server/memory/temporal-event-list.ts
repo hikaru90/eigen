@@ -29,6 +29,7 @@ import type {
 import { canonicalEntity, temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
 import { computeFocusRank } from '$lib/server/memory/compute-focus-rank'
+import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 
 export const TASK_ITEM_PREFIX = 'task:'
 
@@ -252,6 +253,7 @@ function completedAtFromThought(input: {
   return typeof raw === 'string' && raw.trim() ? raw : null
 }
 
+/** The thread each thought is on: its highest-salience membership link to a GTD project. */
 async function loadProjectLinksByThoughtId(
   userId: string,
   thoughtIds: string[],
@@ -272,6 +274,7 @@ async function loadProjectLinksByThoughtId(
         eq(thoughtEntity.userId, userId),
         inArray(thoughtEntity.thoughtId, thoughtIds),
         isNotNull(canonicalEntity.projectStatus),
+        projectMembershipLinkCondition(),
       ),
     )
     .orderBy(desc(thoughtEntity.salience))
