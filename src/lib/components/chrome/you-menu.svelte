@@ -41,7 +41,13 @@
 
   // — Your mesh, enumerated (ei .me-head small "142 thoughts · 3 threads", .me-meta "2 keys"):
   //   read-only counts from the root layout load.
-  type YouCounts = { thoughts: number; threads: number; apiKeys: number; credits?: CreditMeter | null }
+  type YouCounts = {
+    thoughts: number
+    threads: number
+    apiKeys: number
+    credits?: CreditMeter | null
+    notificationsUnread?: number
+  }
   const counts = $derived((page.data as { youCounts?: YouCounts | null }).youCounts ?? null)
   const meshSummary = $derived(
     counts
@@ -60,6 +66,8 @@
       : null,
   )
   const creditsPercent = $derived(credits ? Math.round(creditMeterFraction(credits) * 100) : 0)
+
+  const unread = $derived(counts?.notificationsUnread ?? 0)
 
   // — Install: one click where the browser offers a prompt (Chrome, Edge, Android); iOS has
   //   no install API, so it gets the Share-sheet path as a hint instead of an action.
@@ -215,6 +223,16 @@
     </div>
 
     <DropdownMenu.Group class="py-0.5">
+      <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/notifications'))}>
+        {m.nav_notifications()}
+        {#if unread > 0}
+          <span
+            class="ml-auto min-w-[18px] rounded-full bg-clay px-1.5 text-center text-[11px] leading-[18px] text-paper"
+            aria-hidden="true"
+            data-testid="you-notifications-unread">{unread}</span
+          >
+        {/if}
+      </DropdownMenu.Item>
       <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/settings'))}>
         {m.you_profile()}
       </DropdownMenu.Item>

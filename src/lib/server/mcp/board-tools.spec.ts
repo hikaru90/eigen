@@ -13,7 +13,7 @@ const m = vi.hoisted(() => ({
   deleteBoardIdea: vi.fn(),
   checkBoardIdea: vi.fn(),
   shareBoardIdea: vi.fn(),
-  adminUpdateBoardIdea: vi.fn(),
+  adminUpdateBoardIdea: vi.fn(async () => ({ reward: null })),
   getBoardIdea: vi.fn(),
 }))
 
@@ -118,12 +118,20 @@ describe('update_idea (makers: status, note)', () => {
       status: 'in-progress',
       note: 'On it.',
     })
-    expect(res).toEqual({ ideaId: ID, idea: { id: ID, status: 'in-progress' } })
+    expect(res).toEqual({ ideaId: ID, idea: { id: ID, status: 'in-progress' }, reward: null })
 
     m.getBoardIdea.mockResolvedValue(null)
     const rejected = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'rejected' })
     expect(m.adminUpdateBoardIdea).toHaveBeenLastCalledWith('u1', ID, { status: 'rejected' })
-    expect(rejected).toEqual({ ideaId: ID, idea: null })
+    expect(rejected).toEqual({ ideaId: ID, idea: null, reward: null })
+  })
+
+  it('shipping reports the author reward the service paid', async () => {
+    const reward = { authorUserId: 'a1', credits: 5, push: 'no_device' }
+    m.adminUpdateBoardIdea.mockResolvedValueOnce({ reward })
+    m.getBoardIdea.mockResolvedValue({ id: ID, status: 'shipped' })
+    const res = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'shipped' })
+    expect(res).toMatchObject({ reward })
   })
 
   it('fails loud on bad status, unknown keys, or nothing to change', async () => {

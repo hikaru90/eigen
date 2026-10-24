@@ -436,6 +436,8 @@
   "you_settings": "Einstellungen",
   "you_api_keys": "API-Schlüssel",
   "you_usage": "Verbrauch",
+  "nav_notifications": "Benachrichtigungen",
+  "notifications_empty": "Noch nichts da. Wenn etwas, das du geteilt hast, live geht, erfährst du es hier.",
   "you_credits_left": "{count} Credits übrig",
   "you_install_app": "App installieren",
   "you_install_ios_hint": "Teilen → Zum Home-Bildschirm",

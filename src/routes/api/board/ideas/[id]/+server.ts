@@ -24,10 +24,10 @@ export const PATCH: RequestHandler = (event) =>
       if (!(await isUserAdmin(userId))) {
         throw new BoardError('Only the makers can change status, notes or visibility', 403)
       }
-      await adminUpdateBoardIdea(userId, ideaId, patch.patch)
-    } else {
-      await correctBoardIdea(userId, ideaId, patch.patch)
+      const { reward } = await adminUpdateBoardIdea(userId, ideaId, patch.patch)
+      return json(sanitizeMcpToolResult({ idea: await getBoardIdea(userId, ideaId), reward }))
     }
+    await correctBoardIdea(userId, ideaId, patch.patch)
     return json(sanitizeMcpToolResult({ idea: await getBoardIdea(userId, ideaId) }))
   })
 

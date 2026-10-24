@@ -11,7 +11,7 @@ const m = vi.hoisted(() => ({
   setBoardVote: vi.fn(),
   correctBoardIdea: vi.fn(),
   deleteBoardIdea: vi.fn(),
-  adminUpdateBoardIdea: vi.fn(),
+  adminUpdateBoardIdea: vi.fn(async () => ({ reward: null })),
   getBoardIdea: vi.fn(),
   checkBoardIdea: vi.fn(),
   shareBoardIdea: vi.fn(),

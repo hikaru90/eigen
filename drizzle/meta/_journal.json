@@ -561,6 +561,13 @@
       "when": 1792910000000,
       "tag": "0079_board_status_rejected",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792920000000,
+      "tag": "0080_user_notification",
+      "breakpoints": true
     }
   ]
 }

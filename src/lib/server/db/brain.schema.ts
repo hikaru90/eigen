@@ -2026,3 +2026,21 @@ export const boardVote = pgTable(
     index('board_vote_idea_idx').on(t.ideaId),
   ],
 )
+
+/** In-app notifications (You menu → Notifications). RLS: own rows only. */
+export const userNotification = pgTable(
+  'user_notification',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    href: text('href'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    readAt: timestamp('read_at'),
+  },
+  (t) => [index('user_notification_user_created_idx').on(t.userId, t.createdAt)],
+)

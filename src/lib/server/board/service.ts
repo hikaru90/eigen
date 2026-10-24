@@ -14,6 +14,7 @@ import { boardIdea, boardVote, feedback } from '$lib/server/db/brain.schema'
 import { rowsFromDbExecute } from '$lib/server/db/execute-rows'
 import { formatAuthorDisplay } from './author-display'
 import { BoardError } from './errors'
+import { rewardShippedIdea, type IdeaShippedReward } from './reward'
 
 /**
  * Board persistence. Every query runs on the request's tenant session (RLS on):
@@ -295,7 +296,7 @@ export async function adminUpdateBoardIdea(
   userId: string,
   ideaId: string,
   patch: BoardAdminPatch,
-): Promise<void> {
+): Promise<{ reward: IdeaShippedReward | null }> {
   void userId
   const note = patch.note === undefined || patch.note === null ? null : patch.note
   const clearNote = patch.note === null
@@ -318,4 +319,6 @@ export async function adminUpdateBoardIdea(
     throw err
   }
   if (!found) throw new BoardError('Idea not found', 404)
+  // shipping thanks the author (once per idea — re-shipping pays nothing)
+  return { reward: patch.status === 'shipped' ? await rewardShippedIdea(ideaId) : null }
 }

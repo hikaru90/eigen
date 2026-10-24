@@ -34,7 +34,6 @@ describe('view-select.svelte', () => {
     const locked = page.getByTestId('view-select-locked')
     await expect.element(locked).toBeInTheDocument()
     await expect.element(locked).toHaveTextContent('You')
-    await expect.element(locked).toHaveAttribute('aria-disabled', 'true')
     await expect.element(locked).toHaveAttribute('title', 'Capture always saves as you')
     await expect.element(page.getByRole('button', { name: 'Scout' })).not.toBeInTheDocument()
     // the stored view for the other pages is untouched

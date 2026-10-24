@@ -113,6 +113,6 @@ export async function runUpdateIdeaTool(context: McpToolContext, args: unknown) 
     }
     patch.note = body.note === null ? null : body.note.trim()
   }
-  await adminUpdateBoardIdea(context.userId, ideaId, patch)
-  return sanitizeMcpToolResult({ ideaId, idea: await getBoardIdea(context.userId, ideaId) })
+  const { reward } = await adminUpdateBoardIdea(context.userId, ideaId, patch)
+  return sanitizeMcpToolResult({ ideaId, idea: await getBoardIdea(context.userId, ideaId), reward })
 }

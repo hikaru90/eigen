@@ -788,3 +788,59 @@ export async function loadCreditMeter(userId: string): Promise<CreditMeter | nul
     return { available: wallet.availableCredits, spentSinceFunding: Number(spent?.debited ?? 0) }
   })
 }
+
+/** Credits a contributor earns when an idea they shared ships. */
+export const IDEA_SHIPPED_REWARD_CREDITS = 5
+
+/**
+ * Pays the shipped-idea reward to the idea's author, at most once per idea: the
+ * ledger row (reference_type board_idea_shipped, reference_id = idea) is unique
+ * in the database, so re-shipping an idea never pays twice. Runs under the
+ * author's RLS session. Returns whether this call paid.
+ */
+export async function grantIdeaShippedReward(input: {
+  userId: string
+  ideaId: string
+}): Promise<{ granted: boolean }> {
+  const userId = input.userId.trim()
+  const ideaId = input.ideaId.trim()
+  if (!userId) throw new Error('userId is required')
+  if (!ideaId) throw new Error('ideaId is required')
+
+  return withDbUser(userId, async (db) =>
+    db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(walletLedgerEntry)
+        .values({
+          userId,
+          kind: 'adjustment',
+          amountCredits: IDEA_SHIPPED_REWARD_CREDITS,
+          currency: WALLET_AUDIT_CURRENCY,
+          referenceType: 'board_idea_shipped',
+          referenceId: ideaId,
+          metadata: { reason: 'board idea shipped' },
+        })
+        .onConflictDoNothing()
+        .returning({ id: walletLedgerEntry.id })
+      if (inserted.length === 0) return { granted: false }
+
+      await tx
+        .insert(userWallet)
+        .values({
+          userId,
+          availableCredits: IDEA_SHIPPED_REWARD_CREDITS,
+          reservedCredits: 0,
+          pendingBillingMicroUsd: 0,
+          currency: WALLET_AUDIT_CURRENCY,
+        })
+        .onConflictDoUpdate({
+          target: userWallet.userId,
+          set: {
+            availableCredits: sql`${userWallet.availableCredits} + ${IDEA_SHIPPED_REWARD_CREDITS}`,
+            updatedAt: new Date(),
+          },
+        })
+      return { granted: true }
+    }),
+  )
+}

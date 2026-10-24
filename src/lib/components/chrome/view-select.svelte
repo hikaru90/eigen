@@ -83,8 +83,6 @@
 {#if signedIn && lockedToYou}
   <span
     class="flex h-8 items-center gap-1.5 px-1 text-sm text-ink-3 cursor-default select-none"
-    role="status"
-    aria-disabled="true"
     title={m.view_select_capture_locked()}
     aria-label={`${viewLabel('user', authorLayers)} · ${m.view_select_capture_locked()}`}
     data-testid="view-select-locked"

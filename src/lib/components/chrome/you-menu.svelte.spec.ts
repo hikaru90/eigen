@@ -82,6 +82,17 @@ describe('you-menu.svelte', () => {
     await expect.element(page.getByRole('menuitem', { name: 'Usage', exact: true })).toBeInTheDocument()
   })
 
+  it('lists Notifications with the unread count', async () => {
+    stubAppPage.data = {
+      user: { email: 'you@eigen.dev' },
+      youCounts: { thoughts: 1, threads: 0, apiKeys: 0, credits: null, notificationsUnread: 2 },
+    }
+    render(YouMenu)
+    await page.getByRole('button', { name: MENU_LABEL }).click()
+    await expect.element(page.getByRole('menuitem', { name: 'Notifications' })).toBeInTheDocument()
+    await expect.element(page.getByTestId('you-notifications-unread')).toHaveTextContent('2')
+  })
+
   it('shows no usage bar before the user has a wallet', async () => {
     stubAppPage.data = {
       user: { email: 'you@eigen.dev' },
@@ -101,6 +112,7 @@ describe('you-menu selection', () => {
   })
 
   it.each([
+    ['Notifications', '/notifications'],
     ['Profile', '/settings'],
     ['API keys', '/api-keys'],
     ['Usage', '/activity'],
