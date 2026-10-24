@@ -6,7 +6,7 @@ import { page as stubAppPage } from '$lib/vitest-stubs/app/state'
 import ViewSelect from './view-select.svelte'
 
 /** Signed-in page data with one agent layer, matching what +layout.server.ts loads. */
-function signIn() {
+function signIn(path = '/mesh/yarn') {
   stubAppPage.data = {
     user: { email: 'you@eigen.dev' },
     authorLayers: [
@@ -14,7 +14,7 @@ function signIn() {
       { key: 'apikey:scout', label: 'Scout', kind: 'agent' },
     ],
   }
-  stubAppPage.url = new URL('http://localhost/capture')
+  stubAppPage.url = new URL(`http://localhost${path}`)
 }
 
 describe('view-select.svelte', () => {
@@ -25,6 +25,20 @@ describe('view-select.svelte', () => {
     const trigger = page.getByRole('button', { name: 'You' })
     await expect.element(trigger).toBeInTheDocument()
     await expect.element(trigger).toHaveAttribute('aria-haspopup', 'menu')
+  })
+
+  it('is locked to You on Capture — no menu, a lock, and it says why', async () => {
+    signIn('/capture')
+    setCurrentUserView('apikey:scout')
+    render(ViewSelect)
+    const locked = page.getByTestId('view-select-locked')
+    await expect.element(locked).toBeInTheDocument()
+    await expect.element(locked).toHaveTextContent('You')
+    await expect.element(locked).toHaveAttribute('aria-disabled', 'true')
+    await expect.element(locked).toHaveAttribute('title', 'Capture always saves as you')
+    await expect.element(page.getByRole('button', { name: 'Scout' })).not.toBeInTheDocument()
+    // the stored view for the other pages is untouched
+    expect(getCurrentUserView()).toBe('apikey:scout')
   })
 
   it('renders nothing when signed out', async () => {
@@ -57,7 +71,7 @@ describe('view-select.svelte', () => {
       user: { email: 'you@eigen.dev' },
       authorLayers: [{ key: 'user', label: 'You', kind: 'user' }],
     }
-    stubAppPage.url = new URL('http://localhost/capture')
+    stubAppPage.url = new URL('http://localhost/mesh/yarn')
     setCurrentUserView('user')
     render(ViewSelect)
     await expect.element(page.getByRole('button', { name: 'You' })).toBeInTheDocument()

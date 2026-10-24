@@ -1,5 +1,6 @@
 <script lang="ts">
   import ChevronDown from '@lucide/svelte/icons/chevron-down'
+  import Lock from '@lucide/svelte/icons/lock'
   /**
    * The data view — what you're currently seeing: You, one of your agents, or all
    * of it. A small dropdown in the header chrome, on the left beside the brand logo.
@@ -8,12 +9,18 @@
    * everywhere else; the sheet follows the You menu's paper mechanics. With only your
    * own layer there is nothing to switch, so the header stays as ei draws it: no chip. Open/close,
    * outside-click, Escape and focus: the registry dropdown owns them. No `$effect`.
+   *
+   * Capture is locked to You: in the app the human captures; agents capture through
+   * MCP. There the chip turns into a greyed, lock-marked "You" that says why, and the
+   * stored view for the other pages is left as it was.
    */
   import { onMount } from 'svelte'
   import { beforeNavigate } from '$app/navigation'
+  import { base } from '$app/paths'
   import { page } from '$app/state'
   import AuthorLayerIcon from '$lib/components/author-layer-icon.svelte'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
+  import { activeNavId } from './nav-active'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
   import { viewKind, viewLabel, type CurrentUserView } from '$lib/memory/current-user-view'
   import { m } from '$lib/paraglide/messages.js'
@@ -51,6 +58,12 @@
     return rows
   })
 
+  const lockedToYou = $derived.by(() => {
+    let p: string = page.url.pathname
+    if (base && p.startsWith(base)) p = p.slice(base.length) || '/'
+    return activeNavId(p) === 'capture'
+  })
+
   const triggerIconKind = $derived(viewKind(view, authorLayers))
   const triggerLabel = $derived(
     view === 'all' ? m.memory_view_all_users() : viewLabel(view, authorLayers),
@@ -67,7 +80,24 @@
   })
 </script>
 
-{#if signedIn}
+{#if signedIn && lockedToYou}
+  <span
+    class="flex h-8 items-center gap-1.5 px-1 text-sm text-ink-3 cursor-default select-none"
+    role="status"
+    aria-disabled="true"
+    title={m.view_select_capture_locked()}
+    aria-label={`${viewLabel('user', authorLayers)} · ${m.view_select_capture_locked()}`}
+    data-testid="view-select-locked"
+  >
+    <span class="grid w-4 place-items-center opacity-70" aria-hidden="true">
+      <AuthorLayerIcon kind="user" size="sm" />
+    </span>
+    <span>{viewLabel('user', authorLayers)}</span>
+    <span class="grid place-items-center [&_svg]:size-3" aria-hidden="true">
+      <Lock strokeWidth={1.75} />
+    </span>
+  </span>
+{:else if signedIn}
   <DropdownMenu.Root bind:open>
     <DropdownMenu.Trigger
       class="group flex h-8 items-center gap-1.5 border-0 bg-transparent px-1 text-sm text-ink-2 cursor-pointer transition-colors duration-[250ms] ease-settle pointer-fine:hover:text-ink data-[state=open]:text-ink"

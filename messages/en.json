@@ -440,6 +440,7 @@
   "you_install_app": "Install app",
   "you_install_ios_hint": "Share → Add to Home Screen",
   "view_select_label": "View as",
+  "view_select_capture_locked": "Capture always saves as you",
   "you_sign_out": "Sign out",
   "ask_past": "History",
   "ask_thinking": "thinking…",
