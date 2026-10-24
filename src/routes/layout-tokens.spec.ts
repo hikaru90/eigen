@@ -113,11 +113,11 @@ describe('shadcn variables mapped onto the ei tokens', () => {
 
   it('maps the .dark block onto the ei dark palette', () => {
     const dark = darkBlock(css)
-    expect(decl(dark, '--paper')).toBe('#0e0e0d')
-    expect(decl(dark, '--paper-2')).toBe('#1a1a18')
+    expect(decl(dark, '--paper')).toBe('#0e130f')
+    expect(decl(dark, '--paper-2')).toBe('#182019')
     // one step above the ei value (#1d1d1b): the selected pill was unreadable on
     // --paper-2 tracks in dark (operator report); the pill ring carries the rest
-    expect(decl(dark, '--raised')).toBe('#232320')
+    expect(decl(dark, '--raised')).toBe('#212a22')
     expect(decl(dark, '--ink')).toBe('#eceae3')
     expect(decl(dark, '--signal')).toBe('#8e9dff')
     expect(decl(dark, '--clay')).toBe('#e89270')
@@ -149,7 +149,7 @@ describe('shadcn variables mapped onto the ei tokens', () => {
 
   it('keeps --theme-color hex in both themes (Android PWA title bar)', () => {
     expect(decl(rootBlock(css), '--theme-color')).toBe('#e8ede5')
-    expect(decl(darkBlock(css), '--theme-color')).toBe('#0e0e0d')
+    expect(decl(darkBlock(css), '--theme-color')).toBe('#0e130f')
     for (const block of [rootBlock(css), darkBlock(css)]) {
       expect(decl(block, '--theme-color')).not.toMatch(/oklch|var\(/)
     }
@@ -201,6 +201,6 @@ describe('existing mechanisms preserved', () => {
 
   it('keeps the PWA theme-color meta wired to paper', () => {
     expect(html).toMatch(/<meta name="theme-color" content="#e8ede5"/)
-    expect(html).toContain("'#0e0e0d'")
+    expect(html).toContain("'#0e130f'")
   })
 })

@@ -1,15 +1,17 @@
 <script lang="ts">
   import type { CreateProjectResponse } from '../../api/timeline/projects/+server'
   import type { PageData } from './$types'
-  import { tick } from 'svelte'
-  import { invalidate } from '$app/navigation'
+  import { onMount, tick } from 'svelte'
   import { base, resolve } from '$app/paths'
   import { normalizeQuery, rowMatchesQuery } from '$lib/mesh/filter-matcher'
   import { meshSearch } from '$lib/mesh/mesh-search.svelte'
+  import { meshApiUrlForView } from '$lib/mesh/mesh-view-fetch'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
   import { pulseBrand } from '$lib/stores/brand-pulse.svelte'
+  import { subscribeCurrentUserView, type CurrentUserView } from '$lib/stores/current-user-view.svelte'
   import { showWhisper } from '$lib/stores/whisper.svelte'
+  import { shouldRefetchForViewChange } from '../../timeline/timeline-client-loads'
   import { agoLabel } from './thread-list'
 
   /**
@@ -21,6 +23,34 @@
    * layout's blur swap carries the tap-then-settle into the detail.
    */
   let { data }: { data: PageData } = $props()
+
+  /** Live list — the SSR 'You' seed first, then whatever /api/mesh/threads returns
+   *  for the header's data view (same contract as Yarn). */
+  // svelte-ignore state_referenced_locally (one-time SSR seed, replaced per view)
+  let list = $state({ threads: data.threads, loose: data.loose })
+  let currentView: CurrentUserView = 'user'
+
+  async function refreshForView(view: CurrentUserView): Promise<void> {
+    try {
+      const res = await fetch(`${base}${meshApiUrlForView('threads', view)}`, { credentials: 'include' })
+      if (!res.ok) {
+        throw new Error(`threads load failed: ${res.status} ${await res.text()}`)
+      }
+      list = (await res.json()) as typeof list
+    } catch (error) {
+      // no fallbacks: keep the current list, say the load failed out loud
+      console.error('[threads] view load failed', error)
+      showWhisper([{ text: m.threads_load_failed(), durationMs: 2400 }])
+    }
+  }
+
+  onMount(() =>
+    subscribeCurrentUserView((view) => {
+      if (!shouldRefetchForViewChange(currentView, view)) return
+      currentView = view
+      void refreshForView(view)
+    }),
+  )
 
   const nowMs = Date.now()
 
@@ -34,7 +64,7 @@
     }),
   )
 
-  type Thread = PageData['threads'][number]
+  type Thread = (typeof list)['threads'][number]
 
   /** ei app.js:1046 — "{n} thoughts · last added {ago}", or "Nothing in it yet". */
   function metaOf(thread: Thread): string {
@@ -61,12 +91,12 @@
 
   /* search filters the list in place (ei app.js:1883) */
   const visibleThreads = $derived(
-    data.threads.filter((thread) =>
+    list.threads.filter((thread) =>
       rowMatchesQuery([thread.label, summaryOf(thread) ?? ''].join('\n'), meshSearch.query),
     ),
   )
   const looseVisible = $derived(
-    data.loose.thoughtCount > 0 && rowMatchesQuery(m.threads_loose_ends(), meshSearch.query),
+    list.loose.thoughtCount > 0 && rowMatchesQuery(m.threads_loose_ends(), meshSearch.query),
   )
   const noMatches = $derived(
     normalizeQuery(meshSearch.query) !== '' && visibleThreads.length === 0 && !looseVisible,
@@ -120,8 +150,8 @@
       freshId = body.entityId
       naming = false
       newName = ''
-      // explicit refetch after the mutation — the shared prefetch depends on this key
-      await invalidate('timeline:temporal-events')
+      // explicit refetch after the mutation, in the view on screen
+      await refreshForView(currentView)
       pulseBrand(700)
       showWhisper([
         { text: m.whisper_knitting(), durationMs: 900 },
@@ -217,9 +247,9 @@
         <h3 class="m-0 font-mesh text-[20px] font-normal leading-none tracking-[-0.02em] text-ink-2 [overflow-wrap:anywhere]">{m.threads_loose_ends()}</h3>
       </div>
       <p class="mt-3.5 max-w-[560px] text-base leading-[1.55] text-ink-2">
-        {data.loose.thoughtCount}
+        {list.loose.thoughtCount}
         {m.threads_thoughts()}
-        {#if data.loose.lastAddedIso}· {agoLabel(data.loose.lastAddedIso, fmt)}{/if}
+        {#if list.loose.lastAddedIso}· {agoLabel(list.loose.lastAddedIso, fmt)}{/if}
       </p>
     </a>
   {/if}

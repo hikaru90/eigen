@@ -29,6 +29,7 @@
   "desk_error_action": "Die Aktion ist fehlgeschlagen",
   "memory_view_all_users": "Alle Benutzer",
   "yarn_load_failed": "Der Faden konnte diese Ansicht nicht laden",
+  "threads_load_failed": "Die Threads für diese Ansicht konnten nicht geladen werden",
   "graph_aria_visualization": "Interaktive Graph-Visualisierung",
   "graph_aria_legend_filters": "Graph-Legende und Filter",
   "graph_delete_entity_title": "Diese Entität löschen?",

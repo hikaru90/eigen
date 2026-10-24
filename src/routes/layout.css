@@ -573,13 +573,13 @@ html.pwa-standalone::before {
 }
 
 .dark {
-  /* ——— ei dark palette (~/+Code/ei/styles.css dark), under the existing .dark class ———
+  /* ——— ei dark palette (~/+Code/ei/styles.css dark), green-tinted like light paper ———
      --raised is lifted one step from the ei value (#1d1d1b): on --paper-2 tracks the
      selected pill was unreadable in dark (operator report, 2026-10-21); --pill-ring
      carries the state the rest of the way (WCAG 1.4.11 for the tapped control). */
-  --paper: #0e0e0d;
-  --paper-2: #1a1a18;
-  --raised: #232320;
+  --paper: #0e130f;
+  --paper-2: #182019;
+  --raised: #212a22;
   --ink: #eceae3;
   --ink-2: rgba(236, 234, 227, 0.74);
   --ink-3: rgba(236, 234, 227, 0.55);
@@ -598,7 +598,7 @@ html.pwa-standalone::before {
 
   /* shadcn names track the dark paper tokens (light values come from :root) */
   --background: var(--paper);
-  --theme-color: #0e0e0d;
+  --theme-color: #0e130f;
   --foreground: var(--ink);
   --card: var(--raised);
   --card-foreground: var(--ink);

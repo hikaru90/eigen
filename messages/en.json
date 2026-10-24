@@ -29,6 +29,7 @@
   "desk_error_action": "The task action failed",
   "memory_view_all_users": "All Users",
   "yarn_load_failed": "The strand could not load that view",
+  "threads_load_failed": "Threads could not load that view",
   "graph_aria_visualization": "Interactive graph visualization",
   "graph_aria_legend_filters": "Graph legend and filters",
   "graph_delete_entity_title": "Delete this entity?",

@@ -12,7 +12,7 @@
   } from '$lib/mesh/day-groups'
   import { normalizeQuery, rowMatchesQuery } from '$lib/mesh/filter-matcher'
   import { meshSearch } from '$lib/mesh/mesh-search.svelte'
-  import { yarnApiUrlForView } from '$lib/mesh/yarn-view-fetch'
+  import { meshApiUrlForView } from '$lib/mesh/mesh-view-fetch'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
   import { subscribeCurrentUserView, type CurrentUserView } from '$lib/stores/current-user-view.svelte'
@@ -60,7 +60,7 @@
 
   async function refreshForView(view: CurrentUserView): Promise<void> {
     try {
-      const res = await fetch(`${base}${yarnApiUrlForView(view)}`, { credentials: 'include' })
+      const res = await fetch(`${base}${meshApiUrlForView('yarn', view)}`, { credentials: 'include' })
       if (!res.ok) {
         throw new Error(`yarn load failed: ${res.status} ${await res.text()}`)
       }
