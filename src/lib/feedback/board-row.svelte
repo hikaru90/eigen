@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BoardArea, BoardIdea, BoardKind, VoteDirection } from './board-types'
   import { relativeDayLabel } from '$lib/chat/relative-day'
+  import { hapticPress } from '$lib/haptics'
   import { getLocale } from '$lib/paraglide/runtime'
   import { betterCopy } from './better-copy'
   import { STAGE_DOTS, stageOf } from './board-tabs'
@@ -97,7 +98,10 @@
       disabled={pending || !canVote(idea, 1)}
       aria-pressed={up}
       aria-label={upLabel}
-      onclick={(e) => onvote?.(idea.id, 1, e.currentTarget)}
+      onclick={(e) => {
+        hapticPress()
+        onvote?.(idea.id, 1, e.currentTarget)
+      }}
     >
       <svg class={[arrow, up ? 'fill-clay stroke-clay' : 'fill-none']} viewBox="0 0 16 16" aria-hidden="true">
         <path d="M8 3.2 13 9.4H10.1V13H5.9V9.4H3Z" />
@@ -113,7 +117,10 @@
       disabled={pending || !canVote(idea, -1)}
       aria-pressed={down}
       aria-label={downLabel}
-      onclick={(e) => onvote?.(idea.id, -1, e.currentTarget)}
+      onclick={(e) => {
+        hapticPress()
+        onvote?.(idea.id, -1, e.currentTarget)
+      }}
     >
       <svg class={[arrow, 'rotate-180', down ? 'fill-ink stroke-ink' : 'fill-none']} viewBox="0 0 16 16" aria-hidden="true">
         <path d="M8 3.2 13 9.4H10.1V13H5.9V9.4H3Z" />

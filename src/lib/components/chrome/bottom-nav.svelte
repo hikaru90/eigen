@@ -3,6 +3,7 @@
   import { page } from '$app/state'
   import type { RouteId } from '$app/types'
   import MenuMark from '$lib/components/brand/menu-mark.svelte'
+  import { hapticPress } from '$lib/haptics'
   import { m } from '$lib/paraglide/messages.js'
   import { activeNavId, type BottomNavId } from './nav-active'
 
@@ -40,6 +41,7 @@
         isActive ? 'text-ink' : 'pointer-fine:hover:text-ink-2',
       ]}
       aria-current={isActive ? 'page' : undefined}
+      onclick={() => hapticPress()}
     >
       <div
         class={[

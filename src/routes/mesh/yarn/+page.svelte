@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation'
   import { base, resolve } from '$app/paths'
   import ThoughtRow from '$lib/components/mesh/thought-row.svelte'
+  import { hapticConfirm } from '$lib/haptics'
   import {
     groupThoughtsByDay,
     isFreshThought,
@@ -117,6 +118,7 @@
   async function toggleDone(row: (typeof rows)[number]): Promise<void> {
     if (tickBusyId) return
     const next = row.status === 'completed' ? 'open' : 'completed'
+    hapticConfirm() // in the tap, before the await
     tickBusyId = row.id
     try {
       const res = await fetch(`${base}/api/thoughts/${encodeURIComponent(row.id)}`, {

@@ -4,6 +4,7 @@
   import Square from '@lucide/svelte/icons/square'
   import { portal } from '$lib/components/chrome/portal'
   import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import { hapticPress } from '$lib/haptics'
 
   /**
    * The one writer (Ask, Capture, Contribute): a wide glass pill docked above the bottom
@@ -92,6 +93,7 @@
 
   function submit(): void {
     if (!canSend) return
+    hapticPress() // in the gesture, before any await: both haptic channels need that
     onsubmit()
   }
 

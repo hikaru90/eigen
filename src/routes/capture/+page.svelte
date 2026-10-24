@@ -52,7 +52,6 @@
   import GroundingQuestionCard from '$lib/components/grounding-question-card.svelte'
   import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { fetchEnrichPendingSnapshot } from '$lib/graph/poll-graph-enrich-refresh'
-  import { hapticConfirm } from '$lib/haptics'
   import { flyThought, releaseGhostWords } from '$lib/motion/settle'
   import { m } from '$lib/paraglide/messages.js'
   import { pulseBrand } from '$lib/stores/brand-pulse.svelte'
@@ -486,7 +485,6 @@
     threadMenuOpen = false
     // the whisper names the accepted type (taken before the field empties)
     const chosenType = plan.kind === 'keep' ? plan.reading.category.key : null
-    hapticConfirm()
     captureEvent('capture_submitted', { text_length: text.length })
 
     // 1 · the words condense into a single point and fly into Mesh, pulling yarn

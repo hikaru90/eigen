@@ -127,6 +127,7 @@
   let pushSubscriptionCount = $state((() => data.pushSubscriptionCount)())
   let hapticEnvironment = $state<HapticEnvironment>({
     apiAvailable: false,
+    channel: 'none',
     secureContext: false,
     hint: 'Loading…',
   })
