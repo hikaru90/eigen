@@ -87,13 +87,13 @@
       {#if result.patterns.length > 0}
         <ul class="list-none mt-[34px] mb-0 p-0 border-t border-line">
           {#each result.patterns as pattern, i (pattern.title)}
-            {@const sketch = clusterSketchLayout(pattern.thoughtIds)}
+            {@const sketch = clusterSketchLayout(pattern.graph)}
             {@const isAdopted = pattern.title in adopted}
             <li
               class="grid grid-cols-[56px_minmax(0,1fr)] gap-4 pt-[22px] pb-6 border-b border-line animate-[rise_0.8s_var(--ease)_both] [animation-delay:calc(var(--i,0)*70ms+0.25s)] min-[720px]:grid-cols-[72px_minmax(0,1fr)] min-[720px]:gap-[22px]"
               style="--i: {i}"
             >
-              <!-- A thought is a square: one soft square per cited thought, the logo's fine links between. -->
+              <!-- The pattern's slice of the graph: one soft square per entity, its real relations as the fine links. -->
               <svg
                 class="size-14 overflow-visible text-ink min-[720px]:size-[72px]"
                 viewBox="{-sketch.bounds.width / 2} {-sketch.bounds.height / 2} {sketch.bounds.width} {sketch.bounds.height}"
@@ -131,6 +131,13 @@
                   >
                 </h2>
                 <p class="mt-1.5 mb-0 text-sm leading-[1.5] text-ink-2">{pattern.distillation}</p>
+                {#if pattern.graph.nodes.length > 0}
+                  <ul class="mt-2.5 mb-0 flex list-none flex-wrap gap-1.5 p-0" aria-label={m.patterns_graph_nodes()}>
+                    {#each pattern.graph.nodes as node (node.id)}
+                      <li class="rounded-full bg-paper-2 px-2.5 py-0.5 text-[12.5px] leading-[1.5] text-ink-2">{node.label}</li>
+                    {/each}
+                  </ul>
+                {/if}
                 <p class="mt-2 mb-0 text-sm text-ink-3">{pattern.thoughtIds.length} {m.threads_thoughts()}</p>
 
                 <!-- Lists are for reading: rows never open on tap; the open control does. -->

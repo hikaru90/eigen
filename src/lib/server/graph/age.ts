@@ -1064,3 +1064,32 @@ export async function fetchThoughtNodeIdsForUser(input: { userId: string }): Pro
       .filter((id) => id.length > 0)
   })
 }
+
+/** ENTITY_RELATES edges whose both ends are in `entityIds` (a pattern card's slice of the graph). */
+export async function fetchEntityRelationsAmong(input: {
+  userId: string
+  entityIds: string[]
+}): Promise<Array<{ sourceId: string; targetId: string; predicate: string }>> {
+  const ids = [...new Set(input.entityIds.map((id) => validateNonEmptyEntityId(id, 'entityIds[]')))]
+  if (ids.length < 2) return []
+
+  return runGraphQueryWithRetry(input.userId, 'age.entity_relations_among', async () => {
+    const rows = await runTenantScopedCypher(
+      input.userId,
+      `
+			MATCH (a:Entity {user_id: $user_id})-[r:ENTITY_RELATES {user_id: $user_id}]->(b:Entity {user_id: $user_id})
+			WHERE a.id IN $entity_ids AND b.id IN $entity_ids AND a.id <> b.id
+			RETURN a.id AS source_id, b.id AS target_id, coalesce(r.predicate, 'related_to') AS predicate
+			`,
+      { user_id: input.userId, entity_ids: ids },
+      'source_id agtype, target_id agtype, predicate agtype',
+    )
+    return (rows ?? [])
+      .map((row) => ({
+        sourceId: typeof row.source_id === 'string' ? row.source_id : '',
+        targetId: typeof row.target_id === 'string' ? row.target_id : '',
+        predicate: typeof row.predicate === 'string' ? row.predicate : 'related_to',
+      }))
+      .filter((row) => row.sourceId && row.targetId)
+  })
+}

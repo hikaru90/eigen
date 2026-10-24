@@ -1,11 +1,12 @@
+import type { PatternGraph } from './pattern-graph'
+
 /**
- * Cluster sketch for a pattern card (ei redesign wave 2.4).
+ * Cluster sketch for a pattern card: the pattern's own slice of the knowledge graph.
  *
- * "A thought is a square": one of the mark's soft squares per thought, laid in a
- * tight phyllotaxis spiral, joined by the logo's fine centre-to-centre links
- * (ei app.js buildMap, styles.css .map-svg .node/.edge). Pure and deterministic
- * — the card's SVG is derived from the pattern's thoughtIds alone, so the sketch
- * comes for free from data we already have. The full living map is a later pass.
+ * One of the mark's soft squares per graph entity the pattern's thoughts mention,
+ * laid in a tight phyllotaxis spiral, joined by the logo's fine centre-to-centre
+ * links — exactly the graph's relations among them, never invented ones (ei app.js
+ * buildMap, styles.css .map-svg .node/.edge). Pure and deterministic.
  */
 
 /** Every knot is the icons' square: 4.4 CSS px, never larger (DESIGN.md). */
@@ -16,6 +17,8 @@ const GOLDEN_ANGLE = 2.39996
 const SPREAD = 9
 
 export type ClusterSketchNode = {
+  id: string
+  label: string
   x: number
   y: number
   size: number
@@ -23,9 +26,9 @@ export type ClusterSketchNode = {
 }
 
 export type ClusterSketchLink = {
-  /** Index of the later node. */
+  /** Index of the edge's source node. */
   a: number
-  /** Index of the earlier node it ties back to. */
+  /** Index of the edge's target node. */
   b: number
 }
 
@@ -36,11 +39,13 @@ export type ClusterSketch = {
   bounds: { width: number; height: number }
 }
 
-export function clusterSketchLayout(ids: readonly string[]): ClusterSketch {
-  const nodes: ClusterSketchNode[] = ids.map((_id, i) => {
+export function clusterSketchLayout(graph: PatternGraph): ClusterSketch {
+  const nodes: ClusterSketchNode[] = graph.nodes.map((node, i) => {
     const r = SPREAD * Math.sqrt(i + 0.5)
     const angle = i * GOLDEN_ANGLE
     return {
+      id: node.id,
+      label: node.label,
       x: round(Math.cos(angle) * r),
       y: round(Math.sin(angle) * r),
       size: CLUSTER_SKETCH_NODE_SIZE,
@@ -48,19 +53,12 @@ export function clusterSketchLayout(ids: readonly string[]): ClusterSketch {
     }
   })
 
-  // Each square ties to its nearest earlier square: a tree, no loops, n-1 links.
+  const indexById = new Map(nodes.map((node, i) => [node.id, i]))
   const links: ClusterSketchLink[] = []
-  for (let i = 1; i < nodes.length; i++) {
-    let nearest = 0
-    let best = Number.POSITIVE_INFINITY
-    for (let j = 0; j < i; j++) {
-      const d = (nodes[j].x - nodes[i].x) ** 2 + (nodes[j].y - nodes[i].y) ** 2
-      if (d < best) {
-        best = d
-        nearest = j
-      }
-    }
-    links.push({ a: i, b: nearest })
+  for (const edge of graph.edges) {
+    const a = indexById.get(edge.sourceId)
+    const b = indexById.get(edge.targetId)
+    if (a !== undefined && b !== undefined) links.push({ a, b })
   }
 
   let reach = 0

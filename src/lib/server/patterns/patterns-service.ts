@@ -1,7 +1,9 @@
-import { and, eq, gte, isNotNull, ne, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm'
+import { buildPatternGraph, type PatternGraph, type PatternMention } from '$lib/patterns/pattern-graph'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity } from '$lib/server/db/schema'
+import { fetchEntityRelationsAmong } from '$lib/server/graph/age'
 import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays'
 import { validatePatternsPayload, type ValidatedPattern } from './patterns-contract'
 import {
@@ -30,10 +32,13 @@ export type PatternThoughtPreview = {
   summary: string
 }
 
+/** A judged pattern with its slice of the knowledge graph (entities + relations). */
+export type PatternWithGraph = ValidatedPattern & { graph: PatternGraph }
+
 export type PatternsOkResult = {
   status: 'ok'
   insight: string
-  patterns: ValidatedPattern[]
+  patterns: PatternWithGraph[]
   /** Short summaries for every thought a pattern cites — so cards can list them. */
   thoughtPreviews: PatternThoughtPreview[]
   windowDays: number
@@ -156,6 +161,24 @@ async function loadThreadActivity(
     .groupBy(canonicalEntity.id, canonicalEntity.label)
 }
 
+/** Entities the cited thoughts mention (Postgres thought_entity is the mention source of truth, as in the graph view). */
+async function loadPatternMentions(userId: string, thoughtIds: string[]): Promise<PatternMention[]> {
+  if (thoughtIds.length === 0) return []
+  return getDb()
+    .select({
+      thoughtId: thoughtEntity.thoughtId,
+      entityId: canonicalEntity.id,
+      label: canonicalEntity.label,
+      type: canonicalEntity.entityType,
+    })
+    .from(thoughtEntity)
+    .innerJoin(
+      canonicalEntity,
+      and(eq(canonicalEntity.id, thoughtEntity.entityId), eq(canonicalEntity.userId, userId)),
+    )
+    .where(and(eq(thoughtEntity.userId, userId), inArray(thoughtEntity.thoughtId, thoughtIds)))
+}
+
 export async function getPatternsForUser(userId: string): Promise<PatternsResult> {
   const today = new Date()
   const cacheKey = patternsCacheKey(userId, isoDay(today))
@@ -196,10 +219,20 @@ export async function getPatternsForUser(userId: string): Promise<PatternsResult
     if (summary) thoughtPreviews.push({ id, summary })
   }
 
+  const mentions = await loadPatternMentions(userId, [...citedIds])
+  const relations = await fetchEntityRelationsAmong({
+    userId,
+    entityIds: [...new Set(mentions.map((m) => m.entityId))],
+  })
+  const patterns: PatternWithGraph[] = validated.patterns.map((pattern) => ({
+    ...pattern,
+    graph: buildPatternGraph(pattern.thoughtIds, mentions, relations),
+  }))
+
   const result: PatternsOkResult = {
     status: 'ok',
     insight: validated.insight,
-    patterns: validated.patterns,
+    patterns,
     thoughtPreviews,
     windowDays: PATTERNS_WINDOW_DAYS,
   }
