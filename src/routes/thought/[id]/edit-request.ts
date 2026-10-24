@@ -17,8 +17,3 @@ export function textChange(current: string, next: string): string | null {
 export function replaceTextEditRequest(newText: string): string {
   return `Replace the thought's text with exactly the following words, changing nothing else:\n\n${newText}`
 }
-
-/** The type control: keep the thought as the chosen type without touching the words. */
-export function typeEditRequest(typeName: string): string {
-  return `Keep this thought as: ${typeName}. Keep the words exactly as they are.`
-}

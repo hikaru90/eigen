@@ -33,7 +33,7 @@
   import { showWhisper } from '$lib/stores/whisper.svelte'
   import { echoHref, inAppHref } from './app-href'
   import { askDraftFor, askHrefFor } from './ask-handoff'
-  import { replaceTextEditRequest, textChange, typeEditRequest } from './edit-request'
+  import { replaceTextEditRequest, textChange } from './edit-request'
   import { createForgetArm } from './forget-arm.svelte'
   import { leaveTarget } from './leave-target'
   import { pullToLeave } from './pull-to-leave'
@@ -198,11 +198,27 @@
 
   let typeMenuOpen = $state(false)
 
-  function pickType(key: string): void {
+  /** The type is the user's pick: set directly (PATCH category), never re-read from the words. */
+  async function pickType(key: string): Promise<void> {
     typeMenuOpen = false
     if (key === category || saving) return
-    const kind = kinds.find((k) => k.key === key)
-    void applyEdit(typeEditRequest(kind?.name ?? key))
+    saving = true
+    err = null
+    try {
+      const res = await fetch(`/api/thoughts/${encodeURIComponent(thought.id)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ category: key }),
+        credentials: 'same-origin',
+      })
+      if (!res.ok) throw new Error((await res.text()) || `Type change failed (${res.status})`)
+      await refreshThought()
+      showWhisper([{ text: m.whisper_kept(), durationMs: 1300 }])
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e)
+    } finally {
+      saving = false
+    }
   }
 
   /* ————— the thread: existing project-assign endpoint (ei app.js:1451-1465) ————— */
@@ -381,7 +397,7 @@
         open={typeMenuOpen}
         busy={saving}
         onOpenChange={(o) => (typeMenuOpen = o)}
-        onPick={pickType}
+        onPick={(key) => void pickType(key)}
       />
     </div>
 

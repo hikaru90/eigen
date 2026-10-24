@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DELETE, GET, PATCH } from './+server'
 
-const { archiveThoughtForUserMock, setThoughtLifecycleStatusMock, getDbSelectMock } = vi.hoisted(
-  () => ({
+const { archiveThoughtForUserMock, setThoughtLifecycleStatusMock, getDbSelectMock, setThoughtCategoryMock } =
+  vi.hoisted(() => ({
     archiveThoughtForUserMock: vi.fn(),
     setThoughtLifecycleStatusMock: vi.fn(),
     getDbSelectMock: vi.fn(),
-  }),
-)
+    setThoughtCategoryMock: vi.fn(),
+  }))
+
+vi.mock('$lib/server/memory/thought-category', () => ({ setThoughtCategory: setThoughtCategoryMock }))
 
 vi.mock('$lib/server/memory/lifecycle', () => ({
   archiveThoughtForUser: archiveThoughtForUserMock,
@@ -141,5 +143,39 @@ describe('DELETE /api/thoughts/[thoughtId]', () => {
     expect(archiveThoughtForUserMock).toHaveBeenCalledWith('u1', 't1')
     const body = await res.json()
     expect(body).toEqual({ ok: true, archived: true })
+  })
+})
+
+describe('PATCH /api/thoughts/[thoughtId] — the type', () => {
+  const patch = (body: unknown) =>
+    PATCH({
+      locals: { user: { id: 'u1' } },
+      params: { thoughtId: 't1' },
+      request: new Request('http://localhost', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    } as never)
+
+  it('sets the chosen type directly — no LLM re-reads the words', async () => {
+    setThoughtCategoryMock.mockResolvedValue({ ok: true, category: 'task' })
+    const res = await patch({ category: 'task' })
+    expect(await res.json()).toEqual({ category: 'task' })
+    expect(setThoughtCategoryMock).toHaveBeenCalledWith('u1', 't1', 'task')
+  })
+
+  it('rejects a type that is not in the ontology', async () => {
+    setThoughtCategoryMock.mockResolvedValue({ ok: false, reason: 'unknown_category' })
+    await expect(patch({ category: 'nonsense' })).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('404s for a missing thought', async () => {
+    setThoughtCategoryMock.mockResolvedValue({ ok: false, reason: 'not_found' })
+    await expect(patch({ category: 'task' })).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('rejects a blank category', async () => {
+    await expect(patch({ category: '  ' })).rejects.toMatchObject({ status: 400 })
   })
 })

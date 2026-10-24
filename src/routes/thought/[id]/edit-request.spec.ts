@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { replaceTextEditRequest, textChange, typeEditRequest } from './edit-request'
+import { replaceTextEditRequest, textChange } from './edit-request'
 
 /**
  * The thought page saves through the existing edit endpoint (POST /api/capture/edit,
@@ -28,13 +28,5 @@ describe('replaceTextEditRequest', () => {
 
   it('keeps newlines in the words', () => {
     expect(replaceTextEditRequest('one\ntwo')).toContain('one\ntwo')
-  })
-})
-
-describe('typeEditRequest', () => {
-  it('names the chosen type without touching the words', () => {
-    const request = typeEditRequest('To-do')
-    expect(request).toContain('To-do')
-    expect(request.toLowerCase()).toContain('keep the words')
   })
 })

@@ -7,6 +7,7 @@ import { getDb } from '$lib/server/db'
 import type { LifecycleStatus } from '$lib/server/db/brain.schema'
 import { thought } from '$lib/server/db/schema'
 import { setThoughtLifecycleStatus, archiveThoughtForUser } from '$lib/server/memory/lifecycle'
+import { setThoughtCategory } from '$lib/server/memory/thought-category'
 import { listTextFilesForThought } from '$lib/server/text-files/service'
 
 export const GET: RequestHandler = async (event) => {
@@ -87,6 +88,21 @@ export const PATCH: RequestHandler = async (event) => {
     body = await event.request.json()
   } catch {
     error(400, 'Invalid JSON')
+  }
+
+  // the type: set directly from the user's pick (validated against their ontology)
+  if (typeof body === 'object' && body && 'category' in body) {
+    const raw = (body as { category?: unknown }).category
+    const category = typeof raw === 'string' ? raw.trim() : ''
+    if (!category) error(400, 'category must be a non-empty type key')
+    const set = await runWithTrace(crypto.randomUUID(), () =>
+      setThoughtCategory(user.id, thoughtId, category),
+    )
+    if (!set.ok) {
+      if (set.reason === 'not_found') error(404, 'Thought not found')
+      error(400, `Unknown type "${category}"`)
+    }
+    return json({ category: set.category })
   }
 
   const status =
