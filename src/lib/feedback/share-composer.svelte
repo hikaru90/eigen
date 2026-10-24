@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { BoardArea, BoardCheckResult, BoardKind } from './board-types'
+  import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { m } from '$lib/paraglide/messages.js'
@@ -25,15 +26,19 @@
     oncreate: (draft: { title: string; kind: BoardKind; area: BoardArea }) => Promise<boolean>
     /** "Vote for it instead": the duplicate's id (after the composer reset). */
     onvoteinstead: (id: string) => void
+    /** The user's preferred language — voice input transcribes in it. */
+    language: string
   }
 
-  let { maxLength, busy = false, oncheck, oncreate, onvoteinstead }: Props = $props()
+  let { maxLength, busy = false, oncheck, oncreate, onvoteinstead, language }: Props = $props()
 
   let text = $state('')
   /** The judge's answer for exactly this draft. */
   let checked = $state<{ title: string; result: BoardCheckResult } | null>(null)
   let working = $state(false)
   let writer = $state<GlassWriter | null>(null)
+  /** The draft when dictation started; transcripts append to it, like Capture. */
+  let voiceBaseText = ''
 
   const shareable = $derived(canShare(text, maxLength) && !busy && !working)
   const current = $derived(checked && checked.title === text.trim() ? checked.result : null)
@@ -100,6 +105,16 @@
   busy={busy || working}
   spellcheck={false}
   onsubmit={() => void submit()}
+  {language}
+  onvoicestart={() => {
+    voiceBaseText = text
+  }}
+  ontranscript={(transcript) => {
+    text = appendVoiceTranscript(voiceBaseText, transcript)
+  }}
+  onpartialtranscript={(transcript) => {
+    text = appendVoiceTranscript(voiceBaseText, transcript)
+  }}
 >
   {#snippet above()}
     <!-- duplicate chorus: votes pile up behind one request instead of scattering -->

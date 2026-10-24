@@ -368,13 +368,24 @@ body::after {
   }
 }
 
-/* the mesh at work: the working triangle sways, nothing pops */
-@keyframes spinner-sway {
-  from {
-    transform: rotate(-4deg);
+/* the mesh at work (ei assets/spinner.js "spin"): a third of a turn on the in-hold-out
+   envelope, then a short rest — the triangle is symmetric, so every cycle lands where it began */
+@keyframes spinner-spin {
+  0% {
+    transform: rotate(0deg);
   }
+  87% {
+    transform: rotate(120deg);
+  }
+  100% {
+    transform: rotate(120deg);
+  }
+}
+
+/* the yarn's ply runs along the links while the mesh works */
+@keyframes spinner-ply {
   to {
-    transform: rotate(4deg);
+    stroke-dashoffset: -4.8;
   }
 }
 

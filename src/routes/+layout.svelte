@@ -22,6 +22,7 @@
   import AppChrome from '$lib/components/chrome/app-chrome.svelte'
   import BottomNav from '$lib/components/chrome/bottom-nav.svelte'
   import { activeNavId } from '$lib/components/chrome/nav-active'
+  import { pageFadeVars } from '$lib/components/chrome/page-fade'
   import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
@@ -73,18 +74,10 @@
   /*
    * The one shell: every product page lives in here, full screen, under one mask that
    * fades content toward the edges — beneath the header (or the page's own tabs) and
-   * above the bottom menu. The fade vars are per-view; the mask ramp is the ei
-   * prototype's smootherstep (52px, faint 2–6% tails behind the chrome).
+   * above the bottom menu. The fade vars are per-view (pageFadeVars); the mask ramp is
+   * the ei prototype's smootherstep (52px, faint 2–6% tails behind the chrome).
    */
-  const fadeVars = $derived(
-    mainView === 'feedback'
-      ? '[--fade-top:calc(var(--head,68px)+12px+var(--board-head-height,0px)-12px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+90px)] [--tail-bottom:0]'
-      : mainView === 'ask' || mainView === 'capture'
-        ? // pages with the docked writer: the fade reaches up past it, so nothing scrolls
-          // legibly behind the field — not just to the bottom menu
-          '[--fade-top:var(--head,68px)] [--fade-bottom:calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+12px+var(--glass-writer-height,64px))] [--tail-bottom:0.06]'
-        : '[--fade-top:var(--head,68px)] [--fade-bottom:var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))] [--tail-bottom:0.06]',
-  )
+  const fadeVars = $derived(pageFadeVars(mainView))
   const chromeMainClass = $derived.by(() => {
     if (hideAppChrome) {
       return 'static overflow-visible min-h-dvh mask-none animate-none'

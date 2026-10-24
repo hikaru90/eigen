@@ -12,7 +12,7 @@
   } from './geometry'
 
   type Props = HTMLAttributes<SVGSVGElement> & {
-    /** While the mesh works, the links are wavy signal-blue yarn and the triangle sways;
+    /** While the mesh works, the links are wavy signal-blue yarn and the triangle turns;
         at rest it is a still triangle with fine straight links (ei assets/spinner.js). */
     working?: boolean
     /** Box size in CSS pixels; the triangle is drawn at its one true size inside. */
@@ -29,7 +29,7 @@
   height={size}
   class={cn(
     'spinner block overflow-visible text-ink [transform-origin:center]',
-    working && 'animate-[spinner-sway_2.4s_ease-in-out_infinite_alternate] motion-reduce:[animation:none]',
+    working && 'animate-[spinner-spin_1.72s_var(--ease-io)_infinite] motion-reduce:[animation:none]',
     className,
   )}
   aria-hidden="true"
@@ -47,7 +47,7 @@
         d={spinnerWavy(SPINNER_PTS[a], SPINNER_PTS[b])}
       />
       <path
-        class={["fill-none stroke-raised [stroke-opacity:0.6] [stroke-linecap:round] [stroke-dasharray:1.1_1.3] transition-[stroke-width,opacity] duration-[400ms] ease-settle", working ? '[stroke-width:0.9]' : '[stroke-width:0]']}
+        class={["fill-none stroke-raised [stroke-opacity:0.6] [stroke-linecap:round] [stroke-dasharray:1.1_1.3] transition-[stroke-width,opacity] duration-[400ms] ease-settle", working ? '[stroke-width:0.9] animate-[spinner-ply_0.9s_linear_infinite] motion-reduce:[animation:none]' : '[stroke-width:0]']}
         d={spinnerWavy(SPINNER_PTS[a], SPINNER_PTS[b])}
       />
     </g>
