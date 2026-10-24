@@ -13,7 +13,7 @@ For deployment philosophy (single codebase, no feature gating by plan), see [Dep
 
 ## Managed onboarding (for end users)
 
-Use this path when Eigen operates your instance (managed hosting). You do **not** need to run Docker, configure servers, or obtain LLM API keys unless you explicitly switch to bring-your-own-key (BYOK) billing.
+Use this path when Eigen operates your instance (managed hosting). You do **not** need to run Docker, configure servers, or obtain LLM API keys.
 
 ### 1. Create an account
 
@@ -37,7 +37,7 @@ The tour has **four steps**:
 | Step | Topic         | What you do                                                            |
 | ---- | ------------- | ---------------------------------------------------------------------- |
 | 1    | **Welcome**   | What Eigen is and what happens next                                    |
-| 2    | **Credits**   | PayPal top-up (platform credits) — or skip if you use BYOK in Settings |
+| 2    | **Credits**   | PayPal top-up (platform credits)                                       |
 | 3    | **Grounding** | Start the getting-to-know-you chat at `/grounding`                     |
 | 4    | **Ready**     | **Get started** (only when credits and grounding are complete)         |
 
@@ -68,16 +68,6 @@ Eigen asks about your work, values, relationships, and how you think. Answers ar
 
 Manage or delete your profile later at **Settings → Grounding profile** (`/settings/grounding`).
 
-### 5. Optional: bring your own key (BYOK)
-
-BYOK is **not** part of the welcome tour. To use your own gateway:
-
-1. Open **Settings → LLM → BYOK**.
-2. Configure **EUrouter** or **OpenRouter**.
-3. Switch **Billing method** to **Bring your own key (BYOK)** and save.
-
-BYOK skips the credits gate but **grounding is still required** before capture.
-
 ### 6. Start capturing
 
 Return to **Capture**, type or dictate a thought, and submit. Ingest runs automatically; progress appears in the capture UI and full detail in **Activity**.
@@ -96,9 +86,8 @@ Create only the accounts that match how you want billing and auth to work.
 
 | Account                                              | When you need it                                         | What it is used for                                                                                                                                    |
 | ---------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **[EUrouter](https://eurouter.ai)**                  | Platform credits and/or EUrouter BYOK                    | Gateway for chat + embeddings via routing rules (`LLM_BASE_URL`, `SERVICE_API_KEY_EUROUTER`, `LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING`).                   |
-| **[OpenRouter](https://openrouter.ai)**              | Platform credits, OpenRouter BYOK, and/or speech-to-text | Gateway for chat, embeddings, and dictation STT (`OPENROUTER_BASE_URL`, `SERVICE_API_KEY_OPENROUTER` or `OPENROUTER_API_KEY`, optional `LLM_MODEL_*`). |
-| **[PayPal Developer](https://developer.paypal.com)** | Wallet top-ups (platform credits)                        | In-app credit purchases (`PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`). Omit if all users will use BYOK only.                         |
+| **[OpenRouter](https://openrouter.ai)**              | All AI inference                                         | Chat, embeddings, and dictation STT on the service key (`OPENROUTER_BASE_URL`, `SERVICE_API_KEY_OPENROUTER`).                                            |
+| **[PayPal Developer](https://developer.paypal.com)** | Wallet top-ups (platform credits)                        | In-app credit purchases (`PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).                         |
 | **Google Cloud OAuth client**                        | Optional social sign-in                                  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/google`.                                                             |
 | **GitHub OAuth app**                                 | Optional social sign-in                                  | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/github`.                                                             |
 
@@ -119,37 +108,18 @@ Copy [`.env.example`](./.env.example) to `.env` and set values before `docker co
 | `DATABASE_URL`       | App connection string                            | Compose default: `postgres://eigen:eigen@db:5432/eigen`                                                 |
 | `DATABASE_ADMIN_URL` | Migrations, RLS, pg_cron                         | Same superuser URL as above for self-hosted                                                             |
 
-#### Required for LLM — at least one billing path must work
+#### Required for AI and billing
 
-**Option A — Platform credits (Eigen wallet, default user billing mode)**
-
-Users top up via PayPal; the app calls your service-account gateway keys.
+All AI inference runs through OpenRouter on your service key and bills users' Eigen credits
+(topped up via PayPal). Models are pinned in `src/lib/server/billing/platform-llm.ts`.
 
 | Variable                     | Purpose                                                                           |
 | ---------------------------- | --------------------------------------------------------------------------------- |
-| `SERVICE_API_KEY_EUROUTER`   | EUrouter service key (platform billing)                                           |
-| `LLM_BASE_URL`               | EUrouter API origin (no trailing slash), e.g. `https://api.eurouter.ai/v1`        |
-| `LLM_RULE_CHAT`              | EUrouter routing rule UUID for chat                                               |
-| `LLM_RULE_EMBEDDING`         | EUrouter routing rule UUID for embeddings                                         |
-| `SERVICE_API_KEY_OPENROUTER` | OpenRouter service key (if using OpenRouter as platform provider)                 |
 | `OPENROUTER_BASE_URL`        | OpenRouter API origin, e.g. `https://openrouter.ai/api/v1`                        |
+| `SERVICE_API_KEY_OPENROUTER` | OpenRouter service key — every chat, embedding, and dictation call                |
 | `PAYPAL_API_BASE`            | `https://api-m.sandbox.paypal.com` (sandbox) or `https://api-m.paypal.com` (live) |
 | `PAYPAL_CLIENT_ID`           | PayPal REST app client ID                                                         |
 | `PAYPAL_CLIENT_SECRET`       | PayPal REST app secret                                                            |
-
-**Option B — BYOK only (users supply keys in Settings → LLM → BYOK)**
-
-You may still set env fallbacks used when a user has not saved keys in the database:
-
-| Variable                               | Purpose                     |
-| -------------------------------------- | --------------------------- |
-| `LLM_BASE_URL`                         | EUrouter base URL           |
-| `LLM_API_KEY`                          | EUrouter API key fallback   |
-| `LLM_RULE_CHAT` / `LLM_RULE_EMBEDDING` | EUrouter rule UUIDs         |
-| `OPENROUTER_BASE_URL`                  | OpenRouter base URL         |
-| `OPENROUTER_API_KEY`                   | OpenRouter API key fallback |
-
-Users on BYOK must configure credentials in the UI (or rely on these env fallbacks) and set billing mode to **Bring your own key** in Settings.
 
 #### Recommended for production
 
@@ -177,7 +147,7 @@ Users on BYOK must configure credentials in the UI (or rely on these env fallbac
 
    ```sh
    git clone https://github.com/hikaru90/eigen.git && cd eigen
-   ./install.sh --non-interactive --origin https://your.domain --billing platform
+   ./install.sh --non-interactive --origin https://your.domain
    # Edit .env — add LLM gateway credentials (and PayPal if using platform credits)
    ```
 
@@ -199,16 +169,15 @@ Users on BYOK must configure credentials in the UI (or rely on these env fallbac
 
    The script is idempotent (skips if the email already exists). Admin users still see the welcome tour until they complete or skip onboarding.
 
-4. **Verify** — open `ORIGIN` in a browser, sign up or sign in as admin, complete the welcome tour, and confirm LLM billing (Credits or BYOK) before test captures.
+4. **Verify** — open `ORIGIN` in a browser, sign up or sign in as admin, complete the welcome tour, and confirm credits before test captures.
 
 ### Self-hosted end-user sign-up
 
-Users can open **Get early access — self-hosted** (`/signup?plan=self-hosted`). Like managed sign-up, the plan label is informational; behavior depends on how **you** configured env vars and PayPal/BYOK, not on the query parameter.
+Users can open **Get early access — self-hosted** (`/signup?plan=self-hosted`). Like managed sign-up, the plan label is informational; behavior depends on how **you** configured env vars and PayPal, not on the query parameter.
 
 Direct them to:
 
-- **Settings → LLM → Credits** if you enabled platform credits and PayPal.
-- **Settings → LLM → BYOK** if they should use their own EUrouter or OpenRouter keys.
+- **Settings → LLM** (Credits) to top up via PayPal.
 
 ---
 
@@ -220,7 +189,6 @@ Direct them to:
 | `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `ORIGIN` | Eigen                     | You                    | —                      |
 | Service gateway keys (`SERVICE_API_KEY_*`)          | Eigen                     | You                    | —                      |
 | PayPal (wallet top-ups)                             | Eigen (if offered)        | You (optional)         | Pays via PayPal UI     |
-| Personal LLM keys                                   | Only if switching to BYOK | —                      | BYOK tab in Settings   |
 | Welcome tour                                        | Yes                       | —                      | Yes                    |
 | Capture / Activity / Chat                           | Yes                       | —                      | Yes                    |
 
@@ -230,8 +198,7 @@ Direct them to:
 
 | Symptom                                | Likely cause                                                                                                                                                                            |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capture fails with LLM not configured  | Wallet empty (platform credits) or BYOK keys missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
+| Capture fails with LLM not configured  | Wallet empty or OpenRouter service key missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
 | PayPal button missing on Credits tab   | Operator has not set `PAYPAL_*` env vars.                                                                                                                                               |
-| BYOK option disabled in billing method | No provider saved on **Settings → LLM → BYOK** yet.                                                                                                                                     |
 | OAuth sign-in fails                    | Callback URL must match `{ORIGIN}/api/auth/callback/<provider>`.                                                                                                                        |
 | Encrypt/decrypt errors after deploy    | `TENANT_MASTER_KEY` missing or changed without re-encryption — see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md).                                        |

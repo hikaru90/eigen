@@ -45,7 +45,6 @@ Stand: 2026-07-08
 | ---- | ----------------------------------------------------------------------------------------------- | ----- | ------ |
 | 3.1  | **Platform Credits:** EUrouter `SERVICE_API_KEY_EUROUTER` + `LLM_BASE_URL` + Rule-UUIDs gesetzt | —     | ☐      |
 | 3.2  | **PayPal:** `PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` gesetzt               | —     | ☐      |
-| 3.3  | **BYOK:** Env-Fallbacks (`LLM_BASE_URL`, `LLM_API_KEY`) gesetzt (oder bewusst weggelassen)      | —     | ☐      |
 | 3.4  | Wallet-Top-Up über PayPal funktioniert (1.000 Credits Minimum)                                  | —     | ☐      |
 | 3.5  | Checkout-Quote stimmt: Gateway-Wert + 20% Markup + PayPal-Fee-Gross-Up                          | —     | ☐      |
 | 3.6  | Capture-Pre-Check prüft Mindest-Guthaben (50 Credits / ~$0.05)                                  | —     | ☐      |
@@ -54,7 +53,7 @@ Stand: 2026-07-08
 | 3.9  | `insufficient_credits` (402) wird korrekt zurückgegeben bei leerem Wallet                       | —     | ☐      |
 | 3.10 | Admin-Spend-View (`/admin/spend`) zeigt per-User-Aggregate                                      | —     | ☐      |
 | 3.11 | Ledger-Einträge (`wallet_ledger_entry`) sind append-only und korrekt                            | —     | ☐      |
-| 3.12 | STT (Dictation) wird korrekt abgerechnet (Platform oder BYOK)                                   | —     | ☐      |
+| 3.12 | STT (Dictation) wird korrekt über Platform-Credits abgerechnet                                   | —     | ☐      |
 
 ---
 
@@ -206,7 +205,7 @@ Stand: 2026-07-08
 | 13.5 | `docs/payments.md` beschreibt aktuelles Billing-Verhalten                               | —     | ☐      |
 | 13.6 | Marketing-Site (eigenWebsite Repo) ist deployed                                         | —     | ☐      |
 | 13.7 | Welcome-Tour (`/grounding`) funktioniert für neue User                                  | —     | ☐      |
-| 13.8 | Settings → LLM → Credits + BYOK sind selbsterklärend                                    | —     | ☐      |
+| 13.8 | Settings → LLM → Credits ist selbsterklärend                                             | —     | ☐      |
 
 ---
 

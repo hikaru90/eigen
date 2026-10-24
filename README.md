@@ -32,7 +32,7 @@ No Node.js or npm is required on the host for production deployment.
 
 ```sh
 git clone https://github.com/hikaru90/eigen.git && cd eigen
-./install.sh --non-interactive --origin https://your.domain --billing platform
+./install.sh --non-interactive --origin https://your.domain
 # Edit .env — add LLM gateway credentials (and PayPal if using platform credits)
 docker compose up -d --build
 ```

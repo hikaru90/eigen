@@ -65,11 +65,7 @@
   const captureBlocked = $derived(!data.captureAllowed)
 
   function trackCaptureGateInsufficientCredits() {
-    if (
-      captureBlocked &&
-      data.captureGateReason === 'insufficient_credits' &&
-      data.billingMode === 'platform_credits'
-    ) {
+    if (captureBlocked && data.captureGateReason === 'insufficient_credits') {
       trackInsufficientCredits({
         surface: 'capture_gate',
         phase: 'precheck',

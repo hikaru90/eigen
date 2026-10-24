@@ -5,7 +5,6 @@ import { env as kitEnv } from '$env/dynamic/private'
  * when `svelte-kit sync` generates `$env/dynamic/private` types.
  */
 export type ExtendedPrivateEnv = typeof kitEnv & {
-  BILLING_BYOK_UI_ENABLED?: string
   /** Decision-model shadow (category classification) via OpenRouter Decisions API. */
   DECISION_SHADOW_ENABLED?: string
   DECISION_SHADOW_MODEL?: string
@@ -27,8 +26,6 @@ export type ExtendedPrivateEnv = typeof kitEnv & {
   GITHUB_CLIENT_SECRET?: string
   GRAPH_SCALE_QUIET?: string
   GRAPH_SCALE_SPEND?: string
-  LLM_MODEL_CHAT?: string
-  LLM_MODEL_EMBEDDING?: string
   LLM_MODEL_STT?: string
   LLM_ORCHESTRATION_CONCURRENCY?: string
   LLM_REQUEST_TIMEOUT_MS?: string

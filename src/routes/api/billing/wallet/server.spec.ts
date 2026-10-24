@@ -2,14 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { CREDITS_PER_USD } from '$lib/server/billing/credits'
 import { GET } from './+server'
 
-const { getBillingPreferencesMock, getOrCreateWalletMock } = vi.hoisted(() => ({
-  getBillingPreferencesMock: vi.fn(),
+const { getOrCreateWalletMock } = vi.hoisted(() => ({
   getOrCreateWalletMock: vi.fn(),
 }))
 
-vi.mock('$lib/server/billing/preferences', () => ({
-  getBillingPreferences: getBillingPreferencesMock,
-}))
 vi.mock('$lib/server/billing/wallet', () => ({
   getOrCreateWallet: getOrCreateWalletMock,
 }))
@@ -21,8 +17,7 @@ describe('GET /api/billing/wallet', () => {
     expect(await res.json()).toEqual({ error: 'Unauthorized' })
   })
 
-  it('returns wallet and billing preferences for authenticated user', async () => {
-    getBillingPreferencesMock.mockResolvedValue({ billingMode: 'prepaid' })
+  it('returns the wallet for the authenticated user', async () => {
     getOrCreateWalletMock.mockResolvedValue({
       availableCredits: 5000,
       reservedCredits: 100,
@@ -31,13 +26,11 @@ describe('GET /api/billing/wallet', () => {
 
     const res = await GET({ locals: { user: { id: 'u1' } } } as never)
 
-    expect(getBillingPreferencesMock).toHaveBeenCalledWith('u1')
     expect(getOrCreateWalletMock).toHaveBeenCalledWith('u1')
     expect(await res.json()).toEqual({
       availableCredits: 5000,
       reservedCredits: 100,
       pendingBillingMicroUsd: 0,
-      billingMode: 'prepaid',
       creditsPerUsd: CREDITS_PER_USD,
     })
   })

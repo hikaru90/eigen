@@ -6,12 +6,11 @@
 
 New users must pass two gates before capture:
 
-1. **Credits** — platform-credits users top up via PayPal (minimum balance for capture pipeline). BYOK users skip this gate (Settings → LLM → BYOK).
+1. **Credits** — platform-credits users top up via PayPal (minimum balance for capture pipeline).
 2. **Grounding** — required one-time chat at `/grounding` that persists `user_grounding_profile`.
 
 Once `initial_completed_at` is set, grounding is never shown again. `/chat` is MCP-only.
 
-BYOK credential forms are **not** shown in onboarding; they live under Settings → LLM → BYOK only.
 
 ## MCP tools
 

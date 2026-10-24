@@ -1,5 +1,4 @@
 import { and, desc, eq } from 'drizzle-orm'
-import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
 import {
   formatEigenCredits,
   MICRO_USD_PER_CREDIT,
@@ -46,9 +45,7 @@ export class InsufficientCreditsError extends Error {
 }
 
 function buildInsufficientCreditsMessage(opts: InsufficientCreditsOptions): string {
-  const suffix = isByokUiEnabled()
-    ? ' Top up in Settings or switch to BYOK mode.'
-    : ' Top up in Settings → Credits.'
+  const suffix = ' Top up in Settings → Credits.'
   if (
     opts.availableCredits !== undefined &&
     opts.requiredCredits !== undefined &&

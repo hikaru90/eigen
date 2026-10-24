@@ -2,7 +2,6 @@ export type WalletApiResponse = {
   availableCredits: number
   reservedCredits: number
   pendingBillingMicroUsd: number
-  billingMode: 'platform_credits' | 'byok'
   creditsPerUsd: number
 }
 

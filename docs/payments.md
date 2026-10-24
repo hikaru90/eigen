@@ -1,15 +1,11 @@
 # Payments and LLM billing
 
-Eigen bills LLM usage in two modes. Wallet top-ups use PayPal when the operator configures PayPal on the deployment.
+Every AI call (capture, chat, embeddings, dictation) runs through OpenRouter on the operator's
+service key (`SERVICE_API_KEY_OPENROUTER`) and debits the user's Eigen credits. There is no
+bring-your-own-key mode. Wallet top-ups use PayPal when the operator configures PayPal.
 
-## Billing modes
-
-| Mode                                 | `user_preference.billing_mode` | Who pays the gateway         | API keys used                                                                    |
-| ------------------------------------ | ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------- |
-| **Eigen platform credits** (default) | `platform_credits`             | User wallet (PayPal top-ups) | Operator service keys (`SERVICE_API_KEY_EUROUTER`, `SERVICE_API_KEY_OPENROUTER`) |
-| **Bring your own key (BYOK)**        | `byok`                         | User's gateway account       | User keys saved under Settings → LLM → BYOK (with optional env fallbacks)        |
-
-Users switch mode on **Settings → LLM** under **Billing method**.
+Models are pinned in code (`src/lib/server/billing/platform-llm.ts`): DeepSeek V4.1 Flash for
+chat, Qwen3 Embedding 8B (1536 dimensions) for embeddings.
 
 **Onboarding:** Platform-credits users top up via PayPal before first capture. The required **grounding conversation** at `/grounding` also bills the wallet like any other chat session.
 
@@ -77,28 +73,13 @@ Each successful platform call debits only **provider-reported** `usage.cost` (no
 
 | Variable                               | Purpose                                                                         |
 | -------------------------------------- | ------------------------------------------------------------------------------- |
-| `LLM_BASE_URL`                         | EUrouter origin for platform chat/embeddings                                    |
-| `SERVICE_API_KEY_EUROUTER`             | EUrouter service key                                                            |
 | `OPENROUTER_BASE_URL`                  | OpenRouter origin (platform STT and OpenRouter platform path)                   |
 | `SERVICE_API_KEY_OPENROUTER`           | OpenRouter service key for platform STT and OpenRouter platform chat/embeddings |
-| `LLM_RULE_CHAT` / `LLM_RULE_EMBEDDING` | EUrouter routing rule UUIDs                                                     |
 | `LLM_MODEL_STT`                        | Optional STT model override (default: `qwen/qwen3-asr-0.6b`)        |
-
-## User BYOK env fallbacks
-
-When no DB row exists under Settings → LLM → BYOK:
-
-| Variable                                     | Provider                   |
-| -------------------------------------------- | -------------------------- |
-| `LLM_BASE_URL` + `LLM_API_KEY`               | EUrouter                   |
-| `OPENROUTER_BASE_URL` + `OPENROUTER_API_KEY` | OpenRouter (including STT) |
-
-Saved DB credentials always take priority over env for BYOK.
 
 ## Speech-to-text (dictation)
 
-- **Platform credits:** `SERVICE_API_KEY_OPENROUTER` + wallet debit via `withPlatformBilling`.
-- **BYOK:** User's saved OpenRouter config (or `OPENROUTER_*` env fallback only if unset).
+`SERVICE_API_KEY_OPENROUTER` + wallet debit via `withPlatformBilling`, like every other call.
 
 ## RLS and database roles
 
@@ -143,11 +124,10 @@ Each eval run uses an isolated **eval tenant** (`evalUserId`) for thoughts and R
 
 ### Troubleshooting: balance shows but capture fails
 
-1. Confirm **Billing method** is platform credits (not BYOK).
-2. Refresh balance via `GET /api/billing/wallet` — UI can be stale until refetch after PayPal.
-3. Check **Activity** for large debits (USD); long captures need enough credits for **two** LLM calls plus markup.
-4. Verify `npm run db:rls` and `APP_DB_ROLE` on the deployment.
-5. If error `phase` is `settle`, the gateway cost for the last call exceeded remaining balance; top up or shorten input.
+1. Refresh balance via `GET /api/billing/wallet` — UI can be stale until refetch after PayPal.
+2. Check **Activity** for large debits (USD); long captures need enough credits for **two** LLM calls plus markup.
+3. Verify `npm run db:rls` and `APP_DB_ROLE` on the deployment.
+4. If error `phase` is `settle`, the gateway cost for the last call exceeded remaining balance; top up or shorten input.
 
 ## ERPNext invoice sync
 

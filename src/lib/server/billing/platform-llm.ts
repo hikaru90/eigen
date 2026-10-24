@@ -11,8 +11,8 @@ export const PLATFORM_CHAT_MODEL = 'deepseek/deepseek-v4.1-flash-1017'
 export const PLATFORM_EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b'
 
 /**
- * Platform-managed gateway credentials (Eigen service account), used when billing_mode is
- * platform_credits. All platform inference goes through OpenRouter on the service key.
+ * Platform-managed gateway credentials (Eigen service account). Every AI call goes through
+ * OpenRouter on the service key and bills the user's Eigen credits.
  */
 export async function loadPlatformLlmConfig(_userId: string): Promise<ResolvedLlmConfig> {
   const baseUrl = env.OPENROUTER_BASE_URL?.trim()
@@ -27,8 +27,6 @@ export async function loadPlatformLlmConfig(_userId: string): Promise<ResolvedLl
     provider: 'openrouter',
     baseUrl: baseUrl.replace(/\/$/, ''),
     apiKey,
-    ruleChat: null,
-    ruleEmbedding: null,
     modelChat: PLATFORM_CHAT_MODEL,
     modelEmbedding: PLATFORM_EMBEDDING_MODEL,
   }
@@ -47,8 +45,6 @@ export async function loadPlatformOpenRouterSttConfig(): Promise<ResolvedLlmConf
     provider: 'openrouter',
     baseUrl: baseUrl.replace(/\/$/, ''),
     apiKey,
-    ruleChat: null,
-    ruleEmbedding: null,
     modelChat: null,
     modelEmbedding: null,
   }

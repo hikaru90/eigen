@@ -1,6 +1,6 @@
 #!/bin/sh
 # Generate production .env for Docker Compose (VPS / self-hosted).
-# Usage: ./install.sh [--origin URL] [--non-interactive] [--billing platform|byok]
+# Usage: ./install.sh [--origin URL] [--non-interactive]
 #        [--admin-name NAME] [--admin-email EMAIL] [--admin-password PASS]
 #        [--with-caddy DOMAIN] [--force]
 set -e
@@ -52,7 +52,6 @@ CADDYFILE="${SCRIPT_DIR}/deploy/Caddyfile"
 
 ORIGIN=""
 NON_INTERACTIVE=0
-BILLING=""
 ADMIN_NAME=""
 ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
@@ -69,7 +68,6 @@ Usage:
 Options:
   --origin URL              Public app URL (required in --non-interactive mode)
   --non-interactive         No prompts; fail if required args are missing
-  --billing platform|byok   Hint for which LLM/PayPal vars you must fill manually
   --admin-name NAME         Bootstrap admin display name
   --admin-email EMAIL       Bootstrap admin email (entrypoint creates user on start)
   --admin-password PASS     Bootstrap admin password
@@ -78,7 +76,7 @@ Options:
   -h, --help                Show this help
 
 Examples:
-  ./install.sh --non-interactive --origin https://eigen.example.com --billing platform
+  ./install.sh --non-interactive --origin https://eigen.example.com
   ./install.sh --origin http://localhost:3000 --with-caddy eigen.example.com
 
 After install.sh:
@@ -128,11 +126,6 @@ while [ $# -gt 0 ]; do
 			NON_INTERACTIVE=1
 			shift
 			;;
-		--billing)
-			[ -n "${2:-}" ] || die "--billing requires platform or byok"
-			BILLING=$2
-			shift 2
-			;;
 		--admin-name)
 			[ -n "${2:-}" ] || die "--admin-name requires a value"
 			ADMIN_NAME=$2
@@ -166,7 +159,7 @@ while [ $# -gt 0 ]; do
 			;;
 	esac
 done
-log "Parsed: ORIGIN=${ORIGIN:-<not set>} NON_INTERACTIVE=$NON_INTERACTIVE BILLING=${BILLING:-<not set>} FORCE=$FORCE WITH_CADDY=${WITH_CADDY:-<not set>} ADMIN_NAME=${ADMIN_NAME:-<not set>} ADMIN_EMAIL=${ADMIN_EMAIL:-<not set>}"
+log "Parsed: ORIGIN=${ORIGIN:-<not set>} NON_INTERACTIVE=$NON_INTERACTIVE FORCE=$FORCE WITH_CADDY=${WITH_CADDY:-<not set>} ADMIN_NAME=${ADMIN_NAME:-<not set>} ADMIN_EMAIL=${ADMIN_EMAIL:-<not set>}"
 
 # ── Preflight checks ──────────────────────────────────────────────────────
 log "Preflight: checking openssl..."
@@ -252,19 +245,6 @@ fi
 [ -n "$ORIGIN" ] || die "ORIGIN must not be empty"
 log_ok "ORIGIN=$ORIGIN"
 
-case "$BILLING" in
-	"" | platform | byok) ;;
-	*)
-		die "--billing must be platform or byok"
-		;;
-esac
-
-if [ -z "$BILLING" ] && [ "$NON_INTERACTIVE" -eq 0 ]; then
-	printf 'Billing path [platform/byok] (default: platform): '
-	read -r BILLING
-fi
-BILLING=${BILLING:-platform}
-log_ok "BILLING=$BILLING"
 
 # ── Generate secrets ───────────────────────────────────────────────────────
 log "Generating cryptographic secrets..."
@@ -443,14 +423,8 @@ echo ""
 echo "Log saved to: ${_LOGFILE:-<unable to create>}"
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env and set LLM credentials:"
-if [ "$BILLING" = platform ]; then
-	echo "     Platform credits — SERVICE_API_KEY_EUROUTER, LLM_BASE_URL,"
-	echo "     LLM_RULE_CHAT, LLM_RULE_EMBEDDING, and PayPal (PAYPAL_*)."
-else
-	echo "     BYOK — LLM_BASE_URL, LLM_API_KEY, LLM_RULE_CHAT, LLM_RULE_EMBEDDING"
-	echo "     (users configure keys in Settings → LLM → BYOK)."
-fi
+echo "  1. Edit .env and set the AI + payment credentials:"
+echo "     OPENROUTER_BASE_URL, SERVICE_API_KEY_OPENROUTER, and PayPal (PAYPAL_*)."
 echo "  2. docker compose up -d --build"
 echo "  3. Open ${ORIGIN} and sign in (or use ADMIN_* bootstrap if set)."
 echo ""

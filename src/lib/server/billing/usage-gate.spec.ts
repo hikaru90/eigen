@@ -3,13 +3,8 @@ import { MICRO_USD_PER_CREDIT } from './credits'
 import { MICRO_USD_PER_CENT } from './money'
 import { billedMicroUsdFromBaseUsd, MIN_CAPTURE_PIPELINE_CREDITS } from './usage-gate'
 
-const { isByokBillingMock, chargePlatformUsageMicroUsdMock } = vi.hoisted(() => ({
-  isByokBillingMock: vi.fn(async () => false),
+const { chargePlatformUsageMicroUsdMock } = vi.hoisted(() => ({
   chargePlatformUsageMicroUsdMock: vi.fn(async () => 0),
-}))
-
-vi.mock('$lib/server/billing/preferences', () => ({
-  isByokBilling: isByokBillingMock,
 }))
 
 vi.mock('$lib/server/billing/ensure-harness-credits', () => ({
@@ -34,8 +29,6 @@ vi.mock('$lib/server/billing/wallet', () => ({
 
 describe('usage-gate billing', () => {
   beforeEach(() => {
-    isByokBillingMock.mockReset()
-    isByokBillingMock.mockResolvedValue(false)
     chargePlatformUsageMicroUsdMock.mockReset()
     chargePlatformUsageMicroUsdMock.mockResolvedValue(0)
   })

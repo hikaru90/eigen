@@ -1,6 +1,5 @@
 import { isHarnessUser } from '$lib/server/auth/harness-account'
 import { MIN_CAPTURE_PIPELINE_CREDITS, CREDITS_PER_USD } from '$lib/server/billing/credits'
-import { isByokBilling } from '$lib/server/billing/preferences'
 import { getOrCreateWallet, InsufficientCreditsError } from '$lib/server/billing/wallet'
 
 export type CaptureGateReason = 'insufficient_credits'
@@ -12,11 +11,9 @@ export async function checkCaptureAllowed(userId: string): Promise<CaptureGateRe
     return { allowed: true }
   }
 
-  if (!(await isByokBilling(userId))) {
-    const wallet = await getOrCreateWallet(userId)
-    if (wallet.availableCredits < MIN_CAPTURE_PIPELINE_CREDITS) {
-      return { allowed: false, reason: 'insufficient_credits' }
-    }
+  const wallet = await getOrCreateWallet(userId)
+  if (wallet.availableCredits < MIN_CAPTURE_PIPELINE_CREDITS) {
+    return { allowed: false, reason: 'insufficient_credits' }
   }
 
   return { allowed: true }

@@ -1,7 +1,6 @@
 import type { Actions, PageServerLoad } from './$types'
 import { fail, redirect } from '@sveltejs/kit'
 import { eq } from 'drizzle-orm'
-import { isByokUiEnabled } from '$lib/server/billing/byok-ui'
 import { MIN_CAPTURE_PIPELINE_CREDITS, STARTING_FREE_CREDITS } from '$lib/server/billing/credits'
 import {
   getPayPalClientId,
@@ -40,10 +39,7 @@ export const load: PageServerLoad = async (event) => {
 
   const [pref, captureGate, wallet, groundingQuestionEligible] = await Promise.all([
     getDb()
-      .select({
-        preferredLanguage: userPreference.preferredLanguage,
-        billingMode: userPreference.billingMode,
-      })
+      .select({ preferredLanguage: userPreference.preferredLanguage })
       .from(userPreference)
       .where(eq(userPreference.userId, userId))
       .limit(1)
@@ -54,13 +50,10 @@ export const load: PageServerLoad = async (event) => {
   ])
 
   const paypalConfigured = isPayPalConfigured()
-  const byokUiEnabled = isByokUiEnabled()
   const paypalClientId = paypalConfigured ? getPayPalClientId() : null
   const paypalSdkUrl = paypalConfigured ? getPayPalWebSdkUrl() : null
 
-  const billingMode = (pref?.billingMode ?? 'platform_credits') as 'platform_credits' | 'byok'
-  const creditsGatePassed =
-    isHarness || billingMode === 'byok' || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS
+  const creditsGatePassed = isHarness || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS
 
   const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(userId)
 
@@ -69,14 +62,12 @@ export const load: PageServerLoad = async (event) => {
     isHarness,
     onboardingCompleted: isHarness || authUser?.onboardingCompleted === true,
     preferredLanguage: pref?.preferredLanguage ?? 'en',
-    billingMode,
     walletAvailableCredits: wallet.availableCredits,
     minCaptureCredits: MIN_CAPTURE_PIPELINE_CREDITS,
     startingFreeCredits: STARTING_FREE_CREDITS,
     paypalConfigured,
     paypalClientId,
     paypalSdkUrl,
-    byokUiEnabled,
     creditsGatePassed,
     captureAllowed: captureGate.allowed,
     captureGateReason: captureGate.allowed ? null : captureGate.reason,

@@ -118,10 +118,6 @@
     return `${(ms / 1000).toFixed(2)}s`
   }
 
-  function billingModeLabel(mode: string): string {
-    return mode === 'byok' ? 'BYOK' : 'Platform credits'
-  }
-
   function listUrl(overrides: Record<string, string | null>): string {
     const url = new URL(page.url)
     for (const [key, value] of Object.entries(overrides)) {
@@ -385,19 +381,6 @@
               {#if data.includeHarness}
                 <Table.Head>Kind</Table.Head>
               {/if}
-              <Table.Head>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  class={sortButtonClass('left')}
-                  onclick={() => toggleSort('billingMode')}
-                >
-                  Billing
-                  {#if data.sort === 'billingMode'}
-                    {#if data.sortAsc}<ChevronUp />{:else}<ChevronDown />{/if}
-                  {/if}
-                </Button>
-              </Table.Head>
               <Table.Head class="text-right">
                 <Button
                   variant="ghost"
@@ -478,7 +461,6 @@
                     {accountKindLabel(row.accountKind)}
                   </Table.Cell>
                 {/if}
-                <Table.Cell>{billingModeLabel(row.billingMode)}</Table.Cell>
                 <Table.Cell class="text-right font-mono tabular-nums">
                   {row.availableCredits.toLocaleString('en-US')}
                 </Table.Cell>
@@ -494,7 +476,7 @@
               </Table.Row>
             {:else}
               <Table.Row>
-                <Table.Cell class="text-muted-foreground p-4" colspan={data.includeHarness ? 7 : 6}>
+                <Table.Cell class="text-muted-foreground p-4" colspan={data.includeHarness ? 6 : 5}>
                   {emptyUserMessage}
                 </Table.Cell>
               </Table.Row>
@@ -503,7 +485,7 @@
           {#if data.totals.userCount > 0}
             <Table.Footer>
               <Table.Row>
-                <Table.Cell class="text-right font-medium" colspan={data.includeHarness ? 4 : 3}>
+                <Table.Cell class="text-right font-medium" colspan={data.includeHarness ? 3 : 2}>
                   {data.search.trim() ? 'Filtered total' : 'Deployment total'}
                 </Table.Cell>
                 <Table.Cell class="text-right font-mono text-[11px] tabular-nums">

@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
 import { activityProviderForLlmConfig } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { captureServerEvent } from '$lib/server/analytics/posthog-server'
@@ -9,11 +8,8 @@ import {
   loadPlatformLlmConfig,
   loadPlatformOpenRouterSttConfig,
 } from '$lib/server/billing/platform-llm'
-import { isByokBilling } from '$lib/server/billing/preferences'
 import { withPlatformBilling } from '$lib/server/billing/usage-gate'
-import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { getDb, withDbUser } from '$lib/server/db'
-import { llmProviderConfig, llmActiveProvider } from '$lib/server/db/schema'
+import { getDb } from '$lib/server/db'
 import { env } from '$lib/server/env/private-env'
 import { LlmHttpError } from '$lib/server/llm/errors'
 import {
@@ -21,10 +17,6 @@ import {
   requireGatewayReportedCostUsd,
   type TokenUsage,
 } from '$lib/server/llm/gateway-cost'
-import {
-  assertEurouterGatewayConfigured,
-  routingRuleLookupErrorMessage,
-} from '$lib/server/llm/llm-config-guard'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings'
 
@@ -35,12 +27,12 @@ export {
   requireGatewayReportedCostUsd,
 } from '$lib/server/llm/gateway-cost'
 
-type RoutingConfig = { ruleId?: string; model: string; provider?: Record<string, unknown> }
+type RoutingConfig = { model: string }
 type AiMessageRole = 'system' | 'user' | 'assistant'
 type AiOutputChoice = { role: AiMessageRole; content: string }
 
 export type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types'
-import type { LlmProviderKind, ResolvedLlmConfig } from '$lib/server/llm/types'
+import type { ResolvedLlmConfig } from '$lib/server/llm/types'
 
 const EMBEDDING_DIMENSIONS = 1536
 const AI_ID_ALLOWED = /^[A-Za-z0-9\-_.~@()!':|]+$/
@@ -100,8 +92,6 @@ function gatewayHostFromBaseUrl(baseUrl: string): string {
     }
   }
 }
-
-const routingRuleCache = new Map<string, RoutingConfig>()
 
 /**
  * Per-user rate-limit state. Keyed by userId so that concurrent captures from different users
@@ -359,236 +349,24 @@ async function waitForSttRateLimit(userId: string): Promise<void> {
 }
 
 /**
- * Loads credentials for a specific LLM provider. DB rows take priority over environment variables.
- */
-async function loadLlmProviderConfig(
-  userId: string,
-  provider: LlmProviderKind,
-): Promise<ResolvedLlmConfig> {
-  const row = await withDbUser(userId, async (db) => {
-    const [loaded] = await db
-      .select()
-      .from(llmProviderConfig)
-      .where(and(eq(llmProviderConfig.userId, userId), eq(llmProviderConfig.provider, provider)))
-      .limit(1)
-    if (!loaded?.baseUrl) return null
-
-    const apiKey = loaded.apiKeyEncrypted
-      ? await decryptTenantValue({
-          userId,
-          table: 'llm_provider_config',
-          column: 'api_key',
-          ciphertext: loaded.apiKeyEncrypted,
-        })
-      : (loaded.apiKey ?? '')
-    if (!apiKey.trim()) return null
-
-    return { ...loaded, apiKey }
-  })
-
-  if (row?.baseUrl && row.apiKey) {
-    const baseUrl = row.baseUrl.replace(/\/$/, '')
-    const ruleChat = row.ruleChat?.trim() || null
-    const ruleEmbedding = row.ruleEmbedding?.trim() || null
-    if (provider === 'eurouter') {
-      assertEurouterGatewayConfigured({
-        baseUrl,
-        ruleChat,
-        ruleEmbedding,
-        context: 'byok',
-      })
-    }
-    return {
-      provider,
-      baseUrl,
-      apiKey: row.apiKey,
-      ruleChat,
-      ruleEmbedding,
-      modelChat: row.modelChat?.trim() || null,
-      modelEmbedding: row.modelEmbedding?.trim() || null,
-    }
-  }
-
-  if (provider === 'openrouter') {
-    const baseUrl = env.OPENROUTER_BASE_URL?.trim()
-    const apiKey = env.OPENROUTER_API_KEY?.trim()
-    if (!baseUrl) {
-      throw new Error(
-        'OpenRouter not configured for speech-to-text: set OPENROUTER_BASE_URL or save OpenRouter credentials in Settings → LLM Provider',
-      )
-    }
-    if (!apiKey) {
-      throw new Error(
-        'OpenRouter not configured for speech-to-text: set OPENROUTER_API_KEY or save OpenRouter credentials in Settings → LLM Provider',
-      )
-    }
-    return {
-      provider: 'openrouter',
-      baseUrl: baseUrl.replace(/\/$/, ''),
-      apiKey,
-      ruleChat: null,
-      ruleEmbedding: null,
-      modelChat: null,
-      modelEmbedding: null,
-    }
-  }
-
-  const baseUrl = env.LLM_BASE_URL?.trim()
-  const apiKey = env.LLM_API_KEY?.trim()
-  if (!baseUrl) {
-    throw new Error(
-      'LLM not configured: set LLM_BASE_URL in environment or configure via Settings → LLM Provider',
-    )
-  }
-  if (!apiKey) {
-    throw new Error(
-      'LLM not configured: set LLM_API_KEY in environment or configure via Settings → LLM Provider',
-    )
-  }
-
-  const ruleChat = env.LLM_RULE_CHAT?.trim() || null
-  const ruleEmbedding = env.LLM_RULE_EMBEDDING?.trim() || null
-  const normalizedBaseUrl = baseUrl.replace(/\/$/, '')
-  assertEurouterGatewayConfigured({
-    baseUrl: normalizedBaseUrl,
-    ruleChat,
-    ruleEmbedding,
-    context: 'byok',
-  })
-
-  return {
-    provider: 'eurouter',
-    baseUrl: normalizedBaseUrl,
-    apiKey,
-    ruleChat,
-    ruleEmbedding,
-    modelChat: null,
-    modelEmbedding: null,
-  }
-}
-
-/** Active provider row + DB/env credentials (EUrouter or OpenRouter BYOK shapes). */
-async function resolveActiveProviderLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
-  const [activeRow] = await withDbUser(userId, async (db) =>
-    db.select().from(llmActiveProvider).where(eq(llmActiveProvider.userId, userId)).limit(1),
-  )
-  const provider = (activeRow?.provider ?? 'eurouter') as LlmProviderKind
-  return loadLlmProviderConfig(userId, provider)
-}
-
-/**
  * Loads LLM config for billing (gateway keys + active provider preference).
  * Uses resolveBillingUserId so eval tenants bill/configure via the operator, not the
  * ephemeral eval user. Unrelated to tenant envelope encryption (thought/BYOK-at-rest DEK).
  */
 async function loadLlmConfig(userId: string): Promise<ResolvedLlmConfig> {
-  const billingUserId = resolveBillingUserId(userId)
-  if (await isByokBilling(billingUserId)) {
-    return resolveActiveProviderLlmConfig(billingUserId)
-  }
-  return loadPlatformLlmConfig(billingUserId)
+  return loadPlatformLlmConfig(resolveBillingUserId(userId))
 }
 
-async function resolveRoutingRuleById(
-  ruleId: string,
-  apiKey: string,
-  baseUrl: string,
-): Promise<RoutingConfig> {
-  const cached = routingRuleCache.get(ruleId)
-  if (cached) return cached
-
-  const res = await fetch(`${baseUrl}/routing-rules/${ruleId}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  })
-  const text = await res.text()
-  let json: unknown
-  try {
-    json = JSON.parse(text) as unknown
-  } catch {
-    json = { raw: text }
-  }
-
-  if (!res.ok) {
-    throw new Error(
-      routingRuleLookupErrorMessage({
-        ruleId,
-        baseUrl,
-        status: res.status,
-        bodyPreview: text,
-      }),
-    )
-  }
-
-  const candidate =
-    (typeof json === 'object' && json && 'data' in json
-      ? (json as { data?: unknown }).data
-      : json) ?? {}
-
-  const model =
-    typeof (candidate as { model?: unknown }).model === 'string'
-      ? (candidate as { model: string }).model.trim()
-      : ''
-  if (!model) {
-    throw new Error(`Routing rule ${ruleId} is missing a model`)
-  }
-
-  const provider =
-    typeof (candidate as { provider?: unknown }).provider === 'object' &&
-    (candidate as { provider?: unknown }).provider
-      ? ((candidate as { provider: Record<string, unknown> }).provider ?? {})
-      : undefined
-
-  const resolved: RoutingConfig = { ruleId, model, ...(provider ? { provider } : {}) }
-  routingRuleCache.set(ruleId, resolved)
-  return resolved
-}
-
-async function chatRoutingConfig(
-  config: ResolvedLlmConfig,
-  ruleOverride?: string,
-): Promise<RoutingConfig> {
-  // OpenRouter: use direct model name, no routing rules
-  if (config.provider === 'openrouter') {
-    const model = config.modelChat?.trim() || env.LLM_MODEL_CHAT?.trim()
-    if (!model) {
-      throw new Error(
-        'OpenRouter chat model not configured: set a chat model name in Settings → LLM Provider',
-      )
-    }
-    return { model }
-  }
-  // EUrouter: resolve via routing rule or env model override
-  const ruleId = ruleOverride?.trim() || config.ruleChat
-  const model = env.LLM_MODEL_CHAT?.trim()
-  if (model) return { ...(ruleId ? { ruleId } : {}), model }
-  if (ruleId) return resolveRoutingRuleById(ruleId, config.apiKey, config.baseUrl)
-  throw new Error(
-    'LLM chat rule not configured: set LLM_RULE_CHAT in environment or configure via Settings → LLM Provider',
-  )
+async function chatRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
+  const model = config.modelChat?.trim()
+  if (!model) throw new Error('Platform chat model missing from the LLM config')
+  return { model }
 }
 
 async function embeddingRoutingConfig(config: ResolvedLlmConfig): Promise<RoutingConfig> {
-  // OpenRouter: use direct model name, no routing rules
-  if (config.provider === 'openrouter') {
-    const model = config.modelEmbedding?.trim() || env.LLM_MODEL_EMBEDDING?.trim()
-    if (!model) {
-      throw new Error(
-        'OpenRouter embedding model not configured: set an embedding model name in Settings → LLM Provider',
-      )
-    }
-    return { model }
-  }
-  // EUrouter: resolve via routing rule or env model override
-  const ruleId = config.ruleEmbedding
-  const model = env.LLM_MODEL_EMBEDDING?.trim()
-  if (model) return { ...(ruleId ? { ruleId } : {}), model }
-  if (ruleId) return resolveRoutingRuleById(ruleId, config.apiKey, config.baseUrl)
-  throw new Error(
-    'LLM embedding rule not configured: set LLM_RULE_EMBEDDING in environment or configure via Settings → LLM Provider',
-  )
+  const model = config.modelEmbedding?.trim()
+  if (!model) throw new Error('Platform embedding model missing from the LLM config')
+  return { model }
 }
 
 /**
@@ -601,7 +379,7 @@ export const DEFAULT_CHAT_MAX_TOKENS = 8192
 
 /**
  * Chat completions: `POST ${baseUrl}/chat/completions`.
- * Body uses `rule_id` from the user's LLM config (DB row) or LLM_RULE_CHAT env var.
+ * Platform chat via OpenRouter on the service key, with the pinned platform chat model.
  */
 export async function llmChatCompletion(input: {
   userId: string
@@ -610,8 +388,6 @@ export async function llmChatCompletion(input: {
   maxTokens?: number
   /** Dev/server observability only; appears in logs to disambiguate parallel chat uses. */
   logContext?: string
-  /** Override chat routing rule (e.g. LLM_RULE_ROUTER for the agent router judge). */
-  routingRuleId?: string
   /** OpenAI-compatible JSON object mode — gateway must support response_format. */
   responseFormat?: 'json_object'
   /** Optional conversation-level identifier for PostHog AI observability session grouping. */
@@ -635,7 +411,6 @@ async function llmChatCompletionInner(input: {
   temperature?: number
   maxTokens?: number
   logContext?: string
-  routingRuleId?: string
   responseFormat?: 'json_object'
   aiSessionId?: string
   aiTraceId?: string
@@ -644,7 +419,7 @@ async function llmChatCompletionInner(input: {
   const activityProvider = activityProviderForLlmConfig(config.provider)
   const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl)
   const url = `${config.baseUrl}/chat/completions`
-  const routing = await chatRoutingConfig(config, input.routingRuleId)
+  const routing = await chatRoutingConfig(config)
   const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_')
   const messages = sanitizeChatMessages(input.messages)
   const aiSessionId = normalizeAiIdentifier(input.aiSessionId, `user-${input.userId}`)
@@ -660,7 +435,6 @@ async function llmChatCompletionInner(input: {
       if (!isGraphScaleQuiet()) {
         console.info(`[llm.chat:${logCtx}] attempt ${attempt}/${maxAttempts}`, {
           model: routing.model,
-          ruleId: routing.ruleId ?? null,
           messageCount: messages.length,
           totalChars: messages.reduce((n, m) => n + m.content.length, 0),
         })
@@ -686,9 +460,7 @@ async function llmChatCompletionInner(input: {
             Authorization: `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
-            ...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
             model: routing.model,
-            ...(routing.provider ? { provider: routing.provider } : {}),
             messages,
             ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
             max_tokens: input.maxTokens ?? DEFAULT_CHAT_MAX_TOKENS,
@@ -713,8 +485,6 @@ async function llmChatCompletionInner(input: {
         console.error(`[llm.chat:${logCtx}] DIAG 4xx`, {
           status: res.status,
           model: routing.model,
-          ruleId: routing.ruleId ?? null,
-          provider: routing.provider ?? null,
           messageCount: messages.length,
           messageSizes: messages.map((m) => ({ role: m.role, len: m.content.length })),
           totalChars: messages.reduce((n, m) => n + m.content.length, 0),
@@ -826,7 +596,7 @@ async function llmChatCompletionInner(input: {
 }
 
 /**
- * Embeddings: `POST ${baseUrl}/embeddings` with rule_id from the user's LLM config.
+ * Embeddings: `POST ${baseUrl}/embeddings` with the pinned platform embedding model.
  */
 export async function llmCreateEmbeddings(input: {
   userId: string
@@ -877,9 +647,7 @@ async function llmCreateEmbeddingsInner(input: {
             Authorization: `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
-            ...(routing.ruleId ? { rule_id: routing.ruleId } : {}),
             model: routing.model,
-            ...(routing.provider ? { provider: routing.provider } : {}),
             dimensions: EMBEDDING_DIMENSIONS,
             input: input.input,
           }),
@@ -959,18 +727,6 @@ function sttTranscriptPreview(body: unknown): string {
   return ''
 }
 
-/**
- * OpenRouter credentials for speech-to-text.
- * — Platform credits: Eigen service account (`SERVICE_API_KEY_OPENROUTER`).
- * — BYOK: user DB credentials first, then deployment `OPENROUTER_*` env fallback (same as chat).
- */
-async function loadOpenRouterSttConfig(userId: string): Promise<ResolvedLlmConfig> {
-  const billingUserId = resolveBillingUserId(userId)
-  if (await isByokBilling(billingUserId)) {
-    return loadLlmProviderConfig(billingUserId, 'openrouter')
-  }
-  return loadPlatformOpenRouterSttConfig()
-}
 
 /**
  * Speech-to-text via OpenRouter `POST /audio/transcriptions` (OpenAI-compatible JSON body).
@@ -984,7 +740,7 @@ export async function llmCreateTranscription(input: {
     input.userId,
     (body) => requireGatewayReportedCostUsd(body),
     async () => {
-      const config = await loadOpenRouterSttConfig(input.userId)
+      const config = await loadPlatformOpenRouterSttConfig()
       const run = () => llmCreateTranscriptionDedicated(input, config)
       return serialLlmRequestsEnabled() ? runLlmRequestGated(input.userId, run) : run()
     },

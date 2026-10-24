@@ -35,13 +35,12 @@ describe('admin-spend', () => {
     vi.unstubAllEnvs()
   })
 
-  it('mapAdminSpendDbRow normalizes gateway USD and billing mode', () => {
+  it('mapAdminSpendDbRow normalizes gateway USD', () => {
     const row = mapAdminSpendDbRow({
       user_id: 'u1',
       email: 'a@example.com',
       name: 'Alex',
       account_kind: 'production',
-      billing_mode: 'byok',
       available_credits: 500,
       total_gateway_cost_usd: '1.5',
       total_credits_debited: '1500',
@@ -53,7 +52,6 @@ describe('admin-spend', () => {
       email: 'a@example.com',
       name: 'Alex',
       accountKind: 'production',
-      billingMode: 'byok',
       availableCredits: 500,
       totalGatewayCostUsd: '1.500000',
       totalCreditsDebited: 1500,
@@ -61,20 +59,18 @@ describe('admin-spend', () => {
     })
   })
 
-  it('mapAdminSpendDbRow defaults unknown billing mode to platform_credits', () => {
+  it('mapAdminSpendDbRow defaults missing numbers to zero', () => {
     const row = mapAdminSpendDbRow({
       user_id: 'u2',
       email: 'b@example.com',
       name: null,
       account_kind: null,
-      billing_mode: null,
       available_credits: null,
       total_gateway_cost_usd: null,
       total_credits_debited: null,
       last_activity_at: null,
     })
 
-    expect(row.billingMode).toBe('platform_credits')
     expect(row.availableCredits).toBe(0)
     expect(row.totalGatewayCostUsd).toBe('0.000000')
     expect(row.totalCreditsDebited).toBe(0)
@@ -87,7 +83,6 @@ describe('admin-spend', () => {
         email: 'a@example.com',
         name: null,
         accountKind: 'production',
-        billingMode: 'platform_credits',
         availableCredits: 100,
         totalGatewayCostUsd: '2.000000',
         totalCreditsDebited: 2000,
@@ -98,7 +93,6 @@ describe('admin-spend', () => {
         email: 'b@example.com',
         name: null,
         accountKind: 'production',
-        billingMode: 'byok',
         availableCredits: 0,
         totalGatewayCostUsd: '0.500000',
         totalCreditsDebited: 0,
@@ -132,7 +126,6 @@ describe('admin-spend', () => {
             email: 'a@example.com',
             name: 'Alex',
             account_kind: 'production',
-            billing_mode: 'platform_credits',
             available_credits: 1000,
             total_gateway_cost_usd: '3',
             total_credits_debited: '3000',

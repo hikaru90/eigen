@@ -23,18 +23,10 @@ const { mockEnv, logActivityCallMock, getDbMock, decryptTenantValueMock, capture
 
     return {
       mockEnv: {
-        LLM_BASE_URL: 'https://example.test',
-        LLM_RULE_CHAT: 'rule-chat',
-        LLM_RULE_EMBEDDING: 'rule-embed',
-        LLM_MODEL_CHAT: 'gpt-test',
-        LLM_MODEL_EMBEDDING: 'text-embedding-3-small',
         LLM_MIN_REQUEST_INTERVAL_MS: '0',
         LLM_REQUEST_TIMEOUT_MS: '',
         LLM_SERIAL_REQUESTS: '',
-        LLM_API_KEY: 'key-1',
-        SERVICE_API_KEY_EUROUTER: 'service-eurouter-key',
         OPENROUTER_BASE_URL: 'https://openrouter.example/api/v1',
-        OPENROUTER_API_KEY: 'openrouter-key',
         SERVICE_API_KEY_OPENROUTER: 'service-openrouter-key',
       } as ExtendedPrivateEnv,
       logActivityCallMock: vi.fn(),
@@ -62,10 +54,6 @@ vi.mock('$lib/server/analytics/posthog-server', () => ({
   captureServerEvent: captureServerEventMock,
 }))
 
-vi.mock('$lib/server/billing/preferences', () => ({
-  isByokBilling: vi.fn(async () => true),
-}))
-
 vi.mock('$lib/server/billing/usage-gate', () => ({
   withPlatformBilling: vi.fn(async (_userId, _settle, fn) => fn()),
 }))
@@ -73,21 +61,6 @@ vi.mock('$lib/server/billing/usage-gate', () => ({
 vi.mock('$lib/server/crypto/tenant-encryption', () => ({
   decryptTenantValue: decryptTenantValueMock,
 }))
-
-function mockSequentialDbLimitResults(...results: unknown[][]) {
-  let index = 0
-  const chain: Record<string, unknown> = {}
-  chain.select = () => chain
-  chain.from = () => chain
-  chain.where = () => chain
-  chain.limit = () => {
-    const rows = results[index] ?? []
-    index += 1
-    return Promise.resolve(rows)
-  }
-  getDbMock.mockReturnValue(chain)
-  return chain
-}
 
 function fetchThatWaitsForAbort(): ReturnType<typeof vi.fn> {
   return vi.fn((_url: unknown, init?: RequestInit) => {
@@ -113,14 +86,10 @@ function response(ok: boolean, status: number, body: unknown): Response {
 describe('llm client retries', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockEnv.LLM_BASE_URL = 'https://example.test'
-    mockEnv.LLM_RULE_CHAT = 'rule-chat'
-    mockEnv.LLM_RULE_EMBEDDING = 'rule-embed'
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    mockEnv.LLM_MODEL_EMBEDDING = 'text-embedding-3-small'
+    mockEnv.OPENROUTER_BASE_URL = 'https://example.test'
     mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
     mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
-    mockEnv.LLM_API_KEY = 'key-1'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'key-1'
   })
 
   it('chat succeeds and logs cost as 0 when response has no usage field', async () => {
@@ -165,7 +134,7 @@ describe('llm client retries', () => {
       expect.anything(),
       'u1',
       expect.objectContaining({
-        provider: 'eurouter',
+        provider: 'openrouter',
         operation: 'llm.chat.chat.success(attempt=1)',
         gatewayHost: 'example.test',
       }),
@@ -197,8 +166,8 @@ describe('llm client retries', () => {
         properties: expect.objectContaining({
           $ai_session_id: 'session-1',
           $ai_trace_id: 'trace-1',
-          $ai_model: 'gpt-test',
-          $ai_provider: 'eurouter',
+          $ai_model: 'deepseek/deepseek-v4.1-flash-1017',
+          $ai_provider: 'openrouter',
           $ai_input_tokens: 12,
           $ai_output_tokens: 34,
           $ai_stop_reason: 'stop',
@@ -228,7 +197,7 @@ describe('llm client retries', () => {
       model?: string
     }
     expect(body.temperature).toBe(0.7)
-    expect(body.model).toBe('gpt-test')
+    expect(body.model).toBe('deepseek/deepseek-v4.1-flash-1017')
   })
 
   it('chat retries exactly three attempts then fails', async () => {
@@ -267,8 +236,8 @@ describe('llm client retries', () => {
         properties: expect.objectContaining({
           $ai_session_id: 'session-error',
           $ai_trace_id: 'trace-error',
-          $ai_model: 'gpt-test',
-          $ai_provider: 'eurouter',
+          $ai_model: 'deepseek/deepseek-v4.1-flash-1017',
+          $ai_provider: 'openrouter',
           $ai_http_status: 500,
           $ai_is_error: true,
           $ai_error: expect.any(String),
@@ -278,14 +247,14 @@ describe('llm client retries', () => {
   })
 
   it('fails when chat api key is missing', async () => {
-    mockEnv.LLM_API_KEY = ''
+    mockEnv.SERVICE_API_KEY_OPENROUTER = ''
     await expect(
       llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hello' }] }),
-    ).rejects.toThrow(/LLM_API_KEY/)
+    ).rejects.toThrow(/SERVICE_API_KEY_OPENROUTER/)
   })
 
   it('parses gateway host from bare hostnames and invalid URLs', async () => {
-    mockEnv.LLM_BASE_URL = 'api.example.test/'
+    mockEnv.OPENROUTER_BASE_URL = 'api.example.test/'
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => response(true, 200, { choices: [{ message: { content: 'ok' } }] })),
@@ -313,7 +282,7 @@ describe('llm client retries', () => {
   })
 
   it('falls back to trimmed base URL when gateway host cannot be parsed', async () => {
-    mockEnv.LLM_BASE_URL = '%%%not-a-valid-url%%%'
+    mockEnv.OPENROUTER_BASE_URL = '%%%not-a-valid-url%%%'
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => response(true, 200, { choices: [] })),
@@ -354,70 +323,16 @@ describe('llm client retries', () => {
   })
 
   it('fails when required env is missing', async () => {
-    mockEnv.LLM_API_KEY = ''
+    mockEnv.SERVICE_API_KEY_OPENROUTER = ''
     await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
-      /LLM_API_KEY/,
+      /SERVICE_API_KEY_OPENROUTER/,
     )
-  })
-
-  it('fails when chat model and rule are both missing', async () => {
-    mockEnv.LLM_MODEL_CHAT = ''
-    mockEnv.LLM_RULE_CHAT = ''
-    await expect(
-      llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toThrow(/LLM_RULE_CHAT/)
-  })
-
-  it('fails when embedding model and rule are both missing', async () => {
-    mockEnv.LLM_MODEL_EMBEDDING = ''
-    mockEnv.LLM_RULE_EMBEDDING = ''
-    await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
-      /LLM_RULE_EMBEDDING/,
-    )
-  })
-
-  it('uses explicit chat model when provided', async () => {
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, {
-        usage: { prompt_tokens: 1, completion_tokens: 1 },
-        choices: [],
-      }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
-      model: string
-      rule_id?: string
-    }
-    expect(body.model).toBe('gpt-test')
-    expect(body.rule_id).toBe('rule-chat')
-  })
-
-  it('resolves embedding model from routing rule when model env missing', async () => {
-    mockEnv.LLM_MODEL_EMBEDDING = ''
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        response(true, 200, {
-          data: { model: 'text-embedding-3-small', provider: { data_residency: 'EU' } },
-        }),
-      )
-      .mockResolvedValueOnce(response(true, 200, { usage: { total_tokens: 5 }, data: [] }))
-    vi.stubGlobal('fetch', fetchMock)
-    await llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-    const body = JSON.parse(fetchMockInit(fetchMock, 1).body as string) as {
-      model: string
-      provider?: Record<string, unknown>
-    }
-    expect(body.model).toBe('text-embedding-3-small')
-    expect(body.provider).toEqual({ data_residency: 'EU' })
   })
 
   it('fails when base url is missing', async () => {
-    mockEnv.LLM_BASE_URL = ''
+    mockEnv.OPENROUTER_BASE_URL = ''
     await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
-      /LLM_BASE_URL/,
+      /OPENROUTER_BASE_URL/,
     )
   })
 
@@ -597,101 +512,6 @@ describe('llm client retries', () => {
     }
   })
 
-  it('resolves chat routing rule via /routing-rules when model env is empty', async () => {
-    vi.resetModules()
-    mockEnv.LLM_MODEL_CHAT = ''
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(true, 200, { data: { model: 'rule-model' } }))
-      .mockResolvedValueOnce(
-        response(true, 200, {
-          usage: { prompt_tokens: 1, completion_tokens: 1 },
-          choices: [],
-        }),
-      )
-    vi.stubGlobal('fetch', fetchMock)
-    const { llmChatCompletion: chat } = await import('./llm-client')
-    await chat({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse(fetchMockInit(fetchMock, 1).body as string) as {
-      model: string
-      rule_id?: string
-    }
-    expect(body.model).toBe('rule-model')
-    expect(body.rule_id).toBe('rule-chat')
-  })
-
-  it('throws when routing rule lookup fails', async () => {
-    vi.resetModules()
-    mockEnv.LLM_MODEL_EMBEDDING = ''
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => response(false, 404, { error: 'no such rule' })),
-    )
-    const { llmCreateEmbeddings: embed } = await import('./llm-client')
-    await expect(embed({ userId: 'u1', input: 'hi' })).rejects.toThrow(/Routing rule lookup failed/)
-  })
-
-  it('omits rule_id from chat body when only LLM_MODEL_CHAT is set', async () => {
-    mockEnv.LLM_RULE_CHAT = ''
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, {
-        usage: { prompt_tokens: 1, completion_tokens: 1 },
-        choices: [],
-      }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
-      model: string
-      rule_id?: string
-    }
-    expect(body.model).toBe('gpt-test')
-    expect(body.rule_id).toBeUndefined()
-  })
-
-  it('omits rule_id from embedding body when only LLM_MODEL_EMBEDDING is set', async () => {
-    mockEnv.LLM_RULE_EMBEDDING = ''
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { usage: { total_tokens: 1 }, data: [] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
-      model: string
-      rule_id?: string
-    }
-    expect(body.model).toBe('text-embedding-3-small')
-    expect(body.rule_id).toBeUndefined()
-  })
-
-  it('throws when routing rule response is missing a model from non-json body', async () => {
-    vi.resetModules()
-    mockEnv.LLM_MODEL_EMBEDDING = ''
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => response(true, 200, { data: {} })),
-    )
-    const { llmCreateEmbeddings: embed } = await import('./llm-client')
-    await expect(embed({ userId: 'u1', input: 'hi' })).rejects.toThrow(/missing a model/)
-  })
-
-  it('throws when routing rule response is missing a model', async () => {
-    vi.resetModules()
-    mockEnv.LLM_MODEL_EMBEDDING = ''
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          ({
-            ok: true,
-            status: 200,
-            text: async () => 'not json at all',
-          }) as unknown as Response,
-      ),
-    )
-    const { llmCreateEmbeddings: embed } = await import('./llm-client')
-    await expect(embed({ userId: 'u1', input: 'hi' })).rejects.toThrow(/missing a model/)
-  })
 })
 
 describe('llmCreateTranscription', () => {
@@ -704,66 +524,7 @@ describe('llmCreateTranscription', () => {
     mockEnv.SERVICE_API_KEY_OPENROUTER = 'service-openrouter-key'
   })
 
-  it('BYOK uses saved OpenRouter credentials for speech-to-text', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { text: 'from db', usage: { cost: 0.001 } }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    getDbMock.mockReturnValueOnce({
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: () =>
-              Promise.resolve([
-                {
-                  provider: 'openrouter',
-                  baseUrl: 'https://db-openrouter.example/api/v1',
-                  apiKey: 'db-key',
-                  apiKeyEncrypted: null,
-                  ruleChat: null,
-                  ruleEmbedding: null,
-                  modelChat: null,
-                  modelEmbedding: null,
-                },
-              ]),
-          }),
-        }),
-      }),
-    })
-    await llmCreateTranscription({
-      userId: 'u1',
-      model: 'qwen/qwen3-asr-0.6b',
-      audio: { bytes: new Uint8Array([1]), format: 'webm' },
-    })
-    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
-      'https://db-openrouter.example/api/v1/audio/transcriptions',
-    )
-    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
-    expect(auth.Authorization).toBe('Bearer db-key')
-  })
-
-  it('BYOK falls back to OPENROUTER_* env when no DB credentials', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { text: 'from env', usage: { cost: 0.001 } }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmCreateTranscription({
-      userId: 'u1',
-      model: 'qwen/qwen3-asr-0.6b',
-      audio: { bytes: new Uint8Array([1]), format: 'webm' },
-    })
-    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
-      'https://openrouter.example/api/v1/audio/transcriptions',
-    )
-  })
-
   it('platform credits uses SERVICE_API_KEY_OPENROUTER for speech-to-text', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     const fetchMock = vi.fn(async () =>
       response(true, 200, { text: 'platform', usage: { cost: 0.001 } }),
     )
@@ -957,35 +718,7 @@ describe('llmCreateTranscription', () => {
     )
   })
 
-  it('BYOK STT fails when OPENROUTER_BASE_URL is missing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockEnv.OPENROUTER_BASE_URL = ''
-    await expect(
-      llmCreateTranscription({
-        userId: 'u1',
-        model: 'qwen/qwen3-asr-0.6b',
-        audio: { bytes: new Uint8Array([1]), format: 'webm' },
-      }),
-    ).rejects.toThrow(/OPENROUTER_BASE_URL/)
-  })
-
-  it('BYOK STT fails when OPENROUTER_API_KEY is missing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockEnv.OPENROUTER_API_KEY = ''
-    await expect(
-      llmCreateTranscription({
-        userId: 'u1',
-        model: 'qwen/qwen3-asr-0.6b',
-        audio: { bytes: new Uint8Array([1]), format: 'webm' },
-      }),
-    ).rejects.toThrow(/OPENROUTER_API_KEY/)
-  })
-
   it('platform STT fails when SERVICE_API_KEY_OPENROUTER is missing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     mockEnv.SERVICE_API_KEY_OPENROUTER = ''
     await expect(
       llmCreateTranscription({
@@ -1013,21 +746,14 @@ describe('llmCreateTranscription', () => {
 describe('llm client platform billing settlement', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockEnv.LLM_BASE_URL = 'https://example.test'
-    mockEnv.LLM_RULE_CHAT = 'rule-chat'
-    mockEnv.LLM_RULE_EMBEDDING = 'rule-embed'
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    mockEnv.LLM_MODEL_EMBEDDING = 'text-embedding-3-small'
+    mockEnv.OPENROUTER_BASE_URL = 'https://example.test'
     mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
     mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
-    mockEnv.LLM_API_KEY = 'key-1'
-    mockEnv.SERVICE_API_KEY_EUROUTER = 'service-eurouter-key'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'key-1'
   })
 
   it('settles provider-reported chat cost for platform billing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
     const { withPlatformBilling } = await import('$lib/server/billing/usage-gate')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     vi.mocked(withPlatformBilling).mockImplementation(async (_userId, settle, fn) => {
       const result = await fn()
       expect(settle(result)).toBe(0.005)
@@ -1043,9 +769,7 @@ describe('llm client platform billing settlement', () => {
   })
 
   it('settles provider-reported embedding cost for platform billing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
     const { withPlatformBilling } = await import('$lib/server/billing/usage-gate')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     vi.mocked(withPlatformBilling).mockImplementation(async (_userId, settle, fn) => {
       const result = await fn()
       expect(settle(result)).toBe(0.002)
@@ -1059,9 +783,7 @@ describe('llm client platform billing settlement', () => {
   })
 
   it('settles provider-reported STT cost for platform billing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
     const { withPlatformBilling } = await import('$lib/server/billing/usage-gate')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     vi.mocked(withPlatformBilling).mockImplementation(async (_userId, settle, fn) => {
       const result = await fn()
       expect(settle(result)).toBe(0.0015)
@@ -1079,9 +801,7 @@ describe('llm client platform billing settlement', () => {
   })
 
   it('throws when platform billing cannot settle missing gateway cost', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
     const { withPlatformBilling } = await import('$lib/server/billing/usage-gate')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     vi.mocked(withPlatformBilling).mockImplementation(async (_userId, settle, fn) => {
       const result = await fn()
       expect(() => settle(result)).toThrow(/usage\.cost/)
@@ -1098,22 +818,15 @@ describe('llm client platform billing settlement', () => {
 describe('llm client platform billing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockEnv.LLM_BASE_URL = 'https://example.test'
-    mockEnv.LLM_RULE_CHAT = 'rule-chat'
-    mockEnv.LLM_RULE_EMBEDDING = 'rule-embed'
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    mockEnv.LLM_MODEL_EMBEDDING = 'text-embedding-3-small'
+    mockEnv.OPENROUTER_BASE_URL = 'https://example.test'
     mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
     mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
-    mockEnv.LLM_API_KEY = 'key-1'
-    mockEnv.SERVICE_API_KEY_EUROUTER = 'service-eurouter-key'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'key-1'
     mockEnv.SERVICE_API_KEY_OPENROUTER = 'service-openrouter-key'
     mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.example/api/v1'
   })
 
   it('platform chat always goes to OpenRouter with the service key and pinned model', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     const fetchMock = vi.fn(async () =>
       response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }),
     )
@@ -1128,8 +841,6 @@ describe('llm client platform billing', () => {
   })
 
   it('platform chat fails loud when SERVICE_API_KEY_OPENROUTER is missing', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(false)
     mockEnv.SERVICE_API_KEY_OPENROUTER = ''
     await expect(
       llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] }),
@@ -1137,242 +848,13 @@ describe('llm client platform billing', () => {
   })
 })
 
-describe('llm client BYOK DB credentials', () => {
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
-    mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-  })
-
-  it('loads encrypted api key from DB via decryptTenantValue', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockSequentialDbLimitResults(
-      [{ provider: 'eurouter' }],
-      [
-        {
-          provider: 'eurouter',
-          baseUrl: 'https://db-gateway.example/v1',
-          apiKey: 'placeholder',
-          apiKeyEncrypted: 'enc-blob',
-          ruleChat: 'db-rule-chat',
-          ruleEmbedding: 'db-rule-embed',
-          modelChat: 'db-chat-model',
-          modelEmbedding: 'db-embed-model',
-        },
-      ],
-    )
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    expect(decryptTenantValueMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u1', ciphertext: 'enc-blob' }),
-    )
-    const auth = fetchMockInit(fetchMock, 0)?.headers as Record<string, string>
-    expect(auth.Authorization).toBe('Bearer decrypted-key')
-    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
-      'https://db-gateway.example/v1/chat/completions',
-    )
-  })
-
-  it('falls back to env credentials when DB row is incomplete', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockEnv.LLM_BASE_URL = 'https://env-gateway.example/v1'
-    mockEnv.LLM_API_KEY = 'env-key'
-    mockSequentialDbLimitResults(
-      [{ provider: 'eurouter' }],
-      [
-        {
-          provider: 'eurouter',
-          baseUrl: null,
-          apiKey: 'db-key',
-          apiKeyEncrypted: null,
-          ruleChat: 'rule-chat',
-          ruleEmbedding: 'rule-embed',
-          modelChat: null,
-          modelEmbedding: null,
-        },
-      ],
-    )
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    expect(String(fetchMockUrl(fetchMock, 0))).toBe(
-      'https://env-gateway.example/v1/chat/completions',
-    )
-  })
-
-  it('rejects Docker placeholder base URL from DB eurouter credentials', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockSequentialDbLimitResults(
-      [{ provider: 'eurouter' }],
-      [
-        {
-          provider: 'eurouter',
-          baseUrl: 'https://example.com/v1',
-          apiKey: 'db-key',
-          apiKeyEncrypted: null,
-          ruleChat: 'rule-chat',
-          ruleEmbedding: 'rule-embed',
-          modelChat: null,
-          modelEmbedding: null,
-        },
-      ],
-    )
-    await expect(
-      llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toThrow(/Docker placeholder/)
-  })
-})
-
-describe('llm client OpenRouter routing', () => {
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
-    mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
-    mockEnv.LLM_MODEL_CHAT = ''
-    mockEnv.LLM_MODEL_EMBEDDING = ''
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-  })
-
-  it('BYOK OpenRouter chat uses modelChat from DB', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockSequentialDbLimitResults(
-      [{ provider: 'openrouter' }],
-      [
-        {
-          provider: 'openrouter',
-          baseUrl: 'https://db-openrouter.example/api/v1',
-          apiKey: 'db-key',
-          apiKeyEncrypted: null,
-          ruleChat: null,
-          ruleEmbedding: null,
-          modelChat: 'openrouter/chat-model',
-          modelEmbedding: null,
-        },
-      ],
-    )
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
-      model: string
-      rule_id?: string
-    }
-    expect(body.model).toBe('openrouter/chat-model')
-    expect(body.rule_id).toBeUndefined()
-    expect(logActivityCallMock).toHaveBeenCalledWith(
-      expect.anything(),
-      'u1',
-      expect.objectContaining({ provider: 'openrouter', gatewayHost: 'db-openrouter.example' }),
-    )
-  })
-
-  it('BYOK OpenRouter embedding uses modelEmbedding from DB', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockSequentialDbLimitResults(
-      [{ provider: 'openrouter' }],
-      [
-        {
-          provider: 'openrouter',
-          baseUrl: 'https://db-openrouter.example/api/v1',
-          apiKey: 'db-key',
-          apiKeyEncrypted: null,
-          ruleChat: null,
-          ruleEmbedding: null,
-          modelChat: null,
-          modelEmbedding: 'openrouter/embed-model',
-        },
-      ],
-    )
-    const fetchMock = vi.fn(async () =>
-      response(true, 200, { usage: { total_tokens: 1 }, data: [] }),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-    await llmCreateEmbeddings({ userId: 'u1', input: 'hello' })
-    const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
-      model: string
-    }
-    expect(body.model).toBe('openrouter/embed-model')
-    expect(logActivityCallMock).toHaveBeenCalledWith(
-      expect.anything(),
-      'u1',
-      expect.objectContaining({ provider: 'openrouter', gatewayHost: 'db-openrouter.example' }),
-    )
-  })
-
-  it('fails when OpenRouter chat model is not configured', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockSequentialDbLimitResults(
-      [{ provider: 'openrouter' }],
-      [
-        {
-          provider: 'openrouter',
-          baseUrl: 'https://db-openrouter.example/api/v1',
-          apiKey: 'db-key',
-          apiKeyEncrypted: null,
-          ruleChat: null,
-          ruleEmbedding: null,
-          modelChat: null,
-          modelEmbedding: null,
-        },
-      ],
-    )
-    await expect(
-      llmChatCompletion({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toThrow(/OpenRouter chat model not configured/)
-  })
-
-  it('fails when OpenRouter embedding model is not configured', async () => {
-    const { isByokBilling } = await import('$lib/server/billing/preferences')
-    vi.mocked(isByokBilling).mockResolvedValue(true)
-    mockSequentialDbLimitResults(
-      [{ provider: 'openrouter' }],
-      [
-        {
-          provider: 'openrouter',
-          baseUrl: 'https://db-openrouter.example/api/v1',
-          apiKey: 'db-key',
-          apiKeyEncrypted: null,
-          ruleChat: null,
-          ruleEmbedding: null,
-          modelChat: null,
-          modelEmbedding: null,
-        },
-      ],
-    )
-    await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
-      /OpenRouter embedding model not configured/,
-    )
-  })
-})
-
 describe('llm client response parsing and options', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockEnv.LLM_BASE_URL = 'https://example.test'
-    mockEnv.LLM_RULE_CHAT = 'rule-chat'
-    mockEnv.LLM_RULE_EMBEDDING = 'rule-embed'
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    mockEnv.LLM_MODEL_EMBEDDING = 'text-embedding-3-small'
+    mockEnv.OPENROUTER_BASE_URL = 'https://example.test'
     mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
     mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
-    mockEnv.LLM_API_KEY = 'key-1'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'key-1'
   })
 
   it('chat includes maxTokens when provided', async () => {
@@ -1513,22 +995,6 @@ describe('llm client response parsing and options', () => {
     logSpy.mockRestore()
   })
 
-  it('chat routing rule lookup is cached on second call', async () => {
-    vi.resetModules()
-    mockEnv.LLM_MODEL_CHAT = ''
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(response(true, 200, { data: { model: 'cached-rule-model' } }))
-      .mockResolvedValueOnce(response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }))
-      .mockResolvedValueOnce(response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }))
-    vi.stubGlobal('fetch', fetchMock)
-    const { llmChatCompletion: chat } = await import('./llm-client')
-    await chat({ userId: 'u1', messages: [{ role: 'user', content: 'one' }] })
-    await chat({ userId: 'u1', messages: [{ role: 'user', content: 'two' }] })
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(String(fetchMockUrl(fetchMock, 0))).toContain('/routing-rules/rule-chat')
-  })
-
   it('chat logs error context as empty when no user message exists', async () => {
     const fetchMock = vi
       .fn()
@@ -1564,37 +1030,13 @@ describe('llm client response parsing and options', () => {
     )
   })
 
-  it('chat includes provider from routing rule lookup', async () => {
-    vi.resetModules()
-    mockEnv.LLM_MODEL_CHAT = ''
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        response(true, 200, {
-          model: 'direct-model',
-          provider: { data_residency: 'EU' },
-        }),
-      )
-      .mockResolvedValueOnce(response(true, 200, { usage: { prompt_tokens: 1 }, choices: [] }))
-    vi.stubGlobal('fetch', fetchMock)
-    const { llmChatCompletion: chat } = await import('./llm-client')
-    await chat({ userId: 'u1', messages: [{ role: 'user', content: 'hi' }] })
-    const body = JSON.parse(fetchMockInit(fetchMock, 1).body as string) as {
-      model: string
-      provider?: Record<string, unknown>
-    }
-    expect(body.model).toBe('direct-model')
-    expect(body.provider).toEqual({ data_residency: 'EU' })
-  })
 })
 
 describe('llm client timeout and rate limit defaults', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockEnv.LLM_BASE_URL = 'https://example.test'
-    mockEnv.LLM_RULE_CHAT = 'rule-chat'
-    mockEnv.LLM_MODEL_CHAT = 'gpt-test'
-    mockEnv.LLM_API_KEY = 'key-1'
+    mockEnv.OPENROUTER_BASE_URL = 'https://example.test'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'key-1'
   })
 
   it('aborts chat request when LLM_REQUEST_TIMEOUT_MS elapses', async () => {
@@ -1613,8 +1055,6 @@ describe('llm client timeout and rate limit defaults', () => {
   it('aborts embedding request when LLM_REQUEST_TIMEOUT_MS elapses', async () => {
     mockEnv.LLM_REQUEST_TIMEOUT_MS = '1'
     mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
-    mockEnv.LLM_MODEL_EMBEDDING = 'text-embedding-3-small'
-    mockEnv.LLM_RULE_EMBEDDING = 'rule-embed'
     vi.stubGlobal('fetch', fetchThatWaitsForAbort())
     await expect(llmCreateEmbeddings({ userId: 'u1', input: 'hello' })).rejects.toThrow(
       /LLM embedding request timed out after 1ms/,

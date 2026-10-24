@@ -37,7 +37,6 @@ Run the installer (generates secrets and a Compose-ready `.env`):
 ```sh
 ./install.sh --non-interactive \
   --origin https://eigen.example.com \
-  --billing platform \
   --admin-name "Admin" \
   --admin-email admin@example.com \
   --admin-password 'your-secure-password'
@@ -46,33 +45,22 @@ Run the installer (generates secrets and a Compose-ready `.env`):
 | Flag                  | Purpose                                                       |
 | --------------------- | ------------------------------------------------------------- |
 | `--origin`            | Public URL users and OAuth use — must match what browsers hit |
-| `--billing platform`  | Wallet + PayPal path (fill `SERVICE_API_KEY_*`, `PAYPAL_*`)   |
-| `--billing byok`      | Users bring own keys in Settings → LLM → BYOK                 |
 | `--with-caddy DOMAIN` | Writes `deploy/Caddyfile` for TLS reverse proxy               |
 | `--force`             | Overwrite existing `.env`                                     |
 
-Interactive mode: `./install.sh` (prompts for origin and billing).
+Interactive mode: `./install.sh` (prompts for origin).
 
 ## 3. External credentials
 
-Edit `.env` and add LLM (and optional PayPal) values. You need **at least one** billing path.
-
-### Platform credits (default)
+Edit `.env` and add the AI and PayPal values. All AI inference runs through OpenRouter on the
+operator's service key and bills users' Eigen credits; models are pinned in
+`src/lib/server/billing/platform-llm.ts`.
 
 | Variable                                                      | Source                                                    |
 | ------------------------------------------------------------- | --------------------------------------------------------- |
-| `SERVICE_API_KEY_EUROUTER`                                    | [EUrouter](https://eurouter.ai) service account           |
-| `LLM_BASE_URL`                                                | e.g. `https://api.eurouter.ai/v1`                         |
-| `LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING`                         | Routing rule UUIDs from EUrouter dashboard                |
+| `OPENROUTER_BASE_URL`                                         | `https://openrouter.ai/api/v1`                            |
+| `SERVICE_API_KEY_OPENROUTER`                                  | [OpenRouter](https://openrouter.ai) service account key   |
 | `PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | [PayPal Developer](https://developer.paypal.com) REST app |
-
-### BYOK only
-
-| Variable                                    | Source                                               |
-| ------------------------------------------- | ---------------------------------------------------- |
-| `LLM_BASE_URL`, `LLM_API_KEY`               | EUrouter (env fallback when user has not saved keys) |
-| `LLM_RULE_CHAT`, `LLM_RULE_EMBEDDING`       | EUrouter rule UUIDs                                  |
-| `OPENROUTER_BASE_URL`, `OPENROUTER_API_KEY` | Optional OpenRouter fallback                         |
 
 `install.sh` already sets: `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `POSTGRES_PASSWORD`, `EIGEN_APP_DB_PASSWORD`, `ADMIN_CONSOLIDATION_KEY`, `DATABASE_URL` (`@db` host), `CONSOLIDATION_INTERNAL_URL`, `VAPID_*` (when Node is available locally), `POSTHOG_SOURCEMAPS_REQUIRED=0`. Missing `VAPID_*` / `ADMIN_CONSOLIDATION_KEY` values are generated automatically on first app container start (`entrypoint.sh` → `ensure-deploy-secrets.mjs`).
 
@@ -145,7 +133,7 @@ sudo ufw enable
 
 1. Open `ORIGIN` in a browser.
 2. Sign in as admin (if `ADMIN_*` was set) or sign up.
-3. Complete the welcome tour (credits or BYOK + grounding).
+3. Complete the welcome tour (credits + grounding).
 4. Submit a test capture on `/capture`.
 
 ## Troubleshooting
@@ -156,7 +144,7 @@ sudo ufw enable
 | Docker build fails on PostHog        | `POSTHOG_SOURCEMAPS_REQUIRED=1` without `phx_` key | Keep `POSTHOG_SOURCEMAPS_REQUIRED=0` (install.sh default) or set `POSTHOG_CLI_API_KEY` at **build** time |
 | App cannot reach DB                  | Wrong host in `.env`                               | Use `@db:5432` in `DATABASE_URL` for Compose; compose also constructs URLs from `POSTGRES_*`             |
 | EUrouter placeholder errors at start | Docker build placeholders in runtime env           | Set real `LLM_BASE_URL` and rule UUIDs (not `00000000-…`)                                                |
-| Capture fails / LLM not configured   | Wallet empty or BYOK missing                       | Settings → LLM; see [payments.md](../payments.md)                                                        |
+| Capture fails / LLM not configured   | Wallet empty or OpenRouter service key missing     | Settings → LLM; see [payments.md](../payments.md)                                                        |
 | Encrypt/decrypt errors               | Missing or rotated `TENANT_MASTER_KEY`             | [Tenant encryption runbook](./tenant-envelope-encryption.md)                                             |
 | OAuth redirect mismatch              | `ORIGIN` ≠ browser URL                             | Set `ORIGIN` to exact public URL including `https://`                                                    |
 

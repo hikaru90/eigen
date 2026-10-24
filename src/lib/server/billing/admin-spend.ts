@@ -1,5 +1,4 @@
 import type { UserAccountKind } from '$lib/server/db/auth.schema'
-import type { BillingMode } from '$lib/server/db/brain.schema'
 import { createAdminSql } from '$lib/server/job-queue/admin-db'
 
 export type AdminSpendRow = {
@@ -7,7 +6,6 @@ export type AdminSpendRow = {
   email: string
   name: string | null
   accountKind: UserAccountKind
-  billingMode: BillingMode
   availableCredits: number
   totalGatewayCostUsd: string
   totalCreditsDebited: number
@@ -27,7 +25,6 @@ export type AdminSpendDateRange = {
 
 export type AdminSpendSortKey =
   | 'email'
-  | 'billingMode'
   | 'availableCredits'
   | 'totalGatewayCostUsd'
   | 'totalCreditsDebited'
@@ -117,7 +114,6 @@ export function parseAdminSpendView(raw: string | null | undefined): AdminSpendV
 export function parseAdminSpendSort(raw: string | null | undefined): AdminSpendSortKey {
   const keys: AdminSpendSortKey[] = [
     'email',
-    'billingMode',
     'availableCredits',
     'totalGatewayCostUsd',
     'totalCreditsDebited',
@@ -133,7 +129,6 @@ type AdminSpendDbRow = {
   email: string
   name: string | null
   account_kind: string | null
-  billing_mode: string | null
   available_credits: number | null
   total_gateway_cost_usd: string | number | null
   total_credits_debited: string | number | null
@@ -141,7 +136,6 @@ type AdminSpendDbRow = {
 }
 
 export function mapAdminSpendDbRow(row: AdminSpendDbRow): AdminSpendRow {
-  const billingMode = row.billing_mode === 'byok' ? 'byok' : 'platform_credits'
   const gatewayUsd = Number(row.total_gateway_cost_usd ?? 0)
   const creditsDebited = Number(row.total_credits_debited ?? 0)
   const accountKind = row.account_kind === 'harness' ? 'harness' : 'production'
@@ -151,7 +145,6 @@ export function mapAdminSpendDbRow(row: AdminSpendDbRow): AdminSpendRow {
     email: row.email,
     name: row.name,
     accountKind,
-    billingMode,
     availableCredits: row.available_credits ?? 0,
     totalGatewayCostUsd: Number.isFinite(gatewayUsd) ? gatewayUsd.toFixed(6) : '0.000000',
     totalCreditsDebited: Number.isFinite(creditsDebited) ? Math.round(creditsDebited) : 0,
@@ -188,9 +181,7 @@ export async function listAdminSpendByUser(
   const orderColumn =
     sort === 'email'
       ? sql`u.email`
-      : sort === 'billingMode'
-        ? sql`up.billing_mode`
-        : sort === 'availableCredits'
+      : sort === 'availableCredits'
           ? sql`COALESCE(uw.available_credits, 0)`
           : sort === 'totalCreditsDebited'
             ? sql`COALESCE(ledger.total_credits_debited, 0)`
@@ -201,7 +192,6 @@ export async function listAdminSpendByUser(
 
   const baseFrom = sql`
 		FROM "user" u
-		LEFT JOIN user_preference up ON up.user_id = u.id
 		LEFT JOIN user_wallet uw ON uw.user_id = u.id
 		LEFT JOIN (
 			SELECT
@@ -259,7 +249,6 @@ export async function listAdminSpendByUser(
 				u.email,
 				u.name,
 				u.account_kind,
-				up.billing_mode,
 				uw.available_credits,
 				COALESCE(act.total_gateway_cost_usd, 0) AS total_gateway_cost_usd,
 				COALESCE(ledger.total_credits_debited, 0) AS total_credits_debited,

@@ -33,8 +33,6 @@ describe('loadPlatformLlmConfig', () => {
       provider: 'openrouter',
       baseUrl: 'https://openrouter.ai/api/v1',
       apiKey: 'openrouter-service-key',
-      ruleChat: null,
-      ruleEmbedding: null,
       modelChat: PLATFORM_CHAT_MODEL,
       modelEmbedding: PLATFORM_EMBEDDING_MODEL,
     })

@@ -3,7 +3,6 @@ import { resolveBillingUserId } from '$lib/server/billing/context'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { ensureHarnessWalletCredits } from '$lib/server/billing/ensure-harness-credits'
 import { baseUsdToTotalMicroUsd } from '$lib/server/billing/money'
-import { isByokBilling } from '$lib/server/billing/preferences'
 import {
   InsufficientCreditsError,
   assertCanAfford,
@@ -31,9 +30,6 @@ export async function assertCapturePipelineAffordable(userId: string): Promise<v
   }
   const billingUserId = resolveBillingUserId(userId)
   console.log('[billing] resolved billingUserId', { billingUserId })
-  if (await isByokBilling(billingUserId)) {
-    return
-  }
   await assertCanAfford(billingUserId, MIN_CAPTURE_PIPELINE_CREDITS)
 }
 
@@ -47,9 +43,6 @@ export async function withPlatformBilling<T>(
     await ensureHarnessWalletCredits(userId)
   }
   const billingUserId = harnessBillingUserId ?? resolveBillingUserId(userId)
-  if (await isByokBilling(billingUserId)) {
-    return fn()
-  }
 
   await assertHasPlatformCredits(billingUserId)
 
