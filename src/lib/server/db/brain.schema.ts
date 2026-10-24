@@ -1988,7 +1988,7 @@ export const boardIdea = pgTable(
     area: text('area', {
       enum: ['capture', 'yarn', 'threads', 'patterns', 'ask', 'better', 'everywhere'],
     }).notNull(),
-    status: text('status', { enum: ['requested', 'in-progress', 'shipped'] })
+    status: text('status', { enum: ['requested', 'in-progress', 'shipped', 'rejected'] })
       .default('requested')
       .notNull(),
     planned: boolean('planned').default(false).notNull(),

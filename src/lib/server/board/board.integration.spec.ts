@@ -158,6 +158,22 @@ describe.skipIf(!hasDb)('board RLS integration', () => {
     })
   })
 
+  it('rejected ideas vanish from the board for everyone (admin included) and can be restored', async () => {
+    const id = await share(ua, `Not for us ${suffix}`, 7)
+    await expect(
+      withEvalDb(ub, () => svc.adminUpdateBoardIdea(ub, id, { status: 'rejected' })),
+    ).rejects.toMatchObject({ status: 403 })
+    await withEvalDb(admin, () => svc.adminUpdateBoardIdea(admin, id, { status: 'rejected' }))
+    expect(await view(ub, id)).toBeUndefined()
+    expect(await view(ua, id)).toBeUndefined()
+    expect(await view(admin, id)).toBeUndefined()
+    await expect(withEvalDb(ub, () => svc.setBoardVote(ub, id, 1))).rejects.toMatchObject({
+      status: 404,
+    })
+    await withEvalDb(admin, () => svc.adminUpdateBoardIdea(admin, id, { status: 'requested' }))
+    expect((await view(ub, id))?.status).toBe('requested')
+  })
+
   it('protected columns cannot be changed by the author directly, even under their own policy', async () => {
     const id = await share(ua, `Sneaky ${suffix}`, 5)
     await expect(

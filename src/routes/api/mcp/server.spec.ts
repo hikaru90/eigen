@@ -41,9 +41,15 @@ vi.mock('$lib/server/mcp/tools', () => ({
   runUnlinkTextFileFromThoughtTool: vi.fn(),
 }))
 
-const { hasBoardMcpAccessMock } = vi.hoisted(() => ({ hasBoardMcpAccessMock: vi.fn() }))
+const { hasBoardMcpAccessMock, isUserAdminMock } = vi.hoisted(() => ({
+  hasBoardMcpAccessMock: vi.fn(),
+  isUserAdminMock: vi.fn(),
+}))
 
-vi.mock('$lib/server/auth/user-role', () => ({ hasBoardMcpAccess: hasBoardMcpAccessMock }))
+vi.mock('$lib/server/auth/user-role', () => ({
+  hasBoardMcpAccess: hasBoardMcpAccessMock,
+  isUserAdmin: isUserAdminMock,
+}))
 
 async function listedToolNames(): Promise<string[]> {
   const res = await POST({
@@ -127,5 +133,13 @@ describe('POST /api/mcp', () => {
     expect(hasBoardMcpAccessMock).toHaveBeenCalledWith('u1')
     hasBoardMcpAccessMock.mockResolvedValue(true)
     expect(await listedToolNames()).toContain('list_board')
+  })
+
+  it('shows update_idea to admins only', async () => {
+    hasBoardMcpAccessMock.mockResolvedValue(true)
+    isUserAdminMock.mockResolvedValue(false)
+    expect(await listedToolNames()).not.toContain('update_idea')
+    isUserAdminMock.mockResolvedValue(true)
+    expect(await listedToolNames()).toContain('update_idea')
   })
 })

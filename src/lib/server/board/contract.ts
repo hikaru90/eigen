@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { BOARD_AREAS, BOARD_KINDS, BOARD_STATUSES, type MyVote } from '$lib/feedback/board-types'
+import {
+  BOARD_AREAS,
+  BOARD_IDEA_STATUSES,
+  BOARD_KINDS,
+  BOARD_STATUSES,
+  type MyVote,
+} from '$lib/feedback/board-types'
 import { FEEDBACK_MAX_LENGTH } from '$lib/feedback/feedback-max-length'
 import { BoardError } from './errors'
 
@@ -21,6 +27,7 @@ export const boardTitleSchema = z
 export const boardKindSchema = z.enum(BOARD_KINDS)
 export const boardAreaSchema = z.enum(BOARD_AREAS)
 export const boardStatusSchema = z.enum(BOARD_STATUSES)
+export const boardIdeaStatusSchema = z.enum(BOARD_IDEA_STATUSES)
 
 export const boardCheckBodySchema = z.object({ title: boardTitleSchema }).strict()
 
@@ -34,7 +41,7 @@ const authorPatchSchema = z
 
 const adminPatchSchema = z
   .object({
-    status: boardStatusSchema.optional(),
+    status: boardIdeaStatusSchema.optional(),
     planned: z.boolean().optional(),
     note: z
       .string()

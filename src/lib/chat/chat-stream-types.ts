@@ -77,6 +77,7 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
   share_idea: { title: 'Sharing an idea', category: 'write', icon: 'save' },
   vote_idea: { title: 'Voting on an idea', category: 'write', icon: 'pencil' },
   forget_idea: { title: 'Forgetting an idea', category: 'destructive', icon: 'trash' },
+  update_idea: { title: 'Updating an idea', category: 'write', icon: 'pencil' },
   create_text_file: { title: 'Creating text note', category: 'write', icon: 'save' },
   list_text_files: { title: 'Listing text notes', category: 'memory', icon: 'list' },
   get_text_file: { title: 'Opening text note', category: 'memory', icon: 'list' },

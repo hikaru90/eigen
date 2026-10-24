@@ -491,7 +491,7 @@ CREATE POLICY decision_shadow_log_isolation ON decision_shadow_log
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
 -- Multiplayer board (0076_board_ideas_votes): the first deliberate cross-tenant read.
--- board_idea: readable by any signed-in session (hidden=false); written only by its author
+-- board_idea: readable by any signed-in session (hidden=false, not rejected); written only by its author
 -- while Requested; protected columns via board_admin_update() (role checked server-side).
 -- board_vote: owner-only for every operation; scores come from the board_scores() aggregate.
 -- Protected columns (status, planned, note, hidden, shipped_at, title, author) change only
@@ -531,7 +531,10 @@ ALTER TABLE "board_idea" FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS board_idea_read_shared ON "board_idea";
 CREATE POLICY board_idea_read_shared ON "board_idea"
 	FOR SELECT
-	USING (coalesce(current_setting('app.current_user_id', true), '') <> '' AND hidden = false);
+	USING (
+		coalesce(current_setting('app.current_user_id', true), '') <> ''
+		AND hidden = false AND status <> 'rejected'
+	);
 DROP POLICY IF EXISTS board_idea_insert_own ON "board_idea";
 CREATE POLICY board_idea_insert_own ON "board_idea"
 	FOR INSERT
@@ -559,7 +562,7 @@ CREATE POLICY board_vote_own ON "board_vote"
 		user_id = current_setting('app.current_user_id', true)
 		AND EXISTS (
 			SELECT 1 FROM board_idea i
-			WHERE i.id = board_vote.idea_id AND i.hidden = false AND i.status <> 'shipped'
+			WHERE i.id = board_vote.idea_id AND i.hidden = false AND i.status NOT IN ('shipped', 'rejected')
 		)
 	);
 -- Net score per visible idea. Aggregate only: never returns voter ids or single votes.
@@ -573,7 +576,7 @@ AS $$
 	SELECT v.idea_id, sum(v.direction)::integer AS score
 	FROM board_vote v
 	JOIN board_idea i ON i.id = v.idea_id
-	WHERE i.hidden = false
+	WHERE i.hidden = false AND i.status <> 'rejected'
 		AND coalesce(current_setting('app.current_user_id', true), '') <> ''
 	GROUP BY v.idea_id;
 $$;
@@ -601,7 +604,7 @@ BEGIN
 	) THEN
 		RAISE EXCEPTION 'board_admin_update requires an admin session' USING ERRCODE = '42501';
 	END IF;
-	IF p_status IS NOT NULL AND p_status NOT IN ('requested', 'in-progress', 'shipped') THEN
+	IF p_status IS NOT NULL AND p_status NOT IN ('requested', 'in-progress', 'shipped', 'rejected') THEN
 		RAISE EXCEPTION 'Invalid status: %', p_status USING ERRCODE = '22023';
 	END IF;
 	UPDATE board_idea SET

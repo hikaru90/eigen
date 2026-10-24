@@ -6,6 +6,7 @@ import {
   isChatAgentTool,
   isMcpExposedTool,
   MCP_AGENT_TOOL_NAMES,
+  MCP_BOARD_ADMIN_TOOL_DEFINITIONS,
   MCP_BOARD_TOOL_DEFINITIONS,
   MCP_CLIENT_EXPOSED_TOOL_NAMES,
   MCP_EXPOSED_TOOL_DEFINITIONS,
@@ -34,6 +35,9 @@ describe('MCP tool registry exposure', () => {
       expect(isChatAgentTool(name)).toBe(false)
     }
     expect(MCP_BOARD_TOOL_DEFINITIONS.map((t) => t.name)).toEqual([...BOARD_TOOLS])
+    expect(MCP_BOARD_ADMIN_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(['update_idea'])
+    expect(isMcpExposedTool('update_idea')).toBe(false)
+    expect(isChatAgentTool('update_idea')).toBe(false)
   })
 
   it('exposes memory CRUD plus project timeline tools over HTTP MCP', () => {
@@ -76,6 +80,7 @@ describe('MCP tool registry exposure', () => {
       'edit_project',
       'delete_project',
       ...BOARD_TOOLS,
+      'update_idea',
       ...TEXT_NOTE_TOOLS,
     ])
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)

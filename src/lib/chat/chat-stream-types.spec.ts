@@ -286,6 +286,7 @@ describe('chat-stream-types', () => {
       'share_idea',
       'vote_idea',
       'forget_idea',
+      'update_idea',
       'create_text_file',
       'list_text_files',
       'get_text_file',

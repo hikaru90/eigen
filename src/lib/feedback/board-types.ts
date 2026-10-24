@@ -35,6 +35,13 @@ export const BOARD_STATUSES = [
   'shipped',
 ] as const satisfies readonly BoardStatus[]
 
+/** Every stored status. `rejected` is makers-only: RLS keeps it off the board for everyone. */
+export type BoardIdeaStatus = BoardStatus | 'rejected'
+export const BOARD_IDEA_STATUSES = [
+  ...BOARD_STATUSES,
+  'rejected',
+] as const satisfies readonly BoardIdeaStatus[]
+
 /** Who asked, as everyone else sees it. */
 export type BoardAuthor = { display: string; isYou: boolean }
 

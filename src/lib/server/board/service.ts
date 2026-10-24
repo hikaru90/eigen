@@ -118,7 +118,7 @@ export async function findDuplicateCandidates(
   limit: number,
 ): Promise<BoardJudgeCandidate[]> {
   const vec = toVectorSql(embedding)
-  return getDb()
+  const rows = await getDb()
     .select({
       id: boardIdea.id,
       title: boardIdea.title,
@@ -130,12 +130,13 @@ export async function findDuplicateCandidates(
     .where(
       and(
         eq(boardIdea.hidden, false),
-        sql`${boardIdea.status} <> 'shipped'`,
+        sql`${boardIdea.status} NOT IN ('shipped', 'rejected')`,
         sql`${boardIdea.titleEmbedding} IS NOT NULL`,
       ),
     )
     .orderBy(sql`${boardIdea.titleEmbedding} <=> ${vec}`)
     .limit(Math.max(1, Math.min(limit, 20)))
+  return rows.flatMap((row) => (row.status === 'rejected' ? [] : [{ ...row, status: row.status }]))
 }
 
 export async function loadUserEmail(userId: string): Promise<string> {

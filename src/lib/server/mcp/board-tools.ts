@@ -1,13 +1,21 @@
 import type { McpToolContext } from './tools'
 import {
+  boardIdeaStatusSchema,
   boardStatusSchema,
   boardTitleSchema,
   firstIssue,
   parseIdeaId,
   parseVoteDirection,
 } from '$lib/server/board/contract'
-import { deleteBoardIdea, listBoardIdeas, setBoardVote } from '$lib/server/board/service'
+import {
+  adminUpdateBoardIdea,
+  deleteBoardIdea,
+  getBoardIdea,
+  listBoardIdeas,
+  setBoardVote,
+} from '$lib/server/board/service'
 import { checkBoardIdea, shareBoardIdea } from '$lib/server/board/share'
+import { BOARD_IDEA_STATUSES as BOARD_IDEA_STATUS_VALUES } from '$lib/feedback/board-types'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 
 /**
@@ -80,4 +88,31 @@ export async function runForgetIdeaTool(context: McpToolContext, args: unknown) 
   const ideaId = parseIdeaId(body.idea_id)
   await deleteBoardIdea(context.userId, ideaId)
   return sanitizeMcpToolResult({ forgotten: true, ideaId })
+}
+
+/** Makers (admin keys only): move status — `rejected` takes the idea off the board — and set the note. */
+export async function runUpdateIdeaTool(context: McpToolContext, args: unknown) {
+  const body = strictArgs(args, ['idea_id', 'status', 'note'])
+  const ideaId = parseIdeaId(body.idea_id)
+  if (body.status === undefined && body.note === undefined) {
+    throw new Error('Nothing to change: pass status and/or note')
+  }
+  const patch: { status?: (typeof BOARD_IDEA_STATUS_VALUES)[number]; note?: string | null } = {}
+  if (body.status !== undefined) {
+    const parsed = boardIdeaStatusSchema.safeParse(body.status)
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid status: ${JSON.stringify(body.status)}. Must be ${BOARD_IDEA_STATUS_VALUES.join(', ')}`,
+      )
+    }
+    patch.status = parsed.data
+  }
+  if (body.note !== undefined) {
+    if (body.note !== null && (typeof body.note !== 'string' || !body.note.trim())) {
+      throw new Error('note must be a non-empty string, or null to clear it')
+    }
+    patch.note = body.note === null ? null : body.note.trim()
+  }
+  await adminUpdateBoardIdea(context.userId, ideaId, patch)
+  return sanitizeMcpToolResult({ ideaId, idea: await getBoardIdea(context.userId, ideaId) })
 }

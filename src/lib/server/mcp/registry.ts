@@ -1,5 +1,6 @@
 import {
   runForgetIdeaTool,
+  runUpdateIdeaTool,
   runListBoardTool,
   runShareIdeaTool,
   runVoteIdeaTool,
@@ -70,6 +71,7 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
  * (createMcpServer boardAccess). Never on the default surface, never in the ask/chat loop.
  */
 const BOARD_TOOL_NAMES = new Set(['list_board', 'share_idea', 'vote_idea', 'forget_idea'])
+const BOARD_ADMIN_TOOL_NAMES = new Set(['update_idea'])
 
 /**
  * Full tool surface for the in-app chat agent.
@@ -459,7 +461,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'list_board',
     description:
-      'List the shared Contribute board (ideas, bugs, polish requests every Eigenmesh user can see): title, kind, area, status, net score, your vote (-1|0|1), author display name, makers\' note. Optional status filter.',
+      "List the shared Contribute board (ideas, bugs, polish requests every Eigenmesh user can see): title, kind, area, status, net score, your vote (-1|0|1), author display name, makers' note. Optional status filter.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -474,7 +476,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'share_idea',
     description:
-      'Share an idea on the shared Contribute board (visible to every user, also emailed to the makers). One billed LLM judge picks kind and area and checks for the same request already on the board: if it finds one, nothing is created and duplicateOf is returned — vote for it with vote_idea, or call again with mine_is_different: true. On success the idea is Requested with your +1. inbox reports whether the makers\' email went out.',
+      "Share an idea on the shared Contribute board (visible to every user, also emailed to the makers). One billed LLM judge picks kind and area and checks for the same request already on the board: if it finds one, nothing is created and duplicateOf is returned — vote for it with vote_idea, or call again with mine_is_different: true. On success the idea is Requested with your +1. inbox reports whether the makers' email went out.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -487,7 +489,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ['title'],
       additionalProperties: false,
     },
-    agentArgumentSchema: '{"title": "string (required)", "mine_is_different": "boolean (optional)"}',
+    agentArgumentSchema:
+      '{"title": "string (required)", "mine_is_different": "boolean (optional)"}',
     handler: runShareIdeaTool,
     exposeInMcp: false,
   },
@@ -520,6 +523,25 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
     agentArgumentSchema: '{"idea_id": "string UUID (required)"}',
     handler: runForgetIdeaTool,
+    exposeInMcp: false,
+  },
+  {
+    name: 'update_idea',
+    description:
+      "Makers only (admin key): change a board idea's status and/or the makers' note. requested | in-progress | shipped move it between the board tabs (shipped closes votes); rejected declines it and takes it off the board for every user — set another status to restore it. note: string shown on the idea, or null to clear. Returns the idea as the board shows it (null once rejected).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        idea_id: { type: 'string', description: 'Idea UUID from list_board.' },
+        status: { type: 'string', enum: ['requested', 'in-progress', 'shipped', 'rejected'] },
+        note: { type: ['string', 'null'] },
+      },
+      required: ['idea_id'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema:
+      '{"idea_id": "string UUID (required)", "status": "requested|in-progress|shipped|rejected (optional)", "note": "string|null (optional)"}',
+    handler: runUpdateIdeaTool,
     exposeInMcp: false,
   },
   {
@@ -697,6 +719,11 @@ export const MCP_BOARD_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter((t) =>
   BOARD_TOOL_NAMES.has(t.name),
 )
 
+/** Status/note changes — admin keys only (createMcpServer boardAdmin). */
+export const MCP_BOARD_ADMIN_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter((t) =>
+  BOARD_ADMIN_TOOL_NAMES.has(t.name),
+)
+
 export const MCP_TOOL_MAP = new Map<string, McpToolHandler>(
   MCP_TOOL_DEFINITIONS.map((tool) => [tool.name, tool.handler]),
 )
@@ -717,7 +744,10 @@ export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
  * surface and to HTTP MCP clients, both of which keep the tool.
  */
 export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
-  (t) => t.name !== 'capture_thought' && !BOARD_TOOL_NAMES.has(t.name),
+  (t) =>
+    t.name !== 'capture_thought' &&
+    !BOARD_TOOL_NAMES.has(t.name) &&
+    !BOARD_ADMIN_TOOL_NAMES.has(t.name),
 ).map((t) => t.name)
 
 /** HTTP MCP client surface (minimal memory CRUD). */

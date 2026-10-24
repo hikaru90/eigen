@@ -73,4 +73,12 @@ describe('board contract', () => {
       }
     }
   })
+
+  it('accepts rejected as a maker status (hidden from the board, not a tab)', () => {
+    expect(parseBoardPatch({ status: 'rejected', note: 'Not for Eigenmesh.' })).toEqual({
+      scope: 'admin',
+      patch: { status: 'rejected', note: 'Not for Eigenmesh.' },
+    })
+    expect(() => parseBoardPatch({ status: 'declined' })).toThrow()
+  })
 })

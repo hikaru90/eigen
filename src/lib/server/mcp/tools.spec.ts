@@ -113,7 +113,8 @@ vi.mock('$lib/server/retrieval/retrieve-for-delete', () => ({
 }))
 
 vi.mock('$lib/server/retrieval/resolve-delete-target', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/server/retrieval/resolve-delete-target')>()
+  const actual =
+    await importOriginal<typeof import('$lib/server/retrieval/resolve-delete-target')>()
   return {
     ...actual,
     resolveDeleteTargets: resolveDeleteTargetsMock,
@@ -889,7 +890,14 @@ describe('MCP tools', () => {
   it('runOpenThreadsTool defaults to the all-author scope and passes the sweep through', async () => {
     loadOpenThreadsMock.mockResolvedValue({
       stalledProjects: [{ entityId: 'p1', label: 'Ship', stalled: { reason: 'deadline_overdue' } }],
-      orphanThreads: [{ thoughtId: 't1', category: 'task', createdAt: '2026-09-01T10:00:00.000Z', snippet: 'Sewer' }],
+      orphanThreads: [
+        {
+          thoughtId: 't1',
+          category: 'task',
+          createdAt: '2026-09-01T10:00:00.000Z',
+          snippet: 'Sewer',
+        },
+      ],
     })
     const { runOpenThreadsTool } = await import('./tools')
     const out = await runOpenThreadsTool({ userId: 'u1' }, {})

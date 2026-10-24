@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   runForgetIdeaTool,
+  runUpdateIdeaTool,
   runListBoardTool,
   runShareIdeaTool,
   runVoteIdeaTool,
@@ -12,12 +13,16 @@ const m = vi.hoisted(() => ({
   deleteBoardIdea: vi.fn(),
   checkBoardIdea: vi.fn(),
   shareBoardIdea: vi.fn(),
+  adminUpdateBoardIdea: vi.fn(),
+  getBoardIdea: vi.fn(),
 }))
 
 vi.mock('$lib/server/board/service', () => ({
   listBoardIdeas: m.listBoardIdeas,
   setBoardVote: m.setBoardVote,
   deleteBoardIdea: m.deleteBoardIdea,
+  adminUpdateBoardIdea: m.adminUpdateBoardIdea,
+  getBoardIdea: m.getBoardIdea,
 }))
 vi.mock('$lib/server/board/share', () => ({
   checkBoardIdea: m.checkBoardIdea,
@@ -52,13 +57,20 @@ describe('board MCP tools (AC-11: share → vote → list → forget in ≤ 4 ca
     })
     expect(m.shareBoardIdea).not.toHaveBeenCalled()
     m.shareBoardIdea.mockResolvedValue({ idea: { id: 'new' }, inbox: 'sent' })
-    const forced = await runShareIdeaTool(ctx, { title: 'Mesh needs a dark theme', mine_is_different: true })
+    const forced = await runShareIdeaTool(ctx, {
+      title: 'Mesh needs a dark theme',
+      mine_is_different: true,
+    })
     expect(forced).toMatchObject({ created: true })
   })
 
   it('vote_idea returns the new score', async () => {
     m.setBoardVote.mockResolvedValue({ score: 2, myVote: 1 })
-    expect(await runVoteIdeaTool(ctx, { idea_id: ID, direction: 1 })).toEqual({ ideaId: ID, score: 2, myVote: 1 })
+    expect(await runVoteIdeaTool(ctx, { idea_id: ID, direction: 1 })).toEqual({
+      ideaId: ID,
+      score: 2,
+      myVote: 1,
+    })
   })
 
   it('negative probe: direction 2 fails loud with the constraint', async () => {
@@ -69,8 +81,12 @@ describe('board MCP tools (AC-11: share → vote → list → forget in ≤ 4 ca
   })
 
   it('rejects bad ids and unknown arguments before any DB work', async () => {
-    await expect(runVoteIdeaTool(ctx, { idea_id: 'abc', direction: 1 })).rejects.toThrow(/Must be a UUID/)
-    await expect(runForgetIdeaTool(ctx, { idea_id: ID, force: true })).rejects.toThrow(/Unknown argument: force/)
+    await expect(runVoteIdeaTool(ctx, { idea_id: 'abc', direction: 1 })).rejects.toThrow(
+      /Must be a UUID/,
+    )
+    await expect(runForgetIdeaTool(ctx, { idea_id: ID, force: true })).rejects.toThrow(
+      /Unknown argument: force/,
+    )
     await expect(runShareIdeaTool(ctx, { title: '' })).rejects.toThrow(/title/)
     await expect(runListBoardTool(ctx, { status: 'done' })).rejects.toThrow(/Invalid status/)
   })
@@ -80,7 +96,9 @@ describe('board MCP tools (AC-11: share → vote → list → forget in ≤ 4 ca
       { id: 'a', status: 'requested', title_embedding: Array(1536).fill(0) },
       { id: 'b', status: 'shipped' },
     ])
-    const res = (await runListBoardTool(ctx, { status: 'requested' })) as { ideas: Array<Record<string, unknown>> }
+    const res = (await runListBoardTool(ctx, { status: 'requested' })) as {
+      ideas: Array<Record<string, unknown>>
+    }
     expect(res.ideas.map((i) => i.id)).toEqual(['a'])
     expect(JSON.stringify(res)).not.toMatch(/title_embedding/)
   })
@@ -89,5 +107,31 @@ describe('board MCP tools (AC-11: share → vote → list → forget in ≤ 4 ca
     m.deleteBoardIdea.mockResolvedValue(undefined)
     expect(await runForgetIdeaTool(ctx, { idea_id: ID })).toEqual({ forgotten: true, ideaId: ID })
     expect(m.deleteBoardIdea).toHaveBeenCalledWith('u1', ID)
+  })
+})
+
+describe('update_idea (makers: status, note)', () => {
+  it('sets status and note, then returns the idea (null once rejected — off the board)', async () => {
+    m.getBoardIdea.mockResolvedValue({ id: ID, status: 'in-progress' })
+    const res = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'in-progress', note: 'On it.' })
+    expect(m.adminUpdateBoardIdea).toHaveBeenCalledWith('u1', ID, {
+      status: 'in-progress',
+      note: 'On it.',
+    })
+    expect(res).toEqual({ ideaId: ID, idea: { id: ID, status: 'in-progress' } })
+
+    m.getBoardIdea.mockResolvedValue(null)
+    const rejected = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'rejected' })
+    expect(m.adminUpdateBoardIdea).toHaveBeenLastCalledWith('u1', ID, { status: 'rejected' })
+    expect(rejected).toEqual({ ideaId: ID, idea: null })
+  })
+
+  it('fails loud on bad status, unknown keys, or nothing to change', async () => {
+    await expect(runUpdateIdeaTool(ctx, { idea_id: ID, status: 'done' })).rejects.toThrow(/status/)
+    await expect(runUpdateIdeaTool(ctx, { idea_id: ID, hidden: true })).rejects.toThrow(
+      /Unknown argument: hidden/,
+    )
+    await expect(runUpdateIdeaTool(ctx, { idea_id: ID })).rejects.toThrow(/Nothing to change/)
+    expect(m.adminUpdateBoardIdea).not.toHaveBeenCalled()
   })
 })

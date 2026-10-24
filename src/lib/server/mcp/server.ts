@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
+  MCP_BOARD_ADMIN_TOOL_DEFINITIONS,
   MCP_BOARD_TOOL_DEFINITIONS,
   MCP_EXPOSED_TOOL_DEFINITIONS,
 } from '$lib/server/mcp/registry'
@@ -10,12 +11,16 @@ import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embedding
 export type McpServerAccess = {
   /** maker/admin only — see hasBoardMcpAccess. */
   boardAccess: boolean
+  /** admin only — adds update_idea (status, note). */
+  boardAdmin: boolean
 }
 
 export function createMcpServer(context: McpToolContext, access: McpServerAccess): Server {
-  const tools = access.boardAccess
-    ? [...MCP_EXPOSED_TOOL_DEFINITIONS, ...MCP_BOARD_TOOL_DEFINITIONS]
-    : MCP_EXPOSED_TOOL_DEFINITIONS
+  const tools = [
+    ...MCP_EXPOSED_TOOL_DEFINITIONS,
+    ...(access.boardAccess ? MCP_BOARD_TOOL_DEFINITIONS : []),
+    ...(access.boardAccess && access.boardAdmin ? MCP_BOARD_ADMIN_TOOL_DEFINITIONS : []),
+  ]
   const handlers = new Map(tools.map((tool) => [tool.name, tool.handler]))
 
   const server = new Server(
