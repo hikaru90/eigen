@@ -3,10 +3,12 @@
   import { base, resolve } from '$app/paths'
   import { page } from '$app/state'
   import { resetPostHog } from '$lib/analytics/posthog-client'
+  import { creditMeterFraction, type CreditMeter } from '$lib/billing/credit-meter'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
+  import { m } from '$lib/paraglide/messages.js'
+  import { getLocale } from '$lib/paraglide/runtime'
   import { deferredInstallState, installApp } from '$lib/pwa/deferred-install-store.svelte'
   import { isIosDevice } from '$lib/pwa/install'
-  import { m } from '$lib/paraglide/messages.js'
 
   // — Look: the existing theme system (see settings/+page.svelte). Persistence is
   //   localStorage 'theme-preference'; applying happens in +layout.svelte via the
@@ -39,7 +41,7 @@
 
   // — Your mesh, enumerated (ei .me-head small "142 thoughts · 3 threads", .me-meta "2 keys"):
   //   read-only counts from the root layout load.
-  type YouCounts = { thoughts: number; threads: number; apiKeys: number }
+  type YouCounts = { thoughts: number; threads: number; apiKeys: number; credits?: CreditMeter | null }
   const counts = $derived((page.data as { youCounts?: YouCounts | null }).youCounts ?? null)
   const meshSummary = $derived(
     counts
@@ -49,6 +51,15 @@
   const keysSummary = $derived(
     counts ? (counts.apiKeys === 1 ? m.you_keys_one : m.you_keys_other)({ count: counts.apiKeys }) : null,
   )
+
+  // — Usage: the credits left against the balance at the last top-up, as a fine bar.
+  const credits = $derived(counts?.credits ?? null)
+  const creditsLeftLabel = $derived(
+    credits
+      ? m.you_credits_left({ count: new Intl.NumberFormat(getLocale()).format(Math.max(0, credits.available)) })
+      : null,
+  )
+  const creditsPercent = $derived(credits ? Math.round(creditMeterFraction(credits) * 100) : 0)
 
   // — Install: one click where the browser offers a prompt (Chrome, Edge, Android); iOS has
   //   no install API, so it gets the Share-sheet path as a hint instead of an action.
@@ -214,7 +225,23 @@
         {/if}
       </DropdownMenu.Item>
       <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/activity'))}>
-        {m.you_usage()}
+        {#if credits && creditsLeftLabel}
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <span class="flex items-baseline justify-between gap-2">
+              {m.you_usage()}
+              <span class="text-[11px] text-ink-3" aria-hidden="true">{creditsLeftLabel}</span>
+            </span>
+            <span class="block h-[3px] overflow-hidden rounded-full bg-ink-4" aria-hidden="true">
+              <span
+                class="block h-full rounded-full bg-ink-2 transition-[width] duration-500 ease-settle"
+                style:width="{creditsPercent}%"
+                data-testid="you-usage-fill"
+              ></span>
+            </span>
+          </span>
+        {:else}
+          {m.you_usage()}
+        {/if}
       </DropdownMenu.Item>
       {#if canPromptInstall}
         <DropdownMenu.Item class={meItem} onclick={() => void installApp()}>

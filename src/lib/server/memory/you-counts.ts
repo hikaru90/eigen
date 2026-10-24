@@ -1,4 +1,6 @@
 import { and, count, eq, inArray, ne } from 'drizzle-orm'
+import type { CreditMeter } from '$lib/billing/credit-meter'
+import { loadCreditMeter } from '$lib/server/billing/wallet'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, userApiKey } from '$lib/server/db/schema'
 
@@ -10,11 +12,13 @@ export type YouCounts = {
   threads: number
   /** Active API keys. */
   apiKeys: number
+  /** The usage bar; null until the user has a wallet. */
+  credits: CreditMeter | null
 }
 
 export async function loadYouCounts(userId: string): Promise<YouCounts> {
   const db = getDb()
-  const [[thoughts], [threads], [apiKeys]] = await Promise.all([
+  const [[thoughts], [threads], [apiKeys], credits] = await Promise.all([
     db
       .select({ n: count() })
       .from(thought)
@@ -32,10 +36,12 @@ export async function loadYouCounts(userId: string): Promise<YouCounts> {
       .select({ n: count() })
       .from(userApiKey)
       .where(and(eq(userApiKey.userId, userId), eq(userApiKey.isActive, true))),
+    loadCreditMeter(userId),
   ])
   return {
     thoughts: Number(thoughts?.n ?? 0),
     threads: Number(threads?.n ?? 0),
     apiKeys: Number(apiKeys?.n ?? 0),
+    credits,
   }
 }

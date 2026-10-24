@@ -66,6 +66,32 @@ describe('you-menu.svelte', () => {
     await expect.element(menu.getByText('142 thoughts · 3 threads')).toBeInTheDocument()
     await expect.element(menu.getByText('1 key', { exact: true })).toBeInTheDocument()
   })
+
+  it('shows usage as a bar of the credits left since the last top-up', async () => {
+    stubAppPage.data = {
+      user: { email: 'you@eigen.dev' },
+      youCounts: { thoughts: 1, threads: 0, apiKeys: 0, credits: { available: 750, spentSinceFunding: 250 } },
+    }
+    render(YouMenu)
+    await page.getByRole('button', { name: MENU_LABEL }).click()
+    const menu = page.getByRole('menu', { name: MENU_LABEL })
+    await expect.element(menu.getByText('750 credits left')).toBeInTheDocument()
+    const fill = page.getByTestId('you-usage-fill').element() as HTMLElement
+    expect(fill.style.width).toBe('75%')
+    // the item keeps its plain name: the bar and its figure are decoration for sighted users
+    await expect.element(page.getByRole('menuitem', { name: 'Usage', exact: true })).toBeInTheDocument()
+  })
+
+  it('shows no usage bar before the user has a wallet', async () => {
+    stubAppPage.data = {
+      user: { email: 'you@eigen.dev' },
+      youCounts: { thoughts: 1, threads: 0, apiKeys: 0, credits: null },
+    }
+    render(YouMenu)
+    await page.getByRole('button', { name: MENU_LABEL }).click()
+    await expect.element(page.getByRole('menu', { name: MENU_LABEL })).toBeInTheDocument()
+    await expect.element(page.getByTestId('you-usage-fill')).not.toBeInTheDocument()
+  })
 })
 
 describe('you-menu selection', () => {

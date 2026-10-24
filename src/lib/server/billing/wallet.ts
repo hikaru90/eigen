@@ -1,4 +1,5 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
+import type { CreditMeter } from '$lib/billing/credit-meter'
 import {
   formatEigenCredits,
   MICRO_USD_PER_CREDIT,
@@ -744,4 +745,46 @@ export async function assertCanAfford(userId: string, requiredCredits: number): 
       requiredCredits,
     })
   }
+}
+
+/**
+ * The You menu's usage bar (CreditMeter): spendable credits now, and credits
+ * debited for usage since the most recent funding (a top-up, or a positive
+ * adjustment such as the starting grant). No wallet yet → null, not a guess.
+ */
+export async function loadCreditMeter(userId: string): Promise<CreditMeter | null> {
+  return withDbUser(userId, async (db) => {
+    const [wallet] = await db
+      .select({ availableCredits: userWallet.availableCredits })
+      .from(userWallet)
+      .where(eq(userWallet.userId, userId))
+      .limit(1)
+    if (!wallet) return null
+
+    const [funding] = await db
+      .select({ createdAt: walletLedgerEntry.createdAt })
+      .from(walletLedgerEntry)
+      .where(
+        and(
+          eq(walletLedgerEntry.userId, userId),
+          inArray(walletLedgerEntry.kind, ['top_up', 'adjustment']),
+          gt(walletLedgerEntry.amountCredits, 0),
+        ),
+      )
+      .orderBy(desc(walletLedgerEntry.createdAt))
+      .limit(1)
+
+    const [spent] = await db
+      .select({ debited: sql<number>`coalesce(-sum(${walletLedgerEntry.amountCredits}), 0)::int` })
+      .from(walletLedgerEntry)
+      .where(
+        and(
+          eq(walletLedgerEntry.userId, userId),
+          eq(walletLedgerEntry.kind, 'usage_debit'),
+          funding ? gt(walletLedgerEntry.createdAt, funding.createdAt) : undefined,
+        ),
+      )
+
+    return { available: wallet.availableCredits, spentSinceFunding: Number(spent?.debited ?? 0) }
+  })
 }

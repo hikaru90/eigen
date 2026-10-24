@@ -435,6 +435,7 @@
   "you_settings": "Settings",
   "you_api_keys": "API keys",
   "you_usage": "Usage",
+  "you_credits_left": "{count} credits left",
   "you_install_app": "Install app",
   "you_install_ios_hint": "Share → Add to Home Screen",
   "view_select_label": "View as",
