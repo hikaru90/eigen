@@ -27,6 +27,7 @@ const {
   updateProjectLabelMock,
   updateProjectStatusMock,
   dismissProjectMock,
+  mergeProjectEntitiesMock,
   loadOpenThreadsMock,
   retrieveThoughtRowsForDeleteRequestMock,
   resolveDeleteTargetsMock,
@@ -48,6 +49,7 @@ const {
   updateProjectLabelMock: vi.fn(),
   updateProjectStatusMock: vi.fn(),
   dismissProjectMock: vi.fn(),
+  mergeProjectEntitiesMock: vi.fn(),
   loadOpenThreadsMock: vi.fn(),
   retrieveThoughtRowsForDeleteRequestMock: vi.fn(),
   resolveDeleteTargetsMock: vi.fn(),
@@ -61,6 +63,9 @@ vi.mock('$lib/server/memory/project-list', () => ({
   dismissProject: dismissProjectMock,
 }))
 
+vi.mock('$lib/server/memory/resolve-project-identity', () => ({
+  mergeProjectEntities: mergeProjectEntitiesMock,
+}))
 vi.mock('$lib/server/memory/open-threads', () => ({
   loadOpenThreads: loadOpenThreadsMock,
 }))
@@ -1034,6 +1039,45 @@ describe('MCP tools', () => {
     const out = await runDeleteProjectTool({ userId: 'u1' }, { project_entity_id: 'p1' })
     expect(dismissProjectMock).toHaveBeenCalledWith('u1', 'p1')
     expect(out).toMatchObject({ deleted: true, entityId: 'p1', label: 'To Delete' })
+  })
+
+  it('runMergeProjectsTool folds duplicates into the kept project in one call (user authority)', async () => {
+    listProjectsForUserMock.mockResolvedValue([
+      { entityId: 'p1', label: 'Eigen', status: 'active' },
+      { entityId: 'p2', label: 'EigenMesh', status: 'active' },
+      { entityId: 'p3', label: 'eigenmesh', status: 'active' },
+    ])
+    mergeProjectEntitiesMock.mockResolvedValue(undefined)
+    const { runMergeProjectsTool } = await import('./tools')
+    const out = await runMergeProjectsTool(
+      { userId: 'u1' },
+      { into_project_entity_id: 'p2', project_entity_ids: ['p1', 'p3', 'p1'], label: ' EigenMesh ' },
+    )
+    expect(mergeProjectEntitiesMock).toHaveBeenCalledWith('u1', 'p2', ['p1', 'p3'], 'EigenMesh', 'user')
+    expect(dismissProjectMock).not.toHaveBeenCalled()
+    expect(out).toMatchObject({
+      merged: true,
+      into: { entityId: 'p2' },
+      mergedProjects: [
+        { entityId: 'p1', label: 'Eigen' },
+        { entityId: 'p3', label: 'eigenmesh' },
+      ],
+    })
+  })
+
+  it('runMergeProjectsTool negative probes: unknown ids, self-merge, empty list — before any write', async () => {
+    listProjectsForUserMock.mockResolvedValue([{ entityId: 'p1', label: 'Eigen', status: 'active' }])
+    const { runMergeProjectsTool } = await import('./tools')
+    await expect(
+      runMergeProjectsTool({ userId: 'u1' }, { into_project_entity_id: 'p1', project_entity_ids: ['nope'] }),
+    ).rejects.toThrow(/Project not found: nope/)
+    await expect(
+      runMergeProjectsTool({ userId: 'u1' }, { into_project_entity_id: 'p1', project_entity_ids: ['p1'] }),
+    ).rejects.toThrow(/must not contain/)
+    await expect(
+      runMergeProjectsTool({ userId: 'u1' }, { into_project_entity_id: 'p1', project_entity_ids: [] }),
+    ).rejects.toThrow(/non-empty array/)
+    expect(mergeProjectEntitiesMock).not.toHaveBeenCalled()
   })
 
   it('runDeleteProjectTool rejects non-existent project', async () => {

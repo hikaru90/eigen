@@ -53,17 +53,21 @@ describe('board contract', () => {
     expect(() => parseIdeaId('')).toThrow(/Invalid idea_id/)
   })
 
-  it('routes a patch to the author path (kind/area) or the admin path (status/planned/note/hidden)', () => {
+  it('routes a patch to the author path (kind/area) or the admin path (title/status/planned/note/hidden)', () => {
     expect(parseBoardPatch({ kind: 'bug' })).toEqual({ scope: 'author', patch: { kind: 'bug' } })
     expect(parseBoardPatch({ status: 'shipped', note: 'Done!' })).toEqual({
       scope: 'admin',
       patch: { status: 'shipped', note: 'Done!' },
     })
     expect(parseBoardPatch({ note: null })).toEqual({ scope: 'admin', patch: { note: null } })
+    expect(parseBoardPatch({ title: ' renamed ' })).toEqual({
+      scope: 'admin',
+      patch: { title: 'renamed' },
+    })
   })
 
   it('rejects empty, mixed or unknown patches with 400', () => {
-    for (const body of [{}, { kind: 'bug', status: 'shipped' }, { title: 'renamed' }, null]) {
+    for (const body of [{}, { kind: 'bug', status: 'shipped' }, { kind: 'bug', title: 'renamed' }, { title: '  ' }, { colour: 'red' }, null]) {
       try {
         parseBoardPatch(body)
         throw new Error('expected a BoardError')

@@ -7,6 +7,7 @@ import { getDb } from '$lib/server/db'
 import { userPreference } from '$lib/server/db/schema'
 import { listAuthorLayersForUser } from '$lib/server/memory/authorship'
 import { loadYouCounts, type YouCounts } from '$lib/server/memory/you-counts'
+import { warmPatternsForUser } from '$lib/server/patterns/patterns-service'
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   let preferredUiLocale: string | null = null
@@ -17,6 +18,8 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
   let youCounts: YouCounts | null = null
 
   if (locals.user) {
+    // today's patterns start computing now, so the Patterns tab opens on a ready result
+    warmPatternsForUser(locals.user.id)
     isAdmin = await isUserAdmin(locals.user.id)
     authorLayers = await listAuthorLayersForUser(locals.user.id)
     youCounts = await loadYouCounts(locals.user.id)

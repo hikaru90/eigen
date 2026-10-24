@@ -575,6 +575,13 @@
       "when": 1792920060000,
       "tag": "0081_user_preference_notify_by_email",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792920120000,
+      "tag": "0082_board_admin_edit_delete",
+      "breakpoints": true
     }
   ]
 }

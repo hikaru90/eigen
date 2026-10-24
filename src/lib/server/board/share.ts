@@ -1,3 +1,5 @@
+import type { BoardAdminPatch } from './contract'
+import type { IdeaShippedReward } from './reward'
 import type {
   BoardArea,
   BoardCheckResult,
@@ -10,7 +12,14 @@ import {
 } from '$lib/server/feedback/send-feedback-email'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { judgeBoardIdea } from './judge'
-import { findDuplicateCandidates, getBoardIdea, insertBoardIdea, loadUserEmail } from './service'
+import {
+  adminSetBoardIdeaTitle,
+  adminUpdateBoardIdea,
+  findDuplicateCandidates,
+  getBoardIdea,
+  insertBoardIdea,
+  loadUserEmail,
+} from './service'
 
 /** How many similar open ideas the judge compares against. */
 const DUPLICATE_CANDIDATES = 5
@@ -60,4 +69,22 @@ export async function shareBoardIdea(input: {
     console.error('[board.share] inbox email failed; idea kept', { ideaId, inboxError })
     return { idea, inbox: 'failed', inboxError }
   }
+}
+
+/**
+ * Makers' edit: a new title is re-embedded (so duplicate checks see the new words),
+ * then status/planned/note/hidden go through board_admin_update. Callers check admin first —
+ * the embedding is billed.
+ */
+export async function adminEditBoardIdea(
+  userId: string,
+  ideaId: string,
+  patch: BoardAdminPatch,
+): Promise<{ reward: IdeaShippedReward | null }> {
+  const { title, ...rest } = patch
+  if (title !== undefined) {
+    await adminSetBoardIdeaTitle(ideaId, title, await createThoughtEmbedding(userId, title))
+  }
+  if (Object.keys(rest).length === 0) return { reward: null }
+  return adminUpdateBoardIdea(userId, ideaId, rest)
 }

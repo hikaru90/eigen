@@ -238,6 +238,7 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
       group.winnerEntityId,
       group.loserEntityIds,
       group.canonicalLabel || undefined,
+      'auto',
     )
     merged += group.loserEntityIds.length
   }

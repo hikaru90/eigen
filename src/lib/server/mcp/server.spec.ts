@@ -45,6 +45,7 @@ vi.mock('./tools', () => ({
   runCreateProjectTool: vi.fn(),
   runEditProjectTool: vi.fn(),
   runDeleteProjectTool: vi.fn(),
+  runMergeProjectsTool: vi.fn(),
 }))
 
 describe('createMcpServer', () => {
@@ -70,6 +71,7 @@ describe('createMcpServer', () => {
       'generate_project_plan',
       'create_project',
       'edit_project',
+      'merge_projects',
       'delete_project',
     ])
     expect(result.tools.map((t) => t.name)).not.toContain('list_thoughts')

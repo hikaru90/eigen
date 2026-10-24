@@ -66,6 +66,24 @@ export const betterCopy = {
   checking: 'Reading your idea…',
   /** better.forget — the author's delete control on their own Requested row */
   forget: 'Forget this idea',
+  /** better.sharing — the overlay on the writer while the idea is being put on the board */
+  sharing: 'Putting it on the board…',
+  /** better.admin_edit — makers: reword any idea */
+  adminEdit: 'Edit',
+  /** better.admin_save */
+  adminSave: 'Save',
+  /** better.admin_cancel */
+  adminCancel: 'Cancel',
+  /** better.admin_delete — makers: delete any idea */
+  adminDelete: 'Delete',
+  /** better.admin_delete_title */
+  adminDeleteTitle: 'Delete this idea?',
+  /** better.admin_delete_body */
+  adminDeleteBody: 'It leaves the board for everyone, with its votes. This can’t be undone.',
+  /** better.admin_deleted */
+  adminDeleted: 'Deleted. It’s off the board.',
+  /** better.admin_saved */
+  adminSaved: 'Saved.',
   /** better.forgotten */
   forgotten: 'Forgotten. It’s off the board.',
   /** better.correct_hint — on your own Requested row, kind and area cycle on tap */

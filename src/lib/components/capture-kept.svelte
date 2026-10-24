@@ -1,13 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { KeptStage } from '$lib/capture/kept-progress'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import { m } from '$lib/paraglide/messages.js'
 
   /**
    * After Capture: the capture's process, as a status strip that stays up — how the
-   * thought was kept (its type and thread — the reading the user accepted), then the
-   * background pass as three steps (saved → indexing → linked) with the mesh spinner
-   * while it works. It survives the next reading and the next words (board b4c5457a:
+   * thought was kept (its type and thread — the reading the user accepted), then one
+   * line for the background pass with the mesh spinner: while it indexes the line
+   * cycles through what the pass actually does (entities, meaning, links, timeline),
+   * then it says what got linked. It survives the next reading and the next words (board b4c5457a:
    * the old heading slot let one keystroke hide the whole process). The kept words
    * are never shown again (editing lives in Mesh).
    */
@@ -31,9 +33,23 @@
     failureReason: string | null
   } = $props()
 
-  const steps = $derived([m.capture_kept_step_saved(), m.capture_kept_step_indexing(), m.capture_kept_step_linked()])
-  const reached = $derived(stage === 'saving' ? 1 : stage === 'linked' ? 3 : 2)
   const working = $derived(stage === 'saving' || stage === 'indexing')
+  /** What the background pass does, in order; the line steps through them while indexing. */
+  const explain = [
+    m.capture_kept_working_1,
+    m.capture_kept_working_2,
+    m.capture_kept_working_3,
+    m.capture_kept_working_4,
+  ]
+  let tick = $state(0)
+  const workingLine = $derived(explain[tick % explain.length]())
+
+  onMount(() => {
+    const timer = setInterval(() => {
+      tick += 1
+    }, 2600)
+    return () => clearInterval(timer)
+  })
 </script>
 
 <div data-testid="capture-kept" role="status" class="animate-[fade_0.5s_var(--ease)_both]">
@@ -43,7 +59,11 @@
     <span class="font-you text-base tracking-[-0.01em] text-ink">{threadLabel}</span>
   </p>
 
-  <div class="mt-2 flex items-center gap-2.5 font-mesh text-sm text-ink-3 [&_.spinner]:size-4 [&_.spinner]:shrink-0">
+  <div
+    class="mt-2 flex items-center gap-2.5 font-mesh text-sm text-ink-3 [&_.spinner]:size-4 [&_.spinner]:shrink-0"
+    data-testid="capture-kept-progress"
+    data-stage={stage}
+  >
     <MeshSpinner size={16} {working} />
     {#if stage === 'failed'}
       <span class="text-clay" role="alert">{m.capture_kept_failed({ reason: failureReason ?? '—' })}</span>
@@ -51,29 +71,12 @@
       <span>{m.capture_kept_linked({ entities: entityCount, thoughts: linkedCount })}</span>
     {:else if slow}
       <span>{m.capture_kept_slow()}</span>
+    {:else if stage === 'saving'}
+      <span>{m.capture_kept_saving()}</span>
     {:else}
-      <span>{steps[reached - 1]}</span>
+      {#key workingLine}
+        <span class="animate-[fade_0.5s_var(--ease)_both] motion-reduce:[animation:none]">{workingLine}</span>
+      {/key}
     {/if}
-  </div>
-
-  <div
-    class="mt-2 grid max-w-[320px] grid-cols-3 gap-1.5"
-    role="progressbar"
-    aria-label={m.capture_kept_progress_label()}
-    aria-valuemin={1}
-    aria-valuemax={3}
-    aria-valuenow={reached}
-    aria-valuetext={steps[reached - 1]}
-    data-testid="capture-kept-progress"
-  >
-    {#each steps as step, i (step)}
-      <span
-        class={[
-          'h-[3px] rounded-full transition-colors duration-500 ease-settle',
-          stage === 'failed' && i === 1 ? 'bg-clay' : i < reached ? 'bg-ink-2' : 'bg-ink-4',
-          working && i === reached - 1 && 'animate-[breathe_2.2s_var(--ease-io)_infinite] motion-reduce:[animation:none]',
-        ]}
-      ></span>
-    {/each}
   </div>
 </div>

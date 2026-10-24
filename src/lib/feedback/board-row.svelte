@@ -15,7 +15,8 @@
    * then the words in the asker's voice, the judge's label (Idea / Bug / Polish),
    * the area, who asked ("Noor K."), when, four dots for how far it has come, and a
    * note from the makers. On your own Requested row the kind and area are tap-to-
-   * correct and "Forget this idea" removes it.
+   * correct and "Forget this idea" removes it. Long titles clamp to three lines and
+   * open on tap. The makers (admins) can reword or delete any row.
    */
   type Props = {
     idea: BoardIdea
@@ -33,6 +34,12 @@
     oncorrect?: (id: string, patch: { kind?: BoardKind; area?: BoardArea }) => void
     /** Author delete (Requested only). */
     onforget?: (id: string) => void
+    /** The viewer is a maker: Edit and Delete on every row. */
+    admin?: boolean
+    /** Makers: save a new title. Resolves true when it landed. */
+    onedit?: (id: string, title: string) => Promise<boolean>
+    /** Makers: ask to delete (the page confirms). */
+    ondelete?: (id: string) => void
   }
 
   let {
@@ -44,7 +51,24 @@
     onvote,
     oncorrect,
     onforget,
+    admin = false,
+    onedit,
+    ondelete,
   }: Props = $props()
+
+  let expanded = $state(false)
+  /** The makers' draft while rewording; null when not editing. */
+  let draft = $state<string | null>(null)
+
+  async function saveEdit(): Promise<void> {
+    const title = draft?.trim()
+    if (!title || !onedit) return
+    if (title === idea.title) {
+      draft = null
+      return
+    }
+    if (await onedit(idea.id, title)) draft = null
+  }
 
   const shipped = $derived(idea.status === 'shipped')
   const editable = $derived(idea.own && idea.status === 'requested')
@@ -135,11 +159,50 @@
         >{betterCopy.mostWanted}</span
       >
     {/if}
-    <h3
-      class="m-0 font-you font-normal text-[24px] leading-[1.22] tracking-[-0.008em] text-pretty text-ink"
-    >
-      {idea.title}
-    </h3>
+    {#if draft !== null}
+      <textarea
+        class="block w-full min-h-[90px] p-3 rounded-[12px] border border-line bg-paper-2 font-you text-[20px] leading-[1.3] text-ink outline-none resize-y focus:border-signal"
+        bind:value={draft}
+        aria-label={betterCopy.adminEdit}
+        disabled={pending}
+        onkeydown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            draft = null
+          }
+        }}
+      ></textarea>
+      <div class="flex items-center gap-4 mt-2 text-sm">
+        <button
+          class="h-[30px] px-3.5 rounded-full border-0 bg-ink text-paper cursor-pointer disabled:opacity-40 disabled:cursor-default"
+          type="button"
+          disabled={pending || !draft.trim()}
+          onclick={() => void saveEdit()}>{betterCopy.adminSave}</button
+        >
+        <button
+          class="p-0 border-0 bg-transparent [font:inherit] text-ink-3 cursor-pointer pointer-fine:hover:text-ink"
+          type="button"
+          onclick={() => (draft = null)}>{betterCopy.adminCancel}</button
+        >
+      </div>
+    {:else}
+      <!-- long requests clamp to three lines; tap to read all of it -->
+      <h3
+        class="m-0 font-you font-normal text-[24px] leading-[1.22] tracking-[-0.008em] text-pretty text-ink break-words"
+      >
+        <button
+          class={[
+            'block w-full p-0 border-0 bg-transparent [font:inherit] text-left text-inherit cursor-pointer',
+            !expanded && 'line-clamp-3',
+          ]}
+          data-testid="idea-title"
+          type="button"
+          aria-expanded={expanded}
+          onclick={() => (expanded = !expanded)}>{idea.title}</button
+        >
+      </h3>
+    {/if}
     <div class="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 mt-2 text-sm text-ink-3">
       <span
         class={['inline-flex items-center gap-1.5 text-ink-2 before:content-[""] before:size-[5px] before:rounded-full', kindDot[idea.kind]]}
@@ -202,6 +265,22 @@
           {betterCopy.others}
         </span>
       </p>
+    {/if}
+    {#if admin && draft === null}
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm" data-testid="idea-admin">
+        <button
+          class="p-0 border-0 bg-transparent [font:inherit] text-ink-3 cursor-pointer transition-colors duration-300 ease-settle pointer-fine:hover:text-ink disabled:cursor-default"
+          type="button"
+          disabled={pending}
+          onclick={() => (draft = idea.title)}>{betterCopy.adminEdit}</button
+        >
+        <button
+          class="p-0 border-0 bg-transparent [font:inherit] text-ink-3 cursor-pointer transition-colors duration-300 ease-settle pointer-fine:hover:text-warn disabled:cursor-default"
+          type="button"
+          disabled={pending}
+          onclick={() => ondelete?.(idea.id)}>{betterCopy.adminDelete}</button
+        >
+      </div>
     {/if}
     {#if idea.own}
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm">

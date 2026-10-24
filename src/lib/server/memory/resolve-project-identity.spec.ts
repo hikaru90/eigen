@@ -799,7 +799,7 @@ describe('mergeProjectEntities', () => {
   })
 
   it('no-ops when loser list is empty after filtering winner', async () => {
-    await mergeProjectEntities('u1', 'winner', ['winner'])
+    await mergeProjectEntities('u1', 'winner', ['winner'], undefined, 'auto')
     expect(getDbMock).not.toHaveBeenCalled()
   })
 
@@ -818,12 +818,34 @@ describe('mergeProjectEntities', () => {
       })),
     })
 
-    await mergeProjectEntities('u1', 'winner', ['loser1'])
+    await mergeProjectEntities('u1', 'winner', ['loser1'], undefined, 'auto')
     expect(errorSpy).toHaveBeenCalledWith(
       '[merge-projects] Refusing to merge manual projects',
       expect.objectContaining({
         manualLosers: ['loser1'],
       }),
+    )
+    errorSpy.mockRestore()
+  })
+
+  it('a merge the user asked for takes manual losers (no refusal, goes on to the winner)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    let selectCall = 0
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => {
+        selectCall += 1
+        const rows = selectCall === 1 ? [{ entityId: 'loser1', source: 'manual' }] : []
+        return { from: vi.fn(() => ({ where: vi.fn(() => thenableWhere(rows, rows)) })) }
+      }),
+    })
+
+    // past the manual filter: the next step looks up the winner (missing here → throws)
+    await expect(mergeProjectEntities('u1', 'winner', ['loser1'], undefined, 'user')).rejects.toThrow(
+      /winner winner not found/,
+    )
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      '[merge-projects] Refusing to merge manual projects',
+      expect.anything(),
     )
     errorSpy.mockRestore()
   })
@@ -846,7 +868,7 @@ describe('mergeProjectEntities', () => {
       }),
     })
 
-    await expect(mergeProjectEntities('u1', 'winner', ['loser1'])).rejects.toThrow(
+    await expect(mergeProjectEntities('u1', 'winner', ['loser1'], undefined, 'auto')).rejects.toThrow(
       /winner winner not found/,
     )
   })
@@ -937,7 +959,7 @@ describe('mergeProjectEntities', () => {
       delete: deleteMock,
     })
 
-    await mergeProjectEntities('u1', 'winner', ['loser1'], 'Eigen')
+    await mergeProjectEntities('u1', 'winner', ['loser1'], 'Eigen', 'auto')
 
     expect(insertMock).toHaveBeenCalled()
     expect(deleteMock).toHaveBeenCalled()

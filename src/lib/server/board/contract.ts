@@ -41,6 +41,7 @@ const authorPatchSchema = z
 
 const adminPatchSchema = z
   .object({
+    title: boardTitleSchema.optional(),
     status: boardIdeaStatusSchema.optional(),
     planned: z.boolean().optional(),
     note: z
@@ -59,7 +60,7 @@ export type BoardPatch =
   { scope: 'author'; patch: BoardAuthorPatch } | { scope: 'admin'; patch: BoardAdminPatch }
 
 const AUTHOR_KEYS = new Set(['kind', 'area'])
-const ADMIN_KEYS = new Set(['status', 'planned', 'note', 'hidden'])
+const ADMIN_KEYS = new Set(['title', 'status', 'planned', 'note', 'hidden'])
 
 /** First zod issue as a plain sentence. */
 export function firstIssue(error: z.ZodError): string {
@@ -71,7 +72,7 @@ export function firstIssue(error: z.ZodError): string {
 
 /**
  * One PATCH, two scopes: the author corrects kind/area (Requested only); the
- * makers change status/planned/note/hidden. Mixing them is ambiguous → 400.
+ * makers change title/status/planned/note/hidden. Mixing them is ambiguous → 400.
  */
 export function parseBoardPatch(body: unknown): BoardPatch {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -85,7 +86,7 @@ export function parseBoardPatch(body: unknown): BoardPatch {
   const admin = keys.some((k) => ADMIN_KEYS.has(k))
   if (author && admin) {
     throw new BoardError(
-      'Send either kind/area (author) or status/planned/note/hidden (makers), not both',
+      'Send either kind/area (author) or title/status/planned/note/hidden (makers), not both',
       400,
     )
   }

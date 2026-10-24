@@ -56,6 +56,7 @@ describe('MCP tool registry exposure', () => {
       'generate_project_plan',
       'create_project',
       'edit_project',
+      'merge_projects',
       'delete_project',
     ])
     expect(MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_CLIENT_EXPOSED_TOOL_NAMES)
@@ -78,6 +79,7 @@ describe('MCP tool registry exposure', () => {
       'generate_project_plan',
       'create_project',
       'edit_project',
+      'merge_projects',
       'delete_project',
       ...BOARD_TOOLS,
       'update_idea',

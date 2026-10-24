@@ -3,13 +3,16 @@
   import { SvelteSet } from 'svelte/reactivity'
   import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
+  import { page } from '$app/state'
   import { clearFeedbackNote } from '$lib/components/chrome/feedback-news.svelte'
+  import * as AlertDialog from '$lib/components/ui/alert-dialog'
   import * as Tabs from '$lib/components/ui/tabs'
   import { betterCopy } from '$lib/feedback/better-copy'
   import {
     BoardRequestError,
     checkIdea,
     correctIdea,
+    editIdeaTitle,
     fetchBoard,
     forgetIdea,
     shareIdea,
@@ -71,6 +74,11 @@
   let busy = $state(false)
 
   let composer = $state<ShareComposer | null>(null)
+
+  /** Makers (admins) reword or delete any row; the layout already knows the role. */
+  const admin = $derived((page.data as { isAdmin?: boolean }).isAdmin ?? false)
+  /** The idea the makers asked to delete, while the confirm is open. */
+  let deleteId = $state<string | null>(null)
 
   // ——— pure view state ———
   const counts = $derived(tabCounts(ideas))
@@ -313,6 +321,42 @@
     if (gone) say(betterCopy.forgotten, 2400)
   }
 
+  // ——— the makers: reword or delete any idea ———
+  async function edit(id: string, title: string): Promise<boolean> {
+    if (pendingIds.has(id)) return false
+    setPending(id, true)
+    let saved = false
+    try {
+      await editIdeaTitle(id, title)
+      saved = true
+    } catch (err) {
+      say(reasonOf(err), 6000)
+    } finally {
+      setPending(id, false)
+    }
+    await refresh()
+    if (saved) say(betterCopy.adminSaved, 1800)
+    return saved
+  }
+
+  async function confirmDelete(): Promise<void> {
+    const id = deleteId
+    deleteId = null
+    if (!id || pendingIds.has(id)) return
+    setPending(id, true)
+    let gone = false
+    try {
+      await forgetIdea(id)
+      gone = true
+    } catch (err) {
+      say(reasonOf(err), 6000)
+    } finally {
+      setPending(id, false)
+    }
+    await refresh()
+    if (gone) say(betterCopy.adminDeleted, 2400)
+  }
+
   onMount(() => {
     // the dot clears once you've looked
     clearFeedbackNote()
@@ -462,6 +506,9 @@
         onvote={(id, dir, button) => void vote(id, dir, button)}
         oncorrect={(id, patch) => void correct(id, patch)}
         onforget={(id) => void forget(id)}
+        {admin}
+        onedit={edit}
+        ondelete={(id) => (deleteId = id)}
       />
     {/each}
     {#if noMatches}
@@ -469,6 +516,26 @@
     {/if}
   </div>
 </div>
+
+<AlertDialog.Root
+  open={deleteId !== null}
+  onOpenChange={(open) => {
+    if (!open) deleteId = null
+  }}
+>
+  <AlertDialog.Content data-testid="idea-delete-confirm">
+    <AlertDialog.Header>
+      <AlertDialog.Title>{betterCopy.adminDeleteTitle}</AlertDialog.Title>
+      <AlertDialog.Description>{betterCopy.adminDeleteBody}</AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel class="rounded-[4px]">{betterCopy.adminCancel}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={() => void confirmDelete()}>
+        {betterCopy.adminDelete}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
 
 <!-- the shared writer docks itself (portaled outside the page mask so it never fades) -->
 <ShareComposer

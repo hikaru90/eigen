@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte'
   import CornerDownLeft from '@lucide/svelte/icons/corner-down-left'
   import Square from '@lucide/svelte/icons/square'
+  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import { portal } from '$lib/components/chrome/portal'
   import VoiceInputButton from '$lib/components/voice-input-button.svelte'
   import { hapticPress } from '$lib/haptics'
@@ -11,7 +12,10 @@
    * nav, outside the page mask. One right-hand slot holds the mic while the field is empty
    * (or while recording) and the send action once there are words; while `busy` with an
    * `onstop`, it holds Stop. Small page controls go in `above`, a quiet row over the field.
-   * Enter submits, Shift+Enter is a newline. The docked height is published as
+   * On a keyboard Enter submits and Shift+Enter is a newline; on touch (coarse pointer) Enter
+   * is always a newline and the send button sends. With `busyLabel`, `busy` lays a veil with
+   * that label over the field and locks it, so nothing is sent twice. The send action sits
+   * centred on one line and drops to the last line once the text wraps. The docked height is published as
    * `--glass-writer-height` on <html> so pages can pad their content clear of it.
    */
   type Props = {
@@ -25,6 +29,8 @@
     /** Disables sending (field stays editable unless `disabled`). */
     submitDisabled?: boolean
     busy?: boolean
+    /** While `busy`, cover the field with this label and lock it (no edits, no resend). */
+    busyLabel?: string
     maxLength?: number
     onsubmit: () => void
     /** With `busy`, the slot becomes Stop. */
@@ -57,6 +63,7 @@
     disabled = false,
     submitDisabled = false,
     busy = false,
+    busyLabel,
     maxLength,
     onsubmit,
     onstop,
@@ -84,6 +91,9 @@
     busy && onstop ? 'stop' : hasVoice && (!hasText || recording) ? 'mic' : 'send',
   )
   const canSend = $derived(hasText && !disabled && !busy && !submitDisabled)
+  const veiled = $derived(busy && !!busyLabel)
+  /** The text wraps past one line: the action drops to the bottom. Set by `trackLines`. */
+  let multiline = $state(false)
 
   export function focus(): void {
     input?.focus()
@@ -98,9 +108,30 @@
   function handleKeydown(e: KeyboardEvent): void {
     onkeydown?.(e)
     if (e.defaultPrevented) return
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault()
-      submit()
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return
+    // a phone keyboard's return key writes a line break; the send button sends
+    if (window.matchMedia('(pointer: coarse)').matches) return
+    e.preventDefault()
+    submit()
+  }
+
+  /** Line count from the field's own size: on resize (field-sizing) and on every input. */
+  function trackLines(node: HTMLTextAreaElement) {
+    const measure = () => {
+      const style = getComputedStyle(node)
+      const lineHeight = parseFloat(style.lineHeight)
+      const content =
+        node.scrollHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)
+      multiline = content > lineHeight * 1.5
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    node.addEventListener('input', measure)
+    return {
+      destroy() {
+        observer.disconnect()
+        node.removeEventListener('input', measure)
+      },
     }
   }
 
@@ -141,11 +172,12 @@
     </div>
   {/if}
   <div
-    class="glass-field flex items-center justify-between gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
+    class="glass-field relative flex items-center justify-between gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
     data-testid="glass-writer-field"
   >
     <textarea
       bind:this={input}
+      use:trackLines
       bind:value
       class="block flex-1 min-w-0 [field-sizing:content] max-h-[min(40svh,240px)] py-1.5 border-0 outline-none resize-none overflow-y-auto [scrollbar-width:none] bg-transparent font-mesh text-[17px] leading-6 text-ink caret-signal placeholder:text-ink-2 disabled:opacity-55"
       rows="1"
@@ -153,7 +185,7 @@
       aria-label={label ?? placeholder}
       maxlength={maxLength}
       {spellcheck}
-      {disabled}
+      disabled={disabled || veiled}
       data-testid={inputTestId}
       {oninput}
       onkeydown={handleKeydown}
@@ -161,8 +193,12 @@
         voiceStop?.()
         onfocus?.()
       }}></textarea>
-    <!-- the one action slot: centred with the text by the row -->
-    <div class="flex shrink-0" data-testid="glass-writer-slot">
+    <!-- the one action slot: centred with one line of text, on the last line once it wraps -->
+    <div
+      class={['flex shrink-0', multiline && 'self-end']}
+      data-testid="glass-writer-slot"
+      data-multiline={multiline}
+    >
       {#if slot === 'stop'}
         <button
           type="button"
@@ -196,5 +232,17 @@
         </button>
       {/if}
     </div>
+    {#if veiled}
+      <!-- the veil: what is happening, over the field, so the same words aren't sent twice -->
+      <div
+        class="absolute inset-0 z-10 flex items-center gap-2.5 pl-5 pr-4 rounded-[inherit] bg-paper/85 backdrop-blur-[2px] text-[15px] text-ink-2 animate-[fade_0.3s_var(--ease)_both]"
+        role="status"
+        aria-live="polite"
+        data-testid="glass-writer-busy"
+      >
+        <MeshSpinner size={20} working />
+        <span>{busyLabel}</span>
+      </div>
+    {/if}
   </div>
 </form>

@@ -13,18 +13,22 @@ const m = vi.hoisted(() => ({
   deleteBoardIdea: vi.fn(),
   checkBoardIdea: vi.fn(),
   shareBoardIdea: vi.fn(),
-  adminUpdateBoardIdea: vi.fn(async () => ({ reward: null })),
+  adminEditBoardIdea: vi.fn(async () => ({ reward: null })),
+  adminDeleteBoardIdea: vi.fn(),
   getBoardIdea: vi.fn(),
+  isUserAdmin: vi.fn(),
 }))
 
 vi.mock('$lib/server/board/service', () => ({
   listBoardIdeas: m.listBoardIdeas,
   setBoardVote: m.setBoardVote,
   deleteBoardIdea: m.deleteBoardIdea,
-  adminUpdateBoardIdea: m.adminUpdateBoardIdea,
+  adminDeleteBoardIdea: m.adminDeleteBoardIdea,
   getBoardIdea: m.getBoardIdea,
 }))
+vi.mock('$lib/server/auth/user-role', () => ({ isUserAdmin: m.isUserAdmin }))
 vi.mock('$lib/server/board/share', () => ({
+  adminEditBoardIdea: m.adminEditBoardIdea,
   checkBoardIdea: m.checkBoardIdea,
   shareBoardIdea: m.shareBoardIdea,
 }))
@@ -32,7 +36,10 @@ vi.mock('$lib/server/board/share', () => ({
 const ID = '11111111-1111-4111-8111-111111111111'
 const ctx = { userId: 'u1' }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  m.isUserAdmin.mockResolvedValue(false)
+})
 
 describe('board MCP tools (AC-11: share → vote → list → forget in ≤ 4 calls)', () => {
   it('share_idea runs the judge, then creates the idea with the judged kind/area', async () => {
@@ -107,14 +114,36 @@ describe('board MCP tools (AC-11: share → vote → list → forget in ≤ 4 ca
     m.deleteBoardIdea.mockResolvedValue(undefined)
     expect(await runForgetIdeaTool(ctx, { idea_id: ID })).toEqual({ forgotten: true, ideaId: ID })
     expect(m.deleteBoardIdea).toHaveBeenCalledWith('u1', ID)
+    expect(m.adminDeleteBoardIdea).not.toHaveBeenCalled()
+  })
+
+  it('forget_idea with an admin key deletes any idea through the makers path', async () => {
+    m.isUserAdmin.mockResolvedValue(true)
+    expect(await runForgetIdeaTool(ctx, { idea_id: ID })).toEqual({ forgotten: true, ideaId: ID })
+    expect(m.adminDeleteBoardIdea).toHaveBeenCalledWith(ID)
+    expect(m.deleteBoardIdea).not.toHaveBeenCalled()
   })
 })
 
-describe('update_idea (makers: status, note)', () => {
+describe('update_idea (makers: title, status, note)', () => {
+  beforeEach(() => m.isUserAdmin.mockResolvedValue(true))
+
+  it('edits the title (trimmed)', async () => {
+    m.getBoardIdea.mockResolvedValue({ id: ID, title: 'Clearer words' })
+    await runUpdateIdeaTool(ctx, { idea_id: ID, title: '  Clearer words ' })
+    expect(m.adminEditBoardIdea).toHaveBeenCalledWith('u1', ID, { title: 'Clearer words' })
+  })
+
+  it('negative probe: a non-admin is refused before any write', async () => {
+    m.isUserAdmin.mockResolvedValue(false)
+    await expect(runUpdateIdeaTool(ctx, { idea_id: ID, title: 'x' })).rejects.toThrow(/makers/)
+    expect(m.adminEditBoardIdea).not.toHaveBeenCalled()
+  })
+
   it('sets status and note, then returns the idea (null once rejected — off the board)', async () => {
     m.getBoardIdea.mockResolvedValue({ id: ID, status: 'in-progress' })
     const res = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'in-progress', note: 'On it.' })
-    expect(m.adminUpdateBoardIdea).toHaveBeenCalledWith('u1', ID, {
+    expect(m.adminEditBoardIdea).toHaveBeenCalledWith('u1', ID, {
       status: 'in-progress',
       note: 'On it.',
     })
@@ -122,13 +151,13 @@ describe('update_idea (makers: status, note)', () => {
 
     m.getBoardIdea.mockResolvedValue(null)
     const rejected = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'rejected' })
-    expect(m.adminUpdateBoardIdea).toHaveBeenLastCalledWith('u1', ID, { status: 'rejected' })
+    expect(m.adminEditBoardIdea).toHaveBeenLastCalledWith('u1', ID, { status: 'rejected' })
     expect(rejected).toEqual({ ideaId: ID, idea: null, reward: null })
   })
 
   it('shipping reports the author reward the service paid', async () => {
     const reward = { authorUserId: 'a1', credits: 5, push: 'no_device' }
-    m.adminUpdateBoardIdea.mockResolvedValueOnce({ reward })
+    m.adminEditBoardIdea.mockResolvedValueOnce({ reward })
     m.getBoardIdea.mockResolvedValue({ id: ID, status: 'shipped' })
     const res = await runUpdateIdeaTool(ctx, { idea_id: ID, status: 'shipped' })
     expect(res).toMatchObject({ reward })
@@ -140,6 +169,7 @@ describe('update_idea (makers: status, note)', () => {
       /Unknown argument: hidden/,
     )
     await expect(runUpdateIdeaTool(ctx, { idea_id: ID })).rejects.toThrow(/Nothing to change/)
-    expect(m.adminUpdateBoardIdea).not.toHaveBeenCalled()
+    await expect(runUpdateIdeaTool(ctx, { idea_id: ID, title: '   ' })).rejects.toThrow(/empty/)
+    expect(m.adminEditBoardIdea).not.toHaveBeenCalled()
   })
 })

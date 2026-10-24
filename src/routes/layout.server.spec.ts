@@ -11,6 +11,8 @@ vi.mock('$lib/i18n/ui-locale', () => ({ normalizeUiLocale: (value: string) => va
 vi.mock('$lib/server/memory/you-counts', () => ({
   loadYouCounts: vi.fn().mockResolvedValue({ thoughts: 4, threads: 2, apiKeys: 1 }),
 }))
+const { warmPatternsMock } = vi.hoisted(() => ({ warmPatternsMock: vi.fn() }))
+vi.mock('$lib/server/patterns/patterns-service', () => ({ warmPatternsForUser: warmPatternsMock }))
 vi.mock('$lib/paraglide/runtime', () => ({ cookieName: 'locale', cookieMaxAge: 31_536_000 }))
 
 function makeCookies() {
@@ -61,6 +63,9 @@ describe('layout server load', () => {
       authorLayers: [{ key: 'user', label: 'You', kind: 'user' }],
       youCounts: { thoughts: 4, threads: 2, apiKeys: 1 },
     })
+    // signed in: today's patterns start computing in the background
+    expect(warmPatternsMock).toHaveBeenCalledWith('u1')
+    warmPatternsMock.mockClear()
 
     await expect(load({ locals: { user: undefined }, cookies } as never)).resolves.toEqual({
       user: null,
@@ -71,6 +76,7 @@ describe('layout server load', () => {
       authorLayers: [],
       youCounts: null,
     })
+    expect(warmPatternsMock).not.toHaveBeenCalled()
   })
 
   it('reports betaAgreementAccepted: true when the user has accepted', async () => {

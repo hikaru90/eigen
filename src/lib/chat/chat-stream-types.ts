@@ -72,6 +72,7 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
   },
   create_project: { title: 'Creating project', category: 'write', icon: 'save' },
   edit_project: { title: 'Editing project', category: 'write', icon: 'pencil' },
+  merge_projects: { title: 'Merging projects', category: 'write', icon: 'pencil' },
   delete_project: { title: 'Deleting project', category: 'destructive', icon: 'trash' },
   list_board: { title: 'Reading the ideas board', category: 'memory', icon: 'list' },
   share_idea: { title: 'Sharing an idea', category: 'write', icon: 'save' },

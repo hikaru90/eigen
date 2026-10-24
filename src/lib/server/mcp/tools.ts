@@ -25,6 +25,7 @@ import {
   setProjectDeadline,
   setProjectMilestone,
 } from '$lib/server/memory/project-timeline'
+import { mergeProjectEntities } from '$lib/server/memory/resolve-project-identity'
 import {
   compactTemporalFieldsForMcp,
   enhanceSnippetWithTemporalContext,
@@ -1008,6 +1009,53 @@ export async function runEditProjectTool(context: McpToolContext, args: unknown)
   console.info('[mcp.tool:edit_project] done', updates)
 
   return sanitizeMcpToolResult(updates)
+}
+
+/**
+ * Fold duplicate projects into one in a single call: thoughts, tasks, next action and
+ * aliases move to the kept project; the others stop being projects. Unlike delete_project,
+ * nothing is unlinked. All ids are checked against the user's projects before any write.
+ */
+export async function runMergeProjectsTool(context: McpToolContext, args: unknown) {
+  const body = asObject(args)
+  const intoId = validateNonEmptyEntityId(
+    typeof body.into_project_entity_id === 'string' ? body.into_project_entity_id : '',
+    'into_project_entity_id',
+  )
+  if (!Array.isArray(body.project_entity_ids) || body.project_entity_ids.length === 0) {
+    throw new Error('project_entity_ids must be a non-empty array of project ids to merge in')
+  }
+  const fromIds = [
+    ...new Set(
+      body.project_entity_ids.map((id) =>
+        validateNonEmptyEntityId(typeof id === 'string' ? id : '', 'project_entity_ids[]'),
+      ),
+    ),
+  ]
+  if (fromIds.includes(intoId)) {
+    throw new Error('project_entity_ids must not contain into_project_entity_id')
+  }
+  if (body.label !== undefined && (typeof body.label !== 'string' || !body.label.trim())) {
+    throw new Error('label must be a non-empty string when given')
+  }
+  const label = typeof body.label === 'string' ? body.label.trim() : undefined
+
+  const projects = await listProjectsForUser(context.userId, { authorScope: 'all' })
+  const byId = new Map(projects.map((p) => [p.entityId, p]))
+  const missing = [intoId, ...fromIds].filter((id) => !byId.has(id))
+  if (missing.length > 0) throw new Error(`Project not found: ${missing.join(', ')}`)
+
+  console.info('[mcp.tool:merge_projects] start', { intoId, fromIds })
+  await mergeProjectEntities(context.userId, intoId, fromIds, label, 'user')
+  const after = await listProjectsForUser(context.userId, { authorScope: 'all' })
+  const kept = after.find((p) => p.entityId === intoId)
+  console.info('[mcp.tool:merge_projects] done', { intoId, merged: fromIds.length })
+
+  return sanitizeMcpToolResult({
+    merged: true,
+    into: { entityId: intoId, label: kept?.label ?? byId.get(intoId)!.label },
+    mergedProjects: fromIds.map((id) => ({ entityId: id, label: byId.get(id)!.label })),
+  })
 }
 
 export async function runDeleteProjectTool(context: McpToolContext, args: unknown) {

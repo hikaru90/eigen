@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import { buildPatternGraph, type PatternGraph, type PatternMention } from '$lib/patterns/pattern-graph'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import { getDb } from '$lib/server/db'
+import { getDb, withDbUser } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity } from '$lib/server/db/schema'
 import { fetchEntityRelationsAmong } from '$lib/server/graph/age'
 import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays'
@@ -22,7 +22,8 @@ import { runPatternsJudge } from './patterns-judge'
  *
  * Load the last weeks' thoughts, community overlays and thread activity (all
  * existing data — no migration), build the structured summary, run ONE judge
- * call, validate + clamp its JSON. Nothing is persisted. Tenancy: every query
+ * call, validate + clamp its JSON. Nothing is persisted; the day's result is cached
+ * in-process and warmed in the background when the app loads (`warmPatternsForUser`). Tenancy: every query
  * is scoped with `eq(..userId)` like the neighbouring judges
  * (src/lib/server/memory/judge-gtd-project.ts). Embeddings are never selected.
  */
@@ -76,9 +77,16 @@ function rememberPatterns(key: string, value: PatternsOkResult): void {
   patternsCache.set(key, value)
 }
 
+/**
+ * Runs in flight, one per cache key: the background warm and the tab's GET share one
+ * judge call — whoever asks second waits for the first.
+ */
+const patternsInFlight = new Map<string, Promise<PatternsResult>>()
+
 /** Test seam: forget every cached result. */
 export function clearPatternsCache(): void {
   patternsCache.clear()
+  patternsInFlight.clear()
 }
 
 async function summarizeThoughtRow(
@@ -179,12 +187,42 @@ async function loadPatternMentions(userId: string, thoughtIds: string[]): Promis
     .where(and(eq(thoughtEntity.userId, userId), inArray(thoughtEntity.thoughtId, thoughtIds)))
 }
 
-export async function getPatternsForUser(userId: string): Promise<PatternsResult> {
+/** Today's patterns: the cached result, the run already in flight, or a new run. */
+export function getPatternsForUser(userId: string): Promise<PatternsResult> {
   const today = new Date()
   const cacheKey = patternsCacheKey(userId, isoDay(today))
   const cached = patternsCache.get(cacheKey)
-  if (cached) return cached
+  if (cached) return Promise.resolve(cached)
+  const running = patternsInFlight.get(cacheKey)
+  if (running) return running
+  const run = computePatterns(userId, today, cacheKey).finally(() => {
+    patternsInFlight.delete(cacheKey)
+  })
+  patternsInFlight.set(cacheKey, run)
+  return run
+}
 
+/**
+ * Background warm (app load): start today's run on its own tenant connection so the
+ * Patterns tab finds it cached — or joins it — instead of starting the judge on arrival.
+ * A failure is logged here and not cached, so the tab's own GET retries and shows it.
+ */
+export function warmPatternsForUser(userId: string): void {
+  const cacheKey = patternsCacheKey(userId, isoDay(new Date()))
+  if (patternsCache.has(cacheKey) || patternsInFlight.has(cacheKey)) return
+  void withDbUser(userId, () => getPatternsForUser(userId)).catch((err: unknown) => {
+    console.error('[patterns] background warm failed', {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  })
+}
+
+async function computePatterns(
+  userId: string,
+  today: Date,
+  cacheKey: string,
+): Promise<PatternsResult> {
   const since = patternsWindowStart(today, PATTERNS_WINDOW_DAYS)
   const [rows, overlays, threadActivity] = await Promise.all([
     loadWindowThoughtRows(userId, since),

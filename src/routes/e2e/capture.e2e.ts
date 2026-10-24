@@ -132,8 +132,8 @@ test.describe('Capture flow (AC-001, AC-004, ei decision #3: read → keep)', ()
 
     // the background pass ends in the strip itself: linked (then it fades) or indexing
     await expect(page.getByTestId('capture-kept-progress')).toHaveAttribute(
-      'aria-valuenow',
-      /2|3/,
+      'data-stage',
+      /indexing|linked/,
       { timeout: 30_000 },
     )
   })

@@ -6,12 +6,20 @@ import CaptureKept from './capture-kept.svelte'
 const base = { typeLabel: 'Task', threadLabel: 'no project', entityCount: 0, linkedCount: 0, slow: false, failureReason: null }
 
 describe('capture-kept.svelte', () => {
-  it('names how it was kept while indexing, with a working spinner and the second step lit', async () => {
+  it('names how it was kept while indexing, and explains what the pass is doing', async () => {
     render(CaptureKept, { ...base, stage: 'indexing' })
     await expect.element(page.getByTestId('capture-kept')).toHaveTextContent('Task')
     await expect.element(page.getByTestId('capture-kept')).toHaveTextContent('no project')
-    await expect.element(page.getByTestId('capture-kept-progress')).toHaveAttribute('aria-valuenow', '2')
-    await expect.element(page.getByText('Indexing')).toBeInTheDocument()
+    await expect.element(page.getByTestId('capture-kept-progress')).toHaveAttribute('data-stage', 'indexing')
+    await expect.element(page.getByText('Finding the people, places and projects it mentions…')).toBeInTheDocument()
+  })
+
+  it('cycles the explanation while indexing (no bar of three lines)', async () => {
+    render(CaptureKept, { ...base, stage: 'indexing' })
+    await expect
+      .element(page.getByText('Making it searchable by meaning, not just words…'), { timeout: 4000 })
+      .toBeInTheDocument()
+    expect(document.querySelector('[role="progressbar"]')).toBeNull()
   })
 
   it('is a status strip (a live region that stays up while the user keeps typing)', async () => {
@@ -21,7 +29,7 @@ describe('capture-kept.svelte', () => {
 
   it('reports what got linked when done', async () => {
     render(CaptureKept, { ...base, stage: 'linked', entityCount: 3, linkedCount: 2 })
-    await expect.element(page.getByTestId('capture-kept-progress')).toHaveAttribute('aria-valuenow', '3')
+    await expect.element(page.getByTestId('capture-kept-progress')).toHaveAttribute('data-stage', 'linked')
     await expect.element(page.getByTestId('capture-kept')).toHaveTextContent('3 entities · 2 thoughts')
   })
 

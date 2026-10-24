@@ -70,6 +70,12 @@ export function correctIdea(
   return call(`/api/board/ideas/${encodeURIComponent(id)}`, 'PATCH', patch)
 }
 
+/** Makers only: reword an idea (the server re-embeds it for duplicate checks). */
+export function editIdeaTitle(id: string, title: string): Promise<{ idea: BoardIdea | null }> {
+  return call(`/api/board/ideas/${encodeURIComponent(id)}`, 'PATCH', { title })
+}
+
+/** The author forgets their Requested idea; for the makers the same call deletes any idea. */
 export function forgetIdea(id: string): Promise<{ ok: true }> {
   return call(`/api/board/ideas/${encodeURIComponent(id)}`, 'DELETE')
 }

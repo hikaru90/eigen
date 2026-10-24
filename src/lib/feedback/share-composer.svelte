@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { BoardArea, BoardCheckResult, BoardKind } from './board-types'
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
-  import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import GlassWriter from '$lib/components/writer/glass-writer.svelte'
   import { m } from '$lib/paraglide/messages.js'
   import { betterCopy } from './better-copy'
@@ -101,6 +100,7 @@
   maxLength={maxLength}
   submitDisabled={!shareable}
   busy={busy || working}
+  busyLabel={current ? betterCopy.sharing : betterCopy.checking}
   spellcheck={false}
   onsubmit={() => void submit()}
   onvoicestart={() => {
@@ -152,16 +152,14 @@
       </div>
     </div>
 
-    <!-- the reading: the judge at work, then what it read ("Sounds like a bug in Capture") -->
+    <!-- the reading: what the judge read ("Sounds like a bug in Capture"); the judge at work
+         shows as the veil over the field -->
     <div
-      class={["flex items-center gap-2 h-0 overflow-hidden text-sm text-ink-3 opacity-0 [transition:height_0.5s_var(--ease),margin_0.5s_var(--ease),opacity_0.5s_var(--ease)] [&_.spinner]:shrink-0 [&_.spinner]:size-5", (working || current) && 'h-[22px] mb-2 opacity-100']}
+      class={["flex items-center gap-2 h-0 overflow-hidden text-sm text-ink-3 opacity-0 [transition:height_0.5s_var(--ease),margin_0.5s_var(--ease),opacity_0.5s_var(--ease)]", current && 'h-[22px] mb-2 opacity-100']}
       aria-live="polite"
     >
-      <MeshSpinner size={20} working={working} />
       <span class="animate-[fade_0.5s_var(--ease)_both] motion-reduce:[animation-duration:0.01ms]">
-        {#if working && !current}
-          {betterCopy.checking}
-        {:else if current}
+        {#if current}
           {m.capture_reading_sounds_like()}
           <span class="text-ink">{kindPhrase(current.kind)}</span>
           {betterCopy.readingIn}

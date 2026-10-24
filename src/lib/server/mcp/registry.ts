@@ -12,6 +12,7 @@ import {
   runCreateProjectTool,
   runCreateTextFileTool,
   runDeleteProjectTool,
+  runMergeProjectsTool,
   runDeleteTextFileTool,
   runDeleteThoughtTool,
   runDeleteThoughtsByRequestTool,
@@ -63,6 +64,7 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'generate_project_plan',
   'create_project',
   'edit_project',
+  'merge_projects',
   'delete_project',
 ])
 
@@ -444,9 +446,35 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('edit_project'),
   },
   {
+    name: 'merge_projects',
+    description:
+      'Merge duplicate projects into one in a single call (e.g. several "Eigen"/"EigenMesh" entries): every thought, task, next action and alias of project_entity_ids moves to into_project_entity_id, and the merged ones stop being projects. Use this — never delete_project — when the user asks to merge, combine or clean up duplicate projects. Optional label renames the kept project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        into_project_entity_id: {
+          type: 'string',
+          description: 'The project to keep (from list_projects).',
+        },
+        project_entity_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'The duplicate projects to fold into it.',
+        },
+        label: { type: 'string', description: 'Optional new name for the kept project.' },
+      },
+      required: ['into_project_entity_id', 'project_entity_ids'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema:
+      '{"into_project_entity_id": "string (required) — project to keep", "project_entity_ids": "string[] (required) — duplicates to merge in", "label": "string (optional) — new name"}',
+    handler: runMergeProjectsTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('merge_projects'),
+  },
+  {
     name: 'delete_project',
     description:
-      'Delete (dismiss) a project. Removes the project from active listings and unlinks all associated thoughts. The thoughts themselves are preserved.',
+      'Delete (dismiss) a project. Removes the project from active listings and unlinks all associated thoughts. The thoughts themselves are preserved. To combine duplicate projects use merge_projects instead.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -514,7 +542,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'forget_idea',
     description:
-      'Delete ("forget") an idea you shared while it is still Requested; its votes go with it. Other people\'s ideas → 403, In progress/Shipped → 409.',
+      'Delete ("forget") an idea you shared while it is still Requested; its votes go with it. Other people\'s ideas → 403, In progress/Shipped → 409. Makers (admin key) delete any idea in any status.',
     inputSchema: {
       type: 'object',
       properties: { idea_id: { type: 'string' } },
@@ -528,11 +556,12 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'update_idea',
     description:
-      "Makers only (admin key): change a board idea's status and/or the makers' note. requested | in-progress | shipped move it between the board tabs (shipped closes votes); rejected declines it and takes it off the board for every user — set another status to restore it. note: string shown on the idea, or null to clear. When an idea ships, an LLM judge (billed to you) decides whether it was a genuine contribution: if so its author gets 5 credits once; either way they get an in-app notification, a push and an email. reward reports it, with the judge's reason (null when nothing was sent). Returns the idea as the board shows it (null once rejected).",
+      "Makers only (admin key): change a board idea's title (re-embedded for duplicate checks), status and/or the makers' note. requested | in-progress | shipped move it between the board tabs (shipped closes votes); rejected declines it and takes it off the board for every user — set another status to restore it. note: string shown on the idea, or null to clear. When an idea ships, an LLM judge (billed to you) decides whether it was a genuine contribution: if so its author gets 5 credits once; either way they get an in-app notification, a push and an email. reward reports it, with the judge's reason (null when nothing was sent). Returns the idea as the board shows it (null once rejected).",
     inputSchema: {
       type: 'object',
       properties: {
         idea_id: { type: 'string', description: 'Idea UUID from list_board.' },
+        title: { type: 'string', description: 'New wording for the idea.' },
         status: { type: 'string', enum: ['requested', 'in-progress', 'shipped', 'rejected'] },
         note: { type: ['string', 'null'] },
       },
@@ -540,7 +569,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       additionalProperties: false,
     },
     agentArgumentSchema:
-      '{"idea_id": "string UUID (required)", "status": "requested|in-progress|shipped|rejected (optional)", "note": "string|null (optional)"}',
+      '{"idea_id": "string UUID (required)", "title": "string (optional)", "status": "requested|in-progress|shipped|rejected (optional)", "note": "string|null (optional)"}',
     handler: runUpdateIdeaTool,
     exposeInMcp: false,
   },

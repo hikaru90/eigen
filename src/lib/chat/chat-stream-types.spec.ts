@@ -281,6 +281,7 @@ describe('chat-stream-types', () => {
       'generate_project_plan',
       'create_project',
       'edit_project',
+      'merge_projects',
       'delete_project',
       'list_board',
       'share_idea',

@@ -295,7 +295,7 @@ function pgCode(err: unknown): string | undefined {
 export async function adminUpdateBoardIdea(
   userId: string,
   ideaId: string,
-  patch: BoardAdminPatch,
+  patch: Omit<BoardAdminPatch, 'title'>,
 ): Promise<{ reward: IdeaShippedReward | null }> {
   const note = patch.note === undefined || patch.note === null ? null : patch.note
   const clearNote = patch.note === null
@@ -320,4 +320,39 @@ export async function adminUpdateBoardIdea(
   if (!found) throw new BoardError('Idea not found', 404)
   // shipping thanks the author (once per idea — re-shipping pays nothing)
   return { reward: patch.status === 'shipped' ? await rewardShippedIdea(ideaId, userId) : null }
+}
+
+/** Makers' title edit (SECURITY DEFINER, admin checked in SQL); the new title's embedding replaces the old. */
+export async function adminSetBoardIdeaTitle(
+  ideaId: string,
+  title: string,
+  embedding: readonly number[],
+): Promise<void> {
+  const vec = toVectorSql(embedding)
+  let found: boolean
+  try {
+    const result = await getDb().execute(
+      sql`SELECT board_admin_set_title(${ideaId}::uuid, ${title}::text, ${vec}) AS found`,
+    )
+    found = Boolean(rowsFromDbExecute<{ found: boolean }>(result)[0]?.found)
+  } catch (err) {
+    if (pgCode(err) === '42501') throw new BoardError('Only the makers can edit ideas', 403)
+    throw err
+  }
+  if (!found) throw new BoardError('Idea not found', 404)
+}
+
+/** Makers' delete: any idea, any status; votes go with it (FK cascade). */
+export async function adminDeleteBoardIdea(ideaId: string): Promise<void> {
+  let found: boolean
+  try {
+    const result = await getDb().execute(
+      sql`SELECT board_admin_delete(${ideaId}::uuid) AS found`,
+    )
+    found = Boolean(rowsFromDbExecute<{ found: boolean }>(result)[0]?.found)
+  } catch (err) {
+    if (pgCode(err) === '42501') throw new BoardError('Only the makers can delete ideas', 403)
+    throw err
+  }
+  if (!found) throw new BoardError('Idea not found', 404)
 }

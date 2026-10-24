@@ -1,4 +1,6 @@
 import type { McpToolContext } from './tools'
+import { BOARD_IDEA_STATUSES as BOARD_IDEA_STATUS_VALUES } from '$lib/feedback/board-types'
+import { isUserAdmin } from '$lib/server/auth/user-role'
 import {
   boardIdeaStatusSchema,
   boardStatusSchema,
@@ -8,14 +10,13 @@ import {
   parseVoteDirection,
 } from '$lib/server/board/contract'
 import {
-  adminUpdateBoardIdea,
+  adminDeleteBoardIdea,
   deleteBoardIdea,
   getBoardIdea,
   listBoardIdeas,
   setBoardVote,
 } from '$lib/server/board/service'
-import { checkBoardIdea, shareBoardIdea } from '$lib/server/board/share'
-import { BOARD_IDEA_STATUSES as BOARD_IDEA_STATUS_VALUES } from '$lib/feedback/board-types'
+import { adminEditBoardIdea, checkBoardIdea, shareBoardIdea } from '$lib/server/board/share'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 
 /**
@@ -86,18 +87,28 @@ export async function runVoteIdeaTool(context: McpToolContext, args: unknown) {
 export async function runForgetIdeaTool(context: McpToolContext, args: unknown) {
   const body = strictArgs(args, ['idea_id'])
   const ideaId = parseIdeaId(body.idea_id)
-  await deleteBoardIdea(context.userId, ideaId)
+  if (await isUserAdmin(context.userId)) await adminDeleteBoardIdea(ideaId)
+  else await deleteBoardIdea(context.userId, ideaId)
   return sanitizeMcpToolResult({ forgotten: true, ideaId })
 }
 
-/** Makers (admin keys only): move status — `rejected` takes the idea off the board — and set the note. */
+/** Makers (admin keys only): edit the title, move status — `rejected` takes the idea off the board — and set the note. */
 export async function runUpdateIdeaTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['idea_id', 'status', 'note'])
+  const body = strictArgs(args, ['idea_id', 'title', 'status', 'note'])
   const ideaId = parseIdeaId(body.idea_id)
-  if (body.status === undefined && body.note === undefined) {
-    throw new Error('Nothing to change: pass status and/or note')
+  if (body.title === undefined && body.status === undefined && body.note === undefined) {
+    throw new Error('Nothing to change: pass title, status and/or note')
   }
-  const patch: { status?: (typeof BOARD_IDEA_STATUS_VALUES)[number]; note?: string | null } = {}
+  const patch: {
+    title?: string
+    status?: (typeof BOARD_IDEA_STATUS_VALUES)[number]
+    note?: string | null
+  } = {}
+  if (body.title !== undefined) {
+    const parsed = boardTitleSchema.safeParse(body.title)
+    if (!parsed.success) throw new Error(firstIssue(parsed.error))
+    patch.title = parsed.data
+  }
   if (body.status !== undefined) {
     const parsed = boardIdeaStatusSchema.safeParse(body.status)
     if (!parsed.success) {
@@ -113,6 +124,7 @@ export async function runUpdateIdeaTool(context: McpToolContext, args: unknown) 
     }
     patch.note = body.note === null ? null : body.note.trim()
   }
-  const { reward } = await adminUpdateBoardIdea(context.userId, ideaId, patch)
+  if (!(await isUserAdmin(context.userId))) throw new Error('Only the makers can update ideas')
+  const { reward } = await adminEditBoardIdea(context.userId, ideaId, patch)
   return sanitizeMcpToolResult({ ideaId, idea: await getBoardIdea(context.userId, ideaId), reward })
 }

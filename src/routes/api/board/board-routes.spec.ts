@@ -11,7 +11,8 @@ const m = vi.hoisted(() => ({
   setBoardVote: vi.fn(),
   correctBoardIdea: vi.fn(),
   deleteBoardIdea: vi.fn(),
-  adminUpdateBoardIdea: vi.fn(async () => ({ reward: null })),
+  adminEditBoardIdea: vi.fn(async () => ({ reward: null })),
+  adminDeleteBoardIdea: vi.fn(),
   getBoardIdea: vi.fn(),
   checkBoardIdea: vi.fn(),
   shareBoardIdea: vi.fn(),
@@ -23,10 +24,11 @@ vi.mock('$lib/server/board/service', () => ({
   setBoardVote: m.setBoardVote,
   correctBoardIdea: m.correctBoardIdea,
   deleteBoardIdea: m.deleteBoardIdea,
-  adminUpdateBoardIdea: m.adminUpdateBoardIdea,
+  adminDeleteBoardIdea: m.adminDeleteBoardIdea,
   getBoardIdea: m.getBoardIdea,
 }))
 vi.mock('$lib/server/board/share', () => ({
+  adminEditBoardIdea: m.adminEditBoardIdea,
   checkBoardIdea: m.checkBoardIdea,
   shareBoardIdea: m.shareBoardIdea,
 }))
@@ -105,7 +107,7 @@ describe('board routes', () => {
   it('AC-7: a non-admin PATCHing status gets 403 and nothing runs', async () => {
     const res = await PATCH(ev({ body: { status: 'shipped' }, method: 'PATCH' }))
     expect(res.status).toBe(403)
-    expect(m.adminUpdateBoardIdea).not.toHaveBeenCalled()
+    expect(m.adminEditBoardIdea).not.toHaveBeenCalled()
   })
 
   it('an admin PATCH goes through the admin path', async () => {
@@ -113,10 +115,31 @@ describe('board routes', () => {
     m.getBoardIdea.mockResolvedValue({ id: ID, status: 'shipped' })
     const res = await PATCH(ev({ body: { status: 'shipped', note: 'Out now' }, method: 'PATCH' }))
     expect(res.status).toBe(200)
-    expect(m.adminUpdateBoardIdea).toHaveBeenCalledWith('ub', ID, {
+    expect(m.adminEditBoardIdea).toHaveBeenCalledWith('ub', ID, {
       status: 'shipped',
       note: 'Out now',
     })
+  })
+
+  it('a non-admin PATCHing a title gets 403 and nothing runs', async () => {
+    const res = await PATCH(ev({ body: { title: 'Better words' }, method: 'PATCH' }))
+    expect(res.status).toBe(403)
+    expect(m.adminEditBoardIdea).not.toHaveBeenCalled()
+  })
+
+  it('an admin edits the title through the admin path', async () => {
+    m.isUserAdmin.mockResolvedValue(true)
+    m.getBoardIdea.mockResolvedValue({ id: ID, title: 'Better words' })
+    const res = await PATCH(ev({ body: { title: '  Better words ' }, method: 'PATCH' }))
+    expect(res.status).toBe(200)
+    expect(m.adminEditBoardIdea).toHaveBeenCalledWith('ub', ID, { title: 'Better words' })
+  })
+
+  it('an admin DELETE removes any idea through the admin path, never the author path', async () => {
+    m.isUserAdmin.mockResolvedValue(true)
+    expect((await DELETE(ev({ method: 'DELETE' }))).status).toBe(200)
+    expect(m.adminDeleteBoardIdea).toHaveBeenCalledWith(ID)
+    expect(m.deleteBoardIdea).not.toHaveBeenCalled()
   })
 
   it('AC-13: the author corrects kind/area through PATCH', async () => {

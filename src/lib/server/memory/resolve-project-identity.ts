@@ -548,7 +548,7 @@ export async function resolveProjectIdentity(
   const mergeEntityIds = effectiveMergeEntityIds(input.mode, resolution.mergeEntityIds)
 
   if (mergeEntityIds.length > 0) {
-    await mergeProjectEntities(input.userId, entityId, mergeEntityIds, canonicalLabel)
+    await mergeProjectEntities(input.userId, entityId, mergeEntityIds, canonicalLabel, 'auto')
   }
 
   return {
@@ -561,11 +561,18 @@ export async function resolveProjectIdentity(
   }
 }
 
+/**
+ * Fold `loserIds` into `winnerId`: thought links, next action and aliases move to the winner,
+ * the losers stop being projects. Automatic merges (`origin: 'auto'`, ingest/reconcile) never
+ * take a manual project as a loser and never rename a manual winner. A merge the user asked
+ * for (`origin: 'user'`) is their authority: manual projects merge and the label is theirs.
+ */
 export async function mergeProjectEntities(
   userId: string,
   winnerId: string,
   loserIds: string[],
-  canonicalLabel?: string,
+  canonicalLabel: string | undefined,
+  origin: 'auto' | 'user',
 ): Promise<void> {
   const winner = validateNonEmptyEntityId(winnerId, 'winnerId')
   const losers = [
@@ -588,7 +595,7 @@ export async function mergeProjectEntities(
       ),
     )
   const manualLosers = loserProjects.filter((p) => p.source === 'manual')
-  if (manualLosers.length > 0) {
+  if (origin === 'auto' && manualLosers.length > 0) {
     console.error('[merge-projects] Refusing to merge manual projects', {
       userId,
       winnerId,
@@ -618,7 +625,10 @@ export async function mergeProjectEntities(
   }
 
   const winnerIsManual = winnerRow.source === 'manual'
-  const nextLabel = winnerIsManual ? winnerRow.label : canonicalLabel?.trim() || winnerRow.label
+  const nextLabel =
+    winnerIsManual && origin === 'auto'
+      ? winnerRow.label
+      : canonicalLabel?.trim() || winnerRow.label
   if (nextLabel !== winnerRow.label) {
     await getDb()
       .update(canonicalEntity)
