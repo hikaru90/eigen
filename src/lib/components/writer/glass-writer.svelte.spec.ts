@@ -29,15 +29,17 @@ describe('glass-writer.svelte', () => {
     await expect.element(page.getByPlaceholder('Write it down')).toBeInTheDocument()
   })
 
-  it('centres the text in the field and keeps send at the bottom right when it wraps', async () => {
+  it('centres the text and the action slot in one space-between row', async () => {
     render(GlassWriter, { ...base, onsubmit: () => {} })
     const field = page.getByTestId('glass-writer-field').element() as HTMLElement
     // the row centres (WebKit has no field-sizing: its one-line textarea is taller than the button)
     expect(field.className).toContain('items-center')
+    expect(field.className).toContain('justify-between')
     expect(field.className).not.toContain('items-end')
-    // only the action slot drops to the last line
+    // the slot follows the row's centring (WebKit's one-line textarea is taller than the button)
     const slot = page.getByTestId('glass-writer-slot').element() as HTMLElement
-    expect(slot.className).toContain('self-end')
+    expect(slot.className).not.toContain('self-end')
+    expect(slot.className).not.toContain('absolute')
   })
 
   it('shares one slot: mic while empty, send once there are words', async () => {

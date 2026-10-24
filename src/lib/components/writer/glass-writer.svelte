@@ -143,7 +143,7 @@
     </div>
   {/if}
   <div
-    class="glass-field flex items-center gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
+    class="glass-field flex items-center justify-between gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
     data-testid="glass-writer-field"
   >
     <textarea
@@ -163,8 +163,8 @@
         voiceStop?.()
         onfocus?.()
       }}></textarea>
-    <!-- the one action slot: centred with the text on one line, bottom right once it wraps -->
-    <div class="flex shrink-0 self-end" data-testid="glass-writer-slot">
+    <!-- the one action slot: centred with the text by the row -->
+    <div class="flex shrink-0" data-testid="glass-writer-slot">
       {#if slot === 'stop'}
         <button
           type="button"
