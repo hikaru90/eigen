@@ -5,6 +5,7 @@ import { effectiveLifecycleStatus } from '$lib/mesh/thought-status'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity } from '$lib/server/db/schema'
+import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import {
   activeThoughtCategoryKinds,
@@ -92,7 +93,7 @@ export const load: PageServerLoad = async (event) => {
   const status = effectiveLifecycleStatus(row.lifecycleStatus, metadata.status)
   if (status === 'archived') error(404, 'Thought not found')
 
-  // The thread: this thought's highest-salience link to a GTD project (Yarn's query).
+  // The thread: this thought's highest-salience membership link to a GTD project (Yarn's query).
   const [link] = await db
     .select({
       entityId: canonicalEntity.id,
@@ -105,6 +106,7 @@ export const load: PageServerLoad = async (event) => {
         eq(thoughtEntity.userId, userId),
         eq(thoughtEntity.thoughtId, thoughtId),
         isNotNull(canonicalEntity.projectStatus),
+        projectMembershipLinkCondition(),
       ),
     )
     .orderBy(desc(thoughtEntity.salience))

@@ -10,6 +10,7 @@ import {
   type ProjectStatus,
 } from '$lib/server/db/schema'
 import { upsertEntityNode } from '$lib/server/graph/age'
+import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
 const PROJECT_SOURCE_RANK: Record<ProjectSource, number> = {
@@ -51,10 +52,11 @@ export type OpenProjectTaskThought = {
 }
 
 /**
- * Single source of truth for "open task linked to this project": task-category
- * thoughts linked to the project entity whose lifecycle is still open and whose
- * metadata status is not `completed`. `thought_entity` is keyed by
- * (thought_id, entity_id), so each thought appears at most once.
+ * Single source of truth for "open task on this project": task-category thoughts
+ * whose membership link (the user's or the LLM's — never a plain mention) points at
+ * the project entity, whose lifecycle is still open and whose metadata status is
+ * not `completed`. `thought_entity` is keyed by (thought_id, entity_id), so each
+ * thought appears at most once.
  *
  * Ordered oldest-first (createdAt ASC, thought id as a stable tiebreaker) so
  * callers can append never-sequenced tasks in capture order — the oldest open
@@ -79,6 +81,7 @@ export async function loadOpenTaskThoughtsForProjectEntity(
       and(
         eq(thoughtEntity.userId, userId),
         eq(thoughtEntity.entityId, projectEntityId),
+        projectMembershipLinkCondition(),
         eq(thought.category, 'task'),
       ),
     )
