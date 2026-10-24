@@ -12,7 +12,6 @@ import { loadRecentCaptureThoughts } from '$lib/server/capture/load-recent-captu
 import { getDb } from '$lib/server/db'
 import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
-import { userPreference } from '$lib/server/db/schema'
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
 
@@ -36,13 +35,7 @@ export const load: PageServerLoad = async (event) => {
     await grantStartingFreeCredits(userId)
   }
 
-  const [pref, captureGate, wallet] = await Promise.all([
-    getDb()
-      .select({ preferredLanguage: userPreference.preferredLanguage })
-      .from(userPreference)
-      .where(eq(userPreference.userId, userId))
-      .limit(1)
-      .then((rows) => rows[0]),
+  const [captureGate, wallet] = await Promise.all([
     checkCaptureAllowed(userId),
     getOrCreateWallet(userId),
   ])
@@ -59,7 +52,6 @@ export const load: PageServerLoad = async (event) => {
     user: event.locals.user,
     isHarness,
     onboardingCompleted: isHarness || authUser?.onboardingCompleted === true,
-    preferredLanguage: pref?.preferredLanguage ?? 'en',
     walletAvailableCredits: wallet.availableCredits,
     minCaptureCredits: MIN_CAPTURE_PIPELINE_CREDITS,
     startingFreeCredits: STARTING_FREE_CREDITS,

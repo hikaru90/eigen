@@ -771,7 +771,6 @@
   onstop={stop}
   onsubmit={() => void send()}
   oninput={handleInput}
-  language={(page.data as { preferredLanguage?: string }).preferredLanguage ?? 'en'}
   onvoicestart={() => {
     voiceBaseText = input
     recordEpoch = bumpInputEpoch(inputEpoch)

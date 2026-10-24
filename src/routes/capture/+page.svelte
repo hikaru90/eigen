@@ -910,7 +910,6 @@
   onsubmit={() => void submitCapture()}
   oninput={onFieldInput}
   onkeydown={onFieldKeydown}
-  language={data.preferredLanguage}
   onvoicestart={() => {
     voiceBaseText = raw
   }}

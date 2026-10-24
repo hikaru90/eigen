@@ -88,7 +88,7 @@ describe('transcribeAudioChunk', () => {
 
   it('posts chunk to transcribe-chunk endpoint', async () => {
     const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/webm' })
-    const text = await transcribeAudioChunk(blob, { language: 'en' })
+    const text = await transcribeAudioChunk(blob)
     expect(text).toBe('partial hello')
     const fetchMock = vi.mocked(fetch)
     expect(fetchMock).toHaveBeenCalledWith(

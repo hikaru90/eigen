@@ -541,7 +541,7 @@ describe('llmCreateTranscription', () => {
     expect(auth.Authorization).toBe('Bearer service-openrouter-key')
   })
 
-  it('posts audio to OpenRouter /audio/transcriptions', async () => {
+  it('posts audio to OpenRouter /audio/transcriptions without a language hint (the model identifies it)', async () => {
     const fetchMock = vi.fn(async () =>
       response(true, 200, { text: 'hello', usage: { cost: 0.001 } }),
     )
@@ -549,7 +549,7 @@ describe('llmCreateTranscription', () => {
     const out = await llmCreateTranscription({
       userId: 'u1',
       model: 'qwen/qwen3-asr-0.6b',
-      audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm', language: 'en' },
+      audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm' },
     })
     expect((out as { text: string }).text).toBe('hello')
     const url = fetchMockUrl(fetchMock, 0)
@@ -557,11 +557,10 @@ describe('llmCreateTranscription', () => {
     const body = JSON.parse(fetchMockInit(fetchMock, 0).body as string) as {
       model: string
       input_audio: { data: string; format: string }
-      language: string
     }
     expect(body.model).toBe('qwen/qwen3-asr-0.6b')
     expect(body.input_audio.format).toBe('webm')
-    expect(body.language).toBe('en')
+    expect(body).not.toHaveProperty('language')
     expect(body.input_audio.data).toBe(Buffer.from([1, 2, 3]).toString('base64'))
   })
 

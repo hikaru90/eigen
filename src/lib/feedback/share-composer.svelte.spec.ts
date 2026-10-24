@@ -12,7 +12,6 @@ describe('share-composer.svelte', () => {
   it('offers voice input on the Contribute message field', async () => {
     render(ShareComposer, {
       maxLength: 4000,
-      language: 'de',
       oncheck: async () => null,
       oncreate: async () => false,
       onvoteinstead: () => {},

@@ -52,13 +52,13 @@ describe('transcribeAudio', () => {
     llmCreateTranscriptionMock.mockResolvedValue({ text: 'typed speech' })
     const out = await transcribeAudio({
       userId: 'u1',
-      audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm', language: 'en' },
+      audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm' },
     })
     expect(out).toBe('typed speech')
     expect(llmCreateTranscriptionMock).toHaveBeenCalledWith({
       userId: 'u1',
       model: STT_MODEL_OPENROUTER_DEFAULT,
-      audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm', language: 'en' },
+      audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm' },
     })
   })
 })

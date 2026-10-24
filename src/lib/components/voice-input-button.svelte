@@ -16,7 +16,6 @@
 
   let {
     disabled = false,
-    language = 'en',
     ontranscript,
     onpartialtranscript,
     onerror,
@@ -28,7 +27,6 @@
     class: className = '',
   }: {
     disabled?: boolean
-    language?: string
     ontranscript: (text: string) => void
     onpartialtranscript?: (text: string) => void
     onerror?: (message: string) => void
@@ -156,15 +154,21 @@
 
   let openSegmentState: ReturnType<typeof openSegment> | null = null
 
-  /** Stops the open segment's recorder and submits its whole file once it is flushed. */
+  /**
+   * Stops the open segment's recorder and submits its whole file once it is flushed.
+   * A segment whose mic level never reached speech is skipped, not uploaded.
+   */
   function closeSegment(): Promise<void> {
     const segment = openSegmentState
     openSegmentState = null
     if (!segment) return Promise.resolve()
+    const spoke = cutter?.heardSpeech() ?? true
     const flushed = new Promise<void>((resolve) => {
       segment.recorder.onstop = () => {
         const type = segment.recorder.mimeType || segment.parts[0]?.type || 'audio/webm'
-        if (segment.parts.length > 0) {
+        if (!spoke) {
+          transcriber?.skip(segment.index)
+        } else if (segment.parts.length > 0) {
           transcriber?.submit(segment.index, new Blob(segment.parts, { type }))
         }
         resolve()
@@ -228,7 +232,7 @@
       segmentIndex = 0
       transcriber = createSegmentTranscriber({
         transcribe: (blob, index, signal) =>
-          transcribeAudioChunk(blob, { language, signal, segment: index }),
+          transcribeAudioChunk(blob, { signal, segment: index }),
         onPartial: (text) => onpartialtranscript?.(text),
         onFatal: (message) => failRecording(message),
       })

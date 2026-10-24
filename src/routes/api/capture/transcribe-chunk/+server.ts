@@ -26,7 +26,7 @@ export const POST: RequestHandler = async (event) => {
   try {
     const transcript = await transcribeAudio({
       userId: user.id,
-      audio: { bytes: audio.bytes, format, language: audio.language },
+      audio: { bytes: audio.bytes, format },
     })
     return json(audio.segment === undefined ? { transcript } : { transcript, segment: audio.segment })
   } catch (err) {

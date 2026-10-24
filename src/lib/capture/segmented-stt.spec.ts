@@ -72,6 +72,30 @@ describe('createSilenceCutter', () => {
   })
 })
 
+describe('createSilenceCutter speech tracking', () => {
+  it('a segment of only quiet frames heard no speech', () => {
+    const cutter = createSilenceCutter(0)
+    for (let t = 0; t <= 3400; t += 50) cutter.feed(QUIET, t)
+    expect(cutter.heardSpeech()).toBe(false)
+  })
+
+  it('one loud frame marks the segment as speech', () => {
+    const cutter = createSilenceCutter(0)
+    cutter.feed(QUIET, 0)
+    cutter.feed(LOUD, 50)
+    cutter.feed(QUIET, 100)
+    expect(cutter.heardSpeech()).toBe(true)
+  })
+
+  it('restart clears speech for the next segment', () => {
+    const cutter = createSilenceCutter(0)
+    cutter.feed(LOUD, 0)
+    cutter.restart(3500)
+    cutter.feed(QUIET, 3550)
+    expect(cutter.heardSpeech()).toBe(false)
+  })
+})
+
 describe('createSegmentTranscriber', () => {
   it('AC-3: assembles out-of-order responses by index for partial and final', async () => {
     const resolvers: Array<(v: string) => void> = []
@@ -207,6 +231,26 @@ describe('createSegmentTranscriber', () => {
     expect(transcribe).toHaveBeenCalledTimes(1)
     expect(onPartial).not.toHaveBeenCalled()
     expect(onFatal).not.toHaveBeenCalled()
+  })
+
+  it('a skipped (silent) segment is never transcribed and keeps the order intact', async () => {
+    const transcribe = vi.fn(async (_b: Blob, index: number) => `s${index}`)
+    const onPartial = vi.fn()
+    const t = createSegmentTranscriber({ transcribe, onPartial, onFatal: vi.fn() })
+    t.submit(0, blob())
+    t.skip(1)
+    t.submit(2, blob())
+    await expect(t.finish()).resolves.toBe('s0 s2')
+    expect(transcribe.mock.calls.map((c) => c[1])).toEqual([0, 2])
+  })
+
+  it('a recording of only skipped segments finishes empty (no speech)', async () => {
+    const transcribe = vi.fn(async () => 'hallucinated')
+    const t = createSegmentTranscriber({ transcribe, onPartial: vi.fn(), onFatal: vi.fn() })
+    t.skip(0)
+    t.skip(1)
+    await expect(t.finish()).resolves.toBe('')
+    expect(transcribe).not.toHaveBeenCalled()
   })
 
   it('rejects a duplicate segment index (programming error, not silently merged)', () => {

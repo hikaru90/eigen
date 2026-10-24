@@ -106,7 +106,6 @@ export async function assertVoiceTranscribeApi(
               mimeType: 'audio/wav',
               buffer,
             },
-            language: 'en',
           },
         })
 

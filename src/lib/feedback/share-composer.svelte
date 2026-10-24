@@ -26,11 +26,9 @@
     oncreate: (draft: { title: string; kind: BoardKind; area: BoardArea }) => Promise<boolean>
     /** "Vote for it instead": the duplicate's id (after the composer reset). */
     onvoteinstead: (id: string) => void
-    /** The user's preferred language — voice input transcribes in it. */
-    language: string
   }
 
-  let { maxLength, busy = false, oncheck, oncreate, onvoteinstead, language }: Props = $props()
+  let { maxLength, busy = false, oncheck, oncreate, onvoteinstead }: Props = $props()
 
   let text = $state('')
   /** The judge's answer for exactly this draft. */
@@ -105,7 +103,6 @@
   busy={busy || working}
   spellcheck={false}
   onsubmit={() => void submit()}
-  {language}
   onvoicestart={() => {
     voiceBaseText = text
   }}

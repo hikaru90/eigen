@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { PageData } from './$types'
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { goto } from '$app/navigation'
@@ -49,8 +48,6 @@
    * correct, forget) goes to its `/api/board` endpoint, then the board is fetched
    * again. No optimistic scores — the server's numbers are the only numbers.
    */
-
-  let { data }: { data: PageData } = $props()
 
   let ideas = $state<readonly BoardIdea[]>([])
   let loaded = $state(false)
@@ -477,7 +474,6 @@
 <ShareComposer
   bind:this={composer}
   maxLength={FEEDBACK_MAX_LENGTH}
-  language={data.preferredLanguage}
   {busy}
   oncheck={check}
   oncreate={create}

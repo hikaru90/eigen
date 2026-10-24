@@ -23,10 +23,9 @@ function binaryRequest(
   } as unknown as Request
 }
 
-function multipartFormDataRequest(parts: { audio?: File; language?: string }) {
+function multipartFormDataRequest(parts: { audio?: File }) {
   const formData = new FormData()
   if (parts.audio) formData.append('audio', parts.audio)
-  if (parts.language) formData.append('language', parts.language)
   return {
     headers: new Headers({ 'content-type': 'multipart/form-data; boundary=x' }),
     arrayBuffer: vi.fn(async () => {
@@ -40,7 +39,7 @@ describe('readAudioUpload', () => {
   it('parses the client segment index from x-audio-meta', async () => {
     const upload = await readAudioUpload(
       binaryRequest(new Blob([new Uint8Array(4)], { type: 'audio/webm' }), {
-        meta: { language: 'en', segment: 3 },
+        meta: { segment: 3 },
       }),
       STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
@@ -72,7 +71,7 @@ describe('readAudioUpload', () => {
     })
   })
 
-  it('parses a binary audio body with language metadata', async () => {
+  it('drops a language hint from older clients: the model identifies the spoken language', async () => {
     const upload = await readAudioUpload(
       binaryRequest(new Blob([new Uint8Array(12)], { type: 'audio/webm' }), { meta: { language: 'EN' } }),
       STT_SEGMENT_MAX_AUDIO_BYTES,
@@ -80,15 +79,14 @@ describe('readAudioUpload', () => {
     )
     expect(upload.bytes).toHaveLength(12)
     expect(upload.mimeType).toBe('audio/webm')
-    expect(upload.language).toBe('en')
+    expect(upload).not.toHaveProperty('language')
   })
 
-  it('defaults to application/octet-stream and no language when headers are absent', async () => {
+  it('defaults to application/octet-stream when headers are absent', async () => {
     const req = binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/wav' }))
     ;(req.headers as Headers).delete('x-audio-meta')
     const upload = await readAudioUpload(req, STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime)
     expect(upload.mimeType).toBe('audio/wav')
-    expect(upload.language).toBeUndefined()
   })
 
   it('rejects an empty binary body', async () => {
@@ -127,32 +125,20 @@ describe('readAudioUpload', () => {
       STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
     )
-    expect(upload.language).toBeUndefined()
+    expect(upload.segment).toBeUndefined()
   })
 
-  it('ignores a non-string language in x-audio-meta', async () => {
-    const upload = await readAudioUpload(
-      binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/webm' }), {
-        meta: { language: 42 },
-      }),
-      STT_SEGMENT_MAX_AUDIO_BYTES,
-      sttFormatFromMime,
-    )
-    expect(upload.language).toBeUndefined()
-  })
-
-  it('reads the legacy multipart path (audio file + language field)', async () => {
+  it('reads the legacy multipart path (audio file field)', async () => {
     const upload = await readAudioUpload(
       multipartFormDataRequest({
         audio: new File([new Uint8Array(12)], 'recording.webm', { type: 'audio/webm' }),
-        language: 'de',
       }),
       STT_SEGMENT_MAX_AUDIO_BYTES,
       sttFormatFromMime,
     )
     expect(upload.bytes).toHaveLength(12)
     expect(upload.mimeType).toBe('audio/webm')
-    expect(upload.language).toBe('de')
+    expect(upload).not.toHaveProperty('language')
   })
 
   it('rejects legacy multipart uploads without an audio file', async () => {

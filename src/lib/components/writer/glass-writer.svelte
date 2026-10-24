@@ -34,7 +34,6 @@
     onkeydown?: (event: KeyboardEvent) => void
     onfocus?: () => void
     /** Voice: present when `ontranscript` is given. */
-    language?: string
     onvoicestart?: () => void
     ontranscript?: (text: string) => void
     onpartialtranscript?: (text: string) => void
@@ -64,7 +63,6 @@
     oninput,
     onkeydown,
     onfocus,
-    language = 'en',
     onvoicestart,
     ontranscript,
     onpartialtranscript,
@@ -177,7 +175,6 @@
         </button>
       {:else if slot === 'mic'}
         <VoiceInputButton
-          {language}
           disabled={disabled || busy}
           class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
           bind:stopRef={voiceStop}

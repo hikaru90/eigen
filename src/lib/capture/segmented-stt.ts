@@ -32,6 +32,12 @@ export function micLevelFromSamples(samples: Uint8Array): number {
 export type SilenceCutter = {
   /** Feed one level reading; returns true when the current segment should end now. */
   feed(level: number, nowMs: number): boolean
+  /**
+   * Whether any reading since the segment started reached {@link SILENCE_LEVEL}. A segment
+   * that never did is not uploaded: ASR models invent text (other languages, stock
+   * phrases) on silent audio, so silence never reaches the model.
+   */
+  heardSpeech(): boolean
   /** A new segment started at `nowMs`. */
   restart(nowMs: number): void
 }
@@ -39,8 +45,10 @@ export type SilenceCutter = {
 export function createSilenceCutter(startMs: number): SilenceCutter {
   let segmentStart = startMs
   let silenceSince: number | null = null
+  let speech = false
   return {
     feed(level, nowMs) {
+      if (level >= SILENCE_LEVEL) speech = true
       const elapsed = nowMs - segmentStart
       if (elapsed >= SEGMENT_MAX_MS) return true
       if (level >= SILENCE_LEVEL) {
@@ -50,9 +58,13 @@ export function createSilenceCutter(startMs: number): SilenceCutter {
       silenceSince ??= nowMs
       return elapsed >= SEGMENT_MIN_MS && nowMs - silenceSince >= SEGMENT_PAUSE_MS
     },
+    heardSpeech() {
+      return speech
+    },
     restart(nowMs) {
       segmentStart = nowMs
       silenceSince = null
+      speech = false
     },
   }
 }
@@ -71,6 +83,8 @@ export type SegmentTranscriberOptions = {
 
 export type SegmentTranscriber = {
   submit(index: number, segment: Blob): void
+  /** Records a silent segment as empty without transcribing it, so the order stays intact. */
+  skip(index: number): void
   /** Waits for every submitted segment; resolves to the joined transcript or rejects with the fatal error. */
   finish(): Promise<string>
   /** Cancels in-flight requests without reporting an error. */
@@ -135,6 +149,13 @@ export function createSegmentTranscriber(options: SegmentTranscriberOptions): Se
       if (pending.has(index)) throw new Error(`segment ${index} was already submitted`)
       if (controller.signal.aborted) return
       pending.set(index, run(index, segment))
+    },
+    skip(index) {
+      if (pending.has(index)) throw new Error(`segment ${index} was already submitted`)
+      if (controller.signal.aborted) return
+      pending.set(index, Promise.resolve())
+      results.set(index, '')
+      emitPartial()
     },
     async finish() {
       await Promise.all(pending.values())

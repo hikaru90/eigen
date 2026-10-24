@@ -15,7 +15,6 @@ export const STT_MODEL_OPENROUTER_DEFAULT = 'qwen/qwen3-asr-1.7b'
 export type SttAudioInput = {
   bytes: Uint8Array
   format: string
-  language?: string
 }
 
 function sttModelId(): string {

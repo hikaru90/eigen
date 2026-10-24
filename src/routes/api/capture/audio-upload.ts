@@ -1,12 +1,9 @@
 import { error } from '@sveltejs/kit'
 import { STT_SEGMENT_MAX_SECONDS } from '$lib/server/llm/stt-audio'
 
-const LANGUAGE_PATTERN = /^[a-z]{2}$/
-
 export type AudioUpload = {
   bytes: Uint8Array
   mimeType: string
-  language?: string
   /** Client segment index (non-negative integer) from `x-audio-meta`, echoed back for assembly. */
   segment?: number
 }
@@ -43,7 +40,7 @@ export async function readAudioUpload(
   }
 
   if (formData) {
-    // Legacy path (kept for older clients / e2e tooling): audio file + language field.
+    // Legacy path (kept for older clients / e2e tooling): audio file field.
     const audioEntry = formData.get('audio')
     if (!(audioEntry instanceof File)) error(400, 'audio file is required')
     if (audioEntry.size <= 0) error(400, 'audio file is empty')
@@ -51,15 +48,12 @@ export async function readAudioUpload(
 
     const mimeType = audioEntry.type
     if (!mimeTypeForFormat(mimeType)) error(400, `unsupported audio type: ${mimeType || 'unknown'}`)
-    const languageRaw = formData.get('language')?.toString().trim().toLowerCase() ?? ''
-    return {
-      bytes: new Uint8Array(await audioEntry.arrayBuffer()),
-      mimeType,
-      language: languageRaw && LANGUAGE_PATTERN.test(languageRaw) ? languageRaw : undefined,
-    }
+    return { bytes: new Uint8Array(await audioEntry.arrayBuffer()), mimeType }
   }
 
-  // Binary body path: content-type carries the audio MIME, x-audio-meta the language.
+  // Binary body path: content-type carries the audio MIME, x-audio-meta the segment index.
+  // No language hint is read: the model identifies the spoken language itself (a fixed
+  // hint forced mixed-language speech into the wrong language and invited invented text).
   const audioBytes = new Uint8Array(await request.arrayBuffer())
   if (audioBytes.length === 0) error(400, 'audio file is empty')
   if (audioBytes.length > maxBytes) error(400, tooLargeMessage(maxBytes))
@@ -67,22 +61,19 @@ export async function readAudioUpload(
     error(400, `unsupported audio type: ${baseType || 'unknown'}`)
   }
 
-  let language: string | undefined
   let segment: number | undefined
   const metaRaw = request.headers.get('x-audio-meta')
   if (metaRaw) {
     try {
-      const parsed = JSON.parse(metaRaw) as { language?: unknown; segment?: unknown }
-      const langRaw = typeof parsed.language === 'string' ? parsed.language.trim().toLowerCase() : ''
-      language = langRaw && LANGUAGE_PATTERN.test(langRaw) ? langRaw : undefined
+      const parsed = JSON.parse(metaRaw) as { segment?: unknown }
       segment =
         typeof parsed.segment === 'number' && Number.isInteger(parsed.segment) && parsed.segment >= 0
           ? parsed.segment
           : undefined
     } catch {
-      // Malformed metadata is not fatal — transcribe without language hints.
+      // Malformed metadata is not fatal — transcribe without a segment index.
     }
   }
 
-  return { bytes: audioBytes, mimeType: baseType, language, segment }
+  return { bytes: audioBytes, mimeType: baseType, segment }
 }

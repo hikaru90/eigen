@@ -29,22 +29,13 @@ describe('transcribe-audio binary upload (CSRF/origin-safe content-type)', () =>
 
   it('transcribeAudioChunk posts octet-stream body, not FormData', async () => {
     const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/webm' })
-    await transcribeAudioChunk(blob, { language: 'en' })
+    await transcribeAudioChunk(blob)
     const init = fetchMockInit(vi.mocked(fetch), 0)
     expect(init.body).toBeInstanceOf(Blob)
     expect((init.body as Blob).type).toBe('audio/webm')
   })
 
-  it('transcribeAudioChunk sends language metadata in the x-audio-meta header', async () => {
-    const blob = new Blob([new Uint8Array([1, 2])], { type: 'audio/webm' })
-    await transcribeAudioChunk(blob, { language: 'en' })
-    const init = fetchMockInit(vi.mocked(fetch), 0)
-    const headers = new Headers(init.headers as HeadersInit)
-    expect(headers.get('content-type')).toBe('audio/webm')
-    expect(JSON.parse(headers.get('x-audio-meta') ?? '{}')).toEqual({ language: 'en' })
-  })
-
-  it('transcribeAudioChunk omits x-audio-meta when there is no language', async () => {
+  it('transcribeAudioChunk sends no language hint: the model identifies the spoken language', async () => {
     const blob = new Blob([new Uint8Array([1])], { type: 'audio/wav' })
     await transcribeAudioChunk(blob)
     const init = fetchMockInit(vi.mocked(fetch), 0)
@@ -53,31 +44,14 @@ describe('transcribe-audio binary upload (CSRF/origin-safe content-type)', () =>
     expect(headers.get('x-audio-meta')).toBeNull()
   })
 
-  it('transcribeAudioChunk lowercases a mixed-case language code', async () => {
-    const blob = new Blob([new Uint8Array([1])], { type: 'audio/webm' })
-    await transcribeAudioChunk(blob, { language: ' EN ' })
-    const init = fetchMockInit(vi.mocked(fetch), 0)
-    const headers = new Headers(init.headers as HeadersInit)
-    expect(JSON.parse(headers.get('x-audio-meta') ?? '{}')).toEqual({ language: 'en' })
-  })
-
-  it('transcribeAudioChunk posts octet-stream body with metadata header', async () => {
-    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm;codecs=opus' })
-    const text = await transcribeAudioChunk(blob, { language: 'de' })
+  it('transcribeAudioChunk sends the client segment index in x-audio-meta', async () => {
+    const blob = new Blob([new Uint8Array([1])], { type: 'audio/webm;codecs=opus' })
+    const text = await transcribeAudioChunk(blob, { segment: 4 })
     expect(text).toBe('hello there')
     const init = fetchMockInit(vi.mocked(fetch), 0)
-    expect(init.body).toBeInstanceOf(Blob)
     const headers = new Headers(init.headers as HeadersInit)
     expect(headers.get('content-type')).toBe('audio/webm;codecs=opus')
-    expect(JSON.parse(headers.get('x-audio-meta') ?? '{}')).toEqual({ language: 'de' })
-  })
-
-  it('transcribeAudioChunk sends the client segment index in x-audio-meta', async () => {
-    const blob = new Blob([new Uint8Array([1])], { type: 'audio/webm' })
-    await transcribeAudioChunk(blob, { language: 'en', segment: 4 })
-    const init = fetchMockInit(vi.mocked(fetch), 0)
-    const headers = new Headers(init.headers as HeadersInit)
-    expect(JSON.parse(headers.get('x-audio-meta') ?? '{}')).toEqual({ language: 'en', segment: 4 })
+    expect(JSON.parse(headers.get('x-audio-meta') ?? '{}')).toEqual({ segment: 4 })
   })
 
   it('keeps credentials: same-origin and pass the abort signal', async () => {

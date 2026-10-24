@@ -262,11 +262,11 @@ function logLlmEmbeddingRequest(
 function logLlmSttRequest(
   attempt: number,
   model: string,
-  audio: { bytes: Uint8Array; format: string; language?: string },
+  audio: { bytes: Uint8Array; format: string },
 ): void {
   if (isGraphScaleQuiet()) return
   console.log(
-    `[llm.stt] request attempt ${attempt}/${3} model=${model} format=${audio.format} bytes=${audio.bytes.byteLength}${audio.language ? ` language=${audio.language}` : ''}`,
+    `[llm.stt] request attempt ${attempt}/${3} model=${model} format=${audio.format} bytes=${audio.bytes.byteLength}`,
   )
 }
 
@@ -711,7 +711,6 @@ async function llmCreateEmbeddingsInner(input: {
 export type LlmTranscriptionAudio = {
   bytes: Uint8Array
   format: string
-  language?: string
 }
 
 function sttTranscriptPreview(body: unknown): string {
@@ -786,7 +785,6 @@ async function llmCreateTranscriptionDedicated(
               data: audioBase64,
               format: input.audio.format,
             },
-            ...(input.audio.language ? { language: input.audio.language } : {}),
             temperature: 0,
           }),
         })

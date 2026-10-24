@@ -1,5 +1,4 @@
 export type TranscribeAudioOptions = {
-  language?: string
   signal?: AbortSignal
   /** Client segment index; sent in `x-audio-meta` and echoed by the server. */
   segment?: number
@@ -37,18 +36,14 @@ export function audioUploadExtension(mimeType: string): 'webm' | 'ogg' | 'wav' |
  * "Cross-site POST form submissions are forbidden" whenever the deployed
  * `ORIGIN` does not exactly match the browser origin behind a proxy.
  */
-export type AudioUploadMeta = { language?: string; segment?: number }
+export type AudioUploadMeta = { segment?: number }
 
 export function audioUploadHeaders(mimeType: string, meta?: AudioUploadMeta): HeadersInit {
   const headers: Record<string, string> = {
     'content-type': mimeType.trim() || 'application/octet-stream',
   }
-  const language = meta?.language?.trim().toLowerCase()
-  const payload: AudioUploadMeta = {}
-  if (language) payload.language = language
-  if (meta?.segment !== undefined) payload.segment = meta.segment
-  if (Object.keys(payload).length > 0) {
-    headers['x-audio-meta'] = JSON.stringify(payload)
+  if (meta?.segment !== undefined) {
+    headers['x-audio-meta'] = JSON.stringify({ segment: meta.segment })
   }
   return headers
 }
@@ -98,10 +93,7 @@ export async function transcribeAudioChunk(
 ): Promise<string> {
   const res = await fetch('/api/capture/transcribe-chunk', {
     method: 'POST',
-    headers: audioUploadHeaders(segment.type, {
-      language: options?.language,
-      segment: options?.segment,
-    }),
+    headers: audioUploadHeaders(segment.type, { segment: options?.segment }),
     body: segment,
     credentials: 'same-origin',
     signal: options?.signal,
