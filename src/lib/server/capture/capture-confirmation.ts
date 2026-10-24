@@ -186,7 +186,7 @@ async function persistPreviewMetadata(
     .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
 }
 
-async function resolveCategoryKindId(userId: string, categoryKey: string): Promise<string> {
+export async function resolveCategoryKindId(userId: string, categoryKey: string): Promise<string> {
   await ensureUserOntologySeeded(getDb(), userId)
   const loaded = await loadOntologyForUser(getDb(), userId)
   const kind = loaded.entityKindsByKey.get(categoryKey)

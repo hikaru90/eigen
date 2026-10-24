@@ -19,6 +19,7 @@ export type IngestPhase =
   | 'enrich_temporal'
   | 'materialize_links'
   | 'enrich_gtd_assignment'
+  | 'enrich_multi_task_fanout'
   | 'mark_enriched'
   | 'ontology_eval'
   | 'enrich_relations'

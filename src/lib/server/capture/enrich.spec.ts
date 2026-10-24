@@ -22,6 +22,7 @@ const {
   scheduleIncrementalConsolidationMock,
   syncThoughtNeighborLinksMock,
   maybeNotifyGroundingQuestionPushMock,
+  fanOutMultipleTasksMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   withDbUserMock: vi.fn(),
@@ -38,6 +39,7 @@ const {
   scheduleIncrementalConsolidationMock: vi.fn(),
   syncThoughtNeighborLinksMock: vi.fn(),
   maybeNotifyGroundingQuestionPushMock: vi.fn(),
+  fanOutMultipleTasksMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -80,6 +82,10 @@ vi.mock('$lib/server/consolidation/incremental-consolidation', () => ({
 }))
 vi.mock('$lib/server/grounding/notify-question', () => ({
   maybeNotifyGroundingQuestionPush: maybeNotifyGroundingQuestionPushMock,
+}))
+
+vi.mock('$lib/server/memory/split-multi-task', () => ({
+  fanOutMultipleTasks: fanOutMultipleTasksMock,
 }))
 
 function makeDb(
@@ -149,6 +155,7 @@ describe('enrichThought', () => {
     syncThoughtNeighborLinksMock.mockResolvedValue(0)
     deleteThoughtOutgoingRelatesToEdgesMock.mockResolvedValue(undefined)
     maybeNotifyGroundingQuestionPushMock.mockResolvedValue(undefined)
+    fanOutMultipleTasksMock.mockResolvedValue([])
     withDbUserMock.mockImplementation(async (_userId: string, fn: () => Promise<void>) => fn())
   })
 
@@ -174,6 +181,31 @@ describe('enrichThought', () => {
         thoughtId: 't1',
       })
     })
+  })
+
+  it('runs the multi-task fan-out for the thought after assignment (children copy the thread)', async () => {
+    const db = makeDb()
+    getDbMock.mockReturnValue(db)
+    fanOutMultipleTasksMock.mockResolvedValue([])
+
+    await enrichThought('u1', 't1', 'Buy milk. Call mom.')
+
+    expect(fanOutMultipleTasksMock).toHaveBeenCalledTimes(1)
+    expect(fanOutMultipleTasksMock).toHaveBeenCalledWith({
+      userId: 'u1',
+      thoughtId: 't1',
+      normalizedText: 'Buy milk. Call mom.',
+    })
+  })
+
+  it('a failing fan-out fails the enrich loudly — the worker retries it deterministically', async () => {
+    const db = makeDb()
+    getDbMock.mockReturnValue(db)
+    fanOutMultipleTasksMock.mockRejectedValue(new Error('judge answer is not an object'))
+
+    await expect(enrichThought('u1', 't1', 'Buy milk. Call mom.')).rejects.toThrow(
+      /judge answer is not an object/,
+    )
   })
 
   it('runs temporal sync after entity sync completes', async () => {

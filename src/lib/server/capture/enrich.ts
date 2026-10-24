@@ -47,6 +47,7 @@ import { syncEntityGraphFromThought } from '$lib/server/memory/entity-graph-sync
 import { applyGtdAssignment } from '$lib/server/memory/extract-gtd-assignment'
 import { scheduleProjectMaintenance } from '$lib/server/memory/project-maintenance'
 import { extractRelations } from '$lib/server/memory/relation-extraction'
+import { fanOutMultipleTasks } from '$lib/server/memory/split-multi-task'
 import { extractRecallCues, type RecallCues } from '$lib/server/memory/search-cues'
 import { syncTemporalEventsFromThought } from '$lib/server/memory/temporal-graph-sync'
 import type { ExtractedTemporalMention } from '$lib/server/memory/temporal-normalize'
@@ -376,6 +377,19 @@ export async function enrichThought(
         message: err instanceof Error ? err.message : String(err),
       })
     }
+
+    // Multi-to-do fan-out (board e23c4390): after assignment, so the children copy
+    // the parent's thread. Deliberately NOT inside the catch above: a broken judge
+    // is an ingest dependency — the worker's deterministic retry applies, then the
+    // error is explicit. The parent is marked before children exist, so a retry
+    // never duplicates them.
+    await time('enrich_multi_task_fanout', () =>
+      fanOutMultipleTasks({
+        userId,
+        thoughtId,
+        normalizedText,
+      }),
+    )
 
     if (projectLikeEntities.length > 0) {
       scheduleProjectMaintenance(userId)

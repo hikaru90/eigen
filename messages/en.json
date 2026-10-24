@@ -363,6 +363,7 @@
   "llm_entity_extraction_system": "You extract structured entity mentions. entityType must always be an exact key from the entity type list in the user message, never a free-form category.",
   "llm_entity_triple_system": "You extract typed edges between known entity surfaces.",
   "llm_gtd_assignment_system": "You assign personal notes to GTD projects. projectEntityId must be copied exactly from the catalog or null. Return only valid JSON.",
+  "llm_multi_task_system": "You decide whether one captured note contains several distinct open to-dos, and if so split it into them — every task in the capture's own words, nothing invented, no rephrasing beyond trimming. Return only valid JSON.",
   "llm_gtd_judge_system": "You judge whether a knowledge-graph hub is a personal GTD project (multi-step initiative). Return only valid JSON.",
   "llm_project_detection_system": "You extract project names from personal notes. Return only valid JSON.",
   "llm_project_order_system": "You order open project tasks into a coherent waterfall. orderedThoughtIds must use only catalog uuids, each once. Return only valid JSON.",
