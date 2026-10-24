@@ -14,6 +14,12 @@
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
   import { keepOutcomeFromResponse } from '$lib/capture/keep-outcome'
   import {
+    KEPT_POLL_MAX_TRIES,
+    KEPT_POLL_MS,
+    keptStage,
+    type KeptStage,
+  } from '$lib/capture/kept-progress'
+  import {
     cancelCaptureQueueItem,
     enqueueCapture,
     getCaptureQueueSnapshot,
@@ -45,6 +51,7 @@
   import { thoughtHref } from '$lib/chat/thought-href'
   import { logErrorToServer } from '$lib/client-log'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
+  import CaptureKept from '$lib/components/capture-kept.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
   import CaptureReading from '$lib/components/capture-reading.svelte'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
@@ -197,6 +204,49 @@
 
   /* ————— after Capture ————— */
 
+  /** How the last capture was kept, and where its background pass is (the heading's place). */
+  type Kept = {
+    typeLabel: string
+    threadLabel: string
+    stage: KeptStage
+    entityCount: number
+    linkedCount: number
+    slow: boolean
+    failureReason: string | null
+  }
+  let kept = $state<Kept | null>(null)
+  /** Monotonic token: a newer capture (or new typing) stops an older poll. */
+  let keptToken = 0
+
+  /** Follows the kept thought's background pass until it is linked or failed (explicit loop from submit). */
+  async function followKept(thoughtId: string, token: number): Promise<void> {
+    for (let attempt = 0; attempt < KEPT_POLL_MAX_TRIES; attempt += 1) {
+      if (token !== keptToken || !kept) return
+      let result: CaptureSubmitResult
+      try {
+        result = await fetchCaptureResult(thoughtId)
+      } catch (e) {
+        err = e instanceof Error && e.message ? e.message : failureText(null)
+        return
+      }
+      if (token !== keptToken || !kept) return
+      const stage = keptStage(result)
+      kept = {
+        ...kept,
+        stage,
+        entityCount: result.entities.length,
+        linkedCount: result.linkedThoughts.length,
+        failureReason: result.queueError ?? null,
+      }
+      if (stage === 'linked' || stage === 'failed') {
+        handleCapturedThought(result)
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, KEPT_POLL_MS))
+    }
+    if (token === keptToken && kept) kept = { ...kept, slow: true }
+  }
+
   /* Capture never shows the kept thought again — editing it lives in Mesh. */
   let capturedThisVisit = $state(false)
   let submitting = $state(false)
@@ -288,6 +338,11 @@
 
   function onFieldInput() {
     pageInputDrafts.capture = raw
+    // new words take the heading's place back from the last capture's status
+    if (raw.trim() && kept) {
+      keptToken += 1
+      kept = null
+    }
     // inline `#` thread gesture (ei checkHash): a trailing #token at the caret opens the picker
     hashQuery = hashQueryAt(raw, fieldEl?.selectionStart ?? raw.length)
 
@@ -503,7 +558,20 @@
       flyThought(from, slot, { onArrive: playMeshArrival })
     }
 
-    // 2 · the field empties; the reading rests (it was only a preview — nothing to undo)
+    // 2 · the field empties; the accepted reading stays as "Kept as …" with the
+    //     background pass's progress (the words themselves are never shown again)
+    if (plan.kind === 'keep') {
+      keptToken += 1
+      kept = {
+        typeLabel: categoryLabel(plan.reading.category.key),
+        threadLabel: threadChoice.kind === 'thread' ? threadChoice.label : m.capture_reading_loose(),
+        stage: 'saving',
+        entityCount: 0,
+        linkedCount: 0,
+        slow: false,
+        failureReason: null,
+      }
+    }
     raw = ''
     pageInputDrafts.capture = ''
     echo = null
@@ -526,6 +594,7 @@
         })
       } catch (e) {
         // no answer at all — nothing is known to be kept; the words go back
+        kept = null
         submitting = false
         err = e instanceof Error && e.message ? e.message : failureText(null)
         restoreWords(text)
@@ -537,6 +606,7 @@
         await res.json().catch(() => null),
       )
       if (outcome.kind === 'not-kept') {
+        kept = null
         submitting = false
         err = failureText(outcome.message, outcome.status)
         restoreWords(text)
@@ -546,16 +616,13 @@
       // would keep a second row. Follow-ups may fail loudly, but they stay follow-ups.
       submitting = false
       if (!outcome.thoughtId) {
+        kept = null
         err = failureText(null)
         return
       }
       captureEvent('capture_confirmed', { thought_id: outcome.thoughtId })
-      try {
-        const thought = await fetchCaptureResult(outcome.thoughtId)
-        handleCapturedThought(thought)
-      } catch (e) {
-        err = e instanceof Error && e.message ? e.message : failureText(null)
-      }
+      if (kept) kept = { ...kept, stage: 'indexing' }
+      await followKept(outcome.thoughtId, keptToken)
       return
     }
 
@@ -862,6 +929,8 @@
       }}
       onSay={onSay}
     />
+  {:else if kept}
+    <CaptureKept {...kept} />
   {:else}
     <h1
       class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
