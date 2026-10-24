@@ -528,7 +528,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'update_idea',
     description:
-      "Makers only (admin key): change a board idea's status and/or the makers' note. requested | in-progress | shipped move it between the board tabs (shipped closes votes); rejected declines it and takes it off the board for every user — set another status to restore it. note: string shown on the idea, or null to clear. The first time an idea ships, its author gets 5 credits, an in-app notification, a push and an email; reward reports it (null otherwise). Returns the idea as the board shows it (null once rejected).",
+      "Makers only (admin key): change a board idea's status and/or the makers' note. requested | in-progress | shipped move it between the board tabs (shipped closes votes); rejected declines it and takes it off the board for every user — set another status to restore it. note: string shown on the idea, or null to clear. When an idea ships, an LLM judge (billed to you) decides whether it was a genuine contribution: if so its author gets 5 credits once; either way they get an in-app notification, a push and an email. reward reports it, with the judge's reason (null when nothing was sent). Returns the idea as the board shows it (null once rejected).",
     inputSchema: {
       type: 'object',
       properties: {

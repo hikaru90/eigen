@@ -297,7 +297,6 @@ export async function adminUpdateBoardIdea(
   ideaId: string,
   patch: BoardAdminPatch,
 ): Promise<{ reward: IdeaShippedReward | null }> {
-  void userId
   const note = patch.note === undefined || patch.note === null ? null : patch.note
   const clearNote = patch.note === null
   let found: boolean
@@ -320,5 +319,5 @@ export async function adminUpdateBoardIdea(
   }
   if (!found) throw new BoardError('Idea not found', 404)
   // shipping thanks the author (once per idea — re-shipping pays nothing)
-  return { reward: patch.status === 'shipped' ? await rewardShippedIdea(ideaId) : null }
+  return { reward: patch.status === 'shipped' ? await rewardShippedIdea(ideaId, userId) : null }
 }
