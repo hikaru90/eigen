@@ -3,11 +3,13 @@ import { llmCreateTranscription } from './llm-client'
 
 /**
  * OpenRouter model id for speech-to-text (`/audio/transcriptions`).
- * Must have live endpoints that accept browser `webm`/opus uploads and pass the
- * workspace ZDR guardrail; `qwen/qwen3-asr-flash-2026-02-10` lost all endpoints
- * (gateway 404 "No endpoints found"). Operator choice (2026-10-21): qwen3-asr-0.6b.
+ * Must have live endpoints that accept browser `webm`/opus and Safari `m4a` uploads and
+ * pass the workspace ZDR guardrail. Whisper large-v3 (2026-10-24): it returns an empty
+ * transcript for silent segments and transcribes German/English verbatim. The previous
+ * `qwen/qwen3-asr-0.6b` ignored the `language` hint and invented text on quiet segments
+ * (Spanish "Ahora.", Chinese) — the segmenter cuts at pauses, so it saw many of those.
  */
-export const STT_MODEL_OPENROUTER_DEFAULT = 'qwen/qwen3-asr-0.6b'
+export const STT_MODEL_OPENROUTER_DEFAULT = 'openai/whisper-large-v3'
 
 export type SttAudioInput = {
   bytes: Uint8Array

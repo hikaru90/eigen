@@ -75,7 +75,7 @@ Each successful platform call debits only **provider-reported** `usage.cost` (no
 | -------------------------------------- | ------------------------------------------------------------------------------- |
 | `OPENROUTER_BASE_URL`                  | OpenRouter origin (platform STT and OpenRouter platform path)                   |
 | `SERVICE_API_KEY_OPENROUTER`           | OpenRouter service key for platform STT and OpenRouter platform chat/embeddings |
-| `LLM_MODEL_STT`                        | Optional STT model override (default: `qwen/qwen3-asr-0.6b`)        |
+| `LLM_MODEL_STT`                        | Optional STT model override (default: `openai/whisper-large-v3`)    |
 
 ## Speech-to-text (dictation)
 

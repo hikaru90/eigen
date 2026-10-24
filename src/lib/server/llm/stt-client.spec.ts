@@ -13,6 +13,13 @@ vi.mock('$lib/server/env/private-env', () => ({
   env: {},
 }))
 
+describe('STT model', () => {
+  it('is Whisper large-v3: silence transcribes to nothing instead of invented text in another language', () => {
+    // qwen3-asr-0.6b ignored the language hint and hallucinated ("Ahora.", Chinese) on quiet segments (2026-10-24)
+    expect(STT_MODEL_OPENROUTER_DEFAULT).toBe('openai/whisper-large-v3')
+  })
+})
+
 describe('parseSttTranscript', () => {
   it('extracts trimmed text from dedicated STT body', () => {
     expect(parseSttTranscript({ text: '  hello  ' })).toBe('hello')
