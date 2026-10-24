@@ -1,5 +1,5 @@
-import { buildDailySummaryPush } from '$lib/server/memory/daily-summary'
-import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
+import { loadDailyDigest } from '$lib/server/memory/daily-digest'
+import { dailyDigestPush } from '$lib/server/memory/daily-summary'
 import {
   formatMinutesLocal,
   localDayKey,
@@ -159,19 +159,5 @@ export async function buildDailySummaryPreviewForUser(
   now = new Date(),
 ): Promise<DailySummaryPreview> {
   const timeZone = await getUserPreferredTimezone(userId)
-  const [{ items: openItems }, { items: allItems }] = await Promise.all([
-    listTemporalEventsForUser({
-      userId,
-      status: 'open',
-      range: 'all',
-      includeTasks: true,
-    }),
-    listTemporalEventsForUser({
-      userId,
-      status: 'all',
-      range: 'all',
-      includeTasks: true,
-    }),
-  ])
-  return buildDailySummaryPush(openItems, allItems, timeZone, now)
+  return dailyDigestPush(await loadDailyDigest(userId, timeZone, now))
 }

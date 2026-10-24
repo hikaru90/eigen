@@ -1,6 +1,6 @@
 import type { TemporalEventListItem } from './temporal-event-list'
 import { describe, expect, it } from 'vitest'
-import { buildDailySummaryPush } from './daily-summary'
+import { computeYesterdayStats, dailyDigestPush, type DailyDigest } from './daily-summary'
 import {
   formatMinutesLocal,
   isOpenTodoToday,
@@ -46,7 +46,7 @@ function item(overrides: Partial<TemporalEventListItem> = {}): TemporalEventList
   }
 }
 
-describe('buildDailySummaryPush', () => {
+describe('computeYesterdayStats', () => {
   const now = new Date('2026-06-09T08:00:00.000Z')
 
   it('summarizes completed yesterday, overdue, and due today', () => {
@@ -88,17 +88,14 @@ describe('buildDailySummaryPush', () => {
       }),
     ]
 
-    const push = buildDailySummaryPush(openItems, allItems, 'UTC', now)
-
-    expect(push.title).toBe('Daily summary')
-    expect(push.body).toContain('You completed 2 tasks yesterday.')
-    expect(push.body).toContain('1 overdue task.')
-    expect(push.body).toContain('2 due today.')
-    expect(push.body).toContain('Tap to open your timeline.')
-    expect(push.url).toBe('/memory/tasks?segment=overdue')
+    expect(computeYesterdayStats(openItems, allItems, 'UTC', now)).toEqual({
+      completed: 2,
+      overdue: 1,
+      dueToday: 2,
+    })
   })
 
-  it('links to timeline when nothing is overdue', () => {
+  it('counts nothing overdue', () => {
     const openItems = [
       item({
         id: 'today',
@@ -117,18 +114,57 @@ describe('buildDailySummaryPush', () => {
       }),
     ]
 
-    const push = buildDailySummaryPush(openItems, allItems, 'UTC', now)
-
-    expect(push.body).toContain('Nothing overdue.')
-    expect(push.url).toBe('/memory/tasks')
+    expect(computeYesterdayStats(openItems, allItems, 'UTC', now).overdue).toBe(0)
   })
 
   it('handles zero completions and zero due today', () => {
-    const push = buildDailySummaryPush([], [], 'UTC', now)
+    expect(computeYesterdayStats([], [], 'UTC', now)).toEqual({ completed: 0, overdue: 0, dueToday: 0 })
+  })
+})
 
-    expect(push.body).toContain('You did not finish any tasks yesterday.')
-    expect(push.body).toContain('Nothing overdue.')
-    expect(push.body).toContain('Nothing due today.')
+describe('dailyDigestPush', () => {
+  const digest = (over: Partial<DailyDigest> = {}): DailyDigest => ({
+    yesterday: { completed: 1, overdue: 0, dueToday: 2 },
+    projects: [
+      { entityId: 'p1', label: 'Eigenmesh', nextAction: 'Ship rewards' },
+      { entityId: 'p2', label: 'Hydra buoy', nextAction: null },
+    ],
+    stalled: [{ entityId: 'p2', label: 'Hydra buoy', reason: 'no_next_action' }],
+    unthreaded: { count: 3, recent: [] },
+    agents: [
+      { key: 'apikey:a', label: 'pi.dev', count: 6, recent: [] },
+      { key: 'apikey:b', label: 'zai', count: 1, recent: [] },
+    ],
+    ...over,
+  })
+
+  it('leads with projects, open threads, loose tasks and agents; yesterday stays as information', () => {
+    const push = dailyDigestPush(digest())
+    expect(push.title).toBe('Daily summary')
+    expect(push.url).toBe('/summary')
+    expect(push.body).toBe(
+      '2 active projects · 1 stalled · 3 tasks need a thread · Agents: pi.dev 6, zai 1. Yesterday: 1 task done, nothing overdue, 2 due today.',
+    )
+  })
+
+  it('says so plainly when agents captured nothing', () => {
+    const push = dailyDigestPush(digest({ agents: [], stalled: [], unthreaded: { count: 0, recent: [] } }))
+    expect(push.body).toBe(
+      '2 active projects · nothing stalled · every task has a thread · No agent captures. Yesterday: 1 task done, nothing overdue, 2 due today.',
+    )
+  })
+
+  it('agrees in number', () => {
+    const push = dailyDigestPush(
+      digest({
+        projects: [{ entityId: 'p1', label: 'One', nextAction: null }],
+        unthreaded: { count: 1, recent: [] },
+        yesterday: { completed: 0, overdue: 1, dueToday: 0 },
+      }),
+    )
+    expect(push.body).toContain('1 active project ·')
+    expect(push.body).toContain('1 task needs a thread')
+    expect(push.body).toContain('Yesterday: no tasks done, 1 overdue, nothing due today.')
   })
 })
 
