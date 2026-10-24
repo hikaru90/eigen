@@ -193,6 +193,22 @@ describe('voice-input-button.svelte', () => {
     return Object.assign(handlers, { component: rendered.component })
   }
 
+  it('shows an explicit stop glyph while recording — the bars alone do not say what to press', async () => {
+    const idle = render(VoiceInputButtonTestHarness, {
+      ontranscript: vi.fn(),
+      onpartialtranscript: vi.fn(),
+      onerror: vi.fn(),
+      onstop: vi.fn(),
+    })
+    await expect
+      .element(page.getByTestId('voice-stop-glyph'))
+      .not.toBeInTheDocument()
+    idle.unmount()
+
+    await startRecording()
+    await expect.element(page.getByTestId('voice-stop-glyph')).toBeInTheDocument()
+  })
+
   it('SEG-1: cuts at a pause after 3 s by restarting MediaRecorder on the same stream', async () => {
     await startRecording()
     expect(FakeMediaRecorder.instances).toHaveLength(1)
@@ -419,9 +435,11 @@ describe('voice-input-button.svelte', () => {
     await page.getByRole('button', { name: 'Start voice input' }).click()
     const meter = page.getByTestId('voice-level-meter')
     await expect.element(meter).toBeInTheDocument()
-    const bars = (meter.element() as HTMLElement).children
-    expect(bars.length).toBe(5)
-    expect((bars[0] as HTMLElement).style.getPropertyValue('--lvl')).toMatch(/^\d/)
+    const children = (meter.element() as HTMLElement).children
+    // the stop glyph first, then the five live bars
+    expect(children.length).toBe(6)
+    expect((children[0] as HTMLElement).dataset.testid).toBe('voice-stop-glyph')
+    expect((children[1] as HTMLElement).style.getPropertyValue('--lvl')).toMatch(/^\d/)
     await expect.element(page.getByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
   })
 })

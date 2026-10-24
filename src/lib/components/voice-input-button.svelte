@@ -1,6 +1,7 @@
 <script lang="ts">
   import LoaderCircle from '@lucide/svelte/icons/loader-circle'
   import Mic from '@lucide/svelte/icons/mic'
+  import Square from '@lucide/svelte/icons/square'
   import { onDestroy } from 'svelte'
   import { browser } from '$app/environment'
   import {
@@ -355,9 +356,10 @@
       <LoaderCircle class="size-4 shrink-0 animate-spin" strokeWidth={1.75} />
     {:else if recording}
       <!-- live level: bars scale with the smoothed mic level (transform only); reduced
-           motion holds them at a static mid height -->
+           motion holds them at a static mid height. The square says what the bars
+           cannot: this button is now the stop control. -->
       <span
-        class="flex items-center gap-[2px] h-4"
+        class="flex items-center gap-[5px] h-4"
         data-testid="voice-level-meter"
         role="meter"
         aria-label="Microphone level"
@@ -365,9 +367,15 @@
         aria-valuemin={0}
         aria-valuemax={100}
       >
+        <Square
+          class="size-[9px] shrink-0 fill-current"
+          strokeWidth={0}
+          aria-hidden="true"
+          data-testid="voice-stop-glyph"
+        />
         {#each LEVEL_BARS as weight, i (i)}
           <span
-            class="block w-[2.5px] h-4 rounded-full bg-current origin-center transition-transform duration-75 ease-out [transform:scaleY(var(--lvl))] motion-reduce:transition-none motion-reduce:[transform:scaleY(0.5)]"
+            class="block w-[2px] h-4 rounded-full bg-current origin-center transition-transform duration-75 ease-out [transform:scaleY(var(--lvl))] motion-reduce:transition-none motion-reduce:[transform:scaleY(0.5)]"
             style:--lvl={(0.2 + 0.8 * Math.min(1, level * weight)).toFixed(3)}
           ></span>
         {/each}
