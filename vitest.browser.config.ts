@@ -94,6 +94,7 @@ export default defineConfig({
       'src/lib/components/voice-input-button.svelte.spec.ts',
       'src/lib/components/writer/glass-writer.svelte.spec.ts',
       'src/lib/feedback/share-composer.svelte.spec.ts',
+      'src/lib/components/mesh/thought-row.svelte.spec.ts',
     ],
     exclude: ['src/routes/demo/playwright/**/*.ts', '**/*.e2e.ts'],
     fileParallelism: false,

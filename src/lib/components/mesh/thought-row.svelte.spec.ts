@@ -29,6 +29,12 @@ describe('thought-row.svelte', () => {
       .toBeInTheDocument()
   })
 
+  it('clamps the words to three lines with an ellipsis (the full thought is on its page)', async () => {
+    render(ThoughtRow, { ...baseProps, text: 'long '.repeat(400) })
+    const words = page.getByTestId('thought-row-text').element() as HTMLElement
+    expect(words.className).toContain('line-clamp-3')
+  })
+
   it('never opens on tap — only the open control opens', async () => {
     const onopen = vi.fn()
     render(ThoughtRow, { ...baseProps, onopen })

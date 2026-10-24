@@ -4,6 +4,7 @@ import {
   applyCaptureContentSplitIfNeeded,
   applySplitResultLocally,
 } from './apply-capture-content-split'
+import { LONG_CAPTURE_MIN_CHARS, captureSplitMode } from './split-capture-content'
 
 const {
   resolveCaptureContentSplitMock,
@@ -275,5 +276,45 @@ describe('applyCaptureContentSplitIfNeeded', () => {
     expect(updatePayload.normalizedText).toBe('spaced words')
     // Metadata records WHY the split call was skipped.
     expect(updatePayload.metadataEncrypted).toContain('decision_model')
+  })
+
+  it('a long capture is always split — summary thought + full text as a note — even when thought_only was decided', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      mode: 'split',
+      thoughtText: 'Summary of the long report',
+      attachmentTitle: 'Report',
+      attachmentBody: 'x'.repeat(LONG_CAPTURE_MIN_CHARS + 1),
+      rationale: 'r',
+    } satisfies CaptureContentSplitResult)
+    createTextFileMock.mockResolvedValue({ id: 'file-1' })
+    linkTextFileToThoughtMock.mockResolvedValue({ linked: true })
+    mockDbUpdateCapture()
+
+    const longText = 'word '.repeat(LONG_CAPTURE_MIN_CHARS / 4)
+    const out = await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: longText,
+      decidedMode: 'thought_only',
+    })
+
+    expect(resolveCaptureContentSplitMock).toHaveBeenCalledWith(
+      expect.objectContaining({ decidedMode: 'split' }),
+    )
+    expect(createTextFileMock).toHaveBeenCalled()
+    expect(out.attachedFileId).toBe('file-1')
+  })
+})
+
+describe('captureSplitMode', () => {
+  it('forces split above the long-capture limit', () => {
+    expect(captureSplitMode('a'.repeat(LONG_CAPTURE_MIN_CHARS + 1), undefined)).toBe('split')
+    expect(captureSplitMode('a'.repeat(LONG_CAPTURE_MIN_CHARS + 1), 'thought_only')).toBe('split')
+  })
+
+  it('leaves shorter captures to the decision (or the judge when undecided)', () => {
+    expect(captureSplitMode('short', 'thought_only')).toBe('thought_only')
+    expect(captureSplitMode('short', undefined)).toBeUndefined()
+    expect(captureSplitMode('a'.repeat(LONG_CAPTURE_MIN_CHARS), undefined)).toBeUndefined()
   })
 })

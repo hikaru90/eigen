@@ -23,6 +23,23 @@ export type CaptureContentSplitResult = {
 type SplitPass = 'default' | 'retry_strict'
 
 /**
+ * Long captures are never stored whole as a thought (operator rule, 2026-10-24):
+ * above this size the capture is always split — the LLM writes a short summary
+ * thought and the full text becomes a linked note. A size policy, not meaning:
+ * below it, the role judge (or the decision model) still decides.
+ */
+export const LONG_CAPTURE_MIN_CHARS = 500
+
+/** The storage mode to enforce, if any: forced split for long captures, else the given decision. */
+export function captureSplitMode(
+  rawText: string,
+  decided: CaptureContentSplitMode | undefined,
+): CaptureContentSplitMode | undefined {
+  if (rawText.trim().length > LONG_CAPTURE_MIN_CHARS) return 'split'
+  return decided
+}
+
+/**
  * Parses the split fields. When `decidedMode` is set (decision-model
  * authoritative content_role), it ALWAYS wins over the LLM's own `mode` —
  * the chat call is generation only; validation applies to the decided mode.
@@ -118,14 +135,15 @@ async function resolveCaptureContentSplitOnce(
     '}',
     '',
     'Rules:',
-    '- Length alone does NOT decide split. Judge by **role**: atomic memory note vs reusable reference document.',
+    '- When the mode is not already decided, judge by **role**: atomic memory note vs reusable reference document.',
     '- Use "thought_only" when the entire message is a concise personal memory note (task, fact, decision, reminder, fleeting observation, bug report).',
     '- When mode is "thought_only": thoughtText MUST be the full capture returned unchanged. Do not rephrase, summarize, shorten, paraphrase, or "fix" wording. Prefer copying the user message exactly.',
     '- Use "split" when part of the message is a **pointer/intent line** and the rest is **reference material** that should live as its own editable note — even if the input is not very long. Examples:',
     '    • Recipe, checklist, template, procedure, spec, code block, meeting agenda, letter draft',
     '    • Long paste, transcript, email body, or voice-to-text ramble with an implicit summary',
     '    • Any structured document the user may revise over time or link from multiple future thoughts',
-    '- When mode is "split": thoughtText is the distilled capture line — intent, title, or why this was saved (e.g. "Pasta carbonara recipe from Nonna", "Weekly standup template").',
+    '- When mode is "split": thoughtText is the distilled capture — intent, title, or why this was saved (e.g. "Pasta carbonara recipe from Nonna", "Weekly standup template"). For a long report, ramble or document, thoughtText is a concise summary of what it says (at most two sentences, in the input\'s language) — never the full text.',
+    '- When mode is "split", attachmentBody holds the full original text when there is no separate intent line.',
     '- attachmentBody: the reference document body — recipe steps, template text, transcript, etc. Keep verbatim except obvious STT fixes; do not summarize into attachmentBody.',
     '- attachmentTitle: short label when split (e.g. "Carbonara recipe", "Meeting transcript").',
     '- When the whole input is reference material with no separate intent line, still use split: thoughtText = short descriptive title; attachmentBody = full document.',
@@ -144,7 +162,7 @@ async function resolveCaptureContentSplitOnce(
       {
         role: 'system',
         content:
-          'You partition user capture input into a memory thought (pointer/intent) vs an optional attached reference note (recipes, templates, documents). Split is semantic — not based on length. For thought_only, never rewrite the user text. Return only valid JSON matching the schema in the user message.',
+          'You partition user capture input into a memory thought (pointer/intent or short summary) vs an optional attached reference note (recipes, templates, documents, long texts). When the mode is already decided, follow it. For thought_only, never rewrite the user text. Return only valid JSON matching the schema in the user message.',
       },
       { role: 'user', content: prompt },
     ],

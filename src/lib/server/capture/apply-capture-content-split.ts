@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { normalizeThoughtText } from '$lib/server/capture/service'
 import {
   normalizedThoughtFromSplit,
+  captureSplitMode,
   resolveCaptureContentSplit,
   type CaptureContentSplitMode,
   type CaptureContentSplitResult,
@@ -76,10 +77,12 @@ export async function applyCaptureContentSplitIfNeeded(input: {
   decidedMode?: CaptureContentSplitMode
 }): Promise<AppliedCaptureContentSplit> {
   const rawText = input.rawText
-  // Decision-model authoritative content_role=thought_only: no chat call at
-  // all — the mode is already decided and thought_only keeps verbatim text.
+  // Long captures are always split (summary thought + full-text note); shorter ones
+  // follow the decision model, or the role judge when undecided.
+  const decidedMode = captureSplitMode(rawText, input.decidedMode)
+  // Decided thought_only: no chat call at all — thought_only keeps verbatim text.
   const split: CaptureContentSplitResult =
-    input.decidedMode === 'thought_only'
+    decidedMode === 'thought_only'
       ? {
           mode: 'thought_only',
           thoughtText: rawText,
@@ -90,7 +93,7 @@ export async function applyCaptureContentSplitIfNeeded(input: {
       : await resolveCaptureContentSplit({
           userId: input.userId,
           rawText: input.rawText,
-          decidedMode: input.decidedMode,
+          decidedMode,
         })
 
   const normalizedText =

@@ -71,6 +71,8 @@
     rowGrid,
   ]}
   class:is-fresh={fresh}
+  class:is-done={done}
+  class:dated
   data-thought-id={thoughtId}
   data-testid={'thought-' + thoughtId}
   style:--i={Math.min(index, 14)}
@@ -84,8 +86,10 @@
     >{timeLabel}</time
   >
 
+  <!-- three lines at most: the full thought is on its own page (open control) -->
   <p
-    class="font-you text-[23px] leading-[1.27] tracking-[-0.006em] text-pretty transition-colors duration-500 ease-settle max-[640px]:col-start-1"
+    class="line-clamp-3 font-you text-[23px] leading-[1.27] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle max-[640px]:col-start-1"
+    data-testid="thought-row-text"
     class:text-ink-3={done}
     class:line-through={done}
     class:decoration-ink-4={done}
