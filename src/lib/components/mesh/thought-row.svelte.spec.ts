@@ -4,11 +4,12 @@ import { page } from 'vitest/browser'
 import ThoughtRow from './thought-row.svelte'
 
 /**
- * The shared thought row for Yarn (and later Threads + the thought page):
- * ei app.js:737-742 as a component. Behavioral contract (docs/planning/
- * ei-redesign.md, wave 2.2): words in your voice, time, kind chip, thread
- * name, a tick ring only for to-dos, and one explicit open control — rows
- * never open on tap (DESIGN.md "Lists are for reading").
+ * The shared thought row for Yarn and Threads (ei app.js:737-742 as a
+ * component). Behavioral contract (docs/planning/ei-redesign.md, wave 2.2):
+ * words in your voice, time, kind chip, thread name, a tick ring only for
+ * to-dos, and one explicit open control — rows never open on tap (DESIGN.md
+ * "Lists are for reading"). The open control unfolds the row in place; the
+ * full page (editing, echoes) stays reachable from the unfolded row's link.
  */
 
 const baseProps = {
@@ -35,15 +36,36 @@ describe('thought-row.svelte', () => {
     expect(words.className).toContain('line-clamp-3')
   })
 
-  it('never opens on tap — only the open control opens', async () => {
+  it('the open control unfolds the row in place — no navigation, onopen only from the page link', async () => {
     const onopen = vi.fn()
-    render(ThoughtRow, { ...baseProps, onopen })
+    render(ThoughtRow, { ...baseProps, onopen, pageLabel: 'Open page' })
 
     await page.getByText('Call the studio about pricing').click()
     expect(onopen).not.toHaveBeenCalled()
 
-    await page.getByRole('button', { name: 'Open this thought' }).click()
+    const open = page.getByRole('button', { name: 'Open this thought' })
+    await open.click()
+    // unfolded in place: the words unclamp, the control reports expanded, no page open
+    const words = page.getByTestId('thought-row-text').element() as HTMLElement
+    expect(words.className).not.toContain('line-clamp-3')
+    await expect.element(open).toHaveAttribute('aria-expanded', 'true')
+    expect(onopen).not.toHaveBeenCalled()
+
+    // the full page stays one tap away, from inside the unfolded row
+    await page.getByRole('button', { name: 'Open page' }).click()
     expect(onopen).toHaveBeenCalledTimes(1)
+
+    // folding back
+    await open.click()
+    const folded = page.getByTestId('thought-row-text').element() as HTMLElement
+    expect(folded.className).toContain('line-clamp-3')
+    await expect.element(open).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('without a pageLabel the unfolded row offers no page link', async () => {
+    render(ThoughtRow, { ...baseProps, onopen: vi.fn() })
+    await page.getByRole('button', { name: 'Open this thought' }).click()
+    await expect.element(page.getByTestId('thought-row-page')).not.toBeInTheDocument()
   })
 
   it('shows the kind chip and the thread name when given', async () => {

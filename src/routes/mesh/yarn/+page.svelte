@@ -175,6 +175,7 @@
           showTick={row.isTodo}
           tickLabel={row.status === 'completed' ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
           openLabel={m.desk_action_open_task()}
+          pageLabel={m.thought_open_page()}
           kindLabel={data.kindLabels[row.category] ?? null}
           threadLabel={row.threadLabel}
           ontoggle={() => void toggleDone(row)}

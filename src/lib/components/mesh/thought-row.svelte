@@ -30,6 +30,8 @@
     tickLabel?: string
     /** Aria label for the explicit open control (two corner arrows). */
     openLabel: string
+    /** Label for the full-page link inside an unfolded row (thought page: edit, echoes). */
+    pageLabel?: string | null
     kindLabel?: string | null
     threadLabel?: string | null
     ontoggle?: () => void
@@ -47,11 +49,15 @@
     showTick = false,
     tickLabel = '',
     openLabel,
+    pageLabel = null,
     kindLabel = null,
     threadLabel = null,
     ontoggle,
     onopen,
   }: Props = $props()
+
+  /** The open control unfolds the row in place — reading without losing the screen. */
+  let expanded = $state(false)
 
   /* ei grid: time · words · meta · open (dated rows widen the time column). */
   const rowGrid = $derived(
@@ -86,10 +92,11 @@
     >{timeLabel}</time
   >
 
-  <!-- three lines at most: the full thought is on its own page (open control) -->
+  <!-- the full thought unfolds in place; only folded rows clamp to three lines -->
   <p
-    class="line-clamp-3 font-you text-[23px] leading-[1.27] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle max-[640px]:col-start-1"
+    class="font-you text-[23px] leading-[1.27] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle max-[640px]:col-start-1"
     data-testid="thought-row-text"
+    class:line-clamp-3={!expanded}
     class:text-ink-3={done}
     class:line-through={done}
     class:decoration-ink-4={done}
@@ -124,14 +131,27 @@
       {#if threadLabel}<span class="thread">{threadLabel}</span>{/if}
     </span>
   {/if}
+  {#if expanded && pageLabel}
+    <!-- the full page (edit, echoes) stays one tap away from inside the unfolded row -->
+    <button
+      class="col-start-2 justify-self-start mt-1 px-0 py-0 border-0 bg-transparent font-mesh text-sm text-ink-3 [transition:color_0.3s_var(--ease)] cursor-pointer pointer-fine:hover:text-ink max-[640px]:col-start-1"
+      type="button"
+      data-testid="thought-row-page"
+      onclick={() => onopen()}
+    >
+      {pageLabel}
+    </button>
+  {/if}
   <button
     class="relative grid size-6 place-items-center -mt-px -mr-1 rounded-full self-start text-ink-3 transition-colors duration-300 ease-settle before:absolute before:-inset-2 before:content-[''] pointer-fine:hover:text-ink max-[640px]:col-start-2 max-[640px]:row-start-1 max-[640px]:justify-self-end"
     type="button"
     aria-label={openLabel}
-    onclick={() => onopen()}
+    aria-expanded={expanded}
+    onclick={() => (expanded = !expanded)}
   >
     <svg
-      class="size-[13px] fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round] [stroke-linejoin:round]"
+      class="size-[13px] fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round] [stroke-linejoin:round] [transition:transform_0.4s_var(--ease)]"
+      class:rotate-90={expanded}
       viewBox="0 0 16 16"
       aria-hidden="true"
     >
