@@ -129,6 +129,8 @@ describe('interpretThoughtPreview', () => {
       llmChatCompletionMock.mock.calls[0][0].messages as Array<{ role: string; content: string }>
     ).find((m) => m.role === 'system')?.content
     expect(systemMsg).toContain('deviatesFromVerbatim')
+    // the capture's language is kept: a German capture stays German (board 42992263)
+    expect(systemMsg).toContain('same language as the raw capture')
     expect(out.interpretedText).toBe('Plan a team offsite in Lisbon next quarter.')
     expect(out.category.key).toBe('task')
     expect(out.category.confidence).toBeCloseTo(0.91)

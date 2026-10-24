@@ -131,6 +131,7 @@ export async function interpretThoughtPreview(input: {
         `{ "interpretedText": "<clear full thought body>", "category": { "key": "${categoryKeyUnion}", "confidence": 0-1, "alternatives": [{ "key": "...", "confidence": 0-1 }] }, "entities": [{ "surface": "...", "entityType": "${entityKeyUnion}", "confidence": 0-1 }], "deviatesFromVerbatim": true|false }`,
         'Rules:',
         '- interpretedText is the clarified/normalized form the user will store. Preserve meaning; fix obvious STT/typos; do not invent facts.',
+        '- interpretedText must be written in the same language as the raw capture — never translate it.',
         '- category.key must be an exact ontology thought_category key from the catalog (no synonyms).',
         '- entities are provisional mentions for preview only; entityType must be an exact ontology entity_type key.',
         '- deviatesFromVerbatim must be a boolean. Set true when interpretedText changes meaning or reinterprets/links entities beyond what is literally in the raw capture (more than trivial whitespace/STT/typo cleanup). Set false when you only clarify formatting or fix obvious typos without altering meaning.',
