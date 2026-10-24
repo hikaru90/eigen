@@ -189,16 +189,16 @@
       data-testid={'thread-' + thread.entityId}
       style:--i={i}
     >
-      <div class="flex items-center justify-between gap-6">
+      <div class="flex min-w-0 items-center justify-between gap-6">
         <!-- the name is yours: Geist Mono, huge -->
         <h3
-          class={["m-0 font-you font-normal text-[46px] leading-none tracking-[-0.02em] [overflow-wrap:anywhere] transition-transform duration-700 ease-settle max-[640px]:text-[36px]", freshId === thread.entityId && 'animate-[rise_1s_var(--ease)_both]']}
+          class={["m-0 min-w-0 font-you font-normal text-[46px] leading-none tracking-[-0.02em] [overflow-wrap:anywhere] transition-transform duration-700 ease-settle max-[640px]:text-[36px]", freshId === thread.entityId && 'animate-[rise_1s_var(--ease)_both]']}
         >{thread.label}</h3>
       </div>
       {#if summary}
-        <p class="mt-3.5 max-w-[560px] text-base leading-[1.55] text-ink-2">{summary}</p>
+        <p class="mt-3.5 max-w-[560px] text-base leading-[1.55] text-ink-2 [overflow-wrap:anywhere]">{summary}</p>
       {/if}
-      <div class="mt-3 text-sm text-ink-3">{metaOf(thread)}</div>
+      <div class="mt-3 text-sm text-ink-3 [overflow-wrap:anywhere]">{metaOf(thread)}</div>
     </a>
   {/each}
 

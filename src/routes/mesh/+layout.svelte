@@ -54,7 +54,7 @@
 <!-- The tab row is in flow: it scrolls with its section and sticks just below the
      header's fade band while the strand moves (no portal, no fixed positioning). -->
 <div
-  class="sticky top-[calc(var(--head,68px)+12px)] z-30 mx-auto mt-[calc(var(--head,68px)+12px)] flex w-fit items-center gap-2 px-1.5 pt-2 pb-3.5 max-w-[calc(100vw-44px)] bg-[linear-gradient(var(--paper)_55%,transparent)]"
+  class="sticky top-[calc(var(--head,68px)+12px)] z-30 mx-auto mt-[calc(var(--head,68px)+12px)] flex w-fit items-center gap-2 px-1.5 pt-2 pb-3.5 max-w-[calc(100vw-44px)]"
 >
   <nav
     class={`relative flex rounded-full bg-paper-2 p-[3px] ${meshSearch.open ? 'max-[640px]:hidden' : ''}`}
