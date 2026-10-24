@@ -11,7 +11,9 @@
     <meta name="application-name" content="Eigen Mesh" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-    <meta name="theme-color" content="#e8ede5" id="theme-color-meta" />
+    <!-- system bars follow the system setting (Auto); a forced look rewrites both (src/lib/pwa/theme-color.ts) -->
+    <meta name="theme-color" content="#e8ede5" media="(prefers-color-scheme: light)" id="theme-color-light" />
+    <meta name="theme-color" content="#141c16" media="(prefers-color-scheme: dark)" id="theme-color-dark" />
     <meta name="description" content="Self-hostable memory infrastructure" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -36,9 +38,10 @@
         } else {
           document.documentElement.style.colorScheme = 'light'
         }
-        var themeMeta = document.getElementById('theme-color-meta')
-        if (themeMeta) {
-          themeMeta.setAttribute('content', isDark ? '#141c16' : '#e8ede5')
+        if (pref === 'light' || pref === 'dark') {
+          var forced = pref === 'dark' ? '#141c16' : '#e8ede5'
+          document.getElementById('theme-color-light').setAttribute('content', forced)
+          document.getElementById('theme-color-dark').setAttribute('content', forced)
         }
         var isStandalone =
           window.matchMedia('(display-mode: standalone)').matches ||

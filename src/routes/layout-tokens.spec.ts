@@ -200,7 +200,7 @@ describe('existing mechanisms preserved', () => {
   })
 
   it('keeps the PWA theme-color meta wired to paper', () => {
-    expect(html).toMatch(/<meta name="theme-color" content="#e8ede5"/)
-    expect(html).toContain("'#141c16'")
+    expect(html).toMatch(/<meta name="theme-color" content="#e8ede5" media="\(prefers-color-scheme: light\)"/)
+    expect(html).toMatch(/<meta name="theme-color" content="#141c16" media="\(prefers-color-scheme: dark\)"/)
   })
 })

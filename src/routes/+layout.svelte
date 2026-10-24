@@ -29,6 +29,7 @@
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
   import { hapticPress } from '$lib/haptics'
   import { m } from '$lib/paraglide/messages.js'
+  import { themeColorMetas, type LookPreference } from '$lib/pwa/theme-color'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
   import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
   import { initDeferredInstallStore } from '$lib/pwa/deferred-install-store.svelte'
@@ -234,13 +235,11 @@
     })()
 
     const media = window.matchMedia('(prefers-color-scheme: dark)')
+    /* the system bars follow the system on Auto; a forced look colours both metas */
     const syncThemeColorMeta = () => {
-      const meta = document.getElementById('theme-color-meta')
-      if (!meta) return
-      const themeColor = getComputedStyle(document.documentElement)
-        .getPropertyValue('--theme-color')
-        .trim()
-      if (themeColor) meta.setAttribute('content', themeColor)
+      const metas = themeColorMetas(themePreference as LookPreference)
+      document.getElementById('theme-color-light')?.setAttribute('content', metas.light)
+      document.getElementById('theme-color-dark')?.setAttribute('content', metas.dark)
     }
 
     const applyTheme = (isDark: boolean) => {
