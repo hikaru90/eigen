@@ -13,6 +13,7 @@
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
   import { keepOutcomeFromResponse } from '$lib/capture/keep-outcome'
   import {
+    KEPT_LINKED_FADE_MS,
     KEPT_POLL_MAX_TRIES,
     KEPT_POLL_MS,
     keptStage,
@@ -155,7 +156,13 @@
         failureReason: result.queueError ?? null,
       }
       if (stage === 'linked' || stage === 'failed') {
-        handleCapturedThought(result)
+        handleCapturedThought(result, 'keep')
+        if (stage === 'linked') {
+          // done says itself for a moment, then the heading's place is free again
+          setTimeout(() => {
+            if (token === keptToken && kept?.stage === 'linked') kept = null
+          }, KEPT_LINKED_FADE_MS)
+        }
         return
       }
       await new Promise((resolve) => setTimeout(resolve, KEPT_POLL_MS))
@@ -254,11 +261,7 @@
 
   function onFieldInput() {
     pageInputDrafts.capture = raw
-    // new words take the heading's place back from the last capture's status
-    if (raw.trim() && kept) {
-      keptToken += 1
-      kept = null
-    }
+    // the kept card stays: the capture's process is not re-hidden by the next words
     // inline `#` thread gesture (ei checkHash): a trailing #token at the caret opens the picker
     hashQuery = hashQueryAt(raw, fieldEl?.selectionStart ?? raw.length)
 
@@ -580,7 +583,7 @@
     return status ? `${m.desk_error_action()} (${status})` : m.desk_error_action()
   }
 
-  function handleCapturedThought(thought: CaptureSubmitResult) {
+  function handleCapturedThought(thought: CaptureSubmitResult, from: 'keep' | 'queue') {
     capturedThisVisit = true
     submitting = false
     err = null
@@ -588,7 +591,9 @@
       thought_id: thought.id,
       enrichment_complete: thought.enrichmentComplete,
     })
-    if (threadChoice.kind === 'thread') void assignThread(thought.id)
+    // 'keep' already linked the picked thread on the server at keep time — assigning
+    // again here would only re-post it. The queue path never sent a thread: assign now.
+    if (from === 'queue' && threadChoice.kind === 'thread') void assignThread(thought.id)
     if (pendingSay) {
       const said = pendingSay
       pendingSay = null
@@ -704,7 +709,7 @@
           activeCaptureId: null,
           recentlyActivatedId: null,
         }
-        handleCapturedThought(message.thought as CaptureSubmitResult)
+        handleCapturedThought(message.thought as CaptureSubmitResult, 'queue')
         void reconcileQueueState(false, { respectProcessingSuppress: true })
         return
       }
@@ -809,8 +814,6 @@
       }}
       onSay={onSay}
     />
-  {:else if kept}
-    <CaptureKept {...kept} />
   {:else}
     <h1
       class="m-0 font-you font-normal text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink max-[640px]:text-[29px]"
@@ -818,6 +821,15 @@
     >
       {m.capture_placeholder()}
     </h1>
+  {/if}
+
+  {#if kept}
+    <!-- the capture's process, as its own strip: it survives the next reading and the
+         next words, and only the linked state fades (a failure stays until the next
+         capture). Categorization, saving and indexing stay visible — never a flash. -->
+    <div class="mt-8 max-w-[540px]" data-testid="capture-kept-strip">
+      <CaptureKept {...kept} />
+    </div>
   {/if}
 
   <div>

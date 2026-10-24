@@ -14,6 +14,11 @@ describe('capture-kept.svelte', () => {
     await expect.element(page.getByText('Indexing')).toBeInTheDocument()
   })
 
+  it('is a status strip (a live region that stays up while the user keeps typing)', async () => {
+    render(CaptureKept, { ...base, stage: 'indexing' })
+    await expect.element(page.getByTestId('capture-kept')).toHaveAttribute('role', 'status')
+  })
+
   it('reports what got linked when done', async () => {
     render(CaptureKept, { ...base, stage: 'linked', entityCount: 3, linkedCount: 2 })
     await expect.element(page.getByTestId('capture-kept-progress')).toHaveAttribute('aria-valuenow', '3')

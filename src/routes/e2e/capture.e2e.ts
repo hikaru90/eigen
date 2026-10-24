@@ -114,6 +114,30 @@ test.describe('Capture flow (AC-001, AC-004, ei decision #3: read → keep)', ()
     await expectKeptThought(page, kept.thoughtId, 'Q3 budget report')
   })
 
+  test('the kept strip stays up through the next words — the process is never a flash (b4c5457a)', async ({
+    page,
+    context,
+  }) => {
+    await registerUser(context, page)
+    await page.goto('/capture')
+
+    await captureAndWaitForKept(page, TYPE_TEXT)
+    const strip = page.getByTestId('capture-kept-strip')
+    await expect(strip).toBeVisible()
+
+    // the next capture's words must not hide the process: typing keeps the strip up
+    await page.getByTestId('capture-input').fill('next thought while the last one indexes')
+    await expect(strip).toBeVisible()
+    await expect(page.getByTestId('capture-kept')).toBeVisible()
+
+    // the background pass ends in the strip itself: linked (then it fades) or indexing
+    await expect(page.getByTestId('capture-kept-progress')).toHaveAttribute(
+      'aria-valuenow',
+      /2|3/,
+      { timeout: 30_000 },
+    )
+  })
+
   test('a chosen type is carried into keep; stale input falls back to the submit queue', async ({
     page,
     context,

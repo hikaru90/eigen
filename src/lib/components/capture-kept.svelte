@@ -4,9 +4,11 @@
   import { m } from '$lib/paraglide/messages.js'
 
   /**
-   * After Capture, in the heading's place: how the thought was kept (its type and
-   * thread — the reading the user accepted), then the background pass as three steps
-   * (saved → indexing → linked) with the mesh spinner while it works. The kept words
+   * After Capture: the capture's process, as a status strip that stays up — how the
+   * thought was kept (its type and thread — the reading the user accepted), then the
+   * background pass as three steps (saved → indexing → linked) with the mesh spinner
+   * while it works. It survives the next reading and the next words (board b4c5457a:
+   * the old heading slot let one keystroke hide the whole process). The kept words
    * are never shown again (editing lives in Mesh).
    */
   let {
@@ -34,14 +36,14 @@
   const working = $derived(stage === 'saving' || stage === 'indexing')
 </script>
 
-<div data-testid="capture-kept" class="animate-[fade_0.5s_var(--ease)_both]">
-  <p class="m-0 font-you text-[clamp(32px,4.4vw,46px)] leading-[1.16] tracking-[-0.014em] text-ink-3 max-[640px]:text-[29px]">
-    {m.capture_kept_as()} <span class="text-ink">{typeLabel}</span>
-    <br />
-    <span class="text-ink">{threadLabel}</span>
+<div data-testid="capture-kept" role="status" class="animate-[fade_0.5s_var(--ease)_both]">
+  <p class="m-0 font-mesh text-sm text-ink-3">
+    {m.capture_kept_as()} <span class="font-you text-base tracking-[-0.01em] text-ink">{typeLabel}</span>
+    <span aria-hidden="true"> · </span>
+    <span class="font-you text-base tracking-[-0.01em] text-ink">{threadLabel}</span>
   </p>
 
-  <div class="mt-6 flex items-center gap-2.5 font-mesh text-sm text-ink-3 [&_.spinner]:size-4 [&_.spinner]:shrink-0">
+  <div class="mt-2 flex items-center gap-2.5 font-mesh text-sm text-ink-3 [&_.spinner]:size-4 [&_.spinner]:shrink-0">
     <MeshSpinner size={16} {working} />
     {#if stage === 'failed'}
       <span class="text-clay" role="alert">{m.capture_kept_failed({ reason: failureReason ?? '—' })}</span>
@@ -55,7 +57,7 @@
   </div>
 
   <div
-    class="mt-3 grid max-w-[320px] grid-cols-3 gap-1.5"
+    class="mt-2 grid max-w-[320px] grid-cols-3 gap-1.5"
     role="progressbar"
     aria-label={m.capture_kept_progress_label()}
     aria-valuemin={1}
