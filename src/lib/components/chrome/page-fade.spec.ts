@@ -9,10 +9,6 @@ describe('pageFadeVars', () => {
     },
   )
 
-  it('Contribute fades beneath its fixed intro and tabs', () => {
-    expect(pageFadeVars('feedback')).toContain('var(--board-head-height,0px)')
-  })
-
   it('pages without a writer fade only above the bottom menu', () => {
     expect(pageFadeVars('mesh')).not.toContain('--glass-writer-height')
     expect(pageFadeVars(null)).not.toContain('--glass-writer-height')

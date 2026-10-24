@@ -5,7 +5,6 @@
   import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { clearFeedbackNote } from '$lib/components/chrome/feedback-news.svelte'
-  import { portal } from '$lib/components/chrome/portal'
   import * as Tabs from '$lib/components/ui/tabs'
   import { betterCopy } from '$lib/feedback/better-copy'
   import {
@@ -158,21 +157,6 @@
     // start typing anywhere and you're sharing (ei app.js:1852-1853)
     if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return
     if (e.key.length === 1 && e.key !== ' ') composer?.focus()
-  }
-
-  /** Publishes the fixed intro+tabs height (it wraps on phones) for the board's padding and fade. */
-  function publishHeadHeight(node: HTMLElement) {
-    const doc = document.documentElement
-    const observer = new ResizeObserver(() => {
-      doc.style.setProperty('--board-head-height', `${node.getBoundingClientRect().height}px`)
-    })
-    observer.observe(node)
-    return {
-      destroy() {
-        observer.disconnect()
-        doc.style.removeProperty('--board-head-height')
-      },
-    }
   }
 
   function reasonOf(err: unknown): string {
@@ -351,17 +335,17 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<!-- what this page is, then the tabs: fixed under the header and outside the page mask -->
+<!-- One page column, like Capture, Ask and Mesh: what this page is, then the tabs, then
+     the board — all in flow inside the page container. The tab row sticks under the header
+     while the board scrolls (the Mesh tab row's pattern); nothing is portaled or fixed. -->
 <div
-  use:portal
-  use:publishHeadHeight
-  class="fixed left-1/2 -translate-x-1/2 top-[calc(var(--head,68px)+12px)] z-30 flex flex-col items-start gap-4 w-[min(636px,calc(100vw-44px))] animate-[fade_0.7s_var(--ease)_0.1s_both]"
+  class="mx-auto max-w-[700px] pt-[calc(var(--head,68px)+12px)] px-8 pb-[calc(var(--bottom-nav)+var(--glass-writer-height,64px)+48px)] max-[640px]:px-[22px] animate-[fade_0.7s_var(--ease)_0.1s_both]"
 >
   <!-- Eigenmesh is shaped by the people who use it -->
   <p class="m-0 text-sm leading-[1.55] text-ink-2">{m.better_intro()}</p>
 
   <!-- the same shadcn tabs as Settings, then search at the row's end -->
-  <div class="flex items-center gap-2 max-w-full">
+  <div class="sticky top-[calc(var(--head,68px)+12px)] z-30 mt-4 mb-7 flex items-center gap-2 max-w-full">
     <Tabs.Root
       value={tab}
       onValueChange={(v) => selectTab(v as BoardTab)}
@@ -439,11 +423,7 @@
       </button>
     </div>
   </div>
-</div>
 
-<div
-  class="mx-auto max-w-[700px] pt-[calc(var(--head,68px)+12px+var(--board-head-height)+28px)] px-8 pb-[calc(var(--bottom-nav)+var(--glass-writer-height,64px)+48px)] max-[640px]:px-[22px]"
->
   <!-- the app's note (the clay dot's message): inline, dismissible; confirmations land here too -->
   <div
     class={[

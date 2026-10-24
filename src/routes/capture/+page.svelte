@@ -772,6 +772,11 @@
   })
 </script>
 
+<!-- every page names itself: Svelte sets document.title but never restores it on leave -->
+<svelte:head>
+  <title>{m.nav_capture()} — Eigenmesh</title>
+</svelte:head>
+
 <div
   class="mx-auto max-w-[720px] pt-[calc(var(--head)+23vh)] px-7 pb-[calc(var(--bottom-nav)+var(--glass-writer-height,64px)+40px)] max-[640px]:pt-[calc(var(--head)+12vh)] max-[640px]:px-[22px]"
 >
