@@ -14,9 +14,11 @@ vi.mock('$lib/server/env/private-env', () => ({
 }))
 
 describe('STT model', () => {
-  it('is Whisper large-v3: silence transcribes to nothing instead of invented text in another language', () => {
-    // qwen3-asr-0.6b ignored the language hint and hallucinated ("Ahora.", Chinese) on quiet segments (2026-10-24)
-    expect(STT_MODEL_OPENROUTER_DEFAULT).toBe('openai/whisper-large-v3')
+  it('is Qwen3 ASR 1.7B: verbatim transcription with no translate task, so speech is never auto-translated', () => {
+    // whisper-large-v3 auto-translated speech instead of transcribing verbatim (2026-10-24);
+    // its translate task is the failure mode — Qwen3-ASR is ASR + language-ID only.
+    // qwen3-asr-0.6b before that hallucinated ("Ahora.", Chinese) on quiet segments.
+    expect(STT_MODEL_OPENROUTER_DEFAULT).toBe('qwen/qwen3-asr-1.7b')
   })
 })
 
