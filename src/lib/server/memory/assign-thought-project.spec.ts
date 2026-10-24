@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { assignThoughtToProject } from './assign-thought-project'
+import { assignThoughtToProject, unassignThoughtFromProject } from './assign-thought-project'
 
 const {
   getDbMock,
   linkThoughtToProjectMock,
+  clearNextActionIfCompletedMock,
   resolveProjectIdentityMock,
   maybePromoteHubToGtdProjectMock,
   promoteHubEntityTypeMock,
   ensureProjectMock,
+  loadProjectMembershipEntityIdsMock,
+  deleteMentionEdgeMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   linkThoughtToProjectMock: vi.fn(async () => undefined),
+  clearNextActionIfCompletedMock: vi.fn(async () => undefined),
   resolveProjectIdentityMock: vi.fn(async () => ({
     entityId: 'hub-1',
     canonicalLabel: 'EigenMesh',
@@ -22,6 +26,8 @@ const {
   maybePromoteHubToGtdProjectMock: vi.fn(async () => false),
   promoteHubEntityTypeMock: vi.fn(async () => undefined),
   ensureProjectMock: vi.fn(async () => undefined),
+  loadProjectMembershipEntityIdsMock: vi.fn(async (): Promise<string[]> => []),
+  deleteMentionEdgeMock: vi.fn(async () => undefined),
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -30,6 +36,15 @@ vi.mock('$lib/server/db', () => ({
 
 vi.mock('$lib/server/memory/project-next-action', () => ({
   linkThoughtToProject: linkThoughtToProjectMock,
+  clearNextActionIfCompleted: clearNextActionIfCompletedMock,
+}))
+
+vi.mock('$lib/server/memory/project-membership', () => ({
+  loadProjectMembershipEntityIds: loadProjectMembershipEntityIdsMock,
+}))
+
+vi.mock('$lib/server/graph/age', () => ({
+  deleteMentionEdge: deleteMentionEdgeMock,
 }))
 
 vi.mock('$lib/server/memory/resolve-project-identity', () => ({
@@ -124,5 +139,50 @@ describe('assignThoughtToProject', () => {
     expect(maybePromoteHubToGtdProjectMock).not.toHaveBeenCalled()
     expect(ensureProjectMock).toHaveBeenCalledWith('u1', 'hub-2', 'active', 'manual')
     expect(result.isGtdProject).toBe(true)
+  })
+})
+
+describe('unassignThoughtFromProject', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    loadProjectMembershipEntityIdsMock.mockResolvedValue([])
+  })
+
+  function dbWithDelete() {
+    const where = vi.fn(async () => undefined)
+    const deleteFn = vi.fn(() => ({ where }))
+    getDbMock.mockReturnValue({ delete: deleteFn })
+    return { deleteFn, where }
+  }
+
+  it('removes every membership row and its graph edge — the thought is loose again', async () => {
+    loadProjectMembershipEntityIdsMock.mockResolvedValue(['p1', 'p2'])
+    const { deleteFn, where } = dbWithDelete()
+
+    const result = await unassignThoughtFromProject('u1', 't1')
+
+    expect(result).toEqual({ removedEntityIds: ['p1', 'p2'] })
+    expect(deleteFn).toHaveBeenCalledTimes(1)
+    expect(deleteMentionEdgeMock).toHaveBeenCalledTimes(2)
+    expect(deleteMentionEdgeMock).toHaveBeenCalledWith({ userId: 'u1', thoughtId: 't1', entityId: 'p1' })
+    expect(deleteMentionEdgeMock).toHaveBeenCalledWith({ userId: 'u1', thoughtId: 't1', entityId: 'p2' })
+    expect(where).toHaveBeenCalledTimes(1)
+    // the next action moves on without the removed thought
+    expect(clearNextActionIfCompletedMock).toHaveBeenCalledWith('u1', 't1')
+  })
+
+  it('a thought on no thread stays untouched — no delete, no graph call, no next-action churn', async () => {
+    const { deleteFn } = dbWithDelete()
+
+    const result = await unassignThoughtFromProject('u1', 't1')
+
+    expect(result).toEqual({ removedEntityIds: [] })
+    expect(deleteFn).not.toHaveBeenCalled()
+    expect(deleteMentionEdgeMock).not.toHaveBeenCalled()
+    expect(clearNextActionIfCompletedMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects an empty thoughtId at the boundary', async () => {
+    await expect(unassignThoughtFromProject('u1', '   ')).rejects.toThrow(/thoughtId/)
   })
 })

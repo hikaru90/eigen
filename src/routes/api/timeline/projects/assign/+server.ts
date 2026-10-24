@@ -1,6 +1,9 @@
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
-import { assignThoughtToProject } from '$lib/server/memory/assign-thought-project'
+import {
+  assignThoughtToProject,
+  unassignThoughtFromProject,
+} from '$lib/server/memory/assign-thought-project'
 
 export type AssignProjectRequest = {
   thoughtId: string
@@ -46,6 +49,30 @@ export const POST: RequestHandler = async (event) => {
       projectEntityId ? { projectEntityId } : { projectLabel: projectLabel! },
     )
     return json(result satisfies AssignProjectResponse)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    error(400, message)
+  }
+}
+
+/** The thought leaves its thread: { thoughtId } → { removedEntityIds }. */
+export const DELETE: RequestHandler = async (event) => {
+  const user = event.locals.user
+  if (!user) error(401, 'Unauthorized')
+
+  let body: { thoughtId?: string }
+  try {
+    body = (await event.request.json()) as { thoughtId?: string }
+  } catch {
+    error(400, 'Invalid JSON body')
+  }
+
+  const thoughtId = body.thoughtId?.trim()
+  if (!thoughtId) error(400, 'thoughtId is required')
+
+  try {
+    const result = await unassignThoughtFromProject(user.id, thoughtId)
+    return json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     error(400, message)

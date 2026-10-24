@@ -634,6 +634,33 @@ export async function upsertMentionEdge(input: {
   })
 }
 
+/** Removes one thought→entity MENTION edge — the graph twin of a membership-row removal. */
+export async function deleteMentionEdge(input: {
+  userId: string
+  thoughtId: string
+  entityId: string
+}): Promise<void> {
+  const thoughtId = validateNonEmptyEntityId(input.thoughtId, 'thoughtId')
+  const entityId = validateNonEmptyEntityId(input.entityId, 'entityId')
+
+  await runGraphQueryWithRetry(input.userId, 'age.delete_mention_edge', async () => {
+    await runTenantScopedCypher(
+      input.userId,
+      `
+			MATCH (t:Thought {id: $thought_id, user_id: $user_id})-[r:MENTIONS {user_id: $user_id}]->(e:Entity {id: $entity_id, user_id: $user_id})
+			DELETE r
+			RETURN 1 AS ok
+			`,
+      {
+        thought_id: thoughtId,
+        entity_id: entityId,
+        user_id: input.userId,
+      },
+      'ok agtype',
+    )
+  })
+}
+
 export async function upsertEntityRelationEdge(input: {
   userId: string
   sourceEntityId: string

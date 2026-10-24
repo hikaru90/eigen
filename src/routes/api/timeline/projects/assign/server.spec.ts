@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
-import { POST } from './+server'
+import { DELETE, POST } from './+server'
 
-const { assignThoughtToProjectMock } = vi.hoisted(() => ({
+const { assignThoughtToProjectMock, unassignThoughtFromProjectMock } = vi.hoisted(() => ({
   assignThoughtToProjectMock: vi.fn(),
+  unassignThoughtFromProjectMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/assign-thought-project', () => ({
   assignThoughtToProject: assignThoughtToProjectMock,
+  unassignThoughtFromProject: unassignThoughtFromProjectMock,
 }))
 
 function event(overrides: { user?: { id: string } | null; body?: unknown } = {}) {
@@ -96,6 +98,64 @@ describe('POST /api/timeline/projects/assign', () => {
     assignThoughtToProjectMock.mockRejectedValue(new Error('thought not found'))
     await expect(
       POST(event({ body: { thoughtId: 't1', projectEntityId: 'ent-1' } })),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('DELETE /api/timeline/projects/assign (the thought leaves its thread)', () => {
+  it('returns 401 when unauthenticated', async () => {
+    await expect(
+      DELETE({
+        locals: { user: null },
+        request: new Request('http://localhost', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ thoughtId: 't1' }),
+        }),
+      } as Parameters<typeof DELETE>[0]),
+    ).rejects.toMatchObject({ status: 401 })
+  })
+
+  it('returns 400 when thoughtId is missing', async () => {
+    await expect(
+      DELETE({
+        locals: { user: { id: 'u1' } },
+        request: new Request('http://localhost', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+      } as Parameters<typeof DELETE>[0]),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('unassigns and reports the threads the thought left', async () => {
+    unassignThoughtFromProjectMock.mockResolvedValue({ removedEntityIds: ['p1'] })
+    const res = await DELETE({
+      locals: { user: { id: 'u1' } },
+      request: new Request('http://localhost', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ thoughtId: 't1' }),
+      }),
+    } as Parameters<typeof DELETE>[0])
+    expect(unassignThoughtFromProjectMock).toHaveBeenCalledWith('u1', 't1')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.removedEntityIds).toEqual(['p1'])
+  })
+
+  it('returns 400 when service rejects', async () => {
+    unassignThoughtFromProjectMock.mockRejectedValue(new Error('boom'))
+    await expect(
+      DELETE({
+        locals: { user: { id: 'u1' } },
+        request: new Request('http://localhost', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ thoughtId: 't1' }),
+        }),
+      } as Parameters<typeof DELETE>[0]),
     ).rejects.toMatchObject({ status: 400 })
   })
 })

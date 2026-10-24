@@ -1,10 +1,16 @@
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
-import { canonicalEntity, temporalEvent } from '$lib/server/db/schema'
+import { canonicalEntity, temporalEvent, thoughtEntity } from '$lib/server/db/schema'
+import { deleteMentionEdge } from '$lib/server/graph/age'
 import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project'
 import { ensureProject } from '$lib/server/memory/project-eligibility'
 import { promoteHubEntityType } from '$lib/server/memory/project-entity'
-import { designateNextAction, linkThoughtToProject } from '$lib/server/memory/project-next-action'
+import { loadProjectMembershipEntityIds } from '$lib/server/memory/project-membership'
+import {
+  clearNextActionIfCompleted,
+  designateNextAction,
+  linkThoughtToProject,
+} from '$lib/server/memory/project-next-action'
 import { resolveProjectIdentity } from '$lib/server/memory/resolve-project-identity'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
@@ -16,6 +22,10 @@ export type AssignThoughtProjectResult = {
   eligible: boolean
   created: boolean
   isGtdProject: boolean
+}
+
+export type UnassignThoughtProjectResult = {
+  removedEntityIds: string[]
 }
 
 export async function assignThoughtToProject(
@@ -108,4 +118,41 @@ export async function assignThoughtToProject(
     created,
     isGtdProject,
   }
+}
+
+/**
+ * The thought leaves every thread it is on: membership rows are removed (a plain
+ * mention of the same project may remain — that is not membership), the graph twin
+ * edge goes with them, and a project whose next action just left picks its next
+ * open task. An already-loose thought is a no-op, not an error.
+ */
+export async function unassignThoughtFromProject(
+  userId: string,
+  thoughtId: string,
+): Promise<UnassignThoughtProjectResult> {
+  const tid = validateNonEmptyEntityId(thoughtId, 'thoughtId')
+  const removedEntityIds = await loadProjectMembershipEntityIds(userId, tid)
+  if (removedEntityIds.length === 0) {
+    return { removedEntityIds: [] }
+  }
+
+  await getDb()
+    .delete(thoughtEntity)
+    .where(
+      and(
+        eq(thoughtEntity.userId, userId),
+        eq(thoughtEntity.thoughtId, tid),
+        inArray(thoughtEntity.entityId, removedEntityIds),
+      ),
+    )
+
+  for (const entityId of removedEntityIds) {
+    await deleteMentionEdge({ userId, thoughtId: tid, entityId })
+  }
+
+  // the removed thought can no longer be a project's next action — re-pick from the
+  // waterfall (the membership rows are gone, so the thought is out of every candidate set)
+  await clearNextActionIfCompleted(userId, tid)
+
+  return { removedEntityIds }
 }

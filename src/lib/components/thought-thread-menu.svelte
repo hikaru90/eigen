@@ -23,6 +23,7 @@
     onOpenChange,
     onPick,
     onNewThreadLabel,
+    onUnassign,
   }: {
     thread?: ThreadRef | null
     options?: ThreadRef[]
@@ -33,6 +34,7 @@
     onOpenChange?: (open: boolean) => void
     onPick?: (pick: ThreadPick) => void
     onNewThreadLabel?: (label: string) => void
+    onUnassign?: () => void
   } = $props()
 
   function pickNew() {
@@ -65,6 +67,23 @@
     role="menu"
     aria-label={m.capture_reading_loose()}
   >
+    {#if thread}
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={false}
+        data-testid="thought-thread-unassign"
+        class="flex items-center gap-3 w-full px-3 py-2 border-0 rounded-[10px] bg-transparent [font:inherit] text-left text-ink-2 cursor-pointer transition-[background,color] duration-200 pointer-fine:hover:bg-paper-2 pointer-fine:hover:text-ink"
+        onclick={() => onUnassign?.()}
+      >
+        <span
+          class="shrink-0 size-1.5 rounded-full shadow-[inset_0_0_0_1px_var(--ink-3)]"
+          aria-hidden="true"
+        ></span>
+        <span class="font-mesh text-sm">{m.capture_reading_loose()}</span>
+      </button>
+      <div class="border-t border-line mt-1 mb-0.5" aria-hidden="true"></div>
+    {/if}
     {#if loading}
       <p class="px-3 py-2 text-sm text-ink-3">{m.graph_loading()}</p>
     {/if}

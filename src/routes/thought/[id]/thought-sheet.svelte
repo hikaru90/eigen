@@ -222,7 +222,6 @@
   }
 
   /* ————— the thread: existing project-assign endpoint (ei app.js:1451-1465) ————— */
-
   let threadMenuOpen = $state(false)
   let threadOptions = $state<ThreadRef[]>([])
   let threadOptionsLoaded = $state(false)
@@ -257,6 +256,36 @@
       // the picker still offers a new thread — the list is best-effort
     } finally {
       threadOptionsLoading = false
+    }
+  }
+
+  /** The user's pick: the thought leaves its thread (the same assign endpoint, DELETE). */
+  async function unassignThread(): Promise<void> {
+    threadMenuOpen = false
+    if (assigning) return
+    assigning = true
+    err = null
+    try {
+      const res = await fetch('/api/timeline/projects/assign', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ thoughtId: thought.id }),
+        credentials: 'same-origin',
+      })
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: unknown }
+        throw new Error(
+          typeof payload.error === 'string'
+            ? payload.error
+            : `Thread unassign failed (${res.status})`,
+        )
+      }
+      threadOverride = null
+      showWhisper([{ text: m.whisper_kept(), durationMs: 1400 }])
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e)
+    } finally {
+      assigning = false
     }
   }
 
@@ -451,6 +480,7 @@
         onOpenChange={onThreadMenuChange}
         onPick={(pick) => void pickThread(pick)}
         onNewThreadLabel={(label) => (newThreadLabel = label)}
+        onUnassign={() => void unassignThread()}
       />
     </div>
 

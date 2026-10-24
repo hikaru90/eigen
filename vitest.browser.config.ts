@@ -96,6 +96,7 @@ export default defineConfig({
       'src/lib/components/writer/glass-writer.svelte.spec.ts',
       'src/lib/feedback/share-composer.svelte.spec.ts',
       'src/lib/components/mesh/thought-row.svelte.spec.ts',
+      'src/lib/components/thought-thread-menu.svelte.spec.ts',
     ],
     exclude: ['src/routes/demo/playwright/**/*.ts', '**/*.e2e.ts'],
     fileParallelism: false,

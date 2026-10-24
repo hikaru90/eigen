@@ -30,8 +30,21 @@ export async function thoughtHasProjectMembership(
   userId: string,
   thoughtId: string,
 ): Promise<boolean> {
+  const ids = await loadProjectMembershipEntityIds(userId, thoughtId, 1)
+  return ids.length > 0
+}
+
+/**
+ * Every GTD-project entity the thought is a member of (membership sources only —
+ * plain mentions never count). The thought's threads, in other words.
+ */
+export async function loadProjectMembershipEntityIds(
+  userId: string,
+  thoughtId: string,
+  limit = 100,
+): Promise<string[]> {
   const tid = validateNonEmptyEntityId(thoughtId, 'thoughtId')
-  const [row] = await getDb()
+  const rows = await getDb()
     .select({ entityId: thoughtEntity.entityId })
     .from(thoughtEntity)
     .innerJoin(canonicalEntity, eq(thoughtEntity.entityId, canonicalEntity.id))
@@ -43,8 +56,8 @@ export async function thoughtHasProjectMembership(
         isNotNull(canonicalEntity.projectStatus),
       ),
     )
-    .limit(1)
-  return Boolean(row)
+    .limit(limit)
+  return rows.map((row) => row.entityId)
 }
 
 /**
