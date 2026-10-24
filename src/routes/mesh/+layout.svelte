@@ -51,10 +51,6 @@
   }
 </script>
 
-<!-- every page names itself: Svelte sets document.title but never restores it on leave -->
-<svelte:head>
-  <title>{m.nav_mesh()} — Eigenmesh</title>
-</svelte:head>
 
 <!-- The tab row is in flow: it scrolls with its section and sticks just below the
      header's fade band while the strand moves (no portal, no fixed positioning). -->

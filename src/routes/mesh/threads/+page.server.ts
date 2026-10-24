@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types'
 import { redirect } from '@sveltejs/kit'
-import { loadThreadList, type ThreadList } from '$lib/server/mesh/thread-list'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { loadThreadList, type ThreadList } from '$lib/server/mesh/thread-list'
 
 export type ThreadsPageData = ThreadList & { preferredTimezone: string }
 

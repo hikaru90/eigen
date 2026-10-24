@@ -11,9 +11,6 @@
   let { data }: { data: PageData } = $props()
 </script>
 
-<svelte:head>
-  <title>{data.thought.text.slice(0, 60)}</title>
-</svelte:head>
 
 {#key data.thought.id}
   <ThoughtSheet thought={data.thought} kinds={data.kinds} preferredTimezone={data.preferredTimezone} />

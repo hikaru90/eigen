@@ -329,9 +329,6 @@
   })
 </script>
 
-<svelte:head>
-  <title>{m.nav_make_me_better()} — Eigenmesh</title>
-</svelte:head>
 
 <svelte:window onkeydown={onKeydown} />
 

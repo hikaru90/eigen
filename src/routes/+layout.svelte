@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
-  import { afterNavigate, onNavigate } from '$app/navigation'
-  import { base } from '$app/paths'
+  import { afterNavigate, goto, onNavigate } from '$app/navigation'
+  import { base, resolve } from '$app/paths'
   import { page } from '$app/state'
   import './layout.css'
   import {
@@ -23,8 +23,12 @@
   import BottomNav from '$lib/components/chrome/bottom-nav.svelte'
   import { activeNavId } from '$lib/components/chrome/nav-active'
   import { pageFadeVars } from '$lib/components/chrome/page-fade'
+  import { pageTitle } from '$lib/components/chrome/page-title'
+  import { swipeNavTarget, swipeStartsInOwnGesture } from '$lib/components/chrome/swipe-nav'
   import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
+  import { hapticPress } from '$lib/haptics'
+  import { m } from '$lib/paraglide/messages.js'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
   import { startPushNavigationFromServiceWorker } from '$lib/push/navigation-from-sw'
   import { initDeferredInstallStore } from '$lib/pwa/deferred-install-store.svelte'
@@ -93,7 +97,50 @@
     ].join(' ')
   })
 
+  /** One title for the whole app, from the route (pages never set <title> themselves). */
+  const documentTitle = $derived(
+    pageTitle(
+      normalizePathname(page.url.pathname),
+      (page.data as { thought?: { text?: string } }).thought?.text ?? null,
+      {
+        capture: m.nav_capture(),
+        mesh: m.nav_mesh(),
+        ask: m.nav_ask(),
+        contribute: m.nav_make_me_better(),
+        notifications: m.nav_notifications(),
+        summary: m.summary_title(),
+      },
+    ),
+  )
+
   let mainEl = $state<HTMLElement | null>(null)
+
+  /*
+   * Swipe between the core pages (Capture ← → Mesh ← → Ask), like the bottom menu.
+   * Plain touch handlers on the page container; gestures that start in a text field
+   * or a sideways-scrolling area are theirs. The route transition does the motion.
+   */
+  let swipeStart: { x: number; y: number } | null = null
+  function onSwipeStart(e: TouchEvent) {
+    const touch = e.touches[0]
+    swipeStart =
+      e.touches.length === 1 && touch && !swipeStartsInOwnGesture(e.target)
+        ? { x: touch.clientX, y: touch.clientY }
+        : null
+  }
+  function onSwipeEnd(e: TouchEvent) {
+    const start = swipeStart
+    swipeStart = null
+    const touch = e.changedTouches[0]
+    if (!start || !touch) return
+    const target = swipeNavTarget(activeNavId(normalizePathname(page.url.pathname)), {
+      dx: touch.clientX - start.x,
+      dy: touch.clientY - start.y,
+    })
+    if (!target) return
+    hapticPress()
+    void goto(resolve(target))
+  }
 
   /*
    * Route transitions: ei's view switch (styles.css `.view` / `.is-leaving`) — the old page
@@ -231,7 +278,7 @@
 </script>
 
 <svelte:head>
-  <title>Eigen Mesh</title>
+  <title>{documentTitle}</title>
   <link rel="icon" href={favicon} />
   <!-- every face the first paint uses, fetched with the document so text never reflows on swap -->
   {#each [inter400, inter500, geistMono400, averia400, averia700] as font (font)}
@@ -248,7 +295,13 @@
   fades content toward the edges — beneath the header (or the page's own tabs) and
   above the bottom menu. Header and nav float; only the mask does the fading.
 -->
-<main bind:this={mainEl} class={chromeMainClass}>
+<main
+  bind:this={mainEl}
+  class={chromeMainClass}
+  ontouchstart={onSwipeStart}
+  ontouchend={onSwipeEnd}
+  ontouchcancel={() => (swipeStart = null)}
+>
   {#if hideAppChrome}
     <div class="min-h-svh pb-6">
       {@render children()}

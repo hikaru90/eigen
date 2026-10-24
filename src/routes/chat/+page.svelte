@@ -622,10 +622,6 @@
   })
 </script>
 
-<!-- every page names itself: Svelte sets document.title but never restores it on leave -->
-<svelte:head>
-  <title>{m.nav_ask()} — Eigenmesh</title>
-</svelte:head>
 
 <!-- The thread owns scrolling; the shared writer is docked (portaled) above the page mask. -->
 <div

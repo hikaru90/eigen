@@ -226,9 +226,6 @@
   })
 </script>
 
-<svelte:head>
-  <title>Desk</title>
-</svelte:head>
 
 <div class="-mb-28 h-svh overscroll-none">
   <div

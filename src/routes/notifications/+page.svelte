@@ -49,9 +49,6 @@
   })
 </script>
 
-<svelte:head>
-  <title>{m.nav_notifications()} — Eigenmesh</title>
-</svelte:head>
 
 <div
   class="mx-auto max-w-[700px] pt-[calc(var(--head,68px)+12px)] px-8 pb-[calc(var(--bottom-nav)+48px)] max-[640px]:px-[22px] animate-[fade_0.7s_var(--ease)_0.1s_both]"

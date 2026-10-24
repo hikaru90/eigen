@@ -469,9 +469,6 @@
   })
 </script>
 
-<svelte:head>
-  <title>Heartbeat · Eigen Mesh</title>
-</svelte:head>
 
 <main class="mx-auto max-w-lg px-5 pb-16 pt-24">
   <h1 class="text-lg font-medium tracking-tight">Heartbeat</h1>

@@ -25,9 +25,6 @@
   const words = 'words block font-you text-[18px] leading-[1.35] text-ink-2 line-clamp-3 [overflow-wrap:anywhere]'
 </script>
 
-<svelte:head>
-  <title>{m.summary_title()} — Eigenmesh</title>
-</svelte:head>
 
 <div
   class="mx-auto max-w-[700px] pt-[calc(var(--head,68px)+12px)] px-8 pb-[calc(var(--bottom-nav)+48px)] max-[640px]:px-[22px] animate-[fade_0.7s_var(--ease)_0.1s_both]"

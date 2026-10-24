@@ -1,8 +1,8 @@
 import type { RequestHandler } from './$types'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { json } from '@sveltejs/kit'
-import { hasBoardMcpAccess, isUserAdmin } from '$lib/server/auth/user-role'
 import { runWithTrace } from '$lib/server/activity/trace-context'
+import { hasBoardMcpAccess, isUserAdmin } from '$lib/server/auth/user-role'
 import { createMcpServer } from '$lib/server/mcp/server'
 
 async function handleMcp(event: Parameters<RequestHandler>[0]): Promise<Response> {
