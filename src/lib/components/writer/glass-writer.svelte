@@ -141,7 +141,7 @@
     </div>
   {/if}
   <div
-    class="glass-field flex items-end gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
+    class="glass-field flex items-center gap-2 min-h-[52px] rounded-[26px] py-2 pl-5 pr-2"
     data-testid="glass-writer-field"
   >
     <textarea
