@@ -2,7 +2,7 @@
 
 **Canonical rule:** Unified retrieval is [`retrieveEvidence`](../../src/lib/server/retrieval/retrieve-evidence.ts). [`searchThoughts`](../../src/lib/server/retrieval/service.ts) is a thin wrapper. MCP `retrieve_thoughts`, HTTP search, and `composeAnswer` all use the same path.
 
-**Embeddings boundary:** Query embeddings are computed in-process for SQL distance only; retrieval outputs are text + scores, never stored thought vectors. See [embeddings-db-only-boundary.md](../planning/embeddings-db-only-boundary.md).
+**Embeddings boundary:** Query embeddings are computed in-process for SQL distance only; retrieval outputs are text + scores, never stored thought or note-passage vectors. See [embeddings-db-only-boundary.md](../planning/embeddings-db-only-boundary.md).
 
 **Query-time baseline (historical):** [retrieval-baseline.md](./retrieval-baseline.md)
 
@@ -41,6 +41,17 @@ Tier-1 rows (`enriched_at IS NULL`, no embedding) are intended to surface via **
 Tier-1 rows match immediately at SQL. Fusion in [`retrieveEvidence`](../../src/lib/server/retrieval/retrieve-evidence.ts) uses `ts_rank_cd` for thought similarity, zeros graph/community/salience bonuses on expansion-only candidates (no direct lexical or vector hit), and reserves top lexical rows in the rerank pool so keyword matches reach `answer_question` before tier 2 embeds the row.
 
 Apache AGE remains for ingest writes and `/memory` graph visualization only.
+
+## Note passages (notes searchable by meaning)
+
+Notes (`text_file`) are not thoughts and are not in `retrieveEvidence`; their **passages** (`note_passage`, see [ingestion.md](./ingestion.md) § Notes) are searched beside it. Entry point: [`searchTextFiles`](../../src/lib/server/text-files/service.ts) -> [`runNoteSearch`](../../src/lib/server/text-files/note-search.ts) (sources injectable; real ones in [`note-passages.ts`](../../src/lib/server/text-files/note-passages.ts)).
+
+- **Signals:** passage pgvector ANN (cosine, top 40) + passage FTS on `lexical_tsv` (top 40) + whole-note keyword match on `text_file.lexical_tsv` (title and body; this is what makes a note findable by its title).
+- **Merge and cap** ([`merge-note-passage-hits.ts`](../../src/lib/server/text-files/merge-note-passage-hits.ts) `rankNotePassageHits`): a passage scores `max(cosine similarity, normalizeLexicalRank(ts_rank_cd))` (same lexical normalization as thoughts, now in `rrf-scoring.ts`); passages below the relevance floor are dropped (default `COMPOSE_ANSWER_RELEVANCE_MIN` = 0.22, the same floor thoughts need for Q&A context; `retrieve_thoughts` `threshold` overrides it); at most **3 matched passages per note** (`NOTE_PASSAGES_PER_NOTE_CAP`); notes ranked by their best signal and limited to `topK` (compose: 5).
+- **One hit per note:** the hit id is the **note's** id. `excerpt` = matched passages plus their **+-1 neighbour passages** (`NOTE_PASSAGE_NEIGHBOR_RADIUS`), overlap written once, gaps marked `[...]`; the hit also carries title, `createdAt`, `updatedAt`, `matchedOrdinals`, `score`.
+- **`composeAnswer`:** each note hit becomes a context item (`category: 'note'`, `id` = note id, text = `Note "<title>": <excerpt>`, `createdAt` = note date), appended after the thought items, so it reaches the answer prompt, `ComposedAnswer.context`, and is citable as `[id=<note id>]`. The query embedding computed for thoughts is reused.
+- **`retrieve_thoughts` / `search_text_files`:** same hits (`textFiles` / `results`); the agent-loop compaction keeps `id`, `title`, `createdAt`, `excerpt` of note hits.
+- **Embeddings stay DB-only:** every select in the note path lists its columns explicitly and never includes `embedding`; the query vector is used only inside the SQL distance expression.
 
 ## CompetingSystems
 

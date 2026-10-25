@@ -145,7 +145,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'retrieve_thoughts',
     description:
-      'Read stored thoughts. Defaults to user-authored open memories (excludes agent captures and completed/archived). For the latest open thoughts (newest first): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. Each recent-browse result carries askQuestion: the suggested question enrichment stored for that thought (null when none). With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus lexical search over attached text notes. Pass author=all or include_agent=true to include agent/API-key captures.',
+      'Read stored thoughts. Defaults to user-authored open memories (excludes agent captures and completed/archived). For the latest open thoughts (newest first): omit query or set order=created_at — use top_k and optional cursor_created_at + cursor_id to paginate. Each recent-browse result carries askQuestion: the suggested question enrichment stored for that thought (null when none). With query and order=relevance (default): hybrid semantic, lexical, and graph search over open thoughts plus hybrid semantic + keyword search over the passages of text notes (textFiles: one hit per note with the matched passage, its neighbours, title and dates). Pass author=all or include_agent=true to include agent/API-key captures.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -684,7 +684,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'search_text_files',
     description:
-      'Lexical keyword search over user text notes (recipes, templates, pasted reference). Defaults to user-authored notes only. No embeddings — use retrieve_thoughts for hybrid thought + note search.',
+      'Search user text notes (recipes, templates, pasted reference, long entries) by meaning and keywords. Returns one hit per note with the matched passage, its neighbouring passages (excerpt), title and dates; use get_text_file for the full body. Defaults to user-authored notes only. Use retrieve_thoughts for thoughts + notes together.',
     inputSchema: {
       type: 'object',
       properties: {

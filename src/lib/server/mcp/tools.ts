@@ -4,6 +4,7 @@ import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { evalClockFor } from '$lib/server/llm/eval-clock'
 import { thoughtSnippet } from '$lib/server/mcp/snippet'
 import {
@@ -285,16 +286,21 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
     phase: 'searching',
     label: 'Searching your memories…',
   })
+  // One query embedding serves thought search and note-passage search.
+  const queryEmbedding = await createThoughtEmbedding(context.userId, query)
   const [results, textFiles] = await Promise.all([
     searchThoughts({
       userId: context.userId,
       query,
       topK: effectiveTopK,
+      queryEmbedding,
       ...(authorFilter ? { authorFilter } : {}),
     }),
     searchTextFiles(context.userId, {
       query,
       topK: effectiveTopK,
+      queryEmbedding,
+      ...(threshold != null ? { minScore: threshold } : {}),
       ...(authorFilter ? { authorFilter } : {}),
     }),
   ])

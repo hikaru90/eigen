@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema'
+import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import type { MemoryAuthorship } from '$lib/server/memory/authorship'
 import {
   authorshipInsertValues,
@@ -9,10 +10,18 @@ import {
   resolveAuthorSqlCondition,
 } from '$lib/server/memory/authorship'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { buildLexicalTsQuery } from '$lib/server/retrieval/lexical'
+import { COMPOSE_ANSWER_RELEVANCE_MIN } from '$lib/server/retrieval/rrf-scoring'
+import {
+  applyPassageSync,
+  createDbNoteSearchSources,
+  loadStoredPassages,
+  preparePassageSync,
+} from './note-passages'
+import { runNoteSearch, TEXT_FILE_PREVIEW_LEN, type TextFileSearchHit } from './note-search'
 
 export const MAX_TEXT_FILE_BODY_BYTES = 512 * 1024
-export const TEXT_FILE_PREVIEW_LEN = 200
+export { TEXT_FILE_PREVIEW_LEN }
+export type { TextFileSearchHit }
 
 export type TextFileRecord = {
   id: string
@@ -30,17 +39,6 @@ export type TextFileAttachmentPreview = {
   title: string
   preview: string
   updatedAt: string
-}
-
-export type TextFileSearchHit = {
-  id: string
-  title: string
-  preview: string
-  lexicalScore: number
-  updatedAt: string
-  author: 'user' | 'agent'
-  authorLabel: string | null
-  authorKeyId: string | null
 }
 
 export type TextFileLinkedThought = {
@@ -104,6 +102,18 @@ async function decryptTextFileRow<
   }
 }
 
+const TEXT_FILE_RETURNING = {
+  id: textFile.id,
+  title: textFile.title,
+  bodyText: textFile.bodyText,
+  bodyTextEncrypted: textFile.bodyTextEncrypted,
+  author: textFile.author,
+  authorLabel: textFile.authorLabel,
+  authorKeyId: textFile.authorKeyId,
+  createdAt: textFile.createdAt,
+  updatedAt: textFile.updatedAt,
+}
+
 export async function createTextFile(
   userId: string,
   input: {
@@ -125,29 +135,25 @@ export async function createTextFile(
     column: 'body_text',
     plaintext: body,
   })
+  // Embed before writing: a gateway failure fails the create instead of leaving an unsearchable note.
+  const passages = await preparePassageSync(userId, { body, stored: [] })
 
-  const [row] = await getDb()
-    .insert(textFile)
-    .values({
-      userId,
-      title,
-      bodyText: '',
-      bodyTextEncrypted,
-      lexicalText,
-      ...authorValues,
-      ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
-    })
-    .returning({
-      id: textFile.id,
-      title: textFile.title,
-      bodyText: textFile.bodyText,
-      bodyTextEncrypted: textFile.bodyTextEncrypted,
-      author: textFile.author,
-      authorLabel: textFile.authorLabel,
-      authorKeyId: textFile.authorKeyId,
-      createdAt: textFile.createdAt,
-      updatedAt: textFile.updatedAt,
-    })
+  const row = await getDb().transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(textFile)
+      .values({
+        userId,
+        title,
+        bodyText: '',
+        bodyTextEncrypted,
+        lexicalText,
+        ...authorValues,
+        ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
+      })
+      .returning(TEXT_FILE_RETURNING)
+    await applyPassageSync(tx, userId, inserted.id, passages)
+    return inserted
+  })
 
   return decryptTextFileRow(userId, row)
 }
@@ -186,28 +192,26 @@ export async function updateTextFile(
     column: 'body_text',
     plaintext: nextBody,
   })
+  const passages = await preparePassageSync(userId, {
+    body: nextBody,
+    stored: await loadStoredPassages(userId, fileId),
+  })
 
-  const [row] = await getDb()
-    .update(textFile)
-    .set({
-      title: nextTitle,
-      bodyText: '',
-      bodyTextEncrypted,
-      lexicalText,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
-    .returning({
-      id: textFile.id,
-      title: textFile.title,
-      bodyText: textFile.bodyText,
-      bodyTextEncrypted: textFile.bodyTextEncrypted,
-      author: textFile.author,
-      authorLabel: textFile.authorLabel,
-      authorKeyId: textFile.authorKeyId,
-      createdAt: textFile.createdAt,
-      updatedAt: textFile.updatedAt,
-    })
+  const row = await getDb().transaction(async (tx) => {
+    const [updated] = await tx
+      .update(textFile)
+      .set({
+        title: nextTitle,
+        bodyText: '',
+        bodyTextEncrypted,
+        lexicalText,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
+      .returning(TEXT_FILE_RETURNING)
+    await applyPassageSync(tx, userId, fileId, passages)
+    return updated
+  })
 
   return decryptTextFileRow(userId, row)
 }
@@ -260,27 +264,27 @@ export async function appendTextFile(
     column: 'body_text',
     plaintext: nextBody,
   })
+  // Tail-only: the passages before the appended text are unchanged and are neither deleted
+  // nor re-embedded; only the changed tail is embedded.
+  const passages = await preparePassageSync(userId, {
+    body: nextBody,
+    stored: await loadStoredPassages(userId, fileId),
+  })
 
-  const [row] = await getDb()
-    .update(textFile)
-    .set({
-      bodyText: '',
-      bodyTextEncrypted,
-      lexicalText,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
-    .returning({
-      id: textFile.id,
-      title: textFile.title,
-      bodyText: textFile.bodyText,
-      bodyTextEncrypted: textFile.bodyTextEncrypted,
-      author: textFile.author,
-      authorLabel: textFile.authorLabel,
-      authorKeyId: textFile.authorKeyId,
-      createdAt: textFile.createdAt,
-      updatedAt: textFile.updatedAt,
-    })
+  const row = await getDb().transaction(async (tx) => {
+    const [updated] = await tx
+      .update(textFile)
+      .set({
+        bodyText: '',
+        bodyTextEncrypted,
+        lexicalText,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
+      .returning(TEXT_FILE_RETURNING)
+    await applyPassageSync(tx, userId, fileId, passages)
+    return updated
+  })
 
   return decryptTextFileRow(userId, row)
 }
@@ -366,6 +370,12 @@ export async function listTextFiles(
   return Promise.all(rows.map((row) => decryptTextFileRow(userId, row)))
 }
 
+/**
+ * Hybrid note search: pgvector + FTS over `note_passage`, plus a whole-note keyword match (so a
+ * title still finds its note). One hit per note, carrying the matched passage(s) with their +-1
+ * neighbours; the hit id is the note's id. `queryEmbedding` lets a caller that already embedded
+ * the query (composeAnswer) skip a second embedding.
+ */
 export async function searchTextFiles(
   userId: string,
   input: {
@@ -373,57 +383,21 @@ export async function searchTextFiles(
     topK?: number
     authorFilter?: 'user' | 'agent'
     authorLayerKey?: string | null
+    queryEmbedding?: number[]
+    /** Relevance floor on the 0..1 hit score. Default: the Q&A context floor for thoughts. */
+    minScore?: number
   },
 ): Promise<TextFileSearchHit[]> {
   const limit = Math.max(1, Math.min(input.topK ?? 10, 50))
-  const tsQueryString = buildLexicalTsQuery(input.query)
-  if (tsQueryString.length === 0) return []
-
-  const lexicalVector = sql`to_tsvector('simple', coalesce(${textFile.lexicalText}, ''))`
-  const tsQueryExpr = sql`to_tsquery('simple', ${tsQueryString})`
-  const rankExpr = sql<number>`ts_rank_cd(${lexicalVector}, ${tsQueryExpr})`
-  const matchExpr = sql<boolean>`${lexicalVector} @@ ${tsQueryExpr}`
-  const authorSql = resolveAuthorSqlCondition(
-    {
-      author: textFile.author,
-      authorKeyId: textFile.authorKeyId,
-      authorLabel: textFile.authorLabel,
-    },
-    { author: input.authorFilter, authorLayerKey: input.authorLayerKey },
-  )
-
-  const rows = await getDb()
-    .select({
-      id: textFile.id,
-      title: textFile.title,
-      bodyText: textFile.bodyText,
-      bodyTextEncrypted: textFile.bodyTextEncrypted,
-      author: textFile.author,
-      authorLabel: textFile.authorLabel,
-      authorKeyId: textFile.authorKeyId,
-      createdAt: textFile.createdAt,
-      updatedAt: textFile.updatedAt,
-      lexicalScore: rankExpr,
-    })
-    .from(textFile)
-    .where(and(eq(textFile.userId, userId), matchExpr, authorSql))
-    .orderBy(desc(rankExpr))
-    .limit(limit)
-
-  return Promise.all(
-    rows.map(async (row) => {
-      const file = await decryptTextFileRow(userId, row)
-      return {
-        id: file.id,
-        title: file.title,
-        preview: toPreview(file.body),
-        lexicalScore: row.lexicalScore ?? 0,
-        updatedAt: file.updatedAt,
-        author: file.author,
-        authorLabel: file.authorLabel,
-        authorKeyId: file.authorKeyId,
-      }
+  const queryEmbedding = input.queryEmbedding ?? (await createThoughtEmbedding(userId, input.query))
+  return runNoteSearch(
+    createDbNoteSearchSources(userId, {
+      query: input.query,
+      queryEmbedding,
+      authorFilter: input.authorFilter,
+      authorLayerKey: input.authorLayerKey,
     }),
+    { minScore: input.minScore ?? COMPOSE_ANSWER_RELEVANCE_MIN, noteLimit: limit },
   )
 }
 

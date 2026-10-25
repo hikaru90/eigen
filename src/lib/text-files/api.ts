@@ -14,8 +14,12 @@ export type TextFileRecord = {
 export type TextFileSearchHit = {
   id: string
   title: string
+  /** Start of the best-matching passage. */
   preview: string
-  lexicalScore: number
+  /** Matched passage(s) with their neighbours. */
+  excerpt: string
+  score: number
+  createdAt: string
   updatedAt: string
   author?: 'user' | 'agent'
   authorLabel?: string | null

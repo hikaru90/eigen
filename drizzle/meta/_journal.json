@@ -582,6 +582,13 @@
       "when": 1792920120000,
       "tag": "0082_board_admin_edit_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792930000000,
+      "tag": "0083_note_passage",
+      "breakpoints": true
     }
   ]
 }

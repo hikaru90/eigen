@@ -362,23 +362,42 @@ describe('compose prompt helpers', () => {
   })
 })
 
+function noteHit(patch: Record<string, unknown> = {}) {
+  return {
+    id: 'f1',
+    title: 'Conference trip',
+    preview: 'Taking an early morning out on the waves',
+    excerpt:
+      'Before the keynote I am taking an early morning out on the waves.\n[…]\nThe keynote is on Friday.',
+    matchedOrdinals: [3],
+    score: 0.42,
+    vectorScore: 0.42,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    author: 'user',
+    authorLabel: null,
+    authorKeyId: null,
+    ...patch,
+  }
+}
+
 describe('formatTextFilesForPrompt', () => {
   it('returns empty string when no files', () => {
     expect(formatTextFilesForPrompt([])).toBe('')
   })
 
-  it('formats file id, title, and preview', () => {
-    const block = formatTextFilesForPrompt([
-      {
-        id: 'f1',
-        title: 'Carbonara',
-        preview: 'Boil pasta…',
-        lexicalScore: 0.3,
-        updatedAt: '2026-06-01T12:00:00.000Z',
-      },
-    ])
-    expect(block).toContain('file=f1')
-    expect(block).toContain('Boil pasta')
+  it('formats a citable note id header with title and date, then the matched excerpt', () => {
+    const block = formatTextFilesForPrompt([noteHit()])
+    expect(block).toContain('[id=f1]')
+    expect(block).toContain('Conference trip')
+    expect(block).toContain('stored=2026-01-01')
+    expect(block).toContain('taking an early morning out on the waves')
+    expect(block).toContain('[…]')
+    expect(block).not.toContain('no embedding')
+  })
+
+  it('falls back to a title placeholder for untitled notes', () => {
+    expect(formatTextFilesForPrompt([noteHit({ title: '  ' })])).toContain('Untitled note')
   })
 })
 
@@ -561,29 +580,69 @@ describe('composeAnswer', () => {
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
-  it('includes lexical text file hits in the compose prompt', async () => {
-    searchTextFilesMock.mockResolvedValue([
-      {
-        id: 'f1',
-        title: 'Carbonara recipe',
-        preview: '200g spaghetti, guanciale, eggs…',
-        lexicalScore: 0.42,
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        author: 'user',
-        authorLabel: null,
-        authorKeyId: null,
-      },
-    ])
+  it('searches notes with the already-computed query embedding and the thought relevance floor', async () => {
     await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
     expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
       query: 'carbonara recipe',
       topK: 5,
+      queryEmbedding: new Array(1536).fill(0.1),
+      minScore: 0.22,
+    })
+    expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('puts matched note passages in the compose prompt and in the returned context', async () => {
+    searchTextFilesMock.mockResolvedValue([noteHit()])
+    const result = await composeAnswer({
+      userId: 'u1',
+      question: 'what fun activities could I try on a coastal trip?',
     })
     const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
       (m: { role: string }) => m.role === 'user',
     )
-    expect(userMessage.content).toContain('file=f1')
-    expect(userMessage.content).toContain('200g spaghetti')
+    expect(userMessage.content).toContain('[id=f1]')
+    expect(userMessage.content).toContain('taking an early morning out on the waves')
+
+    const noteItem = result.context.find((c) => c.id === 'f1')
+    expect(noteItem).toBeDefined()
+    expect(noteItem!.category).toBe('note')
+    expect(noteItem!.normalizedText).toContain('Conference trip')
+    expect(noteItem!.normalizedText).toContain('early morning out on the waves')
+    expect(noteItem!.createdAt).toEqual(new Date('2026-01-01T00:00:00.000Z'))
+    // thoughts keep their place; notes follow them
+    expect(result.context.map((c) => c.id).slice(0, 2)).toEqual(['t_001', 't_002'])
+  })
+
+  it('lets the answer cite the note itself (the note id), not a passage', async () => {
+    searchTextFilesMock.mockResolvedValue([noteHit()])
+    llmChatCompletionMock.mockResolvedValue(
+      chatResponse(
+        'Answer: Surfing before the keynote.\nEvidence:\n- Early morning out on the waves [id=f1]\nUnknown:\n- none',
+      ),
+    )
+    const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
+    expect(result.citations).toEqual(['f1'])
+    expect(result.retrieved.map((r) => r.id)).toEqual(['f1'])
+  })
+
+  it('answers from notes alone when no thought is relevant', async () => {
+    searchThoughtsMock.mockResolvedValue([])
+    searchTextFilesMock.mockResolvedValue([noteHit()])
+    llmChatCompletionMock.mockResolvedValue(
+      chatResponse('Answer: Surfing.\nEvidence:\n- Waves [id=f1]\nUnknown:\n- none'),
+    )
+    const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
+    expect(llmChatCompletionMock).toHaveBeenCalled()
+    expect(result.citations).toEqual(['f1'])
+    expect(result.context.map((c) => c.id)).toEqual(['f1'])
+  })
+
+  it('never puts embedding values in the compose prompt or the returned context', async () => {
+    searchTextFilesMock.mockResolvedValue([noteHit()])
+    const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
+    const messages = llmChatCompletionMock.mock.calls[0][0].messages as Array<{ content: string }>
+    for (const m of messages) expect(m.content.toLowerCase()).not.toContain('embedding')
+    expect(JSON.stringify(result).toLowerCase()).not.toContain('embedding')
   })
 
   it('emits onProgress for embedding, searching, and composing', async () => {

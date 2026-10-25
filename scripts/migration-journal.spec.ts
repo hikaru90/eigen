@@ -40,4 +40,18 @@ describe('drizzle migration journal', () => {
       `missing SQL files for journal tags: ${orphanJournal.join(', ')}`,
     ).toEqual([])
   })
+
+  it('registers 0083_note_passage with the next sequential idx and a note_passage table', () => {
+    const journal = JSON.parse(readFileSync(journalPath, 'utf-8')) as {
+      entries: Array<{ tag: string; idx: number }>
+    }
+    const entry = journal.entries.find((e) => e.tag === '0083_note_passage')
+    expect(entry).toBeDefined()
+    expect(entry!.idx).toBe(83)
+    expect(journal.entries.map((e) => e.idx)).toEqual(journal.entries.map((_, i) => i))
+    const sqlText = readFileSync(path.join(migrationsDir, '0083_note_passage.sql'), 'utf-8')
+    expect(sqlText).toContain('CREATE TABLE IF NOT EXISTS "note_passage"')
+    expect(sqlText).toContain('vector(1536)')
+    expect(sqlText).toContain('USING hnsw ("embedding" vector_cosine_ops)')
+  })
 })

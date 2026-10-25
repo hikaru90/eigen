@@ -16,3 +16,9 @@ export function normalizeRetrievalScore(score: number): number {
   if (MAX_RETRIEVAL_MERGE_SCORE <= 0) return 0
   return Math.min(1, Math.max(0, score / MAX_RETRIEVAL_MERGE_SCORE))
 }
+
+/** Map raw FTS rank to a thought-similarity scale comparable with vector cosine sim. */
+export function normalizeLexicalRank(raw: number): number {
+  if (raw <= 0) return 0
+  return Math.min(1, raw * 2.5)
+}

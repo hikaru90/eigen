@@ -24,4 +24,16 @@ describe('apply-rls', () => {
       expect(rls).toContain(`DROP FUNCTION IF EXISTS ${fn};`)
     }
   })
+
+  it('isolates note_passage by user_id with the same policy shape as thought', () => {
+    expect(rls).toContain('ALTER TABLE note_passage ENABLE ROW LEVEL SECURITY;')
+    expect(rls).toContain('ALTER TABLE note_passage FORCE ROW LEVEL SECURITY;')
+    const policy = rls.slice(rls.indexOf('CREATE POLICY note_passage_isolation'))
+    expect(policy.slice(0, policy.indexOf(';'))).toContain(
+      "USING (user_id = current_setting('app.current_user_id', true))",
+    )
+    expect(policy.slice(0, policy.indexOf(';'))).toContain(
+      "WITH CHECK (user_id = current_setting('app.current_user_id', true))",
+    )
+  })
 })

@@ -374,6 +374,14 @@ CREATE POLICY text_file_isolation ON text_file
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE note_passage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE note_passage FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS note_passage_isolation ON note_passage;
+CREATE POLICY note_passage_isolation ON note_passage
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE thought_text_file ENABLE ROW LEVEL SECURITY;
 ALTER TABLE thought_text_file FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS thought_text_file_isolation ON thought_text_file;

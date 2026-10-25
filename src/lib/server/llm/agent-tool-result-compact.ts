@@ -78,6 +78,22 @@ function compactRetrieveResults(
   }
 }
 
+/** Cap on note excerpts fed back to the agent LLM (each is a few passages, not the whole note). */
+const NOTE_EXCERPT_MAX_CHARS = 1_800
+
+function compactNoteHits(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, MAX_CANDIDATES).map((row) => {
+    const r = asRecord(row) ?? {}
+    return {
+      id: typeof r.id === 'string' ? r.id : undefined,
+      title: typeof r.title === 'string' ? r.title : undefined,
+      excerpt: typeof r.excerpt === 'string' ? snippet(r.excerpt, NOTE_EXCERPT_MAX_CHARS) : undefined,
+      createdAt: typeof r.createdAt === 'string' ? r.createdAt : undefined,
+    }
+  })
+}
+
 /**
  * When exactly one retrieved hit is strong enough, the agent may delete without disambiguation.
  */
@@ -119,7 +135,9 @@ export function compactToolResultForLlm(
   if (!obj) return result
 
   if (tool === 'retrieve_thoughts' && Array.isArray(obj.results)) {
-    return compactRetrieveResults(obj.results, weights)
+    const compact = compactRetrieveResults(obj.results, weights)
+    const textFiles = compactNoteHits(obj.textFiles)
+    return textFiles.length > 0 ? { ...compact, textFiles } : compact
   }
 
   if (tool === 'list_thoughts' && Array.isArray(obj.thoughts)) {

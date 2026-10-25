@@ -333,8 +333,9 @@ export const thoughtRelation = pgTable(
 )
 
 /**
- * User-scoped text documents (Keep-style notes). Not enriched like thoughts — no embedding,
- * category, or graph pipeline. Optionally linked to thoughts via `thought_text_file`.
+ * User-scoped text documents (Keep-style notes). Not enriched like thoughts — no category or
+ * graph pipeline; searchable by meaning through their `note_passage` rows. Optionally linked to
+ * thoughts via `thought_text_file`.
  */
 export const textFile = pgTable(
   'text_file',
@@ -363,6 +364,46 @@ export const textFile = pgTable(
     index('text_file_user_updated_idx').on(t.userId, t.updatedAt),
     index('text_file_author_idx').on(t.userId, t.author),
     index('text_file_lexical_tsv_idx').using('gin', t.lexicalTsv),
+  ],
+)
+
+/**
+ * Searchable passages of a note (`text_file`): 3-5 sentence windows with one sentence of overlap.
+ * Same embedding model and 1536-d vectors as `thought`. The passage text is stored encrypted like
+ * `text_file.body_text`; `lexical_text` is the folded keyword surface (same shape as thought's).
+ * Embeddings are DB-only: never selected into tool results, logs or prompts.
+ */
+export const notePassage = pgTable(
+  'note_passage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    textFileId: uuid('text_file_id')
+      .notNull()
+      .references(() => textFile.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    /** UTF-16 offsets of the passage within the note body. */
+    startChar: integer('start_char').notNull(),
+    endChar: integer('end_char').notNull(),
+    textEncrypted: text('text_encrypted').notNull(),
+    lexicalText: text('lexical_text').notNull().default(''),
+    lexicalTsv: tsvector('lexical_tsv')
+      .notNull()
+      .generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex('note_passage_file_ordinal_idx').on(t.textFileId, t.ordinal),
+    index('note_passage_user_idx').on(t.userId),
+    index('note_passage_lexical_tsv_idx').using('gin', t.lexicalTsv),
+    index('note_passage_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
   ],
 )
 

@@ -34,6 +34,7 @@ const {
   retrieveThoughtRowsForDeleteRequestMock,
   resolveDeleteTargetsMock,
   composeAnswerMock,
+  createThoughtEmbeddingMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -57,6 +58,7 @@ const {
   retrieveThoughtRowsForDeleteRequestMock: vi.fn(),
   resolveDeleteTargetsMock: vi.fn(),
   composeAnswerMock: vi.fn(),
+  createThoughtEmbeddingMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/qa/compose-answer', () => ({
@@ -150,6 +152,10 @@ vi.mock('$lib/server/db', () => ({
   }),
 }))
 
+vi.mock('$lib/server/llm/embedding', () => ({
+  createThoughtEmbedding: createThoughtEmbeddingMock,
+}))
+
 vi.mock('$lib/server/text-files/service', () => ({
   createTextFile: createTextFileMock,
   searchTextFiles: searchTextFilesMock,
@@ -173,11 +179,14 @@ function mockThoughtRow(row: Record<string, unknown> | null) {
   })
 }
 
+const QUERY_EMBEDDING = [0.25, 0.5]
+
 describe('MCP tools', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map())
     searchTextFilesMock.mockResolvedValue([])
+    createThoughtEmbeddingMock.mockResolvedValue(QUERY_EMBEDDING)
     resolveMcpCaptureAuthorshipMock.mockResolvedValue({
       author: 'user',
       authorLabel: null,
@@ -450,6 +459,7 @@ describe('MCP tools', () => {
       userId: 'u1',
       query: 'hello',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
       authorFilter: 'user',
     })
     expect(out.count).toBe(1)
@@ -509,6 +519,7 @@ describe('MCP tools', () => {
       userId: 'u1',
       query: 'Who is Jonas?',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
       authorFilter: 'user',
     })
   })
@@ -520,10 +531,12 @@ describe('MCP tools', () => {
       userId: 'u1',
       query: 'hello',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
     })
     expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
       query: 'hello',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
     })
   })
 
@@ -534,6 +547,7 @@ describe('MCP tools', () => {
       userId: 'u1',
       query: 'hello',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
     })
   })
 
@@ -544,11 +558,13 @@ describe('MCP tools', () => {
       userId: 'u1',
       query: 'hello',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
       authorFilter: 'agent',
     })
     expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
       query: 'hello',
       topK: 10,
+      queryEmbedding: QUERY_EMBEDDING,
       authorFilter: 'agent',
     })
   })
@@ -833,13 +849,90 @@ describe('MCP tools', () => {
     expect(createTextFileMock).not.toHaveBeenCalled()
   })
 
+  it('runRetrieveThoughtsTool embeds the query once and shares it with thought and note search', async () => {
+    searchThoughtsMock.mockResolvedValue([])
+    await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'coastal trip activities' })
+    expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+    expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'coastal trip activities')
+    expect(searchThoughtsMock.mock.calls[0]![0]).toMatchObject({ queryEmbedding: QUERY_EMBEDDING })
+    expect(searchTextFilesMock.mock.calls[0]![1]).toMatchObject({ queryEmbedding: QUERY_EMBEDDING })
+  })
+
+  it('runRetrieveThoughtsTool uses the caller threshold as the note relevance floor', async () => {
+    searchThoughtsMock.mockResolvedValue([])
+    await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hello', threshold: 0.4 })
+    expect(searchTextFilesMock.mock.calls[0]![1]).toMatchObject({ minScore: 0.4 })
+    searchTextFilesMock.mockClear()
+    await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'hello' })
+    expect(searchTextFilesMock.mock.calls[0]![1]).not.toHaveProperty('minScore')
+  })
+
+  it('runRetrieveThoughtsTool returns note excerpts (passage + neighbours) with no embedding values', async () => {
+    searchThoughtsMock.mockResolvedValue([])
+    searchTextFilesMock.mockResolvedValue([
+      {
+        id: 'f1',
+        title: 'Conference trip',
+        preview: 'Taking an early morning out on the waves',
+        excerpt: 'Before the keynote: taking an early morning out on the waves.',
+        matchedOrdinals: [3],
+        score: 0.4,
+        vectorScore: 0.4,
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-02T00:00:00.000Z',
+        author: 'user',
+        authorLabel: null,
+        authorKeyId: null,
+        embedding: new Array(1536).fill(0.2),
+      },
+    ])
+    const out = (await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'coastal trip' })) as {
+      textFiles: Array<Record<string, unknown>>
+    }
+    expect(out.textFiles).toHaveLength(1)
+    expect(out.textFiles[0]).toMatchObject({
+      id: 'f1',
+      title: 'Conference trip',
+      excerpt: expect.stringContaining('early morning out on the waves'),
+      createdAt: '2026-03-01T00:00:00.000Z',
+    })
+    expect(JSON.stringify(out).toLowerCase()).not.toContain('embedding')
+  })
+
+  it('runSearchTextFilesTool returns note excerpts with no embedding values', async () => {
+    searchTextFilesMock.mockResolvedValue([
+      {
+        id: 'f1',
+        title: 'Trip',
+        preview: 'x',
+        excerpt: 'surfing at dawn',
+        matchedOrdinals: [0],
+        score: 0.5,
+        vectorScore: 0.5,
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-02T00:00:00.000Z',
+        author: 'user',
+        authorLabel: null,
+        authorKeyId: null,
+        queryEmbedding: new Array(1536).fill(0.2),
+      },
+    ])
+    const out = await runSearchTextFilesTool({ userId: 'u1' }, { query: 'surf' })
+    expect(JSON.stringify(out)).toContain('surfing at dawn')
+    expect(JSON.stringify(out).toLowerCase()).not.toContain('embedding')
+  })
+
   it('runSearchTextFilesTool searches notes with author filter', async () => {
     searchTextFilesMock.mockResolvedValue([
       {
         id: 'f1',
         title: 'R',
         preview: 'x',
-        lexicalScore: 1,
+        excerpt: 'x',
+        matchedOrdinals: [0],
+        score: 1,
+        vectorScore: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
         author: 'user',
         authorLabel: null,

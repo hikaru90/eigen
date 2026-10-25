@@ -37,13 +37,15 @@ describe('/api/text-files', () => {
     expect(body.count).toBe(1)
   })
 
-  it('GET with q runs lexical search', async () => {
+  it('GET with q runs hybrid (meaning + keyword) note search', async () => {
     searchTextFilesMock.mockResolvedValue([
       {
         id: 'f1',
         title: 'Recipe',
         preview: 'pasta…',
-        lexicalScore: 0.2,
+        excerpt: 'pasta…',
+        score: 0.2,
+        createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
         author: 'user',
         authorLabel: null,

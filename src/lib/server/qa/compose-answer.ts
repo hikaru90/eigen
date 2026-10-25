@@ -134,7 +134,10 @@ export type ComposedAnswer = {
   citations: string[]
   /** The items cited by the answer. */
   retrieved: RetrievalContextItem[]
-  /** Every item given to the answer model, before citation filtering (`retrieved` is a subset). */
+  /**
+   * Every item given to the answer model, before citation filtering (`retrieved` is a subset):
+   * thoughts first, then matched note excerpts (category `note`, id = the note id).
+   */
   context: RetrievalContextItem[]
   /** Contradiction pairs detected among retrieved thoughts, if any. */
   conflicts: ConflictPair[]
@@ -237,18 +240,38 @@ export function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date
 
 const TEXT_FILE_COMPOSE_TOP_K = 5
 
+/** Notes are citable by their own id, exactly like thoughts; a hit never cites a passage. */
 export function formatTextFilesForPrompt(files: TextFileSearchHit[]): string {
   if (files.length === 0) return ''
   return (
-    '\n\nText notes (attached documents — keyword match, no embedding):\n' +
+    '\n\nText notes (documents the user saved; excerpts matched by meaning and keywords, cite the note id):\n' +
     files
       .map((f) => {
-        const dateStr = f.updatedAt.slice(0, 10)
+        const dateStr = f.createdAt.slice(0, 10)
         const title = f.title.trim() || 'Untitled note'
-        return `file=${f.id} (${title}, score=${f.lexicalScore.toFixed(3)}, updated=${dateStr})\n${f.preview}`
+        return `${canonicalCitationToken(f.id)} (note "${title}", score=${f.score.toFixed(3)}, stored=${dateStr})\n${f.excerpt}`
       })
       .join('\n\n')
   )
+}
+
+/** A matched note as a context item: the answer model's evidence, and what evals/tools see. */
+export function noteHitToContextItem(hit: TextFileSearchHit): RetrievalContextItem {
+  const title = hit.title.trim() || 'Untitled note'
+  return {
+    id: hit.id,
+    normalizedText: `Note "${title}":\n${hit.excerpt}`,
+    category: 'note',
+    author: hit.author,
+    authorLabel: hit.authorLabel,
+    score: hit.score,
+    vectorScore: hit.vectorScore,
+    graphScore: 0,
+    createdAt: new Date(hit.createdAt),
+    isStale: false,
+    temporalStatus: 'none',
+    temporalEvents: [],
+  }
 }
 
 /** Non-authoritative thematic hints from consolidation (routing only — not citable evidence). */
@@ -335,6 +358,7 @@ const SYSTEM_PROMPT = [
   '',
   'Hard rules:',
   '- Cite every factual claim with [id=<uuid>] using the EXACT id string from each thought header (do not invent ids, do not shorten or truncate ids, do not add a "t_" prefix that is not in the id).',
+  '- A "Text notes" section may follow the thoughts: excerpts of documents the user saved. They are evidence like thoughts; cite a note with [id=<note id>] using the id from its header.',
   '- Never cite entry position numbers (e.g. [1], [6], "clusters 3 and 4"); only cite using [id=<uuid>] or [id=profile] as specified below.',
   '- Use only facts that appear verbatim or as a direct paraphrase in the retrieved thoughts. The grounding profile may clarify retrieved facts but must not introduce new claims.',
   '- Do NOT equate or identify different people or names unless a cited thought explicitly states that link (e.g. "Clemi is Annie"). Similar topics, family, or graph edges are NOT enough.',
@@ -567,7 +591,12 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
       authorFilter: input.authorFilter,
       extrasOut: retrievalExtras,
     }),
-    searchTextFiles(input.userId, { query: retrievalQuery, topK: TEXT_FILE_COMPOSE_TOP_K }),
+    searchTextFiles(input.userId, {
+      query: retrievalQuery,
+      topK: TEXT_FILE_COMPOSE_TOP_K,
+      queryEmbedding,
+      minScore: COMPOSE_ANSWER_RELEVANCE_MIN,
+    }),
   ])
   const communityThemes = scope === 'global' ? retrievalExtras.communityThemes.slice(0, 6) : []
   const retrieved = searchResults.filter(
@@ -677,11 +706,15 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     userId: input.userId,
     items: contextItems,
   })
+  // Notes join the evidence after the thought-only steps above (temporal hydration, person
+  // focus, contradictions). Their citation id is the note id.
+  const noteItems = textFileHits.map(noteHitToContextItem)
+  const allContextItems = [...contextItems, ...noteItems]
   console.info('[composeAnswer] phase=searching done', {
     durationMs: Date.now() - phaseStart,
     retrievedCount: retrieved.length,
     textFileCount: textFileHits.length,
-    contextCount: contextItems.length,
+    contextCount: allContextItems.length,
     conflictCount: conflicts.length,
     temporalSolverKind: solverResult.kind,
     temporalSolverConfidence: solverResult.confidence,
@@ -691,7 +724,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
   })
 
   const allowComputedCitation = allowsComputedTimelineCitation(solverResult)
-  const allowedIds = new Set(contextItems.map((c) => c.id))
+  const allowedIds = new Set(allContextItems.map((c) => c.id))
   if (allowComputedCitation) {
     allowedIds.add(COMPUTED_TIMELINE_CITATION_ID)
   }
@@ -701,7 +734,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
 
   const profileBlock = formatGroundingProfileForCompose(profilePromptBlock)
   const communityThemeBlock = formatCommunityThemesForPrompt(communityThemes)
-  const hasRetrievedEvidence = contextItems.length > 0 || textFileHits.length > 0
+  const hasRetrievedEvidence = allContextItems.length > 0
   const hasComposableEvidence = hasRetrievedEvidence
   if (hasRetrievedEvidence && hasGroundingProfile) {
     allowedIds.add(GROUNDING_PROFILE_CITATION_ID)
@@ -773,8 +806,8 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
   return {
     answer,
     citations,
-    retrieved: contextItems.filter((c) => citedIds.has(c.id)),
-    context: contextItems,
+    retrieved: allContextItems.filter((c) => citedIds.has(c.id)),
+    context: allContextItems,
     conflicts,
     retrievalPath,
   }
