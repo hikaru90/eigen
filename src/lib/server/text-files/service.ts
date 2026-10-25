@@ -11,6 +11,7 @@ import {
 } from '$lib/server/memory/authorship'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { COMPOSE_ANSWER_RELEVANCE_MIN } from '$lib/server/retrieval/rrf-scoring'
+import { redactedText } from '$lib/server/security/detect-secrets'
 import {
   applyPassageSync,
   createDbNoteSearchSources,
@@ -63,6 +64,17 @@ function assertTitleOrBody(title: string, body: string): void {
   if (!title && !body) {
     throw new Error('title or body is required')
   }
+}
+
+/**
+ * What a note's search surfaces are built from (docs/planning/secret-hygiene.md). The body the
+ * user saved is stored verbatim (encrypted) and shown back to them; the lexical text, the
+ * passages and their embeddings come from the redacted text, so a pasted credential is never
+ * indexed or sent to the embedding gateway.
+ */
+function indexSurfaces(title: string, body: string): { indexBody: string; lexicalText: string } {
+  const indexBody = redactedText(body)
+  return { indexBody, lexicalText: computeLexicalText(`${redactedText(title)} ${indexBody}`) }
 }
 
 function toPreview(body: string): string {
@@ -127,7 +139,7 @@ export async function createTextFile(
   const title = normalizeTitle(input.title)
   const body = assertBodyWithinLimit(typeof input.body === 'string' ? input.body : '')
   assertTitleOrBody(title, body)
-  const lexicalText = computeLexicalText(`${title} ${body}`)
+  const { indexBody, lexicalText } = indexSurfaces(title, body)
   const authorValues = authorshipInsertValues(input.authorship ?? USER_AUTHORSHIP)
   const bodyTextEncrypted = await encryptTenantValue({
     userId,
@@ -136,7 +148,7 @@ export async function createTextFile(
     plaintext: body,
   })
   // Embed before writing: a gateway failure fails the create instead of leaving an unsearchable note.
-  const passages = await preparePassageSync(userId, { body, stored: [] })
+  const passages = await preparePassageSync(userId, { body: indexBody, stored: [] })
 
   const row = await getDb().transaction(async (tx) => {
     const [inserted] = await tx
@@ -185,7 +197,7 @@ export async function updateTextFile(
   const nextTitle = input.title !== undefined ? normalizeTitle(input.title) : current.title
   const nextBody = input.body !== undefined ? assertBodyWithinLimit(input.body) : current.body
   assertTitleOrBody(nextTitle, nextBody)
-  const lexicalText = computeLexicalText(`${nextTitle} ${nextBody}`)
+  const { indexBody, lexicalText } = indexSurfaces(nextTitle, nextBody)
   const bodyTextEncrypted = await encryptTenantValue({
     userId,
     table: 'text_file',
@@ -193,7 +205,7 @@ export async function updateTextFile(
     plaintext: nextBody,
   })
   const passages = await preparePassageSync(userId, {
-    body: nextBody,
+    body: indexBody,
     stored: await loadStoredPassages(userId, fileId),
   })
 
@@ -257,7 +269,7 @@ export async function appendTextFile(
         : '\n'
   const nextBody = assertBodyWithinLimit(`${current.body}${separator}${appendText}`)
   assertTitleOrBody(current.title, nextBody)
-  const lexicalText = computeLexicalText(`${current.title} ${nextBody}`)
+  const { indexBody, lexicalText } = indexSurfaces(current.title, nextBody)
   const bodyTextEncrypted = await encryptTenantValue({
     userId,
     table: 'text_file',
@@ -267,7 +279,7 @@ export async function appendTextFile(
   // Tail-only: the passages before the appended text are unchanged and are neither deleted
   // nor re-embedded; only the changed tail is embedded.
   const passages = await preparePassageSync(userId, {
-    body: nextBody,
+    body: indexBody,
     stored: await loadStoredPassages(userId, fileId),
   })
 
@@ -391,10 +403,12 @@ export async function searchTextFiles(
   },
 ): Promise<TextFileSearchHit[]> {
   const limit = Math.max(1, Math.min(input.topK ?? 10, 50))
-  const queryEmbedding = input.queryEmbedding ?? (await createThoughtEmbedding(userId, input.query))
+  // a credential pasted into a question is neither embedded nor keyword-matched
+  const query = redactedText(input.query)
+  const queryEmbedding = input.queryEmbedding ?? (await createThoughtEmbedding(userId, query))
   return runNoteSearch(
     createDbNoteSearchSources(userId, {
-      query: input.query,
+      query,
       queryEmbedding,
       authorFilter: input.authorFilter,
       authorLayerKey: input.authorLayerKey,

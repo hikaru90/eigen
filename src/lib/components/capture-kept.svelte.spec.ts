@@ -60,6 +60,18 @@ describe('capture-kept.svelte', () => {
     await expect.element(page.getByTestId('thought-thread')).toBeInTheDocument()
   })
 
+  it('says a credential was left out of memory, without naming or echoing any value', async () => {
+    render(CaptureKept, { ...base, stage: 'indexing', secretsRedacted: true })
+    const notice = page.getByTestId('capture-kept-secrets')
+    await expect.element(notice).toBeInTheDocument()
+    await expect.element(notice).toHaveTextContent('not stored in memory')
+  })
+
+  it('shows no credential notice when nothing was redacted', async () => {
+    render(CaptureKept, { ...base, stage: 'indexing' })
+    expect(document.querySelector('[data-testid="capture-kept-secrets"]')).toBeNull()
+  })
+
   it('never shows the kept words again', async () => {
     render(CaptureKept, { ...base, stage: 'linked' })
     expect((page.getByTestId('capture-kept').element() as HTMLElement).textContent).not.toContain('Buy oat milk')

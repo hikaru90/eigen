@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import { SPLIT_FANOUT_MAX } from './content-role'
 import * as splitModule from './split-capture-content'
 import {
@@ -357,5 +358,94 @@ describe('validateVerbatimSpans', () => {
 
   it('rejects anything that is not an array', () => {
     expect(() => validateVerbatimSpans(raw, 'Alpha one.', { coverage: true })).toThrow(/array/)
+  })
+})
+
+describe('resolveCaptureContentSplit secret hygiene (docs/planning/secret-hygiene.md)', () => {
+  beforeEach(() => {
+    llmChatCompletionMock.mockReset()
+  })
+
+  const withSecret = `Ship the deploy today. LLM_API_KEY=${FAKE_SECRETS.openai} Then call Mom about the dinner.`
+
+  it('the generation prompt carries only the redacted capture', async () => {
+    mockLlmJson({ role: 'personal', spans: ['placeholder'], rationale: 'x' })
+    llmChatCompletionMock.mockResolvedValue(
+      llmReply({
+        role: 'personal',
+        spans: [
+          'Ship the deploy today. LLM_API_KEY=[redacted secret]',
+          'Then call Mom about the dinner.',
+        ],
+        rationale: 'two things',
+      }),
+    )
+
+    await resolveCaptureContentSplit({ userId: 'u1', rawText: withSecret, decidedRole: 'personal' })
+
+    const messages = llmChatCompletionMock.mock.calls[0]![0] as { messages: Array<{ content: string }> }
+    const sent = JSON.stringify(messages)
+    expect(leaks(sent)).toBe(false)
+    expect(guardWouldTrip(messages)).toBe(false)
+    expect(sent).toContain('LLM_API_KEY=[redacted secret]')
+  })
+
+  it('Phase-A spans are cut from the redacted text: they are verbatim substrings of it and hold no secret', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      llmReply({
+        role: 'personal',
+        spans: [
+          'Ship the deploy today. LLM_API_KEY=[redacted secret]',
+          'Then call Mom about the dinner.',
+        ],
+        rationale: 'two things',
+      }),
+    )
+
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: withSecret,
+      decidedRole: 'personal',
+    })
+
+    expect(result.role).toBe('personal')
+    if (result.role !== 'personal') return
+    expect(result.spans).toEqual([
+      'Ship the deploy today. LLM_API_KEY=[redacted secret]',
+      'Then call Mom about the dinner.',
+    ])
+    expect(leaks(JSON.stringify(result))).toBe(false)
+  })
+
+  it('a span that tries to bring the secret back is not a substring of the redacted capture and fails loudly', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      llmReply({
+        role: 'personal',
+        spans: [`Ship the deploy today. LLM_API_KEY=${FAKE_SECRETS.openai}`, 'Then call Mom about the dinner.'],
+        rationale: 'two things',
+      }),
+    )
+    await expect(
+      resolveCaptureContentSplit({ userId: 'u1', rawText: withSecret, decidedRole: 'personal' }),
+    ).rejects.toThrow(/not a verbatim substring/)
+  })
+
+  it('a reference note body is cut from the redacted capture', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      llmReply({
+        role: 'reference',
+        thoughtText: 'Deploy runbook',
+        attachmentTitle: 'Runbook',
+        attachmentBody: 'Set LLM_API_KEY=[redacted secret] and run the deploy.',
+        rationale: 'a runbook',
+      }),
+    )
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: `Set LLM_API_KEY=${FAKE_SECRETS.openai} and run the deploy.`,
+      decidedRole: 'reference',
+    })
+    expect(leaks(JSON.stringify(llmChatCompletionMock.mock.calls))).toBe(false)
+    expect(leaks(JSON.stringify(result))).toBe(false)
   })
 })

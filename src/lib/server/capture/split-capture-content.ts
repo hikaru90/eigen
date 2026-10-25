@@ -3,6 +3,7 @@ import { normalizeThoughtText } from '$lib/server/capture/service'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
+import { redactedText } from '$lib/server/security/detect-secrets'
 
 export type CaptureContentRole = ContentRole
 
@@ -272,7 +273,9 @@ export async function resolveCaptureContentSplit(input: {
   rawText: string
   decidedRole?: ContentRole
 }): Promise<CaptureContentSplitResult> {
-  const rawText = input.rawText.trim()
+  // Secret hygiene: spans and the note body are cut from the REDACTED capture, so a credential
+  // can neither reach the LLM nor come back out of it as a span (validation runs on this text).
+  const rawText = redactedText(input.rawText).trim()
   if (!rawText) {
     throw new Error('resolveCaptureContentSplit: rawText is required')
   }

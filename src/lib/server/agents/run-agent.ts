@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { connectedAgent, thought } from '$lib/server/db/schema'
+import { redactedText } from '$lib/server/security/detect-secrets'
 
 export type RunAgentInput = {
   userId: string
@@ -45,8 +46,11 @@ export async function runAgentWithEvent(input: RunAgentInput): Promise<RunAgentR
   }
 
   // Create a thought from the webhook event
-  const eventSummary = formatEventSummary(input.eventType, input.payload)
-  const rawText = `[Webhook: ${input.eventType}] ${eventSummary}`
+  // Secret hygiene (docs/planning/secret-hygiene.md): the verbatim event stays encrypted in
+  // raw_text; the stored normalized text and the returned summary are the redacted event.
+  const verbatimSummary = formatEventSummary(input.eventType, input.payload)
+  const eventSummary = redactedText(verbatimSummary)
+  const rawText = `[Webhook: ${input.eventType}] ${verbatimSummary}`
 
   // Encrypt if needed
   const rawTextEncrypted = await encryptTenantValue({

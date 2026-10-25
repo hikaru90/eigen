@@ -23,6 +23,7 @@ import type { McpToolContext } from '$lib/server/mcp/tools'
 import { redactForLog } from '$lib/server/observability/redact-for-log'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 import { formatComposedAnswerForUser, type ComposedAnswer } from '$lib/server/qa/compose-answer'
+import { redactSecretsDeep } from '$lib/server/security/detect-secrets'
 import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 
 const MAX_ITERATIONS = 8
@@ -259,6 +260,13 @@ function normalizeAgentToolArgs(
   }
 }
 
+/** Short activity-log summary of a tool call's arguments — redacted BEFORE truncating, so a credential never leaves a readable prefix. */
+function toolArgsContext(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .map(([k, v]) => `${k}: ${JSON.stringify(redactSecretsDeep(v)).slice(0, 30)}`)
+    .join(', ')
+}
+
 async function executeAgentToolCall(input: {
   tool: string
   arguments: Record<string, unknown>
@@ -282,7 +290,7 @@ async function executeAgentToolCall(input: {
   }
 
   exec.onEvent?.({ type: 'tool_call', tool, arguments: args })
-  console.info('[agent-loop] tool start', { tool, arguments: args })
+  console.info('[agent-loop] tool start', { tool, arguments: redactSecretsDeep(args) })
   exec.onEvent?.({ type: 'tool_executing', tool })
 
   const toolStart = Date.now()
@@ -301,9 +309,7 @@ async function executeAgentToolCall(input: {
       provider: AGENT_TOOL_ACTIVITY_PROVIDER,
       operation: `tool_call.${tool}`,
       baseCostUsd: 0,
-      context: Object.entries(args)
-        .map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`)
-        .join(', '),
+      context: toolArgsContext(args),
       durationMs: Date.now() - toolStart,
     })
     captureServerEvent({
@@ -342,9 +348,7 @@ async function executeAgentToolCall(input: {
       provider: AGENT_TOOL_ACTIVITY_PROVIDER,
       operation: `tool_error.${tool}`,
       baseCostUsd: 0,
-      context: Object.entries(args)
-        .map(([k, v]) => `${k}: ${JSON.stringify(v).slice(0, 30)}`)
-        .join(', '),
+      context: toolArgsContext(args),
       errorMessage,
       durationMs: Date.now() - toolStart,
     })

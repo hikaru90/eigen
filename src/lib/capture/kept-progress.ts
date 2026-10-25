@@ -21,3 +21,12 @@ export function keptStage(
   if (result.queueStatus === 'complete' || result.enrichmentComplete) return 'linked'
   return 'indexing'
 }
+
+/**
+ * True when the capture kept a credential out of memory (server metadata `secretsRedacted`,
+ * kind + name only). The capture page shows a one-line notice; it never sees the value.
+ */
+export function keptSecretsRedacted(result: Pick<CaptureSubmitResult, 'metadata'>): boolean {
+  const list = result.metadata?.secretsRedacted
+  return Array.isArray(list) && list.length > 0
+}

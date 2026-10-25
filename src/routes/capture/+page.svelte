@@ -16,6 +16,7 @@
     KEPT_LINKED_FADE_MS,
     KEPT_POLL_MAX_TRIES,
     KEPT_POLL_MS,
+    keptSecretsRedacted,
     keptStage,
     type KeptStage,
   } from '$lib/capture/kept-progress'
@@ -134,6 +135,8 @@
     linkedCount: number
     slow: boolean
     failureReason: string | null
+    /** The server kept a credential in the words out of memory. */
+    secretsRedacted: boolean
   }
   let kept = $state<Kept | null>(null)
   /** The user is correcting how it was kept: the linked state does not fade under them. */
@@ -160,6 +163,7 @@
         entityCount: result.entities.length,
         linkedCount: result.linkedThoughts.length,
         failureReason: result.queueError ?? null,
+        secretsRedacted: keptSecretsRedacted(result),
       }
       if (stage === 'linked' || stage === 'failed') {
         handleCapturedThought(result, 'keep')
@@ -500,6 +504,7 @@
         linkedCount: 0,
         slow: false,
         failureReason: null,
+        secretsRedacted: false,
       }
     }
     raw = ''

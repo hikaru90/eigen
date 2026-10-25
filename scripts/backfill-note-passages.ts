@@ -18,6 +18,7 @@ import './load-project-env'
  */
 import postgres from 'postgres'
 import { withDbUser, getDb } from '$lib/server/db'
+import { redactedText } from '$lib/server/security/detect-secrets'
 import { chunkNoteIntoPassages } from '$lib/server/text-files/chunk-note-passages'
 import { applyPassageSync, preparePassageSync } from '$lib/server/text-files/note-passages'
 import { getTextFile } from '$lib/server/text-files/service'
@@ -67,10 +68,12 @@ async function backfillNote(
   return withDbUser(target.userId, async () => {
     const note = await getTextFile(target.userId, target.noteId)
     if (!note || note.body.trim().length === 0) return { outcome: 'empty' as const, passages: 0 }
-    const passages = chunkNoteIntoPassages(note.body).length
+    // passages index the redacted body, like every note write (docs/planning/secret-hygiene.md)
+    const indexBody = redactedText(note.body)
+    const passages = chunkNoteIntoPassages(indexBody).length
     if (dryRun) return { outcome: 'dry-run' as const, passages }
 
-    const prepared = await preparePassageSync(target.userId, { body: note.body, stored: [] })
+    const prepared = await preparePassageSync(target.userId, { body: indexBody, stored: [] })
     await getDb().transaction(async (tx) => {
       await applyPassageSync(tx, target.userId, target.noteId, prepared)
     })

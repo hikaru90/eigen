@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExtendedPrivateEnv } from '$lib/server/env/private-env'
+import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import { fetchMockInit, fetchMockUrl } from '$lib/test/vitest-mock-call'
 import {
   DEFAULT_CHAT_MAX_TOKENS,
@@ -1108,5 +1109,115 @@ describe('llm client timeout and rate limit defaults', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('llm client secret gateway guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockEnv.OPENROUTER_BASE_URL = 'https://example.test'
+    mockEnv.LLM_MIN_REQUEST_INTERVAL_MS = '0'
+    mockEnv.LLM_REQUEST_TIMEOUT_MS = ''
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'key-1'
+  })
+
+  function stubOkFetch() {
+    const fetchMock = vi.fn(async () =>
+      response(true, 200, { usage: { total_tokens: 2 }, choices: [], data: [] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('redacts a secret in outgoing chat messages, so only the placeholder leaves', async () => {
+    const fetchMock = stubOkFetch()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    await llmChatCompletion({
+      userId: 'u1',
+      logContext: 'unit_test_site',
+      messages: [
+        { role: 'system', content: 'be brief' },
+        { role: 'user', content: `deploy with ${envPaste()}` },
+      ],
+    })
+
+    const sent = String(fetchMockInit(fetchMock).body)
+    expect(leaks(sent)).toBe(false)
+    expect(sent).toContain('[redacted secret]')
+    expect(sent).toContain('LLM_API_KEY=[redacted secret]')
+    // nothing logged (console or activity log) carries the value either
+    const logged = JSON.stringify([
+      log.mock.calls,
+      info.mock.calls,
+      warn.mock.calls,
+      logActivityCallMock.mock.calls,
+      captureServerEventMock.mock.calls,
+    ])
+    expect(leaks(logged)).toBe(false)
+    warn.mockRestore()
+    log.mockRestore()
+    info.mockRestore()
+  })
+
+  it('logs a security warning with the call site and never the value', async () => {
+    stubOkFetch()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    await llmChatCompletion({
+      userId: 'u1',
+      logContext: 'unit_test_site',
+      messages: [{ role: 'user', content: `token ${FAKE_SECRETS.githubClassic}` }],
+    })
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [label, detail] = warn.mock.calls[0]!
+    expect(String(label)).toContain('[security.gateway-guard]')
+    expect(detail).toEqual(
+      expect.objectContaining({ callSite: 'unit_test_site', kinds: ['access_token'], count: 1 }),
+    )
+    expect(leaks(JSON.stringify(warn.mock.calls))).toBe(false)
+    vi.restoreAllMocks()
+  })
+
+  it('leaves clean messages untouched and stays silent', async () => {
+    const fetchMock = stubOkFetch()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    await llmChatCompletion({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'fixed in commit 9f3a2c1, order #A12B' }],
+    })
+
+    expect(String(fetchMockInit(fetchMock).body)).toContain('fixed in commit 9f3a2c1, order #A12B')
+    expect(warn).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
+
+  it('redacts a secret in a single embedding input and in a batch', async () => {
+    const fetchMock = stubOkFetch()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await llmCreateEmbeddings({ userId: 'u1', input: `key ${FAKE_SECRETS.openai} stored` })
+    await llmCreateEmbeddings({ userId: 'u1', input: ['hello', `LLM_API_KEY=${FAKE_SECRETS.openai}`] })
+
+    for (const call of [0, 1]) {
+      const sent = String(fetchMockInit(fetchMock, call).body)
+      expect(leaks(sent)).toBe(false)
+      expect(sent).toContain('[redacted secret]')
+    }
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls[0]![1]).toEqual(expect.objectContaining({ callSite: 'llm_embedding' }))
+    expect(leaks(JSON.stringify([log.mock.calls, warn.mock.calls, logActivityCallMock.mock.calls]))).toBe(
+      false,
+    )
+    vi.restoreAllMocks()
   })
 })

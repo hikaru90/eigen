@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
+import { FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import {
   buildComposeSystemPrompt,
   composeAnswer,
@@ -435,6 +436,36 @@ describe('composeAnswer', () => {
         'Answer: Marcus suggested rice flour.\nEvidence:\n- Rice flour suggestion [id=t_001]\n- Tartine loaves [id=t_002]\nUnknown:\n- none',
       ),
     )
+  })
+
+  it('a credential typed into the question is never classified, embedded, searched, prompted or logged (secret hygiene)', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const question = `is ${FAKE_SECRETS.githubClassic} still my deploy token?`
+
+    await composeAnswer({
+      userId: 'u1',
+      question,
+      retrievalQuery: `deploy ${FAKE_SECRETS.githubClassic}`,
+    })
+
+    const downstream = [
+      classifyQueryIntentMock.mock.calls,
+      createThoughtEmbeddingMock.mock.calls,
+      createThoughtEmbeddingsMock.mock.calls,
+      searchThoughtsMock.mock.calls.map(([arg]) => ({
+        ...(arg as object),
+        queryEmbedding: undefined,
+      })),
+      searchTextFilesMock.mock.calls.map(([, arg]) => ({
+        ...(arg as object),
+        queryEmbedding: undefined,
+      })),
+      llmChatCompletionMock.mock.calls,
+      info.mock.calls,
+    ]
+    expect(leaks(JSON.stringify(downstream))).toBe(false)
+    expect(guardWouldTrip(downstream)).toBe(false)
+    info.mockRestore()
   })
 
   it('uses unified retrieval for global-scope queries (no searchGlobal map-reduce)', async () => {

@@ -39,6 +39,7 @@
     linkedCount,
     slow,
     failureReason,
+    secretsRedacted = false,
   }: {
     /** The kept thought; null while it is still being saved (nothing to correct yet). */
     thoughtId: string | null
@@ -57,6 +58,8 @@
     slow: boolean
     /** The server's reason when the background pass failed (after its retries). */
     failureReason: string | null
+    /** A credential in the words was kept out of memory (the server redacted it before indexing). */
+    secretsRedacted?: boolean
   } = $props()
 
   const working = $derived(stage === 'saving' || stage === 'indexing')
@@ -175,6 +178,12 @@
       </svg>
     </button>
   </p>
+
+  {#if secretsRedacted}
+    <p class="mt-2 mb-0 font-mesh text-sm text-ink-3" data-testid="capture-kept-secrets">
+      {m.capture_kept_secrets_redacted()}
+    </p>
+  {/if}
 
   {#if editing}
     <!-- the same pickers as the thought page, in place -->

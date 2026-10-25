@@ -3,6 +3,7 @@ import {
   getCachedQueryEmbedding,
   setCachedQueryEmbedding,
 } from '$lib/server/retrieval/embedding-cache'
+import { guardOutgoingEmbeddingInput, guardOutgoingText } from '$lib/server/security/gateway-guard'
 import { compress, type Intensity } from './embedding-compress'
 import { llmCreateEmbeddings } from './llm-client'
 
@@ -78,7 +79,14 @@ function compressForEmbedding(input: string): string {
   return compress(input, { intensity })
 }
 
-export async function createThoughtEmbedding(userId: string, input: string): Promise<number[]> {
+const EMBEDDING_CALL_SITE = 'thought_embedding'
+
+/**
+ * Secret guard runs before compress (compression rewrites text, so detection must see the
+ * original); the embedding cache is keyed on the redacted text, never on a secret.
+ */
+export async function createThoughtEmbedding(userId: string, rawInput: string): Promise<number[]> {
+  const input = guardOutgoingText(rawInput, EMBEDDING_CALL_SITE)
   const cached = getCachedQueryEmbedding(userId, input)
   if (cached) return cached
 
@@ -99,7 +107,8 @@ export async function createThoughtEmbeddings(
     return [await createThoughtEmbedding(userId, inputs[0]!)]
   }
 
-  const payloads = inputs.map((text) => compressForEmbedding(text))
+  const safeInputs = guardOutgoingEmbeddingInput(inputs, EMBEDDING_CALL_SITE)
+  const payloads = safeInputs.map((text) => compressForEmbedding(text))
   const response = await llmCreateEmbeddings({ userId, input: payloads })
   const embeddings = extractEmbeddings(response)
   if (embeddings.length !== inputs.length) {
@@ -107,8 +116,8 @@ export async function createThoughtEmbeddings(
       `LLM embedding batch size mismatch: expected ${inputs.length}, got ${embeddings.length}`,
     )
   }
-  for (let i = 0; i < inputs.length; i++) {
-    setCachedQueryEmbedding(userId, inputs[i]!, embeddings[i]!)
+  for (let i = 0; i < safeInputs.length; i++) {
+    setCachedQueryEmbedding(userId, safeInputs[i]!, embeddings[i]!)
   }
   return embeddings
 }

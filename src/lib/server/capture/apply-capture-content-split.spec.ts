@@ -1,6 +1,7 @@
 import type { CaptureSplitPlan } from './content-role'
 import type { CaptureContentSplitResult } from './split-capture-content'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import { applyCaptureContentSplitIfNeeded } from './apply-capture-content-split'
 
 const {
@@ -499,5 +500,58 @@ describe('captures that are never decided or split', () => {
       enrichRawText: 'Pasta recipe',
       attachedFileId: 'file-old',
     })
+  })
+})
+
+describe('secret hygiene (docs/planning/secret-hygiene.md)', () => {
+  const RAW = `Ship the deploy today. LLM_API_KEY=${FAKE_SECRETS.openai}\n\nThen call Mom about the dinner.`
+  const SPAN_1 = 'Ship the deploy today. LLM_API_KEY=[redacted secret]'
+  const SPAN_2 = 'Then call Mom about the dinner.'
+
+  it('cuts spans from the redacted capture: generation gets redacted text, thoughts and children get redacted spans', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'personal',
+      spans: [SPAN_1, SPAN_2],
+      rationale: 'two things',
+    } satisfies CaptureContentSplitResult)
+    const { setMock } = mockDb()
+
+    const out = await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: RAW,
+      existingNormalizedText: 'Ship the deploy today. LLM_API_KEY=[redacted secret] Then call Mom about the dinner.',
+    })
+
+    const generationInput = resolveCaptureContentSplitMock.mock.calls[0]![0] as { rawText: string }
+    expect(leaks(generationInput.rawText)).toBe(false)
+    expect(generationInput.rawText).toContain('LLM_API_KEY=[redacted secret]')
+    expect(leaks(JSON.stringify([out, queueSplitChildMock.mock.calls, updatePayloads(setMock)]))).toBe(false)
+    expect(guardWouldTrip([out, queueSplitChildMock.mock.calls, updatePayloads(setMock)])).toBe(false)
+    expect(queueSplitChildMock).toHaveBeenCalledWith(expect.objectContaining({ text: SPAN_2 }))
+    // the enrich pass for a kept-whole capture gets the redacted capture, never the original
+    expect(out.rawText).not.toBe(RAW)
+  })
+
+  it('a mixed capture’s note body and the pointer text come from the redacted capture', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'mixed',
+      spans: [SPAN_2],
+      attachmentTitle: 'Runbook',
+      attachmentBody: 'Ship the deploy today. LLM_API_KEY=[redacted secret]',
+      rationale: 'mixed',
+    } satisfies CaptureContentSplitResult)
+    mockDb()
+
+    await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: RAW,
+      existingNormalizedText: 'x',
+    })
+
+    const noteCall = createTextFileMock.mock.calls[0]![1] as { body: string }
+    expect(leaks(noteCall.body)).toBe(false)
+    expect(leaks(JSON.stringify(resolveCaptureContentSplitMock.mock.calls))).toBe(false)
   })
 })

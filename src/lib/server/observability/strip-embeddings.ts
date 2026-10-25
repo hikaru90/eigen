@@ -1,3 +1,5 @@
+import { redactSecretsDeep } from '$lib/server/security/detect-secrets'
+
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
 /** pgvector width for thought / entity / temporal embeddings in this product. */
@@ -61,9 +63,13 @@ export function stripEmbeddingsFromValue(value: unknown): unknown {
   return out
 }
 
-/** MCP tools and external clients must only see sanitized payloads. */
+/**
+ * MCP tools and external clients must only see sanitized payloads: no embedding vectors, and no
+ * credential value (docs/planning/secret-hygiene.md) — even from a row that still holds one
+ * (`raw_text` in `detail: full`, a note body, a legacy thought).
+ */
 export function sanitizeMcpToolResult<T>(result: T): T {
-  return stripEmbeddingsFromValue(result) as T
+  return redactSecretsDeep(stripEmbeddingsFromValue(result)) as T
 }
 
 const TOOL_RESULT_PREFIX_RE = /^Tool result for [\w_]+:\n/

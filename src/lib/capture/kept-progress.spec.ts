@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { keptStage } from './kept-progress'
+import { keptSecretsRedacted, keptStage } from './kept-progress'
 
 const result = (queueStatus: string | null, enrichmentComplete = false) =>
   ({ queueStatus, enrichmentComplete }) as never
@@ -17,5 +17,22 @@ describe('keptStage', () => {
 
   it('is failed when the queue failed', () => {
     expect(keptStage(result('failed'))).toBe('failed')
+  })
+})
+
+describe('keptSecretsRedacted', () => {
+  it('is true when the capture recorded a redacted credential', () => {
+    expect(
+      keptSecretsRedacted({
+        metadata: { secretsRedacted: [{ kind: 'api_key', name: 'LLM_API_KEY' }] },
+      } as never),
+    ).toBe(true)
+  })
+
+  it('is false when nothing was redacted or the metadata is absent or malformed', () => {
+    expect(keptSecretsRedacted({ metadata: {} } as never)).toBe(false)
+    expect(keptSecretsRedacted({ metadata: { secretsRedacted: [] } } as never)).toBe(false)
+    expect(keptSecretsRedacted({ metadata: { secretsRedacted: 'yes' } } as never)).toBe(false)
+    expect(keptSecretsRedacted({} as never)).toBe(false)
   })
 })

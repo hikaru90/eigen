@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { envPaste, FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import {
   captureThought,
   normalizeThoughtText,
@@ -650,6 +651,122 @@ describe('editStoredThought', () => {
   })
 })
 
+describe('editStoredThought secret hygiene (docs/planning/secret-hygiene.md)', () => {
+  const RAW = `deploy ${envPaste()}`
+  const REDACTED =
+    'deploy DATABASE_URL=postgres://user:[redacted secret]@localhost:5432/mydb LLM_API_KEY=[redacted secret] PORT=3000'
+
+  function secretEditDb(updatedRaw?: string) {
+    const existing = {
+      id: 't1',
+      userId: 'u1',
+      rawText: RAW,
+      metadata: {},
+      category: 'task',
+      normalizedText: REDACTED,
+      lexicalText: REDACTED,
+    }
+    const set = vi.fn(() => ({
+      where: vi.fn(() => ({
+        returning: vi.fn(async () => [{ ...existing, rawText: updatedRaw ?? RAW }]),
+      })),
+    }))
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existing]) })) })),
+      })),
+      update: vi.fn(() => ({ set })),
+    })
+    return { set }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    createThoughtEmbeddingMock.mockResolvedValue([0.5, 0.5])
+    resolveThoughtCategoryMock.mockResolvedValue({
+      key: 'task',
+      ontologyEntityKindId: 'ek-1',
+      confidence: 0.9,
+      alternatives: [],
+      source: 'llm',
+    })
+    reenrichThoughtMock.mockResolvedValue(undefined)
+    loadThoughtCaptureResultMock.mockResolvedValue({ ...defaultCaptureResult, id: 't1' })
+  })
+
+  it('the edit LLM sees the redacted thought and a redacted edit request, never the credential', async () => {
+    secretEditDb()
+    applyThoughtEditRequestMock.mockResolvedValue({
+      rawText: `${REDACTED} (reviewed)`,
+      status: null,
+      summary: 'Added a note',
+    })
+
+    await editStoredThought('u1', 't1', `add: reviewed, token ${FAKE_SECRETS.githubClassic}`)
+
+    const llmInput = applyThoughtEditRequestMock.mock.calls[0]![0] as Record<string, string>
+    expect(leaks(JSON.stringify(llmInput))).toBe(false)
+    expect(guardWouldTrip(llmInput)).toBe(false)
+    expect(llmInput.existingRawText).toBe(REDACTED)
+    expect(llmInput.existingNormalizedText).toBe(REDACTED)
+  })
+
+  it('a text edit derives normalized text, lexical text, classification, embedding and re-enrich from redacted text', async () => {
+    const { set } = secretEditDb(`${REDACTED} (reviewed)`)
+    applyThoughtEditRequestMock.mockResolvedValue({
+      rawText: `${REDACTED} (reviewed)`,
+      status: null,
+      summary: 'Added a note',
+    })
+
+    await editStoredThought('u1', 't1', 'add: reviewed')
+
+    const derived = [
+      set.mock.calls[0],
+      resolveThoughtCategoryMock.mock.calls,
+      createThoughtEmbeddingMock.mock.calls,
+      reenrichThoughtMock.mock.calls.map((call) => call.slice(0, 3)),
+    ]
+    expect(leaks(JSON.stringify(derived))).toBe(false)
+    expect(guardWouldTrip(derived)).toBe(false)
+  })
+
+  it('an edit that changes nothing does not overwrite the verbatim original with placeholders or re-embed', async () => {
+    const { set } = secretEditDb()
+    applyThoughtEditRequestMock.mockResolvedValue({
+      // the LLM only saw the redacted text, so "no change" comes back as the redacted text
+      rawText: REDACTED,
+      status: null,
+      summary: 'Nothing to change',
+    })
+
+    await editStoredThought('u1', 't1', 'leave it as it is').catch(() => undefined)
+
+    for (const call of set.mock.calls) {
+      expect((call as unknown as [Record<string, unknown>])[0]).not.toHaveProperty('rawText')
+    }
+    expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
+    expect(reenrichThoughtMock).not.toHaveBeenCalled()
+  })
+
+  it('a status-only edit never rewrites the stored original with placeholders', async () => {
+    const { set } = secretEditDb()
+    applyThoughtEditRequestMock.mockResolvedValue({
+      // the LLM only saw the redacted text, so "unchanged" comes back as the redacted text
+      rawText: REDACTED,
+      status: 'completed',
+      summary: 'Marked complete',
+    })
+    // lifecycle path is mocked through the db double: just assert raw_text is not rewritten
+    await editStoredThought('u1', 't1', 'mark complete').catch(() => undefined)
+
+    for (const call of set.mock.calls) {
+      const payload = (call as unknown as [Record<string, unknown>])[0]
+      expect(payload).not.toHaveProperty('rawText')
+    }
+  })
+})
+
 describe('setThoughtLifecycleStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -785,6 +902,28 @@ describe('relinkThoughtGraph', () => {
 
     const result = await relinkThoughtGraph('u1', 'missing')
     expect(result).toEqual({ ok: false, reason: 'not_found' })
+  })
+
+  it('re-enriches a legacy row from redacted text (a stored normalized_text that still holds a credential)', async () => {
+    const existing = {
+      id: 't1',
+      userId: 'u1',
+      rawText: `key ${FAKE_SECRETS.githubClassic}`,
+      normalizedText: `key ${FAKE_SECRETS.githubClassic}`,
+      lexicalText: 'key',
+      category: 'task',
+      metadata: {},
+    }
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existing]) })) })),
+      })),
+    })
+
+    await relinkThoughtGraph('u1', 't1')
+
+    expect(leaks(JSON.stringify(reenrichThoughtMock.mock.calls))).toBe(false)
+    expect(reenrichThoughtMock.mock.calls[0]![2]).toBe('key [redacted secret]')
   })
 
   it('upserts node and awaits reenrichThought', async () => {

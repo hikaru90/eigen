@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   appendTextFile,
   createTextFile,
@@ -665,5 +666,113 @@ describe('text-files service', () => {
       'u1',
       expect.objectContaining({ queryEmbedding: [9, 9] }),
     )
+  })
+})
+
+describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', () => {
+  const createdAt = new Date('2026-06-05T12:00:00.000Z')
+  const BODY = `Deploy runbook\n${envPaste()}\nThen restart the worker.`
+  const REDACTED_BODY =
+    'Deploy runbook\nDATABASE_URL=postgres://user:[redacted secret]@localhost:5432/mydb LLM_API_KEY=[redacted secret] PORT=3000\nThen restart the worker.'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    preparePassageSyncMock.mockResolvedValue({ deleteIds: [], rows: [] })
+    applyPassageSyncMock.mockResolvedValue(undefined)
+    loadStoredPassagesMock.mockResolvedValue([])
+  })
+
+  function existingRow(body: string) {
+    return {
+      id: 'f1',
+      title: 'runbook',
+      bodyText: '',
+      bodyTextEncrypted: `enc:${body}`,
+      author: 'user',
+      authorLabel: null,
+      authorKeyId: null,
+      createdAt,
+      updatedAt: createdAt,
+    }
+  }
+
+  it('create: the body the user saved stays verbatim; passages and the lexical surface come from the redacted body', async () => {
+    const insertSpy = makeReturningInsert(existingRow(BODY))
+    getDbMock.mockReturnValue({ insert: vi.fn(() => insertSpy) })
+
+    const result = await createTextFile('u1', { title: 'Runbook', body: BODY })
+
+    // verbatim where the user can see it
+    expect(result.body).toBe(BODY)
+    expect(encryptTenantValueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ table: 'text_file', column: 'body_text', plaintext: BODY }),
+    )
+    // nothing derived carries the secret
+    const passageInput = preparePassageSyncMock.mock.calls[0]![1] as { body: string }
+    expect(passageInput.body).toBe(REDACTED_BODY)
+    const inserted = insertSpy.values.mock.calls[0]![0] as { lexicalText: string; bodyText: string }
+    expect(leaks(inserted.lexicalText)).toBe(false)
+    expect(inserted.lexicalText).toContain('redacted secret')
+    expect(inserted.bodyText).toBe('')
+  })
+
+  it('create: a secret in the title never reaches the lexical surface either', async () => {
+    const insertSpy = makeReturningInsert(existingRow('x'))
+    getDbMock.mockReturnValue({ insert: vi.fn(() => insertSpy) })
+
+    await createTextFile('u1', { title: `key ${FAKE_SECRETS.githubClassic}`, body: 'x' })
+
+    const inserted = insertSpy.values.mock.calls[0]![0] as { lexicalText: string }
+    expect(leaks(inserted.lexicalText)).toBe(false)
+  })
+
+  it('update: new passages and lexical text come from the redacted body, the saved body is verbatim', async () => {
+    const set = vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [existingRow(BODY)]) })) }))
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existingRow('old')]) })) })),
+      })),
+      update: vi.fn(() => ({ set })),
+    })
+
+    const result = await updateTextFile('u1', 'f1', { body: BODY })
+
+    expect(result!.body).toBe(BODY)
+    expect((preparePassageSyncMock.mock.calls[0]![1] as { body: string }).body).toBe(REDACTED_BODY)
+    const written = (set.mock.calls[0] as unknown as [{ lexicalText: string }])[0]
+    expect(leaks(written.lexicalText)).toBe(false)
+  })
+
+  it('append: the appended tail is redacted for passages (tail-only diff against redacted stored passages)', async () => {
+    const set = vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [existingRow('eggs')]) })) }))
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existingRow('eggs')]) })) })),
+      })),
+      update: vi.fn(() => ({ set })),
+    })
+
+    await appendTextFile('u1', 'f1', { text: `LLM_API_KEY=${FAKE_SECRETS.openai}` })
+
+    expect((preparePassageSyncMock.mock.calls[0]![1] as { body: string }).body).toBe(
+      'eggs\nLLM_API_KEY=[redacted secret]',
+    )
+    // the user's saved note keeps the appended words
+    expect(encryptTenantValueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ column: 'body_text', plaintext: `eggs\nLLM_API_KEY=${FAKE_SECRETS.openai}` }),
+    )
+    const written = (set.mock.calls[0] as unknown as [{ lexicalText: string }])[0]
+    expect(leaks(written.lexicalText)).toBe(false)
+  })
+
+  it('search: a query holding a secret is embedded and keyword-matched redacted', async () => {
+    const sources = { passageCandidates: vi.fn(async () => []), noteLexical: vi.fn(async () => []), loadNotes: vi.fn(async () => []), loadPassages: vi.fn(async () => []) }
+    createDbNoteSearchSourcesMock.mockReturnValue(sources)
+    createThoughtEmbeddingMock.mockResolvedValue([0.1])
+
+    await searchTextFiles('u1', { query: `where is ${FAKE_SECRETS.githubClassic}` })
+
+    expect(leaks(JSON.stringify(createThoughtEmbeddingMock.mock.calls))).toBe(false)
+    expect(leaks(JSON.stringify(createDbNoteSearchSourcesMock.mock.calls))).toBe(false)
   })
 })

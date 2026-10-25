@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { redactForLog } from './redact-for-log'
+import { isSensitiveFieldName, redactForLog } from './redact-for-log'
 
 describe('redactForLog', () => {
   it('redacts known secret keys', () => {
@@ -39,5 +39,26 @@ describe('redactForLog', () => {
     expect(out.service_token).toBe('[REDACTED]')
     expect(out.items[0].client_secret).toBe('[REDACTED]')
     expect(out.items[1].keep).toBe('ok')
+  })
+})
+
+describe('isSensitiveFieldName', () => {
+  it('folds spelling so one name rule serves logs and the free-text detector', () => {
+    for (const name of [
+      'api_key',
+      'apiKey',
+      'API-KEY',
+      'LLM_API_KEY',
+      'accessToken',
+      'db_password',
+    ]) {
+      expect(isSensitiveFieldName(name)).toBe(true)
+    }
+  })
+
+  it('does not match ordinary names', () => {
+    for (const name of ['port', 'max_tokens', 'key_count', 'monkey', 'author', 'user']) {
+      expect(isSensitiveFieldName(name)).toBe(false)
+    }
   })
 })

@@ -1,9 +1,11 @@
 import type { ExtractedEntityMention } from '$lib/server/memory/entity-extraction'
+import { SECRET_PLACEHOLDER } from '$lib/server/security/detect-secrets'
 
 /** Prompt lines shared across entity extraction passes (LLM instructions — not code classification). */
 export const ENTITY_EXTRACTION_OMIT_RULES = [
   'Omit greetings and interjections (hello, hallo, hi, hey, etc.) — never treat them as person, place, or organization names.',
   'Omit generic pronouns, discourse markers, and filler words.',
+  `The text may contain the marker "${SECRET_PLACEHOLDER}" where a credential was removed. Never extract the marker, or anything standing in for a credential value, as an entity; the credential's own name (for example the variable it was assigned to) is an ordinary surface.`,
   'When someone identifies themselves ("it\'s me, X", "ich bin X", "ich bin\'s, X"), extract X as the person speaking — not other people from memory unless the text clearly names them.',
   'Return surfaces exactly as written in the text. Never substitute a known entity label for a different name appearing in the text.',
   'person is ONLY for human beings with actual names. Software features, system actions, and abstract concepts are never people — even when mentioned in contexts like "X identified Y" or "Y is a feature".',

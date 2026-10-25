@@ -15,6 +15,7 @@
 
 import { env } from '$lib/server/env/private-env'
 import { extractGatewayReportedCostUsd } from '$lib/server/llm/gateway-cost'
+import { guardOutgoingValue } from '$lib/server/security/gateway-guard'
 
 const DECISIONS_ENDPOINT = 'https://openrouter.ai/api/alpha/decisions'
 const DEFAULT_DECISION_TIMEOUT_MS = 10_000
@@ -266,10 +267,10 @@ export async function runDecisionModel(
         Authorization: `Bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
       },
+      // Decisions is a second LLM gateway: the same secret guard as llmChatCompletion applies
       body: JSON.stringify({
         model: config.model,
-        state: request.state,
-        questions: request.questions,
+        ...guardOutgoingValue({ state: request.state, questions: request.questions }, 'decision_model'),
       }),
       signal: controller.signal,
     })

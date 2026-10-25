@@ -31,14 +31,22 @@ function isVectorField(name: string): boolean {
   return VECTOR_EXACT.has(name.toLowerCase())
 }
 
-function isSensitiveField(name: string): boolean {
-  const lower = name.toLowerCase()
+/**
+ * The one source of truth for "this name labels a credential" (log redaction and the free-text
+ * secret detector in `security/detect-secrets.ts`). Spelling is folded first so `apiKey`,
+ * `API-KEY` and `api_key` are one name.
+ */
+export function isSensitiveFieldName(name: string): boolean {
+  const lower = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase()
   if (SENSITIVE_EXACT.has(lower)) return true
   return SENSITIVE_SUFFIXES.some((s) => lower.endsWith(s))
 }
 
 function redactValue(key: string, value: unknown): unknown {
-  if (isSensitiveField(key)) return '[REDACTED]'
+  if (isSensitiveFieldName(key)) return '[REDACTED]'
   if (isVectorField(key)) return '[REDACTED_VECTOR]'
   if (value !== null && typeof value === 'object') return redactForLog(value)
   return value
