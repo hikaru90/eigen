@@ -10,8 +10,6 @@ const {
   decryptTenantValueMock,
   encryptTenantValueMock,
   runIngestWithRetriesMock,
-  extractEntityGraphBundleMock,
-  shouldRetryEntityMentionExtractionMock,
   loadEntityGraphEnrichmentContextMock,
   getUserPreferredTimezoneMock,
   markEnrichQueueCompleteMock,
@@ -33,8 +31,6 @@ const {
   decryptTenantValueMock: vi.fn(),
   encryptTenantValueMock: vi.fn(),
   runIngestWithRetriesMock: vi.fn(),
-  extractEntityGraphBundleMock: vi.fn(),
-  shouldRetryEntityMentionExtractionMock: vi.fn(),
   loadEntityGraphEnrichmentContextMock: vi.fn(),
   getUserPreferredTimezoneMock: vi.fn(),
   markEnrichQueueCompleteMock: vi.fn(),
@@ -71,10 +67,6 @@ vi.mock('$lib/server/capture/service', () => ({
 // this spec exercises enrich-queued-thought's own branches deterministically.
 vi.mock('$lib/server/ingest/retry', () => ({
   runIngestWithRetries: runIngestWithRetriesMock,
-}))
-vi.mock('$lib/server/memory/entity-extraction', () => ({
-  extractEntityGraphBundle: extractEntityGraphBundleMock,
-  shouldRetryEntityMentionExtraction: shouldRetryEntityMentionExtractionMock,
 }))
 vi.mock('$lib/server/memory/entity-graph-enrichment-context', () => ({
   loadEntityGraphEnrichmentContext: loadEntityGraphEnrichmentContextMock,
@@ -208,7 +200,6 @@ describe('enrichQueuedThought', () => {
     loadEnrichmentContextMock.mockResolvedValue(baseContext)
     createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2])
     extractEnrichThoughtBundleMock.mockResolvedValue(baseBundle)
-    shouldRetryEntityMentionExtractionMock.mockReturnValue(false)
     getUserPreferredTimezoneMock.mockResolvedValue('UTC')
     encryptTenantValueMock.mockImplementation(
       async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`,
@@ -910,7 +901,7 @@ describe('enrichQueuedThought', () => {
     expect(loadEnrichmentContextMock).not.toHaveBeenCalled()
   })
 
-  it('falls back to entity-only extraction when the bundle returns zero mentions and a retry is warranted', async () => {
+  it('passes a zero-mention bundle through unchanged — no entity-only second extraction', async () => {
     const db = makeDb([
       [baseRow],
       [{ metadata: {}, metadataEncrypted: null }],
@@ -920,33 +911,21 @@ describe('enrichQueuedThought', () => {
     getDbMock.mockReturnValue(db)
     loadEnrichmentContextMock.mockResolvedValue({
       ...baseContext,
+      normalizedText: 'x'.repeat(200),
       ontology: { entityKinds: [{ key: 'person', active: true, kindType: 'entity_type' }] },
     })
-    shouldRetryEntityMentionExtractionMock.mockReturnValue(true)
     loadEntityGraphEnrichmentContextMock.mockResolvedValue({
       communityExcerpts: [],
       graphEntities: [],
     })
-    extractEntityGraphBundleMock.mockResolvedValue({
-      mentions: [{ surface: 'Jonas', entityType: 'person', confidence: 0.8 }],
-      triples: [],
-    })
 
     await enrichQueuedThought('u1', 't1')
 
-    expect(extractEntityGraphBundleMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u1', normalizedText: 'raw input' }),
-    )
     expect(enrichThoughtMock).toHaveBeenCalledWith(
       'u1',
       't1',
-      'raw input',
-      expect.objectContaining({
-        precomputedEntityGraph: {
-          mentions: [{ surface: 'Jonas', entityType: 'person', confidence: 0.8 }],
-          triples: [],
-        },
-      }),
+      expect.any(String),
+      expect.objectContaining({ precomputedEntityGraph: { mentions: [], triples: [] } }),
     )
   })
 

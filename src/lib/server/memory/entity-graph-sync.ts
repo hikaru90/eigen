@@ -163,7 +163,7 @@ export async function syncEntityGraphFromThought(input: {
       })
 
   if (mentions.length === 0) {
-    console.warn('[entity-graph-sync] zero entity mentions extracted', {
+    console.info('[entity-graph-sync] no entity mentions in thought', {
       thoughtId: input.thoughtId,
       textLen: input.normalizedText.trim().length,
     })

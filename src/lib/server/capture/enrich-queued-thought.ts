@@ -35,11 +35,9 @@ import {
   type EnforcedContentRole,
 } from '$lib/server/llm/decision-plane'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
-import {
-  extractEntityGraphBundle,
-  shouldRetryEntityMentionExtraction,
-  type ExtractedEntityMention,
-  type ExtractedEntityTriple,
+import type {
+  ExtractedEntityMention,
+  ExtractedEntityTriple,
 } from '$lib/server/memory/entity-extraction'
 import type { EntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
 import { loadEntityGraphEnrichmentContext } from '$lib/server/memory/entity-graph-enrichment-context'
@@ -139,29 +137,10 @@ async function prefetchEnrichExtractions(input: {
     ontologyEntityKinds,
   })
 
-  let entityGraph = bundle.entityGraph
-  if (
-    entityGraph.mentions.length === 0 &&
-    shouldRetryEntityMentionExtraction(normalizedText) &&
-    ontologyEntityKinds.length > 0 &&
-    entityEnrichmentContext
-  ) {
-    console.warn('[enrich-queued] bundle returned zero mentions; entity-only fallback', {
-      userId,
-      textLen: normalizedText.trim().length,
-    })
-    entityGraph = await extractEntityGraphBundle({
-      userId,
-      normalizedText,
-      ontologyEntityKinds,
-      enrichmentContext: entityEnrichmentContext,
-    })
-  }
-
   return {
     category: bundle.category,
     embedding,
-    entityGraph,
+    entityGraph: bundle.entityGraph,
     entityEnrichmentContext,
     recall: { cues: bundle.cues, askQuestion: bundle.askQuestion },
     temporalMentions: bundle.temporalMentions,

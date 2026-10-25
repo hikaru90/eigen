@@ -37,7 +37,6 @@ import {
 } from '$lib/server/graph/age'
 import { maybeNotifyGroundingQuestionPush } from '$lib/server/grounding/notify-question'
 import { detectAndCreateProjectFromThought } from '$lib/server/memory/detect-project-from-thought'
-import { shouldRetryEntityMentionExtraction } from '$lib/server/memory/entity-extraction'
 import type {
   ExtractedEntityMention,
   ExtractedEntityTriple,
@@ -187,11 +186,6 @@ export async function enrichThought(
         }),
       )
       projectLikeEntities = entitySync.projectLikeEntities
-      if (entitySync.mentionCount === 0 && shouldRetryEntityMentionExtraction(normalizedText)) {
-        throw new Error(
-          `entity graph sync produced zero mentions (${normalizedText.trim().length} chars)`,
-        )
-      }
     }),
 
     time('enrich_cues', async () => {

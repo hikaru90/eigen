@@ -445,22 +445,51 @@ describe('enrichThought', () => {
     expect(enrichedAtCall).toBeDefined()
   })
 
-  it('clears enriched_at when entity sync fails on substantive text', async () => {
+  it('completes enrichment when the LLM finds no entities in entity-free text over the old length gate', async () => {
     const db = makeDb()
     getDbMock.mockReturnValue(db)
     syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] })
-    const longText =
-      'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.'
+    const entityFreeText =
+      'Could you help me improve the language in this short reflective piece so it flows more smoothly and paints a sharper picture?'
 
-    await expect(enrichThought('u1', 't1', longText)).rejects.toThrow(/Enrichment step\(s\) failed/)
+    await expect(enrichThought('u1', 't1', entityFreeText)).resolves.toBeUndefined()
 
     const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
     const enrichedAtSet = setCalls.find(
       (args: unknown[]) =>
         args[0] &&
         typeof args[0] === 'object' &&
-        'enrichedAt' in (args[0] as Record<string, unknown>) &&
-        (args[0] as { enrichedAt?: unknown }).enrichedAt !== null,
+        (args[0] as { enrichedAt?: unknown }).enrichedAt instanceof Date,
+    )
+    expect(enrichedAtSet).toBeDefined()
+    const cleared = setCalls.find(
+      (args: unknown[]) =>
+        args[0] &&
+        typeof args[0] === 'object' &&
+        (args[0] as { enrichedAt?: unknown }).enrichedAt === null,
+    )
+    expect(cleared).toBeUndefined()
+    expect(extractRecallCuesMock).toHaveBeenCalled()
+    expect(syncTemporalEventsFromThoughtMock).toHaveBeenCalled()
+  })
+
+  it('clears enriched_at and fails when entity extraction throws', async () => {
+    const db = makeDb()
+    getDbMock.mockReturnValue(db)
+    syncEntityGraphFromThoughtMock.mockRejectedValue(new Error('LLM gateway 502'))
+    const longText =
+      'Could you help me improve the language in this short reflective piece so it flows more smoothly and paints a sharper picture?'
+
+    await expect(enrichThought('u1', 't1', longText)).rejects.toThrow(
+      /Enrichment step\(s\) failed:.*entities: LLM gateway 502/,
+    )
+
+    const setCalls = (db.update().set as ReturnType<typeof vi.fn>).mock.calls
+    const enrichedAtSet = setCalls.find(
+      (args: unknown[]) =>
+        args[0] &&
+        typeof args[0] === 'object' &&
+        (args[0] as { enrichedAt?: unknown }).enrichedAt instanceof Date,
     )
     expect(enrichedAtSet).toBeUndefined()
     const cleared = setCalls.find(
@@ -562,7 +591,7 @@ describe('enrichThought', () => {
     const db = makeDb({ updateThrowsOnEnrichedAtNull: true })
     getDbMock.mockReturnValue(db)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] })
+    syncEntityGraphFromThoughtMock.mockRejectedValue(new Error('entity sync boom'))
     const longText =
       'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.'
 
@@ -770,7 +799,7 @@ describe('enrichThought', () => {
     const db = makeDb({ updateThrowsReasonOnCall: { 3: 'clear failed' } })
     getDbMock.mockReturnValue(db)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    syncEntityGraphFromThoughtMock.mockResolvedValue({ mentionCount: 0, projectLikeEntities: [] })
+    syncEntityGraphFromThoughtMock.mockRejectedValue(new Error('entity sync boom'))
     const longText =
       'MIS TLIF L4-L5 after intraoperative AP fluoroscopy degraded. StealthArray navigation: registration anchored on paired L4 transverse processes with RMS error 1.6 mm.'
 
