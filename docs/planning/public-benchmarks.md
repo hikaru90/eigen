@@ -1,4 +1,4 @@
-# Public benchmarks: PersonaMem-v2 and MemoryAgentBench Conflict Resolution
+# Public benchmark: PersonaMem-v2
 
 Status: **approved — decisions D1–D7 confirmed by the operator** (2026-10-25). Written so that an implementation
 agent can pick up any phase cold. Read §0–§2 first, then only the phase you were given.
@@ -6,9 +6,8 @@ agent can pick up any phase cold. Read §0–§2 first, then only the phase you 
 | Claim we want to make | Benchmark | Headline metric |
 | --- | --- | --- |
 | "Eigen knows you" | PersonaMem-v2 (text, 32k histories) | 4-option MCQ accuracy, broken down by `pref_type` |
-| "Eigen is always up to date" | MemoryAgentBench → `Conflict_Resolution` (FactConsolidation SH + MH) | Substring exact match (SubEM), SH and MH reported separately |
 
-Both run through the **real product path**: `queueCapture` → enrich → `composeAnswer`. No
+It runs through the **real product path**: `queueCapture` → enrich → `composeAnswer`. No
 benchmark-specific prompts, branches or heuristics inside `src/`. Anything that only exists to talk
 to a benchmark lives under `evals/`.
 
@@ -81,12 +80,12 @@ These come from `AGENTS.md`; the ones below are the ones most likely to be viola
 
 | ID | Decision | Proposal | Why |
 | --- | --- | --- | --- |
-| D1 | Models (**revised 2026-10-25**) | Every benchmark runs **twice**, once per chat model: `openai/gpt-4o-mini` (comparability) and the shipped `PLATFORM_CHAT_MODEL` (`deepseek/deepseek-v4.1-flash-1017`, "Eigen as shipped"). One chat model per run drives the whole pipeline (capture, enrich, `composeAnswer`) **and** the benchmark's choose/extract step, selected with the required flag `--chat-model`. The embedding model stays the pinned `PLATFORM_EMBEDDING_MODEL` in both runs (stored vectors are 1536-d; changing it would mean re-embedding). Needs the eval-only override from Phase 0b (§3b). | MemoryAgentBench's published baselines (Mem0, Zep, HippoRAG-v2, BM25 …) use gpt-4o-mini as backbone, so the gpt-4o-mini run is the comparable one; the deepseek run shows whether the shipped model changes the result. Summaries state the chat model in the title. |
+| D1 | Models (**revised 2026-10-25**) | Every benchmark runs **twice**, once per chat model: `openai/gpt-4o-mini` (comparability) and the shipped `PLATFORM_CHAT_MODEL` (`deepseek/deepseek-v4.1-flash-1017`, "Eigen as shipped"). One chat model per run drives the whole pipeline (capture, enrich, `composeAnswer`) **and** the benchmark's choose/extract step, selected with the required flag `--chat-model`. The embedding model stays the pinned `PLATFORM_EMBEDDING_MODEL` in both runs (stored vectors are 1536-d; changing it would mean re-embedding). Needs the eval-only override from Phase 0b (§3b). | gpt-4o-mini is the common backbone in published memory-system comparisons (Mem0, Zep, HippoRAG-v2 …), so it is the comparable run; the deepseek run shows whether the shipped model changes the result. Summaries state the chat model in the title. |
 | D2 | PersonaMem persona system message | **Exclude.** Each 32k history starts with a `system` message holding the persona's demographics (no preferences). Eigen learns from what the user says, not from a profile dump. | Harder and more honest; report it in the summary. |
 | D3 | PersonaMem capture granularity | One capture per **user** turn; assistant turns and the system message are not captured. `capturedAt = 2025-01-01T00:00Z + userTurnIndex days`, `referenceTime` = last turn + 1 day (histories have no dates; order matters for `updated` preferences, and `composeAnswer` shows memory dates by day, so minute spacing would hide the order; ≤ 136 turns stays under the 6-month staleness threshold). The chooser sees the same `stored YYYY-MM-DD` dates. | Mirrors LongMemEval `user-turn` mode, which is the adapter's default. |
-| D4 | MAB fact capture | One capture per fact sentence, **serial number stripped**, `capturedAt = 2025-01-01T00:00Z + serial × <step>`. Recency is conveyed only by time, like a real user. **Open for Phase 2:** the step must survive `composeAnswer`'s day-granular `stored=` dates (minutes collapse to one date) without pushing old facts past the 6-month staleness flag (2,310 facts × 1 day ≈ 6 years) — decide before Phase 2 starts. | The official long-context prompt tells the model "larger serial = newer". We deliberately give Eigen less: it must know newer from older by itself. Documented as a protocol deviation (conservative). |
-| D5 | MAB context lengths | Pilot and headline on **6k** (455 facts) and **32k** (2,310 facts). 64k/262k out of scope for v1 (4,580 / 18,332 captures). | Third-party comparisons publish sh/mh × 6k/32k. |
-| D6 | Enrich concurrency within one tenant | `--enrich-concurrency 1` for both benchmarks (order-faithful). Parallelism comes from running tenants (personas) side by side: `--tenant-concurrency`. | Supersession/contradiction relations are computed at enrich time against existing thoughts; racing enrich is not how a real user's memory grows. Record the value in every summary. |
+| D4 | — | Dropped with MemoryAgentBench (§6). | |
+| D5 | — | Dropped with MemoryAgentBench (§6). | |
+| D6 | Enrich concurrency within one tenant | `--enrich-concurrency 1` (order-faithful). Parallelism comes from running tenants (personas) side by side: `--tenant-concurrency`. | Supersession/contradiction relations are computed at enrich time against existing thoughts; racing enrich is not how a real user's memory grows. Record the value in every summary. |
 | D7 | Consolidation (nightly sleep job) | Not run in v1. | Benchmarks measure capture-time behaviour; add `--consolidate` later if wanted. |
 
 ---
@@ -314,8 +313,6 @@ curl -L -o evals/.data/personamem-v2/benchmark/text/benchmark.csv https://huggin
 python3 -I evals/personamem/prepare.py --data-dir evals/.data/personamem-v2
 ```
 
-MemoryAgentBench CR: `curl -L -o evals/.data/memoryagentbench/Conflict_Resolution.parquet https://huggingface.co/datasets/ai-hyz/MemoryAgentBench/resolve/main/data/Conflict_Resolution-00000-of-00001.parquet` (1.5 MB).
-
 ### 5.2 Run ladder (each step must be green and reviewed before the next)
 
 PersonaMem-v2 commands (operator runs these; run each step for both models, D1):
@@ -357,79 +354,11 @@ publish a subset number as if it were the full benchmark.
 
 ---
 
-## 6. Phase 2 — MemoryAgentBench Conflict Resolution ("always up to date")
+## 6. Dropped: MemoryAgentBench Conflict Resolution
 
-Start only after Phase 1's pilot has run (shared harness proven).
-
-### 6.1 Dataset facts (verified by downloading, 2026-10-25)
-
-- HF `ai-hyz/MemoryAgentBench` (MIT), split `Conflict_Resolution`, file
-  `data/Conflict_Resolution-00000-of-00001.parquet` (1.5 MB), **8 rows**: `metadata.source` ∈
-  `factconsolidation_{sh,mh}_{6k,32k,64k,262k}`. Code: github.com/HUST-AI-HYZ/MemoryAgentBench.
-- Each row: `context` = `"Here is a list of facts:\n0. <fact>\n1. <fact>…"` (6k: 455 facts,
-  32k: 2,310), `questions` (100 strings), `answers` (100 lists of acceptable strings),
-  `metadata.qa_pair_ids` (e.g. `factconsolidation_sh_6k_no0`).
-- **SH and MH rows of the same length share an identical `context`** → ingest once per length,
-  answer 200 questions (100 SH + 100 MH) against the same tenant.
-- Facts are counterfactual edits: e.g. `59. pesäpallo was created in the country of Finland.` then
-  `261. pesäpallo was created in the country of Philippines.` — the newer one is correct.
-  SH: "Which sport is goaltender associated with?" → `pesäpallo`. MH chains 2–4 hops
-  ("country of citizenship of the spouse of the author of Our Mutual Friend?" → `Belgium`).
-  Answers often contradict world knowledge on purpose.
-- Metric (`utils/eval_other_utils.py`): `calculate_metrics` → `substring_exact_match` =
-  `normalize_answer(gt) in normalize_answer(pred)`, max over ground truths; `normalize_answer` is
-  the SQuAD normalizer (lowercase, strip punctuation, drop articles a/an/the, collapse whitespace).
-  `exact_match` is reported alongside.
-- Published (gpt-4o-mini backbone): SH — HippoRAG-v2 54%, BM25 48%, Mem0 18%, Zep 7%; MH ≤ 7% for
-  all 22 systems evaluated in a follow-up study. Confirm exact numbers from the paper table before
-  quoting them publicly.
-
-### 6.2 Mapping to Eigen
-
-```
-parquet ─► prepare.py (pyarrow, in a scratch venv) ─► mab-cr.jsonl { source, length, hop, facts[{serial,text}], qas[{id,question,answers[]}] }
-per length L ∈ {6k, 32k}:  tenant public-bench-mab-cr-<modelSlug>-<L>
-  facts ─► ingestTenant (D4: no serial in text, capturedAt = epoch + serial min; D6)
-  for each of the 200 questions (sh + mh):
-     composeAnswer({ userId: tenant, question })            ← product path, question verbatim
-     extract-answer LLM call (JSON schema { answer: string })
-        "the single value the response commits to as current; empty string if it does not commit"
-     score: SubEM + EM on extracted answer (headline); SubEM on raw answer (reported, not headline)
-```
-
-The extract step exists because substring matching on a verbose answer that mentions both the
-old and the new value would count as correct. Headline uses the extracted, committed answer.
-
-### 6.3 Files, CLI, tests
-
-```
-evals/memoryagentbench/
-  prepare.py  types.ts  load-dataset.ts  facts-to-captures.ts
-  normalize.ts            # exact port of SQuAD normalize_answer + EM/SubEM, max over ground truths
-  extract-answer.ts  score.ts  cli.ts  run.ts
-```
-
-`npm run eval:mab-cr -- --data-dir … --lengths 6k,32k --chat-model … --enrich-concurrency 1 [--hops sh,mh] [--limit-questions N] [--skip-ingest] [--resume] [--dry-run]`
-
-Tests first:
-- `normalize.spec.ts`: test vectors computed once with the official Python function and pasted as
-  literals (articles, punctuation, unicode like `pesäpallo`, whitespace); SubEM max over ground truths.
-- `facts-to-captures.spec.ts`: parses `N. text` lines, strips serials, monotonic `capturedAt`,
-  refuses a non-contiguous serial or a header-less context.
-- `load-dataset.spec.ts`: SH/MH of one length grouped onto one shared tenant; mismatched contexts → error.
-- `score.spec.ts`: hand-computed fixture → per-hop SubEM/EM, raw-vs-extracted columns.
-- `cli.spec.ts`, `extract-answer.spec.ts` (fake LLM; non-string → throws).
-
-Run ladder: dry run → smoke (`--lengths 6k --limit-questions 10`, ~455 captures, ≈ $0.50, ~1–3 h
-serial enrich) → headline (6k + 32k, 400 questions, ≈ $5–8, ~1 day of serial enrich for 32k; run
-6k first). Risk: **high**.
-
-Expected weak spots to report, not patch: MH chains (everyone fails), counterfactual facts vs. the
-answer model's world knowledge, and whether enrich-time contradiction relations
-(`src/lib/server/memory/relation-extraction.ts`, surfaced as `composeAnswer().conflicts`) actually
-fire for "X was created in country A" → "… country B".
-
----
+Dropped by the operator on 2026-10-25. It feeds a pre-numbered list of world facts, not a
+conversation with a user, so it does not match how Eigen is used, and its serial ingest (up to
+2,310 captures per tenant) takes too long. The scope is PersonaMem-v2 only.
 
 ## 7. Handoff briefs
 
@@ -442,15 +371,13 @@ Each brief is self-contained; give the implementing agent this file path plus on
   of the Phase 0 helpers. Read §0–§2 first; decisions D1–D3, D6 are fixed. Tests first. You may run
   `--dry-run` only. Do not commit. Report: files changed, test output, dry-run output, open
   questions."
-- **Phase 2 brief:** same for §6 (MemoryAgentBench CR), decisions D1, D4–D6.
 
 ## 8. Requirement record
 
 - **REQ-PB-1 (PersonaMem-v2):** In scope — text split, 32k histories, MCQ accuracy, `eigen` and
   `no-memory` variants. Out of scope — multimodal split, 128k histories, generative/open-ended
   judging, training splits, product changes.
-- **REQ-PB-2 (MAB CR):** In scope — FactConsolidation SH+MH at 6k and 32k, SubEM/EM. Out of scope —
-  64k/262k, other MemoryAgentBench competencies, product changes.
+- **REQ-PB-2 (MAB CR):** dropped 2026-10-25 (§6).
 - Acceptance (both):
   - *Given* prepared data and valid env, *when* the operator runs `--dry-run`, *then* the plan
     (tenants, captures, questions, est. USD) prints and nothing touches DB or LLM.

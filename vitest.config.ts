@@ -16,7 +16,6 @@ export default mergeConfig(
         'evals/graph-scale/**/*.{test,spec}.{js,ts}',
         'evals/public-bench/**/*.{test,spec}.{js,ts}',
         'evals/personamem/**/*.{test,spec}.{js,ts}',
-        'evals/memoryagentbench/**/*.{test,spec}.{js,ts}',
         'evals/longmemeval/**/*.{test,spec}.{js,ts}',
         'scripts/**/*.{test,spec}.{js,ts}',
       ],
