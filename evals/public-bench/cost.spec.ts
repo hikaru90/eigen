@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../harness/eval-context', () => ({ withEvalDb: vi.fn() }))
 
-import { aggregateRunCost } from './cost'
+import { aggregateRunCost, tenantTotalUsd } from './cost'
 
 const row = (operation: string, totalCostUsd: string, durationMs: number | null = 100) => ({
   operation,
@@ -71,5 +71,13 @@ describe('aggregateRunCost', () => {
         loadRows,
       }),
     ).rejects.toThrow(/window/)
+  })
+})
+
+describe('tenantTotalUsd', () => {
+  it("is the tenant's whole spend as a number", async () => {
+    const loadRows = vi.fn(async () => [row('enrich', '0.001500'), row('answer', '0.002500')])
+    expect(await tenantTotalUsd('t1', loadRows)).toBeCloseTo(0.004, 9)
+    expect(loadRows).toHaveBeenCalledWith('t1', new Date(0), new Date('2999-12-31T00:00:00Z'))
   })
 })

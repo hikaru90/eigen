@@ -1,11 +1,15 @@
 import { resolve } from 'node:path'
 import { assertEvalChatModel } from '$lib/server/llm/eval-chat-model'
+import { INGEST_MODES, type IngestMode } from './types'
 
 export const PERSONAMEM_USAGE = `Usage: npm run eval:personamem -- [options]
 
 Required:
   --data-dir DIR            Contains personamem.benchmark.jsonl (from prepare.py) and data/chat_history_32k
-  --chat-model MODEL        vendor/name; drives capture, enrich, composeAnswer and the chooser (e.g. openai/gpt-4o-mini)
+  --chat-model MODEL        vendor/name; drives Ask / capture, enrich, composeAnswer and the chooser (e.g. openai/gpt-4o-mini)
+  --ingest ask|capture      How each persona's user turns reach Eigen (no default):
+                              ask     replay every user turn through one Ask chat session; Ask decides what to store
+                              capture queue every user turn as a Capture (the original path)
   --tenant-concurrency N    Personas processed side by side
   --enrich-concurrency N    Enrich workers within one persona (1 = strictly incremental, D6)
   exactly one of:
@@ -15,8 +19,9 @@ Required:
 
 Optional:
   --run-id NAME             Run directory name (evals/reports/public/personamem-v2/NAME); required with --resume
-  --resume                  Continue an existing run directory; answered questions are skipped
-  --skip-ingest             Reuse existing tenants (fails if a tenant does not hold exactly the planned captures)
+  --resume                  Continue an existing run directory (same --ingest required); answered questions are skipped.
+                            --ingest ask resumes per persona: a persona whose replay did not finish is replayed from scratch
+  --skip-ingest             Reuse existing tenants (--ingest capture only; fails if a tenant does not hold exactly the planned captures)
   --limit-queries N         At most N queries per persona
   --dry-run                 Print the plan and exit; touches no database and no LLM
 `
@@ -36,6 +41,7 @@ export type PersonaMemCli = {
   chatModel: string
   tenantConcurrency: number
   enrichConcurrency: number
+  ingest: IngestMode
   selection: PersonaSelection
   runId: string | null
   resume: boolean
@@ -49,6 +55,7 @@ const VALUE_FLAGS = new Set([
   '--chat-model',
   '--tenant-concurrency',
   '--enrich-concurrency',
+  '--ingest',
   '--personas',
   '--seed',
   '--persona-ids',
@@ -125,6 +132,19 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     requireValue(values, '--enrich-concurrency'),
   )
 
+  const ingestRaw = requireValue(values, '--ingest')
+  const ingest = INGEST_MODES.find((mode) => mode === ingestRaw)
+  if (ingest === undefined) {
+    throw new PersonaMemUsageError(
+      `--ingest must be one of ${INGEST_MODES.join(', ')}, got: ${JSON.stringify(ingestRaw)}`,
+    )
+  }
+  if (ingest === 'ask' && flags.has('--skip-ingest')) {
+    throw new PersonaMemUsageError(
+      '--skip-ingest is only valid with --ingest capture (an Ask replay has no fixed thought count to verify a reused tenant against)',
+    )
+  }
+
   const chosen = [values.has('--personas'), values.has('--persona-ids'), flags.has('--all')].filter(
     Boolean,
   )
@@ -168,6 +188,7 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     chatModel,
     tenantConcurrency,
     enrichConcurrency,
+    ingest,
     selection,
     runId,
     resume,

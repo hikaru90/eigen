@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   appendJsonl,
+  removeJsonlRows,
   readJsonl,
   readJsonlIds,
   resolveRunDir,
@@ -133,5 +134,17 @@ describe('writeSummary', () => {
       sections: [{ heading: 'x', table: { columns: ['a', 'b'], rows: [['only-one']] } }],
     }
     expect(() => writeSummary(join(root, 'run2'), bad)).toThrow(/row/)
+  })
+})
+
+describe('removeJsonlRows', () => {
+  it('drops matching rows, keeps the rest in order, and is a no-op for a missing file', () => {
+    const path = join(root, 'turns.jsonl')
+    removeJsonlRows(path, () => true)
+    appendJsonl(path, { personaId: 1, n: 0 })
+    appendJsonl(path, { personaId: 2, n: 0 })
+    appendJsonl(path, { personaId: 1, n: 1 })
+    removeJsonlRows(path, (row) => row.personaId === 1)
+    expect(readJsonl(path)).toEqual([{ personaId: 2, n: 0 }])
   })
 })

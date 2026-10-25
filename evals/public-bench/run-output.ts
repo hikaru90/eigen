@@ -86,6 +86,16 @@ export function readJsonl(path: string): Record<string, unknown>[] {
   return readJsonlEntries(path).map((entry) => entry.row)
 }
 
+/** Rewrites a JSONL file without the rows `drop` matches; a missing file stays missing. */
+export function removeJsonlRows(
+  path: string,
+  drop: (row: Record<string, unknown>) => boolean,
+): void {
+  if (!existsSync(path)) return
+  const kept = readJsonl(path).filter((row) => !drop(row))
+  writeFileSync(path, kept.map((row) => `${JSON.stringify(row)}\n`).join(''))
+}
+
 /** Ids already written to a JSONL file (for `--resume`). */
 export function readJsonlIds(path: string, idField: string): Set<string> {
   const ids = new Set<string>()

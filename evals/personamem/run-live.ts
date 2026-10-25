@@ -1,52 +1,42 @@
 /**
- * PersonaMem-v2 live path: ingest each persona's user turns into its own tenant, ask every
+ * PersonaMem-v2 live path: ingest each persona's user turns into its own tenant (`--ingest ask`:
+ * replayed through one Ask chat session; `--ingest capture`: queued as captures), ask every
  * query through composeAnswer, let the chosen chat model pick an option with and without
- * Eigen's memories, write answers.jsonl and the summary. Loaded only for real runs (the dry
- * run never imports this module). Agents do not run it; the operator does.
+ * Eigen's memories, write answers.jsonl (and ask-turns.jsonl) and the summary. Loaded only for real
+ * runs (the dry run never imports this module). Agents do not run it; the operator does.
  */
 import 'dotenv/config'
 import type { PersonaMemCli } from './cli'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
 import { PUBLIC_BENCH_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
 import { composeAnswer, formatComposedAnswerForUser } from '$lib/server/qa/compose-answer'
 import { mapWithConcurrency } from '../harness/concurrency'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
-import { aggregateRunCost } from '../public-bench/cost'
+import { tenantTotalUsd } from '../public-bench/cost'
 import { ensurePublicBenchOperator } from '../public-bench/ensure-operator'
 import { ingestTenant } from '../public-bench/ingest-tenant'
 import { modelSlug } from '../public-bench/model-slug'
-import { appendJsonl, readJsonl, resolveRunDir, writeSummary } from '../public-bench/run-output'
+import { appendJsonl, readJsonl, removeJsonlRows, writeSummary } from '../public-bench/run-output'
+import { ingestTenantViaAsk } from './ask-ingest'
 import { chooseOption, llmComplete } from './choose-option'
+import { chooseFromComposed, storedContextItems } from './eigen-answer'
 import { buildChooserMessages } from './mcq'
 import { buildPlan, type Plan, type PlannedPersona, type PlannedQuestion } from './plan'
+import { openRun, type RunIdentity, type RunPaths } from './run-meta'
 import { scoreAnswers } from './score'
 import { buildSummary } from './summary'
-import { answerRowSchema, type AnswerRow } from './types'
-
-const BENCH = 'personamem-v2'
+import { answerRowSchema, askTurnRecordSchema, type AnswerRow, type AskTurnRecord } from './types'
 
 const ingestRecordSchema = z.object({
   personaId: z.number().int(),
   tenantUserId: z.string(),
-  captures: z.number().int().positive(),
+  /** Captures made: one per user turn (capture mode) or Ask's own capture_thought calls (ask mode, may be 0). */
+  captures: z.number().int().nonnegative(),
   usd: z.number().nonnegative(),
   ms: z.number().nonnegative(),
 })
 type IngestRecord = z.infer<typeof ingestRecordSchema>
-
-const runMetaSchema = z.object({
-  startedAt: z.string(),
-  identity: z.object({
-    chatModel: z.string(),
-    personaIds: z.array(z.number().int()),
-    limitQueries: z.number().int().nullable(),
-    enrichConcurrency: z.number().int(),
-  }),
-})
-type RunMeta = z.infer<typeof runMetaSchema>
 
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6
 
@@ -60,65 +50,9 @@ function parseRows<T>(label: string, rows: Record<string, unknown>[], schema: z.
   })
 }
 
-/** Every USD the tenant's activity log holds; a tenant is wiped on ingest, so this is its own spend. */
-async function tenantTotalUsd(tenantUserId: string): Promise<number> {
-  const cost = await aggregateRunCost({
-    tenantUserIds: [tenantUserId],
-    from: new Date(0),
-    to: new Date('2999-12-31T00:00:00Z'),
-  })
-  return Number(cost.totalUsd)
-}
-
 function gitState(): { sha: string; dirty: boolean } {
   const git = (args: string[]) => execFileSync('git', args, { encoding: 'utf8' }).trim()
   return { sha: git(['rev-parse', 'HEAD']), dirty: git(['status', '--porcelain']).length > 0 }
-}
-
-type RunPaths = { dir: string; answers: string; ingest: string; meta: string }
-
-function openRun(
-  cli: PersonaMemCli,
-  plan: Plan,
-): { paths: RunPaths; meta: RunMeta; runId: string } {
-  const runId =
-    cli.runId ?? `${modelSlug(cli.chatModel)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
-  const dir = resolveRunDir({ bench: BENCH, runId })
-  const paths: RunPaths = {
-    dir,
-    answers: join(dir, 'answers.jsonl'),
-    ingest: join(dir, 'ingest.jsonl'),
-    meta: join(dir, 'run.json'),
-  }
-  const identity: RunMeta['identity'] = {
-    chatModel: cli.chatModel,
-    personaIds: plan.personas.map((p) => p.personaId),
-    limitQueries: cli.limitQueries,
-    enrichConcurrency: cli.enrichConcurrency,
-  }
-
-  if (cli.resume) {
-    if (!existsSync(paths.meta))
-      throw new Error(`[personamem] cannot resume: ${paths.meta} not found`)
-    const saved = runMetaSchema.parse(JSON.parse(readFileSync(paths.meta, 'utf8')))
-    if (JSON.stringify(saved.identity) !== JSON.stringify(identity)) {
-      throw new Error(
-        `[personamem] cannot resume ${runId}: this invocation differs from the original run\n` +
-          `  original: ${JSON.stringify(saved.identity)}\n  now:      ${JSON.stringify(identity)}`,
-      )
-    }
-    return { paths, meta: saved, runId }
-  }
-
-  if (existsSync(paths.meta) || existsSync(paths.answers)) {
-    throw new Error(
-      `[personamem] run directory ${dir} already exists; use --resume or another --run-id`,
-    )
-  }
-  const meta: RunMeta = { startedAt: new Date().toISOString(), identity }
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(paths.meta, `${JSON.stringify(meta, null, 2)}\n`)
-  return { paths, meta, runId }
 }
 
 /** Question ids with both variants written; a lone variant means a damaged run. */
@@ -168,17 +102,7 @@ async function answerQuestion(
         question: row.query,
         referenceTime: persona.referenceTime,
       })
-      const letter = await chooseOption({
-        messages: buildChooserMessages({
-          query: row.query,
-          options,
-          memories: composed.retrieved.map((item) => ({
-            text: item.normalizedText,
-            storedAt: item.createdAt,
-          })),
-        }),
-        complete,
-      })
+      const letter = await chooseFromComposed({ composed, query: row.query, options, complete })
       return { composed, letter }
     },
     billing,
@@ -219,12 +143,8 @@ async function answerQuestion(
     letter: eigen.letter,
     correct: eigen.letter === correctLetter,
     eigenAnswer: formatComposedAnswerForUser(eigen.composed.answer),
-    retrieved: eigen.composed.retrieved.map((item) => ({
-      id: item.id,
-      normalizedText: item.normalizedText,
-      score: item.score,
-      createdAt: item.createdAt.toISOString(),
-    })),
+    retrieved: storedContextItems(eigen.composed),
+    citedIds: eigen.composed.retrieved.map((item) => item.id),
     usd: usdOf(usdBefore, usdAfterEigen),
     ms: eigenMs,
   })
@@ -256,21 +176,42 @@ async function runPersona(ctx: RunContext, persona: PlannedPersona): Promise<voi
   const tenant = persona.tenantUserId
   const reset = !ctx.cli.skipIngest && !ctx.ingestedPersonaIds.has(persona.personaId)
   const ingestStart = Date.now()
-  await ingestTenant({
-    tenantUserId: tenant,
-    billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
-    chatModel: ctx.cli.chatModel,
-    items: persona.captures,
-    enrichConcurrency: ctx.cli.enrichConcurrency,
-    reset,
-  })
+  let ingestedCaptures: number
+  if (ctx.cli.ingest === 'ask') {
+    // Persona granularity: a persona without an ingest record is replayed from scratch, so its
+    // turn rows from an interrupted attempt are dropped first. (--skip-ingest is rejected by the CLI.)
+    ingestedCaptures = 0
+    if (reset) {
+      removeJsonlRows(ctx.paths.askTurns, (row) => row.personaId === persona.personaId)
+      const records = await ingestTenantViaAsk({
+        tenantUserId: tenant,
+        personaId: persona.personaId,
+        billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
+        chatModel: ctx.cli.chatModel,
+        turns: persona.captures,
+        enrichConcurrency: ctx.cli.enrichConcurrency,
+        onTurn: (record) => appendJsonl(ctx.paths.askTurns, askTurnRecordSchema.parse(record)),
+      })
+      ingestedCaptures = records.reduce((sum, r) => sum + r.captures, 0)
+    }
+  } else {
+    await ingestTenant({
+      tenantUserId: tenant,
+      billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
+      chatModel: ctx.cli.chatModel,
+      items: persona.captures,
+      enrichConcurrency: ctx.cli.enrichConcurrency,
+      reset,
+    })
+    ingestedCaptures = persona.captures.length
+  }
 
   let usd = await tenantTotalUsd(tenant)
   if (reset) {
     const record: IngestRecord = {
       personaId: persona.personaId,
       tenantUserId: tenant,
-      captures: persona.captures.length,
+      captures: ingestedCaptures,
       usd: round6(usd),
       ms: Date.now() - ingestStart,
     }
@@ -280,12 +221,35 @@ async function runPersona(ctx: RunContext, persona: PlannedPersona): Promise<voi
   for (const question of pending) usd = await answerQuestion(ctx, persona, question, usd)
 }
 
+/** Every planned persona that has an ingest record must hold exactly one turn record per user turn. */
+function assertAskTurnsComplete(
+  plan: Plan,
+  askTurns: readonly AskTurnRecord[],
+  ingestRecords: readonly IngestRecord[],
+): void {
+  const ingested = new Set(ingestRecords.map((r) => r.personaId))
+  for (const persona of plan.personas) {
+    if (!ingested.has(persona.personaId)) {
+      throw new Error(
+        `[personamem] persona ${persona.personaId} has no ingest record; run is incomplete`,
+      )
+    }
+    const turns = askTurns.filter((t) => t.personaId === persona.personaId)
+    const indexes = turns.map((t) => t.turn).sort((a, b) => a - b)
+    if (indexes.length !== persona.captures.length || indexes.some((n, i) => n !== i)) {
+      throw new Error(
+        `[personamem] ask-turns.jsonl holds ${indexes.length} turn record(s) for persona ${persona.personaId}, expected ${persona.captures.length}; run is damaged`,
+      )
+    }
+  }
+}
+
 async function run(cli: PersonaMemCli): Promise<void> {
   const startedMs = Date.now()
   const plan = buildPlan(cli)
   logEval(
-    `PersonaMem-v2: ${plan.totals.personas} persona(s), ${plan.totals.captures} capture(s), ` +
-      `${plan.totals.queries} query(ies), chat model ${cli.chatModel}`,
+    `PersonaMem-v2 (--ingest ${cli.ingest}): ${plan.totals.personas} persona(s), ` +
+      `${plan.totals.captures} user turn(s), ${plan.totals.queries} query(ies), chat model ${cli.chatModel}`,
   )
 
   const models = await ensurePublicBenchOperator({
@@ -294,7 +258,16 @@ async function run(cli: PersonaMemCli): Promise<void> {
     chatModel: cli.chatModel,
   })
 
-  const { paths, meta, runId } = openRun(cli, plan)
+  const runId =
+    cli.runId ?? `${modelSlug(cli.chatModel)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  const identity: RunIdentity = {
+    chatModel: cli.chatModel,
+    ingest: cli.ingest,
+    personaIds: plan.personas.map((p) => p.personaId),
+    limitQueries: cli.limitQueries,
+    enrichConcurrency: cli.enrichConcurrency,
+  }
+  const { paths, meta } = openRun({ runId, identity, resume: cli.resume })
   const existing = parseRows('answers.jsonl', readJsonl(paths.answers), answerRowSchema)
   const ctx: RunContext = {
     cli,
@@ -333,6 +306,11 @@ async function run(cli: PersonaMemCli): Promise<void> {
   const score = scoreAnswers(rows, distanceByQuestionId)
 
   const ingestRecords = parseRows('ingest.jsonl', readJsonl(paths.ingest), ingestRecordSchema)
+  const askTurns =
+    cli.ingest === 'ask'
+      ? parseRows('ask-turns.jsonl', readJsonl(paths.askTurns), askTurnRecordSchema)
+      : []
+  if (cli.ingest === 'ask') assertAskTurnsComplete(plan, askTurns, ingestRecords)
   const git = gitState()
   writeSummary(
     paths.dir,
@@ -356,6 +334,8 @@ async function run(cli: PersonaMemCli): Promise<void> {
         modelEmbedding: models.modelEmbedding,
       },
       score,
+      ingestMode: cli.ingest,
+      askTurns,
       ingest: {
         usd: ingestRecords.reduce((sum, r) => sum + r.usd, 0),
         captures: ingestRecords.reduce((sum, r) => sum + r.captures, 0),

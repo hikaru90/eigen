@@ -70,3 +70,17 @@ export async function aggregateRunCost(input: {
 
   return { ...aggregateActivityCostFromRows(allRows), byTenantUsd }
 }
+
+/** Everything the tenant's activity log holds; a bench tenant is wiped on ingest, so this is its own spend. */
+export async function tenantTotalUsd(
+  tenantUserId: string,
+  loadRows?: LoadActivityRows,
+): Promise<number> {
+  const cost = await aggregateRunCost({
+    tenantUserIds: [tenantUserId],
+    from: new Date(0),
+    to: new Date('2999-12-31T00:00:00Z'),
+    ...(loadRows ? { loadRows } : {}),
+  })
+  return Number(cost.totalUsd)
+}

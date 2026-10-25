@@ -11,6 +11,8 @@ const required = [
   '4',
   '--enrich-concurrency',
   '1',
+  '--ingest',
+  'capture',
 ]
 const sample = ['--personas', '20', '--seed', 'pilot-1']
 
@@ -27,6 +29,7 @@ describe('parsePersonaMemCli', () => {
       chatModel: 'openai/gpt-4o-mini',
       tenantConcurrency: 4,
       enrichConcurrency: 1,
+      ingest: 'capture',
       selection: { kind: 'sample', count: 20, seed: 'pilot-1' },
       dryRun: true,
       resume: false,
@@ -36,14 +39,30 @@ describe('parsePersonaMemCli', () => {
     })
   })
 
-  it.each(['--data-dir', '--chat-model', '--tenant-concurrency', '--enrich-concurrency'])(
-    'fails naming %s when it is missing',
-    (flag) => {
-      expect(() => parsePersonaMemCli([...without(required, flag), ...sample])).toThrow(
-        new RegExp(flag),
-      )
-    },
-  )
+  it.each([
+    '--data-dir',
+    '--chat-model',
+    '--tenant-concurrency',
+    '--enrich-concurrency',
+    '--ingest',
+  ])('fails naming %s when it is missing', (flag) => {
+    expect(() => parsePersonaMemCli([...without(required, flag), ...sample])).toThrow(
+      new RegExp(flag),
+    )
+  })
+
+  it('parses --ingest ask and capture, and rejects any other value', () => {
+    expect(parsePersonaMemCli([...required, ...sample]).ingest).toBe('capture')
+    const ask = [...without(required, '--ingest'), '--ingest', 'ask', ...sample]
+    expect(parsePersonaMemCli(ask).ingest).toBe('ask')
+    const bad = [...without(required, '--ingest'), '--ingest', 'both', ...sample]
+    expect(() => parsePersonaMemCli(bad)).toThrow(/--ingest.*ask.*capture/)
+  })
+
+  it('--skip-ingest is only valid with --ingest capture', () => {
+    const ask = [...without(required, '--ingest'), '--ingest', 'ask', ...sample, '--skip-ingest']
+    expect(() => parsePersonaMemCli(ask)).toThrow(/--skip-ingest.*--ingest capture/)
+  })
 
   it('requires exactly one persona selection and names the options', () => {
     expect(() => parsePersonaMemCli(required)).toThrow(/--personas.*--persona-ids.*--all/)

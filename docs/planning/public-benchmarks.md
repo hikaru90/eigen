@@ -376,6 +376,13 @@ notes carry the source `createdAt`; `composeAnswer` returns `context ⊇ retriev
 Smoke again (operator): persona 78, `--ingest ask`, `--limit-queries 5`, gpt-4o-mini, then
 deepseek. Read `summary.md` + how many turns Ask captured before going to the pilot.
 
+```bash
+npm run eval:personamem -- --data-dir evals/.data/personamem-v2 --persona-ids 78 --limit-queries 5 --ingest ask --chat-model openai/gpt-4o-mini --tenant-concurrency 1 --enrich-concurrency 1
+```
+
+Per-turn log: `ask-turns.jsonl` in the run dir (captures, deletes, tools, clock mismatches, USD).
+Every earlier command in §5.2 now also needs `--ingest ask` or `--ingest capture`.
+
 ## 5. Running (operator-owned)
 
 ### 5.1 Data download (once, ~80 MB, into the gitignored `evals/.data/`)

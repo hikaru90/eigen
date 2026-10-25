@@ -4,6 +4,10 @@ export const OPTION_LETTERS = ['A', 'B', 'C', 'D'] as const
 export const optionLetterSchema = z.enum(OPTION_LETTERS)
 export type OptionLetter = z.infer<typeof optionLetterSchema>
 
+export const INGEST_MODES = ['ask', 'capture'] as const
+export const ingestModeSchema = z.enum(INGEST_MODES)
+export type IngestMode = z.infer<typeof ingestModeSchema>
+
 export const VARIANTS = ['eigen', 'no-memory'] as const
 export const variantSchema = z.enum(VARIANTS)
 export type Variant = z.infer<typeof variantSchema>
@@ -68,9 +72,40 @@ export const answerRowSchema = z
     correctLetter: optionLetterSchema,
     correct: z.boolean(),
     eigenAnswer: z.string().optional(),
+    /** Every item Eigen gave its answer model (the chooser saw exactly these), not only the cited ones. */
     retrieved: z.array(retrievedItemSchema).optional(),
+    /** Ids of `retrieved` the answer actually cited. */
+    citedIds: z.array(z.string()).optional(),
     usd: z.number().nonnegative(),
     ms: z.number().nonnegative(),
   })
   .strict()
 export type AnswerRow = z.infer<typeof answerRowSchema>
+
+const count = z.number().int().nonnegative()
+
+/** One line of `ask-turns.jsonl`: what happened in one replayed user turn (`--ingest ask`). */
+export const askTurnRecordSchema = z
+  .object({
+    personaId: z.number().int().nonnegative(),
+    tenantUserId: nonEmpty,
+    /** Zero-based index of the user turn in history order. */
+    turn: count,
+    /** The turn's eval clock (PERSONAMEM_EPOCH + turn days). */
+    clock: z.iso.datetime(),
+    /** Successful `capture_thought` calls Ask made. */
+    captures: count,
+    /** Successful `delete_thought` / `delete_thoughts_by_request` calls Ask made. */
+    deletes: count,
+    toolNames: z.array(nonEmpty),
+    /** Thoughts that exist after the turn and did not before (captures, split/fan-out children). */
+    thoughtsCreated: count,
+    /** Created thoughts whose stored createdAt differs from the turn clock. */
+    clockMismatches: count,
+    askUsd: z.number().nonnegative(),
+    enrichUsd: z.number().nonnegative(),
+    usd: z.number().nonnegative(),
+    ms: z.number().nonnegative(),
+  })
+  .strict()
+export type AskTurnRecord = z.infer<typeof askTurnRecordSchema>

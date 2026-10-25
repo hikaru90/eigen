@@ -64,6 +64,11 @@ describe('dry-run isolation', () => {
     expect([...files].filter((f) => f.includes('/harness/'))).toEqual([])
   })
 
+  it('ask-ingest is never in the static closure of main.ts', () => {
+    const { files } = closure(resolve(import.meta.dirname, 'main.ts'))
+    expect([...files].filter((f) => f.endsWith('/ask-ingest.ts'))).toEqual([])
+  })
+
   it('main.ts reaches the live path only through a dynamic import', () => {
     const source = readFileSync(resolve(import.meta.dirname, 'main.ts'), 'utf8')
     expect(source).toMatch(/await import\('\.\/run-live'\)/)
@@ -95,12 +100,14 @@ describe('dry-run isolation', () => {
           '2',
           '--enrich-concurrency',
           '1',
+          '--ingest',
+          'ask',
           '--all',
           '--dry-run',
         ],
         (line) => lines.push(line),
       )
-      expect(lines.join('\n')).toMatch(/captures: 10/)
+      expect(lines.join('\n')).toMatch(/Ask turns: 10/)
     })
   })
 })
