@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { FAKE_SECRETS } from '$lib/test/secret-fixtures'
 import { DELETE, GET, PATCH } from './+server'
 
 const { deleteTextFileMock, getTextFileMock, updateTextFileMock } = vi.hoisted(() => ({
@@ -126,5 +127,28 @@ describe('DELETE /api/text-files/[fileId]', () => {
     expect(deleteTextFileMock).toHaveBeenCalledWith('u1', 'file-1')
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ deleted: true, textFileId: 'file-1' })
+  })
+})
+
+describe("Notes editor routes keep the user's real text (docs/planning/secret-hygiene.md, Part 2)", () => {
+  it('GET returns the stored body as is: the editor shows the real secret, not a placeholder', async () => {
+    const body = `LLM_API_KEY=${FAKE_SECRETS.openai}`
+    getTextFileMock.mockResolvedValue({ id: 'file-1', title: 'Runbook', body })
+    const res = await GET(getEvent())
+    expect((await res.json()).textFile.body).toBe(body)
+  })
+
+  it('PATCH saves exactly what the user typed: no agent-write flag, no placeholder restoring', async () => {
+    updateTextFileMock.mockClear()
+    updateTextFileMock.mockResolvedValue({ id: 'file-1', title: 'Runbook', body: 'x' })
+    const typed = `LLM_API_KEY=${FAKE_SECRETS.openai} and a literal [redacted secret #1] and [redacted secret]`
+
+    const res = await PATCH(patchEvent({ body: { title: 'Runbook', body: typed } }))
+
+    expect(res.status).toBe(200)
+    // exactly three arguments: the service sees a plain (user) write
+    expect(updateTextFileMock.mock.calls).toEqual([
+      ['u1', 'file-1', { title: 'Runbook', body: typed }],
+    ])
   })
 })

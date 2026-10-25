@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FAKE_SECRETS } from '$lib/test/secret-fixtures'
 import {
   isEmbeddingVectorArray,
   isVectorFieldName,
@@ -69,6 +70,24 @@ describe('sanitizeMcpToolResult', () => {
       thoughts: [{ id: 't1', normalizedText: 'hi', embedding: vec() }],
     }) as { thoughts: Array<Record<string, unknown>> }
     expect(out.thoughts[0]).toEqual({ id: 't1', normalizedText: 'hi' })
+  })
+})
+
+describe('sanitizeMcpToolResult with numbered note placeholders (docs/planning/secret-hygiene.md, Part 2)', () => {
+  const shown = 'LLM_API_KEY=[redacted secret #1]\nGITHUB_TOKEN=[redacted secret #2]'
+
+  it('keeps already-numbered note text exactly as it is, however often it is sanitized', () => {
+    const once = sanitizeMcpToolResult({ textFile: { body: shown, title: 'Runbook' } })
+    expect(once).toEqual({ textFile: { body: shown, title: 'Runbook' } })
+    expect(sanitizeMcpToolResult(once)).toEqual(once)
+  })
+
+  it('still redacts a value that reached a result unnumbered (bare placeholder, never a number)', () => {
+    const out = sanitizeMcpToolResult({
+      textFile: { body: shown, title: `key ${FAKE_SECRETS.githubClassic}` },
+    })
+    expect(out.textFile.title).toBe('key [redacted secret]')
+    expect(out.textFile.body).toBe(shown)
   })
 })
 

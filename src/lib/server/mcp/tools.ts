@@ -47,6 +47,7 @@ import { retrieveThoughtRowsForDeleteRequest } from '$lib/server/retrieval/retri
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
 import { searchThoughts } from '$lib/server/retrieval/service'
 import { readSecretsRedacted, redactedText } from '$lib/server/security/detect-secrets'
+import { assertNoSecretPlaceholders, numberNoteSecrets } from '$lib/server/security/note-secrets'
 import {
   appendTextFile,
   createTextFile,
@@ -634,11 +635,23 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
   }
 }
 
+/**
+ * A note as the chat agent sees it: every secret in the body is `[redacted secret #n]`
+ * (docs/planning/secret-hygiene.md, Part 2), so what it writes back can be restored. The stored
+ * body is never changed.
+ */
+function noteForAgent<T extends { body: string }>(file: T): T {
+  return { ...file, body: numberNoteSecrets(file.body) }
+}
+
 export async function runCreateTextFileTool(context: McpToolContext, args: unknown) {
   const body = asObject(args)
   const rawBody = typeof body.body === 'string' ? body.body : undefined
   const title = typeof body.title === 'string' ? body.title : undefined
   if (!(title?.trim() || rawBody?.trim())) throw new Error('title or body is required')
+  // a new note has no stored secret a placeholder could stand for: never save one
+  if (title !== undefined) assertNoSecretPlaceholders(title)
+  if (rawBody !== undefined) assertNoSecretPlaceholders(rawBody)
   const authorPrefix = typeof body.author === 'string' ? body.author : undefined
   const asUser = body.as_user === true
   const authorship = await resolveMcpCaptureAuthorship({
@@ -651,7 +664,7 @@ export async function runCreateTextFileTool(context: McpToolContext, args: unkno
     body: rawBody,
     authorship,
   })
-  return sanitizeMcpToolResult({ textFileId: textFile.id, textFile })
+  return sanitizeMcpToolResult({ textFileId: textFile.id, textFile: noteForAgent(textFile) })
 }
 
 export async function runListTextFilesTool(context: McpToolContext, args: unknown) {
@@ -666,7 +679,7 @@ export async function runListTextFilesTool(context: McpToolContext, args: unknow
     throw new Error('cursor_updated_at must be a valid ISO timestamp')
   }
   const textFiles = await listTextFiles(context.userId, { limit, cursor })
-  return sanitizeMcpToolResult({ count: textFiles.length, textFiles })
+  return sanitizeMcpToolResult({ count: textFiles.length, textFiles: textFiles.map(noteForAgent) })
 }
 
 export async function runGetTextFileTool(context: McpToolContext, args: unknown) {
@@ -675,7 +688,7 @@ export async function runGetTextFileTool(context: McpToolContext, args: unknown)
   if (!textFileId) throw new Error('text_file_id is required')
   const textFile = await getTextFile(context.userId, textFileId)
   if (!textFile) throw new Error('Text file not found')
-  return sanitizeMcpToolResult({ textFile })
+  return sanitizeMcpToolResult({ textFile: noteForAgent(textFile) })
 }
 
 export async function runUpdateTextFileTool(context: McpToolContext, args: unknown) {
@@ -687,9 +700,15 @@ export async function runUpdateTextFileTool(context: McpToolContext, args: unkno
   if (title === undefined && rawBody === undefined) {
     throw new Error('title or body is required')
   }
-  const textFile = await updateTextFile(context.userId, textFileId, { title, body: rawBody })
+  // the agent only ever saw numbered placeholders: the service restores them from the stored body
+  const textFile = await updateTextFile(
+    context.userId,
+    textFileId,
+    { title, body: rawBody },
+    { agentWrite: true },
+  )
   if (!textFile) throw new Error('Text file not found')
-  return sanitizeMcpToolResult({ textFile })
+  return sanitizeMcpToolResult({ textFile: noteForAgent(textFile) })
 }
 
 export async function runAppendTextFileTool(context: McpToolContext, args: unknown) {
@@ -699,9 +718,14 @@ export async function runAppendTextFileTool(context: McpToolContext, args: unkno
   const text = typeof body.text === 'string' ? body.text : ''
   if (!text.trim()) throw new Error('text is required')
   const separator = typeof body.separator === 'string' ? body.separator : undefined
-  const textFile = await appendTextFile(context.userId, textFileId, { text, separator })
+  const textFile = await appendTextFile(
+    context.userId,
+    textFileId,
+    { text, separator },
+    { agentWrite: true },
+  )
   if (!textFile) throw new Error('Text file not found')
-  return sanitizeMcpToolResult({ textFile })
+  return sanitizeMcpToolResult({ textFile: noteForAgent(textFile) })
 }
 
 export async function runDeleteTextFileTool(context: McpToolContext, args: unknown) {

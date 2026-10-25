@@ -14,7 +14,8 @@ import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenan
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { redactedText } from '$lib/server/security/detect-secrets'
+import { redactedText, SECRET_PLACEHOLDER } from '$lib/server/security/detect-secrets'
+import { restoreOriginalSlice } from '$lib/server/security/note-secrets'
 import { createTextFile, linkTextFileToThought } from '$lib/server/text-files/service'
 
 export type AppliedCaptureContentSplit = {
@@ -75,6 +76,26 @@ async function loadParent(userId: string, thoughtId: string): Promise<ParentRow>
     },
     metadata,
   }
+}
+
+/** The thought's `raw_text` as the user submitted it (decrypted) — only ever used to restore a note body. */
+async function loadVerbatimRawText(userId: string, thoughtId: string): Promise<string> {
+  const [row] = await getDb()
+    .select({ rawText: thought.rawText, rawTextEncrypted: thought.rawTextEncrypted })
+    .from(thought)
+    .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
+    .limit(1)
+  if (!row) {
+    throw new Error(`applyCaptureContentSplit: thought ${thoughtId} not found`)
+  }
+  return row.rawTextEncrypted
+    ? decryptTenantValue({
+        userId,
+        table: 'thought',
+        column: 'raw_text',
+        ciphertext: row.rawTextEncrypted,
+      })
+    : row.rawText
 }
 
 function planFromSplit(split: CaptureContentSplitResult, thoughtId: string): CaptureSplitPlan {
@@ -214,9 +235,16 @@ export async function applyCaptureContentSplitIfNeeded(input: {
     plan.spanThoughtIds.slice(1).filter((id): id is string => id !== null)
 
   if (plan.note && !plan.attachedFileId) {
+    // The plan (and so the generation) only ever held the redacted body. The saved note is the
+    // user's own text: map the body back onto the verbatim capture through the detector's finding
+    // offsets (docs/planning/secret-hygiene.md, Part 2). Passages and lexical text of the note
+    // are re-derived from the redacted body by `createTextFile`.
+    const noteBody = plan.note.body.includes(SECRET_PLACEHOLDER)
+      ? restoreOriginalSlice(await loadVerbatimRawText(userId, thoughtId), plan.note.body)
+      : plan.note.body
     const file = await createTextFile(userId, {
       title: plan.note.title,
-      body: plan.note.body,
+      body: noteBody,
       authorship: {
         author: parent.splitParent.author,
         authorLabel: parent.splitParent.authorLabel,

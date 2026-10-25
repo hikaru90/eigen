@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { chunkNoteIntoPassages } from '$lib/server/text-files/chunk-note-passages'
 import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import { redactSecrets } from './detect-secrets'
+import { noteIndexSurfaces } from './note-secrets'
 import {
   planNoteScrub,
   planThoughtScrub,
@@ -137,14 +139,25 @@ describe('planNoteScrub', () => {
   })
 
   it('is idempotent: once lexical text and passages come from the redacted body there is nothing to do', () => {
-    const redactedBody = redactSecrets(LEAKY_BODY).text
+    const { passageBody, lexicalText } = noteIndexSurfaces('Runbook', LEAKY_BODY)
     expect(
       planNoteScrub({
         ...LEAKY_NOTE, // the body stays verbatim: the user saved it
-        lexicalText: computeLexicalText(`Runbook ${redactedBody}`),
-        passages: [redactedBody],
+        lexicalText,
+        passages: chunkNoteIntoPassages(passageBody).map((p) => p.text),
       }),
     ).toBeNull()
+  })
+
+  it('plans a note indexed with bare placeholders: its passages must carry numbered ones (Part 2)', () => {
+    const redactedBody = redactSecrets(LEAKY_BODY).text
+    const plan = planNoteScrub({
+      ...LEAKY_NOTE,
+      lexicalText: computeLexicalText(`Runbook ${redactedBody}`),
+      passages: [redactedBody],
+    })
+    expect(plan).not.toBeNull()
+    expect(plan!.noteId).toBe('n-1')
   })
 
   it('plans a note whose passages still hold a secret even when its lexical text is already clean', () => {

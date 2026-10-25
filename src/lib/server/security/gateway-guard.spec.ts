@@ -47,3 +47,22 @@ describe('gateway guard', () => {
     expect(leaks(batch.join(' '))).toBe(false)
   })
 })
+
+describe('gateway guard with numbered note placeholders (docs/planning/secret-hygiene.md, Part 2)', () => {
+  it('lets an agent turn that carries note text with [redacted secret #n] through untouched and without a warning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Tool result for get_text_file:\n{"textFile":{"body":"LLM_API_KEY=[redacted secret #1]\\nPASSWORD: [redacted secret #2]"}}',
+      },
+      { role: 'assistant' as const, content: '{"body": "token = \'[redacted secret #3]\'"}' },
+    ]
+    expect(guardOutgoingMessages(messages, 'agent_loop')).toEqual(messages)
+    expect(guardOutgoingText('Bearer [redacted secret #1]', 'site')).toBe(
+      'Bearer [redacted secret #1]',
+    )
+    expect(warn).not.toHaveBeenCalled()
+  })
+})

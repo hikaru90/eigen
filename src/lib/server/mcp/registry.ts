@@ -612,7 +612,8 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   },
   {
     name: 'get_text_file',
-    description: 'Get one user text note by ID.',
+    description:
+      'Get one user text note by ID. Credentials in a note are shown as [redacted secret #n]: when you write the note back, keep each placeholder exactly as returned (never type or invent one; the server restores the real value).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -627,7 +628,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'update_text_file',
     description:
-      'Replace a user text note title and/or full body. Prefer append_text_file when adding lines/items to an existing list or checklist.',
+      'Replace a user text note title and/or full body. Prefer append_text_file when adding lines/items to an existing list or checklist. Credentials in a note are shown as [redacted secret #n]: when you write the note back, keep each placeholder exactly as returned (never type or invent one; the server restores the real value).',
     inputSchema: {
       type: 'object',
       properties: {

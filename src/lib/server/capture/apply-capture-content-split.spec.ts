@@ -1,7 +1,7 @@
 import type { CaptureSplitPlan } from './content-role'
 import type { CaptureContentSplitResult } from './split-capture-content'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
+import { envPaste, FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import { applyCaptureContentSplitIfNeeded } from './apply-capture-content-split'
 
 const {
@@ -52,7 +52,7 @@ const JOURNAL = `${TOPIC_WORK}\n\n${TOPIC_BODY}\n\n${TOPIC_FAMILY}`
 type MetadataRow = Record<string, unknown> | null
 
 /** DB double: one parent row on select, every update.set payload recorded in call order. */
-function mockDb(metadata: MetadataRow = {}) {
+function mockDb(metadata: MetadataRow = {}, verbatimRawText?: string) {
   const setMock = vi.fn((payload: Record<string, unknown>) => {
     order.push(`update:${payload.metadataEncrypted ? 'metadata' : 'other'}`)
     return { where: vi.fn().mockResolvedValue(undefined) }
@@ -64,6 +64,8 @@ function mockDb(metadata: MetadataRow = {}) {
     createdAt: SOURCE_CREATED_AT,
     metadata: {},
     metadataEncrypted: metadata ? `enc:metadata:${JSON.stringify(metadata)}` : null,
+    rawText: verbatimRawText ?? '',
+    rawTextEncrypted: verbatimRawText === undefined ? null : `enc:raw_text:${verbatimRawText}`,
   }
   getDbMock.mockReturnValue({
     select: vi.fn(() => ({
@@ -98,7 +100,7 @@ beforeEach(() => {
     async (input: { plaintext: string; column: string }) => `enc:${input.column}:${input.plaintext}`,
   )
   decryptTenantValueMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
-    String(ciphertext).replace(/^enc:metadata:/, ''),
+    String(ciphertext).replace(/^enc:(?:metadata|raw_text):/, ''),
   )
   let childCounter = 0
   queueSplitChildMock.mockImplementation(async () => {
@@ -533,7 +535,7 @@ describe('secret hygiene (docs/planning/secret-hygiene.md)', () => {
     expect(out.rawText).not.toBe(RAW)
   })
 
-  it('a mixed capture’s note body and the pointer text come from the redacted capture', async () => {
+  it('a mixed capture’s generation sees only the redacted capture; the saved note is restored from the verbatim one (Part 2)', async () => {
     resolveCaptureContentSplitMock.mockResolvedValue({
       role: 'mixed',
       spans: [SPAN_2],
@@ -541,7 +543,7 @@ describe('secret hygiene (docs/planning/secret-hygiene.md)', () => {
       attachmentBody: 'Ship the deploy today. LLM_API_KEY=[redacted secret]',
       rationale: 'mixed',
     } satisfies CaptureContentSplitResult)
-    mockDb()
+    mockDb({}, RAW)
 
     await applyCaptureContentSplitIfNeeded({
       userId: 'u1',
@@ -551,7 +553,148 @@ describe('secret hygiene (docs/planning/secret-hygiene.md)', () => {
     })
 
     const noteCall = createTextFileMock.mock.calls[0]![1] as { body: string }
-    expect(leaks(noteCall.body)).toBe(false)
+    expect(noteCall.body).toBe(`Ship the deploy today. LLM_API_KEY=${FAKE_SECRETS.openai}`)
     expect(leaks(JSON.stringify(resolveCaptureContentSplitMock.mock.calls))).toBe(false)
+  })
+})
+
+describe('notes keep the original values (docs/planning/secret-hygiene.md, Part 2)', () => {
+  const INTRO = 'Deploy runbook for the staging cluster.'
+  const ENV_LINE = envPaste()
+  const TOKEN_LINE = `CI token: ${FAKE_SECRETS.githubClassic} for the pipeline.`
+  const PERSONAL = 'I should rotate these before Friday.'
+  const RAW = `${INTRO}\n${ENV_LINE}\n${TOKEN_LINE}\n\n${PERSONAL}`
+  const REDACTED_ENV =
+    'DATABASE_URL=postgres://user:[redacted secret]@localhost:5432/mydb LLM_API_KEY=[redacted secret] PORT=3000'
+  const REDACTED_TOKEN = 'CI token: [redacted secret] for the pipeline.'
+
+  function rawReads() {
+    return decryptTenantValueMock.mock.calls.filter(
+      ([arg]) => (arg as { column: string }).column === 'raw_text',
+    )
+  }
+
+  it('reference: the saved note is the original text, the pointer and the persisted plan hold only placeholders', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'reference',
+      thoughtText: 'Staging deploy runbook with credentials',
+      attachmentTitle: 'Runbook',
+      attachmentBody: `${INTRO}\n${REDACTED_ENV}\n${REDACTED_TOKEN}`,
+      rationale: 'runbook',
+    } satisfies CaptureContentSplitResult)
+    const { setMock } = mockDb({}, `${INTRO}\n${ENV_LINE}\n${TOKEN_LINE}`)
+
+    await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: `${INTRO}\n${ENV_LINE}\n${TOKEN_LINE}`,
+    })
+
+    const note = createTextFileMock.mock.calls[0]![1] as { body: string; title: string }
+    expect(note.body).toBe(`${INTRO}\n${ENV_LINE}\n${TOKEN_LINE}`)
+    expect(note.body).toContain(FAKE_SECRETS.openai)
+    expect(note.body).toContain(FAKE_SECRETS.githubClassic)
+    expect(note.body).toContain(FAKE_SECRETS.urlPassword)
+    // the thought row and the persisted plan never held a value
+    expect(leaks(JSON.stringify(updatePayloads(setMock)))).toBe(false)
+    expect(leaks(JSON.stringify(resolveCaptureContentSplitMock.mock.calls))).toBe(false)
+    expect(guardWouldTrip(resolveCaptureContentSplitMock.mock.calls)).toBe(false)
+  })
+
+  it('mixed: the personal spans stay redacted thoughts, the note body maps back to the original slice (several secrets)', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'mixed',
+      spans: [PERSONAL],
+      attachmentTitle: 'Runbook',
+      attachmentBody: `${INTRO}\n${REDACTED_ENV}\n${REDACTED_TOKEN}`,
+      rationale: 'mixed',
+    } satisfies CaptureContentSplitResult)
+    const { setMock } = mockDb({}, RAW)
+
+    const out = await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: RAW,
+    })
+
+    const note = createTextFileMock.mock.calls[0]![1] as { body: string }
+    expect(note.body).toBe(`${INTRO}\n${ENV_LINE}\n${TOKEN_LINE}`)
+    expect(out.normalizedText).toBe(PERSONAL)
+    expect(
+      leaks(JSON.stringify([out, updatePayloads(setMock), queueSplitChildMock.mock.calls])),
+    ).toBe(false)
+    // the verbatim capture was read from the thought row (decrypted), not taken from the redacted input
+    expect(rawReads()).toHaveLength(1)
+  })
+
+  it('a body whose placeholders sit at both ends maps correctly', async () => {
+    const raw = `${FAKE_SECRETS.githubClassic} and then ${FAKE_SECRETS.openai}`
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'reference',
+      thoughtText: 'two tokens',
+      attachmentTitle: 'Tokens',
+      attachmentBody: '[redacted secret] and then [redacted secret]',
+      rationale: 'r',
+    } satisfies CaptureContentSplitResult)
+    mockDb({}, raw)
+
+    await applyCaptureContentSplitIfNeeded({ userId: 'u1', thoughtId: 't1', rawText: raw })
+
+    expect((createTextFileMock.mock.calls[0]![1] as { body: string }).body).toBe(raw)
+  })
+
+  it('a resumed plan (note not yet created) restores from the persisted redacted body too', async () => {
+    const plan: CaptureSplitPlan = {
+      role: 'reference',
+      rationale: 'r',
+      spans: [],
+      spanThoughtIds: [],
+      note: { title: 'Runbook', body: REDACTED_ENV },
+      attachedFileId: null,
+    }
+    mockDb({ captureContentSplit: plan }, ENV_LINE)
+
+    await applyCaptureContentSplitIfNeeded({ userId: 'u1', thoughtId: 't1', rawText: ENV_LINE })
+
+    expect(resolveCaptureContentSplitMock).not.toHaveBeenCalled()
+    expect((createTextFileMock.mock.calls[0]![1] as { body: string }).body).toBe(ENV_LINE)
+  })
+
+  it('a note body without a placeholder never reads the verbatim capture', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'mixed',
+      spans: [PERSONAL],
+      attachmentTitle: 'Notes',
+      attachmentBody: 'Remember the milk.',
+      rationale: 'r',
+    } satisfies CaptureContentSplitResult)
+    mockDb({}, `${PERSONAL}\nRemember the milk.`)
+
+    await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: `${PERSONAL}\nRemember the milk.`,
+    })
+
+    expect((createTextFileMock.mock.calls[0]![1] as { body: string }).body).toBe(
+      'Remember the milk.',
+    )
+    expect(rawReads()).toHaveLength(0)
+  })
+
+  it('a body that is not a verbatim part of the capture fails loud and creates no note', async () => {
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      role: 'reference',
+      thoughtText: 'runbook',
+      attachmentTitle: 'Runbook',
+      attachmentBody: 'LLM_API_KEY=[redacted secret] — paraphrased by the model',
+      rationale: 'r',
+    } satisfies CaptureContentSplitResult)
+    mockDb({}, ENV_LINE)
+
+    await expect(
+      applyCaptureContentSplitIfNeeded({ userId: 'u1', thoughtId: 't1', rawText: ENV_LINE }),
+    ).rejects.toThrow(/not a verbatim part of the capture/)
+    expect(createTextFileMock).not.toHaveBeenCalled()
   })
 })

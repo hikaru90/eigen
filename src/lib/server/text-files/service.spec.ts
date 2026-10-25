@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  BARE_SECRET_PLACEHOLDER_ERROR,
+  unknownSecretPlaceholderError,
+} from '$lib/server/security/note-secrets'
 import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   appendTextFile,
@@ -672,8 +676,9 @@ describe('text-files service', () => {
 describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', () => {
   const createdAt = new Date('2026-06-05T12:00:00.000Z')
   const BODY = `Deploy runbook\n${envPaste()}\nThen restart the worker.`
+  // passages carry numbered placeholders (Part 2): an excerpt the agent sees can be written back
   const REDACTED_BODY =
-    'Deploy runbook\nDATABASE_URL=postgres://user:[redacted secret]@localhost:5432/mydb LLM_API_KEY=[redacted secret] PORT=3000\nThen restart the worker.'
+    'Deploy runbook\nDATABASE_URL=postgres://user:[redacted secret #1]@localhost:5432/mydb LLM_API_KEY=[redacted secret #2] PORT=3000\nThen restart the worker.'
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -755,7 +760,7 @@ describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', 
     await appendTextFile('u1', 'f1', { text: `LLM_API_KEY=${FAKE_SECRETS.openai}` })
 
     expect((preparePassageSyncMock.mock.calls[0]![1] as { body: string }).body).toBe(
-      'eggs\nLLM_API_KEY=[redacted secret]',
+      'eggs\nLLM_API_KEY=[redacted secret #1]',
     )
     // the user's saved note keeps the appended words
     expect(encryptTenantValueMock).toHaveBeenCalledWith(
@@ -774,5 +779,202 @@ describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', 
 
     expect(leaks(JSON.stringify(createThoughtEmbeddingMock.mock.calls))).toBe(false)
     expect(leaks(JSON.stringify(createDbNoteSearchSourcesMock.mock.calls))).toBe(false)
+  })
+})
+
+describe('text-files service: agent writes restore secrets (docs/planning/secret-hygiene.md, Part 2)', () => {
+  const at = new Date('2026-06-05T12:00:00.000Z')
+  const STORED = [
+    'Deploy runbook, versoin 3',
+    `LLM_API_KEY=${FAKE_SECRETS.openai}`,
+    'Restart the worker afterwards.',
+    `GITHUB_TOKEN=${FAKE_SECRETS.githubClassic}`,
+    'Done.',
+  ].join('\n')
+  const SHOWN = [
+    'Deploy runbook, versoin 3',
+    'LLM_API_KEY=[redacted secret #1]',
+    'Restart the worker afterwards.',
+    'GITHUB_TOKEN=[redacted secret #2]',
+    'Done.',
+  ].join('\n')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    preparePassageSyncMock.mockResolvedValue({ deleteIds: [], rows: [] })
+    applyPassageSyncMock.mockResolvedValue(undefined)
+    loadStoredPassagesMock.mockResolvedValue([])
+  })
+
+  function row(body: string) {
+    return {
+      id: 'f1',
+      title: 'runbook',
+      bodyText: '',
+      bodyTextEncrypted: `enc:${body}`,
+      author: 'user',
+      authorLabel: null,
+      authorKeyId: null,
+      createdAt: at,
+      updatedAt: at,
+    }
+  }
+
+  /** db double: `stored` is what the select returns, the update returns whatever was written. */
+  function dbWith(stored: string) {
+    let written = stored
+    const set = vi.fn((values: { bodyTextEncrypted?: string }) => {
+      if (values.bodyTextEncrypted) written = values.bodyTextEncrypted.slice(4)
+      return { where: vi.fn(() => ({ returning: vi.fn(async () => [row(written)]) })) }
+    })
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [row(stored)]) })) })),
+      })),
+      update: vi.fn(() => ({ set })),
+    })
+    return { set }
+  }
+
+  function savedPlaintexts(): string[] {
+    return encryptTenantValueMock.mock.calls
+      .map(([arg]) => arg as { column: string; plaintext: string })
+      .filter((arg) => arg.column === 'body_text')
+      .map((arg) => arg.plaintext)
+  }
+
+  it('update: a typo fixed with the placeholders it was shown saves the original body with only the typo changed', async () => {
+    const { set } = dbWith(STORED)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await updateTextFile(
+      'u1',
+      'f1',
+      { body: SHOWN.replace('versoin', 'version') },
+      { agentWrite: true },
+    )
+
+    expect(savedPlaintexts()).toEqual([STORED.replace('versoin', 'version')])
+    expect(result!.body).toBe(STORED.replace('versoin', 'version'))
+    // nothing derived or logged carries a value: passages, lexical text, console
+    const passageInput = preparePassageSyncMock.mock.calls[0]![1] as { body: string }
+    expect(passageInput.body).toBe(SHOWN.replace('versoin', 'version'))
+    expect(leaks(JSON.stringify(preparePassageSyncMock.mock.calls))).toBe(false)
+    expect(leaks((set.mock.calls[0] as unknown as [{ lexicalText: string }])[0].lexicalText)).toBe(
+      false,
+    )
+    expect(leaks(JSON.stringify([info.mock.calls, warn.mock.calls, error.mock.calls]))).toBe(false)
+    info.mockRestore()
+    warn.mockRestore()
+    error.mockRestore()
+  })
+
+  it('update: a body without secrets or placeholders is saved as given', async () => {
+    dbWith('eggs and milk')
+    await updateTextFile('u1', 'f1', { body: 'eggs, milk and bread' }, { agentWrite: true })
+    expect(savedPlaintexts()).toEqual(['eggs, milk and bread'])
+  })
+
+  it('update: an ordinal the note does not have fails loud and nothing is saved', async () => {
+    const { set } = dbWith(STORED)
+
+    await expect(
+      updateTextFile(
+        'u1',
+        'f1',
+        { body: `${SHOWN}\nextra [redacted secret #7]` },
+        { agentWrite: true },
+      ),
+    ).rejects.toThrow(
+      'placeholder #7 does not exist in this note; keep placeholders exactly as returned',
+    )
+
+    expect(set).not.toHaveBeenCalled()
+    expect(savedPlaintexts()).toEqual([])
+    expect(preparePassageSyncMock).not.toHaveBeenCalled()
+  })
+
+  it('update: a bare placeholder fails loud with the Notes editor message and nothing is saved', async () => {
+    const { set } = dbWith(STORED)
+
+    await expect(
+      updateTextFile('u1', 'f1', { body: 'LLM_API_KEY=[redacted secret]' }, { agentWrite: true }),
+    ).rejects.toThrow(BARE_SECRET_PLACEHOLDER_ERROR)
+
+    expect(set).not.toHaveBeenCalled()
+    expect(savedPlaintexts()).toEqual([])
+  })
+
+  it('update: restores against the CURRENT stored body, so an ordinal removed by a concurrent edit fails loud', async () => {
+    // the agent was shown two secrets; by write time the user removed the second one
+    const current = STORED.replace(`GITHUB_TOKEN=${FAKE_SECRETS.githubClassic}\n`, '')
+    const { set } = dbWith(current)
+
+    await expect(updateTextFile('u1', 'f1', { body: SHOWN }, { agentWrite: true })).rejects.toThrow(
+      unknownSecretPlaceholderError('2'),
+    )
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('update: a placeholder in a title is rejected (titles carry no restorable secrets)', async () => {
+    const { set } = dbWith(STORED)
+
+    await expect(
+      updateTextFile('u1', 'f1', { title: 'key [redacted secret #1]' }, { agentWrite: true }),
+    ).rejects.toThrow(unknownSecretPlaceholderError('1'))
+    await expect(
+      updateTextFile('u1', 'f1', { title: 'key [redacted secret]' }, { agentWrite: true }),
+    ).rejects.toThrow(BARE_SECRET_PLACEHOLDER_ERROR)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('append: the appended line is added and both secrets stay intact', async () => {
+    dbWith(STORED)
+
+    await appendTextFile('u1', 'f1', { text: 'Remember to rotate the keys.' }, { agentWrite: true })
+
+    expect(savedPlaintexts()).toEqual([`${STORED}\nRemember to rotate the keys.`])
+    const passageInput = preparePassageSyncMock.mock.calls[0]![1] as { body: string }
+    expect(passageInput.body).toBe(`${SHOWN}\nRemember to rotate the keys.`)
+    expect(leaks(JSON.stringify(preparePassageSyncMock.mock.calls))).toBe(false)
+  })
+
+  it('append: a numbered placeholder in the appended text resolves against the stored body; unknown or bare fail loud', async () => {
+    const { set } = dbWith(STORED)
+
+    await appendTextFile('u1', 'f1', { text: 'see [redacted secret #2]' }, { agentWrite: true })
+    expect(savedPlaintexts()).toEqual([`${STORED}\nsee ${FAKE_SECRETS.githubClassic}`])
+
+    encryptTenantValueMock.mockClear()
+    set.mockClear()
+    dbWith(STORED)
+    await expect(
+      appendTextFile('u1', 'f1', { text: 'see [redacted secret #5]' }, { agentWrite: true }),
+    ).rejects.toThrow(unknownSecretPlaceholderError('5'))
+    await expect(
+      appendTextFile('u1', 'f1', { text: 'token: [redacted secret]' }, { agentWrite: true }),
+    ).rejects.toThrow(BARE_SECRET_PLACEHOLDER_ERROR)
+    expect(savedPlaintexts()).toEqual([])
+  })
+
+  it('the Notes UI path (no agentWrite) saves exactly what the user typed, placeholder text included', async () => {
+    dbWith(STORED)
+    const typed = 'my note says [redacted secret #1] and [redacted secret] literally'
+
+    await updateTextFile('u1', 'f1', { body: typed })
+    expect(savedPlaintexts()).toEqual([typed])
+
+    encryptTenantValueMock.mockClear()
+    dbWith(STORED)
+    await appendTextFile('u1', 'f1', { text: 'also [redacted secret #9]' })
+    expect(savedPlaintexts()).toEqual([`${STORED}\nalso [redacted secret #9]`])
+  })
+
+  it('the Notes UI path keeps a real secret the user typed verbatim in the saved body', async () => {
+    dbWith('x')
+    await updateTextFile('u1', 'f1', { body: STORED })
+    expect(savedPlaintexts()).toEqual([STORED])
   })
 })

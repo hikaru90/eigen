@@ -9,9 +9,13 @@ import {
   USER_AUTHORSHIP,
   resolveAuthorSqlCondition,
 } from '$lib/server/memory/authorship'
-import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { COMPOSE_ANSWER_RELEVANCE_MIN } from '$lib/server/retrieval/rrf-scoring'
 import { redactedText } from '$lib/server/security/detect-secrets'
+import {
+  assertNoSecretPlaceholders,
+  noteIndexSurfaces,
+  restoreNoteSecrets,
+} from '$lib/server/security/note-secrets'
 import {
   applyPassageSync,
   createDbNoteSearchSources,
@@ -66,15 +70,27 @@ function assertTitleOrBody(title: string, body: string): void {
   }
 }
 
+export type TextFileWriteOptions = {
+  /**
+   * The write comes from the in-app chat agent. It is shown `[redacted secret #n]` for the
+   * secrets in a note, so its text is restored against the note's current stored body before it
+   * is saved, and a placeholder that cannot be restored fails the write
+   * (docs/planning/secret-hygiene.md, Part 2). Absent: the text is what the user typed (Notes
+   * editor) and is saved exactly as given.
+   */
+  agentWrite?: boolean
+}
+
 /**
  * What a note's search surfaces are built from (docs/planning/secret-hygiene.md). The body the
  * user saved is stored verbatim (encrypted) and shown back to them; the lexical text, the
  * passages and their embeddings come from the redacted text, so a pasted credential is never
- * indexed or sent to the embedding gateway.
+ * indexed or sent to the embedding gateway. Passages carry numbered placeholders so an excerpt
+ * shown to the agent can be written back.
  */
 function indexSurfaces(title: string, body: string): { indexBody: string; lexicalText: string } {
-  const indexBody = redactedText(body)
-  return { indexBody, lexicalText: computeLexicalText(`${redactedText(title)} ${indexBody}`) }
+  const { passageBody, lexicalText } = noteIndexSurfaces(title, body)
+  return { indexBody: passageBody, lexicalText }
 }
 
 function toPreview(body: string): string {
@@ -174,6 +190,7 @@ export async function updateTextFile(
   userId: string,
   fileId: string,
   input: { title?: string; body?: string },
+  options: TextFileWriteOptions = {},
 ): Promise<TextFileRecord | null> {
   const [existing] = await getDb()
     .select({
@@ -194,8 +211,13 @@ export async function updateTextFile(
   if (!existing) return null
 
   const current = await decryptTextFileRow(userId, existing)
+  if (options.agentWrite && input.title !== undefined) assertNoSecretPlaceholders(input.title)
+  const writtenBody =
+    input.body !== undefined && options.agentWrite
+      ? restoreNoteSecrets(input.body, current.body)
+      : input.body
   const nextTitle = input.title !== undefined ? normalizeTitle(input.title) : current.title
-  const nextBody = input.body !== undefined ? assertBodyWithinLimit(input.body) : current.body
+  const nextBody = writtenBody !== undefined ? assertBodyWithinLimit(writtenBody) : current.body
   assertTitleOrBody(nextTitle, nextBody)
   const { indexBody, lexicalText } = indexSurfaces(nextTitle, nextBody)
   const bodyTextEncrypted = await encryptTenantValue({
@@ -236,6 +258,7 @@ export async function appendTextFile(
   userId: string,
   fileId: string,
   input: { text: string; separator?: string },
+  options: TextFileWriteOptions = {},
 ): Promise<TextFileRecord | null> {
   const appendText = typeof input.text === 'string' ? input.text.trim() : ''
   if (!appendText) {
@@ -261,13 +284,15 @@ export async function appendTextFile(
   if (!existing) return null
 
   const current = await decryptTextFileRow(userId, existing)
+  const restore = (text: string) =>
+    options.agentWrite ? restoreNoteSecrets(text, current.body) : text
   const separator =
     input.separator !== undefined
-      ? input.separator
+      ? restore(input.separator)
       : current.body.length === 0 || current.body.endsWith('\n')
         ? ''
         : '\n'
-  const nextBody = assertBodyWithinLimit(`${current.body}${separator}${appendText}`)
+  const nextBody = assertBodyWithinLimit(`${current.body}${separator}${restore(appendText)}`)
   assertTitleOrBody(current.title, nextBody)
   const { indexBody, lexicalText } = indexSurfaces(current.title, nextBody)
   const bodyTextEncrypted = await encryptTenantValue({

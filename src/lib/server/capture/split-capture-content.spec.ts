@@ -449,3 +449,104 @@ describe('resolveCaptureContentSplit secret hygiene (docs/planning/secret-hygien
     expect(leaks(JSON.stringify(result))).toBe(false)
   })
 })
+
+describe('resolveCaptureContentSplit note bodies that hold a secret placeholder (docs/planning/secret-hygiene.md, Part 2)', () => {
+  beforeEach(() => {
+    llmChatCompletionMock.mockReset()
+  })
+
+  const raw = `Set LLM_API_KEY=${FAKE_SECRETS.openai} and run the deploy. Token ${FAKE_SECRETS.githubClassic} is for CI.`
+  const exact =
+    'Set LLM_API_KEY=[redacted secret] and run the deploy. Token [redacted secret] is for CI.'
+
+  const referenceReply = (attachmentBody: string) =>
+    llmReply({
+      role: 'reference',
+      thoughtText: 'Deploy runbook',
+      attachmentTitle: 'Runbook',
+      attachmentBody,
+      rationale: 'a runbook',
+    })
+
+  it('accepts a body copied exactly from the redacted capture (so it can be mapped back to the original)', async () => {
+    llmChatCompletionMock.mockResolvedValue(referenceReply(exact))
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: raw,
+      decidedRole: 'reference',
+    })
+    expect(result).toMatchObject({ role: 'reference', attachmentBody: exact })
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a body with a placeholder that is not an exact copy gets the strict retry, then succeeds', async () => {
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        referenceReply('Set LLM_API_KEY=[redacted secret] then deploy (tidied by the model)'),
+      )
+      .mockResolvedValueOnce(referenceReply(exact))
+
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: raw,
+      decidedRole: 'reference',
+    })
+
+    expect(result).toMatchObject({ attachmentBody: exact })
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+    const retryPrompt = JSON.stringify(llmChatCompletionMock.mock.calls[1]![0])
+    expect(retryPrompt).toMatch(/not copied exactly from the message/)
+    expect(leaks(JSON.stringify(llmChatCompletionMock.mock.calls))).toBe(false)
+  })
+
+  it('fails loud when the retry is no better', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      referenceReply('Deploy with [redacted secret] (paraphrased)'),
+    )
+    await expect(
+      resolveCaptureContentSplit({ userId: 'u1', rawText: raw, decidedRole: 'reference' }),
+    ).rejects.toThrow(/not copied exactly from the message/)
+  })
+
+  it('applies to the mixed note body as well', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      llmReply({
+        role: 'mixed',
+        spans: ['Set'],
+        attachmentTitle: 'Runbook',
+        attachmentBody: 'a paraphrase with [redacted secret]',
+        rationale: 'r',
+      }),
+    )
+    await expect(
+      resolveCaptureContentSplit({ userId: 'u1', rawText: raw, decidedRole: 'mixed' }),
+    ).rejects.toThrow(/not copied exactly from the message/)
+  })
+
+  it('a body without a placeholder keeps the old latitude (speech-to-text fixes allowed)', async () => {
+    llmChatCompletionMock.mockResolvedValue(referenceReply('A tidied runbook with no credentials'))
+    const result = await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: 'a runbook with no credentials at all',
+      decidedRole: 'reference',
+    })
+    expect(result).toMatchObject({ attachmentBody: 'A tidied runbook with no credentials' })
+  })
+
+  it('tells the model to copy placeholder-bearing bodies exactly, only when the capture holds a placeholder', async () => {
+    llmChatCompletionMock.mockResolvedValue(referenceReply(exact))
+    await resolveCaptureContentSplit({ userId: 'u1', rawText: raw, decidedRole: 'reference' })
+    expect(JSON.stringify(llmChatCompletionMock.mock.calls[0]![0])).toMatch(/copied exactly/)
+
+    llmChatCompletionMock.mockClear()
+    llmChatCompletionMock.mockResolvedValue(referenceReply('plain body'))
+    await resolveCaptureContentSplit({
+      userId: 'u1',
+      rawText: 'plain text here',
+      decidedRole: 'reference',
+    })
+    expect(JSON.stringify(llmChatCompletionMock.mock.calls[0]![0])).not.toMatch(
+      /\[redacted secret\]/,
+    )
+  })
+})

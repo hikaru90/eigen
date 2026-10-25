@@ -3,7 +3,7 @@ import { normalizeThoughtText } from '$lib/server/capture/service'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
-import { redactedText } from '$lib/server/security/detect-secrets'
+import { redactedText, SECRET_PLACEHOLDER } from '$lib/server/security/detect-secrets'
 
 export type CaptureContentRole = ContentRole
 
@@ -121,6 +121,14 @@ function parseSplitFields(
     throw new Error(`resolveCaptureContentSplit: attachmentBody is required when role is ${role}`)
   }
 
+  // A body holding a placeholder is mapped back to the user's original text by position
+  // (docs/planning/secret-hygiene.md, Part 2), so it must be an exact copy of the (redacted) message.
+  if (attachmentBody.includes(SECRET_PLACEHOLDER) && !rawText.includes(attachmentBody)) {
+    throw new Error(
+      `resolveCaptureContentSplit: attachmentBody holds a ${SECRET_PLACEHOLDER} placeholder but is not copied exactly from the message`,
+    )
+  }
+
   if (role === 'mixed') {
     return {
       role,
@@ -167,6 +175,9 @@ const REFERENCE_RULES = [
   '- attachmentBody: the reference document body — recipe steps, template text, transcript, etc. Keep verbatim except obvious speech-to-text fixes; do not summarize into attachmentBody. When there is no separate intent line it holds the full original text.',
   '- attachmentTitle: a short label (e.g. "Carbonara recipe", "Meeting transcript").',
 ]
+
+/** Added only when the capture holds a placeholder: the note body must be an exact copy to be restorable. */
+const PLACEHOLDER_COPY_RULE = `- The message contains ${SECRET_PLACEHOLDER} placeholders (credentials the user pasted, hidden on purpose). When attachmentBody contains a placeholder, attachmentBody must be copied exactly from the message, character for character — no paraphrase, no fixes, every placeholder exactly as written.`
 
 const ROLE_SHAPES: Record<ContentRole, string[]> = {
   personal: ['{', '  "role": "personal",', '  "spans": ["string", "…"],', '  "rationale": "one short sentence"', '}'],
@@ -234,6 +245,9 @@ async function resolveCaptureContentSplitOnce(
     '',
     'Rules:',
     ...rules,
+    ...(decidedRole !== 'personal' && input.rawText.includes(SECRET_PLACEHOLDER)
+      ? [PLACEHOLDER_COPY_RULE]
+      : []),
     '- Do not invent facts not present in the input.',
     ...(strictRule ? [strictRule] : []),
     '',

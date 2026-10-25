@@ -109,6 +109,20 @@ describe('/api/text-files', () => {
     })
   })
 
+  it('POST saves exactly what the user typed (a plain write: no agent-write flag)', async () => {
+    createTextFileMock.mockResolvedValue({ id: 'f3', title: 'T', body: 'x' })
+    const typed = 'literal [redacted secret #1] and [redacted secret]'
+    await POST({
+      locals: { user: { id: 'u1' } },
+      request: new Request('http://localhost', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'T', body: typed }),
+      }),
+    } as never)
+    expect(createTextFileMock.mock.calls).toEqual([['u1', { title: 'T', body: typed }]])
+  })
+
   it('POST rejects when title and body are both missing', async () => {
     await expect(
       POST({
