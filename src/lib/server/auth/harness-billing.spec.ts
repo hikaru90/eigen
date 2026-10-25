@@ -4,6 +4,7 @@ import {
   EVAL_OPERATOR_USER_ID,
   GRAPH_SCALE_OPERATOR_USER_ID,
   LONGMEMEVAL_OPERATOR_USER_ID,
+  PUBLIC_BENCH_OPERATOR_USER_ID,
   resolveHarnessBillingUserId,
 } from './harness-billing'
 
@@ -24,6 +25,27 @@ describe('resolveHarnessBillingUserId', () => {
     expect(resolveHarnessBillingUserId('longmemeval-corpus-gpt4_2655')).toBe(
       LONGMEMEVAL_OPERATOR_USER_ID,
     )
+  })
+
+  it('maps public-bench tenants to public-bench-runner', () => {
+    expect(resolveHarnessBillingUserId('public-bench-personamem-v2-p521')).toBe(
+      PUBLIC_BENCH_OPERATOR_USER_ID,
+    )
+    expect(resolveHarnessBillingUserId('public-bench-mab-cr-6k')).toBe(
+      PUBLIC_BENCH_OPERATOR_USER_ID,
+    )
+  })
+
+  it('maps the public-bench operator to itself', () => {
+    expect(PUBLIC_BENCH_OPERATOR_USER_ID).toBe('public-bench-runner')
+    expect(resolveHarnessBillingUserId(PUBLIC_BENCH_OPERATOR_USER_ID)).toBe(
+      PUBLIC_BENCH_OPERATOR_USER_ID,
+    )
+  })
+
+  it('does not treat lookalike ids as public-bench tenants', () => {
+    expect(resolveHarnessBillingUserId('public-bench')).toBeUndefined()
+    expect(resolveHarnessBillingUserId('my-public-bench-x')).toBeUndefined()
   })
 
   it('returns operator ids for operator rows', () => {

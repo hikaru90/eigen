@@ -4,8 +4,11 @@ export const GRAPH_SCALE_OPERATOR_USER_ID = 'graph-scale-runner'
 /** Default eval CLI operator (see evals/harness/eval-config.ts). */
 export const EVAL_OPERATOR_USER_ID = 'eval-runner-operator'
 
-/** LongMemEval harness operator (see evals/longmemeval/ensure-operator.ts). */
+/** LongMemEval harness operator (see evals/longmemeval/run.ts and evals/public-bench/ensure-operator.ts). */
 export const LONGMEMEVAL_OPERATOR_USER_ID = 'longmemeval-runner'
+
+/** Public-benchmark harness operator (see evals/public-bench/ensure-operator.ts). */
+export const PUBLIC_BENCH_OPERATOR_USER_ID = 'public-bench-runner'
 
 /**
  * Map harness corpus tenant ids to the operator wallet that funds LLM usage.
@@ -18,7 +21,8 @@ export function resolveHarnessBillingUserId(tenantUserId: string): string | unde
   if (
     id === GRAPH_SCALE_OPERATOR_USER_ID ||
     id === EVAL_OPERATOR_USER_ID ||
-    id === LONGMEMEVAL_OPERATOR_USER_ID
+    id === LONGMEMEVAL_OPERATOR_USER_ID ||
+    id === PUBLIC_BENCH_OPERATOR_USER_ID
   ) {
     return id
   }
@@ -32,6 +36,9 @@ export function resolveHarnessBillingUserId(tenantUserId: string): string | unde
   if (id.startsWith('longmemeval-corpus-')) {
     return LONGMEMEVAL_OPERATOR_USER_ID
   }
+  if (id.startsWith('public-bench-')) {
+    return PUBLIC_BENCH_OPERATOR_USER_ID
+  }
   return undefined
 }
 
@@ -43,7 +50,9 @@ const E2E_HARNESS_EMAIL = /^e2e-[^@]+@test\.eigen$/
  * usage is debited from the eval operator service wallet instead (dev server only —
  * the caller gates on `dev`). Email-format rule only — not semantic classification.
  */
-export function resolveE2eHarnessBillingUserId(email: string | null | undefined): string | undefined {
+export function resolveE2eHarnessBillingUserId(
+  email: string | null | undefined,
+): string | undefined {
   const normalized = email?.trim().toLowerCase() ?? ''
   return E2E_HARNESS_EMAIL.test(normalized) ? EVAL_OPERATOR_USER_ID : undefined
 }

@@ -31,4 +31,6 @@ export type LongMemEvalRunCli = {
   scoreOnly: boolean
   evalMetricModel: string
   granularity: 'session' | 'turn' | 'user-turn'
+  /** Enrich workers per corpus tenant; null → CAPTURE_ENRICH_CONCURRENCY / orchestration default. */
+  enrichConcurrency: number | null
 }

@@ -19,6 +19,7 @@ Options:
   --no-eval          Skip longmemeval/src/evaluation/evaluate_qa.py after generation
   --eval-model NAME  Judge model for evaluate_qa.py (default: gpt-4o; e.g. gpt-4o-mini)
   --granularity MODE  session | turn | user-turn (default: user-turn)
+  --enrich-concurrency N  Parallel enrich workers per corpus (default: CAPTURE_ENRICH_CONCURRENCY or 8)
 `)
   process.exit(1)
 }
@@ -33,6 +34,7 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
   let scoreOnly = false
   let evalMetricModel = 'gpt-4o'
   let granularity: LongMemEvalRunCli['granularity'] = 'user-turn'
+  let enrichConcurrency: number | null = null
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -61,6 +63,10 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
       const mode = argv[++i] ?? usage()
       if (mode !== 'session' && mode !== 'turn' && mode !== 'user-turn') usage()
       granularity = mode
+    } else if (arg === '--enrich-concurrency') {
+      const parsed = Number(argv[++i])
+      if (!Number.isInteger(parsed) || parsed < 1) usage()
+      enrichConcurrency = parsed
     } else if (arg === '--help' || arg === '-h') {
       usage()
     } else {
@@ -89,5 +95,6 @@ export function parseLongMemEvalCli(argv: string[]): LongMemEvalRunCli {
     scoreOnly,
     evalMetricModel,
     granularity,
+    enrichConcurrency,
   }
 }

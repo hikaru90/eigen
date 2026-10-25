@@ -41,6 +41,7 @@ tmp/graph-import-report.json
 
 # Eval reports and embedding caches (datasets and baselines stay tracked)
 evals/reports/
+evals/.data/
 evals/datasets/retrieval/embeddings.cache.json
 
 # opencode
