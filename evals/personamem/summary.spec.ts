@@ -1,7 +1,7 @@
-import type { AnswerRow, AskTurnRecord } from './types'
+import type { AnswerRow } from './types'
 import { describe, expect, it } from 'vitest'
 import { scoreAnswers } from './score'
-import { buildSummary } from './summary'
+import { buildSummary, type SmokeBlock } from './summary'
 
 const meta = { prefType: 'neutral', updated: false, who: 'self' }
 function row(variant: AnswerRow['variant'], correct: boolean): AnswerRow {
@@ -27,8 +27,9 @@ describe('buildSummary', () => {
     finishedAt: '2026-10-25T11:00:00.000Z',
     config: { enrichConcurrency: 1 },
     score,
-    ingestMode: 'capture' as const,
-    askTurns: [],
+    answerMode: 'compose' as const,
+    evidenceOnly: false,
+    smoke: [],
     ingest: { usd: 0.5, captures: 5, personas: 1 },
     wallMsThisProcess: 3_600_000,
     gitSha: 'abc123',
@@ -52,10 +53,15 @@ describe('buildSummary', () => {
     expect(summary.metrics).toMatchObject({ ingestUsd: 0.5, answerUsd: 0.02, totalUsd: 0.52 })
   })
 
-  it('capture mode has no Ask section and says which ingest it used', () => {
-    expect(summary.sections.map((s) => s.heading)).not.toContain('Ask ingest')
-    expect(summary.config).toMatchObject({ ingest: 'capture' })
-    expect(summary.metrics).not.toHaveProperty('askTurns')
+  it('records ingest capture, the answer mode and evidenceOnly=false, with no SMOKE marking', () => {
+    expect(summary.config).toMatchObject({
+      ingest: 'capture',
+      answer: 'compose',
+      evidenceOnly: false,
+    })
+    expect(summary.title).not.toMatch(/SMOKE/)
+    expect(summary.title).toContain('answer compose')
+    expect(summary.sections.map((s) => s.heading).join()).not.toMatch(/Smoke|SMOKE/)
   })
 
   it('includes breakdown tables and the paper reference lines', () => {
@@ -78,118 +84,68 @@ describe('buildSummary', () => {
   })
 })
 
-describe('buildSummary in ask mode', () => {
-  const turn = (over: Partial<AskTurnRecord>): AskTurnRecord => ({
-    personaId: 1,
-    tenantUserId: 'public-bench-personamem-v2-ask-gpt-4o-mini-p1',
-    turn: 0,
-    clock: '2025-01-01T00:00:00.000Z',
-    captures: 0,
-    deletes: 0,
-    toolNames: [],
-    thoughtsCreated: 0,
-    clockMismatches: 0,
-    askUsd: 0.004,
-    enrichUsd: 0,
-    usd: 0.004,
-    ms: 100,
-    ...over,
-  })
-  const askTurns = [
-    turn({ turn: 0, captures: 2, thoughtsCreated: 2, askUsd: 0.01, enrichUsd: 0.004, usd: 0.014 }),
-    turn({ turn: 1 }),
-    turn({
-      turn: 2,
-      deletes: 1,
-      captures: 1,
-      thoughtsCreated: 1,
-      clockMismatches: 1,
-      enrichUsd: 0.002,
-      usd: 0.006,
-    }),
-    turn({
-      personaId: 2,
-      tenantUserId: 'public-bench-personamem-v2-ask-gpt-4o-mini-p2',
-      turn: 0,
-      captures: 1,
-      thoughtsCreated: 1,
-      askUsd: 0.006,
-      enrichUsd: 0.001,
-      usd: 0.007,
-    }),
-  ]
+describe('buildSummary --evidence-only', () => {
   const score = scoreAnswers([row('eigen', true), row('no-memory', false)], new Map([['q1', 100]]))
-  const summary = buildSummary({
-    runId: 'r1',
-    chatModel: 'openai/gpt-4o-mini',
-    startedAt: 'a',
-    finishedAt: 'b',
-    config: {},
-    score,
-    ingestMode: 'ask',
-    askTurns,
-    ingest: { usd: 0.031, captures: 4, personas: 2 },
-    wallMsThisProcess: 1,
-    gitSha: 'x',
-    gitDirty: false,
-  })
-
-  it('totals turns, captures, turns with a capture, deletes, USD split and clock mismatches', () => {
-    expect(summary.metrics).toMatchObject({
-      askTurns: 4,
-      askCaptures: 4,
-      askTurnsWithCapture: 3,
-      askDeletes: 1,
-      askClockMismatches: 1,
+  const block: SmokeBlock = {
+    questionId: 'q1',
+    query: 'Suggest a drink?',
+    preference: 'Drinks green tea',
+    evidenceUserTurns: ['I only drink green tea.'],
+    stored: [{ text: 'Drinks only green tea', createdAt: '2025-01-01T00:00:00.000Z' }],
+    context: [{ text: 'Drinks only green tea', storedAt: '2025-01-01T00:00:00.000Z' }],
+    askTools: ['answer_question'],
+    askAnsweredWithoutMemory: false,
+    correctAnswer: 'Green tea',
+    eigenLetter: 'A',
+    noMemoryLetter: 'C',
+    correctLetter: 'A',
+  }
+  const build = (smoke: SmokeBlock[]) =>
+    buildSummary({
+      runId: 'r',
+      chatModel: 'openai/gpt-4o-mini',
+      startedAt: 'a',
+      finishedAt: 'b',
+      config: {},
+      score,
+      answerMode: 'ask',
+      evidenceOnly: true,
+      smoke,
+      ingest: { usd: 0, captures: 1, personas: 1 },
+      wallMsThisProcess: 1,
+      gitSha: 'x',
+      gitDirty: false,
     })
-    expect(summary.metrics.askTurnUsd).toBeCloseTo(0.024, 9)
-    expect(summary.metrics.askEnrichUsd).toBeCloseTo(0.007, 9)
-    expect(summary.config).toMatchObject({ ingest: 'ask' })
+
+  it('marks title, config and the first section as a SMOKE run, not a benchmark score', () => {
+    const summary = build([block])
+    expect(summary.title).toMatch(/^SMOKE \(evidence-only\) - not a benchmark score/)
+    expect(summary.title).toContain('ingest capture, answer ask')
+    expect(summary.config).toMatchObject({ evidenceOnly: true, answer: 'ask' })
+    expect(summary.sections[0]!.heading).toMatch(/SMOKE \(evidence-only\) - not a benchmark score/)
   })
 
-  it('has an Ask ingest table with one row per persona plus a total row', () => {
-    const section = summary.sections.find((s) => s.heading === 'Ask ingest')!
-    expect(section.table!.columns).toEqual([
-      'persona',
-      'user turns replayed',
-      'captures',
-      'turns with a capture',
-      'deletes',
-      'thoughts created',
-      'clock mismatches',
-      'ask USD',
-      'enrich USD',
-    ])
-    expect(section.table!.rows.map((r) => [r[0], r[1], r[2], r[3], r[4], r[6]])).toEqual([
-      [1, 3, 3, 2, 1, 1],
-      [2, 1, 1, 1, 0, 0],
-      ['total', 4, 4, 3, 1, 1],
-    ])
-    expect(section.lines!.join(' ')).toMatch(/createdAt differs from the turn clock/)
+  it('prints per question: preference, evidence, stored, Ask tools, context, picked vs correct', () => {
+    const lines = build([block])
+      .sections.find((s) => s.heading === 'Smoke: q1')!
+      .lines!.join('\n')
+    expect(lines).toContain('Drinks green tea')
+    expect(lines).toContain('I only drink green tea.')
+    expect(lines).toContain('Eigen stored (1)')
+    expect(lines).toContain('[2025-01-01] Drinks only green tea')
+    expect(lines).toContain('Ask answered with tools: answer_question')
+    expect(lines).toContain('context the chooser saw (1)')
+    expect(lines).toContain('eigen picked A (correct); no-memory picked C (wrong)')
   })
 
-  it('states that captured_at is not forced and ask mode replaces the capture decision text', () => {
-    const decisions = summary.sections.find((s) => s.heading === 'Decisions in effect')!
-    expect(decisions.lines!.join(' ')).toMatch(/Ask/)
-    expect(decisions.lines!.join(' ')).not.toMatch(/one capture per user turn/)
+  it('flags an Ask answer that never called answer_question', () => {
+    const lines = build([{ ...block, askTools: [], askAnsweredWithoutMemory: true, context: [] }])
+      .sections.find((s) => s.heading === 'Smoke: q1')!
+      .lines!.join('\n')
+    expect(lines).toMatch(/NO answer_question call/)
   })
 
-  it('refuses ask mode without turn records', () => {
-    expect(() =>
-      buildSummary({
-        runId: 'r',
-        chatModel: 'm',
-        startedAt: 'a',
-        finishedAt: 'b',
-        config: {},
-        score,
-        ingestMode: 'ask',
-        askTurns: [],
-        ingest: { usd: 0, captures: 0, personas: 0 },
-        wallMsThisProcess: 1,
-        gitSha: 'x',
-        gitDirty: false,
-      }),
-    ).toThrow(/ask-turns/)
+  it('requires smoke blocks', () => {
+    expect(() => build([])).toThrow(/smoke blocks/)
   })
 })

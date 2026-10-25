@@ -381,7 +381,28 @@ npm run eval:personamem -- --data-dir evals/.data/personamem-v2 --persona-ids 78
 ```
 
 Per-turn log: `ask-turns.jsonl` in the run dir (captures, deletes, tools, clock mismatches, USD).
-Every earlier command in §5.2 now also needs `--ingest ask` or `--ingest capture`.
+Superseded by §4b.5: `--ingest` no longer exists; every command needs `--answer ask|compose`.
+
+### 4b.5 Outcome (2026-10-25) — superseded design
+
+The Ask-ingest smoke (persona 78, gpt-4o-mini) replayed all 122 turns correctly but Ask stored
+only 4 memories (explicitly confessional turns); none of the tested preferences reached memory.
+**Operator decision:** capture removed from Ask again (Ask is ask-only, as in `5141f7f6`); the
+benchmark ingests through **Capture** and answers through **Ask** (`--answer ask`: real Ask agent,
+fresh session, eval clock; the chooser gets the full context of Ask's `answer_question` calls via
+the eval-only compose observer). `--ingest` and the Ask-ingest mode are deleted. Kept from
+Phase 1b-a: `runAskTurn`, eval clock, source-thought timestamps, `composeAnswer.context`.
+
+**Fast smoke (`--evidence-only`):** one tenant per question holding only that question's evidence
+user turns (PersonaMem `related_conversation_snippet`), then the question — about a minute,
+labelled "SMOKE — not a benchmark score". `--question-ids` reruns single questions. Requires
+re-running `prepare.py` once (it now keeps `evidenceTurns` and `preference`).
+
+```bash
+npm run eval:personamem -- --data-dir evals/.data/personamem-v2 --persona-ids 78 --limit-queries 5 --evidence-only --answer ask --chat-model openai/gpt-4o-mini --tenant-concurrency 5 --enrich-concurrency 1
+```
+
+Full-history runs: same flags without `--evidence-only` (`--answer ask|compose` required).
 
 ## 5. Running (operator-owned)
 

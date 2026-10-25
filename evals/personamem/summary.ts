@@ -1,6 +1,6 @@
 import type { RunSummary, SummarySection } from '../public-bench/run-output'
 import type { GroupStats, Score } from './score'
-import type { AskTurnRecord, IngestMode } from './types'
+import type { AnswerMode, OptionLetter } from './types'
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
 const signedPct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)} pp`
@@ -25,118 +25,74 @@ function breakdown(
   }
 }
 
-const SHARED_DECISIONS = [
-  'D1: one chat model (--chat-model) drives ingest, enrich, composeAnswer and the chooser; embeddings stay the pinned platform model',
-  'D2: the persona system message of each history is NOT replayed or captured (deviation from long-context baselines, which see it)',
-  'D6: strictly incremental enrich per persona (enrichConcurrency in config); parallelism is across personas',
-  'Options never reach Eigen: composeAnswer retrieves from the bare query; the chooser sees every item Eigen gave its answer model (context), dated, not only the cited ones',
-  'Variants: eigen (chooser gets that context) and no-memory (chooser gets none) share the same options and chooser',
-]
-
-export function decisionsInEffect(mode: IngestMode): string[] {
-  return [
-    SHARED_DECISIONS[0]!,
-    SHARED_DECISIONS[1]!,
-    mode === 'ask'
-      ? 'D3 (ask): every user turn is sent to one Ask chat session per persona under eval clock 2025-01-01T00:00Z + n days (query asked one day after the last turn); Ask decides what to store, assistant turns are not replayed (Ask writes its own replies)'
-      : 'D3 (capture): one capture per user turn, capturedAt = 2025-01-01T00:00Z + n days (query asked one day after the last turn); assistant turns are not captured',
-    ...SHARED_DECISIONS.slice(2),
-  ]
-}
-
-type AskPersonaStats = {
-  personaId: number
-  turns: number
-  captures: number
-  turnsWithCapture: number
-  deletes: number
-  thoughtsCreated: number
-  clockMismatches: number
-  askUsd: number
-  enrichUsd: number
-}
-
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6
 
-function askStats(records: readonly AskTurnRecord[]): {
-  personas: AskPersonaStats[]
-  total: Omit<AskPersonaStats, 'personaId'>
-} {
-  const byPersona = new Map<number, AskPersonaStats>()
-  for (const r of records) {
-    const stats = byPersona.get(r.personaId) ?? {
-      personaId: r.personaId,
-      turns: 0,
-      captures: 0,
-      turnsWithCapture: 0,
-      deletes: 0,
-      thoughtsCreated: 0,
-      clockMismatches: 0,
-      askUsd: 0,
-      enrichUsd: 0,
-    }
-    stats.turns += 1
-    stats.captures += r.captures
-    stats.turnsWithCapture += r.captures > 0 ? 1 : 0
-    stats.deletes += r.deletes
-    stats.thoughtsCreated += r.thoughtsCreated
-    stats.clockMismatches += r.clockMismatches
-    stats.askUsd += r.askUsd
-    stats.enrichUsd += r.enrichUsd
-    byPersona.set(r.personaId, stats)
-  }
-  const personas = [...byPersona.values()].sort((a, b) => a.personaId - b.personaId)
-  const total: Omit<AskPersonaStats, 'personaId'> = {
-    turns: 0,
-    captures: 0,
-    turnsWithCapture: 0,
-    deletes: 0,
-    thoughtsCreated: 0,
-    clockMismatches: 0,
-    askUsd: 0,
-    enrichUsd: 0,
-  }
-  for (const { personaId: _id, ...p } of personas) {
-    for (const key of Object.keys(total) as (keyof typeof total)[]) total[key] += p[key]
-  }
-  return { personas, total }
+export const SMOKE_BANNER = 'SMOKE (evidence-only) - not a benchmark score'
+
+export function decisionsInEffect(answer: AnswerMode, evidenceOnly: boolean): string[] {
+  return [
+    'D1: one chat model (--chat-model) drives enrich, Ask / composeAnswer and the chooser; embeddings stay the pinned platform model',
+    evidenceOnly
+      ? 'D2/D3 (evidence-only): per question, one capture per evidence user turn (related_conversation_snippet), capturedAt = 2025-01-01T00:00Z + n days in snippet order (query asked one day after the last turn); one tenant per question; the rest of the history is not replayed'
+      : 'D2/D3: the persona system message is NOT captured (deviation from long-context baselines, which see it); one capture per user turn, capturedAt = 2025-01-01T00:00Z + n days (query asked one day after the last turn); assistant turns are not captured',
+    'D6: strictly incremental enrich per tenant (enrichConcurrency in config); parallelism is across tenants',
+    answer === 'ask'
+      ? 'Answer (ask): a new Ask session per question receives the bare query only; the chooser sees the full context of every answer_question call Ask made (dated), not the cited subset; without such a call it sees none and the row is flagged askAnsweredWithoutMemory. Ask never stores anything'
+      : 'Answer (compose): composeAnswer runs on the bare query; the chooser sees every item Eigen gave its answer model (context), dated, not only the cited ones',
+    'Options never reach Eigen; variants eigen (chooser gets that context) and no-memory (chooser gets none) share the same options and chooser',
+  ]
 }
 
-function askSection(records: readonly AskTurnRecord[]): SummarySection {
-  const { personas, total } = askStats(records)
-  const row = (label: string | number, s: Omit<AskPersonaStats, 'personaId'>) => [
-    label,
-    s.turns,
-    s.captures,
-    s.turnsWithCapture,
-    s.deletes,
-    s.thoughtsCreated,
-    s.clockMismatches,
-    round6(s.askUsd),
-    round6(s.enrichUsd),
-  ]
+const clip = (text: string, max = 280) => {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max)}...` : flat
+}
+
+/** One question of an evidence-only smoke run, as shown to the operator. */
+export type SmokeBlock = {
+  questionId: string
+  query: string
+  /** The target preference (data); never shown to Eigen or the chooser. */
+  preference: string
+  /** The evidence user turns that were replayed. */
+  evidenceUserTurns: string[]
+  /** normalizedText of the thoughts in the tenant after ingest. */
+  stored: { text: string; createdAt: string }[]
+  /** What the chooser saw as Eigen's memories. */
+  context: { text: string; storedAt: string }[]
+  /** `--answer ask`: tools Ask used to answer; null in compose mode. */
+  askTools: string[] | null
+  askAnsweredWithoutMemory: boolean
+  correctAnswer: string
+  eigenLetter: OptionLetter
+  noMemoryLetter: OptionLetter
+  correctLetter: OptionLetter
+}
+
+function smokeSection(block: SmokeBlock): SummarySection {
+  const verdict = (letter: OptionLetter) =>
+    `${letter} (${letter === block.correctLetter ? 'correct' : 'wrong'})`
+  const numbered = (items: string[]) =>
+    items.length === 0 ? ['  (none)'] : items.map((t, i) => `  ${i + 1}. ${t}`)
   return {
-    heading: 'Ask ingest',
+    heading: `Smoke: ${block.questionId}`,
     lines: [
-      'user turns replayed = Ask messages sent; captures / deletes = successful capture_thought / delete_thought(s_by_request) tool calls Ask made',
-      'thoughts created = new thought rows per turn (includes split / fan-out children); a turn with no capture is normal',
-      'clock mismatches = created thoughts whose stored createdAt differs from the turn clock (Ask may pass its own captured_at; reported, not corrected)',
-      "ask USD = the Ask turn itself (agent loop, capture tool, answer_question); enrich USD = draining and awaiting enrichment of that turn's thoughts",
+      `query: ${clip(block.query)}`,
+      `preference (data, hidden from Eigen): ${clip(block.preference)}`,
+      `evidence turns replayed (${block.evidenceUserTurns.length}):`,
+      ...numbered(block.evidenceUserTurns.map((t) => clip(t))),
+      `Eigen stored (${block.stored.length}):`,
+      ...numbered(block.stored.map((t) => `[${t.createdAt.slice(0, 10)}] ${clip(t.text)}`)),
+      ...(block.askTools === null
+        ? []
+        : [
+            `Ask answered with tools: ${block.askTools.length === 0 ? '(none)' : block.askTools.join(', ')}${block.askAnsweredWithoutMemory ? ' - NO answer_question call, chooser got no memory' : ''}`,
+          ]),
+      `context the chooser saw (${block.context.length}):`,
+      ...numbered(block.context.map((t) => `[${t.storedAt.slice(0, 10)}] ${clip(t.text)}`)),
+      `correct answer: ${block.correctLetter} - ${clip(block.correctAnswer)}`,
+      `eigen picked ${verdict(block.eigenLetter)}; no-memory picked ${verdict(block.noMemoryLetter)}`,
     ],
-    table: {
-      columns: [
-        'persona',
-        'user turns replayed',
-        'captures',
-        'turns with a capture',
-        'deletes',
-        'thoughts created',
-        'clock mismatches',
-        'ask USD',
-        'enrich USD',
-      ],
-      rows: [...personas.map((p) => row(p.personaId, p)), row('total', total)],
-    },
   }
 }
 
@@ -153,9 +109,10 @@ export function buildSummary(input: {
   finishedAt: string
   config: Record<string, unknown>
   score: Score
-  ingestMode: IngestMode
-  /** Every ask-turns.jsonl record (empty in capture mode, required in ask mode). */
-  askTurns: readonly AskTurnRecord[]
+  answerMode: AnswerMode
+  evidenceOnly: boolean
+  /** One block per question; required (non-empty) with evidenceOnly, ignored otherwise. */
+  smoke: readonly SmokeBlock[]
   /** Ingest spend recorded by this run (ingest.jsonl); 0 captures when ingest was skipped. */
   ingest: { usd: number; captures: number; personas: number }
   wallMsThisProcess: number
@@ -163,20 +120,21 @@ export function buildSummary(input: {
   gitDirty: boolean
 }): RunSummary {
   const { score } = input
-  if (input.ingestMode === 'ask' && input.askTurns.length === 0) {
-    throw new Error('[personamem] ask-turns.jsonl holds no turns for an --ingest ask run')
+  if (input.evidenceOnly && input.smoke.length === 0) {
+    throw new Error('[personamem] an --evidence-only run needs smoke blocks')
   }
-  const ask = input.ingestMode === 'ask' ? askStats(input.askTurns).total : null
   const answerUsd = score.usd.total
   return {
     bench: 'personamem-v2',
     runId: input.runId,
-    title: `PersonaMem-v2 x Eigen (text, 32k) - ${input.chatModel}`,
+    title: `${input.evidenceOnly ? `${SMOKE_BANNER} - ` : ''}PersonaMem-v2 x Eigen (text, 32k) - ${input.chatModel} (ingest capture, answer ${input.answerMode})`,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
     config: {
       ...input.config,
-      ingest: input.ingestMode,
+      ingest: 'capture',
+      answer: input.answerMode,
+      evidenceOnly: input.evidenceOnly,
       chatModel: input.chatModel,
       gitSha: input.gitSha,
       gitDirty: input.gitDirty,
@@ -191,19 +149,19 @@ export function buildSummary(input: {
       answerUsd: round6(answerUsd),
       totalUsd: round6(input.ingest.usd + answerUsd),
       wallMsThisProcess: input.wallMsThisProcess,
-      ...(ask
-        ? {
-            askTurns: ask.turns,
-            askCaptures: ask.captures,
-            askTurnsWithCapture: ask.turnsWithCapture,
-            askDeletes: ask.deletes,
-            askClockMismatches: ask.clockMismatches,
-            askTurnUsd: round6(ask.askUsd),
-            askEnrichUsd: round6(ask.enrichUsd),
-          }
-        : {}),
     },
     sections: [
+      ...(input.evidenceOnly
+        ? [
+            {
+              heading: SMOKE_BANNER,
+              lines: [
+                'Per question: only that question evidence user turns were ingested; accuracy below is a diagnostic over a handful of questions, not a PersonaMem-v2 score',
+              ],
+            },
+            ...input.smoke.map(smokeSection),
+          ]
+        : []),
       {
         heading: 'Overall',
         table: {
@@ -225,19 +183,21 @@ export function buildSummary(input: {
           ],
         },
         lines: [
-          `${input.ingestMode === 'ask' ? 'captures Ask made' : 'captures ingested'} in this run: ${input.ingest.captures} across ${input.ingest.personas} persona(s); USD ingest ${round6(input.ingest.usd)} + answer ${round6(answerUsd)}`,
+          `captures ingested in this run: ${input.ingest.captures} across ${input.ingest.personas} tenant(s); USD ingest ${round6(input.ingest.usd)} + answer ${round6(answerUsd)}`,
           'invalid letters: 0 (a response outside A-D fails the call; none are stored)',
           input.ingest.personas === 0
             ? 'ingest cost is not included: this run reused existing tenants (--skip-ingest or --resume)'
             : 'ingest cost covers the personas ingested in this run directory',
         ],
       },
-      ...(ask ? [askSection(input.askTurns)] : []),
       breakdown('By pref_type', 'pref_type', score.byPrefType),
       breakdown('By updated', 'updated', score.byUpdated),
       breakdown('By who', 'who', score.byWho),
       breakdown('By distance (tokens)', 'distance', score.byDistance),
-      { heading: 'Decisions in effect', lines: decisionsInEffect(input.ingestMode) },
+      {
+        heading: 'Decisions in effect',
+        lines: decisionsInEffect(input.answerMode, input.evidenceOnly),
+      },
       { heading: 'Reference numbers (from the PersonaMem-v2 paper)', lines: PAPER_REFERENCES },
     ],
   }

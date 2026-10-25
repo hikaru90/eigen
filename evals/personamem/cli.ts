@@ -1,28 +1,31 @@
 import { resolve } from 'node:path'
 import { assertEvalChatModel } from '$lib/server/llm/eval-chat-model'
-import { INGEST_MODES, type IngestMode } from './types'
+import { ANSWER_MODES, type AnswerMode } from './types'
 
 export const PERSONAMEM_USAGE = `Usage: npm run eval:personamem -- [options]
 
 Required:
   --data-dir DIR            Contains personamem.benchmark.jsonl (from prepare.py) and data/chat_history_32k
-  --chat-model MODEL        vendor/name; drives Ask / capture, enrich, composeAnswer and the chooser (e.g. openai/gpt-4o-mini)
-  --ingest ask|capture      How each persona's user turns reach Eigen (no default):
-                              ask     replay every user turn through one Ask chat session; Ask decides what to store
-                              capture queue every user turn as a Capture (the original path)
+  --chat-model MODEL        vendor/name; drives capture enrich, Ask / composeAnswer and the chooser (e.g. openai/gpt-4o-mini)
+  --answer ask|compose      How each question reaches Eigen (no default):
+                              ask     the real Ask agent in a new session, bare query only; the chooser gets the full
+                                      context of every answer_question call Ask made
+                              compose composeAnswer directly on the bare query
   --tenant-concurrency N    Personas processed side by side
   --enrich-concurrency N    Enrich workers within one persona (1 = strictly incremental, D6)
   exactly one of:
     --personas N --seed S   Seeded sample of N personas
     --persona-ids a,b,c     Explicit persona ids
     --all                   Every persona
+    --question-ids a,b      Exact questionIds (only with --evidence-only)
 
 Optional:
   --run-id NAME             Run directory name (evals/reports/public/personamem-v2/NAME); required with --resume
-  --resume                  Continue an existing run directory (same --ingest required); answered questions are skipped.
-                            --ingest ask resumes per persona: a persona whose replay did not finish is replayed from scratch
-  --skip-ingest             Reuse existing tenants (--ingest capture only; fails if a tenant does not hold exactly the planned captures)
+  --resume                  Continue an existing run directory (same --answer required); answered questions are skipped
+  --skip-ingest             Reuse existing tenants (fails if a tenant does not hold exactly the planned captures)
   --limit-queries N         At most N queries per persona
+  --evidence-only           SMOKE, not a benchmark score: per question, ingest ONLY that question's evidence user turns
+                            (Capture) into its own tenant, then answer it. Prepare data with a current prepare.py
   --dry-run                 Print the plan and exit; touches no database and no LLM
 `
 
@@ -34,14 +37,18 @@ export class PersonaMemUsageError extends Error {
 }
 
 export type PersonaSelection =
-  { kind: 'sample'; count: number; seed: string } | { kind: 'ids'; ids: number[] } | { kind: 'all' }
+  | { kind: 'sample'; count: number; seed: string }
+  | { kind: 'ids'; ids: number[] }
+  | { kind: 'questions'; ids: string[] }
+  | { kind: 'all' }
 
 export type PersonaMemCli = {
   dataDir: string
   chatModel: string
   tenantConcurrency: number
   enrichConcurrency: number
-  ingest: IngestMode
+  answer: AnswerMode
+  evidenceOnly: boolean
   selection: PersonaSelection
   runId: string | null
   resume: boolean
@@ -55,14 +62,21 @@ const VALUE_FLAGS = new Set([
   '--chat-model',
   '--tenant-concurrency',
   '--enrich-concurrency',
-  '--ingest',
+  '--answer',
+  '--question-ids',
   '--personas',
   '--seed',
   '--persona-ids',
   '--run-id',
   '--limit-queries',
 ])
-const BOOLEAN_FLAGS = new Set(['--all', '--resume', '--skip-ingest', '--dry-run'])
+const BOOLEAN_FLAGS = new Set([
+  '--all',
+  '--resume',
+  '--skip-ingest',
+  '--dry-run',
+  '--evidence-only',
+])
 
 function positiveInt(flag: string, raw: string): number {
   if (!/^\d+$/.test(raw.trim()) || Number(raw) < 1) {
@@ -90,6 +104,20 @@ function parsePersonaIds(raw: string): number[] {
     }
     const id = Number(trimmed)
     if (!ids.includes(id)) ids.push(id)
+  }
+  return ids
+}
+
+function parseQuestionIds(raw: string): string[] {
+  const ids: string[] = []
+  for (const part of raw.split(',')) {
+    const trimmed = part.trim()
+    if (!/^p\d+-[0-9a-f]{12}$/.test(trimmed)) {
+      throw new PersonaMemUsageError(
+        `--question-ids must be comma-separated questionIds (p<persona>-<12 hex>), got: ${JSON.stringify(raw)}`,
+      )
+    }
+    if (!ids.includes(trimmed)) ids.push(trimmed)
   }
   return ids
 }
@@ -132,30 +160,34 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     requireValue(values, '--enrich-concurrency'),
   )
 
-  const ingestRaw = requireValue(values, '--ingest')
-  const ingest = INGEST_MODES.find((mode) => mode === ingestRaw)
-  if (ingest === undefined) {
+  const answerRaw = requireValue(values, '--answer')
+  const answer = ANSWER_MODES.find((mode) => mode === answerRaw)
+  if (answer === undefined) {
     throw new PersonaMemUsageError(
-      `--ingest must be one of ${INGEST_MODES.join(', ')}, got: ${JSON.stringify(ingestRaw)}`,
+      `--answer must be one of ${ANSWER_MODES.join(', ')}, got: ${JSON.stringify(answerRaw)}`,
     )
   }
-  if (ingest === 'ask' && flags.has('--skip-ingest')) {
+  const evidenceOnly = flags.has('--evidence-only')
+  if (values.has('--question-ids') && !evidenceOnly) {
     throw new PersonaMemUsageError(
-      '--skip-ingest is only valid with --ingest capture (an Ask replay has no fixed thought count to verify a reused tenant against)',
+      '--question-ids is only valid with --evidence-only (a full-history replay cannot be cut down to single questions)',
     )
   }
 
-  const chosen = [values.has('--personas'), values.has('--persona-ids'), flags.has('--all')].filter(
-    Boolean,
-  )
+  const chosen = [
+    values.has('--personas'),
+    values.has('--persona-ids'),
+    values.has('--question-ids'),
+    flags.has('--all'),
+  ].filter(Boolean)
   if (chosen.length === 0) {
     throw new PersonaMemUsageError(
-      'select personas with exactly one of --personas N --seed S, --persona-ids a,b, or --all',
+      'select with exactly one of --personas N --seed S, --persona-ids a,b, --all, or --question-ids a,b (with --evidence-only)',
     )
   }
   if (chosen.length > 1) {
     throw new PersonaMemUsageError(
-      'select personas with exactly one of --personas, --persona-ids, or --all (got several)',
+      'select with exactly one of --personas, --persona-ids, --all, or --question-ids (got several)',
     )
   }
 
@@ -173,7 +205,9 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     if (values.has('--seed')) throw new PersonaMemUsageError('--seed is only valid with --personas')
     selection = values.has('--persona-ids')
       ? { kind: 'ids', ids: parsePersonaIds(values.get('--persona-ids')!) }
-      : { kind: 'all' }
+      : values.has('--question-ids')
+        ? { kind: 'questions', ids: parseQuestionIds(values.get('--question-ids')!) }
+        : { kind: 'all' }
   }
 
   const runId = values.get('--run-id') ?? null
@@ -183,12 +217,17 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     throw new PersonaMemUsageError('--resume requires --run-id of the run to continue')
   }
 
+  if (values.has('--question-ids') && values.has('--limit-queries')) {
+    throw new PersonaMemUsageError('--limit-queries is not valid with --question-ids')
+  }
+
   return {
     dataDir,
     chatModel,
     tenantConcurrency,
     enrichConcurrency,
-    ingest,
+    answer,
+    evidenceOnly,
     selection,
     runId,
     resume,

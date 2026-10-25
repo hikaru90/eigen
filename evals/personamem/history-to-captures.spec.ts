@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { historyToCaptures, PERSONAMEM_EPOCH } from './history-to-captures'
+import { evidenceToCaptures, historyToCaptures, PERSONAMEM_EPOCH } from './history-to-captures'
 import { loadHistory } from './load-dataset'
 import { FIXTURES_DIR } from './test-fixtures'
 
@@ -66,5 +66,25 @@ describe('historyToCaptures', () => {
     expect(() => historyToCaptures({ chat_history: [{ role: 'system', content: 's' }] })).toThrow(
       /no user turns/,
     )
+  })
+})
+
+describe('evidenceToCaptures', () => {
+  it('keeps only user turns in snippet order, one day apart from the epoch', () => {
+    const captures = evidenceToCaptures([
+      { role: 'user', content: ' first ' },
+      { role: 'assistant', content: 'skipped' },
+      { role: 'user', content: 'second' },
+    ])
+    expect(captures.map((c) => c.rawText)).toEqual(['first', 'second'])
+    expect(captures.map((c) => c.capturedAt.getTime() - PERSONAMEM_EPOCH.getTime())).toEqual([
+      0,
+      DAY_MS,
+    ])
+  })
+
+  it('throws without user turns or on a blank one', () => {
+    expect(() => evidenceToCaptures([{ role: 'assistant', content: 'x' }])).toThrow(/no user turns/)
+    expect(() => evidenceToCaptures([{ role: 'user', content: ' ' }])).toThrow(/empty user turn/)
   })
 })

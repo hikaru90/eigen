@@ -54,6 +54,40 @@ describe('prepare.py', () => {
     })
   })
 
+  it('keeps preference and the evidence turns (all roles, snippet order)', () => {
+    const dir = writeFixtureDataDir()
+    expect(runPrepare(dir).status).toBe(0)
+    expect(readPrepared(dir)[0]).toMatchObject({
+      preference: 'Prefers calm evenings',
+      evidenceTurns: [
+        { role: 'user', content: 'I like calm evenings.' },
+        { role: 'assistant', content: 'Noted.' },
+        { role: 'user', content: 'Really, nothing loud after dinner.' },
+      ],
+    })
+  })
+
+  it.each([
+    ['not JSON', 'not json'],
+    ['not a list of turns', JSON.stringify({ role: 'user' })],
+    ['empty', '[]'],
+    ['turn without content', JSON.stringify([{ role: 'user' }])],
+    ['no user turn', JSON.stringify([{ role: 'assistant', content: 'x' }])],
+  ])('refuses a related_conversation_snippet that is %s', (_label, snippet) => {
+    const dir = writeFixtureDataDir({ rows: withRow(1, { related_conversation_snippet: snippet }) })
+    const res = runPrepare(dir)
+    expect(res.status).not.toBe(0)
+    expect(res.stderr).toMatch(/row 2/)
+    expect(res.stderr).toMatch(/related_conversation_snippet/)
+  })
+
+  it('refuses an empty preference', () => {
+    const dir = writeFixtureDataDir({ rows: withRow(0, { preference: ' ' }) })
+    const res = runPrepare(dir)
+    expect(res.status).not.toBe(0)
+    expect(res.stderr).toMatch(/preference/)
+  })
+
   it('derives questionId as p<personaId>-<first 12 hex of sha256(query)>', () => {
     const dir = writeFixtureDataDir()
     expect(runPrepare(dir).status).toBe(0)

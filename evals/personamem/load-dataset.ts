@@ -34,6 +34,15 @@ export function loadPreparedRows(dataDir: string): PreparedRow[] {
     } catch (err) {
       throw new Error(`[personamem] ${path} line ${i + 1} is not JSON`, { cause: err })
     }
+    if (
+      typeof json === 'object' &&
+      json !== null &&
+      !('evidenceTurns' in json && 'preference' in json)
+    ) {
+      throw new Error(
+        `[personamem] ${path} line ${i + 1} lacks evidenceTurns/preference; re-run: python3 -I evals/personamem/prepare.py --data-dir ${dataDir}`,
+      )
+    }
     const parsed = preparedRowSchema.safeParse(json)
     if (!parsed.success) {
       throw new Error(

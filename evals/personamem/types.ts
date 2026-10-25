@@ -4,9 +4,10 @@ export const OPTION_LETTERS = ['A', 'B', 'C', 'D'] as const
 export const optionLetterSchema = z.enum(OPTION_LETTERS)
 export type OptionLetter = z.infer<typeof optionLetterSchema>
 
-export const INGEST_MODES = ['ask', 'capture'] as const
-export const ingestModeSchema = z.enum(INGEST_MODES)
-export type IngestMode = z.infer<typeof ingestModeSchema>
+/** How a question reaches Eigen: through the real Ask agent, or composeAnswer on the bare query. */
+export const ANSWER_MODES = ['ask', 'compose'] as const
+export const answerModeSchema = z.enum(ANSWER_MODES)
+export type AnswerMode = z.infer<typeof answerModeSchema>
 
 export const VARIANTS = ['eigen', 'no-memory'] as const
 export const variantSchema = z.enum(VARIANTS)
@@ -30,6 +31,10 @@ export const preparedRowSchema = z
     topicQuery: z.string(),
     distance32k: z.number().int().nonnegative(),
     questionId: z.string().regex(/^p\d+-[0-9a-f]{12}$/),
+    /** The target preference text. For the smoke report only; never shown to Eigen or the chooser. */
+    preference: nonEmpty,
+    /** The history turns where this row's preference was revealed (`related_conversation_snippet`). */
+    evidenceTurns: z.array(z.object({ role: nonEmpty, content: z.string() }).strict()).min(1),
   })
   .strict()
   .refine((row) => new Set([row.correctAnswer, ...row.incorrectAnswers]).size === 4, {
@@ -76,36 +81,12 @@ export const answerRowSchema = z
     retrieved: z.array(retrievedItemSchema).optional(),
     /** Ids of `retrieved` the answer actually cited. */
     citedIds: z.array(z.string()).optional(),
+    /** `--answer ask`: names of the tools Ask used to answer. */
+    askTools: z.array(nonEmpty).optional(),
+    /** `--answer ask`: Ask never called answer_question, so the chooser got no context. */
+    askAnsweredWithoutMemory: z.boolean().optional(),
     usd: z.number().nonnegative(),
     ms: z.number().nonnegative(),
   })
   .strict()
 export type AnswerRow = z.infer<typeof answerRowSchema>
-
-const count = z.number().int().nonnegative()
-
-/** One line of `ask-turns.jsonl`: what happened in one replayed user turn (`--ingest ask`). */
-export const askTurnRecordSchema = z
-  .object({
-    personaId: z.number().int().nonnegative(),
-    tenantUserId: nonEmpty,
-    /** Zero-based index of the user turn in history order. */
-    turn: count,
-    /** The turn's eval clock (PERSONAMEM_EPOCH + turn days). */
-    clock: z.iso.datetime(),
-    /** Successful `capture_thought` calls Ask made. */
-    captures: count,
-    /** Successful `delete_thought` / `delete_thoughts_by_request` calls Ask made. */
-    deletes: count,
-    toolNames: z.array(nonEmpty),
-    /** Thoughts that exist after the turn and did not before (captures, split/fan-out children). */
-    thoughtsCreated: count,
-    /** Created thoughts whose stored createdAt differs from the turn clock. */
-    clockMismatches: count,
-    askUsd: z.number().nonnegative(),
-    enrichUsd: z.number().nonnegative(),
-    usd: z.number().nonnegative(),
-    ms: z.number().nonnegative(),
-  })
-  .strict()
-export type AskTurnRecord = z.infer<typeof askTurnRecordSchema>

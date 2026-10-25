@@ -38,8 +38,8 @@ describe('personamem CLI launch', () => {
         '1',
         '--enrich-concurrency',
         '1',
-        '--ingest',
-        'capture',
+        '--answer',
+        'compose',
       ],
       {
         cwd: REPO_ROOT,

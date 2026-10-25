@@ -30,3 +30,24 @@ export function historyToCaptures(history: ChatHistory): CaptureItem[] {
   if (captures.length === 0) throw new Error('[personamem] history has no user turns')
   return captures
 }
+
+/**
+ * Smoke mode (D2/D3 on the evidence only): the user turns of a question's evidence snippet,
+ * in snippet order, stamped epoch + n days like `historyToCaptures`. Assistant turns are dropped.
+ */
+export function evidenceToCaptures(
+  evidenceTurns: readonly { role: string; content: string }[],
+): CaptureItem[] {
+  const captures: CaptureItem[] = []
+  for (const turn of evidenceTurns) {
+    if (turn.role !== 'user') continue
+    const rawText = turn.content.trim()
+    if (!rawText) throw new Error('[personamem] empty user turn in evidence')
+    captures.push({
+      rawText,
+      capturedAt: new Date(PERSONAMEM_EPOCH.getTime() + captures.length * DAY_MS),
+    })
+  }
+  if (captures.length === 0) throw new Error('[personamem] evidence has no user turns')
+  return captures
+}

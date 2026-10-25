@@ -34,6 +34,7 @@ import {
 } from '$lib/server/memory/temporal-context'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
 import { composeAnswer } from '$lib/server/qa/compose-answer'
+import { observeComposedAnswer } from '$lib/server/qa/compose-observer'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
 import {
@@ -382,6 +383,7 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
       })
     },
   })
+  observeComposedAnswer(context.userId, result)
   console.info('[mcp.tool:answer_question] done', {
     durationMs: Date.now() - answerStart,
     citationCount: result.citations.length,

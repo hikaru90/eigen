@@ -1,16 +1,22 @@
 /**
- * PersonaMem-v2 live path: ingest each persona's user turns into its own tenant (`--ingest ask`:
- * replayed through one Ask chat session; `--ingest capture`: queued as captures), ask every
- * query through composeAnswer, let the chosen chat model pick an option with and without
- * Eigen's memories, write answers.jsonl (and ask-turns.jsonl) and the summary. Loaded only for real
- * runs (the dry run never imports this module). Agents do not run it; the operator does.
+ * PersonaMem-v2 live path: queue each tenant's user turns as captures (the whole history, or
+ * with --evidence-only just one question's evidence), answer every query (`--answer ask`: the
+ * real Ask agent; `--answer compose`: composeAnswer on the bare query), let the chosen chat
+ * model pick an option with and without Eigen's memories, write answers.jsonl (and smoke.jsonl)
+ * and the summary. Loaded only for real runs (the dry run never imports this module). Agents do
+ * not run it; the operator does.
  */
 import 'dotenv/config'
 import type { PersonaMemCli } from './cli'
 import { execFileSync } from 'node:child_process'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { PUBLIC_BENCH_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
-import { composeAnswer, formatComposedAnswerForUser } from '$lib/server/qa/compose-answer'
+import {
+  composeAnswer,
+  formatComposedAnswerForUser,
+  type RetrievalContextItem,
+} from '$lib/server/qa/compose-answer'
 import { mapWithConcurrency } from '../harness/concurrency'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
 import { tenantTotalUsd } from '../public-bench/cost'
@@ -18,25 +24,32 @@ import { ensurePublicBenchOperator } from '../public-bench/ensure-operator'
 import { ingestTenant } from '../public-bench/ingest-tenant'
 import { modelSlug } from '../public-bench/model-slug'
 import { appendJsonl, readJsonl, removeJsonlRows, writeSummary } from '../public-bench/run-output'
-import { ingestTenantViaAsk } from './ask-ingest'
+import { answerViaAsk } from './ask-answer'
 import { chooseOption, llmComplete } from './choose-option'
 import { chooseFromComposed, storedContextItems } from './eigen-answer'
 import { buildChooserMessages } from './mcq'
 import { buildPlan, type Plan, type PlannedPersona, type PlannedQuestion } from './plan'
 import { openRun, type RunIdentity, type RunPaths } from './run-meta'
 import { scoreAnswers } from './score'
-import { buildSummary } from './summary'
-import { answerRowSchema, askTurnRecordSchema, type AnswerRow, type AskTurnRecord } from './types'
+import { buildSummary, type SmokeBlock } from './summary'
+import { answerRowSchema, type AnswerRow } from './types'
 
 const ingestRecordSchema = z.object({
   personaId: z.number().int(),
   tenantUserId: z.string(),
-  /** Captures made: one per user turn (capture mode) or Ask's own capture_thought calls (ask mode, may be 0). */
+  /** Captures made: one per user turn queued. */
   captures: z.number().int().nonnegative(),
   usd: z.number().nonnegative(),
   ms: z.number().nonnegative(),
 })
 type IngestRecord = z.infer<typeof ingestRecordSchema>
+
+/** One line of smoke.jsonl (--evidence-only): the tenant's thoughts after ingest. */
+const smokeRecordSchema = z.object({
+  questionId: z.string(),
+  stored: z.array(z.object({ text: z.string(), createdAt: z.iso.datetime() })),
+})
+type SmokeRecord = z.infer<typeof smokeRecordSchema>
 
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6
 
@@ -79,7 +92,67 @@ type RunContext = {
   cli: PersonaMemCli
   paths: RunPaths
   done: Set<string>
-  ingestedPersonaIds: Set<number>
+  ingestedTenantIds: Set<string>
+}
+
+/** normalizedText of every thought in the tenant (what Eigen stored from the ingested turns). */
+async function storedThoughts(tenant: string, cli: PersonaMemCli): Promise<SmokeRecord['stored']> {
+  const billing = { billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID, chatModel: cli.chatModel }
+  const { thought } = await import('$lib/server/db/schema')
+  const rows = await withEvalDb(
+    tenant,
+    (db) =>
+      db
+        .select({ text: thought.normalizedText, createdAt: thought.createdAt })
+        .from(thought)
+        .where(eq(thought.userId, tenant)),
+    billing,
+  )
+  return rows
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map((r) => ({ text: r.text, createdAt: r.createdAt.toISOString() }))
+}
+
+type EigenAnswer = {
+  answerText: string
+  context: RetrievalContextItem[]
+  citedIds: string[]
+  askTools?: string[]
+  askAnsweredWithoutMemory?: boolean
+}
+
+async function eigenAnswerFor(
+  ctx: RunContext,
+  tenant: string,
+  persona: PlannedPersona,
+  query: string,
+): Promise<EigenAnswer> {
+  const billing = { billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID, chatModel: ctx.cli.chatModel }
+  if (ctx.cli.answer === 'ask') {
+    const asked = await answerViaAsk({
+      tenantUserId: tenant,
+      query,
+      referenceTime: persona.referenceTime,
+      billing,
+    })
+    return {
+      answerText: asked.answer,
+      context: asked.context,
+      citedIds: [],
+      askTools: asked.toolNames,
+      askAnsweredWithoutMemory: asked.askAnsweredWithoutMemory,
+    }
+  }
+  const composed = await withEvalDb(
+    tenant,
+    () => composeAnswer({ userId: tenant, question: query, referenceTime: persona.referenceTime }),
+    billing,
+  )
+  return {
+    answerText: formatComposedAnswerForUser(composed.answer),
+    context: composed.context,
+    citedIds: composed.retrieved.map((item) => item.id),
+  }
 }
 
 async function answerQuestion(
@@ -94,17 +167,10 @@ async function answerQuestion(
   const complete = llmComplete(tenant)
 
   const eigenStart = Date.now()
-  const eigen = await withEvalDb(
+  const eigen = await eigenAnswerFor(ctx, tenant, persona, row.query)
+  const letter = await withEvalDb(
     tenant,
-    async () => {
-      const composed = await composeAnswer({
-        userId: tenant,
-        question: row.query,
-        referenceTime: persona.referenceTime,
-      })
-      const letter = await chooseFromComposed({ composed, query: row.query, options, complete })
-      return { composed, letter }
-    },
+    () => chooseFromComposed({ composed: eigen, query: row.query, options, complete }),
     billing,
   )
   const eigenMs = Date.now() - eigenStart
@@ -140,11 +206,15 @@ async function answerQuestion(
   const eigenRow = answerRowSchema.parse({
     ...common,
     variant: 'eigen',
-    letter: eigen.letter,
-    correct: eigen.letter === correctLetter,
-    eigenAnswer: formatComposedAnswerForUser(eigen.composed.answer),
-    retrieved: storedContextItems(eigen.composed),
-    citedIds: eigen.composed.retrieved.map((item) => item.id),
+    letter,
+    correct: letter === correctLetter,
+    eigenAnswer: eigen.answerText,
+    retrieved: storedContextItems(eigen),
+    citedIds: eigen.citedIds,
+    ...(eigen.askTools ? { askTools: eigen.askTools } : {}),
+    ...(eigen.askAnsweredWithoutMemory !== undefined
+      ? { askAnsweredWithoutMemory: eigen.askAnsweredWithoutMemory }
+      : {}),
     usd: usdOf(usdBefore, usdAfterEigen),
     ms: eigenMs,
   })
@@ -174,37 +244,17 @@ async function runPersona(ctx: RunContext, persona: PlannedPersona): Promise<voi
   }
 
   const tenant = persona.tenantUserId
-  const reset = !ctx.cli.skipIngest && !ctx.ingestedPersonaIds.has(persona.personaId)
+  const reset = !ctx.cli.skipIngest && !ctx.ingestedTenantIds.has(tenant)
   const ingestStart = Date.now()
-  let ingestedCaptures: number
-  if (ctx.cli.ingest === 'ask') {
-    // Persona granularity: a persona without an ingest record is replayed from scratch, so its
-    // turn rows from an interrupted attempt are dropped first. (--skip-ingest is rejected by the CLI.)
-    ingestedCaptures = 0
-    if (reset) {
-      removeJsonlRows(ctx.paths.askTurns, (row) => row.personaId === persona.personaId)
-      const records = await ingestTenantViaAsk({
-        tenantUserId: tenant,
-        personaId: persona.personaId,
-        billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
-        chatModel: ctx.cli.chatModel,
-        turns: persona.captures,
-        enrichConcurrency: ctx.cli.enrichConcurrency,
-        onTurn: (record) => appendJsonl(ctx.paths.askTurns, askTurnRecordSchema.parse(record)),
-      })
-      ingestedCaptures = records.reduce((sum, r) => sum + r.captures, 0)
-    }
-  } else {
-    await ingestTenant({
-      tenantUserId: tenant,
-      billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
-      chatModel: ctx.cli.chatModel,
-      items: persona.captures,
-      enrichConcurrency: ctx.cli.enrichConcurrency,
-      reset,
-    })
-    ingestedCaptures = persona.captures.length
-  }
+  await ingestTenant({
+    tenantUserId: tenant,
+    billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
+    chatModel: ctx.cli.chatModel,
+    items: persona.captures,
+    enrichConcurrency: ctx.cli.enrichConcurrency,
+    reset,
+  })
+  const ingestedCaptures = persona.captures.length
 
   let usd = await tenantTotalUsd(tenant)
   if (reset) {
@@ -218,38 +268,60 @@ async function runPersona(ctx: RunContext, persona: PlannedPersona): Promise<voi
     appendJsonl(ctx.paths.ingest, record)
   }
 
+  if (ctx.cli.evidenceOnly) {
+    // Evidence-only: one question per tenant. Record what Eigen stored from the evidence turns.
+    for (const question of pending) {
+      const record: SmokeRecord = {
+        questionId: question.row.questionId,
+        stored: await storedThoughts(tenant, ctx.cli),
+      }
+      removeJsonlRows(ctx.paths.smoke, (r) => r.questionId === record.questionId)
+      appendJsonl(ctx.paths.smoke, record)
+    }
+  }
+
   for (const question of pending) usd = await answerQuestion(ctx, persona, question, usd)
 }
 
-/** Every planned persona that has an ingest record must hold exactly one turn record per user turn. */
-function assertAskTurnsComplete(
+function smokeBlocks(
   plan: Plan,
-  askTurns: readonly AskTurnRecord[],
-  ingestRecords: readonly IngestRecord[],
-): void {
-  const ingested = new Set(ingestRecords.map((r) => r.personaId))
-  for (const persona of plan.personas) {
-    if (!ingested.has(persona.personaId)) {
-      throw new Error(
-        `[personamem] persona ${persona.personaId} has no ingest record; run is incomplete`,
-      )
+  rows: readonly AnswerRow[],
+  stored: readonly SmokeRecord[],
+): SmokeBlock[] {
+  return plan.personas.map((persona) => {
+    const { row, correctLetter, options } = persona.questions[0]!
+    const eigen = rows.find((r) => r.questionId === row.questionId && r.variant === 'eigen')
+    const noMemory = rows.find((r) => r.questionId === row.questionId && r.variant === 'no-memory')
+    const record = stored.find((r) => r.questionId === row.questionId)
+    if (!eigen || !noMemory || !record) {
+      throw new Error(`[personamem] smoke data for ${row.questionId} is incomplete; run is damaged`)
     }
-    const turns = askTurns.filter((t) => t.personaId === persona.personaId)
-    const indexes = turns.map((t) => t.turn).sort((a, b) => a - b)
-    if (indexes.length !== persona.captures.length || indexes.some((n, i) => n !== i)) {
-      throw new Error(
-        `[personamem] ask-turns.jsonl holds ${indexes.length} turn record(s) for persona ${persona.personaId}, expected ${persona.captures.length}; run is damaged`,
-      )
+    return {
+      questionId: row.questionId,
+      query: row.query,
+      preference: row.preference,
+      evidenceUserTurns: persona.captures.map((c) => c.rawText),
+      stored: record.stored,
+      context: (eigen.retrieved ?? []).map((r) => ({
+        text: r.normalizedText,
+        storedAt: r.createdAt,
+      })),
+      askTools: eigen.askTools ?? null,
+      askAnsweredWithoutMemory: eigen.askAnsweredWithoutMemory === true,
+      correctAnswer: options[correctLetter],
+      eigenLetter: eigen.letter,
+      noMemoryLetter: noMemory.letter,
+      correctLetter,
     }
-  }
+  })
 }
 
 async function run(cli: PersonaMemCli): Promise<void> {
   const startedMs = Date.now()
   const plan = buildPlan(cli)
   logEval(
-    `PersonaMem-v2 (--ingest ${cli.ingest}): ${plan.totals.personas} persona(s), ` +
-      `${plan.totals.captures} user turn(s), ${plan.totals.queries} query(ies), chat model ${cli.chatModel}`,
+    `PersonaMem-v2 (--answer ${cli.answer}${cli.evidenceOnly ? ', SMOKE evidence-only' : ''}): ${plan.totals.personas} tenant(s), ` +
+      `${plan.totals.captures} capture(s), ${plan.totals.queries} query(ies), chat model ${cli.chatModel}`,
   )
 
   const models = await ensurePublicBenchOperator({
@@ -262,8 +334,10 @@ async function run(cli: PersonaMemCli): Promise<void> {
     cli.runId ?? `${modelSlug(cli.chatModel)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
   const identity: RunIdentity = {
     chatModel: cli.chatModel,
-    ingest: cli.ingest,
-    personaIds: plan.personas.map((p) => p.personaId),
+    answer: cli.answer,
+    evidenceOnly: cli.evidenceOnly,
+    personaIds: [...new Set(plan.personas.map((p) => p.personaId))],
+    questionIds: plan.personas.flatMap((p) => p.questions.map((q) => q.row.questionId)),
     limitQueries: cli.limitQueries,
     enrichConcurrency: cli.enrichConcurrency,
   }
@@ -273,9 +347,9 @@ async function run(cli: PersonaMemCli): Promise<void> {
     cli,
     paths,
     done: completedQuestionIds(existing),
-    ingestedPersonaIds: new Set(
+    ingestedTenantIds: new Set(
       parseRows('ingest.jsonl', readJsonl(paths.ingest), ingestRecordSchema).map(
-        (r) => r.personaId,
+        (r) => r.tenantUserId,
       ),
     ),
   }
@@ -306,11 +380,9 @@ async function run(cli: PersonaMemCli): Promise<void> {
   const score = scoreAnswers(rows, distanceByQuestionId)
 
   const ingestRecords = parseRows('ingest.jsonl', readJsonl(paths.ingest), ingestRecordSchema)
-  const askTurns =
-    cli.ingest === 'ask'
-      ? parseRows('ask-turns.jsonl', readJsonl(paths.askTurns), askTurnRecordSchema)
-      : []
-  if (cli.ingest === 'ask') assertAskTurnsComplete(plan, askTurns, ingestRecords)
+  const smoke = cli.evidenceOnly
+    ? smokeBlocks(plan, rows, parseRows('smoke.jsonl', readJsonl(paths.smoke), smokeRecordSchema))
+    : []
   const git = gitState()
   writeSummary(
     paths.dir,
@@ -334,8 +406,9 @@ async function run(cli: PersonaMemCli): Promise<void> {
         modelEmbedding: models.modelEmbedding,
       },
       score,
-      ingestMode: cli.ingest,
-      askTurns,
+      answerMode: cli.answer,
+      evidenceOnly: cli.evidenceOnly,
+      smoke,
       ingest: {
         usd: ingestRecords.reduce((sum, r) => sum + r.usd, 0),
         captures: ingestRecords.reduce((sum, r) => sum + r.captures, 0),

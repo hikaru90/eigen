@@ -23,6 +23,8 @@ function preparedRow(overrides: Record<string, unknown> = {}) {
     topicQuery: 'Food',
     distance32k: 4000,
     questionId: 'p7-aaaaaaaaaaaa',
+    preference: 'Drinks green tea in the evening',
+    evidenceTurns: [{ role: 'user', content: 'I only drink green tea in the evening.' }],
     ...overrides,
   }
 }
@@ -48,6 +50,17 @@ describe('loadPreparedRows', () => {
   it('rejects options that are not four distinct strings', () => {
     const dir = writePrepared([preparedRow({ incorrectAnswers: ['Green tea.', 'x', 'y'] })])
     expect(() => loadPreparedRows(dir)).toThrow(/distinct/)
+  })
+
+  it('tells the operator to re-run prepare.py when evidenceTurns/preference are missing', () => {
+    const { evidenceTurns: _e, preference: _p, ...old } = preparedRow()
+    const dir = writePrepared([old])
+    expect(() => loadPreparedRows(dir)).toThrow(/re-run.*prepare\.py/)
+  })
+
+  it('rejects empty evidenceTurns', () => {
+    const dir = writePrepared([preparedRow({ evidenceTurns: [] })])
+    expect(() => loadPreparedRows(dir)).toThrow(/evidenceTurns/)
   })
 
   it('rejects duplicate question ids', () => {

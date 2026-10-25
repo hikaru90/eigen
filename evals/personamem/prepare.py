@@ -36,6 +36,8 @@ COLUMNS = [
     "prev_pref",
     "conversation_scenario",
     "topic_query",
+    "preference",
+    "related_conversation_snippet",
     "distance_from_related_snippet_to_query_32k",
 ]
 
@@ -91,6 +93,27 @@ def parse_row(number, raw):
     if distance < 0:
         bad("distance_from_related_snippet_to_query_32k", "negative")
 
+    if not raw["preference"].strip():
+        bad("preference", "empty")
+
+    try:
+        evidence = json.loads(raw["related_conversation_snippet"])
+    except json.JSONDecodeError as err:
+        bad("related_conversation_snippet", f"not JSON ({err})")
+    if (
+        not isinstance(evidence, list)
+        or not evidence
+        or not all(
+            isinstance(t, dict)
+            and isinstance(t.get("role"), str)
+            and isinstance(t.get("content"), str)
+            for t in evidence
+        )
+    ):
+        bad("related_conversation_snippet", "expected a non-empty JSON list of {role, content} strings")
+    if not any(t["role"] == "user" and t["content"].strip() for t in evidence):
+        bad("related_conversation_snippet", "holds no non-empty user turn")
+
     for column in ("chat_history_32k_link", "pref_type", "who"):
         if not raw[column].strip():
             bad(column, "empty")
@@ -108,6 +131,8 @@ def parse_row(number, raw):
         "scenario": raw["conversation_scenario"],
         "topicQuery": raw["topic_query"],
         "distance32k": distance,
+        "preference": raw["preference"],
+        "evidenceTurns": [{"role": t["role"], "content": t["content"]} for t in evidence],
         "questionId": f"p{persona_id}-{hashlib.sha256(query.encode('utf-8')).hexdigest()[:12]}",
     }
 

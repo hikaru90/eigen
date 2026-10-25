@@ -2,14 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { resolveRunDir } from '../public-bench/run-output'
-import { ingestModeSchema } from './types'
+import { answerModeSchema } from './types'
 
 export const BENCH = 'personamem-v2'
 
 const runIdentitySchema = z.object({
   chatModel: z.string(),
-  ingest: ingestModeSchema,
+  answer: answerModeSchema,
+  evidenceOnly: z.boolean(),
   personaIds: z.array(z.number().int()),
+  questionIds: z.array(z.string()),
   limitQueries: z.number().int().nullable(),
   enrichConcurrency: z.number().int(),
 })
@@ -22,14 +24,14 @@ export type RunPaths = {
   dir: string
   answers: string
   ingest: string
-  askTurns: string
+  smoke: string
   meta: string
 }
 
 /**
  * Creates the run directory, or (resume) verifies this invocation is the original one. A
- * different `--ingest` is named explicitly: the two modes build different tenants, so their
- * answers and memories are not comparable within one run.
+ * different `--answer` is named explicitly: the two modes answer through different paths, so
+ * their answers are not comparable within one run.
  */
 export function openRun(input: {
   runId: string
@@ -47,7 +49,7 @@ export function openRun(input: {
     dir,
     answers: join(dir, 'answers.jsonl'),
     ingest: join(dir, 'ingest.jsonl'),
-    askTurns: join(dir, 'ask-turns.jsonl'),
+    smoke: join(dir, 'smoke.jsonl'),
     meta: join(dir, 'run.json'),
   }
 
@@ -55,9 +57,9 @@ export function openRun(input: {
     if (!existsSync(paths.meta))
       throw new Error(`[personamem] cannot resume: ${paths.meta} not found`)
     const saved = runMetaSchema.parse(JSON.parse(readFileSync(paths.meta, 'utf8')))
-    if (saved.identity.ingest !== identity.ingest) {
+    if (saved.identity.answer !== identity.answer) {
       throw new Error(
-        `[personamem] cannot resume ${runId}: it was started with --ingest ${saved.identity.ingest}, this invocation says --ingest ${identity.ingest}`,
+        `[personamem] cannot resume ${runId}: it was started with --answer ${saved.identity.answer}, this invocation says --answer ${identity.answer}`,
       )
     }
     if (JSON.stringify(saved.identity) !== JSON.stringify(identity)) {

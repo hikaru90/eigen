@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { parsePersonaMemCli } from './cli'
-import { buildPlan, estimateAskFloorUsd, estimateUsd, formatPlan, tenantUserIdFor } from './plan'
+import { buildPlan, estimateUsd, formatPlan, tenantUserIdFor } from './plan'
 import { writeFixtureDataDir } from './test-fixtures'
 
 let dataDir = ''
@@ -17,7 +17,7 @@ beforeAll(() => {
   if (res.status !== 0) throw new Error(res.stderr)
 })
 
-function cliFor(selection: string[], extra: string[] = [], ingest = 'capture') {
+function cliFor(selection: string[], extra: string[] = [], answer = 'compose') {
   return parsePersonaMemCli([
     '--data-dir',
     dataDir,
@@ -27,20 +27,23 @@ function cliFor(selection: string[], extra: string[] = [], ingest = 'capture') {
     '2',
     '--enrich-concurrency',
     '1',
-    '--ingest',
-    ingest,
+    '--answer',
+    answer,
     ...selection,
     ...extra,
   ])
 }
 
 describe('tenantUserIdFor', () => {
-  it('embeds the ingest mode, model slug and persona id under the public-bench prefix', () => {
-    expect(tenantUserIdFor('capture', 'openai/gpt-4o-mini', 521)).toBe(
+  it('embeds the model slug and persona id under the public-bench prefix', () => {
+    expect(tenantUserIdFor('openai/gpt-4o-mini', 521)).toBe(
       'public-bench-personamem-v2-capture-gpt-4o-mini-p521',
     )
-    expect(tenantUserIdFor('ask', 'deepseek/deepseek-v4.1-flash-1017', 7)).toBe(
-      'public-bench-personamem-v2-ask-deepseek-v4.1-flash-1017-p7',
+  })
+
+  it('adds the question id suffix for a per-question tenant', () => {
+    expect(tenantUserIdFor('openai/gpt-4o-mini', 7, 'p7-0123456789ab')).toBe(
+      'public-bench-personamem-v2-capture-gpt-4o-mini-p7-q0123456789ab',
     )
   })
 })
@@ -64,12 +67,11 @@ describe('buildPlan', () => {
     expect(q.options[q.correctLetter]).toBe(q.row.correctAnswer)
   })
 
-  it('names ask-mode tenants after the mode, so the two modes never share a tenant', () => {
+  it('does not change tenants or captures with the answer mode', () => {
     const ask = buildPlan(cliFor(['--persona-ids', '7'], [], 'ask')).personas[0]!
-    const capture = buildPlan(cliFor(['--persona-ids', '7'])).personas[0]!
-    expect(ask.tenantUserId).toBe('public-bench-personamem-v2-ask-gpt-4o-mini-p7')
-    expect(ask.tenantUserId).not.toBe(capture.tenantUserId)
-    expect(ask.captures).toEqual(capture.captures)
+    const compose = buildPlan(cliFor(['--persona-ids', '7'])).personas[0]!
+    expect(ask.tenantUserId).toBe(compose.tenantUserId)
+    expect(ask.captures).toEqual(compose.captures)
   })
 
   it('references the query time one day after the last captured turn', () => {
@@ -119,20 +121,60 @@ describe('formatPlan', () => {
     expect(text).toContain('public-bench-personamem-v2-capture-gpt-4o-mini-p9')
   })
 
-  it('ask mode prints turns per persona and a floor estimate, not a captures count', () => {
+  it('prints the answer mode', () => {
     const cli = cliFor(['--all'], [], 'ask')
     const text = formatPlan(buildPlan(cli), cli).join('\n')
-    expect(text).toContain('ingest: ask')
-    expect(text).toMatch(/Ask turns: 10/)
-    expect(text).not.toMatch(/^captures:/m)
-    expect(text).toMatch(/estimated USD: at least \$0\.078/)
-    expect(text).toMatch(/floor/)
-    expect(text).toContain('public-bench-personamem-v2-ask-gpt-4o-mini-p7  turns=5  queries=3')
+    expect(text).toContain('answer: ask')
+    expect(text).toMatch(/Ask agent loop/)
   })
 })
 
-describe('estimateAskFloorUsd', () => {
-  it('is turns x 0.003 + queries x 0.008 (captures and their enrich are unknown)', () => {
-    expect(estimateAskFloorUsd(10, 5)).toBeCloseTo(0.07, 10)
+describe('buildPlan --evidence-only', () => {
+  it('plans one tenant per question holding only that question evidence user turns', () => {
+    const plan = buildPlan(cliFor(['--persona-ids', '7'], ['--evidence-only']))
+    expect(plan.personas).toHaveLength(3)
+    expect(new Set(plan.personas.map((p) => p.tenantUserId)).size).toBe(3)
+    for (const p of plan.personas) {
+      expect(p.questions).toHaveLength(1)
+      const suffix = p.questions[0]!.row.questionId.split('-')[1]
+      expect(p.tenantUserId).toBe(`public-bench-personamem-v2-capture-gpt-4o-mini-p7-q${suffix}`)
+      expect(p.captures.map((c) => c.rawText)).toEqual([
+        'I like calm evenings.',
+        'Really, nothing loud after dinner.',
+      ])
+      expect(p.captures.map((c) => c.capturedAt.toISOString())).toEqual([
+        '2025-01-01T00:00:00.000Z',
+        '2025-01-02T00:00:00.000Z',
+      ])
+      expect(p.referenceTime.toISOString()).toBe('2025-01-03T00:00:00.000Z')
+    }
+    expect(plan.totals).toMatchObject({ captures: 6, queries: 3 })
+  })
+
+  it('applies --limit-queries and selects exact --question-ids', () => {
+    expect(
+      buildPlan(cliFor(['--persona-ids', '7'], ['--evidence-only', '--limit-queries', '2']))
+        .personas,
+    ).toHaveLength(2)
+    const all = buildPlan(cliFor(['--all'], ['--evidence-only']))
+    const wanted = all.personas[4]!.questions[0]!.row.questionId
+    const picked = buildPlan(cliFor(['--question-ids', wanted], ['--evidence-only']))
+    expect(picked.personas.map((p) => p.questions[0]!.row.questionId)).toEqual([wanted])
+  })
+
+  it('fails naming an unknown question id', () => {
+    expect(() =>
+      buildPlan(cliFor(['--question-ids', 'p7-000000000000'], ['--evidence-only'])),
+    ).toThrow(/p7-000000000000/)
+  })
+
+  it('dry run prints evidence turns and the estimate per question, marked SMOKE', () => {
+    const cli = cliFor(['--persona-ids', '7'], ['--evidence-only', '--limit-queries', '1'])
+    const text = formatPlan(buildPlan(cli), cli).join('\n')
+    expect(text).toMatch(/SMOKE \(evidence-only\)/)
+    expect(text).toMatch(/evidence turns: 2/)
+    expect(text).toMatch(
+      /-q[0-9a-f]{12} {2}question=p7-[0-9a-f]{12} {2}evidence turns=2 {2}estimate=\$0\.011/,
+    )
   })
 })

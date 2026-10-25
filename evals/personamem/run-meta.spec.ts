@@ -12,8 +12,10 @@ afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 const identity: RunIdentity = {
   chatModel: 'openai/gpt-4o-mini',
-  ingest: 'ask',
+  answer: 'ask',
+  evidenceOnly: false,
   personaIds: [7, 9],
+  questionIds: ['p7-aaaaaaaaaaaa'],
   limitQueries: 5,
   enrichConcurrency: 1,
 }
@@ -23,7 +25,7 @@ const open = (id: RunIdentity, resume: boolean) =>
 describe('openRun', () => {
   it('creates the run directory and refuses to reuse it without --resume', () => {
     const { paths } = open(identity, false)
-    expect(paths.askTurns).toBe(join(paths.dir, 'ask-turns.jsonl'))
+    expect(paths.smoke).toBe(join(paths.dir, 'smoke.jsonl'))
     expect(() => open(identity, false)).toThrow(/already exists/)
   })
 
@@ -32,14 +34,19 @@ describe('openRun', () => {
     expect(open(identity, true).meta.startedAt).toBe(first.meta.startedAt)
   })
 
-  it('refuses to resume a run that used a different --ingest, naming both', () => {
+  it('refuses to resume a run that used a different --answer, naming both', () => {
     open(identity, false)
-    expect(() => open({ ...identity, ingest: 'capture' }, true)).toThrow(/--ingest.*ask.*capture/)
+    expect(() => open({ ...identity, answer: 'compose' }, true)).toThrow(/--answer.*ask.*compose/)
   })
 
   it('refuses to resume when any other identity field differs', () => {
     open(identity, false)
     expect(() => open({ ...identity, personaIds: [7] }, true)).toThrow(/differs/)
+  })
+
+  it('refuses to resume when --evidence-only differs', () => {
+    open(identity, false)
+    expect(() => open({ ...identity, evidenceOnly: true }, true)).toThrow(/differs/)
   })
 
   it('cannot resume a run that does not exist', () => {
