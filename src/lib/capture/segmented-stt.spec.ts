@@ -94,6 +94,20 @@ describe('createSilenceCutter speech tracking', () => {
     expect(cutter.heardSpeech()).toBe(true)
   })
 
+  it('a short tail that is mostly voice (stop right after a forced cut) is speech — the last words are kept', () => {
+    const cutter = createSilenceCutter(0)
+    cutter.restart(10_000)
+    for (let t = 10_050; t <= 10_200; t += 50) cutter.feed(LOUD, t)
+    expect(cutter.heardSpeech()).toBe(true)
+  })
+
+  it('a short tail that is mostly silence with one click is not speech', () => {
+    const cutter = createSilenceCutter(0)
+    cutter.restart(10_000)
+    for (let t = 10_050; t <= 10_250; t += 50) cutter.feed(t === 10_100 ? LOUD : QUIET, t)
+    expect(cutter.heardSpeech()).toBe(false)
+  })
+
   it('restart clears speech for the next segment', () => {
     const cutter = createSilenceCutter(0)
     for (let t = 50; t <= 1000; t += 50) cutter.feed(LOUD, t)

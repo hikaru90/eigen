@@ -1,21 +1,26 @@
 import type { PageServerLoad } from './$types'
 import { error, redirect } from '@sveltejs/kit'
-import { loadProjectDetail } from '$lib/server/memory/project-detail'
+import { getDb } from '$lib/server/db'
+import { listProjectsByEntityIds } from '$lib/server/memory/project-list'
+import { loadYarnThoughts } from '$lib/server/mesh/yarn-list'
+import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { loadThoughtKindOptions } from '$lib/server/thought/kind-options'
+import type { ThoughtKindOption } from '$lib/thought/kind-option'
 import {
-  openQuestionsOf,
+  QUESTION_CATEGORY,
   toThreadThought,
-  uniqueThoughts,
   type ThreadStanding,
   type ThreadThought,
 } from '../thread-list'
 
 /**
- * One thread (ei redesign, wave 3.2): the same server module
- * `/memory/projects/[entityId]` uses (loadProjectDetail,
- * src/lib/server/memory/project-detail.ts) — the promoted GTD project plus the
- * timeline items linked to it — folded into the detail's shape. Nothing about
- * the module changes; a hub that is not a listed project is a 404 here too.
+ * One thread (ei redesign, wave 3.2): the promoted GTD project (where it stands)
+ * plus every thought on it. The thoughts are read from thread membership — the
+ * same reader and membership rule as Yarn (loadYarnThoughts) — so a decision,
+ * idea or question on a thread is listed here, not only its tasks (board
+ * b6f74d02: the timeline's task/event items left everything else off). A hub
+ * that is not a listed project is a 404.
  */
 
 export type ThreadDetailPageData = {
@@ -25,6 +30,8 @@ export type ThreadDetailPageData = {
   standing: ThreadStanding
   questions: ThreadThought[]
   thoughts: ThreadThought[]
+  /** The type menu in an unfolded row. */
+  kinds: ThoughtKindOption[]
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -38,21 +45,34 @@ export const load: PageServerLoad = async (event) => {
 
   event.depends('timeline:temporal-events', 'timeline:thoughts', `project:${entityId}`)
 
-  let detail: Awaited<ReturnType<typeof loadProjectDetail>>
+  let threadId: string
   try {
-    detail = await loadProjectDetail(userId, entityId)
+    threadId = validateNonEmptyEntityId(entityId, 'projectEntityId')
   } catch (err) {
-    // validateNonEmptyEntityId rejects malformed ids — a bad request, not a crash
+    // malformed ids are a bad request, not a crash
     error(400, err instanceof Error ? err.message : String(err))
   }
-  if (!detail) error(404, 'Thread not found')
+  const [project] = await listProjectsByEntityIds(userId, [threadId])
+  if (!project) error(404, 'Thread not found')
+
+  // every thought on the thread, as Yarn reads them (one row per thought, newest first)
+  const items = (await loadYarnThoughts(userId, { author: 'all', threadEntityId: threadId })).map(
+    (row) => ({
+      thoughtId: row.id,
+      thoughtText: row.text,
+      createdAt: row.createdAtIso,
+      thoughtCategory: row.category,
+      thoughtStatus: row.status,
+    }),
+  )
 
   const preferredTimezone = await getUserPreferredTimezone(userId)
-  const { project, items } = detail
+  const kinds = await loadThoughtKindOptions(getDb(), userId)
 
   return {
     user: event.locals.user,
     preferredTimezone,
+    kinds,
     entityId: project.entityId,
     title: project.label,
     standing: {
@@ -68,7 +88,9 @@ export const load: PageServerLoad = async (event) => {
         completedAt: milestone.completedAt,
       })),
     },
-    questions: openQuestionsOf(items).map(toThreadThought),
-    thoughts: uniqueThoughts(items).map(toThreadThought),
+    questions: items
+      .filter((item) => item.thoughtCategory === QUESTION_CATEGORY && item.thoughtStatus === 'open')
+      .map(toThreadThought),
+    thoughts: items.map(toThreadThought),
   } satisfies ThreadDetailPageData & { user: NonNullable<App.Locals['user']> }
 }

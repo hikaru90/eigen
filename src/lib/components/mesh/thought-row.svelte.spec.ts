@@ -1,3 +1,4 @@
+import { createRawSnippet } from 'svelte'
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import { page } from 'vitest/browser'
@@ -135,5 +136,13 @@ describe('thought-row.svelte', () => {
 
     await expect.element(page.getByTestId('thought-t1')).toHaveClass('dated')
     await expect.element(page.getByText('Yesterday')).toBeInTheDocument()
+  })
+
+  it('an unfolded row shows its editor in place (change the thought where you read it); folded, it does not', async () => {
+    const editor = createRawSnippet(() => ({ render: () => '<div data-testid="row-editor">editor</div>' }))
+    render(ThoughtRow, { ...baseProps, editor })
+    await expect.element(page.getByTestId('row-editor')).not.toBeInTheDocument()
+    await page.getByRole('button', { name: 'Open this thought' }).click()
+    await expect.element(page.getByTestId('row-editor')).toBeInTheDocument()
   })
 })

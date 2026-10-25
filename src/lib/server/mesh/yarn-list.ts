@@ -39,6 +39,8 @@ export type YarnThought = {
 export type YarnAuthorFilter = {
   author?: MemoryAuthor | 'all'
   authorLayerKey?: string | null
+  /** Only the thoughts on this thread (membership links, as the thread name resolves). */
+  threadEntityId?: string
 }
 
 export async function loadYarnThoughts(
@@ -77,6 +79,23 @@ export async function loadYarnThoughts(
         // open + completed on the strand; archived (forgotten) stays off it
         inArray(thought.lifecycleStatus, ['open', 'completed']),
         ...(authorCondition ? [authorCondition] : []),
+        ...(filter?.threadEntityId
+          ? [
+              inArray(
+                thought.id,
+                db
+                  .select({ id: thoughtEntity.thoughtId })
+                  .from(thoughtEntity)
+                  .where(
+                    and(
+                      eq(thoughtEntity.userId, userId),
+                      eq(thoughtEntity.entityId, filter.threadEntityId),
+                      projectMembershipLinkCondition(),
+                    ),
+                  ),
+              ),
+            ]
+          : []),
       ),
     )
     .orderBy(desc(thought.createdAt), desc(thought.id))

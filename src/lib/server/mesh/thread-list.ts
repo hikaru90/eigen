@@ -1,4 +1,8 @@
-import type { MemoryAuthor, ProjectStatus } from '$lib/server/db/schema'
+import { and, count, eq, inArray, max } from 'drizzle-orm'
+import { getDb } from '$lib/server/db'
+import { thought, thoughtEntity, type MemoryAuthor, type ProjectStatus } from '$lib/server/db/schema'
+import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
+import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 import type { ProjectStalledReason } from '$lib/server/memory/project-list'
 import { loadUnifiedTimeline } from '$lib/server/memory/timeline-unified'
 import {
@@ -37,6 +41,49 @@ export type ThreadListScope = {
  * as its `items`; this only folds them into the list's shape. The page server
  * seeds the 'You' scope; GET /api/mesh/threads serves every other view.
  */
+/**
+ * How many thoughts sit on each thread, and when the last one was added — from thread
+ * membership, the rule the thread page lists by (a decision or a question counts, not
+ * only the tasks the timeline carries).
+ */
+async function loadThreadMembershipMeta(
+  userId: string,
+  entityIds: string[],
+  scope: ThreadListScope,
+): Promise<Map<string, { thoughtCount: number; lastAddedIso: string | null }>> {
+  const out = new Map<string, { thoughtCount: number; lastAddedIso: string | null }>()
+  if (entityIds.length === 0) return out
+  const authorCondition = resolveAuthorSqlCondition(
+    { author: thought.author, authorKeyId: thought.authorKeyId, authorLabel: thought.authorLabel },
+    { author: scope.author === 'all' ? undefined : scope.author, authorLayerKey: scope.authorLayerKey },
+  )
+  const rows = await getDb()
+    .select({
+      entityId: thoughtEntity.entityId,
+      thoughtCount: count(thought.id),
+      lastAdded: max(thought.createdAt),
+    })
+    .from(thoughtEntity)
+    .innerJoin(thought, and(eq(thought.id, thoughtEntity.thoughtId), eq(thought.userId, userId)))
+    .where(
+      and(
+        eq(thoughtEntity.userId, userId),
+        inArray(thoughtEntity.entityId, entityIds),
+        projectMembershipLinkCondition(),
+        inArray(thought.lifecycleStatus, ['open', 'completed']),
+        ...(authorCondition ? [authorCondition] : []),
+      ),
+    )
+    .groupBy(thoughtEntity.entityId)
+  for (const row of rows) {
+    out.set(row.entityId, {
+      thoughtCount: Number(row.thoughtCount),
+      lastAddedIso: row.lastAdded ? new Date(row.lastAdded).toISOString() : null,
+    })
+  }
+  return out
+}
+
 export async function loadThreadList(userId: string, scope: ThreadListScope): Promise<ThreadList> {
   const { projects, items } = await loadUnifiedTimeline({
     userId,
@@ -49,9 +96,14 @@ export async function loadThreadList(userId: string, scope: ThreadListScope): Pr
     includeUndated: true,
   })
   const groups = groupItemsByThread(items)
+  const membership = await loadThreadMembershipMeta(
+    userId,
+    projects.map((project) => project.entityId),
+    scope,
+  )
 
   const threads = projects.map((project): ThreadListEntry => {
-    const meta = threadMeta(groups.byThread.get(project.entityId) ?? [])
+    const meta = membership.get(project.entityId) ?? { thoughtCount: 0, lastAddedIso: null }
     return {
       entityId: project.entityId,
       label: project.label,

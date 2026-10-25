@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import { goto } from '$app/navigation'
   import { base, resolve } from '$app/paths'
+  import ThoughtInlineEditor from '$lib/components/mesh/thought-inline-editor.svelte'
   import ThoughtRow from '$lib/components/mesh/thought-row.svelte'
   import { hapticConfirm } from '$lib/haptics'
   import {
@@ -14,6 +15,7 @@
   import { normalizeQuery, rowMatchesQuery } from '$lib/mesh/filter-matcher'
   import { meshSearch } from '$lib/mesh/mesh-search.svelte'
   import { meshApiUrlForView } from '$lib/mesh/mesh-view-fetch'
+  import { isTodoCategory } from '$lib/mesh/thought-status'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
   import { subscribeCurrentUserView, type CurrentUserView } from '$lib/stores/current-user-view.svelte'
@@ -23,8 +25,9 @@
   /**
    * Yarn — every thought on one continuous strand, grouped by day (DESIGN.md
    * "Mesh → Yarn"). ei styles.css .stream/.day/.thought; rows are the shared
-   * thought-row component. Rows never open on tap; the open control leads to
-   * the thought page (wave 3). Ticking a to-do PATCHes the thought's real
+   * thought-row component. Rows never open on tap; the open control unfolds a
+   * row in place, and the unfolded row is where the thought is changed — words,
+   * type and thread (board 3f2796a8) — with the thought page one link further. Ticking a to-do PATCHes the thought's real
    * lifecycle endpoint (PATCH /api/thoughts/[thoughtId]).
    *
    * The strand follows the global data view (the header dropdown): SSR seeds
@@ -144,6 +147,25 @@
     }
   }
 
+  /** An edit landed in an unfolded row: the strand shows what the server kept. */
+  function applyRowChange(
+    id: string,
+    next: { text: string; category: string; thread: { entityId: string; label: string } | null },
+  ): void {
+    thoughtRows = thoughtRows.map((row) =>
+      row.id === id
+        ? {
+            ...row,
+            text: next.text,
+            category: next.category,
+            isTodo: isTodoCategory(next.category),
+            threadLabel: next.thread?.label ?? null,
+            threadEntityId: next.thread?.entityId ?? null,
+          }
+        : row,
+    )
+  }
+
   function openThought(row: (typeof rows)[number]): void {
     void goto(resolve('/thought/[id]', { id: encodeURIComponent(row.id) }))
   }
@@ -180,7 +202,20 @@
           threadLabel={row.threadLabel}
           ontoggle={() => void toggleDone(row)}
           onopen={() => openThought(row)}
-        />
+        >
+          {#snippet editor()}
+            <ThoughtInlineEditor
+              thoughtId={row.id}
+              text={row.text}
+              category={row.category}
+              thread={row.threadEntityId && row.threadLabel
+                ? { entityId: row.threadEntityId, label: row.threadLabel }
+                : null}
+              kinds={data.kinds}
+              onchange={(next) => applyRowChange(row.id, next)}
+            />
+          {/snippet}
+        </ThoughtRow>
       {/each}
     </section>
   {/each}

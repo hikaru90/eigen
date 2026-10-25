@@ -4,6 +4,8 @@ import { getDb } from '$lib/server/db'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
 import { loadYarnThoughts, type YarnThought } from '$lib/server/mesh/yarn-list'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
+import { loadThoughtKindOptions } from '$lib/server/thought/kind-options'
+import type { ThoughtKindOption } from '$lib/thought/kind-option'
 
 /**
  * The Yarn journal's server load (ei redesign, wave 2.2). The query itself
@@ -18,6 +20,8 @@ export type YarnPageData = {
   preferredTimezone: string
   /** Ontology kind names for chip labels, keyed by category. */
   kindLabels: Record<string, string>
+  /** The type menu in an unfolded row: the active thought kinds. */
+  kinds: ThoughtKindOption[]
   thoughts: YarnThought[]
 }
 
@@ -38,12 +42,14 @@ export const load: PageServerLoad = async (event) => {
     kindLabels[kind.key] = kind.name
   }
 
+  const kinds = await loadThoughtKindOptions(db, userId)
   const thoughts = await loadYarnThoughts(userId, { author: 'user' })
 
   return {
     user: event.locals.user,
     preferredTimezone,
     kindLabels,
+    kinds,
     thoughts,
   } satisfies YarnPageData & { user: NonNullable<App.Locals['user']> }
 }

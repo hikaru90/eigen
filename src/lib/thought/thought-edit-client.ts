@@ -1,8 +1,12 @@
+import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson'
+
 /**
- * A kept thought's type and thread, changed after the fact — shared by the thought page
- * and Capture's "Kept as …" strip. Native fetch against the explicit endpoints:
- * the type is `PATCH /api/thoughts/[id]` (the user's pick, never re-read from the words),
- * the thread is the project-assign endpoint. Failures throw with the server's message.
+ * Changing a kept thought — its words, type and thread — shared by the thought page,
+ * Capture's "Kept as …" strip and the unfolded rows in Yarn and Threads. Native fetch
+ * against the explicit endpoints: the words go through the natural-language edit
+ * endpoint (POST /api/capture/edit), the type is `PATCH /api/thoughts/[id]` (the user's
+ * pick, never re-read from the words), the thread is the project-assign endpoint.
+ * Failures throw with the server's message.
  */
 export type ThreadRef = { entityId: string; label: string }
 export type ThreadPick = { entityId: string } | { label: string }
@@ -16,6 +20,42 @@ async function failure(res: Response, what: string): Promise<Error> {
         ? payload.message
         : `${what} failed (${res.status})`
   return new Error(reason)
+}
+
+/** The thought as the server now has it — read back after an edit, never guessed. */
+export async function readThought(thoughtId: string): Promise<{ text: string; category: string }> {
+  const res = await fetch(`/api/thoughts/${encodeURIComponent(thoughtId)}`, {
+    credentials: 'same-origin',
+  })
+  if (!res.ok) throw await failure(res, 'Thought re-read')
+  const body = (await res.json()) as { normalizedText?: unknown; category?: unknown }
+  if (typeof body.normalizedText !== 'string' || typeof body.category !== 'string') {
+    throw new Error('Thought re-read returned no text or type')
+  }
+  return { text: body.normalizedText, category: body.category }
+}
+
+/** Run a natural-language edit on the thought, then read back what the server kept. */
+export async function applyThoughtEdit(
+  thoughtId: string,
+  editRequest: string,
+): Promise<{ text: string; category: string }> {
+  const res = await fetch('/api/capture/edit', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/x-ndjson, application/json',
+    },
+    body: JSON.stringify({ thoughtId, editRequest }),
+    credentials: 'same-origin',
+  })
+  const contentType = res.headers.get('content-type') ?? ''
+  if (contentType.includes('application/x-ndjson')) {
+    await consumeCaptureNdjsonStream<unknown>(res, () => {})
+  } else if (!res.ok) {
+    throw new Error((await res.text()) || `Edit failed (${res.status})`)
+  }
+  return readThought(thoughtId)
 }
 
 export async function setThoughtType(thoughtId: string, key: string): Promise<void> {

@@ -13,4 +13,5 @@
   questions={data.questions}
   thoughts={data.thoughts}
   preferredTimezone={data.preferredTimezone}
+  kinds={data.kinds}
 />

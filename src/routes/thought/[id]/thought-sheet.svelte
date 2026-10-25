@@ -19,7 +19,6 @@
   import { onMount, tick } from 'svelte'
   import { goto } from '$app/navigation'
   import { page } from '$app/state'
-  import { consumeCaptureNdjsonStream } from '$lib/capture/consume-capture-ndjson'
   import { relativeDayLabel } from '$lib/chat/relative-day'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import ThoughtForget from '$lib/components/thought-forget.svelte'
@@ -33,16 +32,18 @@
   import { showWhisper } from '$lib/stores/whisper.svelte'
   import type { ThoughtKindOption } from '$lib/thought/kind-option'
   import {
+    applyThoughtEdit,
     assignThoughtThread,
+    readThought,
     fetchThreadOptions,
     setThoughtType,
     unassignThoughtThread,
     type ThreadPick,
     type ThreadRef,
-  } from '$lib/thought/type-thread-client'
+  } from '$lib/thought/thought-edit-client'
   import { echoHref, inAppHref } from './app-href'
   import { askDraftFor, askHrefFor } from './ask-handoff'
-  import { replaceTextEditRequest, textChange } from './edit-request'
+  import { replaceTextEditRequest, textChange } from '$lib/thought/edit-request'
   import { createForgetArm } from './forget-arm.svelte'
   import { leaveTarget } from './leave-target'
   import { pullToLeave } from './pull-to-leave'
@@ -103,18 +104,11 @@
   /* ————— re-read after a mutation: the page never guesses what the server kept ————— */
 
   async function refreshThought(): Promise<void> {
-    const res = await fetch(`/api/thoughts/${encodeURIComponent(thought.id)}`, {
-      credentials: 'same-origin',
-    })
-    if (!res.ok) throw new Error(`Thought re-read failed (${res.status})`)
-    const body = (await res.json()) as { normalizedText?: unknown; category?: unknown }
-    if (typeof body.normalizedText === 'string' && body.normalizedText.trim()) {
-      textOverride = body.normalizedText
-    }
-    if (typeof body.category === 'string' && body.category) {
-      categoryOverride = body.category
-    }
+    const kept = await readThought(thought.id)
+    textOverride = kept.text
+    categoryOverride = kept.category
   }
+
 
   /* ————— the existing edit endpoint: words and type ————— */
 
@@ -125,22 +119,9 @@
     saving = true
     err = null
     try {
-      const res = await fetch('/api/capture/edit', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/x-ndjson, application/json',
-        },
-        body: JSON.stringify({ thoughtId: thought.id, editRequest }),
-        credentials: 'same-origin',
-      })
-      const contentType = res.headers.get('content-type') ?? ''
-      if (contentType.includes('application/x-ndjson')) {
-        await consumeCaptureNdjsonStream<unknown>(res, () => {})
-      } else if (!res.ok) {
-        throw new Error((await res.text()) || `Edit failed (${res.status})`)
-      }
-      await refreshThought()
+      const kept = await applyThoughtEdit(thought.id, editRequest)
+      textOverride = kept.text
+      categoryOverride = kept.category
       // ei app.js:1437 — knitting it back in
       showWhisper([
         { text: m.whisper_knitting(), durationMs: 900 },

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
+
   /**
    * One thought on the strand — shared by Yarn now, Threads and the thought
    * page later (ei redesign, wave 2.2). Ported from ei app.js:737-742 and ei
@@ -7,7 +9,8 @@
    * Prop-driven and dependency-light on purpose: no `$app/*`, no paraglide —
    * the caller formats labels and owns what the controls do. Rows never open
    * on tap (DESIGN.md "Lists are for reading"); the open control is the one
-   * way in, and the tick ring appears only for to-dos.
+   * way in, and the tick ring appears only for to-dos. Unfolded, a row shows its
+   * `editor` under the words — the thought is changed where it is read.
    */
   type Props = {
     thoughtId: string
@@ -37,6 +40,8 @@
     ontoggle?: () => void
     /** The full-page link's action; only offered with `pageLabel`. */
     onopen?: () => void
+    /** Shown under the words while the row is unfolded: change the thought in place. */
+    editor?: Snippet
   }
 
   let {
@@ -55,6 +60,7 @@
     threadLabel = null,
     ontoggle,
     onopen,
+    editor,
   }: Props = $props()
 
   /** The open control unfolds the row in place — reading without losing the screen. */
@@ -131,6 +137,11 @@
       {/if}
       {#if threadLabel}<span class="thread">{threadLabel}</span>{/if}
     </span>
+  {/if}
+  {#if expanded && editor}
+    <div class="col-start-2 mt-2 max-[640px]:col-start-1 max-[640px]:col-span-2" data-testid="thought-row-editor">
+      {@render editor()}
+    </div>
   {/if}
   {#if expanded && pageLabel}
     <!-- the full page (edit, echoes) stays one tap away from inside the unfolded row -->

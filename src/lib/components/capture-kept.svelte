@@ -14,7 +14,7 @@
     unassignThoughtThread,
     type ThreadPick,
     type ThreadRef,
-  } from '$lib/thought/type-thread-client'
+  } from '$lib/thought/thought-edit-client'
 
   /**
    * After Capture: the capture's process, as a status strip that stays up — how the

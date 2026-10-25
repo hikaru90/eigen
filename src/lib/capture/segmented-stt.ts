@@ -18,10 +18,16 @@ export const SEGMENT_MAX_MS = 10_000
 /** Mic level (0–1, see {@link micLevelFromSamples}) below which a frame counts as silence. */
 export const SILENCE_LEVEL = 0.05
 /**
- * Voiced time (frames at or above {@link SILENCE_LEVEL}) a segment needs before it is
- * uploaded. A breath, a click or a bump is a frame or two; a spoken word is longer.
+ * Voiced time (frames at or above {@link SILENCE_LEVEL}) that makes a segment speech.
+ * A breath, a click or a bump is a frame or two; a spoken word is longer.
  */
 export const MIN_SPEECH_MS = 300
+/**
+ * A segment too short to reach {@link MIN_SPEECH_MS} (the tail you stop right after a
+ * forced cut) is speech when at least this share of its readings is voiced — so the
+ * last words are never dropped, while a click in a pause stays silence.
+ */
+export const MIN_VOICED_SHARE = 0.5
 export const SEGMENT_FAILED_MESSAGE = "Couldn't transcribe part of your recording — try again"
 
 /** RMS of 8-bit time-domain samples, scaled to 0–1 (same scale the level meter shows). */
@@ -38,9 +44,11 @@ export type SilenceCutter = {
   /** Feed one level reading; returns true when the current segment should end now. */
   feed(level: number, nowMs: number): boolean
   /**
-   * Whether the segment held at least {@link MIN_SPEECH_MS} of voiced time. A segment that
-   * did not is not uploaded: ASR models invent text (other languages, stock phrases) on
-   * silent audio, and one loud frame (a breath, a click) in a pause is still silence.
+   * Whether the segment is speech: at least {@link MIN_SPEECH_MS} of voiced time, or —
+   * for a segment too short for that — mostly voiced readings ({@link MIN_VOICED_SHARE}).
+   * A segment that is not is never uploaded: ASR models invent text (other languages,
+   * stock phrases) on silent audio, and one loud frame (a breath, a click) in a pause is
+   * still silence.
    */
   heardSpeech(): boolean
   /** A new segment started at `nowMs`. */
@@ -52,10 +60,16 @@ export function createSilenceCutter(startMs: number): SilenceCutter {
   let silenceSince: number | null = null
   let lastFeedMs = startMs
   let voicedMs = 0
+  let readings = 0
+  let voicedReadings = 0
   return {
     feed(level, nowMs) {
+      readings += 1
       // a voiced reading counts for the time since the previous reading
-      if (level >= SILENCE_LEVEL) voicedMs += Math.max(0, nowMs - lastFeedMs)
+      if (level >= SILENCE_LEVEL) {
+        voicedReadings += 1
+        voicedMs += Math.max(0, nowMs - lastFeedMs)
+      }
       lastFeedMs = nowMs
       const elapsed = nowMs - segmentStart
       if (elapsed >= SEGMENT_MAX_MS) return true
@@ -67,13 +81,18 @@ export function createSilenceCutter(startMs: number): SilenceCutter {
       return elapsed >= SEGMENT_MIN_MS && nowMs - silenceSince >= SEGMENT_PAUSE_MS
     },
     heardSpeech() {
-      return voicedMs >= MIN_SPEECH_MS
+      if (voicedMs >= MIN_SPEECH_MS) return true
+      const span = lastFeedMs - segmentStart
+      // only a segment shorter than the threshold may pass on its share of voiced readings
+      return span < MIN_SPEECH_MS && voicedReadings > 0 && voicedReadings / readings >= MIN_VOICED_SHARE
     },
     restart(nowMs) {
       segmentStart = nowMs
       silenceSince = null
       lastFeedMs = nowMs
       voicedMs = 0
+      readings = 0
+      voicedReadings = 0
     },
   }
 }

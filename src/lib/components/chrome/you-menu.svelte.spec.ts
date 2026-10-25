@@ -113,7 +113,7 @@ describe('you-menu selection', () => {
 
   it.each([
     ['Notifications', '/notifications'],
-    ['Profile', '/settings'],
+    ['Preferences', '/settings'],
     ['API keys', '/api-keys'],
     ['Usage', '/activity'],
   ])('activates %s with a pointer and closes', async (label, href) => {
@@ -129,7 +129,7 @@ describe('you-menu selection', () => {
     signIn()
     render(YouMenu)
     await page.getByRole('button', { name: MENU_LABEL }).click()
-    await userEvent.keyboard('Profile[Enter]')
+    await userEvent.keyboard('Preferences[Enter]')
     expect(goto).toHaveBeenCalledWith('/settings')
   })
 

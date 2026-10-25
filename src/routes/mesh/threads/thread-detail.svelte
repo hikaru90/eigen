@@ -1,5 +1,7 @@
 <script lang="ts">
+  import type { ThoughtKindOption } from '$lib/thought/kind-option'
   import { base, resolve } from '$app/paths'
+  import ThoughtInlineEditor from '$lib/components/mesh/thought-inline-editor.svelte'
   import ThoughtRow from '$lib/components/mesh/thought-row.svelte'
   import { isTodoCategory } from '$lib/mesh/thought-status'
   import { m } from '$lib/paraglide/messages.js'
@@ -19,7 +21,9 @@
    * questions, two actions, then its thoughts as dated rows. The same page
    * shows Loose ends (title in the mesh's voice, no standing, no actions).
    * Rows never open on tap — the chevron unfolds a thought in place, in the flow
-   * of the page; nothing here leads to another page or a modal.
+   * of the page; nothing here leads to another page or a modal. The unfolded row is
+   * where the thought is changed — words, type, thread (board b6f74d02); a thought
+   * moved to another thread leaves this list.
    */
   type Props = {
     title: string
@@ -29,9 +33,11 @@
     questions: ThreadThought[]
     thoughts: ThreadThought[]
     preferredTimezone: string
+    /** The type menu in an unfolded row: the active thought kinds. */
+    kinds: ThoughtKindOption[]
   }
 
-  let { title, entityId, standing, questions, thoughts, preferredTimezone }: Props = $props()
+  let { title, entityId, standing, questions, thoughts, preferredTimezone, kinds }: Props = $props()
 
   const nowMs = Date.now()
   const fmt = $derived({ nowMs, locale: getLocale(), timeZone: preferredTimezone })
@@ -43,12 +49,35 @@
   let tickStatus = $state<Record<string, 'open' | 'completed'>>({})
   let tickBusyId = $state<string | null>(null)
 
+  /** Words and type the server kept after an edit in an unfolded row, keyed by thought id. */
+  let edited = $state<Record<string, { text: string; category: string }>>({})
+  /** Thoughts moved off this list (to another thread, or onto one from Loose ends). */
+  let movedAway = $state<Record<string, true>>({})
+  /** This list's own thread, as an unfolded row's thread pill shows it. */
+  const ownThread = $derived(entityId ? { entityId, label: title } : null)
+
   const rows = $derived(
-    thoughts.map((row) => {
-      const override = tickStatus[row.thoughtId]
-      return override ? { ...row, status: override } : row
-    }),
+    thoughts
+      .filter((row) => !movedAway[row.thoughtId])
+      .map((row) => {
+        const status = tickStatus[row.thoughtId] ?? row.status
+        return { ...row, ...edited[row.thoughtId], status }
+      }),
   )
+
+  function applyRowChange(
+    thoughtId: string,
+    next: { text: string; category: string; thread: { entityId: string; label: string } | null },
+  ): void {
+    if ((next.thread?.entityId ?? null) !== (ownThread?.entityId ?? null)) {
+      movedAway = { ...movedAway, [thoughtId]: true }
+      showWhisper([
+        { text: next.thread ? next.thread.label : m.capture_reading_loose(), durationMs: 1600 },
+      ])
+      return
+    }
+    edited = { ...edited, [thoughtId]: { text: next.text, category: next.category } }
+  }
 
   /** The mesh's facts about where it stands, in words: open tasks · due · overdue · someday. */
   const facts = $derived.by<string[]>(() => {
@@ -216,7 +245,18 @@
           tickLabel={row.status === 'completed' ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
           openLabel={m.desk_action_open_task()}
           ontoggle={() => void toggleDone(row)}
-        />
+        >
+          {#snippet editor()}
+            <ThoughtInlineEditor
+              thoughtId={row.thoughtId}
+              text={row.text}
+              category={row.category}
+              thread={ownThread}
+              {kinds}
+              onchange={(next) => applyRowChange(row.thoughtId, next)}
+            />
+          {/snippet}
+        </ThoughtRow>
       {/each}
     {/if}
   </section>
