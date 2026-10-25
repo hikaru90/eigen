@@ -62,10 +62,18 @@ describe('thought-row.svelte', () => {
     await expect.element(open).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('without a pageLabel the unfolded row offers no page link', async () => {
-    render(ThoughtRow, { ...baseProps, onopen: vi.fn() })
+  it('without a pageLabel the unfolded row offers no page link (threads: in the flow only)', async () => {
+    render(ThoughtRow, baseProps)
     await page.getByRole('button', { name: 'Open this thought' }).click()
     await expect.element(page.getByTestId('thought-row-page')).not.toBeInTheDocument()
+  })
+
+  it('the open control is a chevron that turns over when the row unfolds', async () => {
+    render(ThoughtRow, baseProps)
+    const chevron = page.getByTestId('thought-row-chevron').element() as SVGElement
+    expect(chevron.getAttribute('class')).not.toContain('rotate-180')
+    await page.getByRole('button', { name: 'Open this thought' }).click()
+    expect(chevron.getAttribute('class')).toContain('rotate-180')
   })
 
   it('shows the kind chip and the thread name when given', async () => {

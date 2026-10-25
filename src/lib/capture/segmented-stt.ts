@@ -17,6 +17,11 @@ export const SEGMENT_PAUSE_MS = 350
 export const SEGMENT_MAX_MS = 10_000
 /** Mic level (0–1, see {@link micLevelFromSamples}) below which a frame counts as silence. */
 export const SILENCE_LEVEL = 0.05
+/**
+ * Voiced time (frames at or above {@link SILENCE_LEVEL}) a segment needs before it is
+ * uploaded. A breath, a click or a bump is a frame or two; a spoken word is longer.
+ */
+export const MIN_SPEECH_MS = 300
 export const SEGMENT_FAILED_MESSAGE = "Couldn't transcribe part of your recording — try again"
 
 /** RMS of 8-bit time-domain samples, scaled to 0–1 (same scale the level meter shows). */
@@ -33,9 +38,9 @@ export type SilenceCutter = {
   /** Feed one level reading; returns true when the current segment should end now. */
   feed(level: number, nowMs: number): boolean
   /**
-   * Whether any reading since the segment started reached {@link SILENCE_LEVEL}. A segment
-   * that never did is not uploaded: ASR models invent text (other languages, stock
-   * phrases) on silent audio, so silence never reaches the model.
+   * Whether the segment held at least {@link MIN_SPEECH_MS} of voiced time. A segment that
+   * did not is not uploaded: ASR models invent text (other languages, stock phrases) on
+   * silent audio, and one loud frame (a breath, a click) in a pause is still silence.
    */
   heardSpeech(): boolean
   /** A new segment started at `nowMs`. */
@@ -45,10 +50,13 @@ export type SilenceCutter = {
 export function createSilenceCutter(startMs: number): SilenceCutter {
   let segmentStart = startMs
   let silenceSince: number | null = null
-  let speech = false
+  let lastFeedMs = startMs
+  let voicedMs = 0
   return {
     feed(level, nowMs) {
-      if (level >= SILENCE_LEVEL) speech = true
+      // a voiced reading counts for the time since the previous reading
+      if (level >= SILENCE_LEVEL) voicedMs += Math.max(0, nowMs - lastFeedMs)
+      lastFeedMs = nowMs
       const elapsed = nowMs - segmentStart
       if (elapsed >= SEGMENT_MAX_MS) return true
       if (level >= SILENCE_LEVEL) {
@@ -59,12 +67,13 @@ export function createSilenceCutter(startMs: number): SilenceCutter {
       return elapsed >= SEGMENT_MIN_MS && nowMs - silenceSince >= SEGMENT_PAUSE_MS
     },
     heardSpeech() {
-      return speech
+      return voicedMs >= MIN_SPEECH_MS
     },
     restart(nowMs) {
       segmentStart = nowMs
       silenceSince = null
-      speech = false
+      lastFeedMs = nowMs
+      voicedMs = 0
     },
   }
 }

@@ -14,6 +14,7 @@ import { authDb } from '$lib/server/db/auth-db'
 import { user } from '$lib/server/db/auth.schema'
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
 import { ensureUserOntologySeeded } from '$lib/server/ontology-db'
+import { loadThoughtKindOptions } from '$lib/server/thought/kind-options'
 
 export const load: PageServerLoad = async (event) => {
   if (!event.locals.user) {
@@ -47,6 +48,8 @@ export const load: PageServerLoad = async (event) => {
   const creditsGatePassed = isHarness || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS
 
   const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(userId)
+  // "Kept as …" can be corrected after keeping: the type menu offers every active kind
+  const kinds = await loadThoughtKindOptions(getDb(), userId)
 
   return {
     user: event.locals.user,
@@ -58,6 +61,7 @@ export const load: PageServerLoad = async (event) => {
     paypalConfigured,
     paypalClientId,
     paypalSdkUrl,
+    kinds,
     creditsGatePassed,
     captureAllowed: captureGate.allowed,
     captureGateReason: captureGate.allowed ? null : captureGate.reason,

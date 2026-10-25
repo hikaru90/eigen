@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createSegmentTranscriber,
   createSilenceCutter,
+  MIN_SPEECH_MS,
   SEGMENT_FAILED_MESSAGE,
   SEGMENT_MAX_MS,
   SEGMENT_MIN_MS,
@@ -79,17 +80,24 @@ describe('createSilenceCutter speech tracking', () => {
     expect(cutter.heardSpeech()).toBe(false)
   })
 
-  it('one loud frame marks the segment as speech', () => {
+  it('a breath or click in a pause (a few loud frames) is still silence', () => {
     const cutter = createSilenceCutter(0)
-    cutter.feed(QUIET, 0)
-    cutter.feed(LOUD, 50)
-    cutter.feed(QUIET, 100)
+    for (let t = 50; t <= 3400; t += 50) cutter.feed(t === 1000 || t === 1050 ? LOUD : QUIET, t)
+    expect(cutter.heardSpeech()).toBe(false)
+  })
+
+  it(`a spoken stretch of at least ${MIN_SPEECH_MS}ms marks the segment as speech`, () => {
+    const cutter = createSilenceCutter(0)
+    for (let t = 50; t <= 3400; t += 50) {
+      cutter.feed(t > 1000 && t <= 1000 + MIN_SPEECH_MS ? LOUD : QUIET, t)
+    }
     expect(cutter.heardSpeech()).toBe(true)
   })
 
   it('restart clears speech for the next segment', () => {
     const cutter = createSilenceCutter(0)
-    cutter.feed(LOUD, 0)
+    for (let t = 50; t <= 1000; t += 50) cutter.feed(LOUD, t)
+    expect(cutter.heardSpeech()).toBe(true)
     cutter.restart(3500)
     cutter.feed(QUIET, 3550)
     expect(cutter.heardSpeech()).toBe(false)

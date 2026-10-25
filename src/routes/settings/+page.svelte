@@ -80,7 +80,7 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props()
   const initialNotificationSettings = (() => notificationSettingsFromServer(data))()
-  let activeTab = $state('appearance')
+  let activeTab = $state('account')
   let themePreference = $state('system')
   let timezoneOffsetMinutes = $state(initialNotificationSettings.timezoneOffsetMinutes)
   let timezoneInferred = $state(initialNotificationSettings.timezoneInferred)
@@ -91,13 +91,13 @@
   let dailySummaryEnabled = $state(initialNotificationSettings.dailySummaryEnabled)
   let dailySummaryTimeLocal = $state(initialNotificationSettings.dailySummaryTimeLocal)
 
+  // Preferences, grouped by what they are about: you, how the app looks and listens,
+  // what reaches you, and your memory and data (export and deletion live with the data).
   const settingsTabs = [
-    { value: 'appearance', label: 'Appearance' },
-    { value: 'speech', label: 'Speech' },
-    { value: 'account', label: 'Account' },
-    { value: 'notifications', label: 'Notifications' },
-    { value: 'memory', label: 'Memory' },
-    { value: 'danger', label: 'Danger zone' },
+    { value: 'account', label: m.prefs_tab_you },
+    { value: 'look', label: m.prefs_tab_look },
+    { value: 'notifications', label: m.prefs_tab_notifications },
+    { value: 'memory', label: m.prefs_tab_memory },
   ] as const
 
   // The ei tab group (DESIGN.md "Choices among words are a tab group"): a recessed
@@ -479,18 +479,18 @@
   <Tabs.Root bind:value={activeTab} class="space-y-4">
     <div
       class="-mx-5 overflow-x-auto px-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-      aria-label="Settings tabs"
+      aria-label={m.prefs_title()}
     >
       <Tabs.List class={settingsTabListClass}>
         {#each settingsTabs as tab (tab.value)}
           <Tabs.Trigger value={tab.value} class={settingsTabTriggerClass}>
-            {tab.label}
+            {tab.label()}
           </Tabs.Trigger>
         {/each}
       </Tabs.List>
     </div>
 
-    <Tabs.Content value="appearance" class="space-y-3">
+    <Tabs.Content value="look" class="space-y-3">
       <div class="flex items-start gap-3">
         <div
           class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
@@ -576,9 +576,8 @@
           </form>
         </Card.Content>
       </Card.Root>
-    </Tabs.Content>
 
-    <Tabs.Content value="speech" class="space-y-3">
+      <div class="pt-6"></div>
       <div class="flex items-start gap-3">
         <div
           class="bg-muted text-foreground mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
@@ -1105,9 +1104,8 @@
           {/if}
         </Card.Content>
       </Card.Root>
-    </Tabs.Content>
 
-    <Tabs.Content value="danger" class="space-y-3">
+      <div class="pt-6"></div>
       <div class="flex items-start gap-3">
         <div
           class="bg-destructive/10 text-destructive mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"

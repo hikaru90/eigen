@@ -15,7 +15,7 @@
    *   forget       → DELETE /api/thoughts/[id]
    *   re-read      → GET /api/thoughts/[id]
    */
-  import type { ThoughtKindOption, ThoughtPageThought } from './+page.server'
+  import type { ThoughtPageThought } from './+page.server'
   import { onMount, tick } from 'svelte'
   import { goto } from '$app/navigation'
   import { page } from '$app/state'
@@ -31,6 +31,15 @@
   import { getLocale } from '$lib/paraglide/runtime'
   import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
   import { showWhisper } from '$lib/stores/whisper.svelte'
+  import type { ThoughtKindOption } from '$lib/thought/kind-option'
+  import {
+    assignThoughtThread,
+    fetchThreadOptions,
+    setThoughtType,
+    unassignThoughtThread,
+    type ThreadPick,
+    type ThreadRef,
+  } from '$lib/thought/type-thread-client'
   import { echoHref, inAppHref } from './app-href'
   import { askDraftFor, askHrefFor } from './ask-handoff'
   import { replaceTextEditRequest, textChange } from './edit-request'
@@ -39,7 +48,6 @@
   import { pullToLeave } from './pull-to-leave'
   import { longDateLabel } from './thought-meta'
 
-  type ThreadRef = { entityId: string; label: string }
 
   let {
     thought,
@@ -205,13 +213,7 @@
     saving = true
     err = null
     try {
-      const res = await fetch(`/api/thoughts/${encodeURIComponent(thought.id)}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ category: key }),
-        credentials: 'same-origin',
-      })
-      if (!res.ok) throw new Error((await res.text()) || `Type change failed (${res.status})`)
+      await setThoughtType(thought.id, key)
       await refreshThought()
       showWhisper([{ text: m.whisper_kept(), durationMs: 1300 }])
     } catch (e) {
@@ -238,20 +240,7 @@
     threadOptionsLoaded = true
     threadOptionsLoading = true
     try {
-      const res = await fetch('/api/timeline/projects', { credentials: 'same-origin' })
-      if (!res.ok) return
-      const body = (await res.json()) as { projects?: unknown }
-      if (!body || !Array.isArray(body.projects)) return
-      const options: ThreadRef[] = []
-      for (const p of body.projects) {
-        if (!p || typeof p !== 'object') continue
-        const entityId = (p as { entityId?: unknown }).entityId
-        const label = (p as { label?: unknown }).label
-        if (typeof entityId === 'string' && entityId && typeof label === 'string' && label.trim()) {
-          options.push({ entityId, label })
-        }
-      }
-      threadOptions = options
+      threadOptions = await fetchThreadOptions()
     } catch {
       // the picker still offers a new thread — the list is best-effort
     } finally {
@@ -266,20 +255,7 @@
     assigning = true
     err = null
     try {
-      const res = await fetch('/api/timeline/projects/assign', {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ thoughtId: thought.id }),
-        credentials: 'same-origin',
-      })
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { error?: unknown }
-        throw new Error(
-          typeof payload.error === 'string'
-            ? payload.error
-            : `Thread unassign failed (${res.status})`,
-        )
-      }
+      await unassignThoughtThread(thought.id)
       threadOverride = null
       showWhisper([{ text: m.whisper_kept(), durationMs: 1400 }])
     } catch (e) {
@@ -289,35 +265,17 @@
     }
   }
 
-  async function pickThread(pick: { entityId: string } | { label: string }): Promise<void> {
+  async function pickThread(pick: ThreadPick): Promise<void> {
     threadMenuOpen = false
     if (assigning) return
     if ('entityId' in pick && thread?.entityId === pick.entityId) return
     assigning = true
     err = null
     try {
-      const res = await fetch('/api/timeline/projects/assign', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(
-          'entityId' in pick
-            ? { thoughtId: thought.id, projectEntityId: pick.entityId }
-            : { thoughtId: thought.id, projectLabel: pick.label },
-        ),
-        credentials: 'same-origin',
-      })
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { error?: unknown }
-        throw new Error(
-          typeof payload.error === 'string' ? payload.error : `Thread assign failed (${res.status})`,
-        )
-      }
-      const result = (await res.json()) as { projectEntityId?: unknown; projectLabel?: unknown }
-      if (typeof result.projectEntityId === 'string' && typeof result.projectLabel === 'string') {
-        threadOverride = { entityId: result.projectEntityId, label: result.projectLabel }
-        if (!threadOptions.some((o) => o.entityId === result.projectEntityId)) {
-          threadOptions = [...threadOptions, threadOverride]
-        }
+      const landed = await assignThoughtThread(thought.id, pick)
+      threadOverride = landed
+      if (!threadOptions.some((o) => o.entityId === landed.entityId)) {
+        threadOptions = [...threadOptions, landed]
       }
       newThreadLabel = ''
       showWhisper([{ text: m.whisper_kept(), durationMs: 1400 }])

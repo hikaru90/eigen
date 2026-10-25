@@ -9,9 +9,9 @@
 
   /**
    * The one writer (Ask, Capture, Contribute): a wide glass pill docked above the bottom
-   * nav, outside the page mask. One right-hand slot holds the mic while the field is empty
-   * (or while recording) and the send action once there are words; while `busy` with an
-   * `onstop`, it holds Stop. Small page controls go in `above`, a quiet row over the field.
+   * nav, outside the page mask. The right-hand slot holds the mic (when the page takes voice)
+   * and, once there are words and no recording runs, send beside it — so a second recording
+   * can follow the first; while `busy` with an `onstop`, it holds Stop. Small page controls go in `above`, a quiet row over the field.
    * On a keyboard Enter submits and Shift+Enter is a newline; on touch (coarse pointer) Enter
    * is always a newline and the send button sends. With `busyLabel`, `busy` lays a veil with
    * that label over the field and locks it, so nothing is sent twice. The send action sits
@@ -86,10 +86,10 @@
   const hasText = $derived(value.trim().length > 0)
   const hasVoice = $derived(ontranscript !== undefined)
   const recording = $derived(voiceStop !== undefined)
-  /** The one slot: stop while busy, mic while empty or recording, send otherwise. */
-  const slot = $derived<'stop' | 'mic' | 'send'>(
-    busy && onstop ? 'stop' : hasVoice && (!hasText || recording) ? 'mic' : 'send',
-  )
+  /** Stop while busy; otherwise the mic (with voice) and send (with words, not while recording). */
+  const stopping = $derived(busy && !!onstop)
+  const showMic = $derived(!stopping && hasVoice)
+  const showSend = $derived(!stopping && (!hasVoice || (hasText && !recording)))
   const canSend = $derived(hasText && !disabled && !busy && !submitDisabled)
   const veiled = $derived(busy && !!busyLabel)
   /** The text wraps past one line: the action drops to the bottom. Set by `trackLines`. */
@@ -193,13 +193,13 @@
         voiceStop?.()
         onfocus?.()
       }}></textarea>
-    <!-- the one action slot: centred with one line of text, on the last line once it wraps -->
+    <!-- the action slot: centred with one line of text, on the last line once it wraps -->
     <div
-      class={['flex shrink-0', multiline && 'self-end']}
+      class={['flex shrink-0 gap-1.5', multiline && 'self-end']}
       data-testid="glass-writer-slot"
       data-multiline={multiline}
     >
-      {#if slot === 'stop'}
+      {#if stopping}
         <button
           type="button"
           class={slotButton}
@@ -209,7 +209,8 @@
         >
           <Square size={12} strokeWidth={2} aria-hidden="true" />
         </button>
-      {:else if slot === 'mic'}
+      {/if}
+      {#if showMic}
         <VoiceInputButton
           disabled={disabled || busy}
           class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
@@ -219,7 +220,8 @@
           {onpartialtranscript}
           onerror={onvoiceerror}
         />
-      {:else}
+      {/if}
+      {#if showSend}
         <button
           type="submit"
           class={slotButton}

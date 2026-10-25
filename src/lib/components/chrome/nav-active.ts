@@ -4,6 +4,8 @@ export type BottomNavId = 'capture' | 'mesh' | 'ask'
 const NAV_PREFIXES: ReadonlyArray<readonly [BottomNavId, string]> = [
   ['capture', '/capture'],
   ['mesh', '/mesh'],
+  // the entire graph is opened from Mesh ("Show entire graph")
+  ['mesh', '/graph'],
   ['ask', '/chat'],
 ]
 
@@ -20,4 +22,9 @@ export function activeNavId(pathname: string): BottomNavId | null {
     if (path === prefix || path.startsWith(`${prefix}/`)) return id
   }
   return null
+}
+
+/** The bottom nav's mark for `id` — the landing point for motion aimed at a tab (the capture fly). */
+export function navMarkSelector(id: BottomNavId): string {
+  return `[data-nav-mark="${id}"]`
 }

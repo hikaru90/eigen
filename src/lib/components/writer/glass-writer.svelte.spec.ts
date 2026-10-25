@@ -42,11 +42,17 @@ describe('glass-writer.svelte', () => {
     expect(slot.className).not.toContain('absolute')
   })
 
-  it('shares one slot: mic while empty, send once there are words', async () => {
+  it('mic while empty; once there are words send joins it and the mic stays for the next recording', async () => {
     render(GlassWriter, { ...base, onsubmit: () => {}, ontranscript: () => {} })
     await expect.element(page.getByRole('button', { name: 'Start voice input' })).toBeInTheDocument()
     await expect.element(page.getByTestId('writer-send')).not.toBeInTheDocument()
     await userEvent.type(page.getByTestId('writer-input'), 'hello')
+    await expect.element(page.getByTestId('writer-send')).toBeInTheDocument()
+    await expect.element(page.getByRole('button', { name: 'Start voice input' })).toBeInTheDocument()
+  })
+
+  it('without voice the slot is send alone', async () => {
+    render(GlassWriter, { ...base, onsubmit: () => {} })
     await expect.element(page.getByTestId('writer-send')).toBeInTheDocument()
     await expect
       .element(page.getByRole('button', { name: 'Start voice input' }))

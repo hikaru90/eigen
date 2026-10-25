@@ -123,11 +123,11 @@
   }}
 >
   <DropdownMenu.Trigger
-    class="group relative -mr-2 -ml-3.5 grid size-8 place-items-center border-0 bg-transparent p-0 text-ink cursor-pointer before:absolute before:-inset-1.5 before:content-[''] pointer-fine:hover:[&>svg]:opacity-70"
+    class="group relative -mr-2.5 -ml-3.5 grid size-10 place-items-center border-0 bg-transparent p-0 text-ink cursor-pointer before:absolute before:-inset-1.5 before:content-[''] pointer-fine:hover:[&>svg]:opacity-100"
     aria-label="{m.you_profile()} · {m.you_settings()}"
   >
     <svg
-      class="block size-6 overflow-visible opacity-60 transition-opacity duration-500 ease-settle group-data-[state=open]:opacity-100"
+      class="block size-8 overflow-visible opacity-80 transition-opacity duration-500 ease-settle group-data-[state=open]:opacity-100"
       viewBox="0 0 24 24"
       aria-hidden="true"
     >
@@ -234,7 +234,7 @@
         {/if}
       </DropdownMenu.Item>
       <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/settings'))}>
-        {m.you_profile()}
+        {m.prefs_title()}
       </DropdownMenu.Item>
       <DropdownMenu.Item class={meItem} onclick={() => void goto(resolve('/api-keys'))}>
         {m.you_api_keys()}

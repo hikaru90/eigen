@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation'
   import { base, resolve } from '$app/paths'
-  import { thoughtHref } from '$lib/chat/thought-href'
   import ThoughtRow from '$lib/components/mesh/thought-row.svelte'
   import { isTodoCategory } from '$lib/mesh/thought-status'
   import { m } from '$lib/paraglide/messages.js'
@@ -20,8 +18,8 @@
    * .pd-*): "← Threads", the name in your voice, where it stands, open
    * questions, two actions, then its thoughts as dated rows. The same page
    * shows Loose ends (title in the mesh's voice, no standing, no actions).
-   * Rows never open on tap — the open control does (DESIGN.md "Lists are for
-   * reading"); the row itself stays a reading surface.
+   * Rows never open on tap — the chevron unfolds a thought in place, in the flow
+   * of the page; nothing here leads to another page or a modal.
    */
   type Props = {
     title: string
@@ -101,9 +99,6 @@
     }
   }
 
-  function openThought(thoughtId: string): void {
-    void goto(thoughtHref(thoughtId))
-  }
 </script>
 
 <div
@@ -198,19 +193,6 @@
             class="flex items-start gap-3.5 py-3 border-t border-line text-base leading-[1.5] text-ink-2 before:shrink-0 before:size-1.5 before:mt-2 before:rounded-full before:shadow-[inset_0_0_0_1px_var(--ink-3)] before:content-['']"
           >
             <span class="flex-1 min-w-0 font-you text-[17px] leading-[1.35] text-ink">{question.text}</span>
-            <a
-              class="relative shrink-0 grid size-6 place-items-center -mr-1 rounded-full text-ink-3 transition-colors duration-300 ease-settle before:absolute before:-inset-2 before:content-[''] pointer-fine:hover:text-ink"
-              href={thoughtHref(question.thoughtId)}
-              aria-label={m.desk_action_open_task()}
-            >
-              <svg
-                class="size-[13px] fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round] [stroke-linejoin:round]"
-                viewBox="0 0 16 16"
-                aria-hidden="true"
-              >
-                <path d="M9.5 3.5h3v3M6.5 12.5h-3v-3M12.5 3.5 9.2 6.8M3.5 12.5l3.3-3.3" />
-              </svg>
-            </a>
           </li>
         {/each}
       </ul>
@@ -233,9 +215,7 @@
           showTick={isTodoCategory(row.category)}
           tickLabel={row.status === 'completed' ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
           openLabel={m.desk_action_open_task()}
-          pageLabel={m.thought_open_page()}
           ontoggle={() => void toggleDone(row)}
-          onopen={() => openThought(row.thoughtId)}
         />
       {/each}
     {/if}

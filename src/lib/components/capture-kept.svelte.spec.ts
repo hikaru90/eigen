@@ -3,7 +3,20 @@ import { render } from 'vitest-browser-svelte'
 import { page } from 'vitest/browser'
 import CaptureKept from './capture-kept.svelte'
 
-const base = { typeLabel: 'Task', threadLabel: 'no project', entityCount: 0, linkedCount: 0, slow: false, failureReason: null }
+const base = {
+  thoughtId: null as string | null,
+  typeKey: 'task',
+  thread: null,
+  kinds: [
+    { key: 'task', name: 'Task', definition: 'Something to do' },
+    { key: 'observation', name: 'Observation', definition: 'Something noticed' },
+  ],
+  onkeptchange: () => {},
+  entityCount: 0,
+  linkedCount: 0,
+  slow: false,
+  failureReason: null,
+}
 
 describe('capture-kept.svelte', () => {
   it('names how it was kept while indexing, and explains what the pass is doing', async () => {
@@ -36,6 +49,15 @@ describe('capture-kept.svelte', () => {
   it('says so when indexing failed — the thought is still kept', async () => {
     render(CaptureKept, { ...base, stage: 'failed', failureReason: 'embedding timeout' })
     await expect.element(page.getByRole('alert')).toHaveTextContent('embedding timeout')
+  })
+
+  it('the pencil waits until the thought is kept, then opens the type and thread pickers in place', async () => {
+    const { rerender } = render(CaptureKept, { ...base, stage: 'saving' })
+    await expect.element(page.getByTestId('capture-kept-edit')).toBeDisabled()
+    await rerender({ ...base, thoughtId: 't1', stage: 'indexing' })
+    await page.getByTestId('capture-kept-edit').click()
+    await expect.element(page.getByTestId('capture-kept-editor')).toBeInTheDocument()
+    await expect.element(page.getByTestId('thought-thread')).toBeInTheDocument()
   })
 
   it('never shows the kept words again', async () => {

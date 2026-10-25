@@ -7,11 +7,8 @@ import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity } from '$lib/server/db/schema'
 import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
-import {
-  activeThoughtCategoryKinds,
-  ensureUserOntologySeeded,
-  loadOntologyForUser,
-} from '$lib/server/ontology-db'
+import { loadThoughtKindOptions } from '$lib/server/thought/kind-options'
+import type { ThoughtKindOption } from '$lib/thought/kind-option'
 
 /**
  * A thought, up close (ei redesign, wave 3.1): the server load for /thought/[id].
@@ -34,11 +31,6 @@ export type ThoughtPageThought = {
 }
 
 /** An active thought_category kind: the type control's menu, in the user's ontology. */
-export type ThoughtKindOption = {
-  key: string
-  name: string
-  definition: string
-}
 
 export type ThoughtPageData = {
   preferredTimezone: string
@@ -112,15 +104,7 @@ export const load: PageServerLoad = async (event) => {
     .orderBy(desc(thoughtEntity.salience))
     .limit(1)
 
-  // The type menu: the user's active thought_category kinds (the same catalog every
-  // classifier uses — load-ontology.ts:105-111), with their one-line definitions.
-  await ensureUserOntologySeeded(db, userId)
-  const ontology = await loadOntologyForUser(db, userId)
-  const kinds: ThoughtKindOption[] = activeThoughtCategoryKinds(ontology).map((kind) => ({
-    key: kind.key,
-    name: kind.name,
-    definition: kind.definition,
-  }))
+  const kinds = await loadThoughtKindOptions(db, userId)
 
   const preferredTimezone = await getUserPreferredTimezone(userId)
 

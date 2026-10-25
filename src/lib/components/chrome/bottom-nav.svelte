@@ -49,6 +49,7 @@
           isActive ? 'opacity-100' : 'opacity-[0.62] pointer-fine:hover:opacity-[0.64]',
         ]}
         aria-hidden="true"
+        data-nav-mark={item.id}
       >
         <MenuMark kind={item.id} active={isActive} />
       </div>

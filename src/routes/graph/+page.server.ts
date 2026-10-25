@@ -1,24 +1,60 @@
 import type { PageServerLoad } from './$types'
 import { redirect } from '@sveltejs/kit'
-
-function memoryPath(url: URL): string {
-  const params = url.searchParams
-  const tab = params.get('tab')
-  if (tab === 'temporal') {
-    const eventId = params.get('event')
-    return eventId ? `/memory/tasks?event=${encodeURIComponent(eventId)}` : '/memory/tasks'
-  }
-  const thought = params.get('thought')
-  if (thought) {
-    const next = new URLSearchParams(params)
-    next.delete('tab')
-    const qs = next.toString()
-    return qs ? `/memory?${qs}` : `/memory?thought=${encodeURIComponent(thought)}`
-  }
-  const qs = params.toString()
-  return qs ? `/memory?${qs}` : '/memory'
-}
+import { mergeGraphLegendWithUserOntology } from '$lib/graph/graph-ontology-legend'
+import { getDb } from '$lib/server/db'
+import { fetchGraphVisualizationSnapshot } from '$lib/server/graph/age'
+import { loadAuthorLayerGraphData } from '$lib/server/graph/author-layers'
+import { fetchGraphCommunityOverlays } from '$lib/server/graph/community-overlays'
+import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 
 export const load: PageServerLoad = async (event) => {
-  throw redirect(302, memoryPath(event.url))
+  if (!event.locals.user) {
+    throw redirect(302, '/login')
+  }
+
+  const userId = event.locals.user.id
+  await ensureUserOntologySeeded(getDb(), userId)
+  const loaded = await loadOntologyForUser(getDb(), userId)
+  const graphLegendSections = mergeGraphLegendWithUserOntology({
+    entityKinds: loaded.entityKinds.map((k) => ({
+      key: k.key,
+      name: k.name,
+      definition: k.definition,
+      active: k.active,
+    })),
+    relationKinds: loaded.relationKinds.map((r) => ({
+      key: r.key,
+      meaning: r.meaning,
+      active: r.active,
+      fromKindKey: loaded.entityKindsById.get(r.fromOntologyEntityKindId)?.key ?? '',
+      toKindKey: loaded.entityKindsById.get(r.toOntologyEntityKindId)?.key ?? '',
+    })),
+  })
+  const [snapshot, communities, authorLayerData] = await Promise.all([
+    fetchGraphVisualizationSnapshot({
+      userId,
+      nodeLimit: 500,
+      edgeLimit: 1200,
+    }),
+    fetchGraphCommunityOverlays(userId),
+    loadAuthorLayerGraphData(userId),
+  ])
+
+  const annotatedSnapshot = {
+    ...snapshot,
+    nodes: snapshot.nodes.map((node) => ({
+      ...node,
+      authorLayerKeys: authorLayerData.entityAuthorLayerKeys[node.id] ?? ['user'],
+    })),
+  }
+
+  return {
+    user: event.locals.user,
+    snapshot: annotatedSnapshot,
+    graphLegendSections,
+    communities,
+    authorLayers: authorLayerData.authorLayers,
+    entityAuthorLayerKeys: authorLayerData.entityAuthorLayerKeys,
+    coMentionEdgeLayerKeys: authorLayerData.coMentionEdgeLayerKeys,
+  }
 }

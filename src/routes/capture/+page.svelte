@@ -54,6 +54,7 @@
   import CaptureKept from '$lib/components/capture-kept.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
   import CaptureReading from '$lib/components/capture-reading.svelte'
+  import { navMarkSelector } from '$lib/components/chrome/nav-active'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
   import GlassWriter from '$lib/components/writer/glass-writer.svelte'
@@ -123,8 +124,11 @@
 
   /** How the last capture was kept, and where its background pass is (the heading's place). */
   type Kept = {
-    typeLabel: string
-    threadLabel: string
+    /** Known once the keep call answered; until then there is nothing to correct. */
+    thoughtId: string | null
+    typeKey: string
+    /** A new thread named on Capture has no id until the server made it (''). */
+    thread: { entityId: string; label: string } | null
     stage: KeptStage
     entityCount: number
     linkedCount: number
@@ -132,6 +136,8 @@
     failureReason: string | null
   }
   let kept = $state<Kept | null>(null)
+  /** The user is correcting how it was kept: the linked state does not fade under them. */
+  let keptEditing = false
   /** Monotonic token: a newer capture (or new typing) stops an older poll. */
   let keptToken = 0
 
@@ -160,7 +166,7 @@
         if (stage === 'linked') {
           // done says itself for a moment, then the heading's place is free again
           setTimeout(() => {
-            if (token === keptToken && kept?.stage === 'linked') kept = null
+            if (token === keptToken && kept?.stage === 'linked' && !keptEditing) kept = null
           }, KEPT_LINKED_FADE_MS)
         }
         return
@@ -394,7 +400,7 @@
 
   function meshSlotElement(): Element | null {
     if (typeof document === 'undefined') return null
-    return document.querySelector('.nav a[href$="/mesh"] .mark-slot')
+    return document.querySelector(navMarkSelector('mesh'))
   }
 
   function whisperKept(typeKey: string | null) {
@@ -481,9 +487,14 @@
     //     background pass's progress (the words themselves are never shown again)
     if (plan.kind === 'keep') {
       keptToken += 1
+      keptEditing = false
       kept = {
-        typeLabel: categoryLabel(plan.reading.category.key),
-        threadLabel: threadChoice.kind === 'thread' ? threadChoice.label : m.capture_reading_loose(),
+        thoughtId: null,
+        typeKey: plan.reading.category.key,
+        thread:
+          threadChoice.kind === 'thread'
+            ? { entityId: threadChoice.entityId ?? '', label: threadChoice.label }
+            : null,
         stage: 'saving',
         entityCount: 0,
         linkedCount: 0,
@@ -548,7 +559,7 @@
         return
       }
       captureEvent('capture_confirmed', { thought_id: outcome.thoughtId })
-      if (kept) kept = { ...kept, stage: 'indexing' }
+      if (kept) kept = { ...kept, thoughtId: outcome.thoughtId, stage: 'indexing' }
       await followKept(outcome.thoughtId, keptToken)
       return
     }
@@ -828,7 +839,14 @@
          next words, and only the linked state fades (a failure stays until the next
          capture). Categorization, saving and indexing stay visible — never a flash. -->
     <div class="mt-8 max-w-[540px]" data-testid="capture-kept-strip">
-      <CaptureKept {...kept} />
+      <CaptureKept
+        {...kept}
+        kinds={data.kinds}
+        onkeptchange={(next) => {
+          if (kept) kept = { ...kept, ...next }
+        }}
+        oneditingchange={(editing) => (keptEditing = editing)}
+      />
     </div>
   {/if}
 

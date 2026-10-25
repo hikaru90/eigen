@@ -29,7 +29,7 @@ describe('activeNavId', () => {
   })
 
   it('lights nothing on utility and legacy surfaces', () => {
-    for (const path of ['/settings', '/api-keys', '/activity', '/memory', '/desk', '/graph', '/login']) {
+    for (const path of ['/settings', '/api-keys', '/activity', '/memory', '/desk', '/login']) {
       expect(activeNavId(path)).toBeNull()
     }
   })
@@ -38,5 +38,18 @@ describe('activeNavId', () => {
     expect(activeNavId('/captures')).toBeNull()
     expect(activeNavId('/meshx')).toBeNull()
     expect(activeNavId('/chatx')).toBeNull()
+  })
+})
+
+describe('navMarkSelector', () => {
+  it('targets the bottom nav mark by tab id (the capture fly lands on the Mesh mark)', async () => {
+    const { navMarkSelector } = await import('./nav-active')
+    expect(navMarkSelector('mesh')).toBe('[data-nav-mark="mesh"]')
+  })
+})
+
+describe('the entire graph', () => {
+  it('lights Mesh on /graph (opened from Mesh)', () => {
+    expect(activeNavId('/graph')).toBe('mesh')
   })
 })

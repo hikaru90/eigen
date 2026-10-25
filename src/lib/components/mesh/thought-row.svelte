@@ -28,14 +28,15 @@
     /** To-dos only: the small ring in front of the words. */
     showTick?: boolean
     tickLabel?: string
-    /** Aria label for the explicit open control (two corner arrows). */
+    /** Aria label for the explicit open control (a chevron that unfolds the row). */
     openLabel: string
     /** Label for the full-page link inside an unfolded row (thought page: edit, echoes). */
     pageLabel?: string | null
     kindLabel?: string | null
     threadLabel?: string | null
     ontoggle?: () => void
-    onopen: () => void
+    /** The full-page link's action; only offered with `pageLabel`. */
+    onopen?: () => void
   }
 
   let {
@@ -137,7 +138,7 @@
       class="col-start-2 justify-self-start mt-1 px-0 py-0 border-0 bg-transparent font-mesh text-sm text-ink-3 [transition:color_0.3s_var(--ease)] cursor-pointer pointer-fine:hover:text-ink max-[640px]:col-start-1"
       type="button"
       data-testid="thought-row-page"
-      onclick={() => onopen()}
+      onclick={() => onopen?.()}
     >
       {pageLabel}
     </button>
@@ -151,11 +152,12 @@
   >
     <svg
       class="size-[13px] fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round] [stroke-linejoin:round] [transition:transform_0.4s_var(--ease)]"
-      class:rotate-90={expanded}
+      class:rotate-180={expanded}
       viewBox="0 0 16 16"
       aria-hidden="true"
+      data-testid="thought-row-chevron"
     >
-      <path d="M9.5 3.5h3v3M6.5 12.5h-3v-3M12.5 3.5 9.2 6.8M3.5 12.5l3.3-3.3" />
+      <path d="M4 6.25 8 10.25l4-4" />
     </svg>
   </button>
 </article>
