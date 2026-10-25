@@ -16,7 +16,7 @@ export function llmComplete(userId: string): Complete {
       userId,
       messages,
       temperature: 0,
-      maxTokens: 64,
+      // No tight cap: reasoning models (deepseek) spend completion tokens thinking before the JSON.
       responseFormat: 'json_object',
       logContext: 'personamem_choose_option',
     })
