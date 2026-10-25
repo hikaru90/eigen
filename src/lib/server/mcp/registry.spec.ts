@@ -88,17 +88,19 @@ describe('MCP tool registry exposure', () => {
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)
   })
 
-  it('offers capture_thought to the ask/chat loop — Ask captures what the user reveals about themselves', () => {
-    expect(CHAT_AGENT_TOOL_NAMES).toContain('capture_thought')
+  it('excludes capture_thought from the ask/chat loop — asking never captures', () => {
+    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('capture_thought')
     expect(CHAT_AGENT_TOOL_NAMES).toContain('answer_question')
     expect(CHAT_AGENT_TOOL_NAMES).toContain('retrieve_thoughts')
-    expect(CHAT_AGENT_TOOL_NAMES).toContain('delete_thought')
-    expect(isChatAgentTool('capture_thought')).toBe(true)
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('edit_thought')
+    expect(isChatAgentTool('capture_thought')).toBe(false)
     expect(isChatAgentTool('answer_question')).toBe(true)
-    // the board tools stay out of the chat loop
-    expect(isChatAgentTool('list_board')).toBe(false)
+    // capture stays registered and exposed for HTTP MCP clients / the Capture surface
+    expect(isAgentTool('capture_thought')).toBe(true)
+    expect(isMcpExposedTool('capture_thought')).toBe(true)
+    // the catalog the ask model sees never offers capture
     const block = buildChatAgentToolDescriptionBlock()
-    expect(block).toContain('capture_thought')
+    expect(block).not.toContain('capture_thought')
     expect(block).toContain('answer_question')
   })
 
@@ -177,7 +179,8 @@ describe('MCP tool registry exposure', () => {
   it('documents create_text_file as a Notes document, not a thought', () => {
     const create = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'create_text_file')
     expect(create?.description).toMatch(/not a thought/i)
-    expect(create?.description).toMatch(/capture_thought/i)
+    // the ask catalog is capture-free: descriptions must not reference the removed tool
+    expect(create?.description).not.toMatch(/capture_thought/i)
     expect(create?.description).toMatch(/NEW/i)
     expect(create?.description).toMatch(/append_text_file/i)
     expect(create?.description).toMatch(/never use this to add items/i)

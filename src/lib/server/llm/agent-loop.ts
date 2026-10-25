@@ -28,9 +28,9 @@ import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 const MAX_ITERATIONS = 8
 const MAX_PARSE_RETRIES = 3
 
-/** Mutation / write tools — a final answer after these does not require answer_question. */
+/** Mutation / write tools — a final answer after these does not require answer_question.
+ *  capture_thought is deliberately absent: the ask surface never stores new thoughts. */
 const AGENT_WRITE_TOOLS = new Set([
-  'capture_thought',
   'edit_thought',
   'delete_thought',
   'create_text_file',
@@ -50,6 +50,8 @@ const AGENT_WRITE_TOOLS = new Set([
 ])
 
 const REMOVED_TOOL_HINTS: Record<string, string> = {
+  capture_thought:
+    'capture_thought is not available here — Ask is ask-only and never stores new thoughts (capturing happens on the Capture page). For any question call answer_question; for notes use the text-file tools.',
   list_temporal_events:
     'That tool was removed. For agendas/todos/deadlines use list_projects and get_project_timeline; for memory questions use answer_question.',
   manage_temporal_event:
@@ -81,9 +83,10 @@ function formatUnknownToolError(tool: string): string {
 const TOOL_DESCRIPTION_BLOCK = buildChatAgentToolDescriptionBlock()
 
 /**
- * Thin chat agent: MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
- * No router or classifiers. Whether a turn stores anything is the model's judgment (the
- * "Remembering the user" rules below), never a string rule in code.
+ * Thin chat agent: ask-only MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
+ * No router or classifiers. The ask surface never captures: capture_thought is not in the
+ * loop's toolset (CHAT_AGENT_TOOL_NAMES), so nothing typed into Ask is stored as a new
+ * thought — a stray capture call is rejected with a steering hint and the turn answers instead.
  */
 export const AGENT_SYSTEM_PROMPT = [
   "You are a text interface over the user's personal memory tools.",
@@ -101,17 +104,15 @@ export const AGENT_SYSTEM_PROMPT = [
   '- You must call at least one tool before giving a final answer. A final answer with no prior tool call in this turn is rejected.',
   '- Any question (how/what/when/who/why, any language): call answer_question — never answer a question from your own knowledge.',
   '- retrieve_thoughts is for browsing/listing recent thoughts, not for answering questions.',
-  "- Remembering the user: when the user's message reveals something durable about themselves — a preference, a circumstance, a health or life fact, a change to something they said before, or a plan — also call capture_thought with as_user true and raw set to a short first-person statement in the user's own words (for example \"I am vegetarian now\"). Use one capture_thought call per distinct fact. Decide this from what the user said; when nothing durable was revealed, capture nothing.",
-  "- Never store the question or request itself, tool results, or your own replies as a thought: capture the facts the user revealed, not what they asked for.",
-  '- Make every capture_thought call before answer_question, because answer_question ends the turn. A message that only states facts (no question) needs just the captures, then your final answer.',
-  '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — never capture_thought for these (that stores a memory thought, not a Notes document).',
+  "- This surface is ask-only: the user asks questions here and capture is not available. Never store the user's message or anything from this turn as a new thought. If the user wants something remembered, tell them capturing happens on the Capture page; still call answer_question for any question.",
+  '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — create and edit them with the text-file tools. They are not memory thoughts.',
   '- Create a NEW note/list only: create_text_file with title and/or body (title-only is fine for an empty new list). Use create only when the user wants a fresh document, not when amending one that already exists.',
   '- Add / append / change content on a referenced note (e.g. "add milk to my shopping list"): search_text_files or list_text_files to find text_file_id, then append_text_file (or get_text_file + update_text_file for a full rewrite). Never create_text_file for additive requests on an existing named note/list.',
   '- Edit / rewrite a note title or full body: list_text_files or search_text_files to find text_file_id, then update_text_file.',
   '- Delete a note: list_text_files or search_text_files to find text_file_id, then delete_text_file.',
   '- Mark done / complete / finished / reopen / archive / irrelevant / outdated on a thought: retrieve_thoughts to find the thought id, then edit_thought (e.g. edit_request "mark as done", "archive", "not relevant") or delete_thought. Done/complete → completed; delete/irrelevant/outdated → archived. Both soft-remove from active memory.',
   '- Category never matters for thought lifecycle: task, idea, observation, fact, etc. are interchangeable. Never refuse "mark as done" because something is "a thought not a todo".',
-  '- Delete / remove a memory thought, or when the user asks you to forget something: retrieve_thoughts to find the id, then delete_thought with that thought_id (soft archive — same family as mark done).',
+  '- Delete / remove a memory thought: retrieve_thoughts to find the id, then delete_thought with that thought_id (soft archive — same family as mark done).',
   '- Never claim an edit/delete succeeded unless the tool succeeded in this turn.',
   '- If a tool errors, explain in your final answer.',
   '- Output ONLY the JSON object.',
